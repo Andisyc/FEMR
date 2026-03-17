@@ -38,7 +38,9 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument("--motion", type=str, required=True, help="The path to the motion file or motion directory.")
+
+motion_path = '/home/chengyuxuan/MOSAIC/motion_npz/dance1_subject1.npz'
+parser.add_argument("--motion", type=str, default=motion_path, help="motion or motion file path.") # required=True, 
 
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)

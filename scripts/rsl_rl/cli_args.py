@@ -18,6 +18,7 @@ def add_rsl_rl_args(parser: argparse.ArgumentParser):
 
     # -- load arguments
     arg_group.add_argument("--resume", type=bool, default=None, help="Whether to resume from a checkpoint.")
+    arg_group.add_argument("--distributed", action="store_true", default=False, help="Enable torchrun DDP.")
     arg_group.add_argument("--load_run", type=str, default=None, help="Name of the run folder to resume from.")
     arg_group.add_argument("--checkpoint", type=str, default=None, help="Checkpoint file to resume from.")
     arg_group.add_argument(
@@ -33,13 +34,12 @@ def add_rsl_rl_args(parser: argparse.ArgumentParser):
 
     # -- logger arguments
     arg_group.add_argument("--logger", type=str, default="wandb", choices={"wandb", "tensorboard", "neptune"}, help="Logger module to use.")
-    arg_group.add_argument("--log_project_name", type=str, default="test", help="Name of the logging project when using wandb or neptune.")
-    arg_group.add_argument("--wandb_path", type=str, default="andisyc", help="Name of the logging project when using wandb or neptune.")
-    arg_group.add_argument("--distributed", action="store_true", default=False, help="Enable torchrun DDP.")
+    arg_group.add_argument("--log_project_name", type=str, default="MOSAIC", help="Name of the logging project when using wandb or neptune.")
+    arg_group.add_argument("--wandb_path", type=str, default="Andisyc", help="Name of the logging project when using wandb or neptune.")
 
     # -- experiment arguments
     arg_group.add_argument("--experiment_name", type=str, default=None, help="Name of the experiment folder where logs will be stored.")
-    arg_group.add_argument("--run_name", type=str, default=None, help="Run name suffix to the log directory.")
+    arg_group.add_argument("--run_name", type=str, default="test_1", help="Run name suffix to the log directory.")
 
 
 def parse_rsl_rl_cfg(task_name: str, args_cli: argparse.Namespace) -> RslRlOnPolicyRunnerCfg:
