@@ -604,82 +604,124 @@ class MultiMotionLoader:
 
     def __init__(
         self,
-        motion_dir: str,
-        body_indexes: Sequence[int],
-        device: str | torch.device = "cpu",
-        file_glob: str = "*.npz",
-        storage_device: str | torch.device | None = None,
-        *,
-        max_motions: int | None = None,
-        shard_across_gpus: bool = False,
-        shard_by: str = "global",
-        shard_seed: int = 0,
-        shard_strategy: str = "chunk",
-        motion_groups: dict[str, list[str]] | None = None,
+        motion_dir: str,                                    # 动作序列所在的根目录路径
+        body_indexes: Sequence[int],                        # 身体部位的索引序列（如 [0, 1, 2, 3]）
+        device: str | torch.device = "cpu",                 # 设置计算设备
+        file_glob: str = "*.npz",                           # 文件匹配模式，默认匹配所有.npz文件
+        storage_device: str | torch.device | None = None,   # 存储设备
+        *,                                                  # * 之后的参数必须用关键字传递，不能用位置参数
+        max_motions: int | None = None,                     # 最大加载的动作数量 (用于限制内存使用)
+        shard_across_gpus: bool = False,                    # 是否跨GPU分片数据 (分布式训练)
+        shard_by: str = "global",                           # 分片依据："global" 或其他策略
+        shard_seed: int = 0,                                # 分片的随机种子，保证可复现性
+        shard_strategy: str = "chunk",                      # 分片策略: "chunk" (连续块) 或其他
+        motion_groups: dict[str, list[str]] | None = None,  # 动作分组配置
     ):
+        # --- 路径处理部分 ---
+
+        # Path(): 将字符串转换为路径对象
+        # .expanduser(): 展开 ~ 成绝对路径
+        # .resolve(): . 和 .. 转换为绝对路径
         motion_dir_path = Path(motion_dir).expanduser().resolve()
+
+        # assert + is_dir()判断路径是否存在
         assert motion_dir_path.is_dir(), f"Invalid directory path: {motion_dir}"
+
+        # rglob(file_glob): 递归搜索所有子目录中匹配模式的文件
+        # sorted(): 对可迭代对象进行排序, 返回列表(保证顺序一致性)
         all_motion_paths = sorted(str(path) for path in motion_dir_path.rglob(file_glob) if path.is_file())
+        
         assert len(all_motion_paths) > 0, f"No motion files matched in: {motion_dir} with pattern: {file_glob}"
+        
+        # --- 分组感知分片逻辑 ---
+
+        # 获取当前进程的rank (编号) 和总进程数world_size (用于分布式训练)
         # Group-aware sharding: keep every GPU seeing every group when possible.
         rank, world_size = _get_rank_world_size(shard_by=shard_by)
 
         def _assign_group_name(motion_path: str) -> str:
+            # 嵌套函数: 为每个动作文件分配所属组名
             if motion_groups is None:
                 return "default"
+            
+            # .items(): 返回字典的键值对 (key, value)
             for group_name, folder_patterns in motion_groups.items():
+                # 字符串包含检查: pattern是否是motion_path的子串
                 for pattern in folder_patterns:
                     if pattern in motion_path:
                         return group_name
             return "default"
 
+        # 判断是否使用分组分片
         use_group_sharding = motion_groups is not None and (shard_across_gpus or max_motions is not None)
+        
         if use_group_sharding:
+            # --- 按组组织文件路径 ---
+
+            # 类型注解: 显式声明变量类型
             group_to_paths: dict[str, list[str]] = {}
             for motion_path in all_motion_paths:
                 group_name = _assign_group_name(motion_path)
+                # 确保每个组都有一个列表，然后追加路径
                 group_to_paths.setdefault(group_name, []).append(motion_path)
+                # dict.setdefault(key, default): 
+                #   - 如果key存在, 返回对应的value
+                #   - 如果key不存在, 插入key:default并返回default
+
+            # --- 验证配置的组是否都存在 ---
 
             # Validate configured groups exist in the dataset.
             missing_groups = []
             for group_name in motion_groups.keys():
+                # dict.get(key, default): 安全获取, 
+                # key不存在时返回default而非抛出KeyError
                 if len(group_to_paths.get(group_name, [])) == 0:
                     missing_groups.append(group_name)
             if missing_groups:
                 raise ValueError(
                     "No motions matched for motion_groups: "
-                    f"{missing_groups}. Check motion_groups patterns or dataset layout."
-                )
-
+                    f"{missing_groups}. Check motion_groups patterns or dataset layout.")
+            
+            # 过滤得到非空组
             nonempty_groups = [g for g, paths in group_to_paths.items() if len(paths) > 0]
             num_groups = len(nonempty_groups)
+
+            # --- 计算每组的最大加载数量 ---
 
             if max_motions is not None:
                 max_motions = int(max_motions)
                 if max_motions < num_groups:
                     raise ValueError(
                         f"motion_dataset_load_cap={max_motions} is smaller than the number of "
-                        f"non-empty groups ({num_groups}). Increase the cap to ensure every group is loaded."
-                    )
-
+                        f"non-empty groups ({num_groups}). Increase the cap to ensure every group is loaded.")
+                    
+                # 计算每组的路径数并求和
                 total_paths = sum(len(group_to_paths[g]) for g in nonempty_groups)
-                # Start with 1 per group to guarantee coverage.
+
+                # 每组至少保证1个
                 group_caps = {g: 1 for g in nonempty_groups}
-                remaining = max_motions - num_groups
+                remaining = max_motions - num_groups # 剩余可分配额度
                 if remaining > 0 and total_paths > 0:
-                    # Distribute remaining capacity proportionally by group size.
+                    # 按比例分配剩余额度
                     extras = {}
                     for g in nonempty_groups:
                         extras[g] = int(math.floor(remaining * len(group_to_paths[g]) / total_paths))
+                    
                     used = sum(extras.values())
+
+                    # 由于取整产生的剩余
                     leftover = remaining - used
-                    # Assign leftover one by one to groups with available capacity.
+
+                    # 将剩余额度逐个分配给还有空间的组
                     for g in nonempty_groups:
                         if leftover <= 0:
                             break
                         extras[g] += 1
                         leftover -= 1
+                    
+                    # 合并基础配额和额外配额
                     for g in nonempty_groups:
+                        # min(a, b): 返回较小值, 确保不超过实际拥有的文件数
                         group_caps[g] = min(len(group_to_paths[g]), group_caps[g] + extras[g])
             else:
                 group_caps = {g: None for g in nonempty_groups}
@@ -696,13 +738,13 @@ class MultiMotionLoader:
                 "world_size": int(world_size),
                 "max_motions": int(max_motions) if max_motions is not None else -1,
                 "group_mode": "per_group",
-                "group_shards": {},
-            }
+                "group_shards": {},}
 
             for idx, group_name in enumerate(nonempty_groups):
                 group_paths = group_to_paths[group_name]
                 group_cap = group_caps[group_name]
-                # If group is smaller than world size, avoid empty ranks by disabling sharding for this group.
+
+                # 如果组太小，禁用该组的分片 (避免某些GPU分到空数据)
                 group_shard_across = shard_across_gpus
                 if group_shard_across and world_size > 1 and len(group_paths) < world_size:
                     group_shard_across = False
@@ -712,9 +754,9 @@ class MultiMotionLoader:
                     max_motions=group_cap,
                     shard_across_gpus=group_shard_across,
                     shard_by=shard_by,
-                    shard_seed=int(shard_seed) + (idx + 1) * 10007,
-                    shard_strategy=shard_strategy,
-                )
+                    shard_seed=int(shard_seed) + (idx + 1) * 10007, # 每组用不同种子
+                    shard_strategy=shard_strategy,)
+                
                 shard_info["group_shards"][group_name] = group_info
                 selected_paths.extend(group_selected)
 
@@ -726,20 +768,26 @@ class MultiMotionLoader:
                 shard_across_gpus=shard_across_gpus,
                 shard_by=shard_by,
                 shard_seed=shard_seed,
-                shard_strategy=shard_strategy,
-            )
+                shard_strategy=shard_strategy,)
+        
+        # --- 暴露调试信息 ---
+
         # Expose for debugging/analysis
-        self.motion_paths_all = all_motion_paths
-        self.motion_paths = selected_paths
-        self.shard_info = shard_info
+        self.motion_paths_all = all_motion_paths # 所有找到的路径
+        self.motion_paths = selected_paths       # 当前rank实际加载的路径
+        self.shard_info = shard_info             # 分片详细信息
 
         self.device = torch.device(device)
         self.storage_device = torch.device(storage_device) if storage_device is not None else self.device
+
+        # --- 身体索引处理 ---
 
         body_idx_tensor = torch.as_tensor(body_indexes, dtype=torch.long, device="cpu")
         if body_idx_tensor.ndim != 1:
             raise ValueError("body_indexes must be a 1D sequence of indices.")
         body_idx_np = body_idx_tensor.cpu().numpy()
+
+        # --- 数据加载循环 ---
 
         joint_pos_list: list[torch.Tensor] = []
         joint_vel_list: list[torch.Tensor] = []
@@ -751,17 +799,15 @@ class MultiMotionLoader:
         fps_list: list[float] = []
 
         for motion_path in self.motion_paths:
-            with np.load(motion_path) as data:
+            with np.load(motion_path) as data: # with上下文管理器, 确保资源正确释放
                 fps_value = float(np.asarray(data["fps"]).reshape(-1)[0])
                 fps_list.append(fps_value)
 
                 joint_pos_tensor = torch.from_numpy(np.asarray(data["joint_pos"], dtype=np.float32)).to(
-                    self.storage_device
-                )
+                    self.storage_device)
                 joint_vel_tensor = torch.from_numpy(np.asarray(data["joint_vel"], dtype=np.float32)).to(
-                    self.storage_device
-                )
-
+                    self.storage_device)
+                
                 body_pos_tensor = torch.from_numpy(
                     np.asarray(data["body_pos_w"], dtype=np.float32)[:, body_idx_np, :]
                 ).to(self.storage_device)
@@ -783,6 +829,8 @@ class MultiMotionLoader:
                 body_ang_vel_list.append(body_ang_vel_tensor)
                 lengths.append(joint_pos_tensor.shape[0])
 
+        # --- 拼接所有数据 ---
+
         self.joint_pos = torch.cat(joint_pos_list, dim=0)
         self.joint_vel = torch.cat(joint_vel_list, dim=0)
         self.body_pos_w = torch.cat(body_pos_list, dim=0)
@@ -790,7 +838,9 @@ class MultiMotionLoader:
         self.body_lin_vel_w = torch.cat(body_lin_vel_list, dim=0)
         self.body_ang_vel_w = torch.cat(body_ang_vel_list, dim=0)
 
-        # Pin memory only when tensors are on CPU (GPU tensors cannot be pinned).
+        # --- 内存优化：固定内存 ---
+
+        # .pin_memory(): 将CPU张量分配到页锁定内存, 加速CPU→GPU传输
         if self.storage_device.type == "cpu":
             self.joint_pos = self.joint_pos.pin_memory()
             self.joint_vel = self.joint_vel.pin_memory()
@@ -799,11 +849,17 @@ class MultiMotionLoader:
             self.body_lin_vel_w = self.body_lin_vel_w.pin_memory()
             self.body_ang_vel_w = self.body_ang_vel_w.pin_memory()
 
+        # --- 构建索引结构 ---
+
         lengths_tensor = torch.tensor(lengths, dtype=torch.long, device=self.device)
         self.motion_lengths = lengths_tensor
+
+        # torch.cumsum(): 累积求和[a,b,c] → [a, a+b, a+b+c], 再减去自身得到起始偏移[0, a, a+b]
         self.motion_offsets = torch.cumsum(lengths_tensor, dim=0) - lengths_tensor
         self.motion_fps = torch.tensor(fps_list, dtype=torch.float32, device=self.device)
         self.total_frames = int(lengths_tensor.sum().item())
+
+        # --- 构建动作到组的映射 ---
 
         # Build motion-to-group mapping for multi-teacher support
         self.motion_to_group: dict[int, str] = {}
@@ -830,8 +886,10 @@ class MultiMotionLoader:
             for motion_idx in range(len(self.motion_paths)):
                 self.motion_to_group[motion_idx] = "default"
 
+        # --- 构建动作到组的映射 ---
+
         # Print motion group distribution
-        from collections import Counter
+        from collections import Counter # Counter统计各元素出现次数
         group_counts = Counter(self.motion_to_group.values())
         print(f"[MultiMotionLoader] Motion group distribution:")
         for group_name in sorted(group_counts.keys()):
@@ -844,25 +902,31 @@ class MultiMotionLoader:
     def motion_length(self, motion_index: int) -> int:
         return int(self.motion_lengths[motion_index].item())
 
+    # 计算全局索引:将[动作索引, 帧索引]映射到拼接后的大张量中的位置
     def compute_global_indices(self, motion_indices: torch.Tensor, frame_indices: torch.Tensor) -> torch.Tensor:
-        lengths = self.motion_lengths[motion_indices]
-        max_valid = torch.clamp(lengths - 1, min=0)
-        clamped = torch.minimum(frame_indices, max_valid)
-        offsets = self.motion_offsets[motion_indices]
-        return offsets + clamped
+        lengths = self.motion_lengths[motion_indices] # 获取这些动作的长度
+        max_valid = torch.clamp(lengths - 1, min=0) # 最大有效帧索引 (防止越界)
+        clamped = torch.minimum(frame_indices, max_valid) # 确保不越界
+        offsets = self.motion_offsets[motion_indices] # 获取各动作的起始偏移
+        return offsets + clamped # 全局位置 = 起始偏移 + 帧内偏移
 
     def gather_from_global(
         self, attr: str, global_indices: torch.Tensor, out_device: torch.device | str
     ) -> torch.Tensor:
+        # 从全局张量中按索引收集数据
+        # getattr(对象, 属性名): 获取对象某属性值
         source_tensor = getattr(self, attr)
         if not isinstance(out_device, torch.device):
             out_device = torch.device(out_device)
+        
+        # 处理设备不一致的情况
         if global_indices.device != source_tensor.device:
             local_indices = global_indices.to(source_tensor.device)
         else:
             local_indices = global_indices
         gathered = source_tensor.index_select(0, local_indices)
         if gathered.device != out_device:
+            # non_blocking=True: 异步传输，不阻塞CPU (配合pin_memory使用)
             gathered = gathered.to(out_device, non_blocking=True)
         return gathered
 
