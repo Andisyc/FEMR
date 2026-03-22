@@ -63,12 +63,32 @@ from isaaclab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Batch convert CSV motions in a folder to NPZ format.")
-parser.add_argument("--input_dir", type=str, required=True, help="Folder containing input CSV motion files.")
+
+parser.add_argument(
+    "--input_dir", 
+    type=str, 
+    default="/ssd1/chengyuxuan/AMASS_G1CSV/KIT", # required=True, 
+    help="Folder containing input CSV motion files."
+)
+
+parser.add_argument(
+    "--output_dir", 
+    type=str, 
+    default="/ssd1/chengyuxuan/AMASS_G1NPZ_Final/KIT", 
+    help="Output folder (default: same as input_dir)."
+)
+
+parser.add_argument(
+    "--output_prefix", 
+    type=str, 
+    default="amass_g1", # required=True, 
+    help='Prefix to add to output names, e.g. "g1_lafan".'
+)
+
 parser.add_argument("--file_pattern", type=str, default="*.csv", help="Glob pattern to match input files.")
-parser.add_argument("--output_prefix", type=str, required=True, help='Prefix to add to output names, e.g. "g1_lafan".')
-parser.add_argument("--output_dir", type=str, default=None, help="Output folder (default: same as input_dir).")
 parser.add_argument("--input_fps", type=int, default=30, help="The fps of the input motions.")
 parser.add_argument("--output_fps", type=int, default=50, help="The fps of the output motions.")
+
 parser.add_argument(
     "--frame_range",
     nargs=2,
@@ -438,5 +458,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
