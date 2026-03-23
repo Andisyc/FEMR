@@ -8,6 +8,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 from torch.distributions import Normal
+import onnxruntime as ort
 
 from rsl_rl.utils import resolve_nn_activation
 
@@ -22,6 +23,7 @@ class SuperviseLearning(nn.Module):
         student_hidden_dims=[256, 256, 256],
         activation="elu",
         init_noise_std=0.1,
+        gmt_path: str = None,  # Add gmt_path to load the ONNX model
         **kwargs,
     ):
         if kwargs:
@@ -32,6 +34,25 @@ class SuperviseLearning(nn.Module):
         super().__init__()
         activation = resolve_nn_activation(activation)
         self.loaded_teacher = False  # indicates if teacher has been loaded
+
+        # ========== GMT Tracker ==========
+        self.gmt_session = None
+        if gmt_path:
+            print(f"Loading GMT model from: {gmt_path}")
+            try:
+                # Use a list of providers, CUDA first if available
+                providers = (
+                    ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                    if torch.cuda.is_available()
+                    else ["CPUExecutionProvider"]
+                )
+                self.gmt_session = ort.InferenceSession(gmt_path, providers=providers)
+                self.gmt_input_name = self.gmt_session.get_inputs()[0].name
+                self.gmt_output_name = self.gmt_session.get_outputs()[0].name
+                print(f"GMT model loaded. Input: '{self.gmt_input_name}', Output: '{self.gmt_output_name}'")
+            except Exception as e:
+                print(f"Failed to load GMT model from {gmt_path}: {e}")
+                self.gmt_session = None
 
         mlp_input_dim_s = num_student_obs
 
@@ -61,8 +82,8 @@ class SuperviseLearning(nn.Module):
 
     def forward(self, observations):
         """
-        Runs the policy network and returns the predicted actions.
-        This is the primary method used for deterministic inference.
+        Runs the student network (FrontRES) and returns the predicted residual (delta_q_pred).
+        This is the primary method used for supervised training.
         """
         return self.student(observations)
 
@@ -93,8 +114,41 @@ class SuperviseLearning(nn.Module):
         """Compute log probability of actions under current distribution"""
         return self.distribution.log_prob(actions).sum(dim=-1)
 
+    def get_action_with_gmt(self, q_ref: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the full inference pipeline: FrontRES -> q_repaired -> GMT -> final_action.
+        This is used for collecting simulation trajectories (q_sim).
+
+        Args:
+            q_ref (torch.Tensor): The reference motion observation.
+
+        Returns:
+            torch.Tensor: The final action to be applied in the simulator.
+        """
+        if not self.gmt_session:
+            raise RuntimeError("GMT model is not loaded. Please provide 'gmt_path' in the config.")
+
+        # The student (FrontRES) predicts the residual based on the reference motion
+        delta_q_pred = self.forward(q_ref)
+        # The "repaired" motion is the reference + predicted residual
+        q_repaired = q_ref + delta_q_pred
+
+        # The input to GMT is the "repaired" motion primitive.
+        # Ensure input is on CPU and is a numpy array.
+        gmt_input = {self.gmt_input_name: q_repaired.cpu().numpy()}
+        gmt_output = self.gmt_session.run([self.gmt_output_name], gmt_input)[0]
+
+        # Convert output back to a tensor on the correct device
+        final_action = torch.from_numpy(gmt_output).to(q_ref.device)
+        return final_action
+
     def act_inference(self, observations, **kwargs):
-        return self.forward(observations)
+        """
+        Produce a final action for the environment by running the full pipeline.
+        During supervised pre-training, this means running FrontRES + GMT.
+        """
+        # The input 'observations' for the policy is assumed to be 'q_ref' here.
+        return self.get_action_with_gmt(observations)
 
     def load_state_dict(self, state_dict, strict=True):
         """Load the parameters of the student network.

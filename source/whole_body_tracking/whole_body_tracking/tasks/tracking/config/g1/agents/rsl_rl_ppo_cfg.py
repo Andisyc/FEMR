@@ -25,30 +25,34 @@ from whole_body_tracking.utils.rsl_rl_cfg import (
     RslRlSuperviseJointPosCfg, # PAMR: Stage 1 Training
 )
 
+@configclass
+class RslRlSuperviseAlgorithmCfg:
+    """Configuration for the supervised learning algorithm."""
+
+    class_name: str = "SuperviseTrainer"
+    """The algorithm class name. Defaults to SuperviseTrainer."""
+    num_learning_epochs: int = 5
+    learning_rate: float = 1.0e-3
+    gradient_length: int = 15
+    max_grad_norm: float = 1.0
+    loss_type: str = "mse"
 
 @configclass
 class G1FlatSupervisedRunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 200000
     save_interval = 500
-    experiment_name = "g1_flat"
+    experiment_name = "g1_flat_supervised"
     empirical_normalization = True
     
-    policy = RslRlSuperviseJointPosCfg(
+    policy = RslRlSuperviseJointPosCfg( # from rsl_rl_cfg.py
         class_name="SuperviseLearning",
         init_noise_std=1.0,
         student_hidden_dims=[1024, 1024, 512, 256],
-        activation="elu",)
-    
-    # 模仿G1FlatDistillationRunnerCfg的distillation算法, distillation从
-    # IsaacLab/source/isaaclab_rl/isaaclab_rl/rsl_rl/distillation_cfg.py导入, 
-    # 实际位于leggedrobotics/rsl_rl/rsl_rl/algorithms/distillation.py
-    algorithm = SuperviseTrainer(
-        class_name="Distillation",
-        num_learning_epochs=5,
-        learning_rate=1.0e-3,
-        gradient_length = 15)
+        activation="elu",
+        gmt_path="path/to/your/pretrained_gmt_model.onnx",) # <--- 在这里传入预训练的 GMT ONNX 模型路径
 
+    algorithm = RslRlSuperviseAlgorithmCfg()
 
 @configclass
 class G1FlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):

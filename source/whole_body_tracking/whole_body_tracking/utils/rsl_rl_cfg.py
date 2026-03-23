@@ -72,8 +72,12 @@ class RslRlDistillationCfg(RslRlPpoActorCriticCfg):
 
 @configclass
 class RslRlSuperviseJointPosCfg(RslRlPpoActorCriticCfg):
+    """
+    FrontRES Policy Training: Loss Computer & Gradient Update
+    """
     class_name: str = "SuperviseLearning"
     student_hidden_dims: list[int] = [256, 256, 256]
+    gmt_path: str = ""
 
 
 @configclass
