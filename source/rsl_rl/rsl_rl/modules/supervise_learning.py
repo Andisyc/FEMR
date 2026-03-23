@@ -26,7 +26,7 @@ class SuperviseLearning(nn.Module):
     ):
         if kwargs:
             print(
-                "StudentTeacher.__init__ got unexpected arguments, which will be ignored: "
+                "SuperviseLearning.__init__ got unexpected arguments, which will be ignored: "
                 + str([key for key in kwargs.keys()])
             )
         super().__init__()
@@ -59,8 +59,12 @@ class SuperviseLearning(nn.Module):
     def reset(self, dones=None, hidden_states=None):
         pass
 
-    def forward(self):
-        raise NotImplementedError
+    def forward(self, observations):
+        """
+        Runs the policy network and returns the predicted actions.
+        This is the primary method used for deterministic inference.
+        """
+        return self.student(observations)
 
     @property
     def action_mean(self):
@@ -75,18 +79,22 @@ class SuperviseLearning(nn.Module):
         return self.distribution.entropy().sum(dim=-1)
 
     def update_distribution(self, observations):
-        mean = self.student(observations)
+        mean = self.forward(observations)
         std = self.std.expand_as(mean)
         self.distribution = Normal(mean, std)
+        return self.distribution
 
-    def act(self, observations):
+    def act(self, observations, **kwargs):
+        """Sample actions from distribution (for training with exploration)"""
         self.update_distribution(observations)
-        self.distribution.sample()
-        return self.act_inference(observations)
+        return self.distribution.sample()
 
-    def act_inference(self, observations):
-        actions_mean = self.student(observations)
-        return actions_mean
+    def get_actions_log_prob(self, actions):
+        """Compute log probability of actions under current distribution"""
+        return self.distribution.log_prob(actions).sum(dim=-1)
+
+    def act_inference(self, observations, **kwargs):
+        return self.forward(observations)
 
     def load_state_dict(self, state_dict, strict=True):
         """Load the parameters of the student network.
