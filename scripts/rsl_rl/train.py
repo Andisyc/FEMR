@@ -43,7 +43,7 @@ parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 # single motion for testing
 # motion_path = '/home/chengyuxuan/MOSAIC/motion_npz/dance1_subject1.npz'
 
-parser.add_argument("--motion", type=str, default=motion_path, help="motion or motion file path.") # required=True, 
+parser.add_argument("--motion", type=str, default=None, help="motion or motion file path.") # required=True, 
 
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
