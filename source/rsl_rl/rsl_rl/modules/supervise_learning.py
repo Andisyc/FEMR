@@ -52,8 +52,8 @@ class SuperviseLearning(nn.Module):
 
     def __init__(
         self,
-        num_student_obs,
-        num_actions,
+        num_student_obs, # q_ref dim
+        num_actions, # Δq dim
         student_hidden_dims=[256, 256, 256],
         activation="elu",
         init_noise_std=0.1,
@@ -62,9 +62,9 @@ class SuperviseLearning(nn.Module):
     ):
         """
         Args:
-            num_student_obs (int): 学生网络(FrontRES)的输入维度。根据你的设计，这应该是 `q_ref` 的维度。
-            num_actions (int): 学生网络(FrontRES)的输出维度。根据你的设计，这应该是 `delta_q_pred` 的维度。
-            gmt_path (str): 预训练的 GMT ONNX 模型的路径。
+            num_student_obs (int): 学生网络(FrontRES)的输入维度, 'q_ref'的维度
+            num_actions (int): 学生网络(FrontRES)的输出维度, 'delta_q_pred'的维度
+            gmt_path (str): 预训练的 GMT ONNX 模型的路径
         """
         if kwargs:
             print(

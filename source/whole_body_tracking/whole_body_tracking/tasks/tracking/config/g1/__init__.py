@@ -170,22 +170,22 @@ gym.register( # GMT & Adapt训练
     },
 )
 
-gym.register( # FrontRES训练 (阶段1)
-    id="General-Tracking-Flat-G1-Wo-State-Estimation-v0-World-Coordinate-Reward",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": flat_env_cfg.G1OneStageTrackingEnvCfg, # 仿真环境 & 观测量
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:G1FlatSupervisedRunnerCfg", # 网络结构 & 训练算法
-    },
-)
+# gym.register( # FrontRES训练 (阶段1)
+#     id="General-Tracking-Flat-G1-Wo-State-Estimation-v0-World-Coordinate-Reward",
+#     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+#     disable_env_checker=True,
+#     kwargs={
+#         "env_cfg_entry_point": flat_env_cfg.G1OneStageTrackingEnvCfg, # 仿真环境 & 观测量
+#         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:G1FlatSupervisedRunnerCfg", # 网络结构 & 训练算法
+#     },
+# )
 
-gym.register( # FrontRES训练 (阶段2) TODO
-    id="General-Tracking-Flat-G1-Wo-State-Estimation-v0-World-Coordinate-Reward",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": flat_env_cfg.G1OneStageTrackingEnvCfg, # 仿真环境 & 观测量
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:G1FlatSupervisedRunnerCfg", # 网络结构 & 训练算法
-    },
-)
+# gym.register( # FrontRES训练 (阶段2) TODO
+#     id="General-Tracking-Flat-G1-Wo-State-Estimation-v0-World-Coordinate-Reward",
+#     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+#     disable_env_checker=True,
+#     kwargs={
+#         "env_cfg_entry_point": flat_env_cfg.G1OneStageTrackingEnvCfg, # 仿真环境 & 观测量
+#         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:G1FlatSupervisedRunnerCfg", # 网络结构 & 训练算法
+#     },
+# )
