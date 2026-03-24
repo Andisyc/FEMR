@@ -19,6 +19,9 @@ from .residual_actor_critic import ResidualActorCritic
 from .velocity_estimator import VelocityEstimator
 from .velocity_estimator_transformer import VelocityEstimatorTransformer
 
+from .supervise_learning import SuperviseLearning
+
+
 __all__ = [
     "ActorCritic",
     "ActorCriticRecurrent",
@@ -33,4 +36,5 @@ __all__ = [
     "ResidualActorCritic",
     "VelocityEstimator",
     "VelocityEstimatorTransformer",
+    "SuperviseLearning",
 ]
