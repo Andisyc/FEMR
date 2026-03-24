@@ -114,10 +114,53 @@ class SuperviseLearning(nn.Module):
         """Compute log probability of actions under current distribution"""
         return self.distribution.log_prob(actions).sum(dim=-1)
 
+    @torch.no_grad()
+    def get_gmt_action(self, q_ref: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the GMT tracker on a reference motion to get the expert action.
+        This action should then be applied in the simulator to obtain q_sim.
+
+        Args:
+            q_ref (torch.Tensor): The reference motion observation.
+
+        Returns:
+            torch.Tensor: The expert action from the GMT model.
+        """
+        if not self.gmt_session:
+            raise RuntimeError("GMT model is not loaded. Cannot compute GMT action.")
+
+        gmt_input = {self.gmt_input_name: q_ref.cpu().numpy()}
+        gmt_action_np = self.gmt_session.run([self.gmt_output_name], gmt_input)[0]
+        return torch.from_numpy(gmt_action_np).to(q_ref.device)
+
+    @staticmethod
+    def get_supervision_target(q_sim: torch.Tensor, q_ref: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the supervision target delta_q = q_sim - q_ref.
+        This method should be called from the training script with valid data.
+
+        IMPORTANT: The training loop is responsible for filtering out invalid transitions.
+        If an action led to a fall, the corresponding (q_sim, q_ref) pair should be
+        discarded and NOT passed to this function.
+
+        Args:
+            q_sim (torch.Tensor): The actual simulated joint state from the environment
+                                  after applying the GMT action.
+            q_ref (torch.Tensor): The original reference motion observation.
+
+        Returns:
+            torch.Tensor: The target residual (delta_q) for supervised training.
+        """
+        # The supervision target is the difference between what the simulation produced
+        # and the original reference motion.
+        delta_q = q_sim - q_ref
+        return delta_q
+
     def get_action_with_gmt(self, q_ref: torch.Tensor) -> torch.Tensor:
         """
         Runs the full inference pipeline: FrontRES -> q_repaired -> GMT -> final_action.
-        This is used for collecting simulation trajectories (q_sim).
+        This is used for collecting simulation trajectories (q_sim) during RL finetuning
+        or for final deployment.
 
         Args:
             q_ref (torch.Tensor): The reference motion observation.
@@ -134,12 +177,8 @@ class SuperviseLearning(nn.Module):
         q_repaired = q_ref + delta_q_pred
 
         # The input to GMT is the "repaired" motion primitive.
-        # Ensure input is on CPU and is a numpy array.
-        gmt_input = {self.gmt_input_name: q_repaired.cpu().numpy()}
-        gmt_output = self.gmt_session.run([self.gmt_output_name], gmt_input)[0]
-
-        # Convert output back to a tensor on the correct device
-        final_action = torch.from_numpy(gmt_output).to(q_ref.device)
+        # This can now be passed to the get_gmt_action method.
+        final_action = self.get_gmt_action(q_repaired)
         return final_action
 
     def act_inference(self, observations, **kwargs):

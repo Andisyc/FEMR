@@ -152,7 +152,7 @@ class SuperviseTrainer:
             # 直接按时间步迭代我们内置的 Buffer
             for obs, target_actions, dones in self.storage.generator():
                 # Inference of the FrontRES student
-                predicted_actions = self.policy.act_inference(obs)
+                predicted_actions = self.policy.forward(obs)
 
                 # 计算行为克隆 Loss：预测的 delta_q vs 真实的 delta_q
                 behavior_loss = self.loss_fn(predicted_actions, target_actions)
