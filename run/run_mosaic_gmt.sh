@@ -1,21 +1,34 @@
 # 1st stage
 # MOSAIC GMT training
-HYDRA_FULL_ERROR=1 torchrun --standalone --nnodes=1 --nproc_per_node=8 scripts/rsl_rl/train.py \
-    --task=General-Tracking-Flat-G1-Wo-State-Estimation-v0-World-Coordinate-Reward \
-    --distributed \
-    --num_envs=24000 \
-    --motion /path/to/motion \
-    --headless \
-    --logger wandb \
-    --log_project_name GMT_MOSAIC_RL \
-    --run_name GMT_MOSAIC_GMT
 
+# Distribute Training
 
-# HYDRA_FULL_ERROR=1 python scripts/rsl_rl/train.py \
+# HYDRA_FULL_ERROR=1 torchrun --standalone --nnodes=1 --nproc_per_node=8 scripts/rsl_rl/train.py \
 #     --task=General-Tracking-Flat-G1-Wo-State-Estimation-v0-World-Coordinate-Reward \
-#     --num_envs=12000 \
+#     --distributed \
+#     --num_envs=24000 \
 #     --motion /path/to/motion \
 #     --headless \
 #     --logger wandb \
 #     --log_project_name GMT_MOSAIC_RL \
 #     --run_name GMT_MOSAIC_GMT
+
+# Single GPU Training
+
+# HYDRA_FULL_ERROR=1 python scripts/rsl_rl/train.py \
+#     --task=General-Tracking-Flat-G1-Wo-State-Estimation-v0-World-Coordinate-Reward \
+#     --num_envs=12000 \
+#     --motion /ssd1/chengyuxuan/AMASS_G1NPZ_Final \
+#     --headless \
+#     --logger wandb \
+#     --log_project_name GMT_MOSAIC_RL \
+#     --run_name GMT_MOSAIC_GMT
+
+HYDRA_FULL_ERROR=1 nohup bash isaaclab.sh -p scripts/rsl_rl/train.py \
+    --task=General-Tracking-Flat-G1-Wo-State-Estimation-v0-World-Coordinate-Reward \
+    --num_envs=12000 \
+    --motion /ssd1/chengyuxuan/AMASS_G1NPZ_Final \
+    --headless \
+    --logger wandb \
+    --headless \
+    --device cuda:0 >./train.txt 2>&1 &
