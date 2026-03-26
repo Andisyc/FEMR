@@ -140,12 +140,5 @@ def get_supervision_target_delta_q(env: ManagerBasedEnv, command_name: str) -> t
     # q_sim: simulated joint positions from the robot asset
     q_sim = command.robot_joint_pos
     
-    # The supervision target
     delta_q_gt = q_sim - q_ref
-    
-    # Store the target in the extras dictionary to be passed out in the infos dict
-    env.extras["infos"]["target_delta_q"] = delta_q_gt
-    
-    # The return value doesn't matter as this is a dummy observation term
-    # Return a tensor of zeros with a compatible shape
-    return torch.zeros_like(delta_q_gt)
+    return delta_q_gt
