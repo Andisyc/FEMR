@@ -477,7 +477,7 @@ class OnPolicyRunner:
                     self.alg.process_env_step(rewards, dones, infos)
 
                     # Extract intrinsic rewards (only for logging)
-                    intrinsic_rewards = self.alg.intrinsic_rewards if self.alg.rnd else None
+                    intrinsic_rewards = self.alg.intrinsic_rewards if hasattr(self.alg, "rnd") and self.alg.rnd else None
 
                     # book keeping
                     if self.log_dir is not None:
@@ -487,7 +487,7 @@ class OnPolicyRunner:
                             ep_infos.append(infos["log"])
                         
                         # Update rewards
-                        if self.alg.rnd:
+                        if hasattr(self.alg, "rnd") and self.alg.rnd:
                             cur_ereward_sum += rewards
                             cur_ireward_sum += intrinsic_rewards  # type: ignore
                             cur_reward_sum += rewards + intrinsic_rewards
@@ -506,7 +506,7 @@ class OnPolicyRunner:
                         cur_episode_length[new_ids] = 0
 
                         # -- intrinsic and extrinsic rewards
-                        if self.alg.rnd:
+                        if hasattr(self.alg, "rnd") and self.alg.rnd:
                             erewbuffer.extend(cur_ereward_sum[new_ids][:, 0].cpu().numpy().tolist())
                             irewbuffer.extend(cur_ireward_sum[new_ids][:, 0].cpu().numpy().tolist())
                             cur_ereward_sum[new_ids] = 0
@@ -607,7 +607,7 @@ class OnPolicyRunner:
         # -- Training
         if len(locs["rewbuffer"]) > 0:
             # separate logging for intrinsic and extrinsic rewards
-            if self.alg.rnd:
+            if hasattr(self.alg, "rnd") and self.alg.rnd:
                 self.writer.add_scalar("Rnd/mean_extrinsic_reward", statistics.mean(locs["erewbuffer"]), locs["it"])
                 self.writer.add_scalar("Rnd/mean_intrinsic_reward", statistics.mean(locs["irewbuffer"]), locs["it"])
                 self.writer.add_scalar("Rnd/weight", self.alg.rnd.weight, locs["it"])
@@ -633,7 +633,7 @@ class OnPolicyRunner:
             for key, value in locs["loss_dict"].items():
                 log_string += f"""{f'Mean {key} loss:':>{pad}} {value:.4f}\n"""
             # -- Rewards
-            if self.alg.rnd:
+            if hasattr(self.alg, "rnd") and self.alg.rnd:
                 log_string += (
                     f"""{'Mean extrinsic reward:':>{pad}} {statistics.mean(locs['erewbuffer']):.2f}\n"""
                     f"""{'Mean intrinsic reward:':>{pad}} {statistics.mean(locs['irewbuffer']):.2f}\n""")
@@ -692,7 +692,7 @@ class OnPolicyRunner:
             "infos": infos,}
         
         # -- Save RND model if used
-        if self.alg.rnd:
+        if hasattr(self.alg, "rnd") and self.alg.rnd:
             saved_dict["rnd_state_dict"] = self.alg.rnd.state_dict()
             saved_dict["rnd_optimizer_state_dict"] = self.alg.rnd_optimizer.state_dict()
         
@@ -745,7 +745,7 @@ class OnPolicyRunner:
                 resumed_training = self.alg.policy.load_state_dict(actor_only_state_dict, strict=False)
 
         # Load RND model if used
-        if self.alg.rnd:
+        if hasattr(self.alg, "rnd") and self.alg.rnd:
             self.alg.rnd.load_state_dict(loaded_dict["rnd_state_dict"])
 
         # Load observation normalizers if used
@@ -805,7 +805,7 @@ class OnPolicyRunner:
                     print("[Runner] This is expected when transitioning between training stages with different frozen parameters.")
 
                 # -- RND optimizer if used
-                if self.alg.rnd:
+                if hasattr(self.alg, "rnd") and self.alg.rnd:
                     self.alg.rnd_optimizer.load_state_dict(loaded_dict["rnd_optimizer_state_dict"])
         # -- load current learning iteration
         if resumed_training:
@@ -862,7 +862,7 @@ class OnPolicyRunner:
         # -- PPO
         self.alg.policy.train()
         # -- RND
-        if self.alg.rnd:
+        if hasattr(self.alg, "rnd") and self.alg.rnd:
             self.alg.rnd.train()
         # -- Normalization
         if self.empirical_normalization:
@@ -877,7 +877,7 @@ class OnPolicyRunner:
         # -- PPO
         self.alg.policy.eval()
         # -- RND
-        if self.alg.rnd:
+        if hasattr(self.alg, "rnd") and self.alg.rnd:
             self.alg.rnd.eval()
         # -- Normalization
         if self.empirical_normalization:
