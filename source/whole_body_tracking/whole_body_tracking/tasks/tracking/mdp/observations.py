@@ -140,5 +140,5 @@ def get_supervision_target_delta_q(env: ManagerBasedEnv, command_name: str) -> t
     # q_sim: simulated joint positions from the robot asset
     q_sim = command.robot_joint_pos
     
-    delta_q_gt = q_sim - q_ref
+    delta_q_gt = q_ref - q_sim
     return delta_q_gt
