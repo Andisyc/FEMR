@@ -23,26 +23,10 @@ Traceback (most recent call last):
     ret.return_value = task_function(task_cfg)
   File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
     func(env_cfg, agent_cfg, *args, **kwargs)
-  File "/home/yuxuancheng/MOSAIC/scripts/rsl_rl/train.py", line 152, in main
-    env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
-  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/gymnasium/envs/registration.py", line 734, in make
-    env = env_creator(**env_spec_kwargs)
-  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab/isaaclab/envs/manager_based_rl_env.py", line 79, in __init__
-    super().__init__(cfg=cfg)
-  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab/isaaclab/envs/manager_based_env.py", line 163, in __init__
-    self.load_managers()
-  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab/isaaclab/envs/manager_based_rl_env.py", line 117, in load_managers
-    super().load_managers()
-  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab/isaaclab/envs/manager_based_env.py", line 243, in load_managers
-    self.observation_manager = ObservationManager(self.cfg.observations, self)
-  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab/isaaclab/managers/observation_manager.py", line 82, in __init__
-    super().__init__(cfg, env)
-  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab/isaaclab/managers/manager_base.py", line 160, in __init__
-    self._prepare_terms()
-  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab/isaaclab/managers/observation_manager.py", line 420, in _prepare_terms
-    obs_dims = tuple(term_cfg.func(self._env, **term_cfg.params).shape)
-  File "/home/yuxuancheng/MOSAIC/source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/observations.py", line 147, in get_supervision_target_delta_q
-    env.extras["infos"]["target_delta_q"] = delta_q_gt
-KeyError: 'infos'
-2026-03-25 14:36:22 [101,207ms] [Warning] [omni.fabric.plugin] gFabricState->gUsdStageToSimStageWithHistoryMap had 1 outstanding SimStageWithHistory(s) at shutdown
-2026-03-25 14:36:25 [103,593ms] [Warning] [carb] Recursive unloadAllPlugins() detected!
+  File "/home/yuxuancheng/MOSAIC/scripts/rsl_rl/train.py", line 195, in main
+    runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
+  File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 377, in learn
+    self.train_mode() # switch to train mode (for dropout for example)
+  File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 865, in train_mode
+    if self.alg.rnd:
+AttributeError: 'SuperviseTrainer' object has no attribute 'rnd'
