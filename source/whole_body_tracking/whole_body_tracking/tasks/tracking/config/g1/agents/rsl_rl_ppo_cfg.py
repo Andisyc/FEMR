@@ -41,7 +41,7 @@ class RslRlSuperviseAlgorithmCfg:
 class G1FlatSupervisedRunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 200000
-    save_interval = 500
+    save_interval = 2
     experiment_name = "g1_flat_supervised"
     empirical_normalization = True
     
