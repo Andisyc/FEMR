@@ -267,30 +267,30 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     attach_onnx_metadata(env.unwrapped, args_cli.wandb_path if args_cli.wandb_path else "none", export_model_dir)
 
-    # ==========================================
-    # --- 新增的 JIT 导出代码 ---
+    # ============ JIT导出代码 ============
     try:
-        print(f"\n[INFO] Exporting JIT to: {export_model_dir}")
+        print(f"\n[INFO] Exporting TorchScript JIT model to: {export_model_dir}")
         import torch
         
         # 兼容不同版本的 rsl_rl 获取 Actor 的方式
         if hasattr(ppo_runner.alg, "actor_critic"):
             actor_model = ppo_runner.alg.actor_critic.actor.to("cpu")
         else:
-            actor_model = ppo_runner.alg.policy.actor.to("cpu")
+            actor_model = ppo_runner.alg.policy.actor.eval().to("cpu")
             
-        actor_model.eval()
-        
+        # 创建一个虚拟输入
+        dummy_input = torch.randn(1, env.observation_space.shape[0])
+
         # 将模型转换为 TorchScript (JIT)
-        jit_model = torch.jit.script(actor_model)
+        jit_model = torch.jit.trace(actor_model, dummy_input)
         
         # 保存模型
         jit_path = os.path.join(export_model_dir, "policy_jit.pt")
         torch.jit.save(jit_model, jit_path)
         print(f"[INFO] Success! JIT saved as: {jit_path}\n")
     except Exception as e:
-        print(f"[ERROR] JIT exported failed: {e}\n")
-    # ==========================================
+        print(f"[ERROR] TorchScript JIT export failed: {e}\n")
+    # ====================================
 
     # reset environment
     env.reset()
