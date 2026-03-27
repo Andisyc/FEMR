@@ -269,6 +269,36 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # ============ JIT导出代码 ============
     try:
+        class NormalizerWrapper(torch.nn.Module):
+            def __init__(self, normalizer, model):
+                super().__init__()
+                self.normalizer = normalizer
+                self.model = model
+
+            def forward(self, obs):
+                # 确保normalizer和模型在同一设备上
+                obs = self.normalizer(obs)
+                return self.model(obs)
+
+        print(f"\n[INFO] Load in Normalizer")
+        
+        # 使用模型自己的 Normalizer
+        if hasattr(ppo_runner, 'obs_normalizer') and ppo_runner.obs_normalizer is not None:
+            print(f"\n[INFO] Found Env Normalizer, Ready to Export JIT")
+            normalizer = ppo_runner.obs_normalizer.to("cpu")
+            normalizer.eval()
+
+            # 获取Actor模型
+            if hasattr(ppo_runner.alg, "actor_critic"):
+                actor_model = ppo_runner.alg.actor_critic.actor.to("cpu")
+            else:
+                actor_model = ppo_runner.alg.policy.actor.eval().to("cpu")
+
+            wrapped_model = NormalizerWrapper(normalizer, actor_model)
+
+        else:
+            raise ValueError(f"Found None Normalizer!")
+
         print(f"\n[INFO] Exporting TorchScript JIT model to: {export_model_dir}")
         import torch
         
@@ -276,8 +306,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if hasattr(ppo_runner.alg, "actor_critic"):
             actor_model = ppo_runner.alg.actor_critic.actor.to("cpu")
         else:
-            actor_model = ppo_runner.alg.policy.actor.eval().to("cpu")
-            
+            actor_model = wrapped_model
+
         # 创建一个虚拟输入
         dummy_input = torch.randn(1, env.observation_space.shape[0])
 
@@ -288,7 +318,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         jit_path = os.path.join(export_model_dir, "policy_jit.pt")
         torch.jit.save(jit_model, jit_path)
         print(f"[INFO] Success! JIT saved as: {jit_path}\n")
-    except Exception as e:
+    except (Exception, ValueError) as e:
         print(f"[ERROR] TorchScript JIT export failed: {e}\n")
     # ====================================
 
