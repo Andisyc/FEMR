@@ -4,7 +4,7 @@
 import torch
 import argparse
 import sys
-
+import copy
 from isaaclab.app import AppLauncher
 
 # local imports
@@ -283,36 +283,28 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
         print(f"\n[INFO] Load in Normalizer")
         
-        # 使用模型自己的 Normalizer
-        if hasattr(ppo_runner, 'obs_normalizer') and ppo_runner.obs_normalizer is not None:
-            print(f"\n[INFO] Found Env Normalizer, Ready to Export JIT")
-            normalizer = ppo_runner.obs_normalizer.to("cpu")
-            normalizer.eval()
-
-            # 获取Actor模型
-            if hasattr(ppo_runner.alg, "actor_critic"):
-                actor_model = ppo_runner.alg.actor_critic.actor.to("cpu")
-            else:
-                actor_model = ppo_runner.alg.policy.actor.eval().to("cpu")
-
-            wrapped_model = NormalizerWrapper(normalizer, actor_model)
-
+        # 获取Actor模型的深拷贝，防止污染原本在GPU运行的模型
+        if hasattr(ppo_runner.alg, "actor_critic"):
+            actor_model_for_jit = copy.deepcopy(ppo_runner.alg.actor_critic.actor).eval().to("cpu")
         else:
-            raise ValueError(f"Found None Normalizer!")
+            actor_model_for_jit = copy.deepcopy(ppo_runner.alg.policy.actor).eval().to("cpu")
+            
+        # 获取 Normalizer 的深拷贝
+        if hasattr(ppo_runner, 'obs_normalizer') and ppo_runner.obs_normalizer is not None and not isinstance(ppo_runner.obs_normalizer, torch.nn.Identity):
+            print(f"\n[INFO] Found Env Normalizer, Ready to Export JIT")
+            normalizer_for_jit = copy.deepcopy(ppo_runner.obs_normalizer).eval().to("cpu")
+            model_to_export = NormalizerWrapper(normalizer_for_jit, actor_model_for_jit)
+        else:
+            print(f"\n[WARNING] No active Normalizer found! Exporting raw actor.")
+            model_to_export = actor_model_for_jit
 
         print(f"\n[INFO] Exporting TorchScript JIT model to: {export_model_dir}")
         
-        # 兼容不同版本的 rsl_rl 获取 Actor 的方式
-        if hasattr(ppo_runner.alg, "actor_critic"):
-            actor_model = ppo_runner.alg.actor_critic.actor.to("cpu")
-        else:
-            actor_model = wrapped_model
-
         # 创建一个虚拟输入
-        dummy_input = torch.randn(1, env.observation_space.shape[0])
+        dummy_input = torch.randn(1, env.observation_space.shape[0], device="cpu")
 
         # 将模型转换为 TorchScript (JIT)
-        jit_model = torch.jit.trace(actor_model, dummy_input)
+        jit_model = torch.jit.trace(model_to_export, dummy_input)
         
         # 保存模型
         jit_path = os.path.join(export_model_dir, "policy_jit.pt")
