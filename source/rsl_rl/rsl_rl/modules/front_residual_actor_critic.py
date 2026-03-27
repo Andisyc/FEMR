@@ -83,7 +83,7 @@ class ComposedActor(nn.Module):
         return self.residual_actor[idx]
 
 
-class FronEndResidualActorCritic(nn.Module):
+class FrontRESActorCritic(nn.Module):
     """
     Residual learning policy: frozen GMT + trainable residual network.
 

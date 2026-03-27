@@ -27,7 +27,7 @@ from rsl_rl.modules import (
     ActorCriticVQ,
     ActorCriticAttention,
     ResidualActorCritic,
-    FrontEndResidualActorCritic, # 引入第二阶段模型
+    FrontRESActorCritic, # 引入第二阶段模型
 )
 from rsl_rl.utils import store_code_state
 
@@ -131,7 +131,7 @@ class OnPolicyRunner:
         policy_class = eval(self.policy_cfg.pop("class_name"))
 
         # Check if using ResidualActorCritic (special handling for estimator dimension)
-        is_residual_policy = policy_class in [ResidualActorCritic, FrontEndResidualActorCritic]
+        is_residual_policy = policy_class in [ResidualActorCritic, FrontRESActorCritic]
 
         if self.training_type == "mosaic" and self.alg_cfg.get("use_estimate_ref_vel", False):
             if not is_residual_policy:

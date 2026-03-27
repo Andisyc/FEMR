@@ -20,7 +20,7 @@ from .velocity_estimator import VelocityEstimator
 from .velocity_estimator_transformer import VelocityEstimatorTransformer
 
 from .supervise_learning import SuperviseLearning
-
+from .front_residual_actor_critic import FrontRESActorCritic
 
 __all__ = [
     "ActorCritic",
@@ -37,4 +37,5 @@ __all__ = [
     "VelocityEstimator",
     "VelocityEstimatorTransformer",
     "SuperviseLearning",
+    "FrontRESActorCritic",
 ]
