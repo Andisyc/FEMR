@@ -183,7 +183,7 @@ class OnPolicyRunner:
         self.empirical_normalization = self.cfg["empirical_normalization"]
 
         # Check if using ResidualActorCritic (special handling for GMT normalizer)
-        if isinstance(policy, (ResidualActorCritic, FrontEndResidualActorCritic)):
+        if isinstance(policy, (ResidualActorCritic, FrontRESActorCritic)):
             # Use GMT's frozen normalizer for observations
             if policy.gmt_normalizer is not None:
                 self.obs_normalizer = policy.gmt_normalizer
@@ -673,7 +673,7 @@ class OnPolicyRunner:
 
     def save(self, path: str, infos=None):
         # Check if using ResidualActorCritic (special handling)
-        if isinstance(self.alg.policy, (ResidualActorCritic, FrontEndResidualActorCritic)):
+        if isinstance(self.alg.policy, (ResidualActorCritic, FrontRESActorCritic)):
             # Save only residual network + critic (GMT is frozen, no need to save)
             model_state_dict = {
                 'residual_actor': self.alg.policy.residual_actor.state_dict(),
@@ -720,9 +720,9 @@ class OnPolicyRunner:
         loaded_dict = torch.load(path, weights_only=False)
 
         # Check if using ResidualActorCritic (special handling)
-        if isinstance(self.alg.policy, (ResidualActorCritic, FrontEndResidualActorCritic)):
+        if isinstance(self.alg.policy, (ResidualActorCritic, FrontRESActorCritic)):
             # 智能映射：尝试从阶段一 (SuperviseLearning) 提取 student 权重
-            if isinstance(self.alg.policy, FrontEndResidualActorCritic) and "student.0.weight" in loaded_dict["model_state_dict"]:
+            if isinstance(self.alg.policy, FrontRESActorCritic) and "student.0.weight" in loaded_dict["model_state_dict"]:
                 mapped_dict = {k.replace("student.", ""): v for k, v in loaded_dict["model_state_dict"].items() if k.startswith("student.")}
                 self.alg.policy.residual_actor.load_state_dict(mapped_dict, strict=True)
                 print("[Runner] Success: Auto-mapped Stage 1 'student' weights to Stage 2 'residual_actor'!")
