@@ -870,6 +870,15 @@ class OnPolicyRunner:
             policy = lambda x: self.alg.policy.act_inference(self.obs_normalizer(x))  # noqa: E731
         return policy
 
+    def _move_normalizer_to_device(self, device):
+        if hasattr(self, 'obs_normalizer') and self.obs_normalizer is not None:
+            for param in self.obs_normalizer.parameters():
+                param.data = param.data.to(device)
+            if hasattr(self.obs_normalizer, '_mean') and self.obs_normalizer._mean is not None:
+                self.obs_normalizer._mean = self.obs_normalizer._mean.to(device)
+            if hasattr(self.obs_normalizer, '_std') and self.obs_normalizer._std is not None:
+                self.obs_normalizer._std = self.obs_normalizer._std.to(device)
+
     def train_mode(self):
         # -- PPO
         self.alg.policy.train()
