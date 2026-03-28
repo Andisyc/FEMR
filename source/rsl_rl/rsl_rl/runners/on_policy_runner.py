@@ -351,9 +351,15 @@ class OnPolicyRunner:
 
         # start learning
         obs, extras = self.env.get_observations() # 获取观测
+
+        print(f"\n obs dim: {obs} \n")
+
         obs_dict = extras.get("observations", {})
         if self.policy_obs_type is not None and self.policy_obs_type in obs_dict:
             obs = obs_dict[self.policy_obs_type]
+
+            print(f"\n we reaching obs = obs_dict inside if \n")
+
         privileged_obs = obs_dict.get(self.privileged_obs_type, obs) # 获取特权信息
         teacher_obs = obs_dict.get(self.teacher_obs_type) # 获取教师观测
         obs = obs.to(self.device)
@@ -369,7 +375,13 @@ class OnPolicyRunner:
             ref_vel_estimator_obs = ref_vel_estimator_obs.to(self.device)
 
         # Normalize initial observations (same as in training loop) 观测归一器
+        print(f"\n b4 obs_normalizer obs.shape = {obs.shape}\n")
         obs = self.obs_normalizer(obs) # 三种观测量分别使用不同观测归一器
+        print(f"\n after obs_normalizer obs.shape = {obs.shape}\n")
+
+        temp = 1
+        assert temp == 2
+
         privileged_obs = self.privileged_obs_normalizer(privileged_obs)
         teacher_obs = self.teacher_obs_normalizer(teacher_obs)
 
