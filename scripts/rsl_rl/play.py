@@ -26,7 +26,7 @@ parser.add_argument("--video_length", type=int, default=400, help="Length of the
 
 parser.add_argument("--num_envs", 
                     type=int, 
-                    default=2, 
+                    default=1, 
                     help="Number of environments to simulate."
                     )
 
@@ -42,9 +42,16 @@ parser.add_argument("--motion",
                     help="Path to the motion file."
                     )
 
+from pathlib import Path
+
+path1 = Path("/home/chengyuxuan/MOSAIC/model/model_27000.pt")
+path2 = Path("/home/yuxuancheng/MOSAIC/model/model_27000.pt")
+
+model_path = path1 if path1.exists() else (path2 if path2.exists() else None)
+
 parser.add_argument("--resume_path", 
                     type=str, 
-                    default="/home/chengyuxuan/MOSAIC/model/model_27000.pt", 
+                    default=model_path, 
                     help="Path to the motion file."
                     )
 
@@ -269,49 +276,49 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     attach_onnx_metadata(env.unwrapped, args_cli.wandb_path if args_cli.wandb_path else "none", export_model_dir)
 
     # ============ JIT导出代码 ============
-    try:
-        class NormalizerWrapper(torch.nn.Module):
-            def __init__(self, normalizer, model):
-                super().__init__()
-                self.normalizer = normalizer
-                self.model = model
+    # try:
+    #     class NormalizerWrapper(torch.nn.Module):
+    #         def __init__(self, normalizer, model):
+    #             super().__init__()
+    #             self.normalizer = normalizer
+    #             self.model = model
 
-            def forward(self, obs):
-                # 确保normalizer和模型在同一设备上
-                obs = self.normalizer(obs)
-                return self.model(obs)
+    #         def forward(self, obs):
+    #             # 确保normalizer和模型在同一设备上
+    #             obs = self.normalizer(obs)
+    #             return self.model(obs)
 
-        print(f"\n[INFO] Load in Normalizer")
+    #     print(f"\n[INFO] Load in Normalizer")
         
-        # 获取Actor模型的深拷贝，防止污染原本在GPU运行的模型
-        if hasattr(ppo_runner.alg, "actor_critic"):
-            actor_model_for_jit = copy.deepcopy(ppo_runner.alg.actor_critic.actor).eval().to("cpu")
-        else:
-            actor_model_for_jit = copy.deepcopy(ppo_runner.alg.policy.actor).eval().to("cpu")
+    #     # 获取Actor模型的深拷贝，防止污染原本在GPU运行的模型
+    #     if hasattr(ppo_runner.alg, "actor_critic"):
+    #         actor_model_for_jit = copy.deepcopy(ppo_runner.alg.actor_critic.actor).eval().to("cpu")
+    #     else:
+    #         actor_model_for_jit = copy.deepcopy(ppo_runner.alg.policy.actor).eval().to("cpu")
             
-        # 获取 Normalizer 的深拷贝
-        if hasattr(ppo_runner, 'obs_normalizer') and ppo_runner.obs_normalizer is not None and not isinstance(ppo_runner.obs_normalizer, torch.nn.Identity):
-            print(f"\n[INFO] Found Env Normalizer, Ready to Export JIT")
-            normalizer_for_jit = copy.deepcopy(ppo_runner.obs_normalizer).eval().to("cpu")
-            model_to_export = NormalizerWrapper(normalizer_for_jit, actor_model_for_jit)
-        else:
-            print(f"\n[WARNING] No active Normalizer found! Exporting raw actor.")
-            model_to_export = actor_model_for_jit
+    #     # 获取 Normalizer 的深拷贝
+    #     if hasattr(ppo_runner, 'obs_normalizer') and ppo_runner.obs_normalizer is not None and not isinstance(ppo_runner.obs_normalizer, torch.nn.Identity):
+    #         print(f"\n[INFO] Found Env Normalizer, Ready to Export JIT")
+    #         normalizer_for_jit = copy.deepcopy(ppo_runner.obs_normalizer).eval().to("cpu")
+    #         model_to_export = NormalizerWrapper(normalizer_for_jit, actor_model_for_jit)
+    #     else:
+    #         print(f"\n[WARNING] No active Normalizer found! Exporting raw actor.")
+    #         model_to_export = actor_model_for_jit
 
-        print(f"\n[INFO] Exporting TorchScript JIT model to: {export_model_dir}")
+    #     print(f"\n[INFO] Exporting TorchScript JIT model to: {export_model_dir}")
         
-        # 创建一个虚拟输入
-        dummy_input = torch.randn(1, env.observation_space.shape[0], device="cpu")
+    #     # 创建一个虚拟输入
+    #     dummy_input = torch.randn(1, env.observation_space.shape[0], device="cpu")
 
-        # 将模型转换为 TorchScript (JIT)
-        jit_model = torch.jit.trace(model_to_export, dummy_input)
+    #     # 将模型转换为 TorchScript (JIT)
+    #     jit_model = torch.jit.trace(model_to_export, dummy_input)
         
-        # 保存模型
-        jit_path = os.path.join(export_model_dir, "policy_jit.pt")
-        torch.jit.save(jit_model, jit_path)
-        print(f"[INFO] Success! JIT saved as: {jit_path}\n")
-    except (Exception, ValueError) as e:
-        print(f"[ERROR] TorchScript JIT export failed: {e}\n")
+    #     # 保存模型
+    #     jit_path = os.path.join(export_model_dir, "policy_jit.pt")
+    #     torch.jit.save(jit_model, jit_path)
+    #     print(f"[INFO] Success! JIT saved as: {jit_path}\n")
+    # except (Exception, ValueError) as e:
+    #     print(f"[ERROR] TorchScript JIT export failed: {e}\n")
     # ====================================
 
     # reset environment
