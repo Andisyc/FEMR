@@ -45,13 +45,20 @@ class G1FlatSupervisedRunnerCfg(RslRlOnPolicyRunnerCfg):
     save_interval = 2
     experiment_name = "g1_flat_supervised"
     empirical_normalization = True
+
+    from pathlib import Path
+
+    path1 = Path("/home/yuxuancheng/MOSAIC/model/exported/policy.onnx")
+    path2 = Path("/home/chengyuxuan/MOSAIC/model/exported/policy.onnx")
+
+    model_path = path1 if path1.exists() else (path2 if path2.exists() else None)
     
     policy = RslRlSuperviseJointPosCfg( # from rsl_rl_cfg.py
         class_name="SuperviseLearning",
         init_noise_std=1.0,
         student_hidden_dims=[1024, 1024, 512, 256],
         activation="elu",
-        gmt_path="/home/yuxuancheng/MOSAIC/onnx/gmt.onnx",) # <--- 在这里传入预训练的 GMT ONNX 模型路径
+        gmt_path=model_path,) # <--- 在这里传入预训练的 GMT ONNX 模型路径
 
     algorithm = RslRlSuperviseAlgorithmCfg()
 
