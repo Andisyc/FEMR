@@ -9,7 +9,8 @@ from whole_body_tracking.tasks.tracking.tracking_env_cfg import (
     DistillationTrackingEnvCfg, 
     MultiDistillationTrackingEnvCfg, 
     OneStageTrackingEnvCfg, 
-    SupervisedTrackingEnvCfg
+    SupervisedTrackingEnvCfg,
+    FrontRESFinetuneTrackingEnvCfg, # 引入第二阶段微调的基础环境配置
 )
 
 
@@ -246,6 +247,7 @@ class G1MultiDistillationTrackingEnvCfg(MultiDistillationTrackingEnvCfg):
             "teleop_motions": 0.5,
         }
 
+# ======== FrontRES Two Stage Trainig Configs ========
 
 @configclass
 class G1SupervisedTrackingEnvCfg(SupervisedTrackingEnvCfg):
@@ -273,3 +275,33 @@ class G1SupervisedTrackingEnvCfg(SupervisedTrackingEnvCfg):
         ]
 
 
+@configclass
+class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
+    """
+    Environment configuration for Stage 2: RL Finetuning of FrontRES.
+    """
+
+    def __post_init__(self):
+        # Inherit from the FrontRES Finetuning base environment configuration
+        super().__post_init__()
+
+        # Set G1-specific configurations
+        self.scene.robot = G1_CYLINDER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.actions.joint_pos.scale = G1_ACTION_SCALE
+        self.commands.motion.anchor_body_name = "torso_link"
+        self.commands.motion.body_names = [
+            "pelvis", 
+            "left_hip_roll_link", 
+            "left_knee_link", 
+            "left_ankle_roll_link",
+            "right_hip_roll_link", 
+            "right_knee_link", 
+            "right_ankle_roll_link", 
+            "torso_link",
+            "left_shoulder_roll_link", 
+            "left_elbow_link", 
+            "left_wrist_yaw_link",
+            "right_shoulder_roll_link", 
+            "right_elbow_link", 
+            "right_wrist_yaw_link",
+        ]
