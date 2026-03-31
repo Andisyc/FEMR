@@ -64,25 +64,30 @@ class G1FlatSupervisedRunnerCfg(RslRlOnPolicyRunnerCfg):
 
 @configclass
 class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
+    """Runner configuration for Stage 2: RL Finetuning of FrontRES."""
     num_steps_per_env = 24
     max_iterations = 50000
     save_interval = 500
     experiment_name = "g1_flat_frontres_finetune"
     empirical_normalization = True
+    resume = True # <-- 必须设置为 True 来加载阶段一的模型
 
     policy = RslRlFrontEndResidualActorCriticCfg(
         class_name="FrontEndResidualActorCritic",
-        residual_hidden_dims=[1024, 1024, 512, 256], # 保持与阶段一一致
-        q_ref_start_idx=41, # TODO: 请务必检查并修改此值, 定位观测量中 q_ref 向量的起始索引
+        # FrontRES 结构应与阶段一监督学习的 student_hidden_dims 保持一致
+        residual_hidden_dims=[1024, 1024, 512, 256], 
+        # !! 关键 !!: 需要根据你的观测定义, 准确填写 q_ref 在 obs 向量中的起始索引
+        # 例如, 如果 obs = [base_vel(3), base_ang_vel(3), q_ref(29), ...], 则 q_ref_start_idx = 3 + 3 = 6
+        q_ref_start_idx= 0, # 假设 q_ref (command) 在最前面
         init_noise_std=0.1, # 微调阶段给定一个较小的初始探索噪声
-        gmt_checkpoint_path="/home/yuxuancheng/MOSAIC/onnx/gmt.pt", # 这里需要放 Pytorch 的 Checkpoint 以实现 GPU 极速推理
+        gmt_checkpoint_path="/path/to/your/gmt_model.pt", # 这里需要放 GMT 的 Pytorch Checkpoint
     )
 
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.005,
+        entropy_coef=0.005, # 鼓励探索
         learning_rate=5.0e-4, # 较小的微调学习率
     )
 

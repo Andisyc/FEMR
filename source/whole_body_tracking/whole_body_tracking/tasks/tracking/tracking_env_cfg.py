@@ -297,6 +297,35 @@ class EventCfg: # 域泛化
         interval_range_s=(1.0, 3.0),
         params={"velocity_range": VELOCITY_RANGE},)
 
+    # -- 新增的物理属性域随机化 --
+    # 说明: 以下随机化需要在 mdp 模块中实现对应的函数。
+
+    randomize_gravity = EventTerm(
+        func=mdp.randomize_gravity,
+        mode="startup",
+        params={
+            "x_range": (-1.0, 1.0),
+            "y_range": (-1.0, 1.0),
+            "z_range": (-12.0, -7.0), # 在地球重力-9.8附近浮动
+        },
+    )
+
+    randomize_actuator_properties = EventTerm(
+        func=mdp.randomize_actuator_properties,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"]),
+            "stiffness_range": (0.8, 1.2), # 将默认刚度乘以一个随机系数
+            "damping_range": (0.8, 1.2),   # 将默认阻尼乘以一个随机系数
+        },
+    )
+
+    add_payload = EventTerm(
+        func=mdp.add_payload_mass,
+        mode="startup",
+        params={"asset_cfg": SceneEntityCfg("robot", body_names=["torso_link"]), "mass_range": (0.0, 5.0)}, # 在躯干上增加0-5kg的随机载荷
+    )
+
 @configclass
 class RewardsCfg: # 奖励项
     """Reward terms for the MDP."""

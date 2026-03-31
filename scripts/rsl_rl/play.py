@@ -79,6 +79,7 @@ import gymnasium as gym
 import os
 import pathlib
 import torch
+import onnxruntime as ort
 
 from rsl_rl.runners import OnPolicyRunner
 
@@ -168,6 +169,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if args_cli.disable_motion_group_sampling and hasattr(env_cfg.commands.motion, "motion_group_sampling_ratios"):
             env_cfg.commands.motion.motion_group_sampling_ratios = None
             print("[INFO]: Disabled motion group sampling ratios for evaluation (uniform sampling).")
+
+        # 强行从指定的帧开始执行
         if args_cli.start_frame is not None and hasattr(env_cfg.commands.motion, "start_frame"):
             env_cfg.commands.motion.start_from_beginning = True
             env_cfg.commands.motion.start_frame = args_cli.start_frame
@@ -175,6 +178,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     else:
         raise ValueError("Motion file or motion directory is required for evaluation.")
 
+    # 将所有初始姿态与速度的随机化范围设为0, 保证初始动作贴合Ref Motion
     if not args_cli.enable_motion_randomization and hasattr(env_cfg, "commands"):
         motion_cfg = getattr(env_cfg.commands, "motion", None)
         if motion_cfg is not None:
@@ -193,6 +197,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 motion_cfg.joint_position_range = (0.0, 0.0)
             print("[INFO]: Zeroed motion randomization ranges for evaluation.")
 
+    # 关闭观测噪音与随机事件
     if args_cli.disable_obs_noise and hasattr(env_cfg, "observations"):
         for group_name in ("policy", "teacher", "critic", "ref_vel_estimator"):
             if hasattr(env_cfg.observations, group_name):
@@ -201,6 +206,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     group_cfg.enable_corruption = False
         print("[INFO]: Disabled observation corruption/noise for evaluation.")
 
+    # 关闭事件管理器 (事件管理器用于控制域随机化和环境扰动)
     if args_cli.disable_events and hasattr(env_cfg, "events"):
         env_cfg.events = None
         print("[INFO]: Disabled event manager for evaluation.")
@@ -216,6 +222,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     log_dir = os.path.dirname(args_cli.resume_path)
 
     # wrap for video recording
+    # 将录像函数作为装饰器使用
     if args_cli.video:
         video_kwargs = {
             "video_folder": os.path.join(log_dir, "videos", "play"),
@@ -232,9 +239,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = multi_agent_to_single_agent(env)
 
     # wrap around environment for rsl-rl
+    # IsaacLab与rsl-rl是两个独立开发的库
+    # 两者接口不同, 使用装饰器可以对齐接口
     env = RslRlVecEnvWrapper(env)
 
-    # load previously trained model
+    # load previously trained model (通过Task参数控制导入的Policy)
     ppo_runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     ppo_runner._move_normalizer_to_device(agent_cfg.device)
     ppo_runner.load(args_cli.resume_path, load_optimizer=False, load_critic=not args_cli.skip_critic)
@@ -252,7 +261,25 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # Cannot use get_inference_policy because it doesn't handle velocity augmentation
         policy = None  # Will process observations manually in the loop
     else:
-        policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
+        # 兼容 FrontRES SuperviseLearning，直接调用其 act_inference
+        if hasattr(ppo_runner.alg, "policy") and hasattr(ppo_runner.alg.policy, "student"):
+            policy = ppo_runner.alg.policy.act_inference
+        else:
+            policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
+
+    # ============ 加载 GMT ONNX 模型 ============
+    # gmt_model_path = ppo_runner.cfg.get("policy", {}).get("gmt_path")
+    # gmt_session = None
+    # if gmt_model_path and os.path.exists(gmt_model_path):
+    #     try:
+    #         print(f"[INFO] Loading GMT ONNX model from: {gmt_model_path}")
+    #         gmt_session = ort.InferenceSession(gmt_model_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+    #         print(f"[INFO] GMT ONNX model loaded successfully. Provider: {gmt_session.get_providers()}")
+    #     except Exception as e:
+    #         print(f"[ERROR] Failed to load GMT ONNX model: {e}")
+    #         gmt_session = None
+    # else:
+    #     print(f"[WARNING] GMT ONNX model path not found or not specified in config. GMT will not be used.")
 
     # export policy to onnx/jit
     export_model_dir = os.path.join(os.path.dirname(args_cli.resume_path), "exported")
@@ -290,8 +317,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     #     print(f"\n[INFO] Load in Normalizer")
         
-    #     # 获取Actor模型的深拷贝，防止污染原本在GPU运行的模型
-    #     if hasattr(ppo_runner.alg, "actor_critic"):
+    #     # 兼容 FrontRES 模型结构的深拷贝提取
+    #     if hasattr(ppo_runner.alg, "policy") and hasattr(ppo_runner.alg.policy, "student"):
+    #         actor_model_for_jit = copy.deepcopy(ppo_runner.alg.policy.student).eval().to("cpu")
+    #     elif hasattr(ppo_runner.alg, "actor_critic"):
     #         actor_model_for_jit = copy.deepcopy(ppo_runner.alg.actor_critic.actor).eval().to("cpu")
     #     else:
     #         actor_model_for_jit = copy.deepcopy(ppo_runner.alg.policy.actor).eval().to("cpu")
@@ -356,6 +385,37 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 # Standard inference without velocity estimator
                 obs, _ = env.get_observations()
                 actions = policy(obs)
+
+                # ============ FrontRES + GMT 两阶段推理管线 ============
+                # obs, _ = env.get_observations() # 获取原始观测
+
+                # # 如果 GMT 模型已加载，则执行两阶段推理
+                # if gmt_session is not None:
+                #     # 1. FrontRES 推理，得到 Δq
+                #     # policy 变量持有的是已加载的 FrontRES (SuperviseLearning.student)
+                #     delta_q = policy(obs)
+
+                #     # 2. 从观测中提取 q_ref
+                #     # 根据 G1 机器人 URDF, 关节数为 29。'command' 包含 q_ref 和 qd_ref, 位于 obs 前 58 个维度
+                #     num_joints = 29 # G1 机器人关节数
+                #     q_ref = obs[:, :num_joints]
+
+                #     # 3. 计算修正后的 q_corrected
+                #     q_corrected = q_ref + delta_q
+
+                #     # 4. 构造 GMT 的输入
+                #     # 将 obs 中的 q_ref 部分替换为修正后的 q_corrected
+                #     gmt_input_obs = obs.clone()
+                #     gmt_input_obs[:, :num_joints] = q_corrected
+
+                #     # 5. GMT ONNX 模型推理，得到最终 action
+                #     gmt_input_name = gmt_session.get_inputs()[0].name
+                #     gmt_output_name = gmt_session.get_outputs()[0].name
+                #     actions_np = gmt_session.run([gmt_output_name], {gmt_input_name: gmt_input_obs.cpu().numpy()})[0]
+                #     actions = torch.from_numpy(actions_np).to(ppo_runner.device)
+                # else:
+                #     # Fallback: 如果没有 GMT，则直接使用 FrontRES 的输出 (原始行为)
+                #     actions = policy(obs)
 
             # env stepping
             _, _, _, _ = env.step(actions)
