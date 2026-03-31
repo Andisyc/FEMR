@@ -26,6 +26,8 @@ from whole_body_tracking.utils.rsl_rl_cfg import (
     RslRlFrontResidualActorCriticCfg, # PAMR: Stage 2 RL Finetuning
 )
 
+# ====== FrontRES Stage 1: Supervised Learning ======
+
 @configclass
 class RslRlSuperviseAlgorithmCfg:
     """Configuration for the supervised learning algorithm."""
@@ -61,6 +63,10 @@ class G1FlatSupervisedRunnerCfg(RslRlOnPolicyRunnerCfg):
         gmt_path=model_path,) # <--- 在这里传入预训练的 GMT ONNX 模型路径
 
     algorithm = RslRlSuperviseAlgorithmCfg()
+
+# ====== FrontRES Stage 1: Supervised Learning ======
+
+# ========== FrontRES Stage 2: RL Finetune ==========
 
 @configclass
 class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
@@ -111,6 +117,8 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.008,            # 比右侧的0.01更低, 要求策略更新更平滑
         max_grad_norm=1.0,           # 梯度裁剪: 防止单次错误探索产生的巨大梯度撕裂网络
     )
+
+# ========== FrontRES Stage 2: RL Finetune ==========
 
 @configclass
 class G1FlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):

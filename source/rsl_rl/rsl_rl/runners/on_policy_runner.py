@@ -350,20 +350,14 @@ class OnPolicyRunner:
                 self.env.episode_length_buf, high=int(self.env.max_episode_length))
 
         # start learning
-        obs, extras = self.env.get_observations() # 获取观测, obs.shape=[num_env, 770], 770=[t, t-1, t-2, t-3, t-4]
-
-        print(f"\n obs.shape = {obs.shape} \n")
-
-        print(f"\n self.env = {self.env} \n")
-
+        obs, extras = self.env.get_observations() # obs.shape=[num_env, 770], 770=[t, t-1, t-2, t-3, t-4]
         obs_dict = extras.get("observations", {})
         if self.policy_obs_type is not None and self.policy_obs_type in obs_dict:
             obs = obs_dict[self.policy_obs_type]
 
-            print(f"\n we reaching inside if obs = obs_dict[self.policy_obs_type]: {obs.shape} \n")
-
-        privileged_obs = obs_dict.get(self.privileged_obs_type, obs) # 获取特权信息
-        teacher_obs = obs_dict.get(self.teacher_obs_type) # 获取教师观测
+        # 获取特权信息 & 教师观测
+        privileged_obs = obs_dict.get(self.privileged_obs_type, obs) 
+        teacher_obs = obs_dict.get(self.teacher_obs_type) # 
         obs = obs.to(self.device)
         privileged_obs = privileged_obs.to(self.device)
         if teacher_obs is not None:
@@ -377,13 +371,9 @@ class OnPolicyRunner:
             ref_vel_estimator_obs = ref_vel_estimator_obs.to(self.device)
 
         # Normalize initial observations (same as in training loop) 观测归一器
-        print(f"\n b4 obs_normalizer obs.shape = {obs.shape}\n")
         obs = self.obs_normalizer(obs) # 三种观测量分别使用不同观测归一器
-        print(f"\n afr obs_normalizer obs.shape = {obs.shape}\n")
 
-        temp = 1
-        assert temp == 2
-
+        # 使用观测量归一化器对观测量进行处理
         privileged_obs = self.privileged_obs_normalizer(privileged_obs)
         teacher_obs = self.teacher_obs_normalizer(teacher_obs)
 
@@ -440,7 +430,11 @@ class OnPolicyRunner:
                                 motion_groups = motion_command.env_motion_groups.clone()
 
                         # 前向传播获得动作
-                        actions = self.alg.act(obs, privileged_obs, teacher_obs=teacher_obs, ref_vel_estimator_obs=ref_vel_estimator_obs, motion_groups=motion_groups)
+                        actions = self.alg.act(obs, 
+                                               privileged_obs, 
+                                               teacher_obs=teacher_obs, 
+                                               ref_vel_estimator_obs=ref_vel_estimator_obs, 
+                                               motion_groups=motion_groups)
 
                         # Track velocity estimator error if available 仿真器有速度真值, 但学生模型只能瞎猜
                         if hasattr(self.alg, 'last_estimated_ref_vel') and self.alg.last_estimated_ref_vel is not None:
@@ -470,13 +464,12 @@ class OnPolicyRunner:
                     # Move to device
                     rewards, dones = rewards.to(self.device), dones.to(self.device)
                     obs_dict = infos.get("observations", {})
-
                     if self.policy_obs_type is not None and self.policy_obs_type in obs_dict:
                         obs = obs_dict[self.policy_obs_type].to(self.device)
                     else:
                         obs = obs.to(self.device)
                     
-                    # perform normalization 对观测量进行归一化
+                    # perform normalization 对本次循环的观测量进行归一化, 用于计算下步动作
                     obs = self.obs_normalizer(obs)
                     if self.privileged_obs_type is not None and self.privileged_obs_type in obs_dict:
                         privileged_obs = self.privileged_obs_normalizer(

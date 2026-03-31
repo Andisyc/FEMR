@@ -271,3 +271,5 @@ class G1SupervisedTrackingEnvCfg(SupervisedTrackingEnvCfg):
             "right_elbow_link",
             "right_wrist_yaw_link",
         ]
+
+

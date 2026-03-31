@@ -37,9 +37,7 @@ from rsl_rl.utils import resolve_nn_activation
 
 class SuperviseLearning(nn.Module):
     """
-    一个用于监督学习的模块, 旨在训练一个网络(student)来预测由专家模型(GMT)
-    在仿真中产生的运动残差。
-    这个模块仅包含第一阶段监督训练所需的核心功能。
+    A module for supervised learning aimed at training a network to predict Δq
     """
     is_recurrent = False
     is_encoding = False  # 适配 OnPolicyRunner 接口
@@ -56,10 +54,10 @@ class SuperviseLearning(nn.Module):
     ):
         """
         Args:
-            num_actor_obs (int): 学生网络(FrontRES)的输入维度。
-            num_critic_obs (int): 未使用, 仅用于适配 rsl_rl 的统一初始化。
-            num_actions (int): 学生网络(FrontRES)的输出维度, 'delta_q_pred'的维度。
-            gmt_path (str): 预训练的 GMT ONNX 模型的路径。
+            num_actor_obs (int): input dim of FrontRES
+            num_critic_obs (int): unused
+            num_actions (int): output dim of FrontRES
+            gmt_path (str): GMT ONNX
         """
         if kwargs:
             print(
@@ -123,48 +121,42 @@ class SuperviseLearning(nn.Module):
 
     def forward(self, observations):
         """
-        运行student网络并返回预测的残差Δq。这是监督学习训练的核心。
+        Run the student and return the predicted Δ q
         Args:
-            observations (torch.Tensor): 此处的输入是为学生网络准备的观测。
+            observations (torch.Tensor): student obs
         Returns:
-            torch.Tensor: 预测的残差Δ_q_pred。
+            torch.Tensor: the predicted Δ q
         """
         return self.student(observations)
         
     def update_distribution(self, observations):
-        """用于适配 RL Runner 的策略分布更新方法"""
+        """updating interface to adapt to RL Runner"""
         self._student_pred = self.student(observations)
 
     def act(self, observations, **kwargs):
         """
-        标准策略获取接口。在 Runner 的 Rollout 阶段被调用。
-        注: 如果您在外部编写了自定义的 SupervisedRunner, 请显式提取 q_ref 并调用 self.get_gmt_action()
-        进行仿真环境的步进，而非直接使用此方法的预测输出。
+        standard interface, invoke at Runner Rollout
         """
         self.update_distribution(observations)
         return self._student_pred
 
     def get_actions_log_prob(self, actions):
-        """提供一个虚假的 Log Prob，防止在某些统一流程下导致崩溃"""
+        """Provide a false Log Prob"""
         return torch.zeros_like(actions[:, 0])
 
     def act_inference(self, observations, **kwargs):
-        """
-        act_inference 是 act 的别名，用于提供兼容的API。
-        """
         return self.act(observations)
         
     def evaluate(self, critic_observations, **kwargs):
         """
-        提供虚假的 Critic 评估接口, 完美适配 OnPolicyRunner 的设计模式
+        Provide a false Critic evaluation interface
         """
         return torch.zeros((critic_observations.shape[0], 1), device=critic_observations.device)
 
     @torch.no_grad()
     def get_gmt_action(self, obs: torch.Tensor) -> torch.Tensor:
         """
-        在给定的完整观测 `obs` 上运行 GMT 专家模型，以获得专家动作。
-        这个方法主要在外部的训练脚本中被调用，用于生成 `q_sim`，进而计算出监督学习的目标 `Δ_q_gt`。
+        Run GMT for action
         """
         if not self.gmt_session:
             raise RuntimeError("GMT model is not loaded. Cannot compute GMT action.")
@@ -178,9 +170,7 @@ class SuperviseLearning(nn.Module):
     @staticmethod
     def get_supervision_target(q_sim: torch.Tensor, q_ref: torch.Tensor) -> torch.Tensor:
         """
-        [在训练脚本或自定义Runner中调用]
-        计算监督学习的目标: Δ_q_gt = q_ref - q_sim
-        这个Δ_q_gt是student网络需要学习预测的ground truth。
+        Δ_q_gt = q_ref - q_sim
         """
         delta_q = q_ref - q_sim
         return delta_q

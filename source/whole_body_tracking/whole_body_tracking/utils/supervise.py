@@ -11,10 +11,6 @@ import torch.optim as optim
 from rsl_rl.modules import SuperviseLearning
 
 class SuperviseStorage:
-    """
-    预留的独立经验池类。
-    接口与 rsl_rl.storage.RolloutStorage 完全保持一致，方便你理解后进行修改或无缝替换。
-    """
     class Transition:
         def __init__(self):
             self.observations = None
@@ -49,7 +45,6 @@ class SuperviseStorage:
         self.step = 0
 
     def generator(self):
-        """生成器：按时间步返回批次数据，保持与原生 generator 一致的调用体验"""
         for i in range(self.num_transitions_per_env):
             yield self.observations[i], self.target_actions[i], self.dones[i]
 
@@ -108,7 +103,7 @@ class SuperviseTrainer:
         self.num_updates = 0
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape):
-        """初始化内置存储区。此函数将被 OnPolicyRunner 自动调用。"""
+        """initialize buffer"""
         self.storage = SuperviseStorage(
             num_envs=num_envs,
             num_transitions_per_env=num_transitions_per_env,
@@ -118,7 +113,7 @@ class SuperviseTrainer:
         )
 
     def act(self, obs: torch.Tensor, target_delta_q: torch.Tensor) -> torch.Tensor:
-        """采样动作并记录环境传来的标答 (delta q)。"""
+        """record delta_q_gt"""
         # Compute the actions
         actions = self.policy.act(obs).detach()
         
@@ -129,7 +124,7 @@ class SuperviseTrainer:
         return actions
 
     def process_env_step(self, rewards, dones, infos) -> None:
-        """将数据正式存入内置 Buffer 中。"""
+        """store data into buffer"""
         self.transition.dones = dones
         self.storage.add_transitions(self.transition)
         self.transition.clear()
