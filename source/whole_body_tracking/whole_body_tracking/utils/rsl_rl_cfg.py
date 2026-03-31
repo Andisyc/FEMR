@@ -119,12 +119,12 @@ class RslRlResidualActorCriticCfg(RslRlPpoActorCriticCfg):
     """Type of estimator: 'mlp' or 'transformer'."""
 
 @configclass
-class RslRlFrontEndResidualActorCriticCfg(RslRlPpoActorCriticCfg):
+class RslRlFrontResidualActorCriticCfg(RslRlPpoActorCriticCfg):
     """
     Front-End Residual Actor-Critic configuration.
     Stage 2 RL Finetuning: FrontRES outputs Δq, which modifies q_ref before entering GMT.
     """
-    class_name: str = "FrontEndResidualActorCritic"
+    class_name: str = "FrontRESActorCritic"
 
     # FrontRES network configuration
     residual_hidden_dims: list[int] = [1024, 1024, 512, 256]

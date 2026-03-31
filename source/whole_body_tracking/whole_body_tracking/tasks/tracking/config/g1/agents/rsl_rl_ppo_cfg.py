@@ -23,7 +23,7 @@ from whole_body_tracking.utils.rsl_rl_cfg import (
     RslRlPpoActorCriticAttentionCfg,
     RslRlDistillationCfg,
     RslRlSuperviseJointPosCfg, # PAMR: Stage 1 Training
-    RslRlFrontEndResidualActorCriticCfg, # PAMR: Stage 2 RL Finetuning
+    RslRlFrontResidualActorCriticCfg, # PAMR: Stage 2 RL Finetuning
 )
 
 @configclass
@@ -72,23 +72,44 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
     empirical_normalization = True
     resume = True # <-- 必须设置为 True 来加载阶段一的模型
 
-    policy = RslRlFrontEndResidualActorCriticCfg(
-        class_name="FrontEndResidualActorCritic",
-        # FrontRES 结构应与阶段一监督学习的 student_hidden_dims 保持一致
+    from pathlib import Path
+
+    path1 = Path("/home/yuxuancheng/MOSAIC/model/exported/policy.onnx")
+    path2 = Path("/home/chengyuxuan/MOSAIC/model/exported/policy.onnx")
+
+    model_path = path1 if path1.exists() else (path2 if path2.exists() else None)
+
+    policy = RslRlFrontResidualActorCriticCfg(
+        class_name="FrontRESActorCritic",
+        
         residual_hidden_dims=[1024, 1024, 512, 256], 
-        # !! 关键 !!: 需要根据你的观测定义, 准确填写 q_ref 在 obs 向量中的起始索引
-        # 例如, 如果 obs = [base_vel(3), base_ang_vel(3), q_ref(29), ...], 则 q_ref_start_idx = 3 + 3 = 6
-        q_ref_start_idx= 0, # 假设 q_ref (command) 在最前面
-        init_noise_std=0.1, # 微调阶段给定一个较小的初始探索噪声
-        gmt_checkpoint_path="/path/to/your/gmt_model.pt", # 这里需要放 GMT 的 Pytorch Checkpoint
+        critic_hidden_dims=[1024, 1024, 512, 256], 
+        activation="elu",                             # 必须指定激活函数（rsl_rl 默认多用 elu）
+
+        init_noise_std=0.1,                           # 微调使用较小初始探索噪声, 防止动作崩坏
+        gmt_checkpoint_path=model_path,               # 冻结的底层 GMT 追踪器权重路径
+        
+        # 这里的索引非常重要，你的 FrontRES 需要从长长的 obs 向量里
+        # 把代表“参考姿态 (q_ref)”的那段数字精准地切出来作为预补偿的基准
+        # q_ref_start_idx = ..., 
     )
 
     algorithm = RslRlPpoAlgorithmCfg(
+        # --- 基础运行参数 ---
+        num_learning_epochs=5,       # 每次拿 buffer 里的数据训练几次
+        num_mini_batches=4,          # 切分 batch
+        gamma=0.99,                  # 折扣因子
+        lam=0.95,                    # GAE 参数
+        
+        # --- 微调优化参数 ---
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
-        clip_param=0.2,
-        entropy_coef=0.005, # 鼓励探索
-        learning_rate=5.0e-4, # 较小的微调学习率
+        clip_param=0.2,              # 保持0.2即可, 限制策略更新幅度
+        entropy_coef=0.001,          # 探索噪声: 0.00对于微调来说可以, 甚至可以再小点 (0.001)
+        learning_rate=5.0e-4,        # 学习率: 5.0e-4非常合理, 从零训练用的是1.0e-3, 微调必须用小学习率
+        schedule="adaptive",         # 学习率衰减: 建议关掉自适应防止突然加大学习率冲毁模型 (可以改成"fixed")
+        desired_kl=0.008,            # 比右侧的0.01更低, 要求策略更新更平滑
+        max_grad_norm=1.0,           # 梯度裁剪: 防止单次错误探索产生的巨大梯度撕裂网络
     )
 
 @configclass
