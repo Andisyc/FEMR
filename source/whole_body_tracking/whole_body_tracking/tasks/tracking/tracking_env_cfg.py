@@ -888,6 +888,10 @@ class SupervisedTrackingEnvCfg(GeneralTrackingEnvCfg):
         super().__post_init__()
         self.commands = MultiMotionCommandsCfg()
 
+        # Disable domain randomization for stage 1 supervised learning
+        self.events = None
+        self.curriculum = None
+
 
 @configclass
 class FrontRESFinetuneTrackingEnvCfg(GeneralTrackingEnvCfg):

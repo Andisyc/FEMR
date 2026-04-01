@@ -111,7 +111,7 @@ def randomize_gravity(
     gravity[:, 2] = math_utils.sample_uniform(z_range[0], z_range[1], (len(env_ids),), device=env.device)
 
     # set the new gravity values
-    env.scene.physics_sim_view.set_gravity(gravity, env_ids=env_ids)
+    env.sim.physics_sim_view.set_gravity(gravity, env_ids=env_ids)
 
 
 def randomize_actuator_properties(
