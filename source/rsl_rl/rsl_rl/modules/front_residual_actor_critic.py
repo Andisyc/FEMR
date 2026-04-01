@@ -26,60 +26,70 @@ from rsl_rl.utils import resolve_nn_activation
 
 class ComposedActor(nn.Module):
     """
-    Composed actor for ONNX export: combines frozen GMT + trainable residual.
+    Composed actor for ONNX export: combines frozen GMT + trainable FrontRES.
 
-    This wrapper is needed because ONNX exporter expects policy.actor attribute.
+    FrontRES (pre-GMT residual) pipeline:
+        obs → FrontRES → Δq
+        q_ref_corrected = q_ref + Δq   (modify q_ref inside obs)
+        obs_modified → GMT → actions
     """
     def __init__(self, gmt_policy: ActorCritic, residual_actor: nn.Module,
-                 gmt_actor_input_dim: int, num_actor_obs: int):
+                 gmt_actor_input_dim: int, num_actor_obs: int,
+                 q_ref_start_idx: int, num_actions: int):
         super().__init__()
         self.gmt_policy = gmt_policy
         self.residual_actor = residual_actor
         self.gmt_actor_input_dim = gmt_actor_input_dim
         self.num_actor_obs = num_actor_obs
+        self.q_ref_start_idx = q_ref_start_idx
+        self.num_actions = num_actions
 
     def forward(self, observations):
-        """Compose GMT + residual actions"""
-        # Handle different input dimensions
+        """FrontRES pre-GMT pipeline: correct q_ref, then run GMT."""
         obs_dim = observations.shape[-1]
 
         if obs_dim == self.num_actor_obs:
-            # Input is policy_obs only (770 dims)
-            # Need to pad to gmt_actor_input_dim for GMT policy
             policy_obs = observations
-            padding_size = self.gmt_actor_input_dim - self.num_actor_obs
-            if padding_size > 0:
-                padding = torch.zeros(
-                    *observations.shape[:-1], padding_size,
-                    device=observations.device,
-                    dtype=observations.dtype)
-                gmt_obs = torch.cat([observations, padding], dim=-1)
-            else:
-                gmt_obs = observations
         elif obs_dim == self.gmt_actor_input_dim:
-            # Input is already concatenated [policy_obs, ref_vel] (773 dims)
-            gmt_obs = observations
-            
-            # Extract policy_obs for residual actor
             policy_obs = observations[:, :self.num_actor_obs]
         else:
             raise ValueError(
                 f"Unexpected observation dimension: {obs_dim}. "
                 f"Expected {self.num_actor_obs} or {self.gmt_actor_input_dim}")
 
-        # GMT forward (frozen, no grad)
+        # 1. FrontRES computes Δq from policy observations
+        delta_q = self.residual_actor(policy_obs)
+
+        # 2. Apply Δq to q_ref inside the observation vector
+        obs_modified = policy_obs.clone()
+        q_ref_end_idx = self.q_ref_start_idx + self.num_actions
+        obs_modified[:, self.q_ref_start_idx:q_ref_end_idx] = (
+            obs_modified[:, self.q_ref_start_idx:q_ref_end_idx] + delta_q
+        )
+
+        # 3. Pad to GMT input dim if needed (e.g. ref_vel suffix)
+        if obs_modified.shape[-1] < self.gmt_actor_input_dim:
+            padding_size = self.gmt_actor_input_dim - obs_modified.shape[-1]
+            padding = torch.zeros(
+                *obs_modified.shape[:-1], padding_size,
+                device=obs_modified.device,
+                dtype=obs_modified.dtype)
+            gmt_obs = torch.cat([obs_modified, padding], dim=-1)
+        elif obs_dim == self.gmt_actor_input_dim:
+            # Restore ref_vel suffix from original input
+            ref_vel = observations[:, self.num_actor_obs:]
+            gmt_obs = torch.cat([obs_modified, ref_vel], dim=-1)
+        else:
+            gmt_obs = obs_modified
+
+        # 4. GMT forward (frozen)
         with torch.no_grad():
-            gmt_actions = self.gmt_policy.act_inference(gmt_obs)
+            actions = self.gmt_policy.act_inference(gmt_obs)
 
-        # Residual forward (trainable) - always uses policy_obs
-        residual_actions = self.residual_actor(policy_obs)
-
-        # Compose actions
-        return gmt_actions + residual_actions
+        return actions
 
     def __getitem__(self, idx):
         """Support subscript access for ONNX exporter (e.g., actor[0].in_features)"""
-        # Delegate to residual_actor Sequential
         return self.residual_actor[idx]
 
 
@@ -364,7 +374,9 @@ class FrontRESActorCritic(nn.Module):
             self.gmt_policy,
             self.residual_actor,
             gmt_actor_input_dim,
-            num_actor_obs)
+            num_actor_obs,
+            q_ref_start_idx,
+            num_actions)
         print("[ResidualActorCritic] Created composed actor for ONNX export")
 
         # ========== Store GMT input dimension for padding ==========
@@ -517,36 +529,33 @@ class FrontRESActorCritic(nn.Module):
     def entropy(self):
         return self.distribution.entropy().sum(dim=-1)
 
-    def update_distribution(self, observations):
+    def _frontres_forward(self, observations):
         """
-        Update action distribution with composed actions (GMT + residual).
+        Shared FrontRES pre-GMT pipeline used by both update_distribution and act_inference.
 
-        Args:
-            observations: Can be one of:
-                - torch.Tensor (dim=num_actor_obs): policy observations only
-                - torch.Tensor (dim=gmt_actor_input_dim): concatenated [policy_obs, ref_vel]
-                - dict: {"policy": policy_obs, "ref_vel_estimator": ref_vel_estimator_obs}
+        Pipeline:
+            1. Parse observations → policy_obs, ref_vel (or estimator obs)
+            2. FrontRES computes Δq from policy_obs
+            3. q_ref inside policy_obs is corrected: q_ref += Δq
+            4. Build gmt_obs from corrected policy_obs (+ ref_vel if available)
+            5. GMT forward (frozen) → actions
 
-        Note: This computes the mean as a_gmt + a_residual, but the distribution
-        is created around the composed mean. This is correct for PPO training.
+        Returns:
+            actions (torch.Tensor): final actions from GMT after q_ref correction
+            delta_q (torch.Tensor): the Δq output by FrontRES (for logging)
         """
-        # Extract policy observations and ref_vel
+        # --- Step 1: parse observations ---
         if isinstance(observations, dict):
-            # Dictionary format: extract policy_obs and ref_vel_estimator_obs
             policy_obs = observations["policy"]
             ref_vel_estimator_obs = observations.get("ref_vel_estimator", None)
             ref_vel = None
         elif isinstance(observations, torch.Tensor):
             obs_dim = observations.shape[-1]
-
             if obs_dim == self.num_actor_obs:
-                # Policy observations only
                 policy_obs = observations
                 ref_vel = None
                 ref_vel_estimator_obs = None
             elif obs_dim == self.gmt_actor_input_dim:
-                # Concatenated format: [policy_obs, ref_vel]
-                # Split into policy_obs and ref_vel
                 ref_vel_dim = self.gmt_actor_input_dim - self.num_actor_obs
                 policy_obs = observations[:, :-ref_vel_dim]
                 ref_vel = observations[:, -ref_vel_dim:]
@@ -559,42 +568,53 @@ class FrontRESActorCritic(nn.Module):
         else:
             raise TypeError(f"Unexpected observation type: {type(observations)}")
 
-        # Prepare GMT observations
+        # --- Step 2: FrontRES computes Δq (trainable, gradients flow here) ---
+        delta_q = self.residual_actor(policy_obs)
+
+        # --- Step 3: correct q_ref inside the observation vector ---
+        obs_modified = policy_obs.clone()
+        q_ref_end_idx = self.q_ref_start_idx + self.num_actions
+        obs_modified[:, self.q_ref_start_idx:q_ref_end_idx] = (
+            obs_modified[:, self.q_ref_start_idx:q_ref_end_idx] + delta_q
+        )
+
+        # --- Step 4: build gmt_obs from corrected obs ---
         with torch.no_grad():
             if ref_vel is not None:
-                # Already have ref_vel from concatenated input
-                gmt_obs = torch.cat([policy_obs, ref_vel], dim=-1)
+                gmt_obs = torch.cat([obs_modified, ref_vel], dim=-1)
             elif self.ref_vel_estimator is not None and ref_vel_estimator_obs is not None:
-                # Use estimator to predict ref_vel
                 ref_vel = self.ref_vel_estimator(ref_vel_estimator_obs)
-                gmt_obs = torch.cat([policy_obs, ref_vel], dim=-1)
+                gmt_obs = torch.cat([obs_modified, ref_vel], dim=-1)
             else:
-                # Fallback: pad with zeros
-                gmt_obs = self._pad_observations_for_gmt(policy_obs)
+                gmt_obs = self._pad_observations_for_gmt(obs_modified)
 
-            # GMT forward (frozen, no grad)
-            gmt_actions = self.gmt_policy.act_inference(gmt_obs)
+            # --- Step 5: GMT forward (frozen) ---
+            actions = self.gmt_policy.act_inference(gmt_obs)
 
-        # Residual forward (trainable) - always uses policy_obs only
-        residual_actions = self.residual_actor(policy_obs)
+        return actions, delta_q
 
-        # Compose actions
-        composed_mean = gmt_actions + residual_actions
+    def update_distribution(self, observations):
+        """
+        Update action distribution for PPO training.
 
-        # Store intermediate results for diagnostic logging
-        self.last_gmt_actions = gmt_actions.detach()
-        self.last_residual_actions = residual_actions.detach()
+        FrontRES corrects q_ref in observations, then GMT produces actions.
+        Gradients flow through FrontRES (delta_q) but not through GMT.
+        """
+        actions, delta_q = self._frontres_forward(observations)
+
+        # Store for diagnostic logging
+        self.last_gmt_actions = actions.detach()
+        self.last_residual_actions = delta_q.detach()
 
         # Compute standard deviation
         if self.noise_std_type == "scalar":
-            std = self.std.expand_as(composed_mean)
+            std = self.std.expand_as(actions)
         elif self.noise_std_type == "log":
-            std = torch.exp(self.log_std).expand_as(composed_mean)
+            std = torch.exp(self.log_std).expand_as(actions)
         else:
             raise ValueError(f"Unknown standard deviation type: {self.noise_std_type}")
 
-        # Create distribution around composed mean
-        self.distribution = Normal(composed_mean, std)
+        self.distribution = Normal(actions, std)
 
     def act(self, observations, **kwargs):
         """Sample actions from distribution (for training with exploration)"""
@@ -606,64 +626,9 @@ class FrontRESActorCritic(nn.Module):
         return self.distribution.log_prob(actions).sum(dim=-1)
 
     def act_inference(self, observations):
-        """
-        Deterministic action (for evaluation/deployment).
-
-        Args:
-            observations: Can be one of:
-                - torch.Tensor (dim=num_actor_obs): policy observations only
-                - torch.Tensor (dim=gmt_actor_input_dim): concatenated [policy_obs, ref_vel]
-                - dict: {"policy": policy_obs, "ref_vel_estimator": ref_vel_estimator_obs}
-        """
-        # Extract policy observations and ref_vel
-        if isinstance(observations, dict):
-            # Dictionary format: extract policy_obs and ref_vel_estimator_obs
-            policy_obs = observations["policy"]
-            ref_vel_estimator_obs = observations.get("ref_vel_estimator", None)
-            ref_vel = None
-        elif isinstance(observations, torch.Tensor):
-            obs_dim = observations.shape[-1]
-            if obs_dim == self.num_actor_obs:
-                # Policy observations only
-                policy_obs = observations
-                ref_vel = None
-                ref_vel_estimator_obs = None
-            elif obs_dim == self.gmt_actor_input_dim:
-                # Concatenated format: [policy_obs, ref_vel]
-                # Split into policy_obs and ref_vel
-                ref_vel_dim = self.gmt_actor_input_dim - self.num_actor_obs
-                policy_obs = observations[:, :-ref_vel_dim]
-                ref_vel = observations[:, -ref_vel_dim:]
-                ref_vel_estimator_obs = None
-            else:
-                raise ValueError(
-                    f"Unexpected observation dimension: {obs_dim}. "
-                    f"Expected {self.num_actor_obs} (policy_obs) or {self.gmt_actor_input_dim} (policy_obs+ref_vel)"
-                )
-        else:
-            raise TypeError(f"Unexpected observation type: {type(observations)}")
-
-        # Prepare GMT observations
-        with torch.no_grad():
-            if ref_vel is not None:
-                # Already have ref_vel from concatenated input
-                gmt_obs = torch.cat([policy_obs, ref_vel], dim=-1)
-            elif self.ref_vel_estimator is not None and ref_vel_estimator_obs is not None:
-                # Use estimator to predict ref_vel
-                ref_vel = self.ref_vel_estimator(ref_vel_estimator_obs)
-                gmt_obs = torch.cat([policy_obs, ref_vel], dim=-1)
-            else:
-                # Fallback: pad with zeros
-                gmt_obs = self._pad_observations_for_gmt(policy_obs)
-
-            # GMT forward (frozen, no grad)
-            gmt_actions = self.gmt_policy.act_inference(gmt_obs)
-
-        # Residual forward (trainable) - always uses policy_obs only
-        residual_actions = self.residual_actor(policy_obs)
-
-        # Compose actions
-        return gmt_actions + residual_actions
+        """Deterministic action for evaluation/deployment."""
+        actions, _ = self._frontres_forward(observations)
+        return actions
 
     def evaluate(self, critic_observations, **kwargs):
         """Evaluate value function"""

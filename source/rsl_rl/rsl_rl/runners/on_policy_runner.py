@@ -409,8 +409,29 @@ class OnPolicyRunner:
         # Start training
         start_iter = self.current_learning_iteration
         tot_iter = start_iter + num_learning_iterations
+
+        # Critic warmup: freeze Actor for the first N iterations so the Critic
+        # can converge before Actor weights (pretrained from Stage 1) are updated.
+        # Only applied to FrontRESActorCritic; other policy types are unaffected.
+        critic_warmup_iters = self.cfg.get("critic_warmup_iterations", 0)
+        _warmup_actor_frozen = False  # internal state flag
+
         for it in range(start_iter, tot_iter):
             start = time.time()
+
+            # --- Critic warmup management ---
+            if isinstance(self.alg.policy, FrontRESActorCritic) and critic_warmup_iters > 0:
+                warmup_active = (it - start_iter) < critic_warmup_iters
+                if warmup_active and not _warmup_actor_frozen:
+                    for param in self.alg.policy.residual_actor.parameters():
+                        param.requires_grad = False
+                    _warmup_actor_frozen = True
+                    print(f"[Runner] Critic warmup started: Actor frozen for {critic_warmup_iters} iterations")
+                elif not warmup_active and _warmup_actor_frozen:
+                    for param in self.alg.policy.residual_actor.parameters():
+                        param.requires_grad = True
+                    _warmup_actor_frozen = False
+                    print(f"[Runner] Critic warmup complete at iteration {it}: Actor unfrozen")
 
             # Rollout: 训练首先需要积攒数据, 等数据攒够才能调用self.alg.update()更新权重
             with torch.inference_mode(): # 关闭计算图的梯度追踪, 只进行推理
@@ -774,8 +795,9 @@ class OnPolicyRunner:
         if self.empirical_normalization:
             if resumed_training:
                 # Resuming training: load student obs normalizer
-                # For ResidualActorCritic, obs_normalizer is GMT's frozen normalizer, don't load
-                if not isinstance(self.alg.policy, ResidualActorCritic):
+                # For ResidualActorCritic / FrontRESActorCritic, obs_normalizer IS GMT's frozen
+                # normalizer — never overwrite it with a checkpoint's normalizer statistics.
+                if not isinstance(self.alg.policy, (ResidualActorCritic, FrontRESActorCritic)):
                     self.obs_normalizer.load_state_dict(loaded_dict["obs_norm_state_dict"])
 
                 if self.training_type == "mosaic":

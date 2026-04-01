@@ -74,14 +74,7 @@ class RslRlDistillationCfg(RslRlPpoActorCriticCfg):
     teacher_hidden_dims: list[int] = [256, 256, 256]
 
 
-@configclass
-class RslRlSuperviseJointPosCfg(RslRlPpoActorCriticCfg):
-    """
-    FrontRES Policy Training: Loss Computer & Gradient Update
-    """
-    class_name: str = "SuperviseLearning"
-    student_hidden_dims: list[int] = [256, 256, 256]
-    gmt_path: str = ""
+
 
 
 @configclass
@@ -118,31 +111,6 @@ class RslRlResidualActorCriticCfg(RslRlPpoActorCriticCfg):
     ref_vel_estimator_type: str = "mlp"
     """Type of estimator: 'mlp' or 'transformer'."""
 
-@configclass
-class RslRlFrontResidualActorCriticCfg(RslRlPpoActorCriticCfg):
-    """
-    Front-End Residual Actor-Critic configuration.
-    Stage 2 RL Finetuning: FrontRES outputs Δq, which modifies q_ref before entering GMT.
-    """
-    class_name: str = "FrontRESActorCritic"
-
-    # FrontRES network configuration
-    residual_hidden_dims: list[int] = [1024, 1024, 512, 256]
-    residual_last_layer_gain: float = 0.01
-
-    # Observation index configuration
-    q_ref_start_idx: int = MISSING
-    """The starting index of q_ref in the flattened observation vector."""
-
-    # GMT configuration
-    gmt_checkpoint_path: str = MISSING
-    gmt_policy_cfg: dict | None = None
-    init_critic_from_gmt: bool = False
-
-    # Ref vel estimator configuration (for GMT input)
-    num_ref_vel_estimator_obs: int | None = None
-    ref_vel_estimator_checkpoint_path: str | None = None
-    ref_vel_estimator_type: str = "mlp"
 
 @configclass
 class RslRlMOSAICAlgorithmCfg(RslRlPpoAlgorithmCfg):
@@ -244,3 +212,58 @@ class RslRlKLDistillationAlgorithmCfg:
     """Loss function type: 'kl' (recommended), 'mse', or 'huber'."""
     kl_reduction: str = "mean"
     """How to reduce KL loss: 'mean' or 'sum'."""
+
+# ====== FrontRES Stage 1: Supervised Learning ======
+
+@configclass # policy
+class RslRlSuperviseJointPosCfg(RslRlPpoActorCriticCfg):
+    """
+    FrontRES Policy Training: Loss Computer & Gradient Update
+    """
+    class_name: str = "SuperviseLearning"
+    student_hidden_dims: list[int] = [256, 256, 256]
+    gmt_path: str = ""
+
+@configclass # algorithm
+class RslRlSuperviseAlgorithmCfg:
+    """FrontRES Stage 1 Supervised Training"""
+    class_name: str = "SuperviseTrainer"
+    num_learning_epochs: int = 5
+    learning_rate: float = 1.0e-3
+    gradient_length: int = 15
+    max_grad_norm: float = 1.0
+    loss_type: str = "mse"
+
+# ====== FrontRES Stage 1: Supervised Learning ======
+
+# ========== FrontRES Stage 2: RL Finetune ==========
+
+@configclass # policy
+class RslRlFrontResidualActorCriticCfg(RslRlPpoActorCriticCfg):
+    """
+    Front-End Residual Actor-Critic configuration.
+    Stage 2 RL Finetuning: FrontRES outputs Δq, which modifies q_ref before entering GMT.
+    """
+    class_name: str = "FrontRESActorCritic"
+
+    # FrontRES network configuration
+    residual_hidden_dims: list[int] = [1024, 1024, 512, 256]
+    residual_last_layer_gain: float = 0.01
+
+    # Observation index configuration
+    q_ref_start_idx: int = MISSING
+    """The starting index of q_ref in the flattened observation vector."""
+
+    # GMT configuration
+    gmt_checkpoint_path: str = MISSING
+    gmt_policy_cfg: dict | None = None
+    init_critic_from_gmt: bool = False
+
+    # Ref vel estimator configuration (for GMT input)
+    num_ref_vel_estimator_obs: int | None = None
+    ref_vel_estimator_checkpoint_path: str | None = None
+    ref_vel_estimator_type: str = "mlp"
+
+    # Action noise type: "scalar" (shared std per action) or "log" (log-parameterized std)
+    noise_std_type: str = "scalar"
+

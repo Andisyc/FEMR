@@ -890,152 +890,145 @@ class SupervisedTrackingEnvCfg(GeneralTrackingEnvCfg):
 
 
 @configclass
-class RLFinetuneEventCfg:
-    """Configuration for strong domain randomization events for RL fine-tuning."""
-
-    # startup
-    physics_material = EventTerm(
-        func=mdp.randomize_rigid_body_material,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": (0.4, 2.0),
-            "dynamic_friction_range": (0.4, 1.5),
-            "restitution_range": (0.0, 0.2),
-            "num_buckets": 128,
-        },
-    )
-
-    add_joint_default_pos = EventTerm(
-        func=mdp.randomize_joint_default_pos,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"]),
-            "pos_distribution_params": (-0.02, 0.02),
-            "operation": "add",
-        },
-    )
-
-    base_com = EventTerm(
-        func=mdp.randomize_rigid_body_com,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
-            "com_range": {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.05, 0.05)},
-        },
-    )
-
-    randomize_gravity = EventTerm(
-        func=mdp.randomize_gravity,
-        mode="startup",
-        params={"x_range": (-1.5, 1.5), "y_range": (-1.5, 1.5), "z_range": (-13.0, -7.0)},
-    )
-
-    randomize_actuator_properties = EventTerm(
-        func=mdp.randomize_actuator_properties,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"]),
-            "stiffness_range": (0.7, 1.3),
-            "damping_range": (0.7, 1.3),
-        },
-    )
-
-    add_payload = EventTerm(
-        func=mdp.add_payload_mass,
-        mode="startup",
-        params={"asset_cfg": SceneEntityCfg("robot", body_names=["torso_link"]), "mass_range": (0.0, 7.0)},
-    )
-
-    # interval
-    push_robot = EventTerm(
-        func=mdp.push_by_setting_velocity,
-        mode="interval",
-        interval_range_s=(0.5, 2.5),
-        params={"velocity_range": VELOCITY_RANGE},
-    )
-
-
-@configclass
-class RLFinetuneRewardsCfg:
-    """Reward terms for RL fine-tuning, focusing on physical realism."""
-
-    # --- Tracking Rewards (lower weight than expert) ---
-    motion_body_pos = RewTerm(
-        func=mdp.motion_relative_body_position_error_exp,
-        weight=0.5,
-        params={"command_name": "motion", "std": 0.3},
-    )
-    motion_body_ori = RewTerm(
-        func=mdp.motion_relative_body_orientation_error_exp,
-        weight=0.5,
-        params={"command_name": "motion", "std": 0.4},
-    )
-    motion_body_lin_vel = RewTerm(
-        func=mdp.motion_global_body_linear_velocity_error_exp,
-        weight=0.75,
-        params={"command_name": "motion", "std": 1.0},
-    )
-    motion_body_ang_vel = RewTerm(
-        func=mdp.motion_global_body_angular_velocity_error_exp,
-        weight=0.75,
-        params={"command_name": "motion", "std": 3.14},
-    )
-
-    # --- Physical Realism Penalties (higher weight) ---
-    undesired_contacts = RewTerm(
-        func=mdp.undesired_contacts,
-        weight=-2.0,  # Heavily penalize falling
-        params={
-            "sensor_cfg": SceneEntityCfg(
-                "contact_forces",
-                body_names=[
-                    r"^(?!left_ankle_roll_link$)(?!right_ankle_roll_link$)(?!left_wrist_yaw_link$)(?!right_wrist_yaw_link$).+$"
-                ],
-            ),
-            "threshold": 1.0,
-        },
-    )
-    joint_limit = RewTerm(
-        func=mdp.joint_pos_limits,
-        weight=-20.0,  # Heavily penalize joint limit violations
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])},
-    )
-    joint_torque = RewTerm(func=mdp.joint_torques_l2, weight=-2e-4)  # Penalize high torque
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.5)  # Encourage smoother actions
-
-
-@configclass
-class FrontRESFinetuneTrackingEnvCfg(TrackingEnvCfg):
+class FrontRESFinetuneTrackingEnvCfg(GeneralTrackingEnvCfg):
     """
     Environment configuration for Stage 2: RL Finetuning of FrontRES.
+
+    Physics-level DR is handled by `events` (Isaac Lab EventManager).
+    Motion-level DR (perturbations applied to q_ref, not the simulated robot)
+    is handled by `motion_perturbations`, which is read by MultiMotionCommand
+    to instantiate a MotionPerturber.
     """
-    scene: MySceneCfg = MySceneCfg(num_envs=8192, env_spacing=2.5)
-    
-    # Inherit from the base tracking environment configuration
-    # and explicitly set configurations for Stage 2 RL Finetuning.
-    commands: MultiMotionCommandsCfg = MultiMotionCommandsCfg()
+
+    @configclass
+    class RLFinetuneEventCfg:
+        """Randomazation events, FrontRES Stage 2 RL Finetune"""
+
+        # startup
+        physics_material = EventTerm(
+            func=mdp.randomize_rigid_body_material,
+            mode="startup",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+                "static_friction_range": (0.4, 2.0),
+                "dynamic_friction_range": (0.4, 1.5),
+                "restitution_range": (0.0, 0.2),
+                "num_buckets": 128,
+            },
+        )
+
+        add_joint_default_pos = EventTerm(
+            func=mdp.randomize_joint_default_pos,
+            mode="startup",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"]),
+                "pos_distribution_params": (-0.02, 0.02),
+                "operation": "add",
+            },
+        )
+
+        base_com = EventTerm(
+            func=mdp.randomize_rigid_body_com,
+            mode="startup",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+                "com_range": {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.05, 0.05)},
+            },
+        )
+
+        randomize_gravity = EventTerm(
+            func=mdp.randomize_gravity,
+            mode="startup",
+            params={"x_range": (-1.5, 1.5), "y_range": (-1.5, 1.5), "z_range": (-13.0, -7.0)},
+        )
+
+        randomize_actuator_properties = EventTerm(
+            func=mdp.randomize_actuator_properties,
+            mode="startup",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"]),
+                "stiffness_range": (0.7, 1.3),
+                "damping_range": (0.7, 1.3),
+            },
+        )
+
+        add_payload = EventTerm(
+            func=mdp.add_payload_mass,
+            mode="startup",
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=["torso_link"]), "mass_range": (0.0, 7.0)},
+        )
+
+        # interval
+        push_robot = EventTerm(
+            func=mdp.push_by_setting_velocity,
+            mode="interval",
+            interval_range_s=(0.5, 2.5),
+            params={"velocity_range": VELOCITY_RANGE},
+        )
+
+    @configclass
+    class RLFinetuneRewardsCfg:
+        """Reward terms, FrontRES Stage 2 RL Finetune, Physics-level DR"""
+
+        # --- Tracking Rewards (lower weight than expert) ---
+        motion_body_pos = RewTerm(
+            func=mdp.motion_relative_body_position_error_exp,
+            weight=0.5,
+            params={"command_name": "motion", "std": 0.3},
+        )
+        motion_body_ori = RewTerm(
+            func=mdp.motion_relative_body_orientation_error_exp,
+            weight=0.5,
+            params={"command_name": "motion", "std": 0.4},
+        )
+        motion_body_lin_vel = RewTerm(
+            func=mdp.motion_global_body_linear_velocity_error_exp,
+            weight=0.75,
+            params={"command_name": "motion", "std": 1.0},
+        )
+        motion_body_ang_vel = RewTerm(
+            func=mdp.motion_global_body_angular_velocity_error_exp,
+            weight=0.75,
+            params={"command_name": "motion", "std": 3.14},
+        )
+
+        # --- Physical Realism Penalties (higher weight) ---
+        undesired_contacts = RewTerm(
+            func=mdp.undesired_contacts,
+            weight=-2.0,
+            params={
+                "sensor_cfg": SceneEntityCfg(
+                    "contact_forces",
+                    body_names=[
+                        r"^(?!left_ankle_roll_link$)(?!right_ankle_roll_link$)(?!left_wrist_yaw_link$)(?!right_wrist_yaw_link$).+$"
+                    ],
+                ),
+                "threshold": 1.0,
+            },
+        )
+        joint_limit = RewTerm(
+            func=mdp.joint_pos_limits,
+            weight=-20.0,
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])},
+        )
+        joint_torque = RewTerm(func=mdp.joint_torques_l2, weight=-2e-4)
+        action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.5)
+
     rewards: RLFinetuneRewardsCfg = RLFinetuneRewardsCfg()
     events: RLFinetuneEventCfg = RLFinetuneEventCfg()
-    observations: ObservationsCfg = ObservationsCfg()
-    actions: ActionsCfg = ActionsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
-    motion_perturbations: MotionPerturbationCfg = MotionPerturbationCfg()
 
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
 
-        # Make sure to use the multi-motion command generator
-        self.commands = MultiMotionCommandsCfg()
-
-        # Use the custom reward function for finetuning
-        self.rewards = RLFinetuneRewardsCfg()
-
-        # Use the strong domain randomization for finetuning
-        self.events = RLFinetuneEventCfg()
-        
-        # The observation groups are inherited from the base TrackingEnvCfg,
-        # which already provides the necessary 'policy' and 'critic' groups
-        # for PPO-based reinforcement learning.
-        self.observations = ObservationsCfg()
+        # Motion-level domain randomization: perturb q_ref to simulate
+        # physical artifacts (floating, penetration) in the reference motion.
+        # Applied inside MultiMotionCommand via MotionPerturber — NOT via EventManager.
+        self.motion_perturbations.float_prob = 0.3
+        self.motion_perturbations.float_ratio = 0.05
+        self.motion_perturbations.sink_prob = 0.3
+        self.motion_perturbations.sink_ratio = 0.05
+        self.motion_perturbations.foot_slip_prob = 0.2
+        self.motion_perturbations.foot_slip_ratio = 0.03
+        self.motion_perturbations.body_drag_prob = 0.2
+        self.motion_perturbations.body_drag_ratio = 0.02
