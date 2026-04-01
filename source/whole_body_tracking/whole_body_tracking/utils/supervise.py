@@ -140,10 +140,15 @@ class SuperviseTrainer:
         loss = 0
         cnt = 0
 
+        # Accumulators for diagnostic metrics
+        sum_pred_norm = 0.0
+        sum_gt_norm = 0.0
+        sum_joint_mae = None  # will be (num_actions,) tensor
+
         for epoch in range(self.num_learning_epochs):
             self.policy.reset(hidden_states=self.last_hidden_states)
             self.policy.detach_hidden_states()
-            
+
             # 直接按时间步迭代我们内置的 Buffer
             for obs, target_actions, dones in self.storage.generator():
                 # Inference of the FrontRES student
@@ -156,6 +161,19 @@ class SuperviseTrainer:
                 loss = loss + behavior_loss
                 mean_behavior_loss += behavior_loss.item()
                 cnt += 1
+
+                # --- Diagnostic metrics (no grad needed) ---
+                with torch.no_grad():
+                    # L2 norm of predicted and ground-truth Δq (batch mean)
+                    sum_pred_norm += predicted_actions.norm(dim=-1).mean().item()
+                    sum_gt_norm   += target_actions.norm(dim=-1).mean().item()
+
+                    # Per-joint absolute error, accumulated for mean across all batches
+                    joint_mae = (predicted_actions - target_actions).abs().mean(dim=0)  # (num_actions,)
+                    if sum_joint_mae is None:
+                        sum_joint_mae = joint_mae
+                    else:
+                        sum_joint_mae = sum_joint_mae + joint_mae
 
                 # Gradient step
                 if cnt % self.gradient_length == 0:
@@ -178,7 +196,15 @@ class SuperviseTrainer:
         self.last_hidden_states = self.policy.get_hidden_states()
         self.policy.detach_hidden_states()
 
-        # Construct the loss dictionary
-        loss_dict = {"behavior": mean_behavior_loss}
+        # --- Construct the loss dictionary ---
+        assert sum_joint_mae is not None, "Storage was empty — no batches processed."
+        mean_joint_mae = sum_joint_mae / cnt  # (num_actions,)
+        loss_dict = {
+            "behavior":        mean_behavior_loss,          # MSE/Huber: 主收敛指标
+            "delta_q_pred_norm": sum_pred_norm / cnt,       # FrontRES 输出 Δq 的 L2 范数
+            "delta_q_gt_norm":   sum_gt_norm   / cnt,       # 真实 Δq 的 L2 范数（参考量级）
+            "joint_mae_mean":  mean_joint_mae.mean().item(),  # 全关节平均绝对误差
+            "joint_mae_max":   mean_joint_mae.max().item(),   # 最难拟合关节的误差
+        }
 
         return loss_dict
