@@ -201,6 +201,16 @@ class OnPolicyRunner:
 
             # Teacher obs normalizer (not used for residual learning)
             self.teacher_obs_normalizer = torch.nn.Identity().to(self.device)
+        elif self.training_type == "supervise":
+            # Student obs: empirical normalization is fine for MLP inputs
+            if self.empirical_normalization:
+                self.obs_normalizer = EmpiricalNormalization(shape=[num_obs], until=1.0e8).to(self.device)
+            else:
+                self.obs_normalizer = torch.nn.Identity().to(self.device)
+            # Target Δq must NOT be normalized: it is in physical units (radians) and will be
+            # added directly to q_ref in Stage 2. Normalizing would corrupt the scale.
+            self.privileged_obs_normalizer = torch.nn.Identity().to(self.device)
+            self.teacher_obs_normalizer = torch.nn.Identity().to(self.device)
         elif self.empirical_normalization:
             self.obs_normalizer = EmpiricalNormalization(shape=[num_obs], until=1.0e8).to(self.device)
             self.privileged_obs_normalizer = EmpiricalNormalization(shape=[num_privileged_obs], 
@@ -370,6 +380,12 @@ class OnPolicyRunner:
         if ref_vel_estimator_obs is not None:
             ref_vel_estimator_obs = ref_vel_estimator_obs.to(self.device)
 
+        # For Stage 1: save raw obs BEFORE obs_normalizer for GMT ONNX input.
+        # The exported ONNX includes the normalizer in the computation graph, so
+        # get_gmt_action() must receive raw (unnormalized) observations.
+        if self.training_type == "supervise":
+            obs_raw_for_gmt = obs.clone()
+
         # Normalize initial observations (same as in training loop) 观测归一器
         obs = self.obs_normalizer(obs) # 三种观测量分别使用不同观测归一器
 
@@ -451,10 +467,10 @@ class OnPolicyRunner:
                                 motion_groups = motion_command.env_motion_groups.clone()
 
                         # 前向传播获得动作
-                        actions = self.alg.act(obs, 
-                                               privileged_obs, 
-                                               teacher_obs=teacher_obs, 
-                                               ref_vel_estimator_obs=ref_vel_estimator_obs, 
+                        actions = self.alg.act(obs,
+                                               privileged_obs,
+                                               teacher_obs=teacher_obs,
+                                               ref_vel_estimator_obs=ref_vel_estimator_obs,
                                                motion_groups=motion_groups)
 
                         # Track velocity estimator error if available 仿真器有速度真值, 但学生模型只能瞎猜
@@ -468,14 +484,37 @@ class OnPolicyRunner:
                             # MAE per environment (averaging across 3 velocity dimensions)
                             vel_error = (self.alg.last_estimated_ref_vel - gt_ref_vel_b).abs().mean(dim=-1)  # [N]
                             vel_est_error_buffer.extend(vel_error.cpu().numpy().tolist()) # 送入buffer
+
+                        # PAMR action mapping (RL action → env action)
+                        if hasattr(self.alg.policy, 'get_env_action'):
+                            env_actions = self.alg.policy.get_env_action(obs, actions)
+                        else:
+                            env_actions = actions
+
+                    elif self.training_type == "supervise":
+                        # Stage 1 Supervised Learning rollout:
+                        #   - GMT drives the environment (produces joint position targets)
+                        #   - Student only records (obs, target_delta_q) for offline training
+                        #
+                        # GMT ONNX includes the normalizer in the computation graph, so it
+                        # expects RAW (unnormalized) observations.  `obs_raw_for_gmt` holds
+                        # the un-normalized policy obs from the previous step.
+                        env_actions = self.alg.policy.get_gmt_action(obs_raw_for_gmt)
+
+                        # Record current (obs_t, target_delta_q_t) transition for training.
+                        # privileged_obs == obs_dict["target"] == Δq_gt (Identity normalizer, raw units).
+                        # The return value (student's Δq_pred) is discarded here; prediction is
+                        # recomputed with gradients inside SuperviseTrainer.update().
+                        _ = self.alg.act(obs, privileged_obs)
+
                     else:
                         actions = self.alg.act(obs, privileged_obs)
-                    
-                    # --- PAMR 动作映射 (RL Action -> Env Action) ---
-                    if hasattr(self.alg.policy, 'get_env_action'):
-                        env_actions = self.alg.policy.get_env_action(obs, actions)
-                    else:
-                        env_actions = actions
+
+                        # PAMR action mapping (RL action → env action)
+                        if hasattr(self.alg.policy, 'get_env_action'):
+                            env_actions = self.alg.policy.get_env_action(obs, actions)
+                        else:
+                            env_actions = actions
 
                     # Step the environment 仿真环境更新观测量/动作评分/序列结束与否/监控数据
                     # NOTE: This is where the environment computes the *next* observation internally.
@@ -489,7 +528,11 @@ class OnPolicyRunner:
                         obs = obs_dict[self.policy_obs_type].to(self.device)
                     else:
                         obs = obs.to(self.device)
-                    
+
+                    # For Stage 1: update raw obs BEFORE normalization for GMT ONNX next step
+                    if self.training_type == "supervise":
+                        obs_raw_for_gmt = obs.clone()
+
                     # perform normalization 对本次循环的观测量进行归一化, 用于计算下步动作
                     obs = self.obs_normalizer(obs)
                     if self.privileged_obs_type is not None and self.privileged_obs_type in obs_dict:
@@ -632,22 +675,23 @@ class OnPolicyRunner:
             self.writer.add_scalar(f"Loss/{key}", value, locs["it"])
         self.writer.add_scalar("Loss/learning_rate", self.alg.learning_rate, locs["it"])
 
-        # -- Policy
-        self.writer.add_scalar("Policy/mean_noise_std", mean_std.item(), locs["it"])
+        # -- Policy (not meaningful during supervised learning)
+        if self.training_type != "supervise":
+            self.writer.add_scalar("Policy/mean_noise_std", mean_std.item(), locs["it"])
 
         # -- Performance
         self.writer.add_scalar("Perf/total_fps", fps, locs["it"])
         self.writer.add_scalar("Perf/collection time", locs["collection_time"], locs["it"])
         self.writer.add_scalar("Perf/learning_time", locs["learn_time"], locs["it"])
 
-        # -- Training
-        if len(locs["rewbuffer"]) > 0:
+        # -- Training (RL metrics: skip during supervised learning to avoid confusing oscillation)
+        if self.training_type != "supervise" and len(locs["rewbuffer"]) > 0:
             # separate logging for intrinsic and extrinsic rewards
             if hasattr(self.alg, "rnd") and self.alg.rnd:
                 self.writer.add_scalar("Rnd/mean_extrinsic_reward", statistics.mean(locs["erewbuffer"]), locs["it"])
                 self.writer.add_scalar("Rnd/mean_intrinsic_reward", statistics.mean(locs["irewbuffer"]), locs["it"])
                 self.writer.add_scalar("Rnd/weight", self.alg.rnd.weight, locs["it"])
-            
+
             # everything else
             self.writer.add_scalar("Train/mean_reward", statistics.mean(locs["rewbuffer"]), locs["it"])
             self.writer.add_scalar("Train/mean_episode_length", statistics.mean(locs["lenbuffer"]), locs["it"])
@@ -657,14 +701,14 @@ class OnPolicyRunner:
 
         str = f" \033[1m Learning iteration {locs['it']}/{locs['tot_iter']} \033[0m "
 
-        if len(locs["rewbuffer"]) > 0:
+        if self.training_type != "supervise" and len(locs["rewbuffer"]) > 0:
             log_string = (
                 f"""{'#' * width}\n"""
                 f"""{str.center(width, ' ')}\n\n"""
                 f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                     'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                 f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
-            
+
             # -- Losses
             for key, value in locs["loss_dict"].items():
                 log_string += f"""{f'Mean {key} loss:':>{pad}} {value:.4f}\n"""
@@ -673,7 +717,7 @@ class OnPolicyRunner:
                 log_string += (
                     f"""{'Mean extrinsic reward:':>{pad}} {statistics.mean(locs['erewbuffer']):.2f}\n"""
                     f"""{'Mean intrinsic reward:':>{pad}} {statistics.mean(locs['irewbuffer']):.2f}\n""")
-                
+
             log_string += f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
             # -- Velocity estimator error (if available)
             if 'vel_est_error_buffer' in locs and len(locs['vel_est_error_buffer']) > 0:

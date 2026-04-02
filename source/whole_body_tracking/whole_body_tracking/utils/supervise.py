@@ -143,6 +143,9 @@ class SuperviseTrainer:
         # Accumulators for diagnostic metrics
         sum_pred_norm = 0.0
         sum_gt_norm = 0.0
+        sum_cos_sim = 0.0
+        sum_rel_err = 0.0
+        sum_valid_ratio = 0.0
         sum_joint_mae = None  # will be (num_actions,) tensor
 
         for epoch in range(self.num_learning_epochs):
@@ -154,8 +157,16 @@ class SuperviseTrainer:
                 # Inference of the FrontRES student
                 predicted_actions = self.policy.forward(obs)
 
-                # 计算行为克隆 Loss：预测的 delta_q vs 真实的 delta_q
-                behavior_loss = self.loss_fn(predicted_actions, target_actions)
+                # Mask out terminal transitions: when done=True the robot has fallen.
+                # q_sim is from a fallen/reset state → Δq_gt = q_ref - q_sim_fallen is
+                # anomalously large and noisy.  Training on it would corrupt FrontRES.
+                # valid: (B, 1) float, 1 = valid transition, 0 = terminal (fallen)
+                valid = 1.0 - dones.float()         # (B, 1)
+                n_valid = valid.sum().clamp(min=1.0) # avoid divide-by-zero
+
+                # Per-sample loss then weighted mean over valid samples only
+                per_sample_loss = self.loss_fn(predicted_actions, target_actions, reduction="none")  # (B, A)
+                behavior_loss = (per_sample_loss.mean(dim=-1, keepdim=True) * valid).sum() / n_valid
 
                 # Total loss
                 loss = loss + behavior_loss
@@ -164,9 +175,24 @@ class SuperviseTrainer:
 
                 # --- Diagnostic metrics (no grad needed) ---
                 with torch.no_grad():
+                    # Fraction of valid (non-terminal) samples in this batch
+                    sum_valid_ratio += valid.mean().item()
+
+                    pred_norm = predicted_actions.norm(dim=-1)   # (B,)
+                    gt_norm   = target_actions.norm(dim=-1)       # (B,)
+
                     # L2 norm of predicted and ground-truth Δq (batch mean)
-                    sum_pred_norm += predicted_actions.norm(dim=-1).mean().item()
-                    sum_gt_norm   += target_actions.norm(dim=-1).mean().item()
+                    sum_pred_norm += pred_norm.mean().item()
+                    sum_gt_norm   += gt_norm.mean().item()
+
+                    # Cosine similarity between predicted and GT Δq (direction alignment)
+                    cos_sim = nn.functional.cosine_similarity(predicted_actions, target_actions, dim=-1)
+                    sum_cos_sim += cos_sim.mean().item()
+
+                    # Relative error: ||pred - gt|| / ||gt||  (normalized accuracy)
+                    err_norm = (predicted_actions - target_actions).norm(dim=-1)
+                    rel_err  = err_norm / (gt_norm + 1e-8)
+                    sum_rel_err += rel_err.mean().item()
 
                     # Per-joint absolute error, accumulated for mean across all batches
                     joint_mae = (predicted_actions - target_actions).abs().mean(dim=0)  # (num_actions,)
@@ -198,13 +224,25 @@ class SuperviseTrainer:
 
         # --- Construct the loss dictionary ---
         assert sum_joint_mae is not None, "Storage was empty — no batches processed."
+        mean_pred_norm = sum_pred_norm / cnt
+        mean_gt_norm   = sum_gt_norm   / cnt
         mean_joint_mae = sum_joint_mae / cnt  # (num_actions,)
         loss_dict = {
-            "behavior":        mean_behavior_loss,          # MSE/Huber: 主收敛指标
-            "delta_q_pred_norm": sum_pred_norm / cnt,       # FrontRES 输出 Δq 的 L2 范数
-            "delta_q_gt_norm":   sum_gt_norm   / cnt,       # 真实 Δq 的 L2 范数（参考量级）
-            "joint_mae_mean":  mean_joint_mae.mean().item(),  # 全关节平均绝对误差
-            "joint_mae_max":   mean_joint_mae.max().item(),   # 最难拟合关节的误差
+            # --- Primary convergence signal ---
+            "behavior":            mean_behavior_loss,           # MSE/Huber loss (main signal, should ↓)
+            # --- Amplitude calibration ---
+            "delta_q_pred_norm":   mean_pred_norm,               # predicted Δq L2 norm
+            "delta_q_gt_norm":     mean_gt_norm,                 # GT Δq L2 norm (reference)
+            "delta_q_norm_ratio":  mean_pred_norm / (mean_gt_norm + 1e-8),  # pred/gt ≈ 1.0 when calibrated
+            # --- Direction alignment ---
+            "cosine_similarity":   sum_cos_sim / cnt,            # cos(pred, gt) ∈ [-1,1], target → 1.0
+            # --- Normalized accuracy ---
+            "relative_error":      sum_rel_err / cnt,            # ||pred-gt||/||gt||, target < 0.1
+            # --- Data quality ---
+            "valid_ratio":         sum_valid_ratio / cnt,         # fraction of non-terminal steps (fall rate proxy)
+            # --- Per-joint breakdown ---
+            "joint_mae_mean":      mean_joint_mae.mean().item(), # mean absolute error across joints
+            "joint_mae_max":       mean_joint_mae.max().item(),  # worst joint (upper bound on error)
         }
 
         return loss_dict
