@@ -158,6 +158,8 @@ class SuperviseLearning(nn.Module):
         """
         Run GMT for action
         """
+        print(f"\n inside get_gmt_action \n")
+
         if not self.gmt_session:
             raise RuntimeError("GMT model is not loaded. Cannot compute GMT action.")
 

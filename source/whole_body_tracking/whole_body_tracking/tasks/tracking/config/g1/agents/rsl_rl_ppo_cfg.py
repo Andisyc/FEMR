@@ -166,8 +166,8 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
     critic_warmup_iterations = 1000
 
     # GMT .pt 路径（FrontRESActorCritic 用 torch.load() 加载，必须是 .pt 而非 .onnx，支持双服务器路径选择）
-    _p1 = Path("/home/yuxuancheng/MOSAIC/logs/rsl_rl/g1_flat/exported/policy.pt")
-    _p2 = Path("/home/chengyuxuan/MOSAIC/logs/rsl_rl/g1_flat/exported/policy.pt")
+    _p1 = Path("/home/yuxuancheng/MOSAIC/model/model_27000.pt")
+    _p2 = Path("/home/chengyuxuan/MOSAIC/model/model_27000.pt")
     _gmt_pt_path = _p1 if _p1.exists() else (_p2 if _p2.exists() else None)
 
     policy = RslRlFrontResidualActorCriticCfg(

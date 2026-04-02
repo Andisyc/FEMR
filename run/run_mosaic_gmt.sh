@@ -19,10 +19,18 @@
 #     --log_project_name GMT_MOSAIC_RL \
 #     --run_name GMT_MOSAIC_GMT
 
-# stage pre: testing run
+# testing run
 HYDRA_FULL_ERROR=1 python scripts/rsl_rl/train.py \
     --task=General-Tracking-Flat-G1-Wo-State-Estimation-v0-World-Coordinate-Reward \
     --num_envs=2 \
+    --motion /home/chengyuxuan/MOSAIC/q_npz \
+    --logger wandb \
+    --headless \
+    --device cuda:0
+
+HYDRA_FULL_ERROR=1 bash ~/IsaacLab_mosaic/isaaclab.sh -p ~/MOSAIC/scripts/rsl_rl/train.py \
+    --task=FrontRES-Supervised-Tracking-Flat-G1-v0 \
+    --num_envs=12000 \
     --motion /home/chengyuxuan/MOSAIC/q_npz \
     --logger wandb \
     --headless \
