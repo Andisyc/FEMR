@@ -129,17 +129,17 @@ class G1FlatSupervisedRunnerCfg(RslRlOnPolicyRunnerCfg):
     experiment_name = "g1_flat_supervised"
     empirical_normalization = True
 
-    # GMT ONNX 路径（SuperviseLearning 用 onnxruntime 加载，支持双服务器路径选择）
-    _p1 = Path("/home/yuxuancheng/MOSAIC/model/exported/policy.onnx")
-    _p2 = Path("/home/chengyuxuan/MOSAIC/model/exported/policy.onnx")
-    _gmt_onnx_path = _p1 if _p1.exists() else (_p2 if _p2.exists() else None)
+    # GMT .pt checkpoint 路径（与 Stage 2 共用同一个 checkpoint，支持双服务器路径选择）
+    _p1 = Path("/home/yuxuancheng/MOSAIC/model/model_27000.pt")
+    _p2 = Path("/home/chengyuxuan/MOSAIC/model/model_27000.pt")
+    _gmt_pt_path = _p1 if _p1.exists() else (_p2 if _p2.exists() else None)
 
     policy = RslRlSuperviseJointPosCfg(
         class_name="SuperviseLearning",
         init_noise_std=1.0,
         student_hidden_dims=[1024, 1024, 512, 256],
         activation="elu",
-        gmt_path=_gmt_onnx_path,)
+        gmt_path=_gmt_pt_path,)
 
     algorithm = RslRlSuperviseAlgorithmCfg()
 

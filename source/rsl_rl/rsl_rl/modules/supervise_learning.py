@@ -30,8 +30,8 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-import onnxruntime as ort
 
+from rsl_rl.modules import ActorCritic, EmpiricalNormalization
 from rsl_rl.utils import resolve_nn_activation
 
 
@@ -67,28 +67,90 @@ class SuperviseLearning(nn.Module):
         super().__init__()
         activation = resolve_nn_activation(activation)
 
-        # ========== GMT Tracker (专家模型) ==========
-        # GMT模型用于在训练循环中生成目标数据 (q_sim)
-        self.gmt_session = None
+        # ========== GMT Tracker (专家模型, .pt checkpoint) ==========
+        # Uses the same loading logic as FrontRESActorCritic (Stage 2) so the
+        # architecture is always inferred correctly from the checkpoint itself.
+        self.gmt_policy: ActorCritic | None = None
+        self.gmt_normalizer: EmpiricalNormalization | None = None
         if gmt_path:
-            print(f"[SuperviseLearning] Loading GMT model from: {gmt_path}")
-            try:
-                providers = (
-                    ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                    if torch.cuda.is_available()
-                    else ["CPUExecutionProvider"]
-                )
-                self.gmt_session = ort.InferenceSession(gmt_path, providers=providers)
-                self.gmt_input_name = self.gmt_session.get_inputs()[0].name
-                self.gmt_output_name = self.gmt_session.get_outputs()[0].name
-                print(f"[SuperviseLearning] GMT model loaded. Input: '{self.gmt_input_name}', Output: '{self.gmt_output_name}'")
-            except Exception as e:
-                print(f"[SuperviseLearning] Failed to load GMT model from {gmt_path}: {e}")
-                self.gmt_session = None
+            print(f"[SuperviseLearning] Loading GMT policy from: {gmt_path}")
+            checkpoint = torch.load(gmt_path, map_location="cpu", weights_only=False)
+            sd = checkpoint["model_state_dict"]
+
+            # ---- infer architecture ----
+            has_skip = "actor.actor_layer1.weight" in sd
+            if has_skip:
+                layer1_in  = sd["actor.actor_layer1.weight"].shape[1]
+                layer1_out = sd["actor.actor_layer1.weight"].shape[0]
+                rem0_in    = sd["actor.actor_remaining.0.weight"].shape[1]
+                ref_vel_dim = rem0_in - layer1_out
+                gmt_actor_in  = layer1_in + ref_vel_dim
+                gmt_critic_in = sd["critic.0.weight"].shape[1]
+                rem_keys = [k for k in sd if k.startswith("actor.actor_remaining.") and k.endswith(".weight")]
+                last_key = max(rem_keys, key=lambda k: int(k.split(".")[2]))
+                gmt_num_actions = sd[last_key].shape[0]
+                extra_cfg: dict = {"ref_vel_skip_first_layer": True, "ref_vel_dim": ref_vel_dim}
+            else:
+                gmt_actor_in  = sd["actor.0.weight"].shape[1]
+                gmt_critic_in = sd["critic.0.weight"].shape[1]
+                act_keys = [k for k in sd if k.startswith("actor.") and k.endswith(".weight")]
+                last_key = max(act_keys, key=lambda k: int(k.split(".")[1]))
+                gmt_num_actions = sd[last_key].shape[0]
+                extra_cfg = {}
+
+            # hidden dims (all layers except the last output layer)
+            if has_skip:
+                actor_weight_keys = sorted(
+                    [k for k in sd if k.startswith("actor.actor_remaining.") and k.endswith(".weight")],
+                    key=lambda k: int(k.split(".")[2]))
+            else:
+                actor_weight_keys = sorted(
+                    [k for k in sd if k.startswith("actor.") and k.endswith(".weight")],
+                    key=lambda k: int(k.split(".")[1]))
+            actor_hidden_dims = [sd[k].shape[0] for k in actor_weight_keys[:-1]]
+
+            critic_weight_keys = sorted(
+                [k for k in sd if k.startswith("critic.") and k.endswith(".weight")],
+                key=lambda k: int(k.split(".")[1]))
+            critic_hidden_dims = [sd[k].shape[0] for k in critic_weight_keys[:-1]]
+
+            noise_std_type = "scalar" if "std" in sd else "log"
+            init_noise_std = (sd["std"][0].item() if "std" in sd
+                              else torch.exp(sd["log_std"][0]).item())
+
+            act_fn = resolve_nn_activation(activation)
+            self.gmt_policy = ActorCritic(
+                num_actor_obs=gmt_actor_in,
+                num_critic_obs=gmt_critic_in,
+                num_actions=gmt_num_actions,
+                actor_hidden_dims=actor_hidden_dims,
+                critic_hidden_dims=critic_hidden_dims,
+                activation=act_fn,
+                init_noise_std=init_noise_std,
+                noise_std_type=noise_std_type,
+                **extra_cfg,
+            )
+            self.gmt_policy.load_state_dict(sd)
+            self.gmt_policy.eval()
+            for p in self.gmt_policy.parameters():
+                p.requires_grad = False
+            print(f"[SuperviseLearning] GMT policy loaded and frozen "
+                  f"(actor_in={gmt_actor_in}, actions={gmt_num_actions})")
+
+            # ---- load frozen obs normalizer ----
+            if "obs_norm_state_dict" in checkpoint:
+                obs_norm_sd = checkpoint["obs_norm_state_dict"]
+                norm_dim = obs_norm_sd["_mean"].shape[1]
+                self.gmt_normalizer = EmpiricalNormalization(shape=[norm_dim], until=1.0e8)
+                self.gmt_normalizer.load_state_dict(obs_norm_sd)
+                self.gmt_normalizer.eval()
+                self.gmt_normalizer.until = 0  # freeze statistics
+                print(f"[SuperviseLearning] GMT obs normalizer loaded and frozen (dim={norm_dim})")
+            else:
+                print("[SuperviseLearning] WARNING: no obs_norm_state_dict in GMT checkpoint")
 
         # ========== student (FrontRES 网络) ==========
-        # 这个 MLP 就是学习预测残差Δq的学生网络
-        student_layers = []
+        student_layers = [] # 这个 MLP 就是学习预测残差Δq的学生网络
         student_layers.append(nn.Linear(num_actor_obs, student_hidden_dims[0]))
         student_layers.append(activation)
         for layer_index in range(len(student_hidden_dims)):
@@ -156,18 +218,17 @@ class SuperviseLearning(nn.Module):
     @torch.no_grad()
     def get_gmt_action(self, obs: torch.Tensor) -> torch.Tensor:
         """
-        Run GMT for action
+        Run GMT (PyTorch .pt) inference on a batch of raw observations.
+        obs is normalised internally by gmt_normalizer before being fed to gmt_policy.
         """
-        print(f"\n inside get_gmt_action \n")
+        if self.gmt_policy is None:
+            raise RuntimeError("GMT policy is not loaded. Cannot compute GMT action.")
 
-        if not self.gmt_session:
-            raise RuntimeError("GMT model is not loaded. Cannot compute GMT action.")
-
-        # 健壮的批量推理: 转换至 cpu 并剥离梯度
-        gmt_input_np = obs.detach().cpu().numpy().astype("float32")
-        gmt_input = {self.gmt_input_name: gmt_input_np}
-        gmt_action_np = self.gmt_session.run([self.gmt_output_name], gmt_input)[0]
-        return torch.from_numpy(gmt_action_np).to(obs.device)
+        device = obs.device
+        # Normalize with GMT's frozen normalizer (same as Stage 2)
+        if self.gmt_normalizer is not None:
+            obs = self.gmt_normalizer(obs.to(self.gmt_normalizer._mean.device))
+        return self.gmt_policy.act_inference(obs.to(device))
 
     @staticmethod
     def get_supervision_target(q_sim: torch.Tensor, q_ref: torch.Tensor) -> torch.Tensor:
