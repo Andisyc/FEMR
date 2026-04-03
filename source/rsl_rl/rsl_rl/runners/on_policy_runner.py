@@ -659,13 +659,29 @@ class OnPolicyRunner:
                     infotensor = torch.cat((infotensor, ep_info[key].to(self.device)))
                 value = torch.mean(infotensor)
 
-                # log to logger and terminal
-                if "/" in key:
-                    self.writer.add_scalar(key, value, locs["it"])
-                    ep_string += f"""{f'{key}:':>{pad}} {value:.4f}\n"""
+                if self.training_type == "supervise":
+                    # Stage 1: only log termination-related keys under GMT/ prefix.
+                    # Reward and other RL metrics are meaningless here.
+                    key_lower = key.lower().replace("/", "_")
+                    if any(r in key_lower for r in ["rew", "reward"]):
+                        continue  # skip reward metrics entirely
+                    # Everything else (e.g. termination reasons) → GMT/ namespace
+                    log_key = key if "/" in key else f"GMT/{key}"
+                    self.writer.add_scalar(log_key, value, locs["it"])
+                    ep_string += f"""{f'GMT {key}:':>{pad}} {value:.4f}\n"""
                 else:
-                    self.writer.add_scalar("Episode/" + key, value, locs["it"])
-                    ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
+                    # log to logger and terminal
+                    if "/" in key:
+                        self.writer.add_scalar(key, value, locs["it"])
+                        ep_string += f"""{f'{key}:':>{pad}} {value:.4f}\n"""
+                    else:
+                        self.writer.add_scalar("Episode/" + key, value, locs["it"])
+                        ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
+
+        # -- Stage 1: GMT episode-length as action-completion proxy
+        if self.training_type == "supervise" and len(locs["lenbuffer"]) > 0:
+            gmt_ep_len = statistics.mean(locs["lenbuffer"])
+            self.writer.add_scalar("GMT/mean_episode_length", gmt_ep_len, locs["it"])
 
         mean_std = self.alg.policy.action_std.mean()
         fps = int(collection_size / (locs["collection_time"] + locs["learn_time"]))
@@ -729,11 +745,18 @@ class OnPolicyRunner:
                 f"""{'#' * width}\n"""
                 f"""{str.center(width, ' ')}\n\n"""
                 f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
-                    'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
-                f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
-            
-            for key, value in locs["loss_dict"].items():
-                log_string += f"""{f'{key}:':>{pad}} {value:.4f}\n"""
+                    'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n""")
+
+            if self.training_type == "supervise":
+                # Stage 1 console summary: SL losses + GMT episode length
+                for key, value in locs["loss_dict"].items():
+                    log_string += f"""{f'SL {key}:':>{pad}} {value:.4f}\n"""
+                if len(locs["lenbuffer"]) > 0:
+                    log_string += f"""{'GMT mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.1f}\n"""
+            else:
+                log_string += f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
+                for key, value in locs["loss_dict"].items():
+                    log_string += f"""{f'{key}:':>{pad}} {value:.4f}\n"""
 
         log_string += ep_string
         log_string += (
