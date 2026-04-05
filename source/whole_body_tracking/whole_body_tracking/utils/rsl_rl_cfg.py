@@ -277,28 +277,27 @@ class RslRlFrontResidualActorCriticCfg(RslRlPpoActorCriticCfg):
 @configclass  # algorithm
 class RslRlPpoFrontRESAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """
-    FrontRES Stage-2 RL Fine-tuning 专用 PPO 配置。
+    FrontRES Stage-2 RL Fine-tuning PPO Configs
 
-    在标准 PPO 基础上新增：
-    - 正则化项 L_reg = λ_reg * ||Δq_mean||^2：
-        拉近 FrontRES 输出与零（等价于 ||q' - q_ref||^2），
-        防止策略为规避奖惩而输出过大的修正量，保持动作序列接近原始运动参考。
-    - PCGrad（use_pcgrad=True 时生效）：
-        当 PPO 梯度与正则化梯度方向冲突时，将各自梯度投影到对方的法平面，
-        消除相互抑制，实现自适应权重协调。
+    Adding at Standard PPO:
+    - Regularization terms L_reg = λ_reg * ||Δq_mean||^2:
+        Pulling FrontRES's output and 0 (equal to ||q' - q_ref||^2),
+        In case policy output enormous Δq to avoid punishment, 
+        Keeping q' close to q_ref
+    - PCGrad (use_pcgrad=True):
+        when the gradients of PPO and regularization are conflict, 
+        project gradients into others' normal plane to eliminate mutual inhibition
     """
     class_name: str = "PPO"
 
     # 正则化权重
     lambda_reg_init:  float = 0.01
-    """正则化初始权重。0.0 表示禁用。"""
+
+    # 正则化初始权重, 0.0表示禁用
     lambda_reg_decay: float = 1.0
-    """每次 update() 后乘以此系数衰减。1.0 = 不衰减（推荐）。"""
+
+    # 每次 update()后乘以此系数衰减, 1.0=不衰减 (推荐)
     lambda_reg_min:   float = 0.0
-    """正则化权重下限。"""
 
-    # 梯度冲突协调
+    # 梯度冲突协调, True启用PCGrad, False直接加权相加
     use_pcgrad: bool = False
-    """True = 启用 PCGrad 在 PPO loss 与正则化 loss 之间协调梯度；
-    False = 直接加权相加（更快但可能互相抑制）。"""
-
