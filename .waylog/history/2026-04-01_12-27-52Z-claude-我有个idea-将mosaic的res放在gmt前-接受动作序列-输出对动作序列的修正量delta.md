@@ -845,3 +845,28 @@ Stage 1 最大的失效风险是**平凡解**：网络学会输出 Δq ≈ 0，L
 七个指标，每个各司其职，没有冗余。确认后我来对照代码检查是否需要补充或删减。
 
 ---
+
+
+**User**
+
+请执行
+
+---
+
+
+**Claude**
+
+[rsl_rl_ppo_cfg.py:145-152](source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/rsl_rl_ppo_cfg.py#L145-L152) を確認したところ、すでに正しく設定済みです：
+
+```python
+algorithm = RslRlSuperviseAlgorithmCfg(
+    loss_type="huber",
+    lower_limb_indices=list(range(12)),  # ← 既に設定済み
+    lower_limb_weight=2.0,
+    jump_threshold=0.2,
+)
+```
+
+`list(range(12))` = indices 0-11、robot_registry.py の joint 順と完全一致しており、追加変更は不要です。
+
+---
