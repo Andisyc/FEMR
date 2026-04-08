@@ -226,6 +226,7 @@ class PPO:
         mean_entropy = 0
         mean_reg_loss = 0
         mean_smooth_loss = 0
+        mean_kl_divergence = 0
 
         # ── smooth_loss + delta_q diagnostics: 在 rollout buffer 全局计算 ──────
         # 必须在循环前计算：mini-batch 会打乱时序顺序，无法正确计算相邻帧差分。
@@ -358,6 +359,8 @@ class PPO:
                     # Update the learning rate for all parameter groups
                     for param_group in self.optimizer.param_groups:
                         param_group["lr"] = self.learning_rate
+
+                    mean_kl_divergence += kl_mean.item()
 
             # Surrogate loss
             ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
@@ -508,11 +511,16 @@ class PPO:
         # -- Clear the storage
         self.storage.clear()
 
+        # kl_divergence is only accumulated when schedule="adaptive"; guard against div-by-zero
+        if self.schedule == "adaptive" and self.desired_kl is not None:
+            mean_kl_divergence /= num_updates
+
         # construct the loss dictionary
         loss_dict = {
             "value_function": mean_value_loss,
             "surrogate": mean_surrogate_loss,
             "entropy": mean_entropy,
+            "kl_divergence": mean_kl_divergence,
         }
         if self.use_frontres_reg:
             loss_dict["reg"]              = mean_reg_loss
