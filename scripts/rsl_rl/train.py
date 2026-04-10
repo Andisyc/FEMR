@@ -178,9 +178,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # save resume path before creating a new log_dir
     if agent_cfg.resume:
-        # get path to previous checkpoint
-        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
-        print(f"[INFO]: Loading model checkpoint from: {resume_path}")
+        # If student_checkpoint_path is set as an absolute path in the config, use it directly.
+        # This bypasses get_checkpoint_path() which only looks inside the current experiment's
+        # log_root_path — cross-experiment loading (e.g. Stage 1 → Stage 2) requires this.
+        _direct = getattr(agent_cfg, "student_checkpoint_path", None)
+        if _direct is not None and os.path.isfile(str(_direct)):
+            resume_path = str(_direct)
+            print(f"[INFO]: Loading model checkpoint from direct path: {resume_path}")
+        else:
+            resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+            print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
         runner.load(resume_path)
 
