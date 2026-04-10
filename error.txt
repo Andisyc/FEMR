@@ -41,9 +41,9 @@ Traceback (most recent call last):
     func(env_cfg, agent_cfg, *args, **kwargs)
   File "/home/chengyuxuan/MOSAIC/scripts/rsl_rl/train.py", line 192, in main
     runner.load(resume_path)
-  File "/home/chengyuxuan/MOSAIC/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 866, in load
-    self.alg.policy.residual_actor.load_state_dict(mapped_dict, strict=True)
+  File "/home/chengyuxuan/MOSAIC/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 935, in load
+    self.privileged_obs_normalizer.load_state_dict(loaded_dict["privileged_obs_norm_state_dict"])
   File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/torch/nn/modules/module.py", line 2584, in load_state_dict
     raise RuntimeError(
-RuntimeError: Error(s) in loading state_dict for Sequential:
-        size mismatch for 0.weight: copying a param with shape torch.Size([1024, 770]) from checkpoint, the shape in current model is torch.Size([1024, 800]).
+RuntimeError: Error(s) in loading state_dict for EmpiricalNormalization:
+        Missing key(s) in state_dict: "_mean", "_var", "_std", "count".
