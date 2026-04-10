@@ -168,7 +168,7 @@ def add_payload_mass(
     masses = math_utils.sample_uniform(mass_range[0], mass_range[1], (len(env_ids),), device=env.device)
 
     # get the current mass of the bodies
-    body_masses = asset.root_physx_view.get_masses(clone=True)
+    body_masses = asset.root_physx_view.get_masses().clone()
 
     # add the payload mass
     body_masses[env_ids[:, None], body_ids] += masses.unsqueeze(1)
