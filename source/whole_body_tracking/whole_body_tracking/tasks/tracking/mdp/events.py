@@ -129,12 +129,12 @@ def randomize_actuator_properties(
     asset: Articulation = env.scene[asset_cfg.name]
     joint_ids = asset_cfg.joint_ids
 
-    # Get original actuator properties
-    actuator_props = asset.actuator_props_cfg.to_dict()
-    original_stiffness = torch.tensor([prop.stiffness for prop in actuator_props["control_cfg"]], device=env.device)
-    original_damping = torch.tensor([prop.damping for prop in actuator_props["control_cfg"]], device=env.device)
+    # Get nominal stiffness/damping from asset.data (shape: [num_envs, num_joints]).
+    # Use env 0 as the reference — all envs share the same defaults at startup.
+    nominal_stiffness = asset.data.default_joint_stiffness[0, joint_ids]  # (num_joints,)
+    nominal_damping   = asset.data.default_joint_damping[0, joint_ids]    # (num_joints,)
 
-    # sample random stiffness and damping multipliers
+    # sample per-env multipliers
     stiffness_multipliers = math_utils.sample_uniform(
         stiffness_range[0], stiffness_range[1], (len(env_ids), len(joint_ids)), device=env.device
     )
@@ -142,11 +142,11 @@ def randomize_actuator_properties(
         damping_range[0], damping_range[1], (len(env_ids), len(joint_ids)), device=env.device
     )
 
-    # apply the multipliers to the original values
-    new_stiffness = original_stiffness[joint_ids] * stiffness_multipliers
-    new_damping = original_damping[joint_ids] * damping_multipliers
+    # apply multipliers to nominal values
+    new_stiffness = nominal_stiffness.unsqueeze(0) * stiffness_multipliers  # (num_env_ids, num_joints)
+    new_damping   = nominal_damping.unsqueeze(0)   * damping_multipliers
 
-    # set the new actuator properties
+    # write back to simulation
     asset.write_actuator_stiffness_to_sim(new_stiffness, joint_ids=joint_ids, env_ids=env_ids)
     asset.write_actuator_damping_to_sim(new_damping, joint_ids=joint_ids, env_ids=env_ids)
 
