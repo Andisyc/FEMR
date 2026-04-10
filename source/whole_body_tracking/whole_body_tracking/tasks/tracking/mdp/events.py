@@ -100,18 +100,19 @@ def randomize_gravity(
     y_range: tuple[float, float],
     z_range: tuple[float, float],
 ):
-    """Randomize the gravity vector."""
-    if env_ids is None:
-        env_ids = torch.arange(env.num_envs, device=env.device)
+    """Randomize the gravity vector.
 
-    # sample random gravity values
-    gravity = torch.zeros(len(env_ids), 3, device=env.device)
-    gravity[:, 0] = math_utils.sample_uniform(x_range[0], x_range[1], (len(env_ids),), device=env.device)
-    gravity[:, 1] = math_utils.sample_uniform(y_range[0], y_range[1], (len(env_ids),), device=env.device)
-    gravity[:, 2] = math_utils.sample_uniform(z_range[0], z_range[1], (len(env_ids),), device=env.device)
+    Gravity is a global PhysX simulation property — it cannot be set per-environment.
+    A single random gravity vector is sampled and applied to the entire simulation.
+    """
+    # sample one global gravity vector (per-env gravity is not supported by PhysX)
+    gx = float(math_utils.sample_uniform(x_range[0], x_range[1], (1,), device=env.device))
+    gy = float(math_utils.sample_uniform(y_range[0], y_range[1], (1,), device=env.device))
+    gz = float(math_utils.sample_uniform(z_range[0], z_range[1], (1,), device=env.device))
 
-    # set the new gravity values
-    env.sim.physics_sim_view.set_gravity(gravity, env_ids=env_ids)
+    # set_gravity expects a carb.Float3 or a plain (x, y, z) tuple
+    import carb
+    env.sim.physics_sim_view.set_gravity(carb.Float3(gx, gy, gz))
 
 
 def randomize_actuator_properties(
