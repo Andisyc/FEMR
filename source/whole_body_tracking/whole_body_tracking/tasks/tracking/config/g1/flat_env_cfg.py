@@ -288,6 +288,14 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         # Set G1-specific configurations
         self.scene.robot = G1_CYLINDER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.actions.joint_pos.scale = G1_ACTION_SCALE
+
+        # Match Stage 1 (SupervisedObservationsCfg.PolicyCfg) observation space.
+        # Stage 1 was trained WITHOUT motion_anchor_pos_b (3 dims) and base_lin_vel (3 dims).
+        # With history_length=5: (3+3)*5 = 30 extra dims would cause a shape mismatch
+        # when loading Stage 1 checkpoint into the Stage 2 residual_actor.
+        self.observations.policy.motion_anchor_pos_b = None
+        self.observations.policy.base_lin_vel = None
+
         self.commands.motion.anchor_body_name = "torso_link"
         self.commands.motion.body_names = [
             "pelvis", 
