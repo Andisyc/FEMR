@@ -36,6 +36,14 @@ HYDRA_FULL_ERROR=1 bash ~/IsaacLab_mosaic/isaaclab.sh -p ~/MOSAIC/scripts/rsl_rl
     --headless \
     --device cuda:0
 
+HYDRA_FULL_ERROR=1 bash ~/IsaacLab_mosaic/isaaclab.sh -p ~/MOSAIC/scripts/rsl_rl/train.py \
+    --task=FrontRES-RLFinetune-Tracking-Flat-G1-v0 \
+    --num_envs=12000 \
+    --motion /home/chengyuxuan/MOSAIC/q_npz \
+    --logger wandb \
+    --headless \
+    --device cuda:0
+
 # stage 0: MOSAIC GMT training
 HYDRA_FULL_ERROR=1 nohup bash ~/IsaacLab_mosaic/isaaclab.sh -p ~/MOSAIC/scripts/rsl_rl/train.py \
     --task=General-Tracking-Flat-G1-Wo-State-Estimation-v0-World-Coordinate-Reward \
