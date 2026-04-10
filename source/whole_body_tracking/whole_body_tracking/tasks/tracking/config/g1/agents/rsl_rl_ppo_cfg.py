@@ -176,6 +176,12 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
     empirical_normalization = True
     resume = True  # 从 Stage 1 checkpoint 加载权重
 
+    # Stage 1 FrontRES 权重路径（绝对路径，直接传给 runner.load()，绕过 log_root_path 拼接）
+    # train.py 检测到 student_checkpoint_path 存在时优先使用，否则回退到 load_run/load_checkpoint 机制
+    _s1 = Path("/home/yuxuancheng/MOSAIC/stage1/model_25000.pt")  # SUST_Main
+    _s2 = Path("/home/chengyuxuan/MOSAIC/stage1/model_25000.pt")  # Wujie_4090
+    student_checkpoint_path = _s1 if _s1.exists() else (_s2 if _s2.exists() else None)
+
     # Stage 1 → Stage 2 过渡时需要重置探索噪声 std，
     # 否则 runner 会沿用 checkpoint 里的旧值，忽略 init_noise_std=0.1 的设定。
     reset_noise_std_on_resume = True
