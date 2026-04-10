@@ -932,7 +932,14 @@ class OnPolicyRunner:
                 else:
                     # For PPO and Distillation: load both normalizers
                     if load_critic:
-                        self.privileged_obs_normalizer.load_state_dict(loaded_dict["privileged_obs_norm_state_dict"])
+                        priv_sd = loaded_dict.get("privileged_obs_norm_state_dict", {})
+                        if priv_sd and "_mean" in priv_sd:
+                            self.privileged_obs_normalizer.load_state_dict(priv_sd)
+                        else:
+                            # Stage 1 (SuperviseLearning) checkpoint has no valid
+                            # privileged_obs_norm_state_dict — critic normalizer starts fresh.
+                            print("[Runner] WARNING: privileged_obs_norm_state_dict missing or invalid — "
+                                  "privileged_obs_normalizer starts fresh (expected for Stage 1 → Stage 2 transfer).")
             else:
                 # Not resuming (e.g., Distillation after RL): load teacher normalizer
                 # For Distillation: the checkpoint's obs_norm is the teacher's normalizer
