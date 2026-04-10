@@ -1,14 +1,49 @@
 Traceback (most recent call last):
-  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/gymnasium/envs/registration.py", line 734, in make
-    env = env_creator(**env_spec_kwargs)
-  File "/home/chengyuxuan/IsaacLab_mosaic/source/isaaclab/isaaclab/envs/manager_based_rl_env.py", line 79, in __init__
-    super().__init__(cfg=cfg)
-  File "/home/chengyuxuan/IsaacLab_mosaic/source/isaaclab/isaaclab/envs/manager_based_env.py", line 163, in __init__
-    self.load_managers()
-  File "/home/chengyuxuan/IsaacLab_mosaic/source/isaaclab/isaaclab/envs/manager_based_rl_env.py", line 135, in load_managers
-    self.event_manager.apply(mode="startup")
-  File "/home/chengyuxuan/IsaacLab_mosaic/source/isaaclab/isaaclab/managers/event_manager.py", line 273, in apply
-    term_cfg.func(self._env, env_ids, **term_cfg.params)
-  File "/home/chengyuxuan/MOSAIC/source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/events.py", line 179, in add_payload_mass
-    asset.root_physx_view.set_masses(body_masses, env_ids=env_ids_cpu)
-TypeError: ArticulationView.set_masses() got an unexpected keyword argument 'env_ids'
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/home/chengyuxuan/.vscode-server/extensions/ms-python.debugpy-2025.18.0-linux-x64/bundled/libs/debugpy/adapter/../../debugpy/launcher/../../debugpy/__main__.py", line 71, in <module>
+    cli.main()
+  File "/home/chengyuxuan/.vscode-server/extensions/ms-python.debugpy-2025.18.0-linux-x64/bundled/libs/debugpy/adapter/../../debugpy/launcher/../../debugpy/../debugpy/server/cli.py", line 508, in main
+    run()
+  File "/home/chengyuxuan/.vscode-server/extensions/ms-python.debugpy-2025.18.0-linux-x64/bundled/libs/debugpy/adapter/../../debugpy/launcher/../../debugpy/../debugpy/server/cli.py", line 358, in run_file
+    runpy.run_path(target, run_name="__main__")
+  File "/home/chengyuxuan/.vscode-server/extensions/ms-python.debugpy-2025.18.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_runpy.py", line 310, in run_path
+    return _run_module_code(code, init_globals, run_name, pkg_name=pkg_name, script_name=fname)
+  File "/home/chengyuxuan/.vscode-server/extensions/ms-python.debugpy-2025.18.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_runpy.py", line 127, in _run_module_code
+    _run_code(code, mod_globals, init_globals, mod_name, mod_spec, pkg_name, script_name)
+  File "/home/chengyuxuan/.vscode-server/extensions/ms-python.debugpy-2025.18.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_runpy.py", line 118, in _run_code
+    exec(code, run_globals)
+  File "/home/chengyuxuan/MOSAIC/scripts/rsl_rl/train.py", line 210, in <module>
+    main()
+  File "/home/chengyuxuan/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 104, in wrapper
+    hydra_main()
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/main.py", line 94, in decorated_main
+    _run_hydra(
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 394, in _run_hydra
+    _run_app(
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 457, in _run_app
+    run_and_report(
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 223, in run_and_report
+    raise ex
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 220, in run_and_report
+    return func()
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 458, in <lambda>
+    lambda: hydra.run(
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 132, in run
+    _ = ret.return_value
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 260, in return_value
+    raise self._return_value
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 186, in run_job
+    ret.return_value = task_function(task_cfg)
+  File "/home/chengyuxuan/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/home/chengyuxuan/MOSAIC/scripts/rsl_rl/train.py", line 192, in main
+    runner.load(resume_path)
+  File "/home/chengyuxuan/MOSAIC/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 866, in load
+    self.alg.policy.residual_actor.load_state_dict(mapped_dict, strict=True)
+  File "/home/chengyuxuan/miniconda3/envs/mosaic/lib/python3.10/site-packages/torch/nn/modules/module.py", line 2584, in load_state_dict
+    raise RuntimeError(
+RuntimeError: Error(s) in loading state_dict for Sequential:
+        size mismatch for 0.weight: copying a param with shape torch.Size([1024, 770]) from checkpoint, the shape in current model is torch.Size([1024, 800]).
