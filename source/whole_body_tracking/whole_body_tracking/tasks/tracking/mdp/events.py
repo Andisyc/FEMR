@@ -147,8 +147,8 @@ def randomize_actuator_properties(
     new_damping   = nominal_damping.unsqueeze(0)   * damping_multipliers
 
     # write back to simulation
-    asset.write_actuator_stiffness_to_sim(new_stiffness, joint_ids=joint_ids, env_ids=env_ids)
-    asset.write_actuator_damping_to_sim(new_damping, joint_ids=joint_ids, env_ids=env_ids)
+    asset.write_joint_stiffness_to_sim(new_stiffness, joint_ids=joint_ids, env_ids=env_ids)
+    asset.write_joint_damping_to_sim(new_damping, joint_ids=joint_ids, env_ids=env_ids)
 
 
 def add_payload_mass(
