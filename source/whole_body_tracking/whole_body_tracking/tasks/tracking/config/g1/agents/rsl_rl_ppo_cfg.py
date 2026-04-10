@@ -227,11 +227,25 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
         gmt_checkpoint_path=_gmt_pt_path,  # 冻结的 GMT 权重（.pt 格式，torch.load 加载）
 
         # q_ref 在策略观测向量中的起始索引。
-        # ObservationsCfg.PolicyCfg 的第一项是 command = [joint_pos(29), joint_vel(29)]，
-        # 因此 q_ref (joint_pos) 从 index 0 开始。
-        # 如果启用了 history_length=5，需要确认 MultiMotionCommand 在哪一帧切片。
-        # 建议先以 q_ref_start_idx=0 运行一步 debug，打印 obs[0, 0:29] 与 q_ref 比对。
-        q_ref_start_idx=0,
+        #
+        # IsaacLab 以 per-group 方式拼接历史：先将所有时间步的 command 拼在一起，
+        # 再拼 motion_anchor_ori_b，以此类推（而非 per-timestep 交错）。
+        # 历史顺序为 oldest→newest：[t-4, t-3, t-2, t-1, t]
+        #
+        # obs 布局（history_length=5，obs_dim=770）：
+        #   [0:290]    command (q_ref_pos(29)+q_ref_vel(29)) × 5 帧
+        #     [0:29]   q_ref_pos at t-4  ← index 0（最旧帧，已过去，错误目标）
+        #     [232:261] q_ref_pos at t   ← 当前帧，FrontRES 应修正的目标
+        #   [290:320]  motion_anchor_ori_b × 5 帧
+        #   [320:335]  base_ang_vel × 5 帧
+        #   [335:480]  joint_pos_rel × 5 帧
+        #   [480:625]  joint_vel_rel × 5 帧
+        #   [625:770]  actions × 5 帧
+        #
+        # 计算：当前帧偏移 = (history_length - 1) × command_per_frame
+        #                   = (5 - 1) × 58 = 232
+        # q_ref_pos 在当前帧的起始索引 = 232（q_ref_vel 在 261:290）
+        q_ref_start_idx=232,
     )
 
     algorithm = RslRlPpoFrontRESAlgorithmCfg(

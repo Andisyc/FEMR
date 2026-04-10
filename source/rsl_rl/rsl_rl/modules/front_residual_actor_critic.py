@@ -67,19 +67,24 @@ class ComposedActor(nn.Module):
             obs_modified[:, self.q_ref_start_idx:q_ref_end_idx] + delta_q
         )
 
-        # 3. Pad to GMT input dim if needed (e.g. ref_vel suffix)
-        if obs_modified.shape[-1] < self.gmt_actor_input_dim:
-            padding_size = self.gmt_actor_input_dim - obs_modified.shape[-1]
-            padding = torch.zeros(
-                *obs_modified.shape[:-1], padding_size,
-                device=obs_modified.device,
-                dtype=obs_modified.dtype)
-            gmt_obs = torch.cat([obs_modified, padding], dim=-1)
-        elif obs_dim == self.gmt_actor_input_dim:
-            # Restore ref_vel suffix from original input
-            ref_vel = observations[:, self.num_actor_obs:]
+        # 3. Build GMT observation (handle ref_vel suffix or padding if needed)
+        if self.gmt_actor_input_dim > self.num_actor_obs:
+            # GMT expects more dims than policy_obs.
+            # If the original input already contained the ref_vel suffix, restore it;
+            # otherwise pad with zeros (ONNX-safe: avoids empty-tensor torch.cat).
+            ref_vel_dim = self.gmt_actor_input_dim - self.num_actor_obs
+            if obs_dim == self.gmt_actor_input_dim:
+                # Caller provided policy_obs + ref_vel concatenated
+                ref_vel = observations[:, self.num_actor_obs:]
+            else:
+                # No ref_vel available — pad with zeros
+                ref_vel = torch.zeros(
+                    observations.shape[0], ref_vel_dim,
+                    device=observations.device,
+                    dtype=observations.dtype)
             gmt_obs = torch.cat([obs_modified, ref_vel], dim=-1)
         else:
+            # GMT input dim == policy_obs dim (our standard setup: both 770)
             gmt_obs = obs_modified
 
         # 4. GMT forward (frozen)

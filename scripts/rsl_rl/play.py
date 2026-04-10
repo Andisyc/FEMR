@@ -30,9 +30,9 @@ parser.add_argument("--num_envs",
                     help="Number of environments to simulate."
                     )
 
-parser.add_argument("--task", 
-                    type=str, 
-                    default="Tracking-Flat-G1-Wo-State-Estimation-v0", 
+parser.add_argument("--task",
+                    type=str,
+                    default="FrontRES-RLFinetune-Tracking-Flat-G1-v0",  # Stage 2 FrontRES task
                     help="Name of the task."
                     )
 
@@ -44,15 +44,32 @@ parser.add_argument("--motion",
 
 from pathlib import Path
 
-path1 = Path("/home/chengyuxuan/MOSAIC/model/model_27000.pt")
-path2 = Path("/home/yuxuancheng/MOSAIC/model/model_27000.pt")
+# Stage 2 FrontRES checkpoint (logs dir, populated after training completes).
+# Falls back to GMT path so the script can also be used for GMT-only playback
+# by passing --task Tracking-Flat-G1-Wo-State-Estimation-v0 on the CLI.
+_s2_1 = Path("/home/chengyuxuan/MOSAIC/logs/rsl_rl/g1_flat_frontres_finetune")
+_s2_2 = Path("/home/yuxuancheng/MOSAIC/logs/rsl_rl/g1_flat_frontres_finetune")
+_gmt1 = Path("/home/chengyuxuan/MOSAIC/model/model_27000.pt")
+_gmt2 = Path("/home/yuxuancheng/MOSAIC/model/model_27000.pt")
 
-model_path = path1 if path1.exists() else (path2 if path2.exists() else None)
+# Prefer the most recent Stage 2 checkpoint if the log dir exists
+def _latest_ckpt(log_dir: Path):
+    if not log_dir.exists():
+        return None
+    runs = sorted(log_dir.iterdir(), reverse=True)
+    for run in runs:
+        ckpts = sorted(run.glob("model_*.pt"), key=lambda p: int(p.stem.split("_")[1]))
+        if ckpts:
+            return ckpts[-1]
+    return None
 
-parser.add_argument("--resume_path", 
-                    type=str, 
-                    default=model_path, 
-                    help="Path to the motion file."
+_s2_ckpt = _latest_ckpt(_s2_1) or _latest_ckpt(_s2_2)
+model_path = _s2_ckpt or (_gmt1 if _gmt1.exists() else (_gmt2 if _gmt2.exists() else None))
+
+parser.add_argument("--resume_path",
+                    type=str,
+                    default=model_path,
+                    help="Path to the checkpoint (.pt) to load."
                     )
 
 # append RSL-RL cli arguments
@@ -249,19 +266,26 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     ppo_runner.load(args_cli.resume_path, load_optimizer=False, load_critic=not args_cli.skip_critic)
 
     # obtain the trained policy for inference
+    from rsl_rl.modules import FrontRESActorCritic
+
     # Check if velocity estimator is enabled
     use_velocity_estimator = (hasattr(ppo_runner.alg, 'ref_vel_estimator') and
                               ppo_runner.alg.ref_vel_estimator is not None and
                               hasattr(ppo_runner.alg, 'use_estimate_ref_vel') and
                               ppo_runner.alg.use_estimate_ref_vel)
 
+    is_frontres = isinstance(ppo_runner.alg.policy, FrontRESActorCritic)
+    if is_frontres:
+        # Ensure alpha=1 for pure deployment (no curriculum scaling)
+        ppo_runner.alg.policy.delta_q_alpha = 1.0
+        print("[Play] FrontRES policy detected — delta_q_alpha set to 1.0 for inference.")
+
     if use_velocity_estimator:
         print("[Play] Using velocity estimator for inference")
-        # For velocity estimator, we need to handle observation processing manually
-        # Cannot use get_inference_policy because it doesn't handle velocity augmentation
         policy = None  # Will process observations manually in the loop
     else:
-        # 兼容 FrontRES SuperviseLearning，直接调用其 act_inference
+        # FrontRES: act_inference runs full ComposedActor pipeline (FrontRES → GMT → actions)
+        # SuperviseLearning (Stage 1): has .student attribute
         if hasattr(ppo_runner.alg, "policy") and hasattr(ppo_runner.alg.policy, "student"):
             policy = ppo_runner.alg.policy.act_inference
         else:
@@ -281,8 +305,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # else:
     #     print(f"[WARNING] GMT ONNX model path not found or not specified in config. GMT will not be used.")
 
-    # export policy to onnx/jit
+    # export policy to onnx
     export_model_dir = os.path.join(os.path.dirname(args_cli.resume_path), "exported")
+
+    # FrontRES exports as a single composite ONNX (FrontRES + GMT packaged together)
+    # so RobotBridge can use it as a drop-in replacement for the GMT ONNX:
+    #   obs (770-dim, same format as MosaicEnv) → ONNX → motor actions
+    # The ONNX file name is "policy.onnx" in both cases; update mosaic.yaml checkpoint path.
+    onnx_filename = "policy.onnx"
 
     # Get velocity estimator info if available
     ref_vel_estimator = None
@@ -296,7 +326,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         ppo_runner.alg.policy,
         normalizer=ppo_runner.obs_normalizer,
         path=export_model_dir,
-        filename="policy.onnx",
+        filename=onnx_filename,
         ref_vel_estimator=ref_vel_estimator,
         ref_vel_estimator_obs_dim=ref_vel_estimator_obs_dim,)
 
