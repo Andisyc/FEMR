@@ -650,6 +650,45 @@ class FrontRESActorCritic(nn.Module):
         """
         policy_obs, _, _ = self._parse_observations(observations)
 
+        # ── DEBUG: 验证 obs 布局与 q_ref_start_idx 是否正确，只打印一次 ──────────
+        if not getattr(self, '_obs_layout_debug_done', False):
+            obs_dim = policy_obs.shape[1]
+
+            # 从 command manager 中拿到当前帧真实 q_ref（需要 env 引用，这里用 obs 间接验证）
+            # 假设布局：command(58)×5 + ori(6)×5 + ang_vel(3)×5 + jpos(29)×5 + jvel(29)×5 + act(29)×5
+            single_frame = 58 + 6 + 3 + 29 + 29 + 29  # = 154
+            history_len  = obs_dim // single_frame
+
+            print("\n" + "="*60)
+            print(f"[DEBUG FrontRES] obs_dim={obs_dim}, single_frame={single_frame}, "
+                  f"inferred history_length={history_len}")
+            print(f"[DEBUG FrontRES] q_ref_start_idx={self.q_ref_start_idx}, "
+                  f"num_actions={self.num_actions}")
+
+            # 打印各帧 q_ref_pos（obs[0:29], obs[58:87], ..., obs[232:261]）的均值
+            for i in range(history_len):
+                start = i * 58
+                end   = start + self.num_actions  # 29
+                frame_qref = policy_obs[0, start:end]
+                label = f"t-{history_len-1-i}" if i < history_len - 1 else "t(current)"
+                print(f"  obs[{start}:{end}] q_ref_pos @ {label}: "
+                      f"mean={frame_qref.mean().item():.4f}, "
+                      f"std={frame_qref.std().item():.4f}, "
+                      f"sample={frame_qref[:3].tolist()}")
+
+            # 打印 q_ref_start_idx 处的 slice
+            idx = self.q_ref_start_idx
+            target_slice = policy_obs[0, idx : idx + self.num_actions]
+            print(f"\n  → q_ref_start_idx={idx} 处的 slice: "
+                  f"mean={target_slice.mean().item():.4f}, "
+                  f"std={target_slice.std().item():.4f}, "
+                  f"sample={target_slice[:3].tolist()}")
+            print(f"  （如果与 t(current) 行一致，则 q_ref_start_idx 正确）")
+            print("="*60 + "\n")
+
+            self._obs_layout_debug_done = True
+        # ── END DEBUG ─────────────────────────────────────────────────────────
+
         # Cache full observations so get_env_action can access ref_vel if present
         self._cached_observations = observations
 
