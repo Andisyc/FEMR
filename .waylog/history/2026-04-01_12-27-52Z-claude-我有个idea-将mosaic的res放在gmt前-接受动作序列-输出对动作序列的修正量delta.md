@@ -4182,3 +4182,114 @@ class RLFinetuneObsCfg:
 ```
 
 ---
+
+
+**Claude**
+
+结论已经清晰，但再确认一下调用点：
+
+---
+
+
+**Claude**
+
+答案非常明确：
+
+---
+
+## FrontRES 是**逐时间步**的在线推断
+
+```
+每个控制步 t：
+  输入：obs_t (770维) = 当前时刻的历史观测窗口 [t-4, t-3, t-2, t-1, t]
+  网络：nn.Sequential (MLP，无循环/无注意力)
+  输出：Δq_t (29维) = 当前时刻的关节位置修正量
+```
+
+证据链：
+
+1. **网络是纯 MLP**（`_build_residual_actor` 返回 `nn.Sequential`，只有 `Linear + activation`，无 RNN/Transformer）
+2. **每步独立调用**（`delta_q = self.residual_actor(policy_obs)`，`policy_obs` 是单帧 `[N, 770]`）
+3. **`is_recurrent = False`**（[front_residual_actor_critic.py:114](source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py#L114)），runner 不会为它维护隐状态
+
+**"历史"的来源**是 obs 本身已经包含了过去 5 帧的窗口（history_length=5），而不是网络内部的循环状态。FrontRES 每步接收 770 维的滑动窗口，输出当前步的 29 维修正量。
+
+---
+
+## 对实验设计和论文写作的含义
+
+| 问题 | 答案 |
+|---|---|
+| FrontRES 的输入 | 当前时间步的滑动观测窗口 obs_t ∈ ℝ^770 |
+| FrontRES 的输出 | 当前时间步的修正量 Δq_t ∈ ℝ^29 |
+| 是否有序列记忆 | **无**，Markov 假设下的 reactive policy |
+| 历史信息如何引入 | 通过 obs 中的 history_length=5 窗口隐式编码 |
+| 计算图是否跨时间步 | **否**，每步独立前向，梯度不跨时间步传播 |
+| 适合的论文描述 | "online reactive residual policy" / "per-step residual correction" |
+
+---
+
+
+**Claude**
+
+原因明确：`scalar` 模式下 `self.std` 是无约束的 `nn.Parameter`，梯度更新可以把它推成负数，`Normal(mean, negative_std)` 直接报错。修复方法是用 `softplus` 保证输出恒正：
+
+---
+
+
+**Claude**
+
+同时检查 `action_std` property，它用于 wandb 日志，同样需要保护：
+
+---
+
+
+**Claude**
+
+`action_std` 从 `self.distribution.stddev` 读取，而 `distribution` 是用 softplus 后的 std 建立的，所以这里是安全的。
+
+---
+
+**根本原因：** `scalar` 模式的 `self.std` 是无约束参数，PPO 的熵正则化项 `entropy_coef * entropy` 会鼓励增大 std，而 `lambda_reg` 的梯度有时会把 std 推向负数方向，最终突破零点。
+
+**`softplus(x) = log(1 + e^x)` 的特性：**
+- 输入任意实数，输出恒 > 0
+- 在 x > 2 时近似等于 x（行为与原来一致）  
+- 在 x → -∞ 时趋近于 0（而非变成负数）
+- 梯度连续，不影响训练稳定性
+
+---
+
+
+**Claude**
+
+現在查看 EmpiricalNormalization 中是否也有类似问题：
+
+---
+
+
+**Claude**
+
+`_var` 靠增量更新（只加不减），`_std = sqrt(_var)` 恒非负，normalizer 安全。
+
+---
+
+问题集中在 **4 处** `scalar` 模式下直接使用无约束 `nn.Parameter` 作为 std：
+
+| 文件 | 行 | 是否有保护 |
+|---|---|---|
+| `actor_critic.py:245` | `std = self.std.expand_as(mean)` | ❌ |
+| `residual_actor_critic.py:580` | `std = self.std.expand_as(composed_mean)` | ❌ |
+| `student_teacher.py:95` | `std = self.std.expand_as(mean)` | ❌（甚至没有 scalar/log 分支）|
+| `front_residual_actor_critic.py:705` | `softplus(self.std)` | ✅ 已修复 |
+
+统一修复这三处：
+
+---
+
+
+**Claude**
+
+确认 `student_teacher.py` 有没有 import torch：
+
+---
