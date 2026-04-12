@@ -38,6 +38,16 @@ VELOCITY_RANGE = {
     "yaw": (-0.78, 0.78),
 }
 
+# Stage 2 RL Finetune 专用推力范围：降低强度，适合运动跟踪微调阶段
+FRONTRES_PUSH_VELOCITY_RANGE = {
+    "x": (-0.3, 0.3),
+    "y": (-0.3, 0.3),
+    "z": (-0.1, 0.1),
+    "roll": (-0.3, 0.3),
+    "pitch": (-0.3, 0.3),
+    "yaw": (-0.5, 0.5),
+}
+
 from isaaclab.terrains import TerrainGeneratorCfg, MeshPlaneTerrainCfg, HfRandomUniformTerrainCfg
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -906,21 +916,42 @@ class FrontRESFinetuneTrackingEnvCfg(GeneralTrackingEnvCfg):
 
     @configclass
     class RLFinetuneEventCfg:
-        """Randomazation events, FrontRES Stage 2 RL Finetune"""
+        """
+        Domain Randomization for FrontRES Stage 2 RL Finetune.
 
-        # startup
+        设计原则：
+          1. 只针对真实 sim2real gap，删除现实中不存在的干扰（重力随机化）
+          2. 全部使用 mode="startup"（物理在仿真启动时固定，Critic 能为每个 env
+             学出稳定的 V(s)，避免 reset 模式下 Critic 面对混合分布导致的高方差）
+          3. 缩小各项范围，最坏组合概率约 0.03%（8192 env 中仅约 2~3 个 env），
+             贡献近零梯度但不主动破坏收敛
+
+        保留项（真实 sim2real gap 来源）：
+          physics_material              — 地面材质不同
+          add_joint_default_pos         — 编码器零点误差
+          randomize_actuator_properties — PD 增益标定误差、关节摩擦
+          base_com                      — URDF 质心与真机偏差
+          add_payload                   — 真机负载
+          push_robot                    — 真实扰动（降低频率和强度）
+
+        删除项：
+          randomize_gravity             — 重力在真实世界中不变，纯噪声
+        """
+
+        # startup（PhysX 材质重建代价高；收窄下限避免极端湿滑）
         physics_material = EventTerm(
             func=mdp.randomize_rigid_body_material,
             mode="startup",
             params={
                 "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-                "static_friction_range": (0.4, 2.0),
-                "dynamic_friction_range": (0.4, 1.5),
+                "static_friction_range": (0.6, 1.5),   # 原 (0.4, 2.0)，去掉极端湿滑
+                "dynamic_friction_range": (0.5, 1.2),  # 原 (0.4, 1.5)
                 "restitution_range": (0.0, 0.2),
                 "num_buckets": 128,
             },
         )
 
+        # startup（物理固定，Critic 能为每个 env 学出稳定的 V(s)）
         add_joint_default_pos = EventTerm(
             func=mdp.randomize_joint_default_pos,
             mode="startup",
@@ -940,34 +971,31 @@ class FrontRESFinetuneTrackingEnvCfg(GeneralTrackingEnvCfg):
             },
         )
 
-        randomize_gravity = EventTerm(
-            func=mdp.randomize_gravity,
-            mode="startup",
-            params={"x_range": (-1.5, 1.5), "y_range": (-1.5, 1.5), "z_range": (-13.0, -7.0)},
-        )
-
         randomize_actuator_properties = EventTerm(
             func=mdp.randomize_actuator_properties,
             mode="startup",
             params={
                 "asset_cfg": SceneEntityCfg("robot", joint_names=[".*"]),
-                "stiffness_range": (0.7, 1.3),
-                "damping_range": (0.7, 1.3),
+                "stiffness_range": (0.85, 1.15),  # 原 (0.7, 1.3)，±30% → ±15%
+                "damping_range": (0.85, 1.15),
             },
         )
 
         add_payload = EventTerm(
             func=mdp.add_payload_mass,
             mode="startup",
-            params={"asset_cfg": SceneEntityCfg("robot", body_names=["torso_link"]), "mass_range": (0.0, 7.0)},
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=["torso_link"]),
+                "mass_range": (0.0, 2.0),  # 原 7.0 kg，G1 约 35kg，2kg ≈ +5.7%
+            },
         )
 
-        # interval
+        # interval（降低频率和强度，给机器人足够的恢复时间）
         push_robot = EventTerm(
             func=mdp.push_by_setting_velocity,
             mode="interval",
-            interval_range_s=(0.5, 2.5),
-            params={"velocity_range": VELOCITY_RANGE},
+            interval_range_s=(4.0, 8.0),  # 原 (0.5, 2.5)s，大幅降低推力频率
+            params={"velocity_range": FRONTRES_PUSH_VELOCITY_RANGE},
         )
 
     @configclass
