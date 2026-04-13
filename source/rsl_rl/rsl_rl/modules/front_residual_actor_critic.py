@@ -702,9 +702,9 @@ class FrontRESActorCritic(nn.Module):
         # NOTE: scalar std is an unconstrained nn.Parameter; apply softplus to
         # guarantee std > 0 at all times and avoid Normal(mean, negative_std) crash.
         if self.noise_std_type == "scalar":
-            std = torch.nn.functional.softplus(self.std).expand_as(delta_q_mean)
+            std = torch.nn.functional.softplus(self.std).clamp(min=1e-6).expand_as(delta_q_mean)
         elif self.noise_std_type == "log":
-            std = torch.exp(self.log_std).expand_as(delta_q_mean)
+            std = torch.exp(self.log_std).clamp(min=1e-6).expand_as(delta_q_mean)
         else:
             raise ValueError(f"Unknown standard deviation type: {self.noise_std_type}")
 

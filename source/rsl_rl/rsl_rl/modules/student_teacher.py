@@ -92,7 +92,7 @@ class StudentTeacher(nn.Module):
 
     def update_distribution(self, observations):
         mean = self.student(observations)
-        std = torch.nn.functional.softplus(self.std).expand_as(mean)
+        std = torch.nn.functional.softplus(self.std).clamp(min=1e-6).expand_as(mean)
         self.distribution = Normal(mean, std)
 
     # def act(self, observations):

@@ -458,8 +458,20 @@ class PPO:
                 loss.backward()
                 if self.is_multi_gpu:
                     self.reduce_parameters()
-                nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
-                self.optimizer.step()
+                # Guard against NaN gradients corrupting policy.std / policy.log_std.
+                # If any trainable parameter has a NaN gradient, skip this optimizer step
+                # to prevent NaN from propagating into the parameter values.
+                _has_nan_grad = any(
+                    p.grad is not None and torch.isnan(p.grad).any()
+                    for group in self.optimizer.param_groups
+                    for p in group["params"]
+                )
+                if _has_nan_grad:
+                    print("[PPO] WARNING: NaN gradient detected — skipping optimizer step")
+                    self.optimizer.zero_grad()
+                else:
+                    nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+                    self.optimizer.step()
             # -- For RND
             if self.rnd:
                 self.rnd_optimizer.zero_grad()  # type: ignore
@@ -611,8 +623,19 @@ class PPO:
         if self.is_multi_gpu:
             self.reduce_parameters()
 
-        nn.utils.clip_grad_norm_(params, self.max_grad_norm)
-        self.optimizer.step()
+        # Guard against NaN gradients (same as standard path)
+        _has_nan_grad = any(
+            p.grad is not None and torch.isnan(p.grad).any()
+            for p in params
+        )
+        if _has_nan_grad:
+            print("[PPO/PCGrad] WARNING: NaN gradient detected — skipping optimizer step")
+            for p in params:
+                if p.grad is not None:
+                    p.grad.zero_()
+        else:
+            nn.utils.clip_grad_norm_(params, self.max_grad_norm)
+            self.optimizer.step()
 
     def broadcast_parameters(self):
         """Broadcast model parameters to all GPUs."""

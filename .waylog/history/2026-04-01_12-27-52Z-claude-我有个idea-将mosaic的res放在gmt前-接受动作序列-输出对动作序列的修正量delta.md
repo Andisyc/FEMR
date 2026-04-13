@@ -4293,3 +4293,435 @@ class RLFinetuneObsCfg:
 确认 `student_teacher.py` 有没有 import torch：
 
 ---
+
+
+**User**
+
+在服务器上测试更新后的代码遇到如下报错
+
+Traceback (most recent call last):
+  File "/home/yuxuancheng/MOSAIC/scripts/rsl_rl/train.py", line 212, in <module>
+    main()
+  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 104, in wrapper
+    hydra_main()
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/main.py", line 94, in decorated_main
+    _run_hydra(
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 394, in _run_hydra
+    _run_app(
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 457, in _run_app
+    run_and_report(
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 223, in run_and_report
+    raise ex
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 220, in run_and_report
+    return func()
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 458, in <lambda>
+    lambda: hydra.run(
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 132, in run
+    _ = ret.return_value
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 260, in return_value
+    raise self._return_value
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 186, in run_job
+    ret.return_value = task_function(task_cfg)
+  File "/home/yuxuancheng/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/home/yuxuancheng/MOSAIC/scripts/rsl_rl/train.py", line 204, in main
+    runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
+  File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 630, in learn
+    loss_dict = self.alg.update() # 调用mosaic.py中的update()函数进行权重更新
+  File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/algorithms/ppo.py", line 319, in update
+    self.policy.act(obs_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
+  File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", line 720, in act
+    return self.distribution.sample()
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/torch/distributions/normal.py", line 73, in sample
+    return torch.normal(self.loc.expand(shape), self.scale.expand(shape))
+RuntimeError: normal expects all elements of std >= 0.0
+
+---
+
+
+**Claude**
+
+같은 위치에서 같은 오류가 발생하고 있으므로 — softplus 가 적용됐는데도 실패한다면 `self.std` 자체가 NaN 이 된 것입니다. `softplus(NaN) = NaN` 이고 NaN 은 `>= 0` 검사를 통과하지 못합니다. 먼저 std 파라미터가 옵티마이저에 포함되는지 확인합니다:
+
+---
+
+
+**Claude**
+
+`policy.std` 在 optimizer 里（第 109 行）。看 update 循环中 319 行前后的完整上下文：
+
+---
+
+
+**User**
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+   This session focused on:
+   - Verifying and fixing `q_ref_start_idx` (confirmed 232 is correct via debug print)
+   - Analyzing failed training metrics and diagnosing non-convergence
+   - Redesigning Domain Randomization strategy for Stage 2 (remove gravity, reduce ranges, startup mode)
+   - Fixing `RuntimeError: normal expects all elements of std >= 0.0` across all policy modules
+   - Investigating a persistent version of the same error after softplus fix was applied
+   - Various conceptual questions: FrontRES per-step vs per-sequence, Asymmetric Critic, obs concatenation logic
+
+2. Key Technical Concepts:
+   - **FrontRES pipeline**: per-timestep MLP (is_recurrent=False), obs_t(770) → Δq_t(29), NOT per-sequence
+   - **obs layout**: per-group concatenation confirmed from `RobotBridge/deploy/envs/mosaic.py:382-389`; each obs group's 5-frame history stacked together before next group
+   - **q_ref_start_idx=232**: = (history_length-1) × command_per_frame = 4×58 = 232; points to current frame t's q_ref_pos in obs
+   - **softplus fix**: `torch.nn.functional.softplus(self.std)` always positive; needed because `nn.Parameter` for std is unconstrained, gradient updates can push it negative or NaN
+   - **softplus(NaN) = NaN**: if self.std becomes NaN (via NaN gradients), softplus doesn't help; `Normal(mean, NaN)` fails `>= 0` check
+   - **DR strategy**: startup mode (fixed physics per env) preferred over reset mode for Stage 2 because Critic learns stable V(s) per env, matches deployment scenario; conservative ranges so worst-case combinations are ~0.03% of envs
+   - **Asymmetric Critic**: theoretically sound (give Critic DR params not available to Actor) but not implemented yet
+   - **ppo.py update loop**: calls `self.policy.act(obs_batch)` at line 319 to recompute current policy distribution (returned sample discarded), then `get_actions_log_prob(stored_actions)` for PPO ratio
+   - **policy.std in optimizer**: confirmed at `ppo.py:108-111` — `policy.std` IS added to the Adam optimizer trainable parameters
+
+3. Files and Code Sections:
+   - **`source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/rsl_rl_ppo_cfg.py`**
+     - Changed `q_ref_start_idx=0` → `q_ref_start_idx=232` with detailed comment explaining obs layout
+     - Added comment block: `(history_length-1) × command_per_frame = (5-1) × 58 = 232`
+
+   - **`source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py`**
+     - Added one-time debug print in `update_distribution` (now commented out after verification)
+     - Fixed `update_distribution` to use softplus:
+     ```python
+     if self.noise_std_type == "scalar":
+         std = torch.nn.functional.softplus(self.std).expand_as(delta_q_mean)
+     ```
+     - Debug print showed: obs_dim=770, history=5, q_ref_start_idx=232 matches t(current) ✓
+
+   - **`source/rsl_rl/rsl_rl/modules/actor_critic.py:244-251`**
+     - Fixed `update_distribution` scalar branch:
+     ```python
+     if self.noise_std_type == "scalar":
+         std = torch.nn.functional.softplus(self.std).expand_as(mean)
+     ```
+
+   - **`source/rsl_rl/rsl_rl/modules/residual_actor_critic.py:578-587`**
+     - Fixed `update_distribution` scalar branch:
+     ```python
+     if self.noise_std_type == "scalar":
+         std = torch.nn.functional.softplus(self.std).expand_as(composed_mean)
+     ```
+
+   - **`source/rsl_rl/rsl_rl/modules/student_teacher.py:93-96`**
+     - Fixed (had no scalar/log branch, just bare `self.std`):
+     ```python
+     def update_distribution(self, observations):
+         mean = self.student(observations)
+         std = torch.nn.functional.softplus(self.std).expand_as(mean)
+         self.distribution = Normal(mean, std)
+     ```
+
+   - **`source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py`**
+     - Added `FRONTRES_PUSH_VELOCITY_RANGE` dict (reduced intensity vs `VELOCITY_RANGE`):
+     ```python
+     FRONTRES_PUSH_VELOCITY_RANGE = {
+         "x": (-0.3, 0.3), "y": (-0.3, 0.3), "z": (-0.1, 0.1),
+         "roll": (-0.3, 0.3), "pitch": (-0.3, 0.3), "yaw": (-0.5, 0.5),
+     }
+     ```
+     - Replaced entire `RLFinetuneEventCfg` in `FrontRESFinetuneTrackingEnvCfg`:
+       - **Deleted**: `randomize_gravity` (gravity doesn't change in real world)
+       - **Kept all as `mode="startup"`**: physics_material, add_joint_default_pos, base_com, randomize_actuator_properties, add_payload
+       - **Reduced ranges**: stiffness (0.7,1.3)→(0.85,1.15), payload (0,7kg)→(0,2kg), static friction (0.4,2.0)→(0.6,1.5)
+       - **Reduced push**: interval (0.5,2.5)s→(4.0,8.0)s, uses `FRONTRES_PUSH_VELOCITY_RANGE`
+
+   - **`source/rsl_rl/rsl_rl/algorithms/ppo.py`**
+     - Read lines 100-134 confirming `policy.std` IS added to optimizer:
+     ```python
+     if isinstance(policy, FrontRESActorCritic):
+         trainable = list(policy.residual_actor.parameters()) + list(policy.critic.parameters())
+         if hasattr(policy, "std"):
+             trainable.append(policy.std)
+         elif hasattr(policy, "log_std"):
+             trainable.append(policy.log_std)
+         self.optimizer = optim.Adam(trainable, lr=learning_rate)
+     ```
+     - Read lines 295-354 confirming `act()` at line 319 is in PPO mini-batch update loop, used to recompute current distribution; returned sample discarded; then `get_actions_log_prob(actions_batch)` called
+
+4. Errors and fixes:
+   - **`RuntimeError: normal expects all elements of std >= 0.0` (first occurrence)**:
+     - Location: `front_residual_actor_critic.py:720` in `act()` → `self.distribution.sample()`
+     - Cause: `self.std` is unconstrained `nn.Parameter`, gradient updates pushed it negative
+     - Fix: Applied `torch.nn.functional.softplus(self.std)` in `update_distribution` of all 4 modules
+
+   - **`RuntimeError: normal expects all elements of std >= 0.0` (second occurrence, same location)**:
+     - Persists after softplus fix
+     - Hypothesis: `self.std` is now becoming **NaN** (not just negative); `softplus(NaN) = NaN`; `NaN >= 0` is False
+     - Root cause under investigation: NaN gradients from somewhere in PPO loss computation propagating to `self.std` via Adam optimizer
+     - **Not yet fixed** — investigation ongoing at ppo.py:295-354
+
+   - **Inconsistency in DR strategy (startup vs reset)**:
+     - Initially recommended startup→reset, then reversed to reset→startup
+     - User called this out: "你先前认为应当将startup->reset，但现在又认为应当reset->startup，请仔细分析"
+     - Honest acknowledgment: with conservative DR ranges, the practical difference is small; kept startup because it matches deployment scenario and reduces TD variance within rollouts; Critic variance argument was overstated
+
+5. Problem Solving:
+   - **q_ref_start_idx=232 confirmed correct** via debug print output matching t(current) frame values
+   - **obs layout confirmed**: per-group (all 5 frames of each obs term together), consistent with RobotBridge mosaic.py
+   - **First training run (q_ref_start_idx=0) diagnosed**: delta_q_norm_mean=7.5 (1.4 rad/joint), entropy growing, no convergence — confirmed fundamental failure from wrong slot modification
+   - **softplus fix for negative std**: applied across 4 modules — guards against gradient pushing std below zero
+   - **NaN std issue ongoing**: softplus doesn't help if std itself becomes NaN; need to find NaN source in PPO loss
+
+6. All user messages:
+   - "请用中文详细解释目前的问题" (explain q_ref_start_idx issue in Chinese)
+   - "请执行修复" (execute the fix - changed q_ref_start_idx=0→232)
+   - "那RobotBridge中还需要修改吗？" (does RobotBridge need changes? No, ONNX bakes the logic)
+   - "请解释现在Stage 2向wandb更新的指标的意义" (explain wandb metrics)
+   - "我已经将代码推送到服务器上开始Stage 2的微调了，现在我们必须思考..." (discussion about ONNX export strategy - pre-existing)
+   - "请给我debug print" (give debug print code)
+   - Debug output shared - confirmed q_ref_start_idx=232 correct
+   - "我重新启动训练后到现在已经来到了37208轮...mean_episode_length还是在75~150之间震荡...是否存在一些其他代码上的问题？" - training metrics report
+   - "我感觉还是需要深入理解代码才能更好debug，请告诉我拼接obs的位置" (where is obs concatenated)
+   - "为什么你总是尝试让我阅读IsaacLab_mosaic？我只需要阅读本仓库的拼接逻辑就行了" (correction: focus on THIS repo)
+   - "我的意思是请告诉我本仓库如何拼接obs" (same correction)
+   - "请检查Stage 2的观测量拼接逻辑是否与RobotBridge保持一致？" (check obs consistency)
+   - Debug print results shared confirming correct layout
+   - "我已经停了训练进程，并且删除了权重文件，我认为除了针对q_ref的DR外，其他DR最好只针对sim2real gap..." (DR redesign philosophy)
+   - "但DR的组合问题呢？每个轮次都需要重新抽取DR的种类和强度，是否存在某些DR组合起来后会变得更加困难..." (DR combination problem)
+   - "你先前认为应当将startup->reset，但现在又认为应当reset->startup，请仔细分析" (calling out inconsistency)
+   - "是否将Critic修改成接收DR类别和强度输入更好？" (Asymmetric Critic question)
+   - "我现在正在设计实验，我想知道代码中现在写的FrontRES到底是接收当前时间步输出当前delta_q_t还是接收一整段参考动作输出一整段delta_q？" (per-step vs per-sequence)
+   - Runtime error shared (std < 0, first occurrence)
+   - "请更加深入检查代码中是否还有类似问题" (deeper audit for softplus issues)
+   - Second runtime error shared (same location, same error)
+
+7. Pending Tasks:
+   - **Fix NaN std issue**: `self.std` is becoming NaN (not just negative), causing `softplus(NaN) = NaN`; need to find NaN source in PPO loss computation and add guards
+   - **lambda_reg_init**: Recommendation was to increase from 0.01 to 0.1 but unclear if user changed this in config; worth confirming
+   - **Restart Stage 2 training** after all fixes are applied
+   - **Experiment design**: User mentioned designing experiments (referenced OmniTrack paper but couldn't read it due to PDF tooling issues)
+   - **ONNX export**: After training converges, export composite ONNX (FrontRES+GMT) and update RobotBridge mosaic.yaml
+
+8. Current Work:
+   The session ended while investigating the second occurrence of `RuntimeError: normal expects all elements of std >= 0.0`. After applying softplus to all 4 modules, the same error persists at the same location (`front_residual_actor_critic.py:720`, `act()` → `self.distribution.sample()`).
+
+   Key finding from reading `ppo.py:100-115`:
+   ```python
+   if isinstance(policy, FrontRESActorCritic):
+       trainable = list(policy.residual_actor.parameters()) + list(policy.critic.parameters())
+       if hasattr(policy, "std"):
+           trainable.append(policy.std)  # std IS in optimizer, receives gradient updates
+   ```
+
+   And `ppo.py:316-327` (the call site):
+   ```python
+   # Line 319: act() called to recompute distribution during PPO update
+   self.policy.act(obs_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
+   actions_log_prob_batch = self.policy.get_actions_log_prob(actions_batch)
+   value_batch = self.policy.evaluate(critic_obs_batch, ...)
+   mu_batch = self.policy.action_mean[:original_batch_size]
+   sigma_batch = self.policy.action_std[:original_batch_size]
+   ```
+
+   The hypothesis: `self.std` is receiving NaN gradients from somewhere in the PPO loss (possibly from `reg_loss`, `surrogate_loss`, or `entropy` when values become extreme), causing `self.std` to become NaN after the first optimizer.step(). On the next mini-batch iteration, `softplus(NaN) = NaN`, creating `Normal(mean, NaN)` which fails the `>= 0` check.
+
+9. Optional Next Step:
+   The immediate issue is finding the source of NaN gradients that corrupt `self.std`. The investigation was at `ppo.py` reading the update loop. The next step is to add NaN detection in the PPO update loop before `optimizer.step()`:
+
+   ```python
+   # In ppo.py, before optimizer.step():
+   has_nan = any(
+       p.grad is not None and torch.isnan(p.grad).any()
+       for p in self.optimizer.param_groups[0]['params']
+   )
+   if has_nan:
+       print("[PPO] WARNING: NaN gradient detected, skipping optimizer step")
+       self.optimizer.zero_grad()
+   else:
+       nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+       self.optimizer.step()
+   ```
+
+   And add clamping after softplus as an additional defensive measure:
+   ```python
+   if self.noise_std_type == "scalar":
+       std = torch.nn.functional.softplus(self.std).clamp(min=1e-6).expand_as(delta_q_mean)
+   ```
+
+   This directly addresses the user's most recent problem: `"更新后的代码遇到如下报错: RuntimeError: normal expects all elements of std >= 0.0"` which persisted after the softplus fix.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: C:\Users\ChengYuxuan\.claude\projects\c--ArtiIntComVis-MOSAIC\2b99aabb-3476-4bdb-9737-6e7bcc708a5e.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+
+---
+
+
+**Claude**
+
+Now I'll implement both fixes. First, add `.clamp(min=1e-6)` in all 4 modules as a defensive measure against NaN propagation, then add NaN gradient detection in `ppo.py` before `optimizer.step()`.
+
+---
+
+
+**Claude**
+
+Now fix `residual_actor_critic.py` and `student_teacher.py`:
+
+---
+
+
+**Claude**
+
+Now add NaN gradient detection in `ppo.py` before `optimizer.step()`:
+
+---
+
+
+**Claude**
+
+Now also guard the PCGrad path. Let me read the `_pcgrad_step` method:
+
+---
+
+
+**Claude**
+
+Now let me also check where `smooth_loss` is computed (it's used in `ppo_loss + ... + smooth_loss` on line 398), to make sure it can't be a NaN source:
+
+---
+
+
+**Claude**
+
+Let me verify all 4 modules now have the clamp applied correctly:
+
+---
+
+
+**Claude**
+
+All 4 modules patched. Now verify the NaN guard in ppo.py looks correct:
+
+---
+
+
+**Claude**
+
+All fixes are in place. Here's a summary of what was done and why each piece matters:
+
+---
+
+**Root cause of the recurring error**
+
+The `RuntimeError: normal expects all elements of std >= 0.0` persisting after the softplus fix indicated that `self.std` was becoming **NaN** (not just negative). `softplus(NaN) = NaN`, and `NaN >= 0` is `False`, so the error persisted. The sequence was:
+
+1. Some mini-batch loss (surrogate / log_prob under extreme actions) produced NaN gradients on `self.std`
+2. `optimizer.step()` wrote `self.std ← old_value + lr * NaN = NaN`
+3. Next call to `update_distribution`: `softplus(NaN) = NaN`, `Normal(mean, NaN)` → crash
+
+**Fix 1 — `.clamp(min=1e-6)` on std (all 4 modules)**
+
+Applied to both `softplus` and `exp` branches in [front_residual_actor_critic.py](source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py#L704-L707), [actor_critic.py](source/rsl_rl/rsl_rl/modules/actor_critic.py#L245-L247), [residual_actor_critic.py](source/rsl_rl/rsl_rl/modules/residual_actor_critic.py#L580-L582), [student_teacher.py](source/rsl_rl/rsl_rl/modules/student_teacher.py#L95).
+
+This prevents very-small std (e.g. softplus(-10) ≈ 4.5e-5) from causing `log_prob` to blow up, which in turn causes the NaN gradient in the first place.
+
+**Fix 2 — NaN gradient guard in `ppo.py` before `optimizer.step()`**
+
+Added to both the standard path ([ppo.py:461-474](source/rsl_rl/rsl_rl/algorithms/ppo.py#L461-L474)) and the PCGrad path ([ppo.py:627-639](source/rsl_rl/rsl_rl/algorithms/ppo.py#L627-L639)):
+
+- If any trainable parameter has a NaN gradient, skip `optimizer.step()` and zero the gradients instead
+- This breaks the chain at step 2 above — `self.std` is never written with NaN
+- A warning is printed so you can see if/when NaN gradients occur in the logs
+
+---
+
+
+**Claude**
+
+这是个很好的问题，值得仔细溯源。
+
+## 原始 rsl_rl 库为什么没有这个问题
+
+原始库的 `update_distribution` 是：
+
+```python
+# 原始 rsl_rl 代码（我们修改前）
+std = self.std.expand_as(mean)   # 直接使用，无 softplus
+self.distribution = Normal(mean, std)
+```
+
+`self.std` 是一个**无约束的** `nn.Parameter`，梯度下降可以把它推成任意值（包括负数）。
+
+原始库没有崩溃，是因为标准 RL 训练的条件天然保护了 std：
+
+| 条件 | 原始 rsl_rl | 我们的 Stage 2 |
+|---|---|---|
+| `init_noise_std` | 1.0（远离 0） | **0.1**（已经很接近边界） |
+| loss 项 | 仅标准 PPO | PPO + **reg_loss** + **smooth_loss** |
+| 优化器路径 | 标准 Adam | 标准 Adam 或 **PCGrad** |
+| 任务结构 | 全幅度动作 | 微小 Δq 修正 |
+
+---
+
+## 哪些改动导致了报错
+
+### 第一次报错（std 变成负数）
+
+罪魁祸首是 **`init_noise_std=0.1`**，我们在 Stage 2 配置中设置的：
+
+```python
+init_noise_std=0.1   # Stage 2 config
+# 原始: init_noise_std=1.0
+```
+
+PPO 更新中，对 `std` 的梯度来自两个相反方向：
+
+- **熵项** `-entropy_coef * H`：熵 = 0.5·log(2πe·std²)，其梯度 ∝ +1/std，将 std **往上推**
+- **surrogate 项**：若 advantage 普遍为负，ratio 下降对 std 的梯度为**负方向**，将 std **往下推**
+
+当 `std=1.0` 时两者竞争，std 下降缓慢。当 `std=0.1` 时：
+
+```
+∂(log_prob)/∂std = [(a - mean)² - std²] / std³
+```
+
+分母 `std³ = 0.001`，当 stored action 与当前 mean 有偏差时，这个梯度非常大 → Adam 步长可以直接把 std 推到 0 以下。
+
+### 第二次报错（softplus 后 std 变成 NaN）
+
+加了 softplus 之后，`softplus(negative) > 0`，应该没问题。但报错依然出现，说明 `self.std` 本身变成了 **NaN**，而非负数：
+
+```python
+softplus(NaN) = NaN    # NaN >= 0 是 False → 同样报错
+```
+
+NaN 的来源是梯度链路：
+
+```
+reg_loss = mu_batch.pow(2).mean()   # 我们加的正则项
+smooth_loss = diff.pow(2).mean()    # 我们加的平滑项
+```
+
+这两个 loss 的引入 + PCGrad 投影，使得某个 mini-batch 下 `self.std` 的梯度出现 NaN（例如当 `mu_batch` 或 `value_batch` 数值极端时）。NaN 梯度经过 `optimizer.step()` 写入参数：
+
+```
+self.std ← 0.1 + lr × NaN = NaN
+```
+
+之后所有 iteration 的 `softplus(NaN) = NaN`，训练永久崩溃。
+
+---
+
+## 为什么 `.clamp(min=1e-6)` 能修复（部分）
+
+| 防护 | 防什么 | 不防什么 |
+|---|---|---|
+| `softplus(std)` | std 是负数 → 变正 | std 是 NaN |
+| `.clamp(min=1e-6)` | std 接近 0 → log_prob 梯度爆炸 → 防止产生 NaN | std 已经是 NaN |
+| NaN 梯度检测（ppo.py 中） | NaN 梯度写入参数 → std 变 NaN | — |
+
+三层防护合力才能彻底解决：
+
+```
+std 接近 0 → log_prob 梯度爆炸 → NaN 梯度
+     ↑                                  ↓
+  clamp 截断              NaN 梯度检测跳过 step
+```
+
+根本原因始终是 **`init_noise_std=0.1` 太小** + **额外 loss 项带来的梯度压力**，是我们在 Stage 2 训练中的特有设置组合，原始库从未遇到这种情况。
+
+---

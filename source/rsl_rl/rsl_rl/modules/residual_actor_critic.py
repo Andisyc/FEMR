@@ -577,9 +577,9 @@ class ResidualActorCritic(nn.Module):
 
         # Compute standard deviation
         if self.noise_std_type == "scalar":
-            std = torch.nn.functional.softplus(self.std).expand_as(composed_mean)
+            std = torch.nn.functional.softplus(self.std).clamp(min=1e-6).expand_as(composed_mean)
         elif self.noise_std_type == "log":
-            std = torch.exp(self.log_std).expand_as(composed_mean)
+            std = torch.exp(self.log_std).clamp(min=1e-6).expand_as(composed_mean)
         else:
             raise ValueError(f"Unknown standard deviation type: {self.noise_std_type}")
 
