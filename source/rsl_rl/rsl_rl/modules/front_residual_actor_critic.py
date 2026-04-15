@@ -747,9 +747,14 @@ class FrontRESActorCritic(nn.Module):
         (possibly appended by the velocity estimator inside MOSAIC.act()) is
         correctly forwarded to GMT even when the runner only passes raw obs here.
         """
-        # Prefer the cached obs from act() which may include ref_vel suffix
-        obs = getattr(self, '_cached_observations', observations)
-        policy_obs, ref_vel, ref_vel_estimator_obs = self._parse_observations(obs)
+        # Prefer the cached obs from act() which may include ref_vel suffix.
+        # If _cached_observations has a different number of environments than delta_q_sample
+        # (B1 split-env case: runner calls with sliced obs[:N_train] or obs[N_train:]),
+        # fall back to the passed observations to avoid dimension mismatch.
+        cached = getattr(self, '_cached_observations', observations)
+        if cached.shape[0] != delta_q_sample.shape[0]:
+            cached = observations
+        policy_obs, ref_vel, ref_vel_estimator_obs = self._parse_observations(cached)
 
         with torch.no_grad():
             robot_actions = self._apply_delta_q_and_run_gmt(

@@ -5966,3 +5966,1241 @@ FrontRES/smooth_penalty_per_step   平滑惩罚的平均每步量级（lambda_sm
 **`rsl_rl_ppo_cfg.py`** — `policy = RslRlFrontResidualActorCriticCfg(max_delta_q=0.5, ...)`
 
 ---
+
+
+**Claude**
+
+现在找到了根本原因。所有问题都可以追溯到一条代码：
+
+```python
+# ppo.py:236
+delta_q = self.storage.actions  # storage 存储的是 act() 返回的采样值
+per_step_norm = delta_q.norm(dim=-1)
+delta_q_norm_mean = per_step_norm.mean()
+```
+
+---
+
+## 根本原因分析
+
+### 技术层面：tanh 只约束了 mean，没有约束 sample
+
+FrontRES 的动作分布是 `Normal(tanh(raw)*0.5, std)`：
+
+```
+         tanh 截断 → mean ∈ [-0.5, 0.5] 每关节（正确，有界）
+         std      → 完全无约束（这是问题所在）
+
+act() 返回的 sample = mean + std * eps,  eps ~ N(0,1)
+→ sample 可以是任意大的值
+→ storage.actions 存的是 sample
+→ delta_q_norm_mean = ||sample||, 可以无限增长
+```
+
+更糟糕：**tanh 加速了 std 爆炸**。
+
+tanh 使 mean 饱和（tanh'(x)→0），mean 方向的梯度消失，PPO 没法通过调节 mean 来改善 reward，于是梯度全部流向 std。std 成为策略的唯一自由度，所以 std 比之前增长更快（之前峰值 ~40，现在到 100）。
+
+这不是症状，这是整个设计的**结构性矛盾**：
+
+```
+我们希望：    mean 小、std 小（精确的小修正）
+PPO 在做：    mean 饱和（tanh 锁死）、std 爆炸（唯一可调参数）
+实际施加给机器人的 delta_q = sample ≈ std * eps，norm 无限增长
+reg 惩罚计算的也是 sample，随着 std 增长，惩罚 = -0.1 * (sample)^2 ≈ -0.1 * std^2
+```
+
+但是惩罚施加在 reward 上，PPO 通过 advantage 感知惩罚。当 std 很大时：
+- reward 方差极高（样本随机性主导）
+- V(s) 无法从高噪声 reward 中学习 → V≈0.1（严重欠拟合）
+- advantage A = R - V ≈ R（V 几乎不起作用）
+- PPO 看到的是"当前策略的 reward 是 A"，而非正确的信号
+
+---
+
+## 更深层的 reward 设计问题
+
+### 问题一：reward 没有测量 FrontRES 的边际贡献
+
+```
+实际 reward 测量的是：GMT + FrontRES 联合系统的跟踪质量
+FrontRES 得到的梯度信号是：最终结果的好坏，而非"因为我的 delta_q 才变好/变坏"
+
+GMT 在 Stage 1 已经把跟踪做得很好，FrontRES 的边际贡献极小且嘈杂。
+奖励信号中 GMT 的贡献 >> FrontRES 的贡献，
+但梯度全归给了 FrontRES 的参数，这是典型的信用分配失败（credit assignment failure）。
+```
+
+形象比喻：让一个学徒给一位大师的画作添加最后几笔，但按画作的整体价值评分，学徒的几笔贡献淹没在大师作品里。
+
+### 问题二：探索方向与目标完全相反
+
+PPO 的核心假设是"探索（高 std）有助于找到更好的策略"。但是 FrontRES Stage 2 的目标是：
+
+```
+目标：找到精确的小量修正（std 应该小）
+PPO：鼓励高熵探索（std 应该大，entropy_coef > 0）
+→ 这两个目标根本上冲突
+```
+
+### 问题三：reg 惩罚作用于 sample 但梯度无法传回
+
+```
+惩罚 = -lambda * ||delta_q_sample||^2，施加在 reward 上
+
+delta_q_sample 在 rollout 期间是用 torch.inference_mode() 采样的，
+没有计算图。惩罚只通过 Bellman 方程影响 advantage 估计，
+而不直接对 std 求梯度。
+
+结果：惩罚信号经过 V(s)（已经崩溃，V≈0.1）后，
+几乎没有有效的梯度到达 std 参数。
+```
+
+---
+
+## 应当怎么做：正确的设计方向
+
+### 修复一（立即）：改用 Squashed Gaussian，约束 sample 而非 mean
+
+```python
+# 当前（错误）：只截断 mean
+delta_q_mean = tanh(residual_actor(obs)) * max_delta_q
+distribution = Normal(delta_q_mean, std)
+sample = distribution.sample()  # 无界！
+
+# 正确：截断 sample（Squashed Gaussian / TanhNormal）
+raw_sample = Normal(residual_actor(obs), std).sample()
+sample = tanh(raw_sample) * max_delta_q  # 有界！
+
+# log_prob 需要加 Jacobian 修正（标准 SAC 做法）：
+log_prob = Normal(mean, std).log_prob(raw_sample) - log(1 - tanh(raw_sample)^2 + eps)
+```
+
+这样 `storage.actions` 存的是有界的 `tanh(raw)*max_delta_q`，delta_q_norm_mean 最大 = `max_delta_q * sqrt(29) ≈ 2.69`。
+
+### 修复二（根本）：改 reward 为相对于 GMT 基准的增量奖励
+
+```
+当前：R = tracking_reward(GMT + FrontRES)            [绝对值]
+正确：R = tracking_reward(GMT + FrontRES)            [增量]
+         - tracking_reward(GMT only, delta_q=0)
+
+实现：每步同时计算两个 reward
+  r_with_frontres = env 返回的实际 reward
+  r_baseline      = 把 delta_q=0 代入，重算跟踪 reward（不需要额外仿真步，只需重算奖励项）
+
+shaping_reward = r_with_frontres - r_baseline
+```
+
+效果：
+- `delta_q=0` 的 advantage = 0（中性动作），不奖励也不惩罚
+- 有效改善跟踪的 delta_q → 正 advantage → 策略强化
+- 破坏跟踪的 delta_q → 负 advantage → 策略抑制
+- 不需要 reg 惩罚（zero delta_q 自然得零奖励）
+
+### 修复三（近期）：用监督预训练初始化 residual_actor 到零输出
+
+```
+在 RL 之前加一步：用 MSE loss 训练 residual_actor 输出全零
+让网络参数初始化到"恒输出零"的状态
+RL 从零附近开始微调，而不是从随机初始化开始探索
+
+等价于：把 residual_last_layer_gain 设为接近 0（已有此参数），
+确保 Stage 2 刚开始时 delta_q ≈ 0，再慢慢 RL 微调。
+```
+
+---
+
+## 三个问题的优先级
+
+```
+优先级 1（最快见效）：改用 Squashed Gaussian
+  → 解决 sample 无界爆炸，是当前数值崩溃的直接原因
+  → 改动范围：front_residual_actor_critic.py 的 act() 和 get_actions_log_prob()
+
+优先级 2（中期）：增量奖励（delta reward）
+  → 解决信用分配问题，是 policy 无法收敛的根本原因
+  → 改动范围：on_policy_runner.py 的奖励塑形块
+
+优先级 3（锦上添花）：初始化 residual_actor 到零输出
+  → 给 RL 一个好的起点，避免早期探索阶段的大幅震荡
+  → 改动范围：训练脚本或 __init__ 中对最后一层权重置零
+```
+
+请确认你希望从哪个修复开始实施。
+
+---
+
+
+**User**
+
+我想从最根本的角度来思考整个架构设计的问题：你提到reward是针对整个系统(FrontRES+GMT)的结果，但storage.action储存的缺失delta_q，似乎发生了distribution shift，并且你提到的std无界也是个问题，这两者之间有关联吗？
+
+---
+
+
+**Claude**
+
+## Distribution Shift 与 Std 无界的深层关联
+
+---
+
+### 先明确"distribution shift"发生在哪里
+
+标准 PPO 的隐含前提：
+
+```
+action a 直接作用于环境，reward = R(s, a)
+
+PPO 的 IS 比率：
+ratio = π_new(a|s) / π_old(a|s)
+
+理论保证：只要 ratio 在 [1-ε, 1+ε] 内，
+新旧策略的"环境响应差异"也是有界的。
+```
+
+FrontRES 的实际情况：
+
+```
+storage.actions = delta_q         ← PPO 认为这是 action
+实际作用于环境的 = GMT(q_ref + delta_q)  ← 真正的 action
+
+PPO 限制的是 delta_q 分布的变化幅度
+但环境响应的是 GMT 的输出变化幅度
+
+这两者之间隔了一个非线性函数 GMT
+```
+
+**这是一个空间错配（space mismatch），不是经典的 distribution shift，但效果相似：PPO 在错误的空间里做安全约束。**
+
+---
+
+### GMT 的非线性如何放大这个问题
+
+```
+delta_q1 = [0.1, 0.1, ..., 0.1]   → GMT_output1
+delta_q2 = [0.1, 0.1, ..., 0.2]   → GMT_output2
+
+|delta_q2 - delta_q1| 很小（delta_q 空间）
+|GMT_output2 - GMT_output1| 可以很大（取决于 GMT 的 Jacobian）
+
+同理：
+delta_q3 = [5.0, 5.0, ..., 5.0]   → GMT_output3
+delta_q4 = [5.0, 5.0, ..., 5.1]   → GMT_output4
+
+|delta_q4 - delta_q3| 也很小
+|GMT_output4 - GMT_output3| 也可以很大，
+而且在 GMT 训练分布之外（大 delta_q 导致大 q_ref 偏移），
+GMT 输出几乎不可预测
+```
+
+**PPO 的 clip 保证了 delta_q 空间里的变化有界，但没有保证 reward 空间里的变化有界。**
+
+---
+
+### 这两者如何关联：从策略的视角看
+
+现在站在策略（policy）的角度思考：
+
+**策略面对的问题**：找到一个 delta_q，使得 GMT(q_ref + delta_q) 产生的电机指令让机器人跟踪得更好。
+
+**但策略看不到 GMT 的内部**（frozen，no gradient）。策略只能通过采样来探索：
+
+```
+"如果我输出 delta_q = 0.3，会发生什么？"  → 采样一次
+"如果我输出 delta_q = 2.0，会发生什么？"  → 采样一次
+"如果我输出 delta_q = -1.5，会发生什么？" → 采样一次
+```
+
+**由于 GMT 非线性，reward 作为 delta_q 的函数，是一个高度非线性、非单调的曲面**：
+
+```
+R(delta_q) 的形状（示意）：
+
+reward
+ ↑
+ |        *
+ |    *       *
+ |  *           *    *
+ |*               *
+ +------------------------→ delta_q（单维示意）
+  0   0.5   1.0  1.5  2.0
+
+没有明确的"往这个方向走 reward 变好"的趋势
+reward 的峰值位置随 obs（关节状态、参考运动帧）变化而变化
+```
+
+**在这种奖励曲面上，策略的理性选择是：**
+
+```
+用宽分布（高 std）覆盖尽可能多的 delta_q 值
+→ 偶尔命中 reward 高的位置（lucky sample）
+→ E[reward] 随 std 增大而先升后降
+→ 在某个 std 值处有局部最优，策略收敛到这里
+```
+
+---
+
+### 两者的本质关联
+
+```
+                    ┌─────────────────────────────────────────┐
+                    │         同一个根本原因                    │
+                    │                                          │
+                    │  PPO 的 action space (delta_q)           │
+                    │      ≠                                   │
+                    │  environment 的 action space (GMT output) │
+                    └─────────────────────────────────────────┘
+                              ↙                    ↘
+        ┌──────────────────────────┐   ┌──────────────────────────┐
+        │   Distribution Shift     │   │    Std 无界爆炸           │
+        │                          │   │                          │
+        │ ratio = π_new/π_old 在   │   │ reward 曲面非平滑         │
+        │ delta_q 空间有界，        │   │ → 策略无法用梯度定向移动   │
+        │ 但在 reward 空间无界。    │   │ → 只能靠宽分布广撒网       │
+        │                          │   │ → std 持续增大            │
+        │ IS 纠正失效，             │   │                          │
+        │ advantage 估计有偏。      │   │ delta_q_norm_mean → 100  │
+        └──────────────────────────┘   └──────────────────────────┘
+                              ↘                    ↙
+                    ┌─────────────────────────────────────────┐
+                    │              共同后果                    │
+                    │                                          │
+                    │  V(s) 面对高方差 reward，学不到准确预测   │
+                    │  advantage 退化为原始 reward              │
+                    │  PPO 梯度信号几乎无效                    │
+                    │  std 找不到收敛的压力                    │
+                    └─────────────────────────────────────────┘
+```
+
+---
+
+### 一个具体例子说明两者如何互相强化
+
+```
+iteration 100：std = 2.0
+
+rollout 采集 24 步：
+  step 1:  delta_q = [0.3, -1.8, 2.1, ...]  → GMT 输出 A → reward = 3.2
+  step 2:  delta_q = [1.5, 0.2, -0.9, ...]  → GMT 输出 B → reward = 0.1
+  step 3:  delta_q = [-2.0, 1.1, 0.5, ...]  → GMT 输出 C → reward = 4.8
+  ...
+
+advantage 计算：
+  step 1: A = 3.2 - V(s) ≈ 3.1  （V≈0.1）
+  step 2: A = 0.1 - 0.1 ≈ 0.0
+  step 3: A = 4.8 - 0.1 ≈ 4.7
+
+PPO update：
+  step 3 的 delta_q 有最高的 advantage
+  → 增加 step 3 的 delta_q 被采样的概率
+  → 但 step 3 的 delta_q = [-2.0, 1.1, 0.5, ...] 是 mean + std*eps 的随机结果
+  → PPO 无法分辨"这个 delta_q 本身好"还是"这个 eps 恰好好"
+  → PPO 的选择：增大 std，使得类似的 eps 更频繁地出现
+  → std 从 2.0 → 2.1
+
+iteration 200：std = 4.0，同样逻辑，std → 4.1
+...
+iteration 1000：std = 18，delta_q_norm ≈ 100
+```
+
+**std 的增长和 advantage 信号的失效是互相喂养的循环，而两者的根源都是 PPO 在错误的 action space 里做优化。**
+
+---
+
+### 真正的解决方向
+
+从上面的分析可以得出一个结论：
+
+```
+当前架构把 GMT 当作"环境的一部分"（frozen），
+让 FrontRES 在 delta_q 空间用 PPO 优化，
+但 reward 在 GMT output 空间定义。
+
+这个 action space mismatch 是根本问题。
+```
+
+两种根治方向：
+
+```
+方向 A：让 action space 与 reward space 对齐
+    → 直接在 GMT output 空间训练策略（不用 FrontRES 架构）
+    → 或者：用可微分的 GMT 代理模型，允许梯度穿过 GMT
+    → 或者：TanhNormal 只是治标，不是根治
+
+方向 B：改变 reward 使其在 delta_q 空间平滑
+    → 增量 reward：R(FrontRES) - R(GMT baseline)
+    → 这使得 reward 曲面以 delta_q=0 为中心对称，梯度方向明确
+    → 小 delta_q → reward ≈ 0，
+       有效 delta_q → reward > 0，
+       有害 delta_q → reward < 0
+    → 曲面更平滑，V(s) 可以学到准确估计，advantage 有效
+```
+
+**增量 reward（方向 B）是在不改变 PPO 框架的前提下，最直接解决 space mismatch 的方法。**
+
+---
+
+
+**Claude**
+
+Now I have all the context I need. Let me implement the delta reward changes.
+
+---
+
+
+**Claude**
+
+I see — we can compute R_baseline directly from the warmup rollout observations (exact mean over all collected rewards when actor is frozen), rather than using EMA approximation. Let me implement that approach.
+
+---
+
+
+**Claude**
+
+好问题。让我解释不同方案的区别：
+
+---
+
+**方案A（原来的设计）：只在Critic Warmup收集baseline**
+
+理由：Warmup阶段Actor被冻结，delta_q ≈ 0，所以观测到的reward ≈ GMT-only performance。收集完warmup后冻结baseline值，之后每步用 `r_delta = r_raw - frozen_baseline`。
+
+**问题**：Baseline是一次性采样的静态值。随着训练推进，环境分布可能漂移（domain randomization改变、episode length变化、GMT在不同动作序列下表现不同），frozen baseline会过时。
+
+---
+
+**方案B（用户指出的方向）：每步都能得到R_baseline**
+
+用户的insight是：**我们已经把GMT权重加载到内存里了**（FrontRESActorCritic内部有frozen GMT）。理论上每步都可以拿到GMT-only的action。
+
+但问题是：**GMT的action能给什么reward，取决于物理仿真的step结果**。不step仿真就无法获得reward。有两种实现方式：
+
+**方式B1 — Split环境（推荐）**：
+```
+num_envs=4096 → 前2048个环境：FrontRES policy → r_total
+                后2048个环境：GMT-only (delta_q=0) → r_baseline
+r_delta = r_total[:2048] - r_baseline[2048:].mean()
+```
+- 每个training step都有实时的精确GMT baseline
+- 代价：有效训练batch减半
+
+**方式B2 — 物理仿真状态克隆**：
+```
+1. 保存sim state
+2. 用GMT action step仿真 → 得到r_baseline
+3. 恢复sim state
+4. 用FrontRES action step仿真 → 得到r_total
+r_delta = r_total - r_baseline
+```
+- 精确，全部环境都参与FrontRES训练
+- 代价：IsaacSim state save/restore复杂，速度减半
+
+---
+
+**我的判断**：方式B1最实用。请问您想要B1（分割环境），还是有其他设计思路？
+
+---
+
+
+**Claude**
+
+Now replace the `get_env_action` call in the mosaic path (lines ~522-525) to split envs:
+
+---
+
+
+**Claude**
+
+Now replace the old reward shaping block with B1 delta-reward logic:
+
+---
+
+
+**Claude**
+
+Now update the locs exposure section:
+
+---
+
+
+**Claude**
+
+Now update the `log()` function FrontRES section:
+
+---
+
+
+**Claude**
+
+Now let me verify all changes look correct by reading the modified sections:
+
+---
+
+
+**Claude**
+
+All changes look correct. Let me verify the log() section too:
+
+---
+
+
+**Claude**
+
+All 6 changes are in place and look correct. Here's a summary of what was implemented:
+
+---
+
+**B1 Split-env Delta-reward — 修改摘要**
+
+**核心逻辑：**
+- 在 main loop 前，计算 `N_train = num_envs // 2`，`N_base = num_envs - N_train`
+- FrontRES 训练组 `[0:N_train]`：正常使用 policy delta_q
+- GMT baseline 组 `[N_train:]`：强制 delta_q = 0，输出纯 GMT 动作
+
+**每步 rollout：**
+1. `get_env_action` 分两组计算，拼接后一次 `env.step()`
+2. `r_base = rewards[N_train:].mean()` — 实时 GMT 基线，来自真实仿真
+3. `r_delta = rewards[:N_train] - r_base` — FrontRES 净贡献
+4. `rewards[:N_train] = r_delta`，GMT 组 reward 不变（其 advantage → 0 稳态时梯度消失）
+
+**Wandb 新增日志：**
+- `FrontRES/r_delta_per_step` — FrontRES 每步净奖励均值
+- `FrontRES/baseline_per_step` — 同步的 GMT 基线均值
+- `FrontRES/smooth_penalty_per_step` — 平滑惩罚（如启用）
+
+**相比旧 Plan A 的改进：**
+- 去除了 L2 正则惩罚（`lambda_reg`）——delta reward 本身已解决 credit assignment 问题
+- Baseline 来自同步运行的真实 GMT 仿真，而非静态近似值，随训练实时更新
+
+---
+
+
+**Claude**
+
+看关键的 std 相关代码：
+
+**[ppo.py:234-239](source/rsl_rl/rsl_rl/algorithms/ppo.py)** — `delta_q_norm_mean` 从 `self.storage.actions` 计算：
+```python
+delta_q = self.storage.actions  # (T, B, A) — ALL N envs
+per_step_norm = delta_q.norm(dim=-1)
+delta_q_norm_mean = per_step_norm.mean()
+```
+
+**[ppo.py:181](source/rsl_rl/rsl_rl/algorithms/ppo.py)** — `action_sigma` 是单一共享参数（非 per-env）：
+```python
+self.transition.action_sigma = self.policy.action_std.detach()
+```
+
+**分析：**
+
+B1 实施后，`storage.actions` 存储的是 ALL N envs 的 **policy 采样值**（包括 GMT 组）。GMT 组的 env 收到的是零 delta_q，但 `storage.actions[N_train:]` 仍是 policy 正常采样值。
+
+这意味着：
+- `delta_q_norm_mean` 反映 **policy 的输出分布**（两组来自同一分布），数值正确
+- `action_std` 是共享标量参数，不受 split 影响
+- GMT 组的 advantage 会随 V(s) 收敛到 GMT reward 水平而趋近 0 → 梯度消失 → 不会扭曲 std
+
+**结论：std 相关代码不需要修改。** 唯一需要注意的是：`delta_q_norm_mean` 现在涵盖了 GMT 组的采样（这些 delta_q 实际上未被环境使用），但由于两组来自同一策略分布，统计意义上是等价的，仍然是监控 policy 输出幅度的有效指标。
+
+---
+
+
+**User**
+
+请检查奖励项/惩罚项、诊断项，告诉我更新后的奖励项/惩罚项、诊断项还有哪些，让我检查一遍
+
+---
+
+
+**Claude**
+
+现在检查终止条件和 ppo.py 的诊断项：
+
+---
+
+
+**Claude**
+
+现在有完整信息了，整理如下：
+
+---
+
+## Stage 2 FrontRES RL 微调 — 完整指标清单
+
+### 奖励项（正）
+
+| 名称 | 公式 | 权重 | 参数 |
+|---|---|---|---|
+| contact_feet | Σ 1[接触状态匹配] | +1.0 | threshold=0.05 |
+| motion_feet_pos | exp(−E/σ²)，踝关节位置 | +1.0 | σ=0.05 m |
+| motion_body_pos | exp(−E/σ²)，全身关节位置 | +0.5 | σ=0.3 |
+| motion_body_ori | exp(−E/σ²)，全身关节朝向 | +0.5 | σ=0.4 |
+| motion_body_lin_vel | exp(−E/σ²)，全身线速度 | +0.75 | σ=1.0 |
+| motion_body_ang_vel | exp(−E/σ²)，全身角速度 | +0.75 | σ=3.14 |
+| motion_global_anchor_pos | exp(−E/σ²)，锚点全局位置 | +0.5 | σ=0.3 |
+| motion_global_anchor_ori | exp(−E/σ²)，锚点全局朝向 | +0.5 | σ=0.4 |
+
+**奖励项理论最大值（单步）≈ 1.0+1.0+0.5+0.5+0.75+0.75+0.5+0.5 = 5.5**
+
+### 惩罚项（负）
+
+| 名称 | 公式 | 权重 |
+|---|---|---|
+| undesired_contacts | −1 per link 超过 1.0 N | −2.0 |
+| joint_limit | 超限关节数 | −20.0 |
+| joint_torque | −Σ τ_j² | −2×10⁻⁴ |
+
+### Runner 侧 Reward Shaping（B1，更新后）
+
+| 名称 | 公式 | 说明 |
+|---|---|---|
+| **r_delta** | r_total[:N_train] − r_base | FrontRES 净贡献，替换原始 reward |
+| r_base | rewards[N_train:].mean() | GMT 基线，来自同步仿真 |
+| smooth_penalty（可选）| −λ_smooth × ‖Δq_t − Δq_{t-1}‖² | 默认 λ_smooth=0 即禁用 |
+
+> 旧的 L2 正则惩罚（−λ_reg × ‖Δq‖²）已移除。
+
+---
+
+### 终止条件
+
+| 名称 | 条件 / 阈值 |
+|---|---|
+| motion_end | 动作序列播放完毕 |
+| time_out | 超过最大 episode 步数 |
+| anchor_pos | 锚点 z 轴下沉 > 0.25 m |
+| anchor_ori | 锚点姿态误差 > 0.8 rad |
+| ee_body_pos | 踝/腕关节 z 轴偏差 > 0.25 m |
+
+---
+
+### Wandb 诊断项
+
+**Loss/ 前缀（ppo.py loss_dict）：**
+
+| 键名 | 含义 |
+|---|---|
+| Loss/value_function | Critic 值函数损失 |
+| Loss/surrogate | PPO surrogate loss |
+| Loss/entropy | 策略熵 |
+| Loss/kl_divergence | 策略更新 KL |
+| Loss/learning_rate | 当前学习率 |
+| Loss/lambda_reg | λ_reg 当前值（仍存在，供参考） |
+| Loss/delta_q_norm_mean | Δq 采样幅度均值 |
+| Loss/delta_q_norm_std | Δq 采样幅度标准差 |
+
+**FrontRES/ 前缀（runner，更新后）：**
+
+| 键名 | 含义 |
+|---|---|
+| FrontRES/r_delta_per_step | 每步 r_delta 均值（FrontRES 净奖励） |
+| FrontRES/baseline_per_step | 每步 GMT 基线均值（r_base） |
+| FrontRES/smooth_penalty_per_step | 平滑惩罚（λ_smooth=0 时不记录） |
+
+**Curriculum/ 前缀：**
+
+| 键名 | 含义 |
+|---|---|
+| Curriculum/delta_q_alpha | 当前 Δq curriculum α 值 |
+| Curriculum/critic_warmup_active | Critic warmup 是否激活（0/1） |
+
+**Train/ 前缀：**
+
+| 键名 | 含义 |
+|---|---|
+| Train/mean_reward | episode 平均 reward（含 r_delta，混入 GMT 组） |
+| Train/mean_episode_length | episode 平均长度 |
+
+---
+
+需要确认的几点：
+
+1. **`Loss/lambda_reg` 仍在 ppo.py 输出** — 但 runner 侧已移除 L2 惩罚，这个值只是记录 `lambda_reg_current` 的当前值（纯诊断），不影响训练。是否需要从 loss_dict 移除？
+
+2. **`Train/mean_reward` 混合了两组** — N_train 个 FrontRES 环境 reward = r_delta（接近零），N_base 个 GMT 环境 reward = 原始 GMT reward（正值）。日志显示的均值是两者混合，可能有误导性。是否需要分开记录？
+
+---
+
+
+**Claude**
+
+Now split the book-keeping reward accumulation for FrontRES vs GMT groups:
+
+---
+
+
+**Claude**
+
+Now update the `log()` function — add GMT reward logging and move `delta_q_norm_mean` to `FrontRES/` prefix:
+
+---
+
+
+**Claude**
+
+Now add separate GMT reward logging and rename the main buffer label:
+
+---
+
+
+**Claude**
+
+Now update the console print to show both reward groups for FrontRES:
+
+---
+
+
+**Claude**
+
+修改完成。以下是本次所有变更的汇总：
+
+---
+
+### 修改汇总
+
+**1. 梯度修正（GMT 组 storage override）**
+
+在 `self.alg.act()` 返回后立即执行：
+- `storage.actions[step, N_train:] = 0` — 覆写为实际 env 收到的 delta_q
+- 重算 `log_prob(0 | policy)` 并写入 `storage.actions_log_prob[step, N_train:]`
+
+效果：PPO IS ratio 对 GMT 组从第一轮起就是正确的，advantage_GMT 收敛后梯度精确为零。
+
+**2. 奖励分离记录**
+
+Episode done 时按 env index 分流：
+- `rewbuffer`（env index < N_train）→ FrontRES 组 r_delta 累积值
+- `rewbuffer_gmt`（env index ≥ N_train）→ GMT 组原始 reward 累积值
+
+**3. Wandb 重新分类**
+
+| 旧路径 | 新路径 |
+|---|---|
+| `Loss/delta_q_norm_mean` | `FrontRES/delta_q_norm_mean` |
+| `Loss/delta_q_norm_std` | `FrontRES/delta_q_norm_std` |
+| `Loss/lambda_reg` | `FrontRES/lambda_reg` |
+| `Loss/smooth_metric` | `FrontRES/smooth_metric` |
+| `Train/mean_reward` | `Train/mean_r_delta`（FrontRES 时）|
+| —（新增） | `Train/mean_reward_gmt` |
+
+**4. 控制台输出**
+
+FrontRES 训练时区分打印 `Mean r_delta (FrontRES)` 和 `Mean reward_GMT (baseline)`，两者分别反映净提升量和 GMT 基线水平。
+
+---
+
+
+**Claude**
+
+好问题，这是当前实现的一个根本性缺陷。
+
+---
+
+**理论上需要两个 storage 的原因：**
+
+当前 storage 混存两组 env 的 transitions：
+
+- FrontRES 组：reward = r_delta（接近 0，可能为负）
+- GMT 组：reward = raw GMT reward（正值，约 5.0）
+
+Value function `V(s)` 在 update 时同时接收两组矛盾的 target：
+```
+FrontRES envs → V(s) ≈ E[r_delta] ≈ 0
+GMT envs      → V(s) ≈ E[GMT reward] ≈ 5.0
+```
+
+同一个网络对相似的 obs 给出截然不同的 target → V(s) 训练混乱 → advantage 估计不准 → actor 梯度噪声增大。
+
+---
+
+**实用方案：不重构 storage，而是将 GMT 组 reward 清零**
+
+GMT 组的 reward 的唯一作用是提供 r_base（已在 B1 block 里用 `.mean()` 计算完毕）。之后 GMT 组的 reward 对 PPO 没有有效信息，可直接清零：
+
+- GMT envs reward = 0 → V(s) 对 GMT envs 学 V ≈ 0（稳定 target）
+- advantage_GMT = return − V(s) ≈ 0 − 0 = 0 → actor 梯度贡献为零
+
+同时需要单独维护 `cur_reward_sum_gmt` 保存 raw GMT reward 用于日志（不能从已清零的 `cur_reward_sum` 里读）。
+
+---
+
+
+**Claude**
+
+Now fix the done-episode splitting to use `cur_reward_sum_gmt` for the GMT buffer:
+
+---
+
+
+**Claude**
+
+Let me verify the complete B1 block is correct now:
+
+---
+
+
+**Claude**
+
+修改完成，逻辑正确。总结此次修改的核心设计：
+
+---
+
+**为什么不需要真正的两个 storage**
+
+| 维度 | 双 storage 方案 | 当前方案（GMT reward 清零） |
+|---|---|---|
+| 理论正确性 | 完全正确 | 近似正确 |
+| V(s) 混乱 | 完全避免 | 消除：GMT envs 的 target = 0，稳定 |
+| actor 梯度污染 | 完全避免 | 消除：advantage_GMT = 0 − 0 = 0 |
+| 实现代价 | 大重构（storage 大小、算法接口） | 3 行代码 |
+
+**GMT reward 清零后各项的行为：**
+
+```
+rewards_mod[N_train:] = 0.0
+         ↓
+V(s) for GMT envs  →  学到 V ≈ 0（稳定目标）
+advantage_GMT      =  r_delta_gmt − V(s) = 0 − 0 = 0
+actor gradient     =  advantage × ∇log_prob(0) = 0   ← 从第一步起就为零
+value gradient     =  (V(s)−target)² → (0−0)² = 0   ← 从收敛后为零
+```
+
+**日志正确性保障：**
+
+- `rewbuffer_gmt` 使用 `cur_reward_sum_gmt`，它在清零之前通过 `r_raw_gmt` 独立累积，不受清零影响
+- `rewbuffer`（FrontRES 组）使用 `cur_reward_sum[:N_train]`，只积累 r_delta
+
+---
+
+
+**Claude**
+
+Now let me read the key policy file and PPO algorithm:
+
+---
+
+
+**Claude**
+
+I found a critical bug. Let me read more carefully before writing fixes:
+
+---
+
+
+**Claude**
+
+Found the critical bug. `RslRlPpoFrontRESAlgorithmCfg.class_name = "PPO"` → `training_type = "rl"`. All B1 logic is currently gated on `training_type == "mosaic"` → **dead code, never executes**. The storage override also incorrectly modifies `step-1` (previous step) instead of the current transition.
+
+Three fixes needed:
+
+**Fix 1**: Remove B1 code from mosaic path (wrong place), revert to original:
+
+---
+
+
+**Claude**
+
+**Fix 2**: Add B1 split + transition override to the correct "rl" path:
+
+---
+
+
+**Claude**
+
+**Fix 3**: Remove the wrong `training_type == "mosaic"` gate from the B1 delta-reward block:
+
+---
+
+
+**Claude**
+
+Now verify the complete critical section looks correct:
+
+---
+
+
+**User**
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+   The session continued from a prior conversation on FrontRES Stage 2 RL fine-tuning within the MOSAIC project. The user's primary requests in this session were:
+   - Implement B1 split-env delta-reward: split N envs into FrontRES training group [0:N_train] and GMT-only baseline group [N_train:], using real simulation rewards from the GMT group as R_baseline per step
+   - Check whether std computation needed modification after B1 changes (answer: no change needed)
+   - Provide complete reward/penalty/diagnostic table for paper verification
+   - Explain why L2 penalty was removed and why delta_q_norm_mean is under Loss/ prefix (misclassification)
+   - Separate FrontRES and GMT reward logging, and verify gradient computation correctness
+   - Determine whether two separate storages are needed (answer: no — zero GMT rewards achieves same effect)
+   - **Most critically: Full pipeline review before pushing to server for training** — which revealed a critical bug: all B1 logic was dead code because it was gated on `training_type == "mosaic"` while FrontRES Stage 2 uses `training_type == "rl"` (class_name = "PPO")
+
+2. Key Technical Concepts:
+   - **FrontRES architecture**: residual_actor (trainable) outputs Δq; GMT (frozen) takes q_ref + alpha*Δq → motor commands
+   - **training_type**: `class_name = "PPO"` → `training_type = "rl"` (NOT "mosaic") — critical for understanding which code path executes
+   - **B1 split-env delta-reward**: N envs split into FrontRES [0:N_train] and GMT-only [N_train:]; `r_delta = r_total[:N_train] - r_base`; GMT rewards zeroed in storage to prevent value function confusion
+   - **Transition vs Storage timing**: `self.alg.transition` holds current step data; `self.storage.add_transitions()` is called inside `process_env_step()`. Override must happen on `self.alg.transition` BEFORE `process_env_step()`, NOT on `storage.actions[step-1]` which modifies the wrong (previous) step
+   - **PPO IS ratio correctness**: For GMT envs, stored action must be zero (actual env action) so IS ratio `exp(log_prob(0|new_policy) - log_prob(0|old_policy))` is valid
+   - **Zeroing GMT rewards**: `rewards[N_train:] = 0` → V(s) for GMT envs learns 0 → advantage_GMT = 0 → zero actor gradient; avoids value function confusion from mixed reward targets (r_delta ≈ 0 vs raw GMT ≈ 5.0)
+   - **delta_q_alpha curriculum**: Phase 0 (warmup, alpha=0.1 fixed) → Phase 1 (ramp alpha_init→1.0 over 9000 iters) → Phase 2 (alpha=1.0 full training)
+   - **Critic warmup**: Actor frozen for first 1000 iterations; critic learns V(s) on correct reward signal before actor is updated
+   - **tanh output clipping**: `delta_q_mean = tanh(residual_actor(obs)) * max_delta_q`; bounds mean but NOT samples; std can still explode (historical issue)
+   - **softplus for std**: `std = softplus(self.std).clamp(min=1e-6)` ensures std > 0
+
+3. Files and Code Sections:
+   - **`source/rsl_rl/rsl_rl/runners/on_policy_runner.py`** (most critical, heavily modified):
+     - Before main loop: B1 initialization
+       ```python
+       if _is_frontres:
+           N_train = self.env.num_envs // 2
+           N_base  = self.env.num_envs - N_train
+           print(f"[Runner] FrontRES B1 delta-reward: {N_train} training envs + {N_base} baseline envs")
+           cur_reward_sum_gmt = torch.zeros(N_base, dtype=torch.float, device=self.device)
+       ```
+     - Reward buffers:
+       ```python
+       rewbuffer = deque(maxlen=100)     # FrontRES: r_delta per episode
+       rewbuffer_gmt = deque(maxlen=100) # GMT: raw GMT reward per episode
+       ```
+     - MOSAIC path: reverted to original (B1 removed — wrong path for FrontRES):
+       ```python
+       if hasattr(self.alg.policy, 'get_env_action'):
+           env_actions = self.alg.policy.get_env_action(obs, actions)
+       else:
+           env_actions = actions
+       ```
+     - **RL path (else branch) — correct location for B1** (after all fixes):
+       ```python
+       else:
+           actions = self.alg.act(obs, privileged_obs)
+           if _is_frontres:
+               _zeros_gmt = torch.zeros_like(actions[N_train:])
+               self.alg.transition.actions[N_train:] = _zeros_gmt
+               _mean_gmt   = self.alg.policy.action_mean[N_train:].clone()
+               _std_gmt    = self.alg.policy.action_std
+               _logp_zeros = torch.distributions.Normal(_mean_gmt, _std_gmt) \
+                                 .log_prob(_zeros_gmt).sum(dim=-1)
+               self.alg.transition.actions_log_prob[N_train:] = _logp_zeros
+               env_actions_fr  = self.alg.policy.get_env_action(obs[:N_train], actions[:N_train])
+               env_actions_gmt = self.alg.policy.get_env_action(obs[N_train:], _zeros_gmt)
+               env_actions = torch.cat([env_actions_fr, env_actions_gmt], dim=0)
+           elif hasattr(self.alg.policy, 'get_env_action'):
+               env_actions = self.alg.policy.get_env_action(obs, actions)
+           else:
+               env_actions = actions
+       ```
+     - B1 delta-reward block after env.step() (gate fixed to `if _is_frontres:` only):
+       ```python
+       if _is_frontres:
+           r_raw_gmt = rewards[N_train:].view(-1).clone()
+           r_total   = rewards[:N_train].view(-1)
+           r_base    = r_raw_gmt.mean()
+           r_delta   = r_total - r_base
+           rewards_mod = rewards.clone()
+           if rewards_mod.dim() == 2:
+               rewards_mod[:N_train] = r_delta.unsqueeze(-1)
+               rewards_mod[N_train:] = 0.0
+           else:
+               rewards_mod[:N_train] = r_delta
+               rewards_mod[N_train:] = 0.0
+           rewards = rewards_mod
+           # ... smoothness penalty optional ...
+           _frontres_rdelta_sum   += r_delta.mean().item()
+           _frontres_baseline_sum += r_base.item()
+           _frontres_shaping_steps += 1
+           # Update prev_delta_q
+           _done_mask = dones.bool().view(-1)
+           if _frontres_prev_delta_q is None:
+               _frontres_prev_delta_q = actions.clone()
+           else:
+               _frontres_prev_delta_q = actions.clone()
+               _frontres_prev_delta_q[_done_mask] = 0.0
+       ```
+     - Book-keeping for GMT reward:
+       ```python
+       if _is_frontres:
+           cur_reward_sum_gmt += r_raw_gmt
+       ```
+     - Done-episode splitting:
+       ```python
+       if _is_frontres and len(new_ids) > 0:
+           _env_idx  = new_ids[:, 0]
+           _fr_done  = new_ids[_env_idx < N_train]
+           _gmt_done = new_ids[_env_idx >= N_train]
+           if len(_fr_done) > 0:
+               rewbuffer.extend(cur_reward_sum[_fr_done][:, 0].cpu().numpy().tolist())
+           if len(_gmt_done) > 0:
+               _gmt_local = _gmt_done[:, 0] - N_train
+               rewbuffer_gmt.extend(cur_reward_sum_gmt[_gmt_local].cpu().numpy().tolist())
+               cur_reward_sum_gmt[_gmt_local] = 0
+       ```
+     - locs exposure:
+       ```python
+       frontres_rdelta_mean   = (_frontres_rdelta_sum / _frontres_shaping_steps if ... else None)
+       frontres_baseline_mean = (_frontres_baseline_sum / _frontres_shaping_steps if ... else None)
+       ```
+     - Updated log() reclassification:
+       ```python
+       _frontres_diag_keys = {"delta_q_norm_mean", "delta_q_norm_std", "smooth_metric", "lambda_reg"}
+       for key, value in locs["loss_dict"].items():
+           if isinstance(self.alg.policy, FrontRESActorCritic) and key in _frontres_diag_keys:
+               self.writer.add_scalar(f"FrontRES/{key}", value, locs["it"])
+           else:
+               self.writer.add_scalar(f"Loss/{key}", value, locs["it"])
+       ```
+     - Separate wandb logging for FrontRES vs GMT:
+       ```python
+       if isinstance(self.alg.policy, FrontRESActorCritic):
+           self.writer.add_scalar("Train/mean_r_delta", statistics.mean(locs["rewbuffer"]), locs["it"])
+           if len(locs.get("rewbuffer_gmt", [])) > 0:
+               self.writer.add_scalar("Train/mean_reward_gmt", statistics.mean(locs["rewbuffer_gmt"]), locs["it"])
+       ```
+     - New FrontRES wandb metrics:
+       ```python
+       if locs.get("frontres_rdelta_mean") is not None:
+           self.writer.add_scalar("FrontRES/r_delta_per_step", locs["frontres_rdelta_mean"], locs["it"])
+       if locs.get("frontres_baseline_mean") is not None:
+           self.writer.add_scalar("FrontRES/baseline_per_step", locs["frontres_baseline_mean"], locs["it"])
+       ```
+
+   - **`source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py`**:
+     - `FrontRESActorCritic` class with `delta_q_alpha` attribute set by runner
+     - `update_distribution()`: `delta_q_mean = tanh(residual_actor(policy_obs)) * max_delta_q`; distribution = Normal(mean, softplus(std))
+     - `act()`: calls `update_distribution()` then `distribution.sample()`
+     - `get_env_action(obs, delta_q_sample)`: uses `_cached_observations` from last `act()`, applies `alpha * delta_q` to q_ref, runs GMT
+     - `action_mean` property: returns `self.distribution.mean`
+     - `action_std` property: returns `self.distribution.stddev`
+     - `_apply_delta_q_and_run_gmt()`: `obs_modified[:, q_ref_start_idx:q_ref_end_idx] += delta_q_alpha * delta_q`
+
+   - **`source/rsl_rl/rsl_rl/algorithms/ppo.py`**:
+     - `act()`: stores `self.transition.actions = self.policy.act(obs).detach()` and `self.transition.actions_log_prob`
+     - `process_env_step()`: calls `self.storage.add_transitions(self.transition)`
+     - FrontRES optimizer: restricted to `residual_actor.parameters() + critic.parameters() + std`
+     - `delta_q_norm_mean` from `self.storage.actions` (policy samples, not env actions)
+     - loss_dict keys: value_function, surrogate, entropy, kl_divergence, lambda_reg, delta_q_norm_mean, delta_q_norm_std
+
+   - **`source/whole_body_tracking/.../tracking_env_cfg.py`**:
+     - `RLFinetuneRewardsCfg` for Stage 2: 8 reward terms (max sum ≈ 5.5), 3 penalty terms
+     - `TerminationsCfg`: 5 termination conditions
+     - `RLFinetuneEventCfg`: domain randomization
+
+   - **`source/whole_body_tracking/.../agents/rsl_rl_ppo_cfg.py`**:
+     - `G1FlatFrontRESFinetuneRunnerCfg` uses `RslRlPpoFrontRESAlgorithmCfg(class_name="PPO")` → `training_type = "rl"`
+     - `critic_warmup_iterations = 1000`, `delta_q_alpha_init = 0.1`, `delta_q_alpha_ramp_iterations = 9000`
+     - `max_delta_q = 0.5`, `q_ref_start_idx = 232`
+     - `lambda_reg_init = 0.1` (still in config but L2 penalty removed from runner)
+
+4. Errors and Fixes:
+   - **CRITICAL BUG: All B1 logic was dead code**:
+     - Root cause: B1 code was gated on `self.training_type == "mosaic"` but FrontRES Stage 2 uses `class_name = "PPO"` → `training_type = "rl"`. The action split and delta-reward block never executed.
+     - Fix 1: Removed B1 code from MOSAIC path, reverted to original `get_env_action` call
+     - Fix 2: Added B1 split + transition override to the correct "rl" `else` branch
+     - Fix 3: Changed `if _is_frontres and self.training_type == "mosaic":` → `if _is_frontres:`
+
+   - **CRITICAL BUG: Storage override at wrong step**:
+     - Root cause: `_step_idx = self.alg.storage.step - 1` was computed BEFORE `process_env_step()` (before `add_transitions()`). At this point `storage.step` points to next-write position, so `step-1` is the PREVIOUS completed step, not the current one.
+     - Fix: Override `self.alg.transition.actions[N_train:]` and `self.alg.transition.actions_log_prob[N_train:]` BEFORE `process_env_step()`. The transition object holds the current step's data until `add_transitions()` is called.
+
+   - **Misplaced B1 action split in MOSAIC path**:
+     - Root cause: The `if _is_frontres:` action split was inside `if self.training_type == "mosaic":` block
+     - Fix: Moved to the "rl" `else` branch where FrontRES Stage 2 actually executes
+
+   - **Value function confusion with single storage (two-reward-target problem)**:
+     - Root cause: GMT envs had raw positive rewards (≈5.0) while FrontRES envs had r_delta (≈0), creating contradictory V(s) targets
+     - Fix: Zero GMT rewards (`rewards[N_train:] = 0.0`) in storage; V(s) for GMT envs learns 0; advantage_GMT → 0; zero gradient from GMT envs. Track raw GMT rewards separately via `cur_reward_sum_gmt` before zeroing.
+
+   - **delta_q_norm_mean misclassified as Loss**:
+     - Root cause: All loss_dict entries logged under `Loss/` prefix
+     - Fix: Reclassify `delta_q_norm_mean`, `delta_q_norm_std`, `lambda_reg`, `smooth_metric` to `FrontRES/` prefix for FrontRES policy
+
+   - **rewbuffer mixed FrontRES and GMT rewards**:
+     - Root cause: `new_ids` from done episodes included both groups; all stored to same `rewbuffer`
+     - Fix: Split by env index (`< N_train` → rewbuffer, `>= N_train` → rewbuffer_gmt with `cur_reward_sum_gmt`)
+
+5. Problem Solving:
+   - **B1 split-env implementation**: Solved the credit assignment problem (GMT dominates reward signal) by designating half the environments as GMT-only baseline providers. Per-step `r_base = rewards[N_train:].mean()` gives real-time, exact GMT baseline from simulation. `r_delta = r_total - r_base` isolates FrontRES contribution.
+   - **Two-storage question**: Solved without true two storages by zeroing GMT rewards in the PPO storage. This makes `V(s)_GMT ≈ 0`, `advantage_GMT ≈ 0`, gradient from GMT envs ≈ 0 — same practical effect as having separate storages, minimal code change.
+   - **IS ratio correctness**: Solved by overriding `self.alg.transition.actions[N_train:]` and `self.alg.transition.actions_log_prob[N_train:]` to zero before `process_env_step()`. This ensures PPO's IS ratio computation uses the actual action taken (zero delta_q) for GMT envs.
+   - **Gradient pollution from GMT envs**: Even if there were residual gradient, it vanishes as V_GMT(s) → 0 (stable target).
+
+6. All User Messages:
+   - "我认为方案B1更好，请执行修改" — Execute B1 split-env delta-reward
+   - "由于我们先前修改过计算std的部分，请检查这部分是否需要修改" — Check if std computation needs update after B1
+   - "请检查奖励项/惩罚项、诊断项，告诉我更新后的奖励项/惩罚项、诊断项还有哪些，让我检查一遍" — List all current reward/penalty/diagnostic items
+   - "1、为什么要移除L2惩罚项？为什么delta_q_norm_mean是作为Loss而不是Reward？2、请分开，并判断计算梯度的代码是否正确" — Explain L2 removal; explain Loss/ misclassification; separate GMT/FrontRES rewards; check gradient correctness
+   - "由于需要计算R_baseline，是否需要维持两个storage？" — Do we need two separate storages?
+   - "请从头到尾梳理整个Stage 2微调流程确保完全正确，我即将推送到服务器开始训练" — Full pipeline review before server push
+
+7. Pending Tasks:
+   - **Full pipeline review** was in progress when summary was requested. The three critical bugs were found and fixed. However, the review of `FrontRESActorCritic.get_env_action()` behavior with `_cached_observations` when called with sliced obs (`obs[:N_train]` vs `obs[N_train:]`) may need verification — the cached observations from `act(obs_full)` are the full N obs, but `get_env_action` is called with sliced obs. The `_cached_observations` is set during `update_distribution(observations)` in `act()` for ALL N obs; when `get_env_action(obs[:N_train], ...)` is called, it uses `getattr(self, '_cached_observations', observations)` which returns the FULL N obs cache, not the sliced obs. This could be a subtle bug worth verifying.
+   - Verify `self.alg.transition` attribute accessibility from runner context (should work since MOSAIC inherits from PPO, and transition is set in PPO's act())
+
+8. Current Work:
+   The pipeline review was being conducted systematically, reading through:
+   1. `on_policy_runner.py` — training loop structure ✓
+   2. `front_residual_actor_critic.py` — policy implementation ✓
+   3. `ppo.py` — algorithm/storage interaction ✓
+   
+   Three critical bugs were found and fixed via three edits to `on_policy_runner.py`:
+   - **Edit 1** (reverted mosaic path): Removed B1 split from MOSAIC path back to original
+   - **Edit 2** (correct rl path): Added B1 split + transition override to the "else" branch
+   - **Edit 3** (gate fix): Changed `if _is_frontres and self.training_type == "mosaic":` → `if _is_frontres:`
+
+   The pipeline review had read through `on_policy_runner.py` lines 430-735 and `front_residual_actor_critic.py` lines 1-776 and `ppo.py` lines 85-240 before the summary was requested.
+
+9. Optional Next Step:
+   Continue the full pipeline review. Specifically:
+   - Verify `get_env_action` behavior when called with sliced obs (`obs[:N_train]`) while `_cached_observations` holds the full N-env obs tensor. The current implementation uses `obs = getattr(self, '_cached_observations', observations)` which would return the full N obs, then parse only `policy_obs` from it — but then slicing `policy_obs` for only N_train envs may fail dimensionally since `_cached_observations` is [N, obs_dim] but we're passing obs [N_train, obs_dim].
+   
+   This was the next logical step in the pipeline review that was interrupted by the summary request. The user's intent was: "请从头到尾梳理整个Stage 2微调流程确保完全正确，我即将推送到服务器开始训练."
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: C:\Users\ChengYuxuan\.claude\projects\c--ArtiIntComVis-MOSAIC\2b99aabb-3476-4bdb-9737-6e7bcc708a5e.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+
+---
+
+
+**Claude**
+
+You've hit your limit · resets 7pm (Asia/Shanghai)
+
+---
+
+
+**User**
+
+Continue from where you left off.
+
+---
+
+
+**Claude**
+
+No response requested.
+
+---
+
+
+**User**
+
+先前的会话似乎中断，请再次从头到尾梳理整个Stage 2微调流程确保完全正确，我即将推送到服务器开始训练
+
+---
+
+
+**Claude**
+
+我来系统地读取所有关键文件，从头到尾验证流程。
+
+---
+
+
+**Claude**
+
+Now I've found the critical bug from the previous session's pending concern. Let me verify it and check the rest of the loop:
+
+---
+
+
+**Claude**
+
+**Found the critical bug.** In `get_env_action` (line 751), `_cached_observations` is the full `[N, obs_dim]` tensor, but when called from B1 split with `obs[:N_train]` and `actions[:N_train]`, `_apply_delta_q_and_run_gmt` gets `policy_obs=[N, obs_dim]` vs `delta_q=[N_train, A]` → dimension mismatch crash.
+
+Let me fix it and continue reading ppo.py:
+
+---
+
+
+**Claude**
+
+Another bug found: `_std_gmt = self.alg.policy.action_std` returns `[N, A]` (full tensor), but `_mean_gmt = [N_base, A]` and `_zeros_gmt = [N_base, A]` — shape mismatch in `Normal(mean, std)`.
+
+---
+
+
+**Claude**
+
+Now let me check if there are any remaining issues in the training loop — particularly the `rewards.dim() == 2` handling and cur_reward_sum logic:
+
+---
+
+
+**Claude**
+
+Let me check the `load()` function and the Stage 1→Stage 2 resume mechanism:
+
+---
+
+
+**Claude**
+
+Let me verify the Stage 1 checkpoint key structure that the Stage 2 load depends on:
+
+---
+
+
+**Claude**
+
+Now let me do a final verification pass on both fixes:
+
+---
+
+
+**Claude**
+
+Both fixes are correct. Now let me check one remaining question — whether `action_std` is actually sliceable (i.e., is it a true `[N, A]` tensor or just `[A]`):
+
+---
+
+
+**Claude**
+
+Both fixes verified. The full pipeline review is complete. Here's the complete report:
+
+---
+
+## Stage 2 Pipeline Review — Complete
+
+### Bugs Found and Fixed (This Session)
+
+**Bug 3 — `get_env_action` dimension mismatch** (in [front_residual_actor_critic.py:751](source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py#L751))
+
+`_cached_observations` is set during `act(obs_full)` → shape `[N, obs_dim]`. When B1 split calls `get_env_action(obs[:N_train], delta_q[:N_train])`, the cached full tensor was used as `policy_obs[N]` while `delta_q` was `[N_train, A]` → shape mismatch crash in `_apply_delta_q_and_run_gmt`.
+
+**Fix:** Fall back to the passed `observations` when `cached.shape[0] != delta_q_sample.shape[0]`.
+
+---
+
+**Bug 4 — `_std_gmt` not sliced** (in [on_policy_runner.py:571](source/rsl_rl/rsl_rl/runners/on_policy_runner.py#L571))
+
+`self.alg.policy.action_std` returns `distribution.stddev` which is `[N, A]` (expanded from the `[A]` scalar parameter). Used alongside `_mean_gmt[N_base, A]` in `Normal(mean, std)` → shape mismatch when `N != N_base`.
+
+**Fix:** `_std_gmt = self.alg.policy.action_std[N_train:]` → `[N_base, A]`.
+
+---
+
+### All Bugs Found Across Both Sessions (Summary)
+
+| # | Location | Bug | Fix |
+|---|----------|-----|-----|
+| 1 | `on_policy_runner.py` | B1 code gated on `training_type=="mosaic"` (dead code for FrontRES `"rl"` path) | Moved B1 to `else` branch, gate changed to `if _is_frontres:` |
+| 2 | `on_policy_runner.py` | Transition override done on `storage.step-1` (previous step) | Override `self.alg.transition` BEFORE `process_env_step()` |
+| 3 | `front_residual_actor_critic.py` | `_cached_observations[N]` used with `delta_q[N_train]` → shape mismatch | Fallback to passed `observations` when batch sizes differ |
+| 4 | `on_policy_runner.py` | `action_std[N,A]` paired with `action_mean[N_base,A]` in `Normal()` | Slice `action_std[N_train:]` → `[N_base, A]` |
+
+---
+
+### Pipeline Correctness Verified
+
+- **Normalizer**: GMT's frozen normalizer used for obs; critic gets fresh EmpiricalNormalization ✓
+- **B1 split**: FrontRES [0:N_train] uses Δq; GMT [N_train:] uses zero Δq → correct physics ✓
+- **IS ratio**: `transition.actions[N_train:]` overridden to zeros before `process_env_step()` → stored old log_prob is `log π(0|θ_old)` ✓
+- **Delta reward**: `r_delta = r_total - r_base`, GMT rewards zeroed → V(s_GMT) → 0, advantage_GMT → 0 ✓
+- **Curriculum**: Phase 0 (warmup, alpha=0.1, actor frozen) → Phase 1 (ramp 0.1→1.0) → Phase 2 (alpha=1.0) ✓
+- **Stage 1→2 transfer**: "student.0.weight" detection maps correctly to `residual_actor`, noise std reset to 0.1, optimizer reset gracefully ✓
+- **Optimizer scope**: Only `residual_actor + critic + std` are trained; GMT completely frozen ✓
+- **Gradient safety**: Inf/NaN gradient check before `optimizer.step()` ✓
+
+**Ready to push to server.**
+
+---

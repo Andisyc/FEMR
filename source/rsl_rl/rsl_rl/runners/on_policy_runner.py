@@ -397,8 +397,10 @@ class OnPolicyRunner:
 
         # Book keeping
         ep_infos = []
-        rewbuffer = deque(maxlen=100) # deque滑动窗口, 储存机器人的最终得分
-        lenbuffer = deque(maxlen=100) # deque滑动窗口, 储存机器人的存活时间
+        rewbuffer = deque(maxlen=100)  # FrontRES envs: r_delta per episode; others: raw reward
+        lenbuffer = deque(maxlen=100)
+        # B1: separate GMT baseline reward buffer (only populated when _is_frontres)
+        rewbuffer_gmt = deque(maxlen=100)  # GMT-only envs: raw GMT reward per episode
 
         # self.env.num_envs: 仿真中同时运行的机器人数量
         # cur_reward_sum & cur_episode_length: 每个机器人的总得分与存活时间
@@ -442,6 +444,20 @@ class OnPolicyRunner:
             print(f"[Runner] Δq curriculum enabled: alpha_init={_alpha_init}, "
                   f"ramp_iterations={_alpha_ramp} (starts after warmup={critic_warmup_iters})")
 
+        # B1 split-env delta-reward: first N_train envs run FrontRES, last N_base envs run GMT-only.
+        # R_baseline = mean reward of GMT-only envs each step (exact, from real simulation).
+        # r_delta = r_total[:N_train] − r_baseline  →  credit assignment to FrontRES contribution only.
+        # GMT envs' advantage → 0 in steady state (V converges to GMT reward level) → gradient vanishes.
+        if _is_frontres:
+            N_train = self.env.num_envs // 2
+            N_base  = self.env.num_envs - N_train
+            print(f"[Runner] FrontRES B1 delta-reward: "
+                  f"{N_train} training envs (FrontRES) + {N_base} baseline envs (GMT-only)")
+            # Separate cumulative reward tracker for GMT envs (raw GMT reward, for logging only).
+            # We zero GMT rewards in the PPO storage so V(s) only learns from FrontRES r_delta.
+            # GMT raw rewards must be tracked separately before they are zeroed.
+            cur_reward_sum_gmt = torch.zeros(N_base, dtype=torch.float, device=self.device)
+
         for it in range(start_iter, tot_iter):
             start = time.time()
 
@@ -474,11 +490,11 @@ class OnPolicyRunner:
                     new_alpha = 1.0
                 self.alg.policy.delta_q_alpha = new_alpha
 
-            # FrontRES reward-shaping state: track prev Δq across steps for smoothness penalty.
-            # Reset at the start of each rollout (process_env_step clears storage afterward).
-            _frontres_prev_delta_q: torch.Tensor | None = None  # [N, A], None = first step
-            # Accumulators for wandb logging of per-step penalty magnitudes
-            _frontres_reg_penalty_sum: float = 0.0
+            # FrontRES reward-shaping state: reset at the start of each rollout.
+            _frontres_prev_delta_q: torch.Tensor | None = None  # [N, A] for smoothness penalty
+            # Accumulators for wandb logging (per iteration, divided by shaping steps)
+            _frontres_rdelta_sum:   float = 0.0   # mean r_delta across FrontRES envs per step
+            _frontres_baseline_sum: float = 0.0   # mean GMT baseline per step
             _frontres_smooth_penalty_sum: float = 0.0
             _frontres_shaping_steps: int = 0
 
@@ -543,8 +559,24 @@ class OnPolicyRunner:
                     else:
                         actions = self.alg.act(obs, privileged_obs)
 
-                        # PAMR action mapping (RL action → env action)
-                        if hasattr(self.alg.policy, 'get_env_action'):
+                        if _is_frontres:
+                            # B1 split: FrontRES envs [0:N_train] use policy delta_q,
+                            #           GMT envs [N_train:] receive zero delta_q (pure GMT).
+                            # Override the transition's stored action/log_prob for GMT envs
+                            # BEFORE process_env_step() calls add_transitions() — this ensures
+                            # the IS ratio used in PPO is correct (zero was the actual env action).
+                            _zeros_gmt = torch.zeros_like(actions[N_train:])  # [N_base, A]
+                            self.alg.transition.actions[N_train:] = _zeros_gmt
+                            _mean_gmt   = self.alg.policy.action_mean[N_train:].clone()
+                            _std_gmt    = self.alg.policy.action_std[N_train:]  # [N_base, A]
+                            _logp_zeros = torch.distributions.Normal(_mean_gmt, _std_gmt) \
+                                              .log_prob(_zeros_gmt).sum(dim=-1)
+                            self.alg.transition.actions_log_prob[N_train:] = _logp_zeros
+                            # Build split env_actions (one physics step covers both groups)
+                            env_actions_fr  = self.alg.policy.get_env_action(obs[:N_train], actions[:N_train])
+                            env_actions_gmt = self.alg.policy.get_env_action(obs[N_train:], _zeros_gmt)
+                            env_actions = torch.cat([env_actions_fr, env_actions_gmt], dim=0)
+                        elif hasattr(self.alg.policy, 'get_env_action'):
                             env_actions = self.alg.policy.get_env_action(obs, actions)
                         else:
                             env_actions = actions
@@ -557,46 +589,50 @@ class OnPolicyRunner:
                     # Move to device
                     rewards, dones = rewards.to(self.device), dones.to(self.device)
 
-                    # ── FrontRES reward shaping ─────────────────────────────────────────
-                    # 正则化与平滑约束以 reward shaping（惩罚项）形式施加，而非 loss 项。
-                    # 数学依据：约束通过 Bellman 方程融入单目标 PPO，避免多目标梯度冲突。
-                    #
-                    # 设计原则（方案A）：直接惩罚网络原始输出 Δq（已经过 tanh 截断）。
-                    # 不按 alpha 缩放——warmup 期同样施加完整惩罚，从第一轮起就约束 Δq 量级，
-                    # 防止 action explosion 在 alpha 较小时无约束地累积。
-                    if _is_frontres and self.alg.use_frontres_reg and self.training_type == "mosaic":
-                        # `actions` 在 mosaic 路径已赋值为 delta_q（rollout buffer 中存储的值）
-                        # 注意：actions 此时已经过 tanh*max_delta_q 截断，量级有界
-                        _delta_q = actions  # [N, A]
+                    # ── FrontRES B1 delta-reward ────────────────────────────────────────
+                    # GMT baseline envs [N_train:] ran with delta_q=0 → rewards ≈ GMT-only.
+                    # r_delta = r_total[:N_train] − r_baseline isolates FrontRES contribution.
+                    # GMT envs keep raw rewards; their advantage → 0 in steady state
+                    # (V converges to GMT level) so their policy gradient vanishes.
+                    if _is_frontres:
+                        r_raw_gmt = rewards[N_train:].view(-1).clone()  # [N_base] save before zeroing
+                        r_total   = rewards[:N_train].view(-1)          # [N_train]
+                        r_base    = r_raw_gmt.mean()                    # scalar: per-step GMT baseline
+                        r_delta   = r_total - r_base                    # [N_train]
 
-                        # L2 惩罚：对 Δq 取平方均值，强制网络倾向于输出小修正量
-                        _lambda_reg = self.alg.lambda_reg_current
-                        if _lambda_reg > 0.0:
-                            _reg_penalty = -_lambda_reg * _delta_q.pow(2).mean(dim=-1)  # [N]
-                            rewards = rewards + _reg_penalty.unsqueeze(-1) if rewards.dim() == 2 \
-                                      else rewards + _reg_penalty
-                            _frontres_reg_penalty_sum += _reg_penalty.mean().item()
+                        rewards_mod = rewards.clone()
+                        if rewards_mod.dim() == 2:
+                            rewards_mod[:N_train] = r_delta.unsqueeze(-1)
+                            rewards_mod[N_train:] = 0.0  # zero GMT → V(s) target = 0 → advantage = 0
+                        else:
+                            rewards_mod[:N_train] = r_delta
+                            rewards_mod[N_train:] = 0.0
+                        rewards = rewards_mod
 
-                        # 时序平滑惩罚：惩罚相邻帧 Δq 的差分
-                        _lambda_smooth = self.alg.lambda_smooth
+                        # Optional smoothness penalty on top of delta reward
+                        _lambda_smooth = getattr(self.alg, 'lambda_smooth', 0.0)
                         if _lambda_smooth > 0.0 and _frontres_prev_delta_q is not None:
-                            _diff = _delta_q - _frontres_prev_delta_q               # [N, A]
-                            _smooth_penalty = -_lambda_smooth * _diff.pow(2).mean(dim=-1)  # [N]
-                            rewards = rewards + _smooth_penalty.unsqueeze(-1) if rewards.dim() == 2 \
-                                      else rewards + _smooth_penalty
+                            _diff = actions[:N_train] - _frontres_prev_delta_q[:N_train]  # [N_train, A]
+                            _smooth_penalty = -_lambda_smooth * _diff.pow(2).mean(dim=-1)  # [N_train]
+                            if rewards.dim() == 2:
+                                rewards[:N_train] = rewards[:N_train] + _smooth_penalty.unsqueeze(-1)
+                            else:
+                                rewards[:N_train] = rewards[:N_train] + _smooth_penalty
                             _frontres_smooth_penalty_sum += _smooth_penalty.mean().item()
 
+                        # Logging accumulators
+                        _frontres_rdelta_sum   += r_delta.mean().item()
+                        _frontres_baseline_sum += r_base.item()
                         _frontres_shaping_steps += 1
 
-                        # 更新 prev_delta_q：episode 结束的环境重置为零（消除跨 episode 平滑惩罚）
+                        # Update prev_delta_q for smoothness tracking (all N envs)
+                        _done_mask = dones.bool().view(-1)
                         if _frontres_prev_delta_q is None:
-                            _frontres_prev_delta_q = _delta_q.clone()
+                            _frontres_prev_delta_q = actions.clone()
                         else:
-                            # dones 可能是 [N] 或 [N,1]，统一处理
-                            _done_mask = dones.bool().view(-1)           # [N]
-                            _frontres_prev_delta_q = _delta_q.clone()
-                            _frontres_prev_delta_q[_done_mask] = 0.0    # 新 episode 从零开始
-                    # ── END FrontRES reward shaping ─────────────────────────────────────
+                            _frontres_prev_delta_q = actions.clone()
+                            _frontres_prev_delta_q[_done_mask] = 0.0
+                    # ── END FrontRES B1 delta-reward ─────────────────────────────────────
 
                     obs_dict = infos.get("observations", {})
                     if self.policy_obs_type is not None and self.policy_obs_type in obs_dict:
@@ -646,7 +682,10 @@ class OnPolicyRunner:
                             cur_ireward_sum += intrinsic_rewards  # type: ignore
                             cur_reward_sum += rewards + intrinsic_rewards
                         else:
-                            cur_reward_sum += rewards
+                            cur_reward_sum += rewards  # GMT envs contribute 0 (zeroed above)
+                        # GMT raw reward tracking (separate, uses pre-zeroed values saved earlier)
+                        if _is_frontres:
+                            cur_reward_sum_gmt += r_raw_gmt  # [N_base] raw GMT per-step reward
                         
                         # Update episode length
                         cur_episode_length += 1
@@ -654,7 +693,21 @@ class OnPolicyRunner:
                         # Clear data for completed episodes
                         # -- common
                         new_ids = (dones > 0).nonzero(as_tuple=False)
-                        rewbuffer.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
+                        if _is_frontres and len(new_ids) > 0:
+                            # B1: split done envs into FrontRES (r_delta) and GMT (raw reward)
+                            _env_idx  = new_ids[:, 0]
+                            _fr_done  = new_ids[_env_idx < N_train]
+                            _gmt_done = new_ids[_env_idx >= N_train]
+                            if len(_fr_done) > 0:
+                                # cur_reward_sum[:N_train] accumulates r_delta (correct)
+                                rewbuffer.extend(cur_reward_sum[_fr_done][:, 0].cpu().numpy().tolist())
+                            if len(_gmt_done) > 0:
+                                # cur_reward_sum_gmt accumulates raw GMT reward (pre-zeroing)
+                                _gmt_local = _gmt_done[:, 0] - N_train  # local index within [0, N_base)
+                                rewbuffer_gmt.extend(cur_reward_sum_gmt[_gmt_local].cpu().numpy().tolist())
+                                cur_reward_sum_gmt[_gmt_local] = 0
+                        elif len(new_ids) > 0:
+                            rewbuffer.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
                         lenbuffer.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
                         cur_reward_sum[new_ids] = 0
                         cur_episode_length[new_ids] = 0
@@ -683,13 +736,15 @@ class OnPolicyRunner:
             learn_time = stop - start
             self.current_learning_iteration = it
 
-            # expose curriculum state and penalty metrics to log() via locals()
+            # expose curriculum state and B1 delta-reward metrics to log() via locals()
             frontres_alpha         = self.alg.policy.delta_q_alpha if _is_frontres else None
             frontres_warmup_active = int(_warmup_actor_frozen) if _is_frontres else None
-            frontres_reg_penalty_mean   = (_frontres_reg_penalty_sum / _frontres_shaping_steps
-                                           if _frontres_shaping_steps > 0 else None)
+            frontres_rdelta_mean   = (_frontres_rdelta_sum / _frontres_shaping_steps
+                                      if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_baseline_mean = (_frontres_baseline_sum / _frontres_shaping_steps
+                                      if _is_frontres and _frontres_shaping_steps > 0 else None)
             frontres_smooth_penalty_mean = (_frontres_smooth_penalty_sum / _frontres_shaping_steps
-                                            if _frontres_shaping_steps > 0 else None)
+                                            if _is_frontres and _frontres_shaping_steps > 0 else None)
 
             # log info
             if self.log_dir is not None and not self.disable_logs:
@@ -769,26 +824,33 @@ class OnPolicyRunner:
         mean_std = self.alg.policy.action_std.mean()
         fps = int(collection_size / (locs["collection_time"] + locs["learn_time"]))
 
-        # -- Losses
+        # -- Losses (reclassify FrontRES diagnostics out of Loss/ into FrontRES/)
+        _frontres_diag_keys = {"delta_q_norm_mean", "delta_q_norm_std", "smooth_metric", "lambda_reg"}
         for key, value in locs["loss_dict"].items():
-            self.writer.add_scalar(f"Loss/{key}", value, locs["it"])
+            if isinstance(self.alg.policy, FrontRESActorCritic) and key in _frontres_diag_keys:
+                self.writer.add_scalar(f"FrontRES/{key}", value, locs["it"])
+            else:
+                self.writer.add_scalar(f"Loss/{key}", value, locs["it"])
         self.writer.add_scalar("Loss/learning_rate", self.alg.learning_rate, locs["it"])
 
         # -- Policy (not meaningful during supervised learning)
         if self.training_type != "supervise":
             self.writer.add_scalar("Policy/mean_noise_std", mean_std.item(), locs["it"])
 
-        # -- FrontRES Δq curriculum diagnostics (wandb)
+        # -- FrontRES Δq curriculum + B1 delta-reward diagnostics (wandb)
         if isinstance(self.alg.policy, FrontRESActorCritic):
             self.writer.add_scalar("Curriculum/delta_q_alpha",
                                    locs.get("frontres_alpha", self.alg.policy.delta_q_alpha), locs["it"])
             if locs.get("frontres_warmup_active") is not None:
                 self.writer.add_scalar("Curriculum/critic_warmup_active",
                                        locs["frontres_warmup_active"], locs["it"])
-            # -- FrontRES reward shaping penalty magnitudes
-            if locs.get("frontres_reg_penalty_mean") is not None:
-                self.writer.add_scalar("FrontRES/reg_penalty_per_step",
-                                       locs["frontres_reg_penalty_mean"], locs["it"])
+            # -- B1 delta-reward: r_delta and GMT baseline per step
+            if locs.get("frontres_rdelta_mean") is not None:
+                self.writer.add_scalar("FrontRES/r_delta_per_step",
+                                       locs["frontres_rdelta_mean"], locs["it"])
+            if locs.get("frontres_baseline_mean") is not None:
+                self.writer.add_scalar("FrontRES/baseline_per_step",
+                                       locs["frontres_baseline_mean"], locs["it"])
             if locs.get("frontres_smooth_penalty_mean") is not None:
                 self.writer.add_scalar("FrontRES/smooth_penalty_per_step",
                                        locs["frontres_smooth_penalty_mean"], locs["it"])
@@ -807,7 +869,13 @@ class OnPolicyRunner:
                 self.writer.add_scalar("Rnd/weight", self.alg.rnd.weight, locs["it"])
 
             # everything else
-            self.writer.add_scalar("Train/mean_reward", statistics.mean(locs["rewbuffer"]), locs["it"])
+            if isinstance(self.alg.policy, FrontRESActorCritic):
+                # B1: rewbuffer = FrontRES r_delta per episode; rewbuffer_gmt = GMT raw reward
+                self.writer.add_scalar("Train/mean_r_delta",   statistics.mean(locs["rewbuffer"]),     locs["it"])
+                if len(locs.get("rewbuffer_gmt", [])) > 0:
+                    self.writer.add_scalar("Train/mean_reward_gmt", statistics.mean(locs["rewbuffer_gmt"]), locs["it"])
+            else:
+                self.writer.add_scalar("Train/mean_reward", statistics.mean(locs["rewbuffer"]), locs["it"])
             self.writer.add_scalar("Train/mean_episode_length", statistics.mean(locs["lenbuffer"]), locs["it"])
             if self.logger_type != "wandb":  # wandb does not support non-integer x-axis logging
                 self.writer.add_scalar("Train/mean_reward/time", statistics.mean(locs["rewbuffer"]), self.tot_time)
@@ -832,7 +900,12 @@ class OnPolicyRunner:
                     f"""{'Mean extrinsic reward:':>{pad}} {statistics.mean(locs['erewbuffer']):.2f}\n"""
                     f"""{'Mean intrinsic reward:':>{pad}} {statistics.mean(locs['irewbuffer']):.2f}\n""")
 
-            log_string += f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
+            if isinstance(self.alg.policy, FrontRESActorCritic):
+                log_string += f"""{'Mean r_delta (FrontRES):':>{pad}} {statistics.mean(locs['rewbuffer']):.4f}\n"""
+                if len(locs.get("rewbuffer_gmt", [])) > 0:
+                    log_string += f"""{'Mean reward_GMT (baseline):':>{pad}} {statistics.mean(locs['rewbuffer_gmt']):.4f}\n"""
+            else:
+                log_string += f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
             # -- Velocity estimator error (if available)
             if 'vel_est_error_buffer' in locs and len(locs['vel_est_error_buffer']) > 0:
                 log_string += f"""{'Mean vel_estimator error:':>{pad}} {statistics.mean(locs['vel_est_error_buffer']):.4f}\n"""
