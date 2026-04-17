@@ -182,9 +182,14 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
     _s2 = Path("/home/chengyuxuan/MOSAIC/stage1/model_25000.pt")  # Wujie_4090
     student_checkpoint_path = _s1 if _s1.exists() else (_s2 if _s2.exists() else None)
 
-    # Stage 1 → Stage 2 过渡时需要重置探索噪声 std，
-    # 否则 runner 会沿用 checkpoint 里的旧值，忽略 init_noise_std=0.1 的设定。
-    reset_noise_std_on_resume = True
+    # ── 断点续训模式控制 ──────────────────────────────────────────────────────
+    # True  = Stage 2 → Stage 2 断点续训：
+    #           恢复优化器矩估计（Adam moments）、学习率、噪声 std
+    #           适用于：因参数调整暂停后继续训练
+    # False = Stage 1 → Stage 2 权重迁移（冷启动）：
+    #           仅加载 residual_actor/critic 权重，重置优化器和 std
+    #           适用于：首次从 Stage 1 checkpoint 启动 Stage 2
+    is_full_resume: bool = True
 
     # DR 课程：Stage 2 开始时 MotionPerturber 强度线性从 0 增长到 motion_perturbations 配置值。
     # 防止 FrontRES 在 Stage 2 冷启动时面对完全 OOD 的 q_ref，导致全负 r_delta → Δq=0 捷径陷阱。
@@ -274,7 +279,10 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
 
         # --- FrontRES 正则化：防止修正量过大 ---
         # L_reg = λ_reg * ||Δq_mean||^2 = ||q' - q_ref||^2 的等价形式
-        lambda_reg_init=0.1,        # 初始权重，约为 PPO loss 量级的 1/10
+        # lambda_reg_init=0.1 时 reg_penalty_per_step ≈ 0.028，是 r_delta 信号(≈0.001)的28倍，
+        # 导致 mean_r_delta 被掩盖在 -3→0 的范围内，严重阻碍学习。
+        # 0.005 时 reg_penalty_per_step ≈ 0.0014，与 r_delta 信号量级匹配。
+        lambda_reg_init=0.005,       # 降低至 0.005（原为 0.1，28倍过强）
         lambda_reg_decay=1.0,        # 不衰减（正则化是持续的安全约束）
         lambda_reg_min=0.0,
 

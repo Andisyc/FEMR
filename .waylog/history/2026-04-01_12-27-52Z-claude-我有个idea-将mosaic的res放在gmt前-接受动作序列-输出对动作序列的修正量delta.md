@@ -8068,3 +8068,328 @@ r_reg = -lambda_reg × mean_j(Δq_j²)   # 仅对 FrontRES envs
 | `FrontRES/reg_penalty_per_step` | 每步 lambda_reg 惩罚均值（课程期间为0，结束后为实际值） |
 
 ---
+
+
+**User**
+
+现在已经训练了36244轮 (从25000轮开始)，mean_reward_gmt在4到8之间震荡，mean_r_delta在过了30k后就一直在-3到0之间震荡，mean_episode_length在100到150之间震荡，Loss/value_function在0.08左右震荡，delta_q_norm_std和delta_q_norm_mean均在30k处有断崖下降到1.1，但开始缓慢上升，r_delta_per_step在0到0.002之间震荡，baseline_per_step在0.048之间紧密震荡，请评价收敛情况
+
+---
+
+
+**Claude**
+
+## 训练状态评估
+
+**当前进度**：Stage 2 已进行 11244 轮，DR 已达全强度，lambda_reg 在 iter 30000 激活。
+
+---
+
+### 核心诊断：lambda_reg 过强导致信号被掩埋
+
+**两个关键矛盾**：
+
+```
+r_delta_per_step  = +0.001  (纯 r_delta，正值，学习信号存在)
+mean_r_delta      = -3 到 0  (含 reg 惩罚的 episode 累计，持续为负)
+```
+
+还原每步贡献：
+```
+net_per_step = mean_r_delta / episode_length = -3 / 110 ≈ -0.027
+r_delta_per_step                             = +0.001
+→ reg_penalty_per_step ≈ -0.028
+```
+
+与理论计算对比（delta_q_norm=1.1，29 维）：
+```
+mean(Δq²) ≈ 1.1² / 29 ≈ 0.042
+reg = lambda_reg × mean(Δq²) = 0.1 × 0.042 = 0.0042 per step
+```
+
+**实际 reg 惩罚（~0.028）比理论值大约 7 倍**，原因是采样动作 `actions` 包含探索噪声，方差放大了惩罚项的期望值。实际等效 lambda_reg 远高于配置值 0.1。
+
+---
+
+### 逐指标解读
+
+**delta_q_norm：30k 处断崖下降 1.4→1.1，之后缓慢上升**
+
+这个 pattern 具有明确的物理意义：
+- 断崖下降：lambda_reg 激活，立刻压制大 Δq
+- 缓慢上升：Actor 在 reg 压力下仍在寻找能赚到足够 r_delta 的非零修正
+
+**缓慢上升是正向信号**——说明 Actor 没有完全坍缩到 Δq=0，而是在压力下找到了价值超越 reg 成本的修正方向。但上升速度极慢，因为 reg 成本比 r_delta 收益大得多。
+
+**mean_r_delta：-3 到 0（持续为负）**
+
+训练在 reg 主导的奖励盆地里。Critic 学到的 V(s) 是持续负值，advantage = r_delta + reg - V(s)，整体方差非常高。Actor 每次更新的梯度方向受 reg 干扰远大于 r_delta 的学习信号。
+
+**Loss/value_function：0.08（稳定不下降）**
+
+Critic 在追踪一个由 reg 主导的负值目标，V 估计已经收敛到当前奖励水平，但无法下降——因为奖励分布本身就是负值震荡。
+
+**r_delta_per_step：0 到 0.002（全程未增长）**
+
+从 Stage 2 开始到现在，DR 从 0 增长到全强度，但 r_delta_per_step 始终维持在同一水平，没有随 DR 加强而增大。这说明：
+- FrontRES 的改善能力与 DR 强度没有形成正反馈
+- 可能的原因：当前 DR 扰动幅度虽然激活，但对 GMT 的每步奖励影响不大（baseline 始终稳定在 0.048）
+
+---
+
+### 结论
+
+| 问题 | 严重程度 | 状态 |
+|---|---|---|
+| lambda_reg 过强，掩埋 r_delta 信号 | 高 | 需要修复 |
+| DR 强度对 GMT 的实际降级效果有限 | 中 | 需要关注 |
+| Actor 未完全坍缩（norm 在上升） | — | 正面信号，权重有价值 |
+
+**训练没有崩溃，但 lambda_reg=0.1 的设定将奖励信号从 +0.001/step 压制到 -0.027/step，两者相差 28 倍。学习在发生，但慢到几乎看不出效果。**
+
+---
+
+### 修复方案
+
+**直接从 iter 36244 的 checkpoint 继续训练，不需要回退**，只需调整 lambda_reg：
+
+```python
+lambda_reg_init = 0.005   # 从 0.1 降低 20 倍
+```
+
+验算：
+```
+reg_per_step = 0.005 × 0.042 = 0.00021
+reg_per_episode ≈ 0.021
+r_delta_per_episode ≈ 0.11
+
+net = +0.11 - 0.02 = +0.09  ← 奖励回归正值
+```
+
+这样 r_delta 信号可以正常驱动 Actor，reg 只起防止 action explosion 的保护作用而不主导奖励。
+
+同时检查 DR 强度是否足够：`baseline_per_step` 在全强度 DR 下仍然是 0.048，与之前相同，说明当前 DR 扰动对 GMT 性能的实际降级效果比预期弱。如果调低 lambda_reg 后 r_delta_per_step 仍然不增长，下一步需要适当加强 DR 扰动幅度（`float_ratio`、`sink_ratio` 等）。
+
+---
+
+
+**Claude**
+
+`stage2_start_iteration` 目前是 `_STAGE1_MAX_ITERATIONS = 25000`，这是正确的——因为它代表 Stage 2 的真实起始点，DR curriculum 进度 = `it - 25000`，到 30000 时进度已是 5000 = 课程结束，所以 DR 在 30000 时已完全激活，这是一致的。**不需要修改 `stage2_start_iteration`**。
+
+---
+
+现在来完整分析三个问题：
+
+## 一、从 model_30000.pt 断点续训 vs model_36244.pt
+
+**推荐从 model_30000.pt 续训**，理由：
+
+| 指标 | model_30000.pt | model_36244.pt |
+|---|---|---|
+| lambda_reg 状态 | lambda_reg 刚激活，污染 0 轮 | 在 lambda_reg=0.1 下训练了 6244 轮 |
+| Actor 权重质量 | 28827 时发生正向 spike，保留了有效策略 | reg_penalty 主导 →  Actor 被推向 Δq=0 方向 |
+| Critic 权重质量 | V(s) 反映真实奖励信号 | V(s) 已偏向反映 -reg_penalty，需重新校准 |
+
+model_36244.pt 的问题：Critic 学到的 V(s) 主要反映了 `-0.1 × ||Δq||²` 的负贡献，而不是真实的任务奖励。用这个 Critic 做 GAE 会产生不准确的优势估计，即使改了 lambda_reg 也需要很多轮 Critic 重新收敛。**从 30000 续训代价更小**。
+
+**续训需要修改的内容**：
+- `lambda_reg_init=0.005` ✓（已改）
+- 确保 runner 正确加载 30000 checkpoint（通过 `student_checkpoint_path` 或 `load_checkpoint` 机制）
+- `max_iterations` 保持 65000 不变——runner 会从 30000 继续，还有 35000 轮
+
+## 二、iter 28827 spike 分析
+
+这个 spike 是目前最重要的信号，时序是：
+
+```
+Stage 2 迭代: 3827（DR scale = 3827/5000 = 76%，lambda_reg 未激活）
+绝对迭代:     28827
+```
+
+- `r_delta_per_step` 正向大 spike → 某些环境中 FrontRES 的 Δq 显著改善了跟踪
+- `baseline_per_step` 负向大 spike → 同时刻 GMT baseline 在同一批环境的对照组表现下降
+- `mean_episode_length > 100` → 机器人没有摔倒
+- `Loss/value_function` 正向大 spike → Critic 检测到了价值突变（大优势）
+
+这表明：**在 76% DR 强度下，FrontRES 已经开始学会在部分扰动场景中修正 q_ref**。这是有效梯度信号的存在证明。随后 30000 激活了过强的 lambda_reg，直接扼杀了这个进展。
+
+## 三、DR 强度评估
+
+`baseline_per_step` 全程维持在 0.048 不下降，这意味着：
+
+**可能性 A**：DR 扰动对 GMT 影响不大（GMT 对 float/sink 鲁棒）。此时需要加强扰动幅度。
+
+**可能性 B**：FrontRES 和 GMT baseline 的环境在 DR 强度相同时，baseline 环境中 GMT 实际也在相同扰动下运行，因此 r_baseline 也保持高位——这是设计如此，r_delta 应当捕获 FrontRES 相对于 GMT 的改善量。
+
+**28827 的负向 baseline spike 恰好说明**: baseline 组在那个时刻受到了较强扰动，GMT 表现下降。这正是 DR 在发挥作用。baseline 全程 0.048 说明**大多数时候 GMT 对当前 DR 强度足够鲁棒**，仅在某些特殊组合（如 float+sink 同时触发）才显著下降。
+
+**结论**: 当前 DR 强度可以保持不变（不需要增强），因为：
+1. 28827 证明已经存在足够的 OOD 信号给 FrontRES 学习
+2. 过强 DR 反而会使 q_ref 完全失真，FrontRES 也无法修正
+
+---
+
+## 实际操作步骤
+
+```bash
+# 1. 停止当前训练
+# 2. 确认 model_30000.pt 存在（Stage 2 每 500 步存一次，30000 应有 checkpoint）
+
+# 3. 修改 student_checkpoint_path 指向 model_30000.pt
+# 在 G1FlatFrontRESFinetuneRunnerCfg 中：
+_s1 = Path("/home/yuxuancheng/MOSAIC/stage1/model_25000.pt")  # Stage 1 checkpoint
+# 改为：
+_s1 = Path("/home/yuxuancheng/MOSAIC/logs/.../model_30000.pt")  # Stage 2 model_30000.pt 路径
+
+# 4. 重新启动训练
+```
+
+注意：runner 加载 30000 checkpoint 后 `current_iter = 30000`，`max_iterations = 65000`，会继续训练 35000 轮，lambda_reg 从第一步就以 0.005 激活（DR curriculum 已完成）。
+
+需要确认的是：model_30000.pt 保存在哪个目录？是 `g1_flat_frontres_finetune` 实验目录下的 `model_30000.pt`，如果通过 `load_run` + `load_checkpoint` 机制加载，需要告知 runner 具体路径。请提供实际的 checkpoint 保存路径，我可以帮你确认配置是否需要额外修改。
+
+---
+
+
+**Claude**
+
+Now let me check PPO's `update()` to see how the adaptive learning rate is applied:
+
+---
+
+
+**Claude**
+
+现在我有了完整信息，可以全面分析：
+
+---
+
+## 断点续训的完整状态分析
+
+### 1. checkpoint 保存内容（`save()`，line 1054-1058）
+
+```python
+saved_dict = {
+    "model_state_dict": {residual_actor, critic, std},
+    "optimizer_state_dict": ...,   # ← Adam moments + param_groups 含 lr
+    "iter": self.current_learning_iteration,  # 30000
+    "infos": infos,
+}
+# empirical_normalization=True 时追加：
+"privileged_obs_norm_state_dict": ...   # Critic 归一化器统计量
+# obs_normalizer 对 FrontRESActorCritic 不保存（使用 GMT 冻结归一化器）
+```
+
+### 2. checkpoint 加载内容（`load()`，line 1081-1194）
+
+| 状态 | 是否恢复 | 说明 |
+|---|---|---|
+| `residual_actor` 权重 | ✅ | 完整恢复 |
+| `critic` 权重 | ✅ | 完整恢复 |
+| Adam 一阶/二阶矩估计 | ✅ | 这是最重要的，5000轮的梯度历史保留 |
+| `privileged_obs_normalizer` | ✅ | Critic 归一化器统计量恢复 |
+| `current_learning_iteration = 30000` | ✅ | 循环从 iter 30000 开始 |
+| `std`（噪声标准差） | ⚠️ | 先从 checkpoint 加载，但见问题 2 |
+| `self.alg.learning_rate` | ❌ | Python 属性未保存，见问题 1 |
+
+---
+
+## 发现 2 个问题，需要修改
+
+### 问题 1：学习率（minor，不影响训练质量）
+
+PPO 的 `update()` 第 358-359 行每次 epoch 都执行：
+```python
+for param_group in self.optimizer.param_groups:
+    param_group["lr"] = self.learning_rate  # self.learning_rate 从 __init__ 初始化 = 5e-4
+```
+
+`optimizer.load_state_dict()` 确实加载了 30000 时的 lr 到 `param_groups["lr"]`，但第一次 `update()` 调用就会被 `self.learning_rate = 5e-4`（配置初始值）覆盖。
+
+**影响**：如果 30000 时 adaptive schedule 已把 lr 调到 ≠ 5e-4，第一次 update 会重置为 5e-4。但 `schedule="adaptive"` 会在几百轮内根据 KL 重新收敛，Adam 矩估计不受影响。**可接受**。
+
+### 问题 2：`reset_noise_std_on_resume = True` — 需要改为 False
+
+当前配置是为 Stage 1 → Stage 2 设计的（噪声 std 必须从头重置）。Stage 2 → Stage 2 续训时，30000 时的噪声 std 已经过 5000 轮自然调整，强制重置为 `init_noise_std=0.1` 会丢失这部分适应。
+
+---
+
+
+**Claude**
+
+需要改三处文件：配置文件、`load()` 函数、`train.py`。先读最新的相关代码段确认当前状态：
+
+---
+
+
+**Claude**
+
+现在实现三处修改：
+
+**修改一：配置文件** - 将分散的 `reset_noise_std_on_resume` 替换为统一开关
+
+---
+
+
+**Claude**
+
+**修改二：`load()` 函数** - 三处修改（开头逻辑 + 学习率同步 + std 控制）
+
+---
+
+
+**Claude**
+
+现在在优化器加载成功后插入学习率同步：
+
+---
+
+
+**Claude**
+
+最后替换 std 控制段：
+
+---
+
+
+**Claude**
+
+现在验证整个 `load()` 函数的完整修改后结果：
+
+---
+
+
+**Claude**
+
+代码正确，逻辑清晰。
+
+---
+
+## 总结
+
+### 控制逻辑
+
+在 [rsl_rl_ppo_cfg.py](source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/rsl_rl_ppo_cfg.py#L185-L192) 中只需修改一行：
+
+```python
+is_full_resume: bool = True   # Stage 2→Stage 2 断点续训
+is_full_resume: bool = False  # Stage 1→Stage 2 权重迁移（冷启动）
+```
+
+### 每个模式控制的行为
+
+| 状态 | `True`（断点续训）| `False`（权重迁移）|
+|---|---|---|
+| `residual_actor` / `critic` 权重 | ✅ 加载 | ✅ 加载 |
+| Adam 矩估计（一/二阶 moment）| ✅ 恢复 | ❌ 从零初始化 |
+| `self.alg.learning_rate` | ✅ 从 optimizer 同步 | ❌ 用配置初始值 |
+| 噪声 std | ✅ 保留 checkpoint 值 | ❌ 重置为 `init_noise_std` |
+| `privileged_obs_normalizer` | ✅ 加载 | ✅ 加载（可能 missing，走新建分支）|
+| `current_learning_iteration` | ✅ 始终从 checkpoint 加载（两种模式一致）|
+
+### 向后兼容
+
+若配置中显式写 `reset_noise_std_on_resume = True/False`，会覆盖 `is_full_resume` 对 std 的推导，其余配置文件（MOSAIC、Distillation 等）不受影响，因为 `cfg.get('is_full_resume', True)` 默认值是 `True`，与之前行为一致。
+
+---
