@@ -8393,3 +8393,10 @@ is_full_resume: bool = False  # Stage 1→Stage 2 权重迁移（冷启动）
 若配置中显式写 `reset_noise_std_on_resume = True/False`，会覆盖 `is_full_resume` 对 std 的推导，其余配置文件（MOSAIC、Distillation 等）不受影响，因为 `cfg.get('is_full_resume', True)` 默认值是 `True`，与之前行为一致。
 
 ---
+
+
+**Claude**
+
+就是 [rsl_rl_ppo_cfg.py:181-183](source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/rsl_rl_ppo_cfg.py#L181-L183) 这里。`_s1`/`_s2` 是 Stage 1 的路径，现在要改成 model_30000.pt 的路径：
+
+---
