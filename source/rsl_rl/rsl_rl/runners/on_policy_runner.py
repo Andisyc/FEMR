@@ -1081,6 +1081,16 @@ class OnPolicyRunner:
     def load(self, path: str, load_optimizer: bool = True, load_critic: bool = True):
         loaded_dict = torch.load(path, weights_only=False)
 
+        # ── 断点续训模式控制 ────────────────────────────────────────────────────────
+        # is_full_resume=True  (Stage2→Stage2 断点续训): 恢复优化器矩估计+学习率, 保留 std
+        # is_full_resume=False (Stage1→Stage2 权重迁移): 仅权重, 重置优化器和 std
+        # load_optimizer 参数仍可从外部显式覆盖（例如强制跳过优化器加载）。
+        is_full_resume: bool = self.cfg.get('is_full_resume', True)
+        if not is_full_resume:
+            load_optimizer = False   # 权重迁移模式：强制跳过优化器，从零初始化 Adam
+        print(f"[Runner] is_full_resume={is_full_resume} → "
+              f"load_optimizer={load_optimizer}, reset_noise_std={not is_full_resume}")
+
         # Check if using ResidualActorCritic (special handling)
         if isinstance(self.alg.policy, (ResidualActorCritic, FrontRESActorCritic)):
             # 智能映射：尝试从阶段一 (SuperviseLearning) 提取 student 权重
@@ -1177,6 +1187,15 @@ class OnPolicyRunner:
                     # -- algorithm optimizer
                     self.alg.optimizer.load_state_dict(loaded_dict["optimizer_state_dict"])
                     print("[Runner] Loaded optimizer state from checkpoint.")
+                    # ── 学习率同步 ─────────────────────────────────────────────────────
+                    # PPO.update() 每次 epoch 都用 self.alg.learning_rate 覆盖
+                    # optimizer.param_groups["lr"]。load_state_dict 已将 param_groups["lr"]
+                    # 恢复为 checkpoint 时的值，但 self.alg.learning_rate 仍是配置初始值。
+                    # 此处同步，避免第一次 update() 将已恢复的学习率覆盖为初始值。
+                    if is_full_resume and hasattr(self.alg, 'learning_rate'):
+                        restored_lr = self.alg.optimizer.param_groups[0]['lr']
+                        self.alg.learning_rate = restored_lr
+                        print(f"[Runner] Synced learning_rate = {restored_lr:.2e} (from optimizer checkpoint)")
                 except (ValueError, KeyError) as e:
                     # Optimizer state mismatch (e.g., different parameter groups between stages)
                     # This can happen when:
@@ -1193,22 +1212,33 @@ class OnPolicyRunner:
         if resumed_training:
             self.current_learning_iteration = loaded_dict["iter"]
 
-        # -- Reset noise std if specified in config (for stage transitions)
-        # This allows changing exploration noise when resuming from a checkpoint
-        reset_noise = self.cfg.get("reset_noise_std_on_resume", False)
-        print(f"[Runner] reset_noise_std_on_resume = {reset_noise}")
-        if reset_noise:
+        # ── 噪声 std 控制 ──────────────────────────────────────────────────────────
+        # is_full_resume=True:  保留 checkpoint 中已自然适应的 std（断点续训）
+        # is_full_resume=False: 重置为 init_noise_std（Stage1→Stage2 冷启动）
+        # 向后兼容：若 cfg 中显式设置了 reset_noise_std_on_resume，以其为准。
+        reset_noise: bool
+        if 'reset_noise_std_on_resume' in self.cfg:
+            reset_noise = bool(self.cfg.get('reset_noise_std_on_resume'))
+            print(f"[Runner] reset_noise_std_on_resume = {reset_noise} (explicit config override)")
+        else:
+            reset_noise = not is_full_resume   # is_full_resume=True → 不重置; False → 重置
+            print(f"[Runner] reset_noise_std = {reset_noise} (derived from is_full_resume={is_full_resume})")
+
+        if reset_noise and (hasattr(self.alg.policy, 'std') or hasattr(self.alg.policy, 'log_std')):
             init_noise_std = self.policy_cfg.get("init_noise_std", 1.0)
             noise_std_type = self.policy_cfg.get("noise_std_type", "scalar")
-            print(f"[Runner] init_noise_std from config = {init_noise_std}, noise_std_type = {noise_std_type}")
-            num_actions = self.alg.policy.std.shape[0] if hasattr(self.alg.policy, 'std') else self.alg.policy.log_std.shape[0]
-
+            num_actions = (self.alg.policy.std.shape[0] if hasattr(self.alg.policy, 'std')
+                           else self.alg.policy.log_std.shape[0])
             if noise_std_type == "scalar":
                 self.alg.policy.std.data = torch.ones(num_actions, device=self.device) * init_noise_std
-                print(f"[Runner] Reset noise std to {init_noise_std} (reset_noise_std_on_resume=True)")
+                print(f"[Runner] Reset noise std → {init_noise_std}")
             elif noise_std_type == "log":
-                self.alg.policy.log_std.data = torch.log(torch.ones(num_actions, device=self.device) * init_noise_std)
-                print(f"[Runner] Reset log noise std to log({init_noise_std}) (reset_noise_std_on_resume=True)")
+                self.alg.policy.log_std.data = torch.log(
+                    torch.ones(num_actions, device=self.device) * init_noise_std)
+                print(f"[Runner] Reset log_std → log({init_noise_std})")
+        else:
+            if hasattr(self.alg.policy, 'std'):
+                print(f"[Runner] Kept noise std from checkpoint = {self.alg.policy.std.mean().item():.4f}")
 
         # -- Freeze normalizer if specified in config (for stage transitions)
         # This prevents normalizer statistics from drifting when resuming from distillation
