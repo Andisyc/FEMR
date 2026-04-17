@@ -176,10 +176,11 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
     empirical_normalization = True
     resume = True  # 从 Stage 1 checkpoint 加载权重
 
-    # Stage 1 FrontRES 权重路径（绝对路径，直接传给 runner.load()，绕过 log_root_path 拼接）
+    # Checkpoint 路径（绝对路径，直接传给 runner.load()，绕过 log_root_path 拼接）
     # train.py 检测到 student_checkpoint_path 存在时优先使用，否则回退到 load_run/load_checkpoint 机制
-    _s1 = Path("/home/yuxuancheng/MOSAIC/stage1/model_25000.pt")  # SUST_Main
-    _s2 = Path("/home/chengyuxuan/MOSAIC/stage1/model_25000.pt")  # Wujie_4090
+    # is_full_resume=False → Stage 1 权重迁移（冷启动）; is_full_resume=True → Stage 2 断点续训
+    _s1 = Path("/home/yuxuancheng/MOSAIC/stage2/model_30000.pt")  # SUST_Main
+    _s2 = Path("/home/chengyuxuan/MOSAIC/stage2/model_30000.pt")  # Wujie_4090
     student_checkpoint_path = _s1 if _s1.exists() else (_s2 if _s2.exists() else None)
 
     # ── 断点续训模式控制 ──────────────────────────────────────────────────────
