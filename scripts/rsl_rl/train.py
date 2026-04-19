@@ -11,6 +11,9 @@ import argparse
 import sys
 
 os.environ.setdefault("WANDB_SILENT", "true")
+# Redirect wandb local run files to HDD to avoid filling /home
+os.environ.setdefault("WANDB_DIR", "/hdd0/yuxuancheng/MOSAIC")
+os.environ.setdefault("WANDB_CACHE_DIR", "/hdd0/yuxuancheng/MOSAIC/.wandb_cache")
 
 WORLD_SIZE = int(os.environ.get("WORLD_SIZE", "1"))
 RANK = int(os.environ.get("RANK", "0"))

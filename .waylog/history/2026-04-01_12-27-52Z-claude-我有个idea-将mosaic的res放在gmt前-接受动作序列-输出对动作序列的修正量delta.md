@@ -8486,3 +8486,333 @@ log_root_path = "/hdd0/yuxuancheng/MOSAIC/g1_flat_supervised"
 Stage 2 的新 checkpoint 会被存进 `g1_flat_supervised/` 而不是 `g1_flat_frontres_finetune/`，与实验名不符，以后找 checkpoint 会很混乱。建议改为：
 
 ---
+
+
+**Claude**
+
+## 训练状态评估：iter 46828（Stage-2 进度 21828 轮）
+
+### 关键指标解读
+
+**r_delta_per_step ≈ +0.0018，几乎无负值** — 这是目前最重要的正向信号。FrontRES 在每步水平上**持续稳定地优于** GMT baseline，从未有持续为负的阶段。说明 Actor 确实在学习有效的修正方向，没有陷入 Δq=0 捷径。
+
+**mean_r_delta ≈ 0（episode 级别）** — 与 r_delta_per_step 为正看似矛盾，原因是：
+```
+r_delta/ep ≈ +0.0018 × 100步 = +0.18
+reg_penalty/ep ≈ -0.00125 × 100步 = -0.125
+net ≈ +0.055（应略为正，但被噪声和 baseline 波动模糊）
+```
+episode 级收益被 reg_penalty 部分吸收，导致 mean_r_delta 在 0 附近而非明显为正。
+
+**delta_q_norm_mean 稳定在 1.347** — 修正幅度已收敛，FrontRES 在主动输出大小稳定的修正，未被 reg 压回 0。与 iter 36244 对比，lambda_reg 从 0.1 → 0.005 确实解除了 Δq=0 陷阱。
+
+**baseline_per_step 极其稳定（0.047）** — 参考信号质量优良，DR 扰动未破坏 GMT 稳定性，r_delta 的相对量具有意义。
+
+**episode_length 100~125，无崩塌** — 机器人稳定，大修正幅度（norm=1.347）没有导致摔倒。
+
+---
+
+### 两个需要关注的信号
+
+**KL divergence 从 36k 开始持续上升** — 这是警告信号。`desired_kl=0.008`，adaptive schedule 的触发阈值是 `desired_kl × 2 = 0.016`。如果 KL 已经接近或超过 0.016，schedule 会开始降低 lr。请确认当前 KL 的绝对值，以及 `Loss/learning_rate` 是否在下降。如果 KL 超过 0.02 仍未触发 lr 降低，说明 adaptive schedule 的箝位上限（`min(1e-2, lr * 1.5)`）与 KL 之间有反馈滞后。
+
+**Loss/surrogate ≈ 10** — 这个值异常高，正常 PPO 的 surrogate 在 ±0.1 量级。可能原因：
+- 优势未做 mini-batch 归一化（`normalize_advantage_per_mini_batch=False`，当前配置），导致绝对量级随奖励规模直接传入 surrogate
+- mean_reward_gmt 4~8 per episode，而 FrontRES 的 advantage 直接是这个量级的绝对值
+
+这本身不一定是 bug，但它解释了为什么 KL 在上升——surrogate 梯度过大推动策略更新过猛。
+
+---
+
+### 总体判断
+
+| 维度 | 状态 |
+|---|---|
+| 是否在学习 | ✅ 是，r_delta_per_step 持续为正 |
+| 学习速度 | ⚠️ 慢，episode 级信号被 reg 部分抵消 |
+| 训练稳定性 | ⚠️ 存在隐患，KL 上升 + surrogate 过大 |
+| 动作健康度 | ✅ norm 收敛，机器人不倒 |
+
+**主要瓶颈是学习信号太弱**：r_delta_per_step 比 reg_penalty_per_step 只大约 44%（0.0018 vs 0.00125），episode 级净信号接近于噪声。建议再降低 lambda_reg：
+
+```python
+lambda_reg_init = 0.002  # 0.005 → 0.002
+# reg_penalty_per_step 预计从 -0.00125 降至 -0.0005
+# episode 净信号从 ≈0 升至 ≈+0.13，mean_r_delta 应明显转正
+```
+
+从 model_46828.pt 续训，`is_full_resume = True`，同时观察 KL 是否在 lambda_reg 降低后随着更清晰的梯度方向而自然下降。
+
+---
+
+
+**Claude**
+
+找到根本原因了。先看 KL 计算的核心代码：
+
+---
+
+
+**Claude**
+
+根本原因找到了。
+
+---
+
+## 问题一：KL / LR / Surrogate 三角关系
+
+### KL = 10 的结构性原因
+
+第 330 行：`torch.sum(..., axis=-1)` — KL 在所有动作维度上**求和**，不是求平均。
+
+G1 有 **29 个自由度**，自然导致：
+```
+KL_logged = Σ(KL_per_dim) = 29 × KL_per_dim
+```
+当每维 KL ≈ 0.35（多 epoch PPO 中完全正常的幅度），总 KL = 29 × 0.35 = **10.15**。
+
+### `desired_kl=0.008` 的实际含义
+
+| 参数 | 值 |
+|---|---|
+| desired_kl | 0.008 |
+| 触发降 lr 的阈值 | 0.008 × 2 = **0.016** |
+| 等效单维度目标 | 0.016 / 29 = **0.00055 per dim** |
+| 实际每维 KL | ≈ 0.35 |
+| 倍数 | 0.35 / 0.00055 = **636 倍** |
+
+每个 mini-batch 都满足 `kl_mean(=10) > 0.016` → 每次都执行 `lr /= 1.5`。
+
+### lr 崩溃过程
+
+在**第一轮训练迭代**（5 epochs × 4 mini-batches = 20 次更新）内：
+
+```
+初始 lr = 5e-4
+第 1 次 mini-batch: KL=10 > 0.016 → lr = 5e-4 / 1.5 = 3.3e-4
+第 2 次: → 2.2e-4
+...
+第 n 次: lr = 5e-4 / 1.5^n → 到达下限 1e-5 只需 22 次
+```
+
+22 次后 `max(1e-5, lr/1.5)` = `max(1e-5, 6.7e-6)` = **1e-5**，永久卡死在下限。此后每轮仍然 KL=10 >> 0.016，下限保护防止再降，**但也永远无法上升**。
+
+KL 在 10~17 震荡是因为不同 batch 的梯度幅度不同，而不是 lr 在变化。
+
+### Surrogate ≈ 10 的原因
+
+优势函数 (`advantages`) 在所有 12000 个环境上全局归一化（`normalize_advantage=True`）。B1 split 中：
+- GMT envs（6000个）：reward=0, V(s)→0 → advantage ≈ 0（极低方差）
+- FrontRES envs（6000个）：reward=r_delta≈小正值 → advantage 略为正
+
+全局归一化时，GMT envs 贡献了大量方差为 0 的样本，**压低了全局标准差**，使得 FrontRES 的小正优势被放大。放大后的优势 × IS ratio 就是 surrogate，量级被拉高到 10 附近。
+
+---
+
+## 问题二：从哪里续训
+
+**从 model_46828.pt 续训，不回退到 30000.pt。**
+
+原因：
+- 从 30000 到 46828，虽然 lr=1e-5 很慢，但 `r_delta_per_step` 从未为负，学习是真实发生的
+- model_46828.pt 的权重比 30000.pt 更好
+- 回退 16k 轮代价远大于 lr 崩溃的损失
+
+**但需要两处修复才能让续训有意义**：
+
+---
+
+## 代码修复
+
+**修复 1**：`desired_kl` 按 29 DOF 重新定标，并重置被压到底的 lr：
+
+---
+
+
+**Claude**
+
+---
+
+## 修复后预期行为
+
+续训 model_46828.pt 后，第一轮就会看到：
+
+```
+[Runner] Reset learning_rate → 5.00e-04 (reset_lr_on_resume=True; checkpoint had 1.00e-05)
+```
+
+然后 adaptive schedule 工作在正确的尺度上：
+
+| 场景 | KL 阈值 | 行为 |
+|---|---|---|
+| 策略更新过猛（KL > 0.46）| desired_kl × 2 | lr /= 1.5 |
+| 策略更新合适（0.12 < KL < 0.46）| 目标区间 | lr 不变 |
+| 策略更新过小（KL < 0.12）| desired_kl / 2 | lr × 1.5 |
+
+训练恢复后重点观察：
+1. `Loss/learning_rate` 应在几十轮内从 5e-4 收敛到某个稳定值（不再是 1e-5）
+2. `Loss/kl_divergence` 应降到 0.1~0.3 范围（不再是 10~17）
+3. `r_delta_per_step` 在 lr 提升后应加速增长
+
+---
+
+
+**User**
+
+请更清晰解释KL Divergence、Surrogate的意义，方便我理解
+
+---
+
+
+**User**
+
+我查阅了PPO的公式，发现梯度估计 = E_{π_old}[reward × ∇log π_new]应当是E_{π_old}[A × ∇(π_new/π_old)]
+
+---
+
+
+**Claude**
+
+你说得对，我之前的写法是简化版（相当于令 ratio=1），完整的 IS 校正形式是：
+
+$$\nabla J(\theta) = \mathbb{E}_{\pi_{old}}\left[A \cdot \nabla\frac{\pi_{new}}{\pi_{old}}\right]$$
+
+用 log-derivative 展开：
+
+$$\nabla\frac{\pi_{new}}{\pi_{old}} = \frac{1}{\pi_{old}} \cdot \nabla\pi_{new} = \frac{\pi_{new}}{\pi_{old}} \cdot \nabla\log\pi_{new} = r(\theta) \cdot \nabla\log\pi_{new}$$
+
+所以完整形式是：
+
+$$\nabla J = \mathbb{E}_{\pi_{old}}\left[A \cdot r(\theta) \cdot \nabla\log\pi_{new}\right]$$
+
+---
+
+## 这个差别在 PPO 中的意义
+
+| | 我的简化写法 | 正确的 IS 形式 |
+|---|---|---|
+| 公式 | $A \cdot \nabla\log\pi_{new}$ | $A \cdot r(\theta) \cdot \nabla\log\pi_{new}$ |
+| 隐含假设 | ratio ≈ 1（新旧策略相近）| 无假设，精确重要性采样 |
+| 对应哪种算法 | REINFORCE（纯 on-policy）| PPO（off-policy with IS）|
+
+**ratio 的作用**：如果新策略在某个动作上的概率是旧策略的 2 倍（ratio=2），这个动作的梯度就应该被放大 2 倍，因为新策略"更想做这个动作"，但这条数据只采集了 1 次，IS 需要补偿这个采样偏差。
+
+---
+
+## PPO Clip 的目的由此一目了然
+
+Loss 实际是：
+
+```
+surrogate = -A × ratio           ← ratio 可能很大（数据在旧策略下，新策略偏离太远）
+surrogate_clipped = -A × clip(ratio, 0.8, 1.2)   ← 硬性限制 ratio 的范围
+loss = max(surrogate, surrogate_clipped)           ← 取悲观估计
+```
+
+**Clip 的作用**：当 ratio 过大（新策略跑太远）时，把梯度信号截断，防止一步更新过头。KL divergence 是对这个"跑多远"的连续度量，Clip 是对它的硬截断。两者互补：
+
+```
+KL  → 用于 lr 的软调节（adaptive schedule）
+Clip → 对单步更新幅度的硬保护
+```
+
+---
+
+## 回到你的训练问题
+
+KL = 10~17 意味着：ratio 的分布已经严重偏离 1（超出 [0.8, 1.2] 的区间），Clip 频繁触发，surrogate 几乎全部来自 clipped 版本。这时候梯度方向是正确的，但幅度被截断，再加上 lr=1e-5，有效更新量 ≈ 0。这就是为什么训练虽然没有崩溃，但学习极其缓慢。
+
+---
+
+
+**Claude**
+
+Code review complete. Two issues before pushing:
+
+---
+
+**BLOCKER 1 — `student_checkpoint_path` still points to `model_30000.pt`**
+
+[rsl_rl_ppo_cfg.py:182-184](source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/rsl_rl_ppo_cfg.py#L182-L184) — you need to update both paths to `model_46828.pt` before pushing:
+
+```python
+_s1 = Path("/home/yuxuancheng/MOSAIC/stage2/model_46828.pt")   # SUST_Main
+_s2 = Path("/home/chengyuxuan/MOSAIC/stage2/model_46828.pt")   # Wujie_4090
+```
+
+---
+
+**BLOCKER 2 — `max_iterations=65000` is RELATIVE, not absolute**
+
+From iter 46828: `learn(num_learning_iterations=65000)` → `tot_iter = 46828 + 65000 = **111828**`. Training will run 65000 MORE iterations.
+
+If your target end is **65000 total**, add `--max_iterations 18172` to your launch command. If you want to train to 90000 total, use `--max_iterations 43172`. Decide before launching.
+
+---
+
+**Everything else is correct:**
+
+| Item | Status |
+|---|---|
+| `is_full_resume=True` + `reset_lr_on_resume=True` | ✅ resets lr 1e-5 → 5e-4 |
+| `desired_kl=0.23` | ✅ correctly scaled for 29-DOF sum KL |
+| `lambda_reg_init=0.005` | ✅ reduced from 0.1 |
+| DR curriculum at iter 46828 | ✅ `(46828-25000)/5000 = 4.37` → clamped to 1.0 → full DR immediately |
+| `load()` lr sync path | ✅ optimizer restored → `reset_lr_on_resume` overrides to 5e-4 |
+| `log_root_path` = `f"/hdd0/…/{experiment_name}"` | ✅ saves to `g1_flat_frontres_finetune/` |
+| noise std | ✅ `is_full_resume=True` keeps checkpoint std |
+
+Fix the checkpoint path and decide `--max_iterations`, then push.
+
+---
+
+
+**Claude**
+
+These errors at lines 157-162 are in `G1FlatSupervisedRunnerCfg` (Stage 1), not the Stage 2 config I edited — they're pre-existing. Let me verify `RslRlSuperviseAlgorithmCfg`'s actual parameters.
+
+---
+
+
+**Claude**
+
+The IDE errors are false positives — `RslRlSuperviseAlgorithmCfg` in [rsl_rl_cfg.py:225-238](source/whole_body_tracking/whole_body_tracking/utils/rsl_rl_cfg.py#L225-L238) has all those fields. The `@configclass` decorator confuses pyright. Pre-existing, not my edit.
+
+Now fixing wandb dir in `train.py`:
+
+---
+
+
+**Claude**
+
+Both changes applied. Now the iteration recommendation:
+
+---
+
+**续训多久？**
+
+训练历史分析：
+- iter 25000→46500 共 21500 轮，全程 lr=1e-5（KL bug 导致）
+- lr=1e-5 相当于 lr=5e-4 的 1/50 学习效率
+- 实际等效轮数：21500 × (1e-5 / 5e-4) ≈ **430 轮**
+
+也就是说，这 21500 轮的实际进展只相当于正常速度下的约 430 轮。原计划 Stage 2 是 40000 轮，还差 **~39600 轮**的正常训练。
+
+**建议：`--max_iterations 40000`**（从 46500 跑到 86500 总迭代数）
+
+- 前 ~2000 轮：lr 从 5e-4 重新热身，KL/optimizer 矩估计稳定
+- 后 38000 轮：真正的有效微调
+- 对应训练时长大约与原计划 Stage 2 40000 轮相同
+
+如果中途 r_delta 趋于平台期可以提前停止；如果还在上升可以继续加 `--max_iterations` 续训。
+
+---
+
+**启动命令示例：**
+```bash
+python train.py --task ... --motion ... --max_iterations 40000 [其他参数]
+```
+
+这样 `tot_iter = 46500 + 40000 = 86500`，是合理的训练终点。
+
+---
