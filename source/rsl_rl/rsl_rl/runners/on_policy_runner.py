@@ -1194,8 +1194,19 @@ class OnPolicyRunner:
                     # 此处同步，避免第一次 update() 将已恢复的学习率覆盖为初始值。
                     if is_full_resume and hasattr(self.alg, 'learning_rate'):
                         restored_lr = self.alg.optimizer.param_groups[0]['lr']
-                        self.alg.learning_rate = restored_lr
-                        print(f"[Runner] Synced learning_rate = {restored_lr:.2e} (from optimizer checkpoint)")
+                        reset_lr = bool(self.cfg.get('reset_lr_on_resume', False))
+                        if reset_lr:
+                            # lr 被 adaptive schedule 压至下限时（如因 desired_kl 配置错误），
+                            # 直接重置为算法配置的初始学习率，避免续训起点过低。
+                            config_lr = float(self.alg_cfg.get('learning_rate', 5e-4))
+                            self.alg.learning_rate = config_lr
+                            for pg in self.alg.optimizer.param_groups:
+                                pg['lr'] = config_lr
+                            print(f"[Runner] Reset learning_rate → {config_lr:.2e} "
+                                  f"(reset_lr_on_resume=True; checkpoint had {restored_lr:.2e})")
+                        else:
+                            self.alg.learning_rate = restored_lr
+                            print(f"[Runner] Synced learning_rate = {restored_lr:.2e} (from optimizer checkpoint)")
                 except (ValueError, KeyError) as e:
                     # Optimizer state mismatch (e.g., different parameter groups between stages)
                     # This can happen when:
