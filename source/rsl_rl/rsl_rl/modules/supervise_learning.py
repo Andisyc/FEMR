@@ -236,6 +236,10 @@ class SuperviseLearning(nn.Module):
         """
         Run GMT (PyTorch .pt) inference on a batch of raw observations.
         obs is normalised internally by gmt_normalizer before being fed to gmt_policy.
+
+        If the student obs has more dims than the GMT normalizer expects (e.g. because
+        task-space anchor-error terms are appended at the end), the extra trailing dims
+        are silently stripped — they are not part of the GMT's input distribution.
         """
         if self.gmt_policy is None:
             raise RuntimeError("GMT policy is not loaded. Cannot compute GMT action.")
@@ -243,6 +247,9 @@ class SuperviseLearning(nn.Module):
         device = obs.device
         # Normalize with GMT's frozen normalizer (same as Stage 2)
         if self.gmt_normalizer is not None:
+            _gmt_mean = getattr(self.gmt_normalizer, '_mean', None)
+            if _gmt_mean is not None and obs.shape[-1] > _gmt_mean.shape[-1]:
+                obs = obs[:, :_gmt_mean.shape[-1]]
             obs = self.gmt_normalizer(obs.to(self.gmt_normalizer._mean.device))
         return self.gmt_policy.act_inference(obs.to(device))
 

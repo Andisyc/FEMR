@@ -13291,3 +13291,160 @@ The implementation looks complete and correct. The full task-space (SE(3) Option
 9. [on_policy_runner.py](source/rsl_rl/rsl_rl/runners/on_policy_runner.py) — applies `[Δpos, Δrpy]→quaternion` to command term before `env.step()`; baseline envs get identity
 
 ---
+
+
+**User**
+
+我测试后遇到报错：
+File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/modules/normalizer.py", line 54, in forward
+    return (x - self._mean) / (self._std + self.eps)
+RuntimeError: The size of tensor a (800) must match the size of tensor b (770) at non-singleton dimension 1
+
+---
+
+
+**Claude**
+
+The normalizer dimension mismatch (800 vs 770) means either Stage 1 or Stage 2 is loading a checkpoint normalizer that was saved with 770 dims (before the two new obs terms). Let me check the supervise_learning module to understand which normalizer is failing:
+
+---
+
+
+**Claude**
+
+You've hit your limit · resets 7pm (Asia/Shanghai)
+
+---
+
+
+**User**
+
+Continue from where you left off.
+
+---
+
+
+**Claude**
+
+No response requested.
+
+---
+
+
+**User**
+
+我测试后遇到报错：
+File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/modules/normalizer.py", line 54, in forward
+    return (x - self._mean) / (self._std + self.eps)
+RuntimeError: The size of tensor a (800) must match the size of tensor b (770) at non-singleton dimension 1
+
+---
+
+
+**Claude**
+
+The normalizer mismatch (800 vs 770) means a 770-dim normalizer is receiving 800-dim student obs. The most likely culprit is `get_gmt_action()` using the GMT normalizer on student obs, or the runner loading an old checkpoint. Let me read `supervise.py` to confirm exactly where GMT gets its obs:
+
+---
+
+
+**Claude**
+
+The `supervise.py` trainer never calls `get_gmt_action` — so the mismatch must be in the runner feeding the student's 800-dim obs into the GMT normalizer. Let me check the runner's supervised mode flow:
+
+---
+
+
+**Claude**
+
+Found it. Line 727 passes `obs_raw_for_gmt` (student's 800-dim obs) into `get_gmt_action()`, which then runs it through the GMT's 770-dim normalizer. The GMT needs its own separate obs group. Let me read the supervised obs config:
+
+---
+
+
+**Claude**
+
+The bug is clear: `obs_raw_for_gmt` is the student's 800-dim obs, but `get_gmt_action` feeds it directly into the GMT's 770-dim normalizer. Looking at the `SupervisedObservationsCfg.PolicyCfg`, the anchor error terms are appended **at the end**, so the first 770 dims are exactly the GMT's training layout. The fix is to auto-slice in `get_gmt_action()`:
+
+---
+
+
+**Claude**
+
+Now let me also check the Stage 2 runner path — specifically where `obs_raw_for_gmt` is used for `FrontRESActorCritic` to make sure it doesn't have the same mismatch:
+
+---
+
+
+**Claude**
+
+Now I see the full picture. There are actually **two** normalizer mismatches to fix:
+
+1. **Stage 1**: `get_gmt_action(obs_raw_for_gmt)` passes 800-dim student obs into the 770-dim GMT normalizer — fixed above.
+2. **Stage 2**: The runner sets `obs_normalizer = gmt_normalizer` (770-dim) but now Stage 2's env obs is 800-dim (`anchor_root_pos_error_w` + `anchor_root_rpy_error_w` appended). The runner fails when it calls `self.obs_normalizer(obs)`.
+
+The fix for Stage 2: normalize only the first `gmt_dim` dims with the GMT normalizer and pass the extra anchor-error dims through unchanged. Let me implement this in both the runner and `_run_gmt_direct`:
+
+---
+
+
+**Claude**
+
+Now find the two `obs = self.obs_normalizer(obs)` calls in the runner's main loop and replace them with a helper call:
+
+---
+
+
+**Claude**
+
+Now fix the in-loop normalization call:
+
+---
+
+
+**Claude**
+
+Now add the `_apply_obs_normalizer` helper method to the runner. Let me find a good place to insert it (near `_move_normalizer_to_device`):
+
+---
+
+
+**Claude**
+
+Now fix `_run_gmt_direct` in `front_residual_actor_critic.py` to strip the extra dims before feeding to GMT:
+
+---
+
+
+**Claude**
+
+These are the same IDE false-positives from the type checker — `EmpiricalNormalization._mean` is typed as `Optional[Tensor]` so the checker warns. The code is correct at runtime (the normalizer is always initialized before this is called), but I'll add a safe guard to silence both warnings:
+
+---
+
+
+**Claude**
+
+Do the same in `get_gmt_action` in `supervise_learning.py` for consistency:
+
+---
+
+
+**Claude**
+
+Also fix the `_frontres_gmt_obs_dim` detection in the runner — it uses `._mean.shape[-1]` directly too:
+
+---
+
+
+**Claude**
+
+Here's a summary of what was fixed and why:
+
+**Root cause**: Two separate normalizer dimension mismatches, both caused by the student obs being 800-dim (with new `anchor_root_pos_error_w` + `anchor_root_rpy_error_w` terms) while the GMT's frozen normalizer is 770-dim.
+
+**Fix 1 — Stage 1** ([supervise_learning.py](source/rsl_rl/rsl_rl/modules/supervise_learning.py)): `get_gmt_action()` was fed the full 800-dim student obs. Since the anchor-error terms are appended at the end, slicing to the GMT normalizer's expected dim (`obs[:, :770]`) gives exactly the obs the GMT was trained on.
+
+**Fix 2 — Stage 2** ([on_policy_runner.py](source/rsl_rl/rsl_rl/runners/on_policy_runner.py) + [front_residual_actor_critic.py](source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py)): The runner uses `gmt_normalizer` as `obs_normalizer`, which would fail on 800-dim input. A new `_apply_obs_normalizer()` method applies GMT normalization to only the first 770 dims and passes the remaining 30 anchor-error dims through unchanged. `_run_gmt_direct()` then strips the extra dims before passing obs to the GMT policy.
+
+---
