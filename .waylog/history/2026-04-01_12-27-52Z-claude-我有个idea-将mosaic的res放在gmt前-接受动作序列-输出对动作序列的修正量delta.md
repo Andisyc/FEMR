@@ -13448,3 +13448,126 @@ Here's a summary of what was fixed and why:
 **Fix 2 — Stage 2** ([on_policy_runner.py](source/rsl_rl/rsl_rl/runners/on_policy_runner.py) + [front_residual_actor_critic.py](source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py)): The runner uses `gmt_normalizer` as `obs_normalizer`, which would fail on 800-dim input. A new `_apply_obs_normalizer()` method applies GMT normalization to only the first 770 dims and passes the remaining 30 anchor-error dims through unchanged. `_run_gmt_direct()` then strips the extra dims before passing obs to the GMT policy.
 
 ---
+
+
+**User**
+
+请告诉我如何利用现在的Stage 1诊断项判断Stage 1的收敛情况，因为Stage 1作为预训练无法直接通过可视化观察收敛与否
+
+---
+
+
+**Claude**
+
+Stage 1 在 task-space 模式下，训练器 (`SuperviseTrainer.update()`) 上报 8 项诊断量。以下是每项的物理含义、收敛标志以及红旗信号。
+
+---
+
+## 各诊断量解读
+
+### 一、损失类（越小越好，曲线应单调下降后平台）
+
+| 指标 | 含义 | 收敛参考值 |
+|------|------|-----------|
+| `behavior` | 总 Huber 损失 = `loss_pos + rpy_loss_weight × loss_rpy` | 平台后不再下降即收敛，绝对值因扰动强度而异 |
+| `loss_pos` | 位置分量 Huber 损失（平均到 3 个轴） | 通常 < `loss_rpy` 的同量级 |
+| `loss_rpy` | 姿态分量 Huber 损失（平均到 roll/pitch/yaw） | 通常略高于 `loss_pos` |
+
+**解读**：三条损失曲线应在前 20–50% 的训练时间内快速下降，然后进入平台期。如果平台期 `behavior` ≈ `loss_pos` 而 `loss_rpy ≈ 0`，说明网络没有学会姿态分量——检查 `rpy_loss_weight` 是否过小。
+
+---
+
+### 二、误差类（直接量化预测质量）
+
+| 指标 | 含义 | 收敛参考值 |
+|------|------|-----------|
+| `pos_mae` | 位置修正预测的 MAE（米） | **< 0.03 m** 为良好 |
+| `rpy_mae` | 姿态修正预测的 MAE（弧度） | **< 0.03 rad**（< 1.7°）为良好 |
+
+**解读**：这两个指标与物理量直接挂钩，是判断收敛最直观的标准。
+
+- `pos_mae` 的参考上界：GMT 运动的典型 anchor 位置误差约 0.02–0.15 m（取决于扰动强度），`pos_mae` 应远小于此量级
+- `rpy_mae` 同理：anchor 姿态误差约 0.02–0.15 rad，`rpy_mae` 应降到误差量级的 20% 以下
+
+---
+
+### 三、方向类（监测预测是否"朝着正确方向"）
+
+| 指标 | 含义 | 收敛参考值 |
+|------|------|-----------|
+| `cosine_similarity` | Δpos\_pred 与 Δpos\_target 的余弦相似度 | **> 0.85** 为良好，**> 0.95** 为优秀 |
+| `pos_pred_norm` | 预测位置修正的平均范数 ‖Δpos\_pred‖ | 应与目标误差的典型范数匹配 |
+
+**解读**：
+
+- `cosine_similarity` 是最敏感的早期信号。网络输出为零时余弦相似度无定义（会显示 0 或 NaN），一旦开始学习它会快速上升，之后缓慢趋近 1。
+- `pos_pred_norm` 与目标范数之比反映尺度学习是否正确。若 `pos_pred_norm` 接近 0（预测始终趋向零点），说明 L2 正则化过强或学习率过小。
+
+---
+
+### 四、数据质量类
+
+| 指标 | 含义 | 正常范围 |
+|------|------|---------|
+| `valid_ratio` | 非 episode 末尾帧的占比 | **> 0.85**；过低说明 GMT 频繁摔倒 |
+
+**解读**：Stage 1 由 GMT 驱动环境，GMT 出错 → 机器人摔倒 → episode 终止 → terminal 帧被 mask 掉。`valid_ratio` 过低（< 0.7）意味着大量数据被丢弃，有效训练信息稀少，收敛会变慢甚至无法收敛。出现这种情况需检查扰动强度（`motion_perturbations`）是否过大。
+
+---
+
+## 实践判断流程
+
+```
+Stage 1 是否收敛？
+│
+├── behavior 曲线平台了吗？
+│     否 → 未收敛，继续训练
+│     是 ↓
+│
+├── pos_mae < 0.03 m  AND  rpy_mae < 0.03 rad？
+│     否 → 平台但精度不够 → 检查学习率/扰动强度
+│     是 ↓
+│
+├── cosine_similarity > 0.85？
+│     否 → 方向预测仍有误 → 继续训练或增大学习率
+│     是 ↓
+│
+└── valid_ratio > 0.85？
+      否 → 数据质量差，收敛可能是假象（GMT 太弱）
+      是 → ✓ Stage 1 收敛，可以进入 Stage 2
+```
+
+---
+
+## 典型收敛曲线形态
+
+```
+behavior / loss_pos / loss_rpy:
+  ↓↓↓↓↓↘↘↘↘___________  （前期快速下降，后期平台）
+
+cosine_similarity:
+  ↑↑↑↑↑↗↗↗↗‾‾‾‾‾‾‾‾‾‾  （从 ~0 快速升到 >0.85，之后缓增）
+
+pos_mae / rpy_mae:
+  ↓↓↓↓↓↘↘↘↘___________  （与 loss 同步下降）
+
+pos_pred_norm:
+  初期接近 0 → 稳步上升 → 稳定（逼近目标误差典型范数）
+
+valid_ratio:
+  应全程保持稳定高值（波动正常，趋势不应持续下降）
+```
+
+---
+
+## 一个注意点
+
+`pos_pred_norm`（目标 gt 范数）目前**没有被记录**到 `loss_dict` 中（代码只记录了 pred_norm）。如果想对比预测幅度与真实误差幅度，可以在 `supervise.py` 的 task-space 分支中把 `mean_gt_norm` 加入 `loss_dict`：
+
+```python
+"pos_gt_norm": mean_gt_norm,  # 加在 loss_dict 的 task-space 分支里
+```
+
+这样 `pos_pred_norm / pos_gt_norm` 趋近 1 就是幅度收敛的直接信号。
+
+---
