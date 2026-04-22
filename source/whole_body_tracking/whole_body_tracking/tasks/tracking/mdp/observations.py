@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
-from isaaclab.utils.math import matrix_from_quat, subtract_frame_transforms, quat_rotate_inverse
+from isaaclab.utils.math import matrix_from_quat, subtract_frame_transforms, quat_rotate_inverse, quat_mul, quat_inv
 
 from whole_body_tracking.tasks.tracking.mdp.commands import MotionCommand
 
@@ -124,6 +124,56 @@ def selected_keypoints_pos_w_heading(
     command: MotionCommand = env.command_manager.get_term(command_name)
     return command.selected_keypoints_pos_w_heading.reshape(command.selected_keypoints_pos_w_heading.size(0), -1)
 
+def anchor_root_height_error(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """
+    Root z-height error: robot root z minus reference anchor z (world frame). Shape (N, 1).
+
+    Positive  -> robot is ABOVE reference (sink artifact).
+    Negative  -> robot is BELOW reference (float artifact: reference drifted upward).
+
+    Sign convention matches delta_z_gt in get_supervision_target_delta_q_z so that
+    FrontRES learns the identity mapping: output Δz ≈ this input value.
+    env_origins cancel (both anchor_pos_w and root_pos_w include them).
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    z_ref = command.anchor_pos_w[:, 2:3]          # (N, 1) reference root z (world)
+    z_sim = command.robot.data.root_pos_w[:, 2:3]  # (N, 1) robot root z (world)
+    return z_sim - z_ref                           # (N, 1)
+
+
+def anchor_root_pos_error_w(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """
+    Root position error in world frame: robot_root_pos_w - anchor_pos_w. Shape (N, 3).
+
+    Positive x/y/z means robot is ahead/left/above the reference anchor.
+    Sign convention: FrontRES should output this correction to bring anchor to robot.
+    env_origins cancel (both anchor_pos_w and root_pos_w are in world frame).
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    pos_robot  = command.robot.data.root_pos_w   # (N, 3) robot root world pos
+    pos_anchor = command.anchor_pos_w            # (N, 3) reference anchor world pos
+    return pos_robot - pos_anchor                # (N, 3)
+
+
+def anchor_root_rpy_error_w(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """
+    Root orientation error as RPY (roll, pitch, yaw). Shape (N, 3).
+
+    q_rel = quat_inv(q_anchor) * q_robot: rotation to align anchor frame with robot frame.
+    RPY uses ZYX intrinsic convention, quaternions in (w,x,y,z) format.
+    Sign convention: FrontRES should output this correction to bring anchor orientation to robot.
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    q_anchor = command.anchor_quat_w              # (N, 4) wxyz
+    q_robot  = command.robot.data.root_quat_w     # (N, 4) wxyz
+    q_rel    = quat_mul(quat_inv(q_anchor), q_robot)  # (N, 4)
+    w, x, y, z = q_rel[:, 0], q_rel[:, 1], q_rel[:, 2], q_rel[:, 3]
+    roll  = torch.atan2(2.0 * (w*x + y*z), 1.0 - 2.0 * (x*x + y*y))
+    pitch = torch.asin((2.0 * (w*y - z*x)).clamp(-1.0, 1.0))
+    yaw   = torch.atan2(2.0 * (w*z + x*y), 1.0 - 2.0 * (y*y + z*z))
+    return torch.stack([roll, pitch, yaw], dim=-1)  # (N, 3)
+
+
 def get_supervision_target_delta_q(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     """
     Computes the supervision target delta_q = q_ref - q_sim.
@@ -154,9 +204,22 @@ def get_supervision_target_delta_q_z(env: ManagerBasedEnv, command_name: str) ->
     delta_q_gt = q_ref - q_sim      # (N, 29)
 
     # anchor_pos_w already includes env_origins; root_pos_w is also world-frame
-    # → env_origins cancel in the difference
+    # -> env_origins cancel in the difference
     z_ref = command.anchor_pos_w[:, 2:3]                   # (N, 1) world z of reference
     z_sim = command.robot.data.root_pos_w[:, 2:3]          # (N, 1) world z of robot
     delta_z_gt = z_sim - z_ref                             # (N, 1) negative when ref floats above robot
 
     return torch.cat([delta_q_gt, delta_z_gt], dim=-1)     # (N, 30)
+
+
+def get_supervision_target_task_space(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """
+    6-dim task-space supervision target for FrontRES Stage 1.
+    [Δx, Δy, Δz, Δroll, Δpitch, Δyaw] — SE(3) ordering.
+
+    FrontRES learns to output this correction so that the corrected anchor converges to
+    the robot root pose. This is an identity mapping: output ≈ input error signal.
+    """
+    delta_pos = anchor_root_pos_error_w(env, command_name)  # (N, 3)
+    delta_rpy = anchor_root_rpy_error_w(env, command_name)  # (N, 3)
+    return torch.cat([delta_pos, delta_rpy], dim=-1)         # (N, 6)

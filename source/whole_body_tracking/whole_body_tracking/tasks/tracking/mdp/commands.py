@@ -314,6 +314,11 @@ class MotionCommand(CommandTerm):
         self.metrics["sampling_top1_prob"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["sampling_top1_bin"] = torch.zeros(self.num_envs, device=self.device)
 
+        # FrontRES task-space anchor corrections (zeroed = identity, no correction)
+        self._frontres_pos_correction = torch.zeros(self.num_envs, 3, device=self.device)
+        self._frontres_quat_correction = torch.zeros(self.num_envs, 4, device=self.device)
+        self._frontres_quat_correction[:, 0] = 1.0  # identity quaternion (w=1)
+
     @property
     def command(self) -> torch.Tensor:  # TODO Consider again if this is the best observation
         return torch.cat([self.joint_pos, self.joint_vel], dim=1)
@@ -344,11 +349,13 @@ class MotionCommand(CommandTerm):
 
     @property
     def anchor_pos_w(self) -> torch.Tensor:
-        return self.motion.body_pos_w[self.time_steps, self.motion_anchor_body_index] + self._env.scene.env_origins
+        return (self.motion.body_pos_w[self.time_steps, self.motion_anchor_body_index]
+                + self._env.scene.env_origins + self._frontres_pos_correction)
 
     @property
     def anchor_quat_w(self) -> torch.Tensor:
-        return self.motion.body_quat_w[self.time_steps, self.motion_anchor_body_index]
+        base_quat = self.motion.body_quat_w[self.time_steps, self.motion_anchor_body_index]
+        return quat_mul(self._frontres_quat_correction, base_quat)
 
     @property
     def anchor_lin_vel_w(self) -> torch.Tensor:
@@ -497,6 +504,10 @@ class MotionCommand(CommandTerm):
             torch.cat([root_pos[env_ids], root_ori[env_ids], root_lin_vel[env_ids], root_ang_vel[env_ids]], dim=-1),
             env_ids=env_ids,
         )
+        # Reset FrontRES anchor corrections for resampled envs
+        self._frontres_pos_correction[env_ids] = 0.0
+        self._frontres_quat_correction[env_ids] = 0.0
+        self._frontres_quat_correction[env_ids, 0] = 1.0
 
     def _update_command(self):
         self.time_steps += 1
@@ -1124,6 +1135,11 @@ class MultiMotionCommand(CommandTerm):
         # Do not resample here: termination manager may not be ready during managers' construction.
         # Time steps start at zero; sampling and writes happen in _update_command().
 
+        # FrontRES task-space anchor corrections (zeroed = identity, no correction)
+        self._frontres_pos_correction = torch.zeros(self.num_envs, 3, device=self.device)
+        self._frontres_quat_correction = torch.zeros(self.num_envs, 4, device=self.device)
+        self._frontres_quat_correction[:, 0] = 1.0  # identity quaternion (w=1)
+
     # ------------- properties (gathered across envs/motions) -------------
     def _gather_future_by_motion(self, getter: str, horizon: int) -> torch.Tensor:
         if horizon <= 0:
@@ -1316,24 +1332,22 @@ class MultiMotionCommand(CommandTerm):
         
         # apply perturbation
         root_pos_ref = pos[:, self.motion_anchor_body_index]
-        root_vel_ref = self.anchor_lin_vel_w
         left_foot_pos_ref = pos[:, self.left_foot_idx]
         right_foot_pos_ref = pos[:, self.right_foot_idx]
-        
+
         perturbed_pos = self.perturber.apply_perturbations(
             root_pos_ref,
-            root_vel_ref,
             left_foot_pos_ref,
             right_foot_pos_ref
         )
         
-        return perturbed_pos + self._env.scene.env_origins
+        return perturbed_pos + self._env.scene.env_origins + self._frontres_pos_correction
 
     @property
     def anchor_quat_w(self) -> torch.Tensor:
         quat = self._gather_by_motion("body_quat_w")
         root_quat = quat[:, self.motion_anchor_body_index]
-        return self.perturber.apply_quat_perturbation(root_quat)
+        return quat_mul(self._frontres_quat_correction, self.perturber.apply_quat_perturbation(root_quat))
 
     @property
     def anchor_lin_vel_w(self) -> torch.Tensor:
@@ -1717,6 +1731,10 @@ class MultiMotionCommand(CommandTerm):
             torch.cat([root_pos, root_ori, root_lin_vel, root_ang_vel], dim=-1),
             env_ids=env_ids,
         )
+        # Reset FrontRES anchor corrections for resampled envs
+        self._frontres_pos_correction[env_ids] = 0.0
+        self._frontres_quat_correction[env_ids] = 0.0
+        self._frontres_quat_correction[env_ids, 0] = 1.0
 
     def _update_metrics(self):
         self.metrics["error_anchor_pos"].copy_(torch.norm(self.anchor_pos_w - self.robot_anchor_pos_w, dim=-1))

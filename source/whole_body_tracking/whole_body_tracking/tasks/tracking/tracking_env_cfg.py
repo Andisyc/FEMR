@@ -198,6 +198,10 @@ class ObservationsCfg: # 学生模型观测量
         # 前帧动作指令 29 dim
         actions = ObsTerm(func=mdp.last_action)
 
+        # Task-space anchor error obs (None=disabled; enabled in Stage 2 __post_init__)
+        anchor_root_pos_error_w: ObsTerm | None = None
+        anchor_root_rpy_error_w: ObsTerm | None = None
+
         def __post_init__(self):
             self.enable_corruption = True
             self.concatenate_terms = True
@@ -632,11 +636,15 @@ class DistillationTrackingEnvCfg(GeneralTrackingEnvCfg): # 师生蒸馏Env, 同�
             command = ObsTerm(func=mdp.generated_commands, params={"command_name": "motion"})
             motion_anchor_ori_b = ObsTerm(
                 func=mdp.motion_anchor_ori_b, params={"command_name": "motion"}, noise=Unoise(n_min=-0.05, n_max=0.05))
-            
             base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
             joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
             joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-0.5, n_max=0.5))
             actions = ObsTerm(func=mdp.last_action)
+            # Root z-height error: z_sim - z_ref (m). Positive=robot above ref, Negative=float artifact.
+            # Gives FrontRES a direct signal for Δz prediction (identity mapping: output ≈ input).
+            anchor_height_error = ObsTerm(
+                func=mdp.anchor_root_height_error, params={"command_name": "motion"},
+                noise=Unoise(n_min=-0.01, n_max=0.01))
 
             def __post_init__(self):
                 self.enable_corruption = True
@@ -873,6 +881,16 @@ class SupervisedTrackingEnvCfg(GeneralTrackingEnvCfg):
             joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
             joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-0.5, n_max=0.5))
             actions = ObsTerm(func=mdp.last_action)
+            # Task-space position error: robot_root_pos_w - anchor_pos_w (world frame, 3 dims).
+            # Gives FrontRES a direct signal for Δpos prediction (identity mapping: output ≈ input).
+            anchor_root_pos_error_w = ObsTerm(
+                func=mdp.anchor_root_pos_error_w, params={"command_name": "motion"},
+                noise=Unoise(n_min=-0.01, n_max=0.01))
+            # Task-space orientation error: RPY of quat_inv(q_anchor)*q_robot (3 dims).
+            # Gives FrontRES a direct signal for Δrpy prediction (identity mapping: output ≈ input).
+            anchor_root_rpy_error_w = ObsTerm(
+                func=mdp.anchor_root_rpy_error_w, params={"command_name": "motion"},
+                noise=Unoise(n_min=-0.01, n_max=0.01))
 
             def __post_init__(self):
                 self.enable_corruption = True
@@ -880,8 +898,8 @@ class SupervisedTrackingEnvCfg(GeneralTrackingEnvCfg):
                 self.history_length = 5
 
         @configclass
-        class TargetCfg(ObsGroup): # 监督信号目标: [delta_q (29), delta_z (1)] = 30 dims
-            supervision_target = ObsTerm(func=mdp.get_supervision_target_delta_q_z, params={"command_name": "motion"})
+        class TargetCfg(ObsGroup): # 监督信号目标: [Δx, Δy, Δz, Δroll, Δpitch, Δyaw] = 6 dims
+            supervision_target = ObsTerm(func=mdp.get_supervision_target_task_space, params={"command_name": "motion"})
 
             def __post_init__(self):
                 self.enable_corruption = False
@@ -1120,18 +1138,18 @@ class FrontRESFinetuneTrackingEnvCfg(GeneralTrackingEnvCfg):
         # physical artifacts (floating, penetration) in the reference motion.
         # Applied inside MultiMotionCommand via MotionPerturber — NOT via EventManager.
         self.motion_perturbations.float_prob = 0.3
-        self.motion_perturbations.float_ratio = 0.05
+        self.motion_perturbations.float_ratio = 0.20
         self.motion_perturbations.sink_prob = 0.3
-        self.motion_perturbations.sink_ratio = 0.05
+        self.motion_perturbations.sink_ratio = 0.15
         self.motion_perturbations.foot_slip_prob = 0.2
         self.motion_perturbations.foot_slip_ratio = 0.03
-        self.motion_perturbations.body_drag_prob = 0.2
-        self.motion_perturbations.body_drag_ratio = 0.02
         # Root orientation tilt: creates gravitational torque GMT cannot absorb.
         # 0.15 rad (~8.6 deg) is sufficient to destabilize GMT tracking.
         self.motion_perturbations.root_tilt_prob = 0.3
         self.motion_perturbations.root_tilt_max_rad = 0.15
-        # Joint angle noise: directly in FrontRES's Δq correction domain.
+        # Joint angle noise: lower limbs only (indices 0:12 = hip×6 + knee×2 + ankle×4).
+        # Upper limbs excluded: large noise there pollutes q_ref without meaningful correction signal.
         # 0.08 rad (~4.6 deg) per joint is a meaningful but learnable perturbation.
         self.motion_perturbations.joint_noise_prob = 0.4
         self.motion_perturbations.joint_noise_std = 0.08
+        self.motion_perturbations.joint_noise_joint_indices = list(range(12))

@@ -23,12 +23,6 @@ class MotionPerturbationCfg:
     foot_slip_height: float = 0.05
     """The foot height above which the perturbation can be applied."""
 
-    # -- Body drag perturbation
-    body_drag_prob: float = 0.0
-    """Probability of applying body drag perturbation."""
-    body_drag_ratio: float = 0.0
-    """The magnitude of the body drag as a ratio of the body's original velocity."""
-
     # -- Body float perturbation
     float_prob: float = 0.0
     """Probability of applying float perturbation."""
@@ -67,7 +61,6 @@ class MotionPerturber:
     def apply_perturbations(
         self,
         root_pos_ref: torch.Tensor,
-        root_vel_ref: torch.Tensor,
         left_foot_pos_ref: torch.Tensor,
         right_foot_pos_ref: torch.Tensor
     ) -> torch.Tensor:
@@ -76,10 +69,8 @@ class MotionPerturber:
 
         Args:
             root_pos_ref: Reference root position of shape (num_envs, 3).
-            root_vel_ref: Reference root velocity of shape (num_envs, 3).
             left_foot_pos_ref: Reference left foot position of shape (num_envs, 3).
             right_foot_pos_ref: Reference right foot position of shape (num_envs, 3).
-
 
         Returns:
             The perturbed root position tensor of shape (num_envs, 3).
@@ -90,14 +81,10 @@ class MotionPerturber:
         if self.cfg.foot_slip_prob > 0.0:
             perturbed_root_pos = self._apply_foot_slip(perturbed_root_pos, left_foot_pos_ref, right_foot_pos_ref)
 
-        # Apply body drag
-        if self.cfg.body_drag_prob > 0.0:
-            perturbed_root_pos = self._apply_body_drag(perturbed_root_pos, root_vel_ref)
-
         # Apply float
         if self.cfg.float_prob > 0.0:
             perturbed_root_pos = self._apply_float(perturbed_root_pos)
-        
+
         # Apply sink
         if self.cfg.sink_prob > 0.0:
             perturbed_root_pos = self._apply_sink(perturbed_root_pos)
@@ -131,22 +118,6 @@ class MotionPerturber:
         slip_magnitude = self.cfg.foot_slip_ratio * torch.randn_like(root_pos[:, 0])
         root_pos[can_slip, 0] += slip_magnitude[can_slip] * slip_dir[can_slip, 0]
         
-        return root_pos
-
-    def _apply_body_drag(self, root_pos: torch.Tensor, root_vel: torch.Tensor) -> torch.Tensor:
-        """
-        Simulates body drag by applying a displacement opposite to the direction of motion.
-        """
-        drag_envs = torch.rand(self.num_envs, device=self.device) < self.cfg.body_drag_prob
-        if torch.sum(drag_envs) == 0:
-            return root_pos
-
-        # Calculate drag displacement
-        drag_displacement = -root_vel * self.cfg.body_drag_ratio
-        
-        # Apply drag
-        root_pos[drag_envs] += drag_displacement[drag_envs]
-
         return root_pos
 
     def _apply_float(self, root_pos: torch.Tensor) -> torch.Tensor:

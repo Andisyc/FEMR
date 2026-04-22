@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(python -c \"from isaaclab.utils.math import euler_xyz_from_quat; print\\('found'\\)\")",
+      "Bash(python -c \"import isaaclab.utils.math as m; print\\([x for x in dir\\(m\\) if 'euler' in x.lower\\(\\) or 'quat_to' in x.lower\\(\\)]\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python -c ' *)"
     ]
   }
 }

@@ -151,22 +151,30 @@ class G1FlatSupervisedRunnerCfg(RslRlOnPolicyRunnerCfg):
         student_hidden_dims=[1024, 1024, 512, 256],
         activation="elu",
         gmt_path=_gmt_pt_path,
-        # FrontRES outputs Δq (29 dims) + Δz (1 dim) = 30 dims total.
-        # Δz supervised target = z_sim - z_ref (root z correction, metres).
-        num_z_outputs=1,
+        # Task-space mode: FrontRES outputs [Δx, Δy, Δz, Δroll, Δpitch, Δyaw] (6 dims).
+        # obs layout (history_length=5): 800 dims
+        #   [0:290]    command (q_ref_pos(29)+q_ref_vel(29)) × 5 frames
+        #   [290:320]  motion_anchor_ori_b (6 dims) × 5 frames
+        #   [320:335]  base_ang_vel (3 dims) × 5 frames
+        #   [335:480]  joint_pos_rel (29 dims) × 5 frames
+        #   [480:625]  joint_vel_rel (29 dims) × 5 frames
+        #   [625:770]  actions (29 dims) × 5 frames
+        #   [770:785]  anchor_root_pos_error_w (3 dims) × 5 frames
+        #   [785:800]  anchor_root_rpy_error_w (3 dims) × 5 frames
+        num_task_corrections=6,
     )
 
     algorithm = RslRlSuperviseAlgorithmCfg(
         loss_type="huber",
-        # G1 29-DOF lower-limb joint indices (hip × 6, knee × 2, ankle × 4 = 12 joints).
+        # num_task_corrections=6 → task-space mode; Δq-specific params below are inactive.
+        num_task_corrections=6,
+        # Weight for Δrpy loss relative to Δpos loss (both in task-space mode).
+        rpy_loss_weight=1.0,
+        # Δq-mode params retained for reference (inactive in task-space mode):
         lower_limb_indices=list(range(12)),
         lower_limb_weight=2.0,
         jump_threshold=0.2,
-        # Split: first 29 dims = Δq (full masking), last 1 dim = Δz (terminal mask only).
         num_joint_outputs=29,
-        # Δz signal is tiny in Stage 1 (no float perturbation); keep weight small
-        # so Δz doesn't bias Δq convergence. Stage 2 RL will amplify via reward.
-        z_loss_weight=0.5,
     )
 
 # ====== FrontRES Stage 1: Supervised Learning ======
@@ -206,32 +214,29 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
     # DR 课程：Stage 2 开始时 MotionPerturber 强度线性从 0 增长到 motion_perturbations 配置值。
     # 防止 FrontRES 在 Stage 2 冷启动时面对完全 OOD 的 q_ref，导致全负 r_delta → Δq=0 捷径陷阱。
     # 设为 0 禁用（直接使用全强度 DR，仅在 FrontRES 已对 Stage 2 DR 鲁棒时使用）。
-    dr_curriculum_iterations: int = 1500
+    dr_curriculum_iterations: int = 5000
     # DR 课程形态："exp" = 指数加速（τ=T/3，t=T时达到95%）；"sqrt" = 平方根；"linear" = 匀速
     dr_schedule_type: str = "exp"
     # Stage 2 起始绝对迭代数，用于 DR 课程进度计算，支持断点续训时正确恢复 DR 强度。
     stage2_start_iteration: int = _STAGE1_MAX_ITERATIONS
 
-    # 阶梯 DR 课程：初始课程完成后，自动按台阶递增扰动幅度直至 FrontRES 崩溃或训练结束。
-    # 工作原理：
-    #   监控 r_delta_per_step 的 EMA 斜率；当斜率趋近于零（平台期）且停留时间 ≥
-    #   dr_staircase_min_plateau_iters 时，自动以 dr_staircase_ramp_iters 线性爬坡
-    #   到下一台阶倍率，然后继续监控。
-    # 倍率列表（相对 motion_perturbations 基础值，仅缩放幅度 ratio，不改变概率 prob）：
-    #   例：float_ratio=0.05 × 1.6 → 0.08 m；× 2.4 → 0.12 m；× 3.6 → 0.18 m；× 5.0 → 0.25 m
-    # 设为空字符串 "" 禁用阶梯课程（只用初始 0→full 的单次课程）。
-    dr_staircase_multipliers: str = ""  # 已禁用：改用 root_tilt + joint_noise 直接施压
-    # 每次台阶切换时线性爬坡到新幅度的迭代数（过渡期，防止突变触发 Δq=0 捷径陷阱）
-    dr_staircase_ramp_iters: int = 2000
-    # 每台阶最短停留迭代数（短于此时间不触发晋级，避免噪声误判为平台期）
-    dr_staircase_min_plateau_iters: int = 3000
-    # EMA 斜率绝对值低于此阈值即判定为平台期（单位：r_delta/iter）
+    # 自适应阶梯 DR 课程：初始 exp 课程完成后，监控训练环境存活率；
+    # 一旦存活率超过 dr_adaptive_survival_threshold 并持续 dr_staircase_min_plateau_iters，
+    # 自动以 dr_staircase_ramp_iters 线性爬坡到下一档倍率。
+    # 倍率相对 motion_perturbations 基础值（float_ratio=0.20m）：
+    #   1.5× → 0.30m；2.0× → 0.40m；3.0× → 0.60m
+    dr_staircase_multipliers: str = "1.5,2.0,3.0"
+    # 每次台阶切换时线性爬坡的迭代数（防止突变触发 Δq=0 捷径陷阱）
+    dr_staircase_ramp_iters: int = 1500
+    # 每台阶最短停留迭代数（低于此时长不触发晋级，过滤噪声）
+    dr_staircase_min_plateau_iters: int = 1000
+    # 存活率阈值：训练 env 存活率超过此值才触发下一档 DR（0.0 = 禁用，回退到 EMA 斜率触发）
+    dr_adaptive_survival_threshold: float = 0.85
+    # EMA 斜率阈值（仅 dr_adaptive_survival_threshold=0.0 时生效）
     dr_staircase_plateau_threshold: float = 2e-7
-    # 断点续训时从第几个台阶开始（0 = 基础台阶；1 = 第一次晋级后，以此类推）
-    # 首次从旧 checkpoint (无 staircase 状态) 续训时设为 1：
-    #   跳过已确认饱和的 level 0 (float_ratio=0.05)，直接从 1.6× 爬坡开始。
-    # 后续续训由 checkpoint 自动恢复正确 level，此字段不再生效。
-    dr_staircase_start_level: int = 1
+    # 断点续训时从第几个台阶开始（0 = 基础台阶，全新训练固定为 0）
+    # 续训时由 checkpoint 自动恢复正确 level，此字段不再生效。
+    dr_staircase_start_level: int = 0
 
     # Critic 预热：禁用（=0）。
     #
@@ -275,29 +280,33 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
         # 再拼 motion_anchor_ori_b，以此类推（而非 per-timestep 交错）。
         # 历史顺序为 oldest→newest：[t-4, t-3, t-2, t-1, t]
         #
-        # obs 布局（history_length=5，obs_dim=770）：
+        # obs 布局（history_length=5，obs_dim=800）：
         #   [0:290]    command (q_ref_pos(29)+q_ref_vel(29)) × 5 帧
         #     [0:29]   q_ref_pos at t-4  ← index 0（最旧帧，已过去，错误目标）
-        #     [232:261] q_ref_pos at t   ← 当前帧，FrontRES 应修正的目标
-        #   [290:320]  motion_anchor_ori_b × 5 帧
-        #   [320:335]  base_ang_vel × 5 帧
-        #   [335:480]  joint_pos_rel × 5 帧
-        #   [480:625]  joint_vel_rel × 5 帧
-        #   [625:770]  actions × 5 帧
+        #     [232:261] q_ref_pos at t   ← 当前帧，FrontRES 修正目标
+        #   [290:320]  motion_anchor_ori_b (6 dim) × 5 帧
+        #   [320:335]  base_ang_vel (3 dim) × 5 帧
+        #   [335:480]  joint_pos_rel (29 dim) × 5 帧
+        #   [480:625]  joint_vel_rel (29 dim) × 5 帧
+        #   [625:770]  actions (29 dim) × 5 帧
+        #   [770:785]  anchor_root_pos_error_w (3 dim) × 5 帧  ← 任务空间位置误差
+        #   [785:800]  anchor_root_rpy_error_w (3 dim) × 5 帧  ← 任务空间姿态误差
         #
+        # q_ref_start_idx 不受新增 term 影响（新 term 追加在末尾）。
         # 计算：当前帧偏移 = (history_length - 1) × command_per_frame
         #                   = (5 - 1) × 58 = 232
         # q_ref_pos 在当前帧的起始索引 = 232（q_ref_vel 在 261:290）
         q_ref_start_idx=232,
 
-        # Δq 输出截断：tanh(raw) * max_delta_q，防止 action explosion。
-        # 0.5 rad ≈ ±28.6°/关节，覆盖典型 sim-to-real 修正范围。
+        # Δq 输出截断：tanh(raw) * max_delta_q（在 task-space 模式下不使用 Δq）。
         max_delta_q=0.5,
 
-        # Δz 输出：与 Stage 1 保持一致（num_z_outputs=1 → 总输出 30 维）。
-        # max_delta_z=0.3m 覆盖典型 float/sink 幅度（最大 25cm 扰动 + 安全裕量）。
-        num_z_outputs=1,
-        max_delta_z=0.3,
+        # 任务空间模式：FrontRES 输出 [Δx, Δy, Δz, Δroll, Δpitch, Δyaw]（6 维）。
+        # max_delta_pos=0.3m 覆盖典型 float/sink/slip 幅度。
+        # max_delta_rpy=0.3rad ≈ 17° 覆盖典型倾斜幅度。
+        num_task_corrections=6,
+        max_delta_pos=0.3,
+        max_delta_rpy=0.3,
     )
 
     algorithm = RslRlPpoFrontRESAlgorithmCfg(
