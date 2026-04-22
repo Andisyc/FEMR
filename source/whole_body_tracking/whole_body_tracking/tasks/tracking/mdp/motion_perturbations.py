@@ -22,12 +22,6 @@ class MotionPerturbationCfg:
     foot_slip_height: float = 0.05
     """The foot height above which the perturbation can be applied."""
 
-    # -- Body drag perturbation
-    body_drag_prob: float = 0.0
-    """Probability of applying body drag perturbation."""
-    body_drag_ratio: float = 0.0
-    """The magnitude of the body drag as a ratio of the body's original velocity."""
-
     # -- Body float perturbation
     float_prob: float = 0.0
     """Probability of applying float perturbation."""
@@ -51,6 +45,8 @@ class MotionPerturbationCfg:
     """Probability of applying joint angle noise perturbation."""
     joint_noise_std: float = 0.0
     """Standard deviation of Gaussian noise added to reference joint angles (radians)."""
+    joint_noise_joint_indices: list | None = None
+    """Joint indices to perturb. None = all joints. Use lower-limb-only indices to avoid polluting upper-limb q_ref."""
 
 
 class MotionPerturber:
@@ -78,7 +74,6 @@ class MotionPerturber:
     def apply_perturbations(
         self,
         root_pos_ref: torch.Tensor,
-        root_vel_ref: torch.Tensor,
         left_foot_pos_ref: torch.Tensor,
         right_foot_pos_ref: torch.Tensor
     ) -> torch.Tensor:
@@ -87,7 +82,6 @@ class MotionPerturber:
 
         Args:
             root_pos_ref: Reference root position of shape (num_envs, 3).
-            root_vel_ref: Reference root velocity of shape (num_envs, 3).
             left_foot_pos_ref: Reference left foot position of shape (num_envs, 3).
             right_foot_pos_ref: Reference right foot position of shape (num_envs, 3).
 
@@ -99,10 +93,6 @@ class MotionPerturber:
         # Apply foot slip
         if self.cfg.foot_slip_prob > 0.0:
             perturbed_root_pos = self._apply_foot_slip(perturbed_root_pos, left_foot_pos_ref, right_foot_pos_ref)
-
-        # Apply body drag
-        if self.cfg.body_drag_prob > 0.0:
-            perturbed_root_pos = self._apply_body_drag(perturbed_root_pos, root_vel_ref)
 
         # Apply float
         if self.cfg.float_prob > 0.0:
@@ -148,19 +138,6 @@ class MotionPerturber:
 
         slip_magnitude = self.cfg.foot_slip_ratio * torch.randn_like(root_pos[:, 0])
         root_pos[can_slip, 0] += slip_magnitude[can_slip] * slip_dir[can_slip, 0]
-
-        return root_pos
-
-    def _apply_body_drag(self, root_pos: torch.Tensor, root_vel: torch.Tensor) -> torch.Tensor:
-        """
-        Simulates body drag by applying a displacement opposite to the direction of motion.
-        """
-        drag_envs = torch.rand(self.num_envs, device=self.device) < self.cfg.body_drag_prob
-        if torch.sum(drag_envs) == 0:
-            return root_pos
-
-        drag_displacement = -root_vel * self.cfg.body_drag_ratio
-        root_pos[drag_envs] += drag_displacement[drag_envs]
 
         return root_pos
 
@@ -233,15 +210,23 @@ class MotionPerturber:
     def _apply_joint_noise(self, joint_pos: torch.Tensor) -> torch.Tensor:
         """Add Gaussian noise to reference joint angles.
 
-        Directly corrupts q_ref in FrontRES's correction domain — the residual
-        network can learn to cancel this noise via Δq output.
+        Only perturbs cfg.joint_noise_joint_indices (lower limbs when set).
+        Upper-limb joints are excluded: large noise there only pollutes q_ref
+        without giving FrontRES a meaningful correction signal.
         """
         noise_envs = torch.rand(self.num_envs, device=self.device) < self.cfg.joint_noise_prob
         if not torch.any(noise_envs):
             return joint_pos
 
         perturbed = joint_pos.clone()
-        noise = torch.randn(self.num_envs, joint_pos.shape[1], device=self.device) * self.cfg.joint_noise_std
-        perturbed[noise_envs] += noise[noise_envs]
+        indices = self.cfg.joint_noise_joint_indices
+        if indices is None:
+            noise = torch.randn(self.num_envs, joint_pos.shape[1], device=self.device) * self.cfg.joint_noise_std
+            perturbed[noise_envs] += noise[noise_envs]
+        else:
+            idx = torch.tensor(indices, device=self.device, dtype=torch.long)
+            noise_full = torch.zeros_like(joint_pos)
+            noise_full[:, idx] = torch.randn(self.num_envs, len(indices), device=self.device) * self.cfg.joint_noise_std
+            perturbed[noise_envs] += noise_full[noise_envs]
 
         return perturbed

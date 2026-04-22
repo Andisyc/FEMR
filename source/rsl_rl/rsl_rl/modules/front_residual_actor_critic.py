@@ -151,6 +151,11 @@ class FrontRESActorCritic(nn.Module):
         # Output clipping for Δz: tanh(raw) * max_delta_z bounds root z correction.
         # 0.3 m covers typical float/sink artifacts (AMASS→G1 conversion errors).
         max_delta_z: float = 0.3,
+        # Task-space mode: when >0, replaces Δq+Δz output with [Δpos(3), Δrpy(3)].
+        # Total FrontRES output = num_task_corrections (e.g. 6). Δq patching is disabled.
+        num_task_corrections: int = 0,
+        max_delta_pos: float = 0.3,     # tanh clip for position correction (metres)
+        max_delta_rpy: float = 0.3,     # tanh clip for orientation correction (radians)
         **kwargs,
     ):
         if kwargs:
@@ -167,11 +172,18 @@ class FrontRESActorCritic(nn.Module):
         self.num_critic_obs = num_critic_obs
         self.num_actions = num_actions          # = robot joint DOFs = GMT output dim (e.g. 29)
         self.num_z_outputs = num_z_outputs      # extra Δz outputs (0 = legacy)
-        self.total_output_dim = num_actions + num_z_outputs  # FrontRES output (e.g. 30)
+        self.num_task_corrections = num_task_corrections  # task-space mode dim (0 = disabled)
+        # Task-space mode: output = [Δpos(3), Δrpy(3)], no Δq patching
+        if num_task_corrections > 0:
+            self.total_output_dim = num_task_corrections
+        else:
+            self.total_output_dim = num_actions + num_z_outputs  # FrontRES output (e.g. 30)
         self.q_ref_start_idx = q_ref_start_idx
         self.noise_std_type = noise_std_type
         self.max_delta_q = max_delta_q          # tanh clip for Δq (rad)
         self.max_delta_z = max_delta_z          # tanh clip for Δz (m)
+        self.max_delta_pos = max_delta_pos      # tanh clip for position correction (m)
+        self.max_delta_rpy = max_delta_rpy      # tanh clip for orientation correction (rad)
 
         activation_fn = resolve_nn_activation(activation)
 
@@ -338,8 +350,12 @@ class FrontRESActorCritic(nn.Module):
             hidden_dims=residual_hidden_dims,
             activation=activation_fn,
             last_layer_gain=residual_last_layer_gain)
-        print(f"[FrontEndResidualActorCritic] FrontRES output: "
-              f"{num_actions} Δq + {num_z_outputs} Δz = {self.total_output_dim} dims")
+        if num_task_corrections > 0:
+            print(f"[FrontEndResidualActorCritic] FrontRES output: "
+                  f"{num_task_corrections} task-space dims [Δpos(3)+Δrpy(3)] — no Δq patching")
+        else:
+            print(f"[FrontEndResidualActorCritic] FrontRES output: "
+                  f"{num_actions} Δq + {num_z_outputs} Δz = {self.total_output_dim} dims")
         print(f"[FrontEndResidualActorCritic] FrontRES network: {self.residual_actor}")
 
         # ========== Build Critic ==========
@@ -402,7 +418,7 @@ class FrontRESActorCritic(nn.Module):
             num_actor_obs,
             q_ref_start_idx,
             num_actions,
-            num_z_outputs)
+            num_z_outputs if num_task_corrections == 0 else 0)
         print("[ResidualActorCritic] Created composed actor for ONNX export")
 
         # ========== Store GMT input dimension for padding ==========
@@ -630,32 +646,53 @@ class FrontRESActorCritic(nn.Module):
 
         return self.gmt_policy.act_inference(gmt_obs)
 
+    def _run_gmt_direct(self, policy_obs, ref_vel, ref_vel_estimator_obs):
+        """Run GMT without q_ref patching (task-space mode). Normalizes obs before GMT."""
+        if ref_vel is not None:
+            gmt_obs = torch.cat([policy_obs, ref_vel], dim=-1)
+        elif self.ref_vel_estimator is not None and ref_vel_estimator_obs is not None:
+            ref_vel = self.ref_vel_estimator(ref_vel_estimator_obs)
+            gmt_obs = torch.cat([policy_obs, ref_vel], dim=-1)
+        else:
+            gmt_obs = self._pad_observations_for_gmt(policy_obs)
+        return self.gmt_policy.act_inference(gmt_obs)
+
     def _frontres_forward(self, observations):
         """
         Full FrontRES → GMT pipeline used only by act_inference (deployment / evaluation).
 
         For RL training, update_distribution + get_env_action is used instead, so that
-        the policy distribution is defined over Δq-space and gradient never needs to
-        flow through the frozen GMT network.
+        the policy distribution is defined over Δq-space (or task-space) and gradient
+        never needs to flow through the frozen GMT network.
 
         Returns:
-            robot_actions (Tensor): final motor commands from GMT after q_ref correction
-            delta_q       (Tensor): Δq output by FrontRES (for diagnostic logging)
+            robot_actions (Tensor): final motor commands from GMT
+            frontres_out  (Tensor): FrontRES output (Δq or [Δpos, Δrpy])
         """
         policy_obs, ref_vel, ref_vel_estimator_obs = self._parse_observations(observations)
 
         raw = self.residual_actor(policy_obs)
-        delta_q = torch.tanh(raw[:, :self.num_actions]) * self.max_delta_q
-        if self.num_z_outputs > 0:
-            self.last_delta_z = torch.tanh(raw[:, self.num_actions:]) * self.max_delta_z
-        else:
+
+        if self.num_task_corrections > 0:
+            delta_pos = torch.tanh(raw[:, :3]) * self.max_delta_pos
+            delta_rpy = torch.tanh(raw[:, 3:]) * self.max_delta_rpy
+            frontres_out = torch.cat([delta_pos, delta_rpy], dim=-1)
+            self.last_task_correction = frontres_out.detach()
             self.last_delta_z = None
+            with torch.no_grad():
+                robot_actions = self._run_gmt_direct(policy_obs, ref_vel, ref_vel_estimator_obs)
+        else:
+            delta_q = torch.tanh(raw[:, :self.num_actions]) * self.max_delta_q
+            if self.num_z_outputs > 0:
+                self.last_delta_z = torch.tanh(raw[:, self.num_actions:]) * self.max_delta_z
+            else:
+                self.last_delta_z = None
+            frontres_out = delta_q
+            with torch.no_grad():
+                robot_actions = self._apply_delta_q_and_run_gmt(
+                    policy_obs, delta_q, ref_vel, ref_vel_estimator_obs)
 
-        with torch.no_grad():
-            robot_actions = self._apply_delta_q_and_run_gmt(
-                policy_obs, delta_q, ref_vel, ref_vel_estimator_obs)
-
-        return robot_actions, delta_q
+        return robot_actions, frontres_out
 
     def update_distribution(self, observations):
         """
@@ -718,19 +755,28 @@ class FrontRESActorCritic(nn.Module):
         # Cache full observations so get_env_action can access ref_vel if present
         self._cached_observations = observations
 
-        # FrontRES forward: output = [Δq (num_actions), Δz (num_z_outputs)]
+        # FrontRES forward
         raw = self.residual_actor(policy_obs)
-        delta_q_mean = torch.tanh(raw[:, :self.num_actions]) * self.max_delta_q
-        if self.num_z_outputs > 0:
-            delta_z_mean = torch.tanh(raw[:, self.num_actions:]) * self.max_delta_z
-            frontres_mean = torch.cat([delta_q_mean, delta_z_mean], dim=-1)  # (B, total_output_dim)
-            self.last_delta_z = delta_z_mean.detach()
-        else:
-            frontres_mean = delta_q_mean
-            self.last_delta_z = None
 
-        # Store Δq for logging / regularization
-        self.last_residual_actions = delta_q_mean.detach()
+        if self.num_task_corrections > 0:
+            # Task-space mode: output = [Δpos(3), Δrpy(3)]
+            delta_pos_mean = torch.tanh(raw[:, :3]) * self.max_delta_pos
+            delta_rpy_mean = torch.tanh(raw[:, 3:]) * self.max_delta_rpy
+            frontres_mean  = torch.cat([delta_pos_mean, delta_rpy_mean], dim=-1)
+            self.last_task_correction  = frontres_mean.detach()
+            self.last_delta_z          = None
+            self.last_residual_actions = frontres_mean.detach()
+        else:
+            # Joint-space mode: output = [Δq (num_actions), Δz (num_z_outputs)]
+            delta_q_mean = torch.tanh(raw[:, :self.num_actions]) * self.max_delta_q
+            if self.num_z_outputs > 0:
+                delta_z_mean  = torch.tanh(raw[:, self.num_actions:]) * self.max_delta_z
+                frontres_mean = torch.cat([delta_q_mean, delta_z_mean], dim=-1)
+                self.last_delta_z = delta_z_mean.detach()
+            else:
+                frontres_mean = delta_q_mean
+                self.last_delta_z = None
+            self.last_residual_actions = delta_q_mean.detach()
 
         # Build distribution over Δq-space
         # NOTE: scalar std is an unconstrained nn.Parameter; apply softplus to
@@ -789,13 +835,18 @@ class FrontRESActorCritic(nn.Module):
             cached = observations
         policy_obs, ref_vel, ref_vel_estimator_obs = self._parse_observations(cached)
 
-        # delta_q_sample may be the full [Δq, Δz] vector (total_output_dim dims).
-        # Only the Δq slice (first num_actions dims) is passed to GMT.
-        delta_q_only = delta_q_sample[:, :self.num_actions]
-
-        with torch.no_grad():
-            robot_actions = self._apply_delta_q_and_run_gmt(
-                policy_obs, delta_q_only, ref_vel, ref_vel_estimator_obs)
+        if self.num_task_corrections > 0:
+            # Task-space mode: delta_q_sample is the full [Δpos(3), Δrpy(3)] sample.
+            # Store as last_task_correction so the runner can apply it to the command term.
+            self.last_task_correction = delta_q_sample.detach()
+            with torch.no_grad():
+                robot_actions = self._run_gmt_direct(policy_obs, ref_vel, ref_vel_estimator_obs)
+        else:
+            # Joint-space mode: delta_q_sample may be [Δq, Δz]; only Δq slice goes to GMT.
+            delta_q_only = delta_q_sample[:, :self.num_actions]
+            with torch.no_grad():
+                robot_actions = self._apply_delta_q_and_run_gmt(
+                    policy_obs, delta_q_only, ref_vel, ref_vel_estimator_obs)
 
         return robot_actions
 

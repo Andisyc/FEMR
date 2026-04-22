@@ -31,6 +31,7 @@ from rsl_rl.modules import (
     FrontRESActorCritic, # 引入第二阶段模型
 )
 from rsl_rl.utils import store_code_state
+from isaaclab.utils.math import quat_from_euler_xyz
 
 
 class OnPolicyRunner:
@@ -441,6 +442,7 @@ class OnPolicyRunner:
         # alpha_init: fixed α during critic warmup (non-zero so critic learns correct V(s))
         # alpha_ramp_iterations: after warmup, linearly ramp alpha_init → 1.0
         _is_frontres = isinstance(self.alg.policy, FrontRESActorCritic)
+        _is_task_space_mode = _is_frontres and getattr(self.alg.policy, 'num_task_corrections', 0) > 0
         _alpha_init  = float(self.cfg.get("delta_q_alpha_init", 1.0))
         _alpha_ramp  = int(self.cfg.get("delta_q_alpha_ramp_iterations", 0))
         if _is_frontres and (_alpha_ramp > 0 or _alpha_init < 1.0):
@@ -485,8 +487,6 @@ class OnPolicyRunner:
                     sink_ratio        = float(_pt.sink_ratio),
                     foot_slip_prob    = float(_pt.foot_slip_prob),
                     foot_slip_ratio   = float(_pt.foot_slip_ratio),
-                    body_drag_prob    = float(_pt.body_drag_prob),
-                    body_drag_ratio   = float(_pt.body_drag_ratio),
                     root_tilt_prob    = float(getattr(_pt, 'root_tilt_prob',    0.0)),
                     root_tilt_max_rad = float(getattr(_pt, 'root_tilt_max_rad', 0.0)),
                     joint_noise_prob  = float(getattr(_pt, 'joint_noise_prob',  0.0)),
@@ -516,6 +516,9 @@ class OnPolicyRunner:
         _staircase_min_plateau  = int(self.cfg.get("dr_staircase_min_plateau_iters", 3000))
         _staircase_plateau_thr  = float(self.cfg.get("dr_staircase_plateau_threshold", 2e-7))
         _staircase_start_level  = int(self.cfg.get("dr_staircase_start_level", 0))
+        # Adaptive DR: advance staircase when training-env survival rate exceeds this threshold.
+        # 0.0 disables (falls back to legacy EMA-slope trigger).
+        _dr_adaptive_thr = float(self.cfg.get("dr_adaptive_survival_threshold", 0.0))
 
         _staircase_active = _is_frontres and len(_staircase_mults) > 0
 
@@ -530,7 +533,6 @@ class OnPolicyRunner:
                     float_prob=float(_pt_sc.float_prob),   float_ratio=float(_pt_sc.float_ratio),
                     sink_prob=float(_pt_sc.sink_prob),     sink_ratio=float(_pt_sc.sink_ratio),
                     foot_slip_prob=float(_pt_sc.foot_slip_prob), foot_slip_ratio=float(_pt_sc.foot_slip_ratio),
-                    body_drag_prob=float(_pt_sc.body_drag_prob), body_drag_ratio=float(_pt_sc.body_drag_ratio),
                 )
             else:
                 _staircase_active = False
@@ -620,15 +622,13 @@ class OnPolicyRunner:
                 if hasattr(_env_raw, 'command_manager') and 'motion' in _env_raw.command_manager._terms:
                     _mcmd = _env_raw.command_manager._terms['motion']
                     if hasattr(_mcmd, 'perturber'):
-                        # Classic perturbations (float/sink/slip/drag)
+                        # Classic perturbations (float/sink/slip)
                         _mcmd.perturber.cfg.float_prob        = _perturb_target.float_prob        * _dr_scale
                         _mcmd.perturber.cfg.float_ratio       = _perturb_target.float_ratio       * _dr_scale
                         _mcmd.perturber.cfg.sink_prob         = _perturb_target.sink_prob         * _dr_scale
                         _mcmd.perturber.cfg.sink_ratio        = _perturb_target.sink_ratio        * _dr_scale
                         _mcmd.perturber.cfg.foot_slip_prob    = _perturb_target.foot_slip_prob    * _dr_scale
                         _mcmd.perturber.cfg.foot_slip_ratio   = _perturb_target.foot_slip_ratio   * _dr_scale
-                        _mcmd.perturber.cfg.body_drag_prob    = _perturb_target.body_drag_prob    * _dr_scale
-                        _mcmd.perturber.cfg.body_drag_ratio   = _perturb_target.body_drag_ratio   * _dr_scale
                         # New perturbations: root tilt + joint noise
                         _mcmd.perturber.cfg.root_tilt_prob    = _perturb_target.root_tilt_prob    * _dr_scale
                         _mcmd.perturber.cfg.root_tilt_max_rad = _perturb_target.root_tilt_max_rad * _dr_scale
@@ -653,7 +653,6 @@ class OnPolicyRunner:
                             _mcmd.perturber.cfg.float_ratio     = _perturb_target.float_ratio     * _cur_sc_mult
                             _mcmd.perturber.cfg.sink_ratio      = _perturb_target.sink_ratio      * _cur_sc_mult
                             _mcmd.perturber.cfg.foot_slip_ratio = _perturb_target.foot_slip_ratio * _cur_sc_mult
-                            _mcmd.perturber.cfg.body_drag_ratio = _perturb_target.body_drag_ratio * _cur_sc_mult
 
             # FrontRES reward-shaping state: reset at the start of each rollout.
             _frontres_prev_delta_q: torch.Tensor | None = None  # [N, A] for smoothness penalty
@@ -664,6 +663,9 @@ class OnPolicyRunner:
             _frontres_reg_penalty_sum:    float = 0.0
             _frontres_delta_z_abs_sum:    float = 0.0   # mean |Δz| per step (diagnostic)
             _frontres_shaping_steps:      int   = 0
+            # Adaptive DR: termination tracking for training envs only.
+            _frontres_term_count: int = 0  # env-steps where a training env terminated
+            _frontres_step_count: int = 0  # total training env-steps this rollout
             # lambda_reg shaping: only activate after DR curriculum completes.
             # Rationale: during ramp-up, reg pushing Δq→0 would reinforce the no-op shortcut trap
             # before the Actor has had any chance to discover effective corrections.
@@ -755,6 +757,25 @@ class OnPolicyRunner:
                         else:
                             env_actions = actions
 
+                    # Apply task-space anchor corrections for FrontRES (task-space mode).
+                    # Must happen BEFORE env.step() so rewards and next obs see the corrected anchor.
+                    if _is_task_space_mode:
+                        _task_corr = getattr(self.alg.policy, 'last_task_correction', None)
+                        if _task_corr is not None:
+                            _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
+                            for _cmd_term in _env_raw.command_manager._terms.values():
+                                if hasattr(_cmd_term, '_frontres_pos_correction'):
+                                    _cmd_term._frontres_pos_correction[:N_train].copy_(
+                                        _task_corr[:N_train, :3])
+                                    _rpy = _task_corr[:N_train, 3:]
+                                    _quat_corr = quat_from_euler_xyz(
+                                        _rpy[:, 0], _rpy[:, 1], _rpy[:, 2])
+                                    _cmd_term._frontres_quat_correction[:N_train].copy_(_quat_corr)
+                                    # Baseline envs: identity (no correction)
+                                    _cmd_term._frontres_pos_correction[N_train:].zero_()
+                                    _cmd_term._frontres_quat_correction[N_train:].zero_()
+                                    _cmd_term._frontres_quat_correction[N_train:, 0] = 1.0
+
                     # Step the environment 仿真环境更新观测量/动作评分/序列结束与否/监控数据
                     # NOTE: This is where the environment computes the *next* observation internally.
                     # The result is returned here and then used in the next loop iteration.
@@ -810,11 +831,19 @@ class OnPolicyRunner:
                         # Logging accumulators
                         _frontres_rdelta_sum   += r_delta.mean().item()
                         _frontres_baseline_sum += r_base.item()
-                        # Δz diagnostic: log mean absolute z-correction per step
-                        _dz = getattr(self.alg.policy, 'last_delta_z', None)
-                        if _dz is not None:
-                            _frontres_delta_z_abs_sum += _dz.abs().mean().item()
+                        # Task-space mode: log mean correction magnitude; else log Δz
+                        if _is_task_space_mode:
+                            _tc = getattr(self.alg.policy, 'last_task_correction', None)
+                            if _tc is not None:
+                                _frontres_delta_z_abs_sum += _tc.abs().mean().item()
+                        else:
+                            _dz = getattr(self.alg.policy, 'last_delta_z', None)
+                            if _dz is not None:
+                                _frontres_delta_z_abs_sum += _dz.abs().mean().item()
                         _frontres_shaping_steps += 1
+                        # Adaptive DR: count terminations in training envs
+                        _frontres_term_count += int((dones[:N_train] > 0).sum().item())
+                        _frontres_step_count += N_train
 
                         # Update prev_delta_q for smoothness tracking (all N envs)
                         _done_mask = dones.bool().view(-1)
@@ -938,6 +967,8 @@ class OnPolicyRunner:
                                             if _is_frontres and _frontres_shaping_steps > 0 else None)
             frontres_reg_penalty_mean    = (_frontres_reg_penalty_sum / _frontres_shaping_steps
                                             if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_survival_rate       = (1.0 - _frontres_term_count / _frontres_step_count
+                                            if _is_frontres and _frontres_step_count > 0 else None)
             frontres_delta_z_abs_mean    = (_frontres_delta_z_abs_sum / _frontres_shaping_steps
                                             if _is_frontres and _frontres_shaping_steps > 0 else None)
             # DR scale: mirror the schedule computed inside the rollout loop
@@ -969,27 +1000,52 @@ class OnPolicyRunner:
                         * (_staircase_mults[_staircase_level - 1] - _staircase_prev_mult)
                         if _staircase_level > 0 else 1.0
                     )
-                    # Update EMA (only when not ramping — plateau detection is for stable periods)
+                    # Advance-trigger check (only when stable, not mid-ramp)
                     if not _staircase_is_ramping and frontres_rdelta_mean is not None:
-                        if _staircase_ema is None:
-                            _staircase_ema = frontres_rdelta_mean
-                            _staircase_ema_at_entry = frontres_rdelta_mean
-                        else:
-                            _staircase_ema = (_staircase_ema_alpha * frontres_rdelta_mean
-                                              + (1.0 - _staircase_ema_alpha) * _staircase_ema)
-                        # Plateau detection: check if EMA has barely moved since level entry
                         iters_at_level = it - _staircase_at_level_since
-                        if (iters_at_level >= _staircase_min_plateau
+
+                        if _dr_adaptive_thr > 0.0:
+                            # ── Adaptive mode: advance when training-env survival rate exceeds threshold ──
+                            # No EMA update needed; survival_rate is already a per-rollout average.
+                            _should_advance = (
+                                frontres_survival_rate is not None
+                                and frontres_survival_rate > _dr_adaptive_thr
+                                and iters_at_level >= _staircase_min_plateau
+                                and _staircase_level < len(_staircase_mults)
+                            )
+                            _trigger_str = (
+                                f"survival_rate={frontres_survival_rate:.3f} > thr={_dr_adaptive_thr:.2f}"
+                                if _should_advance else ""
+                            )
+                        else:
+                            # ── Legacy mode: advance when r_delta EMA slope flattens ──
+                            if _staircase_ema is None:
+                                _staircase_ema = frontres_rdelta_mean
+                                _staircase_ema_at_entry = frontres_rdelta_mean
+                            else:
+                                _staircase_ema = (_staircase_ema_alpha * frontres_rdelta_mean
+                                                  + (1.0 - _staircase_ema_alpha) * _staircase_ema)
+                            ema_slope = (abs(_staircase_ema - _staircase_ema_at_entry) / max(1, iters_at_level)
+                                         if _staircase_ema_at_entry is not None else float("inf"))
+                            _should_advance = (
+                                iters_at_level >= _staircase_min_plateau
                                 and _staircase_ema_at_entry is not None
-                                and _staircase_level < len(_staircase_mults)):
-                            ema_slope = abs(_staircase_ema - _staircase_ema_at_entry) / max(1, iters_at_level)
-                            if ema_slope < _staircase_plateau_thr:
+                                and _staircase_level < len(_staircase_mults)
+                                and ema_slope < _staircase_plateau_thr
+                            )
+                            _trigger_str = (
+                                f"ema_slope={ema_slope:.2e} < thr={_staircase_plateau_thr:.2e}"
+                                if _should_advance else ""
+                            )
+
+                        if _should_advance:
                                 # Advance to next staircase level
                                 _staircase_prev_mult      = _staircase_cur_mult
                                 _staircase_level         += 1
                                 _staircase_ramp_start_iter = it
                                 _staircase_is_ramping     = True
                                 _staircase_ema_at_entry   = None
+                                _staircase_ema            = None
                                 new_ratio = _perturb_target.float_ratio * _staircase_mults[_staircase_level - 1]
                                 # Sync instance vars immediately so that if training is
                                 # interrupted during the ramp, the next resume starts
@@ -997,9 +1053,8 @@ class OnPolicyRunner:
                                 self._staircase_level    = _staircase_level
                                 self._staircase_cur_mult = _staircase_mults[_staircase_level - 1]
                                 print(
-                                    f"[Staircase] iter={it}  plateau detected "
-                                    f"(slope={ema_slope:.2e} < thr={_staircase_plateau_thr:.2e}).  "
-                                    f"Advancing to level {_staircase_level}/{len(_staircase_mults)}: "
+                                    f"[Staircase] iter={it}  advance triggered ({_trigger_str}).  "
+                                    f"Level {_staircase_level}/{len(_staircase_mults)}: "
                                     f"mult {_staircase_prev_mult:.2f}x → "
                                     f"{_staircase_mults[_staircase_level-1]:.2f}x  "
                                     f"(float_ratio: {_perturb_target.float_ratio*_staircase_prev_mult:.3f} m → "
@@ -1132,6 +1187,9 @@ class OnPolicyRunner:
             if locs.get("_staircase_mult_for_log") is not None:
                 self.writer.add_scalar("Curriculum/staircase_mult",
                                        locs["_staircase_mult_for_log"], locs["it"])
+            if locs.get("frontres_survival_rate") is not None:
+                self.writer.add_scalar("Curriculum/training_survival_rate",
+                                       locs["frontres_survival_rate"], locs["it"])
 
         # -- Performance
         self.writer.add_scalar("Perf/total_fps", fps, locs["it"])
@@ -1193,6 +1251,8 @@ class OnPolicyRunner:
                 log_string += f"""{'Δq alpha:':>{pad}} {locs['frontres_alpha']:.4f}{warmup_str}\n"""
             if locs.get("frontres_dr_scale") is not None:
                 log_string += f"""{'DR curriculum scale:':>{pad}} {locs['frontres_dr_scale']:.4f}\n"""
+            if locs.get("frontres_survival_rate") is not None:
+                log_string += f"""{'Training survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
             # -- episode info
             log_string += f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n"""
         else:

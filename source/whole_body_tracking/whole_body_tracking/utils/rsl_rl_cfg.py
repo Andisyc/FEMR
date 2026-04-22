@@ -224,6 +224,9 @@ class RslRlSuperviseJointPosCfg(RslRlPpoActorCriticCfg):
     # Total FrontRES output = num_actions (Δq) + num_z_outputs (Δz).
     # Set to 1 for the standard [Δq (29), Δz (1)] architecture.
     num_z_outputs: int = 0
+    # Task-space mode: when >0, FrontRES outputs [Δpos(3), Δrpy(3)] instead of Δq+Δz.
+    # Set to 6 to enable full SE(3) correction mode.
+    num_task_corrections: int = 0
 
 @configclass # algorithm
 class RslRlSuperviseAlgorithmCfg:
@@ -242,10 +245,15 @@ class RslRlSuperviseAlgorithmCfg:
     jump_threshold: float = 0.2
     # Split point: first num_joint_outputs dims are Δq (get temporal gate + cascade mask),
     # remaining dims are auxiliary outputs (Δz etc., get only terminal mask).
+    # Inactive when num_task_corrections > 0 (task-space mode).
     num_joint_outputs: int = 29
     # Weight for auxiliary (Δz) loss relative to Δq loss.
-    # Start small: Stage 1 z tracking error without perturbations is tiny (~1-3 mm).
     z_loss_weight: float = 0.5
+    # Task-space mode: weight for Δrpy loss relative to Δpos loss.
+    # Active only when num_task_corrections > 0.
+    rpy_loss_weight: float = 1.0
+    # Task-space mode: number of task-space outputs (0 = disabled, 6 = [Δpos(3)+Δrpy(3)]).
+    num_task_corrections: int = 0
 
 # ====== FrontRES Stage 1: Supervised Learning ======
 
@@ -272,11 +280,19 @@ class RslRlFrontResidualActorCriticCfg(RslRlPpoActorCriticCfg):
     gmt_policy_cfg: dict | None = None
     init_critic_from_gmt: bool = False
 
-    # Δz output configuration (must match Stage 1 setting)
+    # Δz output configuration (must match Stage 1 setting; inactive when num_task_corrections > 0)
     num_z_outputs: int = 0
     """Number of root z-correction outputs after Δq. 1 → total output = num_actions + 1."""
     max_delta_z: float = 0.3
     """tanh clip for Δz output (metres). 0.3 m covers typical float/sink artifacts."""
+
+    # Task-space correction mode: replaces Δq+Δz with [Δpos(3), Δrpy(3)]
+    num_task_corrections: int = 0
+    """When >0, FrontRES outputs SE(3) anchor corrections instead of joint Δq. Set to 6."""
+    max_delta_pos: float = 0.3
+    """tanh clip for position correction (metres). 0.3 m covers float/sink/slip artifacts."""
+    max_delta_rpy: float = 0.3
+    """tanh clip for orientation correction (radians). 0.3 rad ≈ 17° covers tilt artifacts."""
 
     # Ref vel estimator configuration (for GMT input)
     num_ref_vel_estimator_obs: int | None = None

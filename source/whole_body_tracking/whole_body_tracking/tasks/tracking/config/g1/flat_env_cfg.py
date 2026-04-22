@@ -1,5 +1,8 @@
+from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.utils import configclass
+from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
+import whole_body_tracking.tasks.tracking.mdp as mdp
 from whole_body_tracking.robots.g1 import G1_ACTION_SCALE, G1_CYLINDER_CFG
 from whole_body_tracking.tasks.tracking.config.g1.agents.rsl_rl_ppo_cfg import LOW_FREQ_SCALE
 from whole_body_tracking.tasks.tracking.tracking_env_cfg import (
@@ -289,12 +292,19 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         self.scene.robot = G1_CYLINDER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.actions.joint_pos.scale = G1_ACTION_SCALE
 
-        # Match Stage 1 (SupervisedObservationsCfg.PolicyCfg) observation space.
-        # Stage 1 was trained WITHOUT motion_anchor_pos_b (3 dims) and base_lin_vel (3 dims).
-        # With history_length=5: (3+3)*5 = 30 extra dims would cause a shape mismatch
-        # when loading Stage 1 checkpoint into the Stage 2 residual_actor.
+        # Match Stage 1 (SupervisedObservationsCfg.PolicyCfg) observation space → 800 dims.
+        # Stage 1 was trained WITHOUT motion_anchor_pos_b (3 dims) and base_lin_vel (3 dims)
+        # but WITH anchor_root_pos_error_w (3 dims) and anchor_root_rpy_error_w (3 dims).
+        # Both stages therefore share a common 800-dim obs layout.
         self.observations.policy.motion_anchor_pos_b = None
         self.observations.policy.base_lin_vel = None
+        # Add task-space anchor error observations (3 + 3 dims, history × 5 = +30 dims total)
+        self.observations.policy.anchor_root_pos_error_w = ObsTerm(
+            func=mdp.anchor_root_pos_error_w, params={"command_name": "motion"},
+            noise=Unoise(n_min=-0.01, n_max=0.01))
+        self.observations.policy.anchor_root_rpy_error_w = ObsTerm(
+            func=mdp.anchor_root_rpy_error_w, params={"command_name": "motion"},
+            noise=Unoise(n_min=-0.01, n_max=0.01))
 
         self.commands.motion.anchor_body_name = "torso_link"
         self.commands.motion.body_names = [

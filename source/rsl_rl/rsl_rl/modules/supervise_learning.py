@@ -49,8 +49,9 @@ class SuperviseLearning(nn.Module):
         num_actions,            # Δq dim (= robot joint DOFs, e.g. 29 for G1)
         student_hidden_dims=[256, 256, 256],
         activation="elu",
-        gmt_path: str = None,   # Path to GMT .pt checkpoint
-        num_z_outputs: int = 0, # Additional Δz outputs appended after Δq; 1 → output is [Δq(29), Δz(1)]
+        gmt_path: str = None,           # Path to GMT .pt checkpoint
+        num_z_outputs: int = 0,         # Additional Δz outputs appended after Δq; 1 → output is [Δq(29), Δz(1)]
+        num_task_corrections: int = 0,  # Task-space output dim; when >0, replaces Δq+Δz with [Δpos(3), Δrpy(3)]
         **kwargs,
     ):
         """
@@ -154,7 +155,12 @@ class SuperviseLearning(nn.Module):
         # ========== student (FrontRES 网络) ==========
         self.num_actions = num_actions
         self.num_z_outputs = num_z_outputs
-        total_output_dim = num_actions + num_z_outputs  # e.g. 29 + 1 = 30
+        self.num_task_corrections = num_task_corrections
+        # Task-space mode: output = [Δx, Δy, Δz, Δroll, Δpitch, Δyaw] (6 dims), ignoring Δq and Δz
+        if num_task_corrections > 0:
+            total_output_dim = num_task_corrections
+        else:
+            total_output_dim = num_actions + num_z_outputs  # e.g. 29 + 1 = 30
 
         student_layers = []
         student_layers.append(nn.Linear(num_actor_obs, student_hidden_dims[0]))
@@ -167,7 +173,10 @@ class SuperviseLearning(nn.Module):
                 student_layers.append(activation)
         self.student = nn.Sequential(*student_layers)
 
-        print(f"[SuperviseLearning] Student MLP output: {num_actions} Δq + {num_z_outputs} Δz = {total_output_dim} dims")
+        if num_task_corrections > 0:
+            print(f"[SuperviseLearning] Student MLP output: {num_task_corrections} task-space dims [Δpos(3)+Δrpy(3)]")
+        else:
+            print(f"[SuperviseLearning] Student MLP output: {num_actions} Δq + {num_z_outputs} Δz = {total_output_dim} dims")
         print(f"[SuperviseLearning] Student MLP: {self.student}")
 
         # 临时存储分布状态 (兼容 rsl_rl 内部流程)

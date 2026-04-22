@@ -76,6 +76,9 @@ class SuperviseTrainer:
         # Must match policy.num_actions (= robot DOFs, e.g. 29 for G1).
         num_joint_outputs: int = 29,
         z_loss_weight: float = 0.5,              # Weight for auxiliary Δz loss vs Δq loss
+        # Task-space mode: when >0, replaces Δq+Δz loss with [Δpos, Δrpy] loss
+        num_task_corrections: int = 0,
+        rpy_loss_weight: float = 1.0,            # Weight for Δrpy loss relative to Δpos loss
     ):
         # Device-related parameters
         self.device = device
@@ -120,9 +123,13 @@ class SuperviseTrainer:
         # Temporal gate threshold (radians)
         self.jump_threshold = jump_threshold
 
-        # Δq / Δz split
+        # Δq / Δz split (inactive when num_task_corrections > 0)
         self.num_joint_outputs = num_joint_outputs
         self.z_loss_weight = z_loss_weight
+
+        # Task-space mode parameters
+        self.num_task_corrections = num_task_corrections
+        self.rpy_loss_weight = rpy_loss_weight
 
         self.num_updates = 0
 
@@ -136,17 +143,22 @@ class SuperviseTrainer:
             device=self.device
         )
 
-        # Build static lower-limb weight tensor for the Δq part only.
-        # action_shape[0] = num_joint_outputs + num_z_outputs (e.g. 30).
-        # static_weights only covers the first num_joint_outputs dims (Δq).
-        self.static_weights = torch.ones(self.num_joint_outputs, device=self.device)
-        if self.lower_limb_indices:
-            self.static_weights[self.lower_limb_indices] = self.lower_limb_weight
-            print(f"[SuperviseTrainer] Lower-limb static weight {self.lower_limb_weight}× "
-                  f"applied to {len(self.lower_limb_indices)} joints: {self.lower_limb_indices}")
-        num_z = action_shape[0] - self.num_joint_outputs
-        print(f"[SuperviseTrainer] Output split: {self.num_joint_outputs} Δq + {num_z} Δz "
-              f"(z_loss_weight={self.z_loss_weight})")
+        if self.num_task_corrections > 0:
+            # Task-space mode: no joint weighting, just log the output dim
+            self.static_weights = torch.ones(self.num_joint_outputs, device=self.device)
+            print(f"[SuperviseTrainer] Task-space mode: {self.num_task_corrections} dims "
+                  f"[Δpos(3)+Δrpy(3)], rpy_loss_weight={self.rpy_loss_weight}")
+        else:
+            # Build static lower-limb weight tensor for the Δq part only.
+            # action_shape[0] = num_joint_outputs + num_z_outputs (e.g. 30).
+            self.static_weights = torch.ones(self.num_joint_outputs, device=self.device)
+            if self.lower_limb_indices:
+                self.static_weights[self.lower_limb_indices] = self.lower_limb_weight
+                print(f"[SuperviseTrainer] Lower-limb static weight {self.lower_limb_weight}× "
+                      f"applied to {len(self.lower_limb_indices)} joints: {self.lower_limb_indices}")
+            num_z = action_shape[0] - self.num_joint_outputs
+            print(f"[SuperviseTrainer] Output split: {self.num_joint_outputs} Δq + {num_z} Δz "
+                  f"(z_loss_weight={self.z_loss_weight})")
 
     def act(self, obs: torch.Tensor, target_delta_q: torch.Tensor) -> torch.Tensor:
         """record delta_q_gt"""
@@ -176,20 +188,25 @@ class SuperviseTrainer:
         loss = 0
         cnt = 0
 
+        task_space_mode = self.num_task_corrections > 0
+
         # Accumulators for diagnostic metrics
         sum_pred_norm          = 0.0
         sum_gt_norm            = 0.0
         sum_cos_sim            = 0.0
         sum_valid_ratio        = 0.0
         sum_cascade_gate_ratio = 0.0
-        sum_joint_mae          = None  # (num_joint_outputs,) tensor
-        # Δq / Δz loss separation (for logging)
+        sum_joint_mae          = None  # (num_joint_outputs,) tensor — None in task-space mode
+        # Δq / Δz loss separation (for logging); reused as pos/rpy in task-space mode
         sum_dq_loss            = 0.0
         sum_dz_loss            = 0.0
         # Δz diagnostics
         sum_dz_pred_abs        = 0.0
         sum_dz_gt_abs          = 0.0
         sum_dz_mae             = 0.0
+        # Task-space additional diagnostics
+        sum_pos_mae            = 0.0
+        sum_rpy_mae            = 0.0
 
         for epoch in range(self.num_learning_epochs):
             self.policy.reset(hidden_states=self.last_hidden_states)
@@ -200,90 +217,115 @@ class SuperviseTrainer:
                 # Inference of the FrontRES student
                 predicted_actions = self.policy.forward(obs)
 
-                # ── Split into Δq part (joint corrections) and Δz part (z correction) ──
-                nj = self.num_joint_outputs
-                pred_dq   = predicted_actions[:, :nj]          # (B, 29) Δq predictions
-                pred_dz   = predicted_actions[:, nj:]           # (B, num_z) Δz predictions
-                target_dq = target_actions[:, :nj]              # (B, 29) Δq ground truth
-                target_dz = target_actions[:, nj:]              # (B, num_z) Δz ground truth
-
                 # ── Mask 1: sample-level terminal mask ────────────────────────────
                 valid = 1.0 - dones.float()   # (B, 1)
+                n_valid = valid.sum().clamp(min=1.0)
 
-                # ── Mask 2: joint-level temporal gate (Δq only) ───────────────────
-                # Applied only to the Δq part; Δz is in meters and can change faster.
-                prev_done_mask  = prev_dones.float()
-                safe_prev_dq    = (prev_target_actions[:, :nj] * (1.0 - prev_done_mask)
-                                   + target_dq                  *          prev_done_mask)
-                jump            = (target_dq - safe_prev_dq).abs()              # (B, 29)
-                joint_valid     = (jump < self.jump_threshold).float()          # (B, 29)
+                if task_space_mode:
+                    # ── Task-space loss: [Δpos(3), Δrpy(3)], terminal mask only ──────
+                    pred_pos   = predicted_actions[:, :3]   # (B, 3)
+                    pred_rpy   = predicted_actions[:, 3:]   # (B, 3)
+                    target_pos = target_actions[:, :3]      # (B, 3)
+                    target_rpy = target_actions[:, 3:]      # (B, 3)
 
-                # ── Mask 3: lower-limb cascade mask (sample-level) ────────────────
-                if self.lower_limb_indices:
-                    lower_stable    = joint_valid[:, self.lower_limb_indices]   # (B, |J_lower|)
-                    any_lower_fail  = lower_stable.min(dim=-1, keepdim=True).values < 0.5
-                    m_cascade       = (~any_lower_fail).float() * valid          # (B, 1)
-                else:
-                    m_cascade = valid
-
-                # ── Δq loss: static lower-limb bias × joint gate × cascade mask ───
-                eff_w  = self.static_weights.unsqueeze(0) * joint_valid * m_cascade  # (B, 29)
-                n_eff  = eff_w.sum().clamp(min=1.0)
-                if self.loss_type == "huber":
-                    per_joint_loss = nn.functional.huber_loss(pred_dq, target_dq, reduction="none")
-                else:
-                    per_joint_loss = nn.functional.mse_loss(pred_dq, target_dq, reduction="none")
-                dq_loss = (per_joint_loss * eff_w).sum() / n_eff
-
-                # ── Δz loss: terminal mask only (no temporal gate on z) ───────────
-                if pred_dz.shape[-1] > 0:
                     if self.loss_type == "huber":
-                        dz_per = nn.functional.huber_loss(pred_dz, target_dz, reduction="none")
+                        pos_per = nn.functional.huber_loss(pred_pos, target_pos, reduction="none")
+                        rpy_per = nn.functional.huber_loss(pred_rpy, target_rpy, reduction="none")
                     else:
-                        dz_per = nn.functional.mse_loss(pred_dz, target_dz, reduction="none")
-                    n_valid_z  = valid.sum().clamp(min=1.0)
-                    dz_loss    = (dz_per * valid).sum() / n_valid_z
-                    behavior_loss = dq_loss + self.z_loss_weight * dz_loss
+                        pos_per = nn.functional.mse_loss(pred_pos, target_pos, reduction="none")
+                        rpy_per = nn.functional.mse_loss(pred_rpy, target_rpy, reduction="none")
+
+                    pos_loss = (pos_per * valid).sum() / n_valid / 3.0
+                    rpy_loss = (rpy_per * valid).sum() / n_valid / 3.0
+                    behavior_loss = pos_loss + self.rpy_loss_weight * rpy_loss
+
+                    dq_loss = pos_loss   # reuse slot for logging
+                    dz_loss = rpy_loss
+
+                    loss = loss + behavior_loss
+                    mean_behavior_loss += behavior_loss.item()
+                    sum_dq_loss += pos_loss.item()
+                    sum_dz_loss += rpy_loss.item()
+                    cnt += 1
+
+                    with torch.no_grad():
+                        sum_valid_ratio += valid.mean().item()
+                        sum_pos_mae     += (pred_pos - target_pos).abs().mean().item()
+                        sum_rpy_mae     += (pred_rpy - target_rpy).abs().mean().item()
+                        # Reuse pred/gt norm for pos magnitudes (for convergence monitoring)
+                        sum_pred_norm   += pred_pos.norm(dim=-1).mean().item()
+                        sum_gt_norm     += target_pos.norm(dim=-1).mean().item()
+                        sum_cos_sim     += nn.functional.cosine_similarity(
+                            pred_pos, target_pos, dim=-1).mean().item()
+                        sum_cascade_gate_ratio += 1.0  # no cascade gate in task-space mode
+
                 else:
-                    dz_loss       = torch.zeros(1, device=self.device)
-                    behavior_loss = dq_loss
+                    # ── Joint-space (Δq + Δz) mode ─────────────────────────────────
+                    nj = self.num_joint_outputs
+                    pred_dq   = predicted_actions[:, :nj]
+                    pred_dz   = predicted_actions[:, nj:]
+                    target_dq = target_actions[:, :nj]
+                    target_dz = target_actions[:, nj:]
 
-                # Total loss
-                loss = loss + behavior_loss
-                mean_behavior_loss += behavior_loss.item()
-                sum_dq_loss += dq_loss.item()
-                sum_dz_loss += dz_loss.item() if pred_dz.shape[-1] > 0 else 0.0
-                cnt += 1
+                    # ── Mask 2: joint-level temporal gate (Δq only) ──────────────
+                    prev_done_mask  = prev_dones.float()
+                    safe_prev_dq    = (prev_target_actions[:, :nj] * (1.0 - prev_done_mask)
+                                       + target_dq                  *          prev_done_mask)
+                    jump            = (target_dq - safe_prev_dq).abs()
+                    joint_valid     = (jump < self.jump_threshold).float()
 
-                # --- Diagnostic metrics (no grad needed) ---
-                with torch.no_grad():
-                    # 1. valid_ratio
-                    sum_valid_ratio += valid.mean().item()
-
-                    # 2. cascade_gate_ratio
-                    n_live = valid.sum().clamp(min=1.0)
-                    sum_cascade_gate_ratio += m_cascade.sum() / n_live
-
-                    # 3 & 4. pred/gt norms for Δq
-                    sum_pred_norm += pred_dq.norm(dim=-1).mean().item()
-                    sum_gt_norm   += target_dq.norm(dim=-1).mean().item()
-
-                    # 5. cosine_similarity on Δq
-                    sum_cos_sim += nn.functional.cosine_similarity(
-                        pred_dq, target_dq, dim=-1).mean().item()
-
-                    # 6 & 7. Per-joint MAE (Δq only)
-                    joint_mae = (pred_dq - target_dq).abs().mean(dim=0)        # (nj,)
-                    if sum_joint_mae is None:
-                        sum_joint_mae = joint_mae
+                    # ── Mask 3: lower-limb cascade mask (sample-level) ───────────
+                    if self.lower_limb_indices:
+                        lower_stable    = joint_valid[:, self.lower_limb_indices]
+                        any_lower_fail  = lower_stable.min(dim=-1, keepdim=True).values < 0.5
+                        m_cascade       = (~any_lower_fail).float() * valid
                     else:
-                        sum_joint_mae = sum_joint_mae + joint_mae
+                        m_cascade = valid
 
-                    # 8–10. Δz diagnostics
+                    # ── Δq loss: static lower-limb bias × joint gate × cascade mask
+                    eff_w  = self.static_weights.unsqueeze(0) * joint_valid * m_cascade
+                    n_eff  = eff_w.sum().clamp(min=1.0)
+                    if self.loss_type == "huber":
+                        per_joint_loss = nn.functional.huber_loss(pred_dq, target_dq, reduction="none")
+                    else:
+                        per_joint_loss = nn.functional.mse_loss(pred_dq, target_dq, reduction="none")
+                    dq_loss = (per_joint_loss * eff_w).sum() / n_eff
+
+                    # ── Δz loss: terminal mask only ─────────────────────────────
                     if pred_dz.shape[-1] > 0:
-                        sum_dz_pred_abs += pred_dz.abs().mean().item()
-                        sum_dz_gt_abs   += target_dz.abs().mean().item()
-                        sum_dz_mae      += (pred_dz - target_dz).abs().mean().item()
+                        if self.loss_type == "huber":
+                            dz_per = nn.functional.huber_loss(pred_dz, target_dz, reduction="none")
+                        else:
+                            dz_per = nn.functional.mse_loss(pred_dz, target_dz, reduction="none")
+                        dz_loss    = (dz_per * valid).sum() / n_valid
+                        behavior_loss = dq_loss + self.z_loss_weight * dz_loss
+                    else:
+                        dz_loss       = torch.zeros(1, device=self.device)
+                        behavior_loss = dq_loss
+
+                    loss = loss + behavior_loss
+                    mean_behavior_loss += behavior_loss.item()
+                    sum_dq_loss += dq_loss.item()
+                    sum_dz_loss += dz_loss.item() if pred_dz.shape[-1] > 0 else 0.0
+                    cnt += 1
+
+                    with torch.no_grad():
+                        sum_valid_ratio += valid.mean().item()
+                        n_live = valid.sum().clamp(min=1.0)
+                        sum_cascade_gate_ratio += m_cascade.sum() / n_live
+                        sum_pred_norm += pred_dq.norm(dim=-1).mean().item()
+                        sum_gt_norm   += target_dq.norm(dim=-1).mean().item()
+                        sum_cos_sim   += nn.functional.cosine_similarity(
+                            pred_dq, target_dq, dim=-1).mean().item()
+                        joint_mae = (pred_dq - target_dq).abs().mean(dim=0)
+                        if sum_joint_mae is None:
+                            sum_joint_mae = joint_mae
+                        else:
+                            sum_joint_mae = sum_joint_mae + joint_mae
+                        if pred_dz.shape[-1] > 0:
+                            sum_dz_pred_abs += pred_dz.abs().mean().item()
+                            sum_dz_gt_abs   += target_dz.abs().mean().item()
+                            sum_dz_mae      += (pred_dz - target_dz).abs().mean().item()
 
                 # Gradient step
                 if cnt % self.gradient_length == 0:
@@ -307,34 +349,44 @@ class SuperviseTrainer:
         self.policy.detach_hidden_states()
 
         # --- Construct the loss dictionary ---
-        assert sum_joint_mae is not None, "Storage was empty — no batches processed."
         mean_pred_norm = sum_pred_norm / cnt
         mean_gt_norm   = sum_gt_norm   / cnt
-        mean_joint_mae = sum_joint_mae / cnt  # (num_actions,)
-        # Structural check: does the policy have z outputs?
-        # sum_dz_pred_abs > 0.0 would be False early in training when Δz ≈ 0, giving wrong result.
-        has_dz = getattr(self.policy, 'num_z_outputs', 0) > 0
 
-        loss_dict = {
-            # -- Primary convergence signal
-            "behavior":           mean_behavior_loss,
-            # -- Δq component (joint corrections, full masking)
-            "loss_dq":            sum_dq_loss / cnt,
-            # -- Δq quality
-            "delta_q_norm_ratio": mean_pred_norm / (mean_gt_norm + 1e-8),
-            "cosine_similarity":  sum_cos_sim / cnt,
-            # -- Data quality
-            "valid_ratio":        sum_valid_ratio / cnt,
-            "cascade_gate_ratio": sum_cascade_gate_ratio / cnt,
-            # -- Per-joint Δq error
-            "joint_mae_mean":     mean_joint_mae.mean().item(),
-            "joint_mae_max":      mean_joint_mae.max().item(),
-        }
-        # -- Δz component (only logged when num_z_outputs > 0)
-        if has_dz:
-            loss_dict["loss_dz"]       = sum_dz_loss / cnt
-            loss_dict["dz_pred_abs"]   = sum_dz_pred_abs / cnt   # mean |Δz_pred| (m)
-            loss_dict["dz_gt_abs"]     = sum_dz_gt_abs   / cnt   # mean |Δz_gt|   (m)
-            loss_dict["dz_mae"]        = sum_dz_mae       / cnt   # mean |Δz_pred − Δz_gt| (m)
+        if task_space_mode:
+            loss_dict = {
+                "behavior":           mean_behavior_loss,
+                "loss_pos":           sum_dq_loss / cnt,   # pos component
+                "loss_rpy":           sum_dz_loss / cnt,   # rpy component
+                "pos_pred_norm":      mean_pred_norm,
+                "cosine_similarity":  sum_cos_sim / cnt,
+                "valid_ratio":        sum_valid_ratio / cnt,
+                "pos_mae":            sum_pos_mae / cnt,
+                "rpy_mae":            sum_rpy_mae / cnt,
+            }
+        else:
+            assert sum_joint_mae is not None, "Storage was empty — no batches processed."
+            mean_joint_mae = sum_joint_mae / cnt  # (num_actions,)
+            has_dz = getattr(self.policy, 'num_z_outputs', 0) > 0
+
+            loss_dict = {
+                # -- Primary convergence signal
+                "behavior":           mean_behavior_loss,
+                # -- Δq component (joint corrections, full masking)
+                "loss_dq":            sum_dq_loss / cnt,
+                # -- Δq quality
+                "delta_q_norm_ratio": mean_pred_norm / (mean_gt_norm + 1e-8),
+                "cosine_similarity":  sum_cos_sim / cnt,
+                # -- Data quality
+                "valid_ratio":        sum_valid_ratio / cnt,
+                "cascade_gate_ratio": sum_cascade_gate_ratio / cnt,
+                # -- Per-joint Δq error
+                "joint_mae_mean":     mean_joint_mae.mean().item(),
+                "joint_mae_max":      mean_joint_mae.max().item(),
+            }
+            if has_dz:
+                loss_dict["loss_dz"]       = sum_dz_loss / cnt
+                loss_dict["dz_pred_abs"]   = sum_dz_pred_abs / cnt
+                loss_dict["dz_gt_abs"]     = sum_dz_gt_abs   / cnt
+                loss_dict["dz_mae"]        = sum_dz_mae       / cnt
 
         return loss_dict
