@@ -647,14 +647,26 @@ class FrontRESActorCritic(nn.Module):
         return self.gmt_policy.act_inference(gmt_obs)
 
     def _run_gmt_direct(self, policy_obs, ref_vel, ref_vel_estimator_obs):
-        """Run GMT without q_ref patching (task-space mode). Normalizes obs before GMT."""
+        """Run GMT without q_ref patching (task-space mode).
+
+        policy_obs may have extra anchor-error dims appended after the GMT's base obs.
+        The runner applies composite normalization: first gmt_dim dims are GMT-normalized,
+        the rest pass through raw.  We therefore slice to gmt_dim before feeding to GMT.
+        """
+        # Strip any extra dims beyond the GMT's expected input size.
+        gmt_input = policy_obs
+        if self.gmt_normalizer is not None:
+            _gmt_mean = getattr(self.gmt_normalizer, '_mean', None)
+            if _gmt_mean is not None and gmt_input.shape[-1] > _gmt_mean.shape[-1]:
+                gmt_input = gmt_input[:, :_gmt_mean.shape[-1]]
+
         if ref_vel is not None:
-            gmt_obs = torch.cat([policy_obs, ref_vel], dim=-1)
+            gmt_obs = torch.cat([gmt_input, ref_vel], dim=-1)
         elif self.ref_vel_estimator is not None and ref_vel_estimator_obs is not None:
             ref_vel = self.ref_vel_estimator(ref_vel_estimator_obs)
-            gmt_obs = torch.cat([policy_obs, ref_vel], dim=-1)
+            gmt_obs = torch.cat([gmt_input, ref_vel], dim=-1)
         else:
-            gmt_obs = self._pad_observations_for_gmt(policy_obs)
+            gmt_obs = self._pad_observations_for_gmt(gmt_input)
         return self.gmt_policy.act_inference(gmt_obs)
 
     def _frontres_forward(self, observations):

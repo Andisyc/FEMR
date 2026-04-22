@@ -184,12 +184,28 @@ class OnPolicyRunner:
         self.save_interval = self.cfg["save_interval"]
         self.empirical_normalization = self.cfg["empirical_normalization"]
 
+        # Track whether task-space FrontRES needs partial obs normalization.
+        # When set, first _frontres_gmt_obs_dim dims are GMT-normalized;
+        # remaining dims (anchor error terms) pass through unchanged.
+        self._frontres_gmt_obs_dim: int | None = None
+
         # Check if using ResidualActorCritic (special handling for GMT normalizer)
         if isinstance(policy, (ResidualActorCritic, FrontRESActorCritic)):
             # Use GMT's frozen normalizer for observations
             if policy.gmt_normalizer is not None:
                 self.obs_normalizer = policy.gmt_normalizer
                 print("[Runner] Using GMT's frozen normalizer for ResidualActorCritic")
+                # Task-space mode: student obs may have extra anchor-error dims beyond
+                # what the GMT normalizer expects.  Detect and store the split point.
+                if (isinstance(policy, FrontRESActorCritic)
+                        and getattr(policy, 'num_task_corrections', 0) > 0):
+                    _gmt_mean = getattr(policy.gmt_normalizer, '_mean', None)
+                    gmt_norm_dim = _gmt_mean.shape[-1] if _gmt_mean is not None else num_obs
+                    if num_obs > gmt_norm_dim:
+                        self._frontres_gmt_obs_dim = gmt_norm_dim
+                        print(f"[Runner] FrontRES task-space: GMT normalizes first "
+                              f"{gmt_norm_dim} obs dims; last "
+                              f"{num_obs - gmt_norm_dim} anchor-error dims pass-through")
             else:
                 print("[Runner] WARNING: ResidualActorCritic has no GMT normalizer, using Identity")
                 self.obs_normalizer = torch.nn.Identity().to(self.device)
@@ -391,7 +407,7 @@ class OnPolicyRunner:
             obs_raw_for_gmt = obs.clone()
 
         # Normalize initial observations (same as in training loop) 观测归一器
-        obs = self.obs_normalizer(obs) # 三种观测量分别使用不同观测归一器
+        obs = self._apply_obs_normalizer(obs) # 三种观测量分别使用不同观测归一器
 
         # 使用观测量归一化器对观测量进行处理
         privileged_obs = self.privileged_obs_normalizer(privileged_obs)
@@ -865,7 +881,7 @@ class OnPolicyRunner:
                         obs_raw_for_gmt = obs.clone()
 
                     # perform normalization 对本次循环的观测量进行归一化, 用于计算下步动作
-                    obs = self.obs_normalizer(obs)
+                    obs = self._apply_obs_normalizer(obs)
                     if self.privileged_obs_type is not None and self.privileged_obs_type in obs_dict:
                         privileged_obs = self.privileged_obs_normalizer(
                             obs_dict[self.privileged_obs_type].to(self.device))
@@ -1548,6 +1564,18 @@ class OnPolicyRunner:
                 self.obs_normalizer.to(device)
             policy = lambda x: self.alg.policy.act_inference(self.obs_normalizer(x))  # noqa: E731
         return policy
+
+    def _apply_obs_normalizer(self, obs: torch.Tensor) -> torch.Tensor:
+        """Apply obs_normalizer, with partial pass-through for FrontRES task-space mode.
+
+        In task-space FrontRES, the last (num_obs - _frontres_gmt_obs_dim) dims are
+        anchor-error terms in physical units (m / rad) and must not be GMT-normalized.
+        """
+        if self._frontres_gmt_obs_dim is not None and obs.shape[-1] > self._frontres_gmt_obs_dim:
+            gmt_dim = self._frontres_gmt_obs_dim
+            return torch.cat(
+                [self.obs_normalizer(obs[:, :gmt_dim]), obs[:, gmt_dim:]], dim=-1)
+        return self.obs_normalizer(obs)
 
     def _move_normalizer_to_device(self, device):
         if hasattr(self, 'obs_normalizer') and self.obs_normalizer is not None:
