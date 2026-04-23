@@ -13448,3 +13448,191 @@ Here's a summary of what was fixed and why:
 **Fix 2 — Stage 2** ([on_policy_runner.py](source/rsl_rl/rsl_rl/runners/on_policy_runner.py) + [front_residual_actor_critic.py](source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py)): The runner uses `gmt_normalizer` as `obs_normalizer`, which would fail on 800-dim input. A new `_apply_obs_normalizer()` method applies GMT normalization to only the first 770 dims and passes the remaining 30 anchor-error dims through unchanged. `_run_gmt_direct()` then strips the extra dims before passing obs to the GMT policy.
 
 ---
+
+
+**User**
+
+请告诉我如何利用现在的Stage 1诊断项判断Stage 1的收敛情况，因为Stage 1作为预训练无法直接通过可视化观察收敛与否
+
+---
+
+
+**Claude**
+
+Stage 1 在 task-space 模式下，训练器 (`SuperviseTrainer.update()`) 上报 8 项诊断量。以下是每项的物理含义、收敛标志以及红旗信号。
+
+---
+
+## 各诊断量解读
+
+### 一、损失类（越小越好，曲线应单调下降后平台）
+
+| 指标 | 含义 | 收敛参考值 |
+|------|------|-----------|
+| `behavior` | 总 Huber 损失 = `loss_pos + rpy_loss_weight × loss_rpy` | 平台后不再下降即收敛，绝对值因扰动强度而异 |
+| `loss_pos` | 位置分量 Huber 损失（平均到 3 个轴） | 通常 < `loss_rpy` 的同量级 |
+| `loss_rpy` | 姿态分量 Huber 损失（平均到 roll/pitch/yaw） | 通常略高于 `loss_pos` |
+
+**解读**：三条损失曲线应在前 20–50% 的训练时间内快速下降，然后进入平台期。如果平台期 `behavior` ≈ `loss_pos` 而 `loss_rpy ≈ 0`，说明网络没有学会姿态分量——检查 `rpy_loss_weight` 是否过小。
+
+---
+
+### 二、误差类（直接量化预测质量）
+
+| 指标 | 含义 | 收敛参考值 |
+|------|------|-----------|
+| `pos_mae` | 位置修正预测的 MAE（米） | **< 0.03 m** 为良好 |
+| `rpy_mae` | 姿态修正预测的 MAE（弧度） | **< 0.03 rad**（< 1.7°）为良好 |
+
+**解读**：这两个指标与物理量直接挂钩，是判断收敛最直观的标准。
+
+- `pos_mae` 的参考上界：GMT 运动的典型 anchor 位置误差约 0.02–0.15 m（取决于扰动强度），`pos_mae` 应远小于此量级
+- `rpy_mae` 同理：anchor 姿态误差约 0.02–0.15 rad，`rpy_mae` 应降到误差量级的 20% 以下
+
+---
+
+### 三、方向类（监测预测是否"朝着正确方向"）
+
+| 指标 | 含义 | 收敛参考值 |
+|------|------|-----------|
+| `cosine_similarity` | Δpos\_pred 与 Δpos\_target 的余弦相似度 | **> 0.85** 为良好，**> 0.95** 为优秀 |
+| `pos_pred_norm` | 预测位置修正的平均范数 ‖Δpos\_pred‖ | 应与目标误差的典型范数匹配 |
+
+**解读**：
+
+- `cosine_similarity` 是最敏感的早期信号。网络输出为零时余弦相似度无定义（会显示 0 或 NaN），一旦开始学习它会快速上升，之后缓慢趋近 1。
+- `pos_pred_norm` 与目标范数之比反映尺度学习是否正确。若 `pos_pred_norm` 接近 0（预测始终趋向零点），说明 L2 正则化过强或学习率过小。
+
+---
+
+### 四、数据质量类
+
+| 指标 | 含义 | 正常范围 |
+|------|------|---------|
+| `valid_ratio` | 非 episode 末尾帧的占比 | **> 0.85**；过低说明 GMT 频繁摔倒 |
+
+**解读**：Stage 1 由 GMT 驱动环境，GMT 出错 → 机器人摔倒 → episode 终止 → terminal 帧被 mask 掉。`valid_ratio` 过低（< 0.7）意味着大量数据被丢弃，有效训练信息稀少，收敛会变慢甚至无法收敛。出现这种情况需检查扰动强度（`motion_perturbations`）是否过大。
+
+---
+
+## 实践判断流程
+
+```
+Stage 1 是否收敛？
+│
+├── behavior 曲线平台了吗？
+│     否 → 未收敛，继续训练
+│     是 ↓
+│
+├── pos_mae < 0.03 m  AND  rpy_mae < 0.03 rad？
+│     否 → 平台但精度不够 → 检查学习率/扰动强度
+│     是 ↓
+│
+├── cosine_similarity > 0.85？
+│     否 → 方向预测仍有误 → 继续训练或增大学习率
+│     是 ↓
+│
+└── valid_ratio > 0.85？
+      否 → 数据质量差，收敛可能是假象（GMT 太弱）
+      是 → ✓ Stage 1 收敛，可以进入 Stage 2
+```
+
+---
+
+## 典型收敛曲线形态
+
+```
+behavior / loss_pos / loss_rpy:
+  ↓↓↓↓↓↘↘↘↘___________  （前期快速下降，后期平台）
+
+cosine_similarity:
+  ↑↑↑↑↑↗↗↗↗‾‾‾‾‾‾‾‾‾‾  （从 ~0 快速升到 >0.85，之后缓增）
+
+pos_mae / rpy_mae:
+  ↓↓↓↓↓↘↘↘↘___________  （与 loss 同步下降）
+
+pos_pred_norm:
+  初期接近 0 → 稳步上升 → 稳定（逼近目标误差典型范数）
+
+valid_ratio:
+  应全程保持稳定高值（波动正常，趋势不应持续下降）
+```
+
+---
+
+## 一个注意点
+
+`pos_pred_norm`（目标 gt 范数）目前**没有被记录**到 `loss_dict` 中（代码只记录了 pred_norm）。如果想对比预测幅度与真实误差幅度，可以在 `supervise.py` 的 task-space 分支中把 `mean_gt_norm` 加入 `loss_dict`：
+
+```python
+"pos_gt_norm": mean_gt_norm,  # 加在 loss_dict 的 task-space 分支里
+```
+
+这样 `pos_pred_norm / pos_gt_norm` 趋近 1 就是幅度收敛的直接信号。
+
+---
+
+
+**Claude**
+
+Let me also check what `motion_anchor_ori_b` returns (the comment in the runner cfg says 6 dims but I need to verify):
+
+---
+
+
+**Claude**
+
+现在我有了所有需要的信息，来总结检查结果。
+
+---
+
+## Stage 2 就绪检查报告
+
+### ✅ obs 帧数确认
+
+**历史帧：5 帧**（t-4, t-3, t-2, t-1, t），在 `ObservationsCfg.PolicyCfg.__post_init__` 中设置：
+```python
+self.history_length = 5  # tracking_env_cfg.py:208
+```
+
+**未来帧：0 帧**。`MultiMotionCommandsCfg` 未设置 `motion_horizon`，使用默认值 `motion_horizon=1`：
+```python
+motion_horizon: int = 1  # commands.py:1872
+```
+`_gather_future_by_motion` 的偏移量为 `[0]`，即只取当前帧 `time_steps + 0`，没有任何预览。
+
+---
+
+### ✅ Stage 1 → Stage 2 obs 布局完全一致
+
+| 段 | Term | 每帧维数 | ×5 | 范围 |
+|---|------|---------|-----|------|
+| 0 | `command` (q_ref_pos + q_ref_vel) | 58 | 290 | [0:290] |
+| 1 | `motion_anchor_ori_b` (旋转矩阵前2列) | 6 | 30 | [290:320] |
+| 2 | `base_ang_vel` | 3 | 15 | [320:335] |
+| 3 | `joint_pos_rel` | 29 | 145 | [335:480] |
+| 4 | `joint_vel_rel` | 29 | 145 | [480:625] |
+| 5 | `actions` | 29 | 145 | [625:770] |
+| 6 | `anchor_root_pos_error_w` | 3 | 15 | [770:785] |
+| 7 | `anchor_root_rpy_error_w` | 3 | 15 | [785:800] |
+
+两阶段 8 个 term、相同顺序、相同维数 → FrontRES 第一层权重 `Linear(800, hidden)` 可以直接迁移。
+
+---
+
+### ⚠️ 发现一个关键问题：anchor error 项在 Stage 2 未被归一化
+
+**根因**：Stage 2 的 `obs_normalizer` = GMT 冻结归一器（只管前 770 维），后 30 维（anchor error）直通 raw 值（米/弧度量级约 ±0.05–0.15）。但 Stage 1 用的是 800 维 `EmpiricalNormalization`，anchor error 在训练过程中被归一到 ~N(0,1)。
+
+**后果**：Stage 2 启动时 FrontRES 看到的 anchor error 信号约为 Stage 1 时的 **1/10–1/20**（物理值 vs 归一化值），初期对 anchor error 几乎没有响应，需要额外的梯度步才能自适应。
+
+**修复方案**：从 Stage 1 checkpoint 的 `obs_norm_state_dict` 中提取后 30 维的 mean/std，在 Stage 2 `_apply_obs_normalizer` 中对这 30 维单独归一化。让我实现这个修复：
+
+---
+
+
+**Claude**
+
+Now I'll implement the fix — load Stage 1's normalizer stats for dims [770:800] from the checkpoint and apply them in Stage 2:
+
+---

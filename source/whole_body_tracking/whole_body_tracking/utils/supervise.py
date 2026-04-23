@@ -358,6 +358,7 @@ class SuperviseTrainer:
                 "loss_pos":           sum_dq_loss / cnt,   # pos component
                 "loss_rpy":           sum_dz_loss / cnt,   # rpy component
                 "pos_pred_norm":      mean_pred_norm,
+                "pos_gt_norm":        mean_gt_norm,
                 "cosine_similarity":  sum_cos_sim / cnt,
                 "valid_ratio":        sum_valid_ratio / cnt,
                 "pos_mae":            sum_pos_mae / cnt,
