@@ -116,61 +116,43 @@ class G1FlatKLDistillationRunnerCfg(RslRlOnPolicyRunnerCfg):
 
 # ====== FrontRES Stage 1: Supervised Learning ======
 
-# Stage 1 实际训练停止的迭代数（由 checkpoint 决定）。
-# Stage 2 的 max_iterations 必须在此基础上累加，否则 runner 加载 Stage 1
-# checkpoint 后发现 current_iter >= max_iterations 会直接退出。
-# IsaacLab 的工作流将 max_iterations - current_iter 作为 learn() 的实际轮次，
-# 所以 max_iterations 是绝对迭代数上限，而非相对增量。
-#
-# Stage 1 已在第 25000 轮收敛（valid_ratio>0.99，MAE≈0，cosine_sim≈1），
-# 尖刺为数据集中的困难动作片段（temporal gate 触发），属于监督学习天花板。
-_STAGE1_MAX_ITERATIONS = 25000
-# Stage 2 RL 微调额外轮次：
-#   Phase 0 (Critic warmup)  1000 轮  — Actor 冻结，α = alpha_init = 0.1
-#   Phase 1 (Ramp)           9000 轮  — α: 0.1→1.0，DR: min→max
-#   Phase 2 (Full PPO)      30000 轮  — 标准 PPO，处理困难样本
-#   合计                    40000 轮
-_STAGE2_EXTRA_ITERATIONS = 40000
+# ── 公共路径：GMT backbone（Stage 1 和 Stage 2 共用，始终需要）──────────────
+_GMT_P1 = Path("/home/yuxuancheng/MOSAIC/model/model_27000.pt")  # SUST_Main
+_GMT_P2 = Path("/home/chengyuxuan/MOSAIC/model/model_27000.pt")  # Wujie_4090
+_GMT_PATH = _GMT_P1 if _GMT_P1.exists() else (_GMT_P2 if _GMT_P2.exists() else None)
 
 @configclass
 class G1FlatSupervisedRunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = _STAGE1_MAX_ITERATIONS
+    max_iterations = 25000
     save_interval = 500
     experiment_name = "g1_flat_supervised"
     empirical_normalization = True
-
-    # GMT .pt checkpoint 路径（与 Stage 2 共用同一个 checkpoint，支持双服务器路径选择）
-    _p1 = Path("/home/yuxuancheng/MOSAIC/model/model_27000.pt") # SUST_Main
-    _p2 = Path("/home/chengyuxuan/MOSAIC/model/model_27000.pt") # Wujie_4090
-    _gmt_pt_path = _p1 if _p1.exists() else (_p2 if _p2.exists() else None)
 
     policy = RslRlSuperviseJointPosCfg(
         class_name="SuperviseLearning",
         init_noise_std=1.0,
         student_hidden_dims=[1024, 1024, 512, 256],
         activation="elu",
-        gmt_path=_gmt_pt_path,
+        gmt_path=_GMT_PATH,
         # Task-space mode: FrontRES outputs [Δx, Δy, Δz, Δroll, Δpitch, Δyaw] (6 dims).
-        # obs layout (history_length=5): 800 dims
-        #   [0:290]    command (q_ref_pos(29)+q_ref_vel(29)) × 5 frames
-        #   [290:320]  motion_anchor_ori_b (6 dims) × 5 frames
-        #   [320:335]  base_ang_vel (3 dims) × 5 frames
-        #   [335:480]  joint_pos_rel (29 dims) × 5 frames
-        #   [480:625]  joint_vel_rel (29 dims) × 5 frames
-        #   [625:770]  actions (29 dims) × 5 frames
-        #   [770:785]  anchor_root_pos_error_w (3 dims) × 5 frames
-        #   [785:800]  anchor_root_rpy_error_w (3 dims) × 5 frames
+        # obs layout (history_length=5, motion_horizon=1): 800 dims, no future frames
+        #   [0:290]    command  q_ref_pos(29)+q_ref_vel(29)  × 5 history frames
+        #   [290:320]  motion_anchor_ori_b  6 dims           × 5 history frames
+        #   [320:335]  base_ang_vel         3 dims           × 5 history frames
+        #   [335:480]  joint_pos_rel        29 dims          × 5 history frames
+        #   [480:625]  joint_vel_rel        29 dims          × 5 history frames
+        #   [625:770]  actions              29 dims          × 5 history frames
+        #   [770:785]  anchor_root_pos_error_w  3 dims       × 5 history frames
+        #   [785:800]  anchor_root_rpy_error_w  3 dims       × 5 history frames
         num_task_corrections=6,
     )
 
     algorithm = RslRlSuperviseAlgorithmCfg(
         loss_type="huber",
-        # num_task_corrections=6 → task-space mode; Δq-specific params below are inactive.
         num_task_corrections=6,
-        # Weight for Δrpy loss relative to Δpos loss (both in task-space mode).
         rpy_loss_weight=1.0,
-        # Δq-mode params retained for reference (inactive in task-space mode):
+        # Δq-mode params (inactive in task-space mode, retained for reference):
         lower_limb_indices=list(range(12)),
         lower_limb_weight=2.0,
         jump_threshold=0.2,
@@ -181,88 +163,80 @@ class G1FlatSupervisedRunnerCfg(RslRlOnPolicyRunnerCfg):
 
 # ========== FrontRES Stage 2: RL Finetune ==========
 
+# ── 迭代数说明 ─────────────────────────────────────────────────────────────
+# max_iterations 是绝对上限（非增量）。runner 加载 checkpoint 后以
+#   remaining = max_iterations - current_iter  作为实际运行轮次。
+# Stage 2 RL 微调规划（40000 轮）：
+#   Phase 1 (DR ramp)   5000 轮 — DR 从 0 线性爬坡到全强度
+#   Phase 2 (Full PPO) 35000 轮 — 标准 PPO 全强度训练
+# _S1_CKPT_ITER: 所选 Stage 1 checkpoint 的迭代数（runner 从该数继续计数）。
+_S1_CKPT_ITER        = 10000   # ← 更换 Stage 1 checkpoint 时同步修改此处
+_STAGE2_EXTRA_ITERS  = 40000
+# max_iterations = _S1_CKPT_ITER + _STAGE2_EXTRA_ITERS = 50000
+
+# ── Checkpoint 路径 ────────────────────────────────────────────────────────
+# 从 Stage 1 冷启动（首次）：填 Stage 1 的 model_XXXXX.pt，is_full_resume=False
+# 从 Stage 2 断点续训：填 Stage 2 最新的 model_XXXXX.pt，is_full_resume=True
+_S1_CKPT_P1 = Path("/home/yuxuancheng/MOSAIC/logs/rsl_rl/g1_flat_supervised/2026-XX-XX_XX-XX-XX/model_10000.pt")
+_S1_CKPT_P2 = Path("/home/chengyuxuan/MOSAIC/logs/rsl_rl/g1_flat_supervised/2026-XX-XX_XX-XX-XX/model_10000.pt")
+# 续训时将下方路径填入 student_checkpoint_path（替换 _S1_CKPT_P*）：
+# /home/yuxuancheng/MOSAIC/logs/rsl_rl/g1_flat_frontres_finetune/2026-XX-XX_XX-XX-XX/model_XXXXX.pt
+# /home/chengyuxuan/MOSAIC/logs/rsl_rl/g1_flat_frontres_finetune/2026-XX-XX_XX-XX-XX/model_XXXXX.pt
+
 @configclass
 class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
     """Runner configuration for Stage 2: RL Finetuning of FrontRES."""
     num_steps_per_env = 24
-    max_iterations = _STAGE1_MAX_ITERATIONS + _STAGE2_EXTRA_ITERATIONS  # 65000
+    max_iterations = _S1_CKPT_ITER + _STAGE2_EXTRA_ITERS  # 50000
     save_interval = 500
     experiment_name = "g1_flat_frontres_finetune"
     empirical_normalization = True
-    resume = True  # 从 Stage 1 checkpoint 加载权重
+    resume = True
 
-    # Checkpoint 路径（绝对路径，直接传给 runner.load()，绕过 log_root_path 拼接）
-    # train.py 检测到 student_checkpoint_path 存在时优先使用，否则回退到 load_run/load_checkpoint 机制
-    # is_full_resume=False → Stage 1 权重迁移（冷启动）; is_full_resume=True → Stage 2 断点续训
-    _s1 = Path("/home/yuxuancheng/MOSAIC/stage2/model_58500.pt")  # SUST_Main
-    _s2 = Path("/home/chengyuxuan/MOSAIC/stage2/model_58500.pt")  # Wujie_4090
-    student_checkpoint_path = _s1 if _s1.exists() else (_s2 if _s2.exists() else None)
+    # ══════════════════════════════════════════════════════════════════════
+    #  模式切换（每次启动前确认以下两项）
+    # ══════════════════════════════════════════════════════════════════════
+    #
+    #  Stage 1 → Stage 2  冷启动（首次 RL 微调）
+    #    student_checkpoint_path = _S1_CKPT_P1 if ... else _S1_CKPT_P2 ...
+    #    is_full_resume = False
+    #      效果：仅迁移 FrontRES 网络权重，优化器/噪声 std 重置为初始值
+    #
+    #  Stage 2 → Stage 2  断点续训
+    #    student_checkpoint_path = _S2_CKPT_P1 if ... else _S2_CKPT_P2 ...
+    #    is_full_resume = True
+    #      效果：恢复优化器 Adam moments、学习率、噪声 std，无缝续训
+    #
+    # ══════════════════════════════════════════════════════════════════════
+    student_checkpoint_path = (
+        _S1_CKPT_P1 if _S1_CKPT_P1.exists() else
+        _S1_CKPT_P2 if _S1_CKPT_P2.exists() else None
+    )
+    is_full_resume: bool = False  # Stage 1→2 冷启动；续训改为 True
 
-    # ── 断点续训模式控制 ──────────────────────────────────────────────────────
-    # True  = Stage 2 → Stage 2 断点续训：
-    #           恢复优化器矩估计（Adam moments）、学习率、噪声 std
-    #           适用于：因参数调整暂停后继续训练
-    # False = Stage 1 → Stage 2 权重迁移（冷启动）：
-    #           仅加载 residual_actor/critic 权重，重置优化器和 std
-    #           适用于：首次从 Stage 1 checkpoint 启动 Stage 2
-    is_full_resume: bool = True
+    reset_lr_on_resume: bool = True   # fixed schedule 下确保 lr 从配置值 3e-5 开始
 
-    # lr 重置：schedule="fixed" 时 lr 由配置直接控制，无需 reset（固定值覆盖 checkpoint）。
-    # schedule="adaptive" 且 checkpoint lr 因 KL bug 被压至下限时才需要 True。
-    reset_lr_on_resume: bool = True  # fixed 模式下同样生效：确保 lr 从配置的 3e-5 开始
-
-    # DR 课程：Stage 2 开始时 MotionPerturber 强度线性从 0 增长到 motion_perturbations 配置值。
-    # 防止 FrontRES 在 Stage 2 冷启动时面对完全 OOD 的 q_ref，导致全负 r_delta → Δq=0 捷径陷阱。
-    # 设为 0 禁用（直接使用全强度 DR，仅在 FrontRES 已对 Stage 2 DR 鲁棒时使用）。
+    # DR 课程（Stage 2 冷启动时 MotionPerturber 从 0 线性爬坡，防止 OOD 捷径陷阱）
     dr_curriculum_iterations: int = 5000
-    # DR 课程形态："exp" = 指数加速（τ=T/3，t=T时达到95%）；"sqrt" = 平方根；"linear" = 匀速
-    dr_schedule_type: str = "exp"
-    # Stage 2 起始绝对迭代数，用于 DR 课程进度计算，支持断点续训时正确恢复 DR 强度。
-    stage2_start_iteration: int = _STAGE1_MAX_ITERATIONS
+    dr_schedule_type: str = "exp"    # "exp" | "sqrt" | "linear"
+    stage2_start_iteration: int = _S1_CKPT_ITER  # DR 进度基准（=checkpoint iter）
 
-    # 自适应阶梯 DR 课程：初始 exp 课程完成后，监控训练环境存活率；
-    # 一旦存活率超过 dr_adaptive_survival_threshold 并持续 dr_staircase_min_plateau_iters，
-    # 自动以 dr_staircase_ramp_iters 线性爬坡到下一档倍率。
+    # 自适应阶梯 DR（exp 课程结束后，按存活率自动升级 DR 强度）
     # 倍率相对 motion_perturbations 基础值（float_ratio=0.20m）：
     #   1.5× → 0.30m；2.0× → 0.40m；3.0× → 0.60m
-    dr_staircase_multipliers: str = "1.5,2.0,3.0"
-    # 每次台阶切换时线性爬坡的迭代数（防止突变触发 Δq=0 捷径陷阱）
-    dr_staircase_ramp_iters: int = 1500
-    # 每台阶最短停留迭代数（低于此时长不触发晋级，过滤噪声）
-    dr_staircase_min_plateau_iters: int = 1000
-    # 存活率阈值：训练 env 存活率超过此值才触发下一档 DR（0.0 = 禁用，回退到 EMA 斜率触发）
-    dr_adaptive_survival_threshold: float = 0.85
-    # EMA 斜率阈值（仅 dr_adaptive_survival_threshold=0.0 时生效）
-    dr_staircase_plateau_threshold: float = 2e-7
-    # 断点续训时从第几个台阶开始（0 = 基础台阶，全新训练固定为 0）
-    # 续训时由 checkpoint 自动恢复正确 level，此字段不再生效。
-    dr_staircase_start_level: int = 0
+    dr_staircase_multipliers: str      = "1.5,2.0,3.0"
+    dr_staircase_ramp_iters: int       = 1500   # 每次台阶切换的线性爬坡迭代数
+    dr_staircase_min_plateau_iters: int = 1000  # 每台阶最短停留迭代数
+    dr_adaptive_survival_threshold: float = 0.85  # 训练 env 存活率触发阈值
+    dr_staircase_plateau_threshold: float = 2e-7  # EMA 斜率阈值（survival=0时生效）
+    dr_staircase_start_level: int      = 0     # 续训时由 checkpoint 自动恢复，此项不生效
 
-    # Critic 预热：禁用（=0）。
-    #
-    # 禁用原因：actor-frozen warmup 会在 Critic 与训练阶段之间制造人为的分布错配。
-    #   - Warmup 期间 Critic 学 V(s | π_frozen, α_init)
-    #   - 训练开始后策略变为 π_trainable, α=1.0 → 完全不同的分布
-    #   - Critic 的 V 估计立刻过时 → 优势方差爆炸 → std 崩塌
-    #
-    # OOD 担忧（Stage 1 → Stage 2 DR 分布偏移）不是 Critic warmup 要解决的问题：
-    #   - OOD 初始表现差 → r_delta 为负 → Critic 正确学到 V(s) < 0 → 有效梯度信号
-    #   - tanh × max_delta_q 限制 Δq 幅度，防止灾难性摔倒
-    #   - 这就是标准 RL 的"初始策略不佳"问题，PPO 自然处理
+    # Critic 预热：禁用。actor-frozen warmup 会制造 V 估计分布错配，PPO 自然处理 OOD 冷启动。
     critic_warmup_iterations = 0
 
-    # Δq alpha 课程：禁用（直接 alpha=1.0 全量训练）。
-    #
-    # 禁用原因：alpha=0.1 导致 r_delta≈0，Critic 学到 V≈0，
-    # 与后续 alpha=1.0 时的真实价值函数完全不匹配，训练不稳定。
-    # alpha 直接设为 1.0 意味着 Critic 全程跟踪实际策略分布，收敛更稳定。
-    delta_q_alpha_init = 1.0          # 全程 alpha=1.0，无课程
-    delta_q_alpha_ramp_iterations = 0  # 无 ramp
-
-    # GMT .pt 路径（FrontRESActorCritic 用 torch.load() 加载，必须是 .pt 而非 .onnx，支持双服务器路径选择）
-    _p1 = Path("/home/yuxuancheng/MOSAIC/model/model_27000.pt")
-    _p2 = Path("/home/chengyuxuan/MOSAIC/model/model_27000.pt")
-    _gmt_pt_path = _p1 if _p1.exists() else (_p2 if _p2.exists() else None)
+    # Δq alpha 课程：禁用。alpha=0.1 会使 Critic 学到 V≈0，与后续 alpha=1.0 严重错配。
+    delta_q_alpha_init         = 1.0
+    delta_q_alpha_ramp_iterations = 0
 
     policy = RslRlFrontResidualActorCriticCfg(
         class_name="FrontRESActorCritic",
@@ -272,7 +246,7 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
         activation="elu",
 
         init_noise_std=0.1,                # 微调使用较小初始探索噪声，防止动作崩坏
-        gmt_checkpoint_path=_gmt_pt_path,  # 冻结的 GMT 权重（.pt 格式，torch.load 加载）
+        gmt_checkpoint_path=_GMT_PATH,  # 冻结的 GMT 权重（.pt 格式，torch.load 加载）
 
         # q_ref 在策略观测向量中的起始索引。
         #
