@@ -13636,3 +13636,45 @@ motion_horizon: int = 1  # commands.py:1872
 Now I'll implement the fix — load Stage 1's normalizer stats for dims [770:800] from the checkpoint and apply them in Stage 2:
 
 ---
+
+
+**User**
+
+我发现Stage 2的启动模块写得有点混乱，在rsl_rl_ppo_cfg.py中，先前是反复从Stage 2中断点续训，但现在要从Stage 1加载权重进行Stage 2的微调，并且不管是断点续训还是Stage 1转Stage 2都需要加载GMT权重，请为我整理
+
+---
+
+
+**Claude**
+
+先读一遍完整的 Stage 2 配置：
+
+---
+
+
+**Claude**
+
+现在我清楚了整个布局。问题所在：
+
+1. `student_checkpoint_path` 现在指的是 Stage 2 的路径（`stage2/model_58500.pt`），但用户要从 Stage 1 的 10000 轮加载
+2. `is_full_resume = True` 设的是续训模式，但现在要做冷启动迁移
+3. `_STAGE1_MAX_ITERATIONS = 25000` 与实际选择的 10000 轮不符，导致 `max_iterations`、`stage2_start_iteration` 都错了
+4. GMT 路径在 Stage 1 和 Stage 2 中重复定义，不在一处管理
+
+整理后的配置：
+
+---
+
+
+**Claude**
+
+两个问题：`_gmt_pt_path` 被重命名为 `_GMT_PATH` 后 Stage 2 policy 里的引用没跟着改；`_S2_CKPT_P*` 定义了但未被使用。
+
+---
+
+
+**Claude**
+
+`_S2_CKPT_P*` 作为续训占位路径需要保留，但定义成变量会触发"未使用"警告。改成在注释里描述、实际使用时直接填到 `student_checkpoint_path` 里：
+
+---
