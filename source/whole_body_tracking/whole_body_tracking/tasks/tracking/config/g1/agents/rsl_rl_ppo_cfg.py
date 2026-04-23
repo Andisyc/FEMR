@@ -177,11 +177,11 @@ _STAGE2_EXTRA_ITERS  = 40000
 # ── Checkpoint 路径 ────────────────────────────────────────────────────────
 # 从 Stage 1 冷启动（首次）：填 Stage 1 的 model_XXXXX.pt，is_full_resume=False
 # 从 Stage 2 断点续训：填 Stage 2 最新的 model_XXXXX.pt，is_full_resume=True
-_S1_CKPT_P1 = Path("/home/yuxuancheng/MOSAIC/logs/rsl_rl/g1_flat_supervised/2026-XX-XX_XX-XX-XX/model_10000.pt")
-_S1_CKPT_P2 = Path("/home/chengyuxuan/MOSAIC/logs/rsl_rl/g1_flat_supervised/2026-XX-XX_XX-XX-XX/model_10000.pt")
+_S1_CKPT_P1 = Path("/home/yuxuancheng/MOSAIC/stage1/model_10000.pt")
+_S1_CKPT_P2 = Path("/home/chengyuxuan/MOSAIC/stage1/model_10000.pt")
 # 续训时将下方路径填入 student_checkpoint_path（替换 _S1_CKPT_P*）：
-# /home/yuxuancheng/MOSAIC/logs/rsl_rl/g1_flat_frontres_finetune/2026-XX-XX_XX-XX-XX/model_XXXXX.pt
-# /home/chengyuxuan/MOSAIC/logs/rsl_rl/g1_flat_frontres_finetune/2026-XX-XX_XX-XX-XX/model_XXXXX.pt
+# /home/yuxuancheng/MOSAIC/resume/model_XXXXX.pt
+# /home/chengyuxuan/MOSAIC/resume/model_XXXXX.pt
 
 @configclass
 class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
