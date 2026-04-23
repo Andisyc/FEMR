@@ -13678,3 +13678,59 @@ Now I'll implement the fix — load Stage 1's normalizer stats for dims [770:800
 `_S2_CKPT_P*` 作为续训占位路径需要保留，但定义成变量会触发"未使用"警告。改成在注释里描述、实际使用时直接填到 `student_checkpoint_path` 里：
 
 ---
+
+
+**Claude**
+
+三处修复：
+1. `_gmt_pt_path` → `_GMT_PATH`（跟随重命名）
+2. `_S2_CKPT_P1/P2` 由变量改为注释，消除"未使用"提示
+3. Stage 2 续训时只需把注释里的路径填到 `student_checkpoint_path`，同时把 `is_full_resume` 改为 `True`
+
+---
+
+
+**User**
+
+更新到服务器后遇到报错：
+File "/home/yuxuancheng/MOSAIC/scripts/rsl_rl/train.py", line 212, in main
+    runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
+  File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 905, in learn
+    self.alg.process_env_step(rewards, dones, infos) # 这里存入的 actions 依然是纯粹的 delta_q
+  File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/algorithms/ppo.py", line 212, in process_env_step
+    self.storage.add_transitions(self.transition)
+  File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/storage/rollout_storage.py", line 143, in add_transitions
+    self.actions[self.step].copy_(transition.actions)
+RuntimeError: The size of tensor a (29) must match the size of tensor b (6) at non-singleton dimension 1
+
+---
+
+
+**Claude**
+
+Storage 初始化用了环境的 `num_actions=29`（机器人自由度），但 FrontRES 在 task-space 模式下输出的是 6 维修正量。让我找到 storage 初始化的位置：
+
+---
+
+
+**Claude**
+
+找到了。第 310 行用 `self.env.num_actions` (=29) 初始化 storage，但 FrontRES task-space 模式的策略动作是 6 维。修复：
+
+---
+
+
+**Claude**
+
+现在验证 `FrontRESActorCritic.total_output_dim` 在 task-space 模式下确实是 6：
+
+---
+
+
+**Claude**
+
+确认 `total_output_dim = num_task_corrections = 6`，存储维度现在会正确初始化为 6。
+
+根本原因：`rollout_storage` 的 `actions` buffer 用 `env.num_actions=29` 初始化（机器人关节数），而 task-space 模式下 PPO 的"策略动作"是 FrontRES 的 6 维 SE(3) 修正量 `[Δpos, Δrpy]`——两者维度不匹配。修复方法是优先读取 `policy.total_output_dim`，只有当策略没有这个属性时才回退到 `env.num_actions`（兼容所有非 FrontRES 场景）。
+
+---

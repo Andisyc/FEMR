@@ -301,13 +301,17 @@ class OnPolicyRunner:
                 [num_privileged_obs],
                 [num_privileged_obs],)
         else:
+            # For FrontRESActorCritic in task-space mode, the "policy action" stored in the
+            # rollout buffer is the 6-dim SE(3) correction [Δpos, Δrpy], NOT the 29-dim
+            # robot joint targets produced by GMT. Use total_output_dim when available.
+            _policy_action_dim = getattr(policy, 'total_output_dim', None) or self.env.num_actions
             self.alg.init_storage(
                 self.training_type,
                 self.env.num_envs,
                 self.num_steps_per_env,
                 [num_obs],
                 [num_privileged_obs],
-                [self.env.num_actions],)
+                [_policy_action_dim],)
 
         # Decide whether to disable logging
         # We only log from the process with rank 0 (main process)
