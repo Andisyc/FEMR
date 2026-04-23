@@ -13734,3 +13734,65 @@ Storage 初始化用了环境的 `num_actions=29`（机器人自由度），但 
 根本原因：`rollout_storage` 的 `actions` buffer 用 `env.num_actions=29` 初始化（机器人关节数），而 task-space 模式下 PPO 的"策略动作"是 FrontRES 的 6 维 SE(3) 修正量 `[Δpos, Δrpy]`——两者维度不匹配。修复方法是优先读取 `policy.total_output_dim`，只有当策略没有这个属性时才回退到 `env.num_actions`（兼容所有非 FrontRES 场景）。
 
 ---
+
+
+**User**
+
+File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1726, in _slow_forward
+    result = self.forward(*input, **kwargs)
+  File "/home/yuxuancheng/MOSAIC/source/whole_body_tracking/whole_body_tracking/utils/exporter.py", line 177, in forward
+    return self._compute_actions(x)
+  File "/home/yuxuancheng/MOSAIC/source/whole_body_tracking/whole_body_tracking/utils/exporter.py", line 137, in _compute_actions
+    obs = self.normalizer(obs)
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/hdd0/yuxuancheng/miniconda3/envs/mosaic/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1726, in _slow_forward
+    result = self.forward(*input, **kwargs)
+  File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/modules/normalizer.py", line 54, in forward
+    return (x - self._mean) / (self._std + self.eps)
+RuntimeError: The size of tensor a (800) must match the size of tensor b (770) at non-singleton dimension 1
+
+---
+
+
+**Claude**
+
+这次报错来自 `exporter.py` 的 ONNX 导出流程，与训练 runner 是独立路径。让我看看 exporter 如何构造 normalizer：
+
+---
+
+
+**Claude**
+
+让我找到 runner 里调用 exporter 的位置：
+
+---
+
+
+**Claude**
+
+问题很清楚：`MotionOnPolicyRunner.save()` 把 `FrontRESActorCritic`（复合网络 = FrontRES + GMT）当成标准 actor-critic 传给 ONNX exporter，而 exporter 内部用 GMT 的 770-dim normalizer 去归一化 800-dim obs。
+
+FrontRES 本就不能用这个 exporter 导出（它不是单一网络），训练时只需保存 `.pt` checkpoint 即可，ONNX 导出应当跳过。
+
+---
+
+
+**Claude**
+
+现在验证 `FrontRESActorCritic` 是否在 `rsl_rl.modules` 的 `__init__.py` 里导出：
+
+---
+
+
+**Claude**
+
+导出正常，import 路径有效。
+
+**根本原因**：`MotionOnPolicyRunner.save()` 每次保存 checkpoint 时都会尝试导出 ONNX，但 `FrontRESActorCritic` 是 FrontRES + GMT 的复合体，内部 actor 维度与 normalizer 维度不匹配，无法用标准 exporter 导出单一 ONNX 图。
+
+**修复**：在两个 runner（`MyOnPolicyRunner` 和 `MotionOnPolicyRunner`）的 `save()` 里，检测到 `FrontRESActorCritic` 时直接 return，跳过 ONNX 导出步骤——`.pt` checkpoint 本身已包含完整权重，Stage 2 训练期间不需要 ONNX。
+
+---
