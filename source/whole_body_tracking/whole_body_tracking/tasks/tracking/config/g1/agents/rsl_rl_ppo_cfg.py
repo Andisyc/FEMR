@@ -216,20 +216,31 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
 
     reset_lr_on_resume: bool = True   # fixed schedule 下确保 lr 从配置值 3e-5 开始
 
-    # DR 课程（Stage 2 冷启动时 MotionPerturber 从 0 线性爬坡，防止 OOD 捷径陷阱）
-    dr_curriculum_iterations: int = 5000
-    dr_schedule_type: str = "exp"    # "exp" | "sqrt" | "linear"
-    stage2_start_iteration: int = _S1_CKPT_ITER  # DR 进度基准（=checkpoint iter）
-
-    # 自适应阶梯 DR（exp 课程结束后，按存活率自动升级 DR 强度）
-    # 倍率相对 motion_perturbations 基础值（float_ratio=0.20m）：
-    #   1.5× → 0.30m；2.0× → 0.40m；3.0× → 0.60m
-    dr_staircase_multipliers: str      = "1.5,2.0,3.0"
-    dr_staircase_ramp_iters: int       = 1500   # 每次台阶切换的线性爬坡迭代数
-    dr_staircase_min_plateau_iters: int = 1000  # 每台阶最短停留迭代数
-    dr_adaptive_survival_threshold: float = 0.85  # 训练 env 存活率触发阈值
-    dr_staircase_plateau_threshold: float = 2e-7  # EMA 斜率阈值（survival=0时生效）
-    dr_staircase_start_level: int      = 0     # 续训时由 checkpoint 自动恢复，此项不生效
+    # ── 自适应 DR：目标存活率 PI 控制器 ───────────────────────────────────────
+    # 原理：以训练环境的逐步存活率（per-step survival）作为反馈，
+    #        连续调节 DR 倍率 dr_scale ∈ [0, dr_max_scale]，使存活率维持在目标附近。
+    # 优势：无需手动指定台阶，DR 随 FrontRES 能力自动升降，训练不稳定时可自动退回。
+    #
+    # dr_target_episode_length: 目标平均回合长度（步数）。
+    #   对应 per-step 存活率目标 = 1 - 1/target_ep_len。
+    #   60 步 ≈ 半倍 GMT 基线（125步），此时机器人有足够的失败率提供 r_delta 信号。
+    dr_target_episode_length: int   = 60     # 目标回合长度（步）
+    #
+    # dr_adapt_speed: 每轮迭代 dr_scale 最大变化量。
+    #   0.0005/iter → 从 0 到 1.0（base 值全强度）最快需 2000 轮；到 4.0 最快 8000 轮。
+    #   实际因存活率降低而减速，总爬升约 15000–25000 轮。
+    dr_adapt_speed:  float = 0.0005
+    #
+    # dr_max_scale: dr_scale 上限（base 值的倍率）。
+    #   4.0 × base_values（base 已设为原始值的 1/4）= 恢复到原始最大扰动强度。
+    dr_max_scale:    float = 4.0
+    #
+    # dr_ema_alpha: 存活率 EMA 平滑系数，防止单步噪声触发过度调整。
+    dr_ema_alpha:    float = 0.95
+    #
+    # dr_deadband: 死区（per-step 存活率），避免在目标附近频繁调整。
+    #   0.005 ≈ ±5 步回合长度差（在 60 步基准下）。
+    dr_deadband:     float = 0.005
 
     # Critic 预热：禁用。actor-frozen warmup 会制造 V 估计分布错配，PPO 自然处理 OOD 冷启动。
     critic_warmup_iterations = 0

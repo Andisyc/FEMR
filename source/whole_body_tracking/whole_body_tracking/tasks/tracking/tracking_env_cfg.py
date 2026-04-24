@@ -1137,19 +1137,19 @@ class FrontRESFinetuneTrackingEnvCfg(GeneralTrackingEnvCfg):
         # Motion-level domain randomization: perturb q_ref to simulate
         # physical artifacts (floating, penetration) in the reference motion.
         # Applied inside MultiMotionCommand via MotionPerturber — NOT via EventManager.
-        self.motion_perturbations.float_prob = 0.3
-        self.motion_perturbations.float_ratio = 0.20
-        self.motion_perturbations.sink_prob = 0.3
-        self.motion_perturbations.sink_ratio = 0.15
-        self.motion_perturbations.foot_slip_prob = 0.2
-        self.motion_perturbations.foot_slip_ratio = 0.03
-        # Root orientation tilt: creates gravitational torque GMT cannot absorb.
-        # 0.15 rad (~8.6 deg) is sufficient to destabilize GMT tracking.
-        self.motion_perturbations.root_tilt_prob = 0.3
-        self.motion_perturbations.root_tilt_max_rad = 0.15
-        # Joint angle noise: lower limbs only (indices 0:12 = hip×6 + knee×2 + ankle×4).
-        # Upper limbs excluded: large noise there pollutes q_ref without meaningful correction signal.
-        # 0.08 rad (~4.6 deg) per joint is a meaningful but learnable perturbation.
+        #
+        # Base values = "Level 1" mild perturbations that GMT can handle (episode_length ≈ 100+).
+        # The adaptive DR PI controller multiplies these by dr_scale ∈ [0, dr_max_scale=4.0]:
+        #   scale=1.0 → base values below (GMT comfortable)
+        #   scale=4.0 → 4× base ≈ original design max (FrontRES fully required)
+        self.motion_perturbations.float_prob       = 0.3
+        self.motion_perturbations.float_ratio      = 0.05   # 4× → 0.20 m (original max)
+        self.motion_perturbations.sink_prob        = 0.3
+        self.motion_perturbations.sink_ratio       = 0.04   # 4× → 0.16 m
+        self.motion_perturbations.foot_slip_prob   = 0.2
+        self.motion_perturbations.foot_slip_ratio  = 0.008  # 4× → 0.032 m
+        self.motion_perturbations.root_tilt_prob   = 0.3
+        self.motion_perturbations.root_tilt_max_rad = 0.05  # 4× → 0.20 rad (~11.5°)
         self.motion_perturbations.joint_noise_prob = 0.4
-        self.motion_perturbations.joint_noise_std = 0.08
+        self.motion_perturbations.joint_noise_std  = 0.04   # 4× → 0.16 rad
         self.motion_perturbations.joint_noise_joint_indices = list(range(12))

@@ -485,19 +485,30 @@ class OnPolicyRunner:
             # GMT raw rewards must be tracked separately before they are zeroed.
             cur_reward_sum_gmt = torch.zeros(N_base, dtype=torch.float, device=self.device)
 
-        # DR curriculum: ramp MotionPerturber 0 → full over dr_curriculum_iterations Stage-2 iters.
-        # Prevents FrontRES facing fully OOD q_ref at Stage-2 cold start → all-negative V / no-op trap.
-        # stage2_start_iteration is the absolute iteration where Stage 2 began; handles resume correctly:
-        #   fresh start: stage2_start = start_iter = 25000 → progress=0 → scale=0 at first iter ✓
-        #   resume at 30000: stage2_start=25000 → progress=5000 → scale correctly reflects elapsed ✓
-        _dr_curriculum_iters = int(self.cfg.get("dr_curriculum_iterations", 0))
-        _stage2_start        = int(self.cfg.get("stage2_start_iteration", start_iter))
-        # DR schedule shape: "linear" | "exp" | "sqrt"
-        # exp:  dr_scale = 1 − exp(−t/τ), τ = dr_curriculum_iters/3 → 95% at t=dr_curriculum_iters
-        # sqrt: dr_scale = sqrt(t/T_max) → rapid early rise, gentle plateau
-        # linear: dr_scale = t/T_max (original)
-        _dr_schedule_type = self.cfg.get("dr_schedule_type", "linear")
-        if _is_frontres and _dr_curriculum_iters > 0:
+        # ── Adaptive DR: target-survival-rate PI controller ───────────────────
+        # Maintains training_survival_rate ≈ dr_target_survival by continuously
+        # adjusting dr_scale ∈ [0, dr_max_scale].  Replaces the old exp-ramp +
+        # staircase approach with a single self-correcting feedback loop:
+        #   survival > target + deadband  →  dr_scale += adapt_speed  (harder)
+        #   survival < target - deadband  →  dr_scale -= adapt_speed  (easier)
+        #
+        # Survival target is expressed as target episode length (steps), converted
+        # internally: target_per_step = 1 - 1/dr_target_episode_length.
+        _dr_target_ep   = int(self.cfg.get("dr_target_episode_length", 60))
+        _dr_target_surv = 1.0 - 1.0 / max(1, _dr_target_ep)  # per-step survival target
+        _dr_speed       = float(self.cfg.get("dr_adapt_speed",  0.0005))
+        _dr_max         = float(self.cfg.get("dr_max_scale",    4.0))
+        _dr_ema_alpha   = float(self.cfg.get("dr_ema_alpha",    0.95))
+        _dr_deadband    = float(self.cfg.get("dr_deadband",     0.005))
+
+        # Restore dr_scale from checkpoint (set by load()); start at 0 for fresh runs.
+        _dr_scale     = float(getattr(self, '_dr_scale', 0.0))
+        _survival_ema = 1.0  # optimistic initial estimate; warms up quickly via EMA
+
+        # Read base perturbation values from env config (scaled by dr_scale each iteration).
+        # Only ratio/magnitude fields are scaled; prob fields remain constant.
+        _perturb_target = None
+        if _is_frontres:
             _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
             if hasattr(_env_raw, 'cfg') and hasattr(_env_raw.cfg, 'motion_perturbations'):
                 from types import SimpleNamespace as _NS
@@ -514,83 +525,17 @@ class OnPolicyRunner:
                     joint_noise_prob  = float(getattr(_pt, 'joint_noise_prob',  0.0)),
                     joint_noise_std   = float(getattr(_pt, 'joint_noise_std',   0.0)),
                 )
-                print(f"[Runner] DR curriculum enabled ({_dr_schedule_type}): "
-                      f"0 → full over {_dr_curriculum_iters} Stage-2 iter "
-                      f"(stage2_start={_stage2_start}, "
-                      f"float_prob={_perturb_target.float_prob:.2f}, "
-                      f"root_tilt_max={_perturb_target.root_tilt_max_rad:.3f}rad, "
-                      f"joint_noise_std={_perturb_target.joint_noise_std:.3f}rad)")
-            else:
-                _perturb_target = None
-                print("[Runner] WARNING: dr_curriculum_iterations > 0 but env.cfg.motion_perturbations not found")
-        else:
-            _perturb_target = None
-
-        # Staircase DR: auto-advance perturbation magnitude after r_delta plateaus at each level.
-        # Activates only after the initial dr_curriculum_iterations ramp completes (dr_scale=1.0).
-        # Only ratio fields are scaled (float_ratio, sink_ratio, etc.); prob fields stay constant.
-        _staircase_mults_str = self.cfg.get("dr_staircase_multipliers", "")
-        _staircase_mults = (
-            [float(x) for x in _staircase_mults_str.split(",") if x.strip()]
-            if _staircase_mults_str else []
-        )
-        _staircase_ramp_iters   = int(self.cfg.get("dr_staircase_ramp_iters", 2000))
-        _staircase_min_plateau  = int(self.cfg.get("dr_staircase_min_plateau_iters", 3000))
-        _staircase_plateau_thr  = float(self.cfg.get("dr_staircase_plateau_threshold", 2e-7))
-        _staircase_start_level  = int(self.cfg.get("dr_staircase_start_level", 0))
-        # Adaptive DR: advance staircase when training-env survival rate exceeds this threshold.
-        # 0.0 disables (falls back to legacy EMA-slope trigger).
-        _dr_adaptive_thr = float(self.cfg.get("dr_adaptive_survival_threshold", 0.0))
-
-        _staircase_active = _is_frontres and len(_staircase_mults) > 0
-
-        # If staircase is active but _perturb_target was not set (dr_curriculum_iterations=0),
-        # fetch it directly so the staircase has a base to multiply against.
-        if _staircase_active and _perturb_target is None:
-            _env_raw_sc = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
-            if hasattr(_env_raw_sc, 'cfg') and hasattr(_env_raw_sc.cfg, 'motion_perturbations'):
-                from types import SimpleNamespace as _NS_sc
-                _pt_sc = _env_raw_sc.cfg.motion_perturbations
-                _perturb_target = _NS_sc(
-                    float_prob=float(_pt_sc.float_prob),   float_ratio=float(_pt_sc.float_ratio),
-                    sink_prob=float(_pt_sc.sink_prob),     sink_ratio=float(_pt_sc.sink_ratio),
-                    foot_slip_prob=float(_pt_sc.foot_slip_prob), foot_slip_ratio=float(_pt_sc.foot_slip_ratio),
+                print(
+                    f"[Runner] Adaptive DR (PI controller): "
+                    f"target_ep_len={_dr_target_ep} steps "
+                    f"(per-step target={_dr_target_surv:.4f}), "
+                    f"speed={_dr_speed}, max_scale={_dr_max}, "
+                    f"base float_ratio={_perturb_target.float_ratio:.3f}m, "
+                    f"base root_tilt={_perturb_target.root_tilt_max_rad:.3f}rad, "
+                    f"resume dr_scale={_dr_scale:.3f}"
                 )
             else:
-                _staircase_active = False
-
-        if _staircase_active:
-            # Priority for starting level/mult:
-            #   1. Checkpoint (self._staircase_level set by load()) — most accurate, handles all resumes
-            #   2. Config dr_staircase_start_level — manual override for old checkpoints
-            #   3. Default: level 0, mult 1.0 (fresh start)
-            if (hasattr(self, "_staircase_level") and self._staircase_level is not None
-                    and hasattr(self, "_staircase_cur_mult") and self._staircase_cur_mult is not None):
-                _staircase_level    = int(self._staircase_level)
-                _staircase_cur_mult = float(self._staircase_cur_mult)
-                _source = "checkpoint"
-            else:
-                _staircase_level    = _staircase_start_level
-                _staircase_cur_mult = (_staircase_mults[_staircase_level - 1]
-                                       if _staircase_level > 0 else 1.0)
-                _source = f"config (dr_staircase_start_level={_staircase_start_level})"
-
-            _staircase_prev_mult = _staircase_cur_mult
-            _staircase_is_ramping       = False
-            _staircase_ramp_start_iter  = start_iter
-            _staircase_at_level_since   = start_iter
-            _staircase_ema              = None
-            _staircase_ema_alpha        = 0.05
-            _staircase_ema_at_entry     = None
-            # Keep instance vars in sync so save() always writes the correct state
-            self._staircase_level    = _staircase_level
-            self._staircase_cur_mult = _staircase_cur_mult
-            print(
-                f"[Runner] Staircase DR enabled: {len(_staircase_mults)} levels "
-                f"(mults={_staircase_mults}), level={_staircase_level} [{_source}] "
-                f"(cur_mult={_staircase_cur_mult:.2f}x), "
-                f"ramp={_staircase_ramp_iters} iter, min_plateau={_staircase_min_plateau} iter"
-            )
+                print("[Runner] WARNING: FrontRES DR enabled but env.cfg.motion_perturbations not found")
 
         for it in range(start_iter, tot_iter):
             start = time.time()
@@ -624,57 +569,36 @@ class OnPolicyRunner:
                     new_alpha = 1.0
                 self.alg.policy.delta_q_alpha = new_alpha
 
-            # --- DR curriculum: update MotionPerturber scale for this iteration ---
-            # Scale = (it - stage2_start) / dr_curriculum_iters, clamped to [0, 1].
-            # Runs every iteration so the perturber ramps smoothly without needing a reset hook.
+            # --- DR PI controller: update survival EMA and adjust dr_scale ---
+            # Runs BEFORE the rollout so the perturber is set for this iteration.
+            # survival EMA is updated with last iteration's value (initialized to 1.0).
             if _is_frontres and _perturb_target is not None:
-                _stage2_progress = it - _stage2_start
-                # --- DR schedule (steeper than linear) ---
-                if _dr_schedule_type == "exp":
-                    # Exponential: τ = T/3 → 95% reached at t = T (3τ)
-                    _tau = max(1.0, _dr_curriculum_iters / 3.0)
-                    _dr_scale = float(min(1.0, 1.0 - math.exp(-_stage2_progress / _tau)))
-                elif _dr_schedule_type == "sqrt":
-                    # Square-root: rapid early rise, slow final stretch
-                    _dr_scale = float(min(1.0, (_stage2_progress / max(1, _dr_curriculum_iters)) ** 0.5))
-                else:  # "linear"
-                    _dr_scale = float(min(1.0, max(0.0, _stage2_progress / max(1, _dr_curriculum_iters))))
+                # Update survival EMA (first iteration uses the initial 1.0 → dr_scale increases)
+                _survival_ema = (_dr_ema_alpha * _survival_ema
+                                 + (1.0 - _dr_ema_alpha) * getattr(self, '_last_survival_rate', 1.0))
+                # PI control: adjust dr_scale based on deviation from target
+                if _survival_ema > _dr_target_surv + _dr_deadband:
+                    _dr_scale = min(_dr_scale + _dr_speed, _dr_max)
+                elif _survival_ema < _dr_target_surv - _dr_deadband:
+                    _dr_scale = max(_dr_scale - _dr_speed, 0.0)
+                # Persist for resume
+                self._dr_scale = _dr_scale
 
+                # Apply dr_scale to perturber (prob fields unchanged; only ratio/magnitude fields)
                 _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
                 if hasattr(_env_raw, 'command_manager') and 'motion' in _env_raw.command_manager._terms:
                     _mcmd = _env_raw.command_manager._terms['motion']
                     if hasattr(_mcmd, 'perturber'):
-                        # Classic perturbations (float/sink/slip)
-                        _mcmd.perturber.cfg.float_prob        = _perturb_target.float_prob        * _dr_scale
+                        _mcmd.perturber.cfg.float_prob        = _perturb_target.float_prob
                         _mcmd.perturber.cfg.float_ratio       = _perturb_target.float_ratio       * _dr_scale
-                        _mcmd.perturber.cfg.sink_prob         = _perturb_target.sink_prob         * _dr_scale
+                        _mcmd.perturber.cfg.sink_prob         = _perturb_target.sink_prob
                         _mcmd.perturber.cfg.sink_ratio        = _perturb_target.sink_ratio        * _dr_scale
-                        _mcmd.perturber.cfg.foot_slip_prob    = _perturb_target.foot_slip_prob    * _dr_scale
+                        _mcmd.perturber.cfg.foot_slip_prob    = _perturb_target.foot_slip_prob
                         _mcmd.perturber.cfg.foot_slip_ratio   = _perturb_target.foot_slip_ratio   * _dr_scale
-                        # New perturbations: root tilt + joint noise
-                        _mcmd.perturber.cfg.root_tilt_prob    = _perturb_target.root_tilt_prob    * _dr_scale
+                        _mcmd.perturber.cfg.root_tilt_prob    = _perturb_target.root_tilt_prob
                         _mcmd.perturber.cfg.root_tilt_max_rad = _perturb_target.root_tilt_max_rad * _dr_scale
-                        _mcmd.perturber.cfg.joint_noise_prob  = _perturb_target.joint_noise_prob  * _dr_scale
+                        _mcmd.perturber.cfg.joint_noise_prob  = _perturb_target.joint_noise_prob
                         _mcmd.perturber.cfg.joint_noise_std   = _perturb_target.joint_noise_std   * _dr_scale
-
-                        # Staircase override (legacy, active only if dr_staircase_multipliers != "")
-                        if _staircase_active and _dr_scale >= 1.0:
-                            if _staircase_is_ramping:
-                                ramp_t = min(1.0, (it - _staircase_ramp_start_iter)
-                                             / max(1, _staircase_ramp_iters))
-                                _cur_sc_mult = (_staircase_prev_mult
-                                                + ramp_t * (_staircase_mults[_staircase_level - 1]
-                                                            - _staircase_prev_mult))
-                                if ramp_t >= 1.0:
-                                    _staircase_is_ramping   = False
-                                    _staircase_cur_mult     = _staircase_mults[_staircase_level - 1]
-                                    _staircase_at_level_since = it
-                                    _staircase_ema_at_entry = _staircase_ema
-                            else:
-                                _cur_sc_mult = _staircase_cur_mult
-                            _mcmd.perturber.cfg.float_ratio     = _perturb_target.float_ratio     * _cur_sc_mult
-                            _mcmd.perturber.cfg.sink_ratio      = _perturb_target.sink_ratio      * _cur_sc_mult
-                            _mcmd.perturber.cfg.foot_slip_ratio = _perturb_target.foot_slip_ratio * _cur_sc_mult
 
             # FrontRES reward-shaping state: reset at the start of each rollout.
             _frontres_prev_delta_q: torch.Tensor | None = None  # [N, A] for smoothness penalty
@@ -683,18 +607,15 @@ class OnPolicyRunner:
             _frontres_baseline_sum:       float = 0.0
             _frontres_smooth_penalty_sum: float = 0.0
             _frontres_reg_penalty_sum:    float = 0.0
-            _frontres_delta_z_abs_sum:    float = 0.0   # mean |Δz| per step (diagnostic)
+            _frontres_delta_z_abs_sum:    float = 0.0   # mean |task correction| per step
             _frontres_shaping_steps:      int   = 0
-            # Adaptive DR: termination tracking for training envs only.
-            _frontres_term_count: int = 0  # env-steps where a training env terminated
-            _frontres_step_count: int = 0  # total training env-steps this rollout
-            # lambda_reg shaping: only activate after DR curriculum completes.
-            # Rationale: during ramp-up, reg pushing Δq→0 would reinforce the no-op shortcut trap
-            # before the Actor has had any chance to discover effective corrections.
+            # Termination tracking for training envs (used to compute survival_rate this rollout)
+            _frontres_term_count: int = 0
+            _frontres_step_count: int = 0
+            # reg_penalty activates once dr_scale ≥ 1.0 (base values fully applied).
+            # Before that, reg pushing corrections→0 reinforces the no-op shortcut trap.
             _lambda_reg = getattr(self.alg, 'lambda_reg_current', 0.0) if _is_frontres else 0.0
-            _dr_done    = _is_frontres and (
-                _dr_curriculum_iters == 0 or (it - _stage2_start) >= _dr_curriculum_iters
-            )
+            _dr_done    = _is_frontres and (_dr_scale >= 1.0)
 
             # Rollout: 训练首先需要积攒数据, 等数据攒够才能调用self.alg.update()更新权重
             with torch.inference_mode(): # 关闭计算图的梯度追踪, 只进行推理
@@ -993,95 +914,17 @@ class OnPolicyRunner:
                                             if _is_frontres and _frontres_step_count > 0 else None)
             frontres_delta_z_abs_mean    = (_frontres_delta_z_abs_sum / _frontres_shaping_steps
                                             if _is_frontres and _frontres_shaping_steps > 0 else None)
-            # DR scale: mirror the schedule computed inside the rollout loop
-            if _is_frontres and _dr_curriculum_iters > 0:
-                _log_progress = it - _stage2_start
-                if _dr_schedule_type == "exp":
-                    _log_tau = max(1.0, _dr_curriculum_iters / 3.0)
-                    frontres_dr_scale = float(min(1.0, 1.0 - math.exp(-_log_progress / _log_tau)))
-                elif _dr_schedule_type == "sqrt":
-                    frontres_dr_scale = float(min(1.0, (_log_progress / max(1, _dr_curriculum_iters)) ** 0.5))
-                else:
-                    frontres_dr_scale = float(min(1.0, max(0.0, _log_progress / max(1, _dr_curriculum_iters))))
-            else:
-                frontres_dr_scale = None
 
-            # Staircase: update EMA and check for plateau (end-of-iteration, after r_delta is known)
+            # Store survival rate for next iteration's PI controller update.
+            if frontres_survival_rate is not None:
+                self._last_survival_rate = frontres_survival_rate
+
+            # DR scale for logging: current value (set by PI controller at top of iteration)
+            frontres_dr_scale = _dr_scale if _is_frontres else None
+
+            # Removed: staircase advancement logic (replaced by PI controller above)
             _staircase_level_for_log = None
             _staircase_mult_for_log  = None
-            if _staircase_active:
-                _initial_ramp_done = (
-                    _dr_curriculum_iters == 0 or
-                    (it - _stage2_start) >= _dr_curriculum_iters
-                )
-                if _initial_ramp_done:
-                    _staircase_level_for_log = _staircase_level
-                    _staircase_mult_for_log  = _staircase_cur_mult if not _staircase_is_ramping else (
-                        _staircase_prev_mult + min(1.0, (it - _staircase_ramp_start_iter)
-                                                   / max(1, _staircase_ramp_iters))
-                        * (_staircase_mults[_staircase_level - 1] - _staircase_prev_mult)
-                        if _staircase_level > 0 else 1.0
-                    )
-                    # Advance-trigger check (only when stable, not mid-ramp)
-                    if not _staircase_is_ramping and frontres_rdelta_mean is not None:
-                        iters_at_level = it - _staircase_at_level_since
-
-                        if _dr_adaptive_thr > 0.0:
-                            # ── Adaptive mode: advance when training-env survival rate exceeds threshold ──
-                            # No EMA update needed; survival_rate is already a per-rollout average.
-                            _should_advance = (
-                                frontres_survival_rate is not None
-                                and frontres_survival_rate > _dr_adaptive_thr
-                                and iters_at_level >= _staircase_min_plateau
-                                and _staircase_level < len(_staircase_mults)
-                            )
-                            _trigger_str = (
-                                f"survival_rate={frontres_survival_rate:.3f} > thr={_dr_adaptive_thr:.2f}"
-                                if _should_advance else ""
-                            )
-                        else:
-                            # ── Legacy mode: advance when r_delta EMA slope flattens ──
-                            if _staircase_ema is None:
-                                _staircase_ema = frontres_rdelta_mean
-                                _staircase_ema_at_entry = frontres_rdelta_mean
-                            else:
-                                _staircase_ema = (_staircase_ema_alpha * frontres_rdelta_mean
-                                                  + (1.0 - _staircase_ema_alpha) * _staircase_ema)
-                            ema_slope = (abs(_staircase_ema - _staircase_ema_at_entry) / max(1, iters_at_level)
-                                         if _staircase_ema_at_entry is not None else float("inf"))
-                            _should_advance = (
-                                iters_at_level >= _staircase_min_plateau
-                                and _staircase_ema_at_entry is not None
-                                and _staircase_level < len(_staircase_mults)
-                                and ema_slope < _staircase_plateau_thr
-                            )
-                            _trigger_str = (
-                                f"ema_slope={ema_slope:.2e} < thr={_staircase_plateau_thr:.2e}"
-                                if _should_advance else ""
-                            )
-
-                        if _should_advance:
-                                # Advance to next staircase level
-                                _staircase_prev_mult      = _staircase_cur_mult
-                                _staircase_level         += 1
-                                _staircase_ramp_start_iter = it
-                                _staircase_is_ramping     = True
-                                _staircase_ema_at_entry   = None
-                                _staircase_ema            = None
-                                new_ratio = _perturb_target.float_ratio * _staircase_mults[_staircase_level - 1]
-                                # Sync instance vars immediately so that if training is
-                                # interrupted during the ramp, the next resume starts
-                                # at this level (not the previous one).
-                                self._staircase_level    = _staircase_level
-                                self._staircase_cur_mult = _staircase_mults[_staircase_level - 1]
-                                print(
-                                    f"[Staircase] iter={it}  advance triggered ({_trigger_str}).  "
-                                    f"Level {_staircase_level}/{len(_staircase_mults)}: "
-                                    f"mult {_staircase_prev_mult:.2f}x → "
-                                    f"{_staircase_mults[_staircase_level-1]:.2f}x  "
-                                    f"(float_ratio: {_perturb_target.float_ratio*_staircase_prev_mult:.3f} m → "
-                                    f"{new_ratio:.3f} m)"
-                                )
 
             # log info
             if self.log_dir is not None and not self.disable_logs:
@@ -1203,15 +1046,15 @@ class OnPolicyRunner:
             if locs.get("frontres_delta_z_abs_mean") is not None:
                 self.writer.add_scalar("FrontRES/delta_z_abs_mean",
                                        locs["frontres_delta_z_abs_mean"], locs["it"])
-            if locs.get("_staircase_level_for_log") is not None:
-                self.writer.add_scalar("Curriculum/staircase_level",
-                                       locs["_staircase_level_for_log"], locs["it"])
-            if locs.get("_staircase_mult_for_log") is not None:
-                self.writer.add_scalar("Curriculum/staircase_mult",
-                                       locs["_staircase_mult_for_log"], locs["it"])
             if locs.get("frontres_survival_rate") is not None:
                 self.writer.add_scalar("Curriculum/training_survival_rate",
                                        locs["frontres_survival_rate"], locs["it"])
+            # Log PI controller state
+            if isinstance(self.alg.policy, FrontRESActorCritic):
+                self.writer.add_scalar("Curriculum/survival_ema",
+                                       locs.get("_survival_ema", 1.0), locs["it"])
+                self.writer.add_scalar("Curriculum/dr_target_survival",
+                                       _dr_target_surv, locs["it"])
 
         # -- Performance
         self.writer.add_scalar("Perf/total_fps", fps, locs["it"])
@@ -1330,11 +1173,9 @@ class OnPolicyRunner:
             "iter": self.current_learning_iteration,
             "infos": infos,}
 
-        # Persist staircase DR state so resume picks up at the correct level,
-        # not level-0. Saved as plain scalars — zero overhead.
-        if hasattr(self, "_staircase_level") and self._staircase_level is not None:
-            saved_dict["staircase_level"]    = self._staircase_level
-            saved_dict["staircase_cur_mult"] = self._staircase_cur_mult
+        # Persist adaptive DR state so resume picks up at the correct scale.
+        if hasattr(self, '_dr_scale'):
+            saved_dict["dr_scale"] = self._dr_scale
         
         # -- Save RND model if used
         if hasattr(self.alg, "rnd") and self.alg.rnd:
@@ -1562,16 +1403,9 @@ class OnPolicyRunner:
                 self.privileged_obs_normalizer.until = self.privileged_obs_normalizer.count
             print(f"[Runner] Froze privileged_obs_normalizer (count={self.privileged_obs_normalizer.count})")
 
-        # Restore staircase DR state so resume starts at the correct level.
-        # If the checkpoint has no staircase_level (old checkpoint), defaults to None
-        # and learn() will fall back to dr_staircase_start_level from config.
-        self._staircase_level    = loaded_dict.get("staircase_level", None)
-        self._staircase_cur_mult = loaded_dict.get("staircase_cur_mult", None)
-        if self._staircase_level is not None:
-            print(f"[Runner] Staircase state restored from checkpoint: "
-                  f"level={self._staircase_level}, cur_mult={self._staircase_cur_mult:.3f}x")
-        else:
-            print("[Runner] No staircase state in checkpoint (old checkpoint or first run).")
+        # Restore adaptive DR scale so resume continues from the correct DR level.
+        self._dr_scale = loaded_dict.get("dr_scale", 0.0)
+        print(f"[Runner] Adaptive DR scale restored from checkpoint: {self._dr_scale:.4f}")
 
         return loaded_dict["infos"]
 
