@@ -708,9 +708,26 @@ class OnPolicyRunner:
                             _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
                             for _cmd_term in _env_raw.command_manager._terms.values():
                                 if hasattr(_cmd_term, '_frontres_pos_correction'):
-                                    _cmd_term._frontres_pos_correction[:N_train].copy_(
-                                        _task_corr[:N_train, :3])
+                                    # ── Jump-degree soft gate ──────────────────────────────
+                                    # Gate Δpos by (1 - jump_degree): suppresses position
+                                    # correction during free flight (a_z ≈ -g).
+                                    # Δrpy (orientation) is NOT gated: tilt correction is
+                                    # always valid and does not interfere with jump physics.
+                                    _pos_corr = _task_corr[:N_train, :3].clone()
+                                    if hasattr(_cmd_term, 'jump_degree'):
+                                        _jd   = _cmd_term.jump_degree[:N_train].to(_task_corr.device)
+                                        _gate = (1.0 - _jd).clamp(0.0, 1.0).unsqueeze(-1)
+                                        _pos_corr = _pos_corr * _gate
+                                    # ── end gate ──────────────────────────────────────────
+                                    _cmd_term._frontres_pos_correction[:N_train].copy_(_pos_corr)
+                                    # Gate Δrpy with the same jump_degree.
+                                    # During free flight (jump_degree≈1), orientation correction
+                                    # is suppressed so FrontRES does not disturb GMT's natural
+                                    # jump arc.  Small-angle approximation (max 0.3 rad ≈ 17°):
+                                    # scaling Euler angles ≈ SLERP to within O(θ²) ≈ 5% error.
                                     _rpy = _task_corr[:N_train, 3:]
+                                    if hasattr(_cmd_term, 'jump_degree'):
+                                        _rpy = _rpy * _gate  # _gate already (N_train, 1)
                                     _quat_corr = quat_from_euler_xyz(
                                         _rpy[:, 0], _rpy[:, 1], _rpy[:, 2])
                                     _cmd_term._frontres_quat_correction[:N_train].copy_(_quat_corr)
@@ -779,6 +796,12 @@ class OnPolicyRunner:
                             _tc = getattr(self.alg.policy, 'last_task_correction', None)
                             if _tc is not None:
                                 _frontres_delta_z_abs_sum += _tc.abs().mean().item()
+                            # Log jump_degree mean for monitoring gate activation
+                            for _cmd_term in (self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env).command_manager._terms.values():
+                                if hasattr(_cmd_term, 'jump_degree'):
+                                    locs["mean_jump_degree"] = locs.get("mean_jump_degree", 0.0) + \
+                                        _cmd_term.jump_degree[:N_train].mean().item()
+                                    break
                         else:
                             _dz = getattr(self.alg.policy, 'last_delta_z', None)
                             if _dz is not None:
@@ -1055,6 +1078,10 @@ class OnPolicyRunner:
                                        locs.get("_survival_ema", 1.0), locs["it"])
                 self.writer.add_scalar("Curriculum/dr_target_survival",
                                        locs.get("_dr_target_surv", 0.983), locs["it"])
+                if locs.get("mean_jump_degree") is not None:
+                    self.writer.add_scalar("FrontRES/jump_degree_mean",
+                                           locs["mean_jump_degree"] / max(locs.get("_frontres_shaping_steps", 1), 1),
+                                           locs["it"])
 
         # -- Performance
         self.writer.add_scalar("Perf/total_fps", fps, locs["it"])

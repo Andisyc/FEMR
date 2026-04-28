@@ -1031,6 +1031,24 @@ class MultiMotionCommand(CommandTerm):
         self.motion_lengths_minus_one = (self.motion_lengths - 1).clamp(min=0)
         self.motion_length_denominator = self.motion_lengths.clamp(min=1)
 
+        # ── Jump-degree soft gate (parabola-fit vertical acceleration) ─────────
+        # Fits z(t) = A*t² + B*t + C over a [-N, +K] frame window; a_z = 2A*fps².
+        # jump_degree = exp(-(a_z + g)² / 2σ²) ≈ 1 only during free-flight (a_z≈-g).
+        # Applied by the runner as: Δpos *= (1 - jump_degree)  [orientation left free]
+        import numpy as _np
+        _N, _K = 10, 10          # past / future frames in window
+        _W = _N + _K + 1         # = 21 total points
+        _t = _np.arange(-_N, _K + 1, dtype=_np.float64)          # frame-index units
+        _X = _np.column_stack([_t ** 2, _t, _np.ones(_W)])        # (W, 3) design matrix
+        _M = _np.linalg.lstsq(_X, _np.eye(_W), rcond=None)[0].T  # pseudoinverse (3, W)
+        self._jump_n_past   = _N
+        self._jump_k_future = _K
+        self._jump_w_A      = torch.tensor(_M[0], dtype=torch.float32, device=self.device)
+        self._jump_sigma    = 2.0    # m/s² — Gaussian bandwidth around free-fall
+        self._jump_g        = 9.81   # m/s²
+        self.jump_degree    = torch.zeros(self.num_envs, device=self.device)
+        # ── end jump-degree init ───────────────────────────────────────────────
+
         self.motion_bin_counts = (self.motion_lengths // self.frames_per_bin) + 1
         self.motion_bin_counts_float = self.motion_bin_counts.to(torch.float32)
         self.max_bin_count = int(self.motion_bin_counts.max().item())
@@ -1752,6 +1770,53 @@ class MultiMotionCommand(CommandTerm):
         self.metrics["error_joint_vel"].copy_(torch.norm(self.joint_vel - self.robot_joint_vel, dim=-1))
         self._update_sampling_prob_metrics()
 
+    def _compute_jump_degree(self):
+        """Per-step update of jump_degree via parabola fit on anchor-body root_z.
+
+        Algorithm
+        ---------
+        1. Gather root_z for frames [t-N, ..., t, ..., t+K] from the reference motion.
+        2. Fit z(t) = A*t² + B*t + C using precomputed least-squares weights w_A.
+        3. Convert A (frame-index units) to physical acceleration: a_z = 2*A*fps².
+        4. jump_degree = exp(-(a_z + g)² / 2σ²)
+           ≈ 1 only when a_z ≈ -g (free flight); ≈ 0 on ground or float artifact.
+
+        The runner multiplies Δpos by (1 - jump_degree) before applying to the
+        command term, suppressing height correction during genuine airborne phases.
+        """
+        N, K = self._jump_n_past, self._jump_k_future
+        W    = N + K + 1
+
+        # Build (N_envs, W) frame-index tensor clamped to valid motion range
+        offsets      = torch.arange(-N, K + 1, device=self.device)            # (W,)
+        frame_idx    = self.time_steps.unsqueeze(1) + offsets.unsqueeze(0)    # (N_envs, W)
+        max_frames   = self.motion_lengths_minus_one[self.env_motion_indices] \
+                           .unsqueeze(1).expand_as(frame_idx)
+        frame_idx    = frame_idx.clamp(min=0)
+        frame_idx    = torch.min(frame_idx, max_frames)
+
+        # Flatten → gather body_pos_w → shape (N_envs*W, num_bodies, 3)
+        flat_motion  = self.env_motion_indices.unsqueeze(1).expand(-1, W).reshape(-1)
+        flat_frames  = frame_idx.reshape(-1)
+        body_pos     = self.motion_dir_loader.gather(
+            "body_pos_w", flat_motion, flat_frames, out_device=self.device
+        )  # (N_envs*W, num_bodies, 3)
+
+        # Anchor body z-coordinate → (N_envs, W)
+        anchor_z = body_pos[:, self.motion_anchor_body_index, 2].view(self.num_envs, W)
+
+        # A coefficient: a_z_frame² = w_A · Z  →  (N_envs,)
+        A = (anchor_z * self._jump_w_A.unsqueeze(0)).sum(dim=1)
+
+        # fps per env → physical a_z = 2A * fps²
+        fps  = self.motion_dir_loader.motion_fps[self.env_motion_indices]  # (N_envs,)
+        a_z  = 2.0 * A * fps.pow(2)
+
+        # Gaussian kernel centred at -g
+        self.jump_degree = torch.exp(
+            -(a_z + self._jump_g).pow(2) / (2.0 * self._jump_sigma * self._jump_sigma)
+        )  # (N_envs,) ∈ [0, 1]
+
     def _update_command(self):
         self._global_sim_step += 1
         self.time_steps += 1
@@ -1791,6 +1856,9 @@ class MultiMotionCommand(CommandTerm):
         if self._resample_motions_every_steps > 0 and \
             (self._global_sim_step % self._resample_motions_every_steps) == 0:
             self._remap_version += 1
+
+        # Update jump_degree for soft gate (used by runner to suppress Δpos during jumps)
+        self._compute_jump_degree()
 
     def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, float]:
         if env_ids is None:
