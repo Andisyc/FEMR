@@ -16384,3 +16384,194 @@ dr_target_surv = 1 - 1/T
 第二处：在 PI 控制器每步更新处加周期性打印，方便追踪动态：
 
 ---
+
+
+**User**
+
+测试的结果是：
+
+[DR-DEBUG] cfg raw 'dr_target_episode_length' = 60
+[DR-DEBUG] _dr_target_ep=60, _dr_target_surv=0.983333  (应为 ~0.9833 当 target_ep=60)
+[Runner] Adaptive DR (PI controller): target_ep_len=60 steps (per-step target=0.9833), speed=0.0005, max_scale=4.0, base float_ratio=0.050m, base root_tilt=0.050rad, resume dr_scale=0.000
+[DR-DEBUG it=10000] survival_rate=1.0000  survival_ema=1.0000  target=0.9833  dr_scale=0.0005
+
+---
+
+
+**Claude**
+
+## 诊断结论
+
+配置正确，PI 控制器运作正常。`dr_target_survival` 在 wandb 上显示"1"是**视觉误判**——实际值 0.983 在 y 轴范围 0.88~1.00 上看起来非常接近顶端。
+
+---
+
+## it=10000 的 debug 含义
+
+这是 Stage 2 第一轮，EMA 还没有摄入任何真实数据：
+
+```
+survival_rate = 1.0000   ← _last_survival_rate 未初始化，用默认值 1.0
+survival_ema  = 1.0000   ← 同上，乐观初值
+dr_scale      = 0.0005   ← 1.0 > 0.9833+0.005，PI 控制器正确上调了一步
+```
+
+随后 EMA 会很快收敛到真实水平，以 `_dr_ema_alpha=0.95` 和真实 survival_rate=0.89，约 5 轮后 EMA 降到 0.975：
+
+```
+iter+1: EMA = 0.95×1.00 + 0.05×0.89 = 0.9945  → 仍高于阈值，继续上调
+iter+2: EMA = 0.95×0.9945 + 0.05×0.89 = 0.9893 → 仍高
+iter+3: EMA ≈ 0.984                              → 进入 deadband，停止调整
+iter+4: EMA ≈ 0.980                              → 进入 deadband
+iter+5: EMA ≈ 0.975 < 0.9783                    → 开始下调
+```
+
+dr_scale 在前几轮短暂升至约 0.002~0.003（带来的实际扰动 = 0.05m × 0.003 ≈ 0.00015m，近似为零），之后被 PI 拉回 0。
+
+**PI 控制器的行为完全正确**，问题不在课程设计，而在于 **episode_length=10 本身**。
+
+---
+
+## 真正的根本问题
+
+Stage 1 的权重学到了"对浮空参考施加修正"的策略。Stage 2 以 DR=0（干净参考）启动，Stage 1 的修正作用于干净参考时是**有害的**：
+
+```
+Stage 1 修正 → GMT 收到被扭曲的锚点姿态
+→ episode_length = 10
+→ survival_rate = 0.89
+→ PI 控制器正确维持 DR ≈ 0
+→ FrontRES 信号极弱（r_delta ≈ 0.0005），很慢地学习减小修正
+→ 陷入长期低效收敛
+```
+
+等下一个 200 轮 debug 打印出来，可以确认 EMA 是否已收敛到 ~0.89：
+
+```
+[DR-DEBUG it=10200] survival_rate≈0.89  survival_ema≈0.89  dr_scale≈0.000
+```
+
+---
+
+## 快速缓解方案
+
+在 `rsl_rl_ppo_cfg.py` 里大幅降低初始修正幅度，限制 Stage 1 有害修正的量级：
+
+```python
+max_delta_pos: float = 0.05   # 从 0.3 降到 0.05m
+max_delta_rpy: float = 0.05   # 从 0.3 降到 0.05 rad
+```
+
+这样 Stage 1 的修正即使方向错误，破坏也被限制在 5cm / 3°，GMT 大概率能继续跟踪，episode_length 会回升，DR 才能开始工作。等训练稳定后再逐步放开幅度。
+
+---
+
+
+**Claude**
+
+你识别到的循环是：
+
+```
+Stage1修正 + 干净参考 → 机器人摔倒
+→ survival_rate低 → PI维持DR≈0
+→ 参考依然干净 → Stage1修正依然有害
+→ 永远无法进入有效训练
+```
+
+---
+
+## 为什么ΔSE(3)比Δq更难
+
+Δq加到q_ref，PD控制器会部分吸收关节角误差，影响是间接的。
+
+ΔSE(3)直接改变`motion_anchor_ori_b`（锚点相对姿态），这是GMT观测向量里的6维项——GMT立刻"看到"一个错误的参考姿态，反应是试图让机器人身体跟随这个错误姿态→立刻摔倒。破坏是即时且直接的。
+
+---
+
+## 之前α课程失败的根因
+
+α=0时：GMT稳定，但FrontRES收不到任何学习信号，Critic学不到value。
+α>0时：Stage1修正有害→摔倒→Critic也学不到，只是原因不同。
+两端都无法建立有效学习基础。
+
+---
+
+## 真正的解法：让Stage2从匹配的DR强度出发
+
+**当前设计的逻辑错误**：Stage1用DR Level 1（`dr_scale=1`）训练出来的修正策略，在Stage2以`dr_scale=0`（干净参考）启动时，修正和环境完全不匹配。
+
+**正确逻辑**：Stage2应当从`dr_scale=1`出发——这是Stage1实际接触过的扰动强度，Stage1的修正策略正是为这个强度设计的。PI控制器再从这里根据实际survival调整。
+
+```
+Stage1: 在DR Level 1扰动下学习SE(3)修正
+Stage2: 从DR Level 1启动 → Stage1修正恰好对症
+       → 机器人稳定（episode_length≈100+）
+       → PI控制器可以开始向Level 4推进
+```
+
+**实现方式**：在checkpoint加载时将`_dr_scale`初始化为1.0而不是0.0：
+
+```python
+# on_policy_runner.py，load()方法里
+# 将 dr_scale 恢复逻辑改为：
+_dr_scale_from_ckpt = float(checkpoint.get("dr_scale", 0.0))
+self._dr_scale = max(_dr_scale_from_ckpt, 1.0)  # Stage2至少从Level 1开始
+```
+
+或者更简单，在`rsl_rl_ppo_cfg.py`的Stage2 config里直接指定：
+
+```python
+dr_init_scale: float = 1.0  # Stage2从Level 1出发，而非0
+```
+
+**这解决了根本矛盾**：不需要α课程，不需要重置网络权重，Stage1和Stage2的训练条件天然匹配。
+
+---
+
+
+**Claude**
+
+现在在 `rsl_rl_ppo_cfg.py` 里加入这个参数：
+
+---
+
+
+**Claude**
+
+完成。验证两处修改的效果链：
+
+启动日志将变为：
+```
+[Runner] is_full_resume=False → load_optimizer=False, reset_noise_std=True
+[Runner] Stage1→Stage2 cold-start: dr_scale initialised to dr_init_scale=1.0000
+         (ignoring checkpoint value 0.0000)
+[DR-DEBUG] _dr_target_ep=60, _dr_target_surv=0.983333
+[DR-DEBUG it=10000] survival_rate=1.0000  survival_ema=1.0000  dr_scale=1.0005
+```
+
+PI 控制器的行为将变为：
+
+```
+it=10000：dr_scale=1.0（初始值），Stage1修正 ↔ Level1扰动  → 匹配
+          survival_rate ≈ 0.98+（预期，Stage1已知能处理Level1）
+          → EMA > target → dr_scale缓慢上升 → 向Level4推进
+
+如果某阶段survival下降：
+          → EMA < target → dr_scale回落 → 自动退回到Stage1舒适区
+```
+
+---
+
+
+**User**
+
+请去掉先前的print测试代码
+
+---
+
+
+**Claude**
+
+两处 debug print 均已移除，代码干净。
+
+---

@@ -241,6 +241,12 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
     # dr_deadband: 死区（per-step 存活率），避免在目标附近频繁调整。
     #   0.005 ≈ ±5 步回合长度差（在 60 步基准下）。
     dr_deadband:     float = 0.005
+    #
+    # dr_init_scale: Stage1→Stage2 冷启动时的初始 dr_scale（仅在 is_full_resume=False 时生效）。
+    #   默认 1.0：从 Stage1 训练所用扰动强度（Level 1）出发，确保 Stage1 修正策略
+    #   在 Stage2 初期仍然适用，避免干净参考上修正有害导致的即时崩溃。
+    #   断点续训（is_full_resume=True）时该值被忽略，直接从 checkpoint 恢复。
+    dr_init_scale:   float = 1.0
 
     # Critic 预热：禁用。actor-frozen warmup 会制造 V 估计分布错配，PPO 自然处理 OOD 冷启动。
     critic_warmup_iterations = 0

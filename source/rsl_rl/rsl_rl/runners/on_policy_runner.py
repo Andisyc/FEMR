@@ -497,13 +497,6 @@ class OnPolicyRunner:
         _dr_target_ep   = int(self.cfg.get("dr_target_episode_length", 60))
         _dr_target_surv = 1.0 - 1.0 / max(1, _dr_target_ep)  # per-step survival target
         _dr_speed       = float(self.cfg.get("dr_adapt_speed",  0.0005))
-        # ── DEBUG: 启动时确认 PI 控制器参数来源 ──────────────────────────────
-        print(f"[DR-DEBUG] cfg raw 'dr_target_episode_length' = "
-              f"{self.cfg.get('dr_target_episode_length', '<<KEY MISSING, using default 60>>')}")
-        print(f"[DR-DEBUG] _dr_target_ep={_dr_target_ep}, "
-              f"_dr_target_surv={_dr_target_surv:.6f}  "
-              f"(应为 ~0.9833 当 target_ep=60)")
-        # ── END DEBUG ─────────────────────────────────────────────────────────
         _dr_max         = float(self.cfg.get("dr_max_scale",    4.0))
         _dr_ema_alpha   = float(self.cfg.get("dr_ema_alpha",    0.95))
         _dr_deadband    = float(self.cfg.get("dr_deadband",     0.005))
@@ -590,16 +583,6 @@ class OnPolicyRunner:
                     _dr_scale = max(_dr_scale - _dr_speed, 0.0)
                 # Persist for resume
                 self._dr_scale = _dr_scale
-                # ── DEBUG: 每 200 轮打印一次 PI 控制器状态 ────────────────────
-                if it % 200 == 0:
-                    _last_surv = getattr(self, '_last_survival_rate', 1.0)
-                    print(f"[DR-DEBUG it={it}] "
-                          f"survival_rate={_last_surv:.4f}  "
-                          f"survival_ema={_survival_ema:.4f}  "
-                          f"target={_dr_target_surv:.4f}  "
-                          f"dr_scale={_dr_scale:.4f}")
-                # ── END DEBUG ─────────────────────────────────────────────────
-
                 # Apply dr_scale to perturber (prob fields unchanged; only ratio/magnitude fields)
                 _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
                 if hasattr(_env_raw, 'command_manager') and 'motion' in _env_raw.command_manager._terms:
@@ -1448,8 +1431,19 @@ class OnPolicyRunner:
             print(f"[Runner] Froze privileged_obs_normalizer (count={self.privileged_obs_normalizer.count})")
 
         # Restore adaptive DR scale so resume continues from the correct DR level.
-        self._dr_scale = loaded_dict.get("dr_scale", 0.0)
-        print(f"[Runner] Adaptive DR scale restored from checkpoint: {self._dr_scale:.4f}")
+        # is_full_resume=True  (Stage2断点续训): 恢复 checkpoint 中的 dr_scale
+        # is_full_resume=False (Stage1→Stage2冷启动): 忽略 checkpoint dr_scale，
+        #   改用 cfg 中的 dr_init_scale（默认 1.0），确保 Stage2 从 Stage1 训练强度出发，
+        #   避免 dr_scale=0 时 Stage1 修正策略作用于干净参考导致的即时崩溃。
+        if is_full_resume:
+            self._dr_scale = loaded_dict.get("dr_scale", 0.0)
+            print(f"[Runner] Adaptive DR scale restored from checkpoint: {self._dr_scale:.4f}")
+        else:
+            _dr_init = float(self.cfg.get("dr_init_scale", 1.0))
+            self._dr_scale = _dr_init
+            print(f"[Runner] Stage1→Stage2 cold-start: dr_scale initialised to "
+                  f"dr_init_scale={_dr_init:.4f} (ignoring checkpoint value "
+                  f"{loaded_dict.get('dr_scale', 0.0):.4f})")
 
         return loaded_dict["infos"]
 
