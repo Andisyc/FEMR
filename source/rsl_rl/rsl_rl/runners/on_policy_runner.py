@@ -608,6 +608,7 @@ class OnPolicyRunner:
             _frontres_smooth_penalty_sum: float = 0.0
             _frontres_reg_penalty_sum:    float = 0.0
             _frontres_delta_z_abs_sum:    float = 0.0   # mean |task correction| per step
+            _frontres_jump_degree_sum:    float = 0.0   # mean jump_degree (gate activation monitor)
             _frontres_shaping_steps:      int   = 0
             # Termination tracking for training envs (used to compute survival_rate this rollout)
             _frontres_term_count: int = 0
@@ -796,11 +797,10 @@ class OnPolicyRunner:
                             _tc = getattr(self.alg.policy, 'last_task_correction', None)
                             if _tc is not None:
                                 _frontres_delta_z_abs_sum += _tc.abs().mean().item()
-                            # Log jump_degree mean for monitoring gate activation
+                            # Accumulate jump_degree for gate activation monitoring
                             for _cmd_term in (self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env).command_manager._terms.values():
                                 if hasattr(_cmd_term, 'jump_degree'):
-                                    locs["mean_jump_degree"] = locs.get("mean_jump_degree", 0.0) + \
-                                        _cmd_term.jump_degree[:N_train].mean().item()
+                                    _frontres_jump_degree_sum += _cmd_term.jump_degree[:N_train].mean().item()
                                     break
                         else:
                             _dz = getattr(self.alg.policy, 'last_delta_z', None)
@@ -936,6 +936,8 @@ class OnPolicyRunner:
             frontres_survival_rate       = (1.0 - _frontres_term_count / _frontres_step_count
                                             if _is_frontres and _frontres_step_count > 0 else None)
             frontres_delta_z_abs_mean    = (_frontres_delta_z_abs_sum / _frontres_shaping_steps
+                                            if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_jump_degree_mean    = (_frontres_jump_degree_sum / _frontres_shaping_steps
                                             if _is_frontres and _frontres_shaping_steps > 0 else None)
 
             # Store survival rate for next iteration's PI controller update.
@@ -1078,10 +1080,9 @@ class OnPolicyRunner:
                                        locs.get("_survival_ema", 1.0), locs["it"])
                 self.writer.add_scalar("Curriculum/dr_target_survival",
                                        locs.get("_dr_target_surv", 0.983), locs["it"])
-                if locs.get("mean_jump_degree") is not None:
+                if locs.get("frontres_jump_degree_mean") is not None:
                     self.writer.add_scalar("FrontRES/jump_degree_mean",
-                                           locs["mean_jump_degree"] / max(locs.get("_frontres_shaping_steps", 1), 1),
-                                           locs["it"])
+                                           locs["frontres_jump_degree_mean"], locs["it"])
 
         # -- Performance
         self.writer.add_scalar("Perf/total_fps", fps, locs["it"])

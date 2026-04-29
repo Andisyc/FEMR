@@ -16030,3 +16030,80 @@ max_delta_rpy: float = 0.05  # 从 0.3 降到 0.05 rad ≈ 3°
 `np.linalg.lstsq(_X, np.eye(W))[0]` 直接返回 shape `(3, W)` 的伪逆矩阵 M，`M[0]` 就是 `w_A`，shape `(W,)=(21,)`。加了 `.T` 之后变成 `(W, 3)`，`_M[0]` 就变成了 shape `(3,)`，错了。
 
 ---
+
+
+**Claude**
+
+去掉 `.T` 即可。`lstsq` 求解 `X @ beta = I_W`，直接返回 shape `(3, W)` 的 M，`M[0]` 是第一行 w_A，shape 正好是 `(W,) = (21,)`，与 `anchor_z` 的 `(N_envs, 21)` 匹配。
+
+---
+
+
+**User**
+
+更新后又遇到报错：
+File "/home/yuxuancheng/MOSAIC/scripts/rsl_rl/train.py", line 212, in main
+    runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
+  File "/home/yuxuancheng/MOSAIC/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 802, in learn
+    locs["mean_jump_degree"] = locs.get("mean_jump_degree", 0.0) + \
+NameError: name 'locs' is not defined
+
+---
+
+
+**Claude**
+
+`locs` 是在 `learn()` 循环结束后才构建的字典，不能在内循环里直接写入。应该用累加器变量，和其他 FrontRES 指标一样。
+
+---
+
+
+**Claude**
+
+**第一步**：在累加器初始化区域添加 `_frontres_jump_degree_sum`：
+
+---
+
+
+**Claude**
+
+**第二步**：将内循环中的 `locs["mean_jump_degree"]` 改为累加器：
+
+---
+
+
+**Claude**
+
+**第三步**：在 `locs` 构建区域加入均值计算，找到其他 frontres 均值的位置：
+
+---
+
+
+**Claude**
+
+**第四步**：把 `frontres_jump_degree_mean` 写入 `locs` 并修复 `log()` 中的引用：
+
+---
+
+
+**Claude**
+
+最后把 `frontres_jump_degree_mean` 加入 `locs` 字典，找到其他 frontres 指标入 locs 的位置：
+
+---
+
+
+**Claude**
+
+`locs` 是通过 `self.log(locals())` 传入的——`locals()` 自动包含所有局部变量。所以只要 `frontres_jump_degree_mean` 在 `learn()` 里是局部变量，`log()` 里直接用 `locs.get("frontres_jump_degree_mean")` 就能访问，**不需要额外把它加入字典**。
+
+这意味着第三步和第四步都已经正确了。修复完整，现在只有三处改动：
+
+1. 初始化累加器 `_frontres_jump_degree_sum = 0.0`
+2. 内循环中累加 `_frontres_jump_degree_sum += ...`
+3. 循环外计算均值 `frontres_jump_degree_mean = ...`（通过 `locals()` 自动进入 `locs`）
+4. `log()` 中用 `locs.get("frontres_jump_degree_mean")` 读取
+
+可以重新推送。
+
+---
