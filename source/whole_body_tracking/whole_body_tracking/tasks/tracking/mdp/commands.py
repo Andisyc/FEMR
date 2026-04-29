@@ -1047,6 +1047,11 @@ class MultiMotionCommand(CommandTerm):
         self._jump_sigma    = 2.0    # m/s² — Gaussian bandwidth around free-fall
         self._jump_g        = 9.81   # m/s²
         self.jump_degree    = torch.zeros(self.num_envs, device=self.device)
+        # Pre-extract anchor-body z from the full body_pos_w tensor (total_frames,).
+        # Avoids gathering (N_envs*W, num_bodies, 3) each step — 42× cheaper.
+        _anchor_idx = self.cfg.body_names.index(self.cfg.anchor_body_name)
+        _raw_body_pos = self.motion_dir_loader.body_pos_w  # (total_frames, num_bodies, 3)
+        self._jump_anchor_z = _raw_body_pos[:, _anchor_idx, 2].contiguous().to(self.device)
         # ── end jump-degree init ───────────────────────────────────────────────
 
         self.motion_bin_counts = (self.motion_lengths // self.frames_per_bin) + 1
@@ -1795,15 +1800,13 @@ class MultiMotionCommand(CommandTerm):
         frame_idx    = frame_idx.clamp(min=0)
         frame_idx    = torch.min(frame_idx, max_frames)
 
-        # Flatten → gather body_pos_w → shape (N_envs*W, num_bodies, 3)
-        flat_motion  = self.env_motion_indices.unsqueeze(1).expand(-1, W).reshape(-1)
-        flat_frames  = frame_idx.reshape(-1)
-        body_pos     = self.motion_dir_loader.gather(
-            "body_pos_w", flat_motion, flat_frames, out_device=self.device
-        )  # (N_envs*W, num_bodies, 3)
+        # Convert (env, window_offset) frame indices to global flat indices.
+        # Uses precomputed per-motion offsets to avoid the full body_pos_w gather.
+        motion_offsets = self.motion_dir_loader.motion_offsets[self.env_motion_indices]  # (N_envs,)
+        global_idx = (motion_offsets.unsqueeze(1) + frame_idx).reshape(-1)  # (N_envs*W,)
 
-        # Anchor body z-coordinate → (N_envs, W)
-        anchor_z = body_pos[:, self.motion_anchor_body_index, 2].view(self.num_envs, W)
+        # Anchor body z-coordinate → (N_envs, W)  [scalar gather, 42× cheaper]
+        anchor_z = self._jump_anchor_z[global_idx].view(self.num_envs, W)
 
         # A coefficient: a_z_frame² = w_A · Z  →  (N_envs,)
         A = (anchor_z * self._jump_w_A.unsqueeze(0)).sum(dim=1)
