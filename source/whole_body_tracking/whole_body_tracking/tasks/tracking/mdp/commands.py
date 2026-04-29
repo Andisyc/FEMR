@@ -1040,7 +1040,7 @@ class MultiMotionCommand(CommandTerm):
         _W = _N + _K + 1         # = 21 total points
         _t = _np.arange(-_N, _K + 1, dtype=_np.float64)          # frame-index units
         _X = _np.column_stack([_t ** 2, _t, _np.ones(_W)])        # (W, 3) design matrix
-        _M = _np.linalg.lstsq(_X, _np.eye(_W), rcond=None)[0].T  # pseudoinverse (3, W)
+        _M = _np.linalg.lstsq(_X, _np.eye(_W), rcond=None)[0]    # pseudoinverse (3, W)
         self._jump_n_past   = _N
         self._jump_k_future = _K
         self._jump_w_A      = torch.tensor(_M[0], dtype=torch.float32, device=self.device)
