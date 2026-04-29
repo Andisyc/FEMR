@@ -497,6 +497,13 @@ class OnPolicyRunner:
         _dr_target_ep   = int(self.cfg.get("dr_target_episode_length", 60))
         _dr_target_surv = 1.0 - 1.0 / max(1, _dr_target_ep)  # per-step survival target
         _dr_speed       = float(self.cfg.get("dr_adapt_speed",  0.0005))
+        # ── DEBUG: 启动时确认 PI 控制器参数来源 ──────────────────────────────
+        print(f"[DR-DEBUG] cfg raw 'dr_target_episode_length' = "
+              f"{self.cfg.get('dr_target_episode_length', '<<KEY MISSING, using default 60>>')}")
+        print(f"[DR-DEBUG] _dr_target_ep={_dr_target_ep}, "
+              f"_dr_target_surv={_dr_target_surv:.6f}  "
+              f"(应为 ~0.9833 当 target_ep=60)")
+        # ── END DEBUG ─────────────────────────────────────────────────────────
         _dr_max         = float(self.cfg.get("dr_max_scale",    4.0))
         _dr_ema_alpha   = float(self.cfg.get("dr_ema_alpha",    0.95))
         _dr_deadband    = float(self.cfg.get("dr_deadband",     0.005))
@@ -583,6 +590,15 @@ class OnPolicyRunner:
                     _dr_scale = max(_dr_scale - _dr_speed, 0.0)
                 # Persist for resume
                 self._dr_scale = _dr_scale
+                # ── DEBUG: 每 200 轮打印一次 PI 控制器状态 ────────────────────
+                if it % 200 == 0:
+                    _last_surv = getattr(self, '_last_survival_rate', 1.0)
+                    print(f"[DR-DEBUG it={it}] "
+                          f"survival_rate={_last_surv:.4f}  "
+                          f"survival_ema={_survival_ema:.4f}  "
+                          f"target={_dr_target_surv:.4f}  "
+                          f"dr_scale={_dr_scale:.4f}")
+                # ── END DEBUG ─────────────────────────────────────────────────
 
                 # Apply dr_scale to perturber (prob fields unchanged; only ratio/magnitude fields)
                 _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env

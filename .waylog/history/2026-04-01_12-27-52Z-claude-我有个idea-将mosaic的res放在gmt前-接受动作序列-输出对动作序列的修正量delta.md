@@ -16257,3 +16257,130 @@ OOD(t) = (obs(t) - μ_train) / σ_train  →  取最大分量的绝对值
 `_jump_anchor_z` 在 `__init__` 时提取一次（`.contiguous().to(self.device)`），之后每步只做一个标量向量的索引操作，完全在 GPU 上完成，不再有 CPU↔GPU 传输。
 
 ---
+
+
+**User**
+
+现在更新的代码推送到服务器上训练Stage2已经来到12577轮次了：
+
+Surrogate从-0.0005开始逐渐震荡加剧并上升，峰值甚至可以达到0.003；
+
+reg_penalty_per_step全程为0；
+
+baseline_per_step在-0.077左右密集震荡，不超过-0.076；
+
+r_delta_per_step在0.0005附近波动，几乎全为正值，但也有负值；
+
+delta_q_norm_std和delta_q_norm_mean一路走低到0.35左右；
+
+mean_r_delta还是在0附近波动，learning_rate固定在0.00003；
+
+jump_degree_mean在0.00175附近震荡；
+
+delta_z_abs_mean全程为0；
+
+mean_reward_gmt在-0.74左右剧烈震荡，最高到-0.6；
+
+mean_r_delta在0附近震荡，有几个向下的巨大峰值；
+
+mean_episode_length在10左右震荡，先前的训练是100~125；
+
+请评价收敛情况
+
+---
+
+
+**Claude**
+
+## 关键问题：episode_length = 10
+
+这是最核心的异常。10步（0.2秒）内机器人就倒了，与之前Stage 2能维持在100-125完全不符。
+
+---
+
+## 逐项分析
+
+**episode_length ≈ 10**（灾难性）
+
+`baseline_per_step ≈ -0.077`，乘以 10 步 ≈ -0.77，与 `mean_reward_gmt ≈ -0.74` 吻合。说明 **GMT baseline 环境本身也在快速失败**，不是 FrontRES 修正导致的，而是 GMT 自身失效。
+
+**r_delta ≈ +0.0005**（极弱正值）
+
+FrontRES 训练环境比 GMT baseline 略好，说明 FrontRES 没有在主动破坏，但也几乎没有帮助。
+
+**delta_q_norm 下降到 0.35**
+
+FrontRES 在学习输出更小的修正量，方向正确。Stage 1 预训练的修正量在 DR=0 的干净参考下是有害的，奖励信号正在把它们推向零。
+
+**delta_z_abs_mean = 0**（异常）
+
+按照代码，task-space 模式下应记录 `last_task_correction.abs().mean()`，但全程为 0。可能原因：`last_task_correction` 未被设置（`get_env_action` 未进入 task-space 分支），或者 task-space mode flag 判断失败。**这与 `delta_q_norm = 0.35` 矛盾，需要排查**。
+
+**jump_degree_mean = 0.00175**
+
+正常，动作序列以地面动作为主，门控几乎不激活。
+
+---
+
+## 根本诊断
+
+Stage 1 学到了针对浮空/穿模的修正策略。Stage 2 从 DR=0 开始，参考动作是干净的，Stage 1 的修正对干净参考是**有害的**，导致 GMT 收到被错误修改的参考锚点后快速失败。
+
+PI 控制器的逻辑是正确的——survival rate 低就保持 DR=0——但 12,577 轮后 episode_length 仍然是 10，说明 FrontRES 学习收敛太慢，无法在合理时间内把修正量降到无害水平。
+
+---
+
+## 建议检查项
+
+1. **立即**：确认 `num_task_corrections > 0` 在运行中是否为 True（否则 task-space 修正根本没被应用）
+
+2. **若确认 task-space 正常**：考虑加大 `lambda_reg`（正则化惩罚）强迫 FrontRES 更快收敛到零修正，给 GMT 恢复时间
+
+3. **或**：Stage 2 启动时临时将 FrontRES 初始输出 scale 强制归零（`delta_q_alpha = 0` 先 warmup 几千步），让 episode_length 先恢复到 100+ 再开放修正
+
+---
+
+
+**Claude**
+
+## dr_target_episode_length 的含义
+
+PI 控制器的逻辑是：**先让机器人证明自己能稳定跑 T 步，再引入 DR 扰动**。
+
+公式将"期望 episode 长度 T"转换为"按步成功率目标"：
+
+```
+dr_target_surv = 1 - 1/T
+```
+
+物理意义：如果每一步倒下的概率恒为 p，则 episode 平均长度为 1/p，因此 p = 1/T，存活率 = 1 - p = 1 - 1/T。
+
+| `dr_target_episode_length` | `dr_target_surv` | 含义 |
+|---|---|---|
+| 10 | 0.900 | 机器人只要撑 10 步就开始加 DR |
+| 20 | 0.950 | 撑 20 步 |
+| 60 | 0.983 | 撑 60 步（当前配置应有值） |
+| 125 | 0.992 | 撑满一段正常 GMT episode |
+| 10000 | ≈1.000 | 几乎永远不增加 DR ← **当前 wandb 显示的现象** |
+
+当前 wandb 显示 1.000，说明 `_dr_target_ep` 极大或为 1，因此永远无法触发 DR 增加。
+
+---
+
+现在插入调试 print。先找到关键行：
+
+---
+
+
+**Claude**
+
+已经有一个现有 print（第 528 行）会在启动时输出 `_dr_target_ep` 和 `_dr_target_surv`，但只在找到 `motion_perturbations` 配置时触发。现在加两处更精确的 debug print：
+
+---
+
+
+**Claude**
+
+第二处：在 PI 控制器每步更新处加周期性打印，方便追踪动态：
+
+---
