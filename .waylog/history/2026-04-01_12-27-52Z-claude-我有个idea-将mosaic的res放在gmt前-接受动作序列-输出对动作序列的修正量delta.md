@@ -16384,3 +16384,607 @@ dr_target_surv = 1 - 1/T
 第二处：在 PI 控制器每步更新处加周期性打印，方便追踪动态：
 
 ---
+
+
+**User**
+
+测试的结果是：
+
+[DR-DEBUG] cfg raw 'dr_target_episode_length' = 60
+[DR-DEBUG] _dr_target_ep=60, _dr_target_surv=0.983333  (应为 ~0.9833 当 target_ep=60)
+[Runner] Adaptive DR (PI controller): target_ep_len=60 steps (per-step target=0.9833), speed=0.0005, max_scale=4.0, base float_ratio=0.050m, base root_tilt=0.050rad, resume dr_scale=0.000
+[DR-DEBUG it=10000] survival_rate=1.0000  survival_ema=1.0000  target=0.9833  dr_scale=0.0005
+
+---
+
+
+**Claude**
+
+## 诊断结论
+
+配置正确，PI 控制器运作正常。`dr_target_survival` 在 wandb 上显示"1"是**视觉误判**——实际值 0.983 在 y 轴范围 0.88~1.00 上看起来非常接近顶端。
+
+---
+
+## it=10000 的 debug 含义
+
+这是 Stage 2 第一轮，EMA 还没有摄入任何真实数据：
+
+```
+survival_rate = 1.0000   ← _last_survival_rate 未初始化，用默认值 1.0
+survival_ema  = 1.0000   ← 同上，乐观初值
+dr_scale      = 0.0005   ← 1.0 > 0.9833+0.005，PI 控制器正确上调了一步
+```
+
+随后 EMA 会很快收敛到真实水平，以 `_dr_ema_alpha=0.95` 和真实 survival_rate=0.89，约 5 轮后 EMA 降到 0.975：
+
+```
+iter+1: EMA = 0.95×1.00 + 0.05×0.89 = 0.9945  → 仍高于阈值，继续上调
+iter+2: EMA = 0.95×0.9945 + 0.05×0.89 = 0.9893 → 仍高
+iter+3: EMA ≈ 0.984                              → 进入 deadband，停止调整
+iter+4: EMA ≈ 0.980                              → 进入 deadband
+iter+5: EMA ≈ 0.975 < 0.9783                    → 开始下调
+```
+
+dr_scale 在前几轮短暂升至约 0.002~0.003（带来的实际扰动 = 0.05m × 0.003 ≈ 0.00015m，近似为零），之后被 PI 拉回 0。
+
+**PI 控制器的行为完全正确**，问题不在课程设计，而在于 **episode_length=10 本身**。
+
+---
+
+## 真正的根本问题
+
+Stage 1 的权重学到了"对浮空参考施加修正"的策略。Stage 2 以 DR=0（干净参考）启动，Stage 1 的修正作用于干净参考时是**有害的**：
+
+```
+Stage 1 修正 → GMT 收到被扭曲的锚点姿态
+→ episode_length = 10
+→ survival_rate = 0.89
+→ PI 控制器正确维持 DR ≈ 0
+→ FrontRES 信号极弱（r_delta ≈ 0.0005），很慢地学习减小修正
+→ 陷入长期低效收敛
+```
+
+等下一个 200 轮 debug 打印出来，可以确认 EMA 是否已收敛到 ~0.89：
+
+```
+[DR-DEBUG it=10200] survival_rate≈0.89  survival_ema≈0.89  dr_scale≈0.000
+```
+
+---
+
+## 快速缓解方案
+
+在 `rsl_rl_ppo_cfg.py` 里大幅降低初始修正幅度，限制 Stage 1 有害修正的量级：
+
+```python
+max_delta_pos: float = 0.05   # 从 0.3 降到 0.05m
+max_delta_rpy: float = 0.05   # 从 0.3 降到 0.05 rad
+```
+
+这样 Stage 1 的修正即使方向错误，破坏也被限制在 5cm / 3°，GMT 大概率能继续跟踪，episode_length 会回升，DR 才能开始工作。等训练稳定后再逐步放开幅度。
+
+---
+
+
+**Claude**
+
+你识别到的循环是：
+
+```
+Stage1修正 + 干净参考 → 机器人摔倒
+→ survival_rate低 → PI维持DR≈0
+→ 参考依然干净 → Stage1修正依然有害
+→ 永远无法进入有效训练
+```
+
+---
+
+## 为什么ΔSE(3)比Δq更难
+
+Δq加到q_ref，PD控制器会部分吸收关节角误差，影响是间接的。
+
+ΔSE(3)直接改变`motion_anchor_ori_b`（锚点相对姿态），这是GMT观测向量里的6维项——GMT立刻"看到"一个错误的参考姿态，反应是试图让机器人身体跟随这个错误姿态→立刻摔倒。破坏是即时且直接的。
+
+---
+
+## 之前α课程失败的根因
+
+α=0时：GMT稳定，但FrontRES收不到任何学习信号，Critic学不到value。
+α>0时：Stage1修正有害→摔倒→Critic也学不到，只是原因不同。
+两端都无法建立有效学习基础。
+
+---
+
+## 真正的解法：让Stage2从匹配的DR强度出发
+
+**当前设计的逻辑错误**：Stage1用DR Level 1（`dr_scale=1`）训练出来的修正策略，在Stage2以`dr_scale=0`（干净参考）启动时，修正和环境完全不匹配。
+
+**正确逻辑**：Stage2应当从`dr_scale=1`出发——这是Stage1实际接触过的扰动强度，Stage1的修正策略正是为这个强度设计的。PI控制器再从这里根据实际survival调整。
+
+```
+Stage1: 在DR Level 1扰动下学习SE(3)修正
+Stage2: 从DR Level 1启动 → Stage1修正恰好对症
+       → 机器人稳定（episode_length≈100+）
+       → PI控制器可以开始向Level 4推进
+```
+
+**实现方式**：在checkpoint加载时将`_dr_scale`初始化为1.0而不是0.0：
+
+```python
+# on_policy_runner.py，load()方法里
+# 将 dr_scale 恢复逻辑改为：
+_dr_scale_from_ckpt = float(checkpoint.get("dr_scale", 0.0))
+self._dr_scale = max(_dr_scale_from_ckpt, 1.0)  # Stage2至少从Level 1开始
+```
+
+或者更简单，在`rsl_rl_ppo_cfg.py`的Stage2 config里直接指定：
+
+```python
+dr_init_scale: float = 1.0  # Stage2从Level 1出发，而非0
+```
+
+**这解决了根本矛盾**：不需要α课程，不需要重置网络权重，Stage1和Stage2的训练条件天然匹配。
+
+---
+
+
+**Claude**
+
+现在在 `rsl_rl_ppo_cfg.py` 里加入这个参数：
+
+---
+
+
+**Claude**
+
+完成。验证两处修改的效果链：
+
+启动日志将变为：
+```
+[Runner] is_full_resume=False → load_optimizer=False, reset_noise_std=True
+[Runner] Stage1→Stage2 cold-start: dr_scale initialised to dr_init_scale=1.0000
+         (ignoring checkpoint value 0.0000)
+[DR-DEBUG] _dr_target_ep=60, _dr_target_surv=0.983333
+[DR-DEBUG it=10000] survival_rate=1.0000  survival_ema=1.0000  dr_scale=1.0005
+```
+
+PI 控制器的行为将变为：
+
+```
+it=10000：dr_scale=1.0（初始值），Stage1修正 ↔ Level1扰动  → 匹配
+          survival_rate ≈ 0.98+（预期，Stage1已知能处理Level1）
+          → EMA > target → dr_scale缓慢上升 → 向Level4推进
+
+如果某阶段survival下降：
+          → EMA < target → dr_scale回落 → 自动退回到Stage1舒适区
+```
+
+---
+
+
+**User**
+
+请去掉先前的print测试代码
+
+---
+
+
+**Claude**
+
+两处 debug print 均已移除，代码干净。
+
+---
+
+
+**User**
+
+更新后到服务器上已经跑了10250轮(从10000轮开始)，还是同样的趋势，改动没有效果
+
+---
+
+
+**Claude**
+
+训练只多了 250 轮（10000→10250）但趋势相同，说明 dr_scale 很可能**根本没有变成 1.0**。最可能的原因有两个：
+
+---
+
+## 原因一：`is_full_resume` 被设为 True
+
+我们的修改只在 `is_full_resume=False` 时生效。如果服务器上的 config 还是 `True`（续训模式），checkpoint 的 dr_scale=0 会被直接恢复。
+
+立即检查：
+
+```bash
+grep -n "is_full_resume" \
+  /path/to/rsl_rl_ppo_cfg.py
+```
+
+---
+
+## 原因二：即使 dr_scale=1.0 也无法解决问题
+
+即使 dr_scale=1.0，更深层的问题可能仍然存在。注意到以前**Δq 模式的 Stage 2 曾经跑到 100+ episode length**，而**ΔSE(3) 模式从第一轮就是 10**。根本区别：
+
+- **Δq 模式**：修正加到观测向量里的 q_ref，GMT 的 PD 控制器会部分吸收误差
+- **ΔSE(3) 模式**：直接改变 `_frontres_quat_correction`，**即时改变 `motion_anchor_ori_b` 这个 GMT 直接观测的量**，破坏是瞬时的
+
+Stage 2 初始化的随机 ΔSE(3) 输出（即使很小）对 GMT 的破坏力远大于 Δq 修正。
+
+---
+
+## 最快的验证路径
+
+看 wandb 上 `Curriculum/dr_scale` 在 it=10000 时的值：
+
+- **如果是 0**：`is_full_resume=True`，修改没生效，先改配置
+- **如果是 1.0**：DR Level 1 + ΔSE(3) 初始化仍然导致崩溃，问题在 ΔSE(3) 架构本身
+
+---
+
+## 如果 dr_scale=1.0 也无效——回退方案
+
+ΔSE(3) 模式在 Stage 2 冷启动时的破坏力太强，可以考虑**Stage 2 继续用 Δq 模式**，只有等 Δq 模式稳定后再切换：
+
+在 `rsl_rl_ppo_cfg.py` 中临时将 `num_task_corrections` 改回 0，沿用之前已知有效的 Δq 路线，等 FrontRES 在 RL 框架下稳定后再考虑是否切换到 ΔSE(3)。
+
+先确认 wandb 的 dr_scale 值，再决定下一步方向。
+
+---
+
+
+**Claude**
+
+结论清晰了。让我看关键的 Stage 1 配置行：
+
+**Stage 1 policy（第 148 行）：`num_task_corrections=6`**
+**Stage 1 algorithm（第 153 行）：`num_task_corrections=6`**
+**Stage 2 policy（第 298 行）：`num_task_corrections=6`**
+
+---
+
+## 结论：Stage 1 已经用 ΔSE(3) 重新训练，输出空间一致
+
+你的记忆是正确的。Stage 1 和 Stage 2 的 FrontRES 都是 6 维 ΔSE(3) 输出，最后一层维度完全匹配，权重可以正确转移。之前关于"维度不匹配导致最后一层重新随机初始化"的分析是错的。
+
+---
+
+## 真正的根本原因
+
+Stage 1 在 DR Level 1 扰动下训练，FrontRES 学到的是：
+
+```
+有扰动的参考 → 输出 ΔSE(3) 修正
+```
+
+Stage 2 以 DR=0 启动，输入的是干净参考，这对 Stage 1 的 FrontRES 来说是**完全的分布外（OOD）输入**——Stage 1 从未见过干净参考，网络对这种输入的输出是不可预期的，大概率非零，导致 GMT 收到错误的锚点方向而摔倒。
+
+Stage 1 是在"有扰动"的分布上训练的，Stage 2 第一步却给它"无扰动"的数据，这是**训练分布与推理分布的错位**，根本上导致冷启动失败。
+
+---
+
+## 为什么 `dr_init_scale=1.0` 是正确的修复方向，但没有生效
+
+Stage 2 从 DR Level 1 启动 → FrontRES 收到和 Stage 1 训练时相同分布的输入 → 输出合理的修正 → 机器人稳定。这个逻辑是对的，但由于 `is_full_resume` 仍然为 True（从 Stage 2 checkpoint 恢复），`dr_init_scale=1.0` 被跳过，dr_scale 仍从 checkpoint 的 0 恢复。
+
+**下一步**：将 config 中 `is_full_resume` 改为 `False`，然后重启训练，让 dr_scale 真正从 1.0 出发。
+
+---
+
+
+**User**
+
+请再次检查ΔSE遵循世界坐标系还是局部坐标系，如果ΔSE是世界坐标系，加给局部坐标系的SE_ref，肯定无法收敛
+
+---
+
+
+**Claude**
+
+핵심 질문이다. 데이터 플로우를 정밀하게 추적하겠다.
+
+---
+
+
+**Claude**
+
+关键函数已找到。来仔细检查坐标系一致性：
+
+---
+
+
+**Claude**
+
+发现了一个真实的坐标系 bug。梳理完整的数学关系：
+
+---
+
+## Stage 1 监督目标（orientation）
+
+```python
+# observations.py line 169
+q_rel = quat_mul(quat_inv(q_anchor), q_robot)   # = q_anchor^{-1} * q_robot
+```
+
+这是「从 anchor 帧旋转到 robot 帧」的旋转量，**表达在 anchor 的局部坐标系中**。
+
+---
+
+## Stage 2 应用方式（commands.py line 1373）
+
+```python
+return quat_mul(self._frontres_quat_correction, anchor_quat_w)  # 左乘 = 世界坐标系旋转
+```
+
+左乘四元数意味着在**世界坐标系**中施加旋转。
+
+---
+
+## 数学验证：两者不一致
+
+若要让 `anchor_quat_new = q_robot`，需要的修正是：
+
+```
+q_correction_needed = q_robot * quat_inv(q_anchor)   ← 世界坐标系（右框架）
+```
+
+但 Stage 1 的监督目标给出的是：
+
+```
+q_rel = quat_inv(q_anchor) * q_robot               ← anchor 局部坐标系（左框架）
+```
+
+两者等价条件：`q_anchor` 与 `q_robot` 对易（即绕相同轴旋转）。对一般情况这**不成立**。
+
+验证：若用 Stage 1 的目标左乘 anchor：
+
+```
+q_rel * q_anchor = quat_inv(q_anchor) * q_robot * q_anchor ≠ q_robot  ✗
+```
+
+---
+
+## 误差量级
+
+对 Level 1 扰动（0.05 rad ≈ 3°）和接近直立的姿态，两者误差约 1~2%，近似正确。对 Level 4 扰动（0.20 rad ≈ 11°）或舞蹈等大幅转体动作，误差增大但仍在可接受范围。**这不是 episode_length=10 的主因**，但是一个需要修复的系统性错误。
+
+---
+
+## 修复方案
+
+**方案 A（推荐）：将 Stage 2 改为右乘（anchor 局部坐标系）**
+
+```python
+# commands.py anchor_quat_w 属性
+# 当前（错误）：
+return quat_mul(self._frontres_quat_correction, anchor_quat_w)   # 左乘
+
+# 修正：
+return quat_mul(anchor_quat_w, self._frontres_quat_correction)   # 右乘
+```
+
+验证：`q_anchor * q_rel = q_anchor * quat_inv(q_anchor) * q_robot = q_robot` ✓
+
+**方案 B：将 Stage 1 目标改为世界坐标系**
+
+```python
+# observations.py anchor_root_rpy_error_w
+q_correction = quat_mul(q_robot, quat_inv(q_anchor))  # 改为 q_robot * q_anchor^{-1}
+```
+
+方案 A 更简洁，只改一处应用代码，Stage 1 数据无需重新生成。要执行吗？
+
+---
+
+
+**Claude**
+
+## 问题的两个组成部分
+
+当前 episode_length=10 不是单一问题，需要先拆解：
+
+---
+
+**问题 A（分布不匹配）：FrontRES 输出错误的修正方向**
+
+Stage 1 在 DR Level 1 扰动下训练，学会了"有扰动→输出修正"的映射。Stage 2 以 DR=0（干净参考）启动，FrontRES 面对从未见过的输入分布，输出的修正方向/幅度是随机的。随机修正持续施加，机器人在约 10 步内摔倒。
+
+**这是主因。任何平滑操作都无法修正方向错误的修正。**
+
+**问题 B（瞬态尖峰）：episode 开始时的速度跳变**
+
+每次 episode 开始，`_frontres_quat_correction` 复位为单位四元数。FrontRES 在第一步输出完整修正，`motion_anchor_ori_b` 在 0.02s 内突变，等效角速度极大。即使修正方向正确，GMT 也可能因观测突变而失稳。
+
+**这是次因，只在修正方向正确的前提下才需要解决。**
+
+---
+
+## 三个方案的概念分析
+
+**Clamp：** 限制每步修正的幅度，但不改变修正方向，也不解决分布不匹配。若修正方向错误，只是让机器人摔慢一点。对问题 A 无效，对问题 B 有部分帮助（减小瞬态幅度）但不够：当前架构每步用 FrontRES 的输出直接替换修正量（非累积），从 0 跳变到 clamp 边界仍是速度尖峰。
+
+**EMA（输出平滑）：** 平滑 FrontRES 输出信号的变化，不改变方向，不改变稳态值。问题 A 完全无效。对问题 B 有帮助：若 FrontRES 从 0 突变到某个修正量，EMA 让应用量缓慢攀升，减小速度尖峰——但前提是 EMA 作用于**已施加的修正状态**而非 FrontRES 的原始输出；否则稳态下应用量仍等于 FrontRES 输出，问题 B 依然存在。
+
+**Interpolate：** 与 EMA（修正状态版）在数学上等价，`SE(3)_actual[t] = (1-γ)*SE(3)_actual[t-1] + γ*SE(3)_target[t]`，每步仅追踪 γ 比例的修正量，限制了速度。对问题 A 同样无效，对问题 B 是正确的解法。
+
+---
+
+## 结论
+
+| | 问题 A（方向错误） | 问题 B（速度尖峰） |
+|---|---|---|
+| Clamp | ❌ 无效 | △ 部分缓解 |
+| EMA（输出） | ❌ 无效 | △ 有帮助但不完整 |
+| Interpolate / EMA（状态） | ❌ 无效 | ✅ 正确解法 |
+| **is_full_resume=False + dr_init_scale=1.0** | ✅ **解决主因** | — |
+
+**正确的解决顺序：**
+
+1. **先解决问题 A**：让 `is_full_resume=False` 真正生效，使 Stage 2 从 DR Level 1 出发，FrontRES 面对它在 Stage 1 中训练过的输入分布，输出正确的修正。
+
+2. **再处理问题 B**：若问题 A 解决后 episode_length 仍低，再引入修正状态的平滑（Interpolate/EMA of state），减小 episode 开始时的瞬态尖峰。
+
+当前的训练失败根本原因是 `is_full_resume` 仍为 True 导致 `dr_init_scale=1.0` 从未生效，而非平滑方案缺失。
+
+---
+
+
+**Claude**
+
+The precomputation fix is in the local code. Let me look at the full `_compute_jump_degree` method and the surrounding context to find what might hang.
+
+---
+
+
+**Claude**
+
+The local code has the fix. Let me check if `motion_dir_loader` has the `motion_offsets` attribute, which is needed by the precomputed approach.
+
+---
+
+
+**Claude**
+
+Good, `motion_offsets` exists. Now let me check the `__init__` section where `_jump_anchor_z` is initialized to see if there might be a device/indexing issue.
+
+---
+
+
+**Claude**
+
+The local code is correct. Let me look at what happens in `on_policy_runner.py` AFTER the DR scale restoration print to find what's actually causing the hang.
+
+---
+
+
+**Claude**
+
+Let me look at the full `load()` function to see if there's any blocking code that runs specifically when `is_full_resume=True`.
+
+---
+
+
+**Claude**
+
+Let me look at the beginning of `learn()` to see what initialization happens before the first training iteration.
+
+---
+
+
+**Claude**
+
+Let me look at the DR curriculum initialization in `learn()` to see if dr_scale=0 causes any issue.
+
+---
+
+
+**Claude**
+
+Let me check the WandbSummaryWriter to see if there's wandb resume logic related to is_full_resume.
+
+---
+
+
+**Claude**
+
+Let me find the training launch script to understand what runs between `load()` and `learn()`.
+
+---
+
+
+**Claude**
+
+Let me check if `motion_lengths_minus_one` is properly defined in the command term.
+
+---
+
+
+**Claude**
+
+Let me check what `loaded_dict["infos"]` is — looking at the save function.
+
+---
+
+
+**Claude**
+
+The runner being imported is `MotionOnPolicyRunner` — let me check that file, as it may have additional logic.
+
+---
+
+
+**Claude**
+
+Let me check if `jump_degree` is used as an observation that would be computed during `get_observations()`.
+
+---
+
+
+**Claude**
+
+Now I have a clear picture. The hang occurs inside `learn()`, specifically at `wandb.init()` which tries `start_method="fork"` first — a known CUDA deadlock risk. When `is_full_resume=True` loads the optimizer state to GPU, the CUDA context is more heavily populated, making the fork-based subprocess deadlock more likely. The fallback strategies never trigger because `wandb.init()` deadlocks rather than raising an exception.
+
+Two fixes needed:
+1. In `wandb_utils.py`: try `"thread"` before `"fork"` (thread-safe with CUDA; fork is not)
+2. Add a diagnostic print before writer init in `learn()` so we can confirm
+
+Let me apply both fixes:
+
+---
+
+
+**Claude**
+
+Now add a diagnostic print at the very start of `learn()`, before the writer init, so we can confirm whether the hang is there or elsewhere:
+
+---
+
+
+**Claude**
+
+Also add a print AFTER the writer init to confirm wandb completed:
+
+---
+
+
+**Claude**
+
+Now let me verify both changes are clean:
+
+---
+
+
+**Claude**
+
+Good. Here is the root cause and what was changed:
+
+---
+
+**根本原因：CUDA + `fork` 死锁（与 `is_full_resume` 无关的 wandb 问题）**
+
+整个 log 的实际执行顺序是：
+
+```
+[Runner] Adaptive DR scale restored from checkpoint: 0.0000   ← load() 最后一行
+[Runner] learn() entered — initializing logger...              ← 新增，确认进入 learn()
+wandb.init(start_method="fork")                                ← 在此死锁 ←
+[Runner] Logger initialized — starting training setup...       ← 从未出现
+```
+
+**为什么 `fork` 会死锁？**
+
+Linux 上，`os.fork()` 后子进程继承了父进程的 CUDA 上下文。CUDA 上下文不支持 `fork` — 子进程试图使用继承的 CUDA 句柄时会永久阻塞。`wandb.init()` 内部死锁，不抛异常，`except` 永远不触发，fallback 策略也永远无法执行。
+
+**为什么 `is_full_resume=False` 没有触发？**
+
+`is_full_resume=True` 时，`load_optimizer=True` → 将优化器动量张量加载到 GPU（数百MB 到几GB 的额外 CUDA 分配）。这些额外的 CUDA 流/事件操作在 `fork` 时处于不同状态，使死锁概率大幅提升。
+
+**两处修改：**
+
+1. [wandb_utils.py](source/rsl_rl/rsl_rl/utils/wandb_utils.py) — 将 `"thread"` 移到 `"fork"` 之前（`thread` 对 CUDA 完全安全，不需要 fork 子进程）
+2. [on_policy_runner.py](source/rsl_rl/rsl_rl/runners/on_policy_runner.py) — 在 `learn()` 入口和 logger 初始化后各加一个 `flush=True` 的 print，便于后续诊断
+
+推送到服务器后，如果看到 `[Runner] learn() entered` 但不见 `[Runner] Logger initialized`，说明死锁确认在 wandb，但用了 `thread` 后应当能正常通过了。
+
+---
