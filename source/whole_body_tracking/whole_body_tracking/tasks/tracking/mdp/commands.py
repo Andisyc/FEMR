@@ -361,6 +361,23 @@ class MotionCommand(CommandTerm):
         return quat_mul(base_quat, self._frontres_quat_correction)
 
     @property
+    def anchor_dr_delta_pos(self) -> torch.Tensor:
+        """DR-induced anchor position delta (perturbed - original). Zero when no perturber."""
+        return torch.zeros(self.num_envs, 3, device=self.device)
+
+    @property
+    def anchor_dr_delta_quat_correction(self) -> torch.Tensor:
+        """The quaternion correction that undoes DR tilt (identity when no perturber).
+
+        Computed as quat_inv(perturbed) * original → right-multiply this onto
+        perturbed_quat to recover the original anchor orientation.
+        Stored as (w,x,y,z).
+        """
+        identity = torch.zeros(self.num_envs, 4, device=self.device)
+        identity[:, 0] = 1.0  # w = 1
+        return identity
+
+    @property
     def anchor_lin_vel_w(self) -> torch.Tensor:
         return self.motion.body_lin_vel_w[self.time_steps, self.motion_anchor_body_index]
 
@@ -1352,10 +1369,34 @@ class MultiMotionCommand(CommandTerm):
         return self._gather_by_motion("body_ang_vel_w")
 
     @property
+    def anchor_dr_delta_pos(self) -> torch.Tensor:
+        """DR-induced anchor position delta: perturbed_pos - clean_pos (world frame)."""
+        pos = self._gather_by_motion("body_pos_w")
+        root_pos_ref = pos[:, self.motion_anchor_body_index]
+        left_foot_pos_ref = pos[:, self.left_foot_idx]
+        right_foot_pos_ref = pos[:, self.right_foot_idx]
+        perturbed_pos = self.perturber.apply_perturbations(
+            root_pos_ref, left_foot_pos_ref, right_foot_pos_ref)
+        return perturbed_pos - root_pos_ref
+
+    @property
+    def anchor_dr_delta_quat_correction(self) -> torch.Tensor:
+        """Quaternion correction that undoes DR tilt (anchor local frame, wxyz).
+
+        perturbed_quat = tilt * clean_quat   (left-multiply, world-frame tilt)
+        We want:  quat_mul(perturbed_quat, correction) = clean_quat
+        → correction = quat_mul(quat_inv(perturbed_quat), clean_quat)
+        """
+        quat = self._gather_by_motion("body_quat_w")
+        root_quat = quat[:, self.motion_anchor_body_index]
+        perturbed_quat = self.perturber.apply_quat_perturbation(root_quat)
+        return quat_mul(quat_inv(perturbed_quat), root_quat)
+
+    @property
     def anchor_pos_w(self) -> torch.Tensor:
         # Use body_pos_w then index anchor across bodies
         pos = self._gather_by_motion("body_pos_w")
-        
+
         # apply perturbation
         root_pos_ref = pos[:, self.motion_anchor_body_index]
         left_foot_pos_ref = pos[:, self.left_foot_idx]
@@ -1366,7 +1407,7 @@ class MultiMotionCommand(CommandTerm):
             left_foot_pos_ref,
             right_foot_pos_ref
         )
-        
+
         return perturbed_pos + self._env.scene.env_origins + self._frontres_pos_correction
 
     @property
