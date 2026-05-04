@@ -247,6 +247,12 @@ class G1FlatFrontRESFinetuneRunnerCfg(RslRlOnPolicyRunnerCfg):
     #   在 Stage2 初期仍然适用，避免干净参考上修正有害导致的即时崩溃。
     #   断点续训（is_full_resume=True）时该值被忽略，直接从 checkpoint 恢复。
     dr_init_scale:   float = 1.0
+    #
+    # dr_min_scale: dr_scale 下限（PI 控制器不会将 dr_scale 降至此值以下）。
+    #   0.3 保证始终存在 Level 0.3 扰动，防止 FrontRES 滑入"零修正"无效果捷径，
+    #   同时不给 GMT 施加过大的负担使 episode 崩溃。
+    #   若生存率在 dr_min 处仍低于目标，说明 GMT 无法跟踪该运动，需从根本修复。
+    dr_min_scale:    float = 0.3
 
     # Critic 预热：禁用。actor-frozen warmup 会制造 V 估计分布错配，PPO 自然处理 OOD 冷启动。
     critic_warmup_iterations = 0

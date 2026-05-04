@@ -426,9 +426,10 @@ class OnPolicyRunner:
         # Book keeping
         ep_infos = []
         rewbuffer = deque(maxlen=100)  # FrontRES envs: r_delta per episode; others: raw reward
-        lenbuffer = deque(maxlen=100)
+        lenbuffer = deque(maxlen=100)  # FrontRES training envs episode lengths
         # B1: separate GMT baseline reward buffer (only populated when _is_frontres)
-        rewbuffer_gmt = deque(maxlen=100)  # GMT-only envs: raw GMT reward per episode
+        rewbuffer_gmt    = deque(maxlen=100)  # GMT-only envs: raw GMT reward per episode
+        lenbuffer_gmt    = deque(maxlen=100)  # GMT-only envs: episode lengths (key diagnostic)
 
         # self.env.num_envs: 仿真中同时运行的机器人数量
         # cur_reward_sum & cur_episode_length: 每个机器人的总得分与存活时间
@@ -500,11 +501,13 @@ class OnPolicyRunner:
         _dr_target_surv = 1.0 - 1.0 / max(1, _dr_target_ep)  # per-step survival target
         _dr_speed       = float(self.cfg.get("dr_adapt_speed",  0.0005))
         _dr_max         = float(self.cfg.get("dr_max_scale",    4.0))
+        _dr_min         = float(self.cfg.get("dr_min_scale",    0.0))
         _dr_ema_alpha   = float(self.cfg.get("dr_ema_alpha",    0.95))
         _dr_deadband    = float(self.cfg.get("dr_deadband",     0.005))
 
         # Restore dr_scale from checkpoint (set by load()); start at 0 for fresh runs.
         _dr_scale     = float(getattr(self, '_dr_scale', 0.0))
+        _dr_scale     = max(_dr_scale, _dr_min)  # enforce floor on resume
         _survival_ema = 1.0  # optimistic initial estimate; warms up quickly via EMA
 
         # Read base perturbation values from env config (scaled by dr_scale each iteration).
@@ -582,7 +585,7 @@ class OnPolicyRunner:
                 if _survival_ema > _dr_target_surv + _dr_deadband:
                     _dr_scale = min(_dr_scale + _dr_speed, _dr_max)
                 elif _survival_ema < _dr_target_surv - _dr_deadband:
-                    _dr_scale = max(_dr_scale - _dr_speed, 0.0)
+                    _dr_scale = max(_dr_scale - _dr_speed, _dr_min)
                 # Persist for resume
                 self._dr_scale = _dr_scale
                 # Apply dr_scale to perturber (prob fields unchanged; only ratio/magnitude fields)
@@ -881,21 +884,21 @@ class OnPolicyRunner:
                         # -- common
                         new_ids = (dones > 0).nonzero(as_tuple=False)
                         if _is_frontres and len(new_ids) > 0:
-                            # B1: split done envs into FrontRES (r_delta) and GMT (raw reward)
+                            # B1: split done envs into FrontRES (r_delta) and GMT (raw reward + length)
                             _env_idx  = new_ids[:, 0]
                             _fr_done  = new_ids[_env_idx < N_train]
                             _gmt_done = new_ids[_env_idx >= N_train]
                             if len(_fr_done) > 0:
-                                # cur_reward_sum[:N_train] accumulates r_delta (correct)
                                 rewbuffer.extend(cur_reward_sum[_fr_done][:, 0].cpu().numpy().tolist())
+                                lenbuffer.extend(cur_episode_length[_fr_done][:, 0].cpu().numpy().tolist())
                             if len(_gmt_done) > 0:
-                                # cur_reward_sum_gmt accumulates raw GMT reward (pre-zeroing)
-                                _gmt_local = _gmt_done[:, 0] - N_train  # local index within [0, N_base)
+                                _gmt_local = _gmt_done[:, 0] - N_train
                                 rewbuffer_gmt.extend(cur_reward_sum_gmt[_gmt_local].cpu().numpy().tolist())
+                                lenbuffer_gmt.extend(cur_episode_length[_gmt_done][:, 0].cpu().numpy().tolist())
                                 cur_reward_sum_gmt[_gmt_local] = 0
                         elif len(new_ids) > 0:
                             rewbuffer.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
-                        lenbuffer.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
+                            lenbuffer.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
                         cur_reward_sum[new_ids] = 0
                         cur_episode_length[new_ids] = 0
 
@@ -1104,6 +1107,9 @@ class OnPolicyRunner:
                 self.writer.add_scalar("Train/mean_r_delta",   statistics.mean(locs["rewbuffer"]),     locs["it"])
                 if len(locs.get("rewbuffer_gmt", [])) > 0:
                     self.writer.add_scalar("Train/mean_reward_gmt", statistics.mean(locs["rewbuffer_gmt"]), locs["it"])
+                if len(locs.get("lenbuffer_gmt", [])) > 0:
+                    self.writer.add_scalar("Train/mean_episode_length_gmt",
+                                           statistics.mean(locs["lenbuffer_gmt"]), locs["it"])
             else:
                 self.writer.add_scalar("Train/mean_reward", statistics.mean(locs["rewbuffer"]), locs["it"])
             self.writer.add_scalar("Train/mean_episode_length", statistics.mean(locs["lenbuffer"]), locs["it"])
@@ -1134,6 +1140,8 @@ class OnPolicyRunner:
                 log_string += f"""{'Mean r_delta (FrontRES):':>{pad}} {statistics.mean(locs['rewbuffer']):.4f}\n"""
                 if len(locs.get("rewbuffer_gmt", [])) > 0:
                     log_string += f"""{'Mean reward_GMT (baseline):':>{pad}} {statistics.mean(locs['rewbuffer_gmt']):.4f}\n"""
+                if len(locs.get("lenbuffer_gmt", [])) > 0:
+                    log_string += f"""{'Mean ep_len_GMT (baseline):':>{pad}} {statistics.mean(locs['lenbuffer_gmt']):.1f}\n"""
             else:
                 log_string += f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
             # -- Velocity estimator error (if available)

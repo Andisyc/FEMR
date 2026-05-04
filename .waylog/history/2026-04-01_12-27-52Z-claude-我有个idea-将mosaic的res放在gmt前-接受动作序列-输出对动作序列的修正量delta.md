@@ -16988,3 +16988,299 @@ Linux 上，`os.fork()` 后子进程继承了父进程的 CUDA 上下文。CUDA 
 推送到服务器后，如果看到 `[Runner] learn() entered` 但不见 `[Runner] Logger initialized`，说明死锁确认在 wandb，但用了 `thread` 后应当能正常通过了。
 
 ---
+
+
+**Claude**
+
+Your organization does not have access to Claude. Please login again or contact your administrator.
+
+---
+
+
+**User**
+
+Continue from where you left off.
+
+---
+
+
+**Claude**
+
+No response requested.
+
+---
+
+
+**User**
+
+现在更新的代码推送到服务器上训练Stage2已经来到10588轮次了(从10000轮次开始)：
+
+r_delta_per_step在0.0005附近波动，几乎全为正值，但也有负值；
+
+baseline_per_step在-0.077左右密集震荡，不超过-0.076；
+
+delta_q_norm_std和delta_q_norm_mean一路走低到0.76左右；
+
+reg_penalty_per_step全程为0；
+
+delta_z_abs_mean全程为0；
+
+jump_degree_mean在0.0018附近震荡；
+
+value_function一路震荡走低到0.025；
+
+Surrogate一直保持在-0.0002，但也有几个尖刺；
+
+mean_reward_gmt在-0.6左右剧烈震荡；
+
+mean_r_delta在0附近震荡，有1个向下的巨大峰值；
+
+mean_episode_length在10左右震荡；
+
+Curriculum/training_survival_rate一直在0.89附近密集震荡；
+
+Curriculum/survival_ema从1下降到0.89，然后保持；
+
+Curriculum/dr_target_survival一直稳定在1；
+
+Curriculum/dr_scale从0.0005开始先上升再下降，最后保持在0；
+
+似乎将dr_scale置为level 1后并不起效；
+
+---
+
+
+**Claude**
+
+Your organization does not have access to Claude. Please login again or contact your administrator.
+
+---
+
+
+**User**
+
+现在更新的代码推送到服务器上训练Stage2已经来到10588轮次了(从10000轮次开始)：
+
+r_delta_per_step在0.0005附近波动，几乎全为正值，但也有负值；
+
+baseline_per_step在-0.077左右密集震荡，不超过-0.076；
+
+delta_q_norm_std和delta_q_norm_mean一路走低到0.76左右；
+
+reg_penalty_per_step全程为0；
+
+delta_z_abs_mean全程为0；
+
+jump_degree_mean在0.0018附近震荡；
+
+value_function一路震荡走低到0.025；
+
+Surrogate一直保持在-0.0002，但也有几个尖刺；
+
+mean_reward_gmt在-0.6左右剧烈震荡；
+
+mean_r_delta在0附近震荡，有1个向下的巨大峰值；
+
+mean_episode_length在10左右震荡；
+
+Curriculum/training_survival_rate一直在0.89附近密集震荡；
+
+Curriculum/survival_ema从1下降到0.89，然后保持；
+
+Curriculum/dr_target_survival一直稳定在1；
+
+Curriculum/dr_scale从0.0005开始先上升再下降，最后保持在0；
+
+似乎将dr_scale置为level 1后并不起效；
+
+---
+
+
+**Claude**
+
+Let me look at what `dr_target_survival` actually logs and the full PI controller section.
+
+---
+
+
+**Claude**
+
+Found the problem. `locs.get("_dr_target_surv", 0.983)` is reading from `locals()` — but I need to check when `locs` is captured vs where `_dr_target_surv` is defined.
+
+---
+
+
+**Claude**
+
+Let me look at how `delta_z_abs_mean` and `frontres_survival_rate` are computed to understand the training state.
+
+---
+
+
+**Claude**
+
+Let me check the Stage 2 PPO config for `dr_target_episode_length` and related parameters.
+
+---
+
+
+**Claude**
+
+Let me look at the Stage 2 env config to find the episode length and termination conditions.
+
+---
+
+
+**Claude**
+
+Now I understand the full picture. Let me check exactly what the Stage 2 termination conditions look like vs Stage 1.
+
+---
+
+
+**Claude**
+
+The `ee_body_pos` termination checks ankle links at Z < 0.25m — ankles are normally near ground level. This might be terminating immediately. Let me check the actual function.
+
+---
+
+
+**Claude**
+
+Now I see what these check — they measure TRACKING ERROR (reference vs robot height difference), not absolute position. Let me read the FrontRES Stage 2 env config to see if it overrides terminations.
+
+---
+
+
+**Claude**
+
+Now I have the full picture. Let me check the `log()` function to confirm how `_dr_target_surv` gets into `locs`.
+
+---
+
+
+**Claude**
+
+Let me check the G1 flat FrontRES finetune env cfg to see if it overrides terminations.
+
+---
+
+
+**Claude**
+
+Now I have the complete diagnosis. Let me explain and fix:
+
+**根因诊断：`ee_body_pos` 手腕跳舞终止条件触发过于频繁**
+
+代码显示 `bad_motion_body_pos_z_only` 检查的是 **参考运动体 Z 高度 vs 机器人实际体 Z 高度差 > 0.25m**。对于舞蹈动作中快速的手臂抬起/放下动作：
+- 参考手腕在 0.1s 内从 Z=0.5m 升到 Z=1.2m
+- 机器人手腕（受 PD 控制器带宽和关节速度限制）只升到 Z=0.8m
+- 跟踪误差 = 0.4m > 0.25m → **提前终止**
+
+这与所有观测一致：
+- `mean_episode_length=10` ← 手腕跟踪误差在第 10 步左右超标
+- `mean_reward_gmt=-0.6` ← 基线 GMT（无 FrontRES）也终止（与 FrontRES 无关）
+- `dr_scale→0` ← PI 控制器正确减小扰动（因 survival_rate=0.89 < 目标 0.9833），但根因不是扰动
+
+三处修复：
+
+1. **移除 `ee_body_pos` 中的手腕检测**（FrontRES 矫正根节点，不控制手腕；手腕跟踪误差不应触发回合终止）
+2. **增加 `dr_min_scale` 下限**（防止 dr_scale 归零导致无效果捷径）
+3. **增加基线 episode_length 独立跟踪**（方便后续诊断）
+
+---
+
+
+**Claude**
+
+Now add `dr_min_scale` to the runner config and use it in the PI controller:
+
+---
+
+
+**Claude**
+
+These diagnostics are pre-existing type errors in the Stage 1 `G1FlatSupervisedRunnerCfg` at lines 152-159, unrelated to my edit. Now apply `dr_min_scale` in the PI controller:
+
+---
+
+
+**Claude**
+
+Now update the PI controller decrease step to respect `_dr_min`:
+
+---
+
+
+**Claude**
+
+Now add separate baseline episode_length logging. First, find where `lenbuffer` and `rewbuffer_gmt` are updated:
+
+---
+
+
+**Claude**
+
+Now split episode lengths by env group in the done-env loop:
+
+---
+
+
+**Claude**
+
+Now add the `lenbuffer_gmt` mean to the wandb logging section. Let me find where `mean_reward_gmt` is logged:
+
+---
+
+
+**Claude**
+
+Also add it to the terminal log string:
+
+---
+
+
+**Claude**
+
+Now verify all three changes are correct:
+
+---
+
+
+**Claude**
+
+All changes are in place. Here's the complete diagnosis and what was done:
+
+---
+
+**根因：`ee_body_pos` 手腕终止条件与舞蹈运动不兼容**
+
+`bad_motion_body_pos_z_only` 检查的是 **参考运动体与机器人实际体的 Z 高度差 > 0.25m**。对于舞蹈：
+
+```
+参考手腕: Z=0.5m → 快速抬起到 Z=1.2m（0.1秒内）
+机器人手腕: PD 控制器带宽有限，只抬到 Z=0.8m
+跟踪误差: |1.2 - 0.8| = 0.4m > 0.25m → 回合终止
+```
+
+这解释了所有现象：
+- `mean_episode_length=10` — 几乎每个起始帧，手腕跟踪误差在第 10 步前后超标
+- `mean_reward_gmt=-0.6` — **基线 GMT 也终止**，与 FrontRES 完全无关
+- `dr_scale→0` — PI 控制器正确感知 survival=0.89 < 目标 0.983，持续降低扰动，但降到 0 依然无效
+- `delta_z_abs=0` — FrontRES 学会不输出修正（正确认识到修正没有帮助）
+
+---
+
+**三处修复：**
+
+| 文件 | 改动 | 效果 |
+|------|------|------|
+| [flat_env_cfg.py](source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/flat_env_cfg.py) | `ee_body_pos` 只检查脚踝，移除手腕 | 消除舞蹈手臂动作触发的误终止 |
+| [rsl_rl_ppo_cfg.py](source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/rsl_rl_ppo_cfg.py) | 新增 `dr_min_scale=0.3` | PI 控制器不再将 dr_scale 降至 0 |
+| [on_policy_runner.py](source/rsl_rl/rsl_rl/runners/on_policy_runner.py) | 实现 `_dr_min` 下限；新增 `lenbuffer_gmt` / `Train/mean_episode_length_gmt` | 防无效捷径；独立诊断基线 GMT 的回合长度 |
+
+**推送后重点观察：**
+- `Train/mean_episode_length_gmt` — 这是诊断关键。若基线 GMT 的回合长度现在 > 10（比如 50+），说明手腕终止条件确是主要根因，修复生效
+- 若基线仍为 10，说明还有其他终止条件（可能是 `anchor_pos` 根节点 Z 高度差），需要继续排查
+
+---
