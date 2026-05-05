@@ -902,10 +902,11 @@ class MOSAIC:
             masks_batch,
             rnd_state_batch,
             teacher_obs_batch,
-            teacher_mu_batch, 
+            teacher_mu_batch,
             teacher_sigma_batch,
-            ref_vel_estimator_obs_batch, 
+            ref_vel_estimator_obs_batch,
             motion_groups_batch,
+            frontres_mask_batch,
         ) in generator:
             # 使用generator提取一个mini-batch的数据
             original_batch_size = obs_batch.shape[0]
@@ -991,15 +992,29 @@ class MOSAIC:
                 surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
 
                 # Value function loss 训练Critic使得评分更准
+                # frontres_mask_batch: 1 for FrontRES envs, 0 for GMT baseline envs.
+                # Masking prevents GMT envs (zeroed rewards → returns≈0) from pulling V(s)
+                # toward 0 for early-episode states shared with FrontRES envs.
+                _has_mask = frontres_mask_batch is not None
                 if self.use_clipped_value_loss: # 截断限制: 防止更新过大导致网络崩溃
                     value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(
                         -self.clip_param, self.clip_param)
-                    
+
                     value_losses = (value_batch - returns_batch).pow(2) # Critic的预测值与仿真得到的真实值做均方差
                     value_losses_clipped = (value_clipped - returns_batch).pow(2)
-                    value_loss = torch.max(value_losses, value_losses_clipped).mean() # 使用torch.max做悲观约束防止网络震荡
+                    if _has_mask:
+                        _mask = frontres_mask_batch
+                        _n = _mask.sum().clamp(min=1.0)
+                        value_loss = (torch.max(value_losses, value_losses_clipped) * _mask).sum() / _n
+                    else:
+                        value_loss = torch.max(value_losses, value_losses_clipped).mean() # 使用torch.max做悲观约束防止网络震荡
                 else:
-                    value_loss = (returns_batch - value_batch).pow(2).mean()
+                    if _has_mask:
+                        _mask = frontres_mask_batch
+                        _n = _mask.sum().clamp(min=1.0)
+                        value_loss = ((returns_batch - value_batch).pow(2) * _mask).sum() / _n
+                    else:
+                        value_loss = (returns_batch - value_batch).pow(2).mean()
             else: # PPO disabled: set surrogate loss to zero
                 # 纯行为克隆模式下直接将代理Loss与熵值置零
                 surrogate_loss = torch.tensor(0.0, device=self.device)
@@ -1011,12 +1026,22 @@ class MOSAIC:
                     if self.use_clipped_value_loss: # 截断限制: 防止更新过大导致网络崩溃
                         value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(
                             -self.clip_param, self.clip_param)
-                        
+
                         value_losses = (value_batch - returns_batch).pow(2) # Critic的预测值与仿真得到的真实值做均方差
                         value_losses_clipped = (value_clipped - returns_batch).pow(2)
-                        value_loss = torch.max(value_losses, value_losses_clipped).mean() # 使用torch.max做悲观约束防止网络震荡
+                        if _has_mask:
+                            _mask = frontres_mask_batch
+                            _n = _mask.sum().clamp(min=1.0)
+                            value_loss = (torch.max(value_losses, value_losses_clipped) * _mask).sum() / _n
+                        else:
+                            value_loss = torch.max(value_losses, value_losses_clipped).mean()
                     else:
-                        value_loss = (returns_batch - value_batch).pow(2).mean()
+                        if _has_mask:
+                            _mask = frontres_mask_batch
+                            _n = _mask.sum().clamp(min=1.0)
+                            value_loss = ((returns_batch - value_batch).pow(2) * _mask).sum() / _n
+                        else:
+                            value_loss = (returns_batch - value_batch).pow(2).mean()
                 else:
                     # Don't train critic
                     value_loss = torch.tensor(0.0, device=self.device)

@@ -12,7 +12,10 @@
       "Bash(cmd /c \"dir C:\\\\Users\\\\ChengYuxuan\\\\OneDrive\\\\ClaudeConfig\\\\sessions 2>nul\")",
       "Bash(cmd *)",
       "Bash(set)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(Get-ChildItem -Path \"d:\\\\ArtiIntComVis\\\\MOSAIC\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)"
     ]
   }
 }

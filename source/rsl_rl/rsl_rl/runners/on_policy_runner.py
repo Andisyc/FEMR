@@ -765,6 +765,10 @@ class OnPolicyRunner:
                             _logp_zeros = torch.distributions.Normal(_mean_gmt, _std_gmt) \
                                               .log_prob(_zeros_gmt).sum(dim=-1)
                             self.alg.transition.actions_log_prob[N_train:] = _logp_zeros
+                            # Mark which envs are FrontRES (1) vs GMT baseline (0) for critic masking.
+                            _frontres_mask = torch.zeros(self.env.num_envs, 1, device=self.device)
+                            _frontres_mask[:N_train] = 1.0
+                            self.alg.transition.frontres_mask = _frontres_mask
                             # Build split env_actions (one physics step covers both groups)
                             env_actions_fr  = self.alg.policy.get_env_action(obs[:N_train], actions[:N_train])
                             env_actions_gmt = self.alg.policy.get_env_action(obs[N_train:], _zeros_gmt)
@@ -821,12 +825,16 @@ class OnPolicyRunner:
                     # ── FrontRES B1 delta-reward ────────────────────────────────────────
                     # GMT baseline envs [N_train:] ran with delta_q=0 → rewards ≈ GMT-only.
                     # r_delta = r_total[:N_train] − r_baseline isolates FrontRES contribution.
-                    # GMT envs keep raw rewards; their advantage → 0 in steady state
-                    # (V converges to GMT level) so their policy gradient vanishes.
+                    # GMT env rewards are zeroed → returns ≈ 0 → advantage ≈ 0 → no policy gradient.
                     if _is_frontres:
                         r_raw_gmt = rewards[N_train:].view(-1).clone()  # [N_base] save before zeroing
                         r_total   = rewards[:N_train].view(-1)          # [N_train]
-                        r_base    = r_raw_gmt.mean()                    # scalar: per-step GMT baseline
+                        # Per-env paired baseline: env i vs env i+N_train on the same motion context.
+                        # Falls back to scalar mean only when N_train != N_base (odd num_envs).
+                        if N_train == N_base:
+                            r_base = r_raw_gmt                          # [N_base] element-wise pairing
+                        else:
+                            r_base = r_raw_gmt.mean()                   # scalar fallback
                         r_delta   = r_total - r_base                    # [N_train]
 
                         rewards_mod = rewards.clone()
@@ -864,7 +872,7 @@ class OnPolicyRunner:
 
                         # Logging accumulators
                         _frontres_rdelta_sum   += r_delta.mean().item()
-                        _frontres_baseline_sum += r_base.item()
+                        _frontres_baseline_sum += r_base.mean().item()
                         # Task-space mode: log mean correction magnitude; else log Δz
                         if _is_task_space_mode:
                             _tc = getattr(self.alg.policy, 'last_task_correction', None)
