@@ -17,7 +17,9 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(Sort-Object)",
       "Bash(find /d/ArtiIntComVis/MOSAIC/source/whole_body_tracking -name \"commands.py\" | head -5)",
-      "Read(//d/ArtiIntComVis/MOSAIC/source/**)"
+      "Read(//d/ArtiIntComVis/MOSAIC/source/**)",
+      "Bash(pip install *)",
+      "Bash(python test_metrics_offline.py)"
     ]
   }
 }

@@ -1025,8 +1025,12 @@ class MOSAIC:
                 obs_batch_augmented = obs_batch
 
             # ========== On-Policy Forward Pass (PPO) ==========
-            # 学生模型前向传播得到动作
-            self.policy.act(obs_batch_augmented, masks=masks_batch, hidden_states=hid_states_batch[0])
+            # Rebuild the policy distribution for this mini-batch.
+            # update_distribution() is used directly instead of act() to avoid calling
+            # distribution.sample(), which (a) produces an unused tensor and (b) crashes
+            # when self.std becomes NaN due to gradient explosion — Normal.sample() asserts
+            # scale >= 0, and PyTorch clamp() does not sanitize NaN to the min value.
+            self.policy.update_distribution(obs_batch_augmented)
 
             # 计算旧动作在新网络中的对数概率 (计算PPO Loss时要用)
             actions_log_prob_batch = self.policy.get_actions_log_prob(actions_batch)

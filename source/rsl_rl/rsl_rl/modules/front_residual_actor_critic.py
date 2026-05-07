@@ -839,11 +839,17 @@ class FrontRESActorCritic(nn.Module):
         #   so 0.01 is a safe floor that does not prevent meaningful exploration decay.
         _STD_MIN = 0.01
         if self.noise_std_type == "scalar":
-            std = torch.nn.functional.softplus(self.std).clamp(min=_STD_MIN).expand_as(frontres_mean)
+            std = torch.nn.functional.softplus(self.std).clamp(min=_STD_MIN)
         elif self.noise_std_type == "log":
-            std = torch.exp(self.log_std).clamp(min=_STD_MIN).expand_as(frontres_mean)
+            std = torch.exp(self.log_std).clamp(min=_STD_MIN)
         else:
             raise ValueError(f"Unknown standard deviation type: {self.noise_std_type}")
+        # PyTorch clamp() propagates NaN (NaN.clamp(min=x) == NaN).
+        # If self.std becomes NaN via a gradient explosion, Normal(mean, NaN) will crash
+        # in .sample() because NaN >= 0 is False.  nan_to_num breaks the death spiral by
+        # replacing NaN/Inf std with a safe floor value so training can continue.
+        std = std.nan_to_num(nan=_STD_MIN, posinf=5.0, neginf=_STD_MIN)
+        std = std.expand_as(frontres_mean)
 
         # Distribution is over full [Δq, Δz] output (total_output_dim dims).
         # PPO stores frontres_mean samples as "actions"; get_env_action extracts Δq slice.
