@@ -1446,11 +1446,41 @@ class MOSAIC:
 
             # 反向传播三部曲: 清空梯度, 计算梯度, 更新权重
             self.optimizer.zero_grad() # 清空梯度
+
+            # Skip the update entirely if the loss is non-finite (NaN / Inf).
+            # A NaN loss produces NaN gradients → NaN Adam moments → NaN weights,
+            # creating an unrecoverable death spiral.  Skipping preserves the last
+            # valid parameter state so training can continue.
+            if not torch.isfinite(loss):
+                _nan_iter = getattr(self, '_nan_skip_count', 0) + 1
+                self._nan_skip_count = _nan_iter
+                if _nan_iter <= 5 or _nan_iter % 100 == 0:
+                    print(f"[MOSAIC] WARNING: non-finite loss ({loss.item():.4g}), "
+                          f"skipping update (skip #{_nan_iter})")
+                continue
+
             loss.backward() # 更新权重
 
             # Collect gradients from all GPUs
             if self.is_multi_gpu:
                 self.reduce_parameters()
+
+            # Check for NaN gradients after backward (can occur even with finite loss
+            # when intermediate activations overflow).  Skip the optimizer step to
+            # avoid corrupting parameter values.
+            _has_nan_grad = any(
+                p.grad is not None and not torch.isfinite(p.grad).all()
+                for p in self.policy.parameters()
+                if p.requires_grad
+            )
+            if _has_nan_grad:
+                _nan_iter = getattr(self, '_nan_skip_count', 0) + 1
+                self._nan_skip_count = _nan_iter
+                if _nan_iter <= 5 or _nan_iter % 100 == 0:
+                    print(f"[MOSAIC] WARNING: NaN gradient detected, "
+                          f"skipping optimizer step (skip #{_nan_iter})")
+                self.optimizer.zero_grad()
+                continue
 
             nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             self.optimizer.step() # 更新优化器

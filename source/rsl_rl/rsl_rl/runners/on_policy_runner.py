@@ -872,6 +872,21 @@ class OnPolicyRunner:
                     # Move to device
                     rewards, dones = rewards.to(self.device), dones.to(self.device)
 
+                    # ── GMT baseline: keep OU states at zero every step ─────────────────
+                    # GMT baseline envs [N_train:] must track an UNPERTURBED reference so
+                    # they provide a stable, long-surviving baseline for the B1 delta reward.
+                    # If they also see the OU-perturbed reference, they fail in ~12 steps
+                    # (OOD input), making r_base meaningless after those 12 steps because
+                    # GMT envs reset to fresh episodes while FrontRES envs continue running.
+                    # Zeroing OU states after each env.step() ensures the perturber sees
+                    # clean zero states for baseline envs on the next _update_command call.
+                    if _is_frontres:
+                        _env_raw_ou = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
+                        _mcmd_ou = _env_raw_ou.command_manager._terms.get('motion')
+                        if _mcmd_ou is not None and hasattr(_mcmd_ou, 'perturber'):
+                            _gmt_ids = torch.arange(N_train, self.env.num_envs, device=self.device)
+                            _mcmd_ou.perturber.reset_envs(_gmt_ids)
+
                     # ── FrontRES B1 delta-reward ────────────────────────────────────────
                     # GMT baseline envs [N_train:] ran with delta_q=0 → rewards ≈ GMT-only.
                     # r_delta = r_total[:N_train] − r_baseline isolates FrontRES contribution.
