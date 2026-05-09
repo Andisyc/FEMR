@@ -340,20 +340,34 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         ]
         self.terminations.ee_body_pos.params["threshold"] = 0.5
 
+        # anchor_ori threshold 0.20 (≈37°) fires for all dynamic motions where GMT
+        # tracks orientation with normal lag, causing 560+ terminations/iter and
+        # ep_len_gmt ≈ 12.  Raise to 0.5 (≈53° diff) which only fires on real falls.
+        # anchor_pos threshold 0.25m fires when the robot's torso drops 25 cm from the
+        # reference — too tight for dynamic motions.  Raise to 0.5m to match ee_body_pos.
+        self.terminations.anchor_ori.params["threshold"] = 0.5
+        self.terminations.anchor_pos.params["threshold"] = 0.5
+
+        # Always start from frame 0.  Without this, _adaptive_sampling can converge
+        # to near-end frames (high bin_failed_count → high sampling probability →
+        # more failures → positive feedback).
+        self.commands.motion.start_from_beginning = True
+        self.commands.motion.start_frame = 0
+
         self.commands.motion.anchor_body_name = "torso_link"
         self.commands.motion.body_names = [
-            "pelvis", 
-            "left_hip_roll_link", 
-            "left_knee_link", 
+            "pelvis",
+            "left_hip_roll_link",
+            "left_knee_link",
             "left_ankle_roll_link",
-            "right_hip_roll_link", 
-            "right_knee_link", 
-            "right_ankle_roll_link", 
+            "right_hip_roll_link",
+            "right_knee_link",
+            "right_ankle_roll_link",
             "torso_link",
-            "left_shoulder_roll_link", 
-            "left_elbow_link", 
+            "left_shoulder_roll_link",
+            "left_elbow_link",
             "left_wrist_yaw_link",
-            "right_shoulder_roll_link", 
-            "right_elbow_link", 
+            "right_shoulder_roll_link",
+            "right_elbow_link",
             "right_wrist_yaw_link",
         ]
