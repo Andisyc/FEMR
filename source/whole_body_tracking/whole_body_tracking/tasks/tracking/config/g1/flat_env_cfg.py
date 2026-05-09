@@ -330,6 +330,18 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
             "right_ankle_roll_link",
         ]
 
+        # Force all episodes to start from frame 0 of the motion.
+        # Without this, _resample_command() picks a random start frame (adaptive
+        # sampling). When the robot resets to its default standing pose but the
+        # reference is at a mid-stride / turning / dynamic frame, the initial pose
+        # mismatch causes tracking error to accumulate and hit the termination
+        # threshold (0.25 m) within ~12 steps — both FrontRES training envs and
+        # GMT baseline envs fail equally, collapsing r_delta and the training signal.
+        # Frame 0 of each motion is always a near-neutral standing pose that closely
+        # matches the robot's default reset configuration, giving GMT a fair start.
+        self.commands.motion.start_from_beginning = True
+        self.commands.motion.start_frame = 0
+
         self.commands.motion.anchor_body_name = "torso_link"
         self.commands.motion.body_names = [
             "pelvis", 
