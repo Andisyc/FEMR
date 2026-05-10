@@ -148,8 +148,27 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # specify directory for logging experiments
     # log_root_path 根据 experiment_name 自动派生，避免不同训练阶段的 checkpoint 混入同一目录。
-    # experiment_name 由各 RunnerCfg 定义（如 "g1_flat_frontres_finetune"、"g1_flat_supervised"）。
-    log_root_path = f"/hdd0/yuxuancheng/MOSAIC/{agent_cfg.experiment_name}"
+    # experiment_name 由各 RunnerCfg 定义（如 "g1_flat_frontres_finetune"、"g1_flat_supervised"）
+
+    # 两台服务器上的 MOSAIC 根目录（不含实验子目录）
+    candidate_base_paths = [
+        "/hdd0/yuxuancheng/MOSAIC/",
+        "/hdd1/cyx/MOSAIC/",
+    ]
+
+    # 自动选择第一个真实存在的路径
+    base_path = None
+    for path in candidate_base_paths:
+        if os.path.exists(path):
+            base_path = path
+            break
+
+    if base_path is None:
+        raise FileNotFoundError("No feasible MOSAIC file ")
+
+    # 拼接实验名称
+    log_root_path = os.path.join(base_path, agent_cfg.experiment_name)
+    # log_root_path = f"/hdd0/yuxuancheng/MOSAIC/{agent_cfg.experiment_name}"
     print(f"[INFO] Logging experiment in directory: {log_root_path}")
 
     # specify directory for logging runs: {time-stamp}_{run_name}
