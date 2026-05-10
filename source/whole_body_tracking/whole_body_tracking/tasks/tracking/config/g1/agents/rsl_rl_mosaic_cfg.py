@@ -495,7 +495,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         max_delta_pos          = 0.3,      # tanh clip (metres)
         max_delta_rpy          = 0.3,      # tanh clip (radians ≈ 17°)
         # ── GMT (frozen) ─────────────────────────────────────────────────────
-        gmt_checkpoint_path    = "/home/yuxuancheng/MOSAIC/model/model_27000.pt",
+        gmt_checkpoint_path    = "./MOSAIC/model/model_27000.pt",
         init_critic_from_gmt   = False,
         # ── Observation layout ───────────────────────────────────────────────
         q_ref_start_idx        = 232,      # q_ref offset in 800-dim policy obs
