@@ -459,6 +459,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     experiment_name   = "g1_flat_frontres_unified"
     empirical_normalization = True
 
+    # ── Oracle injection test ─────────────────────────────────────────────────
+    # Set oracle_inject=True + max_iterations=30 to run a quick feasibility test:
+    # bypasses FrontRES output and directly applies ground-truth -OU correction.
+    # Expected result if task is feasible: r_delta > 0.
+    # If r_delta ≈ 0 or < 0: GMT too robust, OU perturbation too small to matter.
+    # Restore oracle_inject=False and max_iterations=30000 for real training.
+    oracle_inject                  = False  # ← set True for oracle test
+
     # ── Task-space correction ramp ────────────────────────────────────────────
     # FrontRES corrections are multiplied by delta_q_alpha before being applied
     # to the anchor.  Starting from 0 prevents early random PPO gradients from
