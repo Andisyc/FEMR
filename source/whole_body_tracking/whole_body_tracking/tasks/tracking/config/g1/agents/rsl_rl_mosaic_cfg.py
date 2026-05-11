@@ -481,6 +481,19 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     delta_q_alpha_init             = 0.0   # start with zero correction magnitude
     delta_q_alpha_ramp_iterations  = 5000  # ramp to 1.0 over 5000 iterations
 
+    # 两台服务器上的 MOSAIC 根目录（不含实验子目录）
+    candidate_gmt_paths = [
+        "/home/yuxuancheng/MOSAIC/model/model_27000.pt",
+        "/hdd1/cyx/MOSAIC/model/model_27000.pt",
+    ]
+
+    # 自动选择第一个真实存在的路径
+    gmt_checkpoint_path_ = None
+    for path in candidate_gmt_paths:
+        if os.path.exists(path):
+            gmt_checkpoint_path_ = path
+            break
+
     policy = RslRlFrontResidualActorCriticCfg(
         class_name             = "FrontRESActorCritic",
         # ── Network ──────────────────────────────────────────────────────────
@@ -495,7 +508,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         max_delta_pos          = 0.3,      # tanh clip (metres)
         max_delta_rpy          = 0.3,      # tanh clip (radians ≈ 17°)
         # ── GMT (frozen) ─────────────────────────────────────────────────────
-        gmt_checkpoint_path    = "/hdd1/cyx/MOSAIC/model/model_27000.pt",
+        gmt_checkpoint_path    = gmt_checkpoint_path_,
         init_critic_from_gmt   = False,
         # ── Observation layout ───────────────────────────────────────────────
         q_ref_start_idx        = 232,      # q_ref offset in 800-dim policy obs
