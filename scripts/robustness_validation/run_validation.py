@@ -78,6 +78,7 @@ import torch
 import gymnasium as gym
 
 from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.utils import configclass
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
 from rsl_rl.runners import OnPolicyRunner
@@ -147,8 +148,13 @@ def _build_env(motion_file: str, num_envs: int):
         env_cfg.terminations.time_out = None
 
     # Disable event manager (training domain randomisation)
+    # Use an empty config rather than None: Isaac Lab's EventManager
+    # iterates over self.cfg.__dict__ and crashes on NoneType.
     if hasattr(env_cfg, "events"):
-        env_cfg.events = None
+        @configclass
+        class _NoOpEventsCfg:
+            pass
+        env_cfg.events = _NoOpEventsCfg()
 
     # Disable observation noise
     for group_name in ("policy", "teacher", "critic"):
