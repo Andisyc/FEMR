@@ -155,6 +155,31 @@ def anchor_root_pos_error_w(env: ManagerBasedEnv, command_name: str) -> torch.Te
     return pos_robot - pos_anchor                # (N, 3)
 
 
+def anchor_root_pos_error_w_perturbed(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """
+    Position error against the PERTURBED (pre-correction) anchor. Shape (N, 3).
+
+    Unlike anchor_root_pos_error_w, this uses _cached_perturbed_pos (the OU-shifted
+    anchor BEFORE FrontRES/oracle correction is applied). This gives FrontRES a
+    non-zero input signal even when oracle curriculum has corrected the commanded
+    anchor to near-zero error.
+
+    robot - perturbed_anchor ≈ -OU  (when robot tracks the true anchor well)
+    This directly matches the supervised_target = original - perturbed = -OU,
+    so FrontRES learns to "echo" its observation as its correction output.
+
+    Falls back to anchor_pos_w when _cached_perturbed_pos is unavailable (i.e.,
+    for MotionCommand without OU perturbation).
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    pos_robot = command.robot.data.root_pos_w  # (N, 3)
+    if hasattr(command, '_cached_perturbed_pos'):
+        pos_anchor = command._cached_perturbed_pos + env.scene.env_origins
+    else:
+        pos_anchor = command.anchor_pos_w
+    return pos_robot - pos_anchor
+
+
 def anchor_root_rpy_error_w(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     """
     Root orientation error as RPY (roll, pitch, yaw). Shape (N, 3).
@@ -172,6 +197,28 @@ def anchor_root_rpy_error_w(env: ManagerBasedEnv, command_name: str) -> torch.Te
     pitch = torch.asin((2.0 * (w*y - z*x)).clamp(-1.0, 1.0))
     yaw   = torch.atan2(2.0 * (w*z + x*y), 1.0 - 2.0 * (y*y + z*z))
     return torch.stack([roll, pitch, yaw], dim=-1)  # (N, 3)
+
+
+def anchor_root_rpy_error_w_perturbed(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """
+    Orientation error against the PERTURBED (pre-correction) anchor. Shape (N, 3).
+
+    Uses _cached_perturbed_quat so the signal is non-zero even when oracle curriculum
+    has corrected the commanded anchor orientation. Mirrors the position version above.
+    Falls back to anchor_quat_w when _cached_perturbed_quat is unavailable.
+    """
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    if hasattr(command, '_cached_perturbed_quat'):
+        q_anchor = command._cached_perturbed_quat
+    else:
+        q_anchor = command.anchor_quat_w
+    q_robot = command.robot.data.root_quat_w
+    q_rel   = quat_mul(quat_inv(q_anchor), q_robot)
+    w, x, y, z = q_rel[:, 0], q_rel[:, 1], q_rel[:, 2], q_rel[:, 3]
+    roll  = torch.atan2(2.0 * (w*x + y*z), 1.0 - 2.0 * (x*x + y*y))
+    pitch = torch.asin((2.0 * (w*y - z*x)).clamp(-1.0, 1.0))
+    yaw   = torch.atan2(2.0 * (w*z + x*y), 1.0 - 2.0 * (y*y + z*z))
+    return torch.stack([roll, pitch, yaw], dim=-1)
 
 
 def get_supervision_target_delta_q(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:

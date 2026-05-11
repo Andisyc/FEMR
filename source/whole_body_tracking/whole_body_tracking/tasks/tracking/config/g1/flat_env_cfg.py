@@ -314,11 +314,17 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         # every subsequent index and corrupting GMT's fixed ONNX weight alignment.
         self.observations.policy.motion_anchor_pos_b = None   # keep 154-dim/frame GMT prefix
         self.observations.policy.base_lin_vel = None          # keep 154-dim/frame GMT prefix
+        # Use _perturbed variants: read _cached_perturbed_pos/_quat (pre-correction).
+        # With oracle curriculum active, anchor_pos_w ≈ true_anchor → error ≈ 0 →
+        # FrontRES sees no signal and outputs ≈ 0 → oracle_cos_ema stays at 0 →
+        # oracle never fades out → FrontRES never learns (distribution shift).
+        # _perturbed variants give robot - perturbed_anchor ≈ -OU regardless of
+        # oracle mix, matching the supervised target and giving FrontRES a clear signal.
         self.observations.policy.anchor_root_pos_error_w = ObsTerm(
-            func=mdp.anchor_root_pos_error_w, params={"command_name": "motion"},
+            func=mdp.anchor_root_pos_error_w_perturbed, params={"command_name": "motion"},
             noise=Unoise(n_min=-0.01, n_max=0.01))
         self.observations.policy.anchor_root_rpy_error_w = ObsTerm(
-            func=mdp.anchor_root_rpy_error_w, params={"command_name": "motion"},
+            func=mdp.anchor_root_rpy_error_w_perturbed, params={"command_name": "motion"},
             noise=Unoise(n_min=-0.01, n_max=0.01))
 
         # ee_body_pos uses bad_motion_body_pos_z_only with threshold=0.25m.
