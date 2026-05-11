@@ -122,6 +122,24 @@ def _build_env(motion_file: str, num_envs: int):
         module, cls = env_cfg_cls.rsplit(":", 1)
         import importlib
         env_cfg_cls = getattr(importlib.import_module(module), cls)
+
+    # Monkey-patch __post_init__ so it never sets events/curriculum to None.
+    # Isaac Lab's ManagerBase._resolve_terms_callback iterates over
+    # self.cfg.__dict__ and crashes on NoneType.
+    _orig_post_init = getattr(env_cfg_cls, '__post_init__', None)
+    def _safe_post_init(self_):
+        if _orig_post_init is not None:
+            _orig_post_init(self_)
+        from isaaclab.utils import configclass
+        @configclass
+        class _NoOp:
+            pass
+        if getattr(self_, 'events', None) is None:
+            self_.events = _NoOp()
+        if getattr(self_, 'curriculum', None) is None:
+            self_.curriculum = _NoOp()
+    env_cfg_cls.__post_init__ = _safe_post_init
+
     env_cfg: ManagerBasedRLEnvCfg = env_cfg_cls()
 
     env_cfg.scene.num_envs = num_envs
@@ -147,14 +165,20 @@ def _build_env(motion_file: str, num_envs: int):
     if hasattr(env_cfg, "terminations") and hasattr(env_cfg.terminations, "time_out"):
         env_cfg.terminations.time_out = None
 
-    # Disable event manager (training domain randomisation)
-    # Use an empty config rather than None: Isaac Lab's EventManager
-    # iterates over self.cfg.__dict__ and crashes on NoneType.
-    if hasattr(env_cfg, "events"):
-        @configclass
-        class _NoOpEventsCfg:
-            pass
-        env_cfg.events = _NoOpEventsCfg()
+    # Disable event manager and other managers (training domain randomisation)
+    # Use an empty config rather than None: Isaac Lab's ManagerBase iterates over
+    # self.cfg.__dict__ and crashes on NoneType.  Scan ALL top-level config fields
+    # because gym.make may take the registered config class, not our modified obj.
+    @configclass
+    class _NoOpCfg:
+        pass
+
+    _manager_fields = ["events", "curriculum"]
+    for _f in _manager_fields:
+        if hasattr(env_cfg, _f):
+            _v = getattr(env_cfg, _f)
+            if _v is None or (isinstance(_v, dict) and len(_v) == 0):
+                setattr(env_cfg, _f, _NoOpCfg())
 
     # Disable observation noise
     for group_name in ("policy", "teacher", "critic"):
@@ -166,6 +190,11 @@ def _build_env(motion_file: str, num_envs: int):
     # Disable motion perturbations — we configure them ourselves via ou_injector
     if hasattr(env_cfg, "motion_perturbations"):
         env_cfg.motion_perturbations = MotionPerturbationCfg()  # all probs=0
+
+    # Debug: verify config before gym.make
+    print(f"[_build_env] events={type(env_cfg.events).__name__ if hasattr(env_cfg, 'events') else 'N/A'}")
+    _cur = getattr(env_cfg, 'curriculum', None)
+    print(f"[_build_env] curriculum={type(_cur).__name__}")
 
     env = gym.make(TASK, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env)

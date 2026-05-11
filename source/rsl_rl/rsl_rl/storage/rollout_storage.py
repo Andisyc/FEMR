@@ -351,6 +351,8 @@ class RolloutStorage:
                     teacher_sigma_batch = None
                     motion_groups_batch = None
                     ref_vel_estimator_obs_batch = None
+                    frontres_mask_batch = frontres_mask[batch_idx] if frontres_mask is not None else None
+                    supervised_target_batch = supervised_target[batch_idx] if supervised_target is not None else None
 
                 # yield the mini-batch
                 if self.training_type == "mosaic":
@@ -362,7 +364,7 @@ class RolloutStorage:
                     yield obs_batch, privileged_observations_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                         None,
                         None,
-                    ), None, rnd_state_batch
+                    ), None, rnd_state_batch, supervised_target_batch
 
     # for reinfrocement learning with recurrent networks (PPO and MOSAIC)
     def recurrent_mini_batch_generator(self, num_mini_batches, num_epochs=8):

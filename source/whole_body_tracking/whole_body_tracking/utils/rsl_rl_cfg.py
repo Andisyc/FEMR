@@ -343,6 +343,11 @@ class RslRlPpoFrontRESAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """
     class_name: str = "PPO"
 
+    # ── 监督损失：锚定 FrontRES 方向 ───────────────────────────────────────
+    # λ_sup ∈ [0, 1]：supervised_loss = λ_sup × HuberLoss(pred, target)
+    # 1.0 = 纯监督方向，0.0 = 纯 PPO（建议 warmup 后从 1.0 衰减到 0.1）
+    lambda_supervised: float = 1.0
+
     # 正则化权重
     lambda_reg_init:  float = 0.01
 

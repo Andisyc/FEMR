@@ -97,6 +97,10 @@ class PPO:
         else:
             self.symmetry = None
 
+        # ── FrontRES supervised loss ──────────────────────────────────────────
+        self.lambda_supervised = lambda_supervised
+        self.supervised_loss_fn = torch.nn.HuberLoss(delta=1.0)
+
         # PPO components
         self.policy = policy
         self.policy.to(self.device)
@@ -113,6 +117,11 @@ class PPO:
             print("[PPO] FrontRESActorCritic detected: optimizer restricted to residual_actor + critic")
         else:
             self.optimizer = optim.Adam(self.policy.parameters(), lr=learning_rate)
+
+        # ── FrontRES supervised loss ──────────────────────────────────────────
+        # λ_sup × HuberLoss(pred, target) anchors the policy mean μ to the
+        # anti-DR direction.  1.0 = full anchor; decay to ~0.1 over training.
+        lambda_supervised: float = 0.0,
 
         # FrontRES 正则化参数
         self.lambda_reg_init    = lambda_reg_init
@@ -263,6 +272,8 @@ class PPO:
         else:
             generator = self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
 
+        mean_supervised_loss = 0
+
         # iterate over batches
         for (
             obs_batch,
@@ -277,7 +288,9 @@ class PPO:
             hid_states_batch,
             masks_batch,
             rnd_state_batch,
+            *extra,
         ) in generator:
+            supervised_target_batch = extra[0] if len(extra) > 0 else None
 
             # number of augmentations per sample
             # we start with 1 and increase it if we use symmetry augmentation
@@ -387,12 +400,18 @@ class PPO:
 
             ppo_loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
 
-            # FrontRES 正则化与平滑约束已移至 runner 侧作为 reward shaping（奖励惩罚项）。
-            # 原因：将其作为 loss 项进行梯度反传在数学上不正确：
-            #   1. smooth_loss 从 storage.actions（detached）计算，实际提供零梯度，是无效操作；
-            #   2. reg_loss 作为独立任务参与 PCGrad 会在梯度量级失衡时产生 Inf/NaN（Inf×0=NaN）；
-            #   3. 正确做法是 reward shaping：将约束并入奖励，通过 Bellman 方程自然融入 PPO 目标。
-            loss = ppo_loss
+            # ── FrontRES supervised loss ──────────────────────────────────────
+            # Anchors μ to the anti-DR direction.  λ_supervised can decay from
+            # 1.0→0.1 as PPO takes over fine-tuning.
+            # GMT envs have target=0 by construction (runner zeroes them), so
+            # their contribution is naturally small and harmless.
+            supervised_loss = torch.tensor(0.0, device=self.device)
+            if self.lambda_supervised > 0 and supervised_target_batch is not None:
+                _n = min(mu_batch.shape[-1], supervised_target_batch.shape[-1])
+                supervised_loss = self.supervised_loss_fn(
+                    mu_batch[:, :_n], supervised_target_batch[:, :_n])
+
+            loss = ppo_loss + self.lambda_supervised * supervised_loss
 
             # VQ loss（加到 ppo_loss 统一路径，PCGrad 暂不支持 VQ）
             if isinstance(self.policy, ActorCriticVQ):
@@ -489,6 +508,7 @@ class PPO:
             mean_value_loss += value_loss.item()
             mean_surrogate_loss += surrogate_loss.item()
             mean_entropy += entropy_batch.mean().item()
+            mean_supervised_loss += supervised_loss.item()
             # -- RND loss
             if mean_rnd_loss is not None:
                 mean_rnd_loss += rnd_loss.item()
@@ -504,6 +524,7 @@ class PPO:
         mean_value_loss /= num_updates
         mean_surrogate_loss /= num_updates
         mean_entropy /= num_updates
+        mean_supervised_loss /= num_updates
         # -- For RND
         if mean_rnd_loss is not None:
             mean_rnd_loss /= num_updates
@@ -534,6 +555,9 @@ class PPO:
             "entropy": mean_entropy,
             "kl_divergence": mean_kl_divergence,
         }
+        if self.lambda_supervised > 0:
+            loss_dict["supervised_loss"] = mean_supervised_loss
+            loss_dict["lambda_supervised"] = self.lambda_supervised
         if self.use_frontres_reg:
             # reg / smooth 现在是 reward shaping 惩罚项，在 runner 侧应用。
             # 这里只记录从 rollout buffer 计算的 Δq 诊断指标（供 wandb 监控）。

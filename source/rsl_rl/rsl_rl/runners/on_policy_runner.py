@@ -909,6 +909,20 @@ class OnPolicyRunner:
                                     # and the supervised signal can establish direction first.
                                     _alpha = getattr(self.alg.policy, 'delta_q_alpha', 1.0)
                                     _pos_corr = _pos_corr * _alpha
+
+                                    # ── Fix 2: Low-pass filter on position correction ──────
+                                    # Sudden anchor jumps → step change in GMT reference →
+                                    # joint target discontinuity → torque spike → false penalty.
+                                    # Exponential smoothing converts the step to a ramp.
+                                    # α=1: no smoothing; α→0: heavy smoothing (slow response).
+                                    _corr_alpha = float(self.cfg.get("correction_smooth_alpha", 0.4))
+                                    _prev_pos_c = getattr(self, '_prev_pos_correction', None)
+                                    if _prev_pos_c is None or _prev_pos_c.shape != _pos_corr.shape:
+                                        _prev_pos_c = torch.zeros_like(_pos_corr)
+                                    _pos_corr = _corr_alpha * _pos_corr + (1.0 - _corr_alpha) * _prev_pos_c
+                                    self._prev_pos_correction = _pos_corr.detach().clone()
+                                    # ─────────────────────────────────────────────────────
+
                                     _cmd_term._frontres_pos_correction[:N_train].copy_(_pos_corr)
                                     # Gate Δrpy with the same jump_degree.
                                     # During free flight (jump_degree≈1), orientation correction
@@ -956,18 +970,44 @@ class OnPolicyRunner:
 
                     # ── FrontRES B1 delta-reward ────────────────────────────────────────
                     # GMT baseline envs [N_train:] ran with delta_q=0 → rewards ≈ GMT-only.
-                    # r_delta = r_total[:N_train] − r_baseline isolates FrontRES contribution.
+                    # r_delta isolates FrontRES contribution to anchor tracking only.
                     # GMT env rewards are zeroed → returns ≈ 0 → advantage ≈ 0 → no policy gradient.
+                    #
+                    # Fix 1: anchor-only r_delta (HRL intrinsic reward)
+                    # Global reward (joint_torque, contact, body vel) conflates FrontRES with GMT:
+                    #   - FrontRES corrects correctly but causes torque spike → penalises correct action
+                    #   - FrontRES correction has no effect → should give 0, not negative
+                    # Anchor error is the ONLY thing FrontRES directly controls. Using it as the
+                    # intrinsic reward decouples FrontRES credit from GMT behaviour.
                     if _is_frontres:
                         r_raw_gmt = rewards[N_train:].view(-1).clone()  # [N_base] save before zeroing
-                        r_total   = rewards[:N_train].view(-1)          # [N_train]
-                        # Per-env paired baseline: env i vs env i+N_train on the same motion context.
-                        # Falls back to scalar mean only when N_train != N_base (odd num_envs).
-                        if N_train == N_base:
-                            r_base = r_raw_gmt                          # [N_base] element-wise pairing
+
+                        # ── Anchor-only intrinsic reward ──────────────────────────────
+                        _env_for_rdelta = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
+                        _mcmd_rdelta = _env_for_rdelta.command_manager._terms.get('motion')
+                        _use_anchor_rdelta = (
+                            _mcmd_rdelta is not None
+                            and 'error_anchor_pos' in getattr(_mcmd_rdelta, 'metrics', {})
+                            and 'error_anchor_rot' in getattr(_mcmd_rdelta, 'metrics', {})
+                        )
+                        if _use_anchor_rdelta:
+                            _err_pos = _mcmd_rdelta.metrics['error_anchor_pos'].to(self.device)  # (N,)
+                            _err_ori = _mcmd_rdelta.metrics['error_anchor_rot'].to(self.device)  # (N,)
+                            # Lower anchor error = better → negate so higher = better reward
+                            _r_anchor_fr   = -(_err_pos[:N_train] + _err_ori[:N_train])
+                            _r_anchor_base = -(_err_pos[N_train:N_train + N_base] + _err_ori[N_train:N_train + N_base])
+                            if N_train == N_base:
+                                r_delta = _r_anchor_fr - _r_anchor_base
+                            else:
+                                r_delta = _r_anchor_fr - _r_anchor_base.mean()
                         else:
-                            r_base = r_raw_gmt.mean()                   # scalar fallback
-                        r_delta   = r_total - r_base                    # [N_train]
+                            # Fallback to global r_delta if anchor metrics unavailable
+                            r_total = rewards[:N_train].view(-1)
+                            if N_train == N_base:
+                                r_delta = r_total - r_raw_gmt
+                            else:
+                                r_delta = r_total - r_raw_gmt.mean()
+                        # ─────────────────────────────────────────────────────────────
 
                         rewards_mod = rewards.clone()
                         if rewards_mod.dim() == 2:
@@ -1032,6 +1072,17 @@ class OnPolicyRunner:
                         else:
                             _frontres_prev_delta_q = actions.clone()
                             _frontres_prev_delta_q[_done_mask] = 0.0
+
+                        # Reset low-pass filter state for terminated FrontRES envs.
+                        # Without this, the filter carries old correction into the new episode:
+                        # new OU=0 → FrontRES predicts ≈0, but filter outputs 0.6×old_value
+                        # for 4-5 steps → false anchor_pos/ori terminations immediately.
+                        _prev_pos_c = getattr(self, '_prev_pos_correction', None)
+                        if _prev_pos_c is not None:
+                            _fr_done_mask = _done_mask[:N_train]
+                            if _fr_done_mask.any():
+                                _prev_pos_c[_fr_done_mask] = 0.0
+                                self._prev_pos_correction = _prev_pos_c
                     # ── END FrontRES B1 delta-reward ─────────────────────────────────────
 
                     obs_dict = infos.get("observations", {})
@@ -1130,6 +1181,9 @@ class OnPolicyRunner:
             # update policy Rollout结束, 开始使用buffer计算Loss更新权重
             # Pass current iteration to algorithm for logging (needed by MOSAIC)
             self.alg.current_learning_iteration = it
+            # Pass oracle_mix so MOSAIC scales surrogate by (1 - oracle_mix):
+            # PPO contribution ∝ FrontRES causal share of the correction applied.
+            self.alg.oracle_mix = getattr(self, '_oracle_mix', 0.0)
             loss_dict = self.alg.update() # 调用mosaic.py中的update()函数进行权重更新
 
             stop = time.time()

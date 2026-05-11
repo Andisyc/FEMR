@@ -1438,9 +1438,18 @@ class MOSAIC:
             # Loss相加与反向传播
             loss = torch.tensor(0.0, device=self.device)
 
-            # L = L_PPO + λ_off * L_BC_expert + λ_teacher * L_BC_teacher + λ_sup * L_supervised
+            # L = (1-oracle_mix)*L_PPO + λ_off * L_BC_expert + λ_teacher * L_BC_teacher + λ_sup * L_supervised
+            #
+            # oracle_mix ∈ [0,1]: fraction of the environment correction provided by oracle.
+            # When oracle_mix=1, FrontRES actions have zero causal effect on reward — using
+            # them for PPO credit assignment would produce spurious gradients (400× amplified
+            # by 1/σ²).  Weighting by (1-oracle_mix) makes the PPO contribution proportional
+            # to FrontRES's actual causal share, smoothly transitioning from pure supervised
+            # (oracle phase) to pure PPO (autonomous phase) without any parameter freezing.
+            _oracle_mix = float(getattr(self, 'oracle_mix', 0.0))
+            _ppo_weight = 1.0 - _oracle_mix
             if self.use_ppo:
-                loss = loss + surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
+                loss = loss + _ppo_weight * surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
             loss = loss + self.lambda_off_policy_current * bc_off_policy_loss + self.lambda_teacher_current * bc_teacher_loss
             loss = loss + self.lambda_supervised * supervised_loss
 

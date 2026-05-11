@@ -469,6 +469,11 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     oracle_mix_cos_low             = 0.3    # below this: pure oracle
     oracle_mix_cos_high            = 0.85   # above this: pure FrontRES
 
+    # ── Fix 2: Low-pass filter on anchor corrections ──────────────────────────
+    # Prevents anchor step-changes → GMT torque spikes → false penalties on FrontRES.
+    # α=1.0: no smoothing (instant); α=0.4: ~2.5-step average window.
+    correction_smooth_alpha        = 0.4
+
     # ── Task-space correction ramp ────────────────────────────────────────────
     # Alpha must be 1.0 from the start so oracle corrections reach full magnitude.
     # Warmup still protects the critic: actor updates (PPO) frozen for 500 iters,
