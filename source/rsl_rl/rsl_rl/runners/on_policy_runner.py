@@ -1419,43 +1419,76 @@ class OnPolicyRunner:
         str = f" \033[1m Learning iteration {locs['it']}/{locs['tot_iter']} \033[0m "
 
         if self.training_type != "supervise" and len(locs["rewbuffer"]) > 0:
+            # ── Phase indicator ──────────────────────────────────────────────
+            _ts_mode = getattr(self.alg.policy, 'num_task_corrections', 0) > 0
+            if _ts_mode:
+                _lam = getattr(self.alg, 'lambda_supervised', 0.0)
+                if _lam > 0.5:
+                    _phase = "PPO + SUPERVISED ANCHOR"
+                elif _lam > 0.15:
+                    _phase = "PPO + WEAK SUPERVISION"
+                else:
+                    _phase = "PPO FINE-TUNING"
+            else:
+                _phase = "PPO"
+            _phase_str = f"  PHASE: {_phase}  "
+
             log_string = (
                 f"""{'#' * width}\n"""
-                f"""{str.center(width, ' ')}\n\n"""
+                f"""{str.center(width, ' ')}\n"""
+                f"""{_phase_str.center(width, ' ')}\n\n"""
+                f"""{'─' * 30} PERFORMANCE {'─' * 30}\n"""
                 f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                     'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
-                f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
+                f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
+                f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
 
-            # -- Losses
+            # ── Losses ─────────────────────────────────────────────────────
+            log_string += f"""\n{'─' * 30} LOSSES {'─' * 33}\n"""
             for key, value in locs["loss_dict"].items():
                 log_string += f"""{f'Mean {key} loss:':>{pad}} {value:.4f}\n"""
-            # -- Rewards
-            if hasattr(self.alg, "rnd") and self.alg.rnd:
-                log_string += (
-                    f"""{'Mean extrinsic reward:':>{pad}} {statistics.mean(locs['erewbuffer']):.2f}\n"""
-                    f"""{'Mean intrinsic reward:':>{pad}} {statistics.mean(locs['irewbuffer']):.2f}\n""")
 
+            # ── FrontRES B1 delta-reward ────────────────────────────────────
             if isinstance(self.alg.policy, FrontRESActorCritic):
+                log_string += f"""\n{'─' * 30} FRONTRES {'─' * 31}\n"""
                 log_string += f"""{'Mean r_delta (FrontRES):':>{pad}} {statistics.mean(locs['rewbuffer']):.4f}\n"""
                 if len(locs.get("rewbuffer_gmt", [])) > 0:
                     log_string += f"""{'Mean reward_GMT (baseline):':>{pad}} {statistics.mean(locs['rewbuffer_gmt']):.4f}\n"""
                 if len(locs.get("lenbuffer_gmt", [])) > 0:
                     log_string += f"""{'Mean ep_len_GMT (baseline):':>{pad}} {statistics.mean(locs['lenbuffer_gmt']):.1f}\n"""
+                if locs.get("frontres_delta_pos_abs_mean") is not None:
+                    log_string += f"""{'Mean |Δpos|:':>{pad}} {locs['frontres_delta_pos_abs_mean']:.4f} m\n"""
+                if locs.get("frontres_delta_rpy_abs_mean") is not None:
+                    log_string += f"""{'Mean |Δrpy|:':>{pad}} {locs['frontres_delta_rpy_abs_mean']:.4f} rad\n"""
+                if locs.get("frontres_jump_degree_mean") is not None:
+                    log_string += f"""{'Mean jump degree:':>{pad}} {locs['frontres_jump_degree_mean']:.4f}\n"""
             else:
                 log_string += f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
-            # -- Velocity estimator error (if available)
+
+            # ── Velocity estimator ───────────────────────────────────────────
             if 'vel_est_error_buffer' in locs and len(locs['vel_est_error_buffer']) > 0:
+                log_string += f"""\n{'─' * 30} VELOCITY ESTIMATOR {'─' * 22}\n"""
                 log_string += f"""{'Mean vel_estimator error:':>{pad}} {statistics.mean(locs['vel_est_error_buffer']):.4f}\n"""
-            # -- FrontRES curriculum state
-            if locs.get("frontres_alpha") is not None:
-                warmup_str = " [WARMUP]" if locs.get("frontres_warmup_active") else ""
-                log_string += f"""{'Δq alpha:':>{pad}} {locs['frontres_alpha']:.4f}{warmup_str}\n"""
-            if locs.get("frontres_dr_scale") is not None:
-                log_string += f"""{'DR curriculum scale:':>{pad}} {locs['frontres_dr_scale']:.4f}\n"""
-            if locs.get("frontres_survival_rate") is not None:
-                log_string += f"""{'Training survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
-            # -- episode info
-            log_string += f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n"""
+
+            # ── RND ─────────────────────────────────────────────────────────
+            if hasattr(self.alg, "rnd") and self.alg.rnd:
+                log_string += f"""\n{'─' * 30} RND {'─' * 35}\n"""
+                log_string += (
+                    f"""{'Mean extrinsic reward:':>{pad}} {statistics.mean(locs['erewbuffer']):.2f}\n"""
+                    f"""{'Mean intrinsic reward:':>{pad}} {statistics.mean(locs['irewbuffer']):.2f}\n""")
+
+            # ── Curriculum state ────────────────────────────────────────────
+            if isinstance(self.alg.policy, FrontRESActorCritic):
+                _has_cur = (locs.get("frontres_dr_scale") is not None or
+                            locs.get("frontres_alpha") is not None)
+                if _has_cur:
+                    log_string += f"""\n{'─' * 30} CURRICULUM {'─' * 29}\n"""
+                if locs.get("frontres_dr_scale") is not None:
+                    log_string += f"""{'DR curriculum scale:':>{pad}} {locs['frontres_dr_scale']:.4f}\n"""
+                if locs.get("frontres_survival_rate") is not None:
+                    log_string += f"""{'Training survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
+                if locs.get("frontres_alpha") is not None and not _ts_mode:
+                    log_string += f"""{'Δq alpha:':>{pad}} {locs['frontres_alpha']:.4f}\n"""
         else:
             log_string = (
                 f"""{'#' * width}\n"""
@@ -1474,7 +1507,10 @@ class OnPolicyRunner:
                 for key, value in locs["loss_dict"].items():
                     log_string += f"""{f'{key}:':>{pad}} {value:.4f}\n"""
 
-        log_string += ep_string
+        if ep_string:
+            _ep_header = "REWARDS + TERMINATIONS"
+            log_string += f"""\n{'─' * ((width - len(_ep_header)) // 2)}{_ep_header}{'─' * ((width - len(_ep_header)) // 2)}\n"""
+            log_string += ep_string
         log_string += (
             f"""{'-' * width}\n"""
             f"""{'Total timesteps:':>{pad}} {self.tot_timesteps}\n"""

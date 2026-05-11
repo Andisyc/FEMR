@@ -421,15 +421,19 @@ class FrontRESActorCritic(nn.Module):
         # Standard locomotion actors (num_task_corrections == 0) retain trainable
         # σ because exploration breadth is legitimately reward-relevant.
         if self.noise_std_type == "scalar":
-            self.std = nn.Parameter(
-                init_noise_std * torch.ones(self.total_output_dim),
-                requires_grad=(self.num_task_corrections == 0),
-            )
+            _val = init_noise_std * torch.ones(self.total_output_dim)
+            if self.num_task_corrections > 0:
+                # FrontRES: fixed σ (regression task, exploration is harmful).
+                # register_buffer keeps the value but excludes it from optimiser.
+                self.register_buffer('std', _val)
+            else:
+                self.std = nn.Parameter(_val)
         elif self.noise_std_type == "log":
-            self.log_std = nn.Parameter(
-                torch.log(init_noise_std * torch.ones(self.total_output_dim)),
-                requires_grad=(self.num_task_corrections == 0),
-            )
+            _val = torch.log(init_noise_std * torch.ones(self.total_output_dim))
+            if self.num_task_corrections > 0:
+                self.register_buffer('log_std', _val)
+            else:
+                self.log_std = nn.Parameter(_val)
         else:
             raise ValueError(f"Unknown standard deviation type: {self.noise_std_type}. Should be 'scalar' or 'log'")
 
@@ -866,9 +870,15 @@ class FrontRESActorCritic(nn.Module):
         #   so 0.01 is a safe floor that does not prevent meaningful exploration decay.
         _STD_MIN = 0.01
         if self.noise_std_type == "scalar":
-            std = torch.nn.functional.softplus(self.std).clamp(min=_STD_MIN)
+            if self.num_task_corrections > 0:
+                std = self.std.clamp(min=_STD_MIN)
+            else:
+                std = torch.nn.functional.softplus(self.std).clamp(min=_STD_MIN)
         elif self.noise_std_type == "log":
-            std = torch.exp(self.log_std).clamp(min=_STD_MIN)
+            if self.num_task_corrections > 0:
+                std = self.log_std.clamp(min=_STD_MIN)
+            else:
+                std = torch.exp(self.log_std).clamp(min=_STD_MIN)
         else:
             raise ValueError(f"Unknown standard deviation type: {self.noise_std_type}")
         # PyTorch clamp() propagates NaN (NaN.clamp(min=x) == NaN).
