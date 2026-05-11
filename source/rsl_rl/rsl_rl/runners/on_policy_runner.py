@@ -998,15 +998,19 @@ class OnPolicyRunner:
                             _r_anchor_base = -(_err_pos[N_train:N_train + N_base] + _err_ori[N_train:N_train + N_base])
                             if N_train == N_base:
                                 r_delta = _r_anchor_fr - _r_anchor_base
+                                _r_base_log = _r_anchor_base.mean()
                             else:
                                 r_delta = _r_anchor_fr - _r_anchor_base.mean()
+                                _r_base_log = _r_anchor_base.mean()
                         else:
                             # Fallback to global r_delta if anchor metrics unavailable
                             r_total = rewards[:N_train].view(-1)
                             if N_train == N_base:
                                 r_delta = r_total - r_raw_gmt
+                                _r_base_log = r_raw_gmt.mean()
                             else:
                                 r_delta = r_total - r_raw_gmt.mean()
+                                _r_base_log = r_raw_gmt.mean()
                         # ─────────────────────────────────────────────────────────────
 
                         rewards_mod = rewards.clone()
@@ -1044,7 +1048,7 @@ class OnPolicyRunner:
 
                         # Logging accumulators
                         _frontres_rdelta_sum   += r_delta.mean().item()
-                        _frontres_baseline_sum += r_base.mean().item()
+                        _frontres_baseline_sum += _r_base_log.item()
                         # Task-space mode: split into Δpos and Δrpy; joint-space mode: log Δz
                         if _is_task_space_mode:
                             _tc = getattr(self.alg.policy, 'last_task_correction', None)
