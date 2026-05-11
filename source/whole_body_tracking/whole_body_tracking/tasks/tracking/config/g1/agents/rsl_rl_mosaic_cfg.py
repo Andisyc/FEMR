@@ -462,10 +462,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
 
     # ── Curriculum Oracle ─────────────────────────────────────────────────────
     # Mixes oracle (-OU ground truth) with FrontRES output to bootstrap training.
-    # Prevents the chicken-and-egg deadlock: untrained FrontRES → r_delta<0 →
-    # PPO/supervised gradient conflict → FrontRES never learns.
-    # Mix fades from 1.0 (pure oracle) to 0.0 (pure FrontRES) as cos_sim grows.
-    oracle_curriculum              = True   # enable curriculum oracle
+    # ── Oracle mixup DISABLED ─────────────────────────────────────────────────
+    # Now handled by λ_supervised in the PPO loss space (anchors μ directly),
+    # which is cleaner — no credit-assignment distortion in the action space.
+    oracle_curriculum              = False
     oracle_mix_cos_low             = 0.3    # below this: pure oracle
     oracle_mix_cos_high            = 0.85   # above this: pure FrontRES
 
