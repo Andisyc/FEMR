@@ -55,8 +55,10 @@ class PPO:
         use_pcgrad: bool = False,
         # ── FrontRES supervised loss ──────────────────────────────────────────
         # λ_sup × HuberLoss(pred, target) anchors the policy mean μ to the
-        # anti-DR direction.  1.0 = full anchor; decay to ~0.1 over training.
+        # anti-DR direction.  Decays from initial value to min over training.
         lambda_supervised: float = 0.0,
+        lambda_supervised_min: float = 0.1,
+        lambda_supervised_decay: float = 1.0,     # 1.0 = no decay
     ):
         # device-related parameters
         self.device = device
@@ -102,8 +104,10 @@ class PPO:
             self.symmetry = None
 
         # ── FrontRES supervised loss ──────────────────────────────────────────
-        self.lambda_supervised = lambda_supervised
-        self.supervised_loss_fn = torch.nn.HuberLoss(delta=1.0)
+        self.lambda_supervised       = lambda_supervised
+        self.lambda_supervised_min   = lambda_supervised_min
+        self.lambda_supervised_decay = lambda_supervised_decay
+        self.supervised_loss_fn      = torch.nn.HuberLoss(delta=1.0)
 
         # PPO components
         self.policy = policy
@@ -121,10 +125,6 @@ class PPO:
             print("[PPO] FrontRESActorCritic detected: optimizer restricted to residual_actor + critic")
         else:
             self.optimizer = optim.Adam(self.policy.parameters(), lr=learning_rate)
-
-        # ── FrontRES supervised loss ──────────────────────────────────────────
-        self.lambda_supervised = lambda_supervised
-        self.supervised_loss_fn = torch.nn.HuberLoss(delta=1.0)
 
         # FrontRES 正则化参数
         self.lambda_reg_init    = lambda_reg_init
@@ -543,6 +543,10 @@ class PPO:
             self.lambda_reg_current = max(
                 self.lambda_reg_min,
                 self.lambda_reg_current * self.lambda_reg_decay)
+        # -- supervised λ decay (lambda_supervised)
+        self.lambda_supervised = max(
+            self.lambda_supervised_min,
+            self.lambda_supervised * self.lambda_supervised_decay)
 
         # -- Clear the storage
         self.storage.clear()

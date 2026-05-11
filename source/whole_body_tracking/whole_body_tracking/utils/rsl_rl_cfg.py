@@ -345,8 +345,10 @@ class RslRlPpoFrontRESAlgorithmCfg(RslRlPpoAlgorithmCfg):
 
     # ── 监督损失：锚定 FrontRES 方向 ───────────────────────────────────────
     # λ_sup ∈ [0, 1]：supervised_loss = λ_sup × HuberLoss(pred, target)
-    # 1.0 = 纯监督方向，0.0 = 纯 PPO（建议 warmup 后从 1.0 衰减到 0.1）
+    # 1.0 = 纯监督方向，0.0 = 纯 PPO。建议从 1.0 衰减到 0.1
     lambda_supervised: float = 1.0
+    lambda_supervised_min: float = 0.1
+    lambda_supervised_decay: float = 0.999  # 每 iter 乘以此系数
 
     # 正则化权重
     lambda_reg_init:  float = 0.01
