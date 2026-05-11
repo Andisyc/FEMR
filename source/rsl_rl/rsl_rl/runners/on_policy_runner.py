@@ -523,8 +523,10 @@ class OnPolicyRunner:
         _dr_deadband    = float(self.cfg.get("dr_deadband",     0.005))
 
         # Restore dr_scale from checkpoint (set by load()); start at 0 for fresh runs.
-        _dr_scale     = float(getattr(self, '_dr_scale', 0.0))
-        _dr_scale     = max(_dr_scale, _dr_min)  # enforce floor on resume
+        # dr_scale_init allows oracle tests to skip the slow ramp (default 0.0).
+        _dr_scale_init = float(self.cfg.get("dr_scale_init", 0.0))
+        _dr_scale     = float(getattr(self, '_dr_scale', _dr_scale_init))
+        _dr_scale     = max(_dr_scale, max(_dr_min, _dr_scale_init))  # enforce floor on resume
         _survival_ema = 1.0  # optimistic initial estimate; warms up quickly via EMA
 
         # Read base perturbation values from env config (scaled by dr_scale each iteration).

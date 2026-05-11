@@ -454,32 +454,24 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
       root_tilt_prob=0.3,    root_tilt_max_rad=0.08, # Δroll, Δpitch
     """
     num_steps_per_env = 24
-    max_iterations    = 30000
+    max_iterations    = 15      # oracle test: 15 iters ≈ 90s; restore to 30000 after
     save_interval     = 500
     experiment_name   = "g1_flat_frontres_unified"
     empirical_normalization = True
 
     # ── Oracle injection test ─────────────────────────────────────────────────
-    # Set oracle_inject=True + max_iterations=30 to run a quick feasibility test:
-    # bypasses FrontRES output and directly applies ground-truth -OU correction.
-    # Expected result if task is feasible: r_delta > 0.
-    # If r_delta ≈ 0 or < 0: GMT too robust, OU perturbation too small to matter.
-    # Restore oracle_inject=False and max_iterations=30000 for real training.
-    oracle_inject                  = False  # ← set True for oracle test
+    # oracle_inject=True bypasses FrontRES and applies ground-truth -OU correction.
+    # Use with the settings below; ~15 iterations (~90s) is enough to conclude.
+    # After test: restore oracle_inject=False, max_iterations=30000,
+    #   critic_warmup_iterations=500, delta_q_alpha_init=0.0,
+    #   delta_q_alpha_ramp_iterations=5000, remove dr_scale_init.
+    oracle_inject                  = True   # ← oracle test active
+    dr_scale_init                  = 1.5    # skip dr ramp; start with meaningful perturbation
 
     # ── Task-space correction ramp ────────────────────────────────────────────
-    # FrontRES corrections are multiplied by delta_q_alpha before being applied
-    # to the anchor.  Starting from 0 prevents early random PPO gradients from
-    # saturating tanh (0.3m) and causing immediate termination (episode_length=1),
-    # which would make the B1 comparison invalid and stall training.
-    #
-    # Schedule:
-    #   [0, critic_warmup_iterations):      alpha = delta_q_alpha_init (≈ 0)
-    #   [critic_warmup_iterations, +ramp):  alpha ramps linearly to 1.0
-    #   [critic_warmup + ramp, ∞):          alpha = 1.0 (full corrections)
-    critic_warmup_iterations       = 500   # critic learns V(s) before actor moves
-    delta_q_alpha_init             = 0.0   # start with zero correction magnitude
-    delta_q_alpha_ramp_iterations  = 5000  # ramp to 1.0 over 5000 iterations
+    critic_warmup_iterations       = 0      # no warmup: alpha active from iter 0
+    delta_q_alpha_init             = 1.0    # full correction magnitude immediately
+    delta_q_alpha_ramp_iterations  = 0      # no ramp
 
     # 两台服务器上的 MOSAIC 根目录（不含实验子目录）
     candidate_gmt_paths = [
