@@ -523,15 +523,18 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         value_loss_coef      = 1.0,
         use_clipped_value_loss = True,
         clip_param           = 0.2,
-        entropy_coef         = 0.005,
+        entropy_coef         = 0.0,        # 0: FrontRES is a corrector, not an explorer.
+                                           # Any entropy>0 unconditionally pushes σ up,
+                                           # causing tanh saturation → random corrections
+                                           # → anchor_ori terminations → σ explosion.
         num_learning_epochs  = 5,
         num_mini_batches     = 4,
-        learning_rate        = 3.0e-5,     # reduced from 1e-3: prevents gradient explosion at r_delta=-large
+        learning_rate        = 3.0e-5,
         schedule             = "adaptive",
         gamma                = 0.99,
         lam                  = 0.95,
         desired_kl           = 0.01,
-        max_grad_norm        = 0.5,        # reduced from 1.0: prevents gradient explosion
+        max_grad_norm        = 0.5,
 
         # ── Supervised auxiliary loss (λ_sup schedule) ────────────────────────
         lambda_supervised             = 1.0,   # initial weight
