@@ -23,8 +23,10 @@ EPSILON_VALUES = [0.0, 0.01, 0.02, 0.05, 0.10, 0.20]
 # Lateral velocity perturbation magnitude (m/s) applied as instantaneous push
 PUSH_VELOCITIES = [0.5, 1.0, 2.0, 3.0]
 
-# Statistical power: number of parallel environments = number of trials per condition
-N_TRIALS = 100
+# Statistical power: total trials per condition
+N_TRIALS  = 100
+# GPU parallelism: number of simultaneous envs (keep low to avoid OOM)
+N_PARALLEL = 1
 
 # Phase durations (physics steps; 1 step = 0.02 s at 50 Hz)
 SETTLE_STEPS = 100   # 2.0 s  — OU builds up; GMT reaches quasi-steady state
@@ -57,8 +59,10 @@ parser.add_argument("--motion",     type=str, required=True,
                     help="Path to AMASS .npz motion file.")
 parser.add_argument("--checkpoint", type=str, required=True,
                     help="Path to GMT checkpoint (.pt).")
-parser.add_argument("--num_envs",   type=int, default=N_TRIALS,
-                    help="Number of parallel envs (= trials per condition).")
+parser.add_argument("--num_envs",   type=int, default=N_PARALLEL,
+                    help="Number of parallel envs.")
+parser.add_argument("--num_trials", type=int, default=N_TRIALS,
+                    help="Total trials per condition.")
 parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR)
 # --device / --headless are added by AppLauncher.add_app_launcher_args below
 AppLauncher.add_app_launcher_args(parser)
@@ -357,6 +361,10 @@ def main() -> None:
     print(f"{'='*60}\n")
 
     # Build env + GMT
+    num_trials = args_cli.num_trials
+    num_envs   = args_cli.num_envs
+    num_batches = (num_trials + num_envs - 1) // num_envs
+
     env = _build_env(args_cli.motion, num_envs)
     runner = _load_gmt(env, args_cli.checkpoint, device)
 
@@ -377,7 +385,8 @@ def main() -> None:
         "checkpoint":     args_cli.checkpoint,
         "epsilon_values": EPSILON_VALUES,
         "push_velocities": PUSH_VELOCITIES,
-        "n_trials":       num_envs,
+        "n_trials":       num_trials,
+        "n_envs":         num_envs,
         "settle_steps":   SETTLE_STEPS,
         "observe_steps":  OBSERVE_STEPS,
         "ou_tau":         OU_TAU,
@@ -394,23 +403,29 @@ def main() -> None:
             print(f"\n[{done_conditions}/{total_conditions}] "
                   f"ε={epsilon:.3f} m  |  Δv={delta_v:.1f} m/s")
 
-            # Reset all envs to motion start before each condition
-            env.reset()
+            # Run batches to accumulate num_trials per condition
+            all_results = []
+            for batch in range(num_batches):
+                env.reset()
+                trial_results = run_condition(
+                    env, runner, push_ctrl,
+                    left_foot_idx, right_foot_idx,
+                    epsilon=epsilon, delta_v=delta_v,
+                    device=device,
+                )
+                all_results.extend(trial_results)
+                # Stop early if we have enough
+                if len(all_results) >= num_trials:
+                    break
 
-            trial_results = run_condition(
-                env, runner, push_ctrl,
-                left_foot_idx, right_foot_idx,
-                epsilon=epsilon, delta_v=delta_v,
-                device=device,
-            )
-
-            for ti, r in enumerate(trial_results):
+            # Store first num_trials results
+            for ti, r in enumerate(all_results[:num_trials]):
                 store.add(ei, pi, ti, r)
 
             # Quick progress print
-            valid     = [r for r in trial_results if not r.fallen_before_push]
+            valid     = [r for r in all_results if not r.fallen_before_push]
             rec_rate  = sum(1 for r in valid if r.success) / max(len(valid), 1) * 100
-            n_pre_fall = sum(1 for r in trial_results if r.fallen_before_push)
+            n_pre_fall = sum(1 for r in all_results if r.fallen_before_push)
             print(f"   recovery rate = {rec_rate:.1f}%  "
                   f"({len(valid)} valid, {n_pre_fall} pre-fallen)")
 
