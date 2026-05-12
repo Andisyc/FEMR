@@ -1397,6 +1397,28 @@ class MultiMotionCommand(CommandTerm):
         return quat_mul(quat_inv(self._cached_perturbed_quat), root_quat)
 
     @property
+    def anchor_pos_w_original(self) -> torch.Tensor:
+        """Clean anchor position from motion data (no DR, no correction)."""
+        pos = self._gather_by_motion("body_pos_w")
+        return pos[:, self.motion_anchor_body_index] + self._env.scene.env_origins
+
+    @property
+    def anchor_pos_w_raw(self) -> torch.Tensor:
+        """Perturbed anchor position (DR applied, no FrontRES correction)."""
+        return self._cached_perturbed_pos + self._env.scene.env_origins
+
+    @property
+    def anchor_quat_w_original(self) -> torch.Tensor:
+        """Clean anchor quaternion from motion data (no DR, no correction)."""
+        quat = self._gather_by_motion("body_quat_w")
+        return quat[:, self.motion_anchor_body_index]
+
+    @property
+    def anchor_quat_w_raw(self) -> torch.Tensor:
+        """Perturbed anchor quaternion (DR applied, no FrontRES correction)."""
+        return self._cached_perturbed_quat
+
+    @property
     def anchor_pos_w(self) -> torch.Tensor:
         return self._cached_perturbed_pos + self._env.scene.env_origins + self._frontres_pos_correction
 

@@ -49,7 +49,7 @@ OUTPUT_DIR = "verify/robustness_validation"
 # ════════════════════════════════════════════════════════════════════════════
 
 import argparse
-import sys
+import os
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Robustness budget validation.")
@@ -62,8 +62,7 @@ parser.add_argument("--num_envs",   type=int, default=N_TRIALS,
 parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR)
 # --device / --headless are added by AppLauncher.add_app_launcher_args below
 AppLauncher.add_app_launcher_args(parser)
-args_cli, hydra_args = parser.parse_known_args()
-sys.argv = [sys.argv[0]] + hydra_args
+args_cli = parser.parse_args()
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app

@@ -31,7 +31,7 @@ from rsl_rl.modules import (
     FrontRESActorCritic, # 引入第二阶段模型
 )
 from rsl_rl.utils import store_code_state
-from isaaclab.utils.math import quat_from_euler_xyz
+from isaaclab.utils.math import quat_error_magnitude, quat_from_euler_xyz
 
 
 class OnPolicyRunner:
@@ -464,18 +464,11 @@ class OnPolicyRunner:
         # can converge before Actor weights (pretrained from Stage 1) are updated.
         # Only applied to FrontRESActorCritic; other policy types are unaffected.
         critic_warmup_iters = self.cfg.get("critic_warmup_iterations", 0)
-        _warmup_actor_frozen = False  # internal state flag
 
-        # Δq curriculum scheduler — only for FrontRESActorCritic
-        # alpha_init: fixed α during critic warmup (non-zero so critic learns correct V(s))
-        # alpha_ramp_iterations: after warmup, linearly ramp alpha_init → 1.0
         _is_frontres = isinstance(self.alg.policy, FrontRESActorCritic)
         _is_task_space_mode = _is_frontres and getattr(self.alg.policy, 'num_task_corrections', 0) > 0
-        _alpha_init  = float(self.cfg.get("delta_q_alpha_init", 1.0))
-        _alpha_ramp  = int(self.cfg.get("delta_q_alpha_ramp_iterations", 0))
-        if _is_frontres and (_alpha_ramp > 0 or _alpha_init < 1.0):
-            print(f"[Runner] Δq curriculum enabled: alpha_init={_alpha_init}, "
-                  f"ramp_iterations={_alpha_ramp} (starts after warmup={critic_warmup_iters})")
+        if _is_frontres and critic_warmup_iters > 0:
+            print(f"[Runner] Critic warmup (DR=0, Actor active): {critic_warmup_iters} iters")
 
         # B1 split-env delta-reward: first N_train envs run FrontRES, last N_base envs run GMT-only.
         # R_baseline = mean reward of GMT-only envs each step (exact, from real simulation).
@@ -505,29 +498,22 @@ class OnPolicyRunner:
             # The ep_len_gmt≈10 root cause was the obs ordering bug (anchor errors at
             # [0:30] instead of [770:800]), which has been fixed separately.
 
-        # ── Adaptive DR: target-survival-rate PI controller ───────────────────
-        # Maintains training_survival_rate ≈ dr_target_survival by continuously
-        # adjusting dr_scale ∈ [0, dr_max_scale].  Replaces the old exp-ramp +
-        # staircase approach with a single self-correcting feedback loop:
-        #   survival > target + deadband  →  dr_scale += adapt_speed  (harder)
-        #   survival < target - deadband  →  dr_scale -= adapt_speed  (easier)
-        #
-        # Survival target is expressed as target episode length (steps), converted
-        # internally: target_per_step = 1 - 1/dr_target_episode_length.
-        _dr_target_ep   = int(self.cfg.get("dr_target_episode_length", 60))
-        _dr_target_surv = 1.0 - 1.0 / max(1, _dr_target_ep)  # per-step survival target
-        _dr_speed       = float(self.cfg.get("dr_adapt_speed",  0.0005))
+        # ── Adaptive DR: r_delta-sign PI controller ──────────────────────────
+        # Adjusts dr_scale based on whether FrontRES is helping (r_delta > 0).
+        #   r_delta_ema > 0 → dr_scale += speed  (FrontRES helps → harder)
+        #   r_delta_ema < 0 → dr_scale -= speed  (FrontRES hurts → easier)
+        # Replaces the old survival-based controller: with confidence-gated
+        # corrections, survival stays high regardless of learning progress.
+        _dr_speed       = float(self.cfg.get("dr_adapt_speed",  0.002))
         _dr_max         = float(self.cfg.get("dr_max_scale",    4.0))
         _dr_min         = float(self.cfg.get("dr_min_scale",    0.0))
         _dr_ema_alpha   = float(self.cfg.get("dr_ema_alpha",    0.95))
-        _dr_deadband    = float(self.cfg.get("dr_deadband",     0.005))
 
         # Restore dr_scale from checkpoint (set by load()); start at 0 for fresh runs.
-        # dr_scale_init allows oracle tests to skip the slow ramp (default 0.0).
-        _dr_scale_init = float(self.cfg.get("dr_scale_init", 0.0))
+        _dr_scale_init = float(self.cfg.get("dr_scale_init", 0.3))
         _dr_scale     = float(getattr(self, '_dr_scale', _dr_scale_init))
-        _dr_scale     = max(_dr_scale, max(_dr_min, _dr_scale_init))  # enforce floor on resume
-        _survival_ema = 1.0  # optimistic initial estimate; warms up quickly via EMA
+        _dr_scale     = max(_dr_scale, _dr_scale_init)  # enforce floor on resume
+        _r_delta_ema  = 0.0  # unbiased start: assume FrontRES is neutral
 
         # Read base perturbation values from env config (scaled by dr_scale each iteration).
         # Only ratio/magnitude fields are scaled; prob fields remain constant.
@@ -552,10 +538,9 @@ class OnPolicyRunner:
                     joint_noise_std      = float(getattr(_pt, 'joint_noise_std',      0.0)),
                 )
                 print(
-                    f"[Runner] Adaptive DR (PI controller): "
-                    f"target_ep_len={_dr_target_ep} steps "
-                    f"(per-step target={_dr_target_surv:.4f}), "
+                    f"[Runner] Adaptive DR (r_delta-sign PI): "
                     f"speed={_dr_speed}, max_scale={_dr_max}, "
+                    f"ema_alpha={_dr_ema_alpha}, "
                     f"base float_ratio={_perturb_target.float_ratio:.3f}m, "
                     f"base root_tilt={_perturb_target.root_tilt_max_rad:.3f}rad, "
                     f"resume dr_scale={_dr_scale:.3f}"
@@ -637,47 +622,32 @@ class OnPolicyRunner:
         for it in range(start_iter, tot_iter):
             start = time.time()
 
-            # --- Critic warmup management ---
-            if isinstance(self.alg.policy, FrontRESActorCritic) and critic_warmup_iters > 0:
-                warmup_active = (it - start_iter) < critic_warmup_iters
-                if warmup_active and not _warmup_actor_frozen:
-                    for param in self.alg.policy.residual_actor.parameters():
-                        param.requires_grad = False
-                    _warmup_actor_frozen = True
-                    print(f"[Runner] Critic warmup started: Actor frozen for {critic_warmup_iters} iterations")
-                elif not warmup_active and _warmup_actor_frozen:
-                    for param in self.alg.policy.residual_actor.parameters():
-                        param.requires_grad = True
-                    _warmup_actor_frozen = False
-                    print(f"[Runner] Critic warmup complete at iteration {it}: Actor unfrozen")
+            # --- Critic warmup: DR=0, Actor active ─────────────────────────
+            # Critic learns V(s) of clean baseline.  Actor is NOT frozen:
+            # λ_supervised anchors μ, confidence caps corrections.
+            _critic_warmup = (isinstance(self.alg.policy, FrontRESActorCritic)
+                              and critic_warmup_iters > 0
+                              and (it - start_iter) < critic_warmup_iters)
 
-            # --- Δq alpha curriculum update ---
-            if _is_frontres:
-                local_it = it - start_iter
-                if local_it < critic_warmup_iters:
-                    # Phase 0: critic warmup — fixed alpha_init
-                    new_alpha = _alpha_init
-                elif _alpha_ramp > 0:
-                    # Phase 1: linear ramp from alpha_init to 1.0
-                    ramp_progress = min(1.0, (local_it - critic_warmup_iters) / _alpha_ramp)
-                    new_alpha = _alpha_init + ramp_progress * (1.0 - _alpha_init)
-                else:
-                    # No ramp configured: jump to 1.0 immediately after warmup
-                    new_alpha = 1.0
-                self.alg.policy.delta_q_alpha = new_alpha
-
-            # --- DR PI controller: update survival EMA and adjust dr_scale ---
-            # Runs BEFORE the rollout so the perturber is set for this iteration.
-            # survival EMA is updated with last iteration's value (initialized to 1.0).
+            # --- DR PI controller: r_delta-sign → adjust dr_scale ------------
             if _is_frontres and _perturb_target is not None:
-                # Update survival EMA (first iteration uses the initial 1.0 → dr_scale increases)
-                _survival_ema = (_dr_ema_alpha * _survival_ema
-                                 + (1.0 - _dr_ema_alpha) * getattr(self, '_last_survival_rate', 1.0))
-                # PI control: adjust dr_scale based on deviation from target
-                if _survival_ema > _dr_target_surv + _dr_deadband:
-                    _dr_scale = min(_dr_scale + _dr_speed, _dr_max)
-                elif _survival_ema < _dr_target_surv - _dr_deadband:
-                    _dr_scale = max(_dr_scale - _dr_speed, _dr_min)
+                # Update r_delta EMA from last iteration's mean
+                _r_delta_ema = (_dr_ema_alpha * _r_delta_ema
+                                + (1.0 - _dr_ema_alpha) * getattr(self, '_last_r_delta_mean', 0.0))
+                if _critic_warmup:
+                    # DR=0 during critic warmup — clean baseline for V(s) learning
+                    _dr_scale = 0.0
+                    self._warmup_just_ended = True  # signal to reset dr_scale after
+                else:
+                    if getattr(self, '_warmup_just_ended', False):
+                        _dr_scale = _dr_scale_init  # reset to initial DR
+                        self._warmup_just_ended = False
+                    # r_delta > 0 = FrontRES helps → increase DR
+                    # r_delta < 0 = FrontRES hurts → decrease DR
+                    if _r_delta_ema > 0:
+                        _dr_scale = min(_dr_scale + _dr_speed, _dr_max)
+                    else:
+                        _dr_scale = max(_dr_scale - _dr_speed, _dr_min)
                 # Persist for resume
                 self._dr_scale = _dr_scale
                 # Apply dr_scale to perturber (prob fields unchanged; only ratio/magnitude fields)
@@ -973,29 +943,39 @@ class OnPolicyRunner:
                     if _is_frontres:
                         r_raw_gmt = rewards[N_train:].view(-1).clone()  # [N_base] save before zeroing
 
-                        # ── Anchor-only intrinsic reward ──────────────────────────────
+                        # ── Anchor-only r_delta (GMT-free) ────────────────────────────
+                        # Compares corrected anchor against ORIGINAL motion data,
+                        # NOT against robot position.  GMT tracking noise ~28cm
+                        # cannot drown a 2cm FrontRES correction anymore.
                         _env_for_rdelta = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
                         _mcmd_rdelta = _env_for_rdelta.command_manager._terms.get('motion')
-                        _use_anchor_rdelta = (
+                        _use_clean = (
                             _mcmd_rdelta is not None
-                            and 'error_anchor_pos' in getattr(_mcmd_rdelta, 'metrics', {})
-                            and 'error_anchor_rot' in getattr(_mcmd_rdelta, 'metrics', {})
+                            and hasattr(_mcmd_rdelta, 'anchor_pos_w_original')
+                            and hasattr(_mcmd_rdelta, 'anchor_quat_w_original')
                         )
-                        if _use_anchor_rdelta:
-                            _err_pos = _mcmd_rdelta.metrics['error_anchor_pos'].to(self.device)  # (N,)
-                            _err_ori = _mcmd_rdelta.metrics['error_anchor_rot'].to(self.device)  # (N,)
-                            # Lower anchor error = better → negate so higher = better reward
-                            _r_anchor_fr   = -(_err_pos[:N_train] + _err_ori[:N_train])
-                            _r_anchor_base = -(_err_pos[N_train:N_train + N_base] + _err_ori[N_train:N_train + N_base])
-                            if N_train == N_base:
-                                r_delta = _r_anchor_fr - _r_anchor_base
-                                _r_base_log = _r_anchor_base.mean()
-                            else:
-                                r_delta = _r_anchor_fr - _r_anchor_base.mean()
-                                _r_base_log = _r_anchor_base.mean()
+                        if _use_clean:
+                            # |corrected - original| → FrontRES-only error
+                            _err_pos_fr   = torch.norm(
+                                _mcmd_rdelta.anchor_pos_w[:N_train]
+                                - _mcmd_rdelta.anchor_pos_w_original[:N_train], dim=-1)
+                            _err_ori_fr   = quat_error_magnitude(
+                                _mcmd_rdelta.anchor_quat_w[:N_train],
+                                _mcmd_rdelta.anchor_quat_w_original[:N_train])
+                            # |perturbed - original| → baseline DR deviation
+                            _err_pos_base = torch.norm(
+                                _mcmd_rdelta.anchor_pos_w_raw[N_train:N_train + N_base]
+                                - _mcmd_rdelta.anchor_pos_w_original[N_train:N_train + N_base], dim=-1)
+                            _err_ori_base = quat_error_magnitude(
+                                _mcmd_rdelta.anchor_quat_w_raw[N_train:N_train + N_base],
+                                _mcmd_rdelta.anchor_quat_w_original[N_train:N_train + N_base])
+                            _r_fr   = -(_err_pos_fr   + _err_ori_fr)
+                            _r_base = -(_err_pos_base + _err_ori_base)
+                            r_delta       = _r_fr - _r_base
+                            _r_base_log   = _r_base.mean()
                         else:
-                            # Fallback to global r_delta if anchor metrics unavailable
-                            r_total = rewards[:N_train].view(-1)
+                            r_raw_gmt = rewards[N_train:].view(-1).clone()
+                            r_total   = rewards[:N_train].view(-1)
                             if N_train == N_base:
                                 r_delta = r_total - r_raw_gmt
                                 _r_base_log = r_raw_gmt.mean()
@@ -1186,8 +1166,6 @@ class OnPolicyRunner:
             self.current_learning_iteration = it
 
             # expose curriculum state and B1 delta-reward metrics to log() via locals()
-            frontres_alpha         = self.alg.policy.delta_q_alpha if _is_frontres else None
-            frontres_warmup_active = int(_warmup_actor_frozen) if _is_frontres else None
             frontres_rdelta_mean   = (_frontres_rdelta_sum / _frontres_shaping_steps
                                       if _is_frontres and _frontres_shaping_steps > 0 else None)
             frontres_baseline_mean = (_frontres_baseline_sum / _frontres_shaping_steps
@@ -1207,9 +1185,9 @@ class OnPolicyRunner:
             frontres_jump_degree_mean    = (_frontres_jump_degree_sum / _frontres_shaping_steps
                                             if _is_frontres and _frontres_shaping_steps > 0 else None)
 
-            # Store survival rate for next iteration's PI controller update.
-            if frontres_survival_rate is not None:
-                self._last_survival_rate = frontres_survival_rate
+            # Store r_delta mean for next iteration's PI controller update.
+            if frontres_rdelta_mean is not None:
+                self._last_r_delta_mean = frontres_rdelta_mean
 
             # DR scale for logging: current value (set by PI controller at top of iteration)
             frontres_dr_scale = _dr_scale if _is_frontres else None
@@ -1368,16 +1346,10 @@ class OnPolicyRunner:
             if locs.get("frontres_survival_rate") is not None:
                 self.writer.add_scalar("Curriculum/training_survival_rate",
                                        locs["frontres_survival_rate"], locs["it"])
-            self.writer.add_scalar("Curriculum/survival_ema",
-                                   locs.get("_survival_ema", 1.0), locs["it"])
-            self.writer.add_scalar("Curriculum/dr_target_survival",
-                                   locs.get("_dr_target_surv", 0.983), locs["it"])
+            self.writer.add_scalar("Curriculum/r_delta_ema",
+                                   locs.get("_r_delta_ema", 0.0), locs["it"])
 
             # Δq alpha ramp (joint-space mode only)
-            if not _ts_mode:
-                self.writer.add_scalar("Curriculum/delta_q_alpha",
-                                       locs.get("frontres_alpha", self.alg.policy.delta_q_alpha), locs["it"])
-
         # -- Performance
         self.writer.add_scalar("Perf/total_fps", fps, locs["it"])
         self.writer.add_scalar("Perf/collection time", locs["collection_time"], locs["it"])
@@ -1470,16 +1442,15 @@ class OnPolicyRunner:
 
             # ── Curriculum state ────────────────────────────────────────────
             if isinstance(self.alg.policy, FrontRESActorCritic):
-                _has_cur = (locs.get("frontres_dr_scale") is not None or
-                            locs.get("frontres_alpha") is not None)
+                _has_cur = True  # always show curriculum for FrontRES
                 if _has_cur:
                     log_string += f"""\n{'─' * 30} CURRICULUM {'─' * 29}\n"""
                 if locs.get("frontres_dr_scale") is not None:
                     log_string += f"""{'DR curriculum scale:':>{pad}} {locs['frontres_dr_scale']:.4f}\n"""
+                _rd_ema = locs.get("_r_delta_ema", 0.0)
+                log_string += f"""{'DR r_delta EMA:':>{pad}} {_rd_ema:.4f}\n"""
                 if locs.get("frontres_survival_rate") is not None:
                     log_string += f"""{'Training survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
-                if locs.get("frontres_alpha") is not None and not _ts_mode:
-                    log_string += f"""{'Δq alpha:':>{pad}} {locs['frontres_alpha']:.4f}\n"""
         else:
             log_string = (
                 f"""{'#' * width}\n"""

@@ -470,17 +470,26 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     oracle_mix_cos_high            = 0.85   # above this: pure FrontRES
 
     # ── Fix 2: Low-pass filter on anchor corrections ──────────────────────────
-    # Prevents anchor step-changes → GMT torque spikes → false penalties on FrontRES.
-    # α=1.0: no smoothing (instant); α=0.4: ~2.5-step average window.
     correction_smooth_alpha        = 0.4
+
+    # ── Adaptive DR: r_delta-sign PI controller ──────────────────────────────
+    # dr_scale ∈ [dr_min_scale, dr_max_scale]
+    #   r_delta_ema > 0 → FrontRES helps → dr_scale + (harder)
+    #   r_delta_ema < 0 → FrontRES hurts → dr_scale − (easier)
+    dr_scale_init                  = 0.3    # start with moderate perturbation (1.5cm float)
+    dr_adapt_speed                 = 0.002  # per-iteration step size
+    dr_max_scale                   = 4.0    # upper limit
+    dr_min_scale                   = 0.0    # lower limit
+    dr_ema_alpha                   = 0.95   # r_delta EMA smoothing
 
     # ── Task-space correction ramp ────────────────────────────────────────────
     # Alpha must be 1.0 from the start so oracle corrections reach full magnitude.
     # Warmup still protects the critic: actor updates (PPO) frozen for 500 iters,
     # but oracle still applies corrections and supervised loss still trains FrontRES.
-    critic_warmup_iterations       = 500    # critic learns V(s) before PPO actor updates
-    delta_q_alpha_init             = 1.0    # full correction magnitude from iter 0
-    delta_q_alpha_ramp_iterations  = 0      # no ramp needed with oracle bootstrapping
+    # ── Critic warmup: DR=0, Actor active ────────────────────────────────────
+    # Critic learns V(s) of the clean GMT baseline while Actor is guided by
+    # λ_supervised and capped by confidence.  No actor-freeze skew.
+    critic_warmup_iterations       = 100    # DR=0 for first 100 iters
 
     # 两台服务器上的 MOSAIC 根目录（不含实验子目录）
     candidate_gmt_paths = [
