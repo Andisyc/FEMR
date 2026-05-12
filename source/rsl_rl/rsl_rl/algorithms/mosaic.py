@@ -1416,14 +1416,12 @@ class MOSAIC:
                     and _mu_dim >= _sup_dim):
                 raw_pred = mu_batch[:original_batch_size]
                 if hasattr(self.policy, 'num_task_corrections') and self.policy.num_task_corrections > 0:
-                    _pos_raw = torch.tanh(raw_pred[:, :3]) * self.policy.max_delta_pos
-                    _rpy_raw = torch.tanh(raw_pred[:, 3:6]) * self.policy.max_delta_rpy
-                    if _mu_dim >= 8:
-                        _c_pos = torch.sigmoid(raw_pred[:, 6:7])
-                        _c_rpy = torch.sigmoid(raw_pred[:, 7:8])
-                        _pos_raw = _pos_raw * _c_pos
-                        _rpy_raw = _rpy_raw * _c_rpy
-                    pred = torch.cat([_pos_raw, _rpy_raw], dim=-1)
+                    # Supervised loss trains Δ directly; confidence is trained by PPO.
+                    # No c×Δ coupling in the loss — c gates at action level only.
+                    pred = torch.cat([
+                        torch.tanh(raw_pred[:, :3]) * self.policy.max_delta_pos,
+                        torch.tanh(raw_pred[:, 3:6]) * self.policy.max_delta_rpy,
+                    ], dim=-1)
                 else:
                     pred = raw_pred
                 target = supervised_target_batch[:original_batch_size]
@@ -1433,6 +1431,10 @@ class MOSAIC:
                         target[:, :3].clamp(-self.policy.max_delta_pos, self.policy.max_delta_pos),
                         target[:, 3:].clamp(-self.policy.max_delta_rpy, self.policy.max_delta_rpy),
                     ], dim=-1)
+                # Supervised loss: compare Δpos/Δrpy directly against target.
+                # Confidence (c_pos, c_rpy) is trained separately by PPO
+                # via r_delta: c×Δ affects anchor → affects reward.
+                # Δ and c are decoupled — no c×Δ in the loss.
                 pos_sup = nn.functional.huber_loss(pred[:, :3], target[:, :3].detach())
                 rpy_sup = nn.functional.huber_loss(pred[:, 3:], target[:, 3:].detach())
                 supervised_loss = pos_sup + self.supervised_rpy_loss_weight * rpy_sup
