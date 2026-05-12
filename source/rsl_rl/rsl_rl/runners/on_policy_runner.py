@@ -1498,10 +1498,7 @@ class OnPolicyRunner:
                 for key, value in locs["loss_dict"].items():
                     log_string += f"""{f'{key}:':>{pad}} {value:.4f}\n"""
 
-        if ep_string:
-            _ep_header = "REWARDS + TERMINATIONS"
-            log_string += f"""\n{'─' * ((width - len(_ep_header)) // 2)}{_ep_header}{'─' * ((width - len(_ep_header)) // 2)}\n"""
-            log_string += ep_string
+        # Episode_Reward / Metrics / Terminations → wandb only, not console
         log_string += (
             f"""{'-' * width}\n"""
             f"""{'Total timesteps:':>{pad}} {self.tot_timesteps}\n"""
