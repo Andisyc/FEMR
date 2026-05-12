@@ -404,15 +404,23 @@ class PPO:
             ppo_loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
 
             # ── FrontRES supervised loss ──────────────────────────────────────
-            # Anchors μ to the anti-DR direction.  λ_supervised can decay from
-            # 1.0→0.1 as PPO takes over fine-tuning.
-            # GMT envs have target=0 by construction (runner zeroes them), so
-            # their contribution is naturally small and harmless.
+            # Compares effective correction against GT.
+            # mu_batch: [N, 8] raw; target: [N, 6] physical units.
             supervised_loss = torch.tensor(0.0, device=self.device)
             if self.lambda_supervised > 0 and supervised_target_batch is not None:
-                _n = min(mu_batch.shape[-1], supervised_target_batch.shape[-1])
-                supervised_loss = self.supervised_loss_fn(
-                    mu_batch[:, :_n], supervised_target_batch[:, :_n])
+                _n = min(mu_batch.shape[-1] - 2, supervised_target_batch.shape[-1])
+                if _n >= 6 and isinstance(self.policy, FrontRESActorCritic):
+                    _pos   = torch.tanh(mu_batch[:, :3]) * self.policy.max_delta_pos
+                    _rpy   = torch.tanh(mu_batch[:, 3:6]) * self.policy.max_delta_rpy
+                    _c_pos = torch.sigmoid(mu_batch[:, 6:7])
+                    _c_rpy = torch.sigmoid(mu_batch[:, 7:8])
+                    _eff   = torch.cat([_pos * _c_pos, _rpy * _c_rpy], dim=-1)
+                    supervised_loss = self.supervised_loss_fn(_eff, supervised_target_batch[:, :_n])
+                    _conf_reg = 0.01 * ((1.0 - _c_pos).mean() + (1.0 - _c_rpy).mean())
+                    supervised_loss = supervised_loss + _conf_reg
+                else:
+                    supervised_loss = self.supervised_loss_fn(
+                        mu_batch[:, :_n], supervised_target_batch[:, :_n])
 
             loss = ppo_loss + self.lambda_supervised * supervised_loss
 

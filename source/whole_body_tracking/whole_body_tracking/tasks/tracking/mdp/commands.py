@@ -1883,6 +1883,9 @@ class MultiMotionCommand(CommandTerm):
         self._cached_perturbed_quat = self.perturber.apply_quat_perturbation(_root_quat_ref)
         # ΔSE3 supervised target: correction that UNDOES the DR perturbation.
         self._dr_supervised_target[:, :3] = _root_pos_ref - self._cached_perturbed_pos
+        # Asymmetric Z: only teach float correction, not sink.
+        # Sink is self-correcting via ground contact physics.
+        self._dr_supervised_target[:, 2] = torch.clamp(self._dr_supervised_target[:, 2], max=0.0)
         _corr_quat = quat_mul(quat_inv(self._cached_perturbed_quat), _root_quat_ref)
         _r, _p, _y = euler_xyz_from_quat(_corr_quat)
         self._dr_supervised_target[:, 3] = _r

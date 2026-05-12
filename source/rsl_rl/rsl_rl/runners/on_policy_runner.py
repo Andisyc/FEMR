@@ -620,7 +620,9 @@ class OnPolicyRunner:
                     for i in range(0, _N, 4096):
                         idx = perm[i:i + 4096]
                         pred = self.alg.policy.residual_actor(_all_obs[idx])
-                        loss = _warmup_loss_fn(pred, _all_tgt[idx])
+                        # pred: [N, 7] (Δpos_raw, Δrpy_raw, conf_raw)
+                        # tgt:  [N, 6] (Δpos, Δrpy) — compare pos/rpy only
+                        loss = _warmup_loss_fn(pred[:, :6], _all_tgt[idx])
                         _warmup_opt.zero_grad()
                         loss.backward()
                         _warmup_opt.step()
@@ -896,45 +898,34 @@ class OnPolicyRunner:
                                     # correction during free flight (a_z ≈ -g).
                                     # Δrpy (orientation) is NOT gated: tilt correction is
                                     # always valid and does not interfere with jump physics.
+                                    # _task_corr: [Δpos(3), Δrpy(3), c_pos(1), c_rpy(1)]
                                     _pos_corr = _task_corr[:N_train, :3].clone()
+                                    _rpy_corr = _task_corr[:N_train, 3:6].clone()
+                                    _c_pos    = _task_corr[:N_train, 6:7].clone()
+                                    _c_rpy    = _task_corr[:N_train, 7:8].clone()
+
                                     if hasattr(_cmd_term, 'jump_degree'):
                                         _jd   = _cmd_term.jump_degree[:N_train].to(_task_corr.device)
                                         _gate = (1.0 - _jd).clamp(0.0, 1.0).unsqueeze(-1)
                                         _pos_corr = _pos_corr * _gate
-                                    # ── end gate ──────────────────────────────────────────
-                                    # Alpha ramp: scale corrections by delta_q_alpha so that
-                                    # early-training random corrections cannot saturate tanh
-                                    # (0.3 m) and immediately trigger anchor_pos termination.
-                                    # This keeps episode_length > 1 so B1 comparison is valid
-                                    # and the supervised signal can establish direction first.
-                                    _alpha = getattr(self.alg.policy, 'delta_q_alpha', 1.0)
-                                    _pos_corr = _pos_corr * _alpha
+                                        _rpy_corr = _rpy_corr * _gate
 
-                                    # ── Fix 2: Low-pass filter on position correction ──────
-                                    # Sudden anchor jumps → step change in GMT reference →
-                                    # joint target discontinuity → torque spike → false penalty.
-                                    # Exponential smoothing converts the step to a ramp.
-                                    # α=1: no smoothing; α→0: heavy smoothing (slow response).
-                                    _corr_alpha = float(self.cfg.get("correction_smooth_alpha", 0.4))
-                                    _prev_pos_c = getattr(self, '_prev_pos_correction', None)
-                                    if _prev_pos_c is None or _prev_pos_c.shape != _pos_corr.shape:
-                                        _prev_pos_c = torch.zeros_like(_pos_corr)
-                                    _pos_corr = _corr_alpha * _pos_corr + (1.0 - _corr_alpha) * _prev_pos_c
-                                    self._prev_pos_correction = _pos_corr.detach().clone()
-                                    # ─────────────────────────────────────────────────────
+                                    # ── Asymmetric Z: only correct float, not sink ──────
+                                    # Float (anchor too high):  robot on toes → unstable
+                                    #   → Δz < 0 (push anchor down)  → passes clamp(max=0)
+                                    # Sink  (anchor too low):   robot crouched → stable
+                                    #   → Δz > 0 (push anchor up)    → blocked: contact
+                                    #     physics self-corrects. Fixing it would fight
+                                    #     the ground and add unnecessary noise.
+                                    _pos_corr[:, 2] = torch.clamp(_pos_corr[:, 2], max=0.0)
+
+                                    # ── Confidence: soft coupling ─────────────────────
+                                    _pos_corr = _pos_corr * _c_pos
+                                    _rpy_corr = _rpy_corr * _c_rpy
 
                                     _cmd_term._frontres_pos_correction[:N_train].copy_(_pos_corr)
-                                    # Gate Δrpy with the same jump_degree.
-                                    # During free flight (jump_degree≈1), orientation correction
-                                    # is suppressed so FrontRES does not disturb GMT's natural
-                                    # jump arc.  Small-angle approximation (max 0.3 rad ≈ 17°):
-                                    # scaling Euler angles ≈ SLERP to within O(θ²) ≈ 5% error.
-                                    _rpy = _task_corr[:N_train, 3:]
-                                    if hasattr(_cmd_term, 'jump_degree'):
-                                        _rpy = _rpy * _gate  # _gate already (N_train, 1)
-                                    _rpy = _rpy * _alpha    # alpha ramp for orientation
                                     _quat_corr = quat_from_euler_xyz(
-                                        _rpy[:, 0], _rpy[:, 1], _rpy[:, 2])
+                                        _rpy_corr[:, 0], _rpy_corr[:, 1], _rpy_corr[:, 2])
                                     _cmd_term._frontres_quat_correction[:N_train].copy_(_quat_corr)
                                     # Baseline envs: identity (no correction)
                                     _cmd_term._frontres_pos_correction[N_train:].zero_()
@@ -1054,7 +1045,7 @@ class OnPolicyRunner:
                             _tc = getattr(self.alg.policy, 'last_task_correction', None)
                             if _tc is not None:
                                 _frontres_delta_pos_abs_sum += _tc[:N_train, :3].abs().mean().item()
-                                _frontres_delta_rpy_abs_sum += _tc[:N_train, 3:].abs().mean().item()
+                                _frontres_delta_rpy_abs_sum += _tc[:N_train, 3:6].abs().mean().item()
                             # Accumulate jump_degree for gate activation monitoring
                             for _cmd_term in (self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env).command_manager._terms.values():
                                 if hasattr(_cmd_term, 'jump_degree'):
