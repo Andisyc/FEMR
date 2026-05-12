@@ -479,7 +479,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     dr_scale_init                  = 0.3    # start with moderate perturbation (1.5cm float)
     dr_adapt_speed                 = 0.002  # per-iteration step size
     dr_max_scale                   = 4.0    # upper limit
-    dr_min_scale                   = 0.0    # lower limit
+    dr_min_scale                   = 0.05   # lower limit — keep minimal signal alive
     dr_ema_alpha                   = 0.95   # r_delta EMA smoothing
 
     # ── Task-space correction ramp ────────────────────────────────────────────

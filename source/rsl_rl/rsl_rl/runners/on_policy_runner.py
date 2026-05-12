@@ -640,7 +640,8 @@ class OnPolicyRunner:
                     self._warmup_just_ended = True  # signal to reset dr_scale after
                 else:
                     if getattr(self, '_warmup_just_ended', False):
-                        _dr_scale = _dr_scale_init  # reset to initial DR
+                        _dr_scale = _dr_scale_init
+                        _r_delta_ema = 0.1  # optimistic: give FrontRES a chance
                         self._warmup_just_ended = False
                     # r_delta > 0 = FrontRES helps → increase DR
                     # r_delta < 0 = FrontRES hurts → decrease DR
