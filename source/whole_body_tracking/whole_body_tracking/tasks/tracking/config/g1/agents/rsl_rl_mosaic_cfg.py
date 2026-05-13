@@ -486,9 +486,20 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Alpha must be 1.0 from the start so oracle corrections reach full magnitude.
     # Warmup still protects the critic: actor updates (PPO) frozen for 500 iters,
     # but oracle still applies corrections and supervised loss still trains FrontRES.
+    # ── IID step-jump perturbation probabilities (per-axis, per-step) ──────
+    # Z needs IID because GMT leg suspension absorbs OU float completely.
+    # XY benefits from both OU (drift) and IID (rescue signal).
+    # RP destabilizes regardless of type — IID gives stronger signal.
+    iid_prob_z                     = 0.3    # Z: 30% of steps get a float/sink jump
+    iid_prob_xy                    = 0.1    # XY: 10% lateral jump
+    iid_prob_rp                    = 0.1    # Roll/Pitch: 10% tilt jump
+    iid_prob_ya                    = 0.1    # Yaw: 10% orientation jump
+    iid_std_z                      = 0.05   # Z jump std (m), scaled by dr_scale
+    iid_std_xy                     = 0.03   # XY jump std (m)
+    iid_std_rp                     = 0.05   # RP jump std (rad)
+    iid_std_ya                     = 0.05   # Yaw jump std (rad)
+
     # ── Critic warmup: DR=0, Actor active ────────────────────────────────────
-    # Critic learns V(s) of the clean GMT baseline while Actor is guided by
-    # λ_supervised and capped by confidence.  No actor-freeze skew.
     critic_warmup_iterations       = 100    # DR=0 for first 100 iters
 
     # 两台服务器上的 MOSAIC 根目录（不含实验子目录）

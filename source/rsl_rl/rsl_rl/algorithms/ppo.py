@@ -388,6 +388,10 @@ class PPO:
             surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(
                 ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
             )
+            # ── Focal scaling: |A|² weights each sample by its advantage magnitude
+            _focal = torch.squeeze(advantages_batch).pow(2)
+            surrogate = surrogate * _focal
+            surrogate_clipped = surrogate_clipped * _focal
             surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
 
             # Value function loss

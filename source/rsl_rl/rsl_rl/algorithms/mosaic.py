@@ -1094,9 +1094,16 @@ class MOSAIC:
                 # 负号是因为梯度下降是最小化Loss, 相当于最大化奖励值
                 surrogate = -torch.squeeze(advantages_batch) * ratio
 
-                # 截断限制: 若某动作特别好, 容易对网络产生巨大影响导致崩溃, 因此施加截断; 若某动作特别坏, 则不加限制得惩罚
+                # ── Focal scaling: |A|² weights each sample by its advantage magnitude ──
+                # OU daily steps: |A|~0.1 → weight=0.01 → auto-muted
+                # IID rescue steps: |A|~10 → weight=100 → dominates learning
+                _focal = torch.squeeze(advantages_batch).pow(2)
+                surrogate = surrogate * _focal
+
+                # 截断限制
                 surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(
                     ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+                surrogate_clipped = surrogate_clipped * _focal
 
                 surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
 

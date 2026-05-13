@@ -536,6 +536,15 @@ class OnPolicyRunner:
                     root_tilt_max_rad    = float(getattr(_pt, 'root_tilt_max_rad',    0.0)),
                     joint_noise_prob     = float(getattr(_pt, 'joint_noise_prob',     0.0)),
                     joint_noise_std      = float(getattr(_pt, 'joint_noise_std',      0.0)),
+                    # IID step-jump base values
+                    iid_prob_z           = float(getattr(_pt, 'iid_prob_z',           0.0)),
+                    iid_std_z            = float(getattr(_pt, 'iid_std_z',            0.0)),
+                    iid_prob_xy          = float(getattr(_pt, 'iid_prob_xy',          0.0)),
+                    iid_std_xy           = float(getattr(_pt, 'iid_std_xy',           0.0)),
+                    iid_prob_rp          = float(getattr(_pt, 'iid_prob_rp',          0.0)),
+                    iid_std_rp           = float(getattr(_pt, 'iid_std_rp',           0.0)),
+                    iid_prob_ya          = float(getattr(_pt, 'iid_prob_ya',          0.0)),
+                    iid_std_ya           = float(getattr(_pt, 'iid_std_ya',           0.0)),
                 )
                 print(
                     f"[Runner] Adaptive DR (r_delta-sign PI): "
@@ -670,6 +679,16 @@ class OnPolicyRunner:
                         _mcmd.perturber.cfg.root_tilt_max_rad   = _pt('root_tilt_max_rad')   * _dr_scale
                         _mcmd.perturber.cfg.joint_noise_prob    = _pt('joint_noise_prob')
                         _mcmd.perturber.cfg.joint_noise_std     = _pt('joint_noise_std')     * _dr_scale
+                        # IID step-jump: prob unchanged, magnitude scaled by dr_scale
+                        _mcmd.perturber.cfg.iid_prob_z          = _pt('iid_prob_z')
+                        _mcmd.perturber.cfg.iid_std_z           = _pt('iid_std_z')          * _dr_scale
+                        _mcmd.perturber.cfg.iid_prob_xy         = _pt('iid_prob_xy')
+                        _mcmd.perturber.cfg.iid_std_xy          = _pt('iid_std_xy')         * _dr_scale
+                        _mcmd.perturber.cfg.iid_prob_rp         = _pt('iid_prob_rp')
+                        _mcmd.perturber.cfg.iid_std_rp          = _pt('iid_std_rp')          * _dr_scale
+                        _mcmd.perturber.cfg.iid_prob_ya         = _pt('iid_prob_ya')
+                        _mcmd.perturber.cfg.iid_std_ya          = _pt('iid_std_ya')          * _dr_scale
+                        _mcmd.perturber._dr_scale = _dr_scale
 
             # FrontRES reward-shaping state: reset at the start of each rollout.
             _frontres_prev_delta_q: torch.Tensor | None = None  # [N, A] for smoothness penalty
@@ -956,24 +975,53 @@ class OnPolicyRunner:
                             and hasattr(_mcmd_rdelta, 'anchor_quat_w_original')
                         )
                         if _use_clean:
-                            # |corrected - original| → FrontRES-only error
-                            _err_pos_fr   = torch.norm(
-                                _mcmd_rdelta.anchor_pos_w[:N_train]
-                                - _mcmd_rdelta.anchor_pos_w_original[:N_train], dim=-1)
-                            _err_ori_fr   = quat_error_magnitude(
-                                _mcmd_rdelta.anchor_quat_w[:N_train],
-                                _mcmd_rdelta.anchor_quat_w_original[:N_train])
-                            # |perturbed - original| → baseline DR deviation
-                            _err_pos_base = torch.norm(
-                                _mcmd_rdelta.anchor_pos_w_raw[N_train:N_train + N_base]
-                                - _mcmd_rdelta.anchor_pos_w_original[N_train:N_train + N_base], dim=-1)
-                            _err_ori_base = quat_error_magnitude(
-                                _mcmd_rdelta.anchor_quat_w_raw[N_train:N_train + N_base],
-                                _mcmd_rdelta.anchor_quat_w_original[N_train:N_train + N_base])
-                            _r_fr   = -(_err_pos_fr   + _err_ori_fr)
-                            _r_base = -(_err_pos_base + _err_ori_base)
-                            r_delta       = _r_fr - _r_base
-                            _r_base_log   = _r_base.mean()
+                            # ── Per-axis r_step ───────────────────────────
+                            # r_axis = |DR| - |DR + correction|  (pure anchor, no robot)
+                            _a_w   = _mcmd_rdelta.anchor_pos_w_original
+                            _a_raw = _mcmd_rdelta.anchor_pos_w_raw
+                            _a_fr  = _mcmd_rdelta.anchor_pos_w
+                            _q_w   = _mcmd_rdelta.anchor_quat_w_original
+                            _q_raw = _mcmd_rdelta.anchor_quat_w_raw
+                            _q_fr  = _mcmd_rdelta.anchor_quat_w
+
+                            def _r_axis(dr, corr):
+                                return dr.abs() - (dr + corr).abs()
+
+                            # Z
+                            _dr_z_fr   = _a_raw[:N_train, 2] - _a_w[:N_train, 2]
+                            _corr_z_fr = _a_fr[:N_train,  2] - _a_raw[:N_train, 2]
+                            _r_z = _r_axis(_dr_z_fr, _corr_z_fr).mean()
+                            # XY
+                            _dr_xy_fr   = _a_raw[:N_train, :2] - _a_w[:N_train, :2]
+                            _corr_xy_fr = _a_fr[:N_train,  :2] - _a_raw[:N_train, :2]
+                            _r_xy = _r_axis(_dr_xy_fr.norm(dim=-1), _corr_xy_fr.norm(dim=-1)).mean()
+                            # Roll/Pitch
+                            _e_raw = quat_error_magnitude(_q_raw[:N_train], _q_w[:N_train])
+                            _e_fr  = quat_error_magnitude(_q_fr[:N_train],  _q_w[:N_train])
+                            _r_rp = (_e_raw - _e_fr).mean()
+                            # Yaw
+                            _yaw_raw = torch.atan2(2*(_q_raw[:N_train,0]*_q_raw[:N_train,3] + _q_raw[:N_train,1]*_q_raw[:N_train,2]),
+                                                    1-2*(_q_raw[:N_train,2]**2 + _q_raw[:N_train,3]**2))
+                            _yaw_fr  = torch.atan2(2*(_q_fr[:N_train,0]*_q_fr[:N_train,3] + _q_fr[:N_train,1]*_q_fr[:N_train,2]),
+                                                    1-2*(_q_fr[:N_train,2]**2 + _q_fr[:N_train,3]**2))
+                            _yaw_w   = torch.atan2(2*(_q_w[:N_train,0]*_q_w[:N_train,3] + _q_w[:N_train,1]*_q_w[:N_train,2]),
+                                                    1-2*(_q_w[:N_train,2]**2 + _q_w[:N_train,3]**2))
+                            _r_ya = _r_axis(_yaw_raw - _yaw_w, _yaw_fr - _yaw_raw).mean()
+
+                            _r_step = 0.3*_r_z + 0.2*_r_xy + 0.4*_r_rp + 0.05*_r_ya
+
+                            # ── r_rescue ─────────────────────────────────
+                            _fell_base = dones[N_train:N_train+N_base].view(-1) > 0
+                            _fell_fr   = dones[:N_train].view(-1) > 0
+                            _r_rescue = torch.zeros(N_train, device=self.device)
+                            _r_rescue[_fell_base & ~_fell_fr] =  10.0   # rescued
+                            _r_rescue[_fell_base &  _fell_fr] = -10.0   # both fell
+                            _r_rescue[~_fell_base & _fell_fr] = -10.0   # FrontRES caused fall
+                            _r_rescue_mean = _r_rescue.mean()
+
+                            r_delta       = _r_step + _r_rescue_mean
+                            _r_base_log   = _r_step  # use step as baseline log
+                            _r_rescue_log = _r_rescue_mean
                         else:
                             r_raw_gmt = rewards[N_train:].view(-1).clone()
                             r_total   = rewards[:N_train].view(-1)
@@ -983,6 +1031,7 @@ class OnPolicyRunner:
                             else:
                                 r_delta = r_total - r_raw_gmt.mean()
                                 _r_base_log = r_raw_gmt.mean()
+                            _r_rescue_log = 0.0
                         # ─────────────────────────────────────────────────────────────
 
                         rewards_mod = rewards.clone()

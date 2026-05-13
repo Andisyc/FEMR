@@ -1197,3 +1197,12 @@ class FrontRESFinetuneTrackingEnvCfg(GeneralTrackingEnvCfg):
         self.motion_perturbations.joint_noise_prob = 0.4
         self.motion_perturbations.joint_noise_std  = 0.04   # 4× → 0.16 rad
         self.motion_perturbations.joint_noise_joint_indices = list(range(12))
+        # IID step-jump: breaks dynamic continuity, teaches rescue behaviour
+        self.motion_perturbations.iid_prob_z       = 0.3
+        self.motion_perturbations.iid_std_z        = 0.05   # 4× → 0.20 m
+        self.motion_perturbations.iid_prob_xy      = 0.1
+        self.motion_perturbations.iid_std_xy       = 0.03   # 4× → 0.12 m
+        self.motion_perturbations.iid_prob_rp      = 0.1
+        self.motion_perturbations.iid_std_rp       = 0.05   # 4× → 0.20 rad
+        self.motion_perturbations.iid_prob_ya      = 0.1
+        self.motion_perturbations.iid_std_ya       = 0.05   # 4× → 0.20 rad

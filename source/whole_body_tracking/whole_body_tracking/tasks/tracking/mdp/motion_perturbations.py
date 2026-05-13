@@ -1,11 +1,18 @@
 """
-This module provides domain randomization by applying perturbations to the reference motion.
+Domain randomization for reference motion via OU + IID step-jump perturbations.
 
-All perturbations use an Ornstein-Uhlenbeck (OU) process so that per-env states evolve
-smoothly between steps (β≈0.905 at τ=0.2s, f_cutoff≈0.8Hz) rather than being IID
-white noise (equivalent to 25Hz — far outside the 0–3Hz band of real mocap errors).
+OU: smooth, temporally correlated drift (camera jitter, slow drift).
+    GMT absorbs OU on Z (leg suspension), partially on XY (step relocation).
+IID: per-step independent jumps (frame drops, ICP failure, feature jumps).
+    IID on Z/RP breaks dynamic continuity → GMT fails → FrontRES rescues.
 
-States are reset to zero on episode boundaries via reset_envs().
+Per-axis design:
+  Z:      IID dominant (OU signal absorbed by leg suspension)
+  XY:     OU + IID (OU gives cumulative drift signal, IID gives rescue signal)
+  RP:     OU + IID (tilt always destabilizing, both signals strong)
+  Yaw:    IID dominant (OU yaw change absorbed by turning)
+
+dr_scale controls IID magnitude same as OU magnitude.
 """
 
 from __future__ import annotations
@@ -65,6 +72,18 @@ class MotionPerturbationCfg:
     """OU time constant τ (seconds).  β = exp(-dt/τ), dt=0.02s.
     τ=0.2s → β≈0.905, f_cutoff≈0.8Hz — covers camera jitter (1-2Hz) without IID step jumps."""
 
+    # -- IID step-jump probabilities (per-axis, per-step)
+    iid_prob_z:  float = 0.0   # Z axis:  float/sink step jump probability
+    iid_prob_xy: float = 0.0   # XY axis: lateral drift step jump probability
+    iid_prob_rp: float = 0.0   # Roll/Pitch: tilt step jump probability
+    iid_prob_ya: float = 0.0   # Yaw: orientation step jump probability
+
+    # -- IID step-jump magnitudes (std, scaled by dr_scale at runtime)
+    iid_std_z:  float = 0.05   # Z jump std (metres) — e.g. 5cm before scale
+    iid_std_xy: float = 0.03   # XY jump std (metres)
+    iid_std_rp: float = 0.05   # Roll/Pitch jump std (radians) — ~2.9°
+    iid_std_ya: float = 0.05   # Yaw jump std (radians)
+
 
 class MotionPerturber:
     """
@@ -95,8 +114,10 @@ class MotionPerturber:
         self._joint_state: torch.Tensor | None = None              # (num_envs, num_joints)
 
         # Baseline env mask: these envs always receive zero perturbation.
-        # Set once by set_baseline_envs(); enforced inside _ou_step().
         self._baseline_mask: torch.Tensor | None = None  # bool [num_envs]
+
+        # DR scale (set by runner each iteration, multiplied into IID magnitudes)
+        self._dr_scale: float = 0.0
 
     # ── public API ────────────────────────────────────────────────────────────
 
@@ -162,31 +183,35 @@ class MotionPerturber:
             self._z_state = self._ou_step(self._z_state, _z_max)
             perturbed[:, 2] += self._z_state
 
+        # ── Superimpose IID step-jumps ──────────────────────────────────────
+        perturbed = self._apply_iid_xy(perturbed)
+        perturbed = self._apply_iid_z(perturbed)
+
         return perturbed
 
     def apply_quat_perturbation(self, root_quat: torch.Tensor) -> torch.Tensor:
-        """Apply roll/pitch OU tilt to the anchor quaternion. Input/output shape: (num_envs, 4) as (w,x,y,z)."""
-        if self.cfg.root_tilt_prob <= 0.0:
-            return root_quat
+        """Apply roll/pitch OU tilt + IID jitter to the anchor quaternion."""
+        result = root_quat
 
-        self._roll_state  = self._ou_step(self._roll_state,  self.cfg.root_tilt_max_rad)
-        self._pitch_state = self._ou_step(self._pitch_state, self.cfg.root_tilt_max_rad)
+        # OU tilt
+        if self.cfg.root_tilt_prob > 0.0:
+            self._roll_state  = self._ou_step(self._roll_state,  self.cfg.root_tilt_max_rad)
+            self._pitch_state = self._ou_step(self._pitch_state, self.cfg.root_tilt_max_rad)
+            roll, pitch = self._roll_state, self._pitch_state
+            cr, sr = torch.cos(roll * 0.5), torch.sin(roll * 0.5)
+            cp, sp = torch.cos(pitch * 0.5), torch.sin(pitch * 0.5)
+            tw, tx, ty, tz = cr * cp, sr * cp, cr * sp, sr * sp
+            w2, x2, y2, z2 = result[:, 0], result[:, 1], result[:, 2], result[:, 3]
+            result = torch.stack([
+                tw * w2 - tx * x2 - ty * y2 - tz * z2,
+                tw * x2 + tx * w2 + ty * z2 - tz * y2,
+                tw * y2 - tx * z2 + ty * w2 + tz * x2,
+                tw * z2 + tx * y2 - ty * x2 + tz * w2,
+            ], dim=-1)
 
-        roll, pitch = self._roll_state, self._pitch_state
-        cr, sr = torch.cos(roll * 0.5), torch.sin(roll * 0.5)
-        cp, sp = torch.cos(pitch * 0.5), torch.sin(pitch * 0.5)
-
-        # Tilt quaternion = q_roll * q_pitch  (w,x,y,z convention)
-        # q_roll=(cr,sr,0,0), q_pitch=(cp,0,sp,0) → product:
-        tw, tx, ty, tz = cr * cp, sr * cp, cr * sp, sr * sp
-
-        w2, x2, y2, z2 = root_quat[:, 0], root_quat[:, 1], root_quat[:, 2], root_quat[:, 3]
-        return torch.stack([
-            tw * w2 - tx * x2 - ty * y2 - tz * z2,
-            tw * x2 + tx * w2 + ty * z2 - tz * y2,
-            tw * y2 - tx * z2 + ty * w2 + tz * x2,
-            tw * z2 + tx * y2 - ty * x2 + tz * w2,
-        ], dim=-1)
+        # IID jitter (roll/pitch/yaw)
+        result = self._apply_iid_quat(result)
+        return result
 
     def apply_joint_perturbation(self, joint_pos: torch.Tensor) -> torch.Tensor:
         """Apply joint-angle OU noise to the reference joint positions. Input/output shape: (num_envs, num_joints)."""
@@ -209,6 +234,62 @@ class MotionPerturber:
         else:
             perturbed += self._joint_state
         return perturbed
+
+    # ── IID step-jump perturbations (superimposed on OU) ──────────────────
+
+    def _iid_jump(self, prob: float, std: float, num_envs: int) -> torch.Tensor:
+        """Per-env IID step jump: each env gets a jump with probability `prob`.
+        Magnitude = std × dr_scale × N(0,1).  Returns (num_envs,) tensor."""
+        if prob <= 0.0 or std <= 0.0 or self._dr_scale <= 0.0:
+            return torch.zeros(num_envs, device=self.device)
+        mask = torch.rand(num_envs, device=self.device) < prob
+        if self._baseline_mask is not None:
+            mask = mask & ~self._baseline_mask
+        if not mask.any():
+            return torch.zeros(num_envs, device=self.device)
+        jump = torch.randn(num_envs, device=self.device) * std * self._dr_scale
+        jump[~mask] = 0.0
+        return jump
+
+    def _apply_iid_xy(self, root_pos: torch.Tensor) -> torch.Tensor:
+        """Superimpose IID XY jitter on root position.  Modifies in-place."""
+        jx = self._iid_jump(self.cfg.iid_prob_xy, self.cfg.iid_std_xy, root_pos.shape[0])
+        jy = self._iid_jump(self.cfg.iid_prob_xy, self.cfg.iid_std_xy, root_pos.shape[0])
+        root_pos[:, 0] += jx
+        root_pos[:, 1] += jy
+        return root_pos
+
+    def _apply_iid_z(self, root_pos: torch.Tensor) -> torch.Tensor:
+        """Superimpose IID Z jitter on root position.  Modifies in-place."""
+        jz = self._iid_jump(self.cfg.iid_prob_z, self.cfg.iid_std_z, root_pos.shape[0])
+        root_pos[:, 2] += jz
+        return root_pos
+
+    def _apply_iid_quat(self, root_quat: torch.Tensor) -> torch.Tensor:
+        """Superimpose IID roll/pitch/yaw jitter on root quaternion."""
+        jr = self._iid_jump(self.cfg.iid_prob_rp, self.cfg.iid_std_rp, root_quat.shape[0])
+        jp = self._iid_jump(self.cfg.iid_prob_rp, self.cfg.iid_std_rp, root_quat.shape[0])
+        jy = self._iid_jump(self.cfg.iid_prob_ya, self.cfg.iid_std_ya, root_quat.shape[0])
+        if jr.abs().max() == 0 and jp.abs().max() == 0 and jy.abs().max() == 0:
+            return root_quat
+        # Build jump quaternion: q_jump = q_yaw * q_pitch * q_roll
+        cy, sy = torch.cos(jy * 0.5), torch.sin(jy * 0.5)
+        cp, sp = torch.cos(jp * 0.5), torch.sin(jp * 0.5)
+        cr, sr = torch.cos(jr * 0.5), torch.sin(jr * 0.5)
+        # q_yaw * q_pitch
+        tw1 = cy * cp; tx1 = -sy * sp; ty1 = cy * sp; tz1 = sy * cp
+        # * q_roll
+        tw = tw1 * cr - tx1 * sr
+        tx = tw1 * sr + tx1 * cr
+        ty = ty1 * cr + tz1 * sr
+        tz = -ty1 * sr + tz1 * cr
+        w2, x2, y2, z2 = root_quat[:, 0], root_quat[:, 1], root_quat[:, 2], root_quat[:, 3]
+        return torch.stack([
+            tw * w2 - tx * x2 - ty * y2 - tz * z2,
+            tw * x2 + tx * w2 + ty * z2 - tz * y2,
+            tw * y2 - tx * z2 + ty * w2 + tz * x2,
+            tw * z2 + tx * y2 - ty * x2 + tz * w2,
+        ], dim=-1)
 
     # ── internal ──────────────────────────────────────────────────────────────
 
