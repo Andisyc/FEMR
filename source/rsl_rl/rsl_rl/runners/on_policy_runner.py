@@ -446,6 +446,7 @@ class OnPolicyRunner:
         print("[Runner] Train mode set.", flush=True)
 
         # Book keeping
+        print("[Runner] Initializing bookkeeping buffers...", flush=True)
         ep_infos = []
         rewbuffer = deque(maxlen=100)  # FrontRES envs: r_delta per episode; others: raw reward
         lenbuffer = deque(maxlen=100)  # FrontRES training envs episode lengths
@@ -455,20 +456,27 @@ class OnPolicyRunner:
 
         # self.env.num_envs: 仿真中同时运行的机器人数量
         # cur_reward_sum & cur_episode_length: 每个机器人的总得分与存活时间
+        print("[Runner] Allocating episode reward/length tensors...", flush=True)
         cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
+        print("[Runner] Episode tensors allocated.", flush=True)
 
         # create buffers for logging extrinsic and intrinsic rewards
+        print("[Runner] Checking RND buffers...", flush=True)
         if hasattr(self.alg, "rnd") and self.alg.rnd:
+            print("[Runner] Allocating RND reward buffers...", flush=True)
             erewbuffer = deque(maxlen=100)
             irewbuffer = deque(maxlen=100)
             cur_ereward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
             cur_ireward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
+            print("[Runner] RND buffers allocated.", flush=True)
 
         # Velocity estimator error tracking
         vel_est_error_buffer = deque(maxlen=100)
+        print("[Runner] Bookkeeping buffers ready.", flush=True)
 
         # Ensure all parameters are in-synced
+        print(f"[Runner] Distributed enabled: {self.is_distributed}", flush=True)
         if self.is_distributed:
             print(f"Synchronizing parameters for rank {self.gpu_global_rank}...")
             self.alg.broadcast_parameters()
@@ -477,16 +485,24 @@ class OnPolicyRunner:
             #   Right now: No, because they all should converge to the same values "asymptotically".
 
         # Start training
+        print("[Runner] Preparing iteration counters...", flush=True)
         start_iter = self.current_learning_iteration
         tot_iter = start_iter + num_learning_iterations
+        print(f"[Runner] Iteration counters ready: start={start_iter}, total={tot_iter}", flush=True)
 
         # Critic warmup: freeze Actor for the first N iterations so the Critic
         # can converge before Actor weights (pretrained from Stage 1) are updated.
         # Only applied to FrontRESActorCritic; other policy types are unaffected.
         critic_warmup_iters = self.cfg.get("critic_warmup_iterations", 0)
 
+        print("[Runner] Checking FrontRES mode...", flush=True)
         _is_frontres = isinstance(self.alg.policy, FrontRESActorCritic)
         _is_task_space_mode = _is_frontres and getattr(self.alg.policy, 'num_task_corrections', 0) > 0
+        print(
+            f"[Runner] FrontRES mode: is_frontres={_is_frontres}, "
+            f"task_space={_is_task_space_mode}",
+            flush=True,
+        )
         if _is_frontres and critic_warmup_iters > 0:
             print(f"[Runner] Critic warmup (DR=0, Actor active): {critic_warmup_iters} iters")
 
