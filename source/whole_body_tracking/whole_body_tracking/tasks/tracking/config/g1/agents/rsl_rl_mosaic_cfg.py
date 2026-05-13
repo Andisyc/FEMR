@@ -473,10 +473,13 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     correction_smooth_alpha        = 0.4
 
     # ── Adaptive DR: r_delta-sign PI controller ──────────────────────────────
-    # dr_scale ∈ [dr_min_scale, dr_max_scale]
-    #   r_delta_ema > 0 → FrontRES helps → dr_scale + (harder)
-    #   r_delta_ema < 0 → FrontRES hurts → dr_scale − (easier)
-    dr_scale_init                  = 0.3    # start with moderate perturbation (1.5cm float)
+    # ── Supervised warmup: pure HuberLoss before PPO loop ──────────────────
+    supervised_warmup_iterations   = 500    # train Δ with full DR before PPO
+    supervised_warmup_lr           = 1e-4
+    supervised_warmup_epochs       = 5
+
+    # ── Adaptive DR: r_delta-sign PI controller ────────────────────────────
+    dr_scale_init                  = 1.0    # match warmup DR level — no Δ adjustment gap
     dr_adapt_speed                 = 0.002  # per-iteration step size
     dr_max_scale                   = 4.0    # upper limit
     dr_min_scale                   = 0.20   # lower limit must beat σ noise floor (15mm)
@@ -500,7 +503,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     iid_std_ya                     = 0.05   # Yaw jump std (rad)
 
     # ── Critic warmup: DR=0, Actor active ────────────────────────────────────
-    critic_warmup_iterations       = 100    # DR=0 for first 100 iters
+    critic_warmup_iterations       = 0      # no DR=0 dead zone; Δ is warmup-initialised
 
     # 两台服务器上的 MOSAIC 根目录（不含实验子目录）
     candidate_gmt_paths = [
