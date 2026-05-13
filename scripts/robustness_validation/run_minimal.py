@@ -1,8 +1,13 @@
 """Minimal validation smoke test: 1 env, 1 epsilon, 1 push, 1 trial."""
 import argparse
+import faulthandler
 import os
 import sys
 from pathlib import Path
+
+
+def log(message: str) -> None:
+    print(message, flush=True)
 
 
 def _sanitize_python_path_for_isaac() -> None:
@@ -43,8 +48,24 @@ parser.add_argument("--task",       type=str, default=TASK)
 parser.add_argument("--num_envs",   type=int, default=1)
 parser.add_argument("--video",      action="store_true", default=False)
 parser.add_argument("--video_length", type=int, default=300)
+parser.add_argument(
+    "--startup_timeout",
+    type=int,
+    default=30,
+    help="Dump Python stack traces every N seconds while diagnosing startup hangs. Use 0 to disable.",
+)
+parser.add_argument(
+    "--keep_events",
+    action="store_true",
+    default=False,
+    help="Keep event/curriculum managers instead of disabling them like play.py.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
+
+if args_cli.startup_timeout > 0:
+    faulthandler.enable()
+    faulthandler.dump_traceback_later(args_cli.startup_timeout, repeat=True)
 
 
 def _resolve_motion_path(path: str) -> str:
@@ -55,7 +76,7 @@ def _resolve_motion_path(path: str) -> str:
         candidates = sorted(motion_path.rglob("*.npz"))
         if candidates:
             selected = candidates[0]
-            print(f"[SMOKE] --motion is a directory; using first .npz: {selected}")
+            log(f"[SMOKE] --motion is a directory; using first .npz: {selected}")
             return str(selected)
     parser.error(
         f"--motion must be a .npz file for task {args_cli.task!r}, or a directory containing .npz files: {path}"
@@ -73,17 +94,20 @@ if (
     and not os.environ.get("DISPLAY")
     and not os.environ.get("WAYLAND_DISPLAY")
 ):
-    print("[SMOKE] No display detected; forcing --headless for Isaac Sim startup.")
+    log("[SMOKE] No display detected; forcing --headless for Isaac Sim startup.")
     args_cli.headless = True
 
 # This script does not use Hydra.  Leaving unknown CLI fragments in sys.argv can
 # make Kit consume arguments that were intended for other launch paths.
 if hydra_args:
-    print(f"[SMOKE] Ignoring non-AppLauncher arguments: {hydra_args}")
+    log(f"[SMOKE] Ignoring non-AppLauncher arguments: {hydra_args}")
 sys.argv = [sys.argv[0]]
 
+log(f"[SMOKE] Launching Isaac Sim via AppLauncher: device={args_cli.device}, headless={args_cli.headless}")
 app_launcher = AppLauncher(args_cli)
+log("[SMOKE] AppLauncher constructed; retrieving simulation_app...")
 simulation_app = app_launcher.app
+log("[SMOKE] simulation_app is ready.")
 
 # ── After Isaac Sim is running ──────────────────────────────────────────
 import torch
@@ -93,18 +117,20 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from rsl_rl.runners import OnPolicyRunner
 import whole_body_tracking.tasks  # noqa
 
-print("[SMOKE] Isaac Sim running, importing modules...")
+log("[SMOKE] Isaac Sim running, importing modules...")
 
 # ── Minimal env build ───────────────────────────────────────────────────
 task_entry = gym.envs.registry[args_cli.task]
 env_cfg_cls = task_entry.kwargs["env_cfg_entry_point"]
 
-# Monkey-patch: replace None events
+# Monkey-patch: replace None events only when we explicitly keep managers enabled.
 _orig = getattr(env_cfg_cls, '__post_init__', None)
 
 def _safe_post_init(self_):
     if _orig is not None:
         _orig(self_)
+    if not args_cli.keep_events:
+        return
     if getattr(self_, 'events', None) is None:
         from isaaclab.utils import configclass
         @configclass
@@ -134,6 +160,15 @@ if hasattr(env_cfg.commands.motion, "start_frame"):
 if hasattr(env_cfg, "terminations") and hasattr(env_cfg.terminations, "time_out"):
     env_cfg.terminations.time_out = None
 
+# Match play.py's evaluation path: disable event/curriculum managers unless
+# explicitly requested. These managers are for training randomization and can
+# introduce startup-side effects that are not needed for the smoke test.
+if not args_cli.keep_events:
+    if hasattr(env_cfg, "events"):
+        env_cfg.events = None
+    if hasattr(env_cfg, "curriculum"):
+        env_cfg.curriculum = None
+
 # Zero init randomisation
 motion_cfg = getattr(env_cfg.commands, "motion", None)
 if motion_cfg is not None:
@@ -143,8 +178,9 @@ if motion_cfg is not None:
         if hasattr(motion_cfg, attr):
             setattr(motion_cfg, attr, zero)
 
-print("[SMOKE] Creating env...")
+log("[SMOKE] Creating env...")
 env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+log("[SMOKE] gym.make returned.")
 if args_cli.video:
     video_kwargs = {
         "video_folder": os.path.join(os.path.dirname(args_cli.checkpoint), "videos", "run_minimal"),
@@ -154,7 +190,7 @@ if args_cli.video:
     }
     env = gym.wrappers.RecordVideo(env, **video_kwargs)
 env = RslRlVecEnvWrapper(env)
-print(f"[SMOKE] Env created: {env.num_envs} envs")
+log(f"[SMOKE] Env created: {env.num_envs} envs")
 
 # ── Load GMT ────────────────────────────────────────────────────────────
 from whole_body_tracking.tasks.tracking.config.g1.agents.rsl_rl_ppo_cfg import G1FlatPPORunnerCfg
@@ -163,7 +199,7 @@ agent_cfg = G1FlatPPORunnerCfg()
 runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=args_cli.device)
 runner._move_normalizer_to_device(args_cli.device)
 runner.load(args_cli.checkpoint, load_optimizer=False, load_critic=False)
-print("[SMOKE] GMT loaded")
+log("[SMOKE] GMT loaded")
 
 # ── Run one trial ───────────────────────────────────────────────────────
 policy = runner.get_inference_policy(device=args_cli.device)
@@ -179,15 +215,16 @@ if cmd is not None and hasattr(cmd, 'perturber'):
     cfg.root_tilt_prob = 0.0
     cfg.joint_noise_prob = 0.0
 
-print("[SMOKE] Running 300 steps...")
+log("[SMOKE] Running 300 steps...")
 for step in range(300):
     with torch.inference_mode():
         actions = policy(obs)
     obs, _, dones, _ = env.step(actions)
     if step % 50 == 0:
-        print(f"   step {step:3d}: done={dones.detach().cpu().tolist()}")
+        log(f"   step {step:3d}: done={dones.detach().cpu().tolist()}")
 
-print("[SMOKE] OK — 300 steps completed without crash")
+log("[SMOKE] OK — 300 steps completed without crash")
 env.close()
 simulation_app.close()
-print("[SMOKE] Done.")
+faulthandler.cancel_dump_traceback_later()
+log("[SMOKE] Done.")
