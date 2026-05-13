@@ -513,7 +513,7 @@ class OnPolicyRunner:
         _dr_scale_init = float(self.cfg.get("dr_scale_init", 0.3))
         _dr_scale     = float(getattr(self, '_dr_scale', _dr_scale_init))
         _dr_scale     = max(_dr_scale, _dr_scale_init)  # enforce floor on resume
-        _r_delta_ema  = 0.0  # unbiased start: assume FrontRES is neutral
+        _r_delta_ema  = 0.1  # optimistic: push DR up from dr_init=1.0
 
         # Read base perturbation values from env config (scaled by dr_scale each iteration).
         # Only ratio/magnitude fields are scaled; prob fields remain constant.
