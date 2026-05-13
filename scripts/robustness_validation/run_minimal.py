@@ -113,6 +113,7 @@ log("[SMOKE] simulation_app is ready.")
 import torch
 import gymnasium as gym
 from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.utils import configclass
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from rsl_rl.runners import OnPolicyRunner
 import whole_body_tracking.tasks  # noqa
@@ -123,30 +124,27 @@ log("[SMOKE] Isaac Sim running, importing modules...")
 task_entry = gym.envs.registry[args_cli.task]
 env_cfg_cls = task_entry.kwargs["env_cfg_entry_point"]
 
-# Monkey-patch: replace None events only when we explicitly keep managers enabled.
+@configclass
+class _NoOpCfg:
+    pass
+
+
+# Monkey-patch: replace None managers with empty configs.
 _orig = getattr(env_cfg_cls, '__post_init__', None)
 
 def _safe_post_init(self_):
     if _orig is not None:
         _orig(self_)
-    if not args_cli.keep_events:
-        return
     if getattr(self_, 'events', None) is None:
-        from isaaclab.utils import configclass
-        @configclass
-        class _NoOp:
-            pass
-        self_.events = _NoOp()
+        self_.events = _NoOpCfg()
     if getattr(self_, 'curriculum', None) is None:
-        from isaaclab.utils import configclass
-        @configclass
-        class _NoOp:
-            pass
-        self_.curriculum = _NoOp()
+        self_.curriculum = _NoOpCfg()
 
 env_cfg_cls.__post_init__ = _safe_post_init
 
 env_cfg = env_cfg_cls()
+if hasattr(env_cfg, "sim") and hasattr(env_cfg.sim, "device"):
+    env_cfg.sim.device = args_cli.device
 env_cfg.scene.num_envs = args_cli.num_envs
 env_cfg.commands.motion.motion = args_cli.motion   # MotionCommandCfg 的正确字段名
 if hasattr(env_cfg.commands.motion, "motion_file"):
@@ -160,14 +158,21 @@ if hasattr(env_cfg.commands.motion, "start_frame"):
 if hasattr(env_cfg, "terminations") and hasattr(env_cfg.terminations, "time_out"):
     env_cfg.terminations.time_out = None
 
-# Match play.py's evaluation path: disable event/curriculum managers unless
-# explicitly requested. These managers are for training randomization and can
-# introduce startup-side effects that are not needed for the smoke test.
+# Disable event/curriculum terms without setting the manager configs to None.
+# Isaac Lab registers manager callbacks before sim.reset(), and callbacks assume
+# cfg has a __dict__ even when there are no terms.
 if not args_cli.keep_events:
     if hasattr(env_cfg, "events"):
-        env_cfg.events = None
+        env_cfg.events = _NoOpCfg()
     if hasattr(env_cfg, "curriculum"):
-        env_cfg.curriculum = None
+        env_cfg.curriculum = _NoOpCfg()
+
+# Headless smoke tests should not register debug-visualization callbacks.  The
+# contact sensor callback can block inside PhysX tensor reads during sim.reset().
+if hasattr(env_cfg.commands.motion, "debug_vis"):
+    env_cfg.commands.motion.debug_vis = False
+if hasattr(env_cfg, "scene") and hasattr(env_cfg.scene, "contact_forces"):
+    env_cfg.scene.contact_forces.debug_vis = False
 
 # Zero init randomisation
 motion_cfg = getattr(env_cfg.commands, "motion", None)
