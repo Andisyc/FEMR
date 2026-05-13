@@ -17,6 +17,12 @@ from whole_body_tracking.tasks.tracking.tracking_env_cfg import (
 )
 
 
+# Module-level placeholder — picklable, used when physics DR must be disabled.
+@configclass
+class _NoOpEventsCfg:
+    pass
+
+
 @configclass
 class G1FlatEnvCfg(TrackingEnvCfg):
     def __post_init__(self):
@@ -298,12 +304,7 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         # compensate physical parameter variations via anchor corrections.
         # Physics DR here makes GMT fail as a B1 baseline (ep_len ≈ 12),
         # zeroing both r_delta and the supervised signal — a training deadlock.
-        # Disable Physics DR: use empty config instead of None (Isaac Lab
-        # ManagerBase._resolve_terms_callback iterates self.cfg.__dict__).
-        from isaaclab.utils import configclass
-        @configclass
-        class _NoOpEventsCfg:
-            pass
+        # Disable Physics DR: use module-level placeholder (must be picklable)
         self.events = _NoOpEventsCfg()
 
         # Obs layout (800 dims total):
