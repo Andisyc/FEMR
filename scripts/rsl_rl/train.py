@@ -104,6 +104,7 @@ from isaaclab.envs import (
     multi_agent_to_single_agent,
 )
 from isaaclab.utils.dict import print_dict
+from isaaclab.utils import configclass
 from isaaclab.utils.io import dump_pickle, dump_yaml
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -117,6 +118,29 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
+
+
+@configclass
+class _NoOpCfg:
+    pass
+
+
+def _sanitize_env_cfg_for_training(env_cfg) -> None:
+    """Avoid IsaacLab startup callbacks failing on None managers/debug visuals."""
+
+    # Some FrontRES configs intentionally disable managers with None, but
+    # IsaacLab manager callbacks still assume cfg has a __dict__ during reset.
+    for field in ("events", "curriculum"):
+        if hasattr(env_cfg, field) and getattr(env_cfg, field) is None:
+            setattr(env_cfg, field, _NoOpCfg())
+
+    # Headless/multi-GPU training does not need debug visualization.  Leaving
+    # these enabled can register callbacks before Articulation data is ready.
+    motion_cfg = getattr(getattr(env_cfg, "commands", None), "motion", None)
+    if motion_cfg is not None and hasattr(motion_cfg, "debug_vis"):
+        motion_cfg.debug_vis = False
+    if hasattr(env_cfg, "scene") and hasattr(env_cfg.scene, "contact_forces"):
+        env_cfg.scene.contact_forces.debug_vis = False
 
 
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point") # 
@@ -152,6 +176,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # load in motion sequence
     env_cfg.commands.motion.motion = args_cli.motion
+    _sanitize_env_cfg_for_training(env_cfg)
 
     # specify directory for logging experiments
     # log_root_path 根据 experiment_name 自动派生，避免不同训练阶段的 checkpoint 混入同一目录。
