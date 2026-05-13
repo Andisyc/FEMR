@@ -298,7 +298,13 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         # compensate physical parameter variations via anchor corrections.
         # Physics DR here makes GMT fail as a B1 baseline (ep_len ≈ 12),
         # zeroing both r_delta and the supervised signal — a training deadlock.
-        self.events = None
+        # Disable Physics DR: use empty config instead of None (Isaac Lab
+        # ManagerBase._resolve_terms_callback iterates self.cfg.__dict__).
+        from isaaclab.utils import configclass
+        @configclass
+        class _NoOpEventsCfg:
+            pass
+        self.events = _NoOpEventsCfg()
 
         # Obs layout (800 dims total):
         #   [0:770]  = GMT-compatible prefix:
