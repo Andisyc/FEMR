@@ -578,6 +578,8 @@ class OnPolicyRunner:
 
             _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
             _nfo = self.alg.policy.num_frontres_obs
+            if _nfo <= 0:
+                _nfo = self.alg.policy.num_actor_obs  # use full obs when no subset configured
 
             print(f"[Runner] === Supervised warmup: {_warmup_iters} iters "
                   f"(lr={_warmup_lr}, epochs={_warmup_epochs}, "
