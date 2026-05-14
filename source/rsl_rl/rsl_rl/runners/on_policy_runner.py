@@ -864,9 +864,10 @@ class OnPolicyRunner:
         for it in range(start_iter, tot_iter):
             start = time.time()
 
-            # --- Critic warmup: DR=0, Actor active ─────────────────────────
-            # Critic learns V(s) of clean baseline.  Actor is NOT frozen:
-            # λ_supervised anchors μ, confidence caps corrections.
+            # --- Critic warmup: fixed low DR scale ─────────────────────────
+            # Critic learns V(s) under real low perturbations.  PPO actor may
+            # be frozen separately by ppo_actor_warmup_iterations; supervised
+            # loss remains active throughout.
             _critic_warmup = (isinstance(self.alg.policy, FrontRESActorCritic)
                               and critic_warmup_iters > 0
                               and (it - start_iter) < critic_warmup_iters)
@@ -1488,8 +1489,14 @@ class OnPolicyRunner:
             # Pass current iteration to algorithm for logging (needed by MOSAIC)
             self.alg.current_learning_iteration = it
             if _is_frontres and hasattr(self.alg, "ppo_actor_weight"):
-                _actor_warmup = int(self.cfg.get("ppo_actor_warmup_iterations", 0))
-                _actor_ramp = int(self.cfg.get("ppo_actor_ramp_iterations", 0))
+                # These are algorithm-level settings.  Keep a runner-level
+                # fallback for old configs, but prefer self.alg_cfg.
+                _actor_warmup = int(self.alg_cfg.get(
+                    "ppo_actor_warmup_iterations",
+                    self.cfg.get("ppo_actor_warmup_iterations", 0)))
+                _actor_ramp = int(self.alg_cfg.get(
+                    "ppo_actor_ramp_iterations",
+                    self.cfg.get("ppo_actor_ramp_iterations", 0)))
                 _phase_iter = max(0, it - start_iter)
                 if _phase_iter < _actor_warmup:
                     _ppo_actor_weight = 0.0
@@ -1782,7 +1789,11 @@ class OnPolicyRunner:
                     _notes = "(GMT-only, FrontRES corrections disabled)"
                 elif _is_critic:
                     _phase = "CRITIC WARMUP"
-                    _notes = "(DR=0, Actor active, cos_sim meaningless)"
+                    _paw = locs.get("loss_dict", {}).get("ppo_actor_weight", None)
+                    if _paw is not None and _paw <= 0.0:
+                        _notes = "(fixed low DR, PPO actor frozen; critic + supervised train)"
+                    else:
+                        _notes = "(fixed low DR; critic + supervised train)"
                 elif _lam > 0.5:
                     _phase = "PPO + SUPERVISED ANCHOR"
                     _notes = ""

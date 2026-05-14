@@ -477,12 +477,13 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Give FrontRES enough supervised exposure to learn the correction
     # direction before PPO sees r_delta.  PPO still keeps an online supervised
     # anchor afterwards, so the transition is gradual rather than a hard switch.
-    supervised_warmup_iterations   = 300
+    supervised_warmup_iterations   = 600
     supervised_warmup_steps_per_iter = 8
     supervised_warmup_max_envs_per_step = 4096
     supervised_warmup_dr_scale      = 0.75
     supervised_warmup_lr           = 1e-4
     supervised_warmup_epochs       = 3
+    supervised_warmup_diag_interval = 60
 
     # ── Adaptive DR: r_delta-sign PI controller ────────────────────────────
     dr_scale_init                  = 0.3    # start RL easier than warmup; critic sees lower-variance r_delta first
