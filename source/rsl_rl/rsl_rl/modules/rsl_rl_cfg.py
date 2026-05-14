@@ -250,6 +250,18 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Weight for Δrpy component relative to Δpos in the supervised loss."""
     supervised_conf_loss_weight: float = 0.05
     """Small BCE weight for task-space confidence heads."""
+    supervised_direction_loss_weight: float = 0.1
+    """Cosine-direction loss weight on non-zero supervised targets."""
+    supervised_valid_loss_weight: float = 4.0
+    """Extra sample weight for non-zero supervised targets before normalization."""
+    ppo_actor_warmup_iterations: int = 0
+    """Number of PPO iterations with actor surrogate disabled; critic and supervised loss still train."""
+    ppo_actor_ramp_iterations: int = 0
+    """Number of PPO iterations used to linearly ramp actor surrogate from 0 to 1."""
+    ppo_advantage_focal_power: float = 0.0
+    """Optional |advantage| focal exponent for actor surrogate. 0.0 gives standard PPO."""
+    diagnose_gradient_conflict: bool = True
+    """Log cosine/norm diagnostics between PPO actor and supervised actor gradients."""
 
 
 @configclass

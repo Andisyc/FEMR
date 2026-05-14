@@ -588,6 +588,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         supervised_trigger_cosine_sim = 0.85,  # EMA threshold to start decay
         supervised_rpy_loss_weight    = 1.0,
         supervised_conf_loss_weight   = 0.0,   # BCE drives c→1 always (OU≠0); let PPO learn gating
+        supervised_direction_loss_weight = 0.1,
+        supervised_valid_loss_weight     = 4.0,
+        # Keep early PPO from undoing the supervised direction before the critic
+        # has a useful value estimate.  Value loss and supervised loss stay on.
+        ppo_actor_warmup_iterations   = 500,
+        ppo_actor_ramp_iterations     = 1000,
+        ppo_advantage_focal_power     = 0.0,
+        diagnose_gradient_conflict    = True,
 
         # ── Misc ─────────────────────────────────────────────────────────────
         gradient_accumulation_steps    = 1,

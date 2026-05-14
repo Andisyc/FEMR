@@ -52,6 +52,12 @@ class FrontRESUnified:
         supervised_trigger_cosine_sim: float = 0.85,
         supervised_rpy_loss_weight: float = 1.0,
         supervised_conf_loss_weight: float = 0.05,
+        supervised_direction_loss_weight: float = 0.1,
+        supervised_valid_loss_weight: float = 4.0,
+        ppo_actor_warmup_iterations: int = 0,
+        ppo_actor_ramp_iterations: int = 0,
+        ppo_advantage_focal_power: float = 0.0,
+        diagnose_gradient_conflict: bool = True,
         hybrid: bool = True,
         use_ppo: bool = True,
         gradient_accumulation_steps: int = 1,
@@ -123,6 +129,13 @@ class FrontRESUnified:
         self.supervised_trigger_cosine_sim = supervised_trigger_cosine_sim
         self.supervised_rpy_loss_weight = supervised_rpy_loss_weight
         self.supervised_conf_loss_weight = supervised_conf_loss_weight
+        self.supervised_direction_loss_weight = supervised_direction_loss_weight
+        self.supervised_valid_loss_weight = supervised_valid_loss_weight
+        self.ppo_actor_warmup_iterations = int(ppo_actor_warmup_iterations)
+        self.ppo_actor_ramp_iterations = int(ppo_actor_ramp_iterations)
+        self.ppo_advantage_focal_power = float(ppo_advantage_focal_power)
+        self.diagnose_gradient_conflict = bool(diagnose_gradient_conflict)
+        self.ppo_actor_weight = 1.0
         self._supervised_decay_triggered = False
         self._supervised_cosine_ema = 0.0
         self._supervised_ema_alpha = 0.05
@@ -204,7 +217,12 @@ class FrontRESUnified:
               f"  decay={self.lambda_supervised_decay_rate}"
               f"  trigger_cos={self.supervised_trigger_cosine_sim}"
               f"  rpy_w={self.supervised_rpy_loss_weight}"
-              f"  conf_w={self.supervised_conf_loss_weight}")
+              f"  conf_w={self.supervised_conf_loss_weight}"
+              f"  dir_w={self.supervised_direction_loss_weight}"
+              f"  valid_w={self.supervised_valid_loss_weight}")
+        print(f"  PPO actor warmup={self.ppo_actor_warmup_iterations}"
+              f"  ramp={self.ppo_actor_ramp_iterations}"
+              f"  adv_focal_power={self.ppo_advantage_focal_power}")
         print("  MOSAIC teacher/off-policy branches: disabled by construction")
         print("=" * 80)
 
@@ -309,6 +327,9 @@ class FrontRESUnified:
         mean_entropy = 0.0
         mean_supervised_loss = 0.0
         mean_supervised_cos_sim = 0.0
+        grad_conflict_cos = 0.0
+        grad_conflict_norm_ratio = 0.0
+        grad_conflict_count = 0
 
         if self.policy.is_recurrent:
             generator = self.storage.recurrent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
@@ -373,7 +394,14 @@ class FrontRESUnified:
                 mu_batch, supervised_target_batch, original_batch_size)
 
             oracle_mix = float(getattr(self, "oracle_mix", 0.0))
-            ppo_weight = 1.0 - oracle_mix
+            ppo_weight = float(getattr(self, "ppo_actor_weight", 1.0)) * (1.0 - oracle_mix)
+            if self.diagnose_gradient_conflict and ppo_weight > 0.0 and self.lambda_supervised > 0.0:
+                _gc, _ratio = self._compute_actor_grad_conflict(
+                    surrogate_loss, supervised_loss)
+                if _gc is not None:
+                    grad_conflict_cos += _gc
+                    grad_conflict_norm_ratio += _ratio
+                    grad_conflict_count += 1
             loss = (
                 ppo_weight * surrogate_loss
                 + self.value_loss_coef * value_loss
@@ -411,6 +439,12 @@ class FrontRESUnified:
         mean_entropy /= num_updates
         mean_supervised_loss /= num_updates
         mean_supervised_cos_sim /= num_updates
+        if grad_conflict_count > 0:
+            grad_conflict_cos /= grad_conflict_count
+            grad_conflict_norm_ratio /= grad_conflict_count
+        else:
+            grad_conflict_cos = 0.0
+            grad_conflict_norm_ratio = 0.0
 
         self.storage.clear()
         return {
@@ -424,7 +458,40 @@ class FrontRESUnified:
             "supervised_loss": mean_supervised_loss,
             "supervised_cos_sim": mean_supervised_cos_sim,
             "lambda_supervised": self.lambda_supervised,
+            "ppo_actor_weight": float(getattr(self, "ppo_actor_weight", 1.0)),
+            "grad_cos_ppo_supervised": grad_conflict_cos,
+            "grad_norm_ratio_ppo_to_supervised": grad_conflict_norm_ratio,
         }
+
+    def _compute_actor_grad_conflict(self, surrogate_loss, supervised_loss):
+        params = [
+            p for p in self.policy.residual_actor.parameters()
+            if p.requires_grad
+        ] if hasattr(self.policy, "residual_actor") else []
+        if not params:
+            return None, 0.0
+
+        ppo_grads = torch.autograd.grad(
+            surrogate_loss, params, retain_graph=True, allow_unused=True)
+        sup_grads = torch.autograd.grad(
+            supervised_loss, params, retain_graph=True, allow_unused=True)
+
+        dot = torch.tensor(0.0, device=self.device)
+        ppo_norm_sq = torch.tensor(0.0, device=self.device)
+        sup_norm_sq = torch.tensor(0.0, device=self.device)
+        for gp, gs in zip(ppo_grads, sup_grads):
+            if gp is None or gs is None:
+                continue
+            dot = dot + (gp * gs).sum()
+            ppo_norm_sq = ppo_norm_sq + gp.square().sum()
+            sup_norm_sq = sup_norm_sq + gs.square().sum()
+
+        denom = (ppo_norm_sq.sqrt() * sup_norm_sq.sqrt()).clamp(min=1e-12)
+        if ppo_norm_sq <= 0 or sup_norm_sq <= 0:
+            return None, 0.0
+        cos = (dot / denom).detach().item()
+        ratio = (ppo_norm_sq.sqrt() / sup_norm_sq.sqrt().clamp(min=1e-12)).detach().item()
+        return cos, ratio
 
     def _adapt_learning_rate(self, old_mu_batch, old_sigma_batch, mu_batch, sigma_batch):
         with torch.inference_mode():
@@ -469,7 +536,11 @@ class FrontRESUnified:
         ratio = torch.exp(log_ratio.clamp(-10.0, 10.0))
 
         advantages = torch.squeeze(advantages_batch)
-        focal = advantages.pow(2).clamp(max=25.0)
+        focal_power = max(0.0, float(getattr(self, "ppo_advantage_focal_power", 0.0)))
+        if focal_power > 0.0:
+            focal = advantages.abs().pow(focal_power).clamp(max=25.0)
+        else:
+            focal = torch.ones_like(advantages)
         surrogate = -advantages * ratio * focal
         surrogate_clipped = -advantages * torch.clamp(
             ratio, 1.0 - self.clip_param, 1.0 + self.clip_param) * focal
@@ -525,9 +596,27 @@ class FrontRESUnified:
                 target[:, 3:].clamp(-self.policy.max_delta_rpy, self.policy.max_delta_rpy),
             ], dim=-1)
 
-        pos_sup = nn.functional.huber_loss(pred[:, :3], target[:, :3].detach())
-        rpy_sup = nn.functional.huber_loss(pred[:, 3:], target[:, 3:].detach())
+        target_detached = target.detach()
+        target_norm = target_detached.norm(dim=-1)
+        valid = target_norm > 1e-4
+
+        sample_weight = torch.ones_like(target_norm)
+        if valid.any():
+            sample_weight[valid] = float(self.supervised_valid_loss_weight)
+        sample_weight = sample_weight / sample_weight.mean().clamp(min=1e-6)
+
+        pos_err = nn.functional.huber_loss(
+            pred[:, :3], target_detached[:, :3], reduction="none").mean(dim=-1)
+        rpy_err = nn.functional.huber_loss(
+            pred[:, 3:], target_detached[:, 3:], reduction="none").mean(dim=-1)
+        pos_sup = (pos_err * sample_weight).mean()
+        rpy_sup = (rpy_err * sample_weight).mean()
         supervised_loss = pos_sup + self.supervised_rpy_loss_weight * rpy_sup
+
+        if valid.any() and self.supervised_direction_loss_weight > 0:
+            direction_loss = 1.0 - nn.functional.cosine_similarity(
+                pred[valid], target_detached[valid], dim=-1).mean()
+            supervised_loss = supervised_loss + self.supervised_direction_loss_weight * direction_loss
 
         if (
             hasattr(self.policy, "num_task_corrections")
@@ -535,14 +624,12 @@ class FrontRESUnified:
             and raw_pred.shape[-1] >= 8
             and self.supervised_conf_loss_weight > 0
         ):
-            target_conf = (target.norm(dim=-1, keepdim=True) > 1e-4).to(raw_pred.dtype)
+            target_conf = valid.view(-1, 1).to(raw_pred.dtype)
             conf_sup = nn.functional.binary_cross_entropy_with_logits(
                 raw_pred[:, 6:8], target_conf.expand(-1, 2).detach())
             supervised_loss = supervised_loss + self.supervised_conf_loss_weight * conf_sup
 
         with torch.no_grad():
-            target_norm = target.norm(dim=-1)
-            valid = target_norm > 1e-4
             if valid.any():
                 sup_cos_sim = nn.functional.cosine_similarity(
                     pred[valid], target[valid], dim=-1).mean().item()

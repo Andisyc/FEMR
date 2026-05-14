@@ -512,7 +512,7 @@ class OnPolicyRunner:
             flush=True,
         )
         if _is_frontres and critic_warmup_iters > 0:
-            print(f"[Runner] Critic warmup (DR=0, Actor active): {critic_warmup_iters} iters")
+            print(f"[Runner] Critic warmup (fixed DR scale, Actor active): {critic_warmup_iters} iters")
 
         # B1 split-env delta-reward: first N_train envs run FrontRES, last N_base envs run GMT-only.
         # R_baseline = mean reward of GMT-only envs each step (exact, from real simulation).
@@ -664,9 +664,13 @@ class OnPolicyRunner:
             _warmup_steps  = max(1, min(_warmup_steps, self.num_steps_per_env))
             _warmup_max_envs = int(self.cfg.get("supervised_warmup_max_envs_per_step", self.env.num_envs))
             _warmup_max_envs = max(1, min(_warmup_max_envs, self.env.num_envs))
+            _warmup_valid_w = float(getattr(self.alg, "supervised_valid_loss_weight", 4.0))
+            _warmup_dir_w = float(getattr(self.alg, "supervised_direction_loss_weight", 0.1))
+            _warmup_diag_interval = int(self.cfg.get(
+                "supervised_warmup_diag_interval", max(1, _warmup_iters // 5)))
+            _warmup_diag_interval = max(1, _warmup_diag_interval)
             _warmup_opt = torch.optim.Adam(
                 self.alg.policy.residual_actor.parameters(), lr=_warmup_lr)
-            _warmup_loss_fn = torch.nn.HuberLoss(delta=1.0)
 
             # Import once to avoid per-step overhead
             from whole_body_tracking.tasks.tracking.mdp.observations import \
@@ -743,10 +747,27 @@ class OnPolicyRunner:
                         else:
                             pred_sup = pred[:, :_all_tgt.shape[-1]]
                             target_sup = _all_tgt[idx]
-                        loss = _warmup_loss_fn(pred_sup, target_sup)
+
+                        target_norm = target_sup.norm(dim=-1)
+                        valid = target_norm > 1e-4
+                        sample_weight = torch.ones_like(target_norm)
+                        if valid.any():
+                            sample_weight[valid] = _warmup_valid_w
+                        sample_weight = sample_weight / sample_weight.mean().clamp(min=1e-6)
+
+                        pos_err = torch.nn.functional.huber_loss(
+                            pred_sup[:, :3], target_sup[:, :3].detach(), reduction="none").mean(dim=-1)
+                        rpy_err = torch.nn.functional.huber_loss(
+                            pred_sup[:, 3:], target_sup[:, 3:].detach(), reduction="none").mean(dim=-1)
+                        _rpy_w = float(getattr(self.alg, 'supervised_rpy_loss_weight', 1.0))
+                        loss = (pos_err * sample_weight).mean() + _rpy_w * (rpy_err * sample_weight).mean()
+                        if valid.any() and _warmup_dir_w > 0.0:
+                            direction_loss = 1.0 - torch.nn.functional.cosine_similarity(
+                                pred_sup[valid], target_sup[valid].detach(), dim=-1).mean()
+                            loss = loss + _warmup_dir_w * direction_loss
                         _conf_w = float(getattr(self.alg, 'supervised_conf_loss_weight', 0.0))
                         if getattr(self.alg.policy, 'num_task_corrections', 0) > 0 and pred.shape[-1] >= 8 and _conf_w > 0:
-                            target_conf = (target_sup.norm(dim=-1, keepdim=True) > 1e-4).to(pred.dtype)
+                            target_conf = valid.view(-1, 1).to(pred.dtype)
                             conf_loss = torch.nn.functional.binary_cross_entropy_with_logits(
                                 pred[:, 6:8], target_conf.expand(-1, 2))
                             loss = loss + _conf_w * conf_loss
@@ -754,9 +775,73 @@ class OnPolicyRunner:
                         loss.backward()
                         _warmup_opt.step()
 
-                if (_wu + 1) % max(1, _warmup_iters // 5) == 0:
+                if (_wu + 1) % _warmup_diag_interval == 0 or (_wu + 1) == _warmup_iters:
+                    with torch.inference_mode():
+                        _valid_all = _all_tgt.norm(dim=-1) > 1e-4
+                        _pred_all_raw = self.alg.policy.residual_actor(_all_obs[:, :_nfo])
+                        if getattr(self.alg.policy, 'num_task_corrections', 0) > 0:
+                            _pred_all = torch.cat([
+                                torch.tanh(_pred_all_raw[:, :3]) * self.alg.policy.max_delta_pos,
+                                torch.tanh(_pred_all_raw[:, 3:6]) * self.alg.policy.max_delta_rpy,
+                            ], dim=-1)
+                            _target_all = torch.cat([
+                                _all_tgt[:, :3].clamp(
+                                    -self.alg.policy.max_delta_pos, self.alg.policy.max_delta_pos),
+                                _all_tgt[:, 3:].clamp(
+                                    -self.alg.policy.max_delta_rpy, self.alg.policy.max_delta_rpy),
+                            ], dim=-1)
+                        else:
+                            _pred_all = _pred_all_raw[:, :_all_tgt.shape[-1]]
+                            _target_all = _all_tgt
+
+                        _valid_all = _target_all.norm(dim=-1) > 1e-4
+                        _valid_pos = _target_all[:, :3].norm(dim=-1) > 1e-4
+                        _valid_rpy = _target_all[:, 3:].norm(dim=-1) > 1e-4
+
+                        def _masked_cos(a, b, mask):
+                            if mask.any():
+                                return torch.nn.functional.cosine_similarity(
+                                    a[mask], b[mask], dim=-1).mean().item()
+                            return 0.0
+
+                        def _masked_mae(a, b, mask):
+                            if mask.any():
+                                return (a[mask] - b[mask]).abs().mean().item()
+                            return 0.0
+
+                        def _masked_norm(a, mask):
+                            if mask.any():
+                                return a[mask].norm(dim=-1).mean().item()
+                            return 0.0
+
+                        if _valid_all.any():
+                            _warmup_cos = torch.nn.functional.cosine_similarity(
+                                _pred_all[_valid_all], _target_all[_valid_all], dim=-1).mean().item()
+                        else:
+                            _warmup_cos = 0.0
+                        _valid_frac = _valid_all.float().mean().item()
+                        _valid_pos_frac = _valid_pos.float().mean().item()
+                        _valid_rpy_frac = _valid_rpy.float().mean().item()
+                        _cos_pos = _masked_cos(_pred_all[:, :3], _target_all[:, :3], _valid_pos)
+                        _cos_rpy = _masked_cos(_pred_all[:, 3:], _target_all[:, 3:], _valid_rpy)
+                        _mae_pos = _masked_mae(_pred_all[:, :3], _target_all[:, :3], _valid_pos)
+                        _mae_rpy = _masked_mae(_pred_all[:, 3:], _target_all[:, 3:], _valid_rpy)
+                        _pred_pos_norm = _masked_norm(_pred_all[:, :3], _valid_pos)
+                        _tgt_pos_norm = _masked_norm(_target_all[:, :3], _valid_pos)
+                        _pred_rpy_norm = _masked_norm(_pred_all[:, 3:], _valid_rpy)
+                        _tgt_rpy_norm = _masked_norm(_target_all[:, 3:], _valid_rpy)
                     print(f"[Runner]   warmup {_wu + 1}/{_warmup_iters}: "
-                          f"loss={loss.item():.6f}",
+                          f"loss={loss.item():.6f}, cos={_warmup_cos:.4f}, "
+                          f"valid={_valid_frac:.3f}",
+                          flush=True)
+                    print(f"[Runner]      diag: "
+                          f"cos_pos={_cos_pos:+.4f}, cos_rpy={_cos_rpy:+.4f}, "
+                          f"valid_pos={_valid_pos_frac:.3f}, valid_rpy={_valid_rpy_frac:.3f}",
+                          flush=True)
+                    print(f"[Runner]      diag: "
+                          f"mae_pos={_mae_pos:.5f}m, mae_rpy={_mae_rpy:.5f}rad, "
+                          f"|pred_pos|/|tgt_pos|={_pred_pos_norm:.5f}/{_tgt_pos_norm:.5f}, "
+                          f"|pred_rpy|/|tgt_rpy|={_pred_rpy_norm:.5f}/{_tgt_rpy_norm:.5f}",
                           flush=True)
 
             print(f"[Runner] === Supervised warmup complete (final loss={loss.item():.6f}) ===",
@@ -836,6 +921,19 @@ class OnPolicyRunner:
             # Accumulators for wandb logging (per iteration, divided by shaping steps)
             _frontres_rdelta_sum:         float = 0.0
             _frontres_baseline_sum:       float = 0.0
+            _frontres_r_z_sum:            float = 0.0
+            _frontres_r_xy_sum:           float = 0.0
+            _frontres_r_rp_sum:           float = 0.0
+            _frontres_r_yaw_sum:          float = 0.0
+            _frontres_r_rescue_sum:       float = 0.0
+            _frontres_dr_z_abs_sum:       float = 0.0
+            _frontres_dr_xy_abs_sum:      float = 0.0
+            _frontres_dr_rp_abs_sum:      float = 0.0
+            _frontres_dr_yaw_abs_sum:     float = 0.0
+            _frontres_corr_z_abs_sum:     float = 0.0
+            _frontres_corr_xy_abs_sum:    float = 0.0
+            _frontres_corr_rp_abs_sum:    float = 0.0
+            _frontres_corr_yaw_abs_sum:   float = 0.0
             _frontres_smooth_penalty_sum: float = 0.0
             _frontres_reg_penalty_sum:    float = 0.0
             _frontres_delta_pos_abs_sum:  float = 0.0   # mean |Δpos[:3]| per step (task-space mode)
@@ -1136,6 +1234,9 @@ class OnPolicyRunner:
                             def _r_axis(dr, corr):
                                 return dr.abs() - (dr + corr).abs()
 
+                            def _r_vec(dr_vec, corr_vec):
+                                return dr_vec.norm(dim=-1) - (dr_vec + corr_vec).norm(dim=-1)
+
                             # Z
                             _dr_z_fr   = _a_raw[:N_train, 2] - _a_w[:N_train, 2]
                             _corr_z_fr = _a_fr[:N_train,  2] - _a_raw[:N_train, 2]
@@ -1143,7 +1244,7 @@ class OnPolicyRunner:
                             # XY
                             _dr_xy_fr   = _a_raw[:N_train, :2] - _a_w[:N_train, :2]
                             _corr_xy_fr = _a_fr[:N_train,  :2] - _a_raw[:N_train, :2]
-                            _r_xy = _r_axis(_dr_xy_fr.norm(dim=-1), _corr_xy_fr.norm(dim=-1))
+                            _r_xy = _r_vec(_dr_xy_fr, _corr_xy_fr)
                             # Roll/Pitch
                             _e_raw = quat_error_magnitude(_q_raw[:N_train], _q_w[:N_train])
                             _e_fr  = quat_error_magnitude(_q_fr[:N_train],  _q_w[:N_train])
@@ -1158,6 +1259,14 @@ class OnPolicyRunner:
                             _r_ya = _r_axis(_yaw_raw - _yaw_w, _yaw_fr - _yaw_raw)
 
                             _r_step = 0.3*_r_z + 0.2*_r_xy + 0.4*_r_rp + 0.05*_r_ya
+                            _dr_z_abs_log = _dr_z_fr.abs().mean()
+                            _dr_xy_abs_log = _dr_xy_fr.norm(dim=-1).mean()
+                            _dr_rp_abs_log = _e_raw.mean()
+                            _dr_yaw_abs_log = (_yaw_raw - _yaw_w).abs().mean()
+                            _corr_z_abs_log = _corr_z_fr.abs().mean()
+                            _corr_xy_abs_log = _corr_xy_fr.norm(dim=-1).mean()
+                            _corr_rp_abs_log = (_e_fr - _e_raw).abs().mean()
+                            _corr_yaw_abs_log = (_yaw_fr - _yaw_raw).abs().mean()
 
                             # ── r_rescue ─────────────────────────────────
                             _n_pair = min(N_train, N_base)
@@ -1187,6 +1296,9 @@ class OnPolicyRunner:
                                 r_delta = r_total - r_raw_gmt.mean()
                                 _r_base_log = r_raw_gmt.mean()
                             _r_rescue_log = 0.0
+                            _r_z = _r_xy = _r_rp = _r_ya = None
+                            _dr_z_abs_log = _dr_xy_abs_log = _dr_rp_abs_log = _dr_yaw_abs_log = None
+                            _corr_z_abs_log = _corr_xy_abs_log = _corr_rp_abs_log = _corr_yaw_abs_log = None
                         # ─────────────────────────────────────────────────────────────
 
                         rewards_mod = rewards.clone()
@@ -1225,6 +1337,20 @@ class OnPolicyRunner:
                         # Logging accumulators
                         _frontres_rdelta_sum   += r_delta.mean().item()
                         _frontres_baseline_sum += _r_base_log.item()
+                        if _r_z is not None:
+                            _frontres_r_z_sum          += _r_z.mean().item()
+                            _frontres_r_xy_sum         += _r_xy.mean().item()
+                            _frontres_r_rp_sum         += _r_rp.mean().item()
+                            _frontres_r_yaw_sum        += _r_ya.mean().item()
+                            _frontres_r_rescue_sum     += float(_r_rescue_log)
+                            _frontres_dr_z_abs_sum     += _dr_z_abs_log.item()
+                            _frontres_dr_xy_abs_sum    += _dr_xy_abs_log.item()
+                            _frontres_dr_rp_abs_sum    += _dr_rp_abs_log.item()
+                            _frontres_dr_yaw_abs_sum   += _dr_yaw_abs_log.item()
+                            _frontres_corr_z_abs_sum   += _corr_z_abs_log.item()
+                            _frontres_corr_xy_abs_sum  += _corr_xy_abs_log.item()
+                            _frontres_corr_rp_abs_sum  += _corr_rp_abs_log.item()
+                            _frontres_corr_yaw_abs_sum += _corr_yaw_abs_log.item()
                         # Task-space mode: split into Δpos and Δrpy; joint-space mode: log Δz
                         if _is_task_space_mode:
                             _tc = getattr(self.alg.policy, 'last_task_correction', None)
@@ -1361,6 +1487,18 @@ class OnPolicyRunner:
             # update policy Rollout结束, 开始使用buffer计算Loss更新权重
             # Pass current iteration to algorithm for logging (needed by MOSAIC)
             self.alg.current_learning_iteration = it
+            if _is_frontres and hasattr(self.alg, "ppo_actor_weight"):
+                _actor_warmup = int(self.cfg.get("ppo_actor_warmup_iterations", 0))
+                _actor_ramp = int(self.cfg.get("ppo_actor_ramp_iterations", 0))
+                _phase_iter = max(0, it - start_iter)
+                if _phase_iter < _actor_warmup:
+                    _ppo_actor_weight = 0.0
+                elif _actor_ramp > 0 and _phase_iter < _actor_warmup + _actor_ramp:
+                    _ppo_actor_weight = (_phase_iter - _actor_warmup + 1) / float(_actor_ramp)
+                    _ppo_actor_weight = max(0.0, min(1.0, _ppo_actor_weight))
+                else:
+                    _ppo_actor_weight = 1.0
+                self.alg.ppo_actor_weight = _ppo_actor_weight
             # Pass oracle_mix so MOSAIC scales surrogate by (1 - oracle_mix):
             # PPO contribution ∝ FrontRES causal share of the correction applied.
             self.alg.oracle_mix = getattr(self, '_oracle_mix', 0.0)
@@ -1375,6 +1513,32 @@ class OnPolicyRunner:
                                       if _is_frontres and _frontres_shaping_steps > 0 else None)
             frontres_baseline_mean = (_frontres_baseline_sum / _frontres_shaping_steps
                                       if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_r_z_mean      = (_frontres_r_z_sum / _frontres_shaping_steps
+                                      if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_r_xy_mean     = (_frontres_r_xy_sum / _frontres_shaping_steps
+                                      if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_r_rp_mean     = (_frontres_r_rp_sum / _frontres_shaping_steps
+                                      if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_r_yaw_mean    = (_frontres_r_yaw_sum / _frontres_shaping_steps
+                                      if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_r_rescue_mean = (_frontres_r_rescue_sum / _frontres_shaping_steps
+                                      if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_dr_z_abs_mean = (_frontres_dr_z_abs_sum / _frontres_shaping_steps
+                                      if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_dr_xy_abs_mean = (_frontres_dr_xy_abs_sum / _frontres_shaping_steps
+                                       if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_dr_rp_abs_mean = (_frontres_dr_rp_abs_sum / _frontres_shaping_steps
+                                       if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_dr_yaw_abs_mean = (_frontres_dr_yaw_abs_sum / _frontres_shaping_steps
+                                        if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_corr_z_abs_mean = (_frontres_corr_z_abs_sum / _frontres_shaping_steps
+                                        if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_corr_xy_abs_mean = (_frontres_corr_xy_abs_sum / _frontres_shaping_steps
+                                         if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_corr_rp_abs_mean = (_frontres_corr_rp_abs_sum / _frontres_shaping_steps
+                                         if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_corr_yaw_abs_mean = (_frontres_corr_yaw_abs_sum / _frontres_shaping_steps
+                                          if _is_frontres and _frontres_shaping_steps > 0 else None)
             frontres_smooth_penalty_mean = (_frontres_smooth_penalty_sum / _frontres_shaping_steps
                                             if _is_frontres and _frontres_shaping_steps > 0 else None)
             frontres_reg_penalty_mean    = (_frontres_reg_penalty_sum / _frontres_shaping_steps
@@ -1488,8 +1652,15 @@ class OnPolicyRunner:
         _suppress_if_zero = {"bc_off_policy", "bc_teacher", "lambda_off_policy", "lambda_teacher"}
         # Keys reclassified out of Loss/ for clarity.
         _to_frontres  = {"supervised_cos_sim"}      # diagnostic, not a loss
-        _to_curriculum = {"lambda_supervised"}       # scheduler state, not a loss
-        _frontres_diag_keys = {"delta_q_norm_mean", "delta_q_norm_std", "smooth_metric", "lambda_reg"}
+        _to_curriculum = {"lambda_supervised", "ppo_actor_weight"}  # scheduler state, not a loss
+        _frontres_diag_keys = {
+            "delta_q_norm_mean",
+            "delta_q_norm_std",
+            "smooth_metric",
+            "lambda_reg",
+            "grad_cos_ppo_supervised",
+            "grad_norm_ratio_ppo_to_supervised",
+        }
         _stage1_dz_keys     = {"loss_dz", "dz_pred_abs", "dz_gt_abs", "dz_mae"}
         for key, value in locs["loss_dict"].items():
             if key in _suppress_if_zero and value == 0.0:
@@ -1521,6 +1692,15 @@ class OnPolicyRunner:
             if locs.get("frontres_baseline_mean") is not None:
                 self.writer.add_scalar("FrontRES/baseline_per_step",
                                        locs["frontres_baseline_mean"], locs["it"])
+            for _name in (
+                "r_z", "r_xy", "r_rp", "r_yaw", "r_rescue",
+                "dr_z_abs", "dr_xy_abs", "dr_rp_abs", "dr_yaw_abs",
+                "corr_z_abs", "corr_xy_abs", "corr_rp_abs", "corr_yaw_abs",
+            ):
+                _value = locs.get(f"frontres_{_name}_mean")
+                if _value is not None:
+                    self.writer.add_scalar(f"FrontRES/RewardComponents/{_name}",
+                                           _value, locs["it"])
 
             # Correction magnitude (task-space: split Δpos/Δrpy; joint-space: Δz)
             if _ts_mode:
@@ -1645,6 +1825,18 @@ class OnPolicyRunner:
                     log_string += f"""{'|Δpos|:':>{pad}} {locs['frontres_delta_pos_abs_mean']:.4f} m\n"""
                 if locs.get("frontres_delta_rpy_abs_mean") is not None:
                     log_string += f"""{'|Δrpy|:':>{pad}} {locs['frontres_delta_rpy_abs_mean']:.4f} rad\n"""
+                if locs.get("frontres_r_z_mean") is not None:
+                    log_string += f"""{'r_z/r_xy/r_rp/r_yaw:':>{pad}} """
+                    log_string += (
+                        f"{locs['frontres_r_z_mean']:+.4f} / "
+                        f"{locs['frontres_r_xy_mean']:+.4f} / "
+                        f"{locs['frontres_r_rp_mean']:+.4f} / "
+                        f"{locs['frontres_r_yaw_mean']:+.4f}\n"
+                    )
+                _gc = locs.get("loss_dict", {}).get("grad_cos_ppo_supervised", None)
+                if _gc is not None:
+                    _gr = locs.get("loss_dict", {}).get("grad_norm_ratio_ppo_to_supervised", 0.0)
+                    log_string += f"""{'grad cos PPO/Sup:':>{pad}} {_gc:+.4f} (norm ratio={_gr:.3f})\n"""
                 # Curriculum state
                 if locs.get("frontres_dr_scale") is not None:
                     log_string += f"""{'DR scale:':>{pad}} {locs['frontres_dr_scale']:.4f}\n"""
@@ -1655,6 +1847,9 @@ class OnPolicyRunner:
                 _lam = locs.get("loss_dict", {}).get("lambda_supervised", None)
                 if _lam is not None:
                     log_string += f"""{'λ_supervised:':>{pad}} {_lam:.3f}\n"""
+                _paw = locs.get("loss_dict", {}).get("ppo_actor_weight", None)
+                if _paw is not None:
+                    log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
         else:
             log_string = (
                 f"""{'#' * width}\n"""
