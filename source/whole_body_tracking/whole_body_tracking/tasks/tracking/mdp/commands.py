@@ -1222,8 +1222,8 @@ class MultiMotionCommand(CommandTerm):
         self._sync_frontres_pairs(sync_perturbation=False)
 
     def _sync_frontres_pairs(self, sync_perturbation: bool = True) -> None:
-        train_ids = self._frontres_pair_train_ids
-        base_ids = self._frontres_pair_base_ids
+        train_ids = getattr(self, '_frontres_pair_train_ids', None)
+        base_ids  = getattr(self, '_frontres_pair_base_ids',  None)
         if train_ids is None or base_ids is None:
             return
 
@@ -1429,8 +1429,8 @@ class MultiMotionCommand(CommandTerm):
     def joint_pos(self) -> torch.Tensor:
         raw = self._gather_by_motion("joint_pos")
         perturbed = self.perturber.apply_joint_perturbation(raw)
-        train_ids = self._frontres_pair_train_ids
-        base_ids = self._frontres_pair_base_ids
+        train_ids = getattr(self, '_frontres_pair_train_ids', None)
+        base_ids  = getattr(self, '_frontres_pair_base_ids',  None)
         if train_ids is not None and base_ids is not None:
             perturbed[base_ids] = perturbed[train_ids]
         return perturbed
