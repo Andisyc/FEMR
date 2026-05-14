@@ -2032,18 +2032,27 @@ class OnPolicyRunner:
                 elif (isinstance(self.alg.policy, FrontRESActorCritic)
                         and self._frontres_gmt_obs_dim is not None
                         and "obs_norm_state_dict" in loaded_dict):
-                    # Task-space FrontRES: anchor-error dims [gmt_dim:] are not covered by
-                    # the GMT normalizer.  Restore Stage-1's empirical stats for those dims
+                    # Task-space FrontRES: anchor-error dims [:num_extra] are not
+                    # covered by the GMT normalizer.  Restore Stage-1 empirical stats
+                    # for those dims when the checkpoint actually contains them.
                     # so Stage 2 sees the same normalized scale that Stage 1 trained on.
                     _s1_sd   = loaded_dict["obs_norm_state_dict"]
                     _s1_mean = _s1_sd.get("_mean", None)  # shape (1, 800)
                     _s1_std  = _s1_sd.get("_std",  None)  # shape (1, 800)
                     if _s1_mean is not None and _s1_std is not None:
                         gmt_dim = self._frontres_gmt_obs_dim
-                        self._frontres_extra_mean = _s1_mean[:, gmt_dim:].to(self.device)
-                        self._frontres_extra_std  = _s1_std[:,  gmt_dim:].to(self.device)
-                        print(f"[Runner] Loaded Stage-1 anchor-error normalizer stats "
-                              f"(dims {gmt_dim}–{_s1_mean.shape[-1]}) for FrontRES task-space.")
+                        obs_dim = int(getattr(self.alg.policy, "num_actor_obs", gmt_dim))
+                        num_extra = max(0, obs_dim - gmt_dim)
+                        if num_extra > 0 and _s1_mean.shape[-1] >= obs_dim and _s1_std.shape[-1] >= obs_dim:
+                            self._frontres_extra_mean = _s1_mean[:, :num_extra].to(self.device)
+                            self._frontres_extra_std  = _s1_std[:,  :num_extra].to(self.device)
+                            print(f"[Runner] Loaded Stage-1 anchor-error normalizer stats "
+                                  f"(dims 0–{num_extra}) for FrontRES task-space.")
+                        else:
+                            self._frontres_extra_mean = None
+                            self._frontres_extra_std = None
+                            print("[Runner] Stage-1 checkpoint has no compatible anchor-error "
+                                  "normalizer stats; FrontRES extra dims pass through unnormalized.")
 
                 if self.training_type == "mosaic":
                     # For MOSAIC: determine whether to load privileged_obs_normalizer from checkpoint
@@ -2226,7 +2235,9 @@ class OnPolicyRunner:
             gmt_part  = self.obs_normalizer(obs[:, num_extra:])  # [30:800] GMT-compatible → normalize
             _s1_mean = getattr(self, '_frontres_extra_mean', None)
             _s1_std  = getattr(self, '_frontres_extra_std',  None)
-            if _s1_mean is not None and _s1_std is not None:
+            if (_s1_mean is not None and _s1_std is not None
+                    and _s1_mean.shape[-1] == num_extra
+                    and _s1_std.shape[-1] == num_extra):
                 extra = (extra - _s1_mean) / (_s1_std + 1e-8)
             return torch.cat([extra, gmt_part], dim=-1)  # [anchor_errors | normalized_gmt]
         return self.obs_normalizer(obs)
