@@ -1248,8 +1248,10 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_quat_correction[base_ids, 0] = 1.0
 
     def _expand_frontres_pair_env_ids(self, env_ids: torch.Tensor) -> torch.Tensor:
-        train_ids = self._frontres_pair_train_ids
-        base_ids = self._frontres_pair_base_ids
+        # set_frontres_paired_baseline() is called by the runner AFTER env init,
+        # so these attributes may not exist yet during the first reset().
+        train_ids = getattr(self, '_frontres_pair_train_ids', None)
+        base_ids  = getattr(self, '_frontres_pair_base_ids',  None)
         if train_ids is None or base_ids is None or env_ids.numel() == 0:
             return env_ids
 
