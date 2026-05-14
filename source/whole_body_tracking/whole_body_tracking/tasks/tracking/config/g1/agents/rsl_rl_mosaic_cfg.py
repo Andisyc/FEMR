@@ -552,7 +552,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         # ── Task-space SE(3) correction mode ─────────────────────────────────
         num_task_corrections   = 6,        # output = [Δpos(3), Δrpy(3)]
         max_delta_pos          = 0.3,      # tanh clip (metres)
-        max_delta_rpy          = 0.3,      # tanh clip (radians ≈ 17°)
+        max_delta_rpy          = 0.1,      # tanh clip (radians ≈ 5.7°); keep FrontRES rotation conservative
         # ── GMT (frozen) ─────────────────────────────────────────────────────
         gmt_checkpoint_path    = gmt_checkpoint_path_,
         init_critic_from_gmt   = False,
@@ -591,7 +591,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         lambda_supervised_min         = 0.05,  # floor (regulariser)
         lambda_supervised_decay       = 0.997, # per-iter decay after trigger
         supervised_trigger_cosine_sim = 0.85,  # EMA threshold to start decay
-        supervised_rpy_loss_weight    = 1.0,
+        supervised_rpy_loss_weight    = 0.25,
         supervised_conf_loss_weight   = 0.0,   # BCE drives c→1 always (OU≠0); let PPO learn gating
         supervised_direction_loss_weight = 0.1,
         supervised_valid_loss_weight     = 4.0,
