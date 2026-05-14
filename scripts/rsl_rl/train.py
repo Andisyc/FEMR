@@ -68,6 +68,15 @@ parser.add_argument(
     default=None,
     help="Maximum env samples kept from each warmup step for supervised SGD.",
 )
+parser.add_argument(
+    "--is_full_resume",
+    type=lambda x: str(x).lower() in ("true", "1", "yes", "y"),
+    default=None,
+    help=(
+        "Resume mode for FrontRES checkpoints. True resumes actor+critic+optimizer+iteration; "
+        "False treats the checkpoint as initialization and resets critic/optimizer/iteration."
+    ),
+)
 
 # single motion for testing
 # motion_path = '/home/chengyuxuan/MOSAIC/motion_npz/dance1_subject1.npz'
@@ -206,6 +215,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         agent_cfg.supervised_warmup_steps_per_iter = args_cli.supervised_warmup_steps_per_iter
     if args_cli.supervised_warmup_max_envs_per_step is not None:
         agent_cfg.supervised_warmup_max_envs_per_step = args_cli.supervised_warmup_max_envs_per_step
+    if args_cli.is_full_resume is not None:
+        agent_cfg.is_full_resume = args_cli.is_full_resume
 
     # set seeds (explicit rank offset for distributed to avoid identical sampling across ranks)
     # note: certain randomizations occur in the environment initialization so we set the seed here
