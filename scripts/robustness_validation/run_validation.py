@@ -550,12 +550,17 @@ def main() -> None:
             for ti, r in enumerate(all_results[:num_trials]):
                 store.add(ei, pi, ti, r)
 
-            # Quick progress print
-            valid     = [r for r in all_results if not r.fallen_before_push]
-            rec_rate  = sum(1 for r in valid if r.success) / max(len(valid), 1) * 100
-            n_pre_fall = sum(1 for r in all_results if r.fallen_before_push)
-            log(f"   recovery rate = {rec_rate:.1f}%  "
-                f"({len(valid)} valid, {n_pre_fall} pre-fallen)")
+            # Quick progress print.  The main plot uses end-to-end success:
+            # pre-push falls are counted as failures instead of being dropped.
+            counted = all_results[:num_trials]
+            valid = [r for r in counted if not r.fallen_before_push]
+            n_pre_fall = sum(1 for r in counted if r.fallen_before_push)
+            end_rate = sum(1 for r in counted if (not r.fallen_before_push and r.success)) / max(len(counted), 1) * 100
+            cond_rate = sum(1 for r in valid if r.success) / max(len(valid), 1) * 100
+            pre_rate = n_pre_fall / max(len(counted), 1) * 100
+            log(f"   end-to-end success = {end_rate:.1f}%  "
+                f"(conditional recovery={cond_rate:.1f}%, "
+                f"valid={len(valid)}, pre-fall={n_pre_fall}/{len(counted)} [{pre_rate:.1f}%])")
 
     # ── Save + Plot ──────────────────────────────────────────────────────────
     store.save(output_dir)

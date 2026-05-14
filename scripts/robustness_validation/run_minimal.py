@@ -326,9 +326,15 @@ for ei, epsilon in enumerate(EPSILON_VALUES):
                 break
         for ti, result in enumerate(all_results[: args_cli.num_trials]):
             store.add(ei, pi, ti, result)
-        valid = [r for r in all_results[: args_cli.num_trials] if not r.fallen_before_push]
-        rate = sum(1 for r in valid if r.success) / max(len(valid), 1) * 100.0
-        log(f"   recovery={rate:.1f}% ({len(valid)} valid/{args_cli.num_trials} trials)")
+        counted = all_results[: args_cli.num_trials]
+        valid = [r for r in counted if not r.fallen_before_push]
+        n_pre_fall = sum(1 for r in counted if r.fallen_before_push)
+        end_rate = sum(1 for r in counted if (not r.fallen_before_push and r.success)) / max(len(counted), 1) * 100.0
+        cond_rate = sum(1 for r in valid if r.success) / max(len(valid), 1) * 100.0
+        log(
+            f"   end-to-end={end_rate:.1f}%, conditional={cond_rate:.1f}% "
+            f"({len(valid)} valid, pre-fall={n_pre_fall}/{len(counted)})"
+        )
 
 output_dir = os.path.join(
     args_cli.output_dir,

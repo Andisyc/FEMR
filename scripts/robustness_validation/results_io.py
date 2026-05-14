@@ -13,7 +13,7 @@ import numpy as np
 @dataclass
 class TrialResult:
     success: bool              # True = robot survived T_obs steps after push
-    fallen_before_push: bool   # True = robot fell during settle phase (excluded from recovery rate)
+    fallen_before_push: bool   # True = robot fell during settle phase
     T_push_step: int           # step within observe phase when push was applied
     zmp_margins_settle: list   # ZMP margin (m) recorded every step during settle phase
     zmp_margins_post: list     # ZMP margin (m) recorded every step after push
@@ -132,11 +132,11 @@ class ResultsStore:
             'rates_per_motion':  list[float],   # recovery rate 0–1
             'zmp_per_motion':    list[float],   # mean ZMP margin (m)
             # Aggregate across motions
-            'mean_rate':         float,
+            'mean_rate':         float,      # end-to-end success rate, pre-fall counts as failure
             'std_rate':          float,
             'mean_zmp':          float,
             'std_zmp':           float,
-            # Pooled CI (binomial, pooled n_valid)
+            # Pooled CI (binomial, pooled n_total)
             'ci_rate':           float,         # ±1 std, Bernoulli
         }
         """
@@ -152,20 +152,25 @@ class ResultsStore:
         for ei in range(n_eps):
             merged[ei] = {}
             for pi in range(n_pvel):
-                rates, zmps, names = [], [], []
+                rates, conditional_rates, pre_fall_rates, zmps, names = [], [], [], [], []
                 for name, summary in named_summaries:
                     cell = summary[ei][pi]
-                    if not np.isnan(cell["recovery_rate"]):
-                        rates.append(cell["recovery_rate"])
+                    if not np.isnan(cell["end_to_end_success_rate"]):
+                        rates.append(cell["end_to_end_success_rate"])
+                        conditional_rates.append(cell["conditional_recovery_rate"])
+                        pre_fall_rates.append(cell["pre_fall_rate"])
                         zmps.append(cell["mean_zmp_settle"])
                         names.append(name)
 
                 rates_arr = np.array(rates)
+                cond_arr = np.array(conditional_rates, dtype=float)
+                pre_arr = np.array(pre_fall_rates, dtype=float)
                 zmps_arr  = np.array(zmps)
 
-                # Pooled Bernoulli CI: use mean rate and total n
+                # Pooled Bernoulli CI: use end-to-end success rate and total n.
+                # Pre-push falls are failures, so all completed trials contribute.
                 total_n = sum(
-                    summary[ei][pi]["n_valid"]
+                    summary[ei][pi]["n_total"]
                     for _, summary in named_summaries
                 )
                 mean_r = float(np.mean(rates_arr)) if len(rates_arr) else float("nan")
@@ -177,9 +182,19 @@ class ResultsStore:
                     "push_velocity":    ref_summary[ei][pi]["push_velocity"],
                     "motion_names":     names,
                     "rates_per_motion": rates,
+                    "conditional_rates_per_motion": conditional_rates,
+                    "pre_fall_rates_per_motion": pre_fall_rates,
                     "zmp_per_motion":   zmps,
                     "mean_rate":        mean_r,
                     "std_rate":         float(np.std(rates_arr)) if len(rates_arr) > 1 else 0.0,
+                    "mean_conditional_rate": (
+                        float(np.nanmean(cond_arr))
+                        if len(cond_arr) and np.isfinite(cond_arr).any() else float("nan")
+                    ),
+                    "mean_pre_fall_rate": (
+                        float(np.nanmean(pre_arr))
+                        if len(pre_arr) and np.isfinite(pre_arr).any() else float("nan")
+                    ),
                     "mean_zmp":         float(np.mean(zmps_arr)) if len(zmps_arr) else float("nan"),
                     "std_zmp":          float(np.std(zmps_arr))  if len(zmps_arr) > 1 else 0.0,
                     "ci_rate":          ci,
@@ -193,9 +208,12 @@ class ResultsStore:
         """
         Returns a nested dict:
           summary[epsilon_idx][push_vel_idx] = {
-              'recovery_rate': float,      # fraction of valid trials that succeeded
+              'end_to_end_success_rate': float,  # all trials; pre-push falls count as failure
+              'conditional_recovery_rate': float, # only trials that reached the push
               'n_valid':       int,        # trials that reached the push (not pre-fallen)
+              'n_total':       int,
               'n_fallen_before': int,
+              'pre_fall_rate': float,
               'mean_zmp_settle': float,    # mean ZMP margin during settle phase (m)
               'std_zmp_settle':  float,
           }
@@ -210,7 +228,7 @@ class ResultsStore:
         for ei in range(n_eps):
             summary[ei] = {}
             for pi in range(n_pvel):
-                success_list, fallen_list, settle_zmp_all = [], [], []
+                success_after_push, end_to_end_success, fallen_list, settle_zmp_all = [], [], [], []
 
                 for ti in range(self.meta["n_trials"]):
                     key = (ei, pi, ti)
@@ -218,22 +236,32 @@ class ResultsStore:
                         continue
                     r = self._data[key]
                     fallen_list.append(r.fallen_before_push)
+                    end_to_end_success.append(int((not r.fallen_before_push) and r.success))
                     if not r.fallen_before_push:
-                        success_list.append(int(r.success))
+                        success_after_push.append(int(r.success))
                     settle_zmp_all.extend(r.zmp_margins_settle)
 
-                n_valid  = len(success_list)
+                n_total  = len(fallen_list)
+                n_valid  = len(success_after_push)
                 n_fallen = len(fallen_list) - n_valid
-                rec_rate = float(np.mean(success_list)) if n_valid > 0 else float("nan")
+                end_rate = float(np.mean(end_to_end_success)) if n_total > 0 else float("nan")
+                rec_rate = float(np.mean(success_after_push)) if n_valid > 0 else float("nan")
+                pre_rate = float(n_fallen / n_total) if n_total > 0 else float("nan")
                 mean_zmp = float(np.mean(settle_zmp_all)) if settle_zmp_all else float("nan")
                 std_zmp  = float(np.std(settle_zmp_all))  if settle_zmp_all else float("nan")
 
                 summary[ei][pi] = {
                     "epsilon":          eps_vals[ei],
                     "push_velocity":    pvel_vals[pi],
-                    "recovery_rate":    rec_rate,
+                    "end_to_end_success_rate": end_rate,
+                    "conditional_recovery_rate": rec_rate,
+                    # Backward-compatible alias.  Plotting now treats pre-push
+                    # falls as failures through end_to_end_success_rate.
+                    "recovery_rate":    end_rate,
                     "n_valid":          n_valid,
+                    "n_total":          n_total,
                     "n_fallen_before":  n_fallen,
+                    "pre_fall_rate":    pre_rate,
                     "mean_zmp_settle":  mean_zmp,
                     "std_zmp_settle":   std_zmp,
                 }

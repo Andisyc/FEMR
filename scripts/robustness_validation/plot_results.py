@@ -117,7 +117,7 @@ def load_and_plot_multi(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  FIGURE 1 — Recovery rate vs ε
+#  FIGURE 1 — End-to-end success rate vs ε
 # ═════════════════════════════════════════════════════════════════════════════
 
 def plot_recovery_curve(
@@ -127,7 +127,9 @@ def plot_recovery_curve(
     multi_mode: bool = False,
 ) -> None:
     """
-    Main figure: recovery rate (%) vs ε for each push velocity.
+    Main figure: end-to-end success rate (%) vs ε for each push velocity.
+    Pre-push falls count as failures instead of being dropped, so every
+    completed trial contributes a visible data point.
 
     Single-motion mode: solid lines with Bernoulli CI shading.
     Multi-motion  mode: thin dashed lines per motion + thick solid mean ± std shading.
@@ -179,7 +181,7 @@ def plot_recovery_curve(
 
     ax.axhline(70.0, color="gray", linestyle="--", linewidth=1.0, label="70% threshold")
     ax.set_xlabel("Reference frame noise RMS ε (m)")
-    ax.set_ylabel("Push recovery rate (%)")
+    ax.set_ylabel("End-to-end success rate (%)")
     title = "Robustness Budget Consumption vs Reference Frame Noise"
     if multi_mode:
         n = len(merged[0][0]["motion_names"])
@@ -274,7 +276,7 @@ def plot_zmp_mechanism(
 # ═════════════════════════════════════════════════════════════════════════════
 
 def plot_recovery_heatmap(merged: dict, meta: dict, output_dir: str) -> None:
-    """2D heatmap: mean recovery rate as function of (ε, push_velocity)."""
+    """2D heatmap: mean end-to-end success rate as function of (ε, push_velocity)."""
     eps_vals  = meta["epsilon_values"]
     pvel_vals = meta["push_velocities"]
     n_eps, n_pvel = len(eps_vals), len(pvel_vals)
@@ -304,8 +306,8 @@ def plot_recovery_heatmap(merged: dict, meta: dict, output_dir: str) -> None:
 
     n_motions = len(merged[0][0]["motion_names"])
     suffix = f" (mean over {n_motions} motions)" if n_motions > 1 else ""
-    ax.set_title(f"Recovery Rate Heatmap (ε × Push Magnitude){suffix}")
-    plt.colorbar(im, ax=ax, label="Recovery rate (%)")
+    ax.set_title(f"End-to-End Success Heatmap (ε × Push Magnitude){suffix}")
+    plt.colorbar(im, ax=ax, label="End-to-end success rate (%)")
 
     _save(fig, output_dir, "fig3_recovery_heatmap")
 
