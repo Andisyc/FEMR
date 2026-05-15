@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import os
+import csv
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,23 +25,30 @@ class TrialResult:
 
 class ResultsStore:
     """
-    Accumulates TrialResult objects keyed by (epsilon, push_velocity, trial_idx).
+    Accumulates TrialResult objects keyed by either:
+      legacy:  (epsilon_idx, push_velocity_idx, trial_idx)
+      current: (perturbation_mode_idx, epsilon_idx, push_velocity_idx, trial_idx)
     Serialises to results_raw.npz + meta.json.
     """
 
     def __init__(self, meta: dict):
         self.meta = meta
-        # Key: (epsilon_idx, push_vel_idx, trial_idx) → TrialResult
+        # Key: see class docstring → TrialResult
         self._data: dict[tuple, TrialResult] = {}
 
-    def add(
-        self,
-        epsilon_idx: int,
-        push_vel_idx: int,
-        trial_idx: int,
-        result: TrialResult,
-    ) -> None:
-        self._data[(epsilon_idx, push_vel_idx, trial_idx)] = result
+    def add(self, *args) -> None:
+        if len(args) == 4:
+            epsilon_idx, push_vel_idx, trial_idx, result = args
+            key = (epsilon_idx, push_vel_idx, trial_idx)
+        elif len(args) == 5:
+            perturbation_mode_idx, epsilon_idx, push_vel_idx, trial_idx, result = args
+            key = (perturbation_mode_idx, epsilon_idx, push_vel_idx, trial_idx)
+        else:
+            raise TypeError(
+                "add() expects (epsilon_idx, push_idx, trial_idx, result) or "
+                "(mode_idx, epsilon_idx, push_idx, trial_idx, result)"
+            )
+        self._data[key] = result
 
     # ── I/O ──────────────────────────────────────────────────────────────────
 
@@ -69,7 +77,7 @@ class ResultsStore:
 
         np.savez_compressed(
             os.path.join(output_dir, "results_raw.npz"),
-            keys=np.array(keys_list, dtype=np.int32),        # (N, 3)
+            keys=np.array(keys_list, dtype=np.int32),
             success=np.array(success, dtype=np.int8),
             fallen_before=np.array(fallen_before, dtype=np.int8),
             T_push=np.array(T_push, dtype=np.int32),
@@ -80,6 +88,7 @@ class ResultsStore:
             push_dirs=np.array(all_push_dirs, dtype=np.float32),  # (N, 3)
         )
         print(f"[ResultsStore] Saved {len(self._data)} trials to {output_dir}")
+        self.save_summary_csv(output_dir)
 
     @classmethod
     def load(cls, output_dir: str) -> "ResultsStore":
@@ -204,7 +213,7 @@ class ResultsStore:
 
     # ── Summary ───────────────────────────────────────────────────────────────
 
-    def to_summary(self) -> dict:
+    def to_summary(self, mode_idx: int | None = None, perturbation_mode: str | None = None) -> dict:
         """
         Returns a nested dict:
           summary[epsilon_idx][push_vel_idx] = {
@@ -218,6 +227,15 @@ class ResultsStore:
               'std_zmp_settle':  float,
           }
         """
+        if perturbation_mode is not None:
+            modes = self._mode_names()
+            if perturbation_mode not in modes:
+                raise ValueError(f"Unknown perturbation mode {perturbation_mode!r}; available={modes}")
+            mode_idx = modes.index(perturbation_mode)
+        elif mode_idx is None and self._has_mode_axis():
+            modes = self._mode_names()
+            mode_idx = modes.index("composite") if "composite" in modes else 0
+
         eps_vals  = self.meta["epsilon_values"]
         pvel_vals = self.meta["push_velocities"]
         n_eps  = len(eps_vals)
@@ -231,7 +249,7 @@ class ResultsStore:
                 success_after_push, end_to_end_success, fallen_list, settle_zmp_all = [], [], [], []
 
                 for ti in range(self.meta["n_trials"]):
-                    key = (ei, pi, ti)
+                    key = (mode_idx, ei, pi, ti) if self._has_mode_axis() else (ei, pi, ti)
                     if key not in self._data:
                         continue
                     r = self._data[key]
@@ -267,3 +285,53 @@ class ResultsStore:
                 }
 
         return summary
+
+    def _has_mode_axis(self) -> bool:
+        return any(len(key) == 4 for key in self._data)
+
+    def _mode_names(self) -> list[str]:
+        modes = self.meta.get("perturbation_modes")
+        if modes:
+            return list(modes)
+        return [self.meta.get("perturbation_mode", "composite")]
+
+    def save_summary_csv(self, output_dir: str, filename: str = "summary.csv") -> None:
+        """Write a compact per-condition summary next to the raw results."""
+        motion_name = self.meta.get("motion_name") or os.path.splitext(os.path.basename(self.meta.get("motion", "")))[0]
+        motion_group = self.meta.get("motion_group", "Ungrouped")
+        modes = self._mode_names()
+
+        rows: list[dict[str, Any]] = []
+        for idx, perturbation_mode in enumerate(modes):
+            summary = self.to_summary(mode_idx=idx if self._has_mode_axis() else None)
+            for ei in sorted(summary):
+                for pi in sorted(summary[ei]):
+                    cell = summary[ei][pi]
+                    rows.append({
+                        "motion_group": motion_group,
+                        "motion_name": motion_name,
+                        "perturbation_mode": perturbation_mode,
+                        "epsilon_idx": ei,
+                        "push_velocity_idx": pi,
+                        "epsilon": cell["epsilon"],
+                        "push_velocity": cell["push_velocity"],
+                        "n_total": cell["n_total"],
+                        "n_valid": cell["n_valid"],
+                        "n_fallen_before": cell["n_fallen_before"],
+                        "end_to_end_success_rate": cell["end_to_end_success_rate"],
+                        "conditional_recovery_rate": cell["conditional_recovery_rate"],
+                        "pre_fall_rate": cell["pre_fall_rate"],
+                        "mean_zmp_settle": cell["mean_zmp_settle"],
+                        "std_zmp_settle": cell["std_zmp_settle"],
+                    })
+
+        path = os.path.join(output_dir, filename)
+        with open(path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else [
+                "motion_group", "motion_name", "perturbation_mode", "epsilon_idx",
+                "push_velocity_idx", "epsilon", "push_velocity", "n_total", "n_valid",
+                "n_fallen_before", "end_to_end_success_rate", "conditional_recovery_rate",
+                "pre_fall_rate", "mean_zmp_settle", "std_zmp_settle",
+            ])
+            writer.writeheader()
+            writer.writerows(rows)

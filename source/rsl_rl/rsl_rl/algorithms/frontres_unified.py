@@ -57,6 +57,7 @@ class FrontRESUnified:
         ppo_actor_warmup_iterations: int = 0,
         ppo_actor_ramp_iterations: int = 0,
         ppo_advantage_focal_power: float = 0.0,
+        frontres_active_task_dims: list[int] | None = None,
         diagnose_gradient_conflict: bool = True,
         hybrid: bool = True,
         use_ppo: bool = True,
@@ -134,6 +135,7 @@ class FrontRESUnified:
         self.ppo_actor_warmup_iterations = int(ppo_actor_warmup_iterations)
         self.ppo_actor_ramp_iterations = int(ppo_actor_ramp_iterations)
         self.ppo_advantage_focal_power = float(ppo_advantage_focal_power)
+        self.frontres_active_task_dims = frontres_active_task_dims
         self.diagnose_gradient_conflict = bool(diagnose_gradient_conflict)
         self.ppo_actor_weight = 1.0
         self._supervised_decay_triggered = False
@@ -595,6 +597,20 @@ class FrontRESUnified:
                 target[:, :3].clamp(-self.policy.max_delta_pos, self.policy.max_delta_pos),
                 target[:, 3:].clamp(-self.policy.max_delta_rpy, self.policy.max_delta_rpy),
             ], dim=-1)
+
+        active_dims = getattr(self, "frontres_active_task_dims", None)
+        if (
+            active_dims is not None
+            and hasattr(self.policy, "num_task_corrections")
+            and self.policy.num_task_corrections > 0
+        ):
+            mask = torch.zeros(pred.shape[-1], device=self.device, dtype=pred.dtype)
+            for idx in active_dims:
+                idx = int(idx)
+                if 0 <= idx < pred.shape[-1]:
+                    mask[idx] = 1.0
+            pred = pred * mask.view(1, -1)
+            target = target * mask.view(1, -1)
 
         target_detached = target.detach()
         target_norm = target_detached.norm(dim=-1)

@@ -477,6 +477,22 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # ── Fix 2: Low-pass filter on anchor corrections ──────────────────────────
     correction_smooth_alpha        = 0.4
 
+    # ── FrontRES experiment 1: safe-channel residual only ─────────────────────
+    # Task-space action layout:
+    #   [dx, dy, dz, droll, dpitch, dyaw, c_pos, c_rpy]
+    # Only Δxy and Δyaw are allowed to reach the command term.  Δz/Δroll/Δpitch
+    # are structurally zeroed so PPO cannot exploit high-risk contact channels.
+    frontres_active_task_dims      = [0, 1, 5, 6, 7]
+
+    # "More executable" reward:
+    #   tanh((reward(corrected) - reward(noisy_baseline)) / temp)
+    # + small geometry prior - minimum-intervention cost.
+    frontres_exec_reward_weight    = 1.0
+    frontres_exec_reward_temp      = 1.0
+    frontres_geometry_reward_weight = 0.05
+    frontres_rescue_reward_weight  = 1.0
+    frontres_intervention_cost_weights = [0.02, 0.02, 0.0, 0.0, 0.0, 0.10]
+
     # ── Supervised warmup: pure HuberLoss before PPO loop ──────────────────
     # Give FrontRES enough supervised exposure to learn the correction
     # direction before PPO sees r_delta.  PPO still keeps an online supervised
@@ -600,6 +616,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         ppo_actor_warmup_iterations   = 500,
         ppo_actor_ramp_iterations     = 1000,
         ppo_advantage_focal_power     = 0.0,
+        frontres_active_task_dims      = [0, 1, 5],
         diagnose_gradient_conflict    = True,
 
         # ── Misc ─────────────────────────────────────────────────────────────

@@ -24,7 +24,7 @@ EPSILON_VALUES = [0.0, 0.01, 0.02, 0.05, 0.10, 0.20]
 PUSH_VELOCITIES = [0.5, 1.0, 2.0, 3.0]
 
 # Statistical power: total trials per condition
-N_TRIALS  = 100
+N_TRIALS  = 30
 # GPU parallelism: number of simultaneous envs (keep low to avoid OOM)
 N_PARALLEL = 1
 
@@ -104,6 +104,17 @@ parser.add_argument("--num_envs",   type=int, default=N_PARALLEL,
 parser.add_argument("--num_trials", type=int, default=N_TRIALS,
                     help="Total trials per condition.")
 parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR)
+parser.add_argument("--no_auto_plot", action="store_true",
+                    help="Save data only. Use plot_results.py on the run root later.")
+parser.add_argument("--no_timestamp", action="store_true",
+                    help="Use --output_dir exactly instead of creating run_YYYYMMDD_HHMMSS.")
+parser.add_argument("--motion_group", type=str, default="Ungrouped",
+                    help="Motion category label, e.g. Walking/Turning/Upper/Lateral.")
+parser.add_argument("--motion_name", type=str, default=None,
+                    help="Human-readable motion name. Defaults to the .npz stem.")
+parser.add_argument("--perturbation_modes", type=str, nargs="+", default=["composite"],
+                    choices=["composite", "xy", "yaw", "z", "rp"],
+                    help="Reference-frame perturbation channels to run for this motion.")
 # --device / --headless are added by AppLauncher.add_app_launcher_args below
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
@@ -130,6 +141,8 @@ def _resolve_motion_input(path: str, file_glob: str) -> tuple[str, str, str]:
 args_cli.motion_dir, args_cli.motion_file_glob, args_cli.motion_original = _resolve_motion_input(
     args_cli.motion, args_cli.file_glob
 )
+if args_cli.motion_name is None:
+    args_cli.motion_name = Path(args_cli.motion_original).stem
 
 if (
     sys.platform.startswith("linux")
@@ -169,7 +182,7 @@ import whole_body_tracking.tasks  # noqa: F401 — registers gym tasks
 # local modules (same directory)
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-from ou_injector     import configure_ou, reset_ou_states
+from ou_injector     import configure_perturbation, reset_ou_states
 from push_controller import PushController
 from metrics         import (compute_zmp_margin, is_fallen, find_body_index)
 from results_io      import ResultsStore, TrialResult
@@ -186,10 +199,28 @@ class _NoOpCfg:
 # ════════════════════════════════════════════════════════════════════════════
 
 def _make_output_dir(base: str) -> str:
+    if args_cli.no_timestamp:
+        os.makedirs(base, exist_ok=True)
+        return base
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     path = os.path.join(base, f"run_{stamp}")
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def _write_status(output_dir: str, status: str, **extra) -> None:
+    payload = {
+        "status": status,
+        "motion_group": args_cli.motion_group,
+        "motion_name": args_cli.motion_name,
+        "motion": args_cli.motion_original,
+        "updated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+    payload.update(extra)
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, "status.json"), "w") as f:
+        import json
+        json.dump(payload, f, indent=2)
 
 
 def _build_env(
@@ -361,6 +392,7 @@ def run_condition(
     right_foot_idx: int,
     epsilon: float,
     delta_v: float,
+    perturbation_mode: str,
     device: str,
 ) -> list[TrialResult]:
     """
@@ -378,8 +410,8 @@ def run_condition(
     robot = _get_robot(env_unwrapped)
     num_envs = env.num_envs
 
-    # Configure OU for this epsilon
-    configure_ou(env_unwrapped, epsilon, tau=OU_TAU)
+    # Configure reference-frame perturbation for this epsilon/channel.
+    configure_perturbation(env_unwrapped, epsilon, mode=perturbation_mode, tau=OU_TAU)
 
     # Reset env: all envs start at motion frame 0 with OU state = 0
     obs, _ = env.get_observations()
@@ -389,6 +421,7 @@ def run_condition(
     # Track per-env state
     alive = torch.ones(num_envs, dtype=torch.bool, device=device)
     fallen_during_settle = torch.zeros(num_envs, dtype=torch.bool, device=device)
+    fallen_before_push = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
     # Storage: ZMP history
     settle_zmp  = [[] for _ in range(num_envs)]
@@ -407,6 +440,7 @@ def run_condition(
         just_fallen = is_fallen(env_unwrapped) | dones.bool()
         newly_fallen = just_fallen & alive
         fallen_during_settle |= newly_fallen
+        fallen_before_push |= newly_fallen
         alive &= ~newly_fallen
 
         zmp = compute_zmp_margin(env_unwrapped, left_foot_idx, right_foot_idx)
@@ -429,22 +463,23 @@ def run_condition(
 
         just_fallen = is_fallen(env_unwrapped) | dones.bool()
         newly_fallen = just_fallen & alive
+        fallen_before_push |= newly_fallen & (~push_ctrl.pushed)
         alive &= ~newly_fallen
 
         zmp = compute_zmp_margin(env_unwrapped, left_foot_idx, right_foot_idx)
         for i in range(num_envs):
-            if not fallen_during_settle[i] and (alive[i] or newly_fallen[i]):
+            if not fallen_before_push[i] and (alive[i] or newly_fallen[i]):
                 post_zmp[i].append(float(zmp[i]))
 
-    # Success = alive at end of observe phase AND did not fall during settle
-    success = alive & ~fallen_during_settle
+    # Success = alive at end of observe phase AND reached the push.
+    success = alive & ~fallen_before_push
 
     # Build TrialResult objects
     results = []
     for i in range(num_envs):
         results.append(TrialResult(
             success=bool(success[i]),
-            fallen_before_push=bool(fallen_during_settle[i]),
+            fallen_before_push=bool(fallen_before_push[i]),
             T_push_step=int(push_ctrl.push_at_step[i]),
             zmp_margins_settle=settle_zmp[i],
             zmp_margins_post=post_zmp[i],
@@ -462,16 +497,19 @@ def main() -> None:
     device = args_cli.device if torch.cuda.is_available() else "cpu"
     num_envs = args_cli.num_envs
     output_dir = _make_output_dir(args_cli.output_dir)
+    _write_status(output_dir, "running", started_at=datetime.datetime.now().isoformat(timespec="seconds"))
 
     log(f"\n{'='*60}")
     log(f"  Robustness Budget Validation")
     log(f"  Task:       {args_cli.task}")
     log(f"  Motion:     {args_cli.motion_original}")
+    log(f"  Group/name: {args_cli.motion_group} / {args_cli.motion_name}")
     log(f"  Motion dir: {args_cli.motion_dir}")
     log(f"  File glob:  {args_cli.motion_file_glob}")
     log(f"  Checkpoint: {args_cli.checkpoint}")
     log(f"  Epsilons:   {EPSILON_VALUES}")
     log(f"  Push Δv:    {PUSH_VELOCITIES} m/s")
+    log(f"  Modes:      {args_cli.perturbation_modes}")
     log(f"  Trials:     {args_cli.num_trials} per condition")
     log(f"  Parallel:   {num_envs} envs")
     log(f"  Device:     {device}")
@@ -508,9 +546,12 @@ def main() -> None:
     meta = {
         "task":           args_cli.task,
         "motion":         args_cli.motion_original,
+        "motion_group":   args_cli.motion_group,
+        "motion_name":    args_cli.motion_name,
         "motion_dir":     args_cli.motion_dir,
         "file_glob":      args_cli.motion_file_glob,
         "checkpoint":     args_cli.checkpoint,
+        "perturbation_modes": args_cli.perturbation_modes,
         "epsilon_values": EPSILON_VALUES,
         "push_velocities": PUSH_VELOCITIES,
         "n_trials":       num_trials,
@@ -522,61 +563,82 @@ def main() -> None:
     store = ResultsStore(meta)
 
     # ── Outer loop: conditions ───────────────────────────────────────────────
-    total_conditions = len(EPSILON_VALUES) * len(PUSH_VELOCITIES)
+    total_conditions = len(args_cli.perturbation_modes) * len(EPSILON_VALUES) * len(PUSH_VELOCITIES)
     done_conditions  = 0
 
-    for ei, epsilon in enumerate(EPSILON_VALUES):
-        for pi, delta_v in enumerate(PUSH_VELOCITIES):
-            done_conditions += 1
-            log(f"\n[{done_conditions}/{total_conditions}] "
-                f"ε={epsilon:.3f} m  |  Δv={delta_v:.1f} m/s")
+    for mi, perturbation_mode in enumerate(args_cli.perturbation_modes):
+        for ei, epsilon in enumerate(EPSILON_VALUES):
+            for pi, delta_v in enumerate(PUSH_VELOCITIES):
+                done_conditions += 1
+                log(f"\n[{done_conditions}/{total_conditions}] "
+                    f"mode={perturbation_mode}  |  ε={epsilon:.3f} m  |  Δv={delta_v:.1f} m/s")
 
-            # Run batches to accumulate num_trials per condition
-            all_results = []
-            for batch in range(num_batches):
-                env.reset()
-                trial_results = run_condition(
-                    env, runner, push_ctrl,
-                    left_foot_idx, right_foot_idx,
-                    epsilon=epsilon, delta_v=delta_v,
-                    device=device,
-                )
-                all_results.extend(trial_results)
-                # Stop early if we have enough
-                if len(all_results) >= num_trials:
-                    break
+                # Run batches to accumulate num_trials per condition
+                all_results = []
+                for batch in range(num_batches):
+                    env.reset()
+                    trial_results = run_condition(
+                        env, runner, push_ctrl,
+                        left_foot_idx, right_foot_idx,
+                        epsilon=epsilon, delta_v=delta_v,
+                        perturbation_mode=perturbation_mode,
+                        device=device,
+                    )
+                    all_results.extend(trial_results)
+                    # Stop early if we have enough
+                    if len(all_results) >= num_trials:
+                        break
 
-            # Store first num_trials results
-            for ti, r in enumerate(all_results[:num_trials]):
-                store.add(ei, pi, ti, r)
+                # Store first num_trials results
+                for ti, r in enumerate(all_results[:num_trials]):
+                    store.add(mi, ei, pi, ti, r)
 
-            # Quick progress print.  The main plot uses end-to-end success:
-            # pre-push falls are counted as failures instead of being dropped.
-            counted = all_results[:num_trials]
-            valid = [r for r in counted if not r.fallen_before_push]
-            n_pre_fall = sum(1 for r in counted if r.fallen_before_push)
-            end_rate = sum(1 for r in counted if (not r.fallen_before_push and r.success)) / max(len(counted), 1) * 100
-            cond_rate = sum(1 for r in valid if r.success) / max(len(valid), 1) * 100
-            pre_rate = n_pre_fall / max(len(counted), 1) * 100
-            log(f"   end-to-end success = {end_rate:.1f}%  "
-                f"(conditional recovery={cond_rate:.1f}%, "
-                f"valid={len(valid)}, pre-fall={n_pre_fall}/{len(counted)} [{pre_rate:.1f}%])")
+                # Quick progress print.  The main plot uses end-to-end success:
+                # pre-push falls are counted as failures instead of being dropped.
+                counted = all_results[:num_trials]
+                valid = [r for r in counted if not r.fallen_before_push]
+                n_pre_fall = sum(1 for r in counted if r.fallen_before_push)
+                end_rate = sum(1 for r in counted if (not r.fallen_before_push and r.success)) / max(len(counted), 1) * 100
+                cond_rate = sum(1 for r in valid if r.success) / max(len(valid), 1) * 100
+                pre_rate = n_pre_fall / max(len(counted), 1) * 100
+                log(f"   end-to-end success = {end_rate:.1f}%  "
+                    f"(conditional recovery={cond_rate:.1f}%, "
+                    f"valid={len(valid)}, pre-fall={n_pre_fall}/{len(counted)} [{pre_rate:.1f}%])")
 
     # ── Save + Plot ──────────────────────────────────────────────────────────
     store.save(output_dir)
-    load_and_plot(output_dir)
+    if not args_cli.no_auto_plot:
+        load_and_plot(output_dir)
 
     log(f"\n[Validation] Complete. Results in: {output_dir}")
+    _write_status(
+        output_dir,
+        "completed",
+        finished_at=datetime.datetime.now().isoformat(timespec="seconds"),
+        n_conditions=total_conditions,
+    )
     env.close()
 
 
 if __name__ == "__main__":
+    _exit_code = 0
     try:
         main()
+    except Exception as _exc:
+        _exit_code = 1
+        import traceback as _traceback
+        _traceback.print_exc()
+        # Best effort: if the output directory is already known, mark this
+        # motion unit as failed so batch runs can skip/redo cleanly.
+        try:
+            _out = args_cli.output_dir if args_cli.no_timestamp else args_cli.output_dir
+            _write_status(_out, "failed", error=repr(_exc))
+        except Exception:
+            pass
     finally:
         simulation_app.close()
         # Isaac Sim background GPU threads don't exit on simulation_app.close().
         # os._exit() bypasses Python cleanup and terminates the process immediately,
         # allowing batch scripts to launch the next motion without getting stuck.
         import os as _os
-        _os._exit(0)
+        _os._exit(_exit_code)

@@ -1,47 +1,105 @@
-"""OU perturbation injection — wraps existing MotionPerturber."""
+"""Reference-frame perturbation injection — wraps existing MotionPerturber."""
 from __future__ import annotations
 import math
 import torch
 
 
+PERTURBATION_MODES = ("composite", "xy", "yaw", "z", "rp")
+
+
 def configure_ou(env_unwrapped, epsilon: float, tau: float = 0.5) -> None:
+    """Backward-compatible composite OU/IID perturbation entry point."""
+    configure_perturbation(env_unwrapped, epsilon, mode="composite", tau=tau)
+
+
+def configure_perturbation(
+    env_unwrapped,
+    epsilon: float,
+    mode: str = "composite",
+    tau: float = 0.5,
+    enable_ou: bool = True,
+    enable_iid: bool = True,
+) -> None:
     """
-    Set OU steady-state RMS = epsilon (metres) and time constant tau (seconds).
+    Configure reference-frame perturbations by semantic channel.
 
-    Axis ratios vs epsilon:
-      Z (float/sink)   : 1.0 × epsilon
-      Y (lateral drift): 0.4 × epsilon
-      Roll/Pitch tilt  : 5.0 × epsilon  [rad/m] — e.g. 0.05m → 0.25 rad (~14°)
+    The validation uses a composite condition for the main paper figures and
+    individual channels for appendix diagnosis:
 
-    Foot-slip and joint noise are disabled to keep the root-level effect isolated.
+      composite: XY + yaw + Z + roll/pitch
+      xy:        horizontal root translation
+      yaw:       heading jump
+      z:         float/sink
+      rp:        roll/pitch tilt
+
+    ``epsilon`` is the scalar sweep variable.  Translation channels use metres;
+    rotational channels use conservative radian scales tied to epsilon.
     epsilon = 0 disables all perturbations.
     """
+    if mode not in PERTURBATION_MODES:
+        raise ValueError(f"Unknown perturbation mode {mode!r}; expected one of {PERTURBATION_MODES}")
+
     cmd = _get_motion_cmd(env_unwrapped)
     p = cmd.perturber
     cfg = p.cfg
 
+    _disable_all(cfg)
+
     if epsilon <= 0.0:
-        cfg.float_prob = 0.0
-        cfg.sink_prob = 0.0
-        cfg.lateral_drift_prob = 0.0
-        cfg.root_tilt_prob = 0.0
-        cfg.foot_slip_prob = 0.0
-        cfg.joint_noise_prob = 0.0
-    else:
-        cfg.float_prob = 1.0
-        cfg.sink_prob = 1.0
-        cfg.float_ratio = epsilon
-        cfg.sink_ratio = epsilon
+        _update_tau(p, cfg, tau)
+        return
 
-        cfg.lateral_drift_prob = 1.0
-        cfg.lateral_drift_std = epsilon * 0.4
+    channels = {"xy", "yaw", "z", "rp"} if mode == "composite" else {mode}
 
-        cfg.root_tilt_prob = 1.0
-        cfg.root_tilt_max_rad = epsilon * 5.0
+    if enable_ou:
+        if "z" in channels:
+            cfg.float_prob = 1.0
+            cfg.sink_prob = 1.0
+            cfg.float_ratio = epsilon
+            cfg.sink_ratio = epsilon
 
-        cfg.foot_slip_prob = 0.0
-        cfg.joint_noise_prob = 0.0
+        if "xy" in channels:
+            cfg.lateral_drift_prob = 1.0
+            cfg.lateral_drift_std = epsilon * 0.4
 
+        if "rp" in channels:
+            cfg.root_tilt_prob = 1.0
+            cfg.root_tilt_max_rad = epsilon * 5.0
+
+    if enable_iid:
+        if "z" in channels:
+            cfg.iid_prob_z = 0.3
+            cfg.iid_std_z = epsilon
+        if "xy" in channels:
+            cfg.iid_prob_xy = 0.1
+            cfg.iid_std_xy = epsilon * 0.4
+        if "rp" in channels:
+            cfg.iid_prob_rp = 0.1
+            cfg.iid_std_rp = epsilon * 5.0
+        if "yaw" in channels:
+            cfg.iid_prob_ya = 0.1
+            cfg.iid_std_ya = epsilon * 5.0
+
+    # Foot-slip and joint noise are disabled to keep the reference-frame effect isolated.
+    cfg.foot_slip_prob = 0.0
+    cfg.joint_noise_prob = 0.0
+    _update_tau(p, cfg, tau)
+
+
+def _disable_all(cfg) -> None:
+    cfg.float_prob = 0.0
+    cfg.sink_prob = 0.0
+    cfg.lateral_drift_prob = 0.0
+    cfg.root_tilt_prob = 0.0
+    cfg.foot_slip_prob = 0.0
+    cfg.joint_noise_prob = 0.0
+
+    for name in ("iid_prob_z", "iid_prob_xy", "iid_prob_rp", "iid_prob_ya"):
+        if hasattr(cfg, name):
+            setattr(cfg, name, 0.0)
+
+
+def _update_tau(p, cfg, tau: float) -> None:
     # Update temporal parameters and recompute beta immediately.
     cfg.ou_time_constant = tau
     p._beta = math.exp(-0.02 / tau)

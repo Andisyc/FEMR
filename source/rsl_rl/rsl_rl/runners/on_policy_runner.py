@@ -551,6 +551,31 @@ class OnPolicyRunner:
             # The ep_len_gmt≈10 root cause was the obs ordering bug (anchor errors at
             # [0:30] instead of [770:800]), which has been fixed separately.
 
+        _frontres_task_action_mask = None
+        if _is_task_space_mode:
+            _active_dims = self.cfg.get("frontres_active_task_dims", None)
+            if _active_dims is not None:
+                _frontres_task_action_mask = torch.zeros(8, device=self.device)
+                for _idx in _active_dims:
+                    _idx = int(_idx)
+                    if not 0 <= _idx < 8:
+                        raise ValueError(
+                            "frontres_active_task_dims must contain indices in [0, 7] "
+                            "for [dx,dy,dz,droll,dpitch,dyaw,c_pos,c_rpy]."
+                        )
+                    _frontres_task_action_mask[_idx] = 1.0
+                print(
+                    "[Runner] FrontRES task-space action mask enabled: "
+                    "[dx,dy,dz,droll,dpitch,dyaw,c_pos,c_rpy] mask="
+                    f"{_frontres_task_action_mask.detach().cpu().tolist()}",
+                    flush=True,
+                )
+
+        def _mask_frontres_task_actions(_actions: torch.Tensor) -> torch.Tensor:
+            if _frontres_task_action_mask is None:
+                return _actions
+            return _actions * _frontres_task_action_mask.view(1, -1)
+
         # ── Adaptive DR: PI controller ────────────────────────────────────────
         # Tracks dr_target_r_delta performance level.
         #   error = r_delta_ema - dr_target_r_delta
@@ -927,6 +952,10 @@ class OnPolicyRunner:
             _frontres_r_rp_sum:           float = 0.0
             _frontres_r_yaw_sum:          float = 0.0
             _frontres_r_rescue_sum:       float = 0.0
+            _frontres_r_exec_sum:         float = 0.0
+            _frontres_r_geom_sum:         float = 0.0
+            _frontres_intervention_cost_sum: float = 0.0
+            _frontres_reward_frontres_sum: float = 0.0
             _frontres_dr_z_abs_sum:       float = 0.0
             _frontres_dr_xy_abs_sum:      float = 0.0
             _frontres_dr_rp_abs_sum:      float = 0.0
@@ -942,6 +971,7 @@ class OnPolicyRunner:
             _frontres_delta_z_abs_sum:    float = 0.0   # mean |Δz| per step (joint-space mode only)
             _frontres_jump_degree_sum:    float = 0.0   # mean jump_degree (gate activation monitor)
             _frontres_shaping_steps:      int   = 0
+            _frontres_reward_diag_steps:  int   = 0
             # Termination tracking for training envs (used to compute survival_rate this rollout)
             _frontres_term_count: int = 0
             _frontres_step_count: int = 0
@@ -975,6 +1005,11 @@ class OnPolicyRunner:
                                                teacher_obs=teacher_obs if self.training_type == "mosaic" else None,
                                                ref_vel_estimator_obs=ref_vel_estimator_obs,
                                                motion_groups=motion_groups)
+                        if _is_task_space_mode:
+                            actions = _mask_frontres_task_actions(actions)
+                            self.alg.transition.actions = actions.detach()
+                            self.alg.transition.actions_log_prob = \
+                                self.alg.policy.get_actions_log_prob(actions).detach()
 
                         # Track velocity estimator error if available 仿真器有速度真值, 但学生模型只能瞎猜
                         if hasattr(self.alg, 'last_estimated_ref_vel') and self.alg.last_estimated_ref_vel is not None:
@@ -1038,6 +1073,11 @@ class OnPolicyRunner:
 
                     else:
                         actions = self.alg.act(obs, privileged_obs)
+                        if _is_task_space_mode:
+                            actions = _mask_frontres_task_actions(actions)
+                            self.alg.transition.actions = actions.detach()
+                            self.alg.transition.actions_log_prob = \
+                                self.alg.policy.get_actions_log_prob(actions).detach()
 
                         if _is_frontres:
                             # B1 split: FrontRES envs [0:N_train] use policy delta_q,
@@ -1051,6 +1091,10 @@ class OnPolicyRunner:
                             _std_gmt    = self.alg.policy.action_std[N_train:]  # [N_base, A]
                             _logp_zeros = torch.distributions.Normal(_mean_gmt, _std_gmt) \
                                               .log_prob(_zeros_gmt).sum(dim=-1)
+                            if _is_task_space_mode:
+                                _logp_zeros = _logp_zeros - (
+                                    3 * math.log(self.alg.policy.max_delta_pos)
+                                    + 3 * math.log(self.alg.policy.max_delta_rpy))
                             self.alg.transition.actions_log_prob[N_train:] = _logp_zeros
                             # Mark which envs are FrontRES (1) vs GMT baseline (0) for critic masking.
                             _frontres_mask = torch.zeros(self.env.num_envs, 1, device=self.device)
@@ -1121,6 +1165,7 @@ class OnPolicyRunner:
                                     break
                         # ─────────────────────────────────────────────────────────────
 
+                        _task_corr = _mask_frontres_task_actions(_task_corr) if _task_corr is not None else None
                         if _task_corr is not None:
                             _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
                             for _cmd_term in _env_raw.command_manager._terms.values():
@@ -1208,6 +1253,7 @@ class OnPolicyRunner:
                     # intrinsic reward decouples FrontRES credit from GMT behaviour.
                     if _is_frontres:
                         r_raw_gmt = rewards[N_train:].view(-1).clone()  # [N_base] save before zeroing
+                        r_total = rewards[:N_train].view(-1).clone()
 
                         # ── Anchor-only r_delta (GMT-free) ────────────────────────────
                         # Compares corrected anchor against ORIGINAL motion data,
@@ -1299,12 +1345,60 @@ class OnPolicyRunner:
                             # instead of correction quality, drowning the r_step signal.
                             _RESCUE_MAG = float(self.cfg.get("r_rescue_magnitude", 0.5))
                             _r_rescue_pair[_fell_base & ~_fell_fr] =  _RESCUE_MAG   # rescued
-                            _r_rescue_pair[_fell_base &  _fell_fr] = -_RESCUE_MAG   # both fell
+                            _r_rescue_pair[_fell_base &  _fell_fr] = -0.1 * _RESCUE_MAG   # both failed
                             _r_rescue_pair[~_fell_base & _fell_fr] = -_RESCUE_MAG   # FrontRES caused fall
                             _r_rescue[:_n_pair] = _r_rescue_pair
 
-                            r_delta       = _r_step + _r_rescue
-                            _r_base_log   = _r_step.mean()  # use step as baseline log
+                            # ── Execution advantage (main HRL signal) ───────────────
+                            # FrontRES is useful only if the corrected reference is
+                            # easier for the frozen GMT to execute than the same
+                            # perturbed reference without correction.  This paired
+                            # advantage is the operational definition of
+                            # "more executable"; clean-anchor geometry is only a
+                            # small direction prior below.
+                            _r_exec = torch.zeros(N_train, device=self.device)
+                            _n_exec = min(N_train, N_base)
+                            _exec_temp = float(self.cfg.get("frontres_exec_reward_temp", 1.0))
+                            _r_exec[:_n_exec] = torch.tanh(
+                                (r_total[:_n_exec] - r_raw_gmt[:_n_exec]) / max(_exec_temp, 1e-6)
+                            )
+
+                            # ── Minimum-intervention cost ──────────────────────────
+                            _intervention_cost = torch.zeros(N_train, device=self.device)
+                            if _is_task_space_mode and actions.shape[-1] >= 6:
+                                _delta = actions[:N_train, :6]
+                                _max_delta = torch.tensor(
+                                    [
+                                        self.alg.policy.max_delta_pos,
+                                        self.alg.policy.max_delta_pos,
+                                        self.alg.policy.max_delta_pos,
+                                        self.alg.policy.max_delta_rpy,
+                                        self.alg.policy.max_delta_rpy,
+                                        self.alg.policy.max_delta_rpy,
+                                    ],
+                                    device=self.device,
+                                    dtype=_delta.dtype,
+                                ).clamp(min=1e-6)
+                                _weights = torch.tensor(
+                                    self.cfg.get(
+                                        "frontres_intervention_cost_weights",
+                                        [0.02, 0.02, 0.05, 0.30, 0.30, 0.10],
+                                    ),
+                                    device=self.device,
+                                    dtype=_delta.dtype,
+                                )
+                                _intervention_cost = (_weights * (_delta / _max_delta).pow(2)).sum(dim=-1)
+
+                            _w_exec = float(self.cfg.get("frontres_exec_reward_weight", 1.0))
+                            _w_geom = float(self.cfg.get("frontres_geometry_reward_weight", 0.05))
+                            _w_rescue = float(self.cfg.get("frontres_rescue_reward_weight", 1.0))
+                            r_delta = (
+                                _w_exec * _r_exec
+                                + _w_geom * _r_step
+                                + _w_rescue * _r_rescue
+                                - _intervention_cost
+                            )
+                            _r_base_log   = r_raw_gmt.mean()
                             _r_rescue_log = _r_rescue.mean()
                         else:
                             r_raw_gmt = rewards[N_train:].view(-1).clone()
@@ -1363,6 +1457,11 @@ class OnPolicyRunner:
                             _frontres_r_rp_sum         += _r_rp.mean().item()
                             _frontres_r_yaw_sum        += _r_ya.mean().item()
                             _frontres_r_rescue_sum     += float(_r_rescue_log)
+                            _frontres_r_exec_sum       += _r_exec.mean().item()
+                            _frontres_r_geom_sum       += _r_step.mean().item()
+                            _frontres_intervention_cost_sum += _intervention_cost.mean().item()
+                            _frontres_reward_frontres_sum += r_total.mean().item()
+                            _frontres_reward_diag_steps += 1
                             _frontres_dr_z_abs_sum     += _dr_z_abs_log.item()
                             _frontres_dr_xy_abs_sum    += _dr_xy_abs_log.item()
                             _frontres_dr_rp_abs_sum    += _dr_rp_abs_log.item()
@@ -1549,6 +1648,18 @@ class OnPolicyRunner:
                                       if _is_frontres and _frontres_shaping_steps > 0 else None)
             frontres_r_rescue_mean = (_frontres_r_rescue_sum / _frontres_shaping_steps
                                       if _is_frontres and _frontres_shaping_steps > 0 else None)
+            frontres_r_exec_mean = (_frontres_r_exec_sum / _frontres_reward_diag_steps
+                                    if _is_frontres and _frontres_reward_diag_steps > 0 else None)
+            frontres_r_geom_mean = (_frontres_r_geom_sum / _frontres_reward_diag_steps
+                                    if _is_frontres and _frontres_reward_diag_steps > 0 else None)
+            frontres_intervention_cost_mean = (
+                _frontres_intervention_cost_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_reward_frontres_mean = (
+                _frontres_reward_frontres_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_dr_z_abs_mean = (_frontres_dr_z_abs_sum / _frontres_shaping_steps
                                       if _is_frontres and _frontres_shaping_steps > 0 else None)
             frontres_dr_xy_abs_mean = (_frontres_dr_xy_abs_sum / _frontres_shaping_steps
@@ -1719,7 +1830,8 @@ class OnPolicyRunner:
                 self.writer.add_scalar("FrontRES/baseline_per_step",
                                        locs["frontres_baseline_mean"], locs["it"])
             for _name in (
-                "r_z", "r_xy", "r_rp", "r_yaw", "r_rescue",
+                "r_exec", "r_geom", "r_rescue", "intervention_cost",
+                "reward_frontres", "r_z", "r_xy", "r_rp", "r_yaw",
                 "dr_z_abs", "dr_xy_abs", "dr_rp_abs", "dr_yaw_abs",
                 "corr_z_abs", "corr_xy_abs", "corr_rp_abs", "corr_yaw_abs",
             ):
@@ -1863,6 +1975,20 @@ class OnPolicyRunner:
                         f"{locs['frontres_r_rp_mean']:+.4f} / "
                         f"{locs['frontres_r_yaw_mean']:+.4f}\n"
                     )
+                if locs.get("frontres_r_exec_mean") is not None:
+                    log_string += f"""{'exec/geom/rescue/cost:':>{pad}} """
+                    log_string += (
+                        f"{locs['frontres_r_exec_mean']:+.4f} / "
+                        f"{locs['frontres_r_geom_mean']:+.4f} / "
+                        f"{locs['frontres_r_rescue_mean']:+.4f} / "
+                        f"{locs['frontres_intervention_cost_mean']:+.4f}\n"
+                    )
+                    if locs.get("frontres_reward_frontres_mean") is not None and locs.get("frontres_baseline_mean") is not None:
+                        log_string += f"""{'raw reward FR/GMT:':>{pad}} """
+                        log_string += (
+                            f"{locs['frontres_reward_frontres_mean']:+.4f} / "
+                            f"{locs['frontres_baseline_mean']:+.4f}\n"
+                        )
                 _gc = locs.get("loss_dict", {}).get("grad_cos_ppo_supervised", None)
                 if _gc is not None:
                     _gr = locs.get("loss_dict", {}).get("grad_norm_ratio_ppo_to_supervised", 0.0)

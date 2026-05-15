@@ -12,6 +12,8 @@ Multiple motions (aggregated):
 """
 from __future__ import annotations
 import argparse
+import csv
+import json
 import os
 from pathlib import Path
 
@@ -49,6 +51,60 @@ MOTION_COLORS = ["#90CAF9", "#A5D6A7", "#FFCC80", "#EF9A9A",
 def load_and_plot(results_dir: str, output_dir: str | None = None) -> None:
     """Single-run convenience wrapper — backward compatible."""
     load_and_plot_multi([results_dir], motion_names=None, output_dir=output_dir)
+
+
+def _discover_motion_result_dirs(run_dir: str) -> list[str]:
+    """Find per-motion result directories under a decoupled validation run."""
+    root = Path(run_dir).expanduser()
+    candidates = sorted(root.glob("motions/*/*"))
+    result_dirs: list[str] = []
+    for p in candidates:
+        if not ((p / "meta.json").is_file() and (p / "results_raw.npz").is_file()):
+            continue
+        status_path = p / "status.json"
+        if status_path.is_file():
+            try:
+                status = json.loads(status_path.read_text()).get("status")
+            except Exception:
+                status = None
+            if status not in (None, "completed"):
+                print(f"[plot] Skipping {p}: status={status}")
+                continue
+        result_dirs.append(str(p))
+    return result_dirs
+
+
+def load_and_plot_run_root(results_dir: str, output_dir: str | None = None) -> None:
+    """
+    Load a decoupled run root:
+
+      run_xxx/
+        motions/Walking/motion_a/{meta.json,results_raw.npz,...}
+        motions/Turning/motion_b/{meta.json,results_raw.npz,...}
+
+    and generate Fig1/Fig2 that place all motion groups on the same axes.
+    """
+    result_dirs = _discover_motion_result_dirs(results_dir)
+    if not result_dirs:
+        raise FileNotFoundError(f"No per-motion results found under {results_dir}/motions/*/*")
+
+    stores = [(Path(d).name, ResultsStore.load(d)) for d in result_dirs]
+
+    if output_dir is None:
+        output_dir = os.path.join(results_dir, "figures")
+    os.makedirs(output_dir, exist_ok=True)
+
+    _write_summary_all_csv(stores, os.path.join(results_dir, "summary_all.csv"))
+    plot_grouped_recovery_curve(stores, output_dir, perturbation_mode="composite")
+    plot_grouped_zmp_mechanism(stores, output_dir, perturbation_mode="composite")
+
+    # Keep the old detailed multi-motion plots as appendix material.
+    appendix_dir = os.path.join(output_dir, "appendix")
+    os.makedirs(appendix_dir, exist_ok=True)
+    motion_names = [f"{s.meta.get('motion_group', 'Ungrouped')}:{name}" for name, s in stores]
+    load_and_plot_multi(result_dirs, motion_names=motion_names, output_dir=appendix_dir)
+
+    print(f"[plot] Run-root figures saved to {output_dir}")
 
 
 def _validate_results_dir(path: str) -> str:
@@ -443,6 +499,188 @@ def plot_zmp_timeseries_from_stores(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+#  RUN-ROOT FIGURES — grouped by motion category
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _mode_summary(store: ResultsStore, perturbation_mode: str) -> dict:
+    try:
+        return store.to_summary(perturbation_mode=perturbation_mode)
+    except ValueError:
+        return store.to_summary()
+
+
+def _group_names(stores: list[tuple[str, ResultsStore]]) -> list[str]:
+    groups = sorted({store.meta.get("motion_group", "Ungrouped") for _, store in stores})
+    return groups + ["Overall"]
+
+
+def _pooled_rate_by_eps(
+    stores: list[tuple[str, ResultsStore]],
+    group: str,
+    perturbation_mode: str,
+) -> tuple[list[float], list[float], list[int]]:
+    ref_meta = stores[0][1].meta
+    n_eps = len(ref_meta["epsilon_values"])
+    n_pvel = len(ref_meta["push_velocities"])
+    means, cis, totals = [], [], []
+
+    for ei in range(n_eps):
+        succ = 0.0
+        total = 0
+        for _, store in stores:
+            if group != "Overall" and store.meta.get("motion_group", "Ungrouped") != group:
+                continue
+            summary = _mode_summary(store, perturbation_mode)
+            for pi in range(n_pvel):
+                cell = summary[ei][pi]
+                n = int(cell["n_total"])
+                rate = cell["end_to_end_success_rate"]
+                if n <= 0 or np.isnan(rate):
+                    continue
+                succ += float(rate) * n
+                total += n
+        p = succ / total if total > 0 else float("nan")
+        ci = float(np.sqrt(p * (1.0 - p) / total)) if total > 0 and not np.isnan(p) else 0.0
+        means.append(p)
+        cis.append(ci)
+        totals.append(total)
+    return means, cis, totals
+
+
+def _pooled_zmp_by_eps(
+    stores: list[tuple[str, ResultsStore]],
+    group: str,
+    perturbation_mode: str,
+) -> tuple[list[float], list[float]]:
+    ref_meta = stores[0][1].meta
+    n_eps = len(ref_meta["epsilon_values"])
+    n_pvel = len(ref_meta["push_velocities"])
+    means, stds = [], []
+
+    for ei in range(n_eps):
+        vals = []
+        weights = []
+        for _, store in stores:
+            if group != "Overall" and store.meta.get("motion_group", "Ungrouped") != group:
+                continue
+            summary = _mode_summary(store, perturbation_mode)
+            for pi in range(n_pvel):
+                cell = summary[ei][pi]
+                zmp = cell["mean_zmp_settle"]
+                n = int(cell["n_total"])
+                if n <= 0 or np.isnan(zmp):
+                    continue
+                vals.append(float(zmp))
+                weights.append(n)
+        if vals:
+            arr = np.array(vals, dtype=float)
+            w = np.array(weights, dtype=float)
+            mean = float(np.average(arr, weights=w))
+            means.append(mean)
+            stds.append(float(np.sqrt(np.average((arr - mean) ** 2, weights=w))))
+        else:
+            means.append(float("nan"))
+            stds.append(float("nan"))
+    return means, stds
+
+
+def plot_grouped_recovery_curve(
+    stores: list[tuple[str, ResultsStore]],
+    output_dir: str,
+    perturbation_mode: str = "composite",
+) -> None:
+    """Fig1: all motion categories and overall recovery rate on one axis."""
+    eps_vals = stores[0][1].meta["epsilon_values"]
+    groups = _group_names(stores)
+    colors = ["#1976D2", "#388E3C", "#F57C00", "#7B1FA2", "#212121"]
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for gi, group in enumerate(groups):
+        means, cis, totals = _pooled_rate_by_eps(stores, group, perturbation_mode)
+        y = np.array(means) * 100.0
+        ci = np.array(cis) * 100.0
+        color = colors[gi % len(colors)]
+        lw = 2.6 if group == "Overall" else 1.8
+        alpha = 1.0 if group == "Overall" else 0.85
+        ax.fill_between(eps_vals, y - ci, y + ci, color=color, alpha=0.12)
+        ax.plot(eps_vals, y, marker="o", linewidth=lw, color=color, alpha=alpha, label=group)
+
+    ax.axhline(70.0, color="gray", linestyle="--", linewidth=1.0, label="70% threshold")
+    ax.set_xlabel("Reference frame error amplitude ε")
+    ax.set_ylabel("End-to-end success rate (%)")
+    ax.set_title("Fig1: Push-Recovery Rate vs Reference-Frame Error")
+    ax.set_ylim(0, 105)
+    ax.set_xlim(left=0)
+    ax.legend(fontsize=8, framealpha=0.8)
+    _save(fig, output_dir, "fig1_recovery_rate")
+
+
+def plot_grouped_zmp_mechanism(
+    stores: list[tuple[str, ResultsStore]],
+    output_dir: str,
+    perturbation_mode: str = "composite",
+) -> None:
+    """Fig2: mechanism view, all motion categories and overall ZMP margin."""
+    eps_vals = stores[0][1].meta["epsilon_values"]
+    groups = _group_names(stores)
+    colors = ["#1976D2", "#388E3C", "#F57C00", "#7B1FA2", "#212121"]
+
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    for gi, group in enumerate(groups):
+        means, stds = _pooled_zmp_by_eps(stores, group, perturbation_mode)
+        y = np.array(means)
+        std = np.array(stds)
+        color = colors[gi % len(colors)]
+        lw = 2.6 if group == "Overall" else 1.8
+        alpha = 1.0 if group == "Overall" else 0.85
+        ax.fill_between(eps_vals, y - std, y + std, color=color, alpha=0.10)
+        ax.plot(eps_vals, y, marker="s", linewidth=lw, color=color, alpha=alpha, label=group)
+
+    ax.axhline(0.0, color="red", linestyle="--", linewidth=1.0, label="Stability boundary")
+    ax.set_xlabel("Reference frame error amplitude ε")
+    ax.set_ylabel("Mean ZMP margin (m)")
+    ax.set_title("Fig2: ZMP Margin vs Reference-Frame Error")
+    ax.set_xlim(left=0)
+    ax.legend(fontsize=8, framealpha=0.8)
+    _save(fig, output_dir, "fig2_zmp_margin")
+
+
+def _write_summary_all_csv(stores: list[tuple[str, ResultsStore]], path: str) -> None:
+    rows = []
+    for _, store in stores:
+        modes = store.meta.get("perturbation_modes") or [store.meta.get("perturbation_mode", "composite")]
+        for mode_idx, mode in enumerate(modes):
+            summary = store.to_summary(mode_idx=mode_idx if store._has_mode_axis() else None)
+            for ei in sorted(summary):
+                for pi in sorted(summary[ei]):
+                    cell = summary[ei][pi]
+                    rows.append({
+                        "motion_group": store.meta.get("motion_group", "Ungrouped"),
+                        "motion_name": store.meta.get("motion_name", "unknown"),
+                        "perturbation_mode": mode,
+                        "epsilon_idx": ei,
+                        "push_velocity_idx": pi,
+                        "epsilon": cell["epsilon"],
+                        "push_velocity": cell["push_velocity"],
+                        "n_total": cell["n_total"],
+                        "n_valid": cell["n_valid"],
+                        "n_fallen_before": cell["n_fallen_before"],
+                        "end_to_end_success_rate": cell["end_to_end_success_rate"],
+                        "conditional_recovery_rate": cell["conditional_recovery_rate"],
+                        "pre_fall_rate": cell["pre_fall_rate"],
+                        "mean_zmp_settle": cell["mean_zmp_settle"],
+                        "std_zmp_settle": cell["std_zmp_settle"],
+                    })
+    if not rows:
+        return
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"[plot] Wrote {path}")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 #  UTILITY
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -475,9 +713,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.results_dir:
-        load_and_plot_multi([args.results_dir],
-                            motion_names=None,
-                            output_dir=args.output_dir)
+        p = Path(args.results_dir).expanduser()
+        if (p / "meta.json").is_file() and (p / "results_raw.npz").is_file():
+            load_and_plot_multi([args.results_dir],
+                                motion_names=None,
+                                output_dir=args.output_dir)
+        else:
+            load_and_plot_run_root(args.results_dir, output_dir=args.output_dir)
     else:
         load_and_plot_multi(args.results_dirs,
                             motion_names=args.motion_names,
