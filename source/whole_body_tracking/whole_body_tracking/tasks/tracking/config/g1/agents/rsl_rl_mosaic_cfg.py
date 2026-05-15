@@ -504,9 +504,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_debug_training        = False
     debug_supervised_warmup_iterations = 200
     debug_supervised_warmup_diag_interval = 40
-    debug_critic_warmup_iterations = 50
-    debug_ppo_actor_warmup_iterations = 50
-    debug_ppo_actor_ramp_iterations = 200
+    debug_critic_warmup_iterations = 100
+    debug_ppo_actor_warmup_iterations = 150
+    debug_ppo_actor_ramp_iterations = 400
     debug_dr_scale_init            = 0.5
     debug_dr_min_scale             = 0.3
     debug_dr_ema_alpha             = 0.90
