@@ -484,11 +484,15 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # are structurally zeroed so PPO cannot exploit high-risk contact channels.
     frontres_active_task_dims      = [0, 1, 5, 6, 7]
 
-    # "More executable" reward:
-    #   tanh((reward(corrected) - reward(noisy_baseline)) / temp)
-    # + small geometry prior - minimum-intervention cost.
+    # "More executable" reward, damage-gated:
+    #   baseline reward high -> learn no-op via stronger intervention cost
+    #   baseline reward low  -> amplify execution advantage and relax cost
     frontres_exec_reward_weight    = 1.0
     frontres_exec_reward_temp      = 1.0
+    frontres_exec_reward_ref_per_step = 0.04
+    frontres_damage_gate_temp      = 0.005
+    frontres_exec_gate_floor       = 0.05
+    frontres_cost_gate_floor       = 0.10
     frontres_geometry_reward_weight = 0.05
     frontres_rescue_reward_weight  = 1.0
     frontres_intervention_cost_weights = [0.02, 0.02, 0.0, 0.0, 0.0, 0.10]

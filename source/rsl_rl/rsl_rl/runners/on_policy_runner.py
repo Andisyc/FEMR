@@ -956,6 +956,9 @@ class OnPolicyRunner:
             _frontres_r_geom_sum:         float = 0.0
             _frontres_intervention_cost_sum: float = 0.0
             _frontres_reward_frontres_sum: float = 0.0
+            _frontres_damage_gate_sum:    float = 0.0
+            _frontres_exec_gate_sum:      float = 0.0
+            _frontres_cost_gate_sum:      float = 0.0
             _frontres_dr_z_abs_sum:       float = 0.0
             _frontres_dr_xy_abs_sum:      float = 0.0
             _frontres_dr_rp_abs_sum:      float = 0.0
@@ -1392,11 +1395,32 @@ class OnPolicyRunner:
                             _w_exec = float(self.cfg.get("frontres_exec_reward_weight", 1.0))
                             _w_geom = float(self.cfg.get("frontres_geometry_reward_weight", 0.05))
                             _w_rescue = float(self.cfg.get("frontres_rescue_reward_weight", 1.0))
+                            # Damage-gated intervention:
+                            # - If GMT baseline already executes the perturbed reference well,
+                            #   FrontRES should mostly learn no-op, so intervention cost is high.
+                            # - If GMT baseline reward drops below the executable threshold,
+                            #   execution advantage is amplified and intervention cost is relaxed.
+                            _reward_ref = float(self.cfg.get("frontres_exec_reward_ref_per_step", 0.04))
+                            _damage_temp = float(self.cfg.get("frontres_damage_gate_temp", 0.005))
+                            _damage_gate = torch.sigmoid(
+                                (_reward_ref - r_raw_gmt[:_n_exec]) / max(_damage_temp, 1e-6)
+                            )
+                            _exec_gate = (
+                                float(self.cfg.get("frontres_exec_gate_floor", 0.05)) + _damage_gate
+                            )
+                            _cost_gate = (
+                                (1.0 - _damage_gate)
+                                + float(self.cfg.get("frontres_cost_gate_floor", 0.10)) * _damage_gate
+                            )
+                            _exec_weight = torch.zeros(N_train, device=self.device)
+                            _cost_weight = torch.ones(N_train, device=self.device)
+                            _exec_weight[:_n_exec] = _exec_gate
+                            _cost_weight[:_n_exec] = _cost_gate
                             r_delta = (
-                                _w_exec * _r_exec
+                                _w_exec * _exec_weight * _r_exec
                                 + _w_geom * _r_step
                                 + _w_rescue * _r_rescue
-                                - _intervention_cost
+                                - _cost_weight * _intervention_cost
                             )
                             _r_base_log   = r_raw_gmt.mean()
                             _r_rescue_log = _r_rescue.mean()
@@ -1461,6 +1485,9 @@ class OnPolicyRunner:
                             _frontres_r_geom_sum       += _r_step.mean().item()
                             _frontres_intervention_cost_sum += _intervention_cost.mean().item()
                             _frontres_reward_frontres_sum += r_total.mean().item()
+                            _frontres_damage_gate_sum  += _damage_gate.mean().item()
+                            _frontres_exec_gate_sum    += _exec_gate.mean().item()
+                            _frontres_cost_gate_sum    += _cost_gate.mean().item()
                             _frontres_reward_diag_steps += 1
                             _frontres_dr_z_abs_sum     += _dr_z_abs_log.item()
                             _frontres_dr_xy_abs_sum    += _dr_xy_abs_log.item()
@@ -1660,6 +1687,18 @@ class OnPolicyRunner:
                 _frontres_reward_frontres_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_damage_gate_mean = (
+                _frontres_damage_gate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_exec_gate_mean = (
+                _frontres_exec_gate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_cost_gate_mean = (
+                _frontres_cost_gate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_dr_z_abs_mean = (_frontres_dr_z_abs_sum / _frontres_shaping_steps
                                       if _is_frontres and _frontres_shaping_steps > 0 else None)
             frontres_dr_xy_abs_mean = (_frontres_dr_xy_abs_sum / _frontres_shaping_steps
@@ -1831,7 +1870,8 @@ class OnPolicyRunner:
                                        locs["frontres_baseline_mean"], locs["it"])
             for _name in (
                 "r_exec", "r_geom", "r_rescue", "intervention_cost",
-                "reward_frontres", "r_z", "r_xy", "r_rp", "r_yaw",
+                "reward_frontres", "damage_gate", "exec_gate", "cost_gate",
+                "r_z", "r_xy", "r_rp", "r_yaw",
                 "dr_z_abs", "dr_xy_abs", "dr_rp_abs", "dr_yaw_abs",
                 "corr_z_abs", "corr_xy_abs", "corr_rp_abs", "corr_yaw_abs",
             ):
@@ -1988,6 +2028,13 @@ class OnPolicyRunner:
                         log_string += (
                             f"{locs['frontres_reward_frontres_mean']:+.4f} / "
                             f"{locs['frontres_baseline_mean']:+.4f}\n"
+                        )
+                    if locs.get("frontres_damage_gate_mean") is not None:
+                        log_string += f"""{'damage/exec/cost gate:':>{pad}} """
+                        log_string += (
+                            f"{locs['frontres_damage_gate_mean']:.3f} / "
+                            f"{locs['frontres_exec_gate_mean']:.3f} / "
+                            f"{locs['frontres_cost_gate_mean']:.3f}\n"
                         )
                 _gc = locs.get("loss_dict", {}).get("grad_cos_ppo_supervised", None)
                 if _gc is not None:
