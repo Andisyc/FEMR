@@ -507,21 +507,24 @@ class OnPolicyRunner:
             def _cfg_set(key, value):
                 self.cfg[key] = value
 
-            def _debug_value(debug_key, normal_key, default):
-                return self.cfg.get(debug_key, self.cfg.get(normal_key, default))
+            def _debug_value(debug_key, default):
+                # In debug mode we want a genuinely shortened feedback loop.
+                # Some Hydra/ConfigClass paths may drop debug_* class defaults
+                # from agent_cfg.to_dict(); falling back to formal-training
+                # values would silently turn debug into the slow schedule.
+                return self.cfg.get(debug_key, default)
 
             _debug_overrides = {
-                "supervised_warmup_iterations": int(_debug_value("debug_supervised_warmup_iterations", "supervised_warmup_iterations", 200)),
-                "supervised_warmup_diag_interval": int(_debug_value("debug_supervised_warmup_diag_interval", "supervised_warmup_diag_interval", 40)),
-                "critic_warmup_iterations": int(_debug_value("debug_critic_warmup_iterations", "critic_warmup_iterations", 50)),
-                "dr_scale_init": float(_debug_value("debug_dr_scale_init", "dr_scale_init", 0.5)),
-                "dr_min_scale": float(_debug_value("debug_dr_min_scale", "dr_min_scale", 0.3)),
-                "dr_ema_alpha": float(_debug_value("debug_dr_ema_alpha", "dr_ema_alpha", 0.90)),
-                "dr_p_gain": float(_debug_value("debug_dr_p_gain", "dr_p_gain", 0.20)),
-                "dr_i_gain": float(_debug_value("debug_dr_i_gain", "dr_i_gain", 0.03)),
+                "supervised_warmup_iterations": int(_debug_value("debug_supervised_warmup_iterations", 200)),
+                "supervised_warmup_diag_interval": int(_debug_value("debug_supervised_warmup_diag_interval", 40)),
+                "critic_warmup_iterations": int(_debug_value("debug_critic_warmup_iterations", 100)),
+                "dr_scale_init": float(_debug_value("debug_dr_scale_init", 0.5)),
+                "dr_min_scale": float(_debug_value("debug_dr_min_scale", 0.3)),
+                "dr_ema_alpha": float(_debug_value("debug_dr_ema_alpha", 0.90)),
+                "dr_p_gain": float(_debug_value("debug_dr_p_gain", 0.20)),
+                "dr_i_gain": float(_debug_value("debug_dr_i_gain", 0.03)),
                 "frontres_exec_reward_ref_per_step": float(_debug_value(
                     "debug_frontres_exec_reward_ref_per_step",
-                    "frontres_exec_reward_ref_per_step",
                     0.05,
                 )),
             }
@@ -530,13 +533,11 @@ class OnPolicyRunner:
 
             _actor_warmup_debug = int(_debug_value(
                 "debug_ppo_actor_warmup_iterations",
-                "ppo_actor_warmup_iterations",
-                50,
+                150,
             ))
             _actor_ramp_debug = int(_debug_value(
                 "debug_ppo_actor_ramp_iterations",
-                "ppo_actor_ramp_iterations",
-                200,
+                400,
             ))
             self.cfg["ppo_actor_warmup_iterations"] = _actor_warmup_debug
             self.cfg["ppo_actor_ramp_iterations"] = _actor_ramp_debug
