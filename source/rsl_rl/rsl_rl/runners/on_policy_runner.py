@@ -517,7 +517,7 @@ class OnPolicyRunner:
             _debug_overrides = {
                 "supervised_warmup_iterations": int(_debug_value("debug_supervised_warmup_iterations", 200)),
                 "supervised_warmup_diag_interval": int(_debug_value("debug_supervised_warmup_diag_interval", 40)),
-                "critic_warmup_iterations": int(_debug_value("debug_critic_warmup_iterations", 100)),
+                "critic_warmup_iterations": int(_debug_value("debug_critic_warmup_iterations", 50)),
                 "dr_scale_init": float(_debug_value("debug_dr_scale_init", 0.5)),
                 "dr_min_scale": float(_debug_value("debug_dr_min_scale", 0.3)),
                 "dr_ema_alpha": float(_debug_value("debug_dr_ema_alpha", 0.90)),
@@ -533,11 +533,11 @@ class OnPolicyRunner:
 
             _actor_warmup_debug = int(_debug_value(
                 "debug_ppo_actor_warmup_iterations",
-                150,
+                50,
             ))
             _actor_ramp_debug = int(_debug_value(
                 "debug_ppo_actor_ramp_iterations",
-                400,
+                200,
             ))
             self.cfg["ppo_actor_warmup_iterations"] = _actor_warmup_debug
             self.cfg["ppo_actor_ramp_iterations"] = _actor_ramp_debug

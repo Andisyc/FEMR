@@ -77,6 +77,12 @@ parser.add_argument(
         "False treats the checkpoint as initialization and resets critic/optimizer/iteration."
     ),
 )
+parser.add_argument(
+    "--frontres_debug_training",
+    action="store_true",
+    default=False,
+    help="Enable the shortened FrontRES debug schedule for reward/DR tuning.",
+)
 
 # single motion for testing
 # motion_path = '/home/chengyuxuan/MOSAIC/motion_npz/dance1_subject1.npz'
@@ -217,6 +223,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         agent_cfg.supervised_warmup_max_envs_per_step = args_cli.supervised_warmup_max_envs_per_step
     if args_cli.is_full_resume is not None:
         agent_cfg.is_full_resume = args_cli.is_full_resume
+    if args_cli.frontres_debug_training:
+        agent_cfg.frontres_debug_training = True
 
     # set seeds (explicit rank offset for distributed to avoid identical sampling across ranks)
     # note: certain randomizations occur in the environment initialization so we set the seed here
