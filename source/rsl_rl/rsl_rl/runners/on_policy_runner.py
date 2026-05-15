@@ -501,6 +501,60 @@ class OnPolicyRunner:
         # Critic warmup: freeze Actor for the first N iterations so the Critic
         # can converge before Actor weights (pretrained from Stage 1) are updated.
         # Only applied to FrontRESActorCritic; other policy types are unaffected.
+        if _is_frontres and bool(self.cfg.get("frontres_debug_training", False)):
+            def _cfg_set(key, value):
+                self.cfg[key] = value
+
+            def _debug_value(debug_key, normal_key, default):
+                return self.cfg.get(debug_key, self.cfg.get(normal_key, default))
+
+            _debug_overrides = {
+                "supervised_warmup_iterations": int(_debug_value("debug_supervised_warmup_iterations", "supervised_warmup_iterations", 200)),
+                "supervised_warmup_diag_interval": int(_debug_value("debug_supervised_warmup_diag_interval", "supervised_warmup_diag_interval", 40)),
+                "critic_warmup_iterations": int(_debug_value("debug_critic_warmup_iterations", "critic_warmup_iterations", 50)),
+                "dr_scale_init": float(_debug_value("debug_dr_scale_init", "dr_scale_init", 0.5)),
+                "dr_min_scale": float(_debug_value("debug_dr_min_scale", "dr_min_scale", 0.3)),
+                "dr_ema_alpha": float(_debug_value("debug_dr_ema_alpha", "dr_ema_alpha", 0.90)),
+                "dr_p_gain": float(_debug_value("debug_dr_p_gain", "dr_p_gain", 0.20)),
+                "dr_i_gain": float(_debug_value("debug_dr_i_gain", "dr_i_gain", 0.03)),
+                "frontres_exec_reward_ref_per_step": float(_debug_value(
+                    "debug_frontres_exec_reward_ref_per_step",
+                    "frontres_exec_reward_ref_per_step",
+                    0.05,
+                )),
+            }
+            for _key, _value in _debug_overrides.items():
+                _cfg_set(_key, _value)
+
+            _actor_warmup_debug = int(_debug_value(
+                "debug_ppo_actor_warmup_iterations",
+                "ppo_actor_warmup_iterations",
+                50,
+            ))
+            _actor_ramp_debug = int(_debug_value(
+                "debug_ppo_actor_ramp_iterations",
+                "ppo_actor_ramp_iterations",
+                200,
+            ))
+            self.cfg["ppo_actor_warmup_iterations"] = _actor_warmup_debug
+            self.cfg["ppo_actor_ramp_iterations"] = _actor_ramp_debug
+            self.alg_cfg["ppo_actor_warmup_iterations"] = _actor_warmup_debug
+            self.alg_cfg["ppo_actor_ramp_iterations"] = _actor_ramp_debug
+
+            print(
+                "[Runner] === FrontRES DEBUG TRAINING enabled ===\n"
+                f"[Runner]   supervised_warmup_iterations={self.cfg['supervised_warmup_iterations']}, "
+                f"critic_warmup_iterations={self.cfg['critic_warmup_iterations']}\n"
+                f"[Runner]   ppo_actor_warmup_iterations={_actor_warmup_debug}, "
+                f"ppo_actor_ramp_iterations={_actor_ramp_debug}\n"
+                f"[Runner]   dr_scale_init={self.cfg['dr_scale_init']}, "
+                f"dr_min_scale={self.cfg['dr_min_scale']}, "
+                f"dr_p_gain={self.cfg['dr_p_gain']}, dr_i_gain={self.cfg['dr_i_gain']}\n"
+                f"[Runner]   frontres_exec_reward_ref_per_step="
+                f"{self.cfg['frontres_exec_reward_ref_per_step']}",
+                flush=True,
+            )
+
         critic_warmup_iters = self.cfg.get("critic_warmup_iterations", 0)
 
         print("[Runner] Checking FrontRES mode...", flush=True)

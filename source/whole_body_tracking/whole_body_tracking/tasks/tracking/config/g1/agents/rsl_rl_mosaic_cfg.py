@@ -497,6 +497,23 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_rescue_reward_weight  = 1.0
     frontres_intervention_cost_weights = [0.02, 0.02, 0.0, 0.0, 0.0, 0.10]
 
+    # ── Fast debug mode: shortens the feedback loop for reward/DR tuning ─────
+    # Formal training leaves this False.  Enable with:
+    #   +frontres_debug_training=True
+    # or override the debug_* fields below from Hydra.
+    frontres_debug_training        = False
+    debug_supervised_warmup_iterations = 200
+    debug_supervised_warmup_diag_interval = 40
+    debug_critic_warmup_iterations = 50
+    debug_ppo_actor_warmup_iterations = 50
+    debug_ppo_actor_ramp_iterations = 200
+    debug_dr_scale_init            = 0.5
+    debug_dr_min_scale             = 0.3
+    debug_dr_ema_alpha             = 0.90
+    debug_dr_p_gain                = 0.20
+    debug_dr_i_gain                = 0.03
+    debug_frontres_exec_reward_ref_per_step = 0.05
+
     # ── Supervised warmup: pure HuberLoss before PPO loop ──────────────────
     # Give FrontRES enough supervised exposure to learn the correction
     # direction before PPO sees r_delta.  PPO still keeps an online supervised
