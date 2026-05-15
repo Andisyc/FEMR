@@ -498,6 +498,8 @@ class OnPolicyRunner:
         tot_iter = start_iter + num_learning_iterations
         print(f"[Runner] Iteration counters ready: start={start_iter}, total={tot_iter}", flush=True)
 
+        _is_frontres = isinstance(self.alg.policy, FrontRESActorCritic)
+
         # Critic warmup: freeze Actor for the first N iterations so the Critic
         # can converge before Actor weights (pretrained from Stage 1) are updated.
         # Only applied to FrontRESActorCritic; other policy types are unaffected.
@@ -558,7 +560,6 @@ class OnPolicyRunner:
         critic_warmup_iters = self.cfg.get("critic_warmup_iterations", 0)
 
         print("[Runner] Checking FrontRES mode...", flush=True)
-        _is_frontres = isinstance(self.alg.policy, FrontRESActorCritic)
         _is_task_space_mode = _is_frontres and getattr(self.alg.policy, 'num_task_corrections', 0) > 0
         print(
             f"[Runner] FrontRES mode: is_frontres={_is_frontres}, "
