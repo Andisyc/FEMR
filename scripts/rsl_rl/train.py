@@ -208,6 +208,53 @@ def _sanitize_env_cfg_for_training(env_cfg) -> None:
         )
 
 
+def _configure_frontres_motion_perturbations(env_cfg, agent_cfg) -> None:
+    """Align motion perturbation channels with the FrontRES action mask."""
+    if not hasattr(env_cfg, "motion_perturbations"):
+        return
+    mode = str(getattr(agent_cfg, "frontres_perturbation_channels", "all")).lower()
+    pt = env_cfg.motion_perturbations
+
+    if mode in ("all", "composite", "full"):
+        return
+    if mode not in ("xy_yaw", "xy-yaw", "xyyaw"):
+        raise ValueError(
+            "frontres_perturbation_channels must be one of "
+            "{'all', 'composite', 'full', 'xy_yaw'}; got "
+            f"{mode!r}."
+        )
+
+    # Keep channels controllable by active dims [dx, dy, dyaw].
+    # X/Y: OU foot-slip/lateral drift + IID XY.  Yaw: IID yaw.
+    pt.float_prob = 0.0
+    pt.float_ratio = 0.0
+    pt.sink_prob = 0.0
+    pt.sink_ratio = 0.0
+    pt.root_tilt_prob = 0.0
+    pt.root_tilt_max_rad = 0.0
+    pt.joint_noise_prob = 0.0
+    pt.joint_noise_std = 0.0
+    pt.iid_prob_z = 0.0
+    pt.iid_std_z = 0.0
+    pt.iid_prob_rp = 0.0
+    pt.iid_std_rp = 0.0
+
+    # Preserve env defaults for OU XY channels, but let agent cfg override IID
+    # values so DR-scale experiments remain centralized in the runner config.
+    pt.iid_prob_xy = float(getattr(agent_cfg, "iid_prob_xy", pt.iid_prob_xy))
+    pt.iid_std_xy = float(getattr(agent_cfg, "iid_std_xy", pt.iid_std_xy))
+    pt.iid_prob_ya = float(getattr(agent_cfg, "iid_prob_ya", pt.iid_prob_ya))
+    pt.iid_std_ya = float(getattr(agent_cfg, "iid_std_ya", pt.iid_std_ya))
+
+    print(
+        "[INFO] FrontRES perturbation alignment: xy_yaw "
+        f"(foot_slip_prob={pt.foot_slip_prob}, lateral_drift_prob={pt.lateral_drift_prob}, "
+        f"iid_xy={pt.iid_prob_xy}/{pt.iid_std_xy}, iid_yaw={pt.iid_prob_ya}/{pt.iid_std_ya}; "
+        "z/rp/joint disabled)",
+        flush=True,
+    )
+
+
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point") # 
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     """Train with RSL-RL agent."""
@@ -251,6 +298,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # load in motion sequence
     env_cfg.commands.motion.motion = args_cli.motion
+    _configure_frontres_motion_perturbations(env_cfg, agent_cfg)
     _sanitize_env_cfg_for_training(env_cfg)
 
     # specify directory for logging experiments

@@ -483,6 +483,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Only Δxy and Δyaw are allowed to reach the command term.  Δz/Δroll/Δpitch
     # are structurally zeroed so PPO cannot exploit high-risk contact channels.
     frontres_active_task_dims      = [0, 1, 5, 6, 7]
+    frontres_perturbation_channels = "xy_yaw"  # align damage source with active correction dims
 
     # "More executable" reward, clean-gap normalized:
     #   damage_gap  = R_clean - R_noisy
@@ -556,12 +557,12 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # command term.  Stability is handled by conservative projection, confidence,
     # supervised warmup, and low initial DR scale.
     # ── IID step-jump perturbation probabilities (per-axis, per-step) ──────
-    # Z needs IID because GMT leg suspension absorbs OU float completely.
-    # XY benefits from both OU (drift) and IID (rescue signal).
-    # RP destabilizes regardless of type — IID gives stronger signal.
-    iid_prob_z                     = 0.3    # Z: 30% of steps get a float/sink jump
+    # Alignment experiment: only XY/Yaw perturbations are enabled because the
+    # active action mask is [dx, dy, dyaw].  Z/RP are disabled here so the
+    # repair reward does not ask Actor to fix channels it cannot control.
+    iid_prob_z                     = 0.0    # disabled for xy/yaw alignment
     iid_prob_xy                    = 0.1    # XY: 10% lateral jump
-    iid_prob_rp                    = 0.1    # Roll/Pitch: 10% tilt jump
+    iid_prob_rp                    = 0.0    # disabled for xy/yaw alignment
     iid_prob_ya                    = 0.1    # Yaw: 10% orientation jump
     iid_std_z                      = 0.05   # Z jump std (m), scaled by dr_scale
     iid_std_xy                     = 0.03   # XY jump std (m)
