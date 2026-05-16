@@ -524,6 +524,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     debug_dr_ema_alpha             = 0.90
     debug_dr_p_gain                = 0.20
     debug_dr_i_gain                = 0.03
+    debug_dr_start_ppo_actor_weight = 1.0
     debug_frontres_safe_gap_per_step = 0.003
     debug_frontres_broken_gap_per_step = 0.08
     debug_frontres_gap_gate_temp   = 0.005
@@ -548,6 +549,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     dr_max_scale                   = 4.0    # upper limit
     dr_min_scale                   = 0.10   # lower limit must beat σ noise floor (15mm)
     dr_ema_alpha                   = 0.95   # r_delta EMA smoothing
+    dr_start_ppo_actor_weight      = 1.0    # freeze DR until PPO actor takeover completes
 
     # ── Task-space correction ramp ────────────────────────────────────────────
     # Alpha must be 1.0 from the start so task-space corrections reach the

@@ -523,6 +523,7 @@ class OnPolicyRunner:
                 "dr_ema_alpha": float(_debug_value("debug_dr_ema_alpha", 0.90)),
                 "dr_p_gain": float(_debug_value("debug_dr_p_gain", 0.20)),
                 "dr_i_gain": float(_debug_value("debug_dr_i_gain", 0.03)),
+                "dr_start_ppo_actor_weight": float(_debug_value("debug_dr_start_ppo_actor_weight", 1.0)),
                 "frontres_safe_gap_per_step": float(_debug_value("debug_frontres_safe_gap_per_step", 0.003)),
                 "frontres_broken_gap_per_step": float(_debug_value("debug_frontres_broken_gap_per_step", 0.08)),
                 "frontres_gap_gate_temp": float(_debug_value("debug_frontres_gap_gate_temp", 0.005)),
@@ -551,7 +552,8 @@ class OnPolicyRunner:
                 f"ppo_actor_ramp_iterations={_actor_ramp_debug}\n"
                 f"[Runner]   dr_scale_init={self.cfg['dr_scale_init']}, "
                 f"dr_min_scale={self.cfg['dr_min_scale']}, "
-                f"dr_p_gain={self.cfg['dr_p_gain']}, dr_i_gain={self.cfg['dr_i_gain']}\n"
+                f"dr_p_gain={self.cfg['dr_p_gain']}, dr_i_gain={self.cfg['dr_i_gain']}, "
+                f"dr_start_ppo_actor_weight={self.cfg['dr_start_ppo_actor_weight']}\n"
                 f"[Runner]   frontres_safe_gap_per_step={self.cfg['frontres_safe_gap_per_step']}, "
                 f"frontres_broken_gap_per_step={self.cfg['frontres_broken_gap_per_step']}, "
                 f"frontres_gap_gate_temp={self.cfg['frontres_gap_gate_temp']}",
@@ -569,6 +571,24 @@ class OnPolicyRunner:
         )
         if _is_frontres and critic_warmup_iters > 0:
             print(f"[Runner] Critic warmup (fixed DR scale, Actor active): {critic_warmup_iters} iters")
+
+        def _frontres_ppo_actor_weight_for_iter(iteration: int) -> float:
+            """Linear supervised-to-PPO takeover schedule for the current iteration."""
+            if not (_is_frontres and hasattr(self.alg, "ppo_actor_weight")):
+                return 1.0
+            _actor_warmup = int(self.alg_cfg.get(
+                "ppo_actor_warmup_iterations",
+                self.cfg.get("ppo_actor_warmup_iterations", 0)))
+            _actor_ramp = int(self.alg_cfg.get(
+                "ppo_actor_ramp_iterations",
+                self.cfg.get("ppo_actor_ramp_iterations", 0)))
+            _phase_iter = max(0, iteration - start_iter)
+            if _phase_iter < _actor_warmup:
+                return 0.0
+            if _actor_ramp > 0 and _phase_iter < _actor_warmup + _actor_ramp:
+                _weight = (_phase_iter - _actor_warmup + 1) / float(_actor_ramp)
+                return max(0.0, min(1.0, _weight))
+            return 1.0
 
         # B1 triplet delta-reward:
         #   [0:N_train)                  FrontRES on noisy reference
@@ -695,6 +715,7 @@ class OnPolicyRunner:
                     f"Ki={self.cfg.get('dr_i_gain', 0.01)}, "
                     f"target_r_delta={self.cfg.get('dr_target_r_delta', 0.01)}, "
                     f"max_scale={_dr_max}, ema_alpha={_dr_ema_alpha}, "
+                    f"start_actor_weight={self.cfg.get('dr_start_ppo_actor_weight', 1.0)}, "
                     f"resume dr_scale={_dr_scale:.3f}"
                 )
             else:
@@ -1030,6 +1051,11 @@ class OnPolicyRunner:
         )
         for it in range(start_iter, tot_iter):
             start = time.time()
+            _ppo_actor_weight_current = _frontres_ppo_actor_weight_for_iter(it)
+            if _is_frontres and hasattr(self.alg, "ppo_actor_weight"):
+                # Set before collection as well as before update so diagnostics,
+                # curriculum gates, and PPO loss all see the same phase.
+                self.alg.ppo_actor_weight = _ppo_actor_weight_current
 
             # --- Critic warmup: fixed low DR scale ─────────────────────────
             # Critic learns V(s) under real low perturbations.  PPO actor may
@@ -1046,24 +1072,32 @@ class OnPolicyRunner:
             #   error < 0: FrontRES below target → task too hard → decrease DR
             # P term: proportional response (reacts to magnitude, not just sign)
             # I term: removes steady-state offset; anti-windup prevents saturation
+            _actor_takeover_active = False
             if _is_frontres and _perturb_target is not None:
+                _dr_start_actor_weight = float(self.cfg.get("dr_start_ppo_actor_weight", 1.0))
+                _actor_takeover_active = (
+                    (not _critic_warmup)
+                    and _ppo_actor_weight_current < _dr_start_actor_weight
+                )
                 # Update r_delta EMA from last iteration's mean
                 _r_delta_ema = (_dr_ema_alpha * _r_delta_ema
                                 + (1.0 - _dr_ema_alpha) * getattr(self, '_last_r_delta_mean', 0.0))
-                if _critic_warmup:
+                if _critic_warmup or _actor_takeover_active:
                     # Hold at dr_scale_init during Critic warmup.
-                    # DR=0 makes V(s)≈0 (trivially correct, uninformative).
-                    # dr_scale_init=0.3 gives meaningful r_delta so the Critic
-                    # learns real value patterns that transfer to Phase 3.
+                    # Also hold during Actor takeover.  Otherwise p(s_noisy) and
+                    # p(s_noisy + Δ_actor) drift at the same time, which makes
+                    # Critic targets hard to interpret and PPO updates unstable.
                     _dr_scale = _dr_scale_init
-                    self._warmup_just_ended = True
+                    self._dr_hold_just_ended = True
                 else:
-                    if getattr(self, '_warmup_just_ended', False):
+                    if getattr(self, '_dr_hold_just_ended', False):
                         _dr_scale = _dr_scale_init
-                        # Do NOT reset _r_delta_ema: critic warmup now runs at
-                        # dr_scale_init (not DR=0), so the accumulated EMA is
-                        # real signal — discarding it would waste 150 iters of data.
-                        self._warmup_just_ended = False
+                        # The hold phase also runs at dr_scale_init, so the EMA is
+                        # real signal.  Keep it; only reset the PI previous error
+                        # so the first adaptive step is not a stale jump.
+                        if hasattr(self, "_dr_prev_error"):
+                            delattr(self, "_dr_prev_error")
+                        self._dr_hold_just_ended = False
 
                     _kp        = float(self.cfg.get("dr_p_gain",          0.10))
                     _ki        = float(self.cfg.get("dr_i_gain",          0.01))
@@ -1833,23 +1867,7 @@ class OnPolicyRunner:
             # Pass current iteration to algorithm for logging (needed by MOSAIC)
             self.alg.current_learning_iteration = it
             if _is_frontres and hasattr(self.alg, "ppo_actor_weight"):
-                # These are algorithm-level settings.  Keep a runner-level
-                # fallback for old configs, but prefer self.alg_cfg.
-                _actor_warmup = int(self.alg_cfg.get(
-                    "ppo_actor_warmup_iterations",
-                    self.cfg.get("ppo_actor_warmup_iterations", 0)))
-                _actor_ramp = int(self.alg_cfg.get(
-                    "ppo_actor_ramp_iterations",
-                    self.cfg.get("ppo_actor_ramp_iterations", 0)))
-                _phase_iter = max(0, it - start_iter)
-                if _phase_iter < _actor_warmup:
-                    _ppo_actor_weight = 0.0
-                elif _actor_ramp > 0 and _phase_iter < _actor_warmup + _actor_ramp:
-                    _ppo_actor_weight = (_phase_iter - _actor_warmup + 1) / float(_actor_ramp)
-                    _ppo_actor_weight = max(0.0, min(1.0, _ppo_actor_weight))
-                else:
-                    _ppo_actor_weight = 1.0
-                self.alg.ppo_actor_weight = _ppo_actor_weight
+                self.alg.ppo_actor_weight = _ppo_actor_weight_current
             # Pass oracle_mix so MOSAIC scales surrogate by (1 - oracle_mix):
             # PPO contribution ∝ FrontRES causal share of the correction applied.
             self.alg.oracle_mix = getattr(self, '_oracle_mix', 0.0)
@@ -2183,6 +2201,7 @@ class OnPolicyRunner:
             if _ts_mode:
                 _is_warmup = locs.get("_supervised_warmup_active", False)
                 _is_critic = locs.get("_critic_warmup_active", False)
+                _is_actor_takeover = locs.get("_actor_takeover_active", False)
                 _lam = getattr(self.alg, 'lambda_supervised', 0.0)
                 if _is_warmup:
                     _phase = "SUPERVISED WARMUP"
@@ -2194,6 +2213,9 @@ class OnPolicyRunner:
                         _notes = "(fixed low DR, PPO actor frozen; critic + supervised train)"
                     else:
                         _notes = "(fixed low DR; critic + supervised train)"
+                elif _is_actor_takeover:
+                    _phase = "ACTOR TAKEOVER"
+                    _notes = "(fixed DR; PPO actor weight ramping)"
                 elif _lam > 0.5:
                     _phase = "PPO + SUPERVISED ANCHOR"
                     _notes = ""
