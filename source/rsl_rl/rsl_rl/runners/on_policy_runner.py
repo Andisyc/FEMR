@@ -523,10 +523,9 @@ class OnPolicyRunner:
                 "dr_ema_alpha": float(_debug_value("debug_dr_ema_alpha", 0.90)),
                 "dr_p_gain": float(_debug_value("debug_dr_p_gain", 0.20)),
                 "dr_i_gain": float(_debug_value("debug_dr_i_gain", 0.03)),
-                "frontres_exec_reward_ref_per_step": float(_debug_value(
-                    "debug_frontres_exec_reward_ref_per_step",
-                    0.05,
-                )),
+                "frontres_safe_gap_per_step": float(_debug_value("debug_frontres_safe_gap_per_step", 0.003)),
+                "frontres_broken_gap_per_step": float(_debug_value("debug_frontres_broken_gap_per_step", 0.08)),
+                "frontres_gap_gate_temp": float(_debug_value("debug_frontres_gap_gate_temp", 0.005)),
             }
             for _key, _value in _debug_overrides.items():
                 _cfg_set(_key, _value)
@@ -553,8 +552,9 @@ class OnPolicyRunner:
                 f"[Runner]   dr_scale_init={self.cfg['dr_scale_init']}, "
                 f"dr_min_scale={self.cfg['dr_min_scale']}, "
                 f"dr_p_gain={self.cfg['dr_p_gain']}, dr_i_gain={self.cfg['dr_i_gain']}\n"
-                f"[Runner]   frontres_exec_reward_ref_per_step="
-                f"{self.cfg['frontres_exec_reward_ref_per_step']}",
+                f"[Runner]   frontres_safe_gap_per_step={self.cfg['frontres_safe_gap_per_step']}, "
+                f"frontres_broken_gap_per_step={self.cfg['frontres_broken_gap_per_step']}, "
+                f"frontres_gap_gate_temp={self.cfg['frontres_gap_gate_temp']}",
                 flush=True,
             )
 
@@ -570,28 +570,39 @@ class OnPolicyRunner:
         if _is_frontres and critic_warmup_iters > 0:
             print(f"[Runner] Critic warmup (fixed DR scale, Actor active): {critic_warmup_iters} iters")
 
-        # B1 split-env delta-reward: first N_train envs run FrontRES, last N_base envs run GMT-only.
-        # R_baseline = mean reward of GMT-only envs each step (exact, from real simulation).
-        # r_delta = r_total[:N_train] − r_baseline  →  credit assignment to FrontRES contribution only.
-        # GMT envs' advantage → 0 in steady state (V converges to GMT reward level) → gradient vanishes.
+        # B1 triplet delta-reward:
+        #   [0:N_train)                  FrontRES on noisy reference
+        #   [N_train:N_train+N_base)      GMT on the same noisy reference
+        #   [N_train+N_base:...)          GMT on the clean reference
+        # This exposes the executable gap:
+        #   R_clean - R_noisy
+        # and the repair gain:
+        #   R_frontres - R_noisy
         if _is_frontres:
-            N_train = self.env.num_envs // 2
-            N_base  = self.env.num_envs - N_train
-            print(f"[Runner] FrontRES B1 delta-reward: "
-                  f"{N_train} training envs (FrontRES) + {N_base} baseline envs (GMT-only)",
+            N_pair = self.env.num_envs // 3
+            N_train = N_pair
+            N_base  = N_pair
+            N_clean = self.env.num_envs - N_train - N_base
+            print(f"[Runner] FrontRES B1 triplet reward: "
+                  f"{N_train} FrontRES envs + {N_base} noisy-GMT envs + {N_clean} clean-GMT envs",
                   flush=True)
             _env_pair = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
             if hasattr(_env_pair, 'command_manager') and 'motion' in _env_pair.command_manager._terms:
                 _mcmd_pair = _env_pair.command_manager._terms['motion']
-                if hasattr(_mcmd_pair, 'set_frontres_paired_baseline'):
+                if hasattr(_mcmd_pair, 'set_frontres_triplet_baseline'):
+                    _mcmd_pair.set_frontres_triplet_baseline(N_train, N_base, N_clean)
+                    print("[Runner] FrontRES B1 triplet baseline enabled: "
+                          "FrontRES/noisy-GMT/clean-GMT share motion/frame; clean-GMT has zero perturbation",
+                          flush=True)
+                elif hasattr(_mcmd_pair, 'set_frontres_paired_baseline'):
                     _mcmd_pair.set_frontres_paired_baseline(N_train)
-                    print("[Runner] FrontRES B1 paired baseline enabled: "
+                    print("[Runner] FrontRES B1 paired baseline enabled (legacy two-way fallback): "
                           "env i and env i+N_train share motion/frame/perturbation",
                           flush=True)
             # Separate cumulative reward tracker for GMT envs (raw GMT reward, for logging only).
             # We zero GMT rewards in the PPO storage so V(s) only learns from FrontRES r_delta.
             # GMT raw rewards must be tracked separately before they are zeroed.
-            cur_reward_sum_gmt = torch.zeros(N_base, dtype=torch.float, device=self.device)
+            cur_reward_sum_gmt = torch.zeros(N_base + N_clean, dtype=torch.float, device=self.device)
 
             # REMOVED: set_baseline_envs() was originally added to fix ep_len_gmt≈10
             # caused by large OU noise at high dr_scale hitting termination thresholds.
@@ -747,11 +758,15 @@ class OnPolicyRunner:
             _warmup_max_envs = max(1, min(_warmup_max_envs, self.env.num_envs))
             _warmup_valid_w = float(getattr(self.alg, "supervised_valid_loss_weight", 4.0))
             _warmup_dir_w = float(getattr(self.alg, "supervised_direction_loss_weight", 0.1))
+            _warmup_energy_w = float(self.cfg.get("frontres_warmup_energy_loss_weight", 1.0))
             _warmup_diag_interval = int(self.cfg.get(
                 "supervised_warmup_diag_interval", max(1, _warmup_iters // 5)))
             _warmup_diag_interval = max(1, _warmup_diag_interval)
             _warmup_opt = torch.optim.Adam(
-                self.alg.policy.residual_actor.parameters(), lr=_warmup_lr)
+                list(self.alg.policy.residual_actor.parameters())
+                + list(self.alg.policy.critic.parameters()),
+                lr=_warmup_lr,
+            )
 
             # Import once to avoid per-step overhead
             from whole_body_tracking.tasks.tracking.mdp.observations import \
@@ -762,16 +777,18 @@ class OnPolicyRunner:
             if _nfo <= 0:
                 _nfo = self.alg.policy.num_actor_obs  # use full obs when no subset configured
 
-            print(f"[Runner] === Supervised warmup: {_warmup_iters} iters "
+            print(f"[Runner] === Joint warmup: {_warmup_iters} iters "
                   f"(dr_scale={_warmup_dr_scale}, lr={_warmup_lr}, epochs={_warmup_epochs}, "
                   f"steps_per_iter={_warmup_steps}, "
                   f"max_envs_per_step={_warmup_max_envs}, "
-                  f"frontres_input={_nfo} dims) ===",
+                  f"frontres_input={_nfo} dims, energy_w={_warmup_energy_w}) ===",
                   flush=True)
 
             for _wu in range(_warmup_iters):
                 _wo_list: list[torch.Tensor] = []
                 _wt_list: list[torch.Tensor] = []
+                _wc_list: list[torch.Tensor] = []
+                _we_list: list[torch.Tensor] = []
 
                 with torch.inference_mode():
                     for _ in range(_warmup_steps):
@@ -786,26 +803,55 @@ class OnPolicyRunner:
                             torch.zeros(_p_obs.shape[0], self.alg.policy.total_output_dim,
                                         device=self.device))
 
-                        obs, _, dones, extras = self.env.step(env_actions.to(self.env.device))
+                        obs, rewards_wu, dones, extras = self.env.step(env_actions.to(self.env.device))
                         obs_dict = extras.get("observations", {})
                         _p_obs_raw = obs_dict.get(self.policy_obs_type, obs).to(self.device)
                         _p_obs = self._apply_obs_normalizer(_p_obs_raw)
+                        if self.privileged_obs_type is not None and self.privileged_obs_type in obs_dict:
+                            _c_obs = self.privileged_obs_normalizer(
+                                obs_dict[self.privileged_obs_type].to(self.device)
+                            )
+                        else:
+                            _c_obs = _p_obs
                         _target = _get_warmup_target(_env_raw, "motion").to(self.device)
+                        if "N_train" in locals() and N_train > 0 and N_base > 0 and N_clean > 0:
+                            _n_energy = min(N_train, N_base, N_clean)
+                            _r_noisy_wu = rewards_wu[N_train:N_train + _n_energy].view(-1).to(self.device)
+                            _clean_start_wu = N_train + N_base
+                            _r_clean_wu = rewards_wu[
+                                _clean_start_wu:_clean_start_wu + _n_energy
+                            ].view(-1).to(self.device)
+                            _energy_target = (_r_clean_wu - _r_noisy_wu).clamp(min=0.0).unsqueeze(-1)
+                            _p_obs = _p_obs[:_n_energy]
+                            _c_obs = _c_obs[:_n_energy]
+                            _target = _target[:_n_energy]
+                        else:
+                            _energy_target = torch.zeros(_p_obs.shape[0], 1, device=self.device)
 
-                        if _warmup_max_envs < self.env.num_envs:
+                        if _warmup_max_envs < _p_obs.shape[0]:
                             _sample_ids = torch.randperm(
-                                self.env.num_envs, device=self.device)[:_warmup_max_envs]
+                                _p_obs.shape[0], device=self.device)[:_warmup_max_envs]
                             _p_obs = _p_obs[_sample_ids]
+                            _c_obs = _c_obs[_sample_ids]
                             _target = _target[_sample_ids]
+                            _energy_target = _energy_target[_sample_ids]
 
                         # Both obs and target reflect the perturbation applied this step
                         _wo_list.append(_p_obs[:, :_nfo])
                         _wt_list.append(_target)
+                        _wc_list.append(_c_obs)
+                        _we_list.append(_energy_target)
 
-                # Supervised SGD over collected rollout data
+                # Joint SGD over collected rollout data:
+                #   Actor:  Δ ≈ -noise
+                #   Critic: E(s_noisy) ≈ max(R_clean - R_noisy, 0)
                 _all_obs = torch.cat(_wo_list, dim=0)      # (S*E, _nfo)
                 _all_tgt = torch.cat(_wt_list, dim=0)      # (S*E, 6)
+                _all_critic_obs = torch.cat(_wc_list, dim=0)
+                _all_energy = torch.cat(_we_list, dim=0)
                 _N = _all_obs.shape[0]
+                _last_actor_loss = torch.tensor(0.0, device=self.device)
+                _last_energy_loss = torch.tensor(0.0, device=self.device)
 
                 for epoch in range(_warmup_epochs):
                     perm = torch.randperm(_N, device=self.device)
@@ -852,9 +898,17 @@ class OnPolicyRunner:
                             conf_loss = torch.nn.functional.binary_cross_entropy_with_logits(
                                 pred[:, 6:8], target_conf.expand(-1, 2))
                             loss = loss + _conf_w * conf_loss
+                        actor_loss = loss
+                        value_pred = self.alg.policy.evaluate(_all_critic_obs[idx])
+                        energy_loss = torch.nn.functional.huber_loss(
+                            value_pred, _all_energy[idx].detach(), reduction="mean"
+                        )
+                        loss = actor_loss + _warmup_energy_w * energy_loss
                         _warmup_opt.zero_grad()
                         loss.backward()
                         _warmup_opt.step()
+                        _last_actor_loss = actor_loss.detach()
+                        _last_energy_loss = energy_loss.detach()
 
                 if (_wu + 1) % _warmup_diag_interval == 0 or (_wu + 1) == _warmup_iters:
                     with torch.inference_mode():
@@ -911,8 +965,29 @@ class OnPolicyRunner:
                         _tgt_pos_norm = _masked_norm(_target_all[:, :3], _valid_pos)
                         _pred_rpy_norm = _masked_norm(_pred_all[:, 3:], _valid_rpy)
                         _tgt_rpy_norm = _masked_norm(_target_all[:, 3:], _valid_rpy)
+                        _energy_pred_all = self.alg.policy.evaluate(_all_critic_obs)
+                        _energy_loss_all = torch.nn.functional.huber_loss(
+                            _energy_pred_all, _all_energy, reduction="mean").item()
+                        _energy_mae = (_energy_pred_all - _all_energy).abs().mean().item()
+                        _energy_target_mean = _all_energy.mean().item()
+                        _energy_pred_mean = _energy_pred_all.mean().item()
+                        _energy_target_std = _all_energy.std(unbiased=False).item()
+                        _energy_pred_std = _energy_pred_all.std(unbiased=False).item()
+                        _energy_cov = (
+                            (_energy_pred_all - _energy_pred_all.mean())
+                            * (_all_energy - _all_energy.mean())
+                        ).mean()
+                        _energy_corr = (
+                            _energy_cov
+                            / (_energy_pred_all.std(unbiased=False) * _all_energy.std(unbiased=False)).clamp(min=1e-6)
+                        ).item()
+                        _safe_gap_diag = float(self.cfg.get("frontres_safe_gap_per_step", 0.003))
+                        _broken_gap_diag = float(self.cfg.get("frontres_broken_gap_per_step", 0.08))
+                        _energy_damage_frac = (_all_energy.view(-1) > _safe_gap_diag).float().mean().item()
+                        _energy_broken_frac = (_all_energy.view(-1) > _broken_gap_diag).float().mean().item()
                     print(f"[Runner]   warmup {_wu + 1}/{_warmup_iters}: "
-                          f"loss={loss.item():.6f}, cos={_warmup_cos:.4f}, "
+                          f"loss={loss.item():.6f}, actor={_last_actor_loss.item():.6f}, "
+                          f"energy={_last_energy_loss.item():.6f}, cos={_warmup_cos:.4f}, "
                           f"valid={_valid_frac:.3f}",
                           flush=True)
                     print(f"[Runner]      diag: "
@@ -924,8 +999,16 @@ class OnPolicyRunner:
                           f"|pred_pos|/|tgt_pos|={_pred_pos_norm:.5f}/{_tgt_pos_norm:.5f}, "
                           f"|pred_rpy|/|tgt_rpy|={_pred_rpy_norm:.5f}/{_tgt_rpy_norm:.5f}",
                           flush=True)
+                    print(f"[Runner]      energy: "
+                          f"loss={_energy_loss_all:.6f}, mae={_energy_mae:.6f}, "
+                          f"pred/target={_energy_pred_mean:.6f}/{_energy_target_mean:.6f}",
+                          flush=True)
+                    print(f"[Runner]      energy: "
+                          f"corr={_energy_corr:+.4f}, std_pred/target={_energy_pred_std:.6f}/{_energy_target_std:.6f}, "
+                          f"damage_frac={_energy_damage_frac:.3f}, broken_frac={_energy_broken_frac:.3f}",
+                          flush=True)
 
-            print(f"[Runner] === Supervised warmup complete (final loss={loss.item():.6f}) ===",
+            print(f"[Runner] === Joint warmup complete (final loss={loss.item():.6f}) ===",
                   flush=True)
             # Save warmup checkpoint so subsequent runs can skip this phase via --resume
             if self.log_dir is not None:
@@ -1012,7 +1095,14 @@ class OnPolicyRunner:
             _frontres_r_geom_sum:         float = 0.0
             _frontres_intervention_cost_sum: float = 0.0
             _frontres_reward_frontres_sum: float = 0.0
+            _frontres_damage_gap_sum:     float = 0.0
+            _frontres_repair_gain_sum:    float = 0.0
+            _frontres_repair_ratio_sum:   float = 0.0
+            _frontres_safe_gate_sum:      float = 0.0
+            _frontres_fragile_gate_sum:   float = 0.0
             _frontres_damage_gate_sum:    float = 0.0
+            _frontres_broken_gate_sum:    float = 0.0
+            _frontres_actor_gate_sum:     float = 0.0
             _frontres_exec_gate_sum:      float = 0.0
             _frontres_cost_gate_sum:      float = 0.0
             _frontres_dr_z_abs_sum:       float = 0.0
@@ -1094,7 +1184,7 @@ class OnPolicyRunner:
                         # (task-space mode: env_actions are pure GMT for all envs anyway;
                         # the FrontRES corrections reach the env via _frontres_pos/quat_correction).
                         if _is_frontres:
-                            _zeros_gmt = torch.zeros(N_base, self.alg.transition.actions.shape[-1],
+                            _zeros_gmt = torch.zeros(N_base + N_clean, self.alg.transition.actions.shape[-1],
                                                      device=self.device)
                             self.alg.transition.actions[N_train:] = _zeros_gmt
                             _mean_gmt = self.alg.policy.action_mean[N_train:].clone()
@@ -1311,7 +1401,12 @@ class OnPolicyRunner:
                     # Anchor error is the ONLY thing FrontRES directly controls. Using it as the
                     # intrinsic reward decouples FrontRES credit from GMT behaviour.
                     if _is_frontres:
-                        r_raw_gmt = rewards[N_train:].view(-1).clone()  # [N_base] save before zeroing
+                        _base_start = N_train
+                        _base_end = N_train + N_base
+                        _clean_start = _base_end
+                        _clean_end = _clean_start + N_clean
+                        r_raw_gmt = rewards[_base_start:_base_end].view(-1).clone()
+                        r_clean_gmt = rewards[_clean_start:_clean_end].view(-1).clone()
                         r_total = rewards[:N_train].view(-1).clone()
 
                         # ── Anchor-only r_delta (GMT-free) ────────────────────────────
@@ -1394,8 +1489,8 @@ class OnPolicyRunner:
                             _corr_yaw_abs_log = _yaw_corr.abs().mean()
 
                             # ── r_rescue ─────────────────────────────────
-                            _n_pair = min(N_train, N_base)
-                            _fell_base = dones[N_train:N_train+_n_pair].view(-1) > 0
+                            _n_pair = min(N_train, N_base, N_clean)
+                            _fell_base = dones[_base_start:_base_start+_n_pair].view(-1) > 0
                             _fell_fr   = dones[:_n_pair].view(-1) > 0
                             _r_rescue = torch.zeros(N_train, device=self.device)
                             _r_rescue_pair = torch.zeros(_n_pair, device=self.device)
@@ -1416,7 +1511,7 @@ class OnPolicyRunner:
                             # "more executable"; clean-anchor geometry is only a
                             # small direction prior below.
                             _r_exec = torch.zeros(N_train, device=self.device)
-                            _n_exec = min(N_train, N_base)
+                            _n_exec = min(N_train, N_base, N_clean)
                             _exec_temp = float(self.cfg.get("frontres_exec_reward_temp", 1.0))
                             _r_exec[:_n_exec] = torch.tanh(
                                 (r_total[:_n_exec] - r_raw_gmt[:_n_exec]) / max(_exec_temp, 1e-6)
@@ -1451,29 +1546,61 @@ class OnPolicyRunner:
                             _w_exec = float(self.cfg.get("frontres_exec_reward_weight", 1.0))
                             _w_geom = float(self.cfg.get("frontres_geometry_reward_weight", 0.05))
                             _w_rescue = float(self.cfg.get("frontres_rescue_reward_weight", 1.0))
-                            # Damage-gated intervention:
-                            # - If GMT baseline already executes the perturbed reference well,
-                            #   FrontRES should mostly learn no-op, so intervention cost is high.
-                            # - If GMT baseline reward drops below the executable threshold,
-                            #   execution advantage is amplified and intervention cost is relaxed.
-                            _reward_ref = float(self.cfg.get("frontres_exec_reward_ref_per_step", 0.04))
-                            _damage_temp = float(self.cfg.get("frontres_damage_gate_temp", 0.005))
-                            _damage_gate = torch.sigmoid(
-                                (_reward_ref - r_raw_gmt[:_n_exec]) / max(_damage_temp, 1e-6)
+                            # Executable-gap reward:
+                            #   damage_gap  = R_clean - R_noisy
+                            #   repair_gain = R_frontres - R_noisy
+                            #   repair_ratio = repair_gain / damage_gap
+                            #
+                            # This makes the scale of r_delta invariant to the raw
+                            # GMT reward magnitude.  Safe/no-op, repairable, and
+                            # broken cases are separated with smooth sigmoid gates:
+                            #   safe:    no meaningful damage -> learn minimum intervention
+                            #   fragile: damage exists and is repairable -> learn repair
+                            #   broken:  damage too large or currently unrepaired -> learn abstention cost
+                            _gap_raw = r_clean_gmt[:_n_exec] - r_raw_gmt[:_n_exec]
+                            _damage_gap = _gap_raw.clamp(min=0.0)
+                            _repair_gain = r_total[:_n_exec] - r_raw_gmt[:_n_exec]
+                            _gap_floor = float(self.cfg.get("frontres_gap_floor_per_step", 0.005))
+                            _repair_ratio = (_repair_gain / _damage_gap.clamp(min=_gap_floor)).clamp(-1.0, 1.0)
+                            _r_exec[:_n_exec] = _repair_ratio
+
+                            _safe_gap = float(self.cfg.get("frontres_safe_gap_per_step", 0.003))
+                            _broken_gap = float(self.cfg.get("frontres_broken_gap_per_step", 0.08))
+                            _gate_temp = float(self.cfg.get("frontres_gap_gate_temp", 0.005))
+                            _ratio_temp = float(self.cfg.get("frontres_repair_ratio_gate_temp", 0.20))
+                            _broken_ratio_ref = float(self.cfg.get("frontres_broken_repair_ratio_ref", -0.25))
+                            _damage_gate = torch.sigmoid((_damage_gap - _safe_gap) / max(_gate_temp, 1e-6))
+                            _safe_gate = 1.0 - _damage_gate
+                            _gap_broken_gate = torch.sigmoid((_damage_gap - _broken_gap) / max(_gate_temp, 1e-6))
+                            _bad_repair_gate = torch.sigmoid(
+                                (_broken_ratio_ref - _repair_ratio) / max(_ratio_temp, 1e-6)
                             )
-                            _exec_gate = (
-                                float(self.cfg.get("frontres_exec_gate_floor", 0.05)) + _damage_gate
-                            )
-                            _cost_gate = (
-                                (1.0 - _damage_gate)
-                                + float(self.cfg.get("frontres_cost_gate_floor", 0.10)) * _damage_gate
-                            )
+                            _broken_gate = (_damage_gate * _gap_broken_gate * _bad_repair_gate).clamp(0.0, 1.0)
+                            _fragile_gate = (_damage_gate * (1.0 - _broken_gate)).clamp(0.0, 1.0)
+
+                            _safe_cost = float(self.cfg.get("frontres_safe_cost_weight", 1.0))
+                            _fragile_cost = float(self.cfg.get("frontres_fragile_cost_weight", 0.10))
+                            _broken_cost = float(self.cfg.get("frontres_broken_cost_weight", 1.0))
+                            _cost_gate = _safe_cost * _safe_gate + _fragile_cost * _fragile_gate + _broken_cost * _broken_gate
+                            _exec_gate = _fragile_gate
+
+                            _actor_gate_floor = float(self.cfg.get("frontres_actor_gate_floor", 0.02))
+                            _safe_actor_weight = float(self.cfg.get("frontres_safe_actor_gate_weight", 0.20))
+                            _broken_actor_weight = float(self.cfg.get("frontres_broken_actor_gate_weight", 0.20))
+                            _actor_gate = (
+                                _actor_gate_floor
+                                + (1.0 - _actor_gate_floor)
+                                * (_fragile_gate + _safe_actor_weight * _safe_gate + _broken_actor_weight * _broken_gate)
+                            ).clamp(0.0, 1.0)
                             _exec_weight = torch.zeros(N_train, device=self.device)
                             _cost_weight = torch.ones(N_train, device=self.device)
                             _exec_weight[:_n_exec] = _exec_gate
                             _cost_weight[:_n_exec] = _cost_gate
+                            _frontres_actor_gate = torch.zeros(self.env.num_envs, 1, device=self.device)
+                            _frontres_actor_gate[:_n_exec, 0] = _actor_gate
+                            self.alg.transition.frontres_actor_gate = _frontres_actor_gate
                             r_delta = (
-                                _w_exec * _exec_weight * _r_exec
+                                _w_exec * _exec_weight * _repair_ratio
                                 + _w_geom * _r_step
                                 + _w_rescue * _r_rescue
                                 - _cost_weight * _intervention_cost
@@ -1481,7 +1608,7 @@ class OnPolicyRunner:
                             _r_base_log   = r_raw_gmt.mean()
                             _r_rescue_log = _r_rescue.mean()
                         else:
-                            r_raw_gmt = rewards[N_train:].view(-1).clone()
+                            r_raw_gmt = rewards[_base_start:_base_end].view(-1).clone()
                             r_total   = rewards[:N_train].view(-1)
                             if N_train == N_base:
                                 r_delta = r_total - r_raw_gmt
@@ -1491,6 +1618,10 @@ class OnPolicyRunner:
                                 _r_base_log = r_raw_gmt.mean()
                             _r_rescue_log = 0.0
                             _r_z = _r_xy = _r_rp = _r_ya = None
+                            _damage_gate = _broken_gate = _actor_gate = None
+                            _frontres_actor_gate = torch.zeros(self.env.num_envs, 1, device=self.device)
+                            _frontres_actor_gate[:N_train, 0] = 1.0
+                            self.alg.transition.frontres_actor_gate = _frontres_actor_gate
                             _dr_z_abs_log = _dr_xy_abs_log = _dr_rp_abs_log = _dr_yaw_abs_log = None
                             _corr_z_abs_log = _corr_xy_abs_log = _corr_rp_abs_log = _corr_yaw_abs_log = None
                         # ─────────────────────────────────────────────────────────────
@@ -1541,7 +1672,14 @@ class OnPolicyRunner:
                             _frontres_r_geom_sum       += _r_step.mean().item()
                             _frontres_intervention_cost_sum += _intervention_cost.mean().item()
                             _frontres_reward_frontres_sum += r_total.mean().item()
+                            _frontres_damage_gap_sum   += _damage_gap.mean().item()
+                            _frontres_repair_gain_sum  += _repair_gain.mean().item()
+                            _frontres_repair_ratio_sum += _repair_ratio.mean().item()
+                            _frontres_safe_gate_sum    += _safe_gate.mean().item()
+                            _frontres_fragile_gate_sum += _fragile_gate.mean().item()
                             _frontres_damage_gate_sum  += _damage_gate.mean().item()
+                            _frontres_broken_gate_sum  += _broken_gate.mean().item()
+                            _frontres_actor_gate_sum   += _actor_gate.mean().item()
                             _frontres_exec_gate_sum    += _exec_gate.mean().item()
                             _frontres_cost_gate_sum    += _cost_gate.mean().item()
                             _frontres_reward_diag_steps += 1
@@ -1644,7 +1782,9 @@ class OnPolicyRunner:
                             cur_reward_sum += rewards  # GMT envs contribute 0 (zeroed above)
                         # GMT raw reward tracking (separate, uses pre-zeroed values saved earlier)
                         if _is_frontres:
-                            cur_reward_sum_gmt += r_raw_gmt  # [N_base] raw GMT per-step reward
+                            cur_reward_sum_gmt[:N_base] += r_raw_gmt  # noisy GMT per-step reward
+                            if N_clean > 0:
+                                cur_reward_sum_gmt[N_base:N_base + N_clean] += r_clean_gmt
                         
                         # Update episode length
                         cur_episode_length += 1
@@ -1743,8 +1883,36 @@ class OnPolicyRunner:
                 _frontres_reward_frontres_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_damage_gap_mean = (
+                _frontres_damage_gap_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_repair_gain_mean = (
+                _frontres_repair_gain_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_repair_ratio_mean = (
+                _frontres_repair_ratio_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_safe_gate_mean = (
+                _frontres_safe_gate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_fragile_gate_mean = (
+                _frontres_fragile_gate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_damage_gate_mean = (
                 _frontres_damage_gate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_broken_gate_mean = (
+                _frontres_broken_gate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_actor_gate_mean = (
+                _frontres_actor_gate_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
             frontres_exec_gate_mean = (
@@ -1926,7 +2094,9 @@ class OnPolicyRunner:
                                        locs["frontres_baseline_mean"], locs["it"])
             for _name in (
                 "r_exec", "r_geom", "r_rescue", "intervention_cost",
-                "reward_frontres", "damage_gate", "exec_gate", "cost_gate",
+                "reward_frontres", "damage_gap", "repair_gain", "repair_ratio",
+                "safe_gate", "fragile_gate", "damage_gate", "broken_gate",
+                "actor_gate", "exec_gate", "cost_gate",
                 "r_z", "r_xy", "r_rp", "r_yaw",
                 "dr_z_abs", "dr_xy_abs", "dr_rp_abs", "dr_yaw_abs",
                 "corr_z_abs", "corr_xy_abs", "corr_rp_abs", "corr_yaw_abs",
@@ -2085,10 +2255,28 @@ class OnPolicyRunner:
                             f"{locs['frontres_reward_frontres_mean']:+.4f} / "
                             f"{locs['frontres_baseline_mean']:+.4f}\n"
                         )
+                    if locs.get("frontres_damage_gap_mean") is not None:
+                        log_string += f"""{'gap/gain/ratio:':>{pad}} """
+                        log_string += (
+                            f"{locs['frontres_damage_gap_mean']:+.4f} / "
+                            f"{locs['frontres_repair_gain_mean']:+.4f} / "
+                            f"{locs['frontres_repair_ratio_mean']:+.4f}\n"
+                        )
+                        log_string += f"""{'safe/fragile/broken:':>{pad}} """
+                        log_string += (
+                            f"{locs['frontres_safe_gate_mean']:.3f} / "
+                            f"{locs['frontres_fragile_gate_mean']:.3f} / "
+                            f"{locs['frontres_broken_gate_mean']:.3f}\n"
+                        )
                     if locs.get("frontres_damage_gate_mean") is not None:
-                        log_string += f"""{'damage/exec/cost gate:':>{pad}} """
+                        log_string += f"""{'damage/broken/actor gate:':>{pad}} """
                         log_string += (
                             f"{locs['frontres_damage_gate_mean']:.3f} / "
+                            f"{locs['frontres_broken_gate_mean']:.3f} / "
+                            f"{locs['frontres_actor_gate_mean']:.3f}\n"
+                        )
+                        log_string += f"""{'exec/cost gate:':>{pad}} """
+                        log_string += (
                             f"{locs['frontres_exec_gate_mean']:.3f} / "
                             f"{locs['frontres_cost_gate_mean']:.3f}\n"
                         )

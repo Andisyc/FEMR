@@ -484,15 +484,27 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # are structurally zeroed so PPO cannot exploit high-risk contact channels.
     frontres_active_task_dims      = [0, 1, 5, 6, 7]
 
-    # "More executable" reward, damage-gated:
-    #   baseline reward high -> learn no-op via stronger intervention cost
-    #   baseline reward low  -> amplify execution advantage and relax cost
+    # "More executable" reward, clean-gap normalized:
+    #   damage_gap  = R_clean - R_noisy
+    #   repair_gain = R_frontres - R_noisy
+    #   repair_ratio = repair_gain / max(damage_gap, gap_floor)
+    # Smooth gates split samples into safe / repairable / broken instead of
+    # using hard thresholds, so PPO still sees a continuous learning signal.
     frontres_exec_reward_weight    = 1.0
     frontres_exec_reward_temp      = 1.0
-    frontres_exec_reward_ref_per_step = 0.04
-    frontres_damage_gate_temp      = 0.005
-    frontres_exec_gate_floor       = 0.05
-    frontres_cost_gate_floor       = 0.10
+    frontres_gap_floor_per_step    = 0.005
+    frontres_safe_gap_per_step     = 0.003
+    frontres_broken_gap_per_step   = 0.08
+    frontres_gap_gate_temp         = 0.005
+    frontres_repair_ratio_gate_temp = 0.20
+    frontres_broken_repair_ratio_ref = -0.25
+    frontres_safe_cost_weight      = 1.0
+    frontres_fragile_cost_weight   = 0.10
+    frontres_broken_cost_weight    = 1.0
+    frontres_actor_gate_floor      = 0.02
+    frontres_safe_actor_gate_weight = 0.20
+    frontres_broken_actor_gate_weight = 0.20
+    frontres_warmup_energy_loss_weight = 1.0
     frontres_geometry_reward_weight = 0.05
     frontres_rescue_reward_weight  = 1.0
     frontres_intervention_cost_weights = [0.02, 0.02, 0.0, 0.0, 0.0, 0.10]
@@ -504,20 +516,24 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_debug_training        = False
     debug_supervised_warmup_iterations = 200
     debug_supervised_warmup_diag_interval = 40
-    debug_critic_warmup_iterations = 50
-    debug_ppo_actor_warmup_iterations = 50
-    debug_ppo_actor_ramp_iterations = 200
+    debug_critic_warmup_iterations = 0
+    debug_ppo_actor_warmup_iterations = 0
+    debug_ppo_actor_ramp_iterations = 100
     debug_dr_scale_init            = 0.5
     debug_dr_min_scale             = 0.3
     debug_dr_ema_alpha             = 0.90
     debug_dr_p_gain                = 0.20
     debug_dr_i_gain                = 0.03
-    debug_frontres_exec_reward_ref_per_step = 0.05
+    debug_frontres_safe_gap_per_step = 0.003
+    debug_frontres_broken_gap_per_step = 0.08
+    debug_frontres_gap_gate_temp   = 0.005
 
-    # ── Supervised warmup: pure HuberLoss before PPO loop ──────────────────
-    # Give FrontRES enough supervised exposure to learn the correction
-    # direction before PPO sees r_delta.  PPO still keeps an online supervised
-    # anchor afterwards, so the transition is gradual rather than a hard switch.
+    # ── Joint warmup before PPO loop ───────────────────────────────────────
+    # Same rollout batch trains both halves of the concept:
+    #   Actor:  Δ ≈ -noise
+    #   Critic: E(s_noisy) ≈ max(R_clean - R_noisy, 0)
+    # PPO still keeps an online supervised anchor afterwards, so the transition
+    # is gradual rather than a hard switch.
     supervised_warmup_iterations   = 600
     supervised_warmup_steps_per_iter = 8
     supervised_warmup_max_envs_per_step = 4096
@@ -550,8 +566,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     iid_std_rp                     = 0.05   # RP jump std (rad)
     iid_std_ya                     = 0.05   # Yaw jump std (rad)
 
-    # ── Critic warmup: fixed DR=dr_scale_init, Actor active ──────────────────
-    critic_warmup_iterations       = 150    # hold dr_scale_init before PI kicks in
+    # ── Legacy Critic warmup ───────────────────────────────────────────────
+    # Disabled because Critic now learns executable damage during joint warmup.
+    critic_warmup_iterations       = 0
 
     # ── DR PI controller, velocity form (Phase 3) ────────────────────────────
     # Δu = Kp×(e−e_prev) + Ki×e  →  dr_scale += Δu
@@ -632,10 +649,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         supervised_conf_loss_weight   = 0.0,   # BCE drives c→1 always (OU≠0); let PPO learn gating
         supervised_direction_loss_weight = 0.1,
         supervised_valid_loss_weight     = 4.0,
-        # Keep early PPO from undoing the supervised direction before the critic
-        # has a useful value estimate.  Value loss and supervised loss stay on.
-        ppo_actor_warmup_iterations   = 500,
-        ppo_actor_ramp_iterations     = 1000,
+        # Joint warmup already initializes the Critic's executable-energy
+        # estimate, so PPO can start immediately with a short actor ramp.
+        ppo_actor_warmup_iterations   = 0,
+        ppo_actor_ramp_iterations     = 200,
         ppo_advantage_focal_power     = 0.0,
         frontres_active_task_dims      = [0, 1, 5],
         diagnose_gradient_conflict    = True,

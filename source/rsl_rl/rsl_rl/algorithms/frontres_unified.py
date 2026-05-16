@@ -358,6 +358,7 @@ class FrontRESUnified:
             _motion_groups_batch,
             frontres_mask_batch,
             supervised_target_batch,
+            frontres_actor_gate_batch,
         ) in generator:
             original_batch_size = obs_batch.shape[0]
             if self.normalize_advantage_per_mini_batch:
@@ -391,6 +392,7 @@ class FrontRESUnified:
                 returns_batch,
                 value_batch,
                 frontres_mask_batch,
+                frontres_actor_gate_batch,
             )
             supervised_loss, sup_cos_sim = self._compute_supervised_loss(
                 mu_batch, supervised_target_batch, original_batch_size)
@@ -532,6 +534,7 @@ class FrontRESUnified:
         returns_batch,
         value_batch,
         frontres_mask_batch,
+        frontres_actor_gate_batch=None,
     ):
         has_mask = frontres_mask_batch is not None
         log_ratio = actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch)
@@ -549,7 +552,10 @@ class FrontRESUnified:
         surrogate_terms = torch.max(surrogate, surrogate_clipped)
 
         if has_mask:
-            mask_flat = frontres_mask_batch.view(-1)
+            if frontres_actor_gate_batch is not None:
+                mask_flat = (frontres_mask_batch * frontres_actor_gate_batch).view(-1)
+            else:
+                mask_flat = frontres_mask_batch.view(-1)
             surrogate_loss = (surrogate_terms * mask_flat).sum() / mask_flat.sum().clamp(min=1.0)
         else:
             surrogate_loss = surrogate_terms.mean()

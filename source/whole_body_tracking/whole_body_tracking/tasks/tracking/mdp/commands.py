@@ -321,6 +321,7 @@ class MotionCommand(CommandTerm):
         self._frontres_quat_correction[:, 0] = 1.0  # identity quaternion (w=1)
         self._frontres_pair_train_ids: torch.Tensor | None = None
         self._frontres_pair_base_ids: torch.Tensor | None = None
+        self._frontres_pair_clean_ids: torch.Tensor | None = None
 
     @property
     def command(self) -> torch.Tensor:  # TODO Consider again if this is the best observation
@@ -1219,17 +1220,52 @@ class MultiMotionCommand(CommandTerm):
         base_ids = torch.arange(n_train, n_train + n_pair, device=self.device, dtype=torch.long)
         self._frontres_pair_train_ids = train_ids
         self._frontres_pair_base_ids = base_ids
+        self._frontres_pair_clean_ids = None
         self._sync_frontres_pairs(sync_perturbation=False)
+
+    def set_frontres_triplet_baseline(self, n_train: int, n_base: int, n_clean: int) -> None:
+        """Synchronize FrontRES, noisy GMT, and clean GMT env triplets.
+
+        Layout:
+            [0:n_train)                         FrontRES correction on noisy reference
+            [n_train:n_train+n_base)            GMT on the same noisy reference
+            [n_train+n_base:n_train+n_base+n_clean) GMT on the clean reference
+        """
+        n_train = int(n_train)
+        n_base = int(n_base)
+        n_clean = int(n_clean)
+        n_pair = max(0, min(n_train, n_base, n_clean))
+        if n_pair <= 0:
+            self._frontres_pair_train_ids = None
+            self._frontres_pair_base_ids = None
+            self._frontres_pair_clean_ids = None
+            return
+
+        train_ids = torch.arange(n_pair, device=self.device, dtype=torch.long)
+        base_ids = torch.arange(n_train, n_train + n_pair, device=self.device, dtype=torch.long)
+        clean_start = n_train + n_base
+        clean_ids = torch.arange(clean_start, clean_start + n_pair, device=self.device, dtype=torch.long)
+        self._frontres_pair_train_ids = train_ids
+        self._frontres_pair_base_ids = base_ids
+        self._frontres_pair_clean_ids = clean_ids
+        self._sync_frontres_pairs(sync_perturbation=False)
+        if hasattr(self.perturber, "set_baseline_envs"):
+            self.perturber.set_baseline_envs(clean_ids)
 
     def _sync_frontres_pairs(self, sync_perturbation: bool = True) -> None:
         train_ids = getattr(self, '_frontres_pair_train_ids', None)
         base_ids  = getattr(self, '_frontres_pair_base_ids',  None)
+        clean_ids = getattr(self, '_frontres_pair_clean_ids', None)
         if train_ids is None or base_ids is None:
             return
 
         self.env_motion_indices[base_ids] = self.env_motion_indices[train_ids]
         self.env_motion_groups[base_ids] = self.env_motion_groups[train_ids]
         self.time_steps[base_ids] = self.time_steps[train_ids]
+        if clean_ids is not None:
+            self.env_motion_indices[clean_ids] = self.env_motion_indices[train_ids]
+            self.env_motion_groups[clean_ids] = self.env_motion_groups[train_ids]
+            self.time_steps[clean_ids] = self.time_steps[train_ids]
 
         if sync_perturbation:
             self._cached_perturbed_pos[base_ids] = self._cached_perturbed_pos[train_ids]
@@ -1242,27 +1278,55 @@ class MultiMotionCommand(CommandTerm):
             self.perturber._pitch_state[base_ids] = self.perturber._pitch_state[train_ids]
             if self.perturber._joint_state is not None:
                 self.perturber._joint_state[base_ids] = self.perturber._joint_state[train_ids]
+            if clean_ids is not None:
+                pos_data = self._gather_by_motion("body_pos_w")
+                quat_data = self._gather_by_motion("body_quat_w")
+                self._cached_perturbed_pos[clean_ids] = pos_data[clean_ids, self.motion_anchor_body_index]
+                self._cached_perturbed_quat[clean_ids] = quat_data[clean_ids, self.motion_anchor_body_index]
+                self._dr_supervised_target[clean_ids] = 0.0
+                self.perturber._z_state[clean_ids] = 0.0
+                self.perturber._x_state[clean_ids] = 0.0
+                self.perturber._y_state[clean_ids] = 0.0
+                self.perturber._roll_state[clean_ids] = 0.0
+                self.perturber._pitch_state[clean_ids] = 0.0
+                if self.perturber._joint_state is not None:
+                    self.perturber._joint_state[clean_ids] = 0.0
 
         self._frontres_pos_correction[base_ids] = 0.0
         self._frontres_quat_correction[base_ids] = 0.0
         self._frontres_quat_correction[base_ids, 0] = 1.0
+        if clean_ids is not None:
+            self._frontres_pos_correction[clean_ids] = 0.0
+            self._frontres_quat_correction[clean_ids] = 0.0
+            self._frontres_quat_correction[clean_ids, 0] = 1.0
 
     def _expand_frontres_pair_env_ids(self, env_ids: torch.Tensor) -> torch.Tensor:
         # set_frontres_paired_baseline() is called by the runner AFTER env init,
         # so these attributes may not exist yet during the first reset().
         train_ids = getattr(self, '_frontres_pair_train_ids', None)
         base_ids  = getattr(self, '_frontres_pair_base_ids',  None)
+        clean_ids = getattr(self, '_frontres_pair_clean_ids', None)
         if train_ids is None or base_ids is None or env_ids.numel() == 0:
             return env_ids
 
         pair_count = train_ids.numel()
         train_mask = env_ids < pair_count
         base_mask = (env_ids >= base_ids[0]) & (env_ids < base_ids[0] + pair_count)
+        clean_mask = None
+        if clean_ids is not None:
+            clean_mask = (env_ids >= clean_ids[0]) & (env_ids < clean_ids[0] + pair_count)
         paired = [env_ids]
         if train_mask.any():
             paired.append(env_ids[train_mask] + base_ids[0])
+            if clean_ids is not None:
+                paired.append(env_ids[train_mask] + clean_ids[0])
         if base_mask.any():
             paired.append(env_ids[base_mask] - base_ids[0])
+            if clean_ids is not None:
+                paired.append(env_ids[base_mask] - base_ids[0] + clean_ids[0])
+        if clean_mask is not None and clean_mask.any():
+            paired.append(env_ids[clean_mask] - clean_ids[0])
+            paired.append(env_ids[clean_mask] - clean_ids[0] + base_ids[0])
         return torch.unique(torch.cat(paired), sorted=False)
 
     # ------------- properties (gathered across envs/motions) -------------

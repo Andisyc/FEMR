@@ -34,6 +34,9 @@ class RolloutStorage:
             self.motion_groups = None
             # B1 split-env: 1.0 for FrontRES envs, 0.0 for GMT baseline envs
             self.frontres_mask = None
+            # Outcome-gated actor update mask.  Critic still uses frontres_mask;
+            # PPO actor surrogate can use this softer rollout-derived gate.
+            self.frontres_actor_gate = None
             # Unified training: ΔSE3 supervised target [Δpos(3), Δrpy(3)] per env per step
             self.supervised_target = None
 
@@ -129,6 +132,8 @@ class RolloutStorage:
                 self.motion_groups = None
             # B1 split-env critic mask: 1 for FrontRES envs, 0 for GMT baseline envs (default all 1)
             self.frontres_mask = torch.ones(num_transitions_per_env, num_envs, 1, device=self.device)
+            # Outcome-gated actor mask: by default same as frontres_mask.
+            self.frontres_actor_gate = torch.ones(num_transitions_per_env, num_envs, 1, device=self.device)
             # Unified training: ΔSE3 supervised target [Δpos(3), Δrpy(3)] (default zeros = no supervision)
             self.supervised_target = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
 
@@ -188,6 +193,8 @@ class RolloutStorage:
             # Store B1 split-env critic mask (all ones when not in B1 mode)
             if hasattr(transition, 'frontres_mask') and transition.frontres_mask is not None:
                 self.frontres_mask[self.step].copy_(transition.frontres_mask)
+            if hasattr(transition, 'frontres_actor_gate') and transition.frontres_actor_gate is not None:
+                self.frontres_actor_gate[self.step].copy_(transition.frontres_actor_gate)
             # Store ΔSE3 supervised target (zeros when not in unified training mode)
             if hasattr(transition, 'supervised_target') and transition.supervised_target is not None:
                 self.supervised_target[self.step].copy_(transition.supervised_target)
@@ -311,6 +318,7 @@ class RolloutStorage:
             motion_groups = self.motion_groups.flatten(0, 1) if self.motion_groups is not None else None
             # B1 split-env critic mask
             frontres_mask = self.frontres_mask.flatten(0, 1)
+            frontres_actor_gate = self.frontres_actor_gate.flatten(0, 1)
             # ΔSE3 supervised target
             supervised_target = self.supervised_target.flatten(0, 1)
             # For velocity estimator
@@ -358,6 +366,7 @@ class RolloutStorage:
                     # Multi-teacher: motion groups
                     motion_groups_batch = motion_groups[batch_idx] if motion_groups is not None else None
                     frontres_mask_batch = frontres_mask[batch_idx]
+                    frontres_actor_gate_batch = frontres_actor_gate[batch_idx]
                     supervised_target_batch = supervised_target[batch_idx]
                     # For velocity estimator
                     if ref_vel_estimator_observations is not None:
@@ -371,10 +380,16 @@ class RolloutStorage:
                     motion_groups_batch = None
                     ref_vel_estimator_obs_batch = None
                     frontres_mask_batch = None
+                    frontres_actor_gate_batch = None
                     supervised_target_batch = None
 
                 # yield the mini-batch
-                if self.training_type in ("mosaic", "frontres"):
+                if self.training_type == "frontres":
+                    yield obs_batch, privileged_observations_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
+                        None,
+                        None,
+                    ), None, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, motion_groups_batch, frontres_mask_batch, supervised_target_batch, frontres_actor_gate_batch
+                elif self.training_type == "mosaic":
                     yield obs_batch, privileged_observations_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                         None,
                         None,
@@ -471,15 +486,23 @@ class RolloutStorage:
                             if self.ref_vel_estimator_observations is not None else None
                         )
                         frontres_mask_batch = self.frontres_mask[:, start:stop]
+                        frontres_actor_gate_batch = self.frontres_actor_gate[:, start:stop]
                         supervised_target_batch = self.supervised_target[:, start:stop]
                     else:
                         ref_vel_estimator_obs_batch = None
                         frontres_mask_batch = None
+                        frontres_actor_gate_batch = None
                         supervised_target_batch = None
-                    yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
-                        hid_a_batch,
-                        hid_c_batch,
-                    ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch
+                    if self.training_type == "frontres":
+                        yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
+                            hid_a_batch,
+                            hid_c_batch,
+                        ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch, frontres_actor_gate_batch
+                    else:
+                        yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
+                            hid_a_batch,
+                            hid_c_batch,
+                        ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch
                 else:
                     yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                         hid_a_batch,
