@@ -790,7 +790,10 @@ class OnPolicyRunner:
                 _wc_list: list[torch.Tensor] = []
                 _we_list: list[torch.Tensor] = []
 
-                with torch.inference_mode():
+                # Use no_grad rather than inference_mode: warmup samples are
+                # later fed back through trainable actor/critic networks, and
+                # some PyTorch versions reject inference tensors in backward.
+                with torch.no_grad():
                     for _ in range(_warmup_steps):
                         obs, extras = self.env.get_observations()
                         obs_dict = extras.get("observations", {})
@@ -2387,12 +2390,14 @@ class OnPolicyRunner:
 
         # ── 断点续训模式控制 ────────────────────────────────────────────────────────
         # is_full_resume=True  (Stage2→Stage2 断点续训): 恢复优化器矩估计+学习率, 保留 std
-        # is_full_resume=False (Stage1→Stage2 权重迁移): 仅权重, 重置优化器和 std
+        # is_full_resume=False (Stage1→Stage2 权重迁移): 仅权重, 重置优化器和 std.
+        # Joint-warmup checkpoints are a special case: their critic has already
+        # learned E(s)=R_clean-R_noisy and should be transferred into RL.
         # load_optimizer 参数仍可从外部显式覆盖（例如强制跳过优化器加载）。
         is_full_resume: bool = self.cfg.get('is_full_resume', True)
         if not is_full_resume:
             load_optimizer = False   # 权重迁移模式：强制跳过优化器，从零初始化 Adam
-            load_critic = False      # reward definition may change; critic must relearn V(s)
+            load_critic = self._frontres_warmup_complete
         print(f"[Runner] is_full_resume={is_full_resume} → "
               f"load_optimizer={load_optimizer}, load_critic={load_critic}, "
               f"reset_noise_std={not is_full_resume}")
