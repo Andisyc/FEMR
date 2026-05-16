@@ -31,7 +31,7 @@ from rsl_rl.modules import (
     FrontRESActorCritic, # 引入第二阶段模型
 )
 from rsl_rl.utils import store_code_state
-from isaaclab.utils.math import quat_error_magnitude, quat_from_euler_xyz
+from isaaclab.utils.math import quat_error_magnitude, quat_from_euler_xyz, quat_rotate_inverse
 
 
 class OnPolicyRunner:
@@ -335,6 +335,86 @@ class OnPolicyRunner:
         self.tot_time = 0
         self.current_learning_iteration = 0
         self.git_status_repos = [rsl_rl.__file__]
+
+    def _frontres_exec_score(self, command) -> torch.Tensor:
+        """Continuous executability score for the frozen GMT tracker.
+
+        This is intentionally narrower than the environment reward. It avoids
+        teleop-style terms and actuator penalties, and only measures whether the
+        current reference is physically executable while still preserving motion.
+        """
+        n_envs = command.anchor_pos_w.shape[0]
+        dtype = command.anchor_pos_w.dtype
+
+        def cfg_float(name: str, default: float) -> float:
+            return float(self.cfg.get(name, default))
+
+        anchor_z_th = cfg_float("frontres_exec_anchor_z_threshold", 0.25)
+        anchor_ori_th = cfg_float("frontres_exec_anchor_ori_threshold", 0.20)
+        ee_z_th = cfg_float("frontres_exec_ee_z_threshold", 0.25)
+
+        anchor_z_err = (command.anchor_pos_w[:, 2] - command.robot_anchor_pos_w[:, 2]).abs()
+        anchor_z_score = (1.0 - anchor_z_err / max(anchor_z_th, 1e-6)).clamp(-1.0, 1.0)
+
+        gravity = getattr(command.robot.data, "GRAVITY_VEC_W", None)
+        if gravity is None:
+            gravity = torch.zeros(n_envs, 3, device=self.device, dtype=dtype)
+            gravity[:, 2] = -1.0
+        motion_g = quat_rotate_inverse(command.anchor_quat_w, gravity)
+        robot_g = quat_rotate_inverse(command.robot_anchor_quat_w, gravity)
+        anchor_ori_err = (motion_g[:, 2] - robot_g[:, 2]).abs()
+        anchor_ori_score = (1.0 - anchor_ori_err / max(anchor_ori_th, 1e-6)).clamp(-1.0, 1.0)
+
+        body_names = list(getattr(command.cfg, "body_names", []))
+        ee_names = self.cfg.get(
+            "frontres_exec_ee_body_names",
+            [
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+                "left_wrist_yaw_link",
+                "right_wrist_yaw_link",
+            ],
+        )
+        ee_idx = [i for i, name in enumerate(body_names) if name in ee_names]
+        if len(ee_idx) == 0:
+            ee_idx = list(range(command.body_pos_relative_w.shape[1]))
+        ee_z_err = (
+            command.body_pos_relative_w[:, ee_idx, 2] - command.robot_body_pos_w[:, ee_idx, 2]
+        ).abs().amax(dim=-1)
+        ee_z_score = (1.0 - ee_z_err / max(ee_z_th, 1e-6)).clamp(-1.0, 1.0)
+
+        w_z = cfg_float("frontres_exec_anchor_z_weight", 1.0)
+        w_ori = cfg_float("frontres_exec_anchor_ori_weight", 1.0)
+        w_ee = cfg_float("frontres_exec_ee_z_weight", 1.0)
+        w_stab_sum = max(w_z + w_ori + w_ee, 1e-6)
+        stability_score = (w_z * anchor_z_score + w_ori * anchor_ori_score + w_ee * ee_z_score) / w_stab_sum
+
+        vel_body_names = self.cfg.get("frontres_exec_velocity_body_names", None)
+        if vel_body_names is None:
+            vel_idx = list(range(command.body_lin_vel_w.shape[1]))
+        else:
+            vel_idx = [i for i, name in enumerate(body_names) if name in vel_body_names]
+            if len(vel_idx) == 0:
+                vel_idx = list(range(command.body_lin_vel_w.shape[1]))
+        lin_std = cfg_float("frontres_exec_body_lin_vel_std", 1.0)
+        ang_std = cfg_float("frontres_exec_body_ang_vel_std", 3.14)
+        anchor_lin_std = cfg_float("frontres_exec_anchor_lin_vel_std", 1.0)
+        lin_err = torch.square(command.body_lin_vel_w[:, vel_idx] - command.robot_body_lin_vel_w[:, vel_idx]).sum(
+            dim=-1
+        ).mean(dim=-1)
+        ang_err = torch.square(command.body_ang_vel_w[:, vel_idx] - command.robot_body_ang_vel_w[:, vel_idx]).sum(
+            dim=-1
+        ).mean(dim=-1)
+        anchor_lin_err = torch.square(command.anchor_lin_vel_w - command.robot_anchor_lin_vel_w).sum(dim=-1)
+        lin_score = torch.exp((-lin_err / max(lin_std * lin_std, 1e-6)).clamp(min=-50.0))
+        ang_score = torch.exp((-ang_err / max(ang_std * ang_std, 1e-6)).clamp(min=-50.0))
+        anchor_lin_score = torch.exp((-anchor_lin_err / max(anchor_lin_std * anchor_lin_std, 1e-6)).clamp(min=-50.0))
+        task_score = (lin_score + ang_score + anchor_lin_score) / 3.0
+
+        stability_weight = cfg_float("frontres_exec_stability_weight", 1.0)
+        task_weight = cfg_float("frontres_exec_task_weight", 0.25)
+        score = stability_weight * stability_score + task_weight * task_score
+        return torch.nan_to_num(score, nan=-1.0, posinf=1.0, neginf=-1.0)
 
     def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False):  # noqa: C901
         print("[Runner] learn() entered — initializing logger...", flush=True)
@@ -871,12 +951,15 @@ class OnPolicyRunner:
                         _target = _get_warmup_target(_env_raw, "motion").to(self.device)
                         if "N_train" in locals() and N_train > 0 and N_base > 0 and N_clean > 0:
                             _n_energy = min(N_train, N_base, N_clean)
-                            _r_noisy_wu = rewards_wu[N_train:N_train + _n_energy].view(-1).to(self.device)
                             _clean_start_wu = N_train + N_base
-                            _r_clean_wu = rewards_wu[
-                                _clean_start_wu:_clean_start_wu + _n_energy
-                            ].view(-1).to(self.device)
-                            _energy_target = (_r_clean_wu - _r_noisy_wu).clamp(min=0.0).unsqueeze(-1)
+                            _mcmd_wu = _env_raw.command_manager._terms.get("motion")
+                            if _mcmd_wu is not None:
+                                _exec_wu = self._frontres_exec_score(_mcmd_wu).to(self.device)
+                                _r_perturbed_wu = _exec_wu[N_train:N_train + _n_energy].view(-1)
+                                _r_clean_wu = _exec_wu[_clean_start_wu:_clean_start_wu + _n_energy].view(-1)
+                                _energy_target = (_r_clean_wu - _r_perturbed_wu).clamp(min=0.0).unsqueeze(-1)
+                            else:
+                                _energy_target = torch.zeros(_n_energy, 1, device=self.device)
                             _p_obs = _p_obs[:_n_energy]
                             _c_obs = _c_obs[:_n_energy]
                             _target = _target[:_n_energy]
@@ -899,7 +982,7 @@ class OnPolicyRunner:
 
                 # Joint SGD over collected rollout data:
                 #   Actor:  Δ ≈ -noise
-                #   Critic: E(s_noisy) ≈ max(R_clean - R_noisy, 0)
+                #   Critic: E(s_perturbed) ≈ max(R_exec_clean - R_exec_perturbed, 0)
                 _all_obs = torch.cat(_wo_list, dim=0)      # (S*E, _nfo)
                 _all_tgt = torch.cat(_wt_list, dim=0)      # (S*E, 6)
                 _all_critic_obs = torch.cat(_wc_list, dim=0)
@@ -1573,18 +1656,23 @@ class OnPolicyRunner:
                             _r_rescue[:_n_pair] = _r_rescue_pair
 
                             # ── Execution advantage (main HRL signal) ───────────────
-                            # FrontRES is useful only if the corrected reference is
-                            # easier for the frozen GMT to execute than the same
-                            # perturbed reference without correction.  This paired
-                            # advantage is the operational definition of
-                            # "more executable"; clean-anchor geometry is only a
-                            # small direction prior below.
+                            # FrontRES should optimize the frozen tracker's
+                            # executability, not the full environment reward.  The
+                            # full reward contains teleop terms and low-level action
+                            # penalties that are not aligned with reference-frame
+                            # repair, so we build a dedicated continuous execution
+                            # score here:
+                            #   - stability margins: anchor z, anchor orientation,
+                            #     and key end-effector z tracking margins
+                            #   - weak velocity tracking: preserves motion semantics
+                            #     so "be stable by doing nothing" is not a loophole
                             _r_exec = torch.zeros(N_train, device=self.device)
                             _n_exec = min(N_train, N_base, N_clean)
-                            _exec_temp = float(self.cfg.get("frontres_exec_reward_temp", 1.0))
-                            _r_exec[:_n_exec] = torch.tanh(
-                                (r_total[:_n_exec] - r_raw_gmt[:_n_exec]) / max(_exec_temp, 1e-6)
-                            )
+
+                            _exec_score_all = self._frontres_exec_score(_mcmd_rdelta)
+                            _exec_frontres = _exec_score_all[:_n_exec]
+                            _exec_perturbed = _exec_score_all[_base_start:_base_start + _n_exec]
+                            _exec_clean = _exec_score_all[_clean_start:_clean_start + _n_exec]
 
                             # ── Minimum-intervention cost ──────────────────────────
                             _intervention_cost = torch.zeros(N_train, device=self.device)
@@ -1616,19 +1704,19 @@ class OnPolicyRunner:
                             _w_geom = float(self.cfg.get("frontres_geometry_reward_weight", 0.05))
                             _w_rescue = float(self.cfg.get("frontres_rescue_reward_weight", 1.0))
                             # Executable-gap reward:
-                            #   damage_gap  = R_clean - R_noisy
-                            #   repair_gain = R_frontres - R_noisy
+                            #   damage_gap  = R_clean_exec - R_perturbed_exec
+                            #   repair_gain = R_frontres_exec - R_perturbed_exec
                             #   repair_ratio = repair_gain / damage_gap
                             #
                             # This makes the scale of r_delta invariant to the raw
-                            # GMT reward magnitude.  Safe/no-op, repairable, and
+                            # score magnitude.  Safe/no-op, repairable, and
                             # broken cases are separated with smooth sigmoid gates:
                             #   safe:    no meaningful damage -> learn minimum intervention
                             #   fragile: damage exists and is repairable -> learn repair
                             #   broken:  damage too large or currently unrepaired -> learn abstention cost
-                            _gap_raw = r_clean_gmt[:_n_exec] - r_raw_gmt[:_n_exec]
+                            _gap_raw = _exec_clean - _exec_perturbed
                             _damage_gap = _gap_raw.clamp(min=0.0)
-                            _repair_gain = r_total[:_n_exec] - r_raw_gmt[:_n_exec]
+                            _repair_gain = _exec_frontres - _exec_perturbed
                             _gap_floor = float(self.cfg.get("frontres_gap_floor_per_step", 0.005))
                             _repair_ratio = (_repair_gain / _damage_gap.clamp(min=_gap_floor)).clamp(-1.0, 1.0)
                             _r_exec[:_n_exec] = _repair_ratio
@@ -1674,7 +1762,8 @@ class OnPolicyRunner:
                                 + _w_rescue * _r_rescue
                                 - _cost_weight * _intervention_cost
                             )
-                            _r_base_log   = r_raw_gmt.mean()
+                            _r_frontres_log = _exec_frontres.mean()
+                            _r_base_log   = _exec_perturbed.mean()
                             _r_rescue_log = _r_rescue.mean()
                         else:
                             r_raw_gmt = rewards[_base_start:_base_end].view(-1).clone()
@@ -1740,7 +1829,7 @@ class OnPolicyRunner:
                             _frontres_r_exec_sum       += _r_exec.mean().item()
                             _frontres_r_geom_sum       += _r_step.mean().item()
                             _frontres_intervention_cost_sum += _intervention_cost.mean().item()
-                            _frontres_reward_frontres_sum += r_total.mean().item()
+                            _frontres_reward_frontres_sum += _r_frontres_log.item()
                             _frontres_damage_gap_sum   += _damage_gap.mean().item()
                             _frontres_repair_gain_sum  += _repair_gain.mean().item()
                             _frontres_repair_ratio_sum += _repair_ratio.mean().item()
@@ -2307,7 +2396,7 @@ class OnPolicyRunner:
                         f"{locs['frontres_intervention_cost_mean']:+.4f}\n"
                     )
                     if locs.get("frontres_reward_frontres_mean") is not None and locs.get("frontres_baseline_mean") is not None:
-                        log_string += f"""{'raw reward FR/GMT:':>{pad}} """
+                        log_string += f"""{'exec reward FR/pert:':>{pad}} """
                         log_string += (
                             f"{locs['frontres_reward_frontres_mean']:+.4f} / "
                             f"{locs['frontres_baseline_mean']:+.4f}\n"

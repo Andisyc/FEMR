@@ -456,8 +456,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
       root_tilt_prob=0.3,    root_tilt_max_rad=0.08, # Δroll, Δpitch
     """
     num_steps_per_env = 24
-    max_iterations    = 30000
-    save_interval     = 500
+    # Short default run for reward/DR debugging.  Use --max_iterations to
+    # launch a long formal run once the diagnostics look healthy.
+    max_iterations    = 1500
+    save_interval     = 100
     experiment_name   = "g1_flat_frontres_unified"
     empirical_normalization = True
     # Resume semantics:
@@ -493,6 +495,26 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # using hard thresholds, so PPO still sees a continuous learning signal.
     frontres_exec_reward_weight    = 1.0
     frontres_exec_reward_temp      = 1.0
+    # FrontRES-specific executability score.  This deliberately excludes
+    # teleop rewards and actuator penalties from RewardsExpertCfg.
+    frontres_exec_stability_weight = 1.0
+    frontres_exec_task_weight      = 0.25
+    frontres_exec_anchor_z_threshold = 0.25
+    frontres_exec_anchor_ori_threshold = 0.20
+    frontres_exec_ee_z_threshold   = 0.25
+    frontres_exec_anchor_z_weight  = 1.0
+    frontres_exec_anchor_ori_weight = 1.0
+    frontres_exec_ee_z_weight      = 1.0
+    frontres_exec_body_lin_vel_std = 1.0
+    frontres_exec_body_ang_vel_std = 3.14
+    frontres_exec_anchor_lin_vel_std = 1.0
+    frontres_exec_ee_body_names = [
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_yaw_link",
+        "right_wrist_yaw_link",
+    ]
+    frontres_exec_velocity_body_names = None
     frontres_gap_floor_per_step    = 0.005
     frontres_safe_gap_per_step     = 0.003
     frontres_broken_gap_per_step   = 0.08
