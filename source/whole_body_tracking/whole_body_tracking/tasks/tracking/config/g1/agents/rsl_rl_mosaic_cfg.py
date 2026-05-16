@@ -549,10 +549,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     supervised_warmup_diag_interval = 60
 
     # ── Adaptive DR: r_delta-sign PI controller ────────────────────────────
-    dr_scale_init                  = 0.3    # start RL easier than warmup; critic sees lower-variance r_delta first
+    dr_scale_init                  = 0.5    # fixed during Actor takeover; strong enough for visible repair gap
     dr_adapt_speed                 = 0.001  # per-iteration step size
     dr_max_scale                   = 4.0    # upper limit
-    dr_min_scale                   = 0.10   # lower limit must beat σ noise floor (15mm)
+    dr_min_scale                   = 0.30   # do not collapse below the xy/yaw debug signal floor
     dr_ema_alpha                   = 0.95   # r_delta EMA smoothing
     dr_start_ppo_actor_weight      = 1.0    # freeze DR until PPO actor takeover completes
 
