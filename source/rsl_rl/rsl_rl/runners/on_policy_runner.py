@@ -769,8 +769,13 @@ class OnPolicyRunner:
                   flush=True)
             _warmup_iters = 0
         if _is_frontres and _warmup_iters > 0:
-            _warmup_dr_scale = float(self.cfg.get("supervised_warmup_dr_scale", _dr_scale_init))
-            _apply_frontres_dr_scale(_warmup_dr_scale)
+            _warmup_dr_scale_end = float(self.cfg.get("supervised_warmup_dr_scale", _dr_scale_init))
+            _warmup_dr_scale_start = float(self.cfg.get(
+                "supervised_warmup_dr_scale_start",
+                self.cfg.get("supervised_warmup_dr_scale_min", _warmup_dr_scale_end),
+            ))
+            _warmup_dr_scale_start = max(0.0, _warmup_dr_scale_start)
+            _warmup_dr_scale_end = max(0.0, _warmup_dr_scale_end)
             _warmup_lr     = float(self.cfg.get("supervised_warmup_lr", 1e-4))
             _warmup_epochs = int(self.cfg.get("supervised_warmup_epochs", 5))
             _warmup_steps  = int(self.cfg.get("supervised_warmup_steps_per_iter", self.num_steps_per_env))
@@ -798,14 +803,32 @@ class OnPolicyRunner:
             if _nfo <= 0:
                 _nfo = self.alg.policy.num_actor_obs  # use full obs when no subset configured
 
+            _warmup_dr_desc = (
+                f"{_warmup_dr_scale_start}->{_warmup_dr_scale_end}"
+                if abs(_warmup_dr_scale_end - _warmup_dr_scale_start) > 1e-8
+                else f"{_warmup_dr_scale_end}"
+            )
             print(f"[Runner] === Joint warmup: {_warmup_iters} iters "
-                  f"(dr_scale={_warmup_dr_scale}, lr={_warmup_lr}, epochs={_warmup_epochs}, "
+                  f"(dr_scale={_warmup_dr_desc}, lr={_warmup_lr}, epochs={_warmup_epochs}, "
                   f"steps_per_iter={_warmup_steps}, "
                   f"max_envs_per_step={_warmup_max_envs}, "
                   f"frontres_input={_nfo} dims, energy_w={_warmup_energy_w}) ===",
                   flush=True)
 
             for _wu in range(_warmup_iters):
+                if _warmup_iters > 1:
+                    _warmup_frac = _wu / float(_warmup_iters - 1)
+                else:
+                    _warmup_frac = 1.0
+                # Smooth curriculum: spend early warmup on learnable direction,
+                # then expose the critic/actor to near-boundary perturbations.
+                _warmup_frac = _warmup_frac * _warmup_frac * (3.0 - 2.0 * _warmup_frac)
+                _warmup_dr_scale = (
+                    _warmup_dr_scale_start
+                    + (_warmup_dr_scale_end - _warmup_dr_scale_start) * _warmup_frac
+                )
+                _apply_frontres_dr_scale(_warmup_dr_scale)
+
                 _wo_list: list[torch.Tensor] = []
                 _wt_list: list[torch.Tensor] = []
                 _wc_list: list[torch.Tensor] = []
@@ -1010,6 +1033,7 @@ class OnPolicyRunner:
                         _energy_damage_frac = (_all_energy.view(-1) > _safe_gap_diag).float().mean().item()
                         _energy_broken_frac = (_all_energy.view(-1) > _broken_gap_diag).float().mean().item()
                     print(f"[Runner]   warmup {_wu + 1}/{_warmup_iters}: "
+                          f"dr_scale={_warmup_dr_scale:.3f}, "
                           f"loss={loss.item():.6f}, actor={_last_actor_loss.item():.6f}, "
                           f"energy={_last_energy_loss.item():.6f}, cos={_warmup_cos:.4f}, "
                           f"valid={_valid_frac:.3f}",

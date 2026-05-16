@@ -540,13 +540,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     #   Critic: E(s_noisy) ≈ max(R_clean - R_noisy, 0)
     # PPO still keeps an online supervised anchor afterwards, so the transition
     # is gradual rather than a hard switch.
-    supervised_warmup_iterations   = 600
+    supervised_warmup_iterations   = 800
     supervised_warmup_steps_per_iter = 8
     supervised_warmup_max_envs_per_step = 4096
-    supervised_warmup_dr_scale      = 0.75
+    supervised_warmup_dr_scale_start = 0.40  # curriculum start: easy enough for stable direction learning
+    supervised_warmup_dr_scale      = 1.00   # curriculum end: match Actor-takeover DR difficulty
     supervised_warmup_lr           = 1e-4
     supervised_warmup_epochs       = 3
-    supervised_warmup_diag_interval = 60
+    supervised_warmup_diag_interval = 80
 
     # ── Adaptive DR: r_delta-sign PI controller ────────────────────────────
     dr_scale_init                  = 1.0    # fixed during Actor takeover; calibrated near repairable GMT damage
