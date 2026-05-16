@@ -500,14 +500,18 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_repair_ratio_gate_temp = 0.20
     frontres_broken_repair_ratio_ref = -0.25
     frontres_safe_cost_weight      = 1.0
-    frontres_fragile_cost_weight   = 0.10
+    frontres_fragile_cost_weight   = 0.0
     frontres_broken_cost_weight    = 1.0
     frontres_actor_gate_floor      = 0.02
     frontres_safe_actor_gate_weight = 0.20
     frontres_broken_actor_gate_weight = 0.20
     frontres_warmup_energy_loss_weight = 1.0
-    frontres_geometry_reward_weight = 0.05
-    frontres_rescue_reward_weight  = 1.0
+    # Alignment debug reward:
+    #   r = fragile_gate * repair_ratio - safe/broken minimum-intervention cost
+    # Geometry and rescue terms are disabled here so the only positive signal is
+    # "corrected reference is easier for frozen GMT than noisy reference".
+    frontres_geometry_reward_weight = 0.0
+    frontres_rescue_reward_weight  = 0.0
     frontres_intervention_cost_weights = [0.02, 0.02, 0.0, 0.0, 0.0, 0.10]
 
     # ── Fast debug mode: shortens the feedback loop for reward/DR tuning ─────
@@ -561,13 +565,13 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # active action mask is [dx, dy, dyaw].  Z/RP are disabled here so the
     # repair reward does not ask Actor to fix channels it cannot control.
     iid_prob_z                     = 0.0    # disabled for xy/yaw alignment
-    iid_prob_xy                    = 0.1    # XY: 10% lateral jump
+    iid_prob_xy                    = 0.2    # XY: stronger debug signal
     iid_prob_rp                    = 0.0    # disabled for xy/yaw alignment
-    iid_prob_ya                    = 0.1    # Yaw: 10% orientation jump
+    iid_prob_ya                    = 0.2    # Yaw: stronger debug signal
     iid_std_z                      = 0.05   # Z jump std (m), scaled by dr_scale
-    iid_std_xy                     = 0.03   # XY jump std (m)
+    iid_std_xy                     = 0.05   # XY jump std (m)
     iid_std_rp                     = 0.05   # RP jump std (rad)
-    iid_std_ya                     = 0.05   # Yaw jump std (rad)
+    iid_std_ya                     = 0.08   # Yaw jump std (rad)
 
     # ── Legacy Critic warmup ───────────────────────────────────────────────
     # Disabled because Critic now learns executable damage during joint warmup.

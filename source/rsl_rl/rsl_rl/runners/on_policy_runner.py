@@ -2267,7 +2267,7 @@ class OnPolicyRunner:
                         f"{locs['frontres_r_yaw_mean']:+.4f}\n"
                     )
                 if locs.get("frontres_r_exec_mean") is not None:
-                    log_string += f"""{'exec/geom/rescue/cost:':>{pad}} """
+                    log_string += f"""{'repair/geom/rescue/action_cost:':>{pad}} """
                     log_string += (
                         f"{locs['frontres_r_exec_mean']:+.4f} / "
                         f"{locs['frontres_r_geom_mean']:+.4f} / "
