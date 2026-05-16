@@ -565,13 +565,13 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # active action mask is [dx, dy, dyaw].  Z/RP are disabled here so the
     # repair reward does not ask Actor to fix channels it cannot control.
     iid_prob_z                     = 0.0    # disabled for xy/yaw alignment
-    iid_prob_xy                    = 0.2    # XY: stronger debug signal
+    iid_prob_xy                    = 0.3    # XY: stronger debug signal
     iid_prob_rp                    = 0.0    # disabled for xy/yaw alignment
-    iid_prob_ya                    = 0.2    # Yaw: stronger debug signal
+    iid_prob_ya                    = 0.3    # Yaw: stronger debug signal
     iid_std_z                      = 0.05   # Z jump std (m), scaled by dr_scale
-    iid_std_xy                     = 0.05   # XY jump std (m)
+    iid_std_xy                     = 0.08   # XY jump std (m)
     iid_std_rp                     = 0.05   # RP jump std (rad)
-    iid_std_ya                     = 0.08   # Yaw jump std (rad)
+    iid_std_ya                     = 0.12   # Yaw jump std (rad)
 
     # ── Legacy Critic warmup ───────────────────────────────────────────────
     # Disabled because Critic now learns executable damage during joint warmup.
