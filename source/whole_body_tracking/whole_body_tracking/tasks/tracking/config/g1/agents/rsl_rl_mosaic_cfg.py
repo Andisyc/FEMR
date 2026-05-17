@@ -479,13 +479,13 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # ── Fix 2: Low-pass filter on anchor corrections ──────────────────────────
     correction_smooth_alpha        = 0.4
 
-    # ── FrontRES experiment 1: safe-channel residual only ─────────────────────
+    # ── FrontRES experiment 2: vertical/tilt residual only ────────────────────
     # Task-space action layout:
     #   [dx, dy, dz, droll, dpitch, dyaw, c_pos, c_rpy]
-    # Only Δxy and Δyaw are allowed to reach the command term.  Δz/Δroll/Δpitch
-    # are structurally zeroed so PPO cannot exploit high-risk contact channels.
-    frontres_active_task_dims      = [0, 1, 5, 6, 7]
-    frontres_perturbation_channels = "xy_yaw"  # align damage source with active correction dims
+    # Only Δz and Δroll/Δpitch are allowed to reach the command term.  Δxy/Δyaw
+    # are structurally zeroed so this run independently tests vertical repair.
+    frontres_active_task_dims      = [2, 3, 4, 6, 7]
+    frontres_perturbation_channels = "z_rp"  # align damage source with active correction dims
 
     # "More executable" reward, clean-gap normalized:
     #   damage_gap  = R_clean - R_perturbed
@@ -502,12 +502,12 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # FrontRES-specific executability score.  This deliberately excludes
     # teleop rewards and actuator penalties from RewardsExpertCfg.
     #
-    # Planar executability is the primary signal for the active dx/dy/dyaw
-    # correction branch.  Vertical/rp executability is retained as a weak
+    # Vertical/rp executability is the primary signal for the active dz/droll/
+    # dpitch correction branch.  Planar executability is retained as a weak
     # safety prior, not as the dominant reward.
-    frontres_exec_planar_weight    = 1.0
-    frontres_exec_vertical_weight  = 0.05
-    frontres_exec_task_weight      = 0.20
+    frontres_exec_planar_weight    = 0.0
+    frontres_exec_vertical_weight  = 1.0
+    frontres_exec_task_weight      = 0.10
     frontres_exec_anchor_xy_threshold = 0.35
     frontres_exec_anchor_yaw_threshold = 0.45
     frontres_exec_anchor_xy_vel_std = 1.0
@@ -524,12 +524,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_exec_foot_phase_z_threshold = 0.12
     frontres_exec_foot_phase_gate_temp = 0.03
     frontres_exec_foot_phase_xy_threshold = 0.25
-    frontres_exec_anchor_z_threshold = 0.25
-    frontres_exec_anchor_ori_threshold = 0.20
-    frontres_exec_ee_z_threshold   = 0.25
-    frontres_exec_anchor_z_weight  = 0.0
-    frontres_exec_anchor_ori_weight = 0.25
-    frontres_exec_ee_z_weight      = 0.0
+    frontres_exec_anchor_z_threshold = 0.20
+    frontres_exec_anchor_ori_threshold = 0.25
+    frontres_exec_ee_z_threshold   = 0.18
+    # Vertical score is mostly stability margin.  Keep z/EE tracking weak so
+    # sink artifacts are not rewarded by simply lifting the whole reference.
+    frontres_exec_anchor_z_weight  = 0.25
+    frontres_exec_anchor_ori_weight = 1.0
+    frontres_exec_ee_z_weight      = 0.25
     frontres_exec_body_lin_vel_std = 1.0
     frontres_exec_body_ang_vel_std = 3.14
     frontres_exec_anchor_lin_vel_std = 1.0
@@ -562,7 +564,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Calibration run: make the minimum-intervention prior visible but not
     # dominant.  Current repair_gain is O(1e-3), so the previous weights
     # produced O(1e-1) costs and overwhelmed the gain diagnostics.
-    frontres_intervention_cost_weights = [0.002, 0.002, 0.0, 0.0, 0.0, 0.01]
+    frontres_intervention_cost_weights = [0.0, 0.0, 0.002, 0.01, 0.01, 0.0]
 
     # ── Fast debug mode: shortens the feedback loop for reward/DR tuning ─────
     # Formal training leaves this False.  Enable with:
@@ -612,22 +614,28 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # command term.  Stability is handled by conservative projection, confidence,
     # supervised warmup, and low initial DR scale.
     # ── IID step-jump perturbation probabilities (per-axis, per-step) ──────
-    # Alignment experiment: only XY/Yaw perturbations are enabled because the
-    # active action mask is [dx, dy, dyaw].  Z/RP are disabled here so the
-    # repair reward does not ask Actor to fix channels it cannot control.
-    iid_prob_z                     = 0.0    # disabled for xy/yaw alignment
-    iid_prob_xy                    = 0.0    # local root artifact carries the aligned XY signal
-    iid_prob_rp                    = 0.0    # disabled for xy/yaw alignment
-    iid_prob_ya                    = 0.0    # local root artifact carries the aligned yaw signal
-    iid_std_z                      = 0.05   # Z jump std (m), scaled by dr_scale
+    # Alignment experiment: only Z/Roll/Pitch perturbations are enabled because
+    # the active action mask is [dz, droll, dpitch].  XY/Yaw are disabled here
+    # so the repair reward does not ask Actor to fix channels it cannot control.
+    iid_prob_z                     = 0.3
+    iid_prob_xy                    = 0.0
+    iid_prob_rp                    = 0.2
+    iid_prob_ya                    = 0.0
+    iid_std_z                      = 0.06   # Z jump std (m), scaled by dr_scale
     iid_std_xy                     = 0.15   # unused when iid_prob_xy=0
     iid_std_rp                     = 0.05   # RP jump std (rad)
     iid_std_ya                     = 0.15   # unused when iid_prob_ya=0
-    local_root_artifact_prob       = 0.08   # per-step burst start prob; contact-like frames are emphasized
+    local_root_artifact_prob       = 0.0    # xy/yaw artifact disabled in z/rp experiment
     local_root_artifact_min_steps  = 6
     local_root_artifact_max_steps  = 12
     local_root_artifact_xy_std     = 0.18   # metres at dr_scale=1; local contact/heading inconsistency
     local_root_artifact_yaw_std    = 0.24   # radians at dr_scale=1
+    float_prob                     = 0.3
+    float_ratio                    = 0.05
+    sink_prob                      = 0.3    # supervised/runtime positive Δz is contact-blocked
+    sink_ratio                     = 0.04
+    root_tilt_prob                 = 0.3
+    root_tilt_max_rad              = 0.05
 
     # ── Legacy Critic warmup ───────────────────────────────────────────────
     # Disabled because Critic now learns executable damage during joint warmup.
@@ -719,7 +727,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         ppo_actor_warmup_iterations   = 0,
         ppo_actor_ramp_iterations     = 400,
         ppo_advantage_focal_power     = 0.0,
-        frontres_active_task_dims      = [0, 1, 5],
+        frontres_active_task_dims      = [2, 3, 4],
         diagnose_gradient_conflict    = True,
 
         # ── Misc ─────────────────────────────────────────────────────────────

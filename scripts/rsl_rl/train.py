@@ -217,17 +217,15 @@ def _configure_frontres_motion_perturbations(env_cfg, agent_cfg) -> None:
 
     if mode in ("all", "composite", "full"):
         return
-    if mode not in ("xy_yaw", "xy-yaw", "xyyaw"):
+    if mode not in ("xy_yaw", "xy-yaw", "xyyaw", "z_rp", "z-rp", "zrp"):
         raise ValueError(
             "frontres_perturbation_channels must be one of "
-            "{'all', 'composite', 'full', 'xy_yaw'}; got "
+            "{'all', 'composite', 'full', 'xy_yaw', 'z_rp'}; got "
             f"{mode!r}."
         )
 
-    # Keep channels controllable by active dims [dx, dy, dyaw].
-    # X/Y/Yaw are injected as short local root artifacts, not global drift:
-    # a brief anchor jump breaks contact/heading consistency and gives both
-    # supervised warmup and PPO a clear executable signal.
+    # Disable all generic channels first, then re-enable only the channels
+    # controllable by the selected FrontRES task-space action mask.
     pt.float_prob = 0.0
     pt.float_ratio = 0.0
     pt.sink_prob = 0.0
@@ -245,31 +243,53 @@ def _configure_frontres_motion_perturbations(env_cfg, agent_cfg) -> None:
     pt.iid_prob_rp = 0.0
     pt.iid_std_rp = 0.0
 
-    # Let agent cfg override IID/local-artifact values so DR-scale experiments
-    # remain centralized in the runner config.
-    pt.iid_prob_xy = float(getattr(agent_cfg, "iid_prob_xy", pt.iid_prob_xy))
-    pt.iid_std_xy = float(getattr(agent_cfg, "iid_std_xy", pt.iid_std_xy))
-    pt.iid_prob_ya = float(getattr(agent_cfg, "iid_prob_ya", pt.iid_prob_ya))
-    pt.iid_std_ya = float(getattr(agent_cfg, "iid_std_ya", pt.iid_std_ya))
-    pt.local_root_artifact_prob = float(getattr(
-        agent_cfg, "local_root_artifact_prob", getattr(pt, "local_root_artifact_prob", 0.0)))
-    pt.local_root_artifact_min_steps = int(getattr(
-        agent_cfg, "local_root_artifact_min_steps", getattr(pt, "local_root_artifact_min_steps", 3)))
-    pt.local_root_artifact_max_steps = int(getattr(
-        agent_cfg, "local_root_artifact_max_steps", getattr(pt, "local_root_artifact_max_steps", 8)))
-    pt.local_root_artifact_xy_std = float(getattr(
-        agent_cfg, "local_root_artifact_xy_std", getattr(pt, "local_root_artifact_xy_std", 0.0)))
-    pt.local_root_artifact_yaw_std = float(getattr(
-        agent_cfg, "local_root_artifact_yaw_std", getattr(pt, "local_root_artifact_yaw_std", 0.0)))
+    if mode in ("xy_yaw", "xy-yaw", "xyyaw"):
+        # X/Y/Yaw are injected as short local root artifacts, not global drift:
+        # a brief anchor jump breaks contact/heading consistency and gives both
+        # supervised warmup and PPO a clear executable signal.
+        pt.iid_prob_xy = float(getattr(agent_cfg, "iid_prob_xy", pt.iid_prob_xy))
+        pt.iid_std_xy = float(getattr(agent_cfg, "iid_std_xy", pt.iid_std_xy))
+        pt.iid_prob_ya = float(getattr(agent_cfg, "iid_prob_ya", pt.iid_prob_ya))
+        pt.iid_std_ya = float(getattr(agent_cfg, "iid_std_ya", pt.iid_std_ya))
+        pt.local_root_artifact_prob = float(getattr(
+            agent_cfg, "local_root_artifact_prob", getattr(pt, "local_root_artifact_prob", 0.0)))
+        pt.local_root_artifact_min_steps = int(getattr(
+            agent_cfg, "local_root_artifact_min_steps", getattr(pt, "local_root_artifact_min_steps", 3)))
+        pt.local_root_artifact_max_steps = int(getattr(
+            agent_cfg, "local_root_artifact_max_steps", getattr(pt, "local_root_artifact_max_steps", 8)))
+        pt.local_root_artifact_xy_std = float(getattr(
+            agent_cfg, "local_root_artifact_xy_std", getattr(pt, "local_root_artifact_xy_std", 0.0)))
+        pt.local_root_artifact_yaw_std = float(getattr(
+            agent_cfg, "local_root_artifact_yaw_std", getattr(pt, "local_root_artifact_yaw_std", 0.0)))
+        print(
+            "[INFO] FrontRES perturbation alignment: xy_yaw "
+            f"(iid_xy={pt.iid_prob_xy}/{pt.iid_std_xy}, iid_yaw={pt.iid_prob_ya}/{pt.iid_std_ya}; "
+            f"local_artifact={pt.local_root_artifact_prob}/"
+            f"{pt.local_root_artifact_xy_std}/{pt.local_root_artifact_yaw_std}/"
+            f"{pt.local_root_artifact_min_steps}-{pt.local_root_artifact_max_steps}; "
+            "z/rp/joint disabled)",
+            flush=True,
+        )
+        return
 
+    # Z/Roll/Pitch experiment: only vertical float/sink and root tilt/IID
+    # perturbations are enabled, matching active dims [dz, droll, dpitch].
+    pt.float_prob = float(getattr(agent_cfg, "float_prob", 0.3))
+    pt.float_ratio = float(getattr(agent_cfg, "float_ratio", 0.05))
+    pt.sink_prob = float(getattr(agent_cfg, "sink_prob", 0.3))
+    pt.sink_ratio = float(getattr(agent_cfg, "sink_ratio", 0.04))
+    pt.root_tilt_prob = float(getattr(agent_cfg, "root_tilt_prob", 0.3))
+    pt.root_tilt_max_rad = float(getattr(agent_cfg, "root_tilt_max_rad", 0.05))
+    pt.iid_prob_z = float(getattr(agent_cfg, "iid_prob_z", pt.iid_prob_z))
+    pt.iid_std_z = float(getattr(agent_cfg, "iid_std_z", pt.iid_std_z))
+    pt.iid_prob_rp = float(getattr(agent_cfg, "iid_prob_rp", pt.iid_prob_rp))
+    pt.iid_std_rp = float(getattr(agent_cfg, "iid_std_rp", pt.iid_std_rp))
     print(
-        "[INFO] FrontRES perturbation alignment: xy_yaw "
-        f"(foot_slip_prob={pt.foot_slip_prob}, lateral_drift_prob={pt.lateral_drift_prob}, "
-        f"iid_xy={pt.iid_prob_xy}/{pt.iid_std_xy}, iid_yaw={pt.iid_prob_ya}/{pt.iid_std_ya}; "
-        f"local_artifact={pt.local_root_artifact_prob}/"
-        f"{pt.local_root_artifact_xy_std}/{pt.local_root_artifact_yaw_std}/"
-        f"{pt.local_root_artifact_min_steps}-{pt.local_root_artifact_max_steps}; "
-        "z/rp/joint disabled)",
+        "[INFO] FrontRES perturbation alignment: z_rp "
+        f"(float={pt.float_prob}/{pt.float_ratio}, sink={pt.sink_prob}/{pt.sink_ratio}, "
+        f"root_tilt={pt.root_tilt_prob}/{pt.root_tilt_max_rad}, "
+        f"iid_z={pt.iid_prob_z}/{pt.iid_std_z}, iid_rp={pt.iid_prob_rp}/{pt.iid_std_rp}; "
+        "xy/yaw/local/joint disabled)",
         flush=True,
     )
 

@@ -423,9 +423,11 @@ class OnPolicyRunner:
         if gravity is None:
             gravity = torch.zeros(n_envs, 3, device=self.device, dtype=dtype)
             gravity[:, 2] = -1.0
-        motion_g = quat_rotate_inverse(command.anchor_quat_w, gravity)
         robot_g = quat_rotate_inverse(command.robot_anchor_quat_w, gravity)
-        anchor_ori_err = (motion_g[:, 2] - robot_g[:, 2]).abs()
+        # Roll/pitch executability is a stability margin, not a reference-tracking
+        # reward.  The horizontal gravity norm is first-order in tilt angle and
+        # directly measures how close the robot is to the upright basin.
+        anchor_ori_err = torch.norm(robot_g[:, :2], dim=-1)
         anchor_ori_score = (1.0 - anchor_ori_err / max(anchor_ori_th, 1e-6)).clamp(-1.0, 1.0)
 
         ee_names = self.cfg.get(
