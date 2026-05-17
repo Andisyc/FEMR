@@ -534,7 +534,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # "corrected reference is easier for frozen GMT than noisy reference".
     frontres_geometry_reward_weight = 0.0
     frontres_rescue_reward_weight  = 0.0
-    frontres_intervention_cost_weights = [0.02, 0.02, 0.0, 0.0, 0.0, 0.10]
+    # Calibration run: make the minimum-intervention prior visible but not
+    # dominant.  Current repair_gain is O(1e-3), so the previous weights
+    # produced O(1e-1) costs and overwhelmed the gain diagnostics.
+    frontres_intervention_cost_weights = [0.002, 0.002, 0.0, 0.0, 0.0, 0.01]
 
     # ── Fast debug mode: shortens the feedback loop for reward/DR tuning ─────
     # Formal training leaves this False.  Enable with:
@@ -685,9 +688,11 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         supervised_direction_loss_weight = 0.1,
         supervised_valid_loss_weight     = 4.0,
         # Joint warmup already initializes the Critic's executable-energy
-        # estimate, so PPO can start immediately with a short actor ramp.
+        # estimate, but Actor takeover still changes the corrected-reference
+        # distribution.  Ramp slowly so PPO does not push the warmup solution
+        # out of its executable neighborhood in the first few hundred iters.
         ppo_actor_warmup_iterations   = 0,
-        ppo_actor_ramp_iterations     = 200,
+        ppo_actor_ramp_iterations     = 800,
         ppo_advantage_focal_power     = 0.0,
         frontres_active_task_dims      = [0, 1, 5],
         diagnose_gradient_conflict    = True,
