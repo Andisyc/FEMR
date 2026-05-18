@@ -1414,6 +1414,12 @@ class OnPolicyRunner:
                         _obs_rpy_best_cos = 0.0
                         _obs_rpy_best_neg_cos = 0.0
                         _obs_rpy_best_norm = 0.0
+                        _obs_z_best_sign = 0.0
+                        _obs_roll_best_sign = 0.0
+                        _obs_pitch_best_sign = 0.0
+                        _obs_z_best_corr = 0.0
+                        _obs_roll_best_corr = 0.0
+                        _obs_pitch_best_corr = 0.0
                         # FrontRES-only anchor error observations occupy the first 30 dims
                         # after _apply_obs_normalizer(): [extra | normalized_gmt].  IsaacLab
                         # history flattening can be either term-blocked
@@ -1427,11 +1433,31 @@ class OnPolicyRunner:
                             _target_pos = _target_all[:, :3]
                             _target_rpy = _target_all[:, 3:]
 
+                            def _scalar_corr(a, b, mask):
+                                if mask.any():
+                                    a_m = a[mask] - a[mask].mean()
+                                    b_m = b[mask] - b[mask].mean()
+                                    return (a_m * b_m).mean() / (
+                                        a_m.std(unbiased=False) * b_m.std(unbiased=False)
+                                    ).clamp(min=1e-6)
+                                return torch.tensor(0.0, device=self.device)
+
+                            def _scalar_sign(a, b, mask):
+                                if mask.any():
+                                    return ((a[mask] * b[mask]) > 0.0).float().mean()
+                                return torch.tensor(0.0, device=self.device)
+
                             def _score_extra_layout(_pos_frames, _rpy_frames):
                                 _pos_cos_vals = []
                                 _rpy_cos_vals = []
                                 _rpy_neg_cos_vals = []
                                 _rpy_norm_vals = []
+                                _z_sign_vals = []
+                                _roll_sign_vals = []
+                                _pitch_sign_vals = []
+                                _z_corr_vals = []
+                                _roll_corr_vals = []
+                                _pitch_corr_vals = []
                                 for _hist_i in range(_pos_frames.shape[1]):
                                     _pos_mask_i = _valid_pos & (_pos_frames[:, _hist_i].norm(dim=-1) > 1e-4)
                                     _rpy_mask_i = _valid_rpy & (_rpy_frames[:, _hist_i].norm(dim=-1) > 1e-4)
@@ -1455,6 +1481,21 @@ class OnPolicyRunner:
                                             dim=-1,
                                         ).mean())
                                         _rpy_norm_vals.append(_obs_rpy_i.norm(dim=-1).mean())
+                                    _z_mask_i = _target_pos[:, 2].abs() > 1e-4
+                                    _roll_mask_i = _target_rpy[:, 0].abs() > 1e-4
+                                    _pitch_mask_i = _target_rpy[:, 1].abs() > 1e-4
+                                    _z_sign_vals.append(_scalar_sign(
+                                        _pos_frames[:, _hist_i, 2], _target_pos[:, 2], _z_mask_i))
+                                    _roll_sign_vals.append(_scalar_sign(
+                                        _rpy_frames[:, _hist_i, 0], _target_rpy[:, 0], _roll_mask_i))
+                                    _pitch_sign_vals.append(_scalar_sign(
+                                        _rpy_frames[:, _hist_i, 1], _target_rpy[:, 1], _pitch_mask_i))
+                                    _z_corr_vals.append(_scalar_corr(
+                                        _pos_frames[:, _hist_i, 2], _target_pos[:, 2], _z_mask_i))
+                                    _roll_corr_vals.append(_scalar_corr(
+                                        _rpy_frames[:, _hist_i, 0], _target_rpy[:, 0], _roll_mask_i))
+                                    _pitch_corr_vals.append(_scalar_corr(
+                                        _rpy_frames[:, _hist_i, 1], _target_rpy[:, 1], _pitch_mask_i))
                                 _pos_cos = torch.stack(_pos_cos_vals).max() if _pos_cos_vals else torch.tensor(0.0, device=self.device)
                                 _rpy_cos = torch.stack(_rpy_cos_vals).max() if _rpy_cos_vals else torch.tensor(0.0, device=self.device)
                                 _rpy_neg_cos = (
@@ -1465,7 +1506,17 @@ class OnPolicyRunner:
                                     torch.stack(_rpy_norm_vals).max()
                                     if _rpy_norm_vals else torch.tensor(0.0, device=self.device)
                                 )
-                                return _pos_cos, _rpy_cos, _rpy_neg_cos, _rpy_norm
+                                _z_sign = torch.stack(_z_sign_vals).max()
+                                _roll_sign = torch.stack(_roll_sign_vals).max()
+                                _pitch_sign = torch.stack(_pitch_sign_vals).max()
+                                _z_corr = torch.stack(_z_corr_vals).max()
+                                _roll_corr = torch.stack(_roll_corr_vals).max()
+                                _pitch_corr = torch.stack(_pitch_corr_vals).max()
+                                return (
+                                    _pos_cos, _rpy_cos, _rpy_neg_cos, _rpy_norm,
+                                    _z_sign, _roll_sign, _pitch_sign,
+                                    _z_corr, _roll_corr, _pitch_corr,
+                                )
 
                             _frame_extra = _extra.reshape(_all_obs.shape[0], 5, 6)
                             _frame_scores = _score_extra_layout(
@@ -1483,6 +1534,12 @@ class OnPolicyRunner:
                             _obs_rpy_best_cos = _best_scores[1].item()
                             _obs_rpy_best_neg_cos = _best_scores[2].item()
                             _obs_rpy_best_norm = _best_scores[3].item()
+                            _obs_z_best_sign = _best_scores[4].item()
+                            _obs_roll_best_sign = _best_scores[5].item()
+                            _obs_pitch_best_sign = _best_scores[6].item()
+                            _obs_z_best_corr = _best_scores[7].item()
+                            _obs_roll_best_corr = _best_scores[8].item()
+                            _obs_pitch_best_corr = _best_scores[9].item()
                         _energy_pred_all = self.alg.policy.evaluate(_all_critic_obs)
                         _energy_loss_all = torch.nn.functional.huber_loss(
                             _energy_pred_all, _all_energy, reduction="mean").item()
@@ -1529,6 +1586,10 @@ class OnPolicyRunner:
                           f"best_obs_rpy_cos={_obs_rpy_best_cos:+.4f}, "
                           f"best_neg_obs_rpy_cos={_obs_rpy_best_neg_cos:+.4f}, "
                           f"best_obs_rpy_norm={_obs_rpy_best_norm:.5f}",
+                          flush=True)
+                    print(f"[Runner]      diag_obs_target_axis: "
+                          f"sign_z/r/p={_obs_z_best_sign:.3f}/{_obs_roll_best_sign:.3f}/{_obs_pitch_best_sign:.3f}, "
+                          f"corr_z/r/p={_obs_z_best_corr:+.3f}/{_obs_roll_best_corr:+.3f}/{_obs_pitch_best_corr:+.3f}",
                           flush=True)
                     print(f"[Runner]      energy: "
                           f"loss={_energy_loss_all:.6f}, mae={_energy_mae:.6f}, "
