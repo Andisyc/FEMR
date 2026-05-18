@@ -11,6 +11,21 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
 
+def _quat_to_rotvec_wxyz(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Map wxyz unit quaternions to shortest-path rotation vectors."""
+    q = q / q.norm(dim=-1, keepdim=True).clamp(min=eps)
+    q = torch.where(q[..., :1] < 0.0, -q, q)
+    xyz = q[..., 1:]
+    xyz_norm = xyz.norm(dim=-1, keepdim=True)
+    angle = 2.0 * torch.atan2(xyz_norm, q[..., :1].clamp(min=eps))
+    scale = torch.where(
+        xyz_norm > eps,
+        angle / xyz_norm.clamp(min=eps),
+        2.0 * torch.ones_like(xyz_norm),
+    )
+    return xyz * scale
+
+
 def robot_anchor_ori_w(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     command: MotionCommand = env.command_manager.get_term(command_name)
     mat = matrix_from_quat(command.robot_anchor_quat_w)
@@ -201,19 +216,27 @@ def anchor_root_rpy_error_w(env: ManagerBasedEnv, command_name: str) -> torch.Te
 
 def anchor_root_rpy_error_w_perturbed(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     """
-    Orientation error against the PERTURBED (pre-correction) anchor. Shape (N, 3).
+    DR orientation correction for the PERTURBED (pre-correction) anchor. Shape (N, 3).
 
-    Uses _cached_perturbed_quat so the signal is non-zero even when oracle curriculum
-    has corrected the commanded anchor orientation. Mirrors the position version above.
-    Falls back to anchor_quat_w when _cached_perturbed_quat is unavailable.
+    For FrontRES task-space training the supervised target is
+
+        log(inv(q_perturbed) * q_clean)
+
+    so the observation must expose the same anti-perturbation variable.  The
+    previous implementation used log/euler(inv(q_perturbed) * q_robot), which is
+    a tracker residual, not the injected reference-frame error; roll/pitch became
+    nearly unobservable even though dz was easy through ground contact.
+
+    Falls back to the legacy robot-vs-anchor error for command types that do not
+    expose anchor_dr_delta_quat_correction.
     """
     command: MotionCommand = env.command_manager.get_term(command_name)
-    if hasattr(command, '_cached_perturbed_quat'):
-        q_anchor = command._cached_perturbed_quat
-    else:
-        q_anchor = command.anchor_quat_w
+    if hasattr(command, "anchor_dr_delta_quat_correction"):
+        return _quat_to_rotvec_wxyz(command.anchor_dr_delta_quat_correction)
+
+    q_anchor = command.anchor_quat_w
     q_robot = command.robot.data.root_quat_w
-    q_rel   = quat_mul(quat_inv(q_anchor), q_robot)
+    q_rel = quat_mul(quat_inv(q_anchor), q_robot)
     w, x, y, z = q_rel[:, 0], q_rel[:, 1], q_rel[:, 2], q_rel[:, 3]
     roll  = torch.atan2(2.0 * (w*x + y*z), 1.0 - 2.0 * (x*x + y*y))
     pitch = torch.asin((2.0 * (w*y - z*x)).clamp(-1.0, 1.0))
