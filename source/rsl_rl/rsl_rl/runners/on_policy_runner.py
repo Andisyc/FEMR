@@ -43,6 +43,30 @@ from isaaclab.utils.math import (
 )
 
 
+def _quat_to_rotvec_wxyz(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Map wxyz unit quaternions to shortest-path rotation vectors."""
+    q = q / q.norm(dim=-1, keepdim=True).clamp(min=eps)
+    q = torch.where(q[..., :1] < 0.0, -q, q)
+    xyz = q[..., 1:]
+    xyz_norm = xyz.norm(dim=-1, keepdim=True)
+    angle = 2.0 * torch.atan2(xyz_norm, q[..., :1].clamp(min=eps))
+    scale = torch.where(xyz_norm > eps, angle / xyz_norm.clamp(min=eps), 2.0 * torch.ones_like(xyz_norm))
+    return xyz * scale
+
+
+def _rotvec_to_quat_wxyz(rotvec: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Map local rotation vectors to wxyz unit quaternions."""
+    angle = rotvec.norm(dim=-1, keepdim=True)
+    half = 0.5 * angle
+    xyz_scale = torch.where(
+        angle > eps,
+        torch.sin(half) / angle.clamp(min=eps),
+        0.5 * torch.ones_like(angle),
+    )
+    quat = torch.cat([torch.cos(half), rotvec * xyz_scale], dim=-1)
+    return quat / quat.norm(dim=-1, keepdim=True).clamp(min=eps)
+
+
 class OnPolicyRunner:
     """On-policy runner for training and evaluation."""
 
@@ -540,11 +564,11 @@ class OnPolicyRunner:
         oracle_pos[:, 2] = torch.minimum(torch.maximum(dz_clean, z_lower), z_upper)
 
         correction_quat = quat_mul(quat_inv(raw_quat), clean_quat)
-        roll, pitch, _ = euler_xyz_from_quat(correction_quat)
-        roll = roll.clamp(-max_delta_rpy, max_delta_rpy)
-        pitch = pitch.clamp(-max_delta_rpy, max_delta_rpy)
-        yaw = torch.zeros_like(roll)
-        oracle_quat = quat_from_euler_xyz(roll, pitch, yaw)
+        correction_rotvec = _quat_to_rotvec_wxyz(correction_quat)
+        oracle_rotvec = torch.zeros_like(correction_rotvec)
+        oracle_rotvec[:, 0] = correction_rotvec[:, 0].clamp(-max_delta_rpy, max_delta_rpy)
+        oracle_rotvec[:, 1] = correction_rotvec[:, 1].clamp(-max_delta_rpy, max_delta_rpy)
+        oracle_quat = _rotvec_to_quat_wxyz(oracle_rotvec)
 
         saved_pos = command._frontres_pos_correction[env_slice].clone()
         saved_quat = command._frontres_quat_correction[env_slice].clone()
@@ -1778,8 +1802,7 @@ class OnPolicyRunner:
                                     _rpy_corr = _rpy_corr * _c_rpy
 
                                     _cmd_term._frontres_pos_correction[:N_train].copy_(_pos_corr)
-                                    _quat_corr = quat_from_euler_xyz(
-                                        _rpy_corr[:, 0], _rpy_corr[:, 1], _rpy_corr[:, 2])
+                                    _quat_corr = _rotvec_to_quat_wxyz(_rpy_corr)
                                     _cmd_term._frontres_quat_correction[:N_train].copy_(_quat_corr)
                                     # Baseline envs: identity (no correction)
                                     _cmd_term._frontres_pos_correction[N_train:].zero_()
@@ -1873,30 +1896,32 @@ class OnPolicyRunner:
                             _dr_xy_fr   = _a_raw[:N_train, :2] - _a_w[:N_train, :2]
                             _corr_xy_fr = _a_fr[:N_train,  :2] - _a_raw[:N_train, :2]
                             _r_xy = _r_vec(_dr_xy_fr, _corr_xy_fr)
-                            def _quat_to_rpy_wxyz(q: torch.Tensor):
-                                # IsaacLab quaternions are wxyz.  Use the same helper as
-                                # supervised_target construction to keep diagnostics/reward
-                                # aligned with the command term.
-                                return euler_xyz_from_quat(q)
-
                             def _wrap_pi(a: torch.Tensor):
                                 return torch.atan2(torch.sin(a), torch.cos(a))
 
-                            # Roll/Pitch only.  The previous full-quaternion error also
-                            # included yaw, which made the 0.4 RP term dominate r_delta.
-                            _roll_raw, _pitch_raw, _yaw_raw = _quat_to_rpy_wxyz(_q_raw[:N_train])
-                            _roll_fr,  _pitch_fr,  _yaw_fr  = _quat_to_rpy_wxyz(_q_fr[:N_train])
-                            _roll_w,   _pitch_w,   _yaw_w   = _quat_to_rpy_wxyz(_q_w[:N_train])
-                            _rp_raw = torch.stack(
-                                [_wrap_pi(_roll_raw - _roll_w), _wrap_pi(_pitch_raw - _pitch_w)], dim=-1
+                            # Roll/Pitch diagnostics live in the same local tangent
+                            # space as the FrontRES action:
+                            #   q_frontres = q_raw * exp(delta_rotvec)
+                            # Therefore the target error is log(inv(q_raw)*q_clean)
+                            # and the residual error is log(inv(q_frontres)*q_clean).
+                            _rot_raw_to_clean = _quat_to_rotvec_wxyz(
+                                quat_mul(quat_inv(_q_raw[:N_train]), _q_w[:N_train])
                             )
-                            _rp_fr = torch.stack(
-                                [_wrap_pi(_roll_fr - _roll_w), _wrap_pi(_pitch_fr - _pitch_w)], dim=-1
+                            _rot_fr_to_clean = _quat_to_rotvec_wxyz(
+                                quat_mul(quat_inv(_q_fr[:N_train]), _q_w[:N_train])
                             )
+                            _rot_raw_to_fr = _quat_to_rotvec_wxyz(
+                                quat_mul(quat_inv(_q_raw[:N_train]), _q_fr[:N_train])
+                            )
+                            _rp_raw = _rot_raw_to_clean[:, :2]
+                            _rp_fr = _rot_fr_to_clean[:, :2]
                             _e_raw = _rp_raw.norm(dim=-1)
-                            _e_fr  = _rp_fr.norm(dim=-1)
+                            _e_fr = _rp_fr.norm(dim=-1)
                             _r_rp = _e_raw - _e_fr
                             # Yaw
+                            _roll_raw, _pitch_raw, _yaw_raw = euler_xyz_from_quat(_q_raw[:N_train])
+                            _roll_fr,  _pitch_fr,  _yaw_fr  = euler_xyz_from_quat(_q_fr[:N_train])
+                            _roll_w,   _pitch_w,   _yaw_w   = euler_xyz_from_quat(_q_w[:N_train])
                             _yaw_err_raw = _wrap_pi(_yaw_raw - _yaw_w)
                             _yaw_corr = _wrap_pi(_yaw_fr - _yaw_raw)
                             _r_ya = _r_axis(_yaw_err_raw, _yaw_corr)
@@ -1908,7 +1933,7 @@ class OnPolicyRunner:
                             _dr_yaw_abs_log = _yaw_err_raw.abs().mean()
                             _corr_z_abs_log = _corr_z_fr.abs().mean()
                             _corr_xy_abs_log = _corr_xy_fr.norm(dim=-1).mean()
-                            _corr_rp_abs_log = (_e_fr - _e_raw).abs().mean()
+                            _corr_rp_abs_log = _rot_raw_to_fr[:, :2].norm(dim=-1).mean()
                             _corr_yaw_abs_log = _yaw_corr.abs().mean()
 
                             # ── r_rescue ─────────────────────────────────

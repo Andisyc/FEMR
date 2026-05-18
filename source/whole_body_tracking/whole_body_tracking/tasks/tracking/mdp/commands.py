@@ -30,6 +30,17 @@ from isaaclab.utils.math import (
 from .motion_perturbations import MotionPerturber
 
 
+def _quat_to_rotvec_wxyz(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Map wxyz unit quaternions to shortest-path rotation vectors."""
+    q = q / q.norm(dim=-1, keepdim=True).clamp(min=eps)
+    q = torch.where(q[..., :1] < 0.0, -q, q)
+    xyz = q[..., 1:]
+    xyz_norm = xyz.norm(dim=-1, keepdim=True)
+    angle = 2.0 * torch.atan2(xyz_norm, q[..., :1].clamp(min=eps))
+    scale = torch.where(xyz_norm > eps, angle / xyz_norm.clamp(min=eps), 2.0 * torch.ones_like(xyz_norm))
+    return xyz * scale
+
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -2079,10 +2090,8 @@ class MultiMotionCommand(CommandTerm):
         z_upper = self.jump_degree * self.anchor_penetration_depth
         self._dr_supervised_target[:, 2] = torch.minimum(self._dr_supervised_target[:, 2], z_upper)
         _corr_quat = quat_mul(quat_inv(self._cached_perturbed_quat), _root_quat_ref)
-        _r, _p, _y = euler_xyz_from_quat(_corr_quat)
-        self._dr_supervised_target[:, 3] = _r
-        self._dr_supervised_target[:, 4] = _p
-        self._dr_supervised_target[:, 5] = _y
+        _corr_rotvec = _quat_to_rotvec_wxyz(_corr_quat)
+        self._dr_supervised_target[:, 3:6] = _corr_rotvec
         self._sync_frontres_pairs(sync_perturbation=True)
         # ─────────────────────────────────────────────────────────────────────
 
