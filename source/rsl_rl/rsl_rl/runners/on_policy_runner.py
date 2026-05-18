@@ -1410,6 +1410,54 @@ class OnPolicyRunner:
                         _tgt_pos_norm = _masked_norm(_target_all[:, :3], _valid_pos)
                         _pred_rpy_norm = _masked_norm(_pred_all[:, 3:], _valid_rpy)
                         _tgt_rpy_norm = _masked_norm(_target_all[:, 3:], _valid_rpy)
+                        _obs_pos_best_cos = 0.0
+                        _obs_rpy_best_cos = 0.0
+                        _obs_rpy_best_neg_cos = 0.0
+                        _obs_rpy_best_norm = 0.0
+                        # FrontRES-only anchor error observations occupy the last 30 dims:
+                        # five history frames of [pos_error(3), rpy_error(3)].  Compare them
+                        # to the supervised target to catch observation/target mismatch.
+                        if _all_obs.shape[-1] >= 30:
+                            _extra = _all_obs[:, -30:].reshape(_all_obs.shape[0], 5, 6)
+                            _obs_pos_frames = _extra[:, :, :3]
+                            _obs_rpy_frames = _extra[:, :, 3:]
+                            _target_pos = _target_all[:, :3]
+                            _target_rpy = _target_all[:, 3:]
+                            _pos_cos_vals = []
+                            _rpy_cos_vals = []
+                            _rpy_neg_cos_vals = []
+                            _rpy_norm_vals = []
+                            for _hist_i in range(5):
+                                _pos_mask_i = _valid_pos & (_obs_pos_frames[:, _hist_i].norm(dim=-1) > 1e-4)
+                                _rpy_mask_i = _valid_rpy & (_obs_rpy_frames[:, _hist_i].norm(dim=-1) > 1e-4)
+                                if _pos_mask_i.any():
+                                    _pos_cos_vals.append(torch.nn.functional.cosine_similarity(
+                                        _obs_pos_frames[_pos_mask_i, _hist_i],
+                                        _target_pos[_pos_mask_i],
+                                        dim=-1,
+                                    ).mean())
+                                if _rpy_mask_i.any():
+                                    _obs_rpy_i = _obs_rpy_frames[_rpy_mask_i, _hist_i]
+                                    _target_rpy_i = _target_rpy[_rpy_mask_i]
+                                    _rpy_cos_vals.append(torch.nn.functional.cosine_similarity(
+                                        _obs_rpy_i,
+                                        _target_rpy_i,
+                                        dim=-1,
+                                    ).mean())
+                                    _rpy_neg_cos_vals.append(torch.nn.functional.cosine_similarity(
+                                        -_obs_rpy_i,
+                                        _target_rpy_i,
+                                        dim=-1,
+                                    ).mean())
+                                    _rpy_norm_vals.append(_obs_rpy_i.norm(dim=-1).mean())
+                            if _pos_cos_vals:
+                                _obs_pos_best_cos = torch.stack(_pos_cos_vals).max().item()
+                            if _rpy_cos_vals:
+                                _obs_rpy_best_cos = torch.stack(_rpy_cos_vals).max().item()
+                            if _rpy_neg_cos_vals:
+                                _obs_rpy_best_neg_cos = torch.stack(_rpy_neg_cos_vals).max().item()
+                            if _rpy_norm_vals:
+                                _obs_rpy_best_norm = torch.stack(_rpy_norm_vals).max().item()
                         _energy_pred_all = self.alg.policy.evaluate(_all_critic_obs)
                         _energy_loss_all = torch.nn.functional.huber_loss(
                             _energy_pred_all, _all_energy, reduction="mean").item()
@@ -1450,6 +1498,12 @@ class OnPolicyRunner:
                           f"valid_r/p/y={_valid_roll_frac:.3f}/{_valid_pitch_frac:.3f}/{_valid_yaw_frac:.3f}, "
                           f"|pred_r/p/y|={_abs_pred_roll:.5f}/{_abs_pred_pitch:.5f}/{_abs_pred_yaw:.5f}, "
                           f"|tgt_r/p/y|={_abs_tgt_roll:.5f}/{_abs_tgt_pitch:.5f}/{_abs_tgt_yaw:.5f}",
+                          flush=True)
+                    print(f"[Runner]      diag_obs_target: "
+                          f"best_obs_pos_cos={_obs_pos_best_cos:+.4f}, "
+                          f"best_obs_rpy_cos={_obs_rpy_best_cos:+.4f}, "
+                          f"best_neg_obs_rpy_cos={_obs_rpy_best_neg_cos:+.4f}, "
+                          f"best_obs_rpy_norm={_obs_rpy_best_norm:.5f}",
                           flush=True)
                     print(f"[Runner]      energy: "
                           f"loss={_energy_loss_all:.6f}, mae={_energy_mae:.6f}, "
