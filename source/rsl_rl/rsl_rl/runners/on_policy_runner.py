@@ -1414,11 +1414,12 @@ class OnPolicyRunner:
                         _obs_rpy_best_cos = 0.0
                         _obs_rpy_best_neg_cos = 0.0
                         _obs_rpy_best_norm = 0.0
-                        # FrontRES-only anchor error observations occupy the last 30 dims:
-                        # five history frames of [pos_error(3), rpy_error(3)].  Compare them
-                        # to the supervised target to catch observation/target mismatch.
+                        # FrontRES-only anchor error observations occupy the first 30 dims
+                        # after _apply_obs_normalizer(): [extra | normalized_gmt].  The extra
+                        # block is five history frames of [pos_error(3), rpy_error(3)].  Compare
+                        # it to the supervised target to catch observation/target mismatch.
                         if _all_obs.shape[-1] >= 30:
-                            _extra = _all_obs[:, -30:].reshape(_all_obs.shape[0], 5, 6)
+                            _extra = _all_obs[:, :30].reshape(_all_obs.shape[0], 5, 6)
                             _obs_pos_frames = _extra[:, :, :3]
                             _obs_rpy_frames = _extra[:, :, 3:]
                             _target_pos = _target_all[:, :3]
