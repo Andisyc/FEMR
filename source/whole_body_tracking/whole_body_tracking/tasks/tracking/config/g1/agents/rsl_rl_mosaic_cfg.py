@@ -601,6 +601,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     supervised_warmup_lr           = 1e-4
     supervised_warmup_epochs       = 3
     supervised_warmup_diag_interval = 40
+    supervised_warmup_perturbation_schedule = "balanced_single"
 
     # ── Adaptive DR: repairable-boundary controller ────────────────────────
     dr_scale_init                  = 1.0    # fixed during Actor takeover; calibrated near repairable GMT damage

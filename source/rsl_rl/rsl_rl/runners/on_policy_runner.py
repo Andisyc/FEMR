@@ -1140,7 +1140,7 @@ class OnPolicyRunner:
                 else:
                     _complexity, _choices = "single", _single
 
-            _choice = _choices[int(seq_idx) % len(_choices)]
+            _choice = _choices[_choice_hash(seq_idx) % len(_choices)]
             self._frontres_curriculum_active_modes = tuple(_choice)
             if len(_choice) == 1:
                 self._frontres_curriculum_complexity = "single"
@@ -1161,6 +1161,54 @@ class OnPolicyRunner:
                 f"full_prob={self.cfg.get('frontres_curriculum_full_prob', 0.05)}",
                 flush=True,
             )
+
+        def _choice_hash(seq_idx: int) -> int:
+            _hash = (int(seq_idx) + 1) & 0xFFFFFFFF
+            _hash ^= (_hash >> 16)
+            _hash = (_hash * 0x7FEB352D) & 0xFFFFFFFF
+            _hash ^= (_hash >> 15)
+            _hash = (_hash * 0x846CA68B) & 0xFFFFFFFF
+            _hash ^= (_hash >> 16)
+            return _hash
+
+        def _set_frontres_warmup_perturbation_modes(seq_idx: int) -> None:
+            """Warmup uses clean supervised labels, so prefer clear balanced modes.
+
+            PPO benefits from gradually mixing perturbation families, but joint
+            warmup is a label-fitting phase.  Keeping each warmup rollout on a
+            single repair family avoids making the supervised target a noisy
+            composite before the actor has learned the individual directions.
+            """
+            _bases = _frontres_curriculum_allowed_bases()
+            _mode = str(self.cfg.get(
+                "frontres_warmup_perturbation_schedule",
+                self.cfg.get("supervised_warmup_perturbation_schedule", "balanced_single"),
+            ))
+            if _mode == "rl_curriculum":
+                return
+            if _mode == "full":
+                self._frontres_curriculum_active_modes = tuple(_bases)
+                self._frontres_curriculum_complexity = "full"
+                return
+            if _mode == "balanced_pair":
+                _canonical_two = [
+                    ("planar", "yaw"),
+                    ("planar", "local_rp"),
+                    ("yaw", "local_rp"),
+                    ("global_z", "local_rp"),
+                    ("planar", "global_z"),
+                    ("yaw", "global_z"),
+                ]
+                _base_set = set(_bases)
+                _pairs = [m for m in _canonical_two if set(m).issubset(_base_set)]
+                if _pairs:
+                    _choice = _pairs[_choice_hash(seq_idx) % len(_pairs)]
+                    self._frontres_curriculum_active_modes = tuple(_choice)
+                    self._frontres_curriculum_complexity = "two"
+                    return
+            _choice = _bases[_choice_hash(seq_idx) % len(_bases)]
+            self._frontres_curriculum_active_modes = (_choice,)
+            self._frontres_curriculum_complexity = "single"
 
         def _apply_frontres_dr_scale(scale: float) -> None:
             if not (_is_frontres and _perturb_target is not None):
@@ -1271,7 +1319,8 @@ class OnPolicyRunner:
                   f"(dr_scale={_warmup_dr_desc}, lr={_warmup_lr}, epochs={_warmup_epochs}, "
                   f"steps_per_iter={_warmup_steps}, "
                   f"max_envs_per_step={_warmup_max_envs}, "
-                  f"frontres_input={_nfo} dims, energy_w={_warmup_energy_w}) ===",
+                  f"frontres_input={_nfo} dims, energy_w={_warmup_energy_w}, "
+                  f"perturb_schedule={self.cfg.get('supervised_warmup_perturbation_schedule', self.cfg.get('frontres_warmup_perturbation_schedule', 'balanced_single'))}) ===",
                   flush=True)
 
             for _wu in range(_warmup_iters):
@@ -1287,6 +1336,7 @@ class OnPolicyRunner:
                     + (_warmup_dr_scale_end - _warmup_dr_scale_start) * _warmup_frac
                 )
                 _set_frontres_perturbation_curriculum(_warmup_frac, _wu)
+                _set_frontres_warmup_perturbation_modes(_wu)
                 _apply_frontres_dr_scale(_warmup_dr_scale)
 
                 _wo_list: list[torch.Tensor] = []
@@ -1697,6 +1747,7 @@ class OnPolicyRunner:
                         _energy_broken_frac = (_all_energy.view(-1) > _broken_gap_diag).float().mean().item()
                     print(f"[Runner]   warmup {_wu + 1}/{_warmup_iters}: "
                           f"dr_scale={_warmup_dr_scale:.3f}, "
+                          f"modes={getattr(self, '_frontres_curriculum_active_modes', ())}, "
                           f"loss={loss.item():.6f}, actor={_last_actor_loss.item():.6f}, "
                           f"energy={_last_energy_loss.item():.6f}, cos={_warmup_cos:.4f}, "
                           f"valid={_valid_frac:.3f}",
