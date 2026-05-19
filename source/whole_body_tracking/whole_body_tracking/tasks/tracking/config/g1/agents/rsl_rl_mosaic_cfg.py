@@ -602,13 +602,37 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     supervised_warmup_epochs       = 3
     supervised_warmup_diag_interval = 40
 
-    # ── Adaptive DR: r_delta-sign PI controller ────────────────────────────
+    # ── Adaptive DR: repairable-boundary controller ────────────────────────
     dr_scale_init                  = 1.0    # fixed during Actor takeover; calibrated near repairable GMT damage
     dr_adapt_speed                 = 0.001  # per-iteration step size
     dr_max_scale                   = 4.0    # upper limit
     dr_min_scale                   = 0.30   # do not collapse below the xy/yaw debug signal floor
     dr_ema_alpha                   = 0.95   # r_delta EMA smoothing
     dr_start_ppo_actor_weight      = 1.0    # freeze DR until PPO actor takeover completes
+    frontres_boundary_dr_enabled   = True
+    frontres_boundary_dr_during_actor_takeover = True
+    frontres_boundary_dr_ema_alpha = 0.90
+    frontres_boundary_dr_step      = 0.03
+    frontres_boundary_safe_high    = 0.45
+    frontres_boundary_fragile_low  = 0.45
+    frontres_boundary_fragile_high = 0.70
+    frontres_boundary_broken_target = 0.25
+    frontres_boundary_broken_high  = 0.35
+    frontres_boundary_positive_gain_low = 0.45
+    frontres_boundary_positive_gain_high = 0.55
+
+    # ── Perturbation curriculum ────────────────────────────────────────────
+    # Iteration-level mode schedule.  Early training sees one artifact family
+    # at a time; later training mixes families while keeping full composite
+    # cases rare.  Boundary DR still controls magnitude inside each mode.
+    frontres_perturbation_curriculum_enabled = True
+    frontres_curriculum_total_iterations = 1500
+    frontres_curriculum_single_until = 0.30
+    frontres_curriculum_two_until = 0.70
+    frontres_curriculum_two_mid_prob = 0.35
+    frontres_curriculum_two_late_prob = 0.40
+    frontres_curriculum_three_prob = 0.10
+    frontres_curriculum_full_prob = 0.05
 
     # ── Task-space correction ramp ────────────────────────────────────────────
     # Alpha must be 1.0 from the start so task-space corrections reach the

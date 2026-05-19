@@ -998,11 +998,10 @@ class OnPolicyRunner:
                 return _actions
             return _actions * _frontres_task_action_mask.view(1, -1)
 
-        # ── Adaptive DR: PI controller ────────────────────────────────────────
-        # Tracks dr_target_r_delta performance level.
-        #   error = r_delta_ema - dr_target_r_delta
-        #   error > 0: FrontRES above target → increase DR (harder)
-        #   error < 0: FrontRES below target → decrease DR (easier)
+        # ── Adaptive DR controller ───────────────────────────────────────────
+        # Primary path: boundary sampler keeps perturbations near the repairable
+        # GMT boundary using safe/fragile/broken/positive-gain diagnostics.
+        # Fallback path: legacy r_delta PI before boundary diagnostics exist.
         _dr_max         = float(self.cfg.get("dr_max_scale",    4.0))
         _dr_min         = float(self.cfg.get("dr_min_scale",    0.0))
         _dr_ema_alpha   = float(self.cfg.get("dr_ema_alpha",    0.95))
@@ -1048,16 +1047,120 @@ class OnPolicyRunner:
                     local_root_artifact_yaw_std = float(getattr(_pt, 'local_root_artifact_yaw_std', 0.0)),
                 )
                 print(
-                    f"[Runner] Adaptive DR (PI controller): "
-                    f"Kp={self.cfg.get('dr_p_gain', 0.10)}, "
+                    f"[Runner] Adaptive DR controller: "
+                    f"boundary_enabled={self.cfg.get('frontres_boundary_dr_enabled', True)}, "
+                    f"boundary_takeover={self.cfg.get('frontres_boundary_dr_during_actor_takeover', True)}, "
+                    f"fallback_PI=(Kp={self.cfg.get('dr_p_gain', 0.10)}, "
                     f"Ki={self.cfg.get('dr_i_gain', 0.01)}, "
-                    f"target_r_delta={self.cfg.get('dr_target_r_delta', 0.01)}, "
+                    f"target={self.cfg.get('dr_target_r_delta', 0.01)}), "
                     f"max_scale={_dr_max}, ema_alpha={_dr_ema_alpha}, "
                     f"start_actor_weight={self.cfg.get('dr_start_ppo_actor_weight', 1.0)}, "
                     f"resume dr_scale={_dr_scale:.3f}"
                 )
             else:
                 print("[Runner] WARNING: FrontRES DR enabled but env.cfg.motion_perturbations not found")
+
+        def _frontres_curriculum_allowed_bases() -> tuple[str, ...]:
+            """Map the active FrontRES output dimensions to repairable perturbation families."""
+            _all_bases = ("planar", "yaw", "global_z", "local_rp")
+            _active_dims = self.cfg.get("frontres_active_task_dims", None)
+            if _active_dims is None:
+                return _all_bases
+
+            _dims = {int(_idx) for _idx in _active_dims}
+            _bases: list[str] = []
+            if 0 in _dims or 1 in _dims:
+                _bases.append("planar")
+            if 5 in _dims:
+                _bases.append("yaw")
+            if 2 in _dims:
+                _bases.append("global_z")
+            if 3 in _dims or 4 in _dims:
+                _bases.append("local_rp")
+            # If only confidence heads are active, keep the full disturbance set
+            # so the confidence channels still see meaningful artifact states.
+            return tuple(_bases) if _bases else _all_bases
+
+        def _set_frontres_perturbation_curriculum(progress: float, seq_idx: int) -> None:
+            """Select which perturbation bases are active for the next rollout.
+
+            This is an iteration-level curriculum, not a per-env mode label.  It
+            keeps the existing perturber and B1 pairing intact while preventing
+            all artifact families from being maximally active from the start.
+            """
+            _bases = _frontres_curriculum_allowed_bases()
+            if not (_is_frontres and bool(self.cfg.get("frontres_perturbation_curriculum_enabled", True))):
+                self._frontres_curriculum_active_modes = _bases
+                self._frontres_curriculum_complexity = "full"
+                return
+
+            _progress = max(0.0, min(1.0, float(progress)))
+            _single = [(m,) for m in _bases]
+            _canonical_two = [
+                ("planar", "yaw"),
+                ("planar", "local_rp"),
+                ("yaw", "local_rp"),
+                ("global_z", "local_rp"),
+                ("planar", "global_z"),
+                ("yaw", "global_z"),
+            ]
+            _canonical_three = [
+                ("planar", "yaw", "local_rp"),
+                ("planar", "global_z", "local_rp"),
+                ("yaw", "global_z", "local_rp"),
+                ("planar", "yaw", "global_z"),
+            ]
+            _base_set = set(_bases)
+            _two = [m for m in _canonical_two if set(m).issubset(_base_set)]
+            _three = [m for m in _canonical_three if set(m).issubset(_base_set)]
+            _full = [tuple(_bases)]
+
+            _single_until = float(self.cfg.get("frontres_curriculum_single_until", 0.30))
+            _two_until = float(self.cfg.get("frontres_curriculum_two_until", 0.70))
+            _full_prob = float(self.cfg.get("frontres_curriculum_full_prob", 0.05))
+            _three_prob = float(self.cfg.get("frontres_curriculum_three_prob", 0.10))
+            _two_mid_prob = float(self.cfg.get("frontres_curriculum_two_mid_prob", 0.35))
+            _two_late_prob = float(self.cfg.get("frontres_curriculum_two_late_prob", 0.40))
+
+            _bucket = (int(seq_idx) * 37) % 1000 / 1000.0
+            if _progress < _single_until:
+                _complexity, _choices = "single", _single
+            elif _progress < _two_until:
+                if _bucket < _two_mid_prob and _two:
+                    _complexity, _choices = "two", _two
+                else:
+                    _complexity, _choices = "single", _single
+            else:
+                if _bucket < _full_prob and len(_bases) > 1:
+                    _complexity, _choices = "full", _full
+                elif _bucket < _full_prob + _three_prob and _three:
+                    _complexity, _choices = "three", _three
+                elif _bucket < _full_prob + _three_prob + _two_late_prob and _two:
+                    _complexity, _choices = "two", _two
+                else:
+                    _complexity, _choices = "single", _single
+
+            _choice = _choices[int(seq_idx) % len(_choices)]
+            self._frontres_curriculum_active_modes = tuple(_choice)
+            if len(_choice) == 1:
+                self._frontres_curriculum_complexity = "single"
+            elif len(_choice) == 2:
+                self._frontres_curriculum_complexity = "two"
+            elif len(_choice) == 3:
+                self._frontres_curriculum_complexity = "three"
+            else:
+                self._frontres_curriculum_complexity = "full"
+
+        if _is_frontres and bool(self.cfg.get("frontres_perturbation_curriculum_enabled", True)):
+            _allowed_bases = ",".join(_frontres_curriculum_allowed_bases())
+            print(
+                "[Runner] Perturbation curriculum enabled: "
+                f"bases=[{_allowed_bases}], "
+                f"single_until={self.cfg.get('frontres_curriculum_single_until', 0.30)}, "
+                f"two_until={self.cfg.get('frontres_curriculum_two_until', 0.70)}, "
+                f"full_prob={self.cfg.get('frontres_curriculum_full_prob', 0.05)}",
+                flush=True,
+            )
 
         def _apply_frontres_dr_scale(scale: float) -> None:
             if not (_is_frontres and _perturb_target is not None):
@@ -1072,31 +1175,44 @@ class OnPolicyRunner:
             def _pt(attr, default=0.0):
                 return getattr(_perturb_target, attr, default)
 
-            _mcmd.perturber.cfg.float_prob          = _pt('float_prob')
+            _modes = set(getattr(self, "_frontres_curriculum_active_modes",
+                                 ("planar", "yaw", "global_z", "local_rp")))
+            _planar = "planar" in _modes
+            _yaw = "yaw" in _modes
+            _global_z = "global_z" in _modes
+            _local_rp = "local_rp" in _modes
+
+            _mcmd.perturber.cfg.float_prob          = _pt('float_prob')          if _global_z else 0.0
             _mcmd.perturber.cfg.float_ratio         = _pt('float_ratio')         * scale
-            _mcmd.perturber.cfg.sink_prob           = _pt('sink_prob')
+            _mcmd.perturber.cfg.sink_prob           = _pt('sink_prob')           if _global_z else 0.0
             _mcmd.perturber.cfg.sink_ratio          = _pt('sink_ratio')          * scale
-            _mcmd.perturber.cfg.foot_slip_prob      = _pt('foot_slip_prob')
+            _mcmd.perturber.cfg.foot_slip_prob      = _pt('foot_slip_prob')      if _planar else 0.0
             _mcmd.perturber.cfg.foot_slip_ratio     = _pt('foot_slip_ratio')     * scale
-            _mcmd.perturber.cfg.lateral_drift_prob  = _pt('lateral_drift_prob')
+            _mcmd.perturber.cfg.lateral_drift_prob  = _pt('lateral_drift_prob')  if _planar else 0.0
             _mcmd.perturber.cfg.lateral_drift_std   = _pt('lateral_drift_std')   * scale
-            _mcmd.perturber.cfg.root_tilt_prob      = _pt('root_tilt_prob')
+            _mcmd.perturber.cfg.root_tilt_prob      = _pt('root_tilt_prob')      if _local_rp else 0.0
             _mcmd.perturber.cfg.root_tilt_max_rad   = _pt('root_tilt_max_rad')   * scale
             _mcmd.perturber.cfg.joint_noise_prob    = _pt('joint_noise_prob')
             _mcmd.perturber.cfg.joint_noise_std     = _pt('joint_noise_std')     * scale
-            _mcmd.perturber.cfg.iid_prob_z          = _pt('iid_prob_z')
+            _mcmd.perturber.cfg.iid_prob_z          = _pt('iid_prob_z')          if _global_z else 0.0
             _mcmd.perturber.cfg.iid_std_z           = _pt('iid_std_z')           * scale
-            _mcmd.perturber.cfg.iid_prob_xy         = _pt('iid_prob_xy')
+            _mcmd.perturber.cfg.iid_prob_xy         = _pt('iid_prob_xy')         if _planar else 0.0
             _mcmd.perturber.cfg.iid_std_xy          = _pt('iid_std_xy')          * scale
-            _mcmd.perturber.cfg.iid_prob_rp         = _pt('iid_prob_rp')
+            _mcmd.perturber.cfg.iid_prob_rp         = _pt('iid_prob_rp')         if _local_rp else 0.0
             _mcmd.perturber.cfg.iid_std_rp          = _pt('iid_std_rp')          * scale
-            _mcmd.perturber.cfg.iid_prob_ya         = _pt('iid_prob_ya')
+            _mcmd.perturber.cfg.iid_prob_ya         = _pt('iid_prob_ya')         if _yaw else 0.0
             _mcmd.perturber.cfg.iid_std_ya          = _pt('iid_std_ya')          * scale
-            _mcmd.perturber.cfg.local_root_artifact_prob = _pt('local_root_artifact_prob')
+            _mcmd.perturber.cfg.local_root_artifact_prob = (
+                _pt('local_root_artifact_prob') if (_planar or _yaw) else 0.0
+            )
             # Local artifact magnitudes are multiplied by perturber._dr_scale
             # at burst sampling time, so keep cfg as the unscaled base value.
-            _mcmd.perturber.cfg.local_root_artifact_xy_std = _pt('local_root_artifact_xy_std')
-            _mcmd.perturber.cfg.local_root_artifact_yaw_std = _pt('local_root_artifact_yaw_std')
+            _mcmd.perturber.cfg.local_root_artifact_xy_std = (
+                _pt('local_root_artifact_xy_std') if _planar else 0.0
+            )
+            _mcmd.perturber.cfg.local_root_artifact_yaw_std = (
+                _pt('local_root_artifact_yaw_std') if _yaw else 0.0
+            )
             _mcmd.perturber._dr_scale = float(scale)
 
         # ── FrontRES supervised warmup (Stage 1 → Stage 2 merge) ──────────────────
@@ -1170,6 +1286,7 @@ class OnPolicyRunner:
                     _warmup_dr_scale_start
                     + (_warmup_dr_scale_end - _warmup_dr_scale_start) * _warmup_frac
                 )
+                _set_frontres_perturbation_curriculum(_warmup_frac, _wu)
                 _apply_frontres_dr_scale(_warmup_dr_scale)
 
                 _wo_list: list[torch.Tensor] = []
@@ -1651,13 +1768,11 @@ class OnPolicyRunner:
                               and critic_warmup_iters > 0
                               and (it - start_iter) < critic_warmup_iters)
 
-            # --- DR PI controller: r_delta → dr_scale ---------------------------
-            # Tracks a target r_delta performance level.
-            # error = r_delta_ema - dr_target_r_delta
-            #   error > 0: FrontRES above target → task too easy → increase DR
-            #   error < 0: FrontRES below target → task too hard → decrease DR
-            # P term: proportional response (reacts to magnitude, not just sign)
-            # I term: removes steady-state offset; anti-windup prevents saturation
+            # --- DR controller -------------------------------------------------
+            # Prefer boundary sampling when FrontRES gap diagnostics are available:
+            # keep perturbations near GMT's repairable boundary instead of pushing
+            # blindly on reward scale.  Falls back to the older r_delta PI before
+            # the first diagnostic batch is available.
             _actor_takeover_active = False
             if _is_frontres and _perturb_target is not None:
                 _dr_start_actor_weight = float(self.cfg.get("dr_start_ppo_actor_weight", 1.0))
@@ -1668,13 +1783,68 @@ class OnPolicyRunner:
                 # Update r_delta EMA from last iteration's mean
                 _r_delta_ema = (_dr_ema_alpha * _r_delta_ema
                                 + (1.0 - _dr_ema_alpha) * getattr(self, '_last_r_delta_mean', 0.0))
-                if _critic_warmup or _actor_takeover_active:
+                _boundary_enabled = bool(self.cfg.get("frontres_boundary_dr_enabled", True))
+                _boundary_takeover = bool(self.cfg.get("frontres_boundary_dr_during_actor_takeover", True))
+                _boundary_stats = getattr(self, "_last_frontres_boundary_stats", None)
+                _use_boundary = (
+                    _boundary_enabled
+                    and _boundary_stats is not None
+                    and (not _critic_warmup)
+                    and ((not _actor_takeover_active) or _boundary_takeover)
+                )
+
+                if _critic_warmup or (_actor_takeover_active and not _boundary_takeover):
                     # Hold at dr_scale_init during Critic warmup.
                     # Also hold during Actor takeover.  Otherwise p(s_noisy) and
                     # p(s_noisy + Δ_actor) drift at the same time, which makes
                     # Critic targets hard to interpret and PPO updates unstable.
                     _dr_scale = _dr_scale_init
                     self._dr_hold_just_ended = True
+                elif _use_boundary:
+                    if getattr(self, '_dr_hold_just_ended', False):
+                        if hasattr(self, "_dr_prev_error"):
+                            delattr(self, "_dr_prev_error")
+                        self._dr_hold_just_ended = False
+
+                    _ema_alpha = float(self.cfg.get("frontres_boundary_dr_ema_alpha", 0.90))
+                    _ema_alpha = max(0.0, min(0.999, _ema_alpha))
+                    _ema = getattr(self, "_frontres_boundary_ema", None)
+                    if _ema is None:
+                        _ema = dict(_boundary_stats)
+                    else:
+                        for _key, _value in _boundary_stats.items():
+                            _ema[_key] = _ema_alpha * float(_ema.get(_key, _value)) + (1.0 - _ema_alpha) * float(_value)
+                    self._frontres_boundary_ema = _ema
+
+                    _safe = float(_ema.get("safe", 0.0))
+                    _fragile = float(_ema.get("fragile", 0.0))
+                    _broken = float(_ema.get("broken", 0.0))
+                    _gainpos = float(_ema.get("positive_gain", 0.5))
+
+                    _safe_hi = float(self.cfg.get("frontres_boundary_safe_high", 0.45))
+                    _broken_hi = float(self.cfg.get("frontres_boundary_broken_high", 0.35))
+                    _broken_target = float(self.cfg.get("frontres_boundary_broken_target", 0.25))
+                    _fragile_lo = float(self.cfg.get("frontres_boundary_fragile_low", 0.45))
+                    _fragile_hi = float(self.cfg.get("frontres_boundary_fragile_high", 0.70))
+                    _gain_hi = float(self.cfg.get("frontres_boundary_positive_gain_high", 0.55))
+                    _gain_lo = float(self.cfg.get("frontres_boundary_positive_gain_low", 0.45))
+                    _step = float(self.cfg.get("frontres_boundary_dr_step", 0.03))
+
+                    # Multiplicative controller.  Broken samples dominate because
+                    # they pollute the actor with unrepairable targets.  Safe-heavy
+                    # batches are too easy.  Fragile + positive gain means the
+                    # current boundary is learnable and can be nudged outward.
+                    _factor = 1.0
+                    if _broken > _broken_hi:
+                        _factor = 1.0 - _step * min(3.0, 1.0 + (_broken - _broken_hi) / max(1.0 - _broken_hi, 1e-6))
+                    elif _safe > _safe_hi and _broken < _broken_target:
+                        _factor = 1.0 + _step
+                    elif (_fragile_lo <= _fragile <= _fragile_hi) and _gainpos > _gain_hi and _broken < _broken_hi:
+                        _factor = 1.0 + 0.5 * _step
+                    elif _gainpos < _gain_lo and _broken > _broken_target:
+                        _factor = 1.0 - 0.5 * _step
+                    _factor = max(0.80, min(1.10, _factor))
+                    _dr_scale = max(_dr_min, min(_dr_max, _dr_scale * _factor))
                 else:
                     if getattr(self, '_dr_hold_just_ended', False):
                         _dr_scale = _dr_scale_init
@@ -1701,7 +1871,13 @@ class OnPolicyRunner:
 
                 # Persist for resume
                 self._dr_scale = _dr_scale
-                # Apply dr_scale to perturber (prob fields unchanged; only ratio/magnitude fields)
+                # Apply dr_scale and active perturbation family to the perturber.
+                _curriculum_iters = int(self.cfg.get("frontres_curriculum_total_iterations", 1500))
+                _curriculum_iters = max(1, _curriculum_iters)
+                # Use absolute iteration so a true full-resume does not silently
+                # restart the perturbation curriculum from easy single modes.
+                _curriculum_progress = min(1.0, max(0.0, it / float(_curriculum_iters)))
+                _set_frontres_perturbation_curriculum(_curriculum_progress, it)
                 _apply_frontres_dr_scale(_dr_scale)
 
             # FrontRES reward-shaping state: reset at the start of each rollout.
@@ -2608,9 +2784,29 @@ class OnPolicyRunner:
             # Store r_delta mean for next iteration's PI controller update.
             if frontres_rdelta_mean is not None:
                 self._last_r_delta_mean = frontres_rdelta_mean
+            if (
+                frontres_safe_gate_mean is not None
+                and frontres_fragile_gate_mean is not None
+                and frontres_broken_gate_mean is not None
+                and frontres_positive_gain_frac_mean is not None
+            ):
+                self._last_frontres_boundary_stats = {
+                    "safe": float(frontres_safe_gate_mean),
+                    "fragile": float(frontres_fragile_gate_mean),
+                    "broken": float(frontres_broken_gate_mean),
+                    "positive_gain": float(frontres_positive_gain_frac_mean),
+                }
 
             # DR scale for logging: current value (set by PI controller at top of iteration)
             frontres_dr_scale = _dr_scale if _is_frontres else None
+            frontres_perturb_modes = (
+                ",".join(getattr(self, "_frontres_curriculum_active_modes", ()))
+                if _is_frontres else None
+            )
+            frontres_perturb_complexity = (
+                getattr(self, "_frontres_curriculum_complexity", None)
+                if _is_frontres else None
+            )
 
             # Removed: staircase advancement logic (replaced by PI controller above)
             _staircase_level_for_log = None
@@ -2757,6 +2953,12 @@ class OnPolicyRunner:
                 if _value is not None:
                     self.writer.add_scalar(f"FrontRES/RewardComponents/{_name}",
                                            _value, locs["it"])
+            _complexity = locs.get("frontres_perturb_complexity")
+            if _complexity is not None:
+                _complexity_id = {"single": 1.0, "two": 2.0, "three": 3.0, "full": 4.0}.get(_complexity)
+                if _complexity_id is not None:
+                    self.writer.add_scalar("FrontRES/PerturbationCurriculum/complexity",
+                                           _complexity_id, locs["it"])
 
             # Correction magnitude (task-space: split Δpos/Δrpy; joint-space: Δz)
             if _ts_mode:
@@ -2951,6 +3153,12 @@ class OnPolicyRunner:
                     _gr = locs.get("loss_dict", {}).get("grad_norm_ratio_ppo_to_supervised", 0.0)
                     log_string += f"""{'grad cos PPO/Sup:':>{pad}} {_gc:+.4f} (norm ratio={_gr:.3f})\n"""
                 # Curriculum state
+                if locs.get("frontres_perturb_complexity") is not None:
+                    log_string += f"""{'perturb curriculum:':>{pad}} """
+                    log_string += (
+                        f"{locs['frontres_perturb_complexity']} "
+                        f"[{locs.get('frontres_perturb_modes', '')}]\n"
+                    )
                 if locs.get("frontres_dr_scale") is not None:
                     log_string += f"""{'DR scale:':>{pad}} {locs['frontres_dr_scale']:.4f}\n"""
                 _rd_ema = locs.get("_r_delta_ema", 0.0)
@@ -3021,6 +3229,10 @@ class OnPolicyRunner:
             saved_dict["dr_scale"] = self._dr_scale
         if hasattr(self, '_dr_prev_error'):
             saved_dict["dr_prev_error"] = self._dr_prev_error
+        if getattr(self, '_frontres_boundary_ema', None) is not None:
+            saved_dict["frontres_boundary_ema"] = dict(self._frontres_boundary_ema)
+        if getattr(self, '_last_frontres_boundary_stats', None) is not None:
+            saved_dict["last_frontres_boundary_stats"] = dict(self._last_frontres_boundary_stats)
         if hasattr(self, '_frontres_warmup_complete'):
             saved_dict["frontres_warmup_complete"] = bool(self._frontres_warmup_complete)
         
@@ -3278,10 +3490,16 @@ class OnPolicyRunner:
         if is_full_resume:
             self._dr_scale      = loaded_dict.get("dr_scale",      0.0)
             self._dr_prev_error = loaded_dict.get("dr_prev_error", 0.0)
+            if "frontres_boundary_ema" in loaded_dict:
+                self._frontres_boundary_ema = dict(loaded_dict["frontres_boundary_ema"])
+            if "last_frontres_boundary_stats" in loaded_dict:
+                self._last_frontres_boundary_stats = dict(loaded_dict["last_frontres_boundary_stats"])
             print(f"[Runner] Adaptive DR scale restored from checkpoint: {self._dr_scale:.4f}")
         else:
             _dr_init = float(self.cfg.get("dr_scale_init", 1.0))
             self._dr_scale = _dr_init
+            self._frontres_boundary_ema = None
+            self._last_frontres_boundary_stats = None
             print(f"[Runner] Stage1→Stage2 cold-start: dr_scale initialised to "
                   f"dr_scale_init={_dr_init:.4f} (ignoring checkpoint value "
                   f"{loaded_dict.get('dr_scale', 0.0):.4f})")
