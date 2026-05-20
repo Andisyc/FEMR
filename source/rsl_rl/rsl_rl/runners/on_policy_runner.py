@@ -1216,9 +1216,14 @@ class OnPolicyRunner:
                     return _pairs
             if _mode == "single":
                 return [(_bases[_choice_hash(seq_idx) % len(_bases)],)]
-            # New default: every warmup SGD update contains each active single
-            # perturbation family.  Keep "balanced_single" as an alias so older
-            # configs inherit the corrected non-serial behavior.
+            if _mode in ("balanced_single", "mixed_single"):
+                # Every warmup SGD update contains each active single
+                # perturbation family. Each rollout step still has a clean
+                # single-family target, but the optimizer update is balanced
+                # across all currently repairable directions.
+                return [(base,) for base in _bases]
+            # Conservative fallback for unknown schedule names: use balanced
+            # single-family warmup instead of silently returning a composite.
             return [(base,) for base in _bases]
 
         def _apply_frontres_dr_scale(scale: float) -> None:

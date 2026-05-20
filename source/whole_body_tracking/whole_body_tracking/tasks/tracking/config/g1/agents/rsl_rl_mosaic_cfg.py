@@ -601,10 +601,11 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     supervised_warmup_lr           = 1e-4
     supervised_warmup_epochs       = 3
     supervised_warmup_diag_interval = 40
-    # Each warmup update mixes all active single-family perturbations.  This
-    # avoids serially fitting planar, vertical, and rpy corrections in separate
-    # updates, while still postponing composite perturbations to PPO.
-    supervised_warmup_perturbation_schedule = "mixed_single"
+    # Each warmup rollout uses one active perturbation family, balanced across
+    # planar, yaw, global_z, and local_rp inside the warmup update. This keeps
+    # supervised labels clean without serially fitting only one repair direction
+    # for many consecutive updates. Composite perturbations are postponed to PPO.
+    supervised_warmup_perturbation_schedule = "balanced_single"
 
     # ── Adaptive DR: repairable-boundary controller ────────────────────────
     dr_scale_init                  = 1.0    # fixed during Actor takeover; calibrated near repairable GMT damage
