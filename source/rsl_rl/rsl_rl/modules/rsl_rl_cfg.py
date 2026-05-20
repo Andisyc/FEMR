@@ -80,7 +80,9 @@ class RslRlSuperviseJointPosCfg(RslRlPpoActorCriticCfg):
 class RslRlFrontEndResidualActorCriticCfg(RslRlPpoActorCriticCfg):
     """
     Front-End Residual Actor-Critic configuration.
-    Stage 2 RL Finetuning: FrontRES outputs Δq, which modifies q_ref before entering GMT.
+    Legacy joint-space Stage 2 path: FrontRES outputs Δq, which modifies q_ref
+    before entering GMT. The current task-space FrontRES config lives in the
+    FrontRESActorCritic/unified-runner path.
     """
     class_name: str = "FrontEndResidualActorCritic"
 

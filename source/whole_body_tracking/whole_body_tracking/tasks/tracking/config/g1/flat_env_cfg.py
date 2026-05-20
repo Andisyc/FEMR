@@ -307,20 +307,20 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         # Disable Physics DR: use module-level placeholder (must be picklable)
         self.events = _NoOpEventsCfg()
 
-        # Obs layout (800 dims total):
-        #   [0:770]  = GMT-compatible prefix:
+        # Obs layout after IsaacLab concatenation/history flattening (800 dims total):
+        #   [0:30]   = FrontRES-only anchor error signals (3+3 dims × 5 frames):
+        #              pass-through in the runner's partial normalizer.
+        #   [30:800] = GMT-compatible suffix:
         #              [cmd(58), ori(6), ang(3), jpos(29), jvel(29), act(29)] × 5
         #              = 154/frame × 5 = 770 dims — identical to the layout GMT was
         #              trained on (DistillationTrackingEnvCfg removes motion_anchor_pos_b
         #              and base_lin_vel, giving 154 dims/frame × 5 = 770).
-        #   [770:800] = FrontRES-only anchor error signals (3+3 dims × 5 frames = 30):
-        #              pass-through in the runner's partial normaliser.
         #
         # Removing motion_anchor_pos_b and base_lin_vel (from the 160-dim base) is
-        # intentional: keeping them would make the prefix 160×5=800 dims, shifting
+        # intentional: keeping them would make the GMT suffix 160×5=800 dims, shifting
         # every subsequent index and corrupting GMT's fixed ONNX weight alignment.
-        self.observations.policy.motion_anchor_pos_b = None   # keep 154-dim/frame GMT prefix
-        self.observations.policy.base_lin_vel = None          # keep 154-dim/frame GMT prefix
+        self.observations.policy.motion_anchor_pos_b = None   # keep 154-dim/frame GMT suffix
+        self.observations.policy.base_lin_vel = None          # keep 154-dim/frame GMT suffix
         # Use _perturbed variants: read _cached_perturbed_pos/_quat (pre-correction).
         # With oracle curriculum active, anchor_pos_w ≈ true_anchor → error ≈ 0 →
         # FrontRES sees no signal and outputs ≈ 0 → oracle_cos_ema stays at 0 →

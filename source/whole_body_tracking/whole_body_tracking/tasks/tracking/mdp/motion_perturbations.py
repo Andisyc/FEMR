@@ -135,6 +135,7 @@ class MotionPerturber:
 
         # Baseline env mask: these envs always receive zero perturbation.
         self._baseline_mask: torch.Tensor | None = None  # bool [num_envs]
+        self._family_masks: dict[str, torch.Tensor] | None = None
 
         # DR scale (set by runner each iteration, multiplied into IID magnitudes)
         self._dr_scale: float = 0.0
@@ -158,6 +159,35 @@ class MotionPerturber:
         self._artifact_steps[env_ids] = 0
         self._artifact_xy[env_ids] = 0.0
         self._artifact_yaw[env_ids] = 0.0
+
+    def set_family_env_masks(self, masks: dict[str, torch.Tensor] | None) -> None:
+        """Restrict perturbation families per environment.
+
+        Supported keys are ``planar``, ``yaw``, ``global_z``, and ``local_rp``.
+        Missing keys default to enabled for all non-baseline envs.
+        """
+        if masks is None:
+            self._family_masks = None
+            return
+        family_masks: dict[str, torch.Tensor] = {}
+        for key, value in masks.items():
+            mask = torch.as_tensor(value, device=self.device, dtype=torch.bool)
+            if mask.numel() != self.num_envs:
+                raise ValueError(f"family mask {key!r} has {mask.numel()} entries, expected {self.num_envs}")
+            if self._baseline_mask is not None:
+                mask = mask & ~self._baseline_mask
+            family_masks[str(key)] = mask
+        self._family_masks = family_masks
+
+    def _family_mask(self, name: str, num_envs: int | None = None) -> torch.Tensor:
+        count = self.num_envs if num_envs is None else int(num_envs)
+        if self._family_masks is None or name not in self._family_masks:
+            mask = torch.ones(count, dtype=torch.bool, device=self.device)
+        else:
+            mask = self._family_masks[name][:count].clone()
+        if self._baseline_mask is not None:
+            mask = mask & ~self._baseline_mask[:count]
+        return mask
 
     def reset_envs(self, env_ids: torch.Tensor) -> None:
         """Zero OU states for terminated or resampled environments."""
@@ -196,18 +226,24 @@ class MotionPerturber:
         # X: foot-slip-style X offset
         if self.cfg.foot_slip_prob > 0.0:
             self._x_state = self._ou_step(self._x_state, self.cfg.foot_slip_ratio)
-            perturbed[:, 0] += self._x_state
+            planar_mask = self._family_mask("planar", perturbed.shape[0])
+            self._x_state[:perturbed.shape[0]][~planar_mask] = 0.0
+            perturbed[:, 0] += self._x_state[:perturbed.shape[0]] * planar_mask.to(perturbed.dtype)
 
         # Y: lateral drift
         if self.cfg.lateral_drift_prob > 0.0:
             self._y_state = self._ou_step(self._y_state, self.cfg.lateral_drift_std)
-            perturbed[:, 1] += self._y_state
+            planar_mask = self._family_mask("planar", perturbed.shape[0])
+            self._y_state[:perturbed.shape[0]][~planar_mask] = 0.0
+            perturbed[:, 1] += self._y_state[:perturbed.shape[0]] * planar_mask.to(perturbed.dtype)
 
         # Z: float/sink merged into a single zero-mean OU state
         _z_max = max(self.cfg.float_ratio, self.cfg.sink_ratio)
         if _z_max > 0.0 and (self.cfg.float_prob > 0.0 or self.cfg.sink_prob > 0.0):
             self._z_state = self._ou_step(self._z_state, _z_max)
-            perturbed[:, 2] += self._z_state
+            z_mask = self._family_mask("global_z", perturbed.shape[0])
+            self._z_state[:perturbed.shape[0]][~z_mask] = 0.0
+            perturbed[:, 2] += self._z_state[:perturbed.shape[0]] * z_mask.to(perturbed.dtype)
 
         # ── Superimpose IID step-jumps ──────────────────────────────────────
         self._update_local_root_artifact(root_pos_ref, left_foot_pos_ref, right_foot_pos_ref)
@@ -225,7 +261,11 @@ class MotionPerturber:
         if self.cfg.root_tilt_prob > 0.0:
             self._roll_state  = self._ou_step(self._roll_state,  self.cfg.root_tilt_max_rad)
             self._pitch_state = self._ou_step(self._pitch_state, self.cfg.root_tilt_max_rad)
-            roll, pitch = self._roll_state, self._pitch_state
+            rp_mask = self._family_mask("local_rp", root_quat.shape[0])
+            self._roll_state[:root_quat.shape[0]][~rp_mask] = 0.0
+            self._pitch_state[:root_quat.shape[0]][~rp_mask] = 0.0
+            roll = self._roll_state[:root_quat.shape[0]] * rp_mask.to(root_quat.dtype)
+            pitch = self._pitch_state[:root_quat.shape[0]] * rp_mask.to(root_quat.dtype)
             cr, sr = torch.cos(roll * 0.5), torch.sin(roll * 0.5)
             cp, sp = torch.cos(pitch * 0.5), torch.sin(pitch * 0.5)
             tw, tx, ty, tz = cr * cp, sr * cp, cr * sp, sr * sp
@@ -266,12 +306,20 @@ class MotionPerturber:
 
     # ── IID step-jump perturbations (superimposed on OU) ──────────────────
 
-    def _iid_jump(self, prob: float, std: float, num_envs: int) -> torch.Tensor:
+    def _iid_jump(
+        self,
+        prob: float,
+        std: float,
+        num_envs: int,
+        env_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Per-env IID step jump: each env gets a jump with probability `prob`.
         Magnitude = std × dr_scale × N(0,1).  Returns (num_envs,) tensor."""
         if prob <= 0.0 or std <= 0.0 or self._dr_scale <= 0.0:
             return torch.zeros(num_envs, device=self.device)
         mask = torch.rand(num_envs, device=self.device) < prob
+        if env_mask is not None:
+            mask = mask & env_mask[:num_envs].to(self.device, dtype=torch.bool)
         if self._baseline_mask is not None:
             mask = mask & ~self._baseline_mask
         if not mask.any():
@@ -282,23 +330,27 @@ class MotionPerturber:
 
     def _apply_iid_xy(self, root_pos: torch.Tensor) -> torch.Tensor:
         """Superimpose IID XY jitter on root position.  Modifies in-place."""
-        jx = self._iid_jump(self.cfg.iid_prob_xy, self.cfg.iid_std_xy, root_pos.shape[0])
-        jy = self._iid_jump(self.cfg.iid_prob_xy, self.cfg.iid_std_xy, root_pos.shape[0])
+        mask = self._family_mask("planar", root_pos.shape[0])
+        jx = self._iid_jump(self.cfg.iid_prob_xy, self.cfg.iid_std_xy, root_pos.shape[0], mask)
+        jy = self._iid_jump(self.cfg.iid_prob_xy, self.cfg.iid_std_xy, root_pos.shape[0], mask)
         root_pos[:, 0] += jx
         root_pos[:, 1] += jy
         return root_pos
 
     def _apply_iid_z(self, root_pos: torch.Tensor) -> torch.Tensor:
         """Superimpose IID Z jitter on root position.  Modifies in-place."""
-        jz = self._iid_jump(self.cfg.iid_prob_z, self.cfg.iid_std_z, root_pos.shape[0])
+        mask = self._family_mask("global_z", root_pos.shape[0])
+        jz = self._iid_jump(self.cfg.iid_prob_z, self.cfg.iid_std_z, root_pos.shape[0], mask)
         root_pos[:, 2] += jz
         return root_pos
 
     def _apply_iid_quat(self, root_quat: torch.Tensor) -> torch.Tensor:
         """Superimpose IID roll/pitch/yaw jitter on root quaternion."""
-        jr = self._iid_jump(self.cfg.iid_prob_rp, self.cfg.iid_std_rp, root_quat.shape[0])
-        jp = self._iid_jump(self.cfg.iid_prob_rp, self.cfg.iid_std_rp, root_quat.shape[0])
-        jy = self._iid_jump(self.cfg.iid_prob_ya, self.cfg.iid_std_ya, root_quat.shape[0])
+        rp_mask = self._family_mask("local_rp", root_quat.shape[0])
+        yaw_mask = self._family_mask("yaw", root_quat.shape[0])
+        jr = self._iid_jump(self.cfg.iid_prob_rp, self.cfg.iid_std_rp, root_quat.shape[0], rp_mask)
+        jp = self._iid_jump(self.cfg.iid_prob_rp, self.cfg.iid_std_rp, root_quat.shape[0], rp_mask)
+        jy = self._iid_jump(self.cfg.iid_prob_ya, self.cfg.iid_std_ya, root_quat.shape[0], yaw_mask)
         if jr.abs().max() == 0 and jp.abs().max() == 0 and jy.abs().max() == 0:
             return root_quat
         # Build jump quaternion: q_jump = q_yaw * q_pitch * q_roll
@@ -336,11 +388,17 @@ class MotionPerturber:
         prob = float(getattr(self.cfg, "local_root_artifact_prob", 0.0))
         xy_std = float(getattr(self.cfg, "local_root_artifact_xy_std", 0.0))
         yaw_std = float(getattr(self.cfg, "local_root_artifact_yaw_std", 0.0))
+        planar_mask = self._family_mask("planar", self.num_envs)
+        yaw_mask = self._family_mask("yaw", self.num_envs)
+        active_mask = planar_mask | yaw_mask
         if prob <= 0.0 or (xy_std <= 0.0 and yaw_std <= 0.0) or self._dr_scale <= 0.0:
             self._artifact_steps.zero_()
             self._artifact_xy.zero_()
             self._artifact_yaw.zero_()
             return
+        self._artifact_xy[~planar_mask] = 0.0
+        self._artifact_yaw[~yaw_mask] = 0.0
+        self._artifact_steps[~active_mask] = 0
 
         active = self._artifact_steps > 0
         self._artifact_steps[active] -= 1
@@ -363,7 +421,7 @@ class MotionPerturber:
             torch.full((self.num_envs,), prob, device=self.device),
             torch.full((self.num_envs,), prob * 0.25, device=self.device),
         )
-        start = inactive & (torch.rand(self.num_envs, device=self.device) < effective_prob)
+        start = inactive & active_mask & (torch.rand(self.num_envs, device=self.device) < effective_prob)
         if self._baseline_mask is not None:
             start = start & ~self._baseline_mask
         if not start.any():
@@ -375,13 +433,17 @@ class MotionPerturber:
         durations = torch.randint(min_steps, max_steps + 1, (num_start,), device=self.device)
         self._artifact_steps[start] = durations
         if xy_std > 0.0:
-            self._artifact_xy[start] = (
-                torch.randn(num_start, 2, device=self.device) * xy_std * self._dr_scale
-            )
+            xy_start = start & planar_mask
+            if xy_start.any():
+                self._artifact_xy[xy_start] = (
+                    torch.randn(int(xy_start.sum().item()), 2, device=self.device) * xy_std * self._dr_scale
+                )
         if yaw_std > 0.0:
-            self._artifact_yaw[start] = (
-                torch.randn(num_start, device=self.device) * yaw_std * self._dr_scale
-            )
+            yaw_start = start & yaw_mask
+            if yaw_start.any():
+                self._artifact_yaw[yaw_start] = (
+                    torch.randn(int(yaw_start.sum().item()), device=self.device) * yaw_std * self._dr_scale
+                )
 
     def _apply_artifact_yaw(self, root_quat: torch.Tensor) -> torch.Tensor:
         """Right-multiply the active local artifact yaw onto root_quat."""

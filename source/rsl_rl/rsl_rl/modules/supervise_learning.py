@@ -4,26 +4,16 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 # =======================================================================================
-# 思路与逻辑梳理 (注释) - 简化版 (仅针对第一阶段监督学习)
+# 思路与逻辑梳理 (注释) - legacy 监督学习 helper
 #
 # 核心架构:
-#   1. GMT (ONNX模型): 一个预训练的专家模型，它可以根据给定的参考运动q生成高质量的动作。
-#   2. student (FrontRES): 一个前端网络。在第一阶段，它的目标是学习预测一个“真实”的残差 Δ_q_gt。
-#      这个真实的残差来自于GMT在仿真中的实际表现。
+#   1. GMT (.pt checkpoint): 一个 frozen tracker，根据参考运动观测生成动作。
+#   2. student (FrontRES): 一个前端网络。legacy joint-space 路径学习 Δq/Δz；
+#      task-space 路径学习 ΔSE(3) 监督目标。
 #
-# 监督学习训练流程 (在外部训练脚本如 `supervise.py` 中实现):
-#   1. [数据准备] 从数据集中获取一个参考运动 q_ref。
-#   2. [获取专家数据] 调用 `get_gmt_action(q_ref)` 来获得 GMT 专家在原始 q_ref 上的动作 a_gmt。
-#   3. [与环境交互] 在仿真环境中执行 a_gmt，得到实际的模拟结果 q_sim。
-#   4. [计算监督目标] 调用 `get_supervision_target(q_sim, q_ref)`，计算出真实的残差
-#      Δ_q_gt = q_sim - q_ref。这就是我们希望 `student` 网络学会预测的目标。
-#   5. [模型预测] 将 q_ref (或其他观测) 输入到 `student` 网络中，通过调用 `forward(obs)` 得到
-#      预测的残差 Δ_q_pred。
-#   6. [计算损失] 计算 Δ_q_pred 和 Δ_q_gt 之间的损失 (例如 MSELoss)。
-#   7. [反向传播] 根据损失更新 `student` 网络的权重。
-#
-#  *注*: 在这个简化的第一阶段中，我们不关心 "q_repaired" 或完整的推理流程。
-#  我们只专注于训练 `student` 网络来准确预测 `Δ_q_gt`。
+# 当前主线 FrontRESUnified 的 warmup 在 runner 内实现；本模块保留给旧的
+# supervise training_type 和工具脚本使用，不能作为 task-space runner 的 obs
+# layout 或 pre-GMT application 语义来源。
 # =======================================================================================
 
 from __future__ import annotations
@@ -37,7 +27,7 @@ from rsl_rl.utils import resolve_nn_activation
 
 class SuperviseLearning(nn.Module):
     """
-    A module for supervised learning aimed at training a network to predict Δq
+    Legacy supervised FrontRES module for Δq/Δz or task-space target prediction.
     """
     is_recurrent = False
     is_encoding = False  # 适配 OnPolicyRunner 接口
@@ -156,7 +146,8 @@ class SuperviseLearning(nn.Module):
         self.num_actions = num_actions
         self.num_z_outputs = num_z_outputs
         self.num_task_corrections = num_task_corrections
-        # Task-space mode: output = [Δx, Δy, Δz, Δroll, Δpitch, Δyaw] (6 dims), ignoring Δq and Δz
+        # Legacy task-space supervised mode: output = [Δx, Δy, Δz, Δroll, Δpitch, Δyaw].
+        # FrontRESActorCritic PPO mode adds confidence heads separately.
         if num_task_corrections > 0:
             total_output_dim = num_task_corrections
         else:
@@ -199,11 +190,11 @@ class SuperviseLearning(nn.Module):
 
     def forward(self, observations):
         """
-        Run the student and return the predicted Δ q
+        Run the student and return the predicted residual target.
         Args:
             observations (torch.Tensor): student obs
         Returns:
-            torch.Tensor: the predicted Δ q
+            torch.Tensor: the predicted residual target
         """
         return self.student(observations)
         
@@ -237,9 +228,10 @@ class SuperviseLearning(nn.Module):
         Run GMT (PyTorch .pt) inference on a batch of raw observations.
         obs is normalised internally by gmt_normalizer before being fed to gmt_policy.
 
-        If the student obs has more dims than the GMT normalizer expects (e.g. because
-        task-space anchor-error terms are appended at the end), the extra trailing dims
-        are silently stripped — they are not part of the GMT's input distribution.
+        Legacy supervised helper: if the student obs has more dims than the GMT
+        normalizer expects, this path keeps the leading GMT-sized prefix.  The
+        FrontRESUnified task-space runner uses its own partial-normalization path
+        where anchor-error extras are leading dims and GMT obs is the suffix.
         """
         if self.gmt_policy is None:
             raise RuntimeError("GMT policy is not loaded. Cannot compute GMT action.")

@@ -4,14 +4,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-Residual Learning Policy for Physical-Aware Motion Refiner
+Residual Learning Policy for Physical-Aware Motion Refiner.
 
-Implements ResMimic-style residual learning where:
-- Front-End Residual network (trainable) provides Δq
-- Final Ref Motion: q_final = q_origin + Δq
-- GMT policy (frozen) provides base actions
-
-This allows efficient task-specific refinement on top of a general motion tracking policy.
+The legacy joint-space path predicts Δq and patches q_ref before frozen GMT.
+The current FrontRES task-space path predicts bounded ΔSE(3) plus confidence
+heads; the runner applies that correction to the command/reference frame before
+refreshing observations and asking frozen GMT for robot actions.
 """
 
 from __future__ import annotations
@@ -26,13 +24,15 @@ from rsl_rl.utils import resolve_nn_activation
 
 class ComposedActor(nn.Module):
     """
-    Composed actor for ONNX export: combines frozen GMT + trainable FrontRES.
+    Legacy composed actor for ONNX export: combines frozen GMT + trainable FrontRES.
 
-    FrontRES (pre-GMT residual) pipeline:
+    This wrapper is for the joint-space Δq path:
         obs → FrontRES → [Δq (num_actions), Δz (num_z_outputs)]
         q_ref_corrected = q_ref + Δq   (modify q_ref inside obs)
         obs_modified → GMT → actions
-    Δz is stored as an attribute but not applied inside ONNX export (requires env-side hook).
+
+    Task-space ΔSE(3) FrontRES is applied by the runner/env command term and
+    should not be inferred from this ONNX wrapper.
     """
     def __init__(self, gmt_policy: ActorCritic, residual_actor: nn.Module,
                  gmt_actor_input_dim: int, num_actor_obs: int,
@@ -112,7 +112,9 @@ class FrontRESActorCritic(nn.Module):
     - gmt_policy: Frozen teacher policy (loaded from checkpoint)
     - gmt_normalizer: Frozen observation normalizer from GMT checkpoint
 
-    Final Ref Motion: q_final = q_origin + Δq
+    In joint-space mode the residual actor outputs Δq.  In task-space mode it
+    outputs [Δpos, Δrpy, c_pos, c_rpy]; the command/reference correction is
+    applied outside this module by the runner.
     """
 
     is_recurrent = False
@@ -151,8 +153,8 @@ class FrontRESActorCritic(nn.Module):
         # Output clipping for Δz: tanh(raw) * max_delta_z bounds root z correction.
         # 0.3 m covers typical float/sink artifacts (AMASS→G1 conversion errors).
         max_delta_z: float = 0.3,
-        # Task-space mode: when >0, replaces Δq+Δz output with [Δpos(3), Δrpy(3)].
-        # Total FrontRES output = num_task_corrections (e.g. 6). Δq patching is disabled.
+        # Task-space mode: when >0, replaces Δq+Δz with [Δpos(3), Δrpy(3)]
+        # plus two confidence heads. Δq patching is disabled.
         num_task_corrections: int = 0,
         max_delta_pos: float = 0.3,     # tanh clip for position correction (metres)
         max_delta_rpy: float = 0.3,     # tanh clip for orientation correction (radians)
@@ -348,9 +350,10 @@ class FrontRESActorCritic(nn.Module):
         else:
             print("[ResidualActorCritic] WARNING: No ref_vel estimator provided, will use zero padding for GMT policy")
         
-        # ========== Build Fron-End Residual Network ==========
+        # ========== Build Front-End Residual Network ==========
 
-        # FrontRES outputs [Δq (num_actions), Δz (num_z_outputs)] = total_output_dim dims
+        # Joint-space mode outputs [Δq, Δz]; task-space mode outputs
+        # [Δpos, Δrpy, c_pos, c_rpy].
         _frontres_input_dim = num_frontres_obs if num_frontres_obs > 0 else num_actor_obs
         self.residual_actor = self._build_residual_actor(
             input_dim=_frontres_input_dim,
@@ -360,7 +363,8 @@ class FrontRESActorCritic(nn.Module):
             last_layer_gain=residual_last_layer_gain)
         if num_task_corrections > 0:
             print(f"[FrontEndResidualActorCritic] FrontRES output: "
-                  f"{num_task_corrections} task-space dims [Δpos(3)+Δrpy(3)] — no Δq patching")
+                  f"{self.total_output_dim} task-space dims "
+                  f"[Δpos(3)+Δrpy(3)+c_pos(1)+c_rpy(1)] — no Δq patching")
         else:
             print(f"[FrontEndResidualActorCritic] FrontRES output: "
                   f"{num_actions} Δq + {num_z_outputs} Δz = {self.total_output_dim} dims")
@@ -402,7 +406,8 @@ class FrontRESActorCritic(nn.Module):
 
         # ========== Action Noise ==========
 
-        # Distribution covers the full output [Δq, Δz] = total_output_dim dims
+        # Distribution covers the full residual output. In task-space mode the
+        # bounded action has 8 dims even though num_task_corrections is 6.
         #
         # Task-space mode (FrontRES SE3 corrector): σ is a FIXED hyperparameter,
         # not a trainable parameter.
@@ -465,7 +470,7 @@ class FrontRESActorCritic(nn.Module):
         self.gmt_actor_input_dim = gmt_actor_input_dim
         self.num_actor_obs = num_actor_obs
 
-        # ========== Curriculum: Δq injection weight ==========
+        # ========== Legacy joint-space curriculum: Δq injection weight ==========
         # alpha ∈ [0, 1]: effective q_dot = q_ref + alpha * Δq
         # Set externally by the runner each iteration according to the schedule:
         #   Phase 0 (Critic warmup):  alpha = alpha_init (fixed, non-zero)
@@ -474,8 +479,9 @@ class FrontRESActorCritic(nn.Module):
         # Default 1.0 so that evaluation / non-curriculum training is unaffected.
         self.delta_q_alpha: float = 1.0
 
-        print(f"[ResidualActorCritic] Δq output clipping: tanh * {self.max_delta_q:.3f} rad "
-              f"(≈ ±{self.max_delta_q * 57.3:.1f}°) per joint")
+        if self.num_task_corrections <= 0:
+            print(f"[ResidualActorCritic] Δq output clipping: tanh * {self.max_delta_q:.3f} rad "
+                  f"(≈ ±{self.max_delta_q * 57.3:.1f}°) per joint")
 
         if gmt_actor_input_dim != num_actor_obs:
             print(f"[ResidualActorCritic] WARNING: GMT expects {gmt_actor_input_dim} observations, "
@@ -742,7 +748,7 @@ class FrontRESActorCritic(nn.Module):
 
         Returns:
             robot_actions (Tensor): final motor commands from GMT
-            frontres_out  (Tensor): FrontRES output (Δq or [Δpos, Δrpy])
+            frontres_out  (Tensor): FrontRES output (Δq or [Δpos, Δrpy, c_pos, c_rpy])
         """
         policy_obs, ref_vel, ref_vel_estimator_obs = self._parse_observations(observations)
 
@@ -751,7 +757,9 @@ class FrontRESActorCritic(nn.Module):
         if self.num_task_corrections > 0:
             delta_pos = torch.tanh(raw[:, :3]) * self.max_delta_pos
             delta_rpy = torch.tanh(raw[:, 3:6]) * self.max_delta_rpy
-            frontres_out = torch.cat([delta_pos, delta_rpy], dim=-1)
+            conf_pos = torch.sigmoid(raw[:, 6:7])
+            conf_rpy = torch.sigmoid(raw[:, 7:8])
+            frontres_out = torch.cat([delta_pos, delta_rpy, conf_pos, conf_rpy], dim=-1)
             self.last_task_correction = frontres_out.detach()
             self.last_delta_z = None
             with torch.no_grad():
@@ -769,22 +777,41 @@ class FrontRESActorCritic(nn.Module):
 
         return robot_actions, frontres_out
 
+    def get_task_correction_inference(self, observations):
+        """Deterministic bounded task-space correction for runner/env-side application."""
+        if self.num_task_corrections <= 0:
+            raise RuntimeError("get_task_correction_inference is only valid in task-space FrontRES mode")
+        policy_obs, _, _ = self._parse_observations(observations)
+        raw = self.residual_actor(policy_obs)
+        correction = torch.cat([
+            torch.tanh(raw[:, :3]) * self.max_delta_pos,
+            torch.tanh(raw[:, 3:6]) * self.max_delta_rpy,
+            torch.sigmoid(raw[:, 6:7]),
+            torch.sigmoid(raw[:, 7:8]),
+        ], dim=-1)
+        self.last_task_correction = correction.detach()
+        self.last_delta_z = None
+        self.last_residual_actions = correction.detach()
+        return correction
+
     def update_distribution(self, observations):
         """
-        Define FrontRES action distribution over Δq-space for PPO training.
+        Define FrontRES action distribution for PPO training.
 
         Design rationale
         ----------------
-        Treating Δq as the "action" of FrontRES (with frozen GMT + robot as the
-        black-box environment) is the correct policy-gradient formulation:
+        Treating the residual correction as the "action" of FrontRES (with
+        frozen GMT + robot as the black-box environment) is the correct
+        policy-gradient formulation:
 
-            ∇J ∝ E[ A · ∇_θ log π_θ(Δq | obs) ]
+            ∇J ∝ E[ A · ∇_θ log π_θ(Δ | obs) ]
 
-        The gradient ∂ log π / ∂θ flows only through residual_actor(obs) → Δq_mean,
+        The gradient ∂ log π / ∂θ flows only through residual_actor(obs) → Δ_mean,
         with NO need to backpropagate through the frozen GMT network.
 
-        The runner calls get_env_action() separately to map Δq_sample → robot_actions
-        for env.step(). The rollout buffer stores Δq_sample for log_prob computation.
+        The runner calls get_env_action() separately to map the sampled residual
+        correction to robot_actions for env.step(). The rollout buffer stores
+        the residual action for log_prob computation.
         """
         policy_obs, _, _ = self._parse_observations(observations)
 
@@ -860,7 +887,7 @@ class FrontRESActorCritic(nn.Module):
                 self.last_delta_z = None
             self.last_residual_actions = delta_q_mean.detach()
 
-        # Build distribution over Δq-space
+        # Build distribution over residual-action space.
         # NOTE: scalar std is an unconstrained nn.Parameter; apply softplus to
         # guarantee std > 0 at all times and avoid Normal(mean, negative_std) crash.
         #
@@ -893,17 +920,17 @@ class FrontRESActorCritic(nn.Module):
         std = std.nan_to_num(nan=_STD_MIN, posinf=5.0, neginf=_STD_MIN)
         std = std.expand_as(frontres_mean)
 
-        # Distribution is over full [Δq, Δz] output (total_output_dim dims).
-        # PPO stores frontres_mean samples as "actions"; get_env_action extracts Δq slice.
+        # Distribution is over the full residual output. PPO stores residual
+        # samples as "actions"; get_env_action maps them to GMT/robot actions.
         self.distribution = Normal(frontres_mean, std)
 
     def act(self, observations, **kwargs):
         """
-        Sample Δq from FrontRES distribution (for rollout data collection).
+        Sample a FrontRES residual action for rollout data collection.
 
-        Returns Δq_sample – NOT robot motor actions.
-        The runner converts Δq_sample → robot_actions via get_env_action().
-        The rollout buffer stores Δq_sample so that PPO can compute log π(Δq|obs).
+        Returns the residual sample, NOT robot motor actions. In task-space mode
+        the sample is [Δpos, Δrpy, c_pos, c_rpy]; in joint-space mode it is Δq
+        or [Δq, Δz]. The runner converts it to robot_actions via get_env_action().
         """
         self.update_distribution(observations)
         raw_sample = self.distribution.sample()
@@ -920,11 +947,11 @@ class FrontRESActorCritic(nn.Module):
 
     def get_env_action(self, observations, delta_q_sample: torch.Tensor) -> torch.Tensor:
         """
-        Convert FrontRES Δq sample to robot motor actions for env.step().
+        Convert a FrontRES residual sample to robot motor actions for env.step().
 
         Called by the runner immediately after policy.act():
-            delta_q_sample = policy.act(obs)           # stored in rollout buffer
-            robot_actions  = policy.get_env_action(obs, delta_q_sample)
+            residual_sample = policy.act(obs)           # stored in rollout buffer
+            robot_actions   = policy.get_env_action(obs, residual_sample)
             env.step(robot_actions)
 
         Uses cached observations from the preceding act() call so that ref_vel
@@ -941,7 +968,8 @@ class FrontRESActorCritic(nn.Module):
         policy_obs, ref_vel, ref_vel_estimator_obs = self._parse_observations(cached)
 
         if self.num_task_corrections > 0:
-            # Task-space mode: delta_q_sample is the full [Δpos(3), Δrpy(3)] sample.
+            # Task-space mode: delta_q_sample is the full
+            # [Δpos(3), Δrpy(3), c_pos(1), c_rpy(1)] sample.
             # Store as last_task_correction so the runner can apply it to the command term.
             self.last_task_correction = delta_q_sample.detach()
             with torch.no_grad():
@@ -957,7 +985,7 @@ class FrontRESActorCritic(nn.Module):
 
     def get_actions_log_prob(self, actions):
         """
-        Log-probability of [Δq, Δz] samples under the current distribution.
+        Log-probability of residual samples under the current distribution.
 
         `actions` here are full frontres_output values stored during rollout (NOT robot actions).
         """
@@ -989,7 +1017,7 @@ class FrontRESActorCritic(nn.Module):
         return self.distribution.log_prob(actions).sum(dim=-1)
 
     def act_inference(self, observations):
-        """Deterministic robot actions for evaluation / deployment (uses mean Δq)."""
+        """Deterministic robot actions for evaluation / deployment."""
         actions, _ = self._frontres_forward(observations)
         return actions
 

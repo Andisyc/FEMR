@@ -76,7 +76,8 @@ class SuperviseTrainer:
         # Must match policy.num_actions (= robot DOFs, e.g. 29 for G1).
         num_joint_outputs: int = 29,
         z_loss_weight: float = 0.5,              # Weight for auxiliary Δz loss vs Δq loss
-        # Task-space mode: when >0, replaces Δq+Δz loss with [Δpos, Δrpy] loss
+        # Task-space supervised mode: when >0, replaces Δq+Δz loss with
+        # [Δpos, Δrpy] loss. PPO confidence heads are trained elsewhere.
         num_task_corrections: int = 0,
         rpy_loss_weight: float = 1.0,            # Weight for Δrpy loss relative to Δpos loss
     ):

@@ -329,7 +329,8 @@ class RslRlSuperviseAlgorithmCfg:
 class RslRlFrontResidualActorCriticCfg(RslRlPpoActorCriticCfg):
     """
     Front-End Residual Actor-Critic configuration.
-    Stage 2 RL Finetuning: FrontRES outputs [Δq, Δz], applies Δq to q_ref before GMT.
+    Supports legacy joint-space [Δq, Δz] correction and the current task-space
+    FrontRES path, where ΔSE(3) is applied by the runner/env command term.
     """
     class_name: str = "FrontRESActorCritic"
 

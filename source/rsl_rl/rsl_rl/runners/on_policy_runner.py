@@ -220,8 +220,10 @@ class OnPolicyRunner:
         self.empirical_normalization = self.cfg["empirical_normalization"]
 
         # Track whether task-space FrontRES needs partial obs normalization.
-        # When set, first _frontres_gmt_obs_dim dims are GMT-normalized;
-        # remaining dims (anchor error terms) use Stage-1 empirical stats.
+        # Runtime layout for task-space FrontRES is:
+        #   [0:num_extra] = anchor-error extras, [num_extra:] = GMT obs.
+        # When set, the trailing _frontres_gmt_obs_dim dims are GMT-normalized;
+        # leading anchor-error extras optionally use Stage-1 empirical stats.
         self._frontres_gmt_obs_dim: int | None = None
         self._frontres_extra_mean: torch.Tensor | None = None  # (1, K) Stage-1 mean for extra dims
         self._frontres_extra_std:  torch.Tensor | None = None  # (1, K) Stage-1 std  for extra dims
@@ -240,9 +242,9 @@ class OnPolicyRunner:
                     gmt_norm_dim = _gmt_mean.shape[-1] if _gmt_mean is not None else num_obs
                     if num_obs > gmt_norm_dim:
                         self._frontres_gmt_obs_dim = gmt_norm_dim
-                        print(f"[Runner] FrontRES task-space: GMT normalizes first "
-                              f"{gmt_norm_dim} obs dims; last "
-                              f"{num_obs - gmt_norm_dim} anchor-error dims pass-through")
+                        print(f"[Runner] FrontRES task-space obs layout: first "
+                              f"{num_obs - gmt_norm_dim} anchor-error dims pass-through; "
+                              f"last {gmt_norm_dim} GMT dims normalized")
             else:
                 print("[Runner] WARNING: ResidualActorCritic has no GMT normalizer, using Identity")
                 self.obs_normalizer = torch.nn.Identity().to(self.device)
@@ -320,7 +322,8 @@ class OnPolicyRunner:
         # init storage and model
         if self.training_type in ("mosaic", "frontres"):
             # For FrontRESActorCritic in task-space mode, the "action" stored in the
-            # rollout buffer is 6-dim SE(3) correction [Δpos, Δrpy], NOT 29-dim robot joints.
+            # rollout buffer is the residual correction [Δpos, Δrpy, c_pos, c_rpy],
+            # NOT 29-dim robot joints.
             _mosaic_action_dim = getattr(policy, 'total_output_dim', None) or self.env.num_actions
             self.alg.init_storage(
                 self.training_type,
@@ -346,8 +349,9 @@ class OnPolicyRunner:
                 [num_privileged_obs],)
         else:
             # For FrontRESActorCritic in task-space mode, the "policy action" stored in the
-            # rollout buffer is the 6-dim SE(3) correction [Δpos, Δrpy], NOT the 29-dim
-            # robot joint targets produced by GMT. Use total_output_dim when available.
+            # rollout buffer is the residual correction [Δpos, Δrpy, c_pos, c_rpy],
+            # NOT the 29-dim robot joint targets produced by GMT. Use total_output_dim
+            # when available.
             _policy_action_dim = getattr(policy, 'total_output_dim', None) or self.env.num_actions
             self.alg.init_storage(
                 self.training_type,
@@ -521,7 +525,13 @@ class OnPolicyRunner:
             }
         return score
 
-    def _frontres_feasible_oracle_exec_score(self, command, start: int, count: int) -> torch.Tensor:
+    def _frontres_feasible_oracle_exec_score(
+        self,
+        command,
+        start: int,
+        count: int,
+        return_components: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Executability score after the best correction allowed by the active action cone.
 
         This is the reward-side oracle, not an action target for the policy.  It
@@ -546,7 +556,13 @@ class OnPolicyRunner:
             "_frontres_quat_correction",
         )
         if not all(hasattr(command, name) for name in needed):
-            return self._frontres_exec_score(command)[start:start + count]
+            score = self._frontres_exec_score(command, return_components=return_components)
+            if return_components:
+                full_score, components = score
+                return full_score[start:start + count], {
+                    key: value[start:start + count] for key, value in components.items()
+                }
+            return score[start:start + count]
 
         env_slice = slice(start, start + count)
         raw_pos = command.anchor_pos_w_raw[env_slice]
@@ -620,7 +636,14 @@ class OnPolicyRunner:
                     command.body_pos_relative_w[env_slice].copy_(
                         delta_pos + quat_apply(delta_ori, body_pos - anchor_pos_repeat)
                     )
-            feasible_score = self._frontres_exec_score(command)[env_slice].clone()
+            if return_components:
+                feasible_score_all, feasible_components_all = self._frontres_exec_score(command, return_components=True)
+                feasible_score = feasible_score_all[env_slice].clone()
+                feasible_components = {
+                    key: value[env_slice].clone() for key, value in feasible_components_all.items()
+                }
+            else:
+                feasible_score = self._frontres_exec_score(command)[env_slice].clone()
         finally:
             command._frontres_pos_correction[env_slice].copy_(saved_pos)
             command._frontres_quat_correction[env_slice].copy_(saved_quat)
@@ -628,7 +651,63 @@ class OnPolicyRunner:
                 command.body_pos_relative_w[env_slice].copy_(saved_body_pos)
             if saved_body_quat is not None:
                 command.body_quat_relative_w[env_slice].copy_(saved_body_quat)
+        if return_components:
+            return feasible_score, feasible_components
         return feasible_score
+
+    def _frontres_exec_score_for_modes(
+        self,
+        components: dict[str, torch.Tensor],
+        start: int,
+        count: int,
+        mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...] | None = None,
+    ) -> torch.Tensor:
+        """Select executable score components that match each sample's repair cone."""
+        if count <= 0:
+            return torch.empty(0, device=self.device)
+        if mode_groups is None:
+            active_modes = tuple(getattr(self, "_frontres_curriculum_active_modes", ()))
+            if not active_modes:
+                active_dims = getattr(self.alg, "frontres_active_task_dims", self.cfg.get("frontres_active_task_dims", None))
+                if active_dims is None:
+                    active_modes = ("planar", "yaw", "global_z", "local_rp")
+                else:
+                    dims = {int(dim) for dim in active_dims}
+                    inferred = []
+                    if 0 in dims or 1 in dims:
+                        inferred.append("planar")
+                    if 5 in dims:
+                        inferred.append("yaw")
+                    if 2 in dims:
+                        inferred.append("global_z")
+                    if 3 in dims or 4 in dims:
+                        inferred.append("local_rp")
+                    active_modes = tuple(inferred) if inferred else ("planar", "yaw", "global_z", "local_rp")
+            mode_groups = [tuple(active_modes)] * count
+
+        planar = components["planar"][start:start + count]
+        vertical = components["vertical"][start:start + count]
+        task = components["task"][start:start + count]
+        score = torch.zeros(count, device=planar.device, dtype=planar.dtype)
+        denom = torch.zeros_like(score)
+
+        planar_weight = float(self.cfg.get("frontres_exec_cone_planar_weight", 1.0))
+        vertical_weight = float(self.cfg.get("frontres_exec_cone_vertical_weight", 1.0))
+        task_weight = float(self.cfg.get("frontres_exec_cone_task_weight", 0.0))
+        for idx, modes in enumerate(mode_groups[:count]):
+            mode_set = set(modes)
+            if mode_set & {"planar", "yaw"}:
+                score[idx] += planar_weight * planar[idx]
+                denom[idx] += planar_weight
+            if mode_set & {"global_z", "local_rp"}:
+                score[idx] += vertical_weight * vertical[idx]
+                denom[idx] += vertical_weight
+            if task_weight > 0.0:
+                score[idx] += task_weight * task[idx]
+                denom[idx] += task_weight
+        fallback = 0.5 * (planar + vertical)
+        score = torch.where(denom > 0.0, score / denom.clamp(min=1e-6), fallback)
+        return torch.nan_to_num(score, nan=-1.0, posinf=1.0, neginf=-1.0)
 
     def _frontres_project_task_target_to_action_cone(self, command, target: torch.Tensor) -> torch.Tensor:
         """Project supervised ΔSE3 targets into the same cone as applied actions.
@@ -959,19 +1038,13 @@ class OnPolicyRunner:
             # GMT raw rewards must be tracked separately before they are zeroed.
             cur_reward_sum_gmt = torch.zeros(N_base + N_clean, dtype=torch.float, device=self.device)
 
-            # REMOVED: set_baseline_envs() was originally added to fix ep_len_gmt≈10
-            # caused by large OU noise at high dr_scale hitting termination thresholds.
-            # However, zeroing perturbations for baseline envs makes them track a CLEAN
-            # (unperturbed) reference, so r_delta = reward(perturbed+correction) -
-            # reward(clean) ≤ 0 always — a mathematically impossible training signal.
-            #
-            # Correct baseline: GMT with the SAME perturbation but NO correction.
-            # r_delta = reward(perturbed+correction) - reward(perturbed)
-            # This is positive when FrontRES correction actually helps, providing the
-            # correct learning signal for PPO to improve FrontRES.
-            #
-            # The ep_len_gmt≈10 root cause was the obs ordering bug (anchor errors at
-            # [0:30] instead of [770:800]), which has been fixed separately.
+            # B1 triplet baseline:
+            #   FrontRES envs: noisy reference + FrontRES correction.
+            #   Noisy-GMT envs: same noisy reference, no correction.
+            #   Clean-GMT envs: same motion/frame with perturbation disabled.
+            # r_delta uses FrontRES minus noisy-GMT; clean-GMT is only a diagnostic
+            # and for feasible-gap calibration.  Do not zero perturbations for the
+            # noisy-GMT block or the PPO signal degenerates into reward(noisy+Δ)-reward(clean).
 
         _frontres_task_action_mask = None
         if _is_task_space_mode:
@@ -994,9 +1067,7 @@ class OnPolicyRunner:
                 )
 
         def _mask_frontres_task_actions(_actions: torch.Tensor) -> torch.Tensor:
-            if _frontres_task_action_mask is None:
-                return _actions
-            return _actions * _frontres_task_action_mask.view(1, -1)
+            return self._mask_frontres_task_actions(_actions)
 
         # ── Adaptive DR controller ───────────────────────────────────────────
         # Primary path: boundary sampler keeps perturbations near the repairable
@@ -1049,7 +1120,7 @@ class OnPolicyRunner:
                 print(
                     f"[Runner] Adaptive DR controller: "
                     f"boundary_enabled={self.cfg.get('frontres_boundary_dr_enabled', True)}, "
-                    f"boundary_takeover={self.cfg.get('frontres_boundary_dr_during_actor_takeover', True)}, "
+                    f"boundary_takeover={self.cfg.get('frontres_boundary_dr_during_actor_takeover', False)}, "
                     f"fallback_PI=(Kp={self.cfg.get('dr_p_gain', 0.10)}, "
                     f"Ki={self.cfg.get('dr_i_gain', 0.01)}, "
                     f"target={self.cfg.get('dr_target_r_delta', 0.01)}), "
@@ -1084,15 +1155,28 @@ class OnPolicyRunner:
         def _set_frontres_perturbation_curriculum(progress: float, seq_idx: int) -> None:
             """Select which perturbation bases are active for the next rollout.
 
-            This is an iteration-level curriculum, not a per-env mode label.  It
-            keeps the existing perturber and B1 pairing intact while preventing
-            all artifact families from being maximally active from the start.
+            Warmup still calls this directly to force one clean mode group at a
+            time. PPO rollouts call _sample_frontres_rollout_perturbation_mix()
+            so different train envs see different groups in the same iteration.
             """
+            _choices, _complexity = _frontres_curriculum_choices(progress, seq_idx)
+            _choice = _choices[_choice_hash(seq_idx) % len(_choices)]
+            self._frontres_curriculum_active_modes = tuple(_choice)
+            self._frontres_curriculum_complexity = _complexity_for_modes(_choice, _complexity)
+
+        def _complexity_for_modes(modes: tuple[str, ...], fallback: str | None = None) -> str:
+            if len(modes) == 1:
+                return "single"
+            if len(modes) == 2:
+                return "two"
+            if len(modes) == 3:
+                return "three"
+            return fallback or "full"
+
+        def _frontres_curriculum_choices(progress: float, seq_idx: int) -> tuple[list[tuple[str, ...]], str]:
             _bases = _frontres_curriculum_allowed_bases()
             if not (_is_frontres and bool(self.cfg.get("frontres_perturbation_curriculum_enabled", True))):
-                self._frontres_curriculum_active_modes = _bases
-                self._frontres_curriculum_complexity = "full"
-                return
+                return [tuple(_bases)], "full"
 
             _progress = max(0.0, min(1.0, float(progress)))
             _single = [(m,) for m in _bases]
@@ -1140,16 +1224,55 @@ class OnPolicyRunner:
                 else:
                     _complexity, _choices = "single", _single
 
-            _choice = _choices[_choice_hash(seq_idx) % len(_choices)]
-            self._frontres_curriculum_active_modes = tuple(_choice)
-            if len(_choice) == 1:
-                self._frontres_curriculum_complexity = "single"
-            elif len(_choice) == 2:
-                self._frontres_curriculum_complexity = "two"
-            elif len(_choice) == 3:
-                self._frontres_curriculum_complexity = "three"
+            return _choices, _complexity
+
+        def _sample_frontres_rollout_perturbation_mix(progress: float, seq_idx: int) -> None:
+            """Assign perturbation mode groups across env triplets for one PPO rollout."""
+            _choices, _phase_complexity = _frontres_curriculum_choices(progress, seq_idx)
+            try:
+                _n_train = int(N_train)
+                _n_base = int(N_base)
+                _n_clean = int(N_clean)
+            except NameError:
+                _n_train = self.env.num_envs
+                _n_base = 0
+                _n_clean = 0
+            _groups: list[tuple[str, ...]] = []
+            for _env_i in range(max(_n_train, 0)):
+                _groups.append(tuple(_choices[_choice_hash(seq_idx * 1009 + _env_i) % len(_choices)]))
+            if not _groups:
+                _groups = [tuple(_frontres_curriculum_allowed_bases())]
+            _active_union = tuple(sorted({mode for group in _groups for mode in group}))
+            self._frontres_curriculum_active_modes = _active_union
+            _unique_complexities = {_complexity_for_modes(group) for group in _groups}
+            if len(_unique_complexities) == 1:
+                self._frontres_curriculum_complexity = next(iter(_unique_complexities))
             else:
-                self._frontres_curriculum_complexity = "full"
+                self._frontres_curriculum_complexity = "mixed"
+            self._frontres_curriculum_env_mode_groups = _groups
+
+            _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
+            if not (hasattr(_env_raw, 'command_manager') and 'motion' in _env_raw.command_manager._terms):
+                return
+            _mcmd = _env_raw.command_manager._terms['motion']
+            if not hasattr(_mcmd, "perturber") or not hasattr(_mcmd.perturber, "set_family_env_masks"):
+                return
+
+            _family_masks = {
+                "planar": torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.device),
+                "yaw": torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.device),
+                "global_z": torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.device),
+                "local_rp": torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.device),
+            }
+            for _env_i, _group in enumerate(_groups[:_n_train]):
+                for _mode in _group:
+                    if _mode in _family_masks:
+                        _family_masks[_mode][_env_i] = True
+                        if _env_i < _n_base:
+                            _family_masks[_mode][_n_train + _env_i] = True
+            # Clean-GMT triplet envs intentionally remain all False; baseline
+            # masking in MotionPerturber also keeps them clean.
+            _mcmd.perturber.set_family_env_masks(_family_masks)
 
         if _is_frontres and bool(self.cfg.get("frontres_perturbation_curriculum_enabled", True)):
             _allowed_bases = ",".join(_frontres_curriculum_allowed_bases())
@@ -1399,10 +1522,18 @@ class OnPolicyRunner:
                         if "N_train" in locals() and N_train > 0 and N_base > 0 and N_clean > 0:
                             _n_energy = min(N_train, N_base, N_clean)
                             if _mcmd_wu is not None:
-                                _exec_wu = self._frontres_exec_score(_mcmd_wu).to(self.device)
-                                _r_perturbed_wu = _exec_wu[N_train:N_train + _n_energy].view(-1)
-                                _r_feasible_wu = self._frontres_feasible_oracle_exec_score(
-                                    _mcmd_wu, N_train, _n_energy
+                                _, _exec_wu_components = self._frontres_exec_score(_mcmd_wu, return_components=True)
+                                _wu_modes = [
+                                    tuple(getattr(self, "_frontres_curriculum_active_modes", ()))
+                                ] * _n_energy
+                                _r_perturbed_wu = self._frontres_exec_score_for_modes(
+                                    _exec_wu_components, N_train, _n_energy, _wu_modes
+                                ).view(-1)
+                                _, _feasible_wu_components = self._frontres_feasible_oracle_exec_score(
+                                    _mcmd_wu, N_train, _n_energy, return_components=True
+                                )
+                                _r_feasible_wu = self._frontres_exec_score_for_modes(
+                                    _feasible_wu_components, 0, _n_energy, _wu_modes
                                 ).to(self.device).view(-1)
                                 _energy_target = (_r_feasible_wu - _r_perturbed_wu).clamp(min=0.0).unsqueeze(-1)
                             else:
@@ -1867,7 +1998,7 @@ class OnPolicyRunner:
                 _r_delta_ema = (_dr_ema_alpha * _r_delta_ema
                                 + (1.0 - _dr_ema_alpha) * getattr(self, '_last_r_delta_mean', 0.0))
                 _boundary_enabled = bool(self.cfg.get("frontres_boundary_dr_enabled", True))
-                _boundary_takeover = bool(self.cfg.get("frontres_boundary_dr_during_actor_takeover", True))
+                _boundary_takeover = bool(self.cfg.get("frontres_boundary_dr_during_actor_takeover", False))
                 _boundary_stats = getattr(self, "_last_frontres_boundary_stats", None)
                 _use_boundary = (
                     _boundary_enabled
@@ -1960,11 +2091,11 @@ class OnPolicyRunner:
                 # Use absolute iteration so a true full-resume does not silently
                 # restart the perturbation curriculum from easy single modes.
                 _curriculum_progress = min(1.0, max(0.0, it / float(_curriculum_iters)))
-                _set_frontres_perturbation_curriculum(_curriculum_progress, it)
+                _sample_frontres_rollout_perturbation_mix(_curriculum_progress, it)
                 _apply_frontres_dr_scale(_dr_scale)
 
             # FrontRES reward-shaping state: reset at the start of each rollout.
-            _frontres_prev_delta_q: torch.Tensor | None = None  # [N, A] for smoothness penalty
+            _frontres_prev_delta_q: torch.Tensor | None = None  # [N, A] residual action for smoothness penalty
             # Accumulators for wandb logging (per iteration, divided by shaping steps)
             _frontres_rdelta_sum:         float = 0.0
             _frontres_baseline_sum:       float = 0.0
@@ -2058,17 +2189,10 @@ class OnPolicyRunner:
                             vel_error = (self.alg.last_estimated_ref_vel - gt_ref_vel_b).abs().mean(dim=-1)  # [N]
                             vel_est_error_buffer.extend(vel_error.cpu().numpy().tolist()) # 送入buffer
 
-                        # PAMR action mapping (RL action → env action)
-                        if hasattr(self.alg.policy, 'get_env_action'):
-                            env_actions = self.alg.policy.get_env_action(obs, actions)
-                        else:
-                            env_actions = actions
-
                         # B1 split-env: override stored actions/log_probs for GMT baseline envs
                         # and set frontres_mask so the critic update is masked correctly.
-                        # This mirrors the else-branch B1 logic but skips env_actions split
-                        # (task-space mode: env_actions are pure GMT for all envs anyway;
-                        # the FrontRES corrections reach the env via _frontres_pos/quat_correction).
+                        # Task-space mode applies ΔSE3 before building env_actions below,
+                        # so GMT sees the corrected current reference, not only next obs/reward.
                         if _is_frontres:
                             _zeros_gmt = torch.zeros(N_base + N_clean, self.alg.transition.actions.shape[-1],
                                                      device=self.device)
@@ -2089,6 +2213,19 @@ class OnPolicyRunner:
                             _frontres_mask = torch.zeros(self.env.num_envs, 1, device=self.device)
                             _frontres_mask[:N_train] = 1.0
                             self.alg.transition.frontres_mask = _frontres_mask
+
+                        if _is_task_space_mode:
+                            self._apply_frontres_task_corrections(actions, N_train, allow_oracle=True)
+                            _obs_corr, _extras_corr = self.env.get_observations()
+                            _obs_corr_dict = _extras_corr.get("observations", {})
+                            if self.policy_obs_type is not None and self.policy_obs_type in _obs_corr_dict:
+                                _obs_corr = _obs_corr_dict[self.policy_obs_type]
+                            _obs_corr = self._apply_obs_normalizer(_obs_corr.to(self.device))
+                            env_actions = self.alg.policy.get_env_action(_obs_corr, actions)
+                        elif hasattr(self.alg.policy, 'get_env_action'):
+                            env_actions = self.alg.policy.get_env_action(obs, actions)
+                        else:
+                            env_actions = actions
 
                     elif self.training_type == "supervise":
                         # Stage 1 Supervised Learning rollout:
@@ -2144,110 +2281,6 @@ class OnPolicyRunner:
                         else:
                             env_actions = actions
 
-                    # Apply task-space anchor corrections for FrontRES (task-space mode).
-                    # Must happen BEFORE env.step() so rewards and next obs see the corrected anchor.
-                    if _is_task_space_mode:
-                        _task_corr = getattr(self.alg.policy, 'last_task_correction', None)
-
-                        # ── Curriculum Oracle ──────────────────────────────────────────
-                        # Mixes oracle (-OU ground truth) with FrontRES output to break the
-                        # chicken-and-egg deadlock:
-                        #   Untrained FrontRES → bad corrections → r_delta<0 → negative
-                        #   advantages → PPO fights supervised → FrontRES never learns.
-                        # With oracle mix, r_delta stays ≥ 0 throughout; PPO and supervised
-                        # gradients are always aligned. Mix fades out as FrontRES improves.
-                        #
-                        #   mix = 1.0 → pure oracle   (cos_sim < oracle_mix_cos_low)
-                        #   mix = 0.0 → pure FrontRES (cos_sim ≥ oracle_mix_cos_high)
-                        #   linear interpolation in between
-                        #
-                        # This is standard curriculum / demonstration bootstrapping (c.f.
-                        # DAgger, residual RL). The oracle is only the OU state, which is
-                        # available during training (not at deployment).
-                        if self.cfg.get("oracle_curriculum", False) and _task_corr is not None:
-                            _env_oracle = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
-                            for _cmd_oracle in _env_oracle.command_manager._terms.values():
-                                if hasattr(_cmd_oracle, 'supervised_target'):
-                                    _sup = _cmd_oracle.supervised_target.to(self.device)
-                                    _oracle_full = torch.zeros_like(_task_corr)
-                                    _n = min(_sup.shape[-1], _oracle_full.shape[-1])
-                                    _oracle_full[:, :_n] = _sup[:, :_n]
-
-                                    # Per-step EMA of cos(FrontRES_output, oracle)
-                                    # Tracks how close raw FrontRES is to the ideal correction.
-                                    _fr_v  = _task_corr[:N_train, :_n]
-                                    _or_v  = _oracle_full[:N_train, :_n]
-                                    _cos_s = (_fr_v * _or_v).sum(-1) / (
-                                        _fr_v.norm(dim=-1) * _or_v.norm(dim=-1) + 1e-8)
-                                    _ema_alpha = 0.99
-                                    _prev_ema  = getattr(self, '_oracle_cos_ema', 0.0)
-                                    _new_ema   = _ema_alpha * _prev_ema + (1 - _ema_alpha) * float(_cos_s.mean())
-                                    self._oracle_cos_ema = _new_ema
-
-                                    # Mix coefficient
-                                    _cos_lo = float(self.cfg.get("oracle_mix_cos_low",  0.3))
-                                    _cos_hi = float(self.cfg.get("oracle_mix_cos_high", 0.85))
-                                    if _new_ema < _cos_lo:
-                                        _mix = 1.0
-                                    elif _new_ema < _cos_hi:
-                                        _mix = 1.0 - (_new_ema - _cos_lo) / (_cos_hi - _cos_lo)
-                                    else:
-                                        _mix = 0.0
-                                    self._oracle_mix = _mix
-
-                                    if _mix > 0.0:
-                                        _task_corr = (1.0 - _mix) * _task_corr + _mix * _oracle_full
-                                    break
-                        # ─────────────────────────────────────────────────────────────
-
-                        _task_corr = _mask_frontres_task_actions(_task_corr) if _task_corr is not None else None
-                        if _task_corr is not None:
-                            _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
-                            for _cmd_term in _env_raw.command_manager._terms.values():
-                                if hasattr(_cmd_term, '_frontres_pos_correction'):
-                                    # ── Contact-aware conservative projection ───────────────
-                                    # Δxy is softened during ballistic phases to avoid
-                                    # rewriting the flight trajectory. Δrpy is never gated:
-                                    # orientation artifacts can occur in both contact and
-                                    # airborne phases and do not inject vertical support.
-                                    #
-                                    # Δz is asymmetric:
-                                    #   contact phase: positive Δz is blocked (no artificial lift)
-                                    #   airborne phase: positive Δz is allowed only up to
-                                    #                   penetration depth (remove ground
-                                    #                   penetration, not recover flight height)
-                                    # _task_corr: [Δpos(3), Δrpy(3), c_pos(1), c_rpy(1)]
-                                    _pos_corr = _task_corr[:N_train, :3].clone()
-                                    _rpy_corr = _task_corr[:N_train, 3:6].clone()
-                                    _c_pos    = _task_corr[:N_train, 6:7].clone()
-                                    _c_rpy    = _task_corr[:N_train, 7:8].clone()
-
-                                    _z_upper = torch.zeros_like(_pos_corr[:, 2])
-                                    if hasattr(_cmd_term, 'jump_degree'):
-                                        _jd = _cmd_term.jump_degree[:N_train].to(_task_corr.device).clamp(0.0, 1.0)
-                                        _contact_gate = (1.0 - _jd).unsqueeze(-1)
-                                        _pos_corr[:, :2] = _pos_corr[:, :2] * _contact_gate
-                                        if hasattr(_cmd_term, 'anchor_penetration_depth'):
-                                            _penetration = _cmd_term.anchor_penetration_depth[:N_train].to(_task_corr.device)
-                                            _z_upper = _jd * _penetration
-
-                                    _z_lower = torch.full_like(_pos_corr[:, 2], -self.alg.policy.max_delta_pos)
-                                    _pos_corr[:, 2] = torch.maximum(_pos_corr[:, 2], _z_lower)
-                                    _pos_corr[:, 2] = torch.minimum(_pos_corr[:, 2], _z_upper)
-
-                                    # ── Confidence: soft coupling ─────────────────────
-                                    _pos_corr = _pos_corr * _c_pos
-                                    _rpy_corr = _rpy_corr * _c_rpy
-
-                                    _cmd_term._frontres_pos_correction[:N_train].copy_(_pos_corr)
-                                    _quat_corr = _rotvec_to_quat_wxyz(_rpy_corr)
-                                    _cmd_term._frontres_quat_correction[:N_train].copy_(_quat_corr)
-                                    # Baseline envs: identity (no correction)
-                                    _cmd_term._frontres_pos_correction[N_train:].zero_()
-                                    _cmd_term._frontres_quat_correction[N_train:].zero_()
-                                    _cmd_term._frontres_quat_correction[N_train:, 0] = 1.0
-
-
                     # Read supervised target BEFORE env.step: the command term's cache holds
                     # the perturbation that generated the CURRENT obs (used by FrontRES this step).
                     # After env.step, _update_command() overwrites the cache for the next step.
@@ -2272,13 +2305,14 @@ class OnPolicyRunner:
                     # Move to device
                     rewards, dones = rewards.to(self.device), dones.to(self.device)
 
-                    # ── GMT baseline: OU zeroing now handled by set_baseline_envs() ─────
-                    # Baseline envs [N_train:] are registered once at runner start via
-                    # perturber.set_baseline_envs(). _ou_step() enforces zero state for
-                    # them on every physics step, so no per-step reset_envs() is needed.
+                    # ── GMT baselines ────────────────────────────────────────────────
+                    # Noisy-GMT envs share the FrontRES perturbation and receive no
+                    # correction. Clean-GMT envs are registered via set_baseline_envs()
+                    # so the perturber keeps only the clean diagnostic block unperturbed.
 
                     # ── FrontRES B1 delta-reward ────────────────────────────────────────
-                    # GMT baseline envs [N_train:] ran with delta_q=0 → rewards ≈ GMT-only.
+                    # Noisy-GMT envs run the same perturbed reference with zero residual
+                    # correction, so their reward is the GMT-only baseline.
                     # r_delta isolates FrontRES contribution to anchor tracking only.
                     # GMT env rewards are zeroed → returns ≈ 0 → advantage ≈ 0 → no policy gradient.
                     #
@@ -2406,10 +2440,22 @@ class OnPolicyRunner:
                             _exec_score_all, _exec_components = self._frontres_exec_score(
                                 _mcmd_rdelta, return_components=True
                             )
-                            _exec_frontres = _exec_score_all[:_n_exec]
-                            _exec_perturbed = _exec_score_all[_base_start:_base_start + _n_exec]
-                            _exec_feasible = self._frontres_feasible_oracle_exec_score(
-                                _mcmd_rdelta, _base_start, _n_exec
+                            _mode_groups = list(getattr(
+                                self,
+                                "_frontres_curriculum_env_mode_groups",
+                                [tuple(getattr(self, "_frontres_curriculum_active_modes", ()))] * _n_exec,
+                            ))[:_n_exec]
+                            _exec_frontres = self._frontres_exec_score_for_modes(
+                                _exec_components, 0, _n_exec, _mode_groups
+                            )
+                            _exec_perturbed = self._frontres_exec_score_for_modes(
+                                _exec_components, _base_start, _n_exec, _mode_groups
+                            )
+                            _, _feasible_components = self._frontres_feasible_oracle_exec_score(
+                                _mcmd_rdelta, _base_start, _n_exec, return_components=True
+                            )
+                            _exec_feasible = self._frontres_exec_score_for_modes(
+                                _feasible_components, 0, _n_exec, _mode_groups
                             ).to(self.device).view(-1)
                             _exec_planar_log = _exec_components["planar"][:_n_exec].mean()
                             _exec_vertical_log = _exec_components["vertical"][:_n_exec].mean()
@@ -2552,9 +2598,9 @@ class OnPolicyRunner:
                                 rewards[:N_train] = rewards[:N_train] + _smooth_penalty
                             _frontres_smooth_penalty_sum += _smooth_penalty.mean().item()
 
-                        # lambda_reg reward shaping: penalize ||Δq||² to discourage unbounded corrections.
+                        # lambda_reg reward shaping: penalize ||Δ||² to discourage unbounded corrections.
                         # Gated by _dr_done: do NOT apply during DR curriculum ramp-up, so Actor can
-                        # freely explore non-zero Δq without the penalty reinforcing the Δq=0 shortcut.
+                        # freely explore non-zero residuals without the penalty reinforcing the Δ=0 shortcut.
                         # Uses sampled actions (unbiased estimator of mean penalty); mean over joints
                         # so scale is per-joint and consistent with per-step reward magnitude.
                         if _lambda_reg > 0.0 and _dr_done:
@@ -2621,7 +2667,7 @@ class OnPolicyRunner:
                         _frontres_term_count += int((dones[:N_train] > 0).sum().item())
                         _frontres_step_count += N_train
 
-                        # Update prev_delta_q for smoothness tracking (all N envs)
+                        # Update previous residual action for smoothness tracking (all N envs)
                         _done_mask = dones.bool().view(-1)
                         if _frontres_prev_delta_q is None:
                             _frontres_prev_delta_q = actions.clone()
@@ -2671,7 +2717,7 @@ class OnPolicyRunner:
                         ref_vel_estimator_obs = None
 
                     # process the step 更新回放池的数据 (奖励值, 完成布尔值, 额外信息)
-                    self.alg.process_env_step(rewards, dones, infos) # 这里存入的 actions 依然是纯粹的 delta_q
+                    self.alg.process_env_step(rewards, dones, infos)  # stores FrontRES residual actions, not GMT robot actions
 
                     # Extract intrinsic rewards (only for logging)
                     intrinsic_rewards = self.alg.intrinsic_rewards if hasattr(self.alg, "rnd") and self.alg.rnd else None
@@ -3079,7 +3125,7 @@ class OnPolicyRunner:
             self.writer.add_scalar("Curriculum/r_delta_ema",
                                    locs.get("_r_delta_ema", 0.0), locs["it"])
 
-            # Δq alpha ramp (joint-space mode only)
+            # Δq alpha ramp (legacy joint-space mode only)
         # -- Performance
         self.writer.add_scalar("Perf/total_fps", fps, locs["it"])
         self.writer.add_scalar("Perf/collection time", locs["collection_time"], locs["it"])
@@ -3593,11 +3639,33 @@ class OnPolicyRunner:
         self.eval_mode()  # switch to evaluation mode (dropout for example)
         if device is not None:
             self.alg.policy.to(device)
+        if self.cfg["empirical_normalization"] and device is not None:
+            self.obs_normalizer.to(device)
+
+        is_task_space_frontres = (
+            isinstance(self.alg.policy, FrontRESActorCritic)
+            and getattr(self.alg.policy, "num_task_corrections", 0) > 0
+        )
+
+        if is_task_space_frontres:
+            def policy(x):  # noqa: E306
+                with torch.inference_mode():
+                    raw_obs = x.to(self.device)
+                    norm_obs = self._apply_obs_normalizer(raw_obs) if self.cfg["empirical_normalization"] else raw_obs
+                    correction = self.alg.policy.get_task_correction_inference(norm_obs)
+                    self._apply_frontres_task_corrections(correction, correction.shape[0], allow_oracle=False)
+                    obs_corr, extras_corr = self.env.get_observations()
+                    obs_corr_dict = extras_corr.get("observations", {})
+                    if self.policy_obs_type is not None and self.policy_obs_type in obs_corr_dict:
+                        obs_corr = obs_corr_dict[self.policy_obs_type]
+                    obs_corr = obs_corr.to(self.device)
+                    norm_corr = self._apply_obs_normalizer(obs_corr) if self.cfg["empirical_normalization"] else obs_corr
+                    return self.alg.policy.get_env_action(norm_corr, correction)
+            return policy
+
         policy = self.alg.policy.act_inference
         if self.cfg["empirical_normalization"]:
-            if device is not None:
-                self.obs_normalizer.to(device)
-            policy = lambda x: self.alg.policy.act_inference(self.obs_normalizer(x))  # noqa: E731
+            policy = lambda x: self.alg.policy.act_inference(self._apply_obs_normalizer(x.to(self.device)))  # noqa: E731
         return policy
 
     def _apply_obs_normalizer(self, obs: torch.Tensor) -> torch.Tensor:
@@ -3627,6 +3695,109 @@ class OnPolicyRunner:
                 extra = (extra - _s1_mean) / (_s1_std + 1e-8)
             return torch.cat([extra, gmt_part], dim=-1)  # [anchor_errors | normalized_gmt]
         return self.obs_normalizer(obs)
+
+    def _mask_frontres_task_actions(self, actions: torch.Tensor) -> torch.Tensor:
+        """Apply the configured task-space action cone to [dx,dy,dz,r,p,y,c_pos,c_rpy]."""
+        active_dims = self.cfg.get("frontres_active_task_dims", None)
+        if active_dims is None:
+            return actions
+        mask = torch.zeros(actions.shape[-1], device=actions.device, dtype=actions.dtype)
+        for idx in active_dims:
+            idx = int(idx)
+            if 0 <= idx < actions.shape[-1]:
+                mask[idx] = 1.0
+        return actions * mask.view(1, -1)
+
+    def _apply_frontres_task_corrections(
+        self,
+        task_corr: torch.Tensor | None,
+        n_train: int | None = None,
+        *,
+        allow_oracle: bool = False,
+    ) -> torch.Tensor | None:
+        """Write FrontRES ΔSE3 into the motion command before GMT/current env step.
+
+        The policy samples/outputs ΔSE3 from the noisy observation.  This method
+        applies the same conservative projection used by training rewards so a
+        subsequent observation refresh exposes the corrected reference to GMT.
+        """
+        if task_corr is None:
+            return None
+        policy = getattr(getattr(self, "alg", None), "policy", None)
+        if not isinstance(policy, FrontRESActorCritic):
+            return task_corr
+        if getattr(policy, "num_task_corrections", 0) <= 0:
+            return task_corr
+
+        task_corr = self._mask_frontres_task_actions(task_corr)
+        env_raw = self.env.unwrapped if hasattr(self.env, "unwrapped") else self.env
+        if not (hasattr(env_raw, "command_manager") and hasattr(env_raw.command_manager, "_terms")):
+            return task_corr
+
+        if n_train is None:
+            n_train = task_corr.shape[0]
+        n_train = max(0, min(int(n_train), task_corr.shape[0], self.env.num_envs))
+
+        if allow_oracle and self.cfg.get("oracle_curriculum", False):
+            for cmd_oracle in env_raw.command_manager._terms.values():
+                if hasattr(cmd_oracle, "supervised_target"):
+                    sup = cmd_oracle.supervised_target.to(task_corr.device)
+                    oracle_full = torch.zeros_like(task_corr)
+                    n = min(sup.shape[-1], oracle_full.shape[-1])
+                    oracle_full[:, :n] = sup[:, :n]
+
+                    fr_v = task_corr[:n_train, :n]
+                    or_v = oracle_full[:n_train, :n]
+                    if fr_v.numel() > 0:
+                        cos_s = (fr_v * or_v).sum(-1) / (fr_v.norm(dim=-1) * or_v.norm(dim=-1) + 1e-8)
+                        ema_alpha = 0.99
+                        prev_ema = getattr(self, "_oracle_cos_ema", 0.0)
+                        new_ema = ema_alpha * prev_ema + (1.0 - ema_alpha) * float(cos_s.mean())
+                        self._oracle_cos_ema = new_ema
+
+                        cos_lo = float(self.cfg.get("oracle_mix_cos_low", 0.3))
+                        cos_hi = float(self.cfg.get("oracle_mix_cos_high", 0.85))
+                        if new_ema < cos_lo:
+                            mix = 1.0
+                        elif new_ema < cos_hi:
+                            mix = 1.0 - (new_ema - cos_lo) / max(cos_hi - cos_lo, 1e-6)
+                        else:
+                            mix = 0.0
+                        self._oracle_mix = mix
+                        if mix > 0.0:
+                            task_corr = (1.0 - mix) * task_corr + mix * oracle_full
+                    break
+
+        for cmd_term in env_raw.command_manager._terms.values():
+            if not hasattr(cmd_term, "_frontres_pos_correction"):
+                continue
+            pos_corr = task_corr[:n_train, :3].clone()
+            rpy_corr = task_corr[:n_train, 3:6].clone()
+            c_pos = task_corr[:n_train, 6:7].clone()
+            c_rpy = task_corr[:n_train, 7:8].clone()
+
+            z_upper = torch.zeros_like(pos_corr[:, 2])
+            if hasattr(cmd_term, "jump_degree"):
+                jd = cmd_term.jump_degree[:n_train].to(task_corr.device).clamp(0.0, 1.0)
+                contact_gate = (1.0 - jd).unsqueeze(-1)
+                pos_corr[:, :2] = pos_corr[:, :2] * contact_gate
+                if hasattr(cmd_term, "anchor_penetration_depth"):
+                    penetration = cmd_term.anchor_penetration_depth[:n_train].to(task_corr.device)
+                    z_upper = jd * penetration
+
+            z_lower = torch.full_like(pos_corr[:, 2], -self.alg.policy.max_delta_pos)
+            pos_corr[:, 2] = torch.maximum(pos_corr[:, 2], z_lower)
+            pos_corr[:, 2] = torch.minimum(pos_corr[:, 2], z_upper)
+            pos_corr = pos_corr * c_pos
+            rpy_corr = rpy_corr * c_rpy
+
+            cmd_term._frontres_pos_correction[:n_train].copy_(pos_corr)
+            cmd_term._frontres_quat_correction[:n_train].copy_(_rotvec_to_quat_wxyz(rpy_corr))
+            if n_train < self.env.num_envs:
+                cmd_term._frontres_pos_correction[n_train:].zero_()
+                cmd_term._frontres_quat_correction[n_train:].zero_()
+                cmd_term._frontres_quat_correction[n_train:, 0] = 1.0
+        return task_corr
 
     def _move_normalizer_to_device(self, device):
         if hasattr(self, 'obs_normalizer') and self.obs_normalizer is not None:

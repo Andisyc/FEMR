@@ -509,6 +509,13 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_exec_planar_weight    = 1.0
     frontres_exec_vertical_weight  = 1.0
     frontres_exec_task_weight      = 0.10
+    # Cone-aware scalarization used by reward/gap/gain after the planar,
+    # vertical, and task diagnostics are computed.  The task term is logged but
+    # excluded by default so each perturbation cone optimizes its matching
+    # executable component instead of a global blended score.
+    frontres_exec_cone_planar_weight = 1.0
+    frontres_exec_cone_vertical_weight = 1.0
+    frontres_exec_cone_task_weight = 0.0
     frontres_exec_anchor_xy_threshold = 0.35
     frontres_exec_anchor_yaw_threshold = 0.45
     frontres_exec_anchor_xy_vel_std = 1.0
@@ -615,7 +622,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     dr_ema_alpha                   = 0.95   # r_delta EMA smoothing
     dr_start_ppo_actor_weight      = 1.0    # freeze DR until PPO actor takeover completes
     frontres_boundary_dr_enabled   = True
-    frontres_boundary_dr_during_actor_takeover = True
+    frontres_boundary_dr_during_actor_takeover = False
     frontres_boundary_dr_ema_alpha = 0.90
     frontres_boundary_dr_step      = 0.03
     frontres_boundary_safe_high    = 0.45
@@ -627,9 +634,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_boundary_positive_gain_high = 0.55
 
     # ── Perturbation curriculum ────────────────────────────────────────────
-    # Iteration-level mode schedule.  Early training sees one artifact family
-    # at a time; later training mixes families while keeping full composite
-    # cases rare.  Boundary DR still controls magnitude inside each mode.
+    # Per-env rollout mode curriculum.  Early training keeps each sample
+    # single-family, but every PPO rollout mixes families across env triplets;
+    # later training adds pair/three/full combinations. Boundary DR controls
+    # magnitude inside each sampled mode.
     frontres_perturbation_curriculum_enabled = True
     frontres_curriculum_total_iterations = 1500
     frontres_curriculum_single_until = 0.30
@@ -715,7 +723,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
                                            # Tune range: 0.03-0.08 (effect is narrow).
         noise_std_type         = "scalar",
         # ── Task-space SE(3) correction mode ─────────────────────────────────
-        num_task_corrections   = 6,        # output = [Δpos(3), Δrpy(3)]
+        num_task_corrections   = 6,        # bounded correction head = [Δpos(3), Δrpy(3)]; policy appends c_pos/c_rpy
         max_delta_pos          = 0.3,      # tanh clip (metres)
         max_delta_rpy          = 0.1,      # tanh clip (radians ≈ 5.7°); keep FrontRES rotation conservative
         # ── GMT (frozen) ─────────────────────────────────────────────────────
