@@ -559,8 +559,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_gap_gate_temp         = 0.005
     frontres_side_actor_gate_weight = 0.05
     frontres_harm_epsilon          = 0.001
-    frontres_harm_penalty_weight   = 2.0
-    frontres_side_harm_weight      = 0.5
+    frontres_harm_penalty_weight   = 0.25
+    frontres_side_harm_weight      = 0.0
+    frontres_harm_action_cost_floor = 0.001
+    frontres_harm_action_cost_ref   = 0.01
     frontres_warmup_energy_loss_weight = 1.0
     # Alignment debug reward:
     #   r = mu * exec_signal

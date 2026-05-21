@@ -2582,10 +2582,23 @@ class OnPolicyRunner:
                             _exec_gate = _window_mu
                             _cost_gate = (1.0 - _window_mu).clamp(0.0, 1.0)
                             _harm_eps = float(self.cfg.get("frontres_harm_epsilon", 0.001))
-                            _harm_weight_cfg = float(self.cfg.get("frontres_harm_penalty_weight", 2.0))
-                            _side_harm_weight = float(self.cfg.get("frontres_side_harm_weight", 0.5))
+                            _harm_weight_cfg = float(self.cfg.get("frontres_harm_penalty_weight", 0.25))
+                            _side_harm_weight = float(self.cfg.get("frontres_side_harm_weight", 0.0))
                             _side_harm_weight = max(0.0, min(1.0, _side_harm_weight))
-                            _harm_mag = torch.relu(-_repair_gain - max(_harm_eps, 0.0))
+                            _harm_mag_raw = torch.relu(-_repair_gain - max(_harm_eps, 0.0))
+                            # A negative FrontRES-vs-perturbed executable delta is
+                            # only a harmful repair if FrontRES actually changed the
+                            # reference.  Otherwise small branch/evaluation noise can
+                            # mark no-op safe/broken samples as "harmful" and dominate
+                            # the reward.
+                            _cost_exec = _intervention_cost[:_n_exec]
+                            _harm_action_floor = float(self.cfg.get("frontres_harm_action_cost_floor", 0.001))
+                            _harm_action_ref = float(self.cfg.get("frontres_harm_action_cost_ref", 0.01))
+                            _harm_action_ref = max(_harm_action_ref, _harm_action_floor + 1e-6)
+                            _harm_action_gate = (
+                                (_cost_exec - _harm_action_floor) / (_harm_action_ref - _harm_action_floor)
+                            ).clamp(0.0, 1.0)
+                            _harm_mag = _harm_mag_raw * _harm_action_gate
                             _harm_weight = (
                                 _window_mu + _side_harm_weight * (1.0 - _window_mu)
                             ).clamp(0.0, 1.0)
@@ -2699,7 +2712,7 @@ class OnPolicyRunner:
                             _repair_fit_gap = (_window_mu * _damage_gap).sum().clamp(min=_eps_fit)
                             _repair_fit_rate = _repair_fit_num / _repair_fit_gap
                             _repair_fit_gain = _repair_fit_num / _mu_sum
-                            _harm_indicator = (_repair_gain < -max(_harm_eps, 0.0)).float()
+                            _harm_indicator = (_harm_mag > 0.0).float()
                             _harm_rate = (_window_mu * _harm_indicator).sum() / _mu_sum
                             _harm_mag_fit = (_window_mu * _harm_mag).sum() / _mu_sum
                             _safe_mask = (_damage_gap < _safe_gap).float()
@@ -2708,7 +2721,6 @@ class OnPolicyRunner:
                             _broken_den = _broken_mask.sum().clamp(min=_eps_fit)
                             _safe_harm_rate = (_safe_mask * _harm_indicator).sum() / _safe_den
                             _broken_harm_rate = (_broken_mask * _harm_indicator).sum() / _broken_den
-                            _cost_exec = _intervention_cost[:_n_exec]
                             _safe_abstain_cost = (_safe_mask * _cost_exec).sum() / _safe_den
                             _broken_abstain_cost = (_broken_mask * _cost_exec).sum() / _broken_den
                             _behavior_fit_num = (
@@ -3358,11 +3370,26 @@ class OnPolicyRunner:
             # ── FrontRES: r_delta + cos_sim + curriculum (compact) ──────────
             if isinstance(self.alg.policy, FrontRESActorCritic):
                 log_string += f"""\n{'─' * 30} FRONTRES {'─' * 31}\n"""
+
+                log_string += f"""{'-' * 24} Performance {'-' * 24}\n"""
+                log_string += f"""{'ep_len_FrontRES:':>{pad}} {statistics.mean(locs['lenbuffer']):.1f}\n"""
+                if len(locs.get("lenbuffer_gmt", [])) > 0:
+                    log_string += f"""{'ep_len_GMT (baseline):':>{pad}} {statistics.mean(locs['lenbuffer_gmt']):.1f}\n"""
+                if locs.get("frontres_perturb_complexity") is not None:
+                    log_string += f"""{'perturb curriculum:':>{pad}} """
+                    log_string += (
+                        f"{locs['frontres_perturb_complexity']} "
+                        f"[{locs.get('frontres_perturb_modes', '')}]\n"
+                    )
+                if locs.get("frontres_dr_scale") is not None:
+                    log_string += f"""{'DR scale:':>{pad}} {locs['frontres_dr_scale']:.4f}\n"""
+                if locs.get("frontres_survival_rate") is not None:
+                    log_string += f"""{'survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
+
+                log_string += f"""\n{'-' * 24} Main Reward {'-' * 24}\n"""
                 log_string += f"""{'r_delta (FrontRES):':>{pad}} {statistics.mean(locs['rewbuffer']):.4f}\n"""
                 if len(locs.get("rewbuffer_gmt", [])) > 0:
                     log_string += f"""{'reward_GMT (baseline):':>{pad}} {statistics.mean(locs['rewbuffer_gmt']):.4f}\n"""
-                if len(locs.get("lenbuffer_gmt", [])) > 0:
-                    log_string += f"""{'ep_len_GMT (baseline):':>{pad}} {statistics.mean(locs['lenbuffer_gmt']):.1f}\n"""
                 # cos_sim
                 _cs = locs.get("loss_dict", {}).get("supervised_cos_sim", None)
                 if _cs is not None:
@@ -3371,35 +3398,7 @@ class OnPolicyRunner:
                     log_string += f"""{'|Δpos|:':>{pad}} {locs['frontres_delta_pos_abs_mean']:.4f} m\n"""
                 if locs.get("frontres_delta_rpy_abs_mean") is not None:
                     log_string += f"""{'|Δrpy|:':>{pad}} {locs['frontres_delta_rpy_abs_mean']:.4f} rad\n"""
-                if locs.get("frontres_r_z_mean") is not None:
-                    log_string += f"""{'r_z/r_xy/r_rp/r_yaw:':>{pad}} """
-                    log_string += (
-                        f"{locs['frontres_r_z_mean']:+.4f} / "
-                        f"{locs['frontres_r_xy_mean']:+.4f} / "
-                        f"{locs['frontres_r_rp_mean']:+.4f} / "
-                        f"{locs['frontres_r_yaw_mean']:+.4f}\n"
-                    )
                 if locs.get("frontres_r_exec_mean") is not None:
-                    log_string += f"""{'repair/geom/rescue/action_cost:':>{pad}} """
-                    log_string += (
-                        f"{locs['frontres_r_exec_mean']:+.4f} / "
-                        f"{locs['frontres_r_geom_mean']:+.4f} / "
-                        f"{locs['frontres_r_rescue_mean']:+.4f} / "
-                        f"{locs['frontres_intervention_cost_mean']:+.4f}\n"
-                    )
-                    if locs.get("frontres_reward_frontres_mean") is not None and locs.get("frontres_baseline_mean") is not None:
-                        log_string += f"""{'exec reward FR/pert:':>{pad}} """
-                        log_string += (
-                            f"{locs['frontres_reward_frontres_mean']:+.4f} / "
-                            f"{locs['frontres_baseline_mean']:+.4f}\n"
-                        )
-                    if locs.get("frontres_exec_planar_mean") is not None:
-                        log_string += f"""{'exec planar/vertical/task:':>{pad}} """
-                        log_string += (
-                            f"{locs['frontres_exec_planar_mean']:+.4f} / "
-                            f"{locs['frontres_exec_vertical_mean']:+.4f} / "
-                            f"{locs['frontres_exec_task_mean']:+.4f}\n"
-                        )
                     if locs.get("frontres_damage_gap_mean") is not None:
                         log_string += f"""{'gap/gain/ratio:':>{pad}} """
                         log_string += (
@@ -3445,40 +3444,66 @@ class OnPolicyRunner:
                             f"{locs['frontres_repair_frac_mean']:.3f} / "
                             f"{locs['frontres_broken_frac_mean']:.3f}\n"
                         )
-                    if locs.get("frontres_window_mu_mean") is not None:
-                        log_string += f"""{'mu/actor gate:':>{pad}} """
+
+                    log_string += f"""\n{'-' * 24} Detail Reward {'-' * 23}\n"""
+                    if locs.get("frontres_r_z_mean") is not None:
+                        log_string += f"""{'r_z/r_xy/r_rp/r_yaw:':>{pad}} """
                         log_string += (
-                            f"{locs['frontres_window_mu_mean']:.3f} / "
-                            f"{locs['frontres_actor_gate_mean']:.3f}\n"
+                            f"{locs['frontres_r_z_mean']:+.4f} / "
+                            f"{locs['frontres_r_xy_mean']:+.4f} / "
+                            f"{locs['frontres_r_rp_mean']:+.4f} / "
+                            f"{locs['frontres_r_yaw_mean']:+.4f}\n"
                         )
+                    log_string += f"""{'repair/geom/rescue/action_cost:':>{pad}} """
+                    log_string += (
+                        f"{locs['frontres_r_exec_mean']:+.4f} / "
+                        f"{locs['frontres_r_geom_mean']:+.4f} / "
+                        f"{locs['frontres_r_rescue_mean']:+.4f} / "
+                        f"{locs['frontres_intervention_cost_mean']:+.4f}\n"
+                    )
+                    if locs.get("frontres_reward_frontres_mean") is not None and locs.get("frontres_baseline_mean") is not None:
+                        log_string += f"""{'exec reward FR/pert:':>{pad}} """
+                        log_string += (
+                            f"{locs['frontres_reward_frontres_mean']:+.4f} / "
+                            f"{locs['frontres_baseline_mean']:+.4f}\n"
+                        )
+                    if locs.get("frontres_exec_planar_mean") is not None:
+                        log_string += f"""{'exec planar/vertical/task:':>{pad}} """
+                        log_string += (
+                            f"{locs['frontres_exec_planar_mean']:+.4f} / "
+                            f"{locs['frontres_exec_vertical_mean']:+.4f} / "
+                            f"{locs['frontres_exec_task_mean']:+.4f}\n"
+                        )
+                    if locs.get("frontres_window_mu_mean") is not None:
                         log_string += f"""{'exec/cost gate:':>{pad}} """
                         log_string += (
                             f"{locs['frontres_exec_gate_mean']:.3f} / "
                             f"{locs['frontres_cost_gate_mean']:.3f}\n"
                         )
+
+                log_string += f"""\n{'-' * 21} Optimization / Update {'-' * 20}\n"""
+                if locs.get("frontres_window_mu_mean") is not None:
+                    log_string += f"""{'mu (reward window):':>{pad}} {locs['frontres_window_mu_mean']:.3f}\n"""
+                    log_string += f"""{'actor sample weight:':>{pad}} {locs['frontres_actor_gate_mean']:.3f}\n"""
                 _gc = locs.get("loss_dict", {}).get("grad_cos_ppo_supervised", None)
                 if _gc is not None:
                     _gr = locs.get("loss_dict", {}).get("grad_norm_ratio_ppo_to_supervised", 0.0)
                     log_string += f"""{'grad cos PPO/Sup:':>{pad}} {_gc:+.4f} (norm ratio={_gr:.3f})\n"""
-                # Curriculum state
-                if locs.get("frontres_perturb_complexity") is not None:
-                    log_string += f"""{'perturb curriculum:':>{pad}} """
-                    log_string += (
-                        f"{locs['frontres_perturb_complexity']} "
-                        f"[{locs.get('frontres_perturb_modes', '')}]\n"
-                    )
-                if locs.get("frontres_dr_scale") is not None:
-                    log_string += f"""{'DR scale:':>{pad}} {locs['frontres_dr_scale']:.4f}\n"""
                 _rd_ema = locs.get("_r_delta_ema", 0.0)
                 log_string += f"""{'r_delta EMA:':>{pad}} {_rd_ema:.4f}\n"""
-                if locs.get("frontres_survival_rate") is not None:
-                    log_string += f"""{'survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
                 _lam = locs.get("loss_dict", {}).get("lambda_supervised", None)
                 if _lam is not None:
                     log_string += f"""{'λ_supervised:':>{pad}} {_lam:.3f}\n"""
                 _paw = locs.get("loss_dict", {}).get("ppo_actor_weight", None)
                 if _paw is not None:
                     log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
+                if locs.get("frontres_window_mu_mean") is not None:
+                    log_string += f"""{'actor/exec/cost:':>{pad}} """
+                    log_string += (
+                        f"{locs['frontres_actor_gate_mean']:.3f} / "
+                        f"{locs['frontres_exec_gate_mean']:.3f} / "
+                        f"{locs['frontres_cost_gate_mean']:.3f}\n"
+                    )
         else:
             log_string = (
                 f"""{'#' * width}\n"""
