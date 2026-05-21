@@ -558,9 +558,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_broken_gap_per_step   = 0.08
     frontres_gap_gate_temp         = 0.005
     frontres_side_actor_gate_weight = 0.05
+    frontres_harm_epsilon          = 0.001
+    frontres_harm_penalty_weight   = 2.0
+    frontres_side_harm_weight      = 0.5
     frontres_warmup_energy_loss_weight = 1.0
     # Alignment debug reward:
-    #   r = mu * exec_signal - (1 - mu) * minimum-intervention cost
+    #   r = mu * exec_signal
+    #       - harm_weight * harmful_repair
+    #       - (1 - mu) * minimum-intervention cost
     # Geometry and rescue terms are disabled here so the only positive signal is
     # "corrected reference is easier for frozen GMT than noisy reference".
     frontres_geometry_reward_weight = 0.0

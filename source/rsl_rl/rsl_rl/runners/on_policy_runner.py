@@ -2145,6 +2145,15 @@ class OnPolicyRunner:
             _frontres_exec_signal_sum:     float = 0.0
             _frontres_weighted_exec_signal_sum: float = 0.0
             _frontres_train_reward_sum:    float = 0.0
+            _frontres_behavior_fit_sum:    float = 0.0
+            _frontres_repair_fit_rate_sum: float = 0.0
+            _frontres_repair_fit_gain_sum: float = 0.0
+            _frontres_harm_rate_sum:       float = 0.0
+            _frontres_harm_mag_sum:        float = 0.0
+            _frontres_safe_harm_rate_sum:  float = 0.0
+            _frontres_broken_harm_rate_sum: float = 0.0
+            _frontres_safe_abstain_cost_sum: float = 0.0
+            _frontres_broken_abstain_cost_sum: float = 0.0
             _frontres_window_mu_sum:      float = 0.0
             _frontres_safe_frac_sum:      float = 0.0
             _frontres_repair_frac_sum:    float = 0.0
@@ -2572,6 +2581,15 @@ class OnPolicyRunner:
 
                             _exec_gate = _window_mu
                             _cost_gate = (1.0 - _window_mu).clamp(0.0, 1.0)
+                            _harm_eps = float(self.cfg.get("frontres_harm_epsilon", 0.001))
+                            _harm_weight_cfg = float(self.cfg.get("frontres_harm_penalty_weight", 2.0))
+                            _side_harm_weight = float(self.cfg.get("frontres_side_harm_weight", 0.5))
+                            _side_harm_weight = max(0.0, min(1.0, _side_harm_weight))
+                            _harm_mag = torch.relu(-_repair_gain - max(_harm_eps, 0.0))
+                            _harm_weight = (
+                                _window_mu + _side_harm_weight * (1.0 - _window_mu)
+                            ).clamp(0.0, 1.0)
+                            _harm_penalty_exec = _harm_weight_cfg * _harm_weight * _harm_mag
 
                             _side_actor_weight = float(self.cfg.get("frontres_side_actor_gate_weight", 0.05))
                             _side_actor_weight = max(0.0, min(1.0, _side_actor_weight))
@@ -2585,8 +2603,11 @@ class OnPolicyRunner:
                             _frontres_actor_gate = torch.zeros(self.env.num_envs, 1, device=self.device)
                             _frontres_actor_gate[:_n_exec, 0] = _actor_gate
                             self.alg.transition.frontres_actor_gate = _frontres_actor_gate
+                            _harm_penalty = torch.zeros(N_train, device=self.device)
+                            _harm_penalty[:_n_exec] = _harm_penalty_exec
                             r_delta = (
                                 _w_exec * _repair_scale * _exec_weight * _r_exec
+                                - _w_exec * _repair_scale * _harm_penalty
                                 + _w_geom * _r_step
                                 + _w_rescue * _r_rescue
                                 - _cost_weight * _intervention_cost
@@ -2672,6 +2693,43 @@ class OnPolicyRunner:
                                 _exec_weight[:_n_exec] * _r_exec[:_n_exec]
                             ).mean().item()
                             _frontres_train_reward_sum += r_delta[:_n_exec].mean().item()
+                            _eps_fit = 1e-6
+                            _mu_sum = _window_mu.sum().clamp(min=_eps_fit)
+                            _repair_fit_num = (_window_mu * _repair_gain).sum()
+                            _repair_fit_gap = (_window_mu * _damage_gap).sum().clamp(min=_eps_fit)
+                            _repair_fit_rate = _repair_fit_num / _repair_fit_gap
+                            _repair_fit_gain = _repair_fit_num / _mu_sum
+                            _harm_indicator = (_repair_gain < -max(_harm_eps, 0.0)).float()
+                            _harm_rate = (_window_mu * _harm_indicator).sum() / _mu_sum
+                            _harm_mag_fit = (_window_mu * _harm_mag).sum() / _mu_sum
+                            _safe_mask = (_damage_gap < _safe_gap).float()
+                            _broken_mask = (_damage_gap > _broken_gap).float()
+                            _safe_den = _safe_mask.sum().clamp(min=_eps_fit)
+                            _broken_den = _broken_mask.sum().clamp(min=_eps_fit)
+                            _safe_harm_rate = (_safe_mask * _harm_indicator).sum() / _safe_den
+                            _broken_harm_rate = (_broken_mask * _harm_indicator).sum() / _broken_den
+                            _cost_exec = _intervention_cost[:_n_exec]
+                            _safe_abstain_cost = (_safe_mask * _cost_exec).sum() / _safe_den
+                            _broken_abstain_cost = (_broken_mask * _cost_exec).sum() / _broken_den
+                            _behavior_fit_num = (
+                                (_window_mu * _repair_gain).sum()
+                                - _harm_penalty_exec.sum()
+                                - (_cost_gate * _cost_exec).sum()
+                            )
+                            _behavior_fit_den = (
+                                (_window_mu * _damage_gap).sum()
+                                + (_cost_gate * _cost_exec).sum()
+                            ).clamp(min=_eps_fit)
+                            _behavior_fit = _behavior_fit_num / _behavior_fit_den
+                            _frontres_behavior_fit_sum += _behavior_fit.item()
+                            _frontres_repair_fit_rate_sum += _repair_fit_rate.item()
+                            _frontres_repair_fit_gain_sum += _repair_fit_gain.item()
+                            _frontres_harm_rate_sum += _harm_rate.item()
+                            _frontres_harm_mag_sum += _harm_mag_fit.item()
+                            _frontres_safe_harm_rate_sum += _safe_harm_rate.item()
+                            _frontres_broken_harm_rate_sum += _broken_harm_rate.item()
+                            _frontres_safe_abstain_cost_sum += _safe_abstain_cost.item()
+                            _frontres_broken_abstain_cost_sum += _broken_abstain_cost.item()
                             _frontres_window_mu_sum    += _window_mu.mean().item()
                             _frontres_safe_frac_sum    += _safe_frac.item()
                             _frontres_repair_frac_sum  += _repair_frac.item()
@@ -2904,6 +2962,42 @@ class OnPolicyRunner:
                 _frontres_train_reward_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_behavior_fit_mean = (
+                _frontres_behavior_fit_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_repair_fit_rate_mean = (
+                _frontres_repair_fit_rate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_repair_fit_gain_mean = (
+                _frontres_repair_fit_gain_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_harm_rate_mean = (
+                _frontres_harm_rate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_harm_mag_mean = (
+                _frontres_harm_mag_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_safe_harm_rate_mean = (
+                _frontres_safe_harm_rate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_broken_harm_rate_mean = (
+                _frontres_broken_harm_rate_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_safe_abstain_cost_mean = (
+                _frontres_safe_abstain_cost_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_broken_abstain_cost_mean = (
+                _frontres_broken_abstain_cost_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_window_mu_mean = (
                 _frontres_window_mu_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -3126,6 +3220,9 @@ class OnPolicyRunner:
                 "reward_frontres", "exec_planar", "exec_vertical", "exec_task",
                 "damage_gap", "repair_gain", "positive_gain_frac", "repair_ratio",
                 "exec_signal", "weighted_exec_signal", "train_reward",
+                "behavior_fit", "repair_fit_rate", "repair_fit_gain",
+                "harm_rate", "harm_mag", "safe_harm_rate", "broken_harm_rate",
+                "safe_abstain_cost", "broken_abstain_cost",
                 "window_mu", "safe_frac", "repair_frac", "broken_frac",
                 "actor_gate", "exec_gate", "cost_gate",
                 "r_z", "r_xy", "r_rp", "r_yaw",
@@ -3316,6 +3413,28 @@ class OnPolicyRunner:
                                 f"{locs['frontres_exec_signal_mean']:+.4f} / "
                                 f"{locs['frontres_weighted_exec_signal_mean']:+.4f} / "
                                 f"{locs['frontres_train_reward_mean']:+.4f}\n"
+                            )
+                        if locs.get("frontres_behavior_fit_mean") is not None:
+                            log_string += f"""{'fit total/rate/gain:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_behavior_fit_mean']:+.3f} / "
+                                f"{locs['frontres_repair_fit_rate_mean']:+.3f} / "
+                                f"{locs['frontres_repair_fit_gain_mean']:+.4f}\n"
+                            )
+                            log_string += f"""{'harm rate/mag:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_harm_rate_mean']:.3f} / "
+                                f"{locs['frontres_harm_mag_mean']:.4f}\n"
+                            )
+                            log_string += f"""{'safe/broken harm:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_safe_harm_rate_mean']:.3f} / "
+                                f"{locs['frontres_broken_harm_rate_mean']:.3f}\n"
+                            )
+                            log_string += f"""{'safe/broken abstain:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_safe_abstain_cost_mean']:.4f} / "
+                                f"{locs['frontres_broken_abstain_cost_mean']:.4f}\n"
                             )
                         if locs.get("frontres_positive_gain_frac_mean") is not None:
                             log_string += f"""{'positive_gain_frac:':>{pad}} """
