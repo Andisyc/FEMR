@@ -555,7 +555,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_exec_velocity_body_names = None
     frontres_gap_floor_per_step    = 0.005
     frontres_safe_gap_per_step     = 0.003
-    frontres_broken_gap_per_step   = 0.08
+    frontres_broken_gap_per_step   = 0.10
     frontres_gap_gate_temp         = 0.005
     frontres_side_actor_gate_weight = 0.05
     frontres_harm_epsilon          = 0.001
@@ -563,6 +563,23 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_side_harm_weight      = 0.0
     frontres_harm_action_cost_floor = 0.001
     frontres_harm_action_cost_ref   = 0.01
+    frontres_state_supervised_controller_enabled = True
+    frontres_supervised_anchor_weight = 0.02
+    frontres_supervised_decay_good = 0.985
+    frontres_supervised_decay_conflict = 0.97
+    frontres_supervised_positive_gain_trigger = 0.52
+    frontres_supervised_harm_limit = 0.06
+    frontres_supervised_grad_cos_low = 0.03
+    frontres_supervised_min_hold_iters = 5
+    frontres_exec_reward_signal = "family_preference"
+    frontres_family_preference_scale = 0.02
+    frontres_family_preference_tau = 1.0
+    frontres_family_preference_alpha = 0.7
+    frontres_family_gain_ema_alpha = 0.05
+    frontres_family_gain_initial_std = 0.01
+    frontres_family_gain_min_std = 0.002
+    frontres_per_mode_supervised_mask = True
+    frontres_adaptive_perturb_curriculum_enabled = True
     frontres_warmup_energy_loss_weight = 1.0
     # Alignment debug reward:
     #   r = mu * exec_signal

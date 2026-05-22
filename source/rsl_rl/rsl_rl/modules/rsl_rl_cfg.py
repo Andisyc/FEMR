@@ -246,6 +246,22 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Minimum supervised loss weight after decay."""
     lambda_supervised_decay: float = 0.997
     """Per-update multiplicative decay after cosine trigger."""
+    frontres_state_supervised_controller_enabled: bool = True
+    """Use FrontRES reward diagnostics to permanently decay supervised loss into a weak anchor."""
+    frontres_supervised_anchor_weight: float = 0.02
+    """Final weak supervised anchor weight once PPO has a learnable executable signal."""
+    frontres_supervised_decay_good: float = 0.985
+    """Multiplicative supervised decay when PPO signal is learnable and safe."""
+    frontres_supervised_decay_conflict: float = 0.97
+    """Faster supervised decay when PPO and supervised actor gradients are nearly orthogonal/conflicting."""
+    frontres_supervised_positive_gain_trigger: float = 0.52
+    """Positive-gain fraction required before supervised weight is allowed to decay."""
+    frontres_supervised_harm_limit: float = 0.06
+    """Harm-rate ceiling for supervised decay."""
+    frontres_supervised_grad_cos_low: float = 0.03
+    """Gradient cosine below which supervised is treated as directionally unhelpful."""
+    frontres_supervised_min_hold_iters: int = 5
+    """Number of diagnostic iterations before the state controller can decay supervised loss."""
     supervised_trigger_cosine_sim: float = 0.85
     """EMA cosine-similarity threshold that starts supervised weight decay."""
     supervised_rpy_loss_weight: float = 1.0
@@ -262,6 +278,24 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Number of PPO iterations used to linearly ramp actor surrogate from 0 to 1."""
     ppo_advantage_focal_power: float = 0.0
     """Optional |advantage| focal exponent for actor surrogate. 0.0 gives standard PPO."""
+    frontres_exec_reward_signal: str = "family_preference"
+    """Executable reward signal: gain, ratio, or family_preference."""
+    frontres_family_preference_scale: float = 0.02
+    """Per-step scale for bounded pairwise preference reward."""
+    frontres_family_preference_tau: float = 1.0
+    """Temperature for tanh(gain / family_std / tau)."""
+    frontres_family_preference_alpha: float = 0.7
+    """Blend weight for bounded preference vs. bounded repair ratio."""
+    frontres_family_gain_ema_alpha: float = 0.05
+    """EMA update rate for per-perturb-family gain statistics."""
+    frontres_family_gain_initial_std: float = 0.01
+    """Initial per-family gain std used before enough statistics are observed."""
+    frontres_family_gain_min_std: float = 0.002
+    """Lower bound for per-family gain std normalization."""
+    frontres_per_mode_supervised_mask: bool = True
+    """Mask supervised ΔSE3 targets by the perturbation family assigned to each env."""
+    frontres_adaptive_perturb_curriculum_enabled: bool = True
+    """Choose perturbation-family complexity from repairability diagnostics instead of fixed iteration progress."""
     frontres_active_task_dims: list[int] | None = None
     """Optional supervised-loss mask for task-space FrontRES correction dims."""
     diagnose_gradient_conflict: bool = True

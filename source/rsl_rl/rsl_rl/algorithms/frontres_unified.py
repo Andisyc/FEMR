@@ -300,7 +300,8 @@ class FrontRESUnified:
 
     def update(self):
         loss_dict = self._update_ppo_supervised()
-        self._step_supervised_lambda(loss_dict.get("supervised_cos_sim", 0.0))
+        if not bool(getattr(self, "state_supervised_controller_enabled", False)):
+            self._step_supervised_lambda(loss_dict.get("supervised_cos_sim", 0.0))
         return loss_dict
 
     def _step_supervised_lambda(self, cos_sim: float):

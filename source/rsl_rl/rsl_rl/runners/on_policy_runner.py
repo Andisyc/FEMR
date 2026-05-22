@@ -771,6 +771,164 @@ class OnPolicyRunner:
         projected[:n, 2] = torch.minimum(torch.maximum(projected[:n, 2], z_lower), z_upper)
         return projected
 
+    def _frontres_mode_dim_mask(
+        self,
+        mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
+        count: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """Build a per-env ΔSE3 mask from perturbation families.
+
+        The global action mask says what FrontRES is allowed to output.  This
+        per-mode mask says what the current sample actually asks the supervised
+        anchor to explain, avoiding planar rollouts supervising z/rp/yaw targets
+        that are unrelated to the active perturbation.
+        """
+        mask = torch.zeros(count, 6, device=device, dtype=dtype)
+        for env_i, modes in enumerate(list(mode_groups)[:count]):
+            mode_set = set(modes)
+            if "planar" in mode_set:
+                mask[env_i, 0] = 1.0
+                mask[env_i, 1] = 1.0
+            if "global_z" in mode_set:
+                mask[env_i, 2] = 1.0
+            if "local_rp" in mode_set:
+                mask[env_i, 3] = 1.0
+                mask[env_i, 4] = 1.0
+            if "yaw" in mode_set:
+                mask[env_i, 5] = 1.0
+        return mask
+
+    def _frontres_apply_per_mode_supervised_mask(
+        self,
+        target: torch.Tensor,
+        mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
+        count: int,
+    ) -> torch.Tensor:
+        if target.numel() == 0 or target.shape[-1] < 6 or count <= 0:
+            return target
+        masked = target.clone()
+        n = min(count, masked.shape[0])
+        mode_mask = self._frontres_mode_dim_mask(mode_groups, n, masked.device, masked.dtype)
+        masked[:n, :6] = masked[:n, :6] * mode_mask
+        return masked
+
+    def _frontres_family_gain_std(
+        self,
+        mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
+        gain: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return per-sample gain std from per-family EMA stats, then update stats."""
+        if gain.numel() == 0:
+            return torch.empty_like(gain)
+        init_std = float(self.cfg.get("frontres_family_gain_initial_std", 0.01))
+        min_std = float(self.cfg.get("frontres_family_gain_min_std", 0.002))
+        alpha = float(self.cfg.get("frontres_family_gain_ema_alpha", 0.05))
+        alpha = max(0.0, min(1.0, alpha))
+        stats = getattr(self, "_frontres_family_gain_stats", None)
+        if stats is None:
+            stats = {}
+            self._frontres_family_gain_stats = stats
+
+        mode_groups_list = list(mode_groups)[: gain.shape[0]]
+        if len(mode_groups_list) < gain.shape[0]:
+            fallback_modes = ("planar", "yaw", "global_z", "local_rp")
+            mode_groups_list.extend([fallback_modes] * (gain.shape[0] - len(mode_groups_list)))
+        std = torch.full_like(gain, max(init_std, min_std))
+        for idx, modes in enumerate(mode_groups_list):
+            families = tuple(m for m in modes if m in ("planar", "yaw", "global_z", "local_rp"))
+            if not families:
+                families = ("all",)
+            vals = []
+            for family in families:
+                entry = stats.get(family)
+                if entry is None:
+                    vals.append(max(init_std, min_std))
+                else:
+                    vals.append(max(float(entry.get("std", init_std)), min_std))
+            std[idx] = sum(vals) / float(len(vals))
+
+        with torch.no_grad():
+            gain_detached = gain.detach()
+            for family in ("planar", "yaw", "global_z", "local_rp"):
+                mask_vals = [
+                    family in set(modes)
+                    for modes in mode_groups_list
+                ]
+                if not any(mask_vals):
+                    continue
+                mask = torch.tensor(mask_vals, device=gain.device, dtype=torch.bool)
+                values = gain_detached[mask]
+                if values.numel() == 0:
+                    continue
+                batch_mean = values.mean().item()
+                batch_var = values.var(unbiased=False).item() if values.numel() > 1 else 0.0
+                entry = stats.get(family)
+                if entry is None:
+                    mean = batch_mean
+                    var = max(batch_var, init_std * init_std)
+                else:
+                    old_mean = float(entry.get("mean", 0.0))
+                    old_var = float(entry.get("var", init_std * init_std))
+                    mean = (1.0 - alpha) * old_mean + alpha * batch_mean
+                    var = (1.0 - alpha) * old_var + alpha * batch_var
+                stats[family] = {
+                    "mean": mean,
+                    "var": max(var, min_std * min_std),
+                    "std": max(math.sqrt(max(var, 0.0)), min_std),
+                }
+        return std.clamp(min=min_std)
+
+    def _frontres_update_supervised_controller(
+        self,
+        *,
+        loss_dict: dict,
+        positive_gain_frac: float | None,
+        harm_rate: float | None,
+    ) -> None:
+        """Decay supervised learning into a one-way anchor once PPO is learnable."""
+        if not bool(self.cfg.get("frontres_state_supervised_controller_enabled", True)):
+            return
+        if not hasattr(self.alg, "lambda_supervised"):
+            return
+        self.alg.state_supervised_controller_enabled = True
+        lam = float(getattr(self.alg, "lambda_supervised", 0.0))
+        if lam <= 0.0:
+            return
+
+        anchor = float(self.cfg.get(
+            "frontres_supervised_anchor_weight",
+            self.cfg.get("lambda_supervised_min", 0.02),
+        ))
+        hold_iters = int(self.cfg.get("frontres_supervised_min_hold_iters", 5))
+        seen = int(getattr(self, "_frontres_supervised_controller_seen", 0)) + 1
+        self._frontres_supervised_controller_seen = seen
+        if seen < max(0, hold_iters):
+            return
+
+        pos_trigger = float(self.cfg.get("frontres_supervised_positive_gain_trigger", 0.52))
+        harm_limit = float(self.cfg.get("frontres_supervised_harm_limit", 0.06))
+        grad_low = float(self.cfg.get("frontres_supervised_grad_cos_low", 0.03))
+        decay_good = float(self.cfg.get("frontres_supervised_decay_good", 0.985))
+        decay_conflict = float(self.cfg.get("frontres_supervised_decay_conflict", 0.97))
+        grad_cos = float(loss_dict.get("grad_cos_ppo_supervised", 0.0))
+
+        learnable = (
+            positive_gain_frac is not None
+            and harm_rate is not None
+            and float(positive_gain_frac) >= pos_trigger
+            and float(harm_rate) <= harm_limit
+        )
+        factor = 1.0
+        if learnable:
+            factor = min(factor, decay_good)
+        if grad_cos < grad_low and positive_gain_frac is not None and float(positive_gain_frac) >= 0.50:
+            factor = min(factor, decay_conflict)
+        if factor < 1.0:
+            setattr(self.alg, "lambda_supervised", max(anchor, lam * factor))
+
+
     def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False):  # noqa: C901
         print("[Runner] learn() entered — initializing logger...", flush=True)
         # initialize writer
@@ -1034,6 +1192,9 @@ class OnPolicyRunner:
         # and the repair gain:
         #   R_frontres - R_noisy
         if _is_frontres:
+            self.alg.state_supervised_controller_enabled = bool(
+                self.cfg.get("frontres_state_supervised_controller_enabled", True)
+            )
             N_pair = self.env.num_envs // 3
             N_train = N_pair
             N_base  = N_pair
@@ -1228,6 +1389,58 @@ class OnPolicyRunner:
             _two_late_prob = float(self.cfg.get("frontres_curriculum_two_late_prob", 0.40))
 
             _bucket = (int(seq_idx) * 37) % 1000 / 1000.0
+            if bool(self.cfg.get("frontres_adaptive_perturb_curriculum_enabled", True)):
+                _stats = getattr(self, "_frontres_boundary_ema", None)
+                if _stats is None:
+                    _stats = getattr(self, "_last_frontres_boundary_stats", None)
+                if _stats is None:
+                    return _single, "single"
+                _safe = float(_stats.get("safe", 0.0))
+                _repair = float(_stats.get("repair", _stats.get("fragile", 0.0)))
+                _broken = float(_stats.get("broken", 0.0))
+                _gainpos = float(_stats.get("positive_gain", 0.5))
+                _safe_hi = float(self.cfg.get("frontres_boundary_safe_high", 0.45))
+                _broken_hi = float(self.cfg.get("frontres_boundary_broken_high", 0.35))
+                _broken_target = float(self.cfg.get("frontres_boundary_broken_target", 0.25))
+                _repair_lo = float(self.cfg.get(
+                    "frontres_boundary_repair_low",
+                    self.cfg.get("frontres_boundary_fragile_low", 0.45),
+                ))
+                _repair_hi = float(self.cfg.get(
+                    "frontres_boundary_repair_high",
+                    self.cfg.get("frontres_boundary_fragile_high", 0.70),
+                ))
+                _gain_hi = float(self.cfg.get("frontres_boundary_positive_gain_high", 0.55))
+                _gain_lo = float(self.cfg.get("frontres_boundary_positive_gain_low", 0.45))
+
+                # State-based curriculum:
+                # * broken-heavy or low-gain batches retreat to clean single-family credit assignment;
+                # * safe-heavy batches add pairs to reach the repair frontier;
+                # * learnable boundary batches add pairs/occasional composites;
+                # * otherwise keep mostly single with a little pair exposure.
+                if _broken > _broken_hi or (_gainpos < _gain_lo and _broken > _broken_target):
+                    _complexity, _choices = "single", _single
+                elif _safe > _safe_hi and _broken < _broken_target and _two:
+                    if _bucket < 0.65:
+                        _complexity, _choices = "two", _two
+                    else:
+                        _complexity, _choices = "single", _single
+                elif (_repair_lo <= _repair <= _repair_hi) and _gainpos > _gain_hi:
+                    if _bucket < _full_prob and len(_bases) > 1:
+                        _complexity, _choices = "full", _full
+                    elif _bucket < _full_prob + max(_three_prob, 0.15) and _three:
+                        _complexity, _choices = "three", _three
+                    elif _bucket < _full_prob + max(_three_prob, 0.15) + 0.55 and _two:
+                        _complexity, _choices = "two", _two
+                    else:
+                        _complexity, _choices = "single", _single
+                else:
+                    if _bucket < 0.30 and _two:
+                        _complexity, _choices = "two", _two
+                    else:
+                        _complexity, _choices = "single", _single
+                return _choices, _complexity
+
             if _progress < _single_until:
                 _complexity, _choices = "single", _single
             elif _progress < _two_until:
@@ -1300,6 +1513,7 @@ class OnPolicyRunner:
             print(
                 "[Runner] Perturbation curriculum enabled: "
                 f"bases=[{_allowed_bases}], "
+                f"adaptive={self.cfg.get('frontres_adaptive_perturb_curriculum_enabled', True)}, "
                 f"single_until={self.cfg.get('frontres_curriculum_single_until', 0.30)}, "
                 f"two_until={self.cfg.get('frontres_curriculum_two_until', 0.70)}, "
                 f"full_prob={self.cfg.get('frontres_curriculum_full_prob', 0.05)}",
@@ -2333,6 +2547,15 @@ class OnPolicyRunner:
                                 _sup_target = self._frontres_project_task_target_to_action_cone(
                                     _cmd_sup, _sup_target
                                 )
+                                if bool(self.cfg.get("frontres_per_mode_supervised_mask", True)):
+                                    _sup_mode_groups = list(getattr(
+                                        self,
+                                        "_frontres_curriculum_env_mode_groups",
+                                        [tuple(getattr(self, "_frontres_curriculum_active_modes", ()))] * N_train,
+                                    ))[:N_train]
+                                    _sup_target = self._frontres_apply_per_mode_supervised_mask(
+                                        _sup_target, _sup_mode_groups, N_train
+                                    )
                                 self.alg.transition.supervised_target = _sup_target
                                 break
 
@@ -2552,7 +2775,15 @@ class OnPolicyRunner:
                             _gap_floor = float(self.cfg.get("frontres_gap_floor_per_step", 0.005))
                             _repair_ratio = (_repair_gain / _damage_gap.clamp(min=_gap_floor)).clamp(-1.0, 1.0)
                             _reward_signal_mode = str(self.cfg.get("frontres_exec_reward_signal", "gain")).lower()
-                            if _reward_signal_mode == "ratio":
+                            if _reward_signal_mode in ("family_preference", "preference", "ranking"):
+                                _gain_std = self._frontres_family_gain_std(_mode_groups, _repair_gain.detach())
+                                _tau = max(float(self.cfg.get("frontres_family_preference_tau", 1.0)), 1e-6)
+                                _pref = torch.tanh((_repair_gain / _gain_std) / _tau)
+                                _alpha = float(self.cfg.get("frontres_family_preference_alpha", 0.7))
+                                _alpha = max(0.0, min(1.0, _alpha))
+                                _scale = float(self.cfg.get("frontres_family_preference_scale", 0.02))
+                                _exec_signal = _scale * (_alpha * _pref + (1.0 - _alpha) * _repair_ratio)
+                            elif _reward_signal_mode == "ratio":
                                 _exec_signal = _repair_ratio
                             else:
                                 _exec_signal = _repair_gain
@@ -3085,6 +3316,15 @@ class OnPolicyRunner:
                     "positive_gain": float(frontres_positive_gain_frac_mean),
                 }
 
+            if _is_frontres:
+                self._frontres_update_supervised_controller(
+                    loss_dict=loss_dict,
+                    positive_gain_frac=frontres_positive_gain_frac_mean,
+                    harm_rate=frontres_harm_rate_mean,
+                )
+                if hasattr(self.alg, "lambda_supervised"):
+                    loss_dict["lambda_supervised"] = float(self.alg.lambda_supervised)
+
             # DR scale for logging: current value (set by PI controller at top of iteration)
             frontres_dr_scale = _dr_scale if _is_frontres else None
             frontres_perturb_modes = (
@@ -3357,21 +3597,29 @@ class OnPolicyRunner:
             if _notes:
                 _phase_str += f"\n  {_notes}  "
 
-            log_string = (
-                f"""{'#' * width}\n"""
-                f"""{str.center(width, ' ')}\n"""
-                f"""{_phase_str.center(width, ' ')}\n\n"""
-                f"""{'─' * 30} PERFORMANCE {'─' * 30}\n"""
-                f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
-                    'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
-                f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
-                f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
+            _is_frontres_policy = isinstance(self.alg.policy, FrontRESActorCritic)
+            if _is_frontres_policy:
+                log_string = (
+                    f"""{'#' * width}\n"""
+                    f"""{str.center(width, ' ')}\n"""
+                    f"""{_phase_str.center(width, ' ')}\n""")
+            else:
+                log_string = (
+                    f"""{'#' * width}\n"""
+                    f"""{str.center(width, ' ')}\n"""
+                    f"""{_phase_str.center(width, ' ')}\n\n"""
+                    f"""{'─' * 30} PERFORMANCE {'─' * 30}\n"""
+                    f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
+                        'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
+                    f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
+                    f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
 
             # ── FrontRES: r_delta + cos_sim + curriculum (compact) ──────────
-            if isinstance(self.alg.policy, FrontRESActorCritic):
-                log_string += f"""\n{'─' * 30} FRONTRES {'─' * 31}\n"""
-
-                log_string += f"""{'-' * 24} Performance {'-' * 24}\n"""
+            if _is_frontres_policy:
+                log_string += f"""\n{'-' * 12} Performance {'-' * 12}\n"""
+                log_string += f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
+                    'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
+                log_string += f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
                 log_string += f"""{'ep_len_FrontRES:':>{pad}} {statistics.mean(locs['lenbuffer']):.1f}\n"""
                 if len(locs.get("lenbuffer_gmt", [])) > 0:
                     log_string += f"""{'ep_len_GMT (baseline):':>{pad}} {statistics.mean(locs['lenbuffer_gmt']):.1f}\n"""
@@ -3386,7 +3634,7 @@ class OnPolicyRunner:
                 if locs.get("frontres_survival_rate") is not None:
                     log_string += f"""{'survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
 
-                log_string += f"""\n{'-' * 24} Main Reward {'-' * 24}\n"""
+                log_string += f"""\n{'-' * 12} Main Reward {'-' * 12}\n"""
                 log_string += f"""{'r_delta (FrontRES):':>{pad}} {statistics.mean(locs['rewbuffer']):.4f}\n"""
                 if len(locs.get("rewbuffer_gmt", [])) > 0:
                     log_string += f"""{'reward_GMT (baseline):':>{pad}} {statistics.mean(locs['rewbuffer_gmt']):.4f}\n"""
@@ -3445,7 +3693,7 @@ class OnPolicyRunner:
                             f"{locs['frontres_broken_frac_mean']:.3f}\n"
                         )
 
-                    log_string += f"""\n{'-' * 24} Detail Reward {'-' * 23}\n"""
+                    log_string += f"""\n{'-' * 12} Detail Reward {'-' * 12}\n"""
                     if locs.get("frontres_r_z_mean") is not None:
                         log_string += f"""{'r_z/r_xy/r_rp/r_yaw:':>{pad}} """
                         log_string += (
@@ -3481,7 +3729,7 @@ class OnPolicyRunner:
                             f"{locs['frontres_cost_gate_mean']:.3f}\n"
                         )
 
-                log_string += f"""\n{'-' * 21} Optimization / Update {'-' * 20}\n"""
+                log_string += f"""\n{'-' * 10} Optimization / Update {'-' * 10}\n"""
                 if locs.get("frontres_window_mu_mean") is not None:
                     log_string += f"""{'mu (reward window):':>{pad}} {locs['frontres_window_mu_mean']:.3f}\n"""
                     log_string += f"""{'actor sample weight:':>{pad}} {locs['frontres_actor_gate_mean']:.3f}\n"""
@@ -3523,8 +3771,9 @@ class OnPolicyRunner:
                     log_string += f"""{f'{key}:':>{pad}} {value:.4f}\n"""
 
         # Episode_Reward / Metrics / Terminations → wandb only, not console
+        _footer_width = 44 if self.training_type == "frontres" else width
         log_string += (
-            f"""{'-' * width}\n"""
+            f"""{'-' * _footer_width}\n"""
             f"""{'Total timesteps:':>{pad}} {self.tot_timesteps}\n"""
             f"""{'Iteration time:':>{pad}} {iteration_time:.2f}s\n"""
             f"""{'Time elapsed:':>{pad}} {time.strftime("%H:%M:%S", time.gmtime(self.tot_time))}\n"""
