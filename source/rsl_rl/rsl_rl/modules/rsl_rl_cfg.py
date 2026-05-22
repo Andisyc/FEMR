@@ -278,8 +278,22 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Number of PPO iterations used to linearly ramp actor surrogate from 0 to 1."""
     ppo_advantage_focal_power: float = 0.0
     """Optional |advantage| focal exponent for actor surrogate. 0.0 gives standard PPO."""
-    frontres_exec_reward_signal: str = "family_preference"
+    frontres_exec_reward_signal: str = "gain"
     """Executable reward signal: gain, ratio, or family_preference."""
+    frontres_selective_reward_enabled: bool = True
+    """Use safe/repairable/broken gates so FrontRES learns when to abstain and when to repair."""
+    frontres_min_effective_gain: float = 0.006
+    """Minimum per-step executable gain treated as an effective repair inside the repairable band."""
+    frontres_effective_gain_bonus_weight: float = 0.5
+    """Extra reward weight for repair gains above frontres_min_effective_gain."""
+    frontres_safe_cost_weight: float = 1.0
+    """Intervention-cost weight for safe samples where FrontRES should abstain."""
+    frontres_repair_cost_weight: float = 0.15
+    """Intervention-cost weight inside the repairable band; kept weak so useful repairs can grow."""
+    frontres_broken_cost_weight: float = 1.0
+    """Intervention-cost weight for deeply broken samples where FrontRES should abstain."""
+    frontres_broken_harm_weight: float = 1.0
+    """Harm penalty gate for deeply broken samples."""
     frontres_family_preference_scale: float = 0.02
     """Per-step scale for bounded pairwise preference reward."""
     frontres_family_preference_tau: float = 1.0

@@ -2359,6 +2359,10 @@ class OnPolicyRunner:
             _frontres_exec_signal_sum:     float = 0.0
             _frontres_weighted_exec_signal_sum: float = 0.0
             _frontres_train_reward_sum:    float = 0.0
+            _frontres_effective_gain_bonus_sum: float = 0.0
+            _frontres_safe_cost_sum:        float = 0.0
+            _frontres_repair_cost_sum:      float = 0.0
+            _frontres_broken_cost_sum:      float = 0.0
             _frontres_behavior_fit_sum:    float = 0.0
             _frontres_repair_fit_rate_sum: float = 0.0
             _frontres_repair_fit_gain_sum: float = 0.0
@@ -2769,6 +2773,10 @@ class OnPolicyRunner:
                             #   mu ~= 0 below safe_gap
                             #   mu ~= 1 between safe_gap and broken_gap
                             #   mu ~= 0 above broken_gap
+                            # In selective mode this becomes a three-way objective:
+                            #   safe:       abstain (action cost)
+                            #   repairable: repair decisively (gain + margin bonus)
+                            #   broken:     abstain/conservative repair (cost + harm)
                             _gap_raw = _exec_feasible - _exec_perturbed
                             _damage_gap = _gap_raw.clamp(min=0.0)
                             _repair_gain = _exec_frontres - _exec_perturbed
@@ -2805,13 +2813,28 @@ class OnPolicyRunner:
                                 * 1.0 / (1.0 + math.exp(-_peak_exit_arg))
                             )
                             _window_mu = (_window_mu_raw / max(_window_peak, 1e-6)).clamp(0.0, 1.0)
+                            _safe_gate = (1.0 - _enter_window).clamp(0.0, 1.0)
+                            _repair_gate = _window_mu
+                            _broken_gate = (1.0 - _exit_window).clamp(0.0, 1.0)
 
                             _safe_frac = (_damage_gap < _safe_gap).float().mean()
                             _repair_frac = ((_damage_gap >= _safe_gap) & (_damage_gap <= _broken_gap)).float().mean()
                             _broken_frac = (_damage_gap > _broken_gap).float().mean()
 
-                            _exec_gate = _window_mu
-                            _cost_gate = (1.0 - _window_mu).clamp(0.0, 1.0)
+                            _selective_reward = bool(self.cfg.get("frontres_selective_reward_enabled", True))
+                            if _selective_reward:
+                                _exec_gate = _repair_gate
+                                _safe_cost_weight = float(self.cfg.get("frontres_safe_cost_weight", 1.0))
+                                _repair_cost_weight = float(self.cfg.get("frontres_repair_cost_weight", 0.15))
+                                _broken_cost_weight = float(self.cfg.get("frontres_broken_cost_weight", 1.0))
+                                _cost_gate = (
+                                    _safe_cost_weight * _safe_gate
+                                    + _repair_cost_weight * _repair_gate
+                                    + _broken_cost_weight * _broken_gate
+                                ).clamp(min=0.0)
+                            else:
+                                _exec_gate = _window_mu
+                                _cost_gate = (1.0 - _window_mu).clamp(0.0, 1.0)
                             _harm_eps = float(self.cfg.get("frontres_harm_epsilon", 0.001))
                             _harm_weight_cfg = float(self.cfg.get("frontres_harm_penalty_weight", 0.25))
                             _side_harm_weight = float(self.cfg.get("frontres_side_harm_weight", 0.0))
@@ -2830,16 +2853,30 @@ class OnPolicyRunner:
                                 (_cost_exec - _harm_action_floor) / (_harm_action_ref - _harm_action_floor)
                             ).clamp(0.0, 1.0)
                             _harm_mag = _harm_mag_raw * _harm_action_gate
-                            _harm_weight = (
-                                _window_mu + _side_harm_weight * (1.0 - _window_mu)
-                            ).clamp(0.0, 1.0)
+                            if _selective_reward:
+                                _broken_harm_weight = float(self.cfg.get("frontres_broken_harm_weight", 1.0))
+                                _harm_weight = (
+                                    _repair_gate
+                                    + _broken_harm_weight * _broken_gate
+                                    + _side_harm_weight * _safe_gate
+                                ).clamp(0.0, 1.0)
+                            else:
+                                _harm_weight = (
+                                    _window_mu + _side_harm_weight * (1.0 - _window_mu)
+                                ).clamp(0.0, 1.0)
                             _harm_penalty_exec = _harm_weight_cfg * _harm_weight * _harm_mag
 
                             _side_actor_weight = float(self.cfg.get("frontres_side_actor_gate_weight", 0.05))
                             _side_actor_weight = max(0.0, min(1.0, _side_actor_weight))
-                            _actor_gate = (
-                                _window_mu + _side_actor_weight * (1.0 - _window_mu)
-                            ).clamp(0.0, 1.0)
+                            if _selective_reward:
+                                _actor_gate = (
+                                    _repair_gate
+                                    + _side_actor_weight * (_safe_gate + _broken_gate)
+                                ).clamp(0.0, 1.0)
+                            else:
+                                _actor_gate = (
+                                    _window_mu + _side_actor_weight * (1.0 - _window_mu)
+                                ).clamp(0.0, 1.0)
                             _exec_weight = torch.zeros(N_train, device=self.device)
                             _cost_weight = torch.ones(N_train, device=self.device)
                             _exec_weight[:_n_exec] = _exec_gate
@@ -2849,8 +2886,20 @@ class OnPolicyRunner:
                             self.alg.transition.frontres_actor_gate = _frontres_actor_gate
                             _harm_penalty = torch.zeros(N_train, device=self.device)
                             _harm_penalty[:_n_exec] = _harm_penalty_exec
+                            _effective_gain_bonus_exec = torch.zeros(_n_exec, device=self.device)
+                            if _selective_reward:
+                                _min_effective_gain = float(self.cfg.get("frontres_min_effective_gain", 0.006))
+                                _bonus_weight = float(self.cfg.get("frontres_effective_gain_bonus_weight", 0.5))
+                                _effective_gain_bonus_exec = (
+                                    _bonus_weight
+                                    * _repair_gate
+                                    * torch.relu(_repair_gain - _min_effective_gain)
+                                )
+                            _effective_gain_bonus = torch.zeros(N_train, device=self.device)
+                            _effective_gain_bonus[:_n_exec] = _effective_gain_bonus_exec
                             r_delta = (
                                 _w_exec * _repair_scale * _exec_weight * _r_exec
+                                + _w_exec * _repair_scale * _effective_gain_bonus
                                 - _w_exec * _repair_scale * _harm_penalty
                                 + _w_geom * _r_step
                                 + _w_rescue * _r_rescue
@@ -2937,6 +2986,16 @@ class OnPolicyRunner:
                                 _exec_weight[:_n_exec] * _r_exec[:_n_exec]
                             ).mean().item()
                             _frontres_train_reward_sum += r_delta[:_n_exec].mean().item()
+                            _frontres_effective_gain_bonus_sum += _effective_gain_bonus[:_n_exec].mean().item()
+                            _frontres_safe_cost_sum += (
+                                _safe_gate * _cost_exec
+                            ).mean().item()
+                            _frontres_repair_cost_sum += (
+                                _repair_gate * _cost_exec
+                            ).mean().item()
+                            _frontres_broken_cost_sum += (
+                                _broken_gate * _cost_exec
+                            ).mean().item()
                             _eps_fit = 1e-6
                             _mu_sum = _window_mu.sum().clamp(min=_eps_fit)
                             _repair_fit_num = (_window_mu * _repair_gain).sum()
@@ -2956,6 +3015,7 @@ class OnPolicyRunner:
                             _broken_abstain_cost = (_broken_mask * _cost_exec).sum() / _broken_den
                             _behavior_fit_num = (
                                 (_window_mu * _repair_gain).sum()
+                                + _effective_gain_bonus_exec.sum()
                                 - _harm_penalty_exec.sum()
                                 - (_cost_gate * _cost_exec).sum()
                             )
@@ -3203,6 +3263,22 @@ class OnPolicyRunner:
             )
             frontres_train_reward_mean = (
                 _frontres_train_reward_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_effective_gain_bonus_mean = (
+                _frontres_effective_gain_bonus_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_safe_cost_mean = (
+                _frontres_safe_cost_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_repair_cost_mean = (
+                _frontres_repair_cost_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_broken_cost_mean = (
+                _frontres_broken_cost_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
             frontres_behavior_fit_mean = (
@@ -3472,6 +3548,7 @@ class OnPolicyRunner:
                 "reward_frontres", "exec_planar", "exec_vertical", "exec_task",
                 "damage_gap", "repair_gain", "positive_gain_frac", "repair_ratio",
                 "exec_signal", "weighted_exec_signal", "train_reward",
+                "effective_gain_bonus", "safe_cost", "repair_cost", "broken_cost",
                 "behavior_fit", "repair_fit_rate", "repair_fit_gain",
                 "harm_rate", "harm_mag", "safe_harm_rate", "broken_harm_rate",
                 "safe_abstain_cost", "broken_abstain_cost",
@@ -3660,6 +3737,13 @@ class OnPolicyRunner:
                                 f"{locs['frontres_exec_signal_mean']:+.4f} / "
                                 f"{locs['frontres_weighted_exec_signal_mean']:+.4f} / "
                                 f"{locs['frontres_train_reward_mean']:+.4f}\n"
+                            )
+                            log_string += f"""{'bonus/cost S/R/B:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_effective_gain_bonus_mean']:+.4f} / "
+                                f"{locs['frontres_safe_cost_mean']:.4f} / "
+                                f"{locs['frontres_repair_cost_mean']:.4f} / "
+                                f"{locs['frontres_broken_cost_mean']:.4f}\n"
                             )
                         if locs.get("frontres_behavior_fit_mean") is not None:
                             log_string += f"""{'fit total/rate/gain:':>{pad}} """

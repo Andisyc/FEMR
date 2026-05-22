@@ -571,7 +571,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_supervised_harm_limit = 0.06
     frontres_supervised_grad_cos_low = 0.03
     frontres_supervised_min_hold_iters = 5
-    frontres_exec_reward_signal = "family_preference"
+    frontres_exec_reward_signal = "gain"
+    frontres_selective_reward_enabled = True
+    frontres_min_effective_gain = 0.006
+    frontres_effective_gain_bonus_weight = 0.5
+    frontres_safe_cost_weight = 1.0
+    frontres_repair_cost_weight = 0.15
+    frontres_broken_cost_weight = 1.0
+    frontres_broken_harm_weight = 1.0
     frontres_family_preference_scale = 0.02
     frontres_family_preference_tau = 1.0
     frontres_family_preference_alpha = 0.7
