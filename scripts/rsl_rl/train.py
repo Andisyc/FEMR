@@ -11,6 +11,8 @@ import argparse
 import sys
 import faulthandler
 import signal
+import threading
+import traceback
 
 os.environ.setdefault("WANDB_SILENT", "true")
 # Redirect wandb local run files to HDD to avoid filling /home
@@ -100,6 +102,24 @@ if hasattr(signal, "SIGUSR1"):
     faulthandler.register(signal.SIGUSR1, all_threads=True)
     print("[DEBUG] Registered SIGUSR1 stack dump. Use: kill -USR1 <pid>", flush=True)
 
+
+def _dump_uncaught_exception(exc_type, exc_value, exc_tb):
+    print("\n[Train] Uncaught exception in main thread:", flush=True)
+    traceback.print_exception(exc_type, exc_value, exc_tb)
+    print("\n[Train] Python stack dump for all live threads:", flush=True)
+    faulthandler.dump_traceback(all_threads=True)
+
+
+def _dump_thread_exception(args):
+    print(f"\n[Train] Uncaught exception in thread {args.thread.name}:", flush=True)
+    traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback)
+    print("\n[Train] Python stack dump for all live threads:", flush=True)
+    faulthandler.dump_traceback(all_threads=True)
+
+
+sys.excepthook = _dump_uncaught_exception
+threading.excepthook = _dump_thread_exception
+
 if WORLD_SIZE > 1:
     args_cli.distributed = True
 if args_cli.distributed:
@@ -113,12 +133,27 @@ if args_cli.distributed and RANK != 0:
 if args_cli.video:
     args_cli.enable_cameras = True
 
+if (
+    sys.platform.startswith("linux")
+    and not args_cli.headless
+    and not os.environ.get("DISPLAY")
+    and not os.environ.get("WAYLAND_DISPLAY")
+):
+    print("[Train] No display detected; forcing --headless for Isaac Sim startup.", flush=True)
+    args_cli.headless = True
+
 # clear out sys.argv for Hydra
 sys.argv = [sys.argv[0]] + hydra_args
 
 # launch omniverse app
+print(
+    f"[Train] Launching Isaac Sim: device={args_cli.device}, "
+    f"headless={args_cli.headless}, enable_cameras={args_cli.enable_cameras}",
+    flush=True,
+)
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
+print("[Train] Isaac Sim ready.", flush=True)
 
 """Rest everything follows."""
 
