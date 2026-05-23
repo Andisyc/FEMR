@@ -113,6 +113,7 @@ def main() -> int:
             "--motion", str(motion_path),
             "--checkpoint", args.checkpoint,
             "--output_dir", str(motion_out),
+            "--no_timestamp",
             "--motion_group", group,
             "--motion_name", motion_path.stem,
             "--num_trials", str(args.num_trials),

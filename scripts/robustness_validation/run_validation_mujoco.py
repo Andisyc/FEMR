@@ -38,6 +38,7 @@ from results_io import ResultsStore, TrialResult
 EPSILON_VALUES = [0.0, 0.02]
 PUSH_VELOCITIES = [0.0, 1.0]
 PERTURBATION_MODES = ["composite"]
+PERTURBATION_MODE_CHOICES = ["composite", "mixed", "xy", "yaw", "z", "rp"]
 N_TRIALS = 2
 SETTLE_STEPS = 100
 OBSERVE_STEPS = 200
@@ -139,6 +140,13 @@ def _write_status(output_dir: Path, status: str, **extra) -> None:
 class ReferenceFramePerturber:
     """OU + IID SE(3) perturbation applied to RobotBridge reference frames."""
 
+    FAMILY_AXES = {
+        "xy": (0, 1),
+        "z": (2,),
+        "rp": (3, 4),
+        "yaw": (5,),
+    }
+
     def __init__(
         self,
         epsilon: float,
@@ -157,9 +165,24 @@ class ReferenceFramePerturber:
         self.state = np.zeros(6, dtype=np.float64)
         self.last_timestep: int | None = None
         self.current = np.zeros(6, dtype=np.float64)
+        self.channels = self._sample_channels(mode)
 
         self.alpha = math.exp(-self.dt / self.tau)
         self.ou_sigma = self.epsilon * math.sqrt(max(1.0 - self.alpha * self.alpha, 0.0))
+
+    def _sample_channels(self, mode: str) -> tuple[str, ...]:
+        if mode == "composite":
+            return ("xy", "z", "rp", "yaw")
+        if mode == "mixed":
+            families = np.array(["xy", "z", "rp", "yaw"], dtype=object)
+            # Match the FrontRES curriculum spirit: mostly single/two-family
+            # perturbations, not a full four-family composite stress test.
+            count = int(self.rng.choice([1, 2], p=[0.5, 0.5]))
+            picked = self.rng.choice(families, size=count, replace=False)
+            return tuple(str(v) for v in picked)
+        if mode in self.FAMILY_AXES:
+            return (mode,)
+        raise ValueError(f"Unknown perturbation mode: {mode}")
 
     def reset(self) -> None:
         self.state[:] = 0.0
@@ -168,18 +191,8 @@ class ReferenceFramePerturber:
 
     def _mask(self) -> np.ndarray:
         mask = np.zeros(6, dtype=np.float64)
-        if self.mode == "composite":
-            mask[:] = 1.0
-        elif self.mode == "xy":
-            mask[[0, 1]] = 1.0
-        elif self.mode == "yaw":
-            mask[5] = 1.0
-        elif self.mode == "z":
-            mask[2] = 1.0
-        elif self.mode == "rp":
-            mask[[3, 4]] = 1.0
-        else:
-            raise ValueError(f"Unknown perturbation mode: {self.mode}")
+        for channel in self.channels:
+            mask[list(self.FAMILY_AXES[channel])] = 1.0
         return mask
 
     def value(self, timestep: int) -> np.ndarray:
@@ -302,7 +315,9 @@ def _compose_robotbridge_cfg(args: argparse.Namespace):
     cfg.robot.control.viewer = False
     cfg.robot.control.real_time = False
     cfg.env.config.record_video.enabled = bool(args.record_video)
-    video_dir = Path(args.output_dir) / "videos" / args.policy_variant
+    video_dir = Path(args.video_output_dir)
+    if bool(getattr(args, "use_variant_subdir", False)):
+        video_dir = video_dir / args.policy_variant
     if args.video_tag:
         video_dir = video_dir / _safe_token(args.video_tag)
     cfg.env.config.record_video.output_dir = str(video_dir.resolve())
@@ -464,6 +479,10 @@ def main() -> int:
     parser.add_argument("--frontres_allow_upward_dz", action="store_true")
     parser.add_argument("--frontres_ignore_conf", action="store_true")
     parser.add_argument("--output_dir", type=str, required=True)
+    parser.add_argument("--run_name", type=str, default=None,
+                        help="Shared run folder name. Use the same value for baseline and FrontRES.")
+    parser.add_argument("--no_timestamp", action="store_true",
+                        help="Write directly under --output_dir instead of creating a timestamped run folder.")
     parser.add_argument("--video_tag", type=str, default=None,
                         help="Optional label added to video directory and file prefix, e.g. demo_frontres.")
     parser.add_argument("--motion_group", type=str, default="Ungrouped")
@@ -471,7 +490,7 @@ def main() -> int:
     parser.add_argument("--epsilon_values", type=float, nargs="+", default=EPSILON_VALUES)
     parser.add_argument("--push_velocities", type=float, nargs="+", default=PUSH_VELOCITIES)
     parser.add_argument("--perturbation_modes", type=str, nargs="+", default=PERTURBATION_MODES,
-                        choices=["composite", "xy", "yaw", "z", "rp"])
+                        choices=PERTURBATION_MODE_CHOICES)
     parser.add_argument("--num_trials", type=int, default=N_TRIALS)
     parser.add_argument("--settle_steps", type=int, default=SETTLE_STEPS)
     parser.add_argument("--observe_steps", type=int, default=OBSERVE_STEPS)
@@ -491,14 +510,41 @@ def main() -> int:
     args = parser.parse_args()
     args.policy_variant = "frontres" if args.frontres_checkpoint else "baseline"
 
-    output_dir = Path(args.output_dir).expanduser().resolve()
+    output_root = Path(args.output_dir).expanduser().resolve()
+    is_frontres_run = bool(args.frontres_checkpoint)
+    if args.no_timestamp:
+        run_root = output_root
+        run_name = output_root.name
+    else:
+        run_name = _safe_token(args.run_name) if args.run_name else (
+            f"run_{_datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        run_root = output_root / run_name
+    if is_frontres_run:
+        # A FrontRES smoke/demo run already contains its paired baseline sequence
+        # internally, so keep it as one standalone run instead of nesting a
+        # redundant frontres/baseline variant folder.
+        output_dir = run_root
+        args.video_output_dir = str(run_root / "videos")
+        args.use_variant_subdir = False
+    else:
+        # Plain GMT validation remains a baseline artifact and should stay under
+        # the caller's robustness_validation_mujoco output root.
+        output_dir = run_root / args.policy_variant
+        args.video_output_dir = str(run_root / "videos")
+        args.use_variant_subdir = True
     args.output_dir = str(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    Path(args.video_output_dir).mkdir(parents=True, exist_ok=True)
     if args.motion_name is None:
         args.motion_name = Path(args.motion).stem
 
     meta = {
         "backend": "RobotBridge/MuJoCo",
+        "run_name": run_name,
+        "run_root": str(run_root),
+        "variant_output_dir": str(output_dir),
+        "video_output_dir": args.video_output_dir,
         "motion": str(Path(args.motion).expanduser()),
         "motion_group": args.motion_group,
         "motion_name": args.motion_name,
@@ -554,15 +600,6 @@ def main() -> int:
             for eps_idx, eps in enumerate(args.epsilon_values):
                 for push_idx, push_velocity in enumerate(args.push_velocities):
                     for trial_idx in range(args.num_trials):
-                        token = (
-                            f"{mode}_eps{eps:g}_push{push_velocity:g}_trial{trial_idx:02d}"
-                        )
-                        if agent.env.video_recorder.enabled:
-                            prefix_parts = ["mujoco", args.policy_variant]
-                            if args.video_tag:
-                                prefix_parts.append(_safe_token(args.video_tag))
-                            prefix_parts.append(_safe_token(token))
-                            agent.env.video_recorder.prefix = "_".join(prefix_parts)
                         seed = args.seed + 100000 * mode_idx + 1000 * eps_idx + 100 * push_idx + trial_idx
                         perturber = ReferenceFramePerturber(
                             epsilon=eps,
@@ -572,11 +609,26 @@ def main() -> int:
                             iid_ratio=args.iid_ratio,
                             seed=seed,
                         )
+                        token = (
+                            f"{mode}_eps{eps:g}_push{push_velocity:g}_trial{trial_idx:02d}"
+                        )
+                        if mode == "mixed":
+                            token = (
+                                f"{mode}-{'-'.join(perturber.channels)}"
+                                f"_eps{eps:g}_push{push_velocity:g}_trial{trial_idx:02d}"
+                            )
+                        if agent.env.video_recorder.enabled:
+                            prefix_parts = ["mujoco", args.policy_variant]
+                            if args.video_tag:
+                                prefix_parts.append(_safe_token(args.video_tag))
+                            prefix_parts.append(_safe_token(token))
+                            agent.env.video_recorder.prefix = "_".join(prefix_parts)
                         result = run_trial(agent, perturber, push_velocity, seed, args, frontres_runtime)
                         store.add(mode_idx, eps_idx, push_idx, trial_idx, result)
                         print(
                             "[MuJoCoValidation] "
-                            f"mode={mode} eps={eps:g} push={push_velocity:g} "
+                            f"mode={mode} channels={','.join(perturber.channels)} "
+                            f"eps={eps:g} push={push_velocity:g} "
                             f"trial={trial_idx + 1}/{args.num_trials} "
                             f"success={result.success} pre_fall={result.fallen_before_push}",
                             flush=True,

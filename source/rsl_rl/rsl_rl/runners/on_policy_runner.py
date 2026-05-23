@@ -70,6 +70,27 @@ def _rotvec_to_quat_wxyz(rotvec: torch.Tensor, eps: float = 1e-8) -> torch.Tenso
 class OnPolicyRunner:
     """On-policy runner for training and evaluation."""
 
+    def _apply_frontres_specialist_mode(self) -> None:
+        """Apply narrow FrontRES demo-specialist presets before policy/algorithm construction."""
+        if self.training_type != "frontres":
+            return
+        mode = str(self.cfg.get("frontres_specialist_mode", "") or "").lower()
+        if mode not in ("rp_z", "z_rp", "vertical_contact"):
+            return
+
+        active_dims = [2, 3, 4, 6, 7]  # dz, droll, dpitch, conf_pos, conf_rpy
+        self.cfg["frontres_specialist_mode"] = "rp_z"
+        self.cfg["frontres_active_task_dims"] = active_dims
+        self.cfg["frontres_perturbation_channels"] = "rp_z"
+        self.cfg["frontres_exec_task_weight"] = 0.0
+        self.cfg["frontres_exec_cone_task_weight"] = 0.0
+        self.alg_cfg["frontres_active_task_dims"] = active_dims
+        print(
+            "[Runner] FrontRES specialist mode enabled: rp_z "
+            "(global_z + local_rp; active dims dz/rp/conf)",
+            flush=True,
+        )
+
     def __init__(self, env: VecEnv, train_cfg: dict, log_dir: str | None = None, device="cpu"):
         self.cfg = train_cfg
         self.alg_cfg = train_cfg["algorithm"]
@@ -93,6 +114,7 @@ class OnPolicyRunner:
             self.training_type = "supervise"
         else:
             raise ValueError(f"Training type not found for algorithm {self.alg_cfg['class_name']}.")
+        self._apply_frontres_specialist_mode()
 
         # resolve dimensions of observations 观测量维度
         obs, extras = self.env.get_observations()
@@ -1357,6 +1379,8 @@ class OnPolicyRunner:
 
         def _frontres_curriculum_choices(progress: float, seq_idx: int) -> tuple[list[tuple[str, ...]], str]:
             _bases = _frontres_curriculum_allowed_bases()
+            if str(self.cfg.get("frontres_specialist_mode", "") or "").lower() in ("rp_z", "z_rp", "vertical_contact"):
+                return [("global_z", "local_rp")], "two"
             if not (_is_frontres and bool(self.cfg.get("frontres_perturbation_curriculum_enabled", True))):
                 return [tuple(_bases)], "full"
 
@@ -1552,6 +1576,8 @@ class OnPolicyRunner:
                 "frontres_warmup_perturbation_schedule",
                 self.cfg.get("supervised_warmup_perturbation_schedule", "mixed_single"),
             ))
+            if str(self.cfg.get("frontres_specialist_mode", "") or "").lower() in ("rp_z", "z_rp", "vertical_contact"):
+                return [("global_z", "local_rp")]
             if _mode == "rl_curriculum":
                 _active = tuple(getattr(self, "_frontres_curriculum_active_modes", tuple(_bases)))
                 return [_active] if _active else [tuple(_bases)]

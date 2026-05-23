@@ -465,7 +465,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Resume semantics:
     # True  = full checkpoint resume (actor + critic + optimizer + iteration).
     # False = checkpoint as initialization (residual actor only; critic/optimizer/iteration reset).
-    is_full_resume = True
+    # Specialist rp-z finetune should start from a broad FrontRES actor but
+    # relearn critic/optimizer state for the narrowed vertical-contact reward.
+    is_full_resume = False
 
     # ── Curriculum Oracle ─────────────────────────────────────────────────────
     # Mixes oracle (-OU ground truth) with FrontRES output to bootstrap training.
@@ -479,14 +481,15 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # ── Fix 2: Low-pass filter on anchor corrections ──────────────────────────
     correction_smooth_alpha        = 0.4
 
-    # ── FrontRES full-output joint test ───────────────────────────────────────
+    # ── FrontRES rp-z demo specialist ─────────────────────────────────────────
     # Task-space action layout:
     #   [dx, dy, dz, droll, dpitch, dyaw, c_pos, c_rpy]
-    # All correction and confidence heads are enabled here.  This is expected to
-    # expose reward competition between planar and vertical repair, which is the
-    # point of the joint test after the separated branches have been validated.
-    frontres_active_task_dims      = [0, 1, 2, 3, 4, 5, 6, 7]
-    frontres_perturbation_channels = "all"
+    # RobotBridge tests show rp+z is the failure mode that visibly hurts GMT.
+    # This specialist run keeps the selective abstain behavior but concentrates
+    # warmup/PPO on vertical-contact repair.
+    frontres_specialist_mode       = "rp_z"
+    frontres_active_task_dims      = [2, 3, 4, 6, 7]
+    frontres_perturbation_channels = "rp_z"
 
     # "More executable" reward:
     #   damage_gap  = R_feasible_oracle - R_perturbed
@@ -510,7 +513,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # simply make the reference easier by erasing motion.
     frontres_exec_planar_weight    = 1.0
     frontres_exec_vertical_weight  = 1.0
-    frontres_exec_task_weight      = 0.10
+    frontres_exec_task_weight      = 0.0
     # Cone-aware scalarization used by reward/gap/gain after executable
     # diagnostics are computed.  Each perturbation family reads its matching
     # component: planar->xy, yaw->yaw, global_z->z, local_rp->rp.
@@ -573,7 +576,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_supervised_min_hold_iters = 5
     frontres_exec_reward_signal = "gain"
     frontres_selective_reward_enabled = True
-    frontres_min_effective_gain = 0.006
+    frontres_min_effective_gain = 0.008
     frontres_effective_gain_bonus_weight = 0.5
     frontres_safe_cost_weight = 1.0
     frontres_repair_cost_weight = 0.15
@@ -802,7 +805,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         ppo_actor_warmup_iterations   = 0,
         ppo_actor_ramp_iterations     = 400,
         ppo_advantage_focal_power     = 0.0,
-        frontres_active_task_dims      = [0, 1, 2, 3, 4, 5, 6, 7],
+        frontres_active_task_dims      = [2, 3, 4, 6, 7],
         diagnose_gradient_conflict    = True,
 
         # ── Misc ─────────────────────────────────────────────────────────────
