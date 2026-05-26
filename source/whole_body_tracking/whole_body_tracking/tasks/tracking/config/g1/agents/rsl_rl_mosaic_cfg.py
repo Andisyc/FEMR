@@ -456,9 +456,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
       root_tilt_prob=0.3,    root_tilt_max_rad=0.08, # Δroll, Δpitch
     """
     num_steps_per_env = 24
-    # Short default run for reward/DR debugging.  Use --max_iterations to
-    # launch a long formal run once the diagnostics look healthy.
-    max_iterations    = 1500
+    # Formal supervised-restore run. The default uses a competence-style
+    # perturbation ramp plus a final high-difficulty plateau.
+    max_iterations    = 2000
     save_interval     = 100
     experiment_name   = "g1_flat_frontres_unified"
     empirical_normalization = True
@@ -664,10 +664,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     supervised_warmup_perturbation_schedule = "balanced_single"
 
     # ── Adaptive DR: repairable-boundary controller ────────────────────────
-    dr_scale_init                  = 2.50   # RobotBridge rp eps 0.20 / MOSAIC rp base 0.08 rad
+    dr_scale_init                  = 1.25   # RobotBridge rp eps 0.10 / MOSAIC rp base 0.08 rad
     dr_adapt_speed                 = 0.001  # per-iteration step size
     dr_max_scale                   = 4.50   # RobotBridge rp eps 0.35 -> 0.35/0.08=4.375
-    dr_min_scale                   = 2.50   # keep supervised rp training at least at eps≈0.20
+    dr_min_scale                   = 1.25   # supervised rp starts at eps≈0.10 before ramping up
     dr_ema_alpha                   = 0.95   # r_delta EMA smoothing
     dr_start_ppo_actor_weight      = 1.0    # marks the actor-takeover phase for DR scheduling
     frontres_boundary_dr_enabled   = True
@@ -681,9 +681,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_boundary_broken_high  = 0.35
     frontres_boundary_positive_gain_low = 0.45
     frontres_boundary_positive_gain_high = 0.55
-    frontres_supervised_dr_scale_start = 2.50
+    # Supervised restore curriculum:
+    #   eps_rp = 0.08 * dr_scale
+    #   1.25 -> 4.375 means RobotBridge rp eps 0.10 -> 0.35.
+    # The 2000-iter run reaches the target at iter 1400 and keeps a 600-iter
+    # final plateau for fixed-difficulty refinement.
+    frontres_supervised_dr_scale_start = 1.25
     frontres_supervised_dr_scale_end = 4.375
-    frontres_supervised_dr_ramp_iters = 500
+    frontres_supervised_dr_ramp_iters = 1400
 
     # ── Perturbation curriculum ────────────────────────────────────────────
     # Per-env rollout mode curriculum.  Early training keeps each sample
@@ -829,7 +834,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_supervised_lr_peak      = 1.0e-4,
         frontres_supervised_lr_min       = 1.0e-5,
         frontres_supervised_lr_warmup_iters = 50,
-        frontres_supervised_lr_cosine_iters = 1000,
+        frontres_supervised_lr_cosine_iters = 1550,
         # Joint warmup already initializes the Critic's executable-energy
         # estimate, but Actor takeover still changes the corrected-reference
         # distribution.  Ramp slowly so PPO does not push the warmup solution

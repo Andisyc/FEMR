@@ -2269,7 +2269,9 @@ class OnPolicyRunner:
                 _sup_dr_start = float(self.cfg.get("frontres_supervised_dr_scale_start", _dr_scale_init))
                 _sup_dr_end = float(self.cfg.get("frontres_supervised_dr_scale_end", _sup_dr_start))
                 _sup_dr_ramp = max(1, int(self.cfg.get("frontres_supervised_dr_ramp_iters", 500)))
-                _sup_dr_frac = min(1.0, max(0.0, (it - start_iter) / float(_sup_dr_ramp)))
+                # Use absolute iteration so a full-resume keeps the supervised
+                # perturbation curriculum aligned with the LR schedule.
+                _sup_dr_frac = min(1.0, max(0.0, it / float(_sup_dr_ramp)))
                 _dr_scale = _sup_dr_start + (_sup_dr_end - _sup_dr_start) * _sup_dr_frac
                 _dr_scale = max(_dr_min, min(_dr_max, _dr_scale))
                 self._dr_scale = _dr_scale
