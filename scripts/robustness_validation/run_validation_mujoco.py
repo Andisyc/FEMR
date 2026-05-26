@@ -549,7 +549,7 @@ def main() -> int:
     parser.add_argument("--frontres_device", type=str, default="cpu")
     parser.add_argument("--frontres_history_length", type=int, default=5)
     parser.add_argument("--frontres_max_delta_pos", type=float, default=0.3)
-    parser.add_argument("--frontres_max_delta_rpy", type=float, default=0.1)
+    parser.add_argument("--frontres_max_delta_rpy", type=float, default=0.4)
     parser.add_argument("--frontres_active_task_dims", type=int, nargs="+", default=[2, 3, 4, 6, 7],
                         help="Task-space output dims enabled for FEMR. Default matches rp_z specialist.")
     parser.add_argument("--frontres_allow_upward_dz", action="store_true")

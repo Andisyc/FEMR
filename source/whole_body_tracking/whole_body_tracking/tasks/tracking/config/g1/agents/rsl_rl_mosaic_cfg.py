@@ -664,10 +664,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     supervised_warmup_perturbation_schedule = "balanced_single"
 
     # ── Adaptive DR: repairable-boundary controller ────────────────────────
-    dr_scale_init                  = 1.0    # fixed during Actor takeover; calibrated near repairable GMT damage
+    dr_scale_init                  = 2.50   # RobotBridge rp eps 0.20 / MOSAIC rp base 0.08 rad
     dr_adapt_speed                 = 0.001  # per-iteration step size
-    dr_max_scale                   = 3.0    # upper limit; rp base 0.08 rad reaches 0.24 rad
-    dr_min_scale                   = 0.30   # do not collapse below the xy/yaw debug signal floor
+    dr_max_scale                   = 4.50   # RobotBridge rp eps 0.35 -> 0.35/0.08=4.375
+    dr_min_scale                   = 2.50   # keep supervised rp training at least at eps≈0.20
     dr_ema_alpha                   = 0.95   # r_delta EMA smoothing
     dr_start_ppo_actor_weight      = 1.0    # marks the actor-takeover phase for DR scheduling
     frontres_boundary_dr_enabled   = True
@@ -681,6 +681,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_boundary_broken_high  = 0.35
     frontres_boundary_positive_gain_low = 0.45
     frontres_boundary_positive_gain_high = 0.55
+    frontres_supervised_dr_scale_start = 2.50
+    frontres_supervised_dr_scale_end = 4.375
+    frontres_supervised_dr_ramp_iters = 500
 
     # ── Perturbation curriculum ────────────────────────────────────────────
     # Per-env rollout mode curriculum.  Early training keeps each sample
@@ -774,7 +777,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         # ── Task-space SE(3) correction mode ─────────────────────────────────
         num_task_corrections   = 6,        # bounded correction head = [Δpos(3), Δrpy(3)]; policy appends c_pos/c_rpy
         max_delta_pos          = 0.3,      # tanh clip (metres)
-        max_delta_rpy          = 0.1,      # tanh clip (radians ≈ 5.7°); keep FrontRES rotation conservative
+        max_delta_rpy          = 0.4,      # tanh clip (rad); needed to repair RobotBridge rp eps up to 0.35
         # ── GMT (frozen) ─────────────────────────────────────────────────────
         gmt_checkpoint_path    = gmt_checkpoint_path_,
         init_critic_from_gmt   = False,
@@ -801,7 +804,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
                                            # → anchor_ori terminations → σ explosion.
         num_learning_epochs  = 5,
         num_mini_batches     = 4,
-        learning_rate        = 3.0e-5,
+        learning_rate        = 1.0e-4,
         schedule             = "fixed",    # fixed: adaptive KL deadlocks with FrontRES 8-DoF output
         gamma                = 0.99,
         lam                  = 0.95,
@@ -816,8 +819,17 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         supervised_trigger_cosine_sim = 0.85,  # EMA threshold to start decay
         supervised_rpy_loss_weight    = 1.0,
         supervised_conf_loss_weight   = 0.0,   # BCE drives c→1 always (OU≠0); let PPO learn gating
-        supervised_direction_loss_weight = 0.1,
+        supervised_direction_loss_weight = 0.03,
         supervised_valid_loss_weight     = 4.0,
+        supervised_magnitude_loss_weight = 0.5,
+        supervised_over_loss_weight      = 0.2,
+        supervised_smooth_loss_weight    = 0.05,
+        frontres_supervised_lr_schedule  = "cosine_anneal",
+        frontres_supervised_lr_start     = 3.0e-5,
+        frontres_supervised_lr_peak      = 1.0e-4,
+        frontres_supervised_lr_min       = 1.0e-5,
+        frontres_supervised_lr_warmup_iters = 50,
+        frontres_supervised_lr_cosine_iters = 1000,
         # Joint warmup already initializes the Critic's executable-energy
         # estimate, but Actor takeover still changes the corrected-reference
         # distribution.  Ramp slowly so PPO does not push the warmup solution

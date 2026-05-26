@@ -2265,6 +2265,20 @@ class OnPolicyRunner:
                 # curriculum gates, and PPO loss all see the same phase.
                 self.alg.ppo_actor_weight = _ppo_actor_weight_current
 
+            if _frontres_supervised_restore and _perturb_target is not None:
+                _sup_dr_start = float(self.cfg.get("frontres_supervised_dr_scale_start", _dr_scale_init))
+                _sup_dr_end = float(self.cfg.get("frontres_supervised_dr_scale_end", _sup_dr_start))
+                _sup_dr_ramp = max(1, int(self.cfg.get("frontres_supervised_dr_ramp_iters", 500)))
+                _sup_dr_frac = min(1.0, max(0.0, (it - start_iter) / float(_sup_dr_ramp)))
+                _dr_scale = _sup_dr_start + (_sup_dr_end - _sup_dr_start) * _sup_dr_frac
+                _dr_scale = max(_dr_min, min(_dr_max, _dr_scale))
+                self._dr_scale = _dr_scale
+                _sample_frontres_rollout_perturbation_mix(0.0, it)
+                _apply_frontres_dr_scale(_dr_scale)
+                _skip_frontres_dr_controller = True
+            else:
+                _skip_frontres_dr_controller = False
+
             # --- Critic warmup: fixed low DR scale ─────────────────────────
             # Critic learns V(s) under real low perturbations.  PPO actor may
             # be frozen separately by ppo_actor_warmup_iterations; supervised
@@ -2279,7 +2293,7 @@ class OnPolicyRunner:
             # blindly on reward scale.  Falls back to the older r_delta PI before
             # the first diagnostic batch is available.
             _actor_takeover_active = False
-            if _is_frontres and _perturb_target is not None:
+            if _is_frontres and _perturb_target is not None and not _skip_frontres_dr_controller:
                 _dr_start_actor_weight = float(self.cfg.get("dr_start_ppo_actor_weight", 1.0))
                 _actor_takeover_active = (
                     (not _critic_warmup)
@@ -3776,6 +3790,11 @@ class OnPolicyRunner:
             "supervised_rpy_rmse",
             "supervised_restore_ratio",
             "supervised_valid_frac",
+            "supervised_l_pos",
+            "supervised_l_rot",
+            "supervised_l_mag",
+            "supervised_l_over",
+            "supervised_l_smooth",
         }      # diagnostics, not losses
         _to_curriculum = {"lambda_supervised", "ppo_actor_weight"}  # scheduler state, not a loss
         _frontres_diag_keys = {
@@ -3994,172 +4013,229 @@ class OnPolicyRunner:
                 if locs.get("frontres_survival_rate") is not None:
                     log_string += f"""{'survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
 
-                log_string += f"""\n{'-' * 12} Main Reward {'-' * 12}\n"""
-                log_string += f"""{'r_delta (FrontRES):':>{pad}} {statistics.mean(locs['rewbuffer']):.4f}\n"""
-                if len(locs.get("rewbuffer_gmt", [])) > 0:
-                    log_string += f"""{'reward_GMT (baseline):':>{pad}} {statistics.mean(locs['rewbuffer_gmt']):.4f}\n"""
-                # cos_sim
-                _cs = locs.get("loss_dict", {}).get("supervised_cos_sim", None)
-                if _cs is not None:
-                    log_string += f"""{'supervised_cos_sim:':>{pad}} {_cs:.4f}\n"""
-                _sup_restore = locs.get("loss_dict", {}).get("supervised_restore_ratio", None)
-                if _sup_restore is not None:
-                    log_string += f"""{'sup restore/mae/rmse:':>{pad}} """
-                    log_string += (
-                        f"{_sup_restore:+.3f} / "
-                        f"{locs['loss_dict'].get('supervised_rpy_mae', 0.0):.5f} / "
-                        f"{locs['loss_dict'].get('supervised_rpy_rmse', 0.0):.5f}\n"
-                    )
-                if locs.get("frontres_delta_pos_abs_mean") is not None:
-                    log_string += f"""{'|Δpos|:':>{pad}} {locs['frontres_delta_pos_abs_mean']:.4f} m\n"""
-                if locs.get("frontres_delta_rpy_abs_mean") is not None:
-                    log_string += f"""{'|Δrpy|:':>{pad}} {locs['frontres_delta_rpy_abs_mean']:.4f} rad\n"""
-                if locs.get("frontres_r_exec_mean") is not None:
-                    if locs.get("frontres_damage_gap_mean") is not None:
-                        log_string += f"""{'gap/gain/ratio:':>{pad}} """
+                _frontres_supervised_log = (
+                    f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
+                    == "supervised_restore"
+                )
+                _loss_dict = locs.get("loss_dict", {})
+
+                if _frontres_supervised_log:
+                    log_string += f"""\n{'-' * 9} Supervised Restore {'-' * 9}\n"""
+                    _cs = _loss_dict.get("supervised_cos_sim", None)
+                    if _cs is not None:
+                        log_string += f"""{'supervised_cos_sim:':>{pad}} {_cs:.4f}\n"""
+                    _sup_restore = _loss_dict.get("supervised_restore_ratio", None)
+                    if _sup_restore is not None:
+                        log_string += f"""{'restore ratio:':>{pad}} {_sup_restore:+.3f}\n"""
+                    if _loss_dict.get("supervised_mae", None) is not None:
+                        log_string += f"""{'mae/rmse all:':>{pad}} """
                         log_string += (
-                            f"{locs['frontres_damage_gap_mean']:+.4f} / "
-                            f"{locs['frontres_repair_gain_mean']:+.4f} / "
-                            f"{locs['frontres_repair_ratio_mean']:+.4f}\n"
+                            f"{_loss_dict.get('supervised_mae', 0.0):.5f} / "
+                            f"{_loss_dict.get('supervised_rmse', 0.0):.5f}\n"
                         )
-                        if locs.get("frontres_train_reward_mean") is not None:
-                            log_string += f"""{'signal/w_signal/train_r:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_exec_signal_mean']:+.4f} / "
-                                f"{locs['frontres_weighted_exec_signal_mean']:+.4f} / "
-                                f"{locs['frontres_train_reward_mean']:+.4f}\n"
-                            )
-                            log_string += f"""{'Clean/Oracle/Trust:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_reward_clean_mean']:+.4f} / "
-                                f"{locs['frontres_reward_oracle_mean']:+.4f} / "
-                                f"{locs['frontres_oracle_trust_mean']:.3f}\n"
-                            )
-                            log_string += f"""{'oracle gap/cost:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_oracle_clean_gap_mean']:+.4f} / "
-                                f"{locs['frontres_clean_bound_cost_mean']:.4f}\n"
-                            )
-                            log_string += f"""{'side/over/under:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_clean_bound_side_cost_mean']:.4f} / "
-                                f"{locs['frontres_over_cost_mean']:.4f} / "
-                                f"{locs['frontres_under_repair_cost_mean']:.4f}\n"
-                            )
-                            log_string += f"""{'bonus/legacy S/R/B:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_effective_gain_bonus_mean']:+.4f} / "
-                                f"{locs['frontres_safe_cost_mean']:.4f} / "
-                                f"{locs['frontres_repair_cost_mean']:.4f} / "
-                                f"{locs['frontres_broken_cost_mean']:.4f}\n"
-                            )
-                            log_string += f"""{'reward/constraint prog:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_reward_progress_mean']:.4f} / "
-                                f"{locs['frontres_constraint_progress_mean']:.4f}\n"
-                            )
-                        if locs.get("frontres_behavior_fit_mean") is not None:
-                            log_string += f"""{'exec legacy fit:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_behavior_fit_mean']:+.3f} / "
-                                f"{locs['frontres_repair_fit_rate_mean']:+.3f} / "
-                                f"{locs['frontres_repair_fit_gain_mean']:+.4f}\n"
-                            )
-                            log_string += f"""{'restore rp/res/bias:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_restore_ratio_rp_mean']:+.3f} / "
-                                f"{locs['frontres_residual_rp_abs_mean']:.4f} / "
-                                f"{locs['frontres_corr_roll_bias_mean']:+.4f}, "
-                                f"{locs['frontres_corr_pitch_bias_mean']:+.4f}\n"
-                            )
-                            log_string += f"""{'harm rate/mag:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_harm_rate_mean']:.3f} / "
-                                f"{locs['frontres_harm_mag_mean']:.4f}\n"
-                            )
-                            log_string += f"""{'safe/broken harm:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_safe_harm_rate_mean']:.3f} / "
-                                f"{locs['frontres_broken_harm_rate_mean']:.3f}\n"
-                            )
-                            log_string += f"""{'safe/broken abstain:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_safe_abstain_cost_mean']:.4f} / "
-                                f"{locs['frontres_broken_abstain_cost_mean']:.4f}\n"
-                            )
-                        if locs.get("frontres_positive_gain_frac_mean") is not None:
-                            log_string += f"""{'positive_gain_frac:':>{pad}} """
-                            log_string += f"{locs['frontres_positive_gain_frac_mean']:.3f}\n"
-                        log_string += f"""{'safe/repair/broken frac:':>{pad}} """
+                    if _loss_dict.get("supervised_rpy_mae", None) is not None:
+                        log_string += f"""{'mae/rmse rpy:':>{pad}} """
                         log_string += (
-                            f"{locs['frontres_safe_frac_mean']:.3f} / "
-                            f"{locs['frontres_repair_frac_mean']:.3f} / "
-                            f"{locs['frontres_broken_frac_mean']:.3f}\n"
+                            f"{_loss_dict.get('supervised_rpy_mae', 0.0):.5f} / "
+                            f"{_loss_dict.get('supervised_rpy_rmse', 0.0):.5f}\n"
+                        )
+                    if _loss_dict.get("supervised_valid_frac", None) is not None:
+                        log_string += f"""{'valid target frac:':>{pad}} {_loss_dict.get('supervised_valid_frac', 0.0):.3f}\n"""
+                    if _loss_dict.get("supervised_l_pos", None) is not None:
+                        log_string += f"""{'L_pos/L_rot:':>{pad}} """
+                        log_string += (
+                            f"{_loss_dict.get('supervised_l_pos', 0.0):.6f} / "
+                            f"{_loss_dict.get('supervised_l_rot', 0.0):.6f}\n"
+                        )
+                        log_string += f"""{'L_mag/over/smooth:':>{pad}} """
+                        log_string += (
+                            f"{_loss_dict.get('supervised_l_mag', 0.0):.6f} / "
+                            f"{_loss_dict.get('supervised_l_over', 0.0):.6f} / "
+                            f"{_loss_dict.get('supervised_l_smooth', 0.0):.6f}\n"
                         )
 
-                    log_string += f"""\n{'-' * 12} Detail Reward {'-' * 12}\n"""
-                    if locs.get("frontres_r_z_mean") is not None:
-                        log_string += f"""{'r_z/r_xy/r_rp/r_yaw:':>{pad}} """
+                    log_string += f"""\n{'-' * 10} Correction Geometry {'-' * 10}\n"""
+                    if locs.get("frontres_delta_pos_abs_mean") is not None:
+                        log_string += f"""{'|Δpos|:':>{pad}} {locs['frontres_delta_pos_abs_mean']:.4f} m\n"""
+                    if locs.get("frontres_delta_rpy_abs_mean") is not None:
+                        log_string += f"""{'|Δrpy|:':>{pad}} {locs['frontres_delta_rpy_abs_mean']:.4f} rad\n"""
+                    if locs.get("frontres_restore_ratio_rp_mean") is not None:
+                        log_string += f"""{'restore rp/res/bias:':>{pad}} """
                         log_string += (
-                            f"{locs['frontres_r_z_mean']:+.4f} / "
-                            f"{locs['frontres_r_xy_mean']:+.4f} / "
-                            f"{locs['frontres_r_rp_mean']:+.4f} / "
-                            f"{locs['frontres_r_yaw_mean']:+.4f}\n"
+                            f"{locs['frontres_restore_ratio_rp_mean']:+.3f} / "
+                            f"{locs['frontres_residual_rp_abs_mean']:.4f} / "
+                            f"{locs['frontres_corr_roll_bias_mean']:+.4f}, "
+                            f"{locs['frontres_corr_pitch_bias_mean']:+.4f}\n"
                         )
-                    log_string += f"""{'repair/geom/rescue/action_cost:':>{pad}} """
-                    log_string += (
-                        f"{locs['frontres_r_exec_mean']:+.4f} / "
-                        f"{locs['frontres_r_geom_mean']:+.4f} / "
-                        f"{locs['frontres_r_rescue_mean']:+.4f} / "
-                        f"{locs['frontres_intervention_cost_mean']:+.4f}\n"
-                    )
-                    if locs.get("frontres_reward_frontres_mean") is not None and locs.get("frontres_baseline_mean") is not None:
-                        log_string += f"""{'exec reward FR/pert:':>{pad}} """
+
+                    log_string += f"""\n{'-' * 10} Optimization / Update {'-' * 10}\n"""
+                    _lam = _loss_dict.get("lambda_supervised", None)
+                    if _lam is not None:
+                        log_string += f"""{'λ_supervised:':>{pad}} {_lam:.3f}\n"""
+                    _paw = _loss_dict.get("ppo_actor_weight", None)
+                    if _paw is not None:
+                        log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
+                    log_string += f"""{'learning rate:':>{pad}} {getattr(self.alg, 'learning_rate', 0.0):.2e}\n"""
+                    log_string += f"""{'objective:':>{pad}} supervised only\n"""
+
+                else:
+                    log_string += f"""\n{'-' * 12} Main Reward {'-' * 12}\n"""
+                    log_string += f"""{'r_delta (FrontRES):':>{pad}} {statistics.mean(locs['rewbuffer']):.4f}\n"""
+                    if len(locs.get("rewbuffer_gmt", [])) > 0:
+                        log_string += f"""{'reward_GMT (baseline):':>{pad}} {statistics.mean(locs['rewbuffer_gmt']):.4f}\n"""
+                    _cs = _loss_dict.get("supervised_cos_sim", None)
+                    if _cs is not None:
+                        log_string += f"""{'supervised_cos_sim:':>{pad}} {_cs:.4f}\n"""
+                    if locs.get("frontres_delta_pos_abs_mean") is not None:
+                        log_string += f"""{'|Δpos|:':>{pad}} {locs['frontres_delta_pos_abs_mean']:.4f} m\n"""
+                    if locs.get("frontres_delta_rpy_abs_mean") is not None:
+                        log_string += f"""{'|Δrpy|:':>{pad}} {locs['frontres_delta_rpy_abs_mean']:.4f} rad\n"""
+                    if locs.get("frontres_r_exec_mean") is not None:
+                        if locs.get("frontres_damage_gap_mean") is not None:
+                            log_string += f"""{'gap/gain/ratio:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_damage_gap_mean']:+.4f} / "
+                                f"{locs['frontres_repair_gain_mean']:+.4f} / "
+                                f"{locs['frontres_repair_ratio_mean']:+.4f}\n"
+                            )
+                            if locs.get("frontres_train_reward_mean") is not None:
+                                log_string += f"""{'signal/w_signal/train_r:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_exec_signal_mean']:+.4f} / "
+                                    f"{locs['frontres_weighted_exec_signal_mean']:+.4f} / "
+                                    f"{locs['frontres_train_reward_mean']:+.4f}\n"
+                                )
+                                log_string += f"""{'Clean/Oracle/Trust:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_reward_clean_mean']:+.4f} / "
+                                    f"{locs['frontres_reward_oracle_mean']:+.4f} / "
+                                    f"{locs['frontres_oracle_trust_mean']:.3f}\n"
+                                )
+                                log_string += f"""{'oracle gap/cost:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_oracle_clean_gap_mean']:+.4f} / "
+                                    f"{locs['frontres_clean_bound_cost_mean']:.4f}\n"
+                                )
+                                log_string += f"""{'side/over/under:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_clean_bound_side_cost_mean']:.4f} / "
+                                    f"{locs['frontres_over_cost_mean']:.4f} / "
+                                    f"{locs['frontres_under_repair_cost_mean']:.4f}\n"
+                                )
+                                log_string += f"""{'bonus/legacy S/R/B:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_effective_gain_bonus_mean']:+.4f} / "
+                                    f"{locs['frontres_safe_cost_mean']:.4f} / "
+                                    f"{locs['frontres_repair_cost_mean']:.4f} / "
+                                    f"{locs['frontres_broken_cost_mean']:.4f}\n"
+                                )
+                                log_string += f"""{'reward/constraint prog:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_reward_progress_mean']:.4f} / "
+                                    f"{locs['frontres_constraint_progress_mean']:.4f}\n"
+                                )
+                            if locs.get("frontres_behavior_fit_mean") is not None:
+                                log_string += f"""{'exec legacy fit:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_behavior_fit_mean']:+.3f} / "
+                                    f"{locs['frontres_repair_fit_rate_mean']:+.3f} / "
+                                    f"{locs['frontres_repair_fit_gain_mean']:+.4f}\n"
+                                )
+                                log_string += f"""{'restore rp/res/bias:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_restore_ratio_rp_mean']:+.3f} / "
+                                    f"{locs['frontres_residual_rp_abs_mean']:.4f} / "
+                                    f"{locs['frontres_corr_roll_bias_mean']:+.4f}, "
+                                    f"{locs['frontres_corr_pitch_bias_mean']:+.4f}\n"
+                                )
+                                log_string += f"""{'harm rate/mag:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_harm_rate_mean']:.3f} / "
+                                    f"{locs['frontres_harm_mag_mean']:.4f}\n"
+                                )
+                                log_string += f"""{'safe/broken harm:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_safe_harm_rate_mean']:.3f} / "
+                                    f"{locs['frontres_broken_harm_rate_mean']:.3f}\n"
+                                )
+                                log_string += f"""{'safe/broken abstain:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_safe_abstain_cost_mean']:.4f} / "
+                                    f"{locs['frontres_broken_abstain_cost_mean']:.4f}\n"
+                                )
+                            if locs.get("frontres_positive_gain_frac_mean") is not None:
+                                log_string += f"""{'positive_gain_frac:':>{pad}} """
+                                log_string += f"{locs['frontres_positive_gain_frac_mean']:.3f}\n"
+                            log_string += f"""{'safe/repair/broken frac:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_safe_frac_mean']:.3f} / "
+                                f"{locs['frontres_repair_frac_mean']:.3f} / "
+                                f"{locs['frontres_broken_frac_mean']:.3f}\n"
+                            )
+
+                        log_string += f"""\n{'-' * 12} Detail Reward {'-' * 12}\n"""
+                        if locs.get("frontres_r_z_mean") is not None:
+                            log_string += f"""{'r_z/r_xy/r_rp/r_yaw:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_r_z_mean']:+.4f} / "
+                                f"{locs['frontres_r_xy_mean']:+.4f} / "
+                                f"{locs['frontres_r_rp_mean']:+.4f} / "
+                                f"{locs['frontres_r_yaw_mean']:+.4f}\n"
+                            )
+                        log_string += f"""{'repair/geom/rescue/action_cost:':>{pad}} """
                         log_string += (
-                            f"{locs['frontres_reward_frontres_mean']:+.4f} / "
-                            f"{locs['frontres_baseline_mean']:+.4f}\n"
+                            f"{locs['frontres_r_exec_mean']:+.4f} / "
+                            f"{locs['frontres_r_geom_mean']:+.4f} / "
+                            f"{locs['frontres_r_rescue_mean']:+.4f} / "
+                            f"{locs['frontres_intervention_cost_mean']:+.4f}\n"
                         )
-                    if locs.get("frontres_exec_planar_mean") is not None:
-                        log_string += f"""{'exec planar/vertical/task:':>{pad}} """
-                        log_string += (
-                            f"{locs['frontres_exec_planar_mean']:+.4f} / "
-                            f"{locs['frontres_exec_vertical_mean']:+.4f} / "
-                            f"{locs['frontres_exec_task_mean']:+.4f}\n"
-                        )
+                        if locs.get("frontres_reward_frontres_mean") is not None and locs.get("frontres_baseline_mean") is not None:
+                            log_string += f"""{'exec reward FR/pert:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_reward_frontres_mean']:+.4f} / "
+                                f"{locs['frontres_baseline_mean']:+.4f}\n"
+                            )
+                        if locs.get("frontres_exec_planar_mean") is not None:
+                            log_string += f"""{'exec planar/vertical/task:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_exec_planar_mean']:+.4f} / "
+                                f"{locs['frontres_exec_vertical_mean']:+.4f} / "
+                                f"{locs['frontres_exec_task_mean']:+.4f}\n"
+                            )
+                        if locs.get("frontres_window_mu_mean") is not None:
+                            log_string += f"""{'exec/cost gate:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_exec_gate_mean']:.3f} / "
+                                f"{locs['frontres_cost_gate_mean']:.3f}\n"
+                            )
+
+                    log_string += f"""\n{'-' * 10} Optimization / Update {'-' * 10}\n"""
                     if locs.get("frontres_window_mu_mean") is not None:
-                        log_string += f"""{'exec/cost gate:':>{pad}} """
+                        log_string += f"""{'mu (reward window):':>{pad}} {locs['frontres_window_mu_mean']:.3f}\n"""
+                        log_string += f"""{'actor sample weight:':>{pad}} {locs['frontres_actor_gate_mean']:.3f}\n"""
+                    _gc = _loss_dict.get("grad_cos_ppo_supervised", None)
+                    if _gc is not None:
+                        _gr = _loss_dict.get("grad_norm_ratio_ppo_to_supervised", 0.0)
+                        log_string += f"""{'grad cos PPO/Sup:':>{pad}} {_gc:+.4f} (norm ratio={_gr:.3f})\n"""
+                    _rd_ema = locs.get("_r_delta_ema", 0.0)
+                    log_string += f"""{'r_delta EMA:':>{pad}} {_rd_ema:.4f}\n"""
+                    _lam = _loss_dict.get("lambda_supervised", None)
+                    if _lam is not None:
+                        log_string += f"""{'λ_supervised:':>{pad}} {_lam:.3f}\n"""
+                    _paw = _loss_dict.get("ppo_actor_weight", None)
+                    if _paw is not None:
+                        log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
+                    if locs.get("frontres_window_mu_mean") is not None:
+                        log_string += f"""{'actor/exec/cost:':>{pad}} """
                         log_string += (
+                            f"{locs['frontres_actor_gate_mean']:.3f} / "
                             f"{locs['frontres_exec_gate_mean']:.3f} / "
                             f"{locs['frontres_cost_gate_mean']:.3f}\n"
                         )
-
-                log_string += f"""\n{'-' * 10} Optimization / Update {'-' * 10}\n"""
-                if locs.get("frontres_window_mu_mean") is not None:
-                    log_string += f"""{'mu (reward window):':>{pad}} {locs['frontres_window_mu_mean']:.3f}\n"""
-                    log_string += f"""{'actor sample weight:':>{pad}} {locs['frontres_actor_gate_mean']:.3f}\n"""
-                _gc = locs.get("loss_dict", {}).get("grad_cos_ppo_supervised", None)
-                if _gc is not None:
-                    _gr = locs.get("loss_dict", {}).get("grad_norm_ratio_ppo_to_supervised", 0.0)
-                    log_string += f"""{'grad cos PPO/Sup:':>{pad}} {_gc:+.4f} (norm ratio={_gr:.3f})\n"""
-                _rd_ema = locs.get("_r_delta_ema", 0.0)
-                log_string += f"""{'r_delta EMA:':>{pad}} {_rd_ema:.4f}\n"""
-                _lam = locs.get("loss_dict", {}).get("lambda_supervised", None)
-                if _lam is not None:
-                    log_string += f"""{'λ_supervised:':>{pad}} {_lam:.3f}\n"""
-                _paw = locs.get("loss_dict", {}).get("ppo_actor_weight", None)
-                if _paw is not None:
-                    log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
-                if locs.get("frontres_window_mu_mean") is not None:
-                    log_string += f"""{'actor/exec/cost:':>{pad}} """
-                    log_string += (
-                        f"{locs['frontres_actor_gate_mean']:.3f} / "
-                        f"{locs['frontres_exec_gate_mean']:.3f} / "
-                        f"{locs['frontres_cost_gate_mean']:.3f}\n"
-                    )
         else:
             log_string = (
                 f"""{'#' * width}\n"""
-                f"""{str.center(width, ' ')}\n\n"""
+                    f"""{iter_title.center(width, ' ')}\n\n"""
                 f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                     'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n""")
 

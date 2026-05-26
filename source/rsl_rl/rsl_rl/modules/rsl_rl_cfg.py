@@ -272,6 +272,24 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Cosine-direction loss weight on non-zero supervised targets."""
     supervised_valid_loss_weight: float = 4.0
     """Extra sample weight for non-zero supervised targets before normalization."""
+    supervised_magnitude_loss_weight: float = 0.0
+    """Weight for matching correction magnitude to the clean restoration target."""
+    supervised_over_loss_weight: float = 0.0
+    """Weight for penalizing corrections whose norm exceeds the clean target norm."""
+    supervised_smooth_loss_weight: float = 0.0
+    """Weight for matching temporal first differences of corrections to the target sequence."""
+    frontres_supervised_lr_schedule: str = "fixed"
+    """Supervised-only LR schedule: fixed or cosine_anneal."""
+    frontres_supervised_lr_start: float | None = None
+    """Initial LR for supervised cosine warmup."""
+    frontres_supervised_lr_peak: float | None = None
+    """Peak LR for supervised cosine schedule."""
+    frontres_supervised_lr_min: float | None = None
+    """Final LR floor for supervised cosine schedule."""
+    frontres_supervised_lr_warmup_iters: int = 0
+    """Linear warmup iterations before cosine decay."""
+    frontres_supervised_lr_cosine_iters: int = 1000
+    """Iterations used for cosine decay after warmup."""
     ppo_actor_warmup_iterations: int = 0
     """Number of PPO iterations with actor surrogate disabled; critic and supervised loss still train."""
     ppo_actor_ramp_iterations: int = 0

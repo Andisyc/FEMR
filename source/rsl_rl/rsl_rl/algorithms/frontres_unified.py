@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
+import math
 
 import torch
 import torch.nn as nn
@@ -54,6 +55,15 @@ class FrontRESUnified:
         supervised_conf_loss_weight: float = 0.05,
         supervised_direction_loss_weight: float = 0.1,
         supervised_valid_loss_weight: float = 4.0,
+        supervised_magnitude_loss_weight: float = 0.0,
+        supervised_over_loss_weight: float = 0.0,
+        supervised_smooth_loss_weight: float = 0.0,
+        frontres_supervised_lr_schedule: str = "fixed",
+        frontres_supervised_lr_start: float | None = None,
+        frontres_supervised_lr_peak: float | None = None,
+        frontres_supervised_lr_min: float | None = None,
+        frontres_supervised_lr_warmup_iters: int = 0,
+        frontres_supervised_lr_cosine_iters: int = 1000,
         ppo_actor_warmup_iterations: int = 0,
         ppo_actor_ramp_iterations: int = 0,
         ppo_advantage_focal_power: float = 0.0,
@@ -133,6 +143,15 @@ class FrontRESUnified:
         self.supervised_conf_loss_weight = supervised_conf_loss_weight
         self.supervised_direction_loss_weight = supervised_direction_loss_weight
         self.supervised_valid_loss_weight = supervised_valid_loss_weight
+        self.supervised_magnitude_loss_weight = float(supervised_magnitude_loss_weight)
+        self.supervised_over_loss_weight = float(supervised_over_loss_weight)
+        self.supervised_smooth_loss_weight = float(supervised_smooth_loss_weight)
+        self.frontres_supervised_lr_schedule = str(frontres_supervised_lr_schedule).lower()
+        self.frontres_supervised_lr_start = float(frontres_supervised_lr_start) if frontres_supervised_lr_start is not None else float(learning_rate)
+        self.frontres_supervised_lr_peak = float(frontres_supervised_lr_peak) if frontres_supervised_lr_peak is not None else float(learning_rate)
+        self.frontres_supervised_lr_min = float(frontres_supervised_lr_min) if frontres_supervised_lr_min is not None else float(learning_rate)
+        self.frontres_supervised_lr_warmup_iters = int(frontres_supervised_lr_warmup_iters)
+        self.frontres_supervised_lr_cosine_iters = int(frontres_supervised_lr_cosine_iters)
         self.ppo_actor_warmup_iterations = int(ppo_actor_warmup_iterations)
         self.ppo_actor_ramp_iterations = int(ppo_actor_ramp_iterations)
         self.ppo_advantage_focal_power = float(ppo_advantage_focal_power)
@@ -227,6 +246,9 @@ class FrontRESUnified:
               f"  rpy_w={self.supervised_rpy_loss_weight}"
               f"  conf_w={self.supervised_conf_loss_weight}"
               f"  dir_w={self.supervised_direction_loss_weight}"
+              f"  mag_w={self.supervised_magnitude_loss_weight}"
+              f"  over_w={self.supervised_over_loss_weight}"
+              f"  smooth_w={self.supervised_smooth_loss_weight}"
               f"  valid_w={self.supervised_valid_loss_weight}")
         print(f"  PPO actor warmup={self.ppo_actor_warmup_iterations}"
               f"  ramp={self.ppo_actor_ramp_iterations}"
@@ -260,6 +282,7 @@ class FrontRESUnified:
             teacher_obs_shape=None,
             ref_vel_estimator_obs_shape=ref_vel_estimator_obs_shape,
         )
+        self.storage.yield_batch_indices = self.supervised_smooth_loss_weight > 0
 
     def act(self, obs, critic_obs, teacher_obs=None, ref_vel_estimator_obs=None, motion_groups=None):
         if self.policy.is_recurrent:
@@ -305,6 +328,7 @@ class FrontRESUnified:
             normalize_advantage=not self.normalize_advantage_per_mini_batch)
 
     def update(self):
+        self._update_supervised_learning_rate()
         loss_dict = self._update_ppo_supervised()
         if (
             self.frontres_training_objective != "supervised_restore"
@@ -312,6 +336,30 @@ class FrontRESUnified:
         ):
             self._step_supervised_lambda(loss_dict.get("supervised_cos_sim", 0.0))
         return loss_dict
+
+    def _update_supervised_learning_rate(self) -> None:
+        if self.frontres_training_objective != "supervised_restore":
+            return
+        if self.frontres_supervised_lr_schedule not in ("cosine", "cosine_anneal", "cosine_annealing"):
+            return
+
+        it = int(getattr(self, "current_learning_iteration", 0))
+        warmup = max(0, self.frontres_supervised_lr_warmup_iters)
+        cosine_iters = max(1, self.frontres_supervised_lr_cosine_iters)
+        lr_start = self.frontres_supervised_lr_start
+        lr_peak = self.frontres_supervised_lr_peak
+        lr_min = self.frontres_supervised_lr_min
+
+        if warmup > 0 and it < warmup:
+            frac = it / float(max(1, warmup))
+            lr = lr_start + (lr_peak - lr_start) * frac
+        else:
+            frac = min(1.0, max(0.0, (it - warmup) / float(cosine_iters)))
+            lr = lr_min + 0.5 * (lr_peak - lr_min) * (1.0 + math.cos(math.pi * frac))
+
+        self.learning_rate = float(lr)
+        for param_group in self.optimizer.param_groups:
+            param_group["lr"] = self.learning_rate
 
     def _step_supervised_lambda(self, cos_sim: float):
         if self.lambda_supervised <= self.lambda_supervised_min:
@@ -349,28 +397,30 @@ class FrontRESUnified:
         else:
             generator = self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
 
-        for (
-            obs_batch,
-            critic_obs_batch,
-            actions_batch,
-            target_values_batch,
-            advantages_batch,
-            returns_batch,
-            old_actions_log_prob_batch,
-            old_mu_batch,
-            old_sigma_batch,
-            hid_states_batch,
-            masks_batch,
-            rnd_state_batch,
-            _teacher_obs_batch,
-            _teacher_mu_batch,
-            _teacher_sigma_batch,
-            ref_vel_estimator_obs_batch,
-            _motion_groups_batch,
-            frontres_mask_batch,
-            supervised_target_batch,
-            frontres_actor_gate_batch,
-        ) in generator:
+        for batch in generator:
+            (
+                obs_batch,
+                critic_obs_batch,
+                actions_batch,
+                target_values_batch,
+                advantages_batch,
+                returns_batch,
+                old_actions_log_prob_batch,
+                old_mu_batch,
+                old_sigma_batch,
+                hid_states_batch,
+                masks_batch,
+                rnd_state_batch,
+                _teacher_obs_batch,
+                _teacher_mu_batch,
+                _teacher_sigma_batch,
+                ref_vel_estimator_obs_batch,
+                _motion_groups_batch,
+                frontres_mask_batch,
+                supervised_target_batch,
+                frontres_actor_gate_batch,
+            ) = batch[:20]
+            batch_indices = batch[20] if len(batch) > 20 else None
             original_batch_size = obs_batch.shape[0]
             if self.normalize_advantage_per_mini_batch:
                 with torch.no_grad():
@@ -400,7 +450,7 @@ class FrontRESUnified:
                 self._adapt_learning_rate(old_mu_batch, old_sigma_batch, mu_batch, sigma_batch)
 
             supervised_loss, sup_cos_sim, sup_metrics = self._compute_supervised_loss(
-                mu_batch, supervised_target_batch, original_batch_size)
+                mu_batch, supervised_target_batch, original_batch_size, batch_indices=batch_indices)
 
             if self.frontres_training_objective == "supervised_restore":
                 loss = supervised_loss
@@ -610,7 +660,13 @@ class FrontRESUnified:
             value_loss = value_terms.mean()
         return surrogate_loss, value_loss
 
-    def _compute_supervised_loss(self, mu_batch, supervised_target_batch, original_batch_size):
+    def _compute_supervised_loss(
+        self,
+        mu_batch,
+        supervised_target_batch,
+        original_batch_size,
+        batch_indices=None,
+    ):
         supervised_loss = torch.tensor(0.0, device=self.device)
         sup_cos_sim = 0.0
         sup_metrics = {
@@ -620,6 +676,11 @@ class FrontRESUnified:
             "supervised_rpy_rmse": 0.0,
             "supervised_restore_ratio": 0.0,
             "supervised_valid_frac": 0.0,
+            "supervised_l_pos": 0.0,
+            "supervised_l_rot": 0.0,
+            "supervised_l_mag": 0.0,
+            "supervised_l_over": 0.0,
+            "supervised_l_smooth": 0.0,
         }
         if supervised_target_batch is None or self.lambda_supervised <= 0:
             return supervised_loss, sup_cos_sim, sup_metrics
@@ -684,6 +745,28 @@ class FrontRESUnified:
         rpy_sup = (rpy_err * rpy_weight).mean()
         supervised_loss = pos_sup + self.supervised_rpy_loss_weight * rpy_sup
 
+        mag_loss = torch.zeros((), device=self.device)
+        over_loss = torch.zeros((), device=self.device)
+        smooth_loss = torch.zeros((), device=self.device)
+        if self.supervised_magnitude_loss_weight > 0 and valid.any():
+            pred_norm = pred[valid].norm(dim=-1)
+            target_norm_valid = target_detached[valid].norm(dim=-1)
+            mag_loss = nn.functional.huber_loss(pred_norm, target_norm_valid, reduction="mean")
+            supervised_loss = supervised_loss + self.supervised_magnitude_loss_weight * mag_loss
+        if self.supervised_over_loss_weight > 0 and valid.any():
+            pred_norm = pred[valid].norm(dim=-1)
+            target_norm_valid = target_detached[valid].norm(dim=-1)
+            over_loss = torch.relu(pred_norm - target_norm_valid).square().mean()
+            supervised_loss = supervised_loss + self.supervised_over_loss_weight * over_loss
+        if (
+            self.supervised_smooth_loss_weight > 0
+            and batch_indices is not None
+            and getattr(self.storage, "num_envs", 0) > 0
+        ):
+            smooth_loss = self._compute_temporal_smooth_loss(
+                pred, target_detached, batch_indices[:original_batch_size])
+            supervised_loss = supervised_loss + self.supervised_smooth_loss_weight * smooth_loss
+
         if self.supervised_direction_loss_weight > 0:
             direction_loss = torch.zeros((), device=self.device)
             if pos_valid.any():
@@ -713,6 +796,11 @@ class FrontRESUnified:
             err = pred - target_detached
             sup_metrics["supervised_mae"] = err.abs().mean().item()
             sup_metrics["supervised_rmse"] = err.square().mean().sqrt().item()
+            sup_metrics["supervised_l_pos"] = pos_sup.item()
+            sup_metrics["supervised_l_rot"] = rpy_sup.item()
+            sup_metrics["supervised_l_mag"] = mag_loss.item()
+            sup_metrics["supervised_l_over"] = over_loss.item()
+            sup_metrics["supervised_l_smooth"] = smooth_loss.item()
             if err.shape[-1] >= 6:
                 rpy_err_vec = err[:, 3:6]
                 sup_metrics["supervised_rpy_mae"] = rpy_err_vec.abs().mean().item()
@@ -726,6 +814,32 @@ class FrontRESUnified:
                 restore_ratio = 1.0 - residual_norm / target_norm_valid
                 sup_metrics["supervised_restore_ratio"] = restore_ratio.mean().item()
         return supervised_loss, sup_cos_sim, sup_metrics
+
+    def _compute_temporal_smooth_loss(self, pred, target, batch_indices):
+        """Match correction first differences on adjacent rollout samples."""
+        if batch_indices is None or batch_indices.numel() < 2:
+            return torch.zeros((), device=self.device)
+        num_envs = int(getattr(self.storage, "num_envs", 0))
+        if num_envs <= 0:
+            return torch.zeros((), device=self.device)
+
+        idx = batch_indices.to(device=self.device, dtype=torch.long).view(-1)
+        sorted_idx, order = torch.sort(idx)
+        pred_sorted = pred[order]
+        target_sorted = target[order]
+
+        next_idx = sorted_idx + num_envs
+        pos = torch.searchsorted(sorted_idx, next_idx)
+        safe_pos = pos.clamp(max=sorted_idx.numel() - 1)
+        found = (pos < sorted_idx.numel()) & (sorted_idx[safe_pos] == next_idx)
+        if not found.any():
+            return torch.zeros((), device=self.device)
+
+        cur = torch.nonzero(found, as_tuple=False).squeeze(-1)
+        nxt = pos[cur]
+        pred_diff = pred_sorted[nxt] - pred_sorted[cur]
+        target_diff = target_sorted[nxt] - target_sorted[cur]
+        return nn.functional.huber_loss(pred_diff, target_diff.detach(), reduction="mean")
 
     def _warn_skip(self, reason: str, loss: torch.Tensor | None = None):
         skip_count = getattr(self, "_nan_skip_count", 0) + 1
