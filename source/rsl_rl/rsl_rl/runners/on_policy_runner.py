@@ -3914,7 +3914,7 @@ class OnPolicyRunner:
                 self.writer.add_scalar("Train/mean_reward/time", statistics.mean(locs["rewbuffer"]), self.tot_time)
                 self.writer.add_scalar("Train/mean_episode_length/time", statistics.mean(locs["lenbuffer"]), self.tot_time)
 
-        str = f" \033[1m Learning iteration {locs['it']}/{locs['tot_iter']} \033[0m "
+        iter_title = f" \033[1m Learning iteration {locs['it']}/{locs['tot_iter']} \033[0m "
 
         if self.training_type != "supervise" and len(locs["rewbuffer"]) > 0:
             # ── Phase indicator ──────────────────────────────────────────────
@@ -3924,7 +3924,8 @@ class OnPolicyRunner:
                 _is_critic = locs.get("_critic_warmup_active", False)
                 _is_actor_takeover = locs.get("_actor_takeover_active", False)
                 _lam = getattr(self.alg, 'lambda_supervised', 0.0)
-                if str(getattr(self.alg, "frontres_training_objective", "")).lower() == "supervised_restore":
+                _objective = getattr(self.alg, "frontres_training_objective", "")
+                if f"{_objective}".lower() == "supervised_restore":
                     _phase = "SUPERVISED RESTORE"
                     _notes = "(PPO/HRL update disabled; fitting clean restoration target)"
                 elif _is_warmup:
@@ -3960,12 +3961,12 @@ class OnPolicyRunner:
             if _is_frontres_policy:
                 log_string = (
                     f"""{'#' * width}\n"""
-                    f"""{str.center(width, ' ')}\n"""
+                    f"""{iter_title.center(width, ' ')}\n"""
                     f"""{_phase_str.center(width, ' ')}\n""")
             else:
                 log_string = (
                     f"""{'#' * width}\n"""
-                    f"""{str.center(width, ' ')}\n"""
+                    f"""{iter_title.center(width, ' ')}\n"""
                     f"""{_phase_str.center(width, ' ')}\n\n"""
                     f"""{'─' * 30} PERFORMANCE {'─' * 30}\n"""
                     f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
