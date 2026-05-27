@@ -4850,7 +4850,7 @@ class OnPolicyRunner:
             return
         if str(getattr(self.alg, "frontres_training_objective", "")).lower() != "supervised_restore":
             return
-        interval = int(self.cfg.get("frontres_restore_debug_print_interval", 100))
+        interval = int(getattr(self.alg, "frontres_restore_debug_print_interval", self.cfg.get("frontres_restore_debug_print_interval", 100)))
         if interval <= 0 or int(it) % interval != 0:
             return
         if getattr(self, "_frontres_restore_debug_last_iter", None) == int(it):

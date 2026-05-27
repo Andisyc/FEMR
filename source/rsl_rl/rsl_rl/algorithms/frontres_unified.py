@@ -64,6 +64,7 @@ class FrontRESUnified:
         frontres_supervised_lr_min: float | None = None,
         frontres_supervised_lr_warmup_iters: int = 0,
         frontres_supervised_lr_cosine_iters: int = 1000,
+        frontres_restore_debug_print_interval: int = 100,
         ppo_actor_warmup_iterations: int = 0,
         ppo_actor_ramp_iterations: int = 0,
         ppo_advantage_focal_power: float = 0.0,
@@ -152,6 +153,7 @@ class FrontRESUnified:
         self.frontres_supervised_lr_min = float(frontres_supervised_lr_min) if frontres_supervised_lr_min is not None else float(learning_rate)
         self.frontres_supervised_lr_warmup_iters = int(frontres_supervised_lr_warmup_iters)
         self.frontres_supervised_lr_cosine_iters = int(frontres_supervised_lr_cosine_iters)
+        self.frontres_restore_debug_print_interval = int(frontres_restore_debug_print_interval)
         self.ppo_actor_warmup_iterations = int(ppo_actor_warmup_iterations)
         self.ppo_actor_ramp_iterations = int(ppo_actor_ramp_iterations)
         self.ppo_advantage_focal_power = float(ppo_advantage_focal_power)
