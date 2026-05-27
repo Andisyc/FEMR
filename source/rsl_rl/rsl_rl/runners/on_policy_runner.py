@@ -2491,7 +2491,7 @@ class OnPolicyRunner:
 
             # Rollout: 训练首先需要积攒数据, 等数据攒够才能调用self.alg.update()更新权重
             with torch.inference_mode(): # 关闭计算图的梯度追踪, 只进行推理
-                for _ in range(self.num_steps_per_env):
+                for _rollout_step in range(self.num_steps_per_env):
                     # Sample actions
                     if self.training_type in ("mosaic", "frontres"):
                         # Extract motion groups for MOSAIC multi-teacher support.
@@ -2647,6 +2647,13 @@ class OnPolicyRunner:
                                         _sup_target, _sup_mode_groups, N_train
                                     )
                                 self.alg.transition.supervised_target = _sup_target
+                                self._maybe_print_frontres_restore_debug(
+                                    it,
+                                    _rollout_step,
+                                    actions,
+                                    _sup_target,
+                                    N_train,
+                                )
                                 break
 
                     # Step the environment 仿真环境更新观测量/动作评分/序列结束与否/监控数据
@@ -4827,6 +4834,124 @@ class OnPolicyRunner:
                 cmd_term._frontres_quat_correction[n_train:].zero_()
                 cmd_term._frontres_quat_correction[n_train:, 0] = 1.0
         return task_corr
+
+    def _maybe_print_frontres_restore_debug(
+        self,
+        it: int,
+        rollout_step: int,
+        actions: torch.Tensor | None,
+        supervised_target: torch.Tensor | None,
+        n_train: int,
+    ) -> None:
+        """Low-frequency consistency print for task-space FrontRES restore."""
+        if actions is None or supervised_target is None:
+            return
+        if rollout_step != 0:
+            return
+        if str(getattr(self.alg, "frontres_training_objective", "")).lower() != "supervised_restore":
+            return
+        interval = int(self.cfg.get("frontres_restore_debug_print_interval", 100))
+        if interval <= 0 or int(it) % interval != 0:
+            return
+        if getattr(self, "_frontres_restore_debug_last_iter", None) == int(it):
+            return
+        self._frontres_restore_debug_last_iter = int(it)
+
+        env_raw = self.env.unwrapped if hasattr(self.env, "unwrapped") else self.env
+        if not (hasattr(env_raw, "command_manager") and hasattr(env_raw.command_manager, "_terms")):
+            return
+        cmd_term = None
+        for term in env_raw.command_manager._terms.values():
+            needed = (
+                "anchor_quat_w_original",
+                "anchor_quat_w_raw",
+                "_frontres_quat_correction",
+            )
+            if all(hasattr(term, name) for name in needed):
+                cmd_term = term
+                break
+        if cmd_term is None:
+            return
+
+        n = max(0, min(int(n_train), actions.shape[0], supervised_target.shape[0]))
+        if n <= 0:
+            return
+
+        raw_q = cmd_term.anchor_quat_w_raw[:n].to(self.device)
+        clean_q = cmd_term.anchor_quat_w_original[:n].to(self.device)
+        written_q = cmd_term._frontres_quat_correction[:n].to(self.device)
+        target = supervised_target[:n, 3:6].detach()
+        pred = actions[:n, 3:6].detach()
+        conf = actions[:n, 7:8].detach() if actions.shape[-1] >= 8 else torch.ones(n, 1, device=self.device)
+        applied = pred * conf
+        written = _quat_to_rotvec_wxyz(written_q)[:, :3]
+
+        clean_from_raw = _quat_to_rotvec_wxyz(quat_mul(quat_inv(raw_q), clean_q))[:, :3]
+        corrected_q = quat_mul(raw_q, written_q)
+        corrected_err = _quat_to_rotvec_wxyz(quat_mul(quat_inv(corrected_q), clean_q))[:, :3]
+        alt_corrected_q = quat_mul(written_q, raw_q)
+        alt_corrected_err = _quat_to_rotvec_wxyz(quat_mul(quat_inv(alt_corrected_q), clean_q))[:, :3]
+
+        def _safe_cos(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return (a * b).sum(-1) / (a.norm(dim=-1) * b.norm(dim=-1) + 1e-8)
+
+        valid = target.norm(dim=-1) > 1e-4
+        if valid.any():
+            cos_pred_target = _safe_cos(pred[valid], target[valid]).mean()
+            cos_written_target = _safe_cos(written[valid], target[valid]).mean()
+            sign_match = (torch.sign(pred[valid, :2]) == torch.sign(target[valid, :2])).float().mean()
+        else:
+            cos_pred_target = torch.tensor(0.0, device=self.device)
+            cos_written_target = torch.tensor(0.0, device=self.device)
+            sign_match = torch.tensor(0.0, device=self.device)
+
+        noisy_err_norm = clean_from_raw[:, :2].norm(dim=-1)
+        corrected_err_norm = corrected_err[:, :2].norm(dim=-1)
+        alt_err_norm = alt_corrected_err[:, :2].norm(dim=-1)
+        restore_gain = noisy_err_norm - corrected_err_norm
+        max_delta_rpy = float(getattr(getattr(self.alg, "policy", None), "max_delta_rpy", 0.4))
+        sat_frac = (pred[:, :2].abs() > 0.95 * max_delta_rpy).float().mean()
+
+        prev = getattr(self, "_frontres_restore_debug_prev_applied", None)
+        if prev is not None and prev.shape == applied.shape:
+            step_jump = (applied[:, :2] - prev[:, :2]).norm(dim=-1).mean()
+        else:
+            step_jump = torch.tensor(0.0, device=self.device)
+        self._frontres_restore_debug_prev_applied = applied.detach().clone()
+
+        def _vec(t: torch.Tensor, idx: int = 0) -> list[float]:
+            vals = t[idx, :3].detach().cpu().tolist()
+            return [round(float(v), 5) for v in vals]
+
+        sample_idx = int(torch.argmax(noisy_err_norm).item())
+        print(
+            "[FrontRES restore debug] "
+            f"it={int(it)} dr={float(getattr(self, '_dr_scale', 0.0)):.4f} "
+            f"n={n} sample={sample_idx} "
+            f"cos(pred,target)={float(cos_pred_target):+.4f} "
+            f"cos(written,target)={float(cos_written_target):+.4f} "
+            f"sign_xy={float(sign_match):.3f} conf={float(conf.mean()):.3f} "
+            f"sat={float(sat_frac):.3f} jump={float(step_jump):.5f}",
+            flush=True,
+        )
+        print(
+            "[FrontRES restore debug] "
+            f"|raw-clean|={float(noisy_err_norm.mean()):.5f} "
+            f"|corr-clean|={float(corrected_err_norm.mean()):.5f} "
+            f"|altcorr-clean|={float(alt_err_norm.mean()):.5f} "
+            f"gain={float(restore_gain.mean()):+.5f}",
+            flush=True,
+        )
+        print(
+            "[FrontRES restore debug] sample vectors "
+            f"clean_from_raw={_vec(clean_from_raw, sample_idx)} "
+            f"target={_vec(target, sample_idx)} "
+            f"pred={_vec(pred, sample_idx)} "
+            f"applied={_vec(applied, sample_idx)} "
+            f"written={_vec(written, sample_idx)} "
+            f"residual={_vec(corrected_err, sample_idx)}",
+            flush=True,
+        )
 
     def _move_normalizer_to_device(self, device):
         if hasattr(self, 'obs_normalizer') and self.obs_normalizer is not None:
