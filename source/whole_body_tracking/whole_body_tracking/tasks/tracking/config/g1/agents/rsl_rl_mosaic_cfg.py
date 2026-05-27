@@ -835,6 +835,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_supervised_lr_min       = 1.0e-5,
         frontres_supervised_lr_warmup_iters = 50,
         frontres_supervised_lr_cosine_iters = 1550,
+        frontres_restore_debug_print_interval = 10,
         # Joint warmup already initializes the Critic's executable-energy
         # estimate, but Actor takeover still changes the corrected-reference
         # distribution.  Ramp slowly so PPO does not push the warmup solution
