@@ -482,12 +482,12 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     correction_smooth_alpha        = 0.4
 
     # ── FrontRES rp demo specialist ───────────────────────────────────────────
-    # Task-space action layout with task_conf_dim=6:
-    #   [dx, dy, dz, droll, dpitch, dyaw, ax, ay, az, aroll, apitch, ayaw]
-    # Isolate roll/pitch first so we can measure GMT's angular robustness limit
-    # without coupling the signal to root-z contact discontinuities.
+    # Task-space action layout with task_conf_dim=1:
+    #   [dx, dy, dz, droll, dpitch, dyaw, tau]
+    # Local-rp perturbations may require root-position compensation at high
+    # strength, so keep the full ΔSE(3) proposal active and let PPO filter tau.
     frontres_specialist_mode       = "rp"
-    frontres_active_task_dims      = [3, 4, 9, 10]
+    frontres_active_task_dims      = [0, 1, 2, 3, 4, 5, 6]
     frontres_perturbation_channels = "rp"
 
     # "More executable" reward:
@@ -596,7 +596,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_family_gain_ema_alpha = 0.05
     frontres_family_gain_initial_std = 0.01
     frontres_family_gain_min_std = 0.002
-    frontres_per_mode_supervised_mask = True
+    frontres_per_mode_supervised_mask = False
     frontres_adaptive_perturb_curriculum_enabled = True
     frontres_warmup_energy_loss_weight = 1.0
     # Demo restoration reward:
@@ -781,7 +781,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         noise_std_type         = "scalar",
         # ── Task-space SE(3) correction mode ─────────────────────────────────
         num_task_corrections   = 6,        # bounded correction proposal = [Δpos(3), Δrpy(3)]
-        task_conf_dim          = 6,        # per-axis repair coefficients αx/αy/αz/αr/αp/αyaw
+        task_conf_dim          = 1,        # scalar trust τ: HSL proposes ΔSE(3), PPO filters its strength
         max_delta_pos          = 0.3,      # tanh clip (metres)
         max_delta_rpy          = 0.4,      # tanh clip (rad); needed to repair RobotBridge rp eps up to 0.35
         # ── GMT (frozen) ─────────────────────────────────────────────────────
@@ -830,9 +830,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         supervised_magnitude_loss_weight = 0.5,
         supervised_over_loss_weight      = 0.2,
         supervised_smooth_loss_weight    = 0.05,
-        supervised_coeff_sparse_weight   = 0.02,
-        supervised_coeff_miss_weight     = 0.10,
-        supervised_coeff_smooth_weight   = 0.02,
+        supervised_coeff_sparse_weight   = 0.0,  # scalar τ is learned by PPO, not axis-wise BCE-style labels
+        supervised_coeff_miss_weight     = 0.0,
+        supervised_coeff_smooth_weight   = 0.0,
         supervised_harm_loss_weight      = 1.0,
         frontres_hsl_rollout_label_enabled = True,
         frontres_hsl_rollout_eta        = 1.0,
@@ -860,7 +860,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         ppo_actor_warmup_iterations   = 0,
         ppo_actor_ramp_iterations     = 400,
         ppo_advantage_focal_power     = 0.0,
-        frontres_active_task_dims      = [3, 4, 9, 10],
+        frontres_active_task_dims      = [0, 1, 2, 3, 4, 5, 6],
         diagnose_gradient_conflict    = True,
 
         # ── Misc ─────────────────────────────────────────────────────────────

@@ -11,6 +11,9 @@ Use this skill to match Dr. Cheng's research habits and collaboration expectatio
 
 - Treat the work as a research system, not a pile of independent code changes.
 - Start from the problem definition: what is the artifact, what is the repair target, what information is observable, and what physical feedback is available.
+- Reason from concepts before mechanisms. First name the compressed concept that explains the problem; then design the simplest mechanism that realizes it.
+- Use classification to reduce confusion. When a concept feels vague, split the cases until the design space becomes inspectable.
+- When moving from concept to method, first look for mature designs in prior project versions or related work, then adapt them instead of inventing a brittle mechanism from scratch.
 - Preserve architectural continuity. If a new implementation seems to replace a previous design, explicitly explain the relationship before editing.
 - Avoid incremental half-solutions when the user says the design is an architecture. Implement the complete discussed mechanism unless blocked.
 - Separate concepts that look similar but have different roles, such as geometric target, rollout residual, supervised label, executable reward, actor gate, and diagnostic metric.

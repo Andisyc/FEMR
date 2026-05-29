@@ -79,7 +79,9 @@ class OnPolicyRunner:
         mode = str(self.cfg.get("frontres_specialist_mode", "") or "").lower()
         if mode in ("rp", "local_rp", "rp_only", "strong_rp"):
             task_conf_dim = int(self.policy_cfg.get("task_conf_dim", 2))
-            active_dims = [3, 4, 9, 10] if task_conf_dim == 6 else [3, 4, 7]
+            active_dims = [0, 1, 2, 3, 4, 5, 6] if task_conf_dim == 1 else (
+                [3, 4, 9, 10] if task_conf_dim == 6 else [3, 4, 7]
+            )
             self.cfg["frontres_specialist_mode"] = "rp"
             self.cfg["frontres_active_task_dims"] = active_dims
             self.cfg["frontres_perturbation_channels"] = "rp"
@@ -96,7 +98,9 @@ class OnPolicyRunner:
             return
 
         task_conf_dim = int(self.policy_cfg.get("task_conf_dim", 2))
-        active_dims = [2, 3, 4, 8, 9, 10] if task_conf_dim == 6 else [2, 3, 4, 6, 7]
+        active_dims = [0, 1, 2, 3, 4, 5, 6] if task_conf_dim == 1 else (
+            [2, 3, 4, 8, 9, 10] if task_conf_dim == 6 else [2, 3, 4, 6, 7]
+        )
         self.cfg["frontres_specialist_mode"] = "rp_z"
         self.cfg["frontres_active_task_dims"] = active_dims
         self.cfg["frontres_perturbation_channels"] = "rp_z"
@@ -2657,8 +2661,12 @@ class OnPolicyRunner:
                         if _is_task_space_mode:
                             actions = _mask_frontres_task_actions(actions)
                             self.alg.transition.actions = actions.detach()
-                            self.alg.transition.actions_log_prob = \
-                                self.alg.policy.get_actions_log_prob(actions).detach()
+                            if hasattr(self.alg, "_get_actor_log_prob"):
+                                self.alg.transition.actions_log_prob = \
+                                    self.alg._get_actor_log_prob(actions).detach()
+                            else:
+                                self.alg.transition.actions_log_prob = \
+                                    self.alg.policy.get_actions_log_prob(actions).detach()
 
                         # Track velocity estimator error if available 仿真器有速度真值, 但学生模型只能瞎猜
                         if hasattr(self.alg, 'last_estimated_ref_vel') and self.alg.last_estimated_ref_vel is not None:
@@ -2731,8 +2739,12 @@ class OnPolicyRunner:
                         if _is_task_space_mode:
                             actions = _mask_frontres_task_actions(actions)
                             self.alg.transition.actions = actions.detach()
-                            self.alg.transition.actions_log_prob = \
-                                self.alg.policy.get_actions_log_prob(actions).detach()
+                            if hasattr(self.alg, "_get_actor_log_prob"):
+                                self.alg.transition.actions_log_prob = \
+                                    self.alg._get_actor_log_prob(actions).detach()
+                            else:
+                                self.alg.transition.actions_log_prob = \
+                                    self.alg.policy.get_actions_log_prob(actions).detach()
 
                         if _is_frontres:
                             # B1 split: FrontRES envs [0:N_train] use policy delta_q,
@@ -3995,6 +4007,8 @@ class OnPolicyRunner:
             "supervised_l_harm",
             "frontres_alpha_mean",
             "frontres_alpha_active_frac",
+            "frontres_tau_mean",
+            "frontres_tau_active_frac",
             "frontres_write_ratio",
             "frontres_axis_leakage",
         }      # diagnostics, not losses
@@ -4260,11 +4274,18 @@ class OnPolicyRunner:
                         )
                         log_string += f"""{'L_harm:':>{pad}} {_loss_dict.get('supervised_l_harm', 0.0):.6f}\n"""
                     if f"{getattr(self.alg, 'frontres_training_objective', '')}".lower() in ("basis_restore", "hsl_hybrid"):
-                        log_string += f"""{'alpha mean/active:':>{pad}} """
-                        log_string += (
-                            f"{_loss_dict.get('frontres_alpha_mean', 0.0):.3f} / "
-                            f"{_loss_dict.get('frontres_alpha_active_frac', 0.0):.3f}\n"
-                        )
+                        if int(getattr(getattr(self.alg, "policy", None), "task_conf_dim", 2)) == 1:
+                            log_string += f"""{'tau mean/active:':>{pad}} """
+                            log_string += (
+                                f"{_loss_dict.get('frontres_tau_mean', 0.0):.3f} / "
+                                f"{_loss_dict.get('frontres_tau_active_frac', 0.0):.3f}\n"
+                            )
+                        else:
+                            log_string += f"""{'alpha mean/active:':>{pad}} """
+                            log_string += (
+                                f"{_loss_dict.get('frontres_alpha_mean', 0.0):.3f} / "
+                                f"{_loss_dict.get('frontres_alpha_active_frac', 0.0):.3f}\n"
+                            )
                         log_string += f"""{'write ratio/leakage:':>{pad}} """
                         log_string += (
                             f"{_loss_dict.get('frontres_write_ratio', 0.0):.3f} / "
@@ -5034,9 +5055,14 @@ class OnPolicyRunner:
             pos_corr = task_corr[:n_train, :3].clone()
             rpy_corr = task_corr[:n_train, 3:6].clone()
             objective = str(getattr(self.alg, "frontres_training_objective", "")).lower()
-            if task_corr.shape[-1] >= 12 and int(getattr(policy, "task_conf_dim", 2)) == 6:
+            task_conf_dim = int(getattr(policy, "task_conf_dim", 2))
+            if task_corr.shape[-1] >= 12 and task_conf_dim == 6:
                 c_pos = task_corr[:n_train, 6:9].clone()
                 c_rpy = task_corr[:n_train, 9:12].clone()
+            elif task_corr.shape[-1] >= 7 and task_conf_dim == 1:
+                tau = task_corr[:n_train, 6:7].clone()
+                c_pos = tau
+                c_rpy = tau
             else:
                 c_pos = task_corr[:n_train, 6:7].clone()
                 c_rpy = task_corr[:n_train, 7:8].clone()
@@ -5115,8 +5141,11 @@ class OnPolicyRunner:
         written_q = cmd_term._frontres_quat_correction[:n].to(self.device)
         target = supervised_target[:n, 3:6].detach()
         pred = actions[:n, 3:6].detach()
-        if actions.shape[-1] >= 12 and int(getattr(self.alg.policy, "task_conf_dim", 2)) == 6:
+        task_conf_dim = int(getattr(self.alg.policy, "task_conf_dim", 2))
+        if actions.shape[-1] >= 12 and task_conf_dim == 6:
             conf_raw = actions[:n, 9:12].detach()
+        elif actions.shape[-1] >= 7 and task_conf_dim == 1:
+            conf_raw = actions[:n, 6:7].detach()
         elif actions.shape[-1] >= 8:
             conf_raw = actions[:n, 7:8].detach()
         else:

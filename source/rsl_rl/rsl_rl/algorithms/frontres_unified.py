@@ -249,8 +249,8 @@ class FrontRESUnified:
             print("  L = L_proposal + L_written + L_coeff  "
                   "(factorized per-axis repair coefficients; PPO/HRL branch kept but disabled)")
         elif self.frontres_training_objective == "hsl_hybrid":
-            print("  L = L_PPO(exec advantage) + λ_sup·L_HSL  "
-                  "(rollout labels supervise direction; PPO explores repair strength)")
+            print("  L = L_PPO(tau trust filter) + λ_sup·L_HSL(direction)  "
+                  "(PPO log-prob is restricted to tau; direction is supervised)")
         else:
             print(f"  L = L_PPO + λ_sup({self.lambda_supervised:.2f})·L_supervised")
         print("=" * 80)
@@ -316,7 +316,7 @@ class FrontRESUnified:
 
         self.transition.actions = self.policy.act(obs_augmented).detach()
         self.transition.values = self.policy.evaluate(critic_obs).detach()
-        self.transition.actions_log_prob = self.policy.get_actions_log_prob(self.transition.actions).detach()
+        self.transition.actions_log_prob = self._get_actor_log_prob(self.transition.actions).detach()
         self.transition.action_mean = self.policy.action_mean.detach()
         self.transition.action_sigma = self.policy.action_std.detach()
 
@@ -354,7 +354,7 @@ class FrontRESUnified:
         return loss_dict
 
     def _update_supervised_learning_rate(self) -> None:
-        if self.frontres_training_objective not in ("supervised_restore", "basis_restore"):
+        if self.frontres_training_objective not in ("supervised_restore", "basis_restore", "hsl_hybrid"):
             return
         if self.frontres_supervised_lr_schedule not in ("cosine", "cosine_anneal", "cosine_annealing"):
             return
@@ -453,7 +453,7 @@ class FrontRESUnified:
                 obs_batch_augmented = obs_batch
 
             self.policy.update_distribution(obs_batch_augmented)
-            actions_log_prob_batch = self.policy.get_actions_log_prob(actions_batch)
+            actions_log_prob_batch = self._get_actor_log_prob(actions_batch)
             value_batch = self.policy.evaluate(
                 critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
             mu_batch = self.policy.action_mean[:original_batch_size]
@@ -481,6 +481,7 @@ class FrontRESUnified:
                 loss = supervised_loss
                 value_loss = torch.zeros((), device=self.device)
                 surrogate_loss = torch.zeros((), device=self.device)
+                ppo_weight = 0.0
             else:
                 surrogate_loss, value_loss = self._compute_ppo_losses(
                     actions_log_prob_batch,
@@ -514,7 +515,17 @@ class FrontRESUnified:
                 self._warn_skip("non-finite loss", loss)
                 continue
 
-            loss.backward()
+            if self._ppo_tau_only_mode() and ppo_weight > 0.0:
+                non_ppo_loss = loss - ppo_weight * surrogate_loss
+                non_ppo_loss.backward(retain_graph=True)
+                base_grads = {
+                    p: (p.grad.detach().clone() if p.grad is not None else None)
+                    for p in self.policy.parameters()
+                }
+                (ppo_weight * surrogate_loss).backward()
+                self._keep_ppo_grad_on_tau_head_only(base_grads)
+            else:
+                loss.backward()
             if self.is_multi_gpu:
                 self.reduce_parameters()
 
@@ -571,6 +582,62 @@ class FrontRESUnified:
         if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
             loss_dict["ppo_actor_weight"] = 0.0
         return loss_dict
+
+    def _ppo_selected_action_dims(self):
+        """Return the action dimensions that PPO is allowed to update."""
+        if self._ppo_tau_only_mode():
+            return [6]
+        return None
+
+    def _ppo_tau_only_mode(self) -> bool:
+        return (
+            str(self.frontres_training_objective).lower() == "hsl_hybrid"
+            and getattr(self.policy, "num_task_corrections", 0) > 0
+            and int(getattr(self.policy, "task_conf_dim", 2)) == 1
+        )
+
+    def _get_actor_log_prob(self, actions):
+        dims = self._ppo_selected_action_dims()
+        if dims is not None and hasattr(self.policy, "get_actions_log_prob_selected"):
+            return self.policy.get_actions_log_prob_selected(actions, dims)
+        return self.policy.get_actions_log_prob(actions)
+
+    def _keep_ppo_grad_on_tau_head_only(self, base_grads):
+        """Remove PPO leakage into proposal direction and shared trunk.
+
+        The residual actor is a shared MLP.  Even a tau-only log-prob would
+        normally backpropagate through shared hidden layers and move ΔSE(3)
+        proposal directions.  This keeps the non-PPO gradients everywhere, and
+        adds the PPO gradient only to the final-layer row that emits tau.
+        """
+        final_linear = None
+        residual_actor = getattr(self.policy, "residual_actor", None)
+        if residual_actor is None:
+            return
+        for module in residual_actor.modules():
+            if isinstance(module, nn.Linear):
+                final_linear = module
+        if final_linear is None or final_linear.out_features <= 6:
+            return
+
+        allowed = {final_linear.weight, final_linear.bias}
+        for p in self.policy.parameters():
+            base = base_grads.get(p)
+            if p not in allowed:
+                p.grad = None if base is None else base.clone()
+                continue
+            cur = p.grad
+            if cur is None:
+                p.grad = None if base is None else base.clone()
+                continue
+            base_tensor = torch.zeros_like(cur) if base is None else base
+            ppo_grad = cur - base_tensor
+            mask = torch.zeros_like(cur)
+            if p is final_linear.weight:
+                mask[6:7, :] = 1.0
+            else:
+                mask[6:7] = 1.0
+            p.grad = base_tensor + ppo_grad * mask
 
     def _compute_actor_grad_conflict(self, surrogate_loss, supervised_loss):
         params = [
@@ -714,6 +781,8 @@ class FrontRESUnified:
             "supervised_l_harm": 0.0,
             "frontres_alpha_mean": 0.0,
             "frontres_alpha_active_frac": 0.0,
+            "frontres_tau_mean": 0.0,
+            "frontres_tau_active_frac": 0.0,
             "frontres_write_ratio": 0.0,
             "frontres_axis_leakage": 0.0,
             "frontres_supervised_weight": 0.0,
@@ -763,9 +832,15 @@ class FrontRESUnified:
             ], dim=-1)
 
         coeff = None
+        scalar_trust = False
         if is_task_space and str(self.frontres_training_objective).lower() in ("basis_restore", "hsl_hybrid"):
             coeff_dim = int(getattr(self.policy, "task_conf_dim", 2))
-            if coeff_dim == 6 and raw_pred.shape[-1] >= 12:
+            if coeff_dim == 1 and raw_pred.shape[-1] >= 7:
+                tau = torch.sigmoid(raw_pred[:, 6:7])
+                coeff = tau.expand(-1, proposal.shape[-1])
+                scalar_trust = True
+                pred = proposal * coeff
+            elif coeff_dim == 6 and raw_pred.shape[-1] >= 12:
                 coeff = torch.sigmoid(raw_pred[:, 6:12])
                 pred = proposal * coeff
             elif raw_pred.shape[-1] >= 8:
@@ -792,6 +867,8 @@ class FrontRESUnified:
             pred = pred * mask.view(1, -1)
             target = target * mask.view(1, -1)
 
+        written_pred = pred
+        supervised_pred = proposal if scalar_trust else pred
         target_detached = target.detach()
         target_norm = target_detached.norm(dim=-1)
         valid = target_norm > 1e-4
@@ -817,8 +894,8 @@ class FrontRESUnified:
         rpy_sup = _wmean(rpy_err, rpy_weight)
         supervised_loss = pos_sup + self.supervised_rpy_loss_weight * rpy_sup
 
-        if coeff is not None:
-            write_err = nn.functional.huber_loss(pred, target_detached, reduction="none").mean(dim=-1)
+        if coeff is not None and not scalar_trust:
+            write_err = nn.functional.huber_loss(written_pred, target_detached, reduction="none").mean(dim=-1)
             supervised_loss = supervised_loss + _wmean(write_err)
 
         mag_loss = torch.zeros((), device=self.device)
@@ -829,13 +906,13 @@ class FrontRESUnified:
         coeff_smooth_loss = torch.zeros((), device=self.device)
         harm_loss = torch.zeros((), device=self.device)
         if self.supervised_magnitude_loss_weight > 0 and valid.any():
-            pred_norm = pred.norm(dim=-1)
+            pred_norm = supervised_pred.norm(dim=-1)
             target_norm_valid = target_detached.norm(dim=-1)
             mag_terms = nn.functional.huber_loss(pred_norm, target_norm_valid, reduction="none")
             mag_loss = _wmean(mag_terms, valid.to(sample_weight.dtype))
             supervised_loss = supervised_loss + self.supervised_magnitude_loss_weight * mag_loss
         if self.supervised_over_loss_weight > 0 and valid.any():
-            pred_norm = pred.norm(dim=-1)
+            pred_norm = supervised_pred.norm(dim=-1)
             target_norm_valid = target_detached.norm(dim=-1)
             over_terms = torch.relu(pred_norm - target_norm_valid).square()
             over_loss = _wmean(over_terms, valid.to(sample_weight.dtype))
@@ -846,16 +923,16 @@ class FrontRESUnified:
             and getattr(self.storage, "num_envs", 0) > 0
         ):
             smooth_loss = self._compute_temporal_smooth_loss(
-                pred, target_detached, batch_indices[:original_batch_size])
+                supervised_pred, target_detached, batch_indices[:original_batch_size])
             supervised_loss = supervised_loss + self.supervised_smooth_loss_weight * smooth_loss
 
         if coeff is not None:
             target_axis_mask = (target_detached.abs() > 1e-4).to(coeff.dtype)
-            if self.supervised_coeff_sparse_weight > 0:
+            if self.supervised_coeff_sparse_weight > 0 and not scalar_trust:
                 sparse_terms = (coeff * (1.0 - target_axis_mask)).mean(dim=-1)
                 sparse_loss = _wmean(sparse_terms)
                 supervised_loss = supervised_loss + self.supervised_coeff_sparse_weight * sparse_loss
-            if self.supervised_coeff_miss_weight > 0:
+            if self.supervised_coeff_miss_weight > 0 and not scalar_trust:
                 miss_terms = ((1.0 - coeff) * target_axis_mask).mean(dim=-1)
                 miss_loss = _wmean(miss_terms)
                 supervised_loss = supervised_loss + self.supervised_coeff_miss_weight * miss_loss
@@ -869,7 +946,8 @@ class FrontRESUnified:
                 supervised_loss = supervised_loss + self.supervised_coeff_smooth_weight * coeff_smooth_loss
 
         if self.supervised_harm_loss_weight > 0 and harm_weight.sum() > 0:
-            harm_terms = pred.square().mean(dim=-1)
+            harm_base = written_pred if coeff is not None else pred
+            harm_terms = harm_base.square().mean(dim=-1)
             harm_loss = (harm_terms * harm_weight).sum() / harm_weight.sum().clamp(min=1e-6)
             supervised_loss = supervised_loss + self.supervised_harm_loss_weight * harm_loss
 
@@ -908,7 +986,8 @@ class FrontRESUnified:
             supervised_loss = supervised_loss + self.supervised_conf_loss_weight * conf_sup
 
         with torch.no_grad():
-            err = pred - target_detached
+            err = supervised_pred - target_detached
+            written_err = written_pred - target_detached
             sup_metrics["supervised_mae"] = err.abs().mean().item()
             sup_metrics["supervised_rmse"] = err.square().mean().sqrt().item()
             sup_metrics["supervised_l_pos"] = pos_sup.item()
@@ -924,12 +1003,16 @@ class FrontRESUnified:
             if coeff is not None:
                 sup_metrics["frontres_alpha_mean"] = coeff.mean().item()
                 sup_metrics["frontres_alpha_active_frac"] = (coeff > 0.5).float().mean().item()
-                pred_norm_all = pred.norm(dim=-1)
+                if scalar_trust:
+                    tau = coeff[:, :1]
+                    sup_metrics["frontres_tau_mean"] = tau.mean().item()
+                    sup_metrics["frontres_tau_active_frac"] = (tau > 0.5).float().mean().item()
+                pred_norm_all = written_pred.norm(dim=-1)
                 target_norm_all = target_detached.norm(dim=-1).clamp(min=1e-6)
                 sup_metrics["frontres_write_ratio"] = (pred_norm_all / target_norm_all).mean().item()
                 inactive = (target_detached.abs() <= 1e-4).to(pred.dtype)
-                leakage_num = (pred.abs() * inactive).sum(dim=-1)
-                leakage_den = pred.abs().sum(dim=-1).clamp(min=1e-6)
+                leakage_num = (written_pred.abs() * inactive).sum(dim=-1)
+                leakage_den = written_pred.abs().sum(dim=-1).clamp(min=1e-6)
                 sup_metrics["frontres_axis_leakage"] = (leakage_num / leakage_den).mean().item()
             if err.shape[-1] >= 6:
                 rpy_err_vec = err[:, 3:6]
@@ -938,8 +1021,8 @@ class FrontRESUnified:
             sup_metrics["supervised_valid_frac"] = valid.float().mean().item()
             if valid.any():
                 sup_cos_sim = nn.functional.cosine_similarity(
-                    pred[valid], target[valid], dim=-1).mean().item()
-                residual_norm = err[valid].norm(dim=-1)
+                    supervised_pred[valid], target[valid], dim=-1).mean().item()
+                residual_norm = written_err[valid].norm(dim=-1)
                 target_norm_valid = target_detached[valid].norm(dim=-1).clamp(min=1e-6)
                 restore_ratio = 1.0 - residual_norm / target_norm_valid
                 sup_metrics["supervised_restore_ratio"] = restore_ratio.mean().item()

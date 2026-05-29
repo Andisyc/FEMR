@@ -7,7 +7,7 @@
 Residual Learning Policy for Physical-Aware Motion Refiner.
 
 The legacy joint-space path predicts Δq and patches q_ref before frozen GMT.
-The current FrontRES task-space path predicts bounded ΔSE(3) plus confidence
+The current FrontRES task-space path predicts bounded ΔSE(3) plus trust/confidence
 heads; the runner applies that correction to the command/reference frame before
 refreshing observations and asking frozen GMT for robot actions.
 """
@@ -113,7 +113,7 @@ class FrontRESActorCritic(nn.Module):
     - gmt_normalizer: Frozen observation normalizer from GMT checkpoint
 
     In joint-space mode the residual actor outputs Δq.  In task-space mode it
-    outputs [Δpos, Δrpy, c_pos, c_rpy]; the command/reference correction is
+    outputs [Δpos, Δrpy, trust/confidence]; the command/reference correction is
     applied outside this module by the runner.
     """
 
@@ -158,7 +158,7 @@ class FrontRESActorCritic(nn.Module):
         num_task_corrections: int = 0,
         max_delta_pos: float = 0.3,     # tanh clip for position correction (metres)
         max_delta_rpy: float = 0.3,     # tanh clip for orientation correction (radians)
-        task_conf_dim: int = 2,          # 2: legacy c_pos/c_rpy, 6: per-axis repair coefficients
+        task_conf_dim: int = 2,          # 1: scalar trust, 2: c_pos/c_rpy, 6: per-axis coefficients
         # FrontRES-specific observation subset: when >0, FrontRES only processes the
         # first num_frontres_obs dims of policy_obs (reference-frame data only).
         # GMT continues to receive the full policy_obs. 0 = legacy (full obs for both).
@@ -181,9 +181,9 @@ class FrontRESActorCritic(nn.Module):
         self.num_z_outputs = num_z_outputs      # extra Δz outputs (0 = legacy)
         self.num_task_corrections = num_task_corrections  # task-space mode dim (0 = disabled)
         self.task_conf_dim = int(task_conf_dim)
-        if self.num_task_corrections > 0 and self.task_conf_dim not in (2, 6):
-            raise ValueError("task_conf_dim must be 2 (legacy) or 6 (per-axis coefficients).")
-        # Task-space mode: output = [Δpos(3), Δrpy(3), confidence/coefficients].
+        if self.num_task_corrections > 0 and self.task_conf_dim not in (1, 2, 6):
+            raise ValueError("task_conf_dim must be 1 (trust), 2 (legacy), or 6 (per-axis coefficients).")
+        # Task-space mode: output = [Δpos(3), Δrpy(3), trust/confidence/coefficients].
         if num_task_corrections > 0:
             self.total_output_dim = num_task_corrections + self.task_conf_dim
         else:
@@ -357,7 +357,7 @@ class FrontRESActorCritic(nn.Module):
         # ========== Build Front-End Residual Network ==========
 
         # Joint-space mode outputs [Δq, Δz]; task-space mode outputs
-        # [Δpos, Δrpy, confidence/repair coefficients].
+        # [Δpos, Δrpy, trust/confidence/repair coefficients].
         _frontres_input_dim = num_frontres_obs if num_frontres_obs > 0 else num_actor_obs
         self.residual_actor = self._build_residual_actor(
             input_dim=_frontres_input_dim,
@@ -366,10 +366,12 @@ class FrontRESActorCritic(nn.Module):
             activation=activation_fn,
             last_layer_gain=residual_last_layer_gain)
         if num_task_corrections > 0:
-            coeff_desc = (
-                "c_pos(1)+c_rpy(1)" if self.task_conf_dim == 2
-                else "alpha_pos(3)+alpha_rpy(3)"
-            )
+            if self.task_conf_dim == 1:
+                coeff_desc = "tau_trust(1)"
+            elif self.task_conf_dim == 2:
+                coeff_desc = "c_pos(1)+c_rpy(1)"
+            else:
+                coeff_desc = "alpha_pos(3)+alpha_rpy(3)"
             print(f"[FrontEndResidualActorCritic] FrontRES output: "
                   f"{self.total_output_dim} task-space dims "
                   f"[Δpos(3)+Δrpy(3)+{coeff_desc}] — no Δq patching")
@@ -1013,6 +1015,40 @@ class FrontRESActorCritic(nn.Module):
             log_j_c = (torch.log(_coeff_clamped) + torch.log(1.0 - _coeff_clamped)).sum(dim=-1)
             return log_prob - log_j - log_j_c
         return self.distribution.log_prob(actions).sum(dim=-1)
+
+    def get_actions_log_prob_selected(self, actions, selected_dims):
+        """Log-probability restricted to selected residual-action dimensions.
+
+        HSL+HRL uses this to let PPO update only the scalar trust/filter head,
+        while supervised losses keep ownership of the geometric correction.
+        """
+        if selected_dims is None:
+            return self.get_actions_log_prob(actions)
+        dims = torch.as_tensor(selected_dims, device=actions.device, dtype=torch.long)
+        dims = dims[(dims >= 0) & (dims < actions.shape[-1])]
+        if dims.numel() == 0:
+            return torch.zeros(actions.shape[0], device=actions.device, dtype=actions.dtype)
+
+        if self.num_task_corrections > 0:
+            _pos_rpy = actions[:, :6]
+            _coeff = actions[:, 6:6 + self.task_conf_dim]
+            max_d = torch.cat([
+                torch.full((3,), self.max_delta_pos, device=actions.device),
+                torch.full((3,), self.max_delta_rpy, device=actions.device),
+            ], dim=-1)
+            normalized = (_pos_rpy / max_d).clamp(-1 + 1e-6, 1 - 1e-6)
+            raw_pr = torch.atanh(normalized)
+            _coeff_clamped = _coeff.clamp(1e-6, 1.0 - 1e-6)
+            raw_coeff = torch.log(_coeff_clamped / (1.0 - _coeff_clamped))
+            raw_sample = torch.cat([raw_pr, raw_coeff], dim=-1)
+
+            log_prob_all = self.distribution.log_prob(raw_sample)
+            log_j_pr = torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)
+            log_j_c = torch.log(_coeff_clamped) + torch.log(1.0 - _coeff_clamped)
+            log_j_all = torch.cat([log_j_pr, log_j_c], dim=-1)
+            return (log_prob_all[:, dims] - log_j_all[:, dims]).sum(dim=-1)
+
+        return self.distribution.log_prob(actions)[:, dims].sum(dim=-1)
 
     def act_inference(self, observations):
         """Deterministic robot actions for evaluation / deployment."""
