@@ -650,7 +650,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     #   Critic: E(s_noisy) ≈ max(R_feasible_oracle - R_noisy, 0)
     # PPO still keeps an online supervised anchor afterwards, so the transition
     # is gradual rather than a hard switch.
-    supervised_warmup_iterations   = 400
+    supervised_warmup_iterations   = 200
     supervised_warmup_steps_per_iter = 8
     supervised_warmup_max_envs_per_step = 4096
     supervised_warmup_dr_scale_start = 0.35  # curriculum start: easy enough for stable direction learning

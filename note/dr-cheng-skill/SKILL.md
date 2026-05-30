@@ -60,6 +60,19 @@ Dr. Cheng often reasons through these principles:
   - PPO/HRL enable/disable conditions;
   - diagnostics and console logs.
 
+## Design Contract Discipline
+
+- For long design threads, do not rely on conversation memory alone. Create or update a project-level design contract before implementing fragile architecture changes.
+- Before coding a nontrivial mechanism, restate a short Design Delta:
+  - what changed;
+  - what invariants must remain true;
+  - which component owns each responsibility;
+  - what freedoms are explicitly forbidden;
+  - which diagnostics should prove the implementation matches the design.
+- If a project design contract exists, read it before editing and use it as the source of truth over recent ad-hoc implementation convenience.
+- If implementation pressure suggests changing the conceptual role of a variable, stop and surface the mismatch. Do not silently reinterpret a variable such as a gate, coefficient, reward, label, or diagnostic.
+- After implementation, audit against the design contract, not only against syntax or local tests.
+
 ## Explanation Pattern
 
 When explaining a design or bug, use this order:
