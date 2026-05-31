@@ -249,8 +249,8 @@ class FrontRESUnified:
             print("  L = L_proposal + L_written + L_coeff  "
                   "(factorized per-axis repair coefficients; PPO/HRL branch kept but disabled)")
         elif self.frontres_training_objective == "hsl_hybrid":
-            print("  L = L_PPO(rho_pos rejoin) + λ_sup·L_HSL(proposal)  "
-                  "(PPO log-prob is restricted to rho_pos; ΔSE proposal is supervised)")
+            print("  L = L_PPO(6D acceptance) + λ_sup·L_HSL(proposal)  "
+                  "(PPO log-prob is restricted to acceptance; ΔSE proposal is supervised)")
         else:
             print(f"  L = L_PPO + λ_sup({self.lambda_supervised:.2f})·L_supervised")
         print("=" * 80)
@@ -515,7 +515,7 @@ class FrontRESUnified:
                 self._warn_skip("non-finite loss", loss)
                 continue
 
-            if self._ppo_rho_pos_only_mode() and ppo_weight > 0.0:
+            if self._ppo_acceptance_only_mode() and ppo_weight > 0.0:
                 non_ppo_loss = loss - ppo_weight * surrogate_loss
                 non_ppo_loss.backward(retain_graph=True)
                 base_grads = {
@@ -523,7 +523,7 @@ class FrontRESUnified:
                     for p in self.policy.parameters()
                 }
                 (ppo_weight * surrogate_loss).backward()
-                self._keep_ppo_grad_on_rho_pos_head_only(base_grads)
+                self._keep_ppo_grad_on_acceptance_head_only(base_grads)
             else:
                 loss.backward()
             if self.is_multi_gpu:
@@ -585,17 +585,21 @@ class FrontRESUnified:
 
     def _ppo_selected_action_dims(self):
         """Return the action dimensions that PPO is allowed to update."""
-        if self._ppo_rho_pos_only_mode():
-            return [6]
+        if self._ppo_acceptance_only_mode():
+            return list(range(6, 6 + int(getattr(self.policy, "task_conf_dim", 2))))
         return None
 
-    def _ppo_rho_pos_only_mode(self) -> bool:
-        """Current hsl_hybrid contract: PPO owns only scalar rho_pos."""
+    def _ppo_acceptance_only_mode(self) -> bool:
+        """Current hsl_hybrid contract: PPO owns only acceptance coefficients."""
         return (
             str(self.frontres_training_objective).lower() == "hsl_hybrid"
             and getattr(self.policy, "num_task_corrections", 0) > 0
-            and int(getattr(self.policy, "task_conf_dim", 2)) == 1
+            and int(getattr(self.policy, "task_conf_dim", 2)) in (1, 6)
         )
+
+    def _ppo_rho_pos_only_mode(self) -> bool:
+        """Backward-compatible name for older scalar-head checks."""
+        return self._ppo_acceptance_only_mode()
 
     def _ppo_tau_only_mode(self) -> bool:
         """Backward-compatible alias for older checkpoints/scripts."""
@@ -607,13 +611,13 @@ class FrontRESUnified:
             return self.policy.get_actions_log_prob_selected(actions, dims)
         return self.policy.get_actions_log_prob(actions)
 
-    def _keep_ppo_grad_on_rho_pos_head_only(self, base_grads):
+    def _keep_ppo_grad_on_acceptance_head_only(self, base_grads):
         """Remove PPO leakage into proposal direction and shared trunk.
 
-        The residual actor is a shared MLP.  Even a rho_pos-only log-prob would
+        The residual actor is a shared MLP.  Even an acceptance-only log-prob would
         normally backpropagate through shared hidden layers and move ΔSE(3)
         proposal directions.  This keeps the non-PPO gradients everywhere, and
-        adds the PPO gradient only to the final-layer row that emits rho_pos.
+        adds the PPO gradient only to final-layer rows that emit acceptance.
         """
         final_linear = None
         residual_actor = getattr(self.policy, "residual_actor", None)
@@ -622,7 +626,12 @@ class FrontRESUnified:
         for module in residual_actor.modules():
             if isinstance(module, nn.Linear):
                 final_linear = module
-        if final_linear is None or final_linear.out_features <= 6:
+        if final_linear is None:
+            return
+        conf_dim = int(getattr(self.policy, "task_conf_dim", 2))
+        start = int(getattr(self.policy, "num_task_corrections", 6))
+        end = min(start + conf_dim, final_linear.out_features)
+        if end <= start:
             return
 
         allowed = {final_linear.weight, final_linear.bias}
@@ -639,14 +648,18 @@ class FrontRESUnified:
             ppo_grad = cur - base_tensor
             mask = torch.zeros_like(cur)
             if p is final_linear.weight:
-                mask[6:7, :] = 1.0
+                mask[start:end, :] = 1.0
             else:
-                mask[6:7] = 1.0
+                mask[start:end] = 1.0
             p.grad = base_tensor + ppo_grad * mask
+
+    def _keep_ppo_grad_on_rho_pos_head_only(self, base_grads):
+        """Backward-compatible alias for the previous scalar-head name."""
+        return self._keep_ppo_grad_on_acceptance_head_only(base_grads)
 
     def _keep_ppo_grad_on_tau_head_only(self, base_grads):
         """Backward-compatible alias for the previous scalar-head name."""
-        return self._keep_ppo_grad_on_rho_pos_head_only(base_grads)
+        return self._keep_ppo_grad_on_acceptance_head_only(base_grads)
 
     def _compute_actor_grad_conflict(self, surrogate_loss, supervised_loss):
         params = [
@@ -846,23 +859,25 @@ class FrontRESUnified:
 
         coeff = None
         scalar_trust = False
+        acceptance_only = False
         tau_logits = None
         tau_value = None
-        if is_task_space and str(self.frontres_training_objective).lower() in ("basis_restore", "hsl_hybrid"):
+        objective = str(self.frontres_training_objective).lower()
+        if is_task_space and objective in ("basis_restore", "hsl_hybrid"):
             coeff_dim = int(getattr(self.policy, "task_conf_dim", 2))
             if coeff_dim == 1 and raw_pred.shape[-1] >= 7:
                 tau_logits = raw_pred[:, 6:7]
                 tau_value = torch.sigmoid(tau_logits)
                 coeff = tau_value.expand(-1, proposal.shape[-1])
                 scalar_trust = True
-                # Runtime uses the scalar head as rho_pos, a position-only
-                # rejoin rate between the temporal continuity candidate and the
-                # HSL position proposal.  HSL owns attitude; rho_pos is
-                # optimized only by PPO in hsl_hybrid mode.
+                # Legacy scalar path.  The active hsl_hybrid contract now uses
+                # six acceptance heads, but this keeps older checkpoints/scripts
+                # loadable.
                 pred = proposal
             elif coeff_dim == 6 and raw_pred.shape[-1] >= 12:
                 coeff = torch.sigmoid(raw_pred[:, 6:12])
                 pred = proposal * coeff
+                acceptance_only = objective == "hsl_hybrid"
             elif raw_pred.shape[-1] >= 8:
                 c_pos = torch.sigmoid(raw_pred[:, 6:7])
                 c_rpy = torch.sigmoid(raw_pred[:, 7:8])
@@ -888,7 +903,7 @@ class FrontRESUnified:
             target = target * mask.view(1, -1)
 
         written_pred = pred
-        supervised_pred = proposal if scalar_trust else pred
+        supervised_pred = proposal if (scalar_trust or acceptance_only) else pred
         target_detached = target.detach()
         target_norm = target_detached.norm(dim=-1)
         valid = target_norm > 1e-4
@@ -914,7 +929,7 @@ class FrontRESUnified:
         rpy_sup = _wmean(rpy_err, rpy_weight)
         supervised_loss = pos_sup + self.supervised_rpy_loss_weight * rpy_sup
 
-        if coeff is not None and not scalar_trust:
+        if coeff is not None and not scalar_trust and not acceptance_only:
             write_err = nn.functional.huber_loss(written_pred, target_detached, reduction="none").mean(dim=-1)
             supervised_loss = supervised_loss + _wmean(write_err)
 
@@ -949,11 +964,11 @@ class FrontRESUnified:
 
         if coeff is not None:
             target_axis_mask = (target_detached.abs() > 1e-4).to(coeff.dtype)
-            if self.supervised_coeff_sparse_weight > 0 and not scalar_trust:
+            if self.supervised_coeff_sparse_weight > 0 and not scalar_trust and not acceptance_only:
                 sparse_terms = (coeff * (1.0 - target_axis_mask)).mean(dim=-1)
                 sparse_loss = _wmean(sparse_terms)
                 supervised_loss = supervised_loss + self.supervised_coeff_sparse_weight * sparse_loss
-            if self.supervised_coeff_miss_weight > 0 and not scalar_trust:
+            if self.supervised_coeff_miss_weight > 0 and not scalar_trust and not acceptance_only:
                 miss_terms = ((1.0 - coeff) * target_axis_mask).mean(dim=-1)
                 miss_loss = _wmean(miss_terms)
                 supervised_loss = supervised_loss + self.supervised_coeff_miss_weight * miss_loss
@@ -967,7 +982,10 @@ class FrontRESUnified:
                 supervised_loss = supervised_loss + self.supervised_coeff_smooth_weight * coeff_smooth_loss
 
         if self.supervised_harm_loss_weight > 0 and harm_weight.sum() > 0:
-            harm_base = written_pred if coeff is not None else pred
+            # In hsl_hybrid, acceptance is PPO-owned.  The supervised harmful
+            # penalty should suppress unsafe proposal directions without
+            # directly training the acceptance head.
+            harm_base = proposal if acceptance_only else (written_pred if coeff is not None else pred)
             harm_terms = harm_base.square().mean(dim=-1)
             harm_loss = (harm_terms * harm_weight).sum() / harm_weight.sum().clamp(min=1e-6)
             supervised_loss = supervised_loss + self.supervised_harm_loss_weight * harm_loss
@@ -1054,10 +1072,15 @@ class FrontRESUnified:
                     # Legacy aliases kept for old TensorBoard dashboards.
                     sup_metrics["frontres_tau_mean"] = sup_metrics["frontres_rho_pos_mean"]
                     sup_metrics["frontres_tau_active_frac"] = sup_metrics["frontres_rho_pos_active_frac"]
+                elif acceptance_only and coeff.shape[-1] >= 6:
+                    sup_metrics["frontres_accept_pos_mean"] = coeff[:, :3].mean().item()
+                    sup_metrics["frontres_accept_rpy_mean"] = coeff[:, 3:6].mean().item()
+                    sup_metrics["frontres_accept_active_frac"] = (coeff > 0.5).float().mean().item()
                 pred_norm_all = written_pred.norm(dim=-1)
+                proposal_norm_all = proposal.norm(dim=-1)
                 target_norm_all = target_detached.norm(dim=-1).clamp(min=1e-6)
                 sup_metrics["frontres_write_ratio"] = (pred_norm_all / target_norm_all).mean().item()
-                sup_metrics["frontres_proposal_ratio"] = sup_metrics["frontres_write_ratio"]
+                sup_metrics["frontres_proposal_ratio"] = (proposal_norm_all / target_norm_all).mean().item()
                 inactive = (target_detached.abs() <= 1e-4).to(pred.dtype)
                 leakage_num = (written_pred.abs() * inactive).sum(dim=-1)
                 leakage_den = written_pred.abs().sum(dim=-1).clamp(min=1e-6)

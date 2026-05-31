@@ -80,7 +80,7 @@ class OnPolicyRunner:
         if mode in ("rp", "local_rp", "rp_only", "strong_rp"):
             task_conf_dim = int(self.policy_cfg.get("task_conf_dim", 2))
             active_dims = [0, 1, 2, 3, 4, 5, 6] if task_conf_dim == 1 else (
-                [3, 4, 9, 10] if task_conf_dim == 6 else [3, 4, 7]
+                [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] if task_conf_dim == 6 else [3, 4, 7]
             )
             self.cfg["frontres_specialist_mode"] = "rp"
             self.cfg["frontres_active_task_dims"] = active_dims
@@ -99,7 +99,7 @@ class OnPolicyRunner:
 
         task_conf_dim = int(self.policy_cfg.get("task_conf_dim", 2))
         active_dims = [0, 1, 2, 3, 4, 5, 6] if task_conf_dim == 1 else (
-            [2, 3, 4, 8, 9, 10] if task_conf_dim == 6 else [2, 3, 4, 6, 7]
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] if task_conf_dim == 6 else [2, 3, 4, 6, 7]
         )
         self.cfg["frontres_specialist_mode"] = "rp_z"
         self.cfg["frontres_active_task_dims"] = active_dims
@@ -971,17 +971,17 @@ class OnPolicyRunner:
 
         objective = str(getattr(self.alg, "frontres_training_objective", "")).lower()
         task_conf_dim = int(getattr(getattr(self.alg, "policy", None), "task_conf_dim", 2))
-        scalar_rejoin_hybrid = objective == "hsl_hybrid" and task_conf_dim == 1
+        acceptance_hybrid = objective == "hsl_hybrid" and task_conf_dim == 6
 
         target_full = torch.zeros(self.env.num_envs, 6, device=device, dtype=dtype)
         weight_full = torch.zeros(self.env.num_envs, 1, device=device, dtype=dtype)
         harm_weight_full = torch.zeros(self.env.num_envs, 1, device=device, dtype=dtype)
         max_weight = float(self.cfg.get("frontres_hsl_max_sample_weight", 4.0))
-        if scalar_rejoin_hybrid:
+        if acceptance_hybrid:
             # HSL owns the repair direction.  The continuous sample classifier
             # trains the proposal on repairable samples and the harmful loss
-            # suppresses unsafe proposals.  The scalar rho_pos is left to PPO
-            # as a position rejoin rate, so the label is not pre-shrunk here.
+            # suppresses unsafe proposals.  The six-dimensional acceptance
+            # vector is left to PPO, so the label is not pre-shrunk here.
             target_full[:n] = label
             weight_full[:n, 0] = repair_w.clamp(max=max_weight) * valid_rollout
             harm_weight_full[:n, 0] = noop_w.clamp(max=max_weight) * valid_rollout
@@ -4036,6 +4036,9 @@ class OnPolicyRunner:
             "frontres_tau_active_frac",
             "frontres_rho_pos_mean",
             "frontres_rho_pos_active_frac",
+            "frontres_accept_pos_mean",
+            "frontres_accept_rpy_mean",
+            "frontres_accept_active_frac",
             "frontres_write_ratio",
             "frontres_proposal_ratio",
             "frontres_axis_leakage",
@@ -4312,6 +4315,12 @@ class OnPolicyRunner:
                                 f"{_loss_dict.get('frontres_rho_pos_mean', _loss_dict.get('frontres_tau_mean', 0.0)):.3f} / "
                                 f"{_loss_dict.get('frontres_rho_pos_active_frac', _loss_dict.get('frontres_tau_active_frac', 0.0)):.3f}\n"
                             )
+                        elif int(getattr(getattr(self.alg, "policy", None), "task_conf_dim", 2)) == 6:
+                            log_string += f"""{'accept pos/rpy:':>{pad}} """
+                            log_string += (
+                                f"{_loss_dict.get('frontres_accept_pos_mean', 0.0):.3f} / "
+                                f"{_loss_dict.get('frontres_accept_rpy_mean', 0.0):.3f}\n"
+                            )
                         else:
                             log_string += f"""{'alpha mean/active:':>{pad}} """
                             log_string += (
@@ -4359,7 +4368,7 @@ class OnPolicyRunner:
                     log_string += f"""{'learning rate:':>{pad}} {getattr(self.alg, 'learning_rate', 0.0):.2e}\n"""
                     _objective_name = f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
                     if _objective_name == "hsl_hybrid":
-                        _objective_desc = "HSL attitude + PPO position rejoin"
+                        _objective_desc = "HSL ΔSE proposal + PPO 6D acceptance"
                     elif _objective_name == "basis_restore":
                         _objective_desc = "basis supervised only"
                     else:
@@ -5100,10 +5109,11 @@ class OnPolicyRunner:
             rpy_corr = task_corr[:n_train, 3:6].clone()
             objective = str(getattr(self.alg, "frontres_training_objective", "")).lower()
             task_conf_dim = int(getattr(policy, "task_conf_dim", 2))
-            rho_pos = None
+            acceptance = None
             if task_corr.shape[-1] >= 12 and task_conf_dim == 6:
-                c_pos = task_corr[:n_train, 6:9].clone()
-                c_rpy = task_corr[:n_train, 9:12].clone()
+                acceptance = task_corr[:n_train, 6:12].clone().clamp(0.0, 1.0)
+                c_pos = acceptance[:, :3]
+                c_rpy = acceptance[:, 3:6]
             elif task_corr.shape[-1] >= 7 and task_conf_dim == 1:
                 rho_pos = task_corr[:n_train, 6:7].clone().clamp(0.0, 1.0)
                 c_pos = torch.ones_like(rho_pos)
@@ -5129,20 +5139,6 @@ class OnPolicyRunner:
             pos_corr[:, 2] = torch.minimum(pos_corr[:, 2], z_upper)
             pos_corr = pos_corr * c_pos
             rpy_corr = rpy_corr * c_rpy
-
-            if objective == "hsl_hybrid" and rho_pos is not None:
-                cont = self._frontres_temporal_continuity_correction(
-                    cmd_term, n_train, pos_corr, rpy_corr)
-                if cont is not None:
-                    cont_pos, _cont_rpy, valid = cont
-                    valid_mask = valid.view(-1, 1)
-                    rho = rho_pos.to(pos_corr.dtype)
-                    # PPO owns only the position rejoin rate.  rho=1 writes the
-                    # HSL clean-oriented position repair; rho=0 follows the
-                    # previous refined reference for temporal continuity.  The
-                    # attitude correction remains the HSL proposal.
-                    mixed_pos = (1.0 - rho) * cont_pos + rho * pos_corr
-                    pos_corr = torch.where(valid_mask, mixed_pos, pos_corr)
 
             cmd_term._frontres_pos_correction[:n_train].copy_(pos_corr)
             cmd_term._frontres_quat_correction[:n_train].copy_(_rotvec_to_quat_wxyz(rpy_corr))
@@ -5186,9 +5182,10 @@ class OnPolicyRunner:
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
         """Build the continuity candidate from the previous refined frame.
 
-        HSL gives the clean-oriented repair for the current raw frame.  In the
-        active hsl_hybrid design PPO only chooses a scalar position rejoin rate
-        between this candidate and the HSL position repair; HSL owns attitude.
+        HSL gives the clean-oriented repair for the current raw frame.  This
+        helper is kept for legacy temporal-rejoin ablations; the active
+        hsl_hybrid branch now uses PPO-owned per-axis acceptance over the HSL
+        proposal rather than a temporal position rejoin.
         """
         if n <= 0:
             return None
@@ -5352,20 +5349,26 @@ class OnPolicyRunner:
         pred = actions[:n, 3:6].detach()
         task_conf_dim = int(getattr(self.alg.policy, "task_conf_dim", 2))
         if actions.shape[-1] >= 12 and task_conf_dim == 6:
-            conf_raw = actions[:n, 9:12].detach()
+            conf_raw = actions[:n, 6:12].detach()
         elif actions.shape[-1] >= 7 and task_conf_dim == 1:
             conf_raw = actions[:n, 6:7].detach()
         elif actions.shape[-1] >= 8:
             conf_raw = actions[:n, 7:8].detach()
         else:
             conf_raw = torch.ones(n, 1, device=self.device)
+        acceptance_hybrid = objective == "hsl_hybrid" and task_conf_dim == 6
         scalar_rejoin_hybrid = objective == "hsl_hybrid" and task_conf_dim == 1
         if objective == "supervised_restore" or scalar_rejoin_hybrid:
             conf_eff = torch.ones_like(conf_raw)
         else:
             conf_eff = conf_raw
         written = _quat_to_rotvec_wxyz(written_q)[:, :3]
-        applied = written if scalar_rejoin_hybrid else pred * conf_eff
+        if acceptance_hybrid:
+            applied = pred * conf_eff[:, 3:6]
+        elif scalar_rejoin_hybrid:
+            applied = written
+        else:
+            applied = pred * conf_eff
 
         clean_from_raw = _quat_to_rotvec_wxyz(quat_mul(quat_inv(raw_q), clean_q))[:, :3]
         corrected_q = quat_mul(raw_q, written_q)
@@ -5415,11 +5418,15 @@ class OnPolicyRunner:
             return [round(float(v), 5) for v in vals]
 
         sample_idx = int(torch.argmax(noisy_err_norm).item())
-        gate_desc = (
-            f"rho_pos={float(conf_raw.mean()):.3f}"
-            if scalar_rejoin_hybrid
-            else f"conf_eff={float(conf_eff.mean()):.3f} conf_raw={float(conf_raw.mean()):.3f}"
-        )
+        if acceptance_hybrid:
+            gate_desc = (
+                f"rho_pos={float(conf_raw[:, :3].mean()):.3f} "
+                f"rho_rpy={float(conf_raw[:, 3:6].mean()):.3f}"
+            )
+        elif scalar_rejoin_hybrid:
+            gate_desc = f"rho_pos={float(conf_raw.mean()):.3f}"
+        else:
+            gate_desc = f"conf_eff={float(conf_eff.mean()):.3f} conf_raw={float(conf_raw.mean()):.3f}"
         print(
             "[FrontRES restore debug] "
             f"it={int(it)} dr={float(getattr(self, '_dr_scale', 0.0)):.4f} "

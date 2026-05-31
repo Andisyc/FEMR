@@ -22,21 +22,16 @@ approach the clean rollout closely enough for demo-quality behavior.
   Noisy, and Repaired rollout information to construct continuous sample
   weights, harmful-repair penalties, and rollout-aware supervised labels.
 - **HRL / PPO** does not own the repair direction.  In the current hybrid
-  design, PPO owns only the scalar position rejoin rate \(\rho^p_t\).
-- **Position rejoin** chooses between the HSL position repair and a
-  continuity-preserving position candidate:
+  design, PPO owns only the six-dimensional dynamics-aware acceptance vector
+  \(\rho_t\in[0,1]^6\).
+- **Dynamics-aware acceptance** decides how much of each HSL proposal dimension
+  can be safely written into GMT:
   \[
-  \Delta p^{\mathrm{write}}_t =
-  (1-\rho^p_t)\Delta p^{\mathrm{cont}}_t
-  + \rho^p_t\Delta p^{\mathrm{HSL}}_t.
+  \Delta g^{\mathrm{write}}_t =
+  \rho_t \odot \Delta g^{\mathrm{HSL}}_t.
   \]
-- **Attitude repair** is written directly from HSL:
-  \[
-  \Delta rpy^{\mathrm{write}}_t=\Delta rpy^{\mathrm{HSL}}_t.
-  \]
-- **Continuity candidate** advances the previous refined reference position
-  using the raw reference frame-to-frame motion.  It injects the prior that
-  repaired root positions should remain dynamically continuous over time.
+  Here \(\rho_t\) is not an uncertainty confidence score.  It is the
+  rollout-trained acceptance field for the clean-oriented repair direction.
 - **Action Cone** owns output feasibility constraints, including active
   dimensions, per-axis bounds, upward-\(z\) constraints, and jump/contact
   restrictions.
@@ -45,33 +40,32 @@ approach the clean rollout closely enough for demo-quality behavior.
 
 ## Current Output Interface
 
-The active `hsl_hybrid` branch uses a seven-dimensional task-space output:
+The active `hsl_hybrid` branch uses a twelve-dimensional task-space output:
 
 \[
 a^{\mathrm{FEMR}}_t =
-(\Delta x,\Delta y,\Delta z,\Delta r,\Delta p,\Delta yaw,\rho^p_t).
+(\Delta x,\Delta y,\Delta z,\Delta r,\Delta p,\Delta yaw,
+\rho_x,\rho_y,\rho_z,\rho_r,\rho_p,\rho_{yaw}).
 \]
 
-The first six dimensions are the HSL repair proposal.  The last dimension is
-the PPO-owned position rejoin rate.  It is not a confidence score and it is not
-an attitude gate.
+The first six dimensions are the HSL repair proposal.  The last six dimensions
+are the PPO-owned per-axis acceptance coefficients.  HSL answers "where should
+the corrupted root frame move?"  HRL/PPO answers "how much of this clean-oriented
+repair can the current dynamics accept?"
 
 The old `conf_pos` and `conf_rpy` interface is kept only for legacy objectives
-and ablations.  It is not part of the current hybrid design because a pair of
-confidence gates can shrink the clean-oriented repair but cannot express the
-specific uncertainty we identified: how much root position should rejoin the
-clean geometry versus preserve frame-to-frame dynamic continuity.
+and ablations.  In the active branch the last six outputs should be described
+as dynamics-aware acceptance, not as confidence.
 
 ## Forbidden Freedoms
 
 - Do not let PPO update the \(\Delta SE(3)\) proposal direction in
-  `hsl_hybrid`.  PPO must be restricted to the scalar \(\rho^p_t\) output.
-- Do not reinterpret \(\rho^p_t\) as a confidence score, amplitude gate, or
-  attitude gate in the current `hsl_hybrid` design.
+  `hsl_hybrid`.  PPO must be restricted to the six acceptance outputs
+  \(\rho_t\).
+- Do not reinterpret \(\rho_t\) as ordinary confidence or as a generator of new
+  repair directions.  It can only accept or suppress the HSL proposal.
 - Do not pre-shrink the HSL label and then shrink it again through
-  \(\rho^p_t\).
-- Do not let PPO mix or overwrite \(\Delta rpy^{\mathrm{HSL}}_t\) in the
-  current position-rejoin design.
+  \(\rho_t\).
 - Do not let Safe/Broken/Harmful samples dominate the proposal direction loss.
 - Do not let temporal continuity cache survive an episode reset.
 - Do not remove old HRL/HSL branches unless explicitly requested.  They are
@@ -92,11 +86,10 @@ The current `hsl_hybrid` contract is:
 - Supervised/HSL loss trains \(\Delta g^{\mathrm{HSL}}_t\).
 - Harmful loss suppresses unsafe proposals.
 - PPO uses rollout advantage but its actor gradient is restricted to
-  \(\rho^p_t\).
-- Runtime writes \((\Delta p^{\mathrm{write}}_t,\Delta rpy^{\mathrm{HSL}}_t)\),
-  not \(\rho^p_t\Delta g^{\mathrm{HSL}}_t\).
-- The first frame after reset has no valid temporal cache, so it falls back to
-  HSL repair.
+  \(\rho_t\).
+- Runtime writes \(\Delta g^{\mathrm{write}}_t =
+  \rho_t \odot \Delta g^{\mathrm{HSL}}_t\).
+- HSL labels are not pre-shrunk in `hsl_hybrid`; acceptance is learned by PPO.
 
 The core conceptual split is:
 
@@ -105,14 +98,13 @@ The core conceptual split is:
 \]
 
 \[
-\text{HRL/PPO}:\quad \text{how aggressively should root position rejoin that
-target under dynamic continuity?}
+\text{HRL/PPO}:\quad \text{how much of that repair can be safely accepted under
+the current dynamics?}
 \]
 
-This split is deliberately asymmetric.  Roll/pitch repair is usually the
-clean-oriented part that improves visual/demo quality.  Root position repair is
-where strong geometric correction most often creates dynamic discontinuities,
-so it receives the learned rejoin filter.
+This split prevents reward hacking by making the learnable PPO degree of
+freedom isomorphic to the intended concept.  PPO can filter an HSL proposal, but
+it cannot invent a new repair direction.
 
 ## Code Mapping
 
@@ -120,7 +112,7 @@ so it receives the learned rejoin filter.
   `source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/rsl_rl_mosaic_cfg.py`
 - Runner rollout, label construction, temporal cache, action-cone writing:
   `source/rsl_rl/rsl_rl/runners/on_policy_runner.py`
-- PPO/supervised loss and rho-only PPO restriction:
+- PPO/supervised loss and acceptance-only PPO restriction:
   `source/rsl_rl/rsl_rl/algorithms/frontres_unified.py`
 - FrontRES actor output bounding:
   `source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py`
@@ -128,8 +120,8 @@ so it receives the learned rejoin filter.
 ## Pre-Implementation Checklist
 
 - State the Design Delta before coding.
-- Identify the owner of every changed variable: proposal, label, reward, tau,
-  action cone, rollout cache, or diagnostic.
+- Identify the owner of every changed variable: proposal, label, reward,
+  \(\rho\) acceptance, action cone, rollout cache, or diagnostic.
 - Check whether the change touches old objectives or only the active branch.
 - Check whether the behavior is controlled by config or requires a command
   change.

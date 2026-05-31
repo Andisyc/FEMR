@@ -14,8 +14,8 @@ The intended chain is:
 
 ```text
 raw reference g_raw
-  -> FrontRES / FEMR proposal Delta SE(3)
-  -> action-cone and temporal-continuity filtering
+  -> FrontRES / FEMR proposal Delta SE(3) + acceptance rho
+  -> action-cone and dynamics-aware acceptance filtering
   -> refined reference g_refin
   -> frozen GMT policy
   -> robot action
@@ -30,11 +30,12 @@ artifacts while preserving GMT executability.
 Current task-space output is:
 
 ```text
-[dx, dy, dz, droll, dpitch, dyaw, tau]
+[dx, dy, dz, droll, dpitch, dyaw, rho_x, rho_y, rho_z, rho_r, rho_p, rho_yaw]
 ```
 
-where the first six entries form the HSL/FrontRES repair proposal and `tau` is
-the HRL/PPO temporal mix variable in the current `hsl_hybrid` design.
+where the first six entries form the HSL/FrontRES repair proposal and
+`rho_*` are the HRL/PPO-owned per-axis dynamics-aware acceptance coefficients
+in the current `hsl_hybrid` design.
 
 The current design contract is in:
 
@@ -48,17 +49,18 @@ most important invariant is:
 ```text
 HSL owns the Delta SE(3) repair proposal.
 HRL/PPO does not own repair direction.
-HRL/PPO only owns the scalar temporal mix tau in hsl_hybrid.
+HRL/PPO only owns the 6D acceptance vector rho in hsl_hybrid.
 ```
 
 The runtime write should follow:
 
 \[
 \Delta g^{write}_t =
-(1-\tau_t)\Delta g^{HSL}_t + \tau_t \Delta g^{cont}_t .
+\rho_t \odot \Delta g^{HSL}_t .
 \]
 
-Do not silently reinterpret `tau` as amplitude, confidence, or direction.
+Do not silently reinterpret `rho` as an uncertainty confidence score or as a
+new repair-direction generator.
 
 ## Main Files
 
@@ -122,15 +124,15 @@ Important current defaults:
 max_iterations = 2000
 frontres_training_objective = "hsl_hybrid"
 frontres_specialist_mode = "rp"
-frontres_active_task_dims = [0, 1, 2, 3, 4, 5, 6]
+frontres_active_task_dims = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 num_task_corrections = 6
-task_conf_dim = 1
+task_conf_dim = 6
 max_delta_pos = 0.3
 max_delta_rpy = 0.4
 supervised_warmup_iterations = 200
 critic_warmup_iterations = 0
-ppo_actor_warmup_iterations = 0
-ppo_actor_ramp_iterations = 400
+ppo_actor_warmup_iterations = 200
+ppo_actor_ramp_iterations = 500
 lambda_supervised_min = 0.20
 ```
 
@@ -216,7 +218,7 @@ It loads a frozen GMT checkpoint and owns:
 In task-space mode, the residual actor emits bounded:
 
 ```text
-[Delta pos(3), Delta rpy(3), tau]
+[Delta pos(3), Delta rpy(3), rho(6)]
 ```
 
 The module does not write task-space corrections into the environment; the
@@ -247,7 +249,7 @@ Current `hsl_hybrid` contract:
 
 - supervised loss trains the Delta SE(3) proposal;
 - PPO surrogate/value loss is active;
-- PPO actor gradient is restricted to the `tau` output row;
+- PPO actor gradient is restricted to the six `rho` acceptance output rows;
 - critic/value function still exists and is trained;
 - `lambda_supervised` remains an anchor so PPO cannot freely rewrite direction.
 
@@ -256,12 +258,12 @@ Important methods and concepts:
 ```text
 _compute_supervised_loss(...)
 _compute_ppo_losses(...)
-_ppo_tau_only_mode()
-_keep_ppo_grad_on_tau_head_only(...)
+_ppo_acceptance_only_mode()
+_keep_ppo_grad_on_acceptance_head_only(...)
 ```
 
 If training suddenly degrades after PPO starts, inspect whether PPO is still
-restricted to tau and whether diagnostics describe the value actually written
+restricted to `rho` and whether diagnostics describe the value actually written
 to GMT.
 
 ### Runner: FrontRES Rollout, Warmup, Write Path, Diagnostics
@@ -281,7 +283,7 @@ Key regions:
 - rollout-aware HSL label update;
 - task-space action mask;
 - runtime application of Delta SE(3);
-- temporal continuity cache for `hsl_hybrid`;
+- dynamics-aware acceptance write path for `hsl_hybrid`;
 - console diagnostics and save-time probe.
 
 Key methods to search:
@@ -292,9 +294,6 @@ _frontres_project_task_target_to_action_cone
 _frontres_apply_per_mode_supervised_mask
 _frontres_exec_score
 _frontres_exec_score_for_modes
-_frontres_temporal_continuity_correction
-_frontres_update_temporal_reference_cache
-_frontres_invalidate_temporal_reference_cache
 _apply_frontres_task_corrections
 _maybe_print_frontres_restore_debug
 _record_frontres_checkpoint_probe
@@ -304,12 +303,9 @@ Current intended runtime write in `hsl_hybrid`:
 
 ```text
 proposal = HSL Delta SE(3)
-continuity = previous refined reference advanced by raw frame-to-frame motion
-tau = PPO scalar temporal mix
-written = (1 - tau) * proposal + tau * continuity
+rho = PPO 6D dynamics-aware acceptance
+written = rho * proposal
 ```
-
-The temporal cache must be invalidated on episode reset.
 
 ### Storage
 
@@ -465,7 +461,7 @@ mae/rmse rpy
 valid target frac
 L_pos/L_rot
 L_mag/over/smooth
-tau mix/active
+rho pos/rpy mean/active
 write ratio/leakage
 |Delta pos|
 |Delta rpy|
@@ -479,11 +475,11 @@ learning rate
 Interpretation reminders:
 
 - If `ep_len_FrontRES` drops below GMT around the same DR scale repeatedly,
-  suspect the repair proposal, temporal mix, or action-cone feasibility, not
+  suspect the repair proposal, acceptance field, or action-cone feasibility, not
   only the optimizer.
 - A high supervised cosine can coexist with bad rollout performance.
-- If `tau` starts acting like amplitude instead of temporal mix, the design is
-  broken.
+- If `rho` starts generating direction-like behavior instead of accepting or
+  suppressing the HSL proposal, the design is broken.
 - If PPO can change Delta SE(3) direction, reward hacking is likely.
 - If `restore ratio` is high but rollout worsens, the geometry target may be
   outside the dynamically feasible cone.
@@ -495,7 +491,7 @@ Before editing FrontRES training logic:
 1. Read this file.
 2. Read `note/FrontRES Design Contract.md`.
 3. Identify which owner is being changed:
-   proposal, label, reward, tau, action cone, rollout cache, critic, storage, or
+   proposal, label, reward, rho acceptance, action cone, critic, storage, or
    diagnostic.
 4. State the Design Delta in the response before nontrivial coding.
 
@@ -527,4 +523,3 @@ config -> runner rollout construction -> storage fields -> algorithm update
   fall.
 - Mixed perturbations are introduced before single-family repairs are stable.
 - RobotBridge and MOSAIC perturbation scales are compared without conversion.
-

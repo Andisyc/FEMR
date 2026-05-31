@@ -7,7 +7,7 @@
 Residual Learning Policy for Physical-Aware Motion Refiner.
 
 The legacy joint-space path predicts Δq and patches q_ref before frozen GMT.
-The current FrontRES task-space path predicts bounded ΔSE(3) plus trust/confidence
+The current FrontRES task-space path predicts bounded ΔSE(3) plus acceptance
 heads; the runner applies that correction to the command/reference frame before
 refreshing observations and asking frozen GMT for robot actions.
 """
@@ -113,7 +113,7 @@ class FrontRESActorCritic(nn.Module):
     - gmt_normalizer: Frozen observation normalizer from GMT checkpoint
 
     In joint-space mode the residual actor outputs Δq.  In task-space mode it
-    outputs [Δpos, Δrpy, trust/confidence]; the command/reference correction is
+    outputs [Δpos, Δrpy, acceptance]; the command/reference correction is
     applied outside this module by the runner.
     """
 
@@ -154,7 +154,7 @@ class FrontRESActorCritic(nn.Module):
         # 0.3 m covers typical float/sink artifacts (AMASS→G1 conversion errors).
         max_delta_z: float = 0.3,
         # Task-space mode: when >0, replaces Δq+Δz with [Δpos(3), Δrpy(3)]
-        # plus confidence/repair-coefficient heads. Δq patching is disabled.
+        # plus acceptance/repair-coefficient heads. Δq patching is disabled.
         num_task_corrections: int = 0,
         max_delta_pos: float = 0.3,     # tanh clip for position correction (metres)
         max_delta_rpy: float = 0.3,     # tanh clip for orientation correction (radians)
@@ -183,7 +183,7 @@ class FrontRESActorCritic(nn.Module):
         self.task_conf_dim = int(task_conf_dim)
         if self.num_task_corrections > 0 and self.task_conf_dim not in (1, 2, 6):
             raise ValueError("task_conf_dim must be 1 (trust), 2 (legacy), or 6 (per-axis coefficients).")
-        # Task-space mode: output = [Δpos(3), Δrpy(3), trust/confidence/coefficients].
+        # Task-space mode: output = [Δpos(3), Δrpy(3), acceptance/coefficients].
         if num_task_corrections > 0:
             self.total_output_dim = num_task_corrections + self.task_conf_dim
         else:
@@ -357,7 +357,7 @@ class FrontRESActorCritic(nn.Module):
         # ========== Build Front-End Residual Network ==========
 
         # Joint-space mode outputs [Δq, Δz]; task-space mode outputs
-        # [Δpos, Δrpy, scalar/gate/coefficient head].
+        # [Δpos, Δrpy, acceptance/gate head].
         _frontres_input_dim = num_frontres_obs if num_frontres_obs > 0 else num_actor_obs
         self.residual_actor = self._build_residual_actor(
             input_dim=_frontres_input_dim,
@@ -367,11 +367,11 @@ class FrontRESActorCritic(nn.Module):
             last_layer_gain=residual_last_layer_gain)
         if num_task_corrections > 0:
             if self.task_conf_dim == 1:
-                coeff_desc = "rho_pos(1)"
+                coeff_desc = "legacy scalar rho(1)"
             elif self.task_conf_dim == 2:
                 coeff_desc = "legacy c_pos(1)+c_rpy(1)"
             else:
-                coeff_desc = "alpha_pos(3)+alpha_rpy(3)"
+                coeff_desc = "rho_pos(3)+rho_rpy(3)"
             print(f"[FrontEndResidualActorCritic] FrontRES output: "
                   f"{self.total_output_dim} task-space dims "
                   f"[Δpos(3)+Δrpy(3)+{coeff_desc}] — no Δq patching")
@@ -440,7 +440,7 @@ class FrontRESActorCritic(nn.Module):
             if self.num_task_corrections > 0:
                 # FrontRES: per-dimension σ.
                 #   pos/rpy: precision, not exploration.
-                #   confidence/coefficients: slightly larger so gates can move.
+                #   acceptance/coefficients: slightly larger so gates can move.
                 _val[-self.task_conf_dim:] = init_noise_std * 5.0
                 self.register_buffer('std', _val)
             else:
@@ -758,7 +758,7 @@ class FrontRESActorCritic(nn.Module):
 
         Returns:
             robot_actions (Tensor): final motor commands from GMT
-            frontres_out  (Tensor): FrontRES output (Δq or [Δpos, Δrpy, c_pos, c_rpy])
+            frontres_out  (Tensor): FrontRES output (Δq or [Δpos, Δrpy, acceptance])
         """
         policy_obs, ref_vel, ref_vel_estimator_obs = self._parse_observations(observations)
 
@@ -869,7 +869,7 @@ class FrontRESActorCritic(nn.Module):
         raw = self.residual_actor(policy_obs)
 
         if self.num_task_corrections > 0:
-            # Output: [Δpos_raw(3), Δrpy_raw(3), confidence/coefficient raw dims].
+            # Output: [Δpos_raw(3), Δrpy_raw(3), acceptance/coefficient raw dims].
             raw_pos   = raw[:, :3]
             raw_rpy   = raw[:, 3:6]
             raw_coeff = raw[:, 6:6 + self.task_conf_dim]
@@ -941,7 +941,7 @@ class FrontRESActorCritic(nn.Module):
         self.update_distribution(observations)
         raw_sample = self.distribution.sample()
         if self.num_task_corrections > 0:
-            # Raw → bounded: pos/rpy via tanh, confidences/coefficients via sigmoid.
+            # Raw → bounded: pos/rpy via tanh, acceptance/coefficients via sigmoid.
             return torch.cat([
                 torch.tanh(raw_sample[:, :3])  * self.max_delta_pos,
                 torch.tanh(raw_sample[:, 3:6]) * self.max_delta_rpy,
@@ -994,7 +994,7 @@ class FrontRESActorCritic(nn.Module):
         `actions` here are full frontres_output values stored during rollout (NOT robot actions).
         """
         if self.num_task_corrections > 0:
-            # Actions: [Δpos(3), Δrpy(3), confidence/coefficient dims].
+            # Actions: [Δpos(3), Δrpy(3), acceptance/coefficient dims].
             _pos_rpy = actions[:, :6]
             _coeff   = actions[:, 6:6 + self.task_conf_dim]
             # ── pos/rpy: invert tanh ──────────────────────────────────────
@@ -1004,7 +1004,7 @@ class FrontRESActorCritic(nn.Module):
             ], dim=-1)
             normalized = (_pos_rpy / max_d).clamp(-1 + 1e-6, 1 - 1e-6)
             raw_pr = torch.atanh(normalized)
-            # ── confidences/coefficients: invert sigmoid → logit ──────────
+            # ── acceptance/coefficients: invert sigmoid → logit ───────────
             _coeff_clamped = _coeff.clamp(1e-6, 1.0 - 1e-6)
             raw_coeff = torch.log(_coeff_clamped / (1.0 - _coeff_clamped))
             # ── raw sample + log_prob ─────────────────────────────────────
