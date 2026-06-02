@@ -4660,6 +4660,8 @@ class OnPolicyRunner:
             model_state_dict = {
                 'residual_actor': self.alg.policy.residual_actor.state_dict(),
                 'critic': self.alg.policy.critic.state_dict(),}
+            if getattr(self.alg.policy, "acceptance_actor", None) is not None:
+                model_state_dict['acceptance_actor'] = self.alg.policy.acceptance_actor.state_dict()
             
             # Save noise std parameter
             if hasattr(self.alg.policy, 'std'):
@@ -4739,6 +4741,20 @@ class OnPolicyRunner:
                 print("[Runner] Success: Auto-mapped Stage 1 'student' weights to Stage 2 'residual_actor'!")
             else:
                 self.alg.policy.residual_actor.load_state_dict(loaded_dict["model_state_dict"]["residual_actor"])
+            if getattr(self.alg.policy, "acceptance_actor", None) is not None:
+                if "acceptance_actor" in loaded_dict["model_state_dict"]:
+                    self.alg.policy.acceptance_actor.load_state_dict(loaded_dict["model_state_dict"]["acceptance_actor"])
+                    print("[Runner] Loaded split FrontRES acceptance_actor from checkpoint.")
+                else:
+                    migrated = False
+                    if hasattr(self.alg.policy, "initialize_acceptance_from_residual_state"):
+                        migrated = self.alg.policy.initialize_acceptance_from_residual_state(
+                            loaded_dict["model_state_dict"].get("residual_actor", {})
+                        )
+                    if migrated:
+                        print("[Runner] Initialized split acceptance_actor from legacy residual_actor rho rows.")
+                    else:
+                        print("[Runner] No split acceptance_actor weights found; initialized acceptance head from scratch.")
 
             if load_critic:
                 if "critic" in loaded_dict["model_state_dict"]:

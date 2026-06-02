@@ -414,6 +414,8 @@ class RslRlFrontResidualActorCriticCfg(RslRlPpoActorCriticCfg):
     # Default 0 = use full policy obs (backward compatible).
     num_frontres_obs: int = 0
     """FrontRES observation subset dims. 0 = use full policy_obs (legacy). 320 = ref-only."""
+    frontres_split_acceptance_head: bool = False
+    """Use a separate current-state-conditioned acceptance head for task-space hsl_hybrid."""
 
     # Task-space correction mode: replaces Δq+Δz with [Δpos(3), Δrpy(3)]
     num_task_corrections: int = 0

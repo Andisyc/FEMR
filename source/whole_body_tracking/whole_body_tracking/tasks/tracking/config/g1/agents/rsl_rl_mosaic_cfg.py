@@ -794,6 +794,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         # ── Observation layout ───────────────────────────────────────────────
         q_ref_start_idx        = 232,      # q_ref offset in 800-dim policy obs
         num_frontres_obs       = 0,        # 0 = FrontRES sees full obs
+        frontres_split_acceptance_head = True,  # rho sees full current-state obs + detached HSL proposal
         # ── Δq / Δz unused in task-space mode ────────────────────────────────
         num_z_outputs          = 0,
         max_delta_q            = 0.5,

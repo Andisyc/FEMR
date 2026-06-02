@@ -225,6 +225,10 @@ class FrontRESUnified:
     def _collect_trainable_params(policy):
         if isinstance(policy, (ResidualActorCritic, FrontRESActorCritic)):
             params = list(policy.residual_actor.parameters())
+            acceptance_actor = getattr(policy, "acceptance_actor", None)
+            has_split_acceptance = acceptance_actor is not None
+            if has_split_acceptance:
+                params.extend(acceptance_actor.parameters())
             params.extend(policy.critic.parameters())
             has_trainable_std = False
             if hasattr(policy, "std") and getattr(policy.std, "requires_grad", False):
@@ -234,7 +238,8 @@ class FrontRESUnified:
                 params.append(policy.log_std)
                 has_trainable_std = True
             suffix = " + policy std" if has_trainable_std else " (fixed policy std)"
-            print(f"[FrontRESUnified] Optimizer updates residual_actor + critic{suffix}")
+            actor_desc = "residual_actor + acceptance_actor" if has_split_acceptance else "residual_actor"
+            print(f"[FrontRESUnified] Optimizer updates {actor_desc} + critic{suffix}")
             return params
         print("[FrontRESUnified] Optimizer updates full policy")
         return policy.parameters()
@@ -614,11 +619,27 @@ class FrontRESUnified:
     def _keep_ppo_grad_on_acceptance_head_only(self, base_grads):
         """Remove PPO leakage into proposal direction and shared trunk.
 
-        The residual actor is a shared MLP.  Even an acceptance-only log-prob would
-        normally backpropagate through shared hidden layers and move ΔSE(3)
-        proposal directions.  This keeps the non-PPO gradients everywhere, and
-        adds the PPO gradient only to final-layer rows that emit acceptance.
+        In the split-head implementation, PPO is allowed to update only the
+        current-state acceptance network.  In the legacy shared-MLP
+        implementation, keep the non-PPO gradients everywhere and add the PPO
+        gradient only to final-layer rows that emit acceptance.
         """
+        acceptance_actor = getattr(self.policy, "acceptance_actor", None)
+        if acceptance_actor is not None:
+            allowed = {p for p in acceptance_actor.parameters()}
+            for p in self.policy.parameters():
+                base = base_grads.get(p)
+                if p not in allowed:
+                    p.grad = None if base is None else base.clone()
+                    continue
+                cur = p.grad
+                if cur is None:
+                    p.grad = None if base is None else base.clone()
+                    continue
+                base_tensor = torch.zeros_like(cur) if base is None else base
+                p.grad = cur
+            return
+
         final_linear = None
         residual_actor = getattr(self.policy, "residual_actor", None)
         if residual_actor is None:

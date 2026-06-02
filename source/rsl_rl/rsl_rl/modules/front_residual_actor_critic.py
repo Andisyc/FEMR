@@ -163,6 +163,10 @@ class FrontRESActorCritic(nn.Module):
         # first num_frontres_obs dims of policy_obs (reference-frame data only).
         # GMT continues to receive the full policy_obs. 0 = legacy (full obs for both).
         num_frontres_obs: int = 0,
+        # Current hsl_hybrid design: keep HSL proposal on the FrontRES/reference
+        # path, but predict acceptance from current-state observations plus a
+        # detached proposal so PPO cannot rewrite the repair direction.
+        frontres_split_acceptance_head: bool = False,
         **kwargs,
     ):
         if kwargs:
@@ -191,6 +195,7 @@ class FrontRESActorCritic(nn.Module):
         # FrontRES observation subset: when >0, residual_actor only sees first N dims
         # (reference-frame data). GMT always sees the full observation.
         self.num_frontres_obs = num_frontres_obs
+        self.frontres_split_acceptance_head = bool(frontres_split_acceptance_head)
         self.q_ref_start_idx = q_ref_start_idx
         self.noise_std_type = noise_std_type
         self.max_delta_q = max_delta_q          # tanh clip for Δq (rad)
@@ -365,6 +370,25 @@ class FrontRESActorCritic(nn.Module):
             hidden_dims=residual_hidden_dims,
             activation=activation_fn,
             last_layer_gain=residual_last_layer_gain)
+        self.acceptance_actor = None
+        if (
+            self.frontres_split_acceptance_head
+            and self.num_task_corrections > 0
+            and self.task_conf_dim in (1, 6)
+        ):
+            _acceptance_input_dim = num_actor_obs + self.num_task_corrections
+            self.acceptance_actor = self._build_residual_actor(
+                input_dim=_acceptance_input_dim,
+                output_dim=self.task_conf_dim,
+                hidden_dims=residual_hidden_dims,
+                activation=activation_fn,
+                last_layer_gain=residual_last_layer_gain)
+            print(
+                "[FrontEndResidualActorCritic] Split acceptance head enabled: "
+                f"proposal_input_dim={_frontres_input_dim}, "
+                f"acceptance_input_dim={_acceptance_input_dim} "
+                "(full current-state obs + detached proposal)"
+            )
         if num_task_corrections > 0:
             if self.task_conf_dim == 1:
                 coeff_desc = "legacy scalar rho(1)"
@@ -497,6 +521,34 @@ class FrontRESActorCritic(nn.Module):
             print(f"[ResidualActorCritic] WARNING: GMT expects {gmt_actor_input_dim} observations, "
                   f"but environment provides {num_actor_obs}. Will pad with zeros during inference.")
 
+    def _frontres_raw_task_output(self, policy_obs: torch.Tensor) -> torch.Tensor:
+        """Return raw [proposal, acceptance] logits for task-space FrontRES.
+
+        In split-acceptance mode, residual_actor keeps ownership of the HSL
+        proposal direction while acceptance_actor sees the full current-state
+        observation and a detached proposal.  This implements the design
+        contract rho_t = pi_accept(o_t, g_noisy_t, g_HSL_tilde) without allowing
+        PPO acceptance gradients to rewrite the proposal direction.
+        """
+        raw = self.residual_actor(policy_obs)
+        if (
+            self.num_task_corrections <= 0
+            or self.acceptance_actor is None
+            or not self.frontres_split_acceptance_head
+        ):
+            return raw
+
+        raw_pos = raw[:, :3]
+        raw_rpy = raw[:, 3:6]
+        proposal = torch.cat([
+            torch.tanh(raw_pos) * self.max_delta_pos,
+            torch.tanh(raw_rpy) * self.max_delta_rpy,
+        ], dim=-1)
+        full_obs = getattr(self, "_cached_full_policy_obs", policy_obs)
+        acceptance_input = torch.cat([full_obs, proposal.detach()], dim=-1)
+        raw_coeff = self.acceptance_actor(acceptance_input)
+        return torch.cat([raw_pos, raw_rpy, raw_coeff], dim=-1)
+
     def _infer_gmt_architecture(self, state_dict, activation):
         """Infer GMT policy architecture from checkpoint state_dict"""
         # Extract actor hidden dimensions
@@ -598,6 +650,73 @@ class FrontRESActorCritic(nn.Module):
                   f"(gain={last_layer_gain})")
 
         return nn.Sequential(*layers)
+
+    def initialize_acceptance_from_residual_state(self, residual_state_dict: dict) -> bool:
+        """Warm-start split acceptance head from a legacy combined residual actor.
+
+        Legacy hsl_hybrid checkpoints stored proposal and rho in one MLP.  The
+        split head has a wider first layer because it receives full current-state
+        obs plus a detached proposal.  Copy overlapping hidden-layer weights and
+        copy the legacy acceptance output rows into the new head; newly added
+        proposal-input columns remain zero.
+        """
+        if self.acceptance_actor is None:
+            return False
+        acceptance_state = self.acceptance_actor.state_dict()
+        if not residual_state_dict or not acceptance_state:
+            return False
+
+        weight_keys = sorted(
+            [k for k in acceptance_state.keys() if k.endswith(".weight")],
+            key=lambda k: int(k.split(".")[0]) if k.split(".")[0].isdigit() else -1,
+        )
+        if not weight_keys:
+            return False
+        last_weight_key = weight_keys[-1]
+        last_bias_key = last_weight_key.replace(".weight", ".bias")
+        start = int(self.num_task_corrections)
+        end = start + int(self.task_conf_dim)
+
+        new_state = {}
+        copied_any = False
+        for key, value in acceptance_state.items():
+            copied = torch.zeros_like(value)
+            src = residual_state_dict.get(key)
+            if src is None:
+                new_state[key] = value
+                continue
+
+            if key == last_weight_key:
+                if src.ndim == 2 and src.shape[0] >= end:
+                    rows = min(copied.shape[0], self.task_conf_dim)
+                    cols = min(copied.shape[1], src.shape[1])
+                    copied[:rows, :cols] = src[start:start + rows, :cols]
+                    new_state[key] = copied
+                    copied_any = True
+                else:
+                    new_state[key] = value
+            elif key == last_bias_key:
+                if src.ndim == 1 and src.shape[0] >= end:
+                    rows = min(copied.shape[0], self.task_conf_dim)
+                    copied[:rows] = src[start:start + rows]
+                    new_state[key] = copied
+                    copied_any = True
+                else:
+                    new_state[key] = value
+            elif src.shape == value.shape:
+                new_state[key] = src.clone()
+                copied_any = True
+            elif src.ndim == value.ndim:
+                slices = tuple(slice(0, min(a, b)) for a, b in zip(value.shape, src.shape))
+                copied[slices] = src[slices]
+                new_state[key] = copied
+                copied_any = True
+            else:
+                new_state[key] = value
+
+        if copied_any:
+            self.acceptance_actor.load_state_dict(new_state, strict=True)
+        return copied_any
 
     def _pad_observations_for_gmt(self, observations):
         """
@@ -762,7 +881,7 @@ class FrontRESActorCritic(nn.Module):
         """
         policy_obs, ref_vel, ref_vel_estimator_obs = self._parse_observations(observations)
 
-        raw = self.residual_actor(policy_obs)
+        raw = self._frontres_raw_task_output(policy_obs)
 
         if self.num_task_corrections > 0:
             delta_pos = torch.tanh(raw[:, :3]) * self.max_delta_pos
@@ -791,7 +910,7 @@ class FrontRESActorCritic(nn.Module):
         if self.num_task_corrections <= 0:
             raise RuntimeError("get_task_correction_inference is only valid in task-space FrontRES mode")
         policy_obs, _, _ = self._parse_observations(observations)
-        raw = self.residual_actor(policy_obs)
+        raw = self._frontres_raw_task_output(policy_obs) if self.num_task_corrections > 0 else self.residual_actor(policy_obs)
         correction = torch.cat([
             torch.tanh(raw[:, :3]) * self.max_delta_pos,
             torch.tanh(raw[:, 3:6]) * self.max_delta_rpy,
@@ -814,8 +933,9 @@ class FrontRESActorCritic(nn.Module):
 
             ∇J ∝ E[ A · ∇_θ log π_θ(Δ | obs) ]
 
-        The gradient ∂ log π / ∂θ flows only through residual_actor(obs) → Δ_mean,
-        with NO need to backpropagate through the frozen GMT network.
+        The gradient ∂ log π / ∂θ flows through the trainable FrontRES action
+        distribution (proposal path and, in split mode, acceptance path), with
+        NO need to backpropagate through the frozen GMT network.
 
         The runner calls get_env_action() separately to map the sampled residual
         correction to robot_actions for env.step(). The rollout buffer stores
@@ -866,7 +986,7 @@ class FrontRESActorCritic(nn.Module):
         self._cached_observations = observations
 
         # FrontRES forward
-        raw = self.residual_actor(policy_obs)
+        raw = self._frontres_raw_task_output(policy_obs) if self.num_task_corrections > 0 else self.residual_actor(policy_obs)
 
         if self.num_task_corrections > 0:
             # Output: [Δpos_raw(3), Δrpy_raw(3), acceptance/coefficient raw dims].

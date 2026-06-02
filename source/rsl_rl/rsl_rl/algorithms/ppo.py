@@ -117,12 +117,15 @@ class PPO:
         # but we make it explicit here to match the MOSAIC optimizer pattern.
         if isinstance(policy, FrontRESActorCritic):
             trainable = list(policy.residual_actor.parameters()) + list(policy.critic.parameters())
+            if getattr(policy, "acceptance_actor", None) is not None:
+                trainable.extend(policy.acceptance_actor.parameters())
             if hasattr(policy, "std"):
                 trainable.append(policy.std)
             elif hasattr(policy, "log_std"):
                 trainable.append(policy.log_std)
             self.optimizer = optim.Adam(trainable, lr=learning_rate)
-            print("[PPO] FrontRESActorCritic detected: optimizer restricted to residual_actor + critic")
+            actor_desc = "residual_actor + acceptance_actor" if getattr(policy, "acceptance_actor", None) is not None else "residual_actor"
+            print(f"[PPO] FrontRESActorCritic detected: optimizer restricted to {actor_desc} + critic")
         else:
             self.optimizer = optim.Adam(self.policy.parameters(), lr=learning_rate)
 
