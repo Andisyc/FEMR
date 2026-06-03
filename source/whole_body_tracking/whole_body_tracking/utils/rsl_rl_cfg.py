@@ -303,6 +303,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Optional |advantage| focal exponent for actor surrogate. 0.0 gives standard PPO."""
     frontres_training_objective: str = "ppo_hrl"
     """FrontRES update objective: 'ppo_hrl' keeps PPO+supervised, 'supervised_restore' uses only supervised restoration."""
+    frontres_acceptance_preference_weight: float = 0.0
+    """Weight for rollout-preference supervision on hsl_hybrid acceptance coefficients."""
     frontres_active_task_dims: list[int] | None = None
     """Optional supervised-loss mask for task-space FrontRES correction dims."""
     diagnose_gradient_conflict: bool = True
