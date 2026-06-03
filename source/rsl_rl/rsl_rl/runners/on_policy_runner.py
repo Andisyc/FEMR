@@ -2632,6 +2632,12 @@ class OnPolicyRunner:
             _frontres_candidate_gain_sum: float = 0.0
             _frontres_projection_gain_sum: float = 0.0
             _frontres_underwrite_sum: float = 0.0
+            _frontres_accept_pref_mask_sum: float = 0.0
+            _frontres_accept_pref_full_sum: float = 0.0
+            _frontres_accept_pref_noop_sum: float = 0.0
+            _frontres_accept_pref_keep_sum: float = 0.0
+            _frontres_accept_pref_ignore_sum: float = 0.0
+            _frontres_accept_pref_margin_sum: float = 0.0
             _frontres_positive_gain_frac_sum: float = 0.0
             _frontres_repair_ratio_sum:   float = 0.0
             _frontres_exec_signal_sum:     float = 0.0
@@ -3383,6 +3389,68 @@ class OnPolicyRunner:
                                 )
                             _effective_gain_bonus = torch.zeros(N_train, device=self.device)
                             _effective_gain_bonus[:_n_exec] = _effective_gain_bonus_exec
+                            _accept_pref_target = torch.zeros(self.env.num_envs, 6, device=self.device)
+                            _accept_pref_mask = torch.zeros(self.env.num_envs, 6, device=self.device)
+                            _pref_full_frac = torch.tensor(0.0, device=self.device)
+                            _pref_noop_frac = torch.tensor(0.0, device=self.device)
+                            _pref_keep_frac = torch.tensor(0.0, device=self.device)
+                            _pref_ignore_frac = torch.tensor(1.0, device=self.device)
+                            _pref_margin_mean = torch.tensor(0.0, device=self.device)
+                            _pref_enabled = (
+                                bool(self.cfg.get("frontres_acceptance_preference_enabled", True))
+                                and N_candidate > 0
+                                and _n_exec > 0
+                            )
+                            if _pref_enabled:
+                                _pref_margin = max(
+                                    float(self.cfg.get("frontres_acceptance_preference_margin", 0.003)),
+                                    0.0,
+                                )
+                                _j_rho = _repair_gain
+                                _j_one = _candidate_gain
+                                _j_zero = torch.zeros_like(_repair_gain)
+                                _full_win = (_j_one > _j_rho + _pref_margin) & (_j_one > _j_zero + _pref_margin)
+                                _noop_win = (_j_zero > _j_rho + _pref_margin) & (_j_zero > _j_one + _pref_margin)
+                                _keep_win = (_j_rho > _j_one + _pref_margin) & (_j_rho > _j_zero + _pref_margin)
+                                # Preference supervision is a direct label for
+                                # acceptance, so keep it on the repairability
+                                # window from the design contract.  The PPO
+                                # actor gate may give side weight to safe/broken
+                                # samples; those should stay diagnostics here.
+                                _pref_gate = (_oracle_trust * _repair_gate).detach().clamp(0.0, 1.0)
+                                _target_exec = torch.zeros(_n_exec, 6, device=self.device)
+                                _mask_exec = torch.zeros(_n_exec, 6, device=self.device)
+                                _trainable = (_full_win | _noop_win).to(_target_exec.dtype)
+                                _target_exec[_full_win] = 1.0
+                                _target_exec[_noop_win] = 0.0
+                                _mask_exec = _trainable.view(-1, 1) * _pref_gate.view(-1, 1)
+                                if bool(self.cfg.get("frontres_per_mode_acceptance_preference_mask", True)):
+                                    _mode_dim_mask = self._frontres_mode_dim_mask(
+                                        _mode_groups, _n_exec, self.device, _mask_exec.dtype
+                                    )
+                                    _mask_exec = _mask_exec * _mode_dim_mask
+                                _active_dims_cfg = self.cfg.get("frontres_active_task_dims", None)
+                                if _active_dims_cfg is not None:
+                                    _dim_mask = torch.zeros(6, device=self.device, dtype=_mask_exec.dtype)
+                                    for _idx in _active_dims_cfg:
+                                        _idx = int(_idx)
+                                        if 0 <= _idx < 6:
+                                            _dim_mask[_idx] = 1.0
+                                    _mask_exec = _mask_exec * _dim_mask.view(1, -1)
+                                _accept_pref_target[:_n_exec] = _target_exec.detach()
+                                _accept_pref_mask[:_n_exec] = _mask_exec.detach()
+                                _pref_full_frac = _full_win.float().mean()
+                                _pref_noop_frac = _noop_win.float().mean()
+                                _pref_keep_frac = _keep_win.float().mean()
+                                _pref_ignore_frac = (~(_full_win | _noop_win | _keep_win)).float().mean()
+                                _best = torch.maximum(torch.maximum(_j_one, _j_rho), _j_zero)
+                                _second = torch.minimum(
+                                    torch.maximum(_j_one, _j_rho),
+                                    torch.maximum(torch.minimum(_j_one, _j_rho), _j_zero),
+                                )
+                                _pref_margin_mean = (_best - _second).mean()
+                            self.alg.transition.acceptance_target = _accept_pref_target
+                            self.alg.transition.acceptance_mask = _accept_pref_mask
                             _ranking_enabled = bool(self.cfg.get("frontres_candidate_ranking_reward_enabled", True)) and N_candidate > 0
                             if _ranking_enabled:
                                 _ranking_under_weight = float(self.cfg.get("frontres_candidate_underwrite_weight", 1.0))
@@ -3503,6 +3571,14 @@ class OnPolicyRunner:
                             _frontres_candidate_gain_sum += _candidate_gain.mean().item()
                             _frontres_projection_gain_sum += _projection_gain.mean().item()
                             _frontres_underwrite_sum += _under_write.mean().item()
+                            _frontres_accept_pref_mask_sum += (
+                                (_accept_pref_mask[:_n_exec].sum(dim=-1) > 0).float().mean().item()
+                            )
+                            _frontres_accept_pref_full_sum += _pref_full_frac.item()
+                            _frontres_accept_pref_noop_sum += _pref_noop_frac.item()
+                            _frontres_accept_pref_keep_sum += _pref_keep_frac.item()
+                            _frontres_accept_pref_ignore_sum += _pref_ignore_frac.item()
+                            _frontres_accept_pref_margin_sum += _pref_margin_mean.item()
                             _frontres_positive_gain_frac_sum += (_repair_gain > 0.0).float().mean().item()
                             _frontres_repair_ratio_sum += _repair_ratio.mean().item()
                             _frontres_exec_signal_sum += _r_exec[:_n_exec].mean().item()
@@ -3833,6 +3909,30 @@ class OnPolicyRunner:
             )
             frontres_underwrite_mean = (
                 _frontres_underwrite_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_accept_pref_mask_mean = (
+                _frontres_accept_pref_mask_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_accept_pref_full_mean = (
+                _frontres_accept_pref_full_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_accept_pref_noop_mean = (
+                _frontres_accept_pref_noop_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_accept_pref_keep_mean = (
+                _frontres_accept_pref_keep_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_accept_pref_ignore_mean = (
+                _frontres_accept_pref_ignore_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_accept_pref_margin_mean = (
+                _frontres_accept_pref_margin_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
             frontres_positive_gain_frac_mean = (
@@ -4198,6 +4298,8 @@ class OnPolicyRunner:
                 "exec_planar", "exec_vertical", "exec_task",
                 "damage_gap", "oracle_clean_gap", "oracle_trust",
                 "repair_gain", "candidate_gain", "projection_gain", "underwrite",
+                "accept_pref_mask", "accept_pref_full", "accept_pref_noop",
+                "accept_pref_keep", "accept_pref_ignore", "accept_pref_margin",
                 "positive_gain_frac", "repair_ratio",
                 "exec_signal", "weighted_exec_signal", "train_reward",
                 "effective_gain_bonus", "safe_cost", "repair_cost", "broken_cost",
@@ -4611,6 +4713,16 @@ class OnPolicyRunner:
                                 f"{locs['frontres_projection_gain_mean']:+.4f} "
                                 f"(under={locs['frontres_underwrite_mean']:+.4f})\n"
                             )
+                        if locs.get("frontres_accept_pref_mask_mean") is not None:
+                            log_string += f"""{'accept pref full/noop/keep/ign:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_accept_pref_full_mean']:.3f} / "
+                                f"{locs['frontres_accept_pref_noop_mean']:.3f} / "
+                                f"{locs['frontres_accept_pref_keep_mean']:.3f} / "
+                                f"{locs['frontres_accept_pref_ignore_mean']:.3f} "
+                                f"(mask={locs['frontres_accept_pref_mask_mean']:.3f}, "
+                                f"margin={locs['frontres_accept_pref_margin_mean']:+.4f})\n"
+                            )
                         if locs.get("frontres_exec_planar_mean") is not None:
                             log_string += f"""{'exec planar/vertical/task:':>{pad}} """
                             log_string += (
@@ -4641,6 +4753,15 @@ class OnPolicyRunner:
                     _paw = _loss_dict.get("ppo_actor_weight", None)
                     if _paw is not None:
                         log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
+                    _apl = _loss_dict.get("acceptance_preference_loss", None)
+                    if _apl is not None:
+                        log_string += f"""{'accept pref loss:':>{pad}} {_apl:.4f} """
+                        log_string += (
+                            f"(λ={_loss_dict.get('lambda_acceptance_preference', 0.0):.3f}, "
+                            f"rho={_loss_dict.get('acceptance_preference_rho_mean', 0.0):.3f}, "
+                            f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
+                            f"corr={_loss_dict.get('acceptance_preference_corr', 0.0):+.3f})\n"
+                        )
                     if locs.get("frontres_window_mu_mean") is not None:
                         log_string += f"""{'actor/exec/cost:':>{pad}} """
                         log_string += (

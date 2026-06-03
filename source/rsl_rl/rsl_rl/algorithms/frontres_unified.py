@@ -74,6 +74,7 @@ class FrontRESUnified:
         ppo_advantage_focal_power: float = 0.0,
         frontres_active_task_dims: list[int] | None = None,
         frontres_training_objective: str = "ppo_hrl",
+        frontres_acceptance_preference_weight: float = 0.0,
         diagnose_gradient_conflict: bool = True,
         hybrid: bool = True,
         use_ppo: bool = True,
@@ -167,6 +168,7 @@ class FrontRESUnified:
         self.ppo_advantage_focal_power = float(ppo_advantage_focal_power)
         self.frontres_active_task_dims = frontres_active_task_dims
         self.frontres_training_objective = str(frontres_training_objective).lower()
+        self.frontres_acceptance_preference_weight = float(frontres_acceptance_preference_weight)
         self.diagnose_gradient_conflict = bool(diagnose_gradient_conflict)
         self.ppo_actor_weight = 1.0
         self._supervised_decay_triggered = False
@@ -409,6 +411,8 @@ class FrontRESUnified:
         mean_supervised_loss = 0.0
         mean_supervised_cos_sim = 0.0
         mean_supervised_metrics: dict[str, float] = {}
+        mean_acceptance_preference_loss = 0.0
+        mean_acceptance_preference_metrics: dict[str, float] = {}
         grad_conflict_cos = 0.0
         grad_conflict_norm_ratio = 0.0
         grad_conflict_count = 0
@@ -444,8 +448,10 @@ class FrontRESUnified:
                 frontres_actor_gate_batch,
                 supervised_weight_batch,
                 supervised_harm_weight_batch,
-            ) = batch[:22]
-            batch_indices = batch[22] if len(batch) > 22 else None
+                acceptance_target_batch,
+                acceptance_mask_batch,
+            ) = batch[:24]
+            batch_indices = batch[24] if len(batch) > 24 else None
             original_batch_size = obs_batch.shape[0]
             if self.normalize_advantage_per_mini_batch:
                 with torch.no_grad():
@@ -483,6 +489,12 @@ class FrontRESUnified:
                 supervised_weight_batch=supervised_weight_batch,
                 supervised_harm_weight_batch=supervised_harm_weight_batch,
             )
+            acceptance_preference_loss, acceptance_preference_metrics = self._compute_acceptance_preference_loss(
+                mu_batch,
+                acceptance_target_batch,
+                acceptance_mask_batch,
+                original_batch_size,
+            )
 
             if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
                 loss = supervised_loss
@@ -515,6 +527,7 @@ class FrontRESUnified:
                     + self.value_loss_coef * value_loss
                     - self.entropy_coef * entropy_batch.mean()
                     + self.lambda_supervised * supervised_loss
+                    + self.frontres_acceptance_preference_weight * acceptance_preference_loss
                 )
 
             self.optimizer.zero_grad()
@@ -522,14 +535,16 @@ class FrontRESUnified:
                 self._warn_skip("non-finite loss", loss)
                 continue
 
-            if self._ppo_acceptance_only_mode() and ppo_weight > 0.0:
-                non_ppo_loss = loss - ppo_weight * surrogate_loss
+            preference_weight = float(getattr(self, "frontres_acceptance_preference_weight", 0.0))
+            if self._ppo_acceptance_only_mode() and (ppo_weight > 0.0 or preference_weight > 0.0):
+                acceptance_only_loss = ppo_weight * surrogate_loss + preference_weight * acceptance_preference_loss
+                non_ppo_loss = loss - acceptance_only_loss
                 non_ppo_loss.backward(retain_graph=True)
                 base_grads = {
                     p: (p.grad.detach().clone() if p.grad is not None else None)
                     for p in self.policy.parameters()
                 }
-                (ppo_weight * surrogate_loss).backward()
+                acceptance_only_loss.backward()
                 self._keep_ppo_grad_on_acceptance_head_only(base_grads)
                 grad_diag = self._compute_acceptance_grad_diagnostics(base_grads)
                 if grad_diag:
@@ -557,6 +572,11 @@ class FrontRESUnified:
             mean_supervised_cos_sim += sup_cos_sim
             for key, value in sup_metrics.items():
                 mean_supervised_metrics[key] = mean_supervised_metrics.get(key, 0.0) + float(value)
+            mean_acceptance_preference_loss += acceptance_preference_loss.item()
+            for key, value in acceptance_preference_metrics.items():
+                mean_acceptance_preference_metrics[key] = (
+                    mean_acceptance_preference_metrics.get(key, 0.0) + float(value)
+                )
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
@@ -566,6 +586,10 @@ class FrontRESUnified:
         mean_supervised_cos_sim /= num_updates
         mean_supervised_metrics = {
             key: value / num_updates for key, value in mean_supervised_metrics.items()
+        }
+        mean_acceptance_preference_loss /= num_updates
+        mean_acceptance_preference_metrics = {
+            key: value / num_updates for key, value in mean_acceptance_preference_metrics.items()
         }
         if grad_conflict_count > 0:
             grad_conflict_cos /= grad_conflict_count
@@ -604,11 +628,14 @@ class FrontRESUnified:
             "supervised_loss": mean_supervised_loss,
             "supervised_cos_sim": mean_supervised_cos_sim,
             "lambda_supervised": self.lambda_supervised,
+            "acceptance_preference_loss": mean_acceptance_preference_loss,
+            "lambda_acceptance_preference": self.frontres_acceptance_preference_weight,
             "ppo_actor_weight": float(getattr(self, "ppo_actor_weight", 1.0)),
             "grad_cos_ppo_supervised": grad_conflict_cos,
             "grad_norm_ratio_ppo_to_supervised": grad_conflict_norm_ratio,
         }
         loss_dict.update(mean_supervised_metrics)
+        loss_dict.update(mean_acceptance_preference_metrics)
         loss_dict.update({f"grad_{key}": value for key, value in mean_grad_diag.items()})
         if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
             loss_dict["ppo_actor_weight"] = 0.0
@@ -870,6 +897,111 @@ class FrontRESUnified:
         else:
             value_loss = value_terms.mean()
         return surrogate_loss, value_loss
+
+    def _compute_acceptance_preference_loss(
+        self,
+        mu_batch,
+        acceptance_target_batch,
+        acceptance_mask_batch,
+        original_batch_size,
+    ):
+        zero = mu_batch[:original_batch_size].sum() * 0.0
+        metrics = {
+            "acceptance_preference_mask_frac": 0.0,
+            "acceptance_preference_target_mean": 0.0,
+            "acceptance_preference_full_frac": 0.0,
+            "acceptance_preference_noop_frac": 0.0,
+            "acceptance_preference_rho_mean": 0.0,
+            "acceptance_preference_abs_err": 0.0,
+            "acceptance_preference_corr": 0.0,
+        }
+        if (
+            self.frontres_acceptance_preference_weight <= 0.0
+            or acceptance_target_batch is None
+            or acceptance_mask_batch is None
+            or not self._ppo_acceptance_only_mode()
+        ):
+            return zero, metrics
+
+        raw_pred = mu_batch[:original_batch_size]
+        if raw_pred.shape[-1] < 7:
+            return zero, metrics
+
+        conf_dim = int(getattr(self.policy, "task_conf_dim", 2))
+        if conf_dim == 1:
+            logits = raw_pred[:, 6:7]
+            rho = torch.sigmoid(logits).expand(-1, 6)
+        elif conf_dim == 6 and raw_pred.shape[-1] >= 12:
+            logits = raw_pred[:, 6:12]
+            rho = torch.sigmoid(logits)
+        else:
+            return zero, metrics
+
+        target = acceptance_target_batch[:original_batch_size, :6].to(
+            device=self.device, dtype=rho.dtype
+        ).detach()
+        mask = acceptance_mask_batch[:original_batch_size, :6].to(
+            device=self.device, dtype=rho.dtype
+        ).detach()
+        target = torch.nan_to_num(target, nan=0.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
+        mask = torch.nan_to_num(mask, nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
+
+        active_dims = getattr(self, "frontres_active_task_dims", None)
+        if active_dims is not None:
+            dim_mask = torch.zeros(6, device=self.device, dtype=mask.dtype)
+            for idx in active_dims:
+                idx = int(idx)
+                if 0 <= idx < 6:
+                    dim_mask[idx] = 1.0
+            mask = mask * dim_mask.view(1, -1)
+
+        denom = mask.sum().clamp(min=1e-6)
+        if denom <= 1e-6:
+            return zero, metrics
+
+        loss_terms = nn.functional.binary_cross_entropy(
+            rho.clamp(1e-4, 1.0 - 1e-4),
+            target,
+            reduction="none",
+        )
+        loss = (loss_terms * mask).sum() / denom
+
+        sample_active = (mask.sum(dim=-1) > 0).to(rho.dtype)
+        sample_denom = sample_active.sum().clamp(min=1e-6)
+        target_per_sample = (target * mask).sum(dim=-1) / mask.sum(dim=-1).clamp(min=1e-6)
+        rho_per_sample = (rho.detach() * mask).sum(dim=-1) / mask.sum(dim=-1).clamp(min=1e-6)
+        err_per_sample = ((rho.detach() - target).abs() * mask).sum(dim=-1) / mask.sum(dim=-1).clamp(min=1e-6)
+
+        metrics["acceptance_preference_mask_frac"] = float(sample_active.mean().detach().item())
+        metrics["acceptance_preference_target_mean"] = float(
+            (target_per_sample * sample_active).sum().detach().item() / float(sample_denom.detach().item())
+        )
+        metrics["acceptance_preference_full_frac"] = float(
+            ((target_per_sample > 0.5).to(rho.dtype) * sample_active).sum().detach().item()
+            / float(sample_denom.detach().item())
+        )
+        metrics["acceptance_preference_noop_frac"] = float(
+            ((target_per_sample < 0.5).to(rho.dtype) * sample_active).sum().detach().item()
+            / float(sample_denom.detach().item())
+        )
+        metrics["acceptance_preference_rho_mean"] = float(
+            (rho_per_sample * sample_active).sum().detach().item() / float(sample_denom.detach().item())
+        )
+        metrics["acceptance_preference_abs_err"] = float(
+            (err_per_sample * sample_active).sum().detach().item() / float(sample_denom.detach().item())
+        )
+        active = sample_active > 0
+        if active.sum() > 1:
+            rho_active = rho_per_sample[active]
+            target_active = target_per_sample[active]
+            rho_centered = rho_active - rho_active.mean()
+            target_centered = target_active - target_active.mean()
+            corr_denom = rho_centered.square().sum().sqrt() * target_centered.square().sum().sqrt()
+            if corr_denom > 1e-12:
+                metrics["acceptance_preference_corr"] = float(
+                    (rho_centered * target_centered).sum().div(corr_denom).detach().item()
+                )
+        return loss, metrics
 
     def _compute_supervised_loss(
         self,

@@ -355,6 +355,148 @@ The reward implementation should log \(J_0\), \(J_1\), \(J_\rho\),
 remains near 0.5 while \(A_{\mathrm{full}} \gg A_\rho\), the ranking reward is
 still failing to push acceptance toward the useful full-write branch.
 
+## Rollout Preference Learning for Acceptance
+
+The current test run shows a conceptual gap in the quartet reward design.
+Candidate rollout ranking can reveal the local ordering
+\(J_1 > J_\rho > J_0\), but a pure PPO update only reinforces the sampled
+projected action \(g^\rho_t\).  Candidate/full-write \(g^1_t\) is evaluated as a
+counterfactual branch, not sampled by the policy, so it does not automatically
+become an action target for \(\rho_t\).  The missing bridge is:
+
+\[
+\text{rollout ordering}
+\rightarrow
+\text{acceptance preference target}.
+\]
+
+For the active test branch, treat HRL acceptance as a local line-search problem
+over the HSL residual line:
+
+\[
+g(\rho) = g^{\mathrm{noisy}}_t + \rho \odot \Delta g^{\mathrm{HSL}}_t.
+\]
+
+Each sample compares three points under the same current state \(o_t\), noisy
+reference, and HSL direction:
+
+- no-write: \(J_0 = J(g^0_t \mid o_t)\);
+- current projected-write: \(J_\rho = J(g^\rho_t \mid o_t)\);
+- full candidate-write: \(J_1 = J(g^1_t \mid o_t)\).
+
+The test-run learning rule is preference-supervised acceptance:
+
+| Local rollout ordering | Acceptance target |
+| --- | --- |
+| \(J_1\) clearly beats \(J_\rho\) and \(J_0\) | push \(\rho_t \rightarrow 1\) |
+| \(J_0\) clearly beats \(J_\rho\) and \(J_1\) | push \(\rho_t \rightarrow 0\) |
+| \(J_\rho\) clearly beats both endpoints | keep current \(\rho_t\) or give low loss |
+| score margins are small | ignore or downweight the sample |
+
+This is not a replacement for HSL.  HSL still owns the clean-oriented repair
+direction \(\Delta g^{\mathrm{HSL}}_t\).  The preference loss only trains the
+acceptance field \(\rho_t\).  PPO can remain as a later fine-tuning or
+regularization signal, but the primary test-run HRL signal should be the
+counterfactual rollout preference converted into an acceptance target.
+
+### Test-Run Implementation Plan
+
+1. Keep the four rollout branches already implemented:
+   Projected, Candidate, Noisy, and Clean.
+2. Compute executable scores \(J_\rho\), \(J_1\), and \(J_0\) from the same
+   current-state-conditioned executable metric currently used for ranking
+   diagnostics.
+3. Build a detached acceptance target for the six acceptance channels:
+   \(y_\rho = 1\) when full-write clearly wins, \(y_\rho = 0\) when no-write
+   clearly wins, and no strong target when the projected branch already wins or
+   the margins are small.
+4. Apply this loss only to the acceptance channels.  Do not let it update the
+   HSL proposal direction.
+5. Gate the loss by a margin threshold and the existing sample-reweighting
+   window so safe/noisy-equivalent samples and deeply broken samples do not
+   dominate the acceptance head.
+6. Keep the current PPO acceptance objective available behind a config flag, but
+   do not rely on it as the only learning signal in this test branch.
+
+### Acceptance Input Contract
+
+Rollout preference learning is not only a target-construction change.  The
+acceptance head must receive the variables that define the local line-search
+problem.  Otherwise the target can say "write more" or "write less" during
+training, but the network cannot infer the rule at test time.
+
+The acceptance input should represent:
+
+- current physical state \(o_t\): root state, velocity, contact or phase cues,
+  and other GMT observation features that determine dynamic admissibility;
+- noisy reference context \(g^{\mathrm{noisy}}_t\): the reference frame that GMT
+  would execute without repair;
+- HSL candidate direction \(\Delta g^{\mathrm{HSL}}_t\), detached from the
+  acceptance loss, preferably normalized by the action cone;
+- candidate written reference \(g^1_t\) or an equivalent compact feature such as
+  \(g^{\mathrm{noisy}}_t + \Delta g^{\mathrm{HSL}}_t\);
+- optional scalar difficulty features such as damage gap, active perturbation
+  family, jump/contact gate, and action-cone saturation.
+
+The rollout scores \(J_0\), \(J_\rho\), and \(J_1\) should not be required at
+deployment time.  They are training labels and diagnostics, not policy inputs.
+The policy input must instead contain enough state-reference information for
+the acceptance head to predict the same preference from observation.
+
+For the current test run, a minimal acceptable implementation is:
+
+\[
+\rho_t =
+\pi_{\mathrm{accept}}(o_t,\ g^{\mathrm{noisy}}_t,\ \mathrm{stopgrad}(\Delta
+g^{\mathrm{HSL}}_t),\ \mathrm{action\ cone\ features}).
+\]
+
+This preserves the architecture: HSL owns the repair direction, while HRL owns
+the current-state-conditioned decision of how much of that direction is
+dynamically admissible.
+
+### Required Diagnostics
+
+The next test run should print and log:
+
+- mean \(J_0\), \(J_\rho\), \(J_1\);
+- fractions of samples whose preference target is full-write, no-write, keep,
+  and ignored;
+- acceptance loss magnitude;
+- \(\rho_{\mathrm{pos}}\) and \(\rho_{\mathrm{rpy}}\);
+- correlation between \(\rho_t\) and the preferred direction;
+- current PPO actor weight, so PPO fine-tuning can be separated from preference
+  supervision.
+
+The expected early test-run behavior is simple: when \(J_1 \gg J_\rho\) for
+local-rp samples, \(\rho_{\mathrm{rpy}}\) should move above 0.5 without needing a
+long PPO exploration phase.  If \(J_1\) remains better but \(\rho_t\) stays near
+0.5, the preference target or gradient boundary is still not connected to the
+acceptance head.
+
+### Design Audit Before Implementation
+
+The preference-learning design is complete only if the following chain is
+closed.  Implementing only one link is unsafe.
+
+| Link | Required state |
+| --- | --- |
+| Policy input | The acceptance head sees full current-state observation plus detached HSL proposal.  The current split-head code already supports this with `frontres_split_acceptance_head=True` and `num_frontres_obs=0`. |
+| Rollout evidence | The runner executes Projected, Candidate, Noisy, and Clean under synchronized motion/frame state. |
+| Preference label | The runner converts \(J_0,J_\rho,J_1\) into detached target, mask, margin, and class fractions. |
+| Storage | The target and mask must be stored with each rollout transition, or recomputable exactly from stored tensors.  Logging-only tensors are not enough. |
+| Algorithm loss | `frontres_unified.py` must add an acceptance preference loss to the minibatch update.  The loss must update only the acceptance head or acceptance rows. |
+| Gradient boundary | The preference loss must not update \(\Delta g^{\mathrm{HSL}}_t\).  Detached proposal input is necessary but not sufficient; the loss path must be audited. |
+| PPO relation | PPO acceptance loss may remain enabled, but it is secondary in the test branch.  Preference supervision is the primary signal for moving \(\rho_t\). |
+| Deployment | \(J_0,J_\rho,J_1\) are not deployment inputs.  The deployed policy must infer acceptance from \(o_t\), noisy reference context, and HSL proposal features. |
+| Diagnostics | Console and TensorBoard must prove class balance, target direction, acceptance loss, \(\rho\) movement, and gradient placement. |
+
+The current code already has an important part of the input contract: split
+acceptance can use full policy observation plus a detached HSL proposal.  The
+missing implementation is therefore not primarily another input module.  The
+missing implementation is the preference-label storage and acceptance-only loss
+path that turns quartet rollout ordering into a trainable update.
+
 ## Implementation Design Delta
 
 This delta defines the next code change.  It should be checked before editing

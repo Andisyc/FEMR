@@ -5,11 +5,12 @@ description: Collaborate with Dr. Cheng on robotics/ML research by preserving ar
 
 # Dr.Cheng Collaboration Contract
 
-Use this skill to match Dr. Cheng's research habits and collaboration expectations. The central rule is: **do not optimize a local patch while losing the research architecture**.
+Use this skill to match Dr. Cheng's long-horizon PhD research habits and collaboration expectations across projects, papers, experiments, and codebases. The central rule is: **do not optimize a local patch while losing the research architecture**.
 
 ## Core Research Temperament
 
 - Treat the work as a research system, not a pile of independent code changes.
+- Treat Dr. Cheng as a PhD researcher building a long research program, not only a single paper. Durable collaboration habits should generalize beyond the current project.
 - Start from the problem definition: what is the artifact, what is the repair target, what information is observable, and what physical feedback is available.
 - Reason from concepts before mechanisms. First name the compressed concept that explains the problem; then design the simplest mechanism that realizes it.
 - When a method feels stuck, go back to the failure mechanism. A strong design should emerge from understanding why the previous formulation fails, not from adding components until performance improves.
@@ -65,6 +66,7 @@ Dr. Cheng often reasons through these principles:
 - Report whether the training command changes. If configs carry the behavior, say the command does not change.
 - When Dr. Cheng asks for a final code check before pushing or training, treat it as a logic-bug audit, not a formatting pass. Look for architecture breaks, silent training drift, inconsistent masks, stale config defaults, objective mismatches, and rollout/loss/storage contract errors before ordinary syntax issues.
 - In a final check, explicitly verify the intended research chain end to end: config -> runner rollout construction -> storage fields -> algorithm loss/update -> diagnostics. A compile-only answer is insufficient.
+- When designing or modifying any research mechanism, audit the whole causal chain before presenting the plan. Do not rely on Dr. Cheng to catch missing links. For learning systems, explicitly check: policy/model input, evidence source, target/label/reward construction, storage or recomputation, algorithm loss/update, gradient boundary, deployment inputs, and diagnostics. For non-learning systems, check the equivalent chain from assumption -> measurement -> decision rule -> implementation -> validation. If any link is only conceptual or not implemented, say so before recommending an experiment or run.
 - For FrontRES training edits, check:
   - objective mode and config defaults;
   - storage tuple shape and batch unpacking;
@@ -85,6 +87,44 @@ Dr. Cheng often reasons through these principles:
 - If a project design contract exists, read it before editing and use it as the source of truth over recent ad-hoc implementation convenience.
 - If implementation pressure suggests changing the conceptual role of a variable, stop and surface the mismatch. Do not silently reinterpret a variable such as a gate, coefficient, reward, label, or diagnostic.
 - After implementation, audit against the design contract, not only against syntax or local tests.
+
+## Whole-Chain Design Audit
+
+Use this checklist before proposing any new research mechanism, including a
+reward, preference learner, gate, model component, sample selector, dataset
+construction rule, evaluation protocol, ablation, benchmark, or supervised/RL
+hybrid mechanism. The checklist is general: adapt the words to the domain, but
+do not skip the causal links.
+
+- Available input: what information is available at deployment, inference,
+  evaluation, or decision time, and does it contain the variables needed to infer
+  the rule?
+- Evidence source: which data, rollout, annotation, measurement, comparison, or
+  prior result produces the real signal?
+- Rule construction: how does the evidence become a label, reward, preference,
+  metric, gate, threshold, hypothesis, or decision rule?
+- Persistence contract: is the needed signal stored, reproducible, or exactly
+  recomputable? Logging-only or presentation-only quantities are not mechanisms.
+- Optimization or decision path: where does the rule enter training,
+  inference, selection, evaluation, or experimental decision-making?
+- Boundary of authority: which variables, parameters, modules, or claims may be
+  changed by this mechanism, and which are explicitly forbidden?
+- Train/test or design/deployment consistency: which quantities are only
+  training-time diagnostics or analysis aids and must not leak into deployment,
+  evaluation, or the paper claim?
+- Validation and diagnostics: what printed numbers, plots, ablations, or
+  sanity checks prove that the intended signal, class balance, path, and behavior
+  change are actually present?
+
+If a design uses counterfactual rollouts, distinguish evaluator branches from
+policy-sampled actions. A counterfactual comparison is not automatically a PPO
+training signal; it must be converted into a target, preference loss, stored
+field, or valid policy action.
+
+Generalize this principle beyond RL: a useful observation is not automatically a
+method. It becomes a method only after the observation is connected to the
+available inputs, an explicit rule, an implementation path, and a validation
+signal.
 
 ## Explanation Pattern
 
