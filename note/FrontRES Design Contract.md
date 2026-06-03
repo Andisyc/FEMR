@@ -286,6 +286,75 @@ This split prevents reward hacking by making the learnable PPO degree of
 freedom isomorphic to the intended concept.  PPO can filter an HSL proposal, but
 it cannot invent a new repair direction.
 
+## Candidate Rollout Ranking Reward
+
+The active method figure contains four rollout branches: Clean, Noisy,
+Candidate, and Projected.  The code must preserve this distinction.  Candidate
+is not only a geometric counterfactual; it is the full HSL write executed by the
+frozen GMT from the same current physical state \(o_t\):
+
+\[
+g^0_t = g^{\mathrm{noisy}}_t,
+\qquad
+g^1_t = g^{\mathrm{noisy}}_t + \Delta g^{\mathrm{HSL}}_t,
+\qquad
+g^\rho_t = g^{\mathrm{noisy}}_t + \rho_t \odot \Delta g^{\mathrm{HSL}}_t.
+\]
+
+Here \(g^0_t\) is the no-write baseline, \(g^1_t\) is the Candidate/full-write
+branch, and \(g^\rho_t\) is the Projected/write branch.  The current robot state
+\(o_t\) is not a reference endpoint.  It is the dynamics anchor that determines
+whether a reference causes a state-reference discontinuity.  Noisy itself may be
+dynamically fractured because \(g^{\mathrm{noisy}}_t\) can jump away from the
+unchanged physical state \(o_t\).
+
+The HRL/PPO reward should therefore compare three current-state-conditioned
+scores:
+
+\[
+J_0 = J(g^0_t \mid o_t),
+\qquad
+J_1 = J(g^1_t \mid o_t),
+\qquad
+J_\rho = J(g^\rho_t \mid o_t).
+\]
+
+The core ranking quantities are:
+
+\[
+A_{\mathrm{full}} = J_1 - J_0,
+\qquad
+A_\rho = J_\rho - J_0,
+\qquad
+A_{\mathrm{proj}} = J_\rho - J_1.
+\]
+
+The acceptance reward should make \(\rho_t\) a line-search variable over the HSL
+residual line:
+
+- if \(A_{\mathrm{full}} > 0\) and \(A_\rho < A_{\mathrm{full}}\), the policy is
+  under-writing a useful HSL candidate and should increase acceptance;
+- if \(A_{\mathrm{full}} < 0\), the full HSL candidate is harmful from the
+  current state and acceptance should decrease;
+- if \(A_{\mathrm{proj}} > 0\), the projected write is better than full-write and
+  HRL has performed a real dynamics-aware projection.
+
+This reward should replace projected-only reward in the active `hsl_hybrid`
+branch.  Sample reweighting may still be built from Clean vs. Noisy damage, and
+HSL supervised loss should still train the clean-oriented direction.  The new
+rollout contract is a quartet:
+
+- Projected: \(g^\rho_t\), receives PPO actor gradient through \(\rho_t\);
+- Candidate: \(g^1_t\), no policy gradient, provides full-write boundary;
+- Noisy: \(g^0_t\), no policy gradient, provides no-write baseline;
+- Clean: \(g^{\mathrm{clean}}_t\), no policy gradient, provides ideal behavior
+  and sample-difficulty calibration.
+
+The reward implementation should log \(J_0\), \(J_1\), \(J_\rho\),
+\(A_{\mathrm{full}}\), \(A_\rho\), and \(A_{\mathrm{proj}}\).  If \(\rho_t\)
+remains near 0.5 while \(A_{\mathrm{full}} \gg A_\rho\), the ranking reward is
+still failing to push acceptance toward the useful full-write branch.
+
 ## Implementation Design Delta
 
 This delta defines the next code change.  It should be checked before editing

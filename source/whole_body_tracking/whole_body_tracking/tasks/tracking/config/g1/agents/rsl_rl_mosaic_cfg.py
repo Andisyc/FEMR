@@ -585,6 +585,12 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_supervised_min_hold_iters = 5
     frontres_exec_reward_signal = "gain"
     frontres_selective_reward_enabled = True
+    frontres_candidate_rollout_enabled = True
+    frontres_candidate_ranking_reward_enabled = True
+    frontres_candidate_ranking_reward_weight = 1.0
+    frontres_candidate_underwrite_weight = 1.0
+    frontres_candidate_projection_weight = 0.25
+    frontres_candidate_harm_weight = 1.0
     frontres_min_effective_gain = 0.008
     frontres_effective_gain_bonus_weight = 0.0
     frontres_safe_cost_weight = 1.0
