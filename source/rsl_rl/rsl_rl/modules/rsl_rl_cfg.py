@@ -322,7 +322,7 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Linear warmup iterations before cosine decay."""
     frontres_supervised_lr_cosine_iters: int = 1000
     """Iterations used for cosine decay after warmup."""
-    frontres_restore_debug_print_interval: int = 100
+    frontres_restore_debug_print_interval: int = 10
     """Iteration interval for low-frequency FrontRES restore consistency prints. <=0 disables prints."""
     ppo_actor_warmup_iterations: int = 0
     """Number of PPO iterations with actor surrogate disabled; critic and supervised loss still train."""

@@ -5320,7 +5320,7 @@ class OnPolicyRunner:
         objective = str(getattr(self.alg, "frontres_training_objective", "")).lower()
         if objective not in ("supervised_restore", "basis_restore", "hsl_hybrid"):
             return
-        interval = int(getattr(self.alg, "frontres_restore_debug_print_interval", self.cfg.get("frontres_restore_debug_print_interval", 100)))
+        interval = int(getattr(self.alg, "frontres_restore_debug_print_interval", self.cfg.get("frontres_restore_debug_print_interval", 10)))
         if interval <= 0 or int(it) % interval != 0:
             return
         if getattr(self, "_frontres_restore_debug_last_iter", None) == int(it):
@@ -5412,6 +5412,7 @@ class OnPolicyRunner:
         if have_pos_debug:
             raw_pos_err = (clean_p - raw_p).norm(dim=-1)
             written_pos_err = (clean_p - (raw_p + written_p)).norm(dim=-1)
+            candidate_pos_err = (clean_p - (raw_p + pred_pos)).norm(dim=-1)
             pos_valid = target_pos.norm(dim=-1) > 1e-4
             if pos_valid.any():
                 pos_cos_pred = _safe_cos(pred_pos[pos_valid], target_pos[pos_valid]).mean()
@@ -5419,6 +5420,8 @@ class OnPolicyRunner:
             else:
                 pos_cos_pred = torch.tensor(0.0, device=self.device)
                 pos_cos_written = torch.tensor(0.0, device=self.device)
+        candidate_rpy_err = (clean_from_raw[:, :2] - pred[:, :2]).norm(dim=-1)
+        projected_rpy_err = (clean_from_raw[:, :2] - applied[:, :2]).norm(dim=-1)
         max_delta_rpy = float(getattr(getattr(self.alg, "policy", None), "max_delta_rpy", 0.4))
         sat_frac = (pred[:, :2].abs() > 0.95 * max_delta_rpy).float().mean()
 
@@ -5432,6 +5435,37 @@ class OnPolicyRunner:
         def _vec(t: torch.Tensor, idx: int = 0) -> list[float]:
             vals = t[idx, :3].detach().cpu().tolist()
             return [round(float(v), 5) for v in vals]
+
+        def _vec6(t: torch.Tensor) -> list[float]:
+            vals = t.detach().mean(dim=0).cpu().tolist()
+            return [round(float(v), 5) for v in vals]
+
+        def _stats(t: torch.Tensor) -> str:
+            vals = t.detach().reshape(-1)
+            if vals.numel() == 0:
+                return "mean=0.000 std=0.000 min=0.000 max=0.000"
+            return (
+                f"mean={float(vals.mean()):.3f} "
+                f"std={float(vals.std(unbiased=False)):.3f} "
+                f"min={float(vals.min()):.3f} "
+                f"max={float(vals.max()):.3f}"
+            )
+
+        def _corr(a: torch.Tensor, b: torch.Tensor) -> float:
+            aa = a.detach().reshape(-1)
+            bb = b.detach().reshape(-1)
+            mask = torch.isfinite(aa) & torch.isfinite(bb)
+            if int(mask.sum().item()) < 2:
+                return 0.0
+            aa = aa[mask] - aa[mask].mean()
+            bb = bb[mask] - bb[mask].mean()
+            denom = (aa.norm() * bb.norm()).clamp(min=1e-8)
+            return float((aa * bb).sum() / denom)
+
+        def _masked_mean(t: torch.Tensor, mask: torch.Tensor) -> float:
+            if mask is None or not bool(mask.any()):
+                return 0.0
+            return float(t.detach()[mask].mean())
 
         sample_idx = int(torch.argmax(noisy_err_norm).item())
         if acceptance_hybrid:
@@ -5461,13 +5495,50 @@ class OnPolicyRunner:
             f"gain={float(restore_gain.mean()):+.5f}",
             flush=True,
         )
+        print(
+            "[FrontRES restore debug] rpy counterfactual "
+            f"noop={float(noisy_err_norm.mean()):.5f} "
+            f"full_candidate={float(candidate_rpy_err.mean()):.5f} "
+            f"projected={float(projected_rpy_err.mean()):.5f} "
+            f"written={float(corrected_err_norm.mean()):.5f} "
+            f"gain_full={float((noisy_err_norm - candidate_rpy_err).mean()):+.5f} "
+            f"gain_proj={float((noisy_err_norm - projected_rpy_err).mean()):+.5f}",
+            flush=True,
+        )
         if have_pos_debug:
             print(
                 "[FrontRES restore debug] position "
                 f"|raw-clean|={float(raw_pos_err.mean()):.5f} "
                 f"|written-clean|={float(written_pos_err.mean()):.5f} "
+                f"|candidate-clean|={float(candidate_pos_err.mean()):.5f} "
+                f"gain_cand={float((raw_pos_err - candidate_pos_err).mean()):+.5f} "
+                f"gain_written={float((raw_pos_err - written_pos_err).mean()):+.5f} "
                 f"cos(pred,target)={float(pos_cos_pred):+.4f} "
                 f"cos(written,target)={float(pos_cos_written):+.4f}",
+                flush=True,
+            )
+        if acceptance_hybrid:
+            gate_mean = conf_raw.mean(dim=-1)
+            proposal6 = actions[:n, :6].detach()
+            target6 = supervised_target[:n, :6].detach()
+            applied6 = proposal6 * conf_raw
+            positive_gain = restore_gain > 0.0
+            print(
+                "[FrontRES gate debug] "
+                f"pos({_stats(conf_raw[:, :3])}) "
+                f"rpy({_stats(conf_raw[:, 3:6])}) "
+                f"gate_gain_pos={_masked_mean(gate_mean, positive_gain):.3f} "
+                f"gate_gain_neg={_masked_mean(gate_mean, ~positive_gain):.3f}",
+                flush=True,
+            )
+            print(
+                "[FrontRES gate debug] "
+                f"corr(gate,damage)={_corr(gate_mean, noisy_err_norm):+.3f} "
+                f"corr(gate,gain)={_corr(gate_mean, restore_gain):+.3f} "
+                f"corr(gate,|proposal|)={_corr(gate_mean, proposal6.norm(dim=-1)):+.3f} "
+                f"|target|={_vec6(target6.abs())} "
+                f"|proposal|={_vec6(proposal6.abs())} "
+                f"|applied|={_vec6(applied6.abs())}",
                 flush=True,
             )
         print(

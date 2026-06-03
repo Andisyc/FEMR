@@ -68,7 +68,7 @@ class FrontRESUnified:
         frontres_supervised_lr_min: float | None = None,
         frontres_supervised_lr_warmup_iters: int = 0,
         frontres_supervised_lr_cosine_iters: int = 1000,
-        frontres_restore_debug_print_interval: int = 100,
+        frontres_restore_debug_print_interval: int = 10,
         ppo_actor_warmup_iterations: int = 0,
         ppo_actor_ramp_iterations: int = 0,
         ppo_advantage_focal_power: float = 0.0,
@@ -412,6 +412,8 @@ class FrontRESUnified:
         grad_conflict_cos = 0.0
         grad_conflict_norm_ratio = 0.0
         grad_conflict_count = 0
+        grad_diag_sums: dict[str, float] = {}
+        grad_diag_count = 0
 
         if self.policy.is_recurrent:
             generator = self.storage.recurrent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
@@ -529,6 +531,11 @@ class FrontRESUnified:
                 }
                 (ppo_weight * surrogate_loss).backward()
                 self._keep_ppo_grad_on_acceptance_head_only(base_grads)
+                grad_diag = self._compute_acceptance_grad_diagnostics(base_grads)
+                if grad_diag:
+                    for key, value in grad_diag.items():
+                        grad_diag_sums[key] = grad_diag_sums.get(key, 0.0) + float(value)
+                    grad_diag_count += 1
             else:
                 loss.backward()
             if self.is_multi_gpu:
@@ -566,6 +573,24 @@ class FrontRESUnified:
         else:
             grad_conflict_cos = 0.0
             grad_conflict_norm_ratio = 0.0
+        mean_grad_diag = {
+            key: value / max(1, grad_diag_count) for key, value in grad_diag_sums.items()
+        }
+        if mean_grad_diag:
+            interval = max(1, int(getattr(self, "frontres_restore_debug_print_interval", 10)))
+            it = int(getattr(self, "current_learning_iteration", 0))
+            if it % interval == 0:
+                print(
+                    "[FrontRES grad debug] "
+                    f"it={it} "
+                    f"base_res={mean_grad_diag.get('base_residual', 0.0):.3e} "
+                    f"base_acc={mean_grad_diag.get('base_acceptance', 0.0):.3e} "
+                    f"ppo_res={mean_grad_diag.get('ppo_residual', 0.0):.3e} "
+                    f"ppo_acc={mean_grad_diag.get('ppo_acceptance', 0.0):.3e} "
+                    f"final_res={mean_grad_diag.get('final_residual', 0.0):.3e} "
+                    f"final_acc={mean_grad_diag.get('final_acceptance', 0.0):.3e}",
+                    flush=True,
+                )
 
         self.storage.clear()
         loss_dict = {
@@ -584,6 +609,7 @@ class FrontRESUnified:
             "grad_norm_ratio_ppo_to_supervised": grad_conflict_norm_ratio,
         }
         loss_dict.update(mean_supervised_metrics)
+        loss_dict.update({f"grad_{key}": value for key, value in mean_grad_diag.items()})
         if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
             loss_dict["ppo_actor_weight"] = 0.0
         return loss_dict
@@ -681,6 +707,56 @@ class FrontRESUnified:
     def _keep_ppo_grad_on_tau_head_only(self, base_grads):
         """Backward-compatible alias for the previous scalar-head name."""
         return self._keep_ppo_grad_on_acceptance_head_only(base_grads)
+
+    def _grad_norm_from_map(self, params, grad_map) -> float:
+        norm_sq = torch.tensor(0.0, device=self.device)
+        for p in params:
+            g = grad_map.get(p) if grad_map is not None else None
+            if g is not None:
+                norm_sq = norm_sq + g.square().sum()
+        return float(norm_sq.sqrt().detach().item())
+
+    def _grad_norm_current(self, params) -> float:
+        norm_sq = torch.tensor(0.0, device=self.device)
+        for p in params:
+            if p.grad is not None:
+                norm_sq = norm_sq + p.grad.square().sum()
+        return float(norm_sq.sqrt().detach().item())
+
+    def _grad_delta_norm(self, params, base_grads) -> float:
+        norm_sq = torch.tensor(0.0, device=self.device)
+        for p in params:
+            cur = p.grad
+            base = base_grads.get(p) if base_grads is not None else None
+            if cur is None and base is None:
+                continue
+            if cur is None:
+                delta = -base
+            elif base is None:
+                delta = cur
+            else:
+                delta = cur - base
+            norm_sq = norm_sq + delta.square().sum()
+        return float(norm_sq.sqrt().detach().item())
+
+    def _compute_acceptance_grad_diagnostics(self, base_grads) -> dict[str, float]:
+        residual_actor = getattr(self.policy, "residual_actor", None)
+        acceptance_actor = getattr(self.policy, "acceptance_actor", None)
+        if residual_actor is None and acceptance_actor is None:
+            return {}
+
+        residual_params = [p for p in residual_actor.parameters() if p.requires_grad] if residual_actor is not None else []
+        acceptance_params = [p for p in acceptance_actor.parameters() if p.requires_grad] if acceptance_actor is not None else []
+        diagnostics: dict[str, float] = {}
+        if residual_params:
+            diagnostics["base_residual"] = self._grad_norm_from_map(residual_params, base_grads)
+            diagnostics["ppo_residual"] = self._grad_delta_norm(residual_params, base_grads)
+            diagnostics["final_residual"] = self._grad_norm_current(residual_params)
+        if acceptance_params:
+            diagnostics["base_acceptance"] = self._grad_norm_from_map(acceptance_params, base_grads)
+            diagnostics["ppo_acceptance"] = self._grad_delta_norm(acceptance_params, base_grads)
+            diagnostics["final_acceptance"] = self._grad_norm_current(acceptance_params)
+        return diagnostics
 
     def _compute_actor_grad_conflict(self, surrogate_loss, supervised_loss):
         params = [
