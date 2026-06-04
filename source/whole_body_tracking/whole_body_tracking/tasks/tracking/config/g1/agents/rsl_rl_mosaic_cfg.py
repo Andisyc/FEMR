@@ -802,8 +802,8 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         init_critic_from_gmt   = False,
         # ── Observation layout ───────────────────────────────────────────────
         q_ref_start_idx        = 232,      # q_ref offset in 800-dim policy obs
-        num_frontres_obs       = 0,        # 0 = FrontRES sees full obs
-        frontres_split_acceptance_head = True,  # rho sees full current-state obs + detached HSL proposal
+        num_frontres_obs       = 0,        # 0 = shared FEMR trunk sees full obs
+        frontres_split_acceptance_head = False,  # default: one FrontRES network with proposal/acceptance heads
         # ── Δq / Δz unused in task-space mode ────────────────────────────────
         num_z_outputs          = 0,
         max_delta_q            = 0.5,

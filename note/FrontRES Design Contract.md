@@ -65,7 +65,21 @@ g^{\mathrm{noisy}}_t + \Delta g^{\mathrm{HSL}}_t.
 \]
 
 The acceptance vector should be understood as the current parameterization of
-that projection:
+that projection.  The preferred architecture is a single FEMR/FrontRES network
+with a shared representation and two semantic heads:
+
+\[
+z_t = \phi(o_t),
+\quad
+\Delta g^{\mathrm{HSL}}_t = h_{\mathrm{prop}}(z_t),
+\quad
+\rho_t = h_{\mathrm{accept}}(z_t).
+\]
+
+This preserves the original minimal-entity design: FEMR already observes the
+state variables needed to judge dynamic discontinuity, so acceptance should be a
+second role of the same model rather than a new policy or residual agent.
+Equivalently, the acceptance role estimates:
 
 \[
 \rho_t =
@@ -111,6 +125,10 @@ as dynamics-aware acceptance, not as confidence.
 - Do not let temporal continuity cache survive an episode reset.
 - Do not remove old HRL/HSL branches unless explicitly requested.  They are
   research assets for later papers.
+- Do not introduce a separate acceptance MLP as the default method unless an
+  experiment shows that the simpler shared-network/two-head design cannot keep
+  proposal and acceptance gradients separated.  A split acceptance MLP is an
+  optional boundary-protection ablation, not the primary architecture.
 
 ## Repair Regime Boundary
 
@@ -425,16 +443,18 @@ acceptance head must receive the variables that define the local line-search
 problem.  Otherwise the target can say "write more" or "write less" during
 training, but the network cannot infer the rule at test time.
 
-The acceptance input should represent:
+The shared FEMR representation and acceptance head should represent:
 
 - current physical state \(o_t\): root state, velocity, contact or phase cues,
   and other GMT observation features that determine dynamic admissibility;
 - noisy reference context \(g^{\mathrm{noisy}}_t\): the reference frame that GMT
   would execute without repair;
-- HSL candidate direction \(\Delta g^{\mathrm{HSL}}_t\), detached from the
-  acceptance loss, preferably normalized by the action cone;
-- candidate written reference \(g^1_t\) or an equivalent compact feature such as
-  \(g^{\mathrm{noisy}}_t + \Delta g^{\mathrm{HSL}}_t\);
+- enough information to infer the HSL candidate direction
+  \(\Delta g^{\mathrm{HSL}}_t\) and the corresponding full-write branch
+  \(g^1_t = g^{\mathrm{noisy}}_t + \Delta g^{\mathrm{HSL}}_t\).  In a two-head
+  implementation this may be carried by the shared representation; if explicit
+  proposal features are fed to the acceptance head, they should be detached from
+  the acceptance-preference loss;
 - optional scalar difficulty features such as damage gap, active perturbation
   family, jump/contact gate, and action-cone saturation.
 
@@ -443,17 +463,21 @@ deployment time.  They are training labels and diagnostics, not policy inputs.
 The policy input must instead contain enough state-reference information for
 the acceptance head to predict the same preference from observation.
 
-For the current test run, a minimal acceptable implementation is:
+For the current test run, the preferred minimal implementation is a single
+FEMR/FrontRES network with two heads:
 
 \[
-\rho_t =
-\pi_{\mathrm{accept}}(o_t,\ g^{\mathrm{noisy}}_t,\ \mathrm{stopgrad}(\Delta
-g^{\mathrm{HSL}}_t),\ \mathrm{action\ cone\ features}).
+z_t = \phi(o_t),\qquad
+\Delta g^{\mathrm{HSL}}_t = h_{\mathrm{prop}}(z_t),\qquad
+\rho_t = h_{\mathrm{accept}}(z_t).
 \]
 
-This preserves the architecture: HSL owns the repair direction, while HRL owns
-the current-state-conditioned decision of how much of that direction is
-dynamically admissible.
+This preserves the architecture without adding a second policy or residual
+network: HSL owns the repair direction, while the acceptance head owns the
+current-state-conditioned decision of how much of that direction is dynamically
+admissible.  If a later implementation passes explicit proposal features into
+the acceptance head, they should be detached from the acceptance-preference loss
+unless that experiment deliberately changes the gradient contract.
 
 ### Required Diagnostics
 
@@ -481,7 +505,7 @@ closed.  Implementing only one link is unsafe.
 
 | Link | Required state |
 | --- | --- |
-| Policy input | The acceptance head sees full current-state observation plus detached HSL proposal.  The current split-head code already supports this with `frontres_split_acceptance_head=True` and `num_frontres_obs=0`. |
+| Policy input | The active method should be one FEMR/FrontRES network with a shared state representation and two semantic heads: proposal and acceptance.  The acceptance head must have access, through the shared representation or explicit detached features, to the state/reference variables that determine dynamic admissibility. |
 | Rollout evidence | The runner executes Projected, Candidate, Noisy, and Clean under synchronized motion/frame state. |
 | Preference label | The runner converts \(J_0,J_\rho,J_1\) into detached target, mask, margin, and class fractions. |
 | Storage | The target and mask must be stored with each rollout transition, or recomputable exactly from stored tensors.  Logging-only tensors are not enough. |
@@ -491,11 +515,10 @@ closed.  Implementing only one link is unsafe.
 | Deployment | \(J_0,J_\rho,J_1\) are not deployment inputs.  The deployed policy must infer acceptance from \(o_t\), noisy reference context, and HSL proposal features. |
 | Diagnostics | Console and TensorBoard must prove class balance, target direction, acceptance loss, \(\rho\) movement, and gradient placement. |
 
-The current code already has an important part of the input contract: split
-acceptance can use full policy observation plus a detached HSL proposal.  The
-missing implementation is therefore not primarily another input module.  The
-missing implementation is the preference-label storage and acceptance-only loss
-path that turns quartet rollout ordering into a trainable update.
+The implementation target is therefore not another residual network.  The core
+implementation requirement is the preference-label storage and acceptance-only
+loss path that turns quartet rollout ordering into a trainable update while
+preserving the proposal/acceptance gradient boundary.
 
 ## Implementation Design Delta
 
@@ -505,18 +528,18 @@ FrontRES training or runtime code.
 ### What Changes
 
 The active `hsl_hybrid` implementation should make \(\rho_t\) genuinely
-current-state-conditioned.  The proposal path may continue to use the
-FrontRES/reference subset, but the acceptance path must see the current robot
-state \(o_t\) together with the HSL clean-oriented candidate:
+current-state-conditioned while keeping the architecture minimal.  The preferred
+design is a single FEMR/FrontRES network with a shared state representation and
+two heads:
 
 \[
-\rho_t =
-\pi_{\mathrm{accept}}(o_t, g^{\mathrm{noisy}}_t,
-\tilde{g}^{\mathrm{HSL}}_t).
+z_t = \phi(o_t),\qquad
+\Delta g^{\mathrm{HSL}}_t = h_{\mathrm{prop}}(z_t),\qquad
+\rho_t = h_{\mathrm{accept}}(z_t).
 \]
 
-This changes the implementation from a single residual head that happens to
-output proposal and acceptance values into a two-role structure:
+This changes the implementation from one undifferentiated residual output into
+a two-role structure inside the same model:
 
 - proposal role: predict \(\Delta g^{\mathrm{HSL}}_t\);
 - acceptance role: predict the dynamic projection coefficient \(\rho_t\).
@@ -536,33 +559,33 @@ output proposal and acceptance values into a two-role structure:
 
 ### Component Responsibilities
 
-- `front_residual_actor_critic.py`: owns the proposal/acceptance network
-  structure, output bounding, and any observation split between reference-only
-  proposal inputs and current-state acceptance inputs.
+- `front_residual_actor_critic.py`: owns the single FEMR/FrontRES network, the
+  proposal and acceptance heads, output bounding, and any optional observation
+  split.  A separate acceptance MLP is optional ablation machinery, not the
+  default method.
 - `frontres_unified.py`: owns PPO and supervised losses.  It must preserve the
   acceptance-only PPO gradient boundary.
 - `on_policy_runner.py`: owns rollout target construction, action-cone
   projection, runtime write, reward diagnostics, and checkpoint probe records.
-- Config files own whether the new split is enabled and which observation
-  dimensions are visible to proposal and acceptance paths.
+- Config files own whether optional split-MLP ablations are enabled and which
+  observation dimensions are visible to proposal and acceptance paths.
 
 ### Observation And Network Plan
 
 The preferred implementation is:
 
-- proposal head input: the existing FrontRES/reference subset used for HSL
-  direction learning;
-- acceptance head input: current robot observation \(o_t\), noisy/reference
-  context, and a detached representation of \(\Delta g^{\mathrm{HSL}}_t\) or
-  \(\tilde{g}^{\mathrm{HSL}}_t\);
+- shared FEMR input: the current observation \(o_t\), including robot state,
+  noisy/reference context, and the features already used for HSL direction
+  learning;
 - proposal output: bounded six-dimensional \(\Delta SE(3)\);
 - acceptance output: sigmoid-bounded six-dimensional \(\rho_t\).
 
-If a shared backbone is used, the code must still make the gradient boundary
-explicit.  PPO actor loss may update the acceptance path, but it must not use
-the acceptance reward to rewrite the proposal direction.  Passing
-\(\Delta g^{\mathrm{HSL}}_t\) into the acceptance head should use a detached
-tensor unless a later experiment explicitly changes this contract.
+The code must make the gradient boundary explicit.  HSL supervision may update
+the shared representation and proposal head.  Rollout-preference acceptance loss
+should update only the acceptance head, or at minimum must be audited so it
+cannot rewrite the proposal direction.  If explicit \(\Delta g^{\mathrm{HSL}}_t\)
+features are passed into the acceptance head, they should use a detached tensor
+unless a later experiment explicitly changes this contract.
 
 ### Forbidden Implementation Shortcuts
 

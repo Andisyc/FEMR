@@ -22,6 +22,41 @@ from rsl_rl.modules import ActorCritic, EmpiricalNormalization
 from rsl_rl.utils import resolve_nn_activation
 
 
+class FrontRESTwoHeadActor(nn.Module):
+    """Single FrontRES network with shared trunk and proposal/acceptance heads."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        proposal_dim: int,
+        acceptance_dim: int,
+        hidden_dims: list[int],
+        activation: nn.Module,
+        last_layer_gain: float,
+    ):
+        super().__init__()
+        layers = []
+        prev_dim = input_dim
+        for hidden_dim in hidden_dims:
+            linear = nn.Linear(prev_dim, hidden_dim)
+            nn.init.xavier_uniform_(linear.weight, gain=1.0)
+            nn.init.zeros_(linear.bias)
+            layers.append(linear)
+            layers.append(activation)
+            prev_dim = hidden_dim
+        self.trunk = nn.Sequential(*layers)
+        self.proposal_head = nn.Linear(prev_dim, proposal_dim)
+        self.acceptance_head = nn.Linear(prev_dim, acceptance_dim)
+        nn.init.xavier_uniform_(self.proposal_head.weight, gain=last_layer_gain)
+        nn.init.zeros_(self.proposal_head.bias)
+        nn.init.xavier_uniform_(self.acceptance_head.weight, gain=last_layer_gain)
+        nn.init.zeros_(self.acceptance_head.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z = self.trunk(x)
+        return torch.cat([self.proposal_head(z), self.acceptance_head(z)], dim=-1)
+
+
 class ComposedActor(nn.Module):
     """
     Legacy composed actor for ONNX export: combines frozen GMT + trainable FrontRES.
@@ -163,9 +198,9 @@ class FrontRESActorCritic(nn.Module):
         # first num_frontres_obs dims of policy_obs (reference-frame data only).
         # GMT continues to receive the full policy_obs. 0 = legacy (full obs for both).
         num_frontres_obs: int = 0,
-        # Current hsl_hybrid design: keep HSL proposal on the FrontRES/reference
-        # path, but predict acceptance from current-state observations plus a
-        # detached proposal so PPO cannot rewrite the repair direction.
+        # Optional ablation: use a separate acceptance MLP fed by full current
+        # state plus a detached proposal.  The default hsl_hybrid path is a
+        # single FrontRES network with shared trunk and two semantic heads.
         frontres_split_acceptance_head: bool = False,
         **kwargs,
     ):
@@ -361,16 +396,30 @@ class FrontRESActorCritic(nn.Module):
         
         # ========== Build Front-End Residual Network ==========
 
-        # Joint-space mode outputs [Δq, Δz]; task-space mode outputs
-        # [Δpos, Δrpy, acceptance/gate head].
+        # Joint-space mode outputs [Δq, Δz].  The default task-space FrontRES
+        # path uses one shared network with proposal and acceptance heads.
         _frontres_input_dim = num_frontres_obs if num_frontres_obs > 0 else num_actor_obs
-        self.residual_actor = self._build_residual_actor(
-            input_dim=_frontres_input_dim,
-            output_dim=self.total_output_dim,
-            hidden_dims=residual_hidden_dims,
-            activation=activation_fn,
-            last_layer_gain=residual_last_layer_gain)
         self.acceptance_actor = None
+        if (
+            self.num_task_corrections > 0
+            and not self.frontres_split_acceptance_head
+            and self.task_conf_dim in (1, 6)
+        ):
+            self.residual_actor = self._build_frontres_two_head_actor(
+                input_dim=_frontres_input_dim,
+                proposal_dim=self.num_task_corrections,
+                acceptance_dim=self.task_conf_dim,
+                hidden_dims=residual_hidden_dims,
+                activation=activation_fn,
+                last_layer_gain=residual_last_layer_gain,
+            )
+        else:
+            self.residual_actor = self._build_residual_actor(
+                input_dim=_frontres_input_dim,
+                output_dim=self.total_output_dim,
+                hidden_dims=residual_hidden_dims,
+                activation=activation_fn,
+                last_layer_gain=residual_last_layer_gain)
         if (
             self.frontres_split_acceptance_head
             and self.num_task_corrections > 0
@@ -387,7 +436,7 @@ class FrontRESActorCritic(nn.Module):
                 "[FrontEndResidualActorCritic] Split acceptance head enabled: "
                 f"proposal_input_dim={_frontres_input_dim}, "
                 f"acceptance_input_dim={_acceptance_input_dim} "
-                "(full current-state obs + detached proposal)"
+                "(ablation: full current-state obs + detached proposal)"
             )
         if num_task_corrections > 0:
             if self.task_conf_dim == 1:
@@ -524,11 +573,11 @@ class FrontRESActorCritic(nn.Module):
     def _frontres_raw_task_output(self, policy_obs: torch.Tensor) -> torch.Tensor:
         """Return raw [proposal, acceptance] logits for task-space FrontRES.
 
-        In split-acceptance mode, residual_actor keeps ownership of the HSL
-        proposal direction while acceptance_actor sees the full current-state
-        observation and a detached proposal.  This implements the design
-        contract rho_t = pi_accept(o_t, g_noisy_t, g_HSL_tilde) without allowing
-        PPO acceptance gradients to rewrite the proposal direction.
+        The default hsl_hybrid path uses residual_actor as one FrontRES network
+        with a shared trunk and two semantic heads.  If the optional split-MLP
+        ablation is enabled, residual_actor keeps ownership of the HSL proposal
+        direction while acceptance_actor sees the full current-state observation
+        and a detached proposal.
         """
         raw = self.residual_actor(policy_obs)
         if (
@@ -650,6 +699,103 @@ class FrontRESActorCritic(nn.Module):
                   f"(gain={last_layer_gain})")
 
         return nn.Sequential(*layers)
+
+    def _build_frontres_two_head_actor(
+        self,
+        input_dim,
+        proposal_dim,
+        acceptance_dim,
+        hidden_dims,
+        activation,
+        last_layer_gain,
+    ):
+        """Build the preferred hsl_hybrid actor: one trunk, proposal/acceptance heads."""
+        actor = FrontRESTwoHeadActor(
+            input_dim=input_dim,
+            proposal_dim=proposal_dim,
+            acceptance_dim=acceptance_dim,
+            hidden_dims=hidden_dims,
+            activation=activation,
+            last_layer_gain=last_layer_gain,
+        )
+        with torch.no_grad():
+            prop_norm = torch.norm(actor.proposal_head.weight).item()
+            acc_norm = torch.norm(actor.acceptance_head.weight).item()
+            print(
+                "[ResidualActorCritic] FrontRES two-head actor: "
+                f"shared_input_dim={input_dim}, proposal_dim={proposal_dim}, "
+                f"acceptance_dim={acceptance_dim}, "
+                f"proposal_head_norm={prop_norm:.6f}, "
+                f"acceptance_head_norm={acc_norm:.6f} (gain={last_layer_gain})"
+            )
+        return actor
+
+    def initialize_two_head_from_legacy_state(self, residual_state_dict: dict) -> bool:
+        """Warm-start the two-head actor from a legacy single-output MLP."""
+        actor = getattr(self, "residual_actor", None)
+        if not isinstance(actor, FrontRESTwoHeadActor) or not residual_state_dict:
+            return False
+
+        new_state = actor.state_dict()
+        legacy_linear_keys = sorted(
+            [k for k in residual_state_dict.keys() if k.endswith(".weight")],
+            key=lambda k: int(k.split(".")[0]) if k.split(".")[0].isdigit() else -1,
+        )
+        if not legacy_linear_keys:
+            return False
+        legacy_last_weight = legacy_linear_keys[-1]
+        legacy_last_bias = legacy_last_weight.replace(".weight", ".bias")
+        copied_any = False
+
+        for key, value in list(new_state.items()):
+            if key.startswith("trunk."):
+                legacy_key = key.replace("trunk.", "", 1)
+                src = residual_state_dict.get(legacy_key)
+                if src is not None and src.shape == value.shape:
+                    new_state[key] = src.clone()
+                    copied_any = True
+            elif key == "proposal_head.weight":
+                src = residual_state_dict.get(legacy_last_weight)
+                if src is not None and src.ndim == 2 and src.shape[0] >= self.num_task_corrections:
+                    copied = torch.zeros_like(value)
+                    rows = min(copied.shape[0], self.num_task_corrections)
+                    cols = min(copied.shape[1], src.shape[1])
+                    copied[:rows, :cols] = src[:rows, :cols]
+                    new_state[key] = copied
+                    copied_any = True
+            elif key == "proposal_head.bias":
+                src = residual_state_dict.get(legacy_last_bias)
+                if src is not None and src.ndim == 1 and src.shape[0] >= self.num_task_corrections:
+                    copied = torch.zeros_like(value)
+                    rows = min(copied.shape[0], self.num_task_corrections)
+                    copied[:rows] = src[:rows]
+                    new_state[key] = copied
+                    copied_any = True
+            elif key == "acceptance_head.weight":
+                src = residual_state_dict.get(legacy_last_weight)
+                start = int(self.num_task_corrections)
+                end = start + int(self.task_conf_dim)
+                if src is not None and src.ndim == 2 and src.shape[0] >= end:
+                    copied = torch.zeros_like(value)
+                    rows = min(copied.shape[0], self.task_conf_dim)
+                    cols = min(copied.shape[1], src.shape[1])
+                    copied[:rows, :cols] = src[start:start + rows, :cols]
+                    new_state[key] = copied
+                    copied_any = True
+            elif key == "acceptance_head.bias":
+                src = residual_state_dict.get(legacy_last_bias)
+                start = int(self.num_task_corrections)
+                end = start + int(self.task_conf_dim)
+                if src is not None and src.ndim == 1 and src.shape[0] >= end:
+                    copied = torch.zeros_like(value)
+                    rows = min(copied.shape[0], self.task_conf_dim)
+                    copied[:rows] = src[start:start + rows]
+                    new_state[key] = copied
+                    copied_any = True
+
+        if copied_any:
+            actor.load_state_dict(new_state, strict=True)
+        return copied_any
 
     def initialize_acceptance_from_residual_state(self, residual_state_dict: dict) -> bool:
         """Warm-start split acceptance head from a legacy combined residual actor.

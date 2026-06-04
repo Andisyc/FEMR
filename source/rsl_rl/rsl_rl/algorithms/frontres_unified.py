@@ -672,10 +672,11 @@ class FrontRESUnified:
     def _keep_ppo_grad_on_acceptance_head_only(self, base_grads):
         """Remove PPO leakage into proposal direction and shared trunk.
 
-        In the split-head implementation, PPO is allowed to update only the
-        current-state acceptance network.  In the legacy shared-MLP
-        implementation, keep the non-PPO gradients everywhere and add the PPO
-        gradient only to final-layer rows that emit acceptance.
+        In the preferred two-head implementation, PPO/preference gradients are
+        allowed to update only the acceptance head.  In the optional split-MLP
+        ablation, they update only the separate acceptance network.  In the
+        legacy shared-output MLP, keep non-PPO gradients everywhere and add the
+        PPO/preference gradient only to final-layer rows that emit acceptance.
         """
         acceptance_actor = getattr(self.policy, "acceptance_actor", None)
         if acceptance_actor is not None:
@@ -696,6 +697,20 @@ class FrontRESUnified:
         final_linear = None
         residual_actor = getattr(self.policy, "residual_actor", None)
         if residual_actor is None:
+            return
+        acceptance_head = getattr(residual_actor, "acceptance_head", None)
+        if acceptance_head is not None:
+            allowed = {acceptance_head.weight, acceptance_head.bias}
+            for p in self.policy.parameters():
+                base = base_grads.get(p)
+                if p not in allowed:
+                    p.grad = None if base is None else base.clone()
+                    continue
+                cur = p.grad
+                if cur is None:
+                    p.grad = None if base is None else base.clone()
+                    continue
+                p.grad = cur
             return
         for module in residual_actor.modules():
             if isinstance(module, nn.Linear):
@@ -772,8 +787,18 @@ class FrontRESUnified:
         if residual_actor is None and acceptance_actor is None:
             return {}
 
-        residual_params = [p for p in residual_actor.parameters() if p.requires_grad] if residual_actor is not None else []
+        two_head_acceptance = getattr(residual_actor, "acceptance_head", None) if residual_actor is not None else None
+        if residual_actor is not None and two_head_acceptance is not None:
+            acceptance_set = {p for p in two_head_acceptance.parameters()}
+            residual_params = [
+                p for p in residual_actor.parameters()
+                if p.requires_grad and p not in acceptance_set
+            ]
+        else:
+            residual_params = [p for p in residual_actor.parameters() if p.requires_grad] if residual_actor is not None else []
         acceptance_params = [p for p in acceptance_actor.parameters() if p.requires_grad] if acceptance_actor is not None else []
+        if not acceptance_params and two_head_acceptance is not None:
+            acceptance_params = [p for p in two_head_acceptance.parameters() if p.requires_grad]
         diagnostics: dict[str, float] = {}
         if residual_params:
             diagnostics["base_residual"] = self._grad_norm_from_map(residual_params, base_grads)
@@ -786,10 +811,16 @@ class FrontRESUnified:
         return diagnostics
 
     def _compute_actor_grad_conflict(self, surrogate_loss, supervised_loss):
-        params = [
-            p for p in self.policy.residual_actor.parameters()
-            if p.requires_grad
-        ] if hasattr(self.policy, "residual_actor") else []
+        residual_actor = getattr(self.policy, "residual_actor", None)
+        if residual_actor is None:
+            params = []
+        else:
+            acceptance_head = getattr(residual_actor, "acceptance_head", None)
+            acceptance_params = {p for p in acceptance_head.parameters()} if acceptance_head is not None else set()
+            params = [
+                p for p in residual_actor.parameters()
+                if p.requires_grad and p not in acceptance_params
+            ]
         if not params:
             return None, 0.0
 
@@ -809,7 +840,7 @@ class FrontRESUnified:
             sup_norm_sq = sup_norm_sq + gs.square().sum()
 
         denom = (ppo_norm_sq.sqrt() * sup_norm_sq.sqrt()).clamp(min=1e-12)
-        if ppo_norm_sq <= 0 or sup_norm_sq <= 0:
+        if float(ppo_norm_sq.detach().item()) <= 0.0 or float(sup_norm_sq.detach().item()) <= 0.0:
             return None, 0.0
         cos = (dot / denom).detach().item()
         ratio = (ppo_norm_sq.sqrt() / sup_norm_sq.sqrt().clamp(min=1e-12)).detach().item()
@@ -955,9 +986,10 @@ class FrontRESUnified:
                     dim_mask[idx] = 1.0
             mask = mask * dim_mask.view(1, -1)
 
-        denom = mask.sum().clamp(min=1e-6)
-        if denom <= 1e-6:
+        denom_raw = mask.sum()
+        if float(denom_raw.detach().item()) <= 1e-6:
             return zero, metrics
+        denom = denom_raw.clamp(min=1e-6)
 
         loss_terms = nn.functional.binary_cross_entropy(
             rho.clamp(1e-4, 1.0 - 1e-4),
@@ -991,13 +1023,13 @@ class FrontRESUnified:
             (err_per_sample * sample_active).sum().detach().item() / float(sample_denom.detach().item())
         )
         active = sample_active > 0
-        if active.sum() > 1:
+        if int(active.sum().detach().item()) > 1:
             rho_active = rho_per_sample[active]
             target_active = target_per_sample[active]
             rho_centered = rho_active - rho_active.mean()
             target_centered = target_active - target_active.mean()
             corr_denom = rho_centered.square().sum().sqrt() * target_centered.square().sum().sqrt()
-            if corr_denom > 1e-12:
+            if float(corr_denom.detach().item()) > 1e-12:
                 metrics["acceptance_preference_corr"] = float(
                     (rho_centered * target_centered).sum().div(corr_denom).detach().item()
                 )
@@ -1203,6 +1235,7 @@ class FrontRESUnified:
                 supervised_loss = supervised_loss + self.supervised_coeff_miss_weight * miss_loss
             if (
                 self.supervised_coeff_smooth_weight > 0
+                and not acceptance_only
                 and batch_indices is not None
                 and getattr(self.storage, "num_envs", 0) > 0
             ):
@@ -1210,7 +1243,7 @@ class FrontRESUnified:
                     coeff, batch_indices[:original_batch_size])
                 supervised_loss = supervised_loss + self.supervised_coeff_smooth_weight * coeff_smooth_loss
 
-        if self.supervised_harm_loss_weight > 0 and harm_weight.sum() > 0:
+        if self.supervised_harm_loss_weight > 0 and float(harm_weight.sum().detach().item()) > 0.0:
             # In hsl_hybrid, acceptance is PPO-owned.  The supervised harmful
             # penalty should suppress unsafe proposal directions without
             # directly training the acceptance head.
@@ -1251,12 +1284,12 @@ class FrontRESUnified:
             reject_weight = harm_weight.view(-1, 1)
             pass_loss = torch.zeros((), device=self.device)
             reject_loss = torch.zeros((), device=self.device)
-            if pass_weight.sum() > 0:
+            if float(pass_weight.sum().detach().item()) > 0.0:
                 pass_target = torch.ones_like(tau_logits)
                 pass_terms = nn.functional.binary_cross_entropy_with_logits(
                     tau_logits, pass_target, reduction="none")
                 pass_loss = (pass_terms * pass_weight).sum() / pass_weight.sum().clamp(min=1e-6)
-            if reject_weight.sum() > 0:
+            if float(reject_weight.sum().detach().item()) > 0.0:
                 reject_target = torch.zeros_like(tau_logits)
                 reject_terms = nn.functional.binary_cross_entropy_with_logits(
                     tau_logits, reject_target, reduction="none")

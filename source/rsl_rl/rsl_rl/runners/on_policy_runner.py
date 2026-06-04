@@ -4554,6 +4554,24 @@ class OnPolicyRunner:
                             f"{_loss_dict.get('supervised_l_miss', 0.0):.6f} / "
                             f"{_loss_dict.get('supervised_l_coeff_smooth', 0.0):.6f}\n"
                         )
+                        if locs.get("frontres_candidate_gain_mean") is not None:
+                            log_string += f"""{"gain proj/cand/bound:":>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_repair_gain_mean']:+.4f} / "
+                                f"{locs['frontres_candidate_gain_mean']:+.4f} / "
+                                f"{locs['frontres_projection_gain_mean']:+.4f} "
+                                f"(under={locs['frontres_underwrite_mean']:+.4f})\n"
+                            )
+                        if locs.get("frontres_accept_pref_mask_mean") is not None:
+                            log_string += f"""{"accept pref full/noop/keep/ign:":>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_accept_pref_full_mean']:.3f} / "
+                                f"{locs['frontres_accept_pref_noop_mean']:.3f} / "
+                                f"{locs['frontres_accept_pref_keep_mean']:.3f} / "
+                                f"{locs['frontres_accept_pref_ignore_mean']:.3f} "
+                                f"(mask={locs['frontres_accept_pref_mask_mean']:.3f}, "
+                                f"margin={locs['frontres_accept_pref_margin_mean']:+.4f})\n"
+                            )
 
                     log_string += f"""\n{'-' * 10} Correction Geometry {'-' * 10}\n"""
                     if locs.get("frontres_delta_pos_abs_mean") is not None:
@@ -4576,6 +4594,18 @@ class OnPolicyRunner:
                     _paw = _loss_dict.get("ppo_actor_weight", None)
                     if _paw is not None:
                         log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
+                    _apl = _loss_dict.get("acceptance_preference_loss", None)
+                    if _apl is not None:
+                        log_string += f"""{'accept pref loss:':>{pad}} {_apl:.4f} """
+                        log_string += (
+                            f"(λ={_loss_dict.get('lambda_acceptance_preference', 0.0):.3f}, "
+                            f"mask={_loss_dict.get('acceptance_preference_mask_frac', 0.0):.3f}, "
+                            f"full={_loss_dict.get('acceptance_preference_full_frac', 0.0):.3f}, "
+                            f"noop={_loss_dict.get('acceptance_preference_noop_frac', 0.0):.3f}, "
+                            f"rho={_loss_dict.get('acceptance_preference_rho_mean', 0.0):.3f}, "
+                            f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
+                            f"corr={_loss_dict.get('acceptance_preference_corr', 0.0):+.3f})\n"
+                        )
                     log_string += f"""{'learning rate:':>{pad}} {getattr(self.alg, 'learning_rate', 0.0):.2e}\n"""
                     _objective_name = f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
                     if _objective_name == "hsl_hybrid":
@@ -4977,10 +5007,29 @@ class OnPolicyRunner:
             # 智能映射：尝试从阶段一 (SuperviseLearning) 提取 student 权重
             if isinstance(self.alg.policy, FrontRESActorCritic) and "student.0.weight" in loaded_dict["model_state_dict"]:
                 mapped_dict = {k.replace("student.", ""): v for k, v in loaded_dict["model_state_dict"].items() if k.startswith("student.")}
-                self.alg.policy.residual_actor.load_state_dict(mapped_dict, strict=True)
-                print("[Runner] Success: Auto-mapped Stage 1 'student' weights to Stage 2 'residual_actor'!")
+                try:
+                    self.alg.policy.residual_actor.load_state_dict(mapped_dict, strict=True)
+                    print("[Runner] Success: Auto-mapped Stage 1 'student' weights to Stage 2 'residual_actor'!")
+                except RuntimeError:
+                    migrated = False
+                    if hasattr(self.alg.policy, "initialize_two_head_from_legacy_state"):
+                        migrated = self.alg.policy.initialize_two_head_from_legacy_state(mapped_dict)
+                    if migrated:
+                        print("[Runner] Migrated Stage 1 'student' weights into FrontRES two-head actor.")
+                    else:
+                        raise
             else:
-                self.alg.policy.residual_actor.load_state_dict(loaded_dict["model_state_dict"]["residual_actor"])
+                residual_state = loaded_dict["model_state_dict"]["residual_actor"]
+                try:
+                    self.alg.policy.residual_actor.load_state_dict(residual_state, strict=True)
+                except RuntimeError:
+                    migrated = False
+                    if hasattr(self.alg.policy, "initialize_two_head_from_legacy_state"):
+                        migrated = self.alg.policy.initialize_two_head_from_legacy_state(residual_state)
+                    if migrated:
+                        print("[Runner] Migrated legacy residual_actor weights into FrontRES two-head actor.")
+                    else:
+                        raise
             if getattr(self.alg.policy, "acceptance_actor", None) is not None:
                 if "acceptance_actor" in loaded_dict["model_state_dict"]:
                     self.alg.policy.acceptance_actor.load_state_dict(loaded_dict["model_state_dict"]["acceptance_actor"])
@@ -4995,6 +5044,8 @@ class OnPolicyRunner:
                         print("[Runner] Initialized split acceptance_actor from legacy residual_actor rho rows.")
                     else:
                         print("[Runner] No split acceptance_actor weights found; initialized acceptance head from scratch.")
+            elif "acceptance_actor" in loaded_dict["model_state_dict"]:
+                print("[Runner] Ignoring split acceptance_actor weights because the active config uses the single two-head FrontRES actor.")
 
             if load_critic:
                 if "critic" in loaded_dict["model_state_dict"]:
