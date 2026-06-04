@@ -498,6 +498,70 @@ long PPO exploration phase.  If \(J_1\) remains better but \(\rho_t\) stays near
 0.5, the preference target or gradient boundary is still not connected to the
 acceptance head.
 
+### Class-Balanced Focal Preference Loss
+
+The current rollout-preference implementation can still fail even when the
+quartet evidence is correct.  The runner may report a reasonable local ordering
+distribution, but after per-dimension masks and sample gates the minibatch loss
+can become dominated by no-write labels.  In that case the acceptance head
+learns a conservative default instead of the intended local line-search rule.
+This is a sample-weighting failure, not evidence that the two-head architecture
+or rollout preference design is conceptually wrong.
+
+The active fix is to treat acceptance preference learning as a hard-example and
+class-imbalance problem.  Keep the existing target construction:
+
+\[
+J_1 \text{ wins} \rightarrow y_\rho=1,\qquad
+J_0 \text{ wins} \rightarrow y_\rho=0,
+\]
+
+with projected-wins and small-margin samples ignored or downweighted.  Replace
+plain masked BCE with class-balanced focal BCE:
+
+\[
+L_{\mathrm{pref}}
+=
+w_y (1-p_t)^\gamma
+\operatorname{BCE}(\rho_t, y_\rho),
+\]
+
+where \(p_t=\rho_t\) when \(y_\rho=1\), and
+\(p_t=1-\rho_t\) when \(y_\rho=0\).  The class weights are computed within the
+active minibatch after acceptance masks and active task dimensions are applied:
+
+\[
+w_{\mathrm{full}}
+=
+\frac{M}{2M_{\mathrm{full}}},
+\qquad
+w_{\mathrm{noop}}
+=
+\frac{M}{2M_{\mathrm{noop}}},
+\]
+
+then clamped to a small range such as \([0.5, 3.0]\).  This makes full-write
+and no-write preference labels comparable in optimization mass without changing
+which samples are considered valid.  The focal term should start conservatively,
+with \(\gamma=1.0\), so that wrong or uncertain acceptance decisions receive
+more gradient while easy labels do not dominate.
+
+This mechanism has a narrow authority boundary:
+
+- it may change only the weighting of acceptance preference BCE terms;
+- it must not change \(J_0,J_\rho,J_1\), margin rules, rollout branches, or HSL
+  proposal targets;
+- it must update only the acceptance head or acceptance rows, preserving the
+  proposal/acceptance gradient boundary;
+- it must not feed rollout scores into deployment inputs.
+
+The diagnostics must expose both raw and effective class balance.  In addition
+to the existing full/noop/mask/rho/error/correlation numbers, the runner should
+print the focal \(\gamma\), full/noop class weights, and the effective full
+fraction after class and focal weights.  A healthy early run should no longer
+show an algorithm-side effective target collapsed to no-op when the runner-side
+preference distribution contains many full-write wins.
+
 ### Design Audit Before Implementation
 
 The preference-learning design is complete only if the following chain is

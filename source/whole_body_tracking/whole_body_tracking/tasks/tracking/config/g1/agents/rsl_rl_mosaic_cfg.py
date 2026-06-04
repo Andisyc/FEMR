@@ -834,6 +834,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         # ── Supervised auxiliary loss (λ_sup schedule) ────────────────────────
         frontres_training_objective  = "hsl_hybrid",
         frontres_acceptance_preference_weight = 1.0,
+        frontres_acceptance_preference_focal_gamma = 1.0,
+        frontres_acceptance_preference_balance_min = 0.5,
+        frontres_acceptance_preference_balance_max = 3.0,
         lambda_supervised             = 1.0,   # initial weight
         lambda_supervised_min         = 0.20,  # HSL remains an anchor while PPO explores repair strength
         lambda_supervised_decay       = 0.995, # HSL direction anchor can decay once rollout advantage is useful

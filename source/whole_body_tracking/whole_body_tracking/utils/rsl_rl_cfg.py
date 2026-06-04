@@ -305,6 +305,12 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """FrontRES update objective: 'ppo_hrl' keeps PPO+supervised, 'supervised_restore' uses only supervised restoration."""
     frontres_acceptance_preference_weight: float = 0.0
     """Weight for rollout-preference supervision on hsl_hybrid acceptance coefficients."""
+    frontres_acceptance_preference_focal_gamma: float = 0.0
+    """Focal exponent for acceptance preference BCE; 0.0 gives plain BCE."""
+    frontres_acceptance_preference_balance_min: float = 1.0
+    """Lower clamp for minibatch class-balancing weights in acceptance preference loss."""
+    frontres_acceptance_preference_balance_max: float = 1.0
+    """Upper clamp for minibatch class-balancing weights in acceptance preference loss."""
     frontres_active_task_dims: list[int] | None = None
     """Optional supervised-loss mask for task-space FrontRES correction dims."""
     diagnose_gradient_conflict: bool = True

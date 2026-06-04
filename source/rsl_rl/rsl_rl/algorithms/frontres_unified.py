@@ -75,6 +75,9 @@ class FrontRESUnified:
         frontres_active_task_dims: list[int] | None = None,
         frontres_training_objective: str = "ppo_hrl",
         frontres_acceptance_preference_weight: float = 0.0,
+        frontres_acceptance_preference_focal_gamma: float = 0.0,
+        frontres_acceptance_preference_balance_min: float = 1.0,
+        frontres_acceptance_preference_balance_max: float = 1.0,
         diagnose_gradient_conflict: bool = True,
         hybrid: bool = True,
         use_ppo: bool = True,
@@ -169,6 +172,13 @@ class FrontRESUnified:
         self.frontres_active_task_dims = frontres_active_task_dims
         self.frontres_training_objective = str(frontres_training_objective).lower()
         self.frontres_acceptance_preference_weight = float(frontres_acceptance_preference_weight)
+        self.frontres_acceptance_preference_focal_gamma = max(
+            0.0, float(frontres_acceptance_preference_focal_gamma)
+        )
+        _balance_min = max(0.0, float(frontres_acceptance_preference_balance_min))
+        _balance_max = max(_balance_min, float(frontres_acceptance_preference_balance_max))
+        self.frontres_acceptance_preference_balance_min = _balance_min
+        self.frontres_acceptance_preference_balance_max = _balance_max
         self.diagnose_gradient_conflict = bool(diagnose_gradient_conflict)
         self.ppo_actor_weight = 1.0
         self._supervised_decay_triggered = False
@@ -945,6 +955,10 @@ class FrontRESUnified:
             "acceptance_preference_rho_mean": 0.0,
             "acceptance_preference_abs_err": 0.0,
             "acceptance_preference_corr": 0.0,
+            "acceptance_preference_focal_gamma": 0.0,
+            "acceptance_preference_full_weight": 1.0,
+            "acceptance_preference_noop_weight": 1.0,
+            "acceptance_preference_effective_full_frac": 0.0,
         }
         if (
             self.frontres_acceptance_preference_weight <= 0.0
@@ -989,14 +1003,38 @@ class FrontRESUnified:
         denom_raw = mask.sum()
         if float(denom_raw.detach().item()) <= 1e-6:
             return zero, metrics
-        denom = denom_raw.clamp(min=1e-6)
-
+        rho_clamped = rho.clamp(1e-4, 1.0 - 1e-4)
         loss_terms = nn.functional.binary_cross_entropy(
-            rho.clamp(1e-4, 1.0 - 1e-4),
+            rho_clamped,
             target,
             reduction="none",
         )
-        loss = (loss_terms * mask).sum() / denom
+        full_indicator = (target > 0.5).to(mask.dtype)
+        noop_indicator = (target <= 0.5).to(mask.dtype)
+        full_active_mask = mask * full_indicator
+        noop_active_mask = mask * noop_indicator
+        full_mass = full_active_mask.sum()
+        noop_mass = noop_active_mask.sum()
+        total_mass = (full_mass + noop_mass).clamp(min=1e-6)
+        balance_min = float(getattr(self, "frontres_acceptance_preference_balance_min", 1.0))
+        balance_max = float(getattr(self, "frontres_acceptance_preference_balance_max", 1.0))
+        full_weight = (total_mass / (2.0 * full_mass.clamp(min=1e-6))).clamp(
+            min=balance_min, max=balance_max
+        )
+        noop_weight = (total_mass / (2.0 * noop_mass.clamp(min=1e-6))).clamp(
+            min=balance_min, max=balance_max
+        )
+        class_weight = torch.where(full_indicator > 0.5, full_weight, noop_weight)
+
+        gamma = float(getattr(self, "frontres_acceptance_preference_focal_gamma", 0.0))
+        if gamma > 0.0:
+            pt = torch.where(full_indicator > 0.5, rho_clamped, 1.0 - rho_clamped)
+            focal_weight = (1.0 - pt).pow(gamma)
+        else:
+            focal_weight = torch.ones_like(mask)
+        weighted_mask = mask * class_weight * focal_weight
+        denom = weighted_mask.sum().clamp(min=1e-6)
+        loss = (loss_terms * weighted_mask).sum() / denom
 
         sample_active = (mask.sum(dim=-1) > 0).to(rho.dtype)
         sample_denom = sample_active.sum().clamp(min=1e-6)
@@ -1021,6 +1059,15 @@ class FrontRESUnified:
         )
         metrics["acceptance_preference_abs_err"] = float(
             (err_per_sample * sample_active).sum().detach().item() / float(sample_denom.detach().item())
+        )
+        effective_full_mass = (weighted_mask.detach() * full_indicator).sum()
+        effective_noop_mass = (weighted_mask.detach() * noop_indicator).sum()
+        effective_total = (effective_full_mass + effective_noop_mass).clamp(min=1e-6)
+        metrics["acceptance_preference_focal_gamma"] = gamma
+        metrics["acceptance_preference_full_weight"] = float(full_weight.detach().item())
+        metrics["acceptance_preference_noop_weight"] = float(noop_weight.detach().item())
+        metrics["acceptance_preference_effective_full_frac"] = float(
+            (effective_full_mass / effective_total).detach().item()
         )
         active = sample_active > 0
         if int(active.sum().detach().item()) > 1:
