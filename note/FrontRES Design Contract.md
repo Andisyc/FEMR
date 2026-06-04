@@ -148,6 +148,83 @@ The active FEMR/FrontRES contract targets the first two regimes.  The third
 regime belongs to a future state-bridging or \(\Delta q\)-level method, not to
 the current root-reference residual path.
 
+## Inertial Compatibility Contract
+
+The acceptance head must not judge a repair only by whether it is closer to the
+Clean reference.  Near the stability frontier, the current robot state may have
+nontrivial linear and angular momentum.  A clean-oriented repair can then become
+anti-inertial: it asks GMT to track a reference that lies against the current
+motion, while the corrupted Noisy reference may accidentally preserve a small
+stability margin.
+
+The testable failure pattern is:
+
+\[
+D(g^{\mathrm{write}}_t,o_t) > D(g^{\mathrm{noisy}}_t,o_t)
+\]
+
+or
+
+\[
+C(g^{\mathrm{write}}_t,o_t) < C(g^{\mathrm{noisy}}_t,o_t)-m_I,
+\]
+
+where \(D\) is the state-reference distance and \(C\) is an inertial
+compatibility score based on the inner product between state-reference error
+and current anchor velocity/angular velocity.  If this pattern rises before the
+observed `episode_frontres` collapse around the high-DR frontier, the failure
+is not that HSL failed to estimate the clean direction.  The failure is that
+the straight Noisy-to-Clean correction path is dynamically incompatible with
+the already-falling robot.
+
+The first implementation should be diagnostic-only.  Log Noisy, Projected,
+Candidate, and Clean branch values for state-reference distance, inertial
+compatibility, and failure-conditioned inversion rate.  Only after the
+diagnostic verifies the hypothesis should the acceptance objective be modified.
+
+The preferred repair preserves the two-head contract:
+
+- HSL still owns the clean-oriented proposal direction.
+- Acceptance owns how much of that direction is dynamically admissible under
+  the current state and inertia.
+- Any inertial prior should suppress or reshape \(\rho_t\), not rotate the HSL
+  proposal into a new direction unless a later experiment explicitly studies a
+  curved-path proposal.
+
+A minimal inertial repair can shape the branch score:
+
+\[
+\tilde{J}^b =
+J^b
+-
+\lambda_I
+\left[
+C(g^{\mathrm{noisy}}_t,o_t)
+-
+C(g^b_t,o_t)
++
+m_I
+\right]_+,
+\]
+
+or apply an acceptance suppressor:
+
+\[
+\rho^{\mathrm{write}}_t =
+\rho_t \odot
+\sigma
+\left(
+\frac{
+C(g^\rho_t,o_t)-C(g^{\mathrm{noisy}}_t,o_t)-m_I
+}{T_I}
+\right).
+\]
+
+The score-shaping version should be preferred if time allows, because it lets
+the existing acceptance head learn the rule from observed state variables.  The
+explicit suppressor is a stronger hand-written prior and should be reported as
+an ablation if used.
+
 ## Sample Difficulty
 
 Sample difficulty should remain continuous rather than hard categorical.

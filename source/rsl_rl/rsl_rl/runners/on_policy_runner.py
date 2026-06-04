@@ -5779,6 +5779,124 @@ class OnPolicyRunner:
                 return 0.0
             return float(t.detach()[mask].mean())
 
+        def _branch_state_metrics(
+            branch_pos: torch.Tensor | None,
+            branch_quat: torch.Tensor,
+            robot_pos: torch.Tensor | None,
+            robot_quat: torch.Tensor,
+            robot_lin_vel: torch.Tensor | None,
+            robot_ang_vel: torch.Tensor | None,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            rot_err = _quat_to_rotvec_wxyz(quat_mul(quat_inv(robot_quat), branch_quat))[:, :3]
+            rot_dist = rot_err.norm(dim=-1)
+            if branch_pos is not None and robot_pos is not None:
+                pos_err = branch_pos - robot_pos
+                pos_dist = pos_err.norm(dim=-1)
+            else:
+                pos_err = None
+                pos_dist = torch.zeros_like(rot_dist)
+            dist = pos_dist + rot_dist
+
+            compat = torch.zeros_like(rot_dist)
+            if pos_err is not None and robot_lin_vel is not None:
+                compat = compat + (pos_err * robot_lin_vel).sum(-1) / (
+                    pos_err.norm(dim=-1) * robot_lin_vel.norm(dim=-1) + 1e-8
+                )
+            if robot_ang_vel is not None:
+                compat = compat + 0.5 * (rot_err * robot_ang_vel).sum(-1) / (
+                    rot_err.norm(dim=-1) * robot_ang_vel.norm(dim=-1) + 1e-8
+                )
+            if robot_ang_vel is not None:
+                rp_err = rot_err[:, :2]
+                rp_vel = robot_ang_vel[:, :2]
+                compat_rp = (rp_err * rp_vel).sum(-1) / (
+                    rp_err.norm(dim=-1) * rp_vel.norm(dim=-1) + 1e-8
+                )
+            else:
+                compat_rp = torch.zeros_like(rot_dist)
+            return dist, compat, compat_rp
+
+        inertial_debug = None
+        have_inertial_debug = (
+            hasattr(cmd_term, "robot_anchor_quat_w")
+            and hasattr(cmd_term, "robot_anchor_ang_vel_w")
+        )
+        if have_inertial_debug:
+            robot_q = cmd_term.robot_anchor_quat_w[:n].to(self.device)
+            robot_w = cmd_term.robot_anchor_ang_vel_w[:n].to(self.device)
+            robot_p = None
+            robot_v = None
+            noisy_p = candidate_p = projected_p = clean_pos_branch = None
+            if have_pos_debug and hasattr(cmd_term, "robot_anchor_pos_w"):
+                robot_p = cmd_term.robot_anchor_pos_w[:n].to(self.device)
+                noisy_p = raw_p
+                candidate_p = raw_p + pred_pos
+                clean_pos_branch = clean_p
+                if acceptance_hybrid:
+                    projected_pos_corr = pred_pos * conf_eff[:, :3]
+                else:
+                    projected_pos_corr = pred_pos * conf_eff
+                projected_p = raw_p + projected_pos_corr
+                if hasattr(cmd_term, "robot_anchor_lin_vel_w"):
+                    robot_v = cmd_term.robot_anchor_lin_vel_w[:n].to(self.device)
+
+            noisy_q = raw_q
+            candidate_q = quat_mul(raw_q, _rotvec_to_quat_wxyz(pred))
+            projected_q = quat_mul(raw_q, _rotvec_to_quat_wxyz(applied))
+            clean_branch_q = clean_q
+            d_noisy, c_noisy, crp_noisy = _branch_state_metrics(
+                noisy_p, noisy_q, robot_p, robot_q, robot_v, robot_w
+            )
+            d_proj, c_proj, crp_proj = _branch_state_metrics(
+                projected_p, projected_q, robot_p, robot_q, robot_v, robot_w
+            )
+            d_cand, c_cand, crp_cand = _branch_state_metrics(
+                candidate_p, candidate_q, robot_p, robot_q, robot_v, robot_w
+            )
+            d_clean, c_clean, crp_clean = _branch_state_metrics(
+                clean_pos_branch, clean_branch_q, robot_p, robot_q, robot_v, robot_w
+            )
+            if noisy_p is not None and projected_p is not None:
+                d_p0r1, c_p0r1, crp_p0r1 = _branch_state_metrics(
+                    noisy_p, candidate_q, robot_p, robot_q, robot_v, robot_w
+                )
+                d_ppr1, c_ppr1, crp_ppr1 = _branch_state_metrics(
+                    projected_p, candidate_q, robot_p, robot_q, robot_v, robot_w
+                )
+            else:
+                d_p0r1 = c_p0r1 = crp_p0r1 = torch.zeros_like(d_noisy)
+                d_ppr1 = c_ppr1 = crp_ppr1 = torch.zeros_like(d_noisy)
+            margin = 0.05
+            angle_inv = (d_proj > d_noisy).float()
+            anti_inertia = (c_proj < c_noisy - margin).float()
+            anti_cand = (c_cand < c_noisy - margin).float()
+            anti_clean = (c_clean < c_noisy - margin).float()
+            inertial_debug = {
+                "d_noisy": d_noisy,
+                "d_proj": d_proj,
+                "d_cand": d_cand,
+                "d_clean": d_clean,
+                "c_noisy": c_noisy,
+                "c_proj": c_proj,
+                "c_cand": c_cand,
+                "c_clean": c_clean,
+                "crp_noisy": crp_noisy,
+                "crp_proj": crp_proj,
+                "crp_cand": crp_cand,
+                "crp_clean": crp_clean,
+                "d_p0r1": d_p0r1,
+                "d_ppr1": d_ppr1,
+                "c_p0r1": c_p0r1,
+                "c_ppr1": c_ppr1,
+                "crp_p0r1": crp_p0r1,
+                "crp_ppr1": crp_ppr1,
+                "angle_inv": angle_inv,
+                "anti_inertia": anti_inertia,
+                "anti_cand": anti_cand,
+                "anti_clean": anti_clean,
+                "inertial_gain": c_proj - c_noisy,
+            }
+
         sample_idx = int(torch.argmax(noisy_err_norm).item())
         if acceptance_hybrid:
             gate_desc = (
@@ -5853,6 +5971,52 @@ class OnPolicyRunner:
                 f"|applied|={_vec6(applied6.abs())}",
                 flush=True,
             )
+            if inertial_debug is not None:
+                print(
+                    "[FrontRES inertial debug] "
+                    f"D noisy/proj/cand/clean="
+                    f"{float(inertial_debug['d_noisy'].mean()):.4f}/"
+                    f"{float(inertial_debug['d_proj'].mean()):.4f}/"
+                    f"{float(inertial_debug['d_cand'].mean()):.4f}/"
+                    f"{float(inertial_debug['d_clean'].mean()):.4f} "
+                    f"C noisy/proj/cand/clean="
+                    f"{float(inertial_debug['c_noisy'].mean()):+.3f}/"
+                    f"{float(inertial_debug['c_proj'].mean()):+.3f}/"
+                    f"{float(inertial_debug['c_cand'].mean()):+.3f}/"
+                    f"{float(inertial_debug['c_clean'].mean()):+.3f} "
+                    f"Crp noisy/proj/cand/clean="
+                    f"{float(inertial_debug['crp_noisy'].mean()):+.3f}/"
+                    f"{float(inertial_debug['crp_proj'].mean()):+.3f}/"
+                    f"{float(inertial_debug['crp_cand'].mean()):+.3f}/"
+                    f"{float(inertial_debug['crp_clean'].mean()):+.3f}",
+                    flush=True,
+                )
+                print(
+                    "[FrontRES inertial debug] mixed "
+                    f"D p0r1/pProjr1="
+                    f"{float(inertial_debug['d_p0r1'].mean()):.4f}/"
+                    f"{float(inertial_debug['d_ppr1'].mean()):.4f} "
+                    f"C p0r1/pProjr1="
+                    f"{float(inertial_debug['c_p0r1'].mean()):+.3f}/"
+                    f"{float(inertial_debug['c_ppr1'].mean()):+.3f} "
+                    f"Crp p0r1/pProjr1="
+                    f"{float(inertial_debug['crp_p0r1'].mean()):+.3f}/"
+                    f"{float(inertial_debug['crp_ppr1'].mean()):+.3f}",
+                    flush=True,
+                )
+                print(
+                    "[FrontRES inertial debug] "
+                    f"angle_inv={float(inertial_debug['angle_inv'].mean()):.3f} "
+                    f"anti_proj={float(inertial_debug['anti_inertia'].mean()):.3f} "
+                    f"anti_cand={float(inertial_debug['anti_cand'].mean()):.3f} "
+                    f"anti_clean={float(inertial_debug['anti_clean'].mean()):.3f} "
+                    f"corr(gate,inert_gain)={_corr(gate_mean, inertial_debug['inertial_gain']):+.3f} "
+                    f"sample_d={float(inertial_debug['d_noisy'][sample_idx]):.4f}->"
+                    f"{float(inertial_debug['d_proj'][sample_idx]):.4f} "
+                    f"sample_c={float(inertial_debug['c_noisy'][sample_idx]):+.3f}->"
+                    f"{float(inertial_debug['c_proj'][sample_idx]):+.3f}",
+                    flush=True,
+                )
         print(
             "[FrontRES restore debug] sample vectors "
             f"clean_from_raw={_vec(clean_from_raw, sample_idx)} "

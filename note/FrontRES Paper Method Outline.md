@@ -725,7 +725,166 @@ w_{\min},w_{\max}
 This prevents the acceptance head from collapsing to no-write when valid
 full-write preferences are underrepresented after masks.
 
-## 11. Candidate Ranking Reward
+## 11. Inertial Compatibility Test Plan
+
+**Internal -> Appendix.**  The high-DR collapse suggests a failure mode that is
+not captured by clean-reference closeness alone.  Once the robot is already
+tilted or moving away from the clean tracking manifold, a clean-oriented repair
+can become anti-inertial: it may point against the current body momentum and
+consume the small stability margin that the corrupted reference accidentally
+preserves.  In this regime, the useful restoration path may be curved rather
+than a straight interpolation from Noisy to Clean.
+
+For each branch
+\[
+b \in \{0,\rho,1,c\},
+\]
+corresponding to Noisy, Projected, Candidate, and Clean, define the
+state-reference displacement
+\[
+e^b_p = p^b_{\mathrm{ref}} - p_{\mathrm{robot}},
+\]
+and the rotational displacement
+\[
+e^b_R =
+\mathrm{Log}\left(
+R_{\mathrm{robot}}^\top R^b_{\mathrm{ref}}
+\right).
+\]
+The branch distance to the current robot state is
+\[
+D^b =
+w_p \|e^b_p\|_2
++
+w_R \|e^b_R\|_2.
+\]
+For local roll/pitch perturbations, the most important rotational term is
+\[
+e^b_{rp}=e^b_R[0:2].
+\]
+
+Let \(v_{\mathrm{robot}}\) and \(\omega_{\mathrm{robot}}\) be the current
+anchor linear and angular velocities.  Define an inertial compatibility score:
+\[
+C^b =
+\frac{\langle e^b_p, v_{\mathrm{robot}}\rangle}
+{\|e^b_p\|_2\|v_{\mathrm{robot}}\|_2+\epsilon}
++
+\lambda_{\omega}
+\frac{\langle e^b_R, \omega_{\mathrm{robot}}\rangle}
+{\|e^b_R\|_2\|\omega_{\mathrm{robot}}\|_2+\epsilon}.
+\]
+Positive \(C^b\) means the reference branch lies along the current inertial
+trend.  Negative \(C^b\) means the branch asks the robot to reverse its current
+motion, which can be dangerous near the stability boundary.  For the local-rp
+case, also log
+\[
+C^b_{rp} =
+\frac{\langle e^b_{rp}, \omega_{\mathrm{robot}}[0:2]\rangle}
+{\|e^b_{rp}\|_2\|\omega_{\mathrm{robot}}[0:2]\|_2+\epsilon}.
+\]
+
+The key diagnostic is the state-reference inversion:
+\[
+\Delta D^\rho = D^\rho - D^0,
+\qquad
+\Delta C^\rho = C^\rho - C^0.
+\]
+The suspected failure pattern is:
+\[
+\Delta D^\rho > 0
+\quad\mathrm{or}\quad
+\Delta C^\rho < -m_I,
+\]
+especially when it appears before a sharp drop in episode length.  This means
+Projected is geometrically closer to Clean but dynamically farther from the
+current robot state than Noisy.
+
+The test should be diagnostic-only first:
+
+1. Freeze checkpoints around the observed transition, especially the
+   \(699\sim701\) and \(750\sim755\) range.
+2. Evaluate fixed DR bins, e.g. \(d\in\{2.0,2.2,2.36,2.48,2.6\}\), using the
+   same motions and seeds.
+3. For each branch, log \(J^b\), \(D^b\), \(C^b\), and \(C^b_{rp}\).
+4. Report
+   \[
+   \mathrm{angle\_inv}
+   =
+   \mathbb{E}[\mathbb{1}(D^\rho>D^0)],
+   \]
+   \[
+   \mathrm{anti\_inertia}
+   =
+   \mathbb{E}[\mathbb{1}(C^\rho<C^0-m_I)],
+   \]
+   and the same quantities for Candidate and Clean.
+5. Condition the same statistics on falls or short-horizon failures within the
+   next \(K\) steps.  The hypothesis is supported only if inversion and
+   anti-inertia rise before failure, not merely after failure.
+6. Add counterfactual mixed branches:
+   \[
+   g^{p0,r1}=(p^{\mathrm{noisy}}, R^{\mathrm{candidate}}),
+   \qquad
+   g^{p\rho,r1}=(p^{\rho}, R^{\mathrm{candidate}}),
+   \]
+   to test whether repairing orientation while delaying position is easier for
+   GMT than full clean-oriented restoration.
+
+Current diagnostic-only implementation lives in
+`source/rsl_rl/rsl_rl/runners/on_policy_runner.py` inside
+`_maybe_print_frontres_restore_debug`.  It prints `[FrontRES inertial debug]`
+lines together with the existing restore/gate debug logs.  This implementation
+does not change the rollout branch, reward, preference target, or PPO gradient;
+it only exposes \(D^b\), \(C^b\), \(C^b_{rp}\), `angle_inv`, and
+`anti_proj/cand/clean`.  It also logs mixed state metrics for
+\(g^{p0,r1}\) and \(g^{p\rho,r1}\).  These mixed values are currently
+state/inertia diagnostics, not additional counterfactual rollout scores
+\(J^{p0,r1}\) or \(J^{p\rho,r1}\).
+
+If this hypothesis is verified, the smallest repair is to inject an inertial
+compatibility prior into acceptance rather than changing the HSL proposal
+direction.  Define
+\[
+P^b_I =
+\left[
+C^0 - C^b + m_I
+\right]_+.
+\]
+Then either shape the preference score
+\[
+\tilde{J}^b =
+J^b - \lambda_I P^b_I,
+\]
+or apply a deployment-time acceptance suppressor
+\[
+\rho^{\mathrm{write}}
+=
+\rho
+\odot
+\sigma\left(
+\frac{C^\rho-C^0-m_I}{T_I}
+\right).
+\]
+The first option lets the acceptance head learn the rule from the existing
+state observation.  The second option is a stronger hand-written prior and
+should be treated as an ablation or emergency stabilizer.
+
+An intermediate option is branch selection along the already evaluated
+correction path:
+\[
+\rho^*
+=
+\arg\max_{\alpha\in\{0,\rho,1\}}
+\left(
+J^\alpha-\lambda_I P^\alpha_I
+\right).
+\]
+This keeps the proposal fixed and changes only how much of the proposal is
+accepted.  It is therefore consistent with the current two-head contract:
+HSL owns direction, while acceptance owns current-state dynamic admissibility.
+
+## 12. Candidate Ranking Reward
 
 **Appendix.**  In addition to direct preference supervision, the rollout reward
 can include a candidate-ranking term:
@@ -750,7 +909,7 @@ projected is better than full-write, and penalizes harmful projected writes.
 Preference supervision is the cleaner acceptance signal; ranking reward can be
 viewed as auxiliary PPO shaping.
 
-## 12. Selective FrontRES Reward
+## 13. Selective FrontRES Reward
 
 **Appendix.**  Let \(r_t^{\mathrm{exec}}\) be the executable signal.  In the
 default gain mode,
@@ -852,7 +1011,7 @@ g_t^{\mathrm{act}},
 where \(g_t^{\mathrm{act}}\in[0,1]\) suppresses false harmful labels when the
 policy essentially performed no correction.
 
-## 13. Intervention, Boundary, and Under-Repair Costs
+## 14. Intervention, Boundary, and Under-Repair Costs
 
 **Appendix.**  FrontRES includes several practical costs to keep the front-end
 correction conservative.
@@ -902,7 +1061,7 @@ C_t^{\mathrm{under}}
 These terms are better suited for the appendix unless an ablation shows that one
 is essential to the method.
 
-## 14. Hierarchical Reinforcement Learning Boundary
+## 15. Hierarchical Reinforcement Learning Boundary
 
 **Main / Appendix.**  The current system is hierarchical in authority, not in
 the sense of a second policy that proposes new motions.  HSL/proposal learning
@@ -967,7 +1126,7 @@ while
 Thus rollout feedback can learn dynamic strength without corrupting the
 clean-oriented proposal direction.
 
-## 15. Total Training Objective
+## 16. Total Training Objective
 
 **Main.**  The full optimization objective can be summarized as
 
@@ -1006,7 +1165,7 @@ receive different learning signals:
 \theta_{\mathrm{accept}}.
 \]
 
-## 16. Training Schedule
+## 17. Training Schedule
 
 **Main / Appendix.**  Training uses three phases:
 
@@ -1024,7 +1183,7 @@ The curriculum target is not simply maximum perturbation strength.  It is to
 keep enough samples near the repairable frontier while preserving clean
 restoration behavior.
 
-## 17. Perturbation Curriculum and Failed Cases
+## 18. Perturbation Curriculum and Failed Cases
 
 **Main / Appendix.**  The perturbation curriculum is a method component, not a
 minor training detail.  Several failed training regimes motivated the current
@@ -1155,7 +1314,7 @@ The sampled perturbation families must respect the active action cone.  Sampling
 a family that the current action dimensions cannot repair creates false
 negative reward and should be avoided.
 
-## 18. Main-Paper Minimal Version
+## 19. Main-Paper Minimal Version
 
 **Main.**  If space is limited, the method can be compressed to:
 
@@ -1170,7 +1329,7 @@ negative reward and should be avoided.
 6. PPO/preference gradients are restricted to acceptance, so rollout feedback
    cannot rewrite the proposal direction.
 
-## 19. Appendix Candidates
+## 20. Appendix Candidates
 
 **Appendix.**  The following details are good appendix material:
 
@@ -1180,6 +1339,7 @@ negative reward and should be avoided.
 - jump/penetration \(z\)-gate;
 - class-balanced focal preference loss;
 - candidate-ranking reward;
+- inertial compatibility diagnostics and the curved-path failure hypothesis;
 - selective reward composition;
 - intervention, boundary, under-repair, and harmful costs;
 - gradient-boundary implementation;
@@ -1187,7 +1347,7 @@ negative reward and should be avoided.
 - failed cases behind the `dr_scale` curriculum;
 - diagnostic metrics and what failure each metric detects.
 
-## 20. Notation Table
+## 21. Notation Table
 
 | Symbol | Meaning | Suggested location |
 | --- | --- | --- |
@@ -1200,6 +1360,9 @@ negative reward and should be avoided.
 | \(g_t^{1}\) | full candidate branch | Main |
 | \(g_t^{\rho}\) | projected/write branch | Main |
 | \(J(\cdot\mid o_t)\) | executable score | Appendix |
+| \(D^b\) | distance between branch \(b\) and the current robot state | Appendix |
+| \(C^b\) | inertial compatibility between branch \(b\) and current anchor velocity | Appendix |
+| \(P_I^b\) | inertial incompatibility penalty for branch \(b\) | Appendix |
 | \(d_t\) | clean-vs-noisy damage gap | Appendix |
 | \(\mu_t\) | double-sigmoid repairability gate | Appendix |
 | \(d_t\) | perturbation scale / `dr_scale` when used in curriculum context | Appendix |
@@ -1207,7 +1370,7 @@ negative reward and should be avoided.
 | \(M_{t,k}\) | preference mask for dimension \(k\) | Appendix |
 | \(\mathcal{C}_{\mathrm{act}}\) | task-space action cone | Main |
 
-## 21. Writing Guidance
+## 22. Writing Guidance
 
 Do not present every reward term as a separate contribution.  The contribution
 is the architectural decomposition:
