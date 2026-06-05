@@ -1,0 +1,52 @@
+# .understandignore — patterns for files/dirs to exclude from analysis
+# Syntax: same as .gitignore (globs, # comments, ! negation, trailing / for dirs)
+# Lines below are suggestions. Uncomment or edit patterns as needed.
+#
+# Built-in defaults are always excluded unless negated:
+#   node_modules/, .git/, dist/, build/, obj/, *.lock, *.min.js, etc.
+
+# --- From .gitignore / MOSAIC generated outputs ---
+
+**/runs/*
+**/logs/*
+**/recordings/*
+**/output/*
+**/outputs/*
+**/videos/*
+**/wandb/*
+**/.neptune/*
+docker/artifacts/
+expert_data/
+artifacts/
+motions/
+results/
+_isaac_sim*
+_repo/
+_build/
+
+# --- Large binary or generated data ---
+
+*.csv
+*.pkl
+*.zarr
+*.npz
+*.pt
+*.tmp
+*.dmp
+*.pb
+
+# --- Python / IDE cache ---
+
+**/*.egg-info/
+**/__pycache__/
+**/.pytest_cache/
+**/*.pyc
+**/.idea/
+**/.vscode/
+.DS_Store
+
+# --- Optional docs/test exclusions ---
+
+# docs/
+# *.test.*
+# *.spec.*

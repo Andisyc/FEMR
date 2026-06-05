@@ -241,6 +241,80 @@ The resume sanity check is:
 - `PHASE: PPO + WEAK SUPERVISION`, not `CRITIC WARMUP`;
 - `PPO actor weight: 1.000`, not `0.000`.
 
+## Rollout-Calibrated Acceptance Preference
+
+The first rollout preference implementation converted quartet branch ordering
+into a binary acceptance label:
+
+\[
+J_1 > J_{\rho},J_0 \Rightarrow \rho^*=1,
+\qquad
+J_0 > J_{\rho},J_1 \Rightarrow \rho^*=0.
+\]
+
+This solved a real credit-assignment problem: Candidate/full-write is a
+counterfactual branch, so PPO alone cannot learn that the current sampled
+Projected write under-accepted a good HSL proposal.  However, binary
+full/no-op supervision is too coarse for the current high-DR regime.  It does
+not represent the central question:
+
+\[
+\text{How much of the HSL direction is dynamically admissible now?}
+\]
+
+The active design should therefore treat quartet preference as calibration
+rather than classification.  Keep the same rollout branches:
+
+\[
+\alpha \in \{0,\rho,1\}
+\]
+
+for Noisy, Projected, and Candidate.  Do not add new rollout branches.  Let
+\(J_0=0\), \(J_{\rho}\) be the projected repair gain, and \(J_1\) be the full
+candidate gain.  The acceptance target is a local adjustment around the current
+policy output:
+
+\[
+\rho^* =
+\operatorname{clip}
+\left(
+\rho
++
+\eta
+\frac{J_1-J_{\rho}}{|J_1-J_0|+\epsilon},
+0,1
+\right)
+\]
+
+when Candidate clearly beats Projected and Noisy, and
+
+\[
+\rho^* =
+\operatorname{clip}
+\left(
+\rho
+-
+\eta
+\frac{J_0-J_{\rho}}{|J_1-J_0|+\epsilon},
+0,1
+\right)
+\]
+
+when Noisy clearly beats Projected and Candidate.  If Projected is the best
+branch, the correct target is the current \(\rho\), not an ignored sample:
+
+\[
+J_{\rho} > J_1,J_0 \Rightarrow \rho^*=\rho.
+\]
+
+This makes `keep_win` semantically meaningful: it is evidence that an
+intermediate acceptance value is better than both no-op and full-write.  The
+target remains detached.  Rollout preference still trains only the acceptance
+head; HSL still owns the clean-oriented proposal direction.  Inertial
+compatibility diagnostics may explain why full-write fails, but the training
+signal should remain rollout-calibrated rather than a hand-written angle
+penalty.
+
 ## Sample Difficulty
 
 Sample difficulty should remain continuous rather than hard categorical.

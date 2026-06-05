@@ -998,6 +998,8 @@ class FrontRESUnified:
                 idx = int(idx)
                 if 0 <= idx < 6:
                     dim_mask[idx] = 1.0
+                elif 6 <= idx < 12:
+                    dim_mask[idx - 6] = 1.0
             mask = mask * dim_mask.view(1, -1)
 
         denom_raw = mask.sum()
@@ -1009,8 +1011,11 @@ class FrontRESUnified:
             target,
             reduction="none",
         )
-        full_indicator = (target > 0.5).to(mask.dtype)
-        noop_indicator = (target <= 0.5).to(mask.dtype)
+        # Targets may be soft after rollout-calibrated acceptance projection.
+        # Treat target mass as "accept" weight and (1-target) as "no-op" mass
+        # instead of hard-thresholding every element for class balancing.
+        full_indicator = target.to(mask.dtype)
+        noop_indicator = (1.0 - target).to(mask.dtype)
         full_active_mask = mask * full_indicator
         noop_active_mask = mask * noop_indicator
         full_mass = full_active_mask.sum()
@@ -1024,11 +1029,11 @@ class FrontRESUnified:
         noop_weight = (total_mass / (2.0 * noop_mass.clamp(min=1e-6))).clamp(
             min=balance_min, max=balance_max
         )
-        class_weight = torch.where(full_indicator > 0.5, full_weight, noop_weight)
+        class_weight = full_weight * full_indicator + noop_weight * noop_indicator
 
         gamma = float(getattr(self, "frontres_acceptance_preference_focal_gamma", 0.0))
         if gamma > 0.0:
-            pt = torch.where(full_indicator > 0.5, rho_clamped, 1.0 - rho_clamped)
+            pt = target * rho_clamped + (1.0 - target) * (1.0 - rho_clamped)
             focal_weight = (1.0 - pt).pow(gamma)
         else:
             focal_weight = torch.ones_like(mask)

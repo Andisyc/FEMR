@@ -634,7 +634,8 @@ Candidate \(g_t^1\) is a counterfactual full-write branch.  Projected
 Therefore, their ordering must be converted into an explicit acceptance
 preference target.
 
-With margin \(m\), define
+The initial implementation used a binary full/no-op target.  With margin
+\(m\), define
 
 \[
 y_t =
@@ -671,7 +672,7 @@ q_t
 \mathbb{1}[k\in\mathcal{A}_t].
 \]
 
-The active implementation uses class-balanced focal BCE:
+The binary implementation used class-balanced focal BCE:
 
 \[
 \mathcal{L}_{\mathrm{pref}}
@@ -724,6 +725,60 @@ w_{\min},w_{\max}
 
 This prevents the acceptance head from collapsing to no-write when valid
 full-write preferences are underrepresented after masks.
+
+The current preferred implementation keeps the same quartet rollout budget but
+changes the target from binary classification to local calibration.  Let
+\(\rho_t\) be the acceptance value actually used by the Projected rollout:
+
+\[
+J_0=0,\qquad J_{\rho}=A_{\rho},\qquad J_1=A_{\mathrm{full}}.
+\]
+
+When Candidate beats both Projected and Noisy, increase the target around the
+current value rather than forcing \(\rho^*=1\):
+
+\[
+\rho_t^*
+=
+\operatorname{clip}
+\left(
+\rho_t
++
+\eta
+\frac{J_1-J_{\rho}}{|J_1-J_0|+\epsilon},
+0,1
+\right).
+\]
+
+When Noisy beats both Projected and Candidate, decrease the target:
+
+\[
+\rho_t^*
+=
+\operatorname{clip}
+\left(
+\rho_t
+-
+\eta
+\frac{J_0-J_{\rho}}{|J_1-J_0|+\epsilon},
+0,1
+\right).
+\]
+
+When Projected is best, use the current acceptance as the target:
+
+\[
+J_{\rho}>J_1,J_0
+\quad\Rightarrow\quad
+\rho_t^*=\rho_t.
+\]
+
+Thus `keep` samples are no longer ignored.  They are evidence that the current
+intermediate acceptance is better than both no-op and full-write.  The BCE loss
+uses the soft target \(\rho_t^*\), with class balance computed from soft full
+mass \(\rho_t^*\) and soft no-op mass \(1-\rho_t^*\).  This turns Reference
+Preference into rollout-calibrated acceptance projection without adding rollout
+branches or injecting a hand-written angle prior.
 
 ## 11. Inertial Compatibility Test Plan
 

@@ -593,6 +593,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_candidate_harm_weight = 1.0
     frontres_acceptance_preference_enabled = True
     frontres_acceptance_preference_margin = 0.003
+    frontres_acceptance_calibration_step = 0.5
     frontres_per_mode_acceptance_preference_mask = True
     frontres_min_effective_gain = 0.008
     frontres_effective_gain_bonus_weight = 0.0

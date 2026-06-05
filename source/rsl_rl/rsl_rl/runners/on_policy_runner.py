@@ -3415,17 +3415,38 @@ class OnPolicyRunner:
                                 _full_win = (_j_one > _j_rho + _pref_margin) & (_j_one > _j_zero + _pref_margin)
                                 _noop_win = (_j_zero > _j_rho + _pref_margin) & (_j_zero > _j_one + _pref_margin)
                                 _keep_win = (_j_rho > _j_one + _pref_margin) & (_j_rho > _j_zero + _pref_margin)
-                                # Preference supervision is a direct label for
-                                # acceptance, so keep it on the repairability
-                                # window from the design contract.  The PPO
-                                # actor gate may give side weight to safe/broken
-                                # samples; those should stay diagnostics here.
+                                # Calibrate acceptance around the current write
+                                # instead of forcing a full/no-op binary label.
+                                # This keeps the quartet rollout budget fixed:
+                                # Noisy (0), Projected (rho), Candidate (1).
                                 _pref_gate = (_oracle_trust * _repair_gate).detach().clamp(0.0, 1.0)
                                 _target_exec = torch.zeros(_n_exec, 6, device=self.device)
                                 _mask_exec = torch.zeros(_n_exec, 6, device=self.device)
-                                _trainable = (_full_win | _noop_win).to(_target_exec.dtype)
-                                _target_exec[_full_win] = 1.0
-                                _target_exec[_noop_win] = 0.0
+                                _calib_step = float(self.cfg.get("frontres_acceptance_calibration_step", 0.5))
+                                _calib_step = max(0.0, min(1.0, _calib_step))
+                                _denom = (_j_one - _j_zero).abs().clamp(min=1e-6)
+                                _rho_current = torch.ones(_n_exec, 6, device=self.device)
+                                _task_conf_dim = int(getattr(getattr(self.alg, "policy", None), "task_conf_dim", 2))
+                                if actions.shape[-1] >= 12 and _task_conf_dim == 6:
+                                    _rho_current = actions[:_n_exec, 6:12].detach().clamp(0.0, 1.0)
+                                elif actions.shape[-1] >= 7 and _task_conf_dim == 1:
+                                    _rho_current = actions[:_n_exec, 6:7].detach().clamp(0.0, 1.0).expand(-1, 6)
+                                _target_exec = _rho_current.clone()
+                                _raise = ((_j_one - _j_rho) / _denom).clamp(0.0, 1.0)
+                                _lower = ((_j_zero - _j_rho) / _denom).clamp(0.0, 1.0)
+                                if bool(_full_win.any().detach().item()):
+                                    _target_exec[_full_win] = (
+                                        _rho_current[_full_win]
+                                        + _calib_step * _raise[_full_win].view(-1, 1)
+                                    ).clamp(0.0, 1.0)
+                                if bool(_noop_win.any().detach().item()):
+                                    _target_exec[_noop_win] = (
+                                        _rho_current[_noop_win]
+                                        - _calib_step * _lower[_noop_win].view(-1, 1)
+                                    ).clamp(0.0, 1.0)
+                                # If Projected wins, current rho is the best observed
+                                # point on the existing quartet and should be anchored.
+                                _trainable = (_full_win | _noop_win | _keep_win).to(_target_exec.dtype)
                                 _mask_exec = _trainable.view(-1, 1) * _pref_gate.view(-1, 1)
                                 if bool(self.cfg.get("frontres_per_mode_acceptance_preference_mask", True)):
                                     _mode_dim_mask = self._frontres_mode_dim_mask(
@@ -3439,6 +3460,8 @@ class OnPolicyRunner:
                                         _idx = int(_idx)
                                         if 0 <= _idx < 6:
                                             _dim_mask[_idx] = 1.0
+                                        elif 6 <= _idx < 12:
+                                            _dim_mask[_idx - 6] = 1.0
                                     _mask_exec = _mask_exec * _dim_mask.view(1, -1)
                                 _accept_pref_target[:_n_exec] = _target_exec.detach()
                                 _accept_pref_mask[:_n_exec] = _mask_exec.detach()
