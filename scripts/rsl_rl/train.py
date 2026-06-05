@@ -177,6 +177,7 @@ from isaaclab.utils.io import dump_pickle, dump_yaml
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
+from isaaclab.assets.articulation.articulation import Articulation
 
 # Import extensions to set up environment tasks
 import whole_body_tracking.tasks  # noqa: F401
@@ -186,6 +187,25 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
+
+
+def _patch_articulation_update_until_data_ready() -> None:
+    """Guard IsaacLab startup scene.update() before ArticulationData exists."""
+
+    if getattr(Articulation, "_mosaic_safe_update_patched", False):
+        return
+    _original_update = Articulation.update
+
+    def _safe_update(self, dt):
+        if not hasattr(self, "_data"):
+            return
+        return _original_update(self, dt)
+
+    Articulation.update = _safe_update
+    Articulation._mosaic_safe_update_patched = True
+
+
+_patch_articulation_update_until_data_ready()
 
 
 @configclass
