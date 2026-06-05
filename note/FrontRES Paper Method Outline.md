@@ -897,9 +897,8 @@ it only exposes \(D^b\), \(C^b\), \(C^b_{rp}\), `angle_inv`, and
 state/inertia diagnostics, not additional counterfactual rollout scores
 \(J^{p0,r1}\) or \(J^{p\rho,r1}\).
 
-If this hypothesis is verified, the smallest repair is to inject an inertial
-compatibility prior into acceptance rather than changing the HSL proposal
-direction.  Define
+The active validation repair is to inject an inertial compatibility prior into
+the acceptance teacher rather than changing the HSL proposal direction.  Define
 \[
 P^b_I =
 \left[
@@ -911,7 +910,12 @@ Then either shape the preference score
 \tilde{J}^b =
 J^b - \lambda_I P^b_I,
 \]
-or apply a deployment-time acceptance suppressor
+and use \(\tilde J^0,\tilde J^\rho,\tilde J^1\) for the existing rollout
+preference target.  This keeps the quartet rollout and acceptance-only loss
+unchanged while making the teacher ask whether a repair is both useful and
+inertially admissible.
+
+A stronger ablation is to apply a deployment-time acceptance suppressor
 \[
 \rho^{\mathrm{write}}
 =
@@ -921,9 +925,10 @@ or apply a deployment-time acceptance suppressor
 \frac{C^\rho-C^0-m_I}{T_I}
 \right).
 \]
-The first option lets the acceptance head learn the rule from the existing
-state observation.  The second option is a stronger hand-written prior and
-should be treated as an ablation or emergency stabilizer.
+The learned teacher-shaping option is preferred because it lets the acceptance
+head learn the rule from the existing state observation.  The suppressor is a
+stronger hand-written prior and should be treated as an ablation or emergency
+stabilizer.
 
 An intermediate option is branch selection along the already evaluated
 correction path:

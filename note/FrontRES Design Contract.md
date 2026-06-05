@@ -751,6 +751,56 @@ implementation requirement is the preference-label storage and acceptance-only
 loss path that turns quartet rollout ordering into a trainable update while
 preserving the proposal/acceptance gradient boundary.
 
+### Inertial Preference Teacher
+
+The next validation target is not a harder sample miner.  It is a more faithful
+teacher for acceptance.  Local reference perturbations are random, so the noisy
+frame is not always dynamically worse than the clean-oriented repair.  Sometimes
+the noisy frame lies along the robot's current velocity or angular-velocity
+trend and preserves short-horizon stability margin.  A clean-oriented HSL
+repair can then be anti-inertial: it moves the reference back toward Clean but
+against the current robot motion, consuming margin.
+
+The active acceptance teacher should therefore rank branches by executable gain
+after an inertial compatibility penalty, not by rollout gain alone.  For each
+branch \(b \in \{0,\rho,1\}\), compute the compatibility \(C^b\) between the
+branch state-reference displacement and the current robot velocity/angular
+velocity.  Positive compatibility means the branch lies along the current
+inertial trend; lower compatibility than Noisy means the branch asks the robot
+to reverse harder than the noisy reference does.  Define
+
+\[
+P_I^b = [C^0 - C^b + m_I]_+ .
+\]
+
+Then shape the preference score:
+
+\[
+\tilde J^b = J^b - \lambda_I P_I^b .
+\]
+
+The existing acceptance-target rule remains unchanged, but it must use
+\(\tilde J_0,\tilde J_\rho,\tilde J_1\) instead of raw \(J_0,J_\rho,J_1\).
+Thus full-write pushes \(\rho\) upward only when it is both useful and
+inertially admissible.  No-write pushes \(\rho\) downward when the repair branch
+is not worth its inertial cost.  Projected-write can remain the local best point
+when partial acceptance preserves the useful repair while avoiding an
+anti-inertial full write.
+
+This change has a narrow authority boundary:
+
+- it changes only the detached rollout-preference teacher;
+- it does not change the HSL proposal, rollout branches, network architecture,
+  storage format, or deployed action formula;
+- it updates only the acceptance head through the existing preference loss;
+- it should be guarded by config so the raw-gain teacher remains available as
+  an ablation.
+
+Required diagnostics are the original full/noop/keep/ignore fractions plus the
+mean inertial penalty applied to Projected and Candidate.  A healthy validation
+run should show fewer false full-write targets on anti-inertial samples and a
+less negative correlation between gate and inertial gain.
+
 ## Implementation Design Delta
 
 This delta defines the next code change.  It should be checked before editing

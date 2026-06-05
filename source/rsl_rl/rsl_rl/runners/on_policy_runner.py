@@ -2641,6 +2641,8 @@ class OnPolicyRunner:
             _frontres_accept_pref_keep_sum: float = 0.0
             _frontres_accept_pref_ignore_sum: float = 0.0
             _frontres_accept_pref_margin_sum: float = 0.0
+            _frontres_inertial_pref_penalty_rho_sum: float = 0.0
+            _frontres_inertial_pref_penalty_one_sum: float = 0.0
             _frontres_positive_gain_frac_sum: float = 0.0
             _frontres_repair_ratio_sum:   float = 0.0
             _frontres_exec_signal_sum:     float = 0.0
@@ -3399,6 +3401,8 @@ class OnPolicyRunner:
                             _pref_keep_frac = torch.tensor(0.0, device=self.device)
                             _pref_ignore_frac = torch.tensor(1.0, device=self.device)
                             _pref_margin_mean = torch.tensor(0.0, device=self.device)
+                            _pref_inertial_penalty_rho_mean = torch.tensor(0.0, device=self.device)
+                            _pref_inertial_penalty_one_mean = torch.tensor(0.0, device=self.device)
                             _pref_enabled = (
                                 bool(self.cfg.get("frontres_acceptance_preference_enabled", True))
                                 and N_candidate > 0
@@ -3412,6 +3416,85 @@ class OnPolicyRunner:
                                 _j_rho = _repair_gain
                                 _j_one = _candidate_gain
                                 _j_zero = torch.zeros_like(_repair_gain)
+                                if bool(self.cfg.get("frontres_inertial_preference_enabled", False)):
+                                    _cmd_for_inertia = _mcmd_rdelta
+                                    _have_inertia = (
+                                        hasattr(_cmd_for_inertia, "robot_anchor_quat_w")
+                                        and hasattr(_cmd_for_inertia, "robot_anchor_ang_vel_w")
+                                    )
+                                    if _have_inertia:
+                                        _robot_q = _cmd_for_inertia.robot_anchor_quat_w[:_n_exec].to(self.device)
+                                        _robot_w = _cmd_for_inertia.robot_anchor_ang_vel_w[:_n_exec].to(self.device)
+                                        _robot_p = (
+                                            _cmd_for_inertia.robot_anchor_pos_w[:_n_exec].to(self.device)
+                                            if hasattr(_cmd_for_inertia, "robot_anchor_pos_w")
+                                            else None
+                                        )
+                                        _robot_v = (
+                                            _cmd_for_inertia.robot_anchor_lin_vel_w[:_n_exec].to(self.device)
+                                            if hasattr(_cmd_for_inertia, "robot_anchor_lin_vel_w")
+                                            else None
+                                        )
+                                        _ang_w = float(self.cfg.get("frontres_inertial_preference_ang_weight", 0.5))
+
+                                        def _branch_compat(_branch_pos, _branch_q):
+                                            _rot_err = _quat_to_rotvec_wxyz(
+                                                quat_mul(quat_inv(_robot_q), _branch_q)
+                                            )[:, :3]
+                                            _compat = torch.zeros(_n_exec, device=self.device, dtype=_j_rho.dtype)
+                                            if _branch_pos is not None and _robot_p is not None and _robot_v is not None:
+                                                _pos_err = _branch_pos - _robot_p
+                                                _compat = _compat + (_pos_err * _robot_v).sum(-1) / (
+                                                    _pos_err.norm(dim=-1) * _robot_v.norm(dim=-1) + 1e-8
+                                                )
+                                            _compat = _compat + _ang_w * (_rot_err * _robot_w).sum(-1) / (
+                                                _rot_err.norm(dim=-1) * _robot_w.norm(dim=-1) + 1e-8
+                                            )
+                                            return torch.nan_to_num(_compat, nan=0.0, posinf=0.0, neginf=0.0)
+
+                                        _pos_all = getattr(_cmd_for_inertia, "anchor_pos_w", None)
+                                        _quat_all = getattr(_cmd_for_inertia, "anchor_quat_w", None)
+                                        if _quat_all is not None:
+                                            _noisy_pos = (
+                                                _pos_all[_base_start:_base_start + _n_exec].to(self.device)
+                                                if _pos_all is not None
+                                                else None
+                                            )
+                                            _rho_pos = (
+                                                _pos_all[:_n_exec].to(self.device)
+                                                if _pos_all is not None
+                                                else None
+                                            )
+                                            _one_pos = (
+                                                _pos_all[_candidate_start:_candidate_start + _n_exec].to(self.device)
+                                                if _pos_all is not None and N_candidate > 0
+                                                else None
+                                            )
+                                            _c_zero = _branch_compat(
+                                                _noisy_pos,
+                                                _quat_all[_base_start:_base_start + _n_exec].to(self.device),
+                                            )
+                                            _c_rho = _branch_compat(
+                                                _rho_pos,
+                                                _quat_all[:_n_exec].to(self.device),
+                                            )
+                                            _c_one = _branch_compat(
+                                                _one_pos,
+                                                _quat_all[_candidate_start:_candidate_start + _n_exec].to(self.device),
+                                            )
+                                            _inertial_margin = float(
+                                                self.cfg.get("frontres_inertial_preference_margin", 0.05)
+                                            )
+                                            _inertial_weight = max(
+                                                0.0,
+                                                float(self.cfg.get("frontres_inertial_preference_weight", 0.0)),
+                                            )
+                                            _penalty_rho = torch.relu(_c_zero - _c_rho + _inertial_margin)
+                                            _penalty_one = torch.relu(_c_zero - _c_one + _inertial_margin)
+                                            _j_rho = _j_rho - _inertial_weight * _penalty_rho
+                                            _j_one = _j_one - _inertial_weight * _penalty_one
+                                            _pref_inertial_penalty_rho_mean = _penalty_rho.mean()
+                                            _pref_inertial_penalty_one_mean = _penalty_one.mean()
                                 _full_win = (_j_one > _j_rho + _pref_margin) & (_j_one > _j_zero + _pref_margin)
                                 _noop_win = (_j_zero > _j_rho + _pref_margin) & (_j_zero > _j_one + _pref_margin)
                                 _keep_win = (_j_rho > _j_one + _pref_margin) & (_j_rho > _j_zero + _pref_margin)
@@ -3605,6 +3688,8 @@ class OnPolicyRunner:
                             _frontres_accept_pref_keep_sum += _pref_keep_frac.item()
                             _frontres_accept_pref_ignore_sum += _pref_ignore_frac.item()
                             _frontres_accept_pref_margin_sum += _pref_margin_mean.item()
+                            _frontres_inertial_pref_penalty_rho_sum += _pref_inertial_penalty_rho_mean.item()
+                            _frontres_inertial_pref_penalty_one_sum += _pref_inertial_penalty_one_mean.item()
                             _frontres_positive_gain_frac_sum += (_repair_gain > 0.0).float().mean().item()
                             _frontres_repair_ratio_sum += _repair_ratio.mean().item()
                             _frontres_exec_signal_sum += _r_exec[:_n_exec].mean().item()
@@ -3959,6 +4044,14 @@ class OnPolicyRunner:
             )
             frontres_accept_pref_margin_mean = (
                 _frontres_accept_pref_margin_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_inertial_pref_penalty_rho_mean = (
+                _frontres_inertial_pref_penalty_rho_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_inertial_pref_penalty_one_mean = (
+                _frontres_inertial_pref_penalty_one_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
             frontres_positive_gain_frac_mean = (
@@ -4598,6 +4691,12 @@ class OnPolicyRunner:
                                 f"(mask={locs['frontres_accept_pref_mask_mean']:.3f}, "
                                 f"margin={locs['frontres_accept_pref_margin_mean']:+.4f})\n"
                             )
+                        if locs.get("frontres_inertial_pref_penalty_rho_mean") is not None:
+                            log_string += f"""{"inert pref pen rho/cand:":>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_inertial_pref_penalty_rho_mean']:.3f} / "
+                                f"{locs['frontres_inertial_pref_penalty_one_mean']:.3f}\n"
+                            )
 
                     log_string += f"""\n{'-' * 10} Correction Geometry {'-' * 10}\n"""
                     if locs.get("frontres_delta_pos_abs_mean") is not None:
@@ -4782,6 +4881,12 @@ class OnPolicyRunner:
                                 f"{locs['frontres_accept_pref_ignore_mean']:.3f} "
                                 f"(mask={locs['frontres_accept_pref_mask_mean']:.3f}, "
                                 f"margin={locs['frontres_accept_pref_margin_mean']:+.4f})\n"
+                            )
+                        if locs.get("frontres_inertial_pref_penalty_rho_mean") is not None:
+                            log_string += f"""{'inert pref pen rho/cand:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_inertial_pref_penalty_rho_mean']:.3f} / "
+                                f"{locs['frontres_inertial_pref_penalty_one_mean']:.3f}\n"
                             )
                         if locs.get("frontres_exec_planar_mean") is not None:
                             log_string += f"""{'exec planar/vertical/task:':>{pad}} """
