@@ -22,6 +22,72 @@ Use this skill to match Dr. Cheng's long-horizon PhD research habits and collabo
 - Separate concepts that look similar but have different roles, such as geometric target, rollout residual, supervised label, executable reward, actor gate, and diagnostic metric.
 - Prefer mechanisms that can be written cleanly in a paper: observation, formulation, training signal, schedule, diagnostic.
 
+## Concept-Engineering Causal Discipline
+
+Use this discipline whenever Dr. Cheng is designing a method, judging whether a
+mechanism is elegant, or deciding whether to add engineering complexity.
+
+Research should be treated as concept evolution, not engineering accumulation.
+The goal is to move a larger scientific concept forward by identifying the
+smallest mechanism that carries the necessary causal role.  Engineering is
+valid when it is the minimum executable form of a concept; it is suspect when it
+only adds capacity, knobs, or branches without clarifying what variable has
+become better expressed.
+
+When discussing a method, separate three levels:
+
+- Scientific problem: the phenomenon or failure being explained.
+- Concept variable: the compressed variable that makes the phenomenon
+  inspectable, such as dynamic admissibility, inertial compatibility, repair
+  necessity, action cone, or rollout preference.
+- Engineering realization: the smallest code mechanism that exposes, estimates,
+  optimizes, or validates that variable.
+
+Before proposing or accepting an engineering change, ask:
+
+- Which concept does this mechanism make executable?
+- If this mechanism is removed, which causal role or variable becomes
+  unrepresented?
+- Is this mechanism the smallest expression of that role, or is it hiding
+  uncertainty behind capacity?
+- Does the method operation look like the concept itself?  Prefer direct
+  mappings such as alignment, residual connection, normalization, gating,
+  marginal improvement, or conditional acceptance when they faithfully express
+  the problem.
+- Describe the problem until the engineering implementation naturally appears.
+  If the code mechanism feels arbitrary, the concept is probably still too
+  vague or has been translated through too many indirect proxies.
+- Is the prior structural and falsifiable, or merely a hand-tuned shortcut?
+  A structural prior is acceptable when it comes from the failure mechanism,
+  has a narrow authority boundary, and can be ablated or contradicted by
+  diagnostics.
+
+Use failures to evolve concepts, not only to add modules.  A useful failed run
+should answer "which concept was missing or mis-specified?"  For example,
+FrontRES failures evolved from reference corruption, to task-space repair, to
+clean-oriented proposal, to state-conditioned acceptance, to inertial
+compatibility and admissible repair fraction.  Do not collapse such lessons
+into parameter tuning unless the concept chain is already aligned.
+
+The preferred design movement is compression after understanding:
+
+```text
+large imagined system
+  -> identify the indispensable causal variable
+  -> implement the first-order mechanism
+  -> validate the concept
+  -> only then add capacity or richer modules
+```
+
+For FrontRES/FEMR, this means treating the original larger idea
+`Encoder -> Latent Diffusion -> Intermediate Energy Model -> Decoder` as a
+research program, while using the current front-end residual architecture as
+the first-order test of its indispensable interface: corrupted reference ->
+clean-oriented proposal -> state-conditioned dynamic acceptance -> frozen GMT
+execution.  Do not add diffusion, energy models, extra rollout branches, or
+separate networks unless the current concept audit shows that a necessary
+variable cannot be represented by the simpler mechanism.
+
 ## Interaction Rules
 
 - When Dr. Cheng is confused or angry, assume the explanation exposed too little of the hidden reasoning. Rebuild the explanation around one main line, not a list of scattered terms.
@@ -74,6 +140,51 @@ Dr. Cheng often reasons through these principles:
   - sample weights and harmful penalties;
   - PPO/HRL enable/disable conditions;
   - diagnostics and console logs.
+
+## CodeGraph-Assisted Coding Workflow
+
+When the active repository has a `.codegraph/` index, treat CodeGraph as the
+first structural reading tool for nontrivial coding work.  The purpose is not
+to replace direct code reading, but to prevent local patches from missing the
+real call chain, storage path, or impact surface.
+
+Use this workflow for architecture changes, FrontRES training edits, bug
+audits, reward/preference/gate changes, storage or config changes, and any
+request that asks whether an implementation matches `./note`:
+
+1. Start with `codegraph_explore` using the mechanism name, relevant symbols,
+   and file names.  Ask for the whole chain, not only one function.  For
+   FrontRES examples, query terms such as `runner storage algorithm loss
+   acceptance_target gradient boundary diagnostics`.
+2. Use `codegraph_impact` before refactoring or changing a core symbol.  Report
+   the blast radius if it crosses algorithm, runner, storage, config, or
+   validation boundaries.
+3. Use `codegraph_callers` and `codegraph_callees` when claiming that a value
+   enters training, inference, saving/loading, or logging.  Do not rely on
+   memory for these claims when CodeGraph can verify them cheaply.
+4. Use `rg` after CodeGraph for text-like evidence: config keys, Hydra task
+   names, log labels, comments, note sections, and non-symbol strings.
+5. Use focused file reads only after CodeGraph identifies the relevant files or
+   symbols.  Avoid broad manual browsing when the graph can reveal the path.
+
+For FrontRES training logic, the default audit order is:
+
+```text
+codegraph_explore(mechanism)
+  -> codegraph_impact(core symbol)
+  -> config
+  -> runner rollout construction
+  -> storage fields and minibatch tuple
+  -> algorithm loss/update
+  -> gradient boundary
+  -> runtime/deployment inputs
+  -> diagnostics
+  -> py_compile and diff check
+```
+
+In final reviews, explicitly say whether CodeGraph verified that the mechanism
+is live code or only a local definition.  If CodeGraph is unavailable, say so
+and fall back to `rg` plus direct file reads.
 
 ## Design Contract Discipline
 
@@ -144,6 +255,28 @@ Avoid isolated bullet lists when a causal chain is needed.
 - Sell the architecture, not only the current implementation.
 - Make each subsection earn its name: observation, formulation, training signal, schedule.
 - For Methods, prefer compact formulas and precise definitions over long explanatory prose.
+- Do not use a project design contract directly as a paper outline.  First
+  compress it into a paper-facing method scaffold: problem setup, method
+  parameterization, core training signal, objective, schedule, and evaluation
+  role.  Remove implementation audits, forbidden-freedom lists, code mapping,
+  debug diagnostics, and historical failed branches unless they are needed for
+  an ablation or appendix.
+- When the user asks for a method outline while still deciding what to include
+  in the paper, create a technical method record rather than an over-compressed
+  main-paper outline.  Include formulas for sample selection, gates, reward
+  terms, losses, hierarchy/gradient boundaries, and appendix candidates, and
+  label which parts are Main, Appendix, or Internal.  The user can then select
+  what enters the paper body.
+- Preserve failed-case-derived design knowledge when creating technical records.
+  If a curriculum, reward, gate, architecture boundary, or training schedule was
+  obtained through failed runs, record the failed regimes and the resulting
+  rule.  Do not compress painful experimental lessons into a generic sentence
+  such as "we use a curriculum"; these details often become appendix material
+  and explain why the method is trainable.
+- When converting a design contract into a Methods outline, preserve the core
+  scientific chain and discard local development chronology.  For FrontRES, the
+  expected chain is: corrupted reference -> task-space proposal -> dynamic
+  acceptance -> frozen tracker rollout.
 - Avoid casual terms like "for example" in formal method descriptions when the taxonomy is intended to be complete.
 - If a term sounds AI-generated or over-branded, propose simpler alternatives and explain the tradeoff.
 

@@ -2641,6 +2641,9 @@ class OnPolicyRunner:
             _frontres_accept_pref_keep_sum: float = 0.0
             _frontres_accept_pref_ignore_sum: float = 0.0
             _frontres_accept_pref_margin_sum: float = 0.0
+            _frontres_accept_pref_need_sum: float = 0.0
+            _frontres_accept_pref_admiss_sum: float = 0.0
+            _frontres_accept_pref_target_sum: float = 0.0
             _frontres_inertial_pref_penalty_rho_sum: float = 0.0
             _frontres_inertial_pref_penalty_one_sum: float = 0.0
             _frontres_positive_gain_frac_sum: float = 0.0
@@ -3401,6 +3404,9 @@ class OnPolicyRunner:
                             _pref_keep_frac = torch.tensor(0.0, device=self.device)
                             _pref_ignore_frac = torch.tensor(1.0, device=self.device)
                             _pref_margin_mean = torch.tensor(0.0, device=self.device)
+                            _pref_need_mean = torch.tensor(0.0, device=self.device)
+                            _pref_admiss_mean = torch.tensor(0.0, device=self.device)
+                            _pref_target_mean = torch.tensor(0.0, device=self.device)
                             _pref_inertial_penalty_rho_mean = torch.tensor(0.0, device=self.device)
                             _pref_inertial_penalty_one_mean = torch.tensor(0.0, device=self.device)
                             _pref_enabled = (
@@ -3416,6 +3422,8 @@ class OnPolicyRunner:
                                 _j_rho = _repair_gain
                                 _j_one = _candidate_gain
                                 _j_zero = torch.zeros_like(_repair_gain)
+                                _c_zero = None
+                                _c_one = None
                                 if bool(self.cfg.get("frontres_inertial_preference_enabled", False)):
                                     _cmd_for_inertia = _mcmd_rdelta
                                     _have_inertia = (
@@ -3498,39 +3506,69 @@ class OnPolicyRunner:
                                 _full_win = (_j_one > _j_rho + _pref_margin) & (_j_one > _j_zero + _pref_margin)
                                 _noop_win = (_j_zero > _j_rho + _pref_margin) & (_j_zero > _j_one + _pref_margin)
                                 _keep_win = (_j_rho > _j_one + _pref_margin) & (_j_rho > _j_zero + _pref_margin)
-                                # Calibrate acceptance around the current write
-                                # instead of forcing a full/no-op binary label.
-                                # This keeps the quartet rollout budget fixed:
-                                # Noisy (0), Projected (rho), Candidate (1).
                                 _pref_gate = (_oracle_trust * _repair_gate).detach().clamp(0.0, 1.0)
                                 _target_exec = torch.zeros(_n_exec, 6, device=self.device)
                                 _mask_exec = torch.zeros(_n_exec, 6, device=self.device)
-                                _calib_step = float(self.cfg.get("frontres_acceptance_calibration_step", 0.5))
-                                _calib_step = max(0.0, min(1.0, _calib_step))
-                                _denom = (_j_one - _j_zero).abs().clamp(min=1e-6)
                                 _rho_current = torch.ones(_n_exec, 6, device=self.device)
                                 _task_conf_dim = int(getattr(getattr(self.alg, "policy", None), "task_conf_dim", 2))
                                 if actions.shape[-1] >= 12 and _task_conf_dim == 6:
                                     _rho_current = actions[:_n_exec, 6:12].detach().clamp(0.0, 1.0)
                                 elif actions.shape[-1] >= 7 and _task_conf_dim == 1:
                                     _rho_current = actions[:_n_exec, 6:7].detach().clamp(0.0, 1.0).expand(-1, 6)
-                                _target_exec = _rho_current.clone()
-                                _raise = ((_j_one - _j_rho) / _denom).clamp(0.0, 1.0)
-                                _lower = ((_j_zero - _j_rho) / _denom).clamp(0.0, 1.0)
-                                if bool(_full_win.any().detach().item()):
-                                    _target_exec[_full_win] = (
-                                        _rho_current[_full_win]
-                                        + _calib_step * _raise[_full_win].view(-1, 1)
-                                    ).clamp(0.0, 1.0)
-                                if bool(_noop_win.any().detach().item()):
-                                    _target_exec[_noop_win] = (
-                                        _rho_current[_noop_win]
-                                        - _calib_step * _lower[_noop_win].view(-1, 1)
-                                    ).clamp(0.0, 1.0)
-                                # If Projected wins, current rho is the best observed
-                                # point on the existing quartet and should be anchored.
-                                _trainable = (_full_win | _noop_win | _keep_win).to(_target_exec.dtype)
-                                _mask_exec = _trainable.view(-1, 1) * _pref_gate.view(-1, 1)
+                                if bool(self.cfg.get("frontres_acceptance_direct_target_enabled", False)):
+                                    _proposal = actions[:_n_exec, :6].detach()
+                                    _target_delta6 = torch.cat(
+                                        [
+                                            (_a_w[:_n_exec] - _a_raw[:_n_exec]),
+                                            _rot_raw_to_clean[:_n_exec],
+                                        ],
+                                        dim=-1,
+                                    ).detach()
+                                    _err0 = _target_delta6.abs()
+                                    _err1 = (_target_delta6 - _proposal).abs()
+                                    _need = ((_err0 - _err1) / _err0.clamp(min=1e-6)).clamp(0.0, 1.0)
+                                    _need_min = max(
+                                        0.0,
+                                        float(self.cfg.get("frontres_acceptance_need_min_error", 0.01)),
+                                    )
+                                    _need_mask = (_err0 > _need_min).to(_need.dtype)
+                                    _admissibility = torch.ones(_n_exec, device=self.device, dtype=_need.dtype)
+                                    if _c_zero is not None and _c_one is not None:
+                                        _inertial_margin = float(
+                                            self.cfg.get("frontres_inertial_preference_margin", 0.05)
+                                        )
+                                        _temp = max(
+                                            1e-6,
+                                            float(self.cfg.get("frontres_acceptance_admissibility_temp", 0.20)),
+                                        )
+                                        _admissibility = torch.sigmoid((_c_one - _c_zero - _inertial_margin) / _temp)
+                                    _target_exec = (_need * _admissibility.view(-1, 1)).clamp(0.0, 1.0)
+                                    _mask_exec = _need_mask * _pref_gate.view(-1, 1)
+                                else:
+                                    # Calibrate acceptance around the current write
+                                    # instead of forcing a full/no-op binary label.
+                                    # This keeps the quartet rollout budget fixed:
+                                    # Noisy (0), Projected (rho), Candidate (1).
+                                    _calib_step = float(self.cfg.get("frontres_acceptance_calibration_step", 0.5))
+                                    _calib_step = max(0.0, min(1.0, _calib_step))
+                                    _denom = (_j_one - _j_zero).abs().clamp(min=1e-6)
+                                    _target_exec = _rho_current.clone()
+                                    _raise = ((_j_one - _j_rho) / _denom).clamp(0.0, 1.0)
+                                    _lower = ((_j_zero - _j_rho) / _denom).clamp(0.0, 1.0)
+                                    if bool(_full_win.any().detach().item()):
+                                        _target_exec[_full_win] = (
+                                            _rho_current[_full_win]
+                                            + _calib_step * _raise[_full_win].view(-1, 1)
+                                        ).clamp(0.0, 1.0)
+                                    if bool(_noop_win.any().detach().item()):
+                                        _target_exec[_noop_win] = (
+                                            _rho_current[_noop_win]
+                                            - _calib_step * _lower[_noop_win].view(-1, 1)
+                                        ).clamp(0.0, 1.0)
+                                    # If Projected wins, current rho is the best observed
+                                    # point on the existing quartet and should be anchored.
+                                    _trainable = (_full_win | _noop_win | _keep_win).to(_target_exec.dtype)
+                                    _mask_exec = _trainable.view(-1, 1) * _pref_gate.view(-1, 1)
                                 if bool(self.cfg.get("frontres_per_mode_acceptance_preference_mask", True)):
                                     _mode_dim_mask = self._frontres_mode_dim_mask(
                                         _mode_groups, _n_exec, self.device, _mask_exec.dtype
@@ -3548,10 +3586,27 @@ class OnPolicyRunner:
                                     _mask_exec = _mask_exec * _dim_mask.view(1, -1)
                                 _accept_pref_target[:_n_exec] = _target_exec.detach()
                                 _accept_pref_mask[:_n_exec] = _mask_exec.detach()
-                                _pref_full_frac = _full_win.float().mean()
-                                _pref_noop_frac = _noop_win.float().mean()
-                                _pref_keep_frac = _keep_win.float().mean()
-                                _pref_ignore_frac = (~(_full_win | _noop_win | _keep_win)).float().mean()
+                                _active_pref = _mask_exec.sum(dim=-1) > 0
+                                if bool(_active_pref.any().detach().item()):
+                                    _target_sample = (
+                                        (_target_exec * _mask_exec).sum(dim=-1)
+                                        / _mask_exec.sum(dim=-1).clamp(min=1e-6)
+                                    )
+                                    _active_target = _target_sample[_active_pref]
+                                    _pref_full_frac = (_active_target > 0.66).float().mean()
+                                    _pref_noop_frac = (_active_target < 0.33).float().mean()
+                                    _pref_keep_frac = (
+                                        ((_active_target >= 0.33) & (_active_target <= 0.66)).float().mean()
+                                    )
+                                    _pref_target_mean = _active_target.mean()
+                                    if bool(self.cfg.get("frontres_acceptance_direct_target_enabled", False)):
+                                        _need_sample = (
+                                            (_need * _mask_exec).sum(dim=-1)
+                                            / _mask_exec.sum(dim=-1).clamp(min=1e-6)
+                                        )
+                                        _pref_need_mean = _need_sample[_active_pref].mean()
+                                        _pref_admiss_mean = _admissibility[_active_pref].mean()
+                                _pref_ignore_frac = (~_active_pref).float().mean()
                                 _best = torch.maximum(torch.maximum(_j_one, _j_rho), _j_zero)
                                 _second = torch.minimum(
                                     torch.maximum(_j_one, _j_rho),
@@ -3688,6 +3743,9 @@ class OnPolicyRunner:
                             _frontres_accept_pref_keep_sum += _pref_keep_frac.item()
                             _frontres_accept_pref_ignore_sum += _pref_ignore_frac.item()
                             _frontres_accept_pref_margin_sum += _pref_margin_mean.item()
+                            _frontres_accept_pref_need_sum += _pref_need_mean.item()
+                            _frontres_accept_pref_admiss_sum += _pref_admiss_mean.item()
+                            _frontres_accept_pref_target_sum += _pref_target_mean.item()
                             _frontres_inertial_pref_penalty_rho_sum += _pref_inertial_penalty_rho_mean.item()
                             _frontres_inertial_pref_penalty_one_sum += _pref_inertial_penalty_one_mean.item()
                             _frontres_positive_gain_frac_sum += (_repair_gain > 0.0).float().mean().item()
@@ -4044,6 +4102,18 @@ class OnPolicyRunner:
             )
             frontres_accept_pref_margin_mean = (
                 _frontres_accept_pref_margin_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_accept_pref_need_mean = (
+                _frontres_accept_pref_need_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_accept_pref_admiss_mean = (
+                _frontres_accept_pref_admiss_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_accept_pref_target_mean = (
+                _frontres_accept_pref_target_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
             frontres_inertial_pref_penalty_rho_mean = (
@@ -4881,6 +4951,13 @@ class OnPolicyRunner:
                                 f"{locs['frontres_accept_pref_ignore_mean']:.3f} "
                                 f"(mask={locs['frontres_accept_pref_mask_mean']:.3f}, "
                                 f"margin={locs['frontres_accept_pref_margin_mean']:+.4f})\n"
+                            )
+                        if locs.get("frontres_accept_pref_target_mean") is not None:
+                            log_string += f"""{'accept need/admiss/tgt:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_accept_pref_need_mean']:.3f} / "
+                                f"{locs['frontres_accept_pref_admiss_mean']:.3f} / "
+                                f"{locs['frontres_accept_pref_target_mean']:.3f}\n"
                             )
                         if locs.get("frontres_inertial_pref_penalty_rho_mean") is not None:
                             log_string += f"""{'inert pref pen rho/cand:':>{pad}} """

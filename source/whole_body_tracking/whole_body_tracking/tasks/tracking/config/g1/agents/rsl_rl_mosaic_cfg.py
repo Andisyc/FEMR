@@ -594,6 +594,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_acceptance_preference_enabled = True
     frontres_acceptance_preference_margin = 0.003
     frontres_acceptance_calibration_step = 0.5
+    frontres_acceptance_direct_target_enabled = True
+    frontres_acceptance_need_min_error = 0.01
+    frontres_acceptance_admissibility_temp = 0.20
     frontres_inertial_preference_enabled = True
     frontres_inertial_preference_weight = 0.03
     frontres_inertial_preference_margin = 0.05
