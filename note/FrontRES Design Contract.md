@@ -225,6 +225,22 @@ the existing acceptance head learn the rule from observed state variables.  The
 explicit suppressor is a stronger hand-written prior and should be reported as
 an ablation if used.
 
+## Resume Schedule Contract
+
+FrontRES phase schedules must be keyed to the absolute learning iteration, not
+to `iteration - start_iter`.  On full resume, `start_iter` is the checkpoint
+iteration.  If actor warmup, actor ramp, or critic warmup subtracts
+`start_iter`, a run resumed from `model_700.pt` incorrectly replays the warmup
+phase with `PPO actor weight = 0` and fixed low DR even though the checkpoint is
+already in the PPO phase.
+
+The resume sanity check is:
+
+- `start=700` for `model_700.pt`;
+- `Adaptive DR scale restored from checkpoint` near the saved frontier value;
+- `PHASE: PPO + WEAK SUPERVISION`, not `CRITIC WARMUP`;
+- `PPO actor weight: 1.000`, not `0.000`.
+
 ## Sample Difficulty
 
 Sample difficulty should remain continuous rather than hard categorical.

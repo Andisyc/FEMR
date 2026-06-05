@@ -1371,7 +1371,10 @@ class OnPolicyRunner:
             _actor_ramp = int(self.alg_cfg.get(
                 "ppo_actor_ramp_iterations",
                 self.cfg.get("ppo_actor_ramp_iterations", 0)))
-            _phase_iter = max(0, iteration - start_iter)
+            # Use absolute training iteration.  On full resume, start_iter is
+            # already the checkpoint iteration; subtracting it would replay the
+            # actor warmup/ramp schedule from zero.
+            _phase_iter = max(0, iteration)
             if _phase_iter < _actor_warmup:
                 return 0.0
             if _actor_ramp > 0 and _phase_iter < _actor_warmup + _actor_ramp:
@@ -2454,7 +2457,7 @@ class OnPolicyRunner:
             # frozen separately by ppo_actor_warmup_iterations.
             _critic_warmup = (isinstance(self.alg.policy, FrontRESActorCritic)
                               and critic_warmup_iters > 0
-                              and (it - start_iter) < critic_warmup_iters)
+                              and it < critic_warmup_iters)
             _dr_start_actor_weight = float(self.cfg.get("dr_start_ppo_actor_weight", 1.0))
             _actor_takeover_active = (
                 _is_frontres
