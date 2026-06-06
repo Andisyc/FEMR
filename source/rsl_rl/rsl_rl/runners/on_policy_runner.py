@@ -1876,6 +1876,31 @@ class OnPolicyRunner:
             )
             _mcmd.perturber._dr_scale = float(scale)
 
+        def _frontres_mixed_dr_scale(frontier_scale: float, enabled: bool, seq_idx: int) -> tuple[float, str]:
+            """Sample an easy/frontier/hard perturbation magnitude around the current frontier."""
+            _effective_scale = float(frontier_scale)
+            _mix_enabled = bool(enabled) and bool(self.cfg.get("frontres_mixed_dr_strength_enabled", True))
+            _mix_mode = "frontier" if _mix_enabled else "fixed"
+            if _mix_enabled:
+                _easy_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_easy_weight", 0.5)))
+                _frontier_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_frontier_weight", 0.4)))
+                _hard_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_hard_weight", 0.1)))
+                _w_sum = max(_easy_w + _frontier_w + _hard_w, 1e-6)
+                _easy_w = _easy_w / _w_sum
+                _frontier_w = _frontier_w / _w_sum
+                _bucket = (int(seq_idx) * 2654435761 % 1000) / 1000.0
+                if _bucket < _easy_w:
+                    _mix_mode = "easy"
+                    _factor = float(self.cfg.get("frontres_mixed_dr_easy_factor", 0.75))
+                elif _bucket < _easy_w + _frontier_w:
+                    _mix_mode = "frontier"
+                    _factor = float(self.cfg.get("frontres_mixed_dr_frontier_factor", 1.0))
+                else:
+                    _mix_mode = "hard"
+                    _factor = float(self.cfg.get("frontres_mixed_dr_hard_factor", 1.05))
+                _effective_scale = float(frontier_scale) * max(0.0, _factor)
+            return max(_dr_min, min(_dr_max, _effective_scale)), _mix_mode
+
         # ── FrontRES supervised warmup (Stage 1 → Stage 2 merge) ──────────────────
         # Runs BEFORE the PPO loop. Teaches FrontRES to detect perturbations via
         # supervised learning on the anti-DR target:  target = -(perturbed - original).
@@ -2465,7 +2490,18 @@ class OnPolicyRunner:
                 and _ppo_actor_weight_current < _dr_start_actor_weight
             )
 
-            if _frontres_hsl_restore and _perturb_target is not None:
+            _boundary_enabled_for_iter = bool(self.cfg.get("frontres_boundary_dr_enabled", True))
+            _boundary_takeover_for_iter = bool(self.cfg.get("frontres_boundary_dr_during_actor_takeover", False))
+            _hsl_boundary_available = (
+                _frontres_hsl_restore
+                and _perturb_target is not None
+                and _boundary_enabled_for_iter
+                and getattr(self, "_last_frontres_boundary_stats", None) is not None
+                and (not _critic_warmup)
+                and ((not _actor_takeover_active) or _boundary_takeover_for_iter)
+            )
+
+            if _frontres_hsl_restore and _perturb_target is not None and not _hsl_boundary_available:
                 _sup_dr_start = float(self.cfg.get("frontres_supervised_dr_scale_start", _dr_scale_init))
                 _sup_dr_end = float(self.cfg.get("frontres_supervised_dr_scale_end", _sup_dr_start))
                 _sup_dr_ramp = max(1, int(self.cfg.get("frontres_supervised_dr_ramp_iters", 500)))
@@ -2487,7 +2523,14 @@ class OnPolicyRunner:
                 if _critic_warmup or _actor_takeover_active:
                     _curriculum_progress = 0.0
                 _sample_frontres_rollout_perturbation_mix(_curriculum_progress, it)
-                _apply_frontres_dr_scale(_dr_scale)
+                _mix_strength_enabled = not (_critic_warmup or _actor_takeover_active)
+                _effective_dr_scale, _frontres_dr_mix_mode = _frontres_mixed_dr_scale(
+                    _dr_scale, _mix_strength_enabled, it
+                )
+                self._frontres_effective_dr_scale = _effective_dr_scale
+                self._frontres_dr_mix_mode = _frontres_dr_mix_mode
+                self._frontres_dr_frontier_scale = _dr_scale
+                _apply_frontres_dr_scale(_effective_dr_scale)
                 _skip_frontres_dr_controller = True
             else:
                 _skip_frontres_dr_controller = False
@@ -2602,25 +2645,7 @@ class OnPolicyRunner:
                 # restart the perturbation curriculum from easy single modes.
                 _curriculum_progress = min(1.0, max(0.0, it / float(_curriculum_iters)))
                 _sample_frontres_rollout_perturbation_mix(_curriculum_progress, it)
-                _effective_dr_scale = _dr_scale
-                _frontres_dr_mix_mode = "frontier"
-                if bool(self.cfg.get("frontres_mixed_dr_strength_enabled", True)) and _use_boundary:
-                    _easy_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_easy_weight", 0.5)))
-                    _frontier_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_frontier_weight", 0.4)))
-                    _hard_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_hard_weight", 0.1)))
-                    _w_sum = max(_easy_w + _frontier_w + _hard_w, 1e-6)
-                    _easy_w, _frontier_w, _hard_w = _easy_w / _w_sum, _frontier_w / _w_sum, _hard_w / _w_sum
-                    _bucket = (int(it) * 2654435761 % 1000) / 1000.0
-                    if _bucket < _easy_w:
-                        _frontres_dr_mix_mode = "easy"
-                        _factor = float(self.cfg.get("frontres_mixed_dr_easy_factor", 0.75))
-                    elif _bucket < _easy_w + _frontier_w:
-                        _frontres_dr_mix_mode = "frontier"
-                        _factor = float(self.cfg.get("frontres_mixed_dr_frontier_factor", 1.0))
-                    else:
-                        _frontres_dr_mix_mode = "hard"
-                        _factor = float(self.cfg.get("frontres_mixed_dr_hard_factor", 1.05))
-                    _effective_dr_scale = max(_dr_min, min(_dr_max, _dr_scale * max(0.0, _factor)))
+                _effective_dr_scale, _frontres_dr_mix_mode = _frontres_mixed_dr_scale(_dr_scale, _use_boundary, it)
                 self._frontres_effective_dr_scale = _effective_dr_scale
                 self._frontres_dr_mix_mode = _frontres_dr_mix_mode
                 self._frontres_dr_frontier_scale = _dr_scale
@@ -3369,6 +3394,19 @@ class OnPolicyRunner:
                             self._frontres_stable_route_frac_last = float(
                                 _stable_route_next.to(_damage_gap.dtype).mean().detach().item()
                             )
+                            _stable_route_active = getattr(self, "_frontres_stable_route_active_mask", None)
+                            if _stable_route_active is None:
+                                _stable_route_active = torch.zeros(_n_exec, device=self.device, dtype=torch.bool)
+                            else:
+                                _stable_route_active = _stable_route_active.to(self.device).view(-1).bool()
+                                if _stable_route_active.numel() < _n_exec:
+                                    _stable_route_active = torch.nn.functional.pad(
+                                        _stable_route_active,
+                                        (0, _n_exec - _stable_route_active.numel()),
+                                        value=False,
+                                    )
+                                _stable_route_active = _stable_route_active[:_n_exec]
+                            _learnable_route_mask = (~_stable_route_active).to(_damage_gap.dtype)
 
                             _restore_min_ratio = float(self.cfg.get("frontres_min_restore_ratio", 0.0))
                             _restore_under_weight = float(self.cfg.get("frontres_under_repair_weight", 0.0))
@@ -3438,6 +3476,7 @@ class OnPolicyRunner:
                                 _actor_gate = (
                                     _oracle_trust * _window_mu + _side_actor_weight * (1.0 - _window_mu)
                                 ).clamp(0.0, 1.0)
+                            _actor_gate = _actor_gate * _learnable_route_mask
                             _exec_weight = torch.zeros(N_train, device=self.device)
                             _cost_weight = torch.ones(N_train, device=self.device)
                             _exec_weight[:_n_exec] = _exec_gate
@@ -3567,7 +3606,9 @@ class OnPolicyRunner:
                                 _full_win = (_j_one > _j_rho + _pref_margin) & (_j_one > _j_zero + _pref_margin)
                                 _noop_win = (_j_zero > _j_rho + _pref_margin) & (_j_zero > _j_one + _pref_margin)
                                 _keep_win = (_j_rho > _j_one + _pref_margin) & (_j_rho > _j_zero + _pref_margin)
-                                _pref_gate = (_oracle_trust * _repair_gate).detach().clamp(0.0, 1.0)
+                                _pref_gate = (
+                                    _oracle_trust * _repair_gate * _learnable_route_mask
+                                ).detach().clamp(0.0, 1.0)
                                 _target_exec = torch.zeros(_n_exec, 6, device=self.device)
                                 _mask_exec = torch.zeros(_n_exec, 6, device=self.device)
                                 _rho_current = torch.ones(_n_exec, 6, device=self.device)
@@ -4775,10 +4816,13 @@ class OnPolicyRunner:
                 if locs.get("frontres_dr_scale") is not None:
                     log_string += f"""{'DR scale:':>{pad}} {locs['frontres_dr_scale']:.4f}\n"""
                     _frontier_scale = getattr(self, "_frontres_dr_frontier_scale", None)
+                    if _frontier_scale is None:
+                        _frontier_scale = locs["frontres_dr_scale"]
                     _mix_mode = getattr(self, "_frontres_dr_mix_mode", None)
-                    if _frontier_scale is not None and _mix_mode is not None:
-                        log_string += f"""{'DR frontier/mix:':>{pad}} """
-                        log_string += f"{_frontier_scale:.4f} / {_mix_mode}\n"
+                    if _mix_mode is None:
+                        _mix_mode = "fixed"
+                    log_string += f"""{'DR frontier/mix:':>{pad}} """
+                    log_string += f"{_frontier_scale:.4f} / {_mix_mode}\n"
                 if locs.get("frontres_survival_rate") is not None:
                     log_string += f"""{'survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
 
@@ -4870,6 +4914,14 @@ class OnPolicyRunner:
                                 f"{locs['frontres_projection_gain_mean']:+.4f} "
                                 f"(under={locs['frontres_underwrite_mean']:+.4f})\n"
                             )
+                        if locs.get("frontres_candidate_floor_margin_mean") is not None:
+                            log_string += f"""{'cand floor pass/margin:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_candidate_floor_pass_mean']:.3f} / "
+                                f"{locs['frontres_candidate_floor_margin_mean']:+.4f}\n"
+                            )
+                            log_string += f"""{'stable route frac:':>{pad}} """
+                            log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
                         if locs.get("frontres_accept_pref_mask_mean") is not None:
                             log_string += f"""{"accept pref full/noop/keep/ign:":>{pad}} """
                             log_string += (
@@ -5754,6 +5806,9 @@ class OnPolicyRunner:
         n_train = max(0, min(int(n_train), task_corr.shape[0], self.env.num_envs))
         n_candidate = max(0, min(int(n_candidate), max(0, self.env.num_envs - n_train)))
         self._frontres_stable_route_applied_frac = 0.0
+        self._frontres_stable_route_active_mask = torch.zeros(
+            n_train, device=task_corr.device, dtype=torch.bool
+        )
 
         if allow_oracle and self.cfg.get("oracle_curriculum", False):
             for cmd_oracle in env_raw.command_manager._terms.values():
@@ -5840,6 +5895,9 @@ class OnPolicyRunner:
                             stable_pos_corr, stable_rpy_corr = stable
                             pos_corr = torch.where(route_mask[:, None], stable_pos_corr, pos_corr)
                             rpy_corr = torch.where(route_mask[:, None], stable_rpy_corr, rpy_corr)
+                            c_pos = torch.where(route_mask[:, None], torch.ones_like(c_pos), c_pos)
+                            c_rpy = torch.where(route_mask[:, None], torch.ones_like(c_rpy), c_rpy)
+                            self._frontres_stable_route_active_mask = route_mask.detach()
                             self._frontres_stable_route_applied_frac = float(
                                 route_mask.to(task_corr.dtype).mean().detach().item()
                             )

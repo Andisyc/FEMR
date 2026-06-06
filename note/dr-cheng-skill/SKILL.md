@@ -184,6 +184,63 @@ Dr. Cheng often reasons through these principles:
   - PPO/HRL enable/disable conditions;
   - diagnostics and console logs.
 
+## Architecture Integration Discipline
+
+Use this discipline after any nontrivial FrontRES/FEMR change, especially when
+the change adds a new component, gate, schedule, branch, target, reward, or
+diagnostic.  The common failure mode is not that the component code is absent;
+it is that the component is implemented locally but not connected to the live
+training path, or is silently overwritten by an older branch.
+
+Do not treat a component as implemented until the whole route is proven:
+
+```text
+config flag/default
+  -> phase/objective branch
+  -> rollout-time application
+  -> evidence source
+  -> target/reward/mask construction
+  -> storage field
+  -> algorithm loss/update
+  -> gradient boundary
+  -> runtime/deployment behavior
+  -> diagnostics proving the live path
+```
+
+For every new mechanism, answer these questions before saying it works:
+
+- Which phase and objective actually call it?  Name the branch condition.
+- What older schedule, fallback, or objective can bypass or overwrite it?
+- Is its output written before the environment step, before storage, before
+  loss, or only to diagnostics?
+- If it changes executed behavior through a rule or oracle, are those samples
+  excluded from policy-gradient credit unless the actor truly caused the
+  outcome?
+- If it is a diagnostic, is it printed in every live log branch that prints the
+  nearby old diagnostics?
+- What one-line sentinel proves the intended path ran in the next training
+  iteration?
+
+When auditing after a large edit, search for both the new component name and
+the old visible behavior.  If the old behavior still appears in the log, find
+which branch emits it and check whether that branch bypasses the new component.
+Prefer a small explicit connector over another local helper function if the
+missing piece is route integration.
+
+When explaining an architecture bug to Dr. Cheng, distinguish:
+
+- component implementation failure: the local function is wrong;
+- integration failure: the function exists but is not on the live path;
+- authority failure: the component affects variables outside or below its
+  conceptual role;
+- credit-assignment failure: a rule/oracle changes behavior but the actor is
+  trained as if it caused the result;
+- diagnostic failure: the component may run, but the log cannot prove it.
+
+For expensive training, do not rely on visual performance alone to validate a
+new mechanism.  Add or verify a cheap live-path diagnostic first, then run a
+short resume test, then judge learning behavior.
+
 ## Evidence-First Debugging Discipline
 
 Use this discipline when a bug report contradicts the expected code behavior,
