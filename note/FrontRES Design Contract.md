@@ -396,6 +396,78 @@ The frontier center should be adaptive.  It should move up when FrontRES remains
 comfortably better than GMT and move down when FrontRES becomes harmful.  This
 replaces hard-coding a single `dr_scale` value.
 
+## Boundary-Aware Stabilizing Teacher
+
+The current failure is not only an acceptance-head optimization issue.  The
+Clean-oriented Candidate can be outside the recoverable route even when the
+state itself is still near the GMT frontier.  In that case a full or partial
+write toward Clean teaches HRL a polluted signal: the correct short-term target
+is not on the straight Noisy-to-Clean path.
+
+This update must not add rollout branches, policy heads, or a separate dynamics
+model.  It only reuses the existing quartet evidence and changes the candidate
+route that HRL scales:
+
+\[
+g^{\rho}_t
+=
+g^{\mathrm{noisy}}_t
++
+\rho_t \odot \Delta g^{\mathrm{selected}}_t,
+\qquad
+\Delta g^{\mathrm{selected}}_t
+\in
+\{\Delta g^{\mathrm{HSL}}_t,\Delta g^{\mathrm{stable}}_t\}.
+\]
+
+The selection rule has two separate signals:
+
+- `Executable Floor`: the recoverability boundary of the frozen GMT.  It is
+  not Noisy and not Clean.  The first implementation should use existing
+  `damage_gap`, Safe/Repairable/Broken gates, GMT `ep_len`, survival, and the
+  adaptive `dr_scale` frontier.  The controller should sample around the
+  frontier instead of increasing `dr_scale` without bound.
+- `Candidate Margin`: whether the Candidate/full-HSL branch remains above this
+  floor.  It must be computed from the existing Candidate rollout and
+  executability score, not from `Candidate - Noisy`.  Noisy is only a no-write
+  counterfactual diagnostic; it is not the safety baseline.
+
+The active engineering contract is:
+
+```text
+if Candidate is above the executable floor:
+    selected candidate = Clean-oriented HSL correction
+else if the batch/sample is near the recoverable frontier:
+    selected candidate = Stabilizing correction
+else:
+    keep the update conservative and avoid strong repair supervision
+```
+
+The stabilizing correction is deterministic privileged reference construction,
+not a new policy.  Its first version should be deliberately small and physical:
+upright roll/pitch, conservative yaw, no aggressive upward `z`, and no forced
+global `xy` tracking.  It represents a stable standing manifold used as a
+short-term recovery route before returning to Clean.
+
+Projected does not need a new rollout branch.  It becomes the policy acceptance
+applied to the selected route:
+
+```text
+normal:     Projected = Noisy + rho * HSL(Clean route)
+dangerous:  Projected = Noisy + rho * Stable route
+```
+
+Required diagnostics:
+
+- `frontier mix`: easy/frontier/hard DR sample mode and effective scale;
+- `candidate floor`: pass fraction and margin relative to the executable floor;
+- `stable route`: fraction of samples for which HRL scaled the stable route.
+
+These diagnostics prove that the mechanism is live.  If `stable_route_frac` is
+always zero, the new teacher is inactive.  If `candidate_floor_pass` is always
+near zero, the perturbation distribution is too hard.  If it is always near one,
+the run is not probing the frontier.
+
 ## Checkpoint Selection Contract
 
 Do not select the final checkpoint by default.  Strong perturbation training can

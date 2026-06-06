@@ -88,6 +88,49 @@ execution.  Do not add diffusion, energy models, extra rollout branches, or
 separate networks unless the current concept audit shows that a necessary
 variable cannot be represented by the simpler mechanism.
 
+## Minimal Counterfactual Methodology
+
+Use this when a concept such as admissibility, feasibility, stability, safety,
+or dynamic acceptance becomes too broad to represent with one hand-designed
+scalar, but adding many state features would turn the method into an oversized
+engineering system.
+
+Do not compress a complex concept by averaging its visible symptoms into one
+proxy.  First ask whether there is a smaller counterfactual fact that makes the
+concept observable.  A mature simple method often comes from replacing a vague
+latent property with a minimal comparison:
+
+```text
+Would I regret applying this candidate compared with the baseline?
+```
+
+For FrontRES/FEMR acceptance learning, this means separating:
+
+- `repair_need`: the Clean-geometry demand for repair, i.e. whether Candidate
+  removes the reference artifact;
+- `no_regret`: the rollout counterfactual that asks whether Candidate is worse
+  than Noisy or another trusted baseline under the executable metric.
+
+This is different from manually defining admissibility as velocity alignment,
+inertial compatibility, or a single compressed state descriptor.  Those proxies
+may be useful diagnostics or priors, but they can confuse damping-like repairs
+with dynamically harmful anti-inertial actions.  If a proxy contradicts rollout
+outcome, treat the proxy as suspect before treating the concept as failed.
+
+Prefer the design movement:
+
+```text
+complex dynamic admissibility
+  -> no-regret relative to a baseline
+  -> gate or bound the Clean-geometry repair demand
+```
+
+The baseline matters.  In FrontRES, Noisy is not just a bad sample; it is the
+causal reference for "do nothing."  Candidate should earn write authority by
+improving over this baseline, not by looking aligned with a manually chosen
+state feature.  This keeps the method compact while avoiding a large handcrafted
+state-risk model.
+
 ## Interaction Rules
 
 - When Dr. Cheng is confused or angry, assume the explanation exposed too little of the hidden reasoning. Rebuild the explanation around one main line, not a list of scattered terms.

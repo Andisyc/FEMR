@@ -594,11 +594,11 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_acceptance_preference_enabled = True
     frontres_acceptance_preference_margin = 0.003
     frontres_acceptance_calibration_step = 0.5
-    frontres_acceptance_direct_target_enabled = True
+    frontres_acceptance_direct_target_enabled = False
     frontres_acceptance_need_min_error = 0.01
     frontres_acceptance_admissibility_temp = 0.20
-    frontres_inertial_preference_enabled = True
-    frontres_inertial_preference_weight = 0.03
+    frontres_inertial_preference_enabled = False
+    frontres_inertial_preference_weight = 0.0
     frontres_inertial_preference_margin = 0.05
     frontres_inertial_preference_ang_weight = 0.5
     frontres_per_mode_acceptance_preference_mask = True
@@ -616,6 +616,16 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_family_gain_min_std = 0.002
     frontres_per_mode_supervised_mask = False
     frontres_adaptive_perturb_curriculum_enabled = True
+    frontres_mixed_dr_strength_enabled = True
+    frontres_mixed_dr_easy_weight = 0.50
+    frontres_mixed_dr_frontier_weight = 0.40
+    frontres_mixed_dr_hard_weight = 0.10
+    frontres_mixed_dr_easy_factor = 0.75
+    frontres_mixed_dr_frontier_factor = 1.00
+    frontres_mixed_dr_hard_factor = 1.05
+    frontres_stable_route_enabled = True
+    frontres_stable_route_repair_gate_threshold = 0.25
+    frontres_stable_route_broken_gate_max = 0.70
     frontres_warmup_energy_loss_weight = 1.0
     # Demo restoration reward:
     #   r_restore = ||noisy - clean|| - ||corrected - clean||

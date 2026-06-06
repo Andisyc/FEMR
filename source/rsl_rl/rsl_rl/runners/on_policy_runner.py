@@ -2602,7 +2602,29 @@ class OnPolicyRunner:
                 # restart the perturbation curriculum from easy single modes.
                 _curriculum_progress = min(1.0, max(0.0, it / float(_curriculum_iters)))
                 _sample_frontres_rollout_perturbation_mix(_curriculum_progress, it)
-                _apply_frontres_dr_scale(_dr_scale)
+                _effective_dr_scale = _dr_scale
+                _frontres_dr_mix_mode = "frontier"
+                if bool(self.cfg.get("frontres_mixed_dr_strength_enabled", True)) and _use_boundary:
+                    _easy_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_easy_weight", 0.5)))
+                    _frontier_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_frontier_weight", 0.4)))
+                    _hard_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_hard_weight", 0.1)))
+                    _w_sum = max(_easy_w + _frontier_w + _hard_w, 1e-6)
+                    _easy_w, _frontier_w, _hard_w = _easy_w / _w_sum, _frontier_w / _w_sum, _hard_w / _w_sum
+                    _bucket = (int(it) * 2654435761 % 1000) / 1000.0
+                    if _bucket < _easy_w:
+                        _frontres_dr_mix_mode = "easy"
+                        _factor = float(self.cfg.get("frontres_mixed_dr_easy_factor", 0.75))
+                    elif _bucket < _easy_w + _frontier_w:
+                        _frontres_dr_mix_mode = "frontier"
+                        _factor = float(self.cfg.get("frontres_mixed_dr_frontier_factor", 1.0))
+                    else:
+                        _frontres_dr_mix_mode = "hard"
+                        _factor = float(self.cfg.get("frontres_mixed_dr_hard_factor", 1.05))
+                    _effective_dr_scale = max(_dr_min, min(_dr_max, _dr_scale * max(0.0, _factor)))
+                self._frontres_effective_dr_scale = _effective_dr_scale
+                self._frontres_dr_mix_mode = _frontres_dr_mix_mode
+                self._frontres_dr_frontier_scale = _dr_scale
+                _apply_frontres_dr_scale(_effective_dr_scale)
 
             # FrontRES reward-shaping state: reset at the start of each rollout.
             _frontres_prev_delta_q: torch.Tensor | None = None  # [N, A] residual action for smoothness penalty
@@ -2672,6 +2694,9 @@ class OnPolicyRunner:
             _frontres_safe_frac_sum:      float = 0.0
             _frontres_repair_frac_sum:    float = 0.0
             _frontres_broken_frac_sum:    float = 0.0
+            _frontres_candidate_floor_margin_sum: float = 0.0
+            _frontres_candidate_floor_pass_sum: float = 0.0
+            _frontres_stable_route_frac_sum: float = 0.0
             _frontres_actor_gate_sum:     float = 0.0
             _frontres_exec_gate_sum:      float = 0.0
             _frontres_cost_gate_sum:      float = 0.0
@@ -3308,6 +3333,42 @@ class OnPolicyRunner:
                             _safe_frac = (_damage_gap < _safe_gap).float().mean()
                             _repair_frac = ((_damage_gap >= _safe_gap) & (_damage_gap <= _broken_gap)).float().mean()
                             _broken_frac = (_damage_gap > _broken_gap).float().mean()
+                            # Executable floor: the Candidate branch is judged
+                            # against the GMT recoverability envelope, not
+                            # against Noisy.  Clean is the center; broken_gap is
+                            # the allowed distance from that center.
+                            _candidate_floor_margin = (
+                                _broken_gap - (_exec_clean - _exec_candidate)
+                            )
+                            _candidate_floor_pass = (_candidate_floor_margin >= 0.0).to(_damage_gap.dtype)
+                            _candidate_floor_pass_frac = _candidate_floor_pass.mean()
+                            _stable_route_gate_threshold = float(
+                                self.cfg.get("frontres_stable_route_repair_gate_threshold", 0.25)
+                            )
+                            _stable_route_broken_max = float(
+                                self.cfg.get("frontres_stable_route_broken_gate_max", 0.70)
+                            )
+                            if bool(self.cfg.get("frontres_stable_route_enabled", True)):
+                                _stable_route_next = (
+                                    (_candidate_floor_margin < 0.0)
+                                    & (_repair_gate > _stable_route_gate_threshold)
+                                    & (_broken_gate < _stable_route_broken_max)
+                                )
+                            else:
+                                _stable_route_next = torch.zeros_like(_candidate_floor_margin, dtype=torch.bool)
+                            if _n_exec > 0:
+                                _alive_next = ~(dones[:_n_exec].view(-1) > 0)
+                                _stable_route_next = _stable_route_next & _alive_next
+                            self._frontres_stable_route_next_mask = _stable_route_next.detach()
+                            self._frontres_candidate_floor_margin_last = float(
+                                _candidate_floor_margin.mean().detach().item()
+                            )
+                            self._frontres_candidate_floor_pass_last = float(
+                                _candidate_floor_pass_frac.detach().item()
+                            )
+                            self._frontres_stable_route_frac_last = float(
+                                _stable_route_next.to(_damage_gap.dtype).mean().detach().item()
+                            )
 
                             _restore_min_ratio = float(self.cfg.get("frontres_min_restore_ratio", 0.0))
                             _restore_under_weight = float(self.cfg.get("frontres_under_repair_weight", 0.0))
@@ -3846,6 +3907,11 @@ class OnPolicyRunner:
                             _frontres_safe_frac_sum    += _safe_frac.item()
                             _frontres_repair_frac_sum  += _repair_frac.item()
                             _frontres_broken_frac_sum  += _broken_frac.item()
+                            _frontres_candidate_floor_margin_sum += _candidate_floor_margin.mean().item()
+                            _frontres_candidate_floor_pass_sum += _candidate_floor_pass_frac.item()
+                            _frontres_stable_route_frac_sum += float(
+                                getattr(self, "_frontres_stable_route_applied_frac", 0.0)
+                            )
                             _frontres_actor_gate_sum   += _actor_gate.mean().item()
                             _frontres_exec_gate_sum    += _exec_gate.mean().item()
                             _frontres_cost_gate_sum    += _cost_gate.mean().item()
@@ -4262,6 +4328,18 @@ class OnPolicyRunner:
                 _frontres_broken_frac_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_candidate_floor_margin_mean = (
+                _frontres_candidate_floor_margin_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_candidate_floor_pass_mean = (
+                _frontres_candidate_floor_pass_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_stable_route_frac_mean = (
+                _frontres_stable_route_frac_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_actor_gate_mean = (
                 _frontres_actor_gate_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -4319,6 +4397,8 @@ class OnPolicyRunner:
                     "repair": float(frontres_repair_frac_mean),
                     "broken": float(frontres_broken_frac_mean),
                     "positive_gain": float(frontres_positive_gain_frac_mean),
+                    "candidate_floor_pass": float(frontres_candidate_floor_pass_mean or 0.0),
+                    "stable_route": float(frontres_stable_route_frac_mean or 0.0),
                 }
 
             if _is_frontres:
@@ -4332,7 +4412,10 @@ class OnPolicyRunner:
                     loss_dict["lambda_supervised"] = float(self.alg.lambda_supervised)
 
             # DR scale for logging: current value (set by PI controller at top of iteration)
-            frontres_dr_scale = _dr_scale if _is_frontres else None
+            frontres_dr_scale = (
+                float(getattr(self, "_frontres_effective_dr_scale", _dr_scale))
+                if _is_frontres else None
+            )
             frontres_perturb_modes = (
                 ",".join(getattr(self, "_frontres_curriculum_active_modes", ()))
                 if _is_frontres else None
@@ -4524,6 +4607,7 @@ class OnPolicyRunner:
                 "harm_rate", "harm_mag", "safe_harm_rate", "broken_harm_rate",
                 "safe_abstain_cost", "broken_abstain_cost",
                 "window_mu", "safe_frac", "repair_frac", "broken_frac",
+                "candidate_floor_margin", "candidate_floor_pass", "stable_route_frac",
                 "actor_gate", "exec_gate", "cost_gate",
                 "r_z", "r_xy", "r_rp", "r_yaw",
                 "dr_z_abs", "dr_xy_abs", "dr_rp_abs", "dr_yaw_abs",
@@ -4570,6 +4654,10 @@ class OnPolicyRunner:
             if locs.get("frontres_dr_scale") is not None:
                 self.writer.add_scalar("Curriculum/dr_scale",
                                        locs["frontres_dr_scale"], locs["it"])
+                _frontier_scale = getattr(self, "_frontres_dr_frontier_scale", None)
+                if _frontier_scale is not None:
+                    self.writer.add_scalar("Curriculum/dr_frontier_scale",
+                                           float(_frontier_scale), locs["it"])
             if locs.get("frontres_survival_rate") is not None:
                 self.writer.add_scalar("Curriculum/training_survival_rate",
                                        locs["frontres_survival_rate"], locs["it"])
@@ -4686,6 +4774,11 @@ class OnPolicyRunner:
                     )
                 if locs.get("frontres_dr_scale") is not None:
                     log_string += f"""{'DR scale:':>{pad}} {locs['frontres_dr_scale']:.4f}\n"""
+                    _frontier_scale = getattr(self, "_frontres_dr_frontier_scale", None)
+                    _mix_mode = getattr(self, "_frontres_dr_mix_mode", None)
+                    if _frontier_scale is not None and _mix_mode is not None:
+                        log_string += f"""{'DR frontier/mix:':>{pad}} """
+                        log_string += f"{_frontier_scale:.4f} / {_mix_mode}\n"
                 if locs.get("frontres_survival_rate") is not None:
                     log_string += f"""{'survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
 
@@ -4787,7 +4880,10 @@ class OnPolicyRunner:
                                 f"(mask={locs['frontres_accept_pref_mask_mean']:.3f}, "
                                 f"margin={locs['frontres_accept_pref_margin_mean']:+.4f})\n"
                             )
-                        if locs.get("frontres_accept_pref_need_mean") is not None:
+                        if (
+                            bool(self.cfg.get("frontres_acceptance_direct_target_enabled", False))
+                            and locs.get("frontres_accept_pref_need_mean") is not None
+                        ):
                             _accept_target_diag = locs.get(
                                 "frontres_accept_pref_target_mean",
                                 _loss_dict.get("acceptance_preference_target_mean", 0.0),
@@ -4798,7 +4894,10 @@ class OnPolicyRunner:
                                 f"{locs['frontres_accept_pref_admiss_mean']:.3f} / "
                                 f"{_accept_target_diag:.3f}\n"
                             )
-                        if locs.get("frontres_inertial_pref_penalty_rho_mean") is not None:
+                        if (
+                            bool(self.cfg.get("frontres_inertial_preference_enabled", False))
+                            and locs.get("frontres_inertial_pref_penalty_rho_mean") is not None
+                        ):
                             log_string += f"""{"inert pref pen rho/cand:":>{pad}} """
                             log_string += (
                                 f"{locs['frontres_inertial_pref_penalty_rho_mean']:.3f} / "
@@ -4947,6 +5046,14 @@ class OnPolicyRunner:
                                 f"{locs['frontres_repair_frac_mean']:.3f} / "
                                 f"{locs['frontres_broken_frac_mean']:.3f}\n"
                             )
+                            if locs.get("frontres_candidate_floor_margin_mean") is not None:
+                                log_string += f"""{'cand floor pass/margin:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_candidate_floor_pass_mean']:.3f} / "
+                                    f"{locs['frontres_candidate_floor_margin_mean']:+.4f}\n"
+                                )
+                                log_string += f"""{'stable route frac:':>{pad}} """
+                                log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
 
                         log_string += f"""\n{'-' * 12} Detail Reward {'-' * 12}\n"""
                         if locs.get("frontres_r_z_mean") is not None:
@@ -4989,7 +5096,10 @@ class OnPolicyRunner:
                                 f"(mask={locs['frontres_accept_pref_mask_mean']:.3f}, "
                                 f"margin={locs['frontres_accept_pref_margin_mean']:+.4f})\n"
                             )
-                        if locs.get("frontres_accept_pref_need_mean") is not None:
+                        if (
+                            bool(self.cfg.get("frontres_acceptance_direct_target_enabled", False))
+                            and locs.get("frontres_accept_pref_need_mean") is not None
+                        ):
                             _accept_target_diag = locs.get(
                                 "frontres_accept_pref_target_mean",
                                 _loss_dict.get("acceptance_preference_target_mean", 0.0),
@@ -5000,7 +5110,10 @@ class OnPolicyRunner:
                                 f"{locs['frontres_accept_pref_admiss_mean']:.3f} / "
                                 f"{_accept_target_diag:.3f}\n"
                             )
-                        if locs.get("frontres_inertial_pref_penalty_rho_mean") is not None:
+                        if (
+                            bool(self.cfg.get("frontres_inertial_preference_enabled", False))
+                            and locs.get("frontres_inertial_pref_penalty_rho_mean") is not None
+                        ):
                             log_string += f"""{'inert pref pen rho/cand:':>{pad}} """
                             log_string += (
                                 f"{locs['frontres_inertial_pref_penalty_rho_mean']:.3f} / "
@@ -5640,6 +5753,7 @@ class OnPolicyRunner:
             n_train = task_corr.shape[0]
         n_train = max(0, min(int(n_train), task_corr.shape[0], self.env.num_envs))
         n_candidate = max(0, min(int(n_candidate), max(0, self.env.num_envs - n_train)))
+        self._frontres_stable_route_applied_frac = 0.0
 
         if allow_oracle and self.cfg.get("oracle_curriculum", False):
             for cmd_oracle in env_raw.command_manager._terms.values():
@@ -5706,8 +5820,33 @@ class OnPolicyRunner:
             z_lower = torch.full_like(pos_corr[:, 2], -self.alg.policy.max_delta_pos)
             pos_corr[:, 2] = torch.maximum(pos_corr[:, 2], z_lower)
             pos_corr[:, 2] = torch.minimum(pos_corr[:, 2], z_upper)
+            # Candidate rollout remains the full HSL route.  Stable-route
+            # substitution is applied only to Projected/HRL envs so Candidate
+            # stays a clean evidence source for the next floor test.
             cand_pos_corr = pos_corr[:n_candidate].clone() if n_candidate > 0 else None
             cand_rpy_corr = rpy_corr[:n_candidate].clone() if n_candidate > 0 else None
+            if allow_oracle and n_candidate > 0 and bool(self.cfg.get("frontres_stable_route_enabled", True)):
+                route_mask = getattr(self, "_frontres_stable_route_next_mask", None)
+                if route_mask is not None:
+                    route_mask = route_mask.to(device=task_corr.device).view(-1).bool()
+                    if route_mask.numel() < n_train:
+                        route_mask = torch.nn.functional.pad(route_mask, (0, n_train - route_mask.numel()), value=False)
+                    route_mask = route_mask[:n_train]
+                    if route_mask.any():
+                        stable = self._frontres_stabilizing_candidate_correction(
+                            cmd_term, n_train, task_corr.device, task_corr.dtype
+                        )
+                        if stable is not None:
+                            stable_pos_corr, stable_rpy_corr = stable
+                            pos_corr = torch.where(route_mask[:, None], stable_pos_corr, pos_corr)
+                            rpy_corr = torch.where(route_mask[:, None], stable_rpy_corr, rpy_corr)
+                            self._frontres_stable_route_applied_frac = float(
+                                route_mask.to(task_corr.dtype).mean().detach().item()
+                            )
+                        else:
+                            self._frontres_stable_route_applied_frac = 0.0
+                    else:
+                        self._frontres_stable_route_applied_frac = 0.0
             pos_corr = pos_corr * c_pos
             rpy_corr = rpy_corr * c_rpy
 
@@ -5749,6 +5888,50 @@ class OnPolicyRunner:
             return None
         raw_quat = raw_quat / raw_quat.norm(dim=-1, keepdim=True).clamp(min=1e-8)
         return raw_pos, raw_quat
+
+    def _frontres_stabilizing_candidate_correction(
+        self,
+        cmd_term,
+        n: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """Build a deterministic stable-manifold candidate for HRL route selection.
+
+        This is not a new policy or rollout branch.  It replaces the Projected
+        route with a conservative upright reference when the previous full-HSL
+        Candidate rollout fell below the executable floor.
+        """
+        if n <= 0:
+            return None
+        pose = self._frontres_raw_anchor_pose(cmd_term, n, device, dtype)
+        if pose is None or not hasattr(cmd_term, "robot_anchor_quat_w"):
+            return None
+        raw_pos, raw_quat = pose
+        robot_quat = cmd_term.robot_anchor_quat_w[:n].to(device=device, dtype=dtype)
+        _, _, robot_yaw = euler_xyz_from_quat(robot_quat)
+        zeros = torch.zeros_like(robot_yaw)
+        stable_quat = quat_from_euler_xyz(zeros, zeros, robot_yaw)
+        stable_quat = stable_quat / stable_quat.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+        stable_corr_quat = quat_mul(quat_inv(raw_quat), stable_quat)
+        stable_rpy_corr = _quat_to_rotvec_wxyz(stable_corr_quat)
+        stable_pos_corr = torch.zeros_like(raw_pos)
+
+        max_delta_pos = float(getattr(getattr(self.alg, "policy", None), "max_delta_pos", 0.3))
+        max_delta_rpy = float(getattr(getattr(self.alg, "policy", None), "max_delta_rpy", 0.1))
+        stable_pos_corr = stable_pos_corr.clamp(-max_delta_pos, max_delta_pos)
+        stable_rpy_corr = stable_rpy_corr.clamp(-max_delta_rpy, max_delta_rpy)
+
+        active_dims = self.cfg.get("frontres_active_task_dims", None)
+        if active_dims is not None:
+            active = {int(dim) for dim in active_dims}
+            for dim in range(3):
+                if dim not in active:
+                    stable_pos_corr[:, dim] = 0.0
+            for dim in range(3, 6):
+                if dim not in active:
+                    stable_rpy_corr[:, dim - 3] = 0.0
+        return stable_pos_corr, stable_rpy_corr
 
     def _frontres_temporal_continuity_correction(
         self,
