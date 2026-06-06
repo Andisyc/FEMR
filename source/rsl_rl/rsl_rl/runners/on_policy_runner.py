@@ -4952,12 +4952,16 @@ class OnPolicyRunner:
                                 f"(mask={locs['frontres_accept_pref_mask_mean']:.3f}, "
                                 f"margin={locs['frontres_accept_pref_margin_mean']:+.4f})\n"
                             )
-                        if locs.get("frontres_accept_pref_target_mean") is not None:
+                        if locs.get("frontres_accept_pref_need_mean") is not None:
+                            _accept_target_diag = locs.get(
+                                "frontres_accept_pref_target_mean",
+                                _loss_dict.get("acceptance_preference_target_mean", 0.0),
+                            )
                             log_string += f"""{'accept need/admiss/tgt:':>{pad}} """
                             log_string += (
                                 f"{locs['frontres_accept_pref_need_mean']:.3f} / "
                                 f"{locs['frontres_accept_pref_admiss_mean']:.3f} / "
-                                f"{locs['frontres_accept_pref_target_mean']:.3f}\n"
+                                f"{_accept_target_diag:.3f}\n"
                             )
                         if locs.get("frontres_inertial_pref_penalty_rho_mean") is not None:
                             log_string += f"""{'inert pref pen rho/cand:':>{pad}} """
