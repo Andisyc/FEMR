@@ -804,16 +804,27 @@ less negative correlation between gate and inertial gain.
 ### Direct Conditional Acceptance Target
 
 The score-shaping teacher above is still an indirect translation of the concept.
-The clearer concept is:
+The clearer concept separates desired repair from dynamic feasibility:
 
 \[
-\rho^* = \mathrm{repair\_need} \times \mathrm{admissibility}.
+\rho^* = \Pi_{[0,a]}(n).
 \]
 
-This directly states what the acceptance head should learn.  `repair_need`
-answers whether the HSL proposal actually removes a reference artifact.
-`admissibility` answers whether the current robot state can accept that repair
-without fighting its current inertial trend.
+Here \(n=\mathrm{repair\_need}\) is the desired write fraction implied by
+Clean geometry, and \(a=\mathrm{admissibility}\) is the current-state upper
+bound on how much of that repair can be safely accepted.  The one-dimensional
+projection has the closed form
+
+\[
+\rho_i^* = \min(n_i, a).
+\]
+
+This avoids the false conservatism of multiplying two soft quantities.  The
+product \(n_i a\) treats repair necessity and dynamic admissibility as two
+independent probabilities in an AND gate; medium values then collapse toward
+no-op.  The projection view is closer to safe-action and constrained-policy
+methods: the proposal gives the desired action strength, and the dynamic
+condition clips it to the admissible set.
 
 For task-space FrontRES, compute repair need from Clean geometry, not from
 executable reward:
@@ -826,8 +837,12 @@ n_i =
 \]
 
 where \(e^0\) is the Noisy-to-Clean task-space error and \(e^1\) is the
-Candidate-to-Clean error after full HSL write.  Samples with very small
-\(|e^0|\) should be ignored or heavily downweighted because no repair is needed.
+Candidate-to-Clean error after the **actual Candidate branch command** has been
+written.  Do not compute \(e^1\) from the raw sampled action alone: the action
+may be changed by mode masks, active dimensions, scale/clamp, projection, or
+command-write constraints before it becomes the Candidate reference.  Samples
+with very small \(|e^0|\) should be ignored or heavily downweighted because no
+repair is needed.
 
 Compute admissibility from inertial compatibility:
 
@@ -837,10 +852,10 @@ a =
 \]
 
 where \(C^0\) is the compatibility of the Noisy branch and \(C^1\) is the
-compatibility of the Candidate branch.  The target becomes
+compatibility of the actual Candidate branch.  The target becomes
 
 \[
-\rho_i^* = n_i \cdot a .
+\rho_i^* = \min(n_i, a).
 \]
 
 This target is more aligned than endpoint classification:
@@ -849,12 +864,26 @@ This target is more aligned than endpoint classification:
 - it does not fit a numerical surrogate unrelated to the concept;
 - it separates "does this repair help Clean?" from "can the current body state
   accept it?";
+- it treats admissibility as a constraint on desired repair strength, not as a
+  second multiplicative penalty;
 - it still updates only the acceptance head through the existing
   `acceptance_target` / `acceptance_mask` path.
 
 For the active validation branch, this direct target should replace
 full/noop/keep endpoint calibration.  The older score-shaping rule should remain
 available as a config fallback.
+
+Expected diagnostic signature after this change:
+
+- at the per-sample/per-dimension target-construction level,
+  `target_i = min(need_i, admissibility)` on active dimensions.  Console means
+  are aggregated after masking, so `mean(target)` should be bounded by the
+  printed active-dimension `mean(need)` and `mean(admiss)`, but it does not have
+  to equal `min(mean(need), mean(admiss))`;
+- if debug samples show the actual Candidate command nearly reaches the Clean
+  target, `need` should be high rather than near zero;
+- if `need` is high but `admiss` is moderate, `tgt` should remain moderate
+  instead of being multiplicatively crushed.
 
 ## Implementation Design Delta
 

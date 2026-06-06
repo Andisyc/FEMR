@@ -141,6 +141,39 @@ Dr. Cheng often reasons through these principles:
   - PPO/HRL enable/disable conditions;
   - diagnostics and console logs.
 
+## Evidence-First Debugging Discipline
+
+Use this discipline when a bug report contradicts the expected code behavior,
+especially during expensive training runs or when Dr. Cheng is under experiment
+pressure.  Do not protect the prior hypothesis.  Converge on the contradiction.
+
+- Treat user-provided terminal evidence as a first-class observation.  If Dr.
+  Cheng has already shown `git pull`, `grep`, `sed`, import paths, or new
+  iteration output, stop repeating stale-code or old-process hypotheses unless
+  a new concrete contradiction appears.
+- When a nearby log line prints but the new adjacent log line does not, assume
+  first that the code has duplicate render paths, branch-specific logging, or a
+  guard condition mismatch.  Search all occurrences of the old label and the new
+  label before discussing runtime state.
+- For any missing diagnostic, run the local equivalent of:
+
+```text
+rg -n "old visible label|new missing label|guard variable" target_file
+```
+
+  Then patch every live branch that can emit the old visible label, or remove
+  duplicate logging if it is safe.  A diagnostic added to only one duplicate log
+  path is not implemented.
+- If one metric under a shared condition prints and another does not, inspect
+  the exact `locs` construction and the exact `log_string` branch before blaming
+  resume, checkpoints, import cache, or server synchronization.
+- For high-cost training loops, add a cheap sentinel diagnostic when changing
+  logging or target construction.  The sentinel should prove that the intended
+  code path is running before the user spends compute on effect evaluation.
+- When the user rejects an external-state hypothesis with concrete evidence,
+  acknowledge it and pivot immediately to code-path tracing.  Do not make the
+  user prove the same environment fact multiple times.
+
 ## CodeGraph-Assisted Coding Workflow
 
 When the active repository has a `.codegraph/` index, treat CodeGraph as the

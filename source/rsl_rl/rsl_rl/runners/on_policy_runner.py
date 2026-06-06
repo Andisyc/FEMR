@@ -3516,16 +3516,36 @@ class OnPolicyRunner:
                                 elif actions.shape[-1] >= 7 and _task_conf_dim == 1:
                                     _rho_current = actions[:_n_exec, 6:7].detach().clamp(0.0, 1.0).expand(-1, 6)
                                 if bool(self.cfg.get("frontres_acceptance_direct_target_enabled", False)):
-                                    _proposal = actions[:_n_exec, :6].detach()
-                                    _target_delta6 = torch.cat(
+                                    _clean_pos = _a_w[_base_start:_base_start + _n_exec].detach()
+                                    _noisy_pos = _a_raw[_base_start:_base_start + _n_exec].detach()
+                                    _candidate_clean_pos = _a_w[
+                                        _candidate_start:_candidate_start + _n_exec
+                                    ].detach()
+                                    _candidate_pos = _a_fr[_candidate_start:_candidate_start + _n_exec].detach()
+                                    _clean_q = _q_w[_base_start:_base_start + _n_exec].detach()
+                                    _noisy_q = _q_raw[_base_start:_base_start + _n_exec].detach()
+                                    _candidate_clean_q = _q_w[
+                                        _candidate_start:_candidate_start + _n_exec
+                                    ].detach()
+                                    _candidate_q = _q_fr[_candidate_start:_candidate_start + _n_exec].detach()
+                                    _err0_vec = torch.cat(
                                         [
-                                            (_a_w[:_n_exec] - _a_raw[:_n_exec]),
-                                            _rot_raw_to_clean[:_n_exec],
+                                            (_clean_pos - _noisy_pos),
+                                            _quat_to_rotvec_wxyz(quat_mul(quat_inv(_noisy_q), _clean_q)),
                                         ],
                                         dim=-1,
-                                    ).detach()
-                                    _err0 = _target_delta6.abs()
-                                    _err1 = (_target_delta6 - _proposal).abs()
+                                    )
+                                    _err1_vec = torch.cat(
+                                        [
+                                            (_candidate_clean_pos - _candidate_pos),
+                                            _quat_to_rotvec_wxyz(
+                                                quat_mul(quat_inv(_candidate_q), _candidate_clean_q)
+                                            ),
+                                        ],
+                                        dim=-1,
+                                    )
+                                    _err0 = _err0_vec.abs()
+                                    _err1 = _err1_vec.abs()
                                     _need = ((_err0 - _err1) / _err0.clamp(min=1e-6)).clamp(0.0, 1.0)
                                     _need_min = max(
                                         0.0,
@@ -3542,7 +3562,9 @@ class OnPolicyRunner:
                                             float(self.cfg.get("frontres_acceptance_admissibility_temp", 0.20)),
                                         )
                                         _admissibility = torch.sigmoid((_c_one - _c_zero - _inertial_margin) / _temp)
-                                    _target_exec = (_need * _admissibility.view(-1, 1)).clamp(0.0, 1.0)
+                                    _target_exec = torch.minimum(
+                                        _need, _admissibility.view(-1, 1)
+                                    ).clamp(0.0, 1.0)
                                     _mask_exec = _need_mask * _pref_gate.view(-1, 1)
                                 else:
                                     # Calibrate acceptance around the current write
@@ -3605,7 +3627,11 @@ class OnPolicyRunner:
                                             / _mask_exec.sum(dim=-1).clamp(min=1e-6)
                                         )
                                         _pref_need_mean = _need_sample[_active_pref].mean()
-                                        _pref_admiss_mean = _admissibility[_active_pref].mean()
+                                        _admiss_sample = (
+                                            (_admissibility.view(-1, 1) * _mask_exec).sum(dim=-1)
+                                            / _mask_exec.sum(dim=-1).clamp(min=1e-6)
+                                        )
+                                        _pref_admiss_mean = _admiss_sample[_active_pref].mean()
                                 _pref_ignore_frac = (~_active_pref).float().mean()
                                 _best = torch.maximum(torch.maximum(_j_one, _j_rho), _j_zero)
                                 _second = torch.minimum(
