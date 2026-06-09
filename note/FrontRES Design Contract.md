@@ -1324,3 +1324,100 @@ as implemented:
 If a later experiment adds explicit route selection, it must be a new guarded
 branch with storage/loss/runtime diagnostics for the route action.  It should
 not be silently mixed into the current \(\rho_t\)-only HRL branch.
+
+## 2026-06-10 Per-Env Mixed DR Strength Curriculum
+
+### Design Delta
+
+The previous mixed-DR implementation mixed `easy/frontier/hard` strength across
+iterations, not inside a single rollout batch.  This is insufficient for HRL
+acceptance learning.  When the current global `dr_scale` is judged broken, the
+whole batch becomes broken:
+
+```text
+Candidate floor pass low -> HRL mostly sees noop -> alpha/stable route dominates.
+```
+
+The curriculum should instead sample perturbation strength per paired training
+sample.  This mirrors automatic curriculum / domain randomization practice: keep
+coverage around the learnable frontier while preventing broken states from
+monopolizing the batch.
+
+### Sampling Contract
+
+For every training sample \(i\), sample a class:
+
+\[
+c_i \in \{\mathrm{easy}, \mathrm{frontier}, \mathrm{hard}\}.
+\]
+
+Then assign a strength:
+
+\[
+s_i =
+\begin{cases}
+f_e s_f, & c_i=\mathrm{easy},\\
+f_f s_f, & c_i=\mathrm{frontier},\\
+f_h s_f, & c_i=\mathrm{hard},
+\end{cases}
+\]
+
+with default proportions:
+
+```text
+easy/frontier/hard = 0.50 / 0.40 / 0.10
+```
+
+The paired rollout branches must share the same \(s_i\):
+
+```text
+Train(i), Candidate(i), GMT-baseline(i): same sampled dr_scale
+Clean(i): no perturbation
+```
+
+This preserves the causal comparison among Noisy, Projected, Candidate, and
+Clean.  The change only affects perturbation sampling; it does not add a new
+rollout branch or change the FrontRES action dimension.
+
+### Frontier Resume Guard
+
+When resuming from an old checkpoint, the stored frontier may equal a scale that
+the current GMT probe immediately judges broken.  In that case the bracket must
+not get stuck at:
+
+```text
+safe_low == broken_high == current_scale
+```
+
+If a probe is broken at or below the current `safe_low`, retreat `safe_low`
+conservatively and probe inside the reopened bracket.  This treats the resumed
+scale as an unverified prior, not as a proven safe boundary.
+
+### Implementation Contract
+
+- Add per-env DR scales to the motion perturber.
+- Keep perturbation family masks per-env as before.
+- Let the runner write one vector of scales for Train/Candidate/GMT-baseline
+  branches and zero/disable Clean through the existing baseline mask.
+- Keep GMT frontier bracket updates tied to frontier-class Noisy/GMT baseline
+  episode lengths only.  Easy and hard samples are useful for training coverage,
+  but they must not be averaged into the single-scale boundary probe.
+- Keep the old scalar DR path as a fallback when per-env mixed strength is
+  disabled.
+- Print realized batch proportions and mean scale:
+
+```text
+DR train mix e/f/h: ...
+DR train scale mean: ...
+```
+
+### Expected Diagnostic Change
+
+After this change, a broken frontier probe should no longer imply that every
+training sample is broken.  A healthy run should show:
+
+- nonzero easy/frontier/hard proportions in the same iteration;
+- higher `cand floor pass` than the all-broken batch;
+- lower `accept pref noop` if repairable samples re-enter the batch;
+- alpha/stable route active only on the high-risk subset, not because the entire
+  batch is broken.

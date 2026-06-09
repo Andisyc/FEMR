@@ -1235,7 +1235,11 @@ class OnPolicyRunner:
         # B1: separate GMT baseline reward buffer (only populated when _is_frontres)
         rewbuffer_gmt    = deque(maxlen=100)  # GMT-only envs: raw GMT reward per episode
         lenbuffer_gmt    = deque(maxlen=100)  # GMT-only envs: episode lengths (key diagnostic)
-        lenbuffer_gmt_base = deque(maxlen=100)  # Noisy/GMT baseline only; used for frontier search
+        lenbuffer_gmt_base = deque(maxlen=100)  # Noisy/GMT baseline only
+        # In per-env mixed DR mode, frontier search must remain a single-scale
+        # probe.  This buffer keeps only the Noisy/GMT baseline samples whose
+        # paired training sample was assigned to the frontier class.
+        lenbuffer_gmt_base_frontier = deque(maxlen=100)
 
         # self.env.num_envs: 仿真中同时运行的机器人数量
         # cur_reward_sum & cur_episode_length: 每个机器人的总得分与存活时间
@@ -1898,6 +1902,8 @@ class OnPolicyRunner:
                 _pt('local_root_artifact_yaw_std') if _yaw else 0.0
             )
             _mcmd.perturber._dr_scale = float(scale)
+            if hasattr(_mcmd.perturber, "set_dr_scale_env"):
+                _mcmd.perturber.set_dr_scale_env(None)
 
         def _frontres_mixed_dr_scale(frontier_scale: float, enabled: bool, seq_idx: int) -> tuple[float, str]:
             """Sample an easy/frontier/hard perturbation magnitude around the current frontier."""
@@ -1923,6 +1929,88 @@ class OnPolicyRunner:
                     _factor = float(self.cfg.get("frontres_mixed_dr_hard_factor", 1.05))
                 _effective_scale = float(frontier_scale) * max(0.0, _factor)
             return max(_dr_min, min(_dr_max, _effective_scale)), _mix_mode
+
+        def _frontres_mixed_dr_scale_env(
+            frontier_scale: float,
+            enabled: bool,
+            seq_idx: int,
+        ) -> tuple[torch.Tensor | None, str, dict[str, float]]:
+            """Sample per-env easy/frontier/hard DR strength for paired rollout branches."""
+            _mix_enabled = bool(enabled) and bool(
+                self.cfg.get("frontres_mixed_dr_strength_per_env", True)
+            )
+            if not _mix_enabled:
+                return None, "fixed", {"easy": 0.0, "frontier": 1.0, "hard": 0.0, "mean": float(frontier_scale)}
+            try:
+                _n_train = int(N_train)
+                _n_candidate = int(N_candidate)
+                _n_base = int(N_base)
+            except NameError:
+                _n_train = self.env.num_envs
+                _n_candidate = 0
+                _n_base = 0
+            if _n_train <= 0:
+                return None, "fixed", {"easy": 0.0, "frontier": 1.0, "hard": 0.0, "mean": float(frontier_scale)}
+
+            _easy_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_easy_weight", 0.5)))
+            _frontier_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_frontier_weight", 0.4)))
+            _hard_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_hard_weight", 0.1)))
+            _w_sum = max(_easy_w + _frontier_w + _hard_w, 1e-6)
+            _easy_w /= _w_sum
+            _frontier_w /= _w_sum
+
+            _easy_factor = max(0.0, float(self.cfg.get("frontres_mixed_dr_easy_factor", 0.75)))
+            _frontier_factor = max(0.0, float(self.cfg.get("frontres_mixed_dr_frontier_factor", 1.0)))
+            _hard_factor = max(0.0, float(self.cfg.get("frontres_mixed_dr_hard_factor", 1.05)))
+            _frontier_scale = max(_dr_min, min(_dr_max, float(frontier_scale)))
+            _train_scales = torch.empty(_n_train, device=self.device, dtype=torch.float32)
+            _class = torch.empty(_n_train, device=self.device, dtype=torch.long)
+            for _env_i in range(_n_train):
+                _bucket = (_choice_hash(seq_idx * 9176 + _env_i * 131 + 17) % 1000) / 1000.0
+                if _bucket < _easy_w:
+                    _factor = _easy_factor
+                    _class[_env_i] = 0
+                elif _bucket < _easy_w + _frontier_w:
+                    _factor = _frontier_factor
+                    _class[_env_i] = 1
+                else:
+                    _factor = _hard_factor
+                    _class[_env_i] = 2
+                _train_scales[_env_i] = max(_dr_min, min(_dr_max, _frontier_scale * _factor))
+
+            _scales = torch.zeros(self.env.num_envs, device=self.device, dtype=torch.float32)
+            _scales[:_n_train] = _train_scales
+            _candidate_start = _n_train
+            _base_start = _n_train + _n_candidate
+            _copy_candidate = min(_n_candidate, _n_train)
+            if _copy_candidate > 0:
+                _scales[_candidate_start:_candidate_start + _copy_candidate] = _train_scales[:_copy_candidate]
+            _copy_base = min(_n_base, _n_train)
+            if _copy_base > 0:
+                _scales[_base_start:_base_start + _copy_base] = _train_scales[:_copy_base]
+
+            _diag = {
+                "easy": float((_class == 0).float().mean().item()),
+                "frontier": float((_class == 1).float().mean().item()),
+                "hard": float((_class == 2).float().mean().item()),
+                "mean": float(_train_scales.mean().item()),
+            }
+            self._frontres_dr_mix_class_train = _class
+            return _scales, "per_env", _diag
+
+        def _apply_frontres_dr_scale_env(scale_vec: torch.Tensor, scalar_fallback: float) -> None:
+            if not (_is_frontres and _perturb_target is not None):
+                return
+            # Write unscaled base magnitudes to cfg; MotionPerturber multiplies
+            # them by the per-env scale vector. This avoids double-scaling OU
+            # paths while keeping scalar fallback behavior untouched.
+            _apply_frontres_dr_scale(1.0)
+            _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
+            if not (hasattr(_env_raw, 'command_manager') and 'motion' in _env_raw.command_manager._terms):
+                return
+            _mcmd = _env_raw.command_manager._terms['motion']
+            if hasattr(_mcmd, 'perturber') and hasattr(_mcmd.perturber, "set_dr_scale_env"):
+                _mcmd.perturber.set_dr_scale_env(scale_vec)
 
         # ── FrontRES supervised warmup (Stage 1 → Stage 2 merge) ──────────────────
         # Runs BEFORE the PPO loop. Teaches FrontRES to detect perturbations via
@@ -2547,13 +2635,26 @@ class OnPolicyRunner:
                     _curriculum_progress = 0.0
                 _sample_frontres_rollout_perturbation_mix(_curriculum_progress, it)
                 _mix_strength_enabled = not (_critic_warmup or _actor_takeover_active)
-                _effective_dr_scale, _frontres_dr_mix_mode = _frontres_mixed_dr_scale(
+                _scale_env, _frontres_dr_mix_mode, _mix_diag = _frontres_mixed_dr_scale_env(
                     _dr_scale, _mix_strength_enabled, it
                 )
+                if _scale_env is None:
+                    _effective_dr_scale, _frontres_dr_mix_mode = _frontres_mixed_dr_scale(
+                        _dr_scale, _mix_strength_enabled, it
+                    )
+                    _mix_diag = {"easy": 0.0, "frontier": 1.0, "hard": 0.0, "mean": _effective_dr_scale}
+                    self._frontres_dr_mix_class_train = None
+                    _apply_frontres_dr_scale(_effective_dr_scale)
+                else:
+                    _effective_dr_scale = float(_mix_diag["mean"])
+                    _apply_frontres_dr_scale_env(_scale_env, _dr_scale)
                 self._frontres_effective_dr_scale = _effective_dr_scale
                 self._frontres_dr_mix_mode = _frontres_dr_mix_mode
                 self._frontres_dr_frontier_scale = _dr_scale
-                _apply_frontres_dr_scale(_effective_dr_scale)
+                self._frontres_dr_mix_easy_frac = float(_mix_diag["easy"])
+                self._frontres_dr_mix_frontier_frac = float(_mix_diag["frontier"])
+                self._frontres_dr_mix_hard_frac = float(_mix_diag["hard"])
+                self._frontres_dr_mix_mean_scale = float(_mix_diag["mean"])
                 _skip_frontres_dr_controller = True
             else:
                 _skip_frontres_dr_controller = False
@@ -2641,8 +2742,19 @@ class OnPolicyRunner:
                         )
                         if _score_ref <= 1e-6:
                             _score_ref = max(1e-6, float(getattr(self, "max_episode_length", 1.0)))
-                        if len(lenbuffer_gmt_base) > 0:
-                            _gmt_ep_len = float(statistics.mean(lenbuffer_gmt_base))
+                        _per_env_mix_active = (
+                            getattr(self, "_frontres_dr_mix_mode", None) == "per_env"
+                            and getattr(self, "_frontres_dr_mix_class_train", None) is not None
+                        )
+                        _frontier_len_source = (
+                            lenbuffer_gmt_base_frontier if _per_env_mix_active else lenbuffer_gmt_base
+                        )
+                        self._frontres_gmt_frontier_probe_source = (
+                            "frontier-class" if _per_env_mix_active else "all-base"
+                        )
+                        self._frontres_gmt_frontier_probe_samples = len(_frontier_len_source)
+                        if len(_frontier_len_source) > 0:
+                            _gmt_ep_len = float(statistics.mean(_frontier_len_source))
                             _gmt_frontier_score = max(0.0, min(1.5, _gmt_ep_len / _score_ref))
                             _safe_thr = float(
                                 self.cfg.get("frontres_gmt_frontier_safe_threshold", 0.85)
@@ -2667,6 +2779,12 @@ class OnPolicyRunner:
                                     if _broken_high is None
                                     else min(float(_broken_high), _probe_scale)
                                 )
+                                if _probe_scale <= _safe_low + 1e-6:
+                                    _retreat = max(
+                                        0.1,
+                                        min(0.99, float(self.cfg.get("frontres_gmt_frontier_retreat_factor", 0.85))),
+                                    )
+                                    _safe_low = max(_dr_min, min(_safe_low * _retreat, _probe_scale - 1e-6))
                                 _gmt_frontier_decision = "broken"
                                 _next_probe = 0.5 * (_safe_low + float(_broken_high))
                             else:
@@ -2751,11 +2869,22 @@ class OnPolicyRunner:
                 # restart the perturbation curriculum from easy single modes.
                 _curriculum_progress = min(1.0, max(0.0, it / float(_curriculum_iters)))
                 _sample_frontres_rollout_perturbation_mix(_curriculum_progress, it)
-                _effective_dr_scale, _frontres_dr_mix_mode = _frontres_mixed_dr_scale(_dr_scale, _use_boundary, it)
+                _scale_env, _frontres_dr_mix_mode, _mix_diag = _frontres_mixed_dr_scale_env(_dr_scale, _use_boundary, it)
+                if _scale_env is None:
+                    _effective_dr_scale, _frontres_dr_mix_mode = _frontres_mixed_dr_scale(_dr_scale, _use_boundary, it)
+                    _mix_diag = {"easy": 0.0, "frontier": 1.0, "hard": 0.0, "mean": _effective_dr_scale}
+                    self._frontres_dr_mix_class_train = None
+                    _apply_frontres_dr_scale(_effective_dr_scale)
+                else:
+                    _effective_dr_scale = float(_mix_diag["mean"])
+                    _apply_frontres_dr_scale_env(_scale_env, _dr_scale)
                 self._frontres_effective_dr_scale = _effective_dr_scale
                 self._frontres_dr_mix_mode = _frontres_dr_mix_mode
                 self._frontres_dr_frontier_scale = _dr_scale
-                _apply_frontres_dr_scale(_effective_dr_scale)
+                self._frontres_dr_mix_easy_frac = float(_mix_diag["easy"])
+                self._frontres_dr_mix_frontier_frac = float(_mix_diag["frontier"])
+                self._frontres_dr_mix_hard_frac = float(_mix_diag["hard"])
+                self._frontres_dr_mix_mean_scale = float(_mix_diag["mean"])
 
             # FrontRES reward-shaping state: reset at the start of each rollout.
             _frontres_prev_delta_q: torch.Tensor | None = None  # [N, A] residual action for smoothness penalty
@@ -4293,6 +4422,18 @@ class OnPolicyRunner:
                                     lenbuffer_gmt_base.extend(
                                         cur_episode_length[_gmt_done[_base_mask]][:, 0].cpu().numpy().tolist()
                                     )
+                                    _mix_class = getattr(self, "_frontres_dr_mix_class_train", None)
+                                    if _mix_class is not None and N_base > 0:
+                                        _base_local = _gmt_local[_base_mask] - N_candidate
+                                        _base_local = _base_local.to(device=self.device, dtype=torch.long)
+                                        _valid = (_base_local >= 0) & (_base_local < int(_mix_class.numel()))
+                                        if bool(_valid.any().item()):
+                                            _frontier_mask = _mix_class[_base_local[_valid]] == 1
+                                            if bool(_frontier_mask.any().item()):
+                                                _frontier_done = _gmt_done[_base_mask][_valid][_frontier_mask]
+                                                lenbuffer_gmt_base_frontier.extend(
+                                                    cur_episode_length[_frontier_done][:, 0].cpu().numpy().tolist()
+                                                )
                                 cur_reward_sum_gmt[_gmt_local] = 0
                         elif len(new_ids) > 0:
                             rewbuffer.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
@@ -4953,6 +5094,18 @@ class OnPolicyRunner:
                 if _gmt_confirmed is not None:
                     self.writer.add_scalar("Curriculum/gmt_frontier_confirmed",
                                            float(_gmt_confirmed), locs["it"])
+                _mix_easy = getattr(self, "_frontres_dr_mix_easy_frac", None)
+                _mix_frontier = getattr(self, "_frontres_dr_mix_frontier_frac", None)
+                _mix_hard = getattr(self, "_frontres_dr_mix_hard_frac", None)
+                _mix_mean = getattr(self, "_frontres_dr_mix_mean_scale", None)
+                if _mix_easy is not None:
+                    self.writer.add_scalar("Curriculum/dr_mix_easy_frac", float(_mix_easy), locs["it"])
+                if _mix_frontier is not None:
+                    self.writer.add_scalar("Curriculum/dr_mix_frontier_frac", float(_mix_frontier), locs["it"])
+                if _mix_hard is not None:
+                    self.writer.add_scalar("Curriculum/dr_mix_hard_frac", float(_mix_hard), locs["it"])
+                if _mix_mean is not None:
+                    self.writer.add_scalar("Curriculum/dr_mix_mean_scale", float(_mix_mean), locs["it"])
             if locs.get("frontres_survival_rate") is not None:
                 self.writer.add_scalar("Curriculum/training_survival_rate",
                                        locs["frontres_survival_rate"], locs["it"])
@@ -5077,6 +5230,15 @@ class OnPolicyRunner:
                         _mix_mode = "fixed"
                     log_string += f"""{'DR frontier/mix:':>{pad}} """
                     log_string += f"{_frontier_scale:.4f} / {_mix_mode}\n"
+                    _mix_easy = getattr(self, "_frontres_dr_mix_easy_frac", None)
+                    _mix_frontier = getattr(self, "_frontres_dr_mix_frontier_frac", None)
+                    _mix_hard = getattr(self, "_frontres_dr_mix_hard_frac", None)
+                    if _mix_easy is not None and _mix_frontier is not None and _mix_hard is not None:
+                        log_string += f"""{'DR train mix e/f/h:':>{pad}} """
+                        log_string += f"{float(_mix_easy):.3f} / {float(_mix_frontier):.3f} / {float(_mix_hard):.3f}\n"
+                    _mix_mean = getattr(self, "_frontres_dr_mix_mean_scale", None)
+                    if _mix_mean is not None:
+                        log_string += f"""{'DR train scale mean:':>{pad}} {float(_mix_mean):.4f}\n"""
                     _gmt_score = getattr(self, "_frontres_gmt_frontier_probe_score", None)
                     _gmt_decision = getattr(self, "_frontres_gmt_frontier_decision", None)
                     _gmt_probe = getattr(self, "_frontres_gmt_frontier_probe_scale", None)
@@ -5087,7 +5249,11 @@ class OnPolicyRunner:
                         _score_s = "n/a" if _gmt_score is None else f"{float(_gmt_score):.3f}"
                         _probe_s = "n/a" if _gmt_probe is None else f"{float(_gmt_probe):.4f}"
                         _decision_s = _gmt_decision or "n/a"
-                        log_string += f"next={_probe_s}, score={_score_s}, decision={_decision_s}\n"
+                        _probe_src = getattr(self, "_frontres_gmt_frontier_probe_source", None)
+                        _probe_n = getattr(self, "_frontres_gmt_frontier_probe_samples", None)
+                        _src_s = "" if _probe_src is None else f", src={_probe_src}"
+                        _n_s = "" if _probe_n is None else f", n={int(_probe_n)}"
+                        log_string += f"next={_probe_s}, score={_score_s}, decision={_decision_s}{_src_s}{_n_s}\n"
                     if _gmt_safe is not None:
                         log_string += f"""{'GMT bracket safe/broken:':>{pad}} """
                         _broken_s = "open" if _gmt_broken is None else f"{float(_gmt_broken):.4f}"

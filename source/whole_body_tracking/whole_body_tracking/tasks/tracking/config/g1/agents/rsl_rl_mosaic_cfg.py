@@ -617,6 +617,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_per_mode_supervised_mask = False
     frontres_adaptive_perturb_curriculum_enabled = True
     frontres_mixed_dr_strength_enabled = True
+    frontres_mixed_dr_strength_per_env = True
     frontres_mixed_dr_easy_weight = 0.50
     frontres_mixed_dr_frontier_weight = 0.40
     frontres_mixed_dr_hard_weight = 0.10
@@ -725,6 +726,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_gmt_frontier_broken_threshold = 0.65
     frontres_gmt_frontier_ref_episode_len = 160.0
     frontres_gmt_frontier_growth_factor = 1.12
+    frontres_gmt_frontier_retreat_factor = 0.85
     frontres_gmt_frontier_conservative_frac = 0.0
     # Supervised restore curriculum:
     #   eps_rp = 0.08 * dr_scale

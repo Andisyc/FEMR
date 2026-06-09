@@ -137,8 +137,12 @@ class MotionPerturber:
         self._baseline_mask: torch.Tensor | None = None  # bool [num_envs]
         self._family_masks: dict[str, torch.Tensor] | None = None
 
-        # DR scale (set by runner each iteration, multiplied into IID magnitudes)
+        # DR scale (set by runner each iteration, multiplied into perturbation magnitudes).
+        # `_dr_scale` is the scalar fallback. `_dr_scale_env` enables per-env
+        # easy/frontier/hard strength sampling while preserving paired rollout
+        # comparisons.
         self._dr_scale: float = 0.0
+        self._dr_scale_env: torch.Tensor | None = None
 
     # ── public API ────────────────────────────────────────────────────────────
 
@@ -178,6 +182,33 @@ class MotionPerturber:
                 mask = mask & ~self._baseline_mask
             family_masks[str(key)] = mask
         self._family_masks = family_masks
+
+    def set_dr_scale_env(self, scales: torch.Tensor | None) -> None:
+        """Set optional per-environment DR scales.
+
+        Passing None restores scalar `_dr_scale` behavior. Baseline envs are
+        forced to zero so Clean branches stay unperturbed.
+        """
+        if scales is None:
+            self._dr_scale_env = None
+            return
+        scale = torch.as_tensor(scales, device=self.device, dtype=torch.float32).view(-1)
+        if scale.numel() != self.num_envs:
+            raise ValueError(f"dr scale vector has {scale.numel()} entries, expected {self.num_envs}")
+        scale = scale.clamp(min=0.0).clone()
+        if self._baseline_mask is not None:
+            scale[self._baseline_mask] = 0.0
+        self._dr_scale_env = scale
+
+    def _scale_vector(self, num_envs: int) -> torch.Tensor:
+        if self._dr_scale_env is not None:
+            return self._dr_scale_env[:num_envs].to(self.device, dtype=torch.float32)
+        return torch.full((num_envs,), float(self._dr_scale), device=self.device)
+
+    def _ou_scale_vector(self, num_envs: int) -> torch.Tensor:
+        if self._dr_scale_env is not None:
+            return self._dr_scale_env[:num_envs].to(self.device, dtype=torch.float32)
+        return torch.ones(num_envs, device=self.device)
 
     def _family_mask(self, name: str, num_envs: int | None = None) -> torch.Tensor:
         count = self.num_envs if num_envs is None else int(num_envs)
@@ -292,7 +323,11 @@ class MotionPerturber:
             self._joint_state = torch.zeros(self.num_envs, num_joints, device=self.device)
 
         noise_std = self.cfg.joint_noise_std * math.sqrt(1.0 - self._beta ** 2)
-        self._joint_state = self._beta * self._joint_state + noise_std * torch.randn_like(self._joint_state)
+        scale = self._ou_scale_vector(self.num_envs).view(-1, 1)
+        self._joint_state = (
+            self._beta * self._joint_state
+            + noise_std * scale * torch.randn_like(self._joint_state)
+        )
         if self._baseline_mask is not None:
             self._joint_state[self._baseline_mask] = 0.0
 
@@ -315,7 +350,8 @@ class MotionPerturber:
     ) -> torch.Tensor:
         """Per-env IID step jump: each env gets a jump with probability `prob`.
         Magnitude = std × dr_scale × N(0,1).  Returns (num_envs,) tensor."""
-        if prob <= 0.0 or std <= 0.0 or self._dr_scale <= 0.0:
+        scale = self._scale_vector(num_envs)
+        if prob <= 0.0 or std <= 0.0 or float(scale.max().item()) <= 0.0:
             return torch.zeros(num_envs, device=self.device)
         mask = torch.rand(num_envs, device=self.device) < prob
         if env_mask is not None:
@@ -324,7 +360,7 @@ class MotionPerturber:
             mask = mask & ~self._baseline_mask
         if not mask.any():
             return torch.zeros(num_envs, device=self.device)
-        jump = torch.randn(num_envs, device=self.device) * std * self._dr_scale
+        jump = torch.randn(num_envs, device=self.device) * std * scale.to(torch.float32)
         jump[~mask] = 0.0
         return jump
 
@@ -391,7 +427,8 @@ class MotionPerturber:
         planar_mask = self._family_mask("planar", self.num_envs)
         yaw_mask = self._family_mask("yaw", self.num_envs)
         active_mask = planar_mask | yaw_mask
-        if prob <= 0.0 or (xy_std <= 0.0 and yaw_std <= 0.0) or self._dr_scale <= 0.0:
+        scale = self._scale_vector(self.num_envs)
+        if prob <= 0.0 or (xy_std <= 0.0 and yaw_std <= 0.0) or float(scale.max().item()) <= 0.0:
             self._artifact_steps.zero_()
             self._artifact_xy.zero_()
             self._artifact_yaw.zero_()
@@ -436,13 +473,17 @@ class MotionPerturber:
             xy_start = start & planar_mask
             if xy_start.any():
                 self._artifact_xy[xy_start] = (
-                    torch.randn(int(xy_start.sum().item()), 2, device=self.device) * xy_std * self._dr_scale
+                    torch.randn(int(xy_start.sum().item()), 2, device=self.device)
+                    * xy_std
+                    * scale[xy_start].view(-1, 1)
                 )
         if yaw_std > 0.0:
             yaw_start = start & yaw_mask
             if yaw_start.any():
                 self._artifact_yaw[yaw_start] = (
-                    torch.randn(int(yaw_start.sum().item()), device=self.device) * yaw_std * self._dr_scale
+                    torch.randn(int(yaw_start.sum().item()), device=self.device)
+                    * yaw_std
+                    * scale[yaw_start]
                 )
 
     def _apply_artifact_yaw(self, root_quat: torch.Tensor) -> torch.Tensor:
@@ -471,7 +512,8 @@ class MotionPerturber:
         Baseline envs (set via set_baseline_envs) are always returned as zero,
         regardless of max_magnitude or the previous state.
         """
-        noise_std = max_magnitude * math.sqrt(1.0 - self._beta ** 2)
+        scale = self._ou_scale_vector(state.shape[0]).to(state.dtype)
+        noise_std = max_magnitude * math.sqrt(1.0 - self._beta ** 2) * scale
         new_state = self._beta * state + noise_std * torch.randn_like(state)
         if self._baseline_mask is not None:
             new_state[self._baseline_mask] = 0.0
