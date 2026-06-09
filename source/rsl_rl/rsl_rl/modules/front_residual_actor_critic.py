@@ -57,6 +57,41 @@ class FrontRESTwoHeadActor(nn.Module):
         return torch.cat([self.proposal_head(z), self.acceptance_head(z)], dim=-1)
 
 
+class FrontRESStateRouter(nn.Module):
+    """Auxiliary instability head for Stable Frame routing.
+
+    This head is intentionally not part of the residual action distribution.
+    It predicts current-state risk from the same FrontRES observation stream and
+    is trained by rollout labels in FrontRESUnified.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dims: list[int],
+        activation: nn.Module,
+        init_bias: float = -3.0,
+    ):
+        super().__init__()
+        layers = []
+        prev_dim = input_dim
+        for hidden_dim in hidden_dims:
+            linear = nn.Linear(prev_dim, hidden_dim)
+            nn.init.xavier_uniform_(linear.weight, gain=1.0)
+            nn.init.zeros_(linear.bias)
+            layers.append(linear)
+            layers.append(activation)
+            prev_dim = hidden_dim
+        out = nn.Linear(prev_dim, 1)
+        nn.init.xavier_uniform_(out.weight, gain=0.01)
+        nn.init.constant_(out.bias, float(init_bias))
+        layers.append(out)
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
 class ComposedActor(nn.Module):
     """
     Legacy composed actor for ONNX export: combines frozen GMT + trainable FrontRES.
@@ -400,6 +435,7 @@ class FrontRESActorCritic(nn.Module):
         # path uses one shared network with proposal and acceptance heads.
         _frontres_input_dim = num_frontres_obs if num_frontres_obs > 0 else num_actor_obs
         self.acceptance_actor = None
+        self.state_router_head = None
         if (
             self.num_task_corrections > 0
             and not self.frontres_split_acceptance_head
@@ -437,6 +473,20 @@ class FrontRESActorCritic(nn.Module):
                 f"proposal_input_dim={_frontres_input_dim}, "
                 f"acceptance_input_dim={_acceptance_input_dim} "
                 "(ablation: full current-state obs + detached proposal)"
+            )
+        if self.num_task_corrections > 0:
+            _router_hidden = list(residual_hidden_dims[:2]) if len(residual_hidden_dims) >= 2 else list(residual_hidden_dims)
+            if not _router_hidden:
+                _router_hidden = [128, 64]
+            self.state_router_head = FrontRESStateRouter(
+                input_dim=_frontres_input_dim,
+                hidden_dims=_router_hidden,
+                activation=activation_fn,
+                init_bias=-3.0,
+            )
+            print(
+                "[FrontEndResidualActorCritic] State-router alpha head enabled: "
+                f"input_dim={_frontres_input_dim}, hidden_dims={_router_hidden}, init_alpha≈0.047"
             )
         if num_task_corrections > 0:
             if self.task_conf_dim == 1:
@@ -597,6 +647,17 @@ class FrontRESActorCritic(nn.Module):
         acceptance_input = torch.cat([full_obs, proposal.detach()], dim=-1)
         raw_coeff = self.acceptance_actor(acceptance_input)
         return torch.cat([raw_pos, raw_rpy, raw_coeff], dim=-1)
+
+    def get_state_router_logit(self, observations: torch.Tensor) -> torch.Tensor:
+        """Return unnormalized alpha logit for the auxiliary instability head."""
+        if self.state_router_head is None:
+            return torch.zeros(observations.shape[0], 1, device=observations.device, dtype=observations.dtype)
+        policy_obs, _, _ = self._parse_observations(observations)
+        return self.state_router_head(policy_obs)
+
+    def get_state_router_alpha(self, observations: torch.Tensor) -> torch.Tensor:
+        """Return alpha=P(current state needs Stable Frame route)."""
+        return torch.sigmoid(self.get_state_router_logit(observations))
 
     def _infer_gmt_architecture(self, state_dict, activation):
         """Infer GMT policy architecture from checkpoint state_dict"""

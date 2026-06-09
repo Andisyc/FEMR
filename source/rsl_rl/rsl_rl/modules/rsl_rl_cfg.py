@@ -332,6 +332,16 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Optional |advantage| focal exponent for actor surrogate. 0.0 gives standard PPO."""
     frontres_training_objective: str = "ppo_hrl"
     """FrontRES update objective: 'ppo_hrl' keeps PPO+supervised, 'supervised_restore' uses only supervised restoration."""
+    frontres_acceptance_preference_weight: float = 0.0
+    """Weight for rollout-preference supervision on hsl_hybrid acceptance coefficients."""
+    frontres_acceptance_preference_focal_gamma: float = 0.0
+    """Focal exponent for acceptance preference BCE; 0.0 gives plain BCE."""
+    frontres_acceptance_preference_balance_min: float = 1.0
+    """Lower clamp for minibatch class-balancing weights in acceptance preference loss."""
+    frontres_acceptance_preference_balance_max: float = 1.0
+    """Upper clamp for minibatch class-balancing weights in acceptance preference loss."""
+    frontres_state_alpha_weight: float = 0.0
+    """Weight for auxiliary State Router alpha BCE from Noisy/GMT rollout labels."""
     frontres_exec_reward_signal: str = "gain"
     """Executable reward signal: gain, ratio, or family_preference."""
     frontres_selective_reward_enabled: bool = True

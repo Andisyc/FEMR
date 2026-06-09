@@ -624,6 +624,15 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_mixed_dr_frontier_factor = 1.00
     frontres_mixed_dr_hard_factor = 1.05
     frontres_stable_route_enabled = True
+    # Stable Frame is now driven by the state-router alpha head, not by
+    # Candidate-vs-Clean floor diagnostics.  Candidate floor is still logged as
+    # evidence but does not own route selection.
+    frontres_state_alpha_enabled = True
+    frontres_state_alpha_route_enabled = True
+    frontres_state_alpha_route_threshold = 0.70
+    frontres_state_alpha_route_min_iteration = 0
+    frontres_state_alpha_exec_floor = 0.0
+    frontres_state_alpha_safe_exec_floor = 0.05
     frontres_stable_route_repair_gate_threshold = 0.25
     frontres_stable_route_broken_gate_max = 0.70
     frontres_warmup_energy_loss_weight = 1.0
@@ -709,6 +718,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_boundary_broken_high  = 0.35
     frontres_boundary_positive_gain_low = 0.45
     frontres_boundary_positive_gain_high = 0.55
+    # GMT-only frontier probe.  This estimates the frozen GMT capability
+    # boundary from baseline episode length, then trains FrontRES around it.
+    frontres_gmt_frontier_probe_enabled = True
+    frontres_gmt_frontier_safe_threshold = 0.85
+    frontres_gmt_frontier_broken_threshold = 0.65
+    frontres_gmt_frontier_ref_episode_len = 160.0
+    frontres_gmt_frontier_growth_factor = 1.12
+    frontres_gmt_frontier_conservative_frac = 0.0
     # Supervised restore curriculum:
     #   eps_rp = 0.08 * dr_scale
     #   1.25 -> 4.375 means RobotBridge rp eps 0.10 -> 0.35.
@@ -855,6 +872,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_acceptance_preference_focal_gamma = 1.0,
         frontres_acceptance_preference_balance_min = 0.5,
         frontres_acceptance_preference_balance_max = 3.0,
+        frontres_state_alpha_weight      = 0.20,
         lambda_supervised             = 1.0,   # initial weight
         lambda_supervised_min         = 0.20,  # HSL remains an anchor while PPO explores repair strength
         lambda_supervised_decay       = 0.995, # HSL direction anchor can decay once rollout advantage is useful

@@ -78,6 +78,7 @@ class FrontRESUnified:
         frontres_acceptance_preference_focal_gamma: float = 0.0,
         frontres_acceptance_preference_balance_min: float = 1.0,
         frontres_acceptance_preference_balance_max: float = 1.0,
+        frontres_state_alpha_weight: float = 0.0,
         diagnose_gradient_conflict: bool = True,
         hybrid: bool = True,
         use_ppo: bool = True,
@@ -179,6 +180,7 @@ class FrontRESUnified:
         _balance_max = max(_balance_min, float(frontres_acceptance_preference_balance_max))
         self.frontres_acceptance_preference_balance_min = _balance_min
         self.frontres_acceptance_preference_balance_max = _balance_max
+        self.frontres_state_alpha_weight = max(0.0, float(frontres_state_alpha_weight))
         self.diagnose_gradient_conflict = bool(diagnose_gradient_conflict)
         self.ppo_actor_weight = 1.0
         self._supervised_decay_triggered = False
@@ -241,6 +243,10 @@ class FrontRESUnified:
             has_split_acceptance = acceptance_actor is not None
             if has_split_acceptance:
                 params.extend(acceptance_actor.parameters())
+            state_router_head = getattr(policy, "state_router_head", None)
+            has_state_router = state_router_head is not None
+            if has_state_router:
+                params.extend(state_router_head.parameters())
             params.extend(policy.critic.parameters())
             has_trainable_std = False
             if hasattr(policy, "std") and getattr(policy.std, "requires_grad", False):
@@ -250,7 +256,12 @@ class FrontRESUnified:
                 params.append(policy.log_std)
                 has_trainable_std = True
             suffix = " + policy std" if has_trainable_std else " (fixed policy std)"
-            actor_desc = "residual_actor + acceptance_actor" if has_split_acceptance else "residual_actor"
+            actor_parts = ["residual_actor"]
+            if has_split_acceptance:
+                actor_parts.append("acceptance_actor")
+            if has_state_router:
+                actor_parts.append("state_router_head")
+            actor_desc = " + ".join(actor_parts)
             print(f"[FrontRESUnified] Optimizer updates {actor_desc} + critic{suffix}")
             return params
         print("[FrontRESUnified] Optimizer updates full policy")
@@ -423,6 +434,8 @@ class FrontRESUnified:
         mean_supervised_metrics: dict[str, float] = {}
         mean_acceptance_preference_loss = 0.0
         mean_acceptance_preference_metrics: dict[str, float] = {}
+        mean_state_alpha_loss = 0.0
+        mean_state_alpha_metrics: dict[str, float] = {}
         grad_conflict_cos = 0.0
         grad_conflict_norm_ratio = 0.0
         grad_conflict_count = 0
@@ -460,8 +473,10 @@ class FrontRESUnified:
                 supervised_harm_weight_batch,
                 acceptance_target_batch,
                 acceptance_mask_batch,
-            ) = batch[:24]
-            batch_indices = batch[24] if len(batch) > 24 else None
+                state_alpha_target_batch,
+                state_alpha_mask_batch,
+            ) = batch[:26]
+            batch_indices = batch[26] if len(batch) > 26 else None
             original_batch_size = obs_batch.shape[0]
             if self.normalize_advantage_per_mini_batch:
                 with torch.no_grad():
@@ -505,6 +520,12 @@ class FrontRESUnified:
                 acceptance_mask_batch,
                 original_batch_size,
             )
+            state_alpha_loss, state_alpha_metrics = self._compute_state_alpha_loss(
+                obs_batch_augmented,
+                state_alpha_target_batch,
+                state_alpha_mask_batch,
+                original_batch_size,
+            )
 
             if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
                 loss = supervised_loss
@@ -538,6 +559,7 @@ class FrontRESUnified:
                     - self.entropy_coef * entropy_batch.mean()
                     + self.lambda_supervised * supervised_loss
                     + self.frontres_acceptance_preference_weight * acceptance_preference_loss
+                    + self.frontres_state_alpha_weight * state_alpha_loss
                 )
 
             self.optimizer.zero_grad()
@@ -587,6 +609,9 @@ class FrontRESUnified:
                 mean_acceptance_preference_metrics[key] = (
                     mean_acceptance_preference_metrics.get(key, 0.0) + float(value)
                 )
+            mean_state_alpha_loss += state_alpha_loss.item()
+            for key, value in state_alpha_metrics.items():
+                mean_state_alpha_metrics[key] = mean_state_alpha_metrics.get(key, 0.0) + float(value)
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
@@ -600,6 +625,10 @@ class FrontRESUnified:
         mean_acceptance_preference_loss /= num_updates
         mean_acceptance_preference_metrics = {
             key: value / num_updates for key, value in mean_acceptance_preference_metrics.items()
+        }
+        mean_state_alpha_loss /= num_updates
+        mean_state_alpha_metrics = {
+            key: value / num_updates for key, value in mean_state_alpha_metrics.items()
         }
         if grad_conflict_count > 0:
             grad_conflict_cos /= grad_conflict_count
@@ -640,12 +669,15 @@ class FrontRESUnified:
             "lambda_supervised": self.lambda_supervised,
             "acceptance_preference_loss": mean_acceptance_preference_loss,
             "lambda_acceptance_preference": self.frontres_acceptance_preference_weight,
+            "state_alpha_loss": mean_state_alpha_loss,
+            "lambda_state_alpha": self.frontres_state_alpha_weight,
             "ppo_actor_weight": float(getattr(self, "ppo_actor_weight", 1.0)),
             "grad_cos_ppo_supervised": grad_conflict_cos,
             "grad_norm_ratio_ppo_to_supervised": grad_conflict_norm_ratio,
         }
         loss_dict.update(mean_supervised_metrics)
         loss_dict.update(mean_acceptance_preference_metrics)
+        loss_dict.update(mean_state_alpha_metrics)
         loss_dict.update({f"grad_{key}": value for key, value in mean_grad_diag.items()})
         if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
             loss_dict["ppo_actor_weight"] = 0.0
@@ -1085,6 +1117,59 @@ class FrontRESUnified:
                 metrics["acceptance_preference_corr"] = float(
                     (rho_centered * target_centered).sum().div(corr_denom).detach().item()
                 )
+        return loss, metrics
+
+    def _compute_state_alpha_loss(
+        self,
+        obs_batch,
+        state_alpha_target_batch,
+        state_alpha_mask_batch,
+        original_batch_size,
+    ):
+        zero = obs_batch[:original_batch_size].sum() * 0.0
+        metrics = {
+            "state_alpha_mask_frac": 0.0,
+            "state_alpha_target_mean": 0.0,
+            "state_alpha_pred_mean": 0.0,
+            "state_alpha_abs_err": 0.0,
+            "state_alpha_acc": 0.0,
+        }
+        if (
+            self.frontres_state_alpha_weight <= 0.0
+            or state_alpha_target_batch is None
+            or state_alpha_mask_batch is None
+            or not hasattr(self.policy, "get_state_router_logit")
+        ):
+            return zero, metrics
+
+        target = state_alpha_target_batch[:original_batch_size, :1].to(
+            device=self.device, dtype=obs_batch.dtype
+        ).detach()
+        mask = state_alpha_mask_batch[:original_batch_size, :1].to(
+            device=self.device, dtype=obs_batch.dtype
+        ).detach()
+        target = torch.nan_to_num(target, nan=0.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
+        mask = torch.nan_to_num(mask, nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
+        denom = mask.sum()
+        if float(denom.detach().item()) <= 1e-6:
+            return zero, metrics
+
+        logits = self.policy.get_state_router_logit(obs_batch[:original_batch_size])
+        loss_terms = nn.functional.binary_cross_entropy_with_logits(
+            logits,
+            target,
+            reduction="none",
+        )
+        loss = (loss_terms * mask).sum() / denom.clamp(min=1e-6)
+        pred = torch.sigmoid(logits.detach())
+        active = mask > 0
+        pred_active = pred[active]
+        target_active = target[active]
+        metrics["state_alpha_mask_frac"] = float(mask.mean().detach().item())
+        metrics["state_alpha_target_mean"] = float(target_active.mean().detach().item())
+        metrics["state_alpha_pred_mean"] = float(pred_active.mean().detach().item())
+        metrics["state_alpha_abs_err"] = float((pred_active - target_active).abs().mean().detach().item())
+        metrics["state_alpha_acc"] = float(((pred_active >= 0.5) == (target_active >= 0.5)).float().mean().detach().item())
         return loss, metrics
 
     def _compute_supervised_loss(

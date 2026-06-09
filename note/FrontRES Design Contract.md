@@ -110,6 +110,49 @@ The old `conf_pos` and `conf_rpy` interface is kept only for legacy objectives
 and ablations.  In the active branch the last six outputs should be described
 as dynamics-aware acceptance, not as confidence.
 
+### State Router Alpha
+
+The active action interface remains twelve-dimensional.  A new scalar
+\(\alpha_t\) may be added as a non-action auxiliary head inside the same
+FrontRES policy:
+
+\[
+\alpha_t =
+P(\text{the current state under the Noisy/GMT continuation is leaving the
+executable floor} \mid o_t).
+\]
+
+\(\alpha_t\) is not another acceptance coefficient and must not be trained from
+Candidate-vs-Noisy comparison.  It answers a different question before sample
+selection happens: "is the current state already unstable enough that the
+clean-oriented route should be bypassed and the Stable Frame route should be
+used?"  Therefore the route order is:
+
+\[
+\text{State Router } \alpha_t
+\rightarrow
+\begin{cases}
+\text{Stable Frame route}, & \alpha_t \text{ high},\\
+\text{Clean-oriented HSL/HRL route}, & \alpha_t \text{ low}.
+\end{cases}
+\]
+
+The first training target for \(\alpha_t\) follows the SafeFall-style
+safe/ambiguous/falling split:
+
+- **falling / unstable**: the paired Noisy/GMT baseline branch terminates before
+  timeout or its executable score drops below the floor.  Train
+  \(\alpha_t \rightarrow 1\).
+- **safe**: the paired Noisy/GMT baseline survives and remains above the floor.
+  Train \(\alpha_t \rightarrow 0\).
+- **ambiguous**: near-threshold states or timeout-only resets.  Mask them out of
+  the \(\alpha\) loss.
+
+This keeps the alpha gradient source clean.  Noisy/GMT is used as evidence for
+current-state recoverability, not as a desired reference route.  Candidate,
+Projected, and Clean still belong to sample selection, acceptance learning, and
+reward ordering.
+
 ## Forbidden Freedoms
 
 - Do not let PPO update the \(\Delta SE(3)\) proposal direction in
@@ -129,6 +172,9 @@ as dynamics-aware acceptance, not as confidence.
   experiment shows that the simpler shared-network/two-head design cannot keep
   proposal and acceptance gradients separated.  A split acceptance MLP is an
   optional boundary-protection ablation, not the primary architecture.
+- Do not implement \(\alpha_t\) by changing the environment action dimension.
+  It is an auxiliary state-router head trained by supervised rollout labels and
+  used by the runner to choose Stable Frame vs HSL/HRL route.
 
 ## Repair Regime Boundary
 
@@ -1110,3 +1156,171 @@ acceptance-only.
 - Inspect whether old concepts remain in comments, log labels, or variable
   names in a way that can mislead future debugging.
 - Explicitly report whether the training command changes.
+
+## 2026-06-09 GMT Frontier Search And HRL Signal Decoupling
+
+### Design Delta
+
+The next change separates two concepts that were previously entangled:
+
+1. GMT capability frontier discovery.
+2. HRL acceptance/noop learning, which remains discussion-only in this edit.
+
+The GMT frontier is a property of the frozen tracker under corrupted references.
+It must be estimated from GMT-only evidence, not from FrontRES, HSL, HRL, or a
+stable-route fallback.  The HRL acceptance branch then trains near this frontier,
+where samples are neither trivially safe nor already unrecoverable.
+
+Current implementation scope: execute GMT frontier search only.  The HRL branch
+analysis below is a design contract for discussion, not a live code change in
+this edit.
+
+The HRL branch currently has one live learnable authority: the per-axis
+acceptance \(\rho_t\).  It can express:
+
+\[
+\Delta g_t^{\mathrm{written}}
+=
+\rho_t \odot \Delta g_t^{\mathrm{HSL}},
+\]
+
+but it cannot create a new route.  Therefore the first implementation should not
+pretend that HRL has a separate route-selection action unless a new output head
+is explicitly added.  In the resume-compatible branch, stable route remains an
+external non-credit fallback and a diagnostic.  The learnable change is to give
+\(\rho_t\) a clean no-op / partial-write / full-write target from rollout
+ordering.
+
+### GMT Frontier Search Contract
+
+The objective is to estimate the largest perturbation scale that GMT can still
+execute:
+
+\[
+s^\star
+=
+\max s
+\quad
+\text{s.t.}
+\quad
+\mathrm{Exec}_{\mathrm{GMT}}(s) \ge \tau.
+\]
+
+Here \(\mathrm{Exec}_{\mathrm{GMT}}\) should be computed from the Noisy/GMT
+baseline rollout only.  A practical score is the normalized episode length or
+survival rate of the baseline environments:
+
+\[
+\mathrm{Exec}_{\mathrm{GMT}}(s)
+=
+\frac{\mathrm{ep\_len}_{\mathrm{GMT}}(s)}
+       {\mathrm{ep\_len}_{\mathrm{ref}}},
+\]
+
+where \(\mathrm{ep\_len}_{\mathrm{ref}}\) is a robust running reference such as
+the configured episode length, clean/low-DR episode length, or a moving maximum
+from recent baseline rollouts.
+
+Because the observed boundary is sharp near \(dr\_scale \approx 2.381\), the
+frontier controller should behave like bracketed search rather than a slow
+reward PI controller:
+
+- maintain `safe_low`, the largest scale currently judged executable;
+- maintain `broken_high`, the smallest scale currently judged broken;
+- probe the current scale;
+- if GMT score is above the safe threshold, move `safe_low` up;
+- if GMT score is below the broken threshold, move `broken_high` down;
+- set the training frontier to `safe_low` or a conservative point inside the
+  bracket.
+
+For training, the frontier can be surrounded by strength classes:
+
+\[
+s_{\mathrm{easy}} = f_e s_f,\qquad
+s_{\mathrm{frontier}} = s_f,\qquad
+s_{\mathrm{hard}} = f_h s_f,
+\]
+
+but diagnostics must distinguish target mixture from realized behavior.  A
+single per-iteration label is not enough.  The log must expose:
+
+- current `safe_low`, `broken_high`, and `frontier`;
+- probe scale, GMT executable score, and controller decision;
+- easy/frontier/hard scales;
+- target and realized strength proportions when batch-level mixing is active.
+
+### HRL Reward/Preference Contract
+
+Reward design is treated as rollout sorting under a physical rule:
+
+> In the same current state, the better route is the one that makes frozen GMT
+> more executable and less likely to fall.
+
+This gives the clean ranking variables:
+
+\[
+J_0 = \mathrm{Exec}(\mathrm{Noisy}) - \mathrm{Exec}(\mathrm{Noisy}) = 0,
+\]
+
+\[
+J_\rho = \mathrm{Exec}(\mathrm{Projected}) - \mathrm{Exec}(\mathrm{Noisy}),
+\]
+
+\[
+J_1 = \mathrm{Exec}(\mathrm{Candidate}) - \mathrm{Exec}(\mathrm{Noisy}).
+\]
+
+The acceptance head should learn from this ordering only when the ordering is
+clean.  No-op is not an afterthought; it is one of FEMR's required behaviors.
+Therefore safe samples and deeply broken samples must be allowed to produce a
+clear no-op target for \(\rho_t\), while repairable samples may produce
+partial/full-write targets.  Ambiguous samples should be masked out.
+
+The live resume-compatible branch should use:
+
+- safe or broken samples: target \(\rho_t \rightarrow 0\) when no route has a
+  reliable positive gain;
+- repairable samples: compare \(J_0,J_\rho,J_1\) and train toward the winning
+  write strength;
+- candidate floor failure: do not create a false full-write target from
+  Candidate.  Stable route may be applied as a non-credit fallback, but the
+  acceptance loss should not reward \(\rho_t\) for an external oracle route.
+
+This separates the learnable authority:
+
+- HSL learns the clean-oriented geometric proposal
+  \(\Delta g_t^{\mathrm{HSL}}\);
+- HRL learns no-op / partial-write / full-write through \(\rho_t\);
+- stable route remains an external route fallback until a route-selection head
+  is explicitly added.
+
+### Current Implementation Scope
+
+This edit executes only the GMT frontier-search part.  It should remain
+checkpoint-compatible:
+
+- do not change the actor output dimension;
+- add frontier-search state and diagnostics in the runner;
+- compute the frontier score from Noisy/GMT baseline episode length only;
+- print a sentinel that proves the live path:
+
+```text
+GMT frontier probe: scale=..., score=..., decision=..., bracket=safe/broken
+DR train mix scales e/f/h: ...
+```
+
+### Deferred HRL Discussion Items
+
+The following points are conceptual only in this edit and should not be treated
+as implemented:
+
+- whether safe/broken samples should produce explicit no-op targets for
+  \(\rho_t\) or be separated by a route/mode variable;
+- whether Candidate floor failure should mask acceptance learning, create a
+  no-op target, or trigger an external stable fallback;
+- whether \(\rho_t\)-only HRL is expressive enough, or an explicit route head is
+  needed later.
+
+If a later experiment adds explicit route selection, it must be a new guarded
+branch with storage/loss/runtime diagnostics for the route action.  It should
+not be silently mixed into the current \(\rho_t\)-only HRL branch.

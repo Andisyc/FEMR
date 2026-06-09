@@ -311,6 +311,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Lower clamp for minibatch class-balancing weights in acceptance preference loss."""
     frontres_acceptance_preference_balance_max: float = 1.0
     """Upper clamp for minibatch class-balancing weights in acceptance preference loss."""
+    frontres_state_alpha_weight: float = 0.0
+    """Weight for auxiliary State Router alpha BCE from Noisy/GMT rollout labels."""
     frontres_active_task_dims: list[int] | None = None
     """Optional supervised-loss mask for task-space FrontRES correction dims."""
     diagnose_gradient_conflict: bool = True

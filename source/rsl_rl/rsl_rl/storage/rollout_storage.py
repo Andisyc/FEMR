@@ -49,6 +49,10 @@ class RolloutStorage:
             # detached labels from quartet rollout ordering, not deployment inputs.
             self.acceptance_target = None
             self.acceptance_mask = None
+            # Auxiliary State Router alpha: labels from paired Noisy/GMT
+            # continuation.  This is not an action dimension.
+            self.state_alpha_target = None
+            self.state_alpha_mask = None
 
         def clear(self):
             self.__init__()
@@ -150,6 +154,8 @@ class RolloutStorage:
             self.supervised_harm_weight = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
             self.acceptance_target = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
             self.acceptance_mask = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
+            self.state_alpha_target = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            self.state_alpha_mask = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
 
         # For RNN networks
         self.saved_hidden_states_a = None
@@ -220,6 +226,10 @@ class RolloutStorage:
                 self.acceptance_target[self.step].copy_(transition.acceptance_target)
             if hasattr(transition, 'acceptance_mask') and transition.acceptance_mask is not None:
                 self.acceptance_mask[self.step].copy_(transition.acceptance_mask)
+            if hasattr(transition, 'state_alpha_target') and transition.state_alpha_target is not None:
+                self.state_alpha_target[self.step].copy_(transition.state_alpha_target)
+            if hasattr(transition, 'state_alpha_mask') and transition.state_alpha_mask is not None:
+                self.state_alpha_mask[self.step].copy_(transition.state_alpha_mask)
 
         # For RND
         if self.rnd_state_shape is not None:
@@ -347,6 +357,8 @@ class RolloutStorage:
             supervised_harm_weight = self.supervised_harm_weight.flatten(0, 1)
             acceptance_target = self.acceptance_target.flatten(0, 1)
             acceptance_mask = self.acceptance_mask.flatten(0, 1)
+            state_alpha_target = self.state_alpha_target.flatten(0, 1)
+            state_alpha_mask = self.state_alpha_mask.flatten(0, 1)
             # For velocity estimator
             if self.ref_vel_estimator_observations is not None:
                 ref_vel_estimator_observations = self.ref_vel_estimator_observations.flatten(0, 1)
@@ -398,6 +410,8 @@ class RolloutStorage:
                     supervised_harm_weight_batch = supervised_harm_weight[batch_idx]
                     acceptance_target_batch = acceptance_target[batch_idx]
                     acceptance_mask_batch = acceptance_mask[batch_idx]
+                    state_alpha_target_batch = state_alpha_target[batch_idx]
+                    state_alpha_mask_batch = state_alpha_mask[batch_idx]
                     # For velocity estimator
                     if ref_vel_estimator_observations is not None:
                         ref_vel_estimator_obs_batch = ref_vel_estimator_observations[batch_idx]
@@ -416,6 +430,8 @@ class RolloutStorage:
                     supervised_harm_weight_batch = None
                     acceptance_target_batch = None
                     acceptance_mask_batch = None
+                    state_alpha_target_batch = None
+                    state_alpha_mask_batch = None
 
                 # yield the mini-batch
                 if self.training_type == "frontres":
@@ -429,6 +445,7 @@ class RolloutStorage:
                         ref_vel_estimator_obs_batch, motion_groups_batch, frontres_mask_batch,
                         supervised_target_batch, frontres_actor_gate_batch, supervised_weight_batch,
                         supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch,
+                        state_alpha_target_batch, state_alpha_mask_batch,
                     )
                     if getattr(self, "yield_batch_indices", False):
                         frontres_batch = frontres_batch + (batch_idx,)
@@ -536,6 +553,8 @@ class RolloutStorage:
                         supervised_harm_weight_batch = self.supervised_harm_weight[:, start:stop]
                         acceptance_target_batch = self.acceptance_target[:, start:stop]
                         acceptance_mask_batch = self.acceptance_mask[:, start:stop]
+                        state_alpha_target_batch = self.state_alpha_target[:, start:stop]
+                        state_alpha_mask_batch = self.state_alpha_mask[:, start:stop]
                     else:
                         ref_vel_estimator_obs_batch = None
                         frontres_mask_batch = None
@@ -545,11 +564,13 @@ class RolloutStorage:
                         supervised_harm_weight_batch = None
                         acceptance_target_batch = None
                         acceptance_mask_batch = None
+                        state_alpha_target_batch = None
+                        state_alpha_mask_batch = None
                     if self.training_type == "frontres":
                         yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                             hid_a_batch,
                             hid_c_batch,
-                        ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch, frontres_actor_gate_batch, supervised_weight_batch, supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch
+                        ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch, frontres_actor_gate_batch, supervised_weight_batch, supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch, state_alpha_target_batch, state_alpha_mask_batch
                     else:
                         yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                             hid_a_batch,

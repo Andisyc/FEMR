@@ -1235,6 +1235,7 @@ class OnPolicyRunner:
         # B1: separate GMT baseline reward buffer (only populated when _is_frontres)
         rewbuffer_gmt    = deque(maxlen=100)  # GMT-only envs: raw GMT reward per episode
         lenbuffer_gmt    = deque(maxlen=100)  # GMT-only envs: episode lengths (key diagnostic)
+        lenbuffer_gmt_base = deque(maxlen=100)  # Noisy/GMT baseline only; used for frontier search
 
         # self.env.num_envs: 仿真中同时运行的机器人数量
         # cur_reward_sum & cur_episode_length: 每个机器人的总得分与存活时间
@@ -1487,6 +1488,28 @@ class OnPolicyRunner:
         _dr_scale     = float(getattr(self, '_dr_scale', _dr_scale_init))
         _dr_scale     = max(_dr_scale, _dr_scale_init)  # enforce floor on resume
         _r_delta_ema  = 0.1  # optimistic: push DR up from dr_init=1.0
+        if _is_frontres:
+            _frontres_gmt_frontier_safe_low = float(
+                getattr(self, "_frontres_gmt_frontier_safe_low", _dr_scale_init)
+            )
+            _frontres_gmt_frontier_safe_low = max(_dr_min, min(_dr_max, _frontres_gmt_frontier_safe_low))
+            self._frontres_gmt_frontier_safe_low = _frontres_gmt_frontier_safe_low
+            _frontres_gmt_frontier_broken_high = getattr(self, "_frontres_gmt_frontier_broken_high", None)
+            if _frontres_gmt_frontier_broken_high is not None:
+                _frontres_gmt_frontier_broken_high = max(
+                    _frontres_gmt_frontier_safe_low,
+                    min(_dr_max, float(_frontres_gmt_frontier_broken_high)),
+                )
+            self._frontres_gmt_frontier_broken_high = _frontres_gmt_frontier_broken_high
+            self._frontres_gmt_frontier_probe_score = getattr(
+                self, "_frontres_gmt_frontier_probe_score", None
+            )
+            self._frontres_gmt_frontier_decision = getattr(
+                self, "_frontres_gmt_frontier_decision", "init"
+            )
+            self._frontres_gmt_frontier_probe_scale = float(
+                getattr(self, "_frontres_gmt_frontier_probe_scale", _frontres_gmt_frontier_safe_low)
+            )
 
         # Read base perturbation values from env config (scaled by dr_scale each iteration).
         # Only ratio/magnitude fields are scaled; prob fields remain constant.
@@ -2581,6 +2604,11 @@ class OnPolicyRunner:
                     _repair = float(_ema.get("repair", _ema.get("fragile", 0.0)))
                     _broken = float(_ema.get("broken", 0.0))
                     _gainpos = float(_ema.get("positive_gain", 0.5))
+                    _gmt_frontier_enabled = bool(
+                        self.cfg.get("frontres_gmt_frontier_probe_enabled", True)
+                    )
+                    _gmt_frontier_decision = "disabled"
+                    _gmt_frontier_score = getattr(self, "_frontres_gmt_frontier_probe_score", None)
 
                     _safe_hi = float(self.cfg.get("frontres_boundary_safe_high", 0.45))
                     _broken_hi = float(self.cfg.get("frontres_boundary_broken_high", 0.35))
@@ -2597,21 +2625,99 @@ class OnPolicyRunner:
                     _gain_lo = float(self.cfg.get("frontres_boundary_positive_gain_low", 0.45))
                     _step = float(self.cfg.get("frontres_boundary_dr_step", 0.03))
 
-                    # Multiplicative controller.  Broken samples dominate because
-                    # they pollute the actor with unrepairable targets.  Safe-heavy
-                    # batches are too easy.  Fragile + positive gain means the
-                    # current boundary is learnable and can be nudged outward.
-                    _factor = 1.0
-                    if _broken > _broken_hi:
-                        _factor = 1.0 - _step * min(3.0, 1.0 + (_broken - _broken_hi) / max(1.0 - _broken_hi, 1e-6))
-                    elif _safe > _safe_hi and _broken < _broken_target:
-                        _factor = 1.0 + _step
-                    elif (_repair_lo <= _repair <= _repair_hi) and _gainpos > _gain_hi and _broken < _broken_hi:
-                        _factor = 1.0 + 0.5 * _step
-                    elif _gainpos < _gain_lo and _broken > _broken_target:
-                        _factor = 1.0 - 0.5 * _step
-                    _factor = max(0.80, min(1.10, _factor))
-                    _dr_scale = max(_dr_min, min(_dr_max, _dr_scale * _factor))
+                    if _gmt_frontier_enabled:
+                        _probe_scale = float(
+                            getattr(self, "_frontres_gmt_frontier_probe_scale", _dr_scale)
+                        )
+                        _probe_scale = max(_dr_min, min(_dr_max, _probe_scale))
+                        _safe_low = float(
+                            getattr(self, "_frontres_gmt_frontier_safe_low", _dr_scale_init)
+                        )
+                        _safe_low = max(_dr_min, min(_dr_max, _safe_low))
+                        _broken_high = getattr(self, "_frontres_gmt_frontier_broken_high", None)
+                        _score_ref = max(
+                            1e-6,
+                            float(self.cfg.get("frontres_gmt_frontier_ref_episode_len", 0.0) or 0.0),
+                        )
+                        if _score_ref <= 1e-6:
+                            _score_ref = max(1e-6, float(getattr(self, "max_episode_length", 1.0)))
+                        if len(lenbuffer_gmt_base) > 0:
+                            _gmt_ep_len = float(statistics.mean(lenbuffer_gmt_base))
+                            _gmt_frontier_score = max(0.0, min(1.5, _gmt_ep_len / _score_ref))
+                            _safe_thr = float(
+                                self.cfg.get("frontres_gmt_frontier_safe_threshold", 0.85)
+                            )
+                            _broken_thr = float(
+                                self.cfg.get("frontres_gmt_frontier_broken_threshold", 0.65)
+                            )
+                            _growth = max(
+                                1.001,
+                                float(self.cfg.get("frontres_gmt_frontier_growth_factor", 1.12)),
+                            )
+                            if _gmt_frontier_score >= _safe_thr:
+                                _safe_low = max(_safe_low, _probe_scale)
+                                _gmt_frontier_decision = "safe"
+                                if _broken_high is None:
+                                    _next_probe = min(_dr_max, max(_probe_scale * _growth, _safe_low + 1e-6))
+                                else:
+                                    _next_probe = 0.5 * (_safe_low + float(_broken_high))
+                            elif _gmt_frontier_score <= _broken_thr:
+                                _broken_high = (
+                                    _probe_scale
+                                    if _broken_high is None
+                                    else min(float(_broken_high), _probe_scale)
+                                )
+                                _gmt_frontier_decision = "broken"
+                                _next_probe = 0.5 * (_safe_low + float(_broken_high))
+                            else:
+                                _gmt_frontier_decision = "frontier"
+                                if _broken_high is None:
+                                    _broken_high = min(_dr_max, max(_probe_scale * _growth, _probe_scale + 1e-6))
+                                _next_probe = _probe_scale
+                            _safe_low = max(_dr_min, min(_dr_max, _safe_low))
+                            if _broken_high is not None:
+                                _broken_high = max(_safe_low, min(_dr_max, float(_broken_high)))
+                            _conservative = max(
+                                0.0,
+                                min(1.0, float(self.cfg.get("frontres_gmt_frontier_conservative_frac", 0.0))),
+                            )
+                            if _broken_high is not None:
+                                _frontier = _safe_low + _conservative * (float(_broken_high) - _safe_low)
+                            else:
+                                _frontier = _safe_low
+                            self._frontres_gmt_frontier_safe_low = _safe_low
+                            self._frontres_gmt_frontier_broken_high = _broken_high
+                            self._frontres_gmt_frontier_confirmed = max(_dr_min, min(_dr_max, _frontier))
+                            self._frontres_gmt_frontier_probe_scale = max(_dr_min, min(_dr_max, _next_probe))
+                            # The next rollout uses the probe scale.  The confirmed
+                            # safe frontier is logged separately so we can see the
+                            # bracket converge instead of mistaking a probe for a
+                            # validated boundary.
+                            _dr_scale = self._frontres_gmt_frontier_probe_scale
+                        else:
+                            _gmt_frontier_decision = "waiting"
+                            self._frontres_gmt_frontier_probe_scale = _probe_scale
+                            self._frontres_gmt_frontier_confirmed = float(
+                                getattr(self, "_frontres_gmt_frontier_confirmed", _dr_scale)
+                            )
+                        self._frontres_gmt_frontier_probe_score = _gmt_frontier_score
+                        self._frontres_gmt_frontier_decision = _gmt_frontier_decision
+                    else:
+                        # Multiplicative controller.  Broken samples dominate because
+                        # they pollute the actor with unrepairable targets.  Safe-heavy
+                        # batches are too easy.  Fragile + positive gain means the
+                        # current boundary is learnable and can be nudged outward.
+                        _factor = 1.0
+                        if _broken > _broken_hi:
+                            _factor = 1.0 - _step * min(3.0, 1.0 + (_broken - _broken_hi) / max(1.0 - _broken_hi, 1e-6))
+                        elif _safe > _safe_hi and _broken < _broken_target:
+                            _factor = 1.0 + _step
+                        elif (_repair_lo <= _repair <= _repair_hi) and _gainpos > _gain_hi and _broken < _broken_hi:
+                            _factor = 1.0 + 0.5 * _step
+                        elif _gainpos < _gain_lo and _broken > _broken_target:
+                            _factor = 1.0 - 0.5 * _step
+                        _factor = max(0.80, min(1.10, _factor))
+                        _dr_scale = max(_dr_min, min(_dr_max, _dr_scale * _factor))
                 else:
                     if getattr(self, '_dr_hold_just_ended', False):
                         _dr_scale = _dr_scale_init
@@ -2722,6 +2828,10 @@ class OnPolicyRunner:
             _frontres_candidate_floor_margin_sum: float = 0.0
             _frontres_candidate_floor_pass_sum: float = 0.0
             _frontres_stable_route_frac_sum: float = 0.0
+            _frontres_state_alpha_pred_sum: float = 0.0
+            _frontres_state_alpha_target_sum: float = 0.0
+            _frontres_state_alpha_mask_sum: float = 0.0
+            _frontres_state_alpha_route_sum: float = 0.0
             _frontres_actor_gate_sum:     float = 0.0
             _frontres_exec_gate_sum:      float = 0.0
             _frontres_cost_gate_sum:      float = 0.0
@@ -2750,6 +2860,16 @@ class OnPolicyRunner:
             # Before that, reg pushing corrections→0 reinforces the no-op shortcut trap.
             _lambda_reg = getattr(self.alg, 'lambda_reg_current', 0.0) if _is_frontres else 0.0
             _dr_done    = _is_frontres and (_dr_scale >= 1.0)
+
+            def _frontres_state_alpha_policy_obs(_obs, _ref_vel_obs):
+                if (
+                    getattr(self.alg, "use_estimate_ref_vel", False)
+                    and getattr(self.alg, "ref_vel_estimator", None) is not None
+                ):
+                    _estimator_input = _ref_vel_obs if _ref_vel_obs is not None else _obs
+                    _estimated = self.alg.ref_vel_estimator(_estimator_input)
+                    return torch.cat([_obs, _estimated], dim=-1)
+                return _obs
 
             # Rollout: 训练首先需要积攒数据, 等数据攒够才能调用self.alg.update()更新权重
             with torch.inference_mode(): # 关闭计算图的梯度追踪, 只进行推理
@@ -2785,6 +2905,39 @@ class OnPolicyRunner:
                             else:
                                 self.alg.transition.actions_log_prob = \
                                     self.alg.policy.get_actions_log_prob(actions).detach()
+
+                        if (
+                            _is_frontres
+                            and _is_task_space_mode
+                            and bool(self.cfg.get("frontres_state_alpha_enabled", True))
+                            and hasattr(self.alg.policy, "get_state_router_alpha")
+                        ):
+                            _n_alpha_route = min(N_train, N_base)
+                            if _n_alpha_route > 0:
+                                _alpha_obs = _frontres_state_alpha_policy_obs(obs, ref_vel_estimator_obs)
+                                _alpha_prob = self.alg.policy.get_state_router_alpha(
+                                    _alpha_obs[:_n_alpha_route]
+                                ).view(-1).detach()
+                                _alpha_thr = float(self.cfg.get("frontres_state_alpha_route_threshold", 0.70))
+                                _alpha_route = _alpha_prob >= _alpha_thr
+                                # During the first random iterations, avoid route
+                                # takeover before the auxiliary head has labels.
+                                _min_iter = int(self.cfg.get("frontres_state_alpha_route_min_iteration", 0))
+                                if int(it) < _min_iter:
+                                    _alpha_route = torch.zeros_like(_alpha_route, dtype=torch.bool)
+                                if not bool(self.cfg.get("frontres_state_alpha_route_enabled", True)):
+                                    _alpha_route = torch.zeros_like(_alpha_route, dtype=torch.bool)
+                                self._frontres_stable_route_next_mask = _alpha_route.detach()
+                                self._frontres_state_alpha_pred_last = float(_alpha_prob.mean().item())
+                                self._frontres_state_alpha_route_last = float(_alpha_route.float().mean().item())
+                            else:
+                                self._frontres_stable_route_next_mask = torch.zeros(0, device=self.device, dtype=torch.bool)
+                                self._frontres_state_alpha_pred_last = 0.0
+                                self._frontres_state_alpha_route_last = 0.0
+                        elif _is_frontres and _is_task_space_mode:
+                            self._frontres_stable_route_next_mask = torch.zeros(N_train, device=self.device, dtype=torch.bool)
+                            self._frontres_state_alpha_pred_last = 0.0
+                            self._frontres_state_alpha_route_last = 0.0
 
                         # Track velocity estimator error if available 仿真器有速度真值, 但学生模型只能瞎猜
                         if hasattr(self.alg, 'last_estimated_ref_vel') and self.alg.last_estimated_ref_vel is not None:
@@ -3367,20 +3520,19 @@ class OnPolicyRunner:
                             )
                             _candidate_floor_pass = (_candidate_floor_margin >= 0.0).to(_damage_gap.dtype)
                             _candidate_floor_pass_frac = _candidate_floor_pass.mean()
-                            _stable_route_gate_threshold = float(
-                                self.cfg.get("frontres_stable_route_repair_gate_threshold", 0.25)
+                            _stable_route_next = getattr(
+                                self,
+                                "_frontres_stable_route_next_mask",
+                                torch.zeros_like(_candidate_floor_margin, dtype=torch.bool),
                             )
-                            _stable_route_broken_max = float(
-                                self.cfg.get("frontres_stable_route_broken_gate_max", 0.70)
-                            )
-                            if bool(self.cfg.get("frontres_stable_route_enabled", True)):
-                                _stable_route_next = (
-                                    (_candidate_floor_margin < 0.0)
-                                    & (_repair_gate > _stable_route_gate_threshold)
-                                    & (_broken_gate < _stable_route_broken_max)
+                            _stable_route_next = _stable_route_next.to(self.device).view(-1).bool()
+                            if _stable_route_next.numel() < _n_exec:
+                                _stable_route_next = torch.nn.functional.pad(
+                                    _stable_route_next,
+                                    (0, _n_exec - _stable_route_next.numel()),
+                                    value=False,
                                 )
-                            else:
-                                _stable_route_next = torch.zeros_like(_candidate_floor_margin, dtype=torch.bool)
+                            _stable_route_next = _stable_route_next[:_n_exec]
                             if _n_exec > 0:
                                 _alive_next = ~(dones[:_n_exec].view(-1) > 0)
                                 _stable_route_next = _stable_route_next & _alive_next
@@ -3484,6 +3636,48 @@ class OnPolicyRunner:
                             _frontres_actor_gate = torch.zeros(self.env.num_envs, 1, device=self.device)
                             _frontres_actor_gate[:_n_exec, 0] = _actor_gate
                             self.alg.transition.frontres_actor_gate = _frontres_actor_gate
+                            _state_alpha_target = torch.zeros(self.env.num_envs, 1, device=self.device)
+                            _state_alpha_mask = torch.zeros(self.env.num_envs, 1, device=self.device)
+                            self._frontres_state_alpha_target_last = 0.0
+                            self._frontres_state_alpha_mask_last = 0.0
+                            if (
+                                bool(self.cfg.get("frontres_state_alpha_enabled", True))
+                                and _n_exec > 0
+                            ):
+                                _base_done = dones[_base_start:_base_start + _n_exec].view(-1) > 0
+                                _timeout = infos.get("time_outs", None)
+                                if _timeout is not None:
+                                    _timeout = _timeout.to(self.device).view(-1)
+                                    _base_timeout = _timeout[_base_start:_base_start + _n_exec] > 0
+                                else:
+                                    _base_timeout = torch.zeros(_n_exec, device=self.device, dtype=torch.bool)
+                                _fall_now = _base_done & (~_base_timeout)
+                                _alpha_exec_floor = float(
+                                    self.cfg.get("frontres_state_alpha_exec_floor", 0.0)
+                                )
+                                _alpha_safe_floor = float(
+                                    self.cfg.get(
+                                        "frontres_state_alpha_safe_exec_floor",
+                                        max(_alpha_exec_floor + 0.05, _alpha_exec_floor),
+                                    )
+                                )
+                                _broken_signal = _exec_perturbed <= _alpha_exec_floor
+                                _safe_signal = (
+                                    (~_base_done)
+                                    & (_exec_perturbed >= _alpha_safe_floor)
+                                )
+                                _label_active = (_fall_now | _broken_signal | _safe_signal) & (~_base_timeout)
+                                _label = (_fall_now | _broken_signal).to(_state_alpha_target.dtype)
+                                _state_alpha_target[:_n_exec, 0] = _label.detach()
+                                _state_alpha_mask[:_n_exec, 0] = _label_active.to(_state_alpha_mask.dtype).detach()
+                                self._frontres_state_alpha_target_last = float(
+                                    _state_alpha_target[:_n_exec, 0][_label_active].mean().item()
+                                ) if bool(_label_active.any().item()) else 0.0
+                                self._frontres_state_alpha_mask_last = float(
+                                    _label_active.float().mean().item()
+                                )
+                            self.alg.transition.state_alpha_target = _state_alpha_target
+                            self.alg.transition.state_alpha_mask = _state_alpha_mask
                             _harm_penalty = torch.zeros(N_train, device=self.device)
                             _harm_penalty[:_n_exec] = _harm_penalty_exec
                             _effective_gain_bonus_exec = torch.zeros(_n_exec, device=self.device)
@@ -3953,6 +4147,18 @@ class OnPolicyRunner:
                             _frontres_stable_route_frac_sum += float(
                                 getattr(self, "_frontres_stable_route_applied_frac", 0.0)
                             )
+                            _frontres_state_alpha_pred_sum += float(
+                                getattr(self, "_frontres_state_alpha_pred_last", 0.0)
+                            )
+                            _frontres_state_alpha_target_sum += float(
+                                getattr(self, "_frontres_state_alpha_target_last", 0.0)
+                            )
+                            _frontres_state_alpha_mask_sum += float(
+                                getattr(self, "_frontres_state_alpha_mask_last", 0.0)
+                            )
+                            _frontres_state_alpha_route_sum += float(
+                                getattr(self, "_frontres_state_alpha_route_last", 0.0)
+                            )
                             _frontres_actor_gate_sum   += _actor_gate.mean().item()
                             _frontres_exec_gate_sum    += _exec_gate.mean().item()
                             _frontres_cost_gate_sum    += _cost_gate.mean().item()
@@ -4082,6 +4288,11 @@ class OnPolicyRunner:
                                 _gmt_local = _gmt_done[:, 0] - N_train
                                 rewbuffer_gmt.extend(cur_reward_sum_gmt[_gmt_local].cpu().numpy().tolist())
                                 lenbuffer_gmt.extend(cur_episode_length[_gmt_done][:, 0].cpu().numpy().tolist())
+                                _base_mask = (_gmt_local >= N_candidate) & (_gmt_local < N_candidate + N_base)
+                                if bool(_base_mask.any().item()):
+                                    lenbuffer_gmt_base.extend(
+                                        cur_episode_length[_gmt_done[_base_mask]][:, 0].cpu().numpy().tolist()
+                                    )
                                 cur_reward_sum_gmt[_gmt_local] = 0
                         elif len(new_ids) > 0:
                             rewbuffer.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
@@ -4381,6 +4592,22 @@ class OnPolicyRunner:
                 _frontres_stable_route_frac_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_state_alpha_pred_mean = (
+                _frontres_state_alpha_pred_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_state_alpha_target_mean = (
+                _frontres_state_alpha_target_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_state_alpha_mask_mean = (
+                _frontres_state_alpha_mask_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_state_alpha_route_mean = (
+                _frontres_state_alpha_route_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_actor_gate_mean = (
                 _frontres_actor_gate_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -4589,6 +4816,13 @@ class OnPolicyRunner:
             "frontres_write_ratio",
             "frontres_proposal_ratio",
             "frontres_axis_leakage",
+            "state_alpha_loss",
+            "lambda_state_alpha",
+            "state_alpha_mask_frac",
+            "state_alpha_target_mean",
+            "state_alpha_pred_mean",
+            "state_alpha_abs_err",
+            "state_alpha_acc",
         }      # diagnostics, not losses
         _to_curriculum = {"lambda_supervised", "ppo_actor_weight"}  # scheduler state, not a loss
         _frontres_diag_keys = {
@@ -4699,6 +4933,26 @@ class OnPolicyRunner:
                 if _frontier_scale is not None:
                     self.writer.add_scalar("Curriculum/dr_frontier_scale",
                                            float(_frontier_scale), locs["it"])
+                _gmt_safe = getattr(self, "_frontres_gmt_frontier_safe_low", None)
+                _gmt_broken = getattr(self, "_frontres_gmt_frontier_broken_high", None)
+                _gmt_score = getattr(self, "_frontres_gmt_frontier_probe_score", None)
+                _gmt_probe = getattr(self, "_frontres_gmt_frontier_probe_scale", None)
+                _gmt_confirmed = getattr(self, "_frontres_gmt_frontier_confirmed", None)
+                if _gmt_safe is not None:
+                    self.writer.add_scalar("Curriculum/gmt_frontier_safe_low",
+                                           float(_gmt_safe), locs["it"])
+                if _gmt_broken is not None:
+                    self.writer.add_scalar("Curriculum/gmt_frontier_broken_high",
+                                           float(_gmt_broken), locs["it"])
+                if _gmt_score is not None:
+                    self.writer.add_scalar("Curriculum/gmt_frontier_probe_score",
+                                           float(_gmt_score), locs["it"])
+                if _gmt_probe is not None:
+                    self.writer.add_scalar("Curriculum/gmt_frontier_next_probe",
+                                           float(_gmt_probe), locs["it"])
+                if _gmt_confirmed is not None:
+                    self.writer.add_scalar("Curriculum/gmt_frontier_confirmed",
+                                           float(_gmt_confirmed), locs["it"])
             if locs.get("frontres_survival_rate") is not None:
                 self.writer.add_scalar("Curriculum/training_survival_rate",
                                        locs["frontres_survival_rate"], locs["it"])
@@ -4823,6 +5077,21 @@ class OnPolicyRunner:
                         _mix_mode = "fixed"
                     log_string += f"""{'DR frontier/mix:':>{pad}} """
                     log_string += f"{_frontier_scale:.4f} / {_mix_mode}\n"
+                    _gmt_score = getattr(self, "_frontres_gmt_frontier_probe_score", None)
+                    _gmt_decision = getattr(self, "_frontres_gmt_frontier_decision", None)
+                    _gmt_probe = getattr(self, "_frontres_gmt_frontier_probe_scale", None)
+                    _gmt_safe = getattr(self, "_frontres_gmt_frontier_safe_low", None)
+                    _gmt_broken = getattr(self, "_frontres_gmt_frontier_broken_high", None)
+                    if _gmt_score is not None or _gmt_decision is not None:
+                        log_string += f"""{'GMT frontier probe:':>{pad}} """
+                        _score_s = "n/a" if _gmt_score is None else f"{float(_gmt_score):.3f}"
+                        _probe_s = "n/a" if _gmt_probe is None else f"{float(_gmt_probe):.4f}"
+                        _decision_s = _gmt_decision or "n/a"
+                        log_string += f"next={_probe_s}, score={_score_s}, decision={_decision_s}\n"
+                    if _gmt_safe is not None:
+                        log_string += f"""{'GMT bracket safe/broken:':>{pad}} """
+                        _broken_s = "open" if _gmt_broken is None else f"{float(_gmt_broken):.4f}"
+                        log_string += f"{float(_gmt_safe):.4f} / {_broken_s}\n"
                 if locs.get("frontres_survival_rate") is not None:
                     log_string += f"""{'survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
 
@@ -4920,6 +5189,21 @@ class OnPolicyRunner:
                                 f"{locs['frontres_candidate_floor_pass_mean']:.3f} / "
                                 f"{locs['frontres_candidate_floor_margin_mean']:+.4f}\n"
                             )
+                        if locs.get("frontres_state_alpha_pred_mean") is not None:
+                            log_string += f"""{'state alpha p/t/m/r:':>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_state_alpha_pred_mean']:.3f} / "
+                                f"{locs['frontres_state_alpha_target_mean']:.3f} / "
+                                f"{locs['frontres_state_alpha_mask_mean']:.3f} / "
+                                f"{locs['frontres_state_alpha_route_mean']:.3f}\n"
+                            )
+                            if _loss_dict.get("state_alpha_loss", None) is not None:
+                                log_string += f"""{'state alpha loss/acc:':>{pad}} """
+                                log_string += (
+                                    f"{_loss_dict.get('state_alpha_loss', 0.0):.4f} / "
+                                    f"{_loss_dict.get('state_alpha_acc', 0.0):.3f}\n"
+                                )
+                        if locs.get("frontres_candidate_floor_margin_mean") is not None:
                             log_string += f"""{'stable route frac:':>{pad}} """
                             log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
                         if locs.get("frontres_accept_pref_mask_mean") is not None:
@@ -4992,6 +5276,16 @@ class OnPolicyRunner:
                             f"rho={_loss_dict.get('acceptance_preference_rho_mean', 0.0):.3f}, "
                             f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
                             f"corr={_loss_dict.get('acceptance_preference_corr', 0.0):+.3f})\n"
+                        )
+                    _sal = _loss_dict.get("state_alpha_loss", None)
+                    if _sal is not None:
+                        log_string += f"""{'state alpha loss:':>{pad}} {_sal:.4f} """
+                        log_string += (
+                            f"(λ={_loss_dict.get('lambda_state_alpha', 0.0):.3f}, "
+                            f"mask={_loss_dict.get('state_alpha_mask_frac', 0.0):.3f}, "
+                            f"tgt={_loss_dict.get('state_alpha_target_mean', 0.0):.3f}, "
+                            f"pred={_loss_dict.get('state_alpha_pred_mean', 0.0):.3f}, "
+                            f"acc={_loss_dict.get('state_alpha_acc', 0.0):.3f})\n"
                         )
                     log_string += f"""{'learning rate:':>{pad}} {getattr(self.alg, 'learning_rate', 0.0):.2e}\n"""
                     _objective_name = f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
@@ -5357,6 +5651,8 @@ class OnPolicyRunner:
                 'critic': self.alg.policy.critic.state_dict(),}
             if getattr(self.alg.policy, "acceptance_actor", None) is not None:
                 model_state_dict['acceptance_actor'] = self.alg.policy.acceptance_actor.state_dict()
+            if getattr(self.alg.policy, "state_router_head", None) is not None:
+                model_state_dict['state_router_head'] = self.alg.policy.state_router_head.state_dict()
             
             # Save noise std parameter
             if hasattr(self.alg.policy, 'std'):
@@ -5383,6 +5679,18 @@ class OnPolicyRunner:
             saved_dict["frontres_boundary_ema"] = dict(self._frontres_boundary_ema)
         if getattr(self, '_last_frontres_boundary_stats', None) is not None:
             saved_dict["last_frontres_boundary_stats"] = dict(self._last_frontres_boundary_stats)
+        if hasattr(self, "_frontres_gmt_frontier_safe_low"):
+            saved_dict["frontres_gmt_frontier_safe_low"] = self._frontres_gmt_frontier_safe_low
+        if hasattr(self, "_frontres_gmt_frontier_broken_high"):
+            saved_dict["frontres_gmt_frontier_broken_high"] = self._frontres_gmt_frontier_broken_high
+        if hasattr(self, "_frontres_gmt_frontier_probe_scale"):
+            saved_dict["frontres_gmt_frontier_probe_scale"] = self._frontres_gmt_frontier_probe_scale
+        if hasattr(self, "_frontres_gmt_frontier_probe_score"):
+            saved_dict["frontres_gmt_frontier_probe_score"] = self._frontres_gmt_frontier_probe_score
+        if hasattr(self, "_frontres_gmt_frontier_decision"):
+            saved_dict["frontres_gmt_frontier_decision"] = self._frontres_gmt_frontier_decision
+        if hasattr(self, "_frontres_gmt_frontier_confirmed"):
+            saved_dict["frontres_gmt_frontier_confirmed"] = self._frontres_gmt_frontier_confirmed
         if hasattr(self, '_frontres_warmup_complete'):
             saved_dict["frontres_warmup_complete"] = bool(self._frontres_warmup_complete)
         
@@ -5471,6 +5779,15 @@ class OnPolicyRunner:
                         print("[Runner] No split acceptance_actor weights found; initialized acceptance head from scratch.")
             elif "acceptance_actor" in loaded_dict["model_state_dict"]:
                 print("[Runner] Ignoring split acceptance_actor weights because the active config uses the single two-head FrontRES actor.")
+            if getattr(self.alg.policy, "state_router_head", None) is not None:
+                if "state_router_head" in loaded_dict["model_state_dict"]:
+                    self.alg.policy.state_router_head.load_state_dict(
+                        loaded_dict["model_state_dict"]["state_router_head"],
+                        strict=True,
+                    )
+                    print("[Runner] Loaded FrontRES state_router_head from checkpoint.")
+                else:
+                    print("[Runner] No state_router_head weights found; initialized alpha head from scratch.")
 
             if load_critic:
                 if "critic" in loaded_dict["model_state_dict"]:
@@ -5679,12 +5996,40 @@ class OnPolicyRunner:
                 self._frontres_boundary_ema = dict(loaded_dict["frontres_boundary_ema"])
             if "last_frontres_boundary_stats" in loaded_dict:
                 self._last_frontres_boundary_stats = dict(loaded_dict["last_frontres_boundary_stats"])
+            self._frontres_gmt_frontier_safe_low = float(
+                loaded_dict.get("frontres_gmt_frontier_safe_low", self._dr_scale)
+            )
+            self._frontres_gmt_frontier_broken_high = loaded_dict.get(
+                "frontres_gmt_frontier_broken_high", None
+            )
+            if self._frontres_gmt_frontier_broken_high is not None:
+                self._frontres_gmt_frontier_broken_high = float(self._frontres_gmt_frontier_broken_high)
+            self._frontres_gmt_frontier_probe_scale = float(
+                loaded_dict.get("frontres_gmt_frontier_probe_scale", self._dr_scale)
+            )
+            self._frontres_gmt_frontier_probe_score = loaded_dict.get(
+                "frontres_gmt_frontier_probe_score", None
+            )
+            if self._frontres_gmt_frontier_probe_score is not None:
+                self._frontres_gmt_frontier_probe_score = float(self._frontres_gmt_frontier_probe_score)
+            self._frontres_gmt_frontier_decision = str(
+                loaded_dict.get("frontres_gmt_frontier_decision", "resume")
+            )
+            self._frontres_gmt_frontier_confirmed = float(
+                loaded_dict.get("frontres_gmt_frontier_confirmed", self._frontres_gmt_frontier_safe_low)
+            )
             print(f"[Runner] Adaptive DR scale restored from checkpoint: {self._dr_scale:.4f}")
         else:
             _dr_init = float(self.cfg.get("dr_scale_init", 1.0))
             self._dr_scale = _dr_init
             self._frontres_boundary_ema = None
             self._last_frontres_boundary_stats = None
+            self._frontres_gmt_frontier_safe_low = _dr_init
+            self._frontres_gmt_frontier_broken_high = None
+            self._frontres_gmt_frontier_probe_scale = _dr_init
+            self._frontres_gmt_frontier_probe_score = None
+            self._frontres_gmt_frontier_decision = "cold_start"
+            self._frontres_gmt_frontier_confirmed = _dr_init
             print(f"[Runner] Stage1→Stage2 cold-start: dr_scale initialised to "
                   f"dr_scale_init={_dr_init:.4f} (ignoring checkpoint value "
                   f"{loaded_dict.get('dr_scale', 0.0):.4f})")
@@ -5902,9 +6247,25 @@ class OnPolicyRunner:
                                 route_mask.to(task_corr.dtype).mean().detach().item()
                             )
                         else:
+                            self._frontres_stable_route_active_mask = torch.zeros(
+                                n_train, device=task_corr.device, dtype=torch.bool
+                            )
                             self._frontres_stable_route_applied_frac = 0.0
                     else:
+                        self._frontres_stable_route_active_mask = torch.zeros(
+                            n_train, device=task_corr.device, dtype=torch.bool
+                        )
                         self._frontres_stable_route_applied_frac = 0.0
+                else:
+                    self._frontres_stable_route_active_mask = torch.zeros(
+                        n_train, device=task_corr.device, dtype=torch.bool
+                    )
+                    self._frontres_stable_route_applied_frac = 0.0
+            else:
+                self._frontres_stable_route_active_mask = torch.zeros(
+                    n_train, device=task_corr.device, dtype=torch.bool
+                )
+                self._frontres_stable_route_applied_frac = 0.0
             pos_corr = pos_corr * c_pos
             rpy_corr = rpy_corr * c_rpy
 
