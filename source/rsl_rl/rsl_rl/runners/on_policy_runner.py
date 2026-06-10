@@ -2957,6 +2957,7 @@ class OnPolicyRunner:
             _frontres_candidate_floor_margin_sum: float = 0.0
             _frontres_candidate_floor_pass_sum: float = 0.0
             _frontres_stable_route_frac_sum: float = 0.0
+            _frontres_stable_endpoint_frac_sum: float = 0.0
             _frontres_state_alpha_pred_sum: float = 0.0
             _frontres_state_alpha_target_sum: float = 0.0
             _frontres_state_alpha_mask_sum: float = 0.0
@@ -4276,6 +4277,9 @@ class OnPolicyRunner:
                             _frontres_stable_route_frac_sum += float(
                                 getattr(self, "_frontres_stable_route_applied_frac", 0.0)
                             )
+                            _frontres_stable_endpoint_frac_sum += float(
+                                getattr(self, "_frontres_stable_endpoint_frac", 0.0)
+                            )
                             _frontres_state_alpha_pred_sum += float(
                                 getattr(self, "_frontres_state_alpha_pred_last", 0.0)
                             )
@@ -4733,6 +4737,10 @@ class OnPolicyRunner:
                 _frontres_stable_route_frac_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_stable_endpoint_frac_mean = (
+                _frontres_stable_endpoint_frac_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_state_alpha_pred_mean = (
                 _frontres_state_alpha_pred_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -4808,6 +4816,7 @@ class OnPolicyRunner:
                     "positive_gain": float(frontres_positive_gain_frac_mean),
                     "candidate_floor_pass": float(frontres_candidate_floor_pass_mean or 0.0),
                     "stable_route": float(frontres_stable_route_frac_mean or 0.0),
+                    "stable_endpoint": float(frontres_stable_endpoint_frac_mean or 0.0),
                 }
 
             if _is_frontres:
@@ -5024,6 +5033,7 @@ class OnPolicyRunner:
                 "safe_abstain_cost", "broken_abstain_cost",
                 "window_mu", "safe_frac", "repair_frac", "broken_frac",
                 "candidate_floor_margin", "candidate_floor_pass", "stable_route_frac",
+                "stable_endpoint_frac",
                 "actor_gate", "exec_gate", "cost_gate",
                 "r_z", "r_xy", "r_rp", "r_yaw",
                 "dr_z_abs", "dr_xy_abs", "dr_rp_abs", "dr_yaw_abs",
@@ -5370,10 +5380,20 @@ class OnPolicyRunner:
                                     f"{_loss_dict.get('state_alpha_acc', 0.0):.3f}\n"
                                 )
                         if locs.get("frontres_candidate_floor_margin_mean") is not None:
+                            log_string += f"""{"rho space:":>{pad}} """
+                            log_string += f"{self.cfg.get('frontres_rho_space', 'noisy_to_repair')}\n"
+                            log_string += f"""{"stable endpoint frac:":>{pad}} """
+                            log_string += f"{locs.get('frontres_stable_endpoint_frac_mean', 0.0):.3f}\n"
                             log_string += f"""{'stable route frac:':>{pad}} """
                             log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
                         if locs.get("frontres_accept_pref_mask_mean") is not None:
-                            log_string += f"""{"accept pref full/noop/keep/ign:":>{pad}} """
+                            _pref_label = (
+                                "accept pref repair/stable/keep/ign:"
+                                if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                                in ("stable_to_repair", "stable-repair", "stable")
+                                else "accept pref full/noop/keep/ign:"
+                            )
+                            log_string += f"""{_pref_label:>{pad}} """
                             log_string += (
                                 f"{locs['frontres_accept_pref_full_mean']:.3f} / "
                                 f"{locs['frontres_accept_pref_noop_mean']:.3f} / "
@@ -5430,14 +5450,20 @@ class OnPolicyRunner:
                     _apl = _loss_dict.get("acceptance_preference_loss", None)
                     if _apl is not None:
                         log_string += f"""{'accept pref loss:':>{pad}} {_apl:.4f} """
+                        _low_target_label = (
+                            "stable"
+                            if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                            in ("stable_to_repair", "stable-repair", "stable")
+                            else "noop"
+                        )
                         log_string += (
                             f"(λ={_loss_dict.get('lambda_acceptance_preference', 0.0):.3f}, "
                             f"mask={_loss_dict.get('acceptance_preference_mask_frac', 0.0):.3f}, "
                             f"full={_loss_dict.get('acceptance_preference_full_frac', 0.0):.3f}, "
-                            f"noop={_loss_dict.get('acceptance_preference_noop_frac', 0.0):.3f}, "
+                            f"{_low_target_label}={_loss_dict.get('acceptance_preference_noop_frac', 0.0):.3f}, "
                             f"eff_full={_loss_dict.get('acceptance_preference_effective_full_frac', 0.0):.3f}, "
                             f"fw={_loss_dict.get('acceptance_preference_full_weight', 1.0):.2f}, "
-                            f"nw={_loss_dict.get('acceptance_preference_noop_weight', 1.0):.2f}, "
+                            f"low_w={_loss_dict.get('acceptance_preference_noop_weight', 1.0):.2f}, "
                             f"γ={_loss_dict.get('acceptance_preference_focal_gamma', 0.0):.1f}, "
                             f"rho={_loss_dict.get('acceptance_preference_rho_mean', 0.0):.3f}, "
                             f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
@@ -5564,6 +5590,10 @@ class OnPolicyRunner:
                                     f"{locs['frontres_candidate_floor_pass_mean']:.3f} / "
                                     f"{locs['frontres_candidate_floor_margin_mean']:+.4f}\n"
                                 )
+                                log_string += f"""{"rho space:":>{pad}} """
+                                log_string += f"{self.cfg.get('frontres_rho_space', 'noisy_to_repair')}\n"
+                                log_string += f"""{"stable endpoint frac:":>{pad}} """
+                                log_string += f"{locs.get('frontres_stable_endpoint_frac_mean', 0.0):.3f}\n"
                                 log_string += f"""{'stable route frac:':>{pad}} """
                                 log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
 
@@ -5599,7 +5629,13 @@ class OnPolicyRunner:
                                 f"(under={locs['frontres_underwrite_mean']:+.4f})\n"
                             )
                         if locs.get("frontres_accept_pref_mask_mean") is not None:
-                            log_string += f"""{'accept pref full/noop/keep/ign:':>{pad}} """
+                            _pref_label = (
+                                "accept pref repair/stable/keep/ign:"
+                                if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                                in ("stable_to_repair", "stable-repair", "stable")
+                                else "accept pref full/noop/keep/ign:"
+                            )
+                            log_string += f"""{_pref_label:>{pad}} """
                             log_string += (
                                 f"{locs['frontres_accept_pref_full_mean']:.3f} / "
                                 f"{locs['frontres_accept_pref_noop_mean']:.3f} / "
@@ -5664,14 +5700,20 @@ class OnPolicyRunner:
                     _apl = _loss_dict.get("acceptance_preference_loss", None)
                     if _apl is not None:
                         log_string += f"""{'accept pref loss:':>{pad}} {_apl:.4f} """
+                        _low_target_label = (
+                            "stable"
+                            if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                            in ("stable_to_repair", "stable-repair", "stable")
+                            else "noop"
+                        )
                         log_string += (
                             f"(λ={_loss_dict.get('lambda_acceptance_preference', 0.0):.3f}, "
                             f"mask={_loss_dict.get('acceptance_preference_mask_frac', 0.0):.3f}, "
                             f"full={_loss_dict.get('acceptance_preference_full_frac', 0.0):.3f}, "
-                            f"noop={_loss_dict.get('acceptance_preference_noop_frac', 0.0):.3f}, "
+                            f"{_low_target_label}={_loss_dict.get('acceptance_preference_noop_frac', 0.0):.3f}, "
                             f"eff_full={_loss_dict.get('acceptance_preference_effective_full_frac', 0.0):.3f}, "
                             f"fw={_loss_dict.get('acceptance_preference_full_weight', 1.0):.2f}, "
-                            f"nw={_loss_dict.get('acceptance_preference_noop_weight', 1.0):.2f}, "
+                            f"low_w={_loss_dict.get('acceptance_preference_noop_weight', 1.0):.2f}, "
                             f"γ={_loss_dict.get('acceptance_preference_focal_gamma', 0.0):.1f}, "
                             f"rho={_loss_dict.get('acceptance_preference_rho_mean', 0.0):.3f}, "
                             f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
@@ -6317,6 +6359,7 @@ class OnPolicyRunner:
         n_train = max(0, min(int(n_train), task_corr.shape[0], self.env.num_envs))
         n_candidate = max(0, min(int(n_candidate), max(0, self.env.num_envs - n_train)))
         self._frontres_stable_route_applied_frac = 0.0
+        self._frontres_stable_endpoint_frac = 0.0
         self._frontres_stable_route_active_mask = torch.zeros(
             n_train, device=task_corr.device, dtype=torch.bool
         )
@@ -6373,6 +6416,12 @@ class OnPolicyRunner:
             if objective == "supervised_restore":
                 c_pos = torch.ones_like(c_pos)
                 c_rpy = torch.ones_like(c_rpy)
+            rho_space = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+            stable_to_repair = (
+                objective == "hsl_hybrid"
+                and acceptance is not None
+                and rho_space in ("stable_to_repair", "stable-repair", "stable")
+            )
 
             z_upper = torch.zeros_like(pos_corr[:, 2])
             if hasattr(cmd_term, "jump_degree"):
@@ -6391,6 +6440,24 @@ class OnPolicyRunner:
             # stays a clean evidence source for the next floor test.
             cand_pos_corr = pos_corr[:n_candidate].clone() if n_candidate > 0 else None
             cand_rpy_corr = rpy_corr[:n_candidate].clone() if n_candidate > 0 else None
+            stable_pos_corr = None
+            stable_rpy_corr = None
+            if stable_to_repair:
+                stable = self._frontres_stabilizing_candidate_correction(
+                    cmd_term, n_train, task_corr.device, task_corr.dtype
+                )
+                if stable is not None:
+                    stable_pos_corr, stable_rpy_corr = stable
+                    # New HRL coordinate system:
+                    #   old fallback: projected = rho * repair
+                    #   active branch: projected = stable + rho * (repair - stable)
+                    pos_corr = stable_pos_corr + c_pos * (pos_corr - stable_pos_corr)
+                    rpy_corr = stable_rpy_corr + c_rpy * (rpy_corr - stable_rpy_corr)
+                    c_pos = torch.ones_like(c_pos)
+                    c_rpy = torch.ones_like(c_rpy)
+                    self._frontres_stable_endpoint_frac = 1.0
+                else:
+                    self._frontres_stable_endpoint_frac = 0.0
             if allow_oracle and n_candidate > 0 and bool(self.cfg.get("frontres_stable_route_enabled", True)):
                 route_mask = getattr(self, "_frontres_stable_route_next_mask", None)
                 if route_mask is not None:
@@ -6399,11 +6466,13 @@ class OnPolicyRunner:
                         route_mask = torch.nn.functional.pad(route_mask, (0, n_train - route_mask.numel()), value=False)
                     route_mask = route_mask[:n_train]
                     if route_mask.any():
-                        stable = self._frontres_stabilizing_candidate_correction(
-                            cmd_term, n_train, task_corr.device, task_corr.dtype
-                        )
-                        if stable is not None:
-                            stable_pos_corr, stable_rpy_corr = stable
+                        if stable_pos_corr is None or stable_rpy_corr is None:
+                            stable = self._frontres_stabilizing_candidate_correction(
+                                cmd_term, n_train, task_corr.device, task_corr.dtype
+                            )
+                            if stable is not None:
+                                stable_pos_corr, stable_rpy_corr = stable
+                        if stable_pos_corr is not None and stable_rpy_corr is not None:
                             pos_corr = torch.where(route_mask[:, None], stable_pos_corr, pos_corr)
                             rpy_corr = torch.where(route_mask[:, None], stable_rpy_corr, rpy_corr)
                             c_pos = torch.where(route_mask[:, None], torch.ones_like(c_pos), c_pos)
@@ -6432,6 +6501,9 @@ class OnPolicyRunner:
                     n_train, device=task_corr.device, dtype=torch.bool
                 )
                 self._frontres_stable_route_applied_frac = 0.0
+            # Legacy Noisy-to-Repair branch applies rho after route selection.
+            # In Stable-to-Repair mode rho has already been absorbed into
+            # stable + rho * (repair - stable), so c_pos/c_rpy were reset to 1.
             pos_corr = pos_corr * c_pos
             rpy_corr = rpy_corr * c_rpy
 

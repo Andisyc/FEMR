@@ -1421,3 +1421,138 @@ training sample is broken.  A healthy run should show:
 - lower `accept pref noop` if repairable samples re-enter the batch;
 - alpha/stable route active only on the high-risk subset, not because the entire
   batch is broken.
+
+## 2026-06-10 Stable-to-Repair HRL Reparameterization
+
+### Design Delta
+
+The previous HRL parameterization made \(\rho_t\) search on the straight line
+from the corrupted Noisy reference to the HSL Repair candidate:
+
+\[
+g_t^{\rho}
+=
+g_t^{\mathrm{noisy}}
++
+\rho_t \odot
+\left(g_t^{\mathrm{repair}}-g_t^{\mathrm{noisy}}\right).
+\]
+
+This made \(\rho_t=0\) equivalent to no-op.  Near the dynamic frontier, no-op
+can win even when the right short-term action is not "do nothing" but "first
+move to a stable executable reference, then return toward the repair target."
+Thus \(\rho_t\) was forced to encode route rejection, no-op, and repair strength
+at the same time.
+
+The active experiment should instead make \(\rho_t\) search between a
+deterministic Stable Frame and the HSL Repair frame:
+
+\[
+g_t^{\rho}
+=
+(1-\rho_t)\odot g_t^{\mathrm{stable}}
++
+\rho_t\odot g_t^{\mathrm{repair}}.
+\]
+
+Equivalently, in residual form relative to the Noisy reference:
+
+\[
+\Delta g_t^{\rho}
+=
+\Delta g_t^{\mathrm{stable}}
++
+\rho_t\odot
+\left(
+\Delta g_t^{\mathrm{repair}}
+-
+\Delta g_t^{\mathrm{stable}}
+\right).
+\]
+
+This changes the concept of \(\rho_t\):
+
+- \(\rho_t=0\): choose the conservative executable Stable Frame;
+- \(\rho_t=1\): choose the Clean-oriented HSL Repair frame;
+- \(0<\rho_t<1\): release tracking demand from stability toward repair.
+
+This is not a new rollout branch and not a new policy head.  It is a new
+coordinate system for the existing six-dimensional acceptance vector.
+
+### Component Ownership
+
+- **HSL** still owns \(g_t^{\mathrm{repair}}\), the Clean-oriented repair
+  candidate.
+- **Stable Frame constructor** owns \(g_t^{\mathrm{stable}}\), a deterministic
+  upright/conservative executable reference.  It is privileged engineering
+  structure, not a learnable policy.
+- **HRL / PPO acceptance** owns only the interpolation coefficient \(\rho_t\)
+  between Stable and Repair.  It no longer treats \(\rho_t=0\) as an empty
+  no-op; \(\rho_t=0\) has a physical meaning.
+- **State Router Alpha** is demoted to a safety override / diagnostic.  The
+  primary continuous route choice is now \(\rho_t\).  If alpha remains enabled,
+  it may force the stable endpoint in extreme states, but it must not be
+  required for ordinary Stable-to-Repair interpolation.
+
+### Implementation Contract
+
+- Preserve the old Noisy-to-Repair write rule behind a config fallback.  Do not
+  delete the old branch.
+- Add a config flag:
+
+```text
+frontres_rho_space = "stable_to_repair"
+```
+
+  with fallback value `"noisy_to_repair"` for old ablations.
+- In `hsl_hybrid`, when `frontres_rho_space == "stable_to_repair"`, compute
+  the actual Projected correction as:
+
+```text
+projected = stable + rho * (repair - stable)
+```
+
+  for both position and rotation-vector corrections.
+- Candidate rollout must remain the full HSL Repair endpoint.  Noisy/GMT and
+  Clean/GMT branches remain unchanged.  The quartet semantics become:
+
+```text
+Noisy/GMT:      corrupted reference, zero correction
+Projected:      Stable-to-Repair interpolation controlled by rho
+Candidate:      full HSL Repair endpoint
+Clean/GMT:      uncorrupted reference
+```
+
+- The existing preference target path can remain unchanged initially because it
+  already compares Noisy, Projected, and Candidate.  Its interpretation changes:
+  a low \(\rho\) target now means "prefer the stable endpoint," not "prefer
+  no-op."  Console labels should make this visible.
+- Stable Route alpha override, if active, should force \(\rho=0\) / stable
+  endpoint rather than represent the main routing mechanism.
+
+### Required Diagnostics
+
+The live log must prove the new coordinate system is active:
+
+```text
+rho space: stable_to_repair
+stable endpoint frac: ...
+stable route frac: ...
+accept pref repair/stable/keep/ign: ...
+```
+
+Here `stable endpoint frac` is the fraction of Projected samples using the
+Stable-to-Repair parameterization.  In the active branch it should be near one
+whenever `frontres_rho_space == "stable_to_repair"`.  `stable route frac`
+remains the alpha-forced safety override fraction.
+
+### Validation Expectation
+
+The first short resume test should not be judged only by episode length.  The
+key sanity checks are:
+
+- `rho space` prints `stable_to_repair`;
+- `stable endpoint frac` is nonzero and normally near one;
+- `accept pref stable` is no longer interpreted as useless no-op;
+- `episode_frontres` should not collapse simply because \(\rho\) became low,
+  because low \(\rho\) now writes a stabilizing reference.
