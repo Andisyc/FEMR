@@ -2958,6 +2958,9 @@ class OnPolicyRunner:
             _frontres_candidate_floor_pass_sum: float = 0.0
             _frontres_stable_route_frac_sum: float = 0.0
             _frontres_stable_endpoint_frac_sum: float = 0.0
+            _frontres_tri_weight_repair_sum: float = 0.0
+            _frontres_tri_weight_noisy_sum: float = 0.0
+            _frontres_tri_weight_stable_sum: float = 0.0
             _frontres_state_alpha_pred_sum: float = 0.0
             _frontres_state_alpha_target_sum: float = 0.0
             _frontres_state_alpha_mask_sum: float = 0.0
@@ -3058,14 +3061,17 @@ class OnPolicyRunner:
                                 if not bool(self.cfg.get("frontres_state_alpha_route_enabled", True)):
                                     _alpha_route = torch.zeros_like(_alpha_route, dtype=torch.bool)
                                 self._frontres_stable_route_next_mask = _alpha_route.detach()
+                                self._frontres_state_alpha_prob_next = _alpha_prob.detach()
                                 self._frontres_state_alpha_pred_last = float(_alpha_prob.mean().item())
                                 self._frontres_state_alpha_route_last = float(_alpha_route.float().mean().item())
                             else:
                                 self._frontres_stable_route_next_mask = torch.zeros(0, device=self.device, dtype=torch.bool)
+                                self._frontres_state_alpha_prob_next = torch.zeros(0, device=self.device)
                                 self._frontres_state_alpha_pred_last = 0.0
                                 self._frontres_state_alpha_route_last = 0.0
                         elif _is_frontres and _is_task_space_mode:
                             self._frontres_stable_route_next_mask = torch.zeros(N_train, device=self.device, dtype=torch.bool)
+                            self._frontres_state_alpha_prob_next = torch.zeros(N_train, device=self.device)
                             self._frontres_state_alpha_pred_last = 0.0
                             self._frontres_state_alpha_route_last = 0.0
 
@@ -3791,14 +3797,23 @@ class OnPolicyRunner:
                                         max(_alpha_exec_floor + 0.05, _alpha_exec_floor),
                                     )
                                 )
-                                _broken_signal = _exec_perturbed <= _alpha_exec_floor
-                                _safe_signal = (
-                                    (~_base_done)
-                                    & (_exec_perturbed >= _alpha_safe_floor)
+                                _alpha_temp = max(
+                                    1e-6,
+                                    float(self.cfg.get("frontres_state_alpha_temp", 0.08)),
                                 )
-                                _label_active = (_fall_now | _broken_signal | _safe_signal) & (~_base_timeout)
-                                _label = (_fall_now | _broken_signal).to(_state_alpha_target.dtype)
-                                _state_alpha_target[:_n_exec, 0] = _label.detach()
+                                _floor_mid = 0.5 * (_alpha_exec_floor + _alpha_safe_floor)
+                                _soft_label = torch.sigmoid(
+                                    (_floor_mid - _exec_perturbed) / _alpha_temp
+                                )
+                                _soft_label = torch.where(
+                                    _fall_now,
+                                    torch.ones_like(_soft_label),
+                                    _soft_label,
+                                )
+                                _safe_signal = (~_base_done) & (_exec_perturbed >= _alpha_safe_floor)
+                                _broken_signal = _fall_now | (_exec_perturbed <= _alpha_exec_floor)
+                                _label_active = (_broken_signal | _safe_signal) & (~_base_timeout)
+                                _state_alpha_target[:_n_exec, 0] = _soft_label.detach()
                                 _state_alpha_mask[:_n_exec, 0] = _label_active.to(_state_alpha_mask.dtype).detach()
                                 self._frontres_state_alpha_target_last = float(
                                     _state_alpha_target[:_n_exec, 0][_label_active].mean().item()
@@ -3831,6 +3846,9 @@ class OnPolicyRunner:
                             _pref_need_mean = torch.tensor(0.0, device=self.device)
                             _pref_admiss_mean = torch.tensor(0.0, device=self.device)
                             _pref_target_mean = torch.tensor(0.0, device=self.device)
+                            _tri_weight_repair_mean = torch.tensor(0.0, device=self.device)
+                            _tri_weight_noisy_mean = torch.tensor(0.0, device=self.device)
+                            _tri_weight_stable_mean = torch.tensor(0.0, device=self.device)
                             _pref_inertial_penalty_rho_mean = torch.tensor(0.0, device=self.device)
                             _pref_inertial_penalty_one_mean = torch.tensor(0.0, device=self.device)
                             _pref_enabled = (
@@ -3941,7 +3959,34 @@ class OnPolicyRunner:
                                     _rho_current = actions[:_n_exec, 6:12].detach().clamp(0.0, 1.0)
                                 elif actions.shape[-1] >= 7 and _task_conf_dim == 1:
                                     _rho_current = actions[:_n_exec, 6:7].detach().clamp(0.0, 1.0).expand(-1, 6)
-                                if bool(self.cfg.get("frontres_acceptance_direct_target_enabled", False)):
+                                _rho_space = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                                if _rho_space in ("tri_anchor", "tri-anchor", "tri"):
+                                    _rho_temp = max(
+                                        1e-6,
+                                        float(self.cfg.get("frontres_acceptance_rho_target_temp", 0.08)),
+                                    )
+                                    _target_scalar = torch.sigmoid(
+                                        (_j_one - _j_zero - _pref_margin) / _rho_temp
+                                    ).clamp(0.0, 1.0)
+                                    _target_exec = _target_scalar.view(-1, 1).expand(-1, 6).clone()
+                                    _mask_exec = _pref_gate.view(-1, 1).expand(-1, 6).clone()
+                                    _tri_alpha = _state_alpha_target[:_n_exec, 0].detach().clamp(0.0, 1.0)
+                                    _tri_weight_repair_mean = _target_scalar.mean()
+                                    _tri_weight_stable_mean = ((1.0 - _target_scalar) * _tri_alpha).mean()
+                                    _tri_weight_noisy_mean = ((1.0 - _target_scalar) * (1.0 - _tri_alpha)).mean()
+                                    _state_alpha_mask[:_n_exec, 0] = (
+                                        _state_alpha_mask[:_n_exec, 0]
+                                        * (1.0 - _target_scalar.detach()).clamp(0.0, 1.0)
+                                    )
+                                    _pref_full_frac = (_target_scalar > 0.66).float().mean()
+                                    _pref_noop_frac = (
+                                        ((1.0 - _target_scalar) * (1.0 - _tri_alpha)) > 0.50
+                                    ).float().mean()
+                                    _pref_keep_frac = (
+                                        (_target_scalar >= 0.33) & (_target_scalar <= 0.66)
+                                    ).float().mean()
+                                    _pref_target_mean = _target_scalar.mean()
+                                elif bool(self.cfg.get("frontres_acceptance_direct_target_enabled", False)):
                                     _clean_pos = _a_w[_base_start:_base_start + _n_exec].detach()
                                     _noisy_pos = _a_raw[_base_start:_base_start + _n_exec].detach()
                                     _candidate_clean_pos = _a_w[
@@ -4034,6 +4079,9 @@ class OnPolicyRunner:
                                     _mask_exec = _mask_exec * _dim_mask.view(1, -1)
                                 _accept_pref_target[:_n_exec] = _target_exec.detach()
                                 _accept_pref_mask[:_n_exec] = _mask_exec.detach()
+                                self._frontres_state_alpha_mask_last = float(
+                                    _state_alpha_mask[:_n_exec, 0].mean().detach().item()
+                                )
                                 _active_pref = _mask_exec.sum(dim=-1) > 0
                                 if bool(_active_pref.any().detach().item()):
                                     _target_sample = (
@@ -4279,6 +4327,15 @@ class OnPolicyRunner:
                             )
                             _frontres_stable_endpoint_frac_sum += float(
                                 getattr(self, "_frontres_stable_endpoint_frac", 0.0)
+                            )
+                            _frontres_tri_weight_repair_sum += float(
+                                getattr(self, "_frontres_tri_weight_repair", 0.0)
+                            )
+                            _frontres_tri_weight_noisy_sum += float(
+                                getattr(self, "_frontres_tri_weight_noisy", 1.0)
+                            )
+                            _frontres_tri_weight_stable_sum += float(
+                                getattr(self, "_frontres_tri_weight_stable", 0.0)
                             )
                             _frontres_state_alpha_pred_sum += float(
                                 getattr(self, "_frontres_state_alpha_pred_last", 0.0)
@@ -4741,6 +4798,18 @@ class OnPolicyRunner:
                 _frontres_stable_endpoint_frac_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_tri_weight_repair_mean = (
+                _frontres_tri_weight_repair_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_tri_weight_noisy_mean = (
+                _frontres_tri_weight_noisy_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_tri_weight_stable_mean = (
+                _frontres_tri_weight_stable_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_state_alpha_pred_mean = (
                 _frontres_state_alpha_pred_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -5033,7 +5102,7 @@ class OnPolicyRunner:
                 "safe_abstain_cost", "broken_abstain_cost",
                 "window_mu", "safe_frac", "repair_frac", "broken_frac",
                 "candidate_floor_margin", "candidate_floor_pass", "stable_route_frac",
-                "stable_endpoint_frac",
+                "stable_endpoint_frac", "tri_weight_repair", "tri_weight_noisy", "tri_weight_stable",
                 "actor_gate", "exec_gate", "cost_gate",
                 "r_z", "r_xy", "r_rp", "r_yaw",
                 "dr_z_abs", "dr_xy_abs", "dr_rp_abs", "dr_yaw_abs",
@@ -5386,13 +5455,23 @@ class OnPolicyRunner:
                             log_string += f"{locs.get('frontres_stable_endpoint_frac_mean', 0.0):.3f}\n"
                             log_string += f"""{'stable route frac:':>{pad}} """
                             log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
+                            if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower() in (
+                                "tri_anchor", "tri-anchor", "tri"
+                            ):
+                                log_string += f"""{'tri weights R/N/S:':>{pad}} """
+                                log_string += (
+                                    f"{locs.get('frontres_tri_weight_repair_mean', 0.0):.3f} / "
+                                    f"{locs.get('frontres_tri_weight_noisy_mean', 0.0):.3f} / "
+                                    f"{locs.get('frontres_tri_weight_stable_mean', 0.0):.3f}\n"
+                                )
                         if locs.get("frontres_accept_pref_mask_mean") is not None:
-                            _pref_label = (
-                                "accept pref repair/stable/keep/ign:"
-                                if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                                in ("stable_to_repair", "stable-repair", "stable")
-                                else "accept pref full/noop/keep/ign:"
-                            )
+                            _rho_space_diag = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                            if _rho_space_diag in ("stable_to_repair", "stable-repair", "stable"):
+                                _pref_label = "accept pref repair/stable/keep/ign:"
+                            elif _rho_space_diag in ("tri_anchor", "tri-anchor", "tri"):
+                                _pref_label = "accept pref repair/fallback/keep/ign:"
+                            else:
+                                _pref_label = "accept pref full/noop/keep/ign:"
                             log_string += f"""{_pref_label:>{pad}} """
                             log_string += (
                                 f"{locs['frontres_accept_pref_full_mean']:.3f} / "
@@ -5454,7 +5533,12 @@ class OnPolicyRunner:
                             "stable"
                             if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
                             in ("stable_to_repair", "stable-repair", "stable")
-                            else "noop"
+                            else (
+                                "noisy"
+                                if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                                in ("tri_anchor", "tri-anchor", "tri")
+                                else "noop"
+                            )
                         )
                         log_string += (
                             f"(λ={_loss_dict.get('lambda_acceptance_preference', 0.0):.3f}, "
@@ -5596,6 +5680,15 @@ class OnPolicyRunner:
                                 log_string += f"{locs.get('frontres_stable_endpoint_frac_mean', 0.0):.3f}\n"
                                 log_string += f"""{'stable route frac:':>{pad}} """
                                 log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
+                                if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower() in (
+                                    "tri_anchor", "tri-anchor", "tri"
+                                ):
+                                    log_string += f"""{'tri weights R/N/S:':>{pad}} """
+                                    log_string += (
+                                        f"{locs.get('frontres_tri_weight_repair_mean', 0.0):.3f} / "
+                                        f"{locs.get('frontres_tri_weight_noisy_mean', 0.0):.3f} / "
+                                        f"{locs.get('frontres_tri_weight_stable_mean', 0.0):.3f}\n"
+                                    )
 
                         log_string += f"""\n{'-' * 12} Detail Reward {'-' * 12}\n"""
                         if locs.get("frontres_r_z_mean") is not None:
@@ -5629,12 +5722,13 @@ class OnPolicyRunner:
                                 f"(under={locs['frontres_underwrite_mean']:+.4f})\n"
                             )
                         if locs.get("frontres_accept_pref_mask_mean") is not None:
-                            _pref_label = (
-                                "accept pref repair/stable/keep/ign:"
-                                if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                                in ("stable_to_repair", "stable-repair", "stable")
-                                else "accept pref full/noop/keep/ign:"
-                            )
+                            _rho_space_diag = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                            if _rho_space_diag in ("stable_to_repair", "stable-repair", "stable"):
+                                _pref_label = "accept pref repair/stable/keep/ign:"
+                            elif _rho_space_diag in ("tri_anchor", "tri-anchor", "tri"):
+                                _pref_label = "accept pref repair/fallback/keep/ign:"
+                            else:
+                                _pref_label = "accept pref full/noop/keep/ign:"
                             log_string += f"""{_pref_label:>{pad}} """
                             log_string += (
                                 f"{locs['frontres_accept_pref_full_mean']:.3f} / "
@@ -5704,7 +5798,12 @@ class OnPolicyRunner:
                             "stable"
                             if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
                             in ("stable_to_repair", "stable-repair", "stable")
-                            else "noop"
+                            else (
+                                "noisy"
+                                if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                                in ("tri_anchor", "tri-anchor", "tri")
+                                else "noop"
+                            )
                         )
                         log_string += (
                             f"(λ={_loss_dict.get('lambda_acceptance_preference', 0.0):.3f}, "
@@ -6261,6 +6360,14 @@ class OnPolicyRunner:
                 with torch.inference_mode():
                     raw_obs = x.to(self.device)
                     norm_obs = self._apply_obs_normalizer(raw_obs) if self.cfg["empirical_normalization"] else raw_obs
+                    if (
+                        bool(self.cfg.get("frontres_state_alpha_enabled", True))
+                        and hasattr(self.alg.policy, "get_state_router_alpha")
+                    ):
+                        alpha_obs = norm_obs
+                        self._frontres_state_alpha_prob_next = (
+                            self.alg.policy.get_state_router_alpha(alpha_obs).view(-1).detach()
+                        )
                     correction = self.alg.policy.get_task_correction_inference(norm_obs)
                     self._apply_frontres_task_corrections(correction, correction.shape[0], allow_oracle=False)
                     obs_corr, extras_corr = self.env.get_observations()
@@ -6360,6 +6467,9 @@ class OnPolicyRunner:
         n_candidate = max(0, min(int(n_candidate), max(0, self.env.num_envs - n_train)))
         self._frontres_stable_route_applied_frac = 0.0
         self._frontres_stable_endpoint_frac = 0.0
+        self._frontres_tri_weight_repair = 0.0
+        self._frontres_tri_weight_noisy = 1.0
+        self._frontres_tri_weight_stable = 0.0
         self._frontres_stable_route_active_mask = torch.zeros(
             n_train, device=task_corr.device, dtype=torch.bool
         )
@@ -6422,6 +6532,11 @@ class OnPolicyRunner:
                 and acceptance is not None
                 and rho_space in ("stable_to_repair", "stable-repair", "stable")
             )
+            tri_anchor = (
+                objective == "hsl_hybrid"
+                and acceptance is not None
+                and rho_space in ("tri_anchor", "tri-anchor", "tri")
+            )
 
             z_upper = torch.zeros_like(pos_corr[:, 2])
             if hasattr(cmd_term, "jump_degree"):
@@ -6458,7 +6573,53 @@ class OnPolicyRunner:
                     self._frontres_stable_endpoint_frac = 1.0
                 else:
                     self._frontres_stable_endpoint_frac = 0.0
-            if allow_oracle and n_candidate > 0 and bool(self.cfg.get("frontres_stable_route_enabled", True)):
+            elif tri_anchor:
+                stable = self._frontres_stabilizing_candidate_correction(
+                    cmd_term, n_train, task_corr.device, task_corr.dtype
+                )
+                if stable is not None:
+                    stable_pos_corr, stable_rpy_corr = stable
+                    alpha_prob = getattr(self, "_frontres_state_alpha_prob_next", None)
+                    if alpha_prob is None:
+                        alpha = torch.zeros(n_train, device=task_corr.device, dtype=task_corr.dtype)
+                    else:
+                        alpha = alpha_prob.to(device=task_corr.device, dtype=task_corr.dtype).view(-1)
+                        if alpha.numel() < n_train:
+                            alpha = torch.nn.functional.pad(alpha, (0, n_train - alpha.numel()), value=0.0)
+                        alpha = alpha[:n_train].clamp(0.0, 1.0)
+                    alpha_pos = alpha[:, None]
+                    pos_corr = c_pos * pos_corr + (1.0 - c_pos) * alpha_pos * stable_pos_corr
+                    rpy_corr = c_rpy * rpy_corr + (1.0 - c_rpy) * alpha_pos * stable_rpy_corr
+                    self._frontres_tri_weight_repair = float(
+                        0.5 * (c_pos.mean() + c_rpy.mean()).detach().item()
+                    )
+                    self._frontres_tri_weight_stable = float(
+                        0.5
+                        * (
+                            ((1.0 - c_pos) * alpha_pos).mean()
+                            + ((1.0 - c_rpy) * alpha_pos).mean()
+                        ).detach().item()
+                    )
+                    self._frontres_tri_weight_noisy = max(
+                        0.0,
+                        1.0 - self._frontres_tri_weight_repair - self._frontres_tri_weight_stable,
+                    )
+                    c_pos = torch.ones_like(c_pos)
+                    c_rpy = torch.ones_like(c_rpy)
+                    self._frontres_stable_endpoint_frac = 0.0
+                else:
+                    self._frontres_stable_endpoint_frac = 0.0
+                    self._frontres_tri_weight_repair = float(
+                        0.5 * (c_pos.mean() + c_rpy.mean()).detach().item()
+                    )
+                    self._frontres_tri_weight_noisy = max(0.0, 1.0 - self._frontres_tri_weight_repair)
+                    self._frontres_tri_weight_stable = 0.0
+            if (
+                (not tri_anchor)
+                and allow_oracle
+                and n_candidate > 0
+                and bool(self.cfg.get("frontres_stable_route_enabled", True))
+            ):
                 route_mask = getattr(self, "_frontres_stable_route_next_mask", None)
                 if route_mask is not None:
                     route_mask = route_mask.to(device=task_corr.device).view(-1).bool()

@@ -1556,3 +1556,125 @@ key sanity checks are:
 - `accept pref stable` is no longer interpreted as useless no-op;
 - `episode_frontres` should not collapse simply because \(\rho\) became low,
   because low \(\rho\) now writes a stabilizing reference.
+
+## 2026-06-10 Tri-Anchor HRL Projection Contract
+
+### Design Delta
+
+The global Stable-to-Repair parameterization above was too aggressive.  It made
+low \(\rho\) mean "write Stable" for every sample, including states where Noisy
+was already executable by GMT.  This explains why FrontRES could fall below GMT
+at moderate perturbation: conservative HRL was no longer close to no-op.
+
+The corrected HRL contract treats Repair as the conceptual origin.  HSL proposes
+the ideal Clean-oriented repair \(R\).  If this repair is not fully executable,
+HRL should retreat from Repair toward one of two fallback anchors:
+
+```text
+N: Noisy / no-op fallback
+S: Stable Frame fallback
+R: HSL Repair endpoint
+```
+
+The projected reference is a semantic three-anchor projection:
+
+\[
+P
+=
+\rho R
++
+(1-\rho)\left((1-\alpha)N+\alpha S\right).
+\]
+
+In residual form relative to Noisy, where \(\Delta N=0\):
+
+\[
+\Delta P
+=
+\rho \Delta R
++
+(1-\rho)\alpha \Delta S.
+\]
+
+This keeps the variable meanings clean:
+
+- \(\rho\): Repair retention.  It answers whether full HSL Repair is better
+  than Noisy under executable rollout evidence.
+- \(\alpha\): fallback direction.  It answers whether the rejected repair mass
+  should retreat toward Noisy or Stable.
+
+This is not trajectory interpolation.  It is a minimal reference-space simplex
+that keeps FEMR inside its authority boundary: root/task-space correction before
+frozen GMT, not a new motion generator.
+
+### Training Signals
+
+The two heads must receive different labels:
+
+- \(\rho\) target comes from Candidate-vs-Noisy:
+
+```text
+rho_target = repair_need * sigmoid((E_R - E_N - margin) / tau_rho)
+```
+
+  where \(E_N\) is the Noisy/GMT executable score and \(E_R\) is the full HSL
+  Candidate executable score.  If Candidate improves over Noisy, Repair should
+  be retained.  If Candidate is worse, Repair should be rejected.
+
+- \(\alpha\) target comes from Noisy-vs-floor:
+
+```text
+alpha_target = sigmoid((floor - E_N) / tau_alpha)
+```
+
+  If Noisy is still executable, rejected repair mass should retreat to Noisy.
+  If Noisy is below the executable floor, rejected repair mass should retreat to
+  Stable.
+
+Alpha should matter most when Repair is rejected, so the alpha loss mask should
+be weighted by:
+
+```text
+alpha_weight = 1 - rho_target
+```
+
+This prevents alpha from learning fallback direction on samples where Repair is
+already clearly valid.
+
+### Implementation Contract
+
+- Preserve old modes:
+  - `frontres_rho_space = "noisy_to_repair"` keeps the legacy residual scaling;
+  - `frontres_rho_space = "stable_to_repair"` keeps the previous ablation;
+  - `frontres_rho_space = "tri_anchor"` activates this contract.
+- Default the current experiment to `tri_anchor`.
+- Candidate rollout remains full HSL Repair.  Noisy/GMT and Clean/GMT remain
+  unchanged.
+- Projected rollout in `tri_anchor` must use:
+
+```text
+projected = rho * repair + (1 - rho) * alpha * stable
+```
+
+  in residual coordinates.
+- The existing acceptance head remains \(\rho\).  The existing state-router head
+  becomes \(\alpha\).  Do not add a new rollout branch or a new policy head.
+
+### Required Diagnostics
+
+The next resume test should print:
+
+```text
+rho space: tri_anchor
+stable endpoint frac: 0.000
+tri weights R/N/S: ...
+accept pref repair/fallback/keep/ign: ...
+state alpha p/t/m/r: ...
+```
+
+Expected healthy early behavior:
+
+- safe moderate-DR samples should have nontrivial `w_N` instead of being pulled
+  to Stable;
+- high-risk samples with low Noisy executability should increase `w_S`;
+- \(\rho\) should no longer collapse only because Stable is a safe endpoint.

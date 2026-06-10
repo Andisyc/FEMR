@@ -625,10 +625,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_mixed_dr_frontier_factor = 1.00
     frontres_mixed_dr_hard_factor = 1.05
     frontres_stable_route_enabled = True
-    # HRL rho search space.  The active branch searches from a deterministic
-    # Stable Frame to the HSL Repair endpoint.  "noisy_to_repair" keeps the old
-    # residual scaling rule for ablations.
-    frontres_rho_space = "stable_to_repair"
+    # HRL rho search space.  "tri_anchor" keeps rho as Repair retention and uses
+    # the state-router alpha as fallback direction between Noisy and Stable.
+    # "noisy_to_repair" and "stable_to_repair" keep old ablations.
+    frontres_rho_space = "tri_anchor"
     # Stable Frame is now driven by the state-router alpha head, not by
     # Candidate-vs-Clean floor diagnostics.  Candidate floor is still logged as
     # evidence but does not own route selection.
@@ -638,6 +638,8 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_state_alpha_route_min_iteration = 0
     frontres_state_alpha_exec_floor = 0.0
     frontres_state_alpha_safe_exec_floor = 0.05
+    frontres_state_alpha_temp = 0.08
+    frontres_acceptance_rho_target_temp = 0.08
     frontres_stable_route_repair_gate_threshold = 0.25
     frontres_stable_route_broken_gate_max = 0.70
     frontres_warmup_energy_loss_weight = 1.0
