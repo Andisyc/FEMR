@@ -640,6 +640,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_state_alpha_safe_exec_floor = 0.05
     frontres_state_alpha_temp = 0.08
     frontres_acceptance_rho_target_temp = 0.08
+    # Keep rho as a 6D acceptance vector, but construct its tri-anchor target
+    # from grouped executable evidence instead of copying one scalar target to
+    # all axes.  The groups are planar(dx/dy/yaw), rp(roll/pitch), and z.
+    frontres_grouped_rho_target_enabled = True
     frontres_stable_route_repair_gate_threshold = 0.25
     frontres_stable_route_broken_gate_max = 0.70
     frontres_warmup_energy_loss_weight = 1.0

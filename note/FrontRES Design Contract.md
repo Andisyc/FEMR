@@ -1678,3 +1678,132 @@ Expected healthy early behavior:
   to Stable;
 - high-risk samples with low Noisy executability should increase `w_S`;
 - \(\rho\) should no longer collapse only because Stable is a safe endpoint.
+
+## 2026-06-11 Grouped Executable Projection For 6D Rho
+
+### Design Delta
+
+The active `tri_anchor` branch correctly keeps \(\rho_t\) as a six-dimensional
+acceptance vector, but its first target construction still used one scalar
+Candidate-vs-Noisy preference and copied it to all six axes.  This makes the
+network look six-dimensional while the supervision remains an overall
+full-repair/fallback decision.  When one dangerous component makes full
+Candidate fail, the scalar target suppresses all components and teaches a
+conservative gate.
+
+The next change makes HRL an executable projection layer:
+
+```text
+HSL: propose a 6D clean-oriented repair.
+HRL: keep the executable components and suppress the harmful components.
+```
+
+The action interface does not change.  \(\rho_t\) remains:
+
+```text
+[rho_x, rho_y, rho_z, rho_roll, rho_pitch, rho_yaw]
+```
+
+The credit assignment is grouped only for target construction:
+
+```text
+planar group:   dx, dy, yaw
+attitude group: roll, pitch
+vertical group: dz
+```
+
+This is not a 3D output.  It is a 6D output trained with three cleaner sources
+of evidence until fully per-axis counterfactual data is available.
+
+### Signal Contract
+
+The target should no longer ask only:
+
+```text
+Does full Candidate beat Noisy?
+```
+
+It should ask:
+
+```text
+Which repair component group has positive executable evidence?
+```
+
+Use existing rollout branches and existing executability components.  Do not
+add a rollout branch.
+
+- Planar target uses the branch improvement of the planar/xy/yaw score.
+- Attitude target uses the branch improvement of the roll/pitch score.
+- Vertical target uses the branch improvement of the z/vertical score.
+
+For each group \(G\), compute a soft repair-retention target from the
+group-specific Candidate-vs-Noisy improvement:
+
+```text
+rho_target_G = sigmoid((J_R_G - J_N_G - margin_G) / tau_rho)
+```
+
+Then write it into the corresponding six-dimensional entries:
+
+```text
+dx, dy, yaw      <- rho_target_planar
+roll, pitch     <- rho_target_attitude
+dz              <- rho_target_vertical
+```
+
+### Sample Attribution Contract
+
+Single-family perturbation samples provide the cleanest supervision.  Reuse the
+existing per-mode mask:
+
+```text
+planar perturbation   -> train dx, dy
+yaw perturbation      -> train yaw
+local_rp perturbation -> train roll, pitch
+global_z perturbation -> train dz
+```
+
+Combined perturbations may stay in the batch, but their preference mask should
+remain weaker or mode-local.  The current experiment prioritizes single-family
+mixup; composite credit assignment is deferred.
+
+### Tri-Anchor Interaction
+
+`tri_anchor` runtime remains:
+
+```text
+projected = rho * repair + (1 - rho) * alpha * stable
+```
+
+Only the \(\rho\) target changes.  The \(\alpha\) target remains Noisy-vs-floor
+and its loss mask should be weighted by rejected repair mass:
+
+```text
+alpha_weight = 1 - mean_active(rho_target_6d)
+```
+
+This keeps the roles separate:
+
+- \(\rho\): which repair components are executable enough to retain;
+- \(\alpha\): where rejected repair mass should retreat, Noisy or Stable.
+
+### Required Diagnostics
+
+The next resume test must prove that the six-dimensional target is no longer a
+copied scalar:
+
+```text
+rho target grp p/r/z: ...
+rho target spread: ...
+accept pref repair/fallback/keep/ign: ...
+tri weights R/N/S: ...
+```
+
+Healthy early behavior:
+
+- `rho target spread` should be nonzero on mixed-mode batches;
+- local-rp runs should mainly supervise `roll/pitch` acceptance;
+- planar/yaw samples should be allowed to keep planar/yaw repair even if
+  roll/pitch or z components are risky;
+- HRL should become less globally conservative without increasing harmful
+  repair.
