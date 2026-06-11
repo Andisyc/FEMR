@@ -5,6 +5,49 @@ It is more specific than the Dr.Cheng skill.  Read this before implementing
 nontrivial changes to FrontRES training, rollout labels, PPO/HRL behavior, or
 diagnostics.
 
+## 2026-06-11 Fixed-DR Stress Evaluation Branch
+
+Training and evaluation have different authority.
+
+- **Training curriculum** should keep samples near the GMT executable frontier
+  so FrontRES receives learnable gradients rather than mostly broken/no-op
+  cases.
+- **Stress evaluation** must deliberately sweep fixed perturbation strengths,
+  including strengths beyond the training frontier, to answer whether FrontRES
+  extends the executable envelope over GMT.
+
+The evaluation branch must therefore be MOSAIC-side, checkpoint-only, and
+read-only with respect to learning:
+
+```text
+load checkpoint
+  -> set paired FrontRES / candidate / noisy-GMT / clean-GMT rollout layout
+  -> for each fixed dr_scale
+  -> apply fixed perturbation family and fixed perturbation magnitude
+  -> run policy rollout without PPO update, storage update, or curriculum update
+  -> write per-scale FrontRES-vs-GMT episode-length and survival metrics
+```
+
+This branch is not a replacement for RobotBridge video validation.  MOSAIC owns
+quantitative stress curves because it shares the training simulator, frozen GMT,
+and reference perturbation implementation.  RobotBridge should later consume the
+selected checkpoints and representative perturbation strengths for presentation
+or real-video demos.
+
+Required diagnostics per fixed strength:
+
+- `dr_scale`;
+- `frontres_episode_length_mean`;
+- `gmt_episode_length_mean`;
+- `frontres_minus_gmt`;
+- `frontres_survival_rate`;
+- number of completed FrontRES and GMT episodes.
+
+The branch is invalid if it updates PPO, changes the GMT frontier curriculum,
+or mixes per-env easy/frontier/hard strengths.  Stress testing should use fixed
+dr_scale values such as `1.25,1.5,1.75,2.0,2.25,2.5,2.75,3.0` and compare the
+curve, not a single training log point.
+
 ## Version Goal
 
 FrontRES is a front-end residual refiner before a frozen GMT tracker.  The

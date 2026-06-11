@@ -85,6 +85,24 @@ parser.add_argument(
     default=False,
     help="Enable the shortened FrontRES debug schedule for reward/DR tuning.",
 )
+parser.add_argument(
+    "--frontres_eval_dr_sweep",
+    action="store_true",
+    default=False,
+    help="Run an evaluation-only fixed-DR sweep after loading the checkpoint, then exit without training.",
+)
+parser.add_argument(
+    "--frontres_eval_dr_scales",
+    type=str,
+    default="1.25,1.5,1.75,2.0,2.25,2.5,2.75,3.0",
+    help="Comma-separated fixed dr_scale values for FrontRES-vs-GMT stress evaluation.",
+)
+parser.add_argument(
+    "--frontres_eval_iterations_per_scale",
+    type=int,
+    default=20,
+    help="Number of rollout iterations collected per fixed dr_scale during evaluation.",
+)
 
 # single motion for testing
 # motion_path = '/home/chengyuxuan/MOSAIC/motion_npz/dance1_subject1.npz'
@@ -545,6 +563,24 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
         dump_pickle(os.path.join(log_dir, "params", "env.pkl"), env_cfg)
         dump_pickle(os.path.join(log_dir, "params", "agent.pkl"), agent_cfg)
+
+    if args_cli.frontres_eval_dr_sweep:
+        if not agent_cfg.resume:
+            raise ValueError("--frontres_eval_dr_sweep requires a resumed FrontRES checkpoint.")
+        dr_scales = [
+            float(item.strip())
+            for item in args_cli.frontres_eval_dr_scales.split(",")
+            if item.strip()
+        ]
+        output_path = os.path.join(log_dir, "frontres_dr_sweep.json")
+        runner.evaluate_frontres_dr_sweep(
+            dr_scales=dr_scales,
+            num_iterations_per_scale=args_cli.frontres_eval_iterations_per_scale,
+            output_path=output_path,
+            init_at_random_ep_len=True,
+        )
+        env.close()
+        return
 
     # run training
     runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
