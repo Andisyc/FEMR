@@ -1807,3 +1807,192 @@ Healthy early behavior:
   roll/pitch or z components are risky;
 - HRL should become less globally conservative without increasing harmful
   repair.
+
+## 2026-06-11 Current-Action Regret For Grouped Rho
+
+### Problem
+
+The grouped-rho test proved that the six-dimensional target is no longer a
+copied scalar: `rho target grp p/r/z` separates planar, roll/pitch, and vertical
+acceptance.  However, the training still remained conservative:
+
+```text
+Candidate gain > Projected gain
+accept pref fallback high
+FrontRES not consistently above GMT
+```
+
+This means the grouped target answered the wrong local question.  It asked:
+
+```text
+Does Candidate beat Noisy?
+```
+
+That is an endpoint-value question.  HRL needs a current-action question:
+
+```text
+Did the current Projected action under-write or over-write the Candidate?
+```
+
+### Signal Contract
+
+Keep the existing quartet.  Do not add a rollout branch:
+
+```text
+Noisy:      J0
+Projected:  Jrho     current HRL behavior
+Candidate:  J1       full HSL write
+Clean:      calibration / diagnostics
+```
+
+For each grouped repair component \(G\), compute:
+
+```text
+underwrite_G = J1_G - Jrho_G
+overwrite_G  = J0_G - Jrho_G
+range_G      = |J1_G - J0_G| + eps
+```
+
+The detached target is a local movement around the current policy output:
+
+```text
+if underwrite_G > margin:
+    rho_target_G = rho_G + eta * underwrite_G / range_G
+elif overwrite_G > margin:
+    rho_target_G = rho_G - eta * overwrite_G / range_G
+else:
+    rho_target_G = rho_G
+```
+
+This changes the meaning of the target from endpoint classification to
+current-action regret.  The target says whether the current rho wrote too little
+or too much.
+
+### Mask Contract
+
+The previous acceptance mask became too restrictive:
+
+```text
+oracle_trust * repair_window * route_mask * per_mode_mask * active_dim_mask
+```
+
+For regret learning, boundary samples are useful.  Do not hard-delete them only
+because they are outside the repairability window.  The active mask policy is:
+
+- keep `active_dim_mask` as a hard mask;
+- keep invalid rollout / missing candidate as a hard mask;
+- keep stable-route oracle replacement out of rho credit with `route_mask`;
+- convert repair-window gating to a soft weight with a nonzero floor;
+- make per-mode attribution a soft weight, not an absolute deletion, when using
+  grouped regret.
+
+This preserves the action-cone idea without starving HRL of regret gradients.
+
+### Diagnostics
+
+The next run must print:
+
+```text
+rho regret up/dn p/r/z: ...
+rho target grp p/r/z: ...
+rho target spread/weight: ...
+accept pref repair/fallback/keep/ign: ...
+```
+
+Healthy behavior:
+
+- `rho regret up` should be positive when Candidate beats Projected;
+- `accept pref repair` should increase if Candidate remains better than
+  Projected;
+- `rho target weight` should rise above the previous ~0.17 unless active dims
+  and route credit are truly sparse;
+- `rho target spread` should remain nonzero.
+
+## 2026-06-11 Mask Authority Audit For Rho Regret
+
+### Problem
+
+The grouped regret target is now the cleanest available HRL signal:
+
+```text
+Did the current Projected action write too little or too much,
+relative to Candidate and Noisy?
+```
+
+This signal should not be filtered by older masks whose meaning came from
+sample selection or perturbation attribution.  Otherwise the system can produce
+a correct regret target and still starve the rho head of gradients.
+
+The dangerous chain was:
+
+```text
+oracle_trust * repair_window * route_mask * per_mode_mask * active_dim_mask
+```
+
+Only some of these terms have authority over the current-action regret target.
+
+### Mask Ownership
+
+Keep these hard boundaries:
+
+- `active_dim_mask`: the model must not learn acceptance for disabled output
+  dimensions.
+- invalid rollout / missing Candidate: there is no trustworthy comparison.
+- stable-route replacement mask: if the runner replaced the normal HRL route
+  with an oracle stable route, the observed outcome is not credit-assignable to
+  rho.
+
+Remove these as default regret masks:
+
+- `repair_window`: safe, repairable, and near-broken samples all carry useful
+  regret.  The current-action question already tells whether rho should move up,
+  down, or stay.  The repair window may remain a diagnostic or reward-shaping
+  concept, but it should not delete rho gradients.
+- `per_mode_mask`: perturbation family attribution is not the owner of a grouped
+  rho dimension.  If planar/rp/z current-action regret can be measured from the
+  quartet rollout, it is valid even when the sampled corruption family was not
+  the same group.
+
+Soften this evidence term:
+
+- `oracle_trust`: this is evidence reliability, not a policy decision.  For rho
+  regret it should be a nonzero continuous weight, not a binary delete, unless
+  the rollout itself is invalid.
+
+### Implementation Contract
+
+For `frontres_acceptance_regret_target_enabled=True` and
+`frontres_grouped_rho_target_enabled=True`:
+
+```text
+pref_weight = oracle_trust_soft * route_mask * active_dim_mask
+```
+
+where:
+
+```text
+oracle_trust_soft = oracle_floor + (1 - oracle_floor) * oracle_trust
+```
+
+The default regret floors are:
+
+```text
+frontres_acceptance_regret_soft_mask_floor = 1.0
+frontres_acceptance_regret_per_mode_soft_floor = 1.0
+frontres_acceptance_regret_oracle_trust_floor = 0.25
+```
+
+This means `repair_window` and `per_mode_mask` are removed from the default
+current-action regret path, while oracle reliability still modulates gradient
+strength.
+
+Diagnostics should report the mean effective rho weight, not just whether the
+mask is nonzero:
+
+```text
+rho target spread/weight: target_group_spread / mean_effective_weight
+```
+
+If `mean_effective_weight` rises while `rho regret up/dn` remains nonzero but
+`rho` still collapses toward fallback, then the remaining problem is no longer
+mask starvation.  It is the regret objective or reward decomposition itself.

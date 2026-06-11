@@ -2966,6 +2966,12 @@ class OnPolicyRunner:
             _frontres_rho_target_z_sum: float = 0.0
             _frontres_rho_target_spread_sum: float = 0.0
             _frontres_grouped_rho_mask_sum: float = 0.0
+            _frontres_rho_regret_up_planar_sum: float = 0.0
+            _frontres_rho_regret_up_rp_sum: float = 0.0
+            _frontres_rho_regret_up_z_sum: float = 0.0
+            _frontres_rho_regret_down_planar_sum: float = 0.0
+            _frontres_rho_regret_down_rp_sum: float = 0.0
+            _frontres_rho_regret_down_z_sum: float = 0.0
             _frontres_state_alpha_pred_sum: float = 0.0
             _frontres_state_alpha_target_sum: float = 0.0
             _frontres_state_alpha_mask_sum: float = 0.0
@@ -3861,11 +3867,23 @@ class OnPolicyRunner:
                             _rho_target_z_mean = torch.tensor(0.0, device=self.device)
                             _rho_target_spread_mean = torch.tensor(0.0, device=self.device)
                             _grouped_rho_mask_mean = torch.tensor(0.0, device=self.device)
+                            _rho_regret_up_planar_mean = torch.tensor(0.0, device=self.device)
+                            _rho_regret_up_rp_mean = torch.tensor(0.0, device=self.device)
+                            _rho_regret_up_z_mean = torch.tensor(0.0, device=self.device)
+                            _rho_regret_down_planar_mean = torch.tensor(0.0, device=self.device)
+                            _rho_regret_down_rp_mean = torch.tensor(0.0, device=self.device)
+                            _rho_regret_down_z_mean = torch.tensor(0.0, device=self.device)
                             self._frontres_rho_target_planar_last = 0.0
                             self._frontres_rho_target_rp_last = 0.0
                             self._frontres_rho_target_z_last = 0.0
                             self._frontres_rho_target_spread_last = 0.0
                             self._frontres_grouped_rho_mask_last = 0.0
+                            self._frontres_rho_regret_up_planar_last = 0.0
+                            self._frontres_rho_regret_up_rp_last = 0.0
+                            self._frontres_rho_regret_up_z_last = 0.0
+                            self._frontres_rho_regret_down_planar_last = 0.0
+                            self._frontres_rho_regret_down_rp_last = 0.0
+                            self._frontres_rho_regret_down_z_last = 0.0
                             _pref_enabled = (
                                 bool(self.cfg.get("frontres_acceptance_preference_enabled", True))
                                 and N_candidate > 0
@@ -3963,8 +3981,31 @@ class OnPolicyRunner:
                                 _full_win = (_j_one > _j_rho + _pref_margin) & (_j_one > _j_zero + _pref_margin)
                                 _noop_win = (_j_zero > _j_rho + _pref_margin) & (_j_zero > _j_one + _pref_margin)
                                 _keep_win = (_j_rho > _j_one + _pref_margin) & (_j_rho > _j_zero + _pref_margin)
+                                _regret_target_enabled = bool(
+                                    self.cfg.get("frontres_acceptance_regret_target_enabled", True)
+                                )
+                                if _regret_target_enabled:
+                                    _regret_mask_floor = float(
+                                        self.cfg.get("frontres_acceptance_regret_soft_mask_floor", 1.0)
+                                    )
+                                    _regret_mask_floor = max(0.0, min(1.0, _regret_mask_floor))
+                                    _repair_pref_gate = (
+                                        _regret_mask_floor
+                                        + (1.0 - _regret_mask_floor) * _repair_gate
+                                    ).clamp(0.0, 1.0)
+                                    _oracle_pref_floor = float(
+                                        self.cfg.get("frontres_acceptance_regret_oracle_trust_floor", 0.25)
+                                    )
+                                    _oracle_pref_floor = max(0.0, min(1.0, _oracle_pref_floor))
+                                    _oracle_pref_gate = (
+                                        _oracle_pref_floor
+                                        + (1.0 - _oracle_pref_floor) * _oracle_trust
+                                    ).clamp(0.0, 1.0)
+                                else:
+                                    _repair_pref_gate = _repair_gate
+                                    _oracle_pref_gate = _oracle_trust
                                 _pref_gate = (
-                                    _oracle_trust * _repair_gate * _learnable_route_mask
+                                    _oracle_pref_gate * _repair_pref_gate * _learnable_route_mask
                                 ).detach().clamp(0.0, 1.0)
                                 _target_exec = torch.zeros(_n_exec, 6, device=self.device)
                                 _mask_exec = torch.zeros(_n_exec, 6, device=self.device)
@@ -3975,11 +4016,14 @@ class OnPolicyRunner:
                                 elif actions.shape[-1] >= 7 and _task_conf_dim == 1:
                                     _rho_current = actions[:_n_exec, 6:7].detach().clamp(0.0, 1.0).expand(-1, 6)
                                 _rho_space = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                                _grouped_targets_enabled = False
                                 if _rho_space in ("tri_anchor", "tri-anchor", "tri"):
                                     _rho_temp = max(
                                         1e-6,
                                         float(self.cfg.get("frontres_acceptance_rho_target_temp", 0.08)),
                                     )
+                                    _calib_step = float(self.cfg.get("frontres_acceptance_calibration_step", 0.5))
+                                    _calib_step = max(0.0, min(1.0, _calib_step))
                                     _target_scalar = torch.sigmoid(
                                         (_j_one - _j_zero - _pref_margin) / _rho_temp
                                     ).clamp(0.0, 1.0)
@@ -3989,27 +4033,87 @@ class OnPolicyRunner:
                                     if _grouped_targets_enabled:
                                         _comp = _exec_components
 
-                                        def _component_gain(_name: str, _fallback: torch.Tensor) -> torch.Tensor:
+                                        def _component_branch(_name: str, _start: int, _fallback: torch.Tensor) -> torch.Tensor:
                                             _component = _comp.get(_name, _fallback)
-                                            return (
-                                                _component[_candidate_start:_candidate_start + _n_exec]
-                                                - _component[_base_start:_base_start + _n_exec]
-                                            ).to(self.device)
+                                            return _component[_start:_start + _n_exec].to(self.device)
 
-                                        _xy_gain = _component_gain("xy", _comp["planar"])
-                                        _yaw_gain = _component_gain("yaw", _comp["planar"])
-                                        _rp_gain = _component_gain("rp", _comp["vertical"])
-                                        _z_gain = _component_gain("z", _comp["vertical"])
-                                        _planar_gain = 0.5 * (_xy_gain + _yaw_gain)
-                                        _target_planar = torch.sigmoid(
-                                            (_planar_gain - _pref_margin) / _rho_temp
-                                        ).clamp(0.0, 1.0)
-                                        _target_rp = torch.sigmoid(
-                                            (_rp_gain - _pref_margin) / _rho_temp
-                                        ).clamp(0.0, 1.0)
-                                        _target_z = torch.sigmoid(
-                                            (_z_gain - _pref_margin) / _rho_temp
-                                        ).clamp(0.0, 1.0)
+                                        def _component_gain(_name: str, _fallback: torch.Tensor) -> torch.Tensor:
+                                            return (
+                                                _component_branch(_name, _candidate_start, _fallback)
+                                                - _component_branch(_name, _base_start, _fallback)
+                                            )
+
+                                        def _group_score(_start: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                                            _xy = _component_branch("xy", _start, _comp["planar"])
+                                            _yaw = _component_branch("yaw", _start, _comp["planar"])
+                                            _rp = _component_branch("rp", _start, _comp["vertical"])
+                                            _z = _component_branch("z", _start, _comp["vertical"])
+                                            _planar = 0.5 * (_xy + _yaw)
+                                            return _planar, _rp, _z
+
+                                        if _regret_target_enabled:
+                                            _candidate_planar, _candidate_rp, _candidate_z = _group_score(
+                                                _candidate_start
+                                            )
+                                            _projected_planar, _projected_rp, _projected_z = _group_score(0)
+                                            _base_planar, _base_rp, _base_z = _group_score(_base_start)
+
+                                            def _regret_target(
+                                                _candidate_score: torch.Tensor,
+                                                _projected_score: torch.Tensor,
+                                                _base_score: torch.Tensor,
+                                                _rho_group: torch.Tensor,
+                                            ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                                                _under = torch.relu(_candidate_score - _projected_score - _pref_margin)
+                                                _over = torch.relu(_base_score - _projected_score - _pref_margin)
+                                                _score_range = (_candidate_score - _base_score).abs().clamp(min=1e-6)
+                                                _delta = _calib_step * ((_under - _over) / _score_range).clamp(-1.0, 1.0)
+                                                return (_rho_group + _delta).clamp(0.0, 1.0), _under, _over
+
+                                            _rho_planar_current = (
+                                                0.5 * (_rho_current[:, 0] + _rho_current[:, 1]) + _rho_current[:, 5]
+                                            ) / 2.0
+                                            _rho_rp_current = 0.5 * (_rho_current[:, 3] + _rho_current[:, 4])
+                                            _rho_z_current = _rho_current[:, 2]
+                                            _target_planar, _regret_up_planar, _regret_down_planar = _regret_target(
+                                                _candidate_planar,
+                                                _projected_planar,
+                                                _base_planar,
+                                                _rho_planar_current,
+                                            )
+                                            _target_rp, _regret_up_rp, _regret_down_rp = _regret_target(
+                                                _candidate_rp,
+                                                _projected_rp,
+                                                _base_rp,
+                                                _rho_rp_current,
+                                            )
+                                            _target_z, _regret_up_z, _regret_down_z = _regret_target(
+                                                _candidate_z,
+                                                _projected_z,
+                                                _base_z,
+                                                _rho_z_current,
+                                            )
+                                        else:
+                                            _xy_gain = _component_gain("xy", _comp["planar"])
+                                            _yaw_gain = _component_gain("yaw", _comp["planar"])
+                                            _rp_gain = _component_gain("rp", _comp["vertical"])
+                                            _z_gain = _component_gain("z", _comp["vertical"])
+                                            _planar_gain = 0.5 * (_xy_gain + _yaw_gain)
+                                            _target_planar = torch.sigmoid(
+                                                (_planar_gain - _pref_margin) / _rho_temp
+                                            ).clamp(0.0, 1.0)
+                                            _target_rp = torch.sigmoid(
+                                                (_rp_gain - _pref_margin) / _rho_temp
+                                            ).clamp(0.0, 1.0)
+                                            _target_z = torch.sigmoid(
+                                                (_z_gain - _pref_margin) / _rho_temp
+                                            ).clamp(0.0, 1.0)
+                                            _regret_up_planar = torch.relu(_planar_gain - _pref_margin)
+                                            _regret_up_rp = torch.relu(_rp_gain - _pref_margin)
+                                            _regret_up_z = torch.relu(_z_gain - _pref_margin)
+                                            _regret_down_planar = torch.zeros_like(_regret_up_planar)
+                                            _regret_down_rp = torch.zeros_like(_regret_up_rp)
+                                            _regret_down_z = torch.zeros_like(_regret_up_z)
                                         _target_exec = torch.stack(
                                             [
                                                 _target_planar,
@@ -4031,6 +4135,12 @@ class OnPolicyRunner:
                                         ).mean()
                                         _rho_target_z_mean = _target_exec[:, 2].mean()
                                         _rho_target_spread_mean = _target_exec.std(dim=-1, unbiased=False).mean()
+                                        _rho_regret_up_planar_mean = _regret_up_planar.mean()
+                                        _rho_regret_up_rp_mean = _regret_up_rp.mean()
+                                        _rho_regret_up_z_mean = _regret_up_z.mean()
+                                        _rho_regret_down_planar_mean = _regret_down_planar.mean()
+                                        _rho_regret_down_rp_mean = _regret_down_rp.mean()
+                                        _rho_regret_down_z_mean = _regret_down_z.mean()
                                     else:
                                         _target_exec = _target_scalar.view(-1, 1).expand(-1, 6).clone()
                                         _mask_exec = _pref_gate.view(-1, 1).expand(-1, 6).clone()
@@ -4118,6 +4228,18 @@ class OnPolicyRunner:
                                     _mode_dim_mask = self._frontres_mode_dim_mask(
                                         _mode_groups, _n_exec, self.device, _mask_exec.dtype
                                     )
+                                    if _regret_target_enabled and _grouped_targets_enabled:
+                                        _mode_soft_floor = float(
+                                            self.cfg.get(
+                                                "frontres_acceptance_regret_per_mode_soft_floor",
+                                                1.0,
+                                            )
+                                        )
+                                        _mode_soft_floor = max(0.0, min(1.0, _mode_soft_floor))
+                                        _mode_dim_mask = (
+                                            _mode_soft_floor
+                                            + (1.0 - _mode_soft_floor) * _mode_dim_mask
+                                        ).clamp(0.0, 1.0)
                                     _mask_exec = _mask_exec * _mode_dim_mask
                                 _active_dims_cfg = self.cfg.get("frontres_active_task_dims", None)
                                 if _active_dims_cfg is not None:
@@ -4129,7 +4251,7 @@ class OnPolicyRunner:
                                         elif 6 <= _idx < 12:
                                             _dim_mask[_idx - 6] = 1.0
                                     _mask_exec = _mask_exec * _dim_mask.view(1, -1)
-                                _grouped_rho_mask_mean = (_mask_exec > 0.0).to(_mask_exec.dtype).mean()
+                                _grouped_rho_mask_mean = _mask_exec.mean()
                                 if _rho_space in ("tri_anchor", "tri-anchor", "tri"):
                                     _mask_sum_for_alpha = _mask_exec.sum(dim=-1)
                                     _target_mean_for_alpha = _target_exec.mean(dim=-1).detach().clamp(0.0, 1.0)
@@ -4204,6 +4326,24 @@ class OnPolicyRunner:
                                 )
                                 self._frontres_grouped_rho_mask_last = float(
                                     _grouped_rho_mask_mean.detach().item()
+                                )
+                                self._frontres_rho_regret_up_planar_last = float(
+                                    _rho_regret_up_planar_mean.detach().item()
+                                )
+                                self._frontres_rho_regret_up_rp_last = float(
+                                    _rho_regret_up_rp_mean.detach().item()
+                                )
+                                self._frontres_rho_regret_up_z_last = float(
+                                    _rho_regret_up_z_mean.detach().item()
+                                )
+                                self._frontres_rho_regret_down_planar_last = float(
+                                    _rho_regret_down_planar_mean.detach().item()
+                                )
+                                self._frontres_rho_regret_down_rp_last = float(
+                                    _rho_regret_down_rp_mean.detach().item()
+                                )
+                                self._frontres_rho_regret_down_z_last = float(
+                                    _rho_regret_down_z_mean.detach().item()
                                 )
                             self.alg.transition.acceptance_target = _accept_pref_target
                             self.alg.transition.acceptance_mask = _accept_pref_mask
@@ -4443,6 +4583,24 @@ class OnPolicyRunner:
                             )
                             _frontres_grouped_rho_mask_sum += float(
                                 getattr(self, "_frontres_grouped_rho_mask_last", 0.0)
+                            )
+                            _frontres_rho_regret_up_planar_sum += float(
+                                getattr(self, "_frontres_rho_regret_up_planar_last", 0.0)
+                            )
+                            _frontres_rho_regret_up_rp_sum += float(
+                                getattr(self, "_frontres_rho_regret_up_rp_last", 0.0)
+                            )
+                            _frontres_rho_regret_up_z_sum += float(
+                                getattr(self, "_frontres_rho_regret_up_z_last", 0.0)
+                            )
+                            _frontres_rho_regret_down_planar_sum += float(
+                                getattr(self, "_frontres_rho_regret_down_planar_last", 0.0)
+                            )
+                            _frontres_rho_regret_down_rp_sum += float(
+                                getattr(self, "_frontres_rho_regret_down_rp_last", 0.0)
+                            )
+                            _frontres_rho_regret_down_z_sum += float(
+                                getattr(self, "_frontres_rho_regret_down_z_last", 0.0)
                             )
                             _frontres_state_alpha_pred_sum += float(
                                 getattr(self, "_frontres_state_alpha_pred_last", 0.0)
@@ -4937,6 +5095,30 @@ class OnPolicyRunner:
                 _frontres_grouped_rho_mask_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_rho_regret_up_planar_mean = (
+                _frontres_rho_regret_up_planar_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_rho_regret_up_rp_mean = (
+                _frontres_rho_regret_up_rp_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_rho_regret_up_z_mean = (
+                _frontres_rho_regret_up_z_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_rho_regret_down_planar_mean = (
+                _frontres_rho_regret_down_planar_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_rho_regret_down_rp_mean = (
+                _frontres_rho_regret_down_rp_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_rho_regret_down_z_mean = (
+                _frontres_rho_regret_down_z_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_state_alpha_pred_mean = (
                 _frontres_state_alpha_pred_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -5230,6 +5412,8 @@ class OnPolicyRunner:
                 "window_mu", "safe_frac", "repair_frac", "broken_frac",
                 "candidate_floor_margin", "candidate_floor_pass", "stable_route_frac",
                 "stable_endpoint_frac", "tri_weight_repair", "tri_weight_noisy", "tri_weight_stable",
+                "rho_regret_up_planar", "rho_regret_up_rp", "rho_regret_up_z",
+                "rho_regret_down_planar", "rho_regret_down_rp", "rho_regret_down_z",
                 "actor_gate", "exec_gate", "cost_gate",
                 "r_z", "r_xy", "r_rp", "r_yaw",
                 "dr_z_abs", "dr_xy_abs", "dr_rp_abs", "dr_yaw_abs",
@@ -5602,10 +5786,19 @@ class OnPolicyRunner:
                                 f"{locs.get('frontres_rho_target_rp_mean', 0.0):.3f} / "
                                 f"{locs.get('frontres_rho_target_z_mean', 0.0):.3f}\n"
                             )
-                            log_string += f"""{"rho target spread/mask:":>{pad}} """
+                            log_string += f"""{"rho target spread/weight:":>{pad}} """
                             log_string += (
                                 f"{locs.get('frontres_rho_target_spread_mean', 0.0):.3f} / "
                                 f"{locs.get('frontres_grouped_rho_mask_mean', 0.0):.3f}\n"
+                            )
+                            log_string += f"""{"rho regret up/dn p/r/z:":>{pad}} """
+                            log_string += (
+                                f"{locs.get('frontres_rho_regret_up_planar_mean', 0.0):.4f}/"
+                                f"{locs.get('frontres_rho_regret_down_planar_mean', 0.0):.4f} / "
+                                f"{locs.get('frontres_rho_regret_up_rp_mean', 0.0):.4f}/"
+                                f"{locs.get('frontres_rho_regret_down_rp_mean', 0.0):.4f} / "
+                                f"{locs.get('frontres_rho_regret_up_z_mean', 0.0):.4f}/"
+                                f"{locs.get('frontres_rho_regret_down_z_mean', 0.0):.4f}\n"
                             )
                         if locs.get("frontres_accept_pref_mask_mean") is not None:
                             _rho_space_diag = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
@@ -5903,6 +6096,31 @@ class OnPolicyRunner:
                             log_string += (
                                 f"{locs['frontres_inertial_pref_penalty_rho_mean']:.3f} / "
                                 f"{locs['frontres_inertial_pref_penalty_one_mean']:.3f}\n"
+                            )
+                        if (
+                            str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                            in ("tri_anchor", "tri-anchor", "tri")
+                            and locs.get("frontres_rho_target_planar_mean") is not None
+                        ):
+                            log_string += f"""{"rho target grp p/r/z:":>{pad}} """
+                            log_string += (
+                                f"{locs.get('frontres_rho_target_planar_mean', 0.0):.3f} / "
+                                f"{locs.get('frontres_rho_target_rp_mean', 0.0):.3f} / "
+                                f"{locs.get('frontres_rho_target_z_mean', 0.0):.3f}\n"
+                            )
+                            log_string += f"""{"rho target spread/weight:":>{pad}} """
+                            log_string += (
+                                f"{locs.get('frontres_rho_target_spread_mean', 0.0):.3f} / "
+                                f"{locs.get('frontres_grouped_rho_mask_mean', 0.0):.3f}\n"
+                            )
+                            log_string += f"""{"rho regret up/dn p/r/z:":>{pad}} """
+                            log_string += (
+                                f"{locs.get('frontres_rho_regret_up_planar_mean', 0.0):.4f}/"
+                                f"{locs.get('frontres_rho_regret_down_planar_mean', 0.0):.4f} / "
+                                f"{locs.get('frontres_rho_regret_up_rp_mean', 0.0):.4f}/"
+                                f"{locs.get('frontres_rho_regret_down_rp_mean', 0.0):.4f} / "
+                                f"{locs.get('frontres_rho_regret_up_z_mean', 0.0):.4f}/"
+                                f"{locs.get('frontres_rho_regret_down_z_mean', 0.0):.4f}\n"
                             )
                         if locs.get("frontres_exec_planar_mean") is not None:
                             log_string += f"""{'exec planar/vertical/task:':>{pad}} """
