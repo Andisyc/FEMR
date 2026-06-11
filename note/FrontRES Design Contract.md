@@ -2178,3 +2178,171 @@ issue is optimization or gradient boundary.  If joint advantage is mostly zero
 or negative, the current HSL proposal and projected action space do not contain
 a useful improvement over Noisy under the present utility.  In that case further
 Preference-Learning target engineering is not the bottleneck.
+
+## 2026-06-12 Oracle Upper-Bound Test Branch
+
+### Motivation
+
+Before changing alpha/rho training again, run a zero-intervention test branch
+that answers one question:
+
+```text
+Does the current rollout evidence contain any candidate that can beat
+Noisy/GMT under the executable utility?
+```
+
+This is a diagnostic branch, not a new training objective.  It must not feed
+back into the loss.  Its job is to separate three failure modes:
+
+1. no candidate in the current search/evaluation space can beat Noisy;
+2. a candidate can beat Noisy, but the learned Projected action does not find it;
+3. only the feasible-oracle proxy beats Noisy, which means the real executed
+   search space still lacks the needed endpoint.
+
+### Existing Evidence Sources
+
+Reuse the current quartet and feasible-oracle diagnostics:
+
+```text
+U_noisy     = executable score of Noisy/GMT baseline
+U_projected = executable score of executed FrontRES Projected action
+U_candidate = executable score of full HSL repair candidate
+U_feasible  = existing feasible-oracle proxy score
+```
+
+Then compute the diagnostic upper bound:
+
+```text
+U_ub  = max(U_noisy, U_projected, U_candidate, U_feasible)
+A_ub  = U_ub - U_noisy
+src   = argmax(noisy, projected, candidate, feasible)
+```
+
+This upper bound is intentionally optimistic because `U_feasible` is a proxy,
+not an executed stable-frame rollout.  That is acceptable for a first-pass
+falsification test: if even this optimistic bound cannot beat Noisy, further
+rho/alpha target engineering is unlikely to help.
+
+### Diagnostics To Print
+
+Add console and TensorBoard diagnostics:
+
+```text
+oracle ub gain/src: A_ub / projected / candidate / feasible / noisy
+oracle ub pass: fraction(A_ub > margin)
+```
+
+Interpretation:
+
+- `oracle ub gain <= 0` or `noisy` wins most samples:
+  the current HSL proposal/evaluator does not expose usable improvement.
+- `candidate` or `feasible` wins often but `projected` does not:
+  the improvement exists, but alpha/rho policy or credit assignment is failing.
+- `feasible` dominates while `candidate` and `projected` are weak:
+  the real action space is missing the executable endpoint; the feasible proxy
+  is not enough as an executed route.
+- `projected` wins often:
+  the current policy is already finding useful repairs; continue training or
+  evaluate fixed-DR test curves.
+
+### Execution Constraint
+
+This branch is a diagnostic test only.  Do not use `U_ub` as a reward, target,
+mask, or actor update unless a later note explicitly changes the method.  If a
+future implementation cannot preserve this boundary, stop and discuss instead
+of silently merging diagnostics into training.
+
+## 2026-06-12 Split Advantage For Simplex Alpha-Rho
+
+### Problem
+
+The current tri-anchor route has the right action geometry but the wrong credit
+assignment.  The executed frame is conceptually:
+
+```text
+P = rho * R + (1 - rho) * ((1 - alpha) * N + alpha * S)
+```
+
+where `N` is the noisy input frame, `S` is the stable fallback endpoint, and
+`R` is the HSL repair candidate.
+
+This means:
+
+- `alpha` chooses the fallback endpoint: noisy fallback vs stable fallback.
+- `rho` decides how much repair mass to move from that chosen fallback toward
+  the repair candidate.
+
+Therefore `alpha` and `rho` must not be trained by the same scalar advantage.
+Doing so reintroduces the old mixed-credit problem: a bad projected result may
+mean the fallback choice is wrong, the repair amount is wrong, or the repair
+candidate is wrong.  A single advantage cannot tell these apart.
+
+### Training Signal Contract
+
+Use two separate policy-gradient signals.
+
+1. `alpha` signal: fallback selection.
+
+```text
+U_N = executable score of the noisy branch
+U_S = executable score of the stable fallback proxy
+
+if sampled alpha chose S:
+    A_alpha = U_S - U_N
+else:
+    A_alpha = U_N - U_S
+```
+
+This is a clean binary routing signal.  It only answers whether the sampled
+fallback endpoint was better than the alternative fallback endpoint.
+
+2. `rho` signal: executed repair improvement over the chosen fallback.
+
+```text
+U_F = U_S if sampled alpha chose S else U_N
+U_P = executable score of the actually executed projected frame
+
+A_rho = U_P - U_F
+```
+
+This is a clean repair-strength signal.  It only answers whether the sampled
+repair mass improved the frame beyond its chosen fallback.
+
+### Implementation Contract
+
+Do not add rollout branches for this change.  The first implementation uses the
+existing feasible/stable proxy as `U_S`, the noisy branch as `U_N`, and the
+projected branch as `U_P`.
+
+Store the structured RL carrier as:
+
+```text
+acceptance_target[:, 0] = A_rho
+acceptance_target[:, 1] = old alpha log-prob
+acceptance_target[:, 2] = sampled alpha action
+acceptance_target[:, 3] = A_alpha
+acceptance_mask[:, 0] = rho update weight
+acceptance_mask[:, 1] = alpha update weight
+```
+
+The algorithm must compute two PPO-style losses:
+
+```text
+rho loss   uses rho log-prob ratio   and A_rho
+alpha loss uses alpha log-prob ratio and A_alpha
+```
+
+Do not combine alpha and rho log-prob ratios into one joint ratio.  That would
+again make the two decisions share one credit-assignment channel.
+
+### Diagnostics
+
+The log should expose both branches:
+
+```text
+joint split adv rho/alpha
+joint split w rho/alpha
+```
+
+The previous `joint rl adv/w` may remain as a backward-compatible rho summary,
+but interpretation must change: it no longer means a joint alpha-rho advantage.

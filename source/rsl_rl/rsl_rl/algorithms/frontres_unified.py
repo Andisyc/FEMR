@@ -1292,6 +1292,14 @@ class FrontRESUnified:
             "structured_joint_rl_adv_mean": 0.0,
             "structured_joint_rl_adv_used_mean": 0.0,
             "structured_joint_rl_weight_mean": 0.0,
+            "structured_joint_rl_rho_adv_mean": 0.0,
+            "structured_joint_rl_alpha_adv_mean": 0.0,
+            "structured_joint_rl_rho_weight_mean": 0.0,
+            "structured_joint_rl_alpha_weight_mean": 0.0,
+            "structured_joint_rl_rho_ratio_mean": 1.0,
+            "structured_joint_rl_alpha_ratio_mean": 1.0,
+            "structured_joint_rl_rho_loss": 0.0,
+            "structured_joint_rl_alpha_loss": 0.0,
             "structured_joint_rl_alpha_action_mean": 0.0,
             "structured_joint_rl_alpha_logp_mean": 0.0,
             "structured_joint_rl_ratio_mean": 1.0,
@@ -1305,27 +1313,41 @@ class FrontRESUnified:
             return zero, metrics
 
         n = original_batch_size
-        carrier = acceptance_target_batch[:n, :3].to(device=self.device, dtype=obs_batch.dtype).detach()
-        weight = acceptance_mask_batch[:n, :1].to(device=self.device, dtype=obs_batch.dtype).detach()
-        adv_raw = torch.nan_to_num(carrier[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
+        carrier = acceptance_target_batch[:n, :4].to(device=self.device, dtype=obs_batch.dtype).detach()
+        weights = acceptance_mask_batch[:n, :2].to(device=self.device, dtype=obs_batch.dtype).detach()
+        rho_adv_raw = torch.nan_to_num(carrier[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
         old_alpha_logp = torch.nan_to_num(carrier[:, 1], nan=0.0, posinf=0.0, neginf=0.0)
         alpha_action = torch.nan_to_num(carrier[:, 2], nan=0.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
-        weight = torch.nan_to_num(weight.view(-1), nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
+        if carrier.shape[-1] > 3:
+            alpha_adv_raw = torch.nan_to_num(carrier[:, 3], nan=0.0, posinf=0.0, neginf=0.0)
+        else:
+            alpha_adv_raw = rho_adv_raw
+        rho_weight = torch.nan_to_num(weights[:, 0], nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
+        if weights.shape[-1] > 1:
+            alpha_weight = torch.nan_to_num(weights[:, 1], nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
+        else:
+            alpha_weight = rho_weight
 
-        active = weight > 1e-6
-        if not bool(active.any().detach().item()):
+        rho_active = rho_weight > 1e-6
+        alpha_active = alpha_weight > 1e-6
+        if (
+            not bool(rho_active.any().detach().item())
+            and not bool(alpha_active.any().detach().item())
+        ):
             return zero, metrics
 
-        adv = adv_raw
-        clip = float(getattr(self, "frontres_structured_joint_rl_adv_clip", 0.0))
-        if clip > 0.0:
-            adv = adv.clamp(-clip, clip)
-        if bool(getattr(self, "frontres_structured_joint_rl_normalize_advantage", True)):
-            active_adv = adv[active]
-            if int(active_adv.numel()) > 1:
-                adv_mean = active_adv.mean()
-                adv_std = active_adv.std(unbiased=False).clamp(min=1e-6)
-                adv = (adv - adv_mean) / adv_std
+        def _prepare_advantage(raw_adv: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
+            adv = raw_adv
+            clip = float(getattr(self, "frontres_structured_joint_rl_adv_clip", 0.0))
+            if clip > 0.0:
+                adv = adv.clamp(-clip, clip)
+            if bool(getattr(self, "frontres_structured_joint_rl_normalize_advantage", True)):
+                active_adv = adv[active_mask]
+                if int(active_adv.numel()) > 1:
+                    adv_mean = active_adv.mean()
+                    adv_std = active_adv.std(unbiased=False).clamp(min=1e-6)
+                    adv = (adv - adv_mean) / adv_std
+            return adv
 
         logits = self.policy.get_state_router_logit(obs_batch[:n]).view(-1)
         alpha_logp = -nn.functional.binary_cross_entropy_with_logits(
@@ -1335,31 +1357,56 @@ class FrontRESUnified:
         )
         old_rho_logp = old_actions_log_prob_batch[:n].view(-1).to(device=self.device, dtype=obs_batch.dtype)
         new_rho_logp = actions_log_prob_batch[:n].view(-1).to(device=self.device, dtype=obs_batch.dtype)
-        log_ratio = (new_rho_logp - old_rho_logp) + (alpha_logp - old_alpha_logp)
-        ratio = torch.exp(log_ratio.clamp(-10.0, 10.0))
-        ratio_clipped = torch.clamp(ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
-        surrogate = -adv * ratio
-        surrogate_clipped = -adv * ratio_clipped
-        loss_terms = torch.max(surrogate, surrogate_clipped)
-        denom = weight.sum().clamp(min=1e-6)
-        loss = (loss_terms * weight).sum() / denom
+        rho_adv = _prepare_advantage(rho_adv_raw, rho_active)
+        alpha_adv = _prepare_advantage(alpha_adv_raw, alpha_active)
+
+        def _clipped_loss(
+            adv: torch.Tensor,
+            weight: torch.Tensor,
+            log_ratio: torch.Tensor,
+        ) -> tuple[torch.Tensor, torch.Tensor]:
+            ratio = torch.exp(log_ratio.clamp(-10.0, 10.0))
+            ratio_clipped = torch.clamp(ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+            surrogate = -adv * ratio
+            surrogate_clipped = -adv * ratio_clipped
+            loss_terms = torch.max(surrogate, surrogate_clipped)
+            denom = weight.sum().clamp(min=1e-6)
+            return (loss_terms * weight).sum() / denom, ratio
+
+        rho_log_ratio = new_rho_logp - old_rho_logp
+        alpha_log_ratio = alpha_logp - old_alpha_logp
+        rho_loss, rho_ratio = _clipped_loss(rho_adv, rho_weight, rho_log_ratio)
+        alpha_loss, alpha_ratio = _clipped_loss(alpha_adv, alpha_weight, alpha_log_ratio)
+        loss = rho_loss + alpha_loss
 
         metrics["structured_joint_rl_adv_mean"] = float(
-            (adv_raw[active]).mean().detach().item()
-        )
+            (rho_adv_raw[rho_active]).mean().detach().item()
+        ) if bool(rho_active.any().detach().item()) else 0.0
         metrics["structured_joint_rl_adv_used_mean"] = float(
-            (adv[active]).mean().detach().item()
-        )
-        metrics["structured_joint_rl_weight_mean"] = float(weight.mean().detach().item())
+            (rho_adv[rho_active]).mean().detach().item()
+        ) if bool(rho_active.any().detach().item()) else 0.0
+        metrics["structured_joint_rl_weight_mean"] = float(rho_weight.mean().detach().item())
+        metrics["structured_joint_rl_rho_adv_mean"] = metrics["structured_joint_rl_adv_mean"]
+        metrics["structured_joint_rl_alpha_adv_mean"] = float(
+            (alpha_adv_raw[alpha_active]).mean().detach().item()
+        ) if bool(alpha_active.any().detach().item()) else 0.0
+        metrics["structured_joint_rl_rho_weight_mean"] = float(rho_weight.mean().detach().item())
+        metrics["structured_joint_rl_alpha_weight_mean"] = float(alpha_weight.mean().detach().item())
         metrics["structured_joint_rl_alpha_action_mean"] = float(
-            alpha_action[active].mean().detach().item()
-        )
+            alpha_action[alpha_active].mean().detach().item()
+        ) if bool(alpha_active.any().detach().item()) else 0.0
         metrics["structured_joint_rl_alpha_logp_mean"] = float(
-            old_alpha_logp[active].mean().detach().item()
-        )
-        metrics["structured_joint_rl_ratio_mean"] = float(
-            ratio.detach()[active].mean().item()
-        )
+            old_alpha_logp[alpha_active].mean().detach().item()
+        ) if bool(alpha_active.any().detach().item()) else 0.0
+        metrics["structured_joint_rl_rho_ratio_mean"] = float(
+            rho_ratio.detach()[rho_active].mean().item()
+        ) if bool(rho_active.any().detach().item()) else 1.0
+        metrics["structured_joint_rl_alpha_ratio_mean"] = float(
+            alpha_ratio.detach()[alpha_active].mean().item()
+        ) if bool(alpha_active.any().detach().item()) else 1.0
+        metrics["structured_joint_rl_ratio_mean"] = metrics["structured_joint_rl_rho_ratio_mean"]
+        metrics["structured_joint_rl_rho_loss"] = float(rho_loss.detach().item())
+        metrics["structured_joint_rl_alpha_loss"] = float(alpha_loss.detach().item())
         return loss, metrics
 
     def _compute_state_alpha_loss(

@@ -643,13 +643,20 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_state_alpha_exec_floor = 0.0
     frontres_state_alpha_safe_exec_floor = 0.05
     frontres_state_alpha_temp = 0.08
-    # Structured Joint RL makes alpha and rho one sampled policy action:
-    # runner samples alpha, stores its log-prob with rho's rollout advantage,
-    # and the algorithm updates both heads with one joint policy-gradient loss.
+    # Structured Joint RL samples alpha and rho in one rollout, but trains them
+    # with split credit assignment:
+    #   alpha: fallback endpoint selection (Noisy vs Stable proxy)
+    #   rho: executed repair improvement over the selected fallback
     frontres_structured_joint_rl_enabled = True
     frontres_structured_joint_weight_floor = 0.10
+    # Legacy joint-utility shaping knobs.  Kept for checkpoint/config
+    # compatibility; split alpha/rho advantage no longer consumes them.
     frontres_structured_joint_candidate_weight = 0.25
     frontres_structured_joint_projection_weight = 0.25
+    # Diagnostic-only upper bound: tells whether existing rollout evidence
+    # contains any better-than-Noisy option before changing alpha/rho training.
+    frontres_oracle_upper_bound_diag_enabled = True
+    frontres_oracle_upper_bound_margin = 0.0
     frontres_acceptance_rho_target_temp = 0.08
     # Keep rho as a 6D acceptance vector, but construct its tri-anchor target
     # from grouped executable evidence instead of copying one scalar target to
@@ -901,6 +908,8 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_structured_joint_rl_adv_clip = 5.0,
         frontres_structured_joint_rl_normalize_advantage = True,
         frontres_structured_joint_rl_keep_legacy_bce = False,
+        frontres_oracle_upper_bound_diag_enabled = True,
+        frontres_oracle_upper_bound_margin = 0.0,
         lambda_supervised             = 1.0,   # initial weight
         lambda_supervised_min         = 0.20,  # HSL remains an anchor while PPO explores repair strength
         lambda_supervised_decay       = 0.995, # HSL direction anchor can decay once rollout advantage is useful

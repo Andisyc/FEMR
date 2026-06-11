@@ -3295,8 +3295,19 @@ class OnPolicyRunner:
             _frontres_state_alpha_route_sum: float = 0.0
             _frontres_structured_joint_adv_sum: float = 0.0
             _frontres_structured_joint_weight_sum: float = 0.0
+            _frontres_structured_joint_rho_adv_sum: float = 0.0
+            _frontres_structured_joint_alpha_adv_sum: float = 0.0
+            _frontres_structured_joint_rho_weight_sum: float = 0.0
+            _frontres_structured_joint_alpha_weight_sum: float = 0.0
+            _frontres_structured_joint_alpha_pref_sum: float = 0.0
             _frontres_structured_joint_alpha_action_sum: float = 0.0
             _frontres_structured_joint_alpha_logp_sum: float = 0.0
+            _frontres_oracle_ub_gain_sum: float = 0.0
+            _frontres_oracle_ub_pass_sum: float = 0.0
+            _frontres_oracle_ub_projected_win_sum: float = 0.0
+            _frontres_oracle_ub_candidate_win_sum: float = 0.0
+            _frontres_oracle_ub_feasible_win_sum: float = 0.0
+            _frontres_oracle_ub_noisy_win_sum: float = 0.0
             _frontres_actor_gate_sum:     float = 0.0
             _frontres_exec_gate_sum:      float = 0.0
             _frontres_cost_gate_sum:      float = 0.0
@@ -3964,6 +3975,28 @@ class OnPolicyRunner:
                             _repair_gain = _exec_frontres - _exec_perturbed
                             _candidate_gain = _exec_candidate - _exec_perturbed
                             _projection_gain = _exec_frontres - _exec_candidate
+                            if bool(self.cfg.get("frontres_oracle_upper_bound_diag_enabled", True)):
+                                _oracle_ub_scores = torch.stack(
+                                    (_exec_perturbed, _exec_frontres, _exec_candidate, _exec_feasible),
+                                    dim=0,
+                                )
+                                _oracle_ub_best, _oracle_ub_src = _oracle_ub_scores.max(dim=0)
+                                _oracle_ub_gain = _oracle_ub_best - _exec_perturbed
+                                _oracle_ub_margin = float(
+                                    self.cfg.get("frontres_oracle_upper_bound_margin", 0.0)
+                                )
+                                _oracle_ub_pass = (_oracle_ub_gain > _oracle_ub_margin).float()
+                                _oracle_ub_noisy_win = (_oracle_ub_src == 0).float()
+                                _oracle_ub_projected_win = (_oracle_ub_src == 1).float()
+                                _oracle_ub_candidate_win = (_oracle_ub_src == 2).float()
+                                _oracle_ub_feasible_win = (_oracle_ub_src == 3).float()
+                            else:
+                                _oracle_ub_gain = torch.zeros_like(_repair_gain)
+                                _oracle_ub_pass = torch.zeros_like(_repair_gain)
+                                _oracle_ub_noisy_win = torch.ones_like(_repair_gain)
+                                _oracle_ub_projected_win = torch.zeros_like(_repair_gain)
+                                _oracle_ub_candidate_win = torch.zeros_like(_repair_gain)
+                                _oracle_ub_feasible_win = torch.zeros_like(_repair_gain)
                             _gap_floor = float(self.cfg.get("frontres_gap_floor_per_step", 0.005))
                             _repair_ratio = (_repair_gain / _damage_gap.clamp(min=_gap_floor)).clamp(-1.0, 1.0)
                             _reward_signal_mode = str(self.cfg.get("frontres_exec_reward_signal", "gain")).lower()
@@ -4232,6 +4265,11 @@ class OnPolicyRunner:
                             self._frontres_rho_regret_down_z_last = 0.0
                             self._frontres_structured_joint_adv_last = 0.0
                             self._frontres_structured_joint_weight_last = 0.0
+                            self._frontres_structured_joint_rho_adv_last = 0.0
+                            self._frontres_structured_joint_alpha_adv_last = 0.0
+                            self._frontres_structured_joint_rho_weight_last = 0.0
+                            self._frontres_structured_joint_alpha_weight_last = 0.0
+                            self._frontres_structured_joint_alpha_pref_last = 0.0
                             self._frontres_structured_joint_alpha_action_last = 0.0
                             self._frontres_structured_joint_alpha_logp_last = 0.0
                             _pref_enabled = (
@@ -4658,37 +4696,66 @@ class OnPolicyRunner:
                                         )
                                     _alpha_action = _alpha_action[:_n_exec].clamp(0.0, 1.0)
                                     _alpha_logp = _alpha_logp[:_n_exec]
-                                    _joint_utility = (
-                                        _repair_gain
+                                    _stable_proxy_score = _exec_feasible
+                                    _noisy_score = _exec_perturbed
+                                    _alpha_chose_stable = _alpha_action >= 0.5
+                                    _fallback_score = torch.where(
+                                        _alpha_chose_stable,
+                                        _stable_proxy_score,
+                                        _noisy_score,
+                                    )
+                                    _alpha_pref = _stable_proxy_score - _noisy_score
+                                    _alpha_adv = torch.where(
+                                        _alpha_chose_stable,
+                                        _alpha_pref,
+                                        -_alpha_pref,
+                                    )
+                                    _projected_utility = (
+                                        _exec_frontres
                                         + _effective_gain_bonus_exec
-                                        + float(self.cfg.get("frontres_structured_joint_candidate_weight", 0.25))
-                                        * torch.relu(_candidate_gain)
-                                        + float(self.cfg.get("frontres_structured_joint_projection_weight", 0.25))
-                                        * _projection_gain
                                         - _harm_penalty_exec
                                         - (_cost_gate * _cost_exec)
                                     )
+                                    _rho_adv = _projected_utility - _fallback_score
                                     _joint_weight_floor = float(
                                         self.cfg.get("frontres_structured_joint_weight_floor", 0.10)
                                     )
                                     _joint_weight_floor = max(0.0, min(1.0, _joint_weight_floor))
-                                    _joint_weight = (
+                                    _rho_weight = (
                                         _joint_weight_floor
                                         + (1.0 - _joint_weight_floor) * _actor_gate[:_n_exec]
                                     ).detach().clamp(0.0, 1.0)
+                                    _alpha_weight = _rho_weight
                                     _accept_pref_target.zero_()
                                     _accept_pref_mask.zero_()
-                                    _accept_pref_target[:_n_exec, 0] = _joint_utility.detach()
+                                    _accept_pref_target[:_n_exec, 0] = _rho_adv.detach()
                                     _accept_pref_target[:_n_exec, 1] = _alpha_logp.detach()
                                     _accept_pref_target[:_n_exec, 2] = _alpha_action.detach()
-                                    _accept_pref_mask[:_n_exec, 0] = _joint_weight
-                                    _target_exec = _joint_utility.view(-1, 1).expand(-1, 6)
-                                    _mask_exec = _joint_weight.view(-1, 1).expand(-1, 6)
+                                    _accept_pref_target[:_n_exec, 3] = _alpha_adv.detach()
+                                    _accept_pref_mask[:_n_exec, 0] = _rho_weight
+                                    _accept_pref_mask[:_n_exec, 1] = _alpha_weight
+                                    _target_exec = _rho_adv.view(-1, 1).expand(-1, 6)
+                                    _mask_exec = _rho_weight.view(-1, 1).expand(-1, 6)
                                     self._frontres_structured_joint_adv_last = float(
-                                        _joint_utility.mean().detach().item()
+                                        _rho_adv.mean().detach().item()
                                     )
                                     self._frontres_structured_joint_weight_last = float(
-                                        _joint_weight.mean().detach().item()
+                                        _rho_weight.mean().detach().item()
+                                    )
+                                    self._frontres_structured_joint_rho_adv_last = float(
+                                        _rho_adv.mean().detach().item()
+                                    )
+                                    self._frontres_structured_joint_alpha_adv_last = float(
+                                        _alpha_adv.mean().detach().item()
+                                    )
+                                    self._frontres_structured_joint_rho_weight_last = float(
+                                        _rho_weight.mean().detach().item()
+                                    )
+                                    self._frontres_structured_joint_alpha_weight_last = float(
+                                        _alpha_weight.mean().detach().item()
+                                    )
+                                    self._frontres_structured_joint_alpha_pref_last = float(
+                                        _alpha_pref.mean().detach().item()
                                     )
                                     self._frontres_structured_joint_alpha_action_last = float(
                                         _alpha_action.mean().detach().item()
@@ -4699,6 +4766,11 @@ class OnPolicyRunner:
                                 else:
                                     self._frontres_structured_joint_adv_last = 0.0
                                     self._frontres_structured_joint_weight_last = 0.0
+                                    self._frontres_structured_joint_rho_adv_last = 0.0
+                                    self._frontres_structured_joint_alpha_adv_last = 0.0
+                                    self._frontres_structured_joint_rho_weight_last = 0.0
+                                    self._frontres_structured_joint_alpha_weight_last = 0.0
+                                    self._frontres_structured_joint_alpha_pref_last = 0.0
                                     self._frontres_structured_joint_alpha_action_last = 0.0
                                     self._frontres_structured_joint_alpha_logp_last = 0.0
                                 self._frontres_state_alpha_mask_last = float(
@@ -5049,12 +5121,33 @@ class OnPolicyRunner:
                             _frontres_structured_joint_weight_sum += float(
                                 getattr(self, "_frontres_structured_joint_weight_last", 0.0)
                             )
+                            _frontres_structured_joint_rho_adv_sum += float(
+                                getattr(self, "_frontres_structured_joint_rho_adv_last", 0.0)
+                            )
+                            _frontres_structured_joint_alpha_adv_sum += float(
+                                getattr(self, "_frontres_structured_joint_alpha_adv_last", 0.0)
+                            )
+                            _frontres_structured_joint_rho_weight_sum += float(
+                                getattr(self, "_frontres_structured_joint_rho_weight_last", 0.0)
+                            )
+                            _frontres_structured_joint_alpha_weight_sum += float(
+                                getattr(self, "_frontres_structured_joint_alpha_weight_last", 0.0)
+                            )
+                            _frontres_structured_joint_alpha_pref_sum += float(
+                                getattr(self, "_frontres_structured_joint_alpha_pref_last", 0.0)
+                            )
                             _frontres_structured_joint_alpha_action_sum += float(
                                 getattr(self, "_frontres_structured_joint_alpha_action_last", 0.0)
                             )
                             _frontres_structured_joint_alpha_logp_sum += float(
                                 getattr(self, "_frontres_structured_joint_alpha_logp_last", 0.0)
                             )
+                            _frontres_oracle_ub_gain_sum += _oracle_ub_gain.mean().item()
+                            _frontres_oracle_ub_pass_sum += _oracle_ub_pass.mean().item()
+                            _frontres_oracle_ub_projected_win_sum += _oracle_ub_projected_win.mean().item()
+                            _frontres_oracle_ub_candidate_win_sum += _oracle_ub_candidate_win.mean().item()
+                            _frontres_oracle_ub_feasible_win_sum += _oracle_ub_feasible_win.mean().item()
+                            _frontres_oracle_ub_noisy_win_sum += _oracle_ub_noisy_win.mean().item()
                             _frontres_actor_gate_sum   += _actor_gate.mean().item()
                             _frontres_exec_gate_sum    += _exec_gate.mean().item()
                             _frontres_cost_gate_sum    += _cost_gate.mean().item()
@@ -5332,6 +5425,30 @@ class OnPolicyRunner:
                 _frontres_underwrite_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_oracle_ub_gain_mean = (
+                _frontres_oracle_ub_gain_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_oracle_ub_pass_mean = (
+                _frontres_oracle_ub_pass_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_oracle_ub_projected_win_mean = (
+                _frontres_oracle_ub_projected_win_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_oracle_ub_candidate_win_mean = (
+                _frontres_oracle_ub_candidate_win_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_oracle_ub_feasible_win_mean = (
+                _frontres_oracle_ub_feasible_win_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_oracle_ub_noisy_win_mean = (
+                _frontres_oracle_ub_noisy_win_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_accept_pref_mask_mean = (
                 _frontres_accept_pref_mask_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -5584,6 +5701,26 @@ class OnPolicyRunner:
                 _frontres_structured_joint_weight_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_structured_joint_rho_adv_mean = (
+                _frontres_structured_joint_rho_adv_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_structured_joint_alpha_adv_mean = (
+                _frontres_structured_joint_alpha_adv_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_structured_joint_rho_weight_mean = (
+                _frontres_structured_joint_rho_weight_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_structured_joint_alpha_weight_mean = (
+                _frontres_structured_joint_alpha_weight_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_structured_joint_alpha_pref_mean = (
+                _frontres_structured_joint_alpha_pref_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_structured_joint_alpha_action_mean = (
                 _frontres_structured_joint_alpha_action_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -5814,6 +5951,14 @@ class OnPolicyRunner:
             "structured_joint_rl_adv_mean",
             "structured_joint_rl_adv_used_mean",
             "structured_joint_rl_weight_mean",
+            "structured_joint_rl_rho_adv_mean",
+            "structured_joint_rl_alpha_adv_mean",
+            "structured_joint_rl_rho_weight_mean",
+            "structured_joint_rl_alpha_weight_mean",
+            "structured_joint_rl_rho_ratio_mean",
+            "structured_joint_rl_alpha_ratio_mean",
+            "structured_joint_rl_rho_loss",
+            "structured_joint_rl_alpha_loss",
             "structured_joint_rl_alpha_action_mean",
             "structured_joint_rl_alpha_logp_mean",
             "structured_joint_rl_ratio_mean",
@@ -5865,6 +6010,9 @@ class OnPolicyRunner:
                 "exec_planar", "exec_vertical", "exec_task",
                 "damage_gap", "oracle_clean_gap", "oracle_trust",
                 "repair_gain", "candidate_gain", "projection_gain", "underwrite",
+                "oracle_ub_gain", "oracle_ub_pass",
+                "oracle_ub_projected_win", "oracle_ub_candidate_win",
+                "oracle_ub_feasible_win", "oracle_ub_noisy_win",
                 "accept_pref_mask", "accept_pref_full", "accept_pref_noop",
                 "accept_pref_keep", "accept_pref_ignore", "accept_pref_margin",
                 "positive_gain_frac", "repair_ratio",
@@ -5878,6 +6026,9 @@ class OnPolicyRunner:
                 "window_mu", "safe_frac", "repair_frac", "broken_frac",
                 "candidate_floor_margin", "candidate_floor_pass", "stable_route_frac",
                 "stable_endpoint_frac", "tri_weight_repair", "tri_weight_noisy", "tri_weight_stable",
+                "structured_joint_rho_adv", "structured_joint_alpha_adv",
+                "structured_joint_rho_weight", "structured_joint_alpha_weight",
+                "structured_joint_alpha_pref",
                 "rho_regret_up_planar", "rho_regret_up_rp", "rho_regret_up_z",
                 "rho_regret_down_planar", "rho_regret_down_rp", "rho_regret_down_z",
                 "actor_gate", "exec_gate", "cost_gate",
@@ -6225,6 +6376,18 @@ class OnPolicyRunner:
                                     f"{_loss_dict.get('state_alpha_loss', 0.0):.4f} / "
                                     f"{_loss_dict.get('state_alpha_acc', 0.0):.3f}\n"
                                 )
+                        if locs.get("frontres_structured_joint_rho_adv_mean") is not None:
+                            log_string += f"""{"joint split adv rho/alpha:":>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_structured_joint_rho_adv_mean']:+.4f} / "
+                                f"{locs['frontres_structured_joint_alpha_adv_mean']:+.4f} "
+                                f"(S-N={locs['frontres_structured_joint_alpha_pref_mean']:+.4f})\n"
+                            )
+                            log_string += f"""{"joint split w rho/alpha:":>{pad}} """
+                            log_string += (
+                                f"{locs['frontres_structured_joint_rho_weight_mean']:.3f} / "
+                                f"{locs['frontres_structured_joint_alpha_weight_mean']:.3f}\n"
+                            )
                         if locs.get("frontres_candidate_floor_margin_mean") is not None:
                             log_string += f"""{"rho space:":>{pad}} """
                             log_string += f"{self.cfg.get('frontres_rho_space', 'noisy_to_repair')}\n"
@@ -6480,6 +6643,17 @@ class OnPolicyRunner:
                             if locs.get("frontres_positive_gain_frac_mean") is not None:
                                 log_string += f"""{'positive_gain_frac:':>{pad}} """
                                 log_string += f"{locs['frontres_positive_gain_frac_mean']:.3f}\n"
+                            if locs.get("frontres_oracle_ub_gain_mean") is not None:
+                                log_string += f"""{'oracle ub gain/src:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_oracle_ub_gain_mean']:+.4f} / "
+                                    f"{locs['frontres_oracle_ub_projected_win_mean']:.3f} / "
+                                    f"{locs['frontres_oracle_ub_candidate_win_mean']:.3f} / "
+                                    f"{locs['frontres_oracle_ub_feasible_win_mean']:.3f} / "
+                                    f"{locs['frontres_oracle_ub_noisy_win_mean']:.3f}\n"
+                                )
+                                log_string += f"""{'oracle ub pass:':>{pad}} """
+                                log_string += f"{locs['frontres_oracle_ub_pass_mean']:.3f}\n"
                             log_string += f"""{'safe/repair/broken frac:':>{pad}} """
                             log_string += (
                                 f"{locs['frontres_safe_frac_mean']:.3f} / "

@@ -323,6 +323,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Normalize structured-joint advantages over active samples in each minibatch."""
     frontres_structured_joint_rl_keep_legacy_bce: bool = False
     """Keep legacy acceptance/state-alpha BCE losses active while structured joint RL is enabled."""
+    frontres_oracle_upper_bound_diag_enabled: bool = True
+    """Log an optimistic no-training oracle upper bound from noisy/projected/candidate/feasible scores."""
+    frontres_oracle_upper_bound_margin: float = 0.0
+    """Minimum executable-score gain over Noisy counted as an oracle-upper-bound pass."""
     frontres_active_task_dims: list[int] | None = None
     """Optional supervised-loss mask for task-space FrontRES correction dims."""
     diagnose_gradient_conflict: bool = True
