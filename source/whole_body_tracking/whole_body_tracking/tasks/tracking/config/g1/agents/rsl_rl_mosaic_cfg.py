@@ -643,6 +643,13 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_state_alpha_exec_floor = 0.0
     frontres_state_alpha_safe_exec_floor = 0.05
     frontres_state_alpha_temp = 0.08
+    # Structured Joint RL makes alpha and rho one sampled policy action:
+    # runner samples alpha, stores its log-prob with rho's rollout advantage,
+    # and the algorithm updates both heads with one joint policy-gradient loss.
+    frontres_structured_joint_rl_enabled = True
+    frontres_structured_joint_weight_floor = 0.10
+    frontres_structured_joint_candidate_weight = 0.25
+    frontres_structured_joint_projection_weight = 0.25
     frontres_acceptance_rho_target_temp = 0.08
     # Keep rho as a 6D acceptance vector, but construct its tri-anchor target
     # from grouped executable evidence instead of copying one scalar target to
@@ -884,11 +891,16 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
 
         # ── Supervised auxiliary loss (λ_sup schedule) ────────────────────────
         frontres_training_objective  = "hsl_hybrid",
-        frontres_acceptance_preference_weight = 1.0,
+        frontres_acceptance_preference_weight = 0.0,
         frontres_acceptance_preference_focal_gamma = 1.0,
         frontres_acceptance_preference_balance_min = 0.5,
         frontres_acceptance_preference_balance_max = 3.0,
-        frontres_state_alpha_weight      = 0.20,
+        frontres_state_alpha_weight      = 0.0,
+        frontres_structured_joint_rl_enabled = True,
+        frontres_structured_joint_rl_weight = 1.0,
+        frontres_structured_joint_rl_adv_clip = 5.0,
+        frontres_structured_joint_rl_normalize_advantage = True,
+        frontres_structured_joint_rl_keep_legacy_bce = False,
         lambda_supervised             = 1.0,   # initial weight
         lambda_supervised_min         = 0.20,  # HSL remains an anchor while PPO explores repair strength
         lambda_supervised_decay       = 0.995, # HSL direction anchor can decay once rollout advantage is useful

@@ -79,6 +79,11 @@ class FrontRESUnified:
         frontres_acceptance_preference_balance_min: float = 1.0,
         frontres_acceptance_preference_balance_max: float = 1.0,
         frontres_state_alpha_weight: float = 0.0,
+        frontres_structured_joint_rl_enabled: bool = False,
+        frontres_structured_joint_rl_weight: float = 0.0,
+        frontres_structured_joint_rl_adv_clip: float = 5.0,
+        frontres_structured_joint_rl_normalize_advantage: bool = True,
+        frontres_structured_joint_rl_keep_legacy_bce: bool = False,
         diagnose_gradient_conflict: bool = True,
         hybrid: bool = True,
         use_ppo: bool = True,
@@ -181,6 +186,15 @@ class FrontRESUnified:
         self.frontres_acceptance_preference_balance_min = _balance_min
         self.frontres_acceptance_preference_balance_max = _balance_max
         self.frontres_state_alpha_weight = max(0.0, float(frontres_state_alpha_weight))
+        self.frontres_structured_joint_rl_enabled = bool(frontres_structured_joint_rl_enabled)
+        self.frontres_structured_joint_rl_weight = max(0.0, float(frontres_structured_joint_rl_weight))
+        self.frontres_structured_joint_rl_adv_clip = max(0.0, float(frontres_structured_joint_rl_adv_clip))
+        self.frontres_structured_joint_rl_normalize_advantage = bool(
+            frontres_structured_joint_rl_normalize_advantage
+        )
+        self.frontres_structured_joint_rl_keep_legacy_bce = bool(
+            frontres_structured_joint_rl_keep_legacy_bce
+        )
         self.diagnose_gradient_conflict = bool(diagnose_gradient_conflict)
         self.ppo_actor_weight = 1.0
         self._supervised_decay_triggered = False
@@ -297,6 +311,12 @@ class FrontRESUnified:
         print(f"  PPO actor warmup={self.ppo_actor_warmup_iterations}"
               f"  ramp={self.ppo_actor_ramp_iterations}"
               f"  adv_focal_power={self.ppo_advantage_focal_power}")
+        if self._structured_joint_rl_enabled():
+            print(
+                "  Structured Joint RL: enabled "
+                f"(weight={self.frontres_structured_joint_rl_weight}, "
+                f"legacy_bce={self.frontres_structured_joint_rl_keep_legacy_bce})"
+            )
         print("  MOSAIC teacher/off-policy branches: disabled by construction")
         print("=" * 80)
 
@@ -436,6 +456,8 @@ class FrontRESUnified:
         mean_acceptance_preference_metrics: dict[str, float] = {}
         mean_state_alpha_loss = 0.0
         mean_state_alpha_metrics: dict[str, float] = {}
+        mean_structured_joint_rl_loss = 0.0
+        mean_structured_joint_rl_metrics: dict[str, float] = {}
         grad_conflict_cos = 0.0
         grad_conflict_norm_ratio = 0.0
         grad_conflict_count = 0
@@ -526,6 +548,14 @@ class FrontRESUnified:
                 state_alpha_mask_batch,
                 original_batch_size,
             )
+            structured_joint_rl_loss, structured_joint_rl_metrics = self._compute_structured_joint_rl_loss(
+                obs_batch_augmented,
+                actions_log_prob_batch,
+                old_actions_log_prob_batch,
+                acceptance_target_batch,
+                acceptance_mask_batch,
+                original_batch_size,
+            )
 
             if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
                 loss = supervised_loss
@@ -553,13 +583,24 @@ class FrontRESUnified:
                         grad_conflict_cos += _gc
                         grad_conflict_norm_ratio += _ratio
                         grad_conflict_count += 1
+                legacy_preference_weight = float(getattr(self, "frontres_acceptance_preference_weight", 0.0))
+                legacy_alpha_weight = float(getattr(self, "frontres_state_alpha_weight", 0.0))
+                structured_weight = (
+                    self.frontres_structured_joint_rl_weight
+                    if self._structured_joint_rl_enabled()
+                    else 0.0
+                )
+                if self._structured_joint_rl_enabled() and not self.frontres_structured_joint_rl_keep_legacy_bce:
+                    legacy_preference_weight = 0.0
+                    legacy_alpha_weight = 0.0
                 loss = (
                     ppo_weight * surrogate_loss
                     + self.value_loss_coef * value_loss
                     - self.entropy_coef * entropy_batch.mean()
                     + self.lambda_supervised * supervised_loss
-                    + self.frontres_acceptance_preference_weight * acceptance_preference_loss
-                    + self.frontres_state_alpha_weight * state_alpha_loss
+                    + legacy_preference_weight * acceptance_preference_loss
+                    + legacy_alpha_weight * state_alpha_loss
+                    + structured_weight * structured_joint_rl_loss
                 )
 
             self.optimizer.zero_grad()
@@ -568,8 +609,21 @@ class FrontRESUnified:
                 continue
 
             preference_weight = float(getattr(self, "frontres_acceptance_preference_weight", 0.0))
-            if self._ppo_acceptance_only_mode() and (ppo_weight > 0.0 or preference_weight > 0.0):
-                acceptance_only_loss = ppo_weight * surrogate_loss + preference_weight * acceptance_preference_loss
+            structured_weight = (
+                self.frontres_structured_joint_rl_weight
+                if self._structured_joint_rl_enabled()
+                else 0.0
+            )
+            if self._structured_joint_rl_enabled() and not self.frontres_structured_joint_rl_keep_legacy_bce:
+                preference_weight = 0.0
+            if self._ppo_acceptance_only_mode() and (
+                ppo_weight > 0.0 or preference_weight > 0.0 or structured_weight > 0.0
+            ):
+                acceptance_only_loss = (
+                    ppo_weight * surrogate_loss
+                    + preference_weight * acceptance_preference_loss
+                    + structured_weight * structured_joint_rl_loss
+                )
                 non_ppo_loss = loss - acceptance_only_loss
                 non_ppo_loss.backward(retain_graph=True)
                 base_grads = {
@@ -577,7 +631,10 @@ class FrontRESUnified:
                     for p in self.policy.parameters()
                 }
                 acceptance_only_loss.backward()
-                self._keep_ppo_grad_on_acceptance_head_only(base_grads)
+                if self._structured_joint_rl_enabled():
+                    self._keep_rl_grad_on_acceptance_and_state_router_only(base_grads)
+                else:
+                    self._keep_ppo_grad_on_acceptance_head_only(base_grads)
                 grad_diag = self._compute_acceptance_grad_diagnostics(base_grads)
                 if grad_diag:
                     for key, value in grad_diag.items():
@@ -612,6 +669,11 @@ class FrontRESUnified:
             mean_state_alpha_loss += state_alpha_loss.item()
             for key, value in state_alpha_metrics.items():
                 mean_state_alpha_metrics[key] = mean_state_alpha_metrics.get(key, 0.0) + float(value)
+            mean_structured_joint_rl_loss += structured_joint_rl_loss.item()
+            for key, value in structured_joint_rl_metrics.items():
+                mean_structured_joint_rl_metrics[key] = (
+                    mean_structured_joint_rl_metrics.get(key, 0.0) + float(value)
+                )
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
@@ -629,6 +691,10 @@ class FrontRESUnified:
         mean_state_alpha_loss /= num_updates
         mean_state_alpha_metrics = {
             key: value / num_updates for key, value in mean_state_alpha_metrics.items()
+        }
+        mean_structured_joint_rl_loss /= num_updates
+        mean_structured_joint_rl_metrics = {
+            key: value / num_updates for key, value in mean_structured_joint_rl_metrics.items()
         }
         if grad_conflict_count > 0:
             grad_conflict_cos /= grad_conflict_count
@@ -648,10 +714,13 @@ class FrontRESUnified:
                     f"it={it} "
                     f"base_res={mean_grad_diag.get('base_residual', 0.0):.3e} "
                     f"base_acc={mean_grad_diag.get('base_acceptance', 0.0):.3e} "
+                    f"base_alpha={mean_grad_diag.get('base_state_router', 0.0):.3e} "
                     f"ppo_res={mean_grad_diag.get('ppo_residual', 0.0):.3e} "
                     f"ppo_acc={mean_grad_diag.get('ppo_acceptance', 0.0):.3e} "
+                    f"ppo_alpha={mean_grad_diag.get('ppo_state_router', 0.0):.3e} "
                     f"final_res={mean_grad_diag.get('final_residual', 0.0):.3e} "
-                    f"final_acc={mean_grad_diag.get('final_acceptance', 0.0):.3e}",
+                    f"final_acc={mean_grad_diag.get('final_acceptance', 0.0):.3e} "
+                    f"final_alpha={mean_grad_diag.get('final_state_router', 0.0):.3e}",
                     flush=True,
                 )
 
@@ -671,6 +740,8 @@ class FrontRESUnified:
             "lambda_acceptance_preference": self.frontres_acceptance_preference_weight,
             "state_alpha_loss": mean_state_alpha_loss,
             "lambda_state_alpha": self.frontres_state_alpha_weight,
+            "structured_joint_rl_loss": mean_structured_joint_rl_loss,
+            "lambda_structured_joint_rl": self.frontres_structured_joint_rl_weight,
             "ppo_actor_weight": float(getattr(self, "ppo_actor_weight", 1.0)),
             "grad_cos_ppo_supervised": grad_conflict_cos,
             "grad_norm_ratio_ppo_to_supervised": grad_conflict_norm_ratio,
@@ -678,6 +749,7 @@ class FrontRESUnified:
         loss_dict.update(mean_supervised_metrics)
         loss_dict.update(mean_acceptance_preference_metrics)
         loss_dict.update(mean_state_alpha_metrics)
+        loss_dict.update(mean_structured_joint_rl_metrics)
         loss_dict.update({f"grad_{key}": value for key, value in mean_grad_diag.items()})
         if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
             loss_dict["ppo_actor_weight"] = 0.0
@@ -710,6 +782,81 @@ class FrontRESUnified:
         if dims is not None and hasattr(self.policy, "get_actions_log_prob_selected"):
             return self.policy.get_actions_log_prob_selected(actions, dims)
         return self.policy.get_actions_log_prob(actions)
+
+    def _structured_joint_rl_enabled(self) -> bool:
+        return (
+            bool(getattr(self, "frontres_structured_joint_rl_enabled", False))
+            and float(getattr(self, "frontres_structured_joint_rl_weight", 0.0)) > 0.0
+            and self._ppo_acceptance_only_mode()
+        )
+
+    def _keep_rl_grad_on_acceptance_and_state_router_only(self, base_grads):
+        """Keep joint-RL gradients on rho acceptance and alpha router only."""
+        acceptance_actor = getattr(self.policy, "acceptance_actor", None)
+        state_router = getattr(self.policy, "state_router_head", None)
+        state_router_allowed = set(state_router.parameters()) if state_router is not None else set()
+        if acceptance_actor is not None:
+            allowed = {p for p in acceptance_actor.parameters()} | state_router_allowed
+            for p in self.policy.parameters():
+                base = base_grads.get(p)
+                if p not in allowed:
+                    p.grad = None if base is None else base.clone()
+                    continue
+                cur = p.grad
+                if cur is None:
+                    p.grad = None if base is None else base.clone()
+                    continue
+                p.grad = cur
+            return
+
+        final_linear = None
+        residual_actor = getattr(self.policy, "residual_actor", None)
+        if residual_actor is None:
+            return
+        acceptance_head = getattr(residual_actor, "acceptance_head", None)
+        if acceptance_head is not None:
+            allowed = {p for p in acceptance_head.parameters()} | state_router_allowed
+            for p in self.policy.parameters():
+                base = base_grads.get(p)
+                if p not in allowed:
+                    p.grad = None if base is None else base.clone()
+                    continue
+                cur = p.grad
+                if cur is None:
+                    p.grad = None if base is None else base.clone()
+                    continue
+                p.grad = cur
+            return
+
+        for module in residual_actor.modules():
+            if isinstance(module, nn.Linear):
+                final_linear = module
+        if final_linear is None:
+            return
+        conf_dim = int(getattr(self.policy, "task_conf_dim", 2))
+        start = int(getattr(self.policy, "num_task_corrections", 6))
+        end = min(start + conf_dim, final_linear.out_features)
+        allowed = {final_linear.weight, final_linear.bias} | state_router_allowed
+        for p in self.policy.parameters():
+            base = base_grads.get(p)
+            if p not in allowed:
+                p.grad = None if base is None else base.clone()
+                continue
+            cur = p.grad
+            if cur is None:
+                p.grad = None if base is None else base.clone()
+                continue
+            if p in state_router_allowed:
+                p.grad = cur
+                continue
+            base_tensor = torch.zeros_like(cur) if base is None else base
+            ppo_grad = cur - base_tensor
+            mask = torch.zeros_like(cur)
+            if p is final_linear.weight:
+                mask[start:end, :] = 1.0
+            else:
+                mask[start:end] = 1.0
+            p.grad = base_tensor + ppo_grad * mask
 
     def _keep_ppo_grad_on_acceptance_head_only(self, base_grads):
         """Remove PPO leakage into proposal direction and shared trunk.
@@ -826,7 +973,8 @@ class FrontRESUnified:
     def _compute_acceptance_grad_diagnostics(self, base_grads) -> dict[str, float]:
         residual_actor = getattr(self.policy, "residual_actor", None)
         acceptance_actor = getattr(self.policy, "acceptance_actor", None)
-        if residual_actor is None and acceptance_actor is None:
+        state_router = getattr(self.policy, "state_router_head", None)
+        if residual_actor is None and acceptance_actor is None and state_router is None:
             return {}
 
         two_head_acceptance = getattr(residual_actor, "acceptance_head", None) if residual_actor is not None else None
@@ -841,6 +989,7 @@ class FrontRESUnified:
         acceptance_params = [p for p in acceptance_actor.parameters() if p.requires_grad] if acceptance_actor is not None else []
         if not acceptance_params and two_head_acceptance is not None:
             acceptance_params = [p for p in two_head_acceptance.parameters() if p.requires_grad]
+        state_router_params = [p for p in state_router.parameters() if p.requires_grad] if state_router is not None else []
         diagnostics: dict[str, float] = {}
         if residual_params:
             diagnostics["base_residual"] = self._grad_norm_from_map(residual_params, base_grads)
@@ -850,6 +999,10 @@ class FrontRESUnified:
             diagnostics["base_acceptance"] = self._grad_norm_from_map(acceptance_params, base_grads)
             diagnostics["ppo_acceptance"] = self._grad_delta_norm(acceptance_params, base_grads)
             diagnostics["final_acceptance"] = self._grad_norm_current(acceptance_params)
+        if state_router_params:
+            diagnostics["base_state_router"] = self._grad_norm_from_map(state_router_params, base_grads)
+            diagnostics["ppo_state_router"] = self._grad_delta_norm(state_router_params, base_grads)
+            diagnostics["final_state_router"] = self._grad_norm_current(state_router_params)
         return diagnostics
 
     def _compute_actor_grad_conflict(self, surrogate_loss, supervised_loss):
@@ -993,6 +1146,11 @@ class FrontRESUnified:
             "acceptance_preference_effective_full_frac": 0.0,
         }
         if (
+            self._structured_joint_rl_enabled()
+            and not self.frontres_structured_joint_rl_keep_legacy_bce
+        ):
+            return zero, metrics
+        if (
             self.frontres_acceptance_preference_weight <= 0.0
             or acceptance_target_batch is None
             or acceptance_mask_batch is None
@@ -1119,6 +1277,91 @@ class FrontRESUnified:
                 )
         return loss, metrics
 
+    def _compute_structured_joint_rl_loss(
+        self,
+        obs_batch,
+        actions_log_prob_batch,
+        old_actions_log_prob_batch,
+        acceptance_target_batch,
+        acceptance_mask_batch,
+        original_batch_size,
+    ):
+        zero = obs_batch[:original_batch_size].sum() * 0.0
+        metrics = {
+            "structured_joint_rl_enabled": 1.0 if self._structured_joint_rl_enabled() else 0.0,
+            "structured_joint_rl_adv_mean": 0.0,
+            "structured_joint_rl_adv_used_mean": 0.0,
+            "structured_joint_rl_weight_mean": 0.0,
+            "structured_joint_rl_alpha_action_mean": 0.0,
+            "structured_joint_rl_alpha_logp_mean": 0.0,
+            "structured_joint_rl_ratio_mean": 1.0,
+        }
+        if (
+            not self._structured_joint_rl_enabled()
+            or acceptance_target_batch is None
+            or acceptance_mask_batch is None
+            or not hasattr(self.policy, "get_state_router_logit")
+        ):
+            return zero, metrics
+
+        n = original_batch_size
+        carrier = acceptance_target_batch[:n, :3].to(device=self.device, dtype=obs_batch.dtype).detach()
+        weight = acceptance_mask_batch[:n, :1].to(device=self.device, dtype=obs_batch.dtype).detach()
+        adv_raw = torch.nan_to_num(carrier[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
+        old_alpha_logp = torch.nan_to_num(carrier[:, 1], nan=0.0, posinf=0.0, neginf=0.0)
+        alpha_action = torch.nan_to_num(carrier[:, 2], nan=0.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
+        weight = torch.nan_to_num(weight.view(-1), nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
+
+        active = weight > 1e-6
+        if not bool(active.any().detach().item()):
+            return zero, metrics
+
+        adv = adv_raw
+        clip = float(getattr(self, "frontres_structured_joint_rl_adv_clip", 0.0))
+        if clip > 0.0:
+            adv = adv.clamp(-clip, clip)
+        if bool(getattr(self, "frontres_structured_joint_rl_normalize_advantage", True)):
+            active_adv = adv[active]
+            if int(active_adv.numel()) > 1:
+                adv_mean = active_adv.mean()
+                adv_std = active_adv.std(unbiased=False).clamp(min=1e-6)
+                adv = (adv - adv_mean) / adv_std
+
+        logits = self.policy.get_state_router_logit(obs_batch[:n]).view(-1)
+        alpha_logp = -nn.functional.binary_cross_entropy_with_logits(
+            logits,
+            alpha_action,
+            reduction="none",
+        )
+        old_rho_logp = old_actions_log_prob_batch[:n].view(-1).to(device=self.device, dtype=obs_batch.dtype)
+        new_rho_logp = actions_log_prob_batch[:n].view(-1).to(device=self.device, dtype=obs_batch.dtype)
+        log_ratio = (new_rho_logp - old_rho_logp) + (alpha_logp - old_alpha_logp)
+        ratio = torch.exp(log_ratio.clamp(-10.0, 10.0))
+        ratio_clipped = torch.clamp(ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
+        surrogate = -adv * ratio
+        surrogate_clipped = -adv * ratio_clipped
+        loss_terms = torch.max(surrogate, surrogate_clipped)
+        denom = weight.sum().clamp(min=1e-6)
+        loss = (loss_terms * weight).sum() / denom
+
+        metrics["structured_joint_rl_adv_mean"] = float(
+            (adv_raw[active]).mean().detach().item()
+        )
+        metrics["structured_joint_rl_adv_used_mean"] = float(
+            (adv[active]).mean().detach().item()
+        )
+        metrics["structured_joint_rl_weight_mean"] = float(weight.mean().detach().item())
+        metrics["structured_joint_rl_alpha_action_mean"] = float(
+            alpha_action[active].mean().detach().item()
+        )
+        metrics["structured_joint_rl_alpha_logp_mean"] = float(
+            old_alpha_logp[active].mean().detach().item()
+        )
+        metrics["structured_joint_rl_ratio_mean"] = float(
+            ratio.detach()[active].mean().item()
+        )
+        return loss, metrics
+
     def _compute_state_alpha_loss(
         self,
         obs_batch,
@@ -1134,6 +1377,11 @@ class FrontRESUnified:
             "state_alpha_abs_err": 0.0,
             "state_alpha_acc": 0.0,
         }
+        if (
+            self._structured_joint_rl_enabled()
+            and not self.frontres_structured_joint_rl_keep_legacy_bce
+        ):
+            return zero, metrics
         if (
             self.frontres_state_alpha_weight <= 0.0
             or state_alpha_target_batch is None

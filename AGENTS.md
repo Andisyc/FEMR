@@ -124,6 +124,13 @@ the training environment.
 - Use `rg` for search.
 - Use `apply_patch` for manual edits.
 - Run at least `python -m py_compile` after Python code changes when practical.
+- For large FrontRES/FEMR design changes, audit implementation against `./note`
+  before recommending training. If the live code path diverges from the
+  planned concept, stop and report the mismatch instead of silently finishing a
+  partial implementation.
+- Treat concept-code alignment as a required check: config flag -> rollout
+  construction -> storage/recompute contract -> loss/update -> gradient
+  boundary -> deployment behavior -> diagnostics.
 - When touching FrontRES training logic, check:
   - resume/cold-start behavior;
   - debug mode overrides;

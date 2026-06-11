@@ -342,6 +342,16 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Upper clamp for minibatch class-balancing weights in acceptance preference loss."""
     frontres_state_alpha_weight: float = 0.0
     """Weight for auxiliary State Router alpha BCE from Noisy/GMT rollout labels."""
+    frontres_structured_joint_rl_enabled: bool = False
+    """Use joint PPO-style alpha-rho advantage instead of detached rho/alpha BCE targets."""
+    frontres_structured_joint_rl_weight: float = 0.0
+    """Weight for structured joint alpha-rho policy-gradient loss."""
+    frontres_structured_joint_rl_adv_clip: float = 5.0
+    """Symmetric clip for raw structured-joint advantage before optional normalization."""
+    frontres_structured_joint_rl_normalize_advantage: bool = True
+    """Normalize structured-joint advantages over active samples in each minibatch."""
+    frontres_structured_joint_rl_keep_legacy_bce: bool = False
+    """Keep legacy acceptance/state-alpha BCE losses active while structured joint RL is enabled."""
     frontres_exec_reward_signal: str = "gain"
     """Executable reward signal: gain, ratio, or family_preference."""
     frontres_selective_reward_enabled: bool = True

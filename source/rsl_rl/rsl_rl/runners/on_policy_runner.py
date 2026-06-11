@@ -3293,6 +3293,10 @@ class OnPolicyRunner:
             _frontres_state_alpha_target_sum: float = 0.0
             _frontres_state_alpha_mask_sum: float = 0.0
             _frontres_state_alpha_route_sum: float = 0.0
+            _frontres_structured_joint_adv_sum: float = 0.0
+            _frontres_structured_joint_weight_sum: float = 0.0
+            _frontres_structured_joint_alpha_action_sum: float = 0.0
+            _frontres_structured_joint_alpha_logp_sum: float = 0.0
             _frontres_actor_gate_sum:     float = 0.0
             _frontres_exec_gate_sum:      float = 0.0
             _frontres_cost_gate_sum:      float = 0.0
@@ -3379,27 +3383,52 @@ class OnPolicyRunner:
                                 _alpha_prob = self.alg.policy.get_state_router_alpha(
                                     _alpha_obs[:_n_alpha_route]
                                 ).view(-1).detach()
+                                _alpha_prob_safe = _alpha_prob.clamp(1e-4, 1.0 - 1e-4)
+                                _structured_joint_rl = bool(
+                                    self.cfg.get("frontres_structured_joint_rl_enabled", False)
+                                )
+                                if _structured_joint_rl:
+                                    _alpha_action = torch.bernoulli(_alpha_prob_safe)
+                                    _alpha_route = _alpha_action >= 0.5
+                                else:
+                                    _alpha_action = (_alpha_prob >= float(
+                                        self.cfg.get("frontres_state_alpha_route_threshold", 0.70)
+                                    )).to(_alpha_prob.dtype)
+                                    _alpha_route = _alpha_action >= 0.5
+                                _alpha_logp = (
+                                    _alpha_action * torch.log(_alpha_prob_safe)
+                                    + (1.0 - _alpha_action) * torch.log1p(-_alpha_prob_safe)
+                                )
                                 _alpha_thr = float(self.cfg.get("frontres_state_alpha_route_threshold", 0.70))
-                                _alpha_route = _alpha_prob >= _alpha_thr
                                 # During the first random iterations, avoid route
                                 # takeover before the auxiliary head has labels.
                                 _min_iter = int(self.cfg.get("frontres_state_alpha_route_min_iteration", 0))
                                 if int(it) < _min_iter:
                                     _alpha_route = torch.zeros_like(_alpha_route, dtype=torch.bool)
+                                    _alpha_action = torch.zeros_like(_alpha_action)
+                                    _alpha_logp = torch.log1p(-_alpha_prob_safe)
                                 if not bool(self.cfg.get("frontres_state_alpha_route_enabled", True)):
                                     _alpha_route = torch.zeros_like(_alpha_route, dtype=torch.bool)
+                                    _alpha_action = torch.zeros_like(_alpha_action)
+                                    _alpha_logp = torch.log1p(-_alpha_prob_safe)
                                 self._frontres_stable_route_next_mask = _alpha_route.detach()
                                 self._frontres_state_alpha_prob_next = _alpha_prob.detach()
+                                self._frontres_state_alpha_action_next = _alpha_action.detach()
+                                self._frontres_state_alpha_logprob_next = _alpha_logp.detach()
                                 self._frontres_state_alpha_pred_last = float(_alpha_prob.mean().item())
                                 self._frontres_state_alpha_route_last = float(_alpha_route.float().mean().item())
                             else:
                                 self._frontres_stable_route_next_mask = torch.zeros(0, device=self.device, dtype=torch.bool)
                                 self._frontres_state_alpha_prob_next = torch.zeros(0, device=self.device)
+                                self._frontres_state_alpha_action_next = torch.zeros(0, device=self.device)
+                                self._frontres_state_alpha_logprob_next = torch.zeros(0, device=self.device)
                                 self._frontres_state_alpha_pred_last = 0.0
                                 self._frontres_state_alpha_route_last = 0.0
                         elif _is_frontres and _is_task_space_mode:
                             self._frontres_stable_route_next_mask = torch.zeros(N_train, device=self.device, dtype=torch.bool)
                             self._frontres_state_alpha_prob_next = torch.zeros(N_train, device=self.device)
+                            self._frontres_state_alpha_action_next = torch.zeros(N_train, device=self.device)
+                            self._frontres_state_alpha_logprob_next = torch.zeros(N_train, device=self.device)
                             self._frontres_state_alpha_pred_last = 0.0
                             self._frontres_state_alpha_route_last = 0.0
 
@@ -4201,6 +4230,10 @@ class OnPolicyRunner:
                             self._frontres_rho_regret_down_planar_last = 0.0
                             self._frontres_rho_regret_down_rp_last = 0.0
                             self._frontres_rho_regret_down_z_last = 0.0
+                            self._frontres_structured_joint_adv_last = 0.0
+                            self._frontres_structured_joint_weight_last = 0.0
+                            self._frontres_structured_joint_alpha_action_last = 0.0
+                            self._frontres_structured_joint_alpha_logp_last = 0.0
                             _pref_enabled = (
                                 bool(self.cfg.get("frontres_acceptance_preference_enabled", True))
                                 and N_candidate > 0
@@ -4595,6 +4628,79 @@ class OnPolicyRunner:
                                     )
                                 _accept_pref_target[:_n_exec] = _target_exec.detach()
                                 _accept_pref_mask[:_n_exec] = _mask_exec.detach()
+                                _structured_joint_enabled = bool(
+                                    self.cfg.get("frontres_structured_joint_rl_enabled", False)
+                                )
+                                if _structured_joint_enabled:
+                                    _alpha_action = getattr(
+                                        self,
+                                        "_frontres_state_alpha_action_next",
+                                        torch.zeros(_n_exec, device=self.device),
+                                    )
+                                    _alpha_logp = getattr(
+                                        self,
+                                        "_frontres_state_alpha_logprob_next",
+                                        torch.zeros(_n_exec, device=self.device),
+                                    )
+                                    _alpha_action = _alpha_action.to(self.device).view(-1)
+                                    _alpha_logp = _alpha_logp.to(self.device).view(-1)
+                                    if _alpha_action.numel() < _n_exec:
+                                        _alpha_action = torch.nn.functional.pad(
+                                            _alpha_action,
+                                            (0, _n_exec - _alpha_action.numel()),
+                                            value=0.0,
+                                        )
+                                    if _alpha_logp.numel() < _n_exec:
+                                        _alpha_logp = torch.nn.functional.pad(
+                                            _alpha_logp,
+                                            (0, _n_exec - _alpha_logp.numel()),
+                                            value=0.0,
+                                        )
+                                    _alpha_action = _alpha_action[:_n_exec].clamp(0.0, 1.0)
+                                    _alpha_logp = _alpha_logp[:_n_exec]
+                                    _joint_utility = (
+                                        _repair_gain
+                                        + _effective_gain_bonus_exec
+                                        + float(self.cfg.get("frontres_structured_joint_candidate_weight", 0.25))
+                                        * torch.relu(_candidate_gain)
+                                        + float(self.cfg.get("frontres_structured_joint_projection_weight", 0.25))
+                                        * _projection_gain
+                                        - _harm_penalty_exec
+                                        - (_cost_gate * _cost_exec)
+                                    )
+                                    _joint_weight_floor = float(
+                                        self.cfg.get("frontres_structured_joint_weight_floor", 0.10)
+                                    )
+                                    _joint_weight_floor = max(0.0, min(1.0, _joint_weight_floor))
+                                    _joint_weight = (
+                                        _joint_weight_floor
+                                        + (1.0 - _joint_weight_floor) * _actor_gate[:_n_exec]
+                                    ).detach().clamp(0.0, 1.0)
+                                    _accept_pref_target.zero_()
+                                    _accept_pref_mask.zero_()
+                                    _accept_pref_target[:_n_exec, 0] = _joint_utility.detach()
+                                    _accept_pref_target[:_n_exec, 1] = _alpha_logp.detach()
+                                    _accept_pref_target[:_n_exec, 2] = _alpha_action.detach()
+                                    _accept_pref_mask[:_n_exec, 0] = _joint_weight
+                                    _target_exec = _joint_utility.view(-1, 1).expand(-1, 6)
+                                    _mask_exec = _joint_weight.view(-1, 1).expand(-1, 6)
+                                    self._frontres_structured_joint_adv_last = float(
+                                        _joint_utility.mean().detach().item()
+                                    )
+                                    self._frontres_structured_joint_weight_last = float(
+                                        _joint_weight.mean().detach().item()
+                                    )
+                                    self._frontres_structured_joint_alpha_action_last = float(
+                                        _alpha_action.mean().detach().item()
+                                    )
+                                    self._frontres_structured_joint_alpha_logp_last = float(
+                                        _alpha_logp.mean().detach().item()
+                                    )
+                                else:
+                                    self._frontres_structured_joint_adv_last = 0.0
+                                    self._frontres_structured_joint_weight_last = 0.0
+                                    self._frontres_structured_joint_alpha_action_last = 0.0
+                                    self._frontres_structured_joint_alpha_logp_last = 0.0
                                 self._frontres_state_alpha_mask_last = float(
                                     _state_alpha_mask[:_n_exec, 0].mean().detach().item()
                                 )
@@ -4605,11 +4711,17 @@ class OnPolicyRunner:
                                         / _mask_exec.sum(dim=-1).clamp(min=1e-6)
                                     )
                                     _active_target = _target_sample[_active_pref]
-                                    _pref_full_frac = (_active_target > 0.66).float().mean()
-                                    _pref_noop_frac = (_active_target < 0.33).float().mean()
-                                    _pref_keep_frac = (
-                                        ((_active_target >= 0.33) & (_active_target <= 0.66)).float().mean()
-                                    )
+                                    if _structured_joint_enabled:
+                                        _near = max(float(_pref_margin), 1.0e-6)
+                                        _pref_full_frac = (_active_target > _near).float().mean()
+                                        _pref_noop_frac = (_active_target < -_near).float().mean()
+                                        _pref_keep_frac = (_active_target.abs() <= _near).float().mean()
+                                    else:
+                                        _pref_full_frac = (_active_target > 0.66).float().mean()
+                                        _pref_noop_frac = (_active_target < 0.33).float().mean()
+                                        _pref_keep_frac = (
+                                            ((_active_target >= 0.33) & (_active_target <= 0.66)).float().mean()
+                                        )
                                     _pref_target_mean = _active_target.mean()
                                     if bool(self.cfg.get("frontres_acceptance_direct_target_enabled", False)):
                                         _need_sample = (
@@ -4930,6 +5042,18 @@ class OnPolicyRunner:
                             )
                             _frontres_state_alpha_route_sum += float(
                                 getattr(self, "_frontres_state_alpha_route_last", 0.0)
+                            )
+                            _frontres_structured_joint_adv_sum += float(
+                                getattr(self, "_frontres_structured_joint_adv_last", 0.0)
+                            )
+                            _frontres_structured_joint_weight_sum += float(
+                                getattr(self, "_frontres_structured_joint_weight_last", 0.0)
+                            )
+                            _frontres_structured_joint_alpha_action_sum += float(
+                                getattr(self, "_frontres_structured_joint_alpha_action_last", 0.0)
+                            )
+                            _frontres_structured_joint_alpha_logp_sum += float(
+                                getattr(self, "_frontres_structured_joint_alpha_logp_last", 0.0)
                             )
                             _frontres_actor_gate_sum   += _actor_gate.mean().item()
                             _frontres_exec_gate_sum    += _exec_gate.mean().item()
@@ -5452,6 +5576,22 @@ class OnPolicyRunner:
                 _frontres_state_alpha_route_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_structured_joint_adv_mean = (
+                _frontres_structured_joint_adv_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_structured_joint_weight_mean = (
+                _frontres_structured_joint_weight_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_structured_joint_alpha_action_mean = (
+                _frontres_structured_joint_alpha_action_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_structured_joint_alpha_logp_mean = (
+                _frontres_structured_joint_alpha_logp_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_actor_gate_mean = (
                 _frontres_actor_gate_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -5668,6 +5808,15 @@ class OnPolicyRunner:
             "state_alpha_pred_mean",
             "state_alpha_abs_err",
             "state_alpha_acc",
+            "structured_joint_rl_loss",
+            "lambda_structured_joint_rl",
+            "structured_joint_rl_enabled",
+            "structured_joint_rl_adv_mean",
+            "structured_joint_rl_adv_used_mean",
+            "structured_joint_rl_weight_mean",
+            "structured_joint_rl_alpha_action_mean",
+            "structured_joint_rl_alpha_logp_mean",
+            "structured_joint_rl_ratio_mean",
         }      # diagnostics, not losses
         _to_curriculum = {"lambda_supervised", "ppo_actor_weight"}  # scheduler state, not a loss
         _frontres_diag_keys = {
@@ -6117,14 +6266,19 @@ class OnPolicyRunner:
                                 f"{locs.get('frontres_rho_regret_up_z_mean', 0.0):.4f}/"
                                 f"{locs.get('frontres_rho_regret_down_z_mean', 0.0):.4f}\n"
                             )
-                        if locs.get("frontres_accept_pref_mask_mean") is not None:
-                            _rho_space_diag = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                            if _rho_space_diag in ("stable_to_repair", "stable-repair", "stable"):
-                                _pref_label = "accept pref repair/stable/keep/ign:"
-                            elif _rho_space_diag in ("tri_anchor", "tri-anchor", "tri"):
-                                _pref_label = "accept pref repair/fallback/keep/ign:"
-                            else:
-                                _pref_label = "accept pref full/noop/keep/ign:"
+                            if locs.get("frontres_accept_pref_mask_mean") is not None:
+                                _structured_joint_diag = bool(
+                                    self.cfg.get("frontres_structured_joint_rl_enabled", False)
+                                )
+                                _rho_space_diag = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                                if _structured_joint_diag:
+                                    _pref_label = "joint adv pos/neg/near/ign:"
+                                elif _rho_space_diag in ("stable_to_repair", "stable-repair", "stable"):
+                                    _pref_label = "accept pref repair/stable/keep/ign:"
+                                elif _rho_space_diag in ("tri_anchor", "tri-anchor", "tri"):
+                                    _pref_label = "accept pref repair/fallback/keep/ign:"
+                                else:
+                                    _pref_label = "accept pref full/noop/keep/ign:"
                             log_string += f"""{_pref_label:>{pad}} """
                             log_string += (
                                 f"{locs['frontres_accept_pref_full_mean']:.3f} / "
@@ -6215,6 +6369,17 @@ class OnPolicyRunner:
                             f"tgt={_loss_dict.get('state_alpha_target_mean', 0.0):.3f}, "
                             f"pred={_loss_dict.get('state_alpha_pred_mean', 0.0):.3f}, "
                             f"acc={_loss_dict.get('state_alpha_acc', 0.0):.3f})\n"
+                        )
+                    _sjl = _loss_dict.get("structured_joint_rl_loss", None)
+                    if _sjl is not None and _loss_dict.get("lambda_structured_joint_rl", 0.0) > 0.0:
+                        log_string += f"""{'joint rl loss:':>{pad}} {_sjl:.4f} """
+                        log_string += (
+                            f"(λ={_loss_dict.get('lambda_structured_joint_rl', 0.0):.3f}, "
+                            f"enabled={_loss_dict.get('structured_joint_rl_enabled', 0.0):.0f}, "
+                            f"adv={_loss_dict.get('structured_joint_rl_adv_mean', 0.0):+.4f}, "
+                            f"w={_loss_dict.get('structured_joint_rl_weight_mean', 0.0):.3f}, "
+                            f"a={_loss_dict.get('structured_joint_rl_alpha_action_mean', 0.0):.3f}, "
+                            f"ratio={_loss_dict.get('structured_joint_rl_ratio_mean', 0.0):.3f})\n"
                         )
                     log_string += f"""{'learning rate:':>{pad}} {getattr(self.alg, 'learning_rate', 0.0):.2e}\n"""
                     _objective_name = f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
@@ -6342,6 +6507,17 @@ class OnPolicyRunner:
                                         f"{locs.get('frontres_tri_weight_noisy_mean', 0.0):.3f} / "
                                         f"{locs.get('frontres_tri_weight_stable_mean', 0.0):.3f}\n"
                                     )
+                            if locs.get("frontres_structured_joint_adv_mean") is not None:
+                                log_string += f"""{'joint rl adv/w:':>{pad}} """
+                                log_string += (
+                                    f"{locs.get('frontres_structured_joint_adv_mean', 0.0):+.4f} / "
+                                    f"{locs.get('frontres_structured_joint_weight_mean', 0.0):.3f}\n"
+                                )
+                                log_string += f"""{'joint rl alpha a/logp:':>{pad}} """
+                                log_string += (
+                                    f"{locs.get('frontres_structured_joint_alpha_action_mean', 0.0):.3f} / "
+                                    f"{locs.get('frontres_structured_joint_alpha_logp_mean', 0.0):+.3f}\n"
+                                )
 
                         log_string += f"""\n{'-' * 12} Detail Reward {'-' * 12}\n"""
                         if locs.get("frontres_r_z_mean") is not None:
@@ -6375,8 +6551,13 @@ class OnPolicyRunner:
                                 f"(under={locs['frontres_underwrite_mean']:+.4f})\n"
                             )
                         if locs.get("frontres_accept_pref_mask_mean") is not None:
+                            _structured_joint_diag = bool(
+                                self.cfg.get("frontres_structured_joint_rl_enabled", False)
+                            )
                             _rho_space_diag = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                            if _rho_space_diag in ("stable_to_repair", "stable-repair", "stable"):
+                            if _structured_joint_diag:
+                                _pref_label = "joint adv pos/neg/near/ign:"
+                            elif _rho_space_diag in ("stable_to_repair", "stable-repair", "stable"):
                                 _pref_label = "accept pref repair/stable/keep/ign:"
                             elif _rho_space_diag in ("tri_anchor", "tri-anchor", "tri"):
                                 _pref_label = "accept pref repair/fallback/keep/ign:"
@@ -6495,6 +6676,17 @@ class OnPolicyRunner:
                             f"rho={_loss_dict.get('acceptance_preference_rho_mean', 0.0):.3f}, "
                             f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
                             f"corr={_loss_dict.get('acceptance_preference_corr', 0.0):+.3f})\n"
+                        )
+                    _sjl = _loss_dict.get("structured_joint_rl_loss", None)
+                    if _sjl is not None and _loss_dict.get("lambda_structured_joint_rl", 0.0) > 0.0:
+                        log_string += f"""{'joint rl loss:':>{pad}} {_sjl:.4f} """
+                        log_string += (
+                            f"(λ={_loss_dict.get('lambda_structured_joint_rl', 0.0):.3f}, "
+                            f"enabled={_loss_dict.get('structured_joint_rl_enabled', 0.0):.0f}, "
+                            f"adv={_loss_dict.get('structured_joint_rl_adv_mean', 0.0):+.4f}, "
+                            f"w={_loss_dict.get('structured_joint_rl_weight_mean', 0.0):.3f}, "
+                            f"a={_loss_dict.get('structured_joint_rl_alpha_action_mean', 0.0):.3f}, "
+                            f"ratio={_loss_dict.get('structured_joint_rl_ratio_mean', 0.0):.3f})\n"
                         )
                     if locs.get("frontres_window_mu_mean") is not None:
                         log_string += f"""{'actor/exec/cost:':>{pad}} """
@@ -7046,6 +7238,8 @@ class OnPolicyRunner:
                         self._frontres_state_alpha_prob_next = (
                             self.alg.policy.get_state_router_alpha(alpha_obs).view(-1).detach()
                         )
+                        self._frontres_state_alpha_action_next = None
+                        self._frontres_state_alpha_logprob_next = None
                     correction = self.alg.policy.get_task_correction_inference(norm_obs)
                     self._apply_frontres_task_corrections(correction, correction.shape[0], allow_oracle=False)
                     obs_corr, extras_corr = self.env.get_observations()
@@ -7257,11 +7451,15 @@ class OnPolicyRunner:
                 )
                 if stable is not None:
                     stable_pos_corr, stable_rpy_corr = stable
-                    alpha_prob = getattr(self, "_frontres_state_alpha_prob_next", None)
-                    if alpha_prob is None:
+                    alpha_source = None
+                    if bool(self.cfg.get("frontres_structured_joint_rl_enabled", False)):
+                        alpha_source = getattr(self, "_frontres_state_alpha_action_next", None)
+                    if alpha_source is None:
+                        alpha_source = getattr(self, "_frontres_state_alpha_prob_next", None)
+                    if alpha_source is None:
                         alpha = torch.zeros(n_train, device=task_corr.device, dtype=task_corr.dtype)
                     else:
-                        alpha = alpha_prob.to(device=task_corr.device, dtype=task_corr.dtype).view(-1)
+                        alpha = alpha_source.to(device=task_corr.device, dtype=task_corr.dtype).view(-1)
                         if alpha.numel() < n_train:
                             alpha = torch.nn.functional.pad(alpha, (0, n_train - alpha.numel()), value=0.0)
                         alpha = alpha[:n_train].clamp(0.0, 1.0)

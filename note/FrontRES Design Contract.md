@@ -2039,3 +2039,142 @@ rho target spread/weight: target_group_spread / mean_effective_weight
 If `mean_effective_weight` rises while `rho regret up/dn` remains nonzero but
 `rho` still collapses toward fallback, then the remaining problem is no longer
 mask starvation.  It is the regret objective or reward decomposition itself.
+
+## 2026-06-11 Structured Joint RL For Alpha-Rho
+
+### Problem
+
+The previous HRL branch repeatedly converted rollout preference into detached
+targets:
+
+```text
+rho_target   -> BCE(rho_pred, rho_target)
+alpha_target -> BCE(alpha_pred, alpha_target)
+```
+
+This is not the original Conditional Preference Learning concept.  It turns a
+black-box executable decision into two pseudo-supervised labels.  The execution
+result, however, is caused by the joint projected reference:
+
+```text
+Projected = f(alpha, rho, HSL proposal, current state).
+```
+
+If Projected succeeds or fails, the credit belongs to the sampled joint action,
+not to two independently constructed labels.  Separate pseudo labels create a
+concept-engineering mismatch: the method says rollout preference, but the live
+loss trains target imitation.
+
+### Design Delta
+
+Keep the existing action interface and rollout branches.  Do not add a new
+rollout branch, critic, policy head, or action dimension.
+
+Replace pseudo-target ownership with a structured joint RL objective:
+
+```text
+alpha: route / fallback direction variable
+rho:   repair-retention variable
+joint action: (alpha, rho)
+training signal: Projected rollout advantage relative to the trusted baseline
+```
+
+The design rule is:
+
+```text
+concepts stay separated, training responsibility is joint.
+```
+
+Alpha and rho should remain separate heads because they describe different
+variables.  But when the runner executes a Projected reference produced by both
+heads, the same rollout advantage must update the joint action log-probability:
+
+```text
+L_joint = - A_projected * log pi(alpha, rho | state)
+```
+
+The baseline is the paired Noisy/GMT branch already present in the quartet.
+The advantage must be continuous, not binary:
+
+```text
+A_projected = U(Projected) - U(Noisy/GMT).
+```
+
+The baseline defines the zero point, not the optimization endpoint.  The utility
+must preserve pressure toward higher-quality repair by including executable
+gain and clean-oriented quality terms already used in the FrontRES reward
+decomposition.  A projected reference that is only slightly better than Noisy
+should receive a small positive advantage; a projected reference that is stable
+and closer to Clean should receive a larger one.
+
+### Implementation Contract
+
+- Add a guarded mode:
+
+```text
+frontres_structured_joint_rl_enabled = True
+```
+
+- In this mode, do not use `acceptance_target` and `state_alpha_target` as
+  conceptual truth for rho/alpha.  They may stay in the code as diagnostics or
+  legacy fallbacks, but the active update should use joint-action advantage.
+- Reuse the existing PPO sampled action and log-probability path for rho.
+- Add alpha log-probability from the state-router Bernoulli distribution:
+
+```text
+alpha_sample = sampled route/fallback action derived from alpha probability
+logp_alpha   = Bernoulli(alpha_prob).log_prob(alpha_sample)
+```
+
+  In structured-joint mode, the executed training projection must use this same
+  stored `alpha_sample`, not a separate thresholded route or a detached
+  continuous diagnostic probability.  Otherwise the alpha gradient would update
+  an action that did not cause the observed rollout outcome.
+- Store the joint advantage and alpha log-prob in the existing rollout storage
+  channels without changing the action dimension:
+
+```text
+acceptance_target[:, 0] = detached joint advantage
+acceptance_target[:, 1] = detached alpha log-prob
+acceptance_target[:, 2] = detached alpha action in {0, 1}
+acceptance_mask[:, 0]   = joint-RL sample weight
+```
+
+  In structured-joint mode these fields are not rho targets.  They are a compact
+  storage carrier for the joint RL signal.  Diagnostics must make this semantic
+  switch visible.
+- The loss must update PPO-owned acceptance dimensions and the alpha head, while
+  preserving the HSL proposal boundary.  Do not let joint RL update the
+  supervised HSL proposal rows.
+- Disable or ignore the legacy acceptance BCE and state-alpha BCE in this mode
+  unless explicitly requested by config.  Otherwise pseudo-supervision and joint
+  RL will fight.
+
+### Diagnostics
+
+The next resume test must print and log:
+
+```text
+joint adv pos/neg/near/ign: ...
+joint rl adv/w: ...
+joint rl alpha a/logp: ...
+joint rl loss: ... (enabled=1, ...)
+FrontRES grad debug ... ppo_alpha=...
+```
+
+Healthy first-run signs:
+
+- `joint rl adv` is not always near zero;
+- `joint rl weight` is nonzero on the same samples that execute Projected;
+- PPO acceptance gradients and alpha-head gradients are both nonzero;
+- `accept pref ...` may remain printed for legacy diagnostics, but should no
+  longer be interpreted as the active HRL training signal when joint RL is
+  enabled.
+
+### Falsification
+
+If joint advantage is mostly positive but rho/alpha remain conservative, the
+issue is optimization or gradient boundary.  If joint advantage is mostly zero
+or negative, the current HSL proposal and projected action space do not contain
+a useful improvement over Noisy under the present utility.  In that case further
+Preference-Learning target engineering is not the bottleneck.
