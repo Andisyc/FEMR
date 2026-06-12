@@ -262,6 +262,68 @@ Repair proposal is itself executable.  \(U(\cdot)\) is the executable score and
 \(F\) is the floor threshold.  \(\bar\rho\) is the mean retention over the active
 acceptance dimensions.
 
+### 2026-06-12 Unified Executable Floor Fix
+
+The previous implementation had three floor-like quantities that looked related
+but were not the same mechanism:
+
+- Candidate floor used a Clean-centered envelope,
+  `broken_gap - (U(Clean) - U(Candidate))`.
+- State alpha used fixed score thresholds,
+  `frontres_state_alpha_exec_floor` and
+  `frontres_state_alpha_safe_exec_floor`.
+- Structured Joint rho used another fixed score threshold,
+  `frontres_structured_joint_exec_floor`.
+
+This is a concept/engineering mismatch.  The GMT frontier search discovers the
+frozen tracker's capability boundary in perturbation-strength space.  The
+alpha/rho/candidate checks need the same concept in executable-score space.  The
+repair is therefore to introduce one live `ExecutableFloor` interface:
+
+```text
+GMT baseline near frontier
+  -> running safe/broken executable-score statistics
+  -> calibrated score floor U_floor
+  -> candidate diagnostic, alpha label, and rho floor penalty
+```
+
+The floor is allowed to fall back to the old fixed score threshold when the
+running frontier evidence is not mature enough.  Once both safe and broken GMT
+evidence exist, the floor becomes adaptive:
+
+\[
+U_{\rm floor}
+=
+\tfrac{1}{2}
+\left(
+\bar U_{\rm safe}
++
+\bar U_{\rm broken}
+\right),
+\]
+
+with `safe` and `broken` defined only by GMT baseline survival/episode-length
+frontier decisions, not by FrontRES, HSL, HRL, Candidate, or Stable Frame.  A
+separate safe floor may be formed as `U_floor + margin` for alpha's negative
+labels.
+
+The code contract is:
+
+- `candidate floor pass/margin` becomes diagnostic-only
+  `U(Candidate) >= U_floor`; it no longer uses the Clean-centered envelope.
+- State alpha uses the same `U_floor`: fall or `U(Noisy/GMT) <= U_floor` gives
+  target 1; safe alive and `U(Noisy/GMT) >= U_floor + margin` gives target 0;
+  samples between them are masked.
+- Structured Joint rho uses the same `U_floor`: the floor penalty is
+  `[U_floor - U(Projected)]_+`, and the full-repair bonus is allowed only when
+  `U(Candidate) >= U_floor`.
+- The runner must log `exec floor val/safe/adapt` so the next short resume run can
+  prove whether alpha, rho, and candidate diagnostics are using fixed or
+  adaptive floor evidence.
+- The adaptive floor running statistics must be checkpointed with the existing
+  GMT frontier state so resume tests do not silently restart from the fixed
+  threshold.
+
 The storage contract is:
 
 - `state_alpha_target/state_alpha_mask` carry the alpha SSL signal.

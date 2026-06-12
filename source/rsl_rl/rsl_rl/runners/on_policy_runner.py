@@ -774,6 +774,123 @@ class OnPolicyRunner:
         score = torch.where(denom > 0.0, score / denom.clamp(min=1e-6), fallback)
         return torch.nan_to_num(score, nan=-1.0, posinf=1.0, neginf=-1.0)
 
+    def _frontres_executable_floor_values(self) -> tuple[float, float, str]:
+        """Return the unified executable floor used by alpha, rho, and diagnostics.
+
+        GMT frontier search finds the boundary in DR-strength space.  This helper
+        exposes the corresponding score-space floor.  Until both safe and broken
+        GMT score evidence are available, it deliberately falls back to the fixed
+        historical threshold for resume stability.
+        """
+        fixed_floor = float(
+            self.cfg.get(
+                "frontres_executable_floor_score",
+                self.cfg.get("frontres_state_alpha_exec_floor", 0.0),
+            )
+        )
+        safe_default = float(
+            self.cfg.get(
+                "frontres_state_alpha_safe_exec_floor",
+                fixed_floor + 0.05,
+            )
+        )
+        safe_margin = float(
+            self.cfg.get(
+                "frontres_executable_floor_safe_margin",
+                max(0.0, safe_default - fixed_floor),
+            )
+        )
+        adaptive = bool(self.cfg.get("frontres_executable_floor_adaptive_enabled", True))
+        min_count = float(self.cfg.get("frontres_executable_floor_min_samples", 32.0))
+        safe_count = float(getattr(self, "_frontres_exec_floor_safe_count", 0.0))
+        broken_count = float(getattr(self, "_frontres_exec_floor_broken_count", 0.0))
+        safe_mean = getattr(self, "_frontres_exec_floor_safe_score_ema", None)
+        broken_mean = getattr(self, "_frontres_exec_floor_broken_score_ema", None)
+        if (
+            adaptive
+            and safe_mean is not None
+            and broken_mean is not None
+            and safe_count >= min_count
+            and broken_count >= min_count
+        ):
+            floor = 0.5 * (float(safe_mean) + float(broken_mean))
+            source = "adaptive"
+        else:
+            floor = fixed_floor
+            source = "fixed"
+        floor = float(floor)
+        safe_floor = floor + max(0.0, safe_margin)
+        self._frontres_exec_floor_value_last = floor
+        self._frontres_exec_floor_safe_last = safe_floor
+        self._frontres_exec_floor_source_last = source
+        self._frontres_exec_floor_adaptive_last = 1.0 if source == "adaptive" else 0.0
+        return floor, safe_floor, source
+
+    def _frontres_update_executable_floor_stats(
+        self,
+        exec_score: torch.Tensor,
+        done: torch.Tensor | None = None,
+        timeout: torch.Tensor | None = None,
+        mix_class: torch.Tensor | None = None,
+    ) -> tuple[float, float, str]:
+        """Update GMT-score floor statistics and return the active floor."""
+        floor, safe_floor, source = self._frontres_executable_floor_values()
+        if not bool(self.cfg.get("frontres_executable_floor_adaptive_enabled", True)):
+            return floor, safe_floor, source
+        if exec_score.numel() == 0:
+            return floor, safe_floor, source
+
+        score = exec_score.detach().view(-1)
+        n = score.numel()
+        valid = torch.ones(n, device=score.device, dtype=torch.bool)
+        if timeout is not None:
+            timeout = timeout.to(score.device).view(-1)[:n].bool()
+            valid = valid & (~timeout)
+        fall = torch.zeros(n, device=score.device, dtype=torch.bool)
+        if done is not None:
+            done = done.to(score.device).view(-1)[:n].bool()
+            fall = done & valid
+
+        class_mask = torch.ones(n, device=score.device, dtype=torch.bool)
+        if mix_class is not None:
+            mix_class = mix_class.to(score.device).view(-1)
+            if mix_class.numel() >= n:
+                # Only the frontier bucket is used for floor calibration.  Easy
+                # and hard buckets are training coverage, not the boundary.
+                class_mask = mix_class[:n].long().eq(1)
+
+        decision = str(getattr(self, "_frontres_gmt_frontier_decision", "") or "").lower()
+        safe_mask = torch.zeros(n, device=score.device, dtype=torch.bool)
+        broken_mask = fall & class_mask
+        if decision == "safe":
+            safe_mask = class_mask & valid & (~fall)
+        elif decision == "broken":
+            broken_mask = class_mask & valid
+        elif decision == "frontier":
+            # A gray frontier decision is useful only when the rollout itself
+            # supplies hard evidence through early termination.
+            safe_mask = torch.zeros_like(class_mask)
+
+        ema_alpha = float(self.cfg.get("frontres_executable_floor_ema_alpha", 0.95))
+        ema_alpha = max(0.0, min(0.999, ema_alpha))
+
+        def _update(name: str, values: torch.Tensor) -> None:
+            if values.numel() == 0:
+                return
+            batch_mean = float(values.mean().item())
+            count_name = f"_frontres_exec_floor_{name}_count"
+            ema_name = f"_frontres_exec_floor_{name}_score_ema"
+            prev = getattr(self, ema_name, None)
+            if prev is None:
+                setattr(self, ema_name, batch_mean)
+            else:
+                setattr(self, ema_name, ema_alpha * float(prev) + (1.0 - ema_alpha) * batch_mean)
+            setattr(self, count_name, float(getattr(self, count_name, 0.0)) + float(values.numel()))
+
+        _update("safe", score[safe_mask])
+        _update("broken", score[broken_mask])
+        return self._frontres_executable_floor_values()
+
     def _frontres_project_task_target_to_action_cone(self, command, target: torch.Tensor) -> torch.Tensor:
         """Project supervised ΔSE3 targets into the same cone as applied actions.
 
@@ -3273,6 +3390,9 @@ class OnPolicyRunner:
             _frontres_broken_frac_sum:    float = 0.0
             _frontres_candidate_floor_margin_sum: float = 0.0
             _frontres_candidate_floor_pass_sum: float = 0.0
+            _frontres_exec_floor_value_sum: float = 0.0
+            _frontres_exec_floor_safe_sum: float = 0.0
+            _frontres_exec_floor_adaptive_sum: float = 0.0
             _frontres_stable_route_frac_sum: float = 0.0
             _frontres_stable_endpoint_frac_sum: float = 0.0
             _frontres_tri_weight_repair_sum: float = 0.0
@@ -4013,13 +4133,31 @@ class OnPolicyRunner:
                             _safe_frac = (_damage_gap < _safe_gap).float().mean()
                             _repair_frac = ((_damage_gap >= _safe_gap) & (_damage_gap <= _broken_gap)).float().mean()
                             _broken_frac = (_damage_gap > _broken_gap).float().mean()
-                            # Executable floor: the Candidate branch is judged
-                            # against the GMT recoverability envelope, not
-                            # against Noisy.  Clean is the center; broken_gap is
-                            # the allowed distance from that center.
-                            _candidate_floor_margin = (
-                                _broken_gap - (_exec_clean - _exec_candidate)
+                            _base_done_for_floor = dones[_base_start:_base_start + _n_exec].view(-1) > 0
+                            _timeout_for_floor = infos.get("time_outs", None)
+                            if _timeout_for_floor is not None:
+                                _timeout_for_floor = _timeout_for_floor.to(self.device).view(-1)
+                                _base_timeout_for_floor = (
+                                    _timeout_for_floor[_base_start:_base_start + _n_exec] > 0
+                                )
+                            else:
+                                _base_timeout_for_floor = torch.zeros(
+                                    _n_exec, device=self.device, dtype=torch.bool
+                                )
+                            _mix_class_for_floor = getattr(self, "_frontres_dr_mix_class_train", None)
+                            _exec_floor, _exec_safe_floor, _exec_floor_source = (
+                                self._frontres_update_executable_floor_stats(
+                                    _exec_perturbed,
+                                    done=_base_done_for_floor,
+                                    timeout=_base_timeout_for_floor,
+                                    mix_class=_mix_class_for_floor,
+                                )
                             )
+                            _exec_floor_tensor = torch.full_like(_exec_candidate, float(_exec_floor))
+                            # Diagnostic-only executable floor: Candidate is
+                            # judged against the unified GMT-calibrated floor,
+                            # not against Clean or Noisy.
+                            _candidate_floor_margin = _exec_candidate - _exec_floor_tensor
                             _candidate_floor_pass = (_candidate_floor_margin >= 0.0).to(_damage_gap.dtype)
                             _candidate_floor_pass_frac = _candidate_floor_pass.mean()
                             _stable_route_next = getattr(
@@ -4155,12 +4293,20 @@ class OnPolicyRunner:
                                     _base_timeout = torch.zeros(_n_exec, device=self.device, dtype=torch.bool)
                                 _fall_now = _base_done & (~_base_timeout)
                                 _alpha_exec_floor = float(
-                                    self.cfg.get("frontres_state_alpha_exec_floor", 0.0)
+                                    getattr(
+                                        self,
+                                        "_frontres_exec_floor_value_last",
+                                        self.cfg.get("frontres_state_alpha_exec_floor", 0.0),
+                                    )
                                 )
                                 _alpha_safe_floor = float(
-                                    self.cfg.get(
-                                        "frontres_state_alpha_safe_exec_floor",
-                                        max(_alpha_exec_floor + 0.05, _alpha_exec_floor),
+                                    getattr(
+                                        self,
+                                        "_frontres_exec_floor_safe_last",
+                                        self.cfg.get(
+                                            "frontres_state_alpha_safe_exec_floor",
+                                            max(_alpha_exec_floor + 0.05, _alpha_exec_floor),
+                                        ),
                                     )
                                 )
                                 _alpha_temp = max(
@@ -4649,9 +4795,13 @@ class OnPolicyRunner:
                                         _rho_current.detach().mean(dim=-1),
                                     )
                                     _rho_floor = float(
-                                        self.cfg.get(
-                                            "frontres_structured_joint_exec_floor",
-                                            self.cfg.get("frontres_state_alpha_exec_floor", 0.0),
+                                        getattr(
+                                            self,
+                                            "_frontres_exec_floor_value_last",
+                                            self.cfg.get(
+                                                "frontres_structured_joint_exec_floor",
+                                                self.cfg.get("frontres_state_alpha_exec_floor", 0.0),
+                                            ),
                                         )
                                     )
                                     _floor_violation = torch.relu(_rho_floor - _exec_frontres.detach())
@@ -4997,6 +5147,15 @@ class OnPolicyRunner:
                             _frontres_broken_frac_sum  += _broken_frac.item()
                             _frontres_candidate_floor_margin_sum += _candidate_floor_margin.mean().item()
                             _frontres_candidate_floor_pass_sum += _candidate_floor_pass_frac.item()
+                            _frontres_exec_floor_value_sum += float(
+                                getattr(self, "_frontres_exec_floor_value_last", 0.0)
+                            )
+                            _frontres_exec_floor_safe_sum += float(
+                                getattr(self, "_frontres_exec_floor_safe_last", 0.0)
+                            )
+                            _frontres_exec_floor_adaptive_sum += float(
+                                getattr(self, "_frontres_exec_floor_adaptive_last", 0.0)
+                            )
                             _frontres_stable_route_frac_sum += float(
                                 getattr(self, "_frontres_stable_route_applied_frac", 0.0)
                             )
@@ -5549,6 +5708,18 @@ class OnPolicyRunner:
                 _frontres_candidate_floor_pass_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_exec_floor_value_mean = (
+                _frontres_exec_floor_value_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_exec_floor_safe_mean = (
+                _frontres_exec_floor_safe_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_exec_floor_adaptive_mean = (
+                _frontres_exec_floor_adaptive_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_stable_route_frac_mean = (
                 _frontres_stable_route_frac_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -5946,7 +6117,9 @@ class OnPolicyRunner:
                 "harm_rate", "harm_mag", "safe_harm_rate", "broken_harm_rate",
                 "safe_abstain_cost", "broken_abstain_cost",
                 "window_mu", "safe_frac", "repair_frac", "broken_frac",
-                "candidate_floor_margin", "candidate_floor_pass", "stable_route_frac",
+                "candidate_floor_margin", "candidate_floor_pass",
+                "exec_floor_value", "exec_floor_safe", "exec_floor_adaptive",
+                "stable_route_frac",
                 "stable_endpoint_frac", "tri_weight_repair", "tri_weight_noisy", "tri_weight_stable",
                 "structured_joint_rho_adv", "structured_joint_rho_weight",
                 "structured_joint_rho_retention",
@@ -6284,6 +6457,12 @@ class OnPolicyRunner:
                                 f"{locs['frontres_candidate_floor_pass_mean']:.3f} / "
                                 f"{locs['frontres_candidate_floor_margin_mean']:+.4f}\n"
                             )
+                            log_string += f"""{"exec floor val/safe/adapt:":>{pad}} """
+                            log_string += (
+                                f"{locs.get('frontres_exec_floor_value_mean', 0.0):+.4f} / "
+                                f"{locs.get('frontres_exec_floor_safe_mean', 0.0):+.4f} / "
+                                f"{locs.get('frontres_exec_floor_adaptive_mean', 0.0):.3f}\n"
+                            )
                         if locs.get("frontres_state_alpha_pred_mean") is not None:
                             log_string += f"""{'state alpha p/t/m/r:':>{pad}} """
                             log_string += (
@@ -6586,6 +6765,12 @@ class OnPolicyRunner:
                                 log_string += (
                                     f"{locs['frontres_candidate_floor_pass_mean']:.3f} / "
                                     f"{locs['frontres_candidate_floor_margin_mean']:+.4f}\n"
+                                )
+                                log_string += f"""{"exec floor val/safe/adapt:":>{pad}} """
+                                log_string += (
+                                    f"{locs.get('frontres_exec_floor_value_mean', 0.0):+.4f} / "
+                                    f"{locs.get('frontres_exec_floor_safe_mean', 0.0):+.4f} / "
+                                    f"{locs.get('frontres_exec_floor_adaptive_mean', 0.0):.3f}\n"
                                 )
                                 log_string += f"""{"rho space:":>{pad}} """
                                 log_string += f"{self.cfg.get('frontres_rho_space', 'noisy_to_repair')}\n"
@@ -6961,6 +7146,15 @@ class OnPolicyRunner:
             saved_dict["frontres_gmt_frontier_decision"] = self._frontres_gmt_frontier_decision
         if hasattr(self, "_frontres_gmt_frontier_confirmed"):
             saved_dict["frontres_gmt_frontier_confirmed"] = self._frontres_gmt_frontier_confirmed
+        for _name in (
+            "safe_score_ema",
+            "broken_score_ema",
+            "safe_count",
+            "broken_count",
+        ):
+            _attr = f"_frontres_exec_floor_{_name}"
+            if hasattr(self, _attr):
+                saved_dict[f"frontres_exec_floor_{_name}"] = getattr(self, _attr)
         if hasattr(self, '_frontres_warmup_complete'):
             saved_dict["frontres_warmup_complete"] = bool(self._frontres_warmup_complete)
         
@@ -7288,6 +7482,18 @@ class OnPolicyRunner:
             self._frontres_gmt_frontier_confirmed = float(
                 loaded_dict.get("frontres_gmt_frontier_confirmed", self._frontres_gmt_frontier_safe_low)
             )
+            for _name in (
+                "safe_score_ema",
+                "broken_score_ema",
+                "safe_count",
+                "broken_count",
+            ):
+                _key = f"frontres_exec_floor_{_name}"
+                _attr = f"_frontres_exec_floor_{_name}"
+                if _key in loaded_dict and loaded_dict[_key] is not None:
+                    setattr(self, _attr, float(loaded_dict[_key]))
+                elif hasattr(self, _attr):
+                    delattr(self, _attr)
             print(f"[Runner] Adaptive DR scale restored from checkpoint: {self._dr_scale:.4f}")
         else:
             _dr_init = float(self.cfg.get("dr_scale_init", 1.0))
@@ -7300,6 +7506,15 @@ class OnPolicyRunner:
             self._frontres_gmt_frontier_probe_score = None
             self._frontres_gmt_frontier_decision = "cold_start"
             self._frontres_gmt_frontier_confirmed = _dr_init
+            for _name in (
+                "safe_score_ema",
+                "broken_score_ema",
+                "safe_count",
+                "broken_count",
+            ):
+                _attr = f"_frontres_exec_floor_{_name}"
+                if hasattr(self, _attr):
+                    delattr(self, _attr)
             print(f"[Runner] Stage1→Stage2 cold-start: dr_scale initialised to "
                   f"dr_scale_init={_dr_init:.4f} (ignoring checkpoint value "
                   f"{loaded_dict.get('dr_scale', 0.0):.4f})")

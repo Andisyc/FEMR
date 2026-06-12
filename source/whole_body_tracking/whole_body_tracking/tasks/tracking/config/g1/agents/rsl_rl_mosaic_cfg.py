@@ -640,6 +640,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_state_alpha_route_enabled = True
     frontres_state_alpha_route_threshold = 0.70
     frontres_state_alpha_route_min_iteration = 0
+    # Unified executable floor.  GMT frontier search discovers the perturbation
+    # boundary; this adaptive score-space floor is shared by Candidate
+    # diagnostics, alpha labels, and rho constrained-retention penalties.
+    frontres_executable_floor_adaptive_enabled = True
+    frontres_executable_floor_score = 0.0
+    frontres_executable_floor_safe_margin = 0.05
+    frontres_executable_floor_min_samples = 32
+    frontres_executable_floor_ema_alpha = 0.95
     frontres_state_alpha_exec_floor = 0.0
     frontres_state_alpha_safe_exec_floor = 0.05
     frontres_state_alpha_temp = 0.08
