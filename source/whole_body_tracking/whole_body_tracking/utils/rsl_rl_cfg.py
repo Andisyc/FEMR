@@ -323,6 +323,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Normalize structured-joint advantages over active samples in each minibatch."""
     frontres_structured_joint_rl_keep_legacy_bce: bool = False
     """Keep legacy acceptance BCE active while structured joint RL is enabled."""
+    frontres_structured_joint_rl_disable_generic_ppo: bool = True
+    """Disable the old generic PPO actor surrogate when structured rho RL owns acceptance."""
     frontres_structured_joint_exec_floor: float = 0.0
     """Executable floor used by constrained repair-retention RL for rho."""
     frontres_structured_joint_rho_retention_weight: float = 0.0

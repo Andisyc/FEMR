@@ -84,6 +84,7 @@ class FrontRESUnified:
         frontres_structured_joint_rl_adv_clip: float = 5.0,
         frontres_structured_joint_rl_normalize_advantage: bool = False,
         frontres_structured_joint_rl_keep_legacy_bce: bool = False,
+        frontres_structured_joint_rl_disable_generic_ppo: bool = True,
         frontres_structured_joint_exec_floor: float = 0.0,
         frontres_structured_joint_rho_retention_weight: float = 0.0,
         frontres_structured_joint_directional_weight: float = 1.0,
@@ -201,6 +202,9 @@ class FrontRESUnified:
         )
         self.frontres_structured_joint_rl_keep_legacy_bce = bool(
             frontres_structured_joint_rl_keep_legacy_bce
+        )
+        self.frontres_structured_joint_rl_disable_generic_ppo = bool(
+            frontres_structured_joint_rl_disable_generic_ppo
         )
         self.frontres_structured_joint_exec_floor = float(frontres_structured_joint_exec_floor)
         self.frontres_structured_joint_rho_retention_weight = max(
@@ -610,7 +614,16 @@ class FrontRESUnified:
                 )
 
                 oracle_mix = float(getattr(self, "oracle_mix", 0.0))
-                ppo_weight = float(getattr(self, "ppo_actor_weight", 1.0)) * (1.0 - oracle_mix)
+                raw_ppo_weight = float(getattr(self, "ppo_actor_weight", 1.0)) * (1.0 - oracle_mix)
+                structured_rho_active = self._structured_joint_rl_enabled()
+                disable_generic_ppo = (
+                    structured_rho_active
+                    and bool(getattr(self, "frontres_structured_joint_rl_disable_generic_ppo", True))
+                )
+                # Structured rho RL is already a PPO-style acceptance update.
+                # Letting the old generic actor surrogate update the same head
+                # reintroduces mixed alpha/rho/task credit assignment.
+                ppo_weight = 0.0 if disable_generic_ppo else raw_ppo_weight
                 if self.diagnose_gradient_conflict and ppo_weight > 0.0 and self.lambda_supervised > 0.0:
                     _gc, _ratio = self._compute_actor_grad_conflict(
                         surrogate_loss, supervised_loss)
@@ -622,10 +635,10 @@ class FrontRESUnified:
                 legacy_alpha_weight = float(getattr(self, "frontres_state_alpha_weight", 0.0))
                 structured_weight = (
                     self.frontres_structured_joint_rl_weight
-                    if self._structured_joint_rl_enabled()
+                    if structured_rho_active
                     else 0.0
                 )
-                if self._structured_joint_rl_enabled() and not self.frontres_structured_joint_rl_keep_legacy_bce:
+                if structured_rho_active and not self.frontres_structured_joint_rl_keep_legacy_bce:
                     legacy_preference_weight = 0.0
                 loss = (
                     ppo_weight * surrogate_loss
@@ -773,7 +786,15 @@ class FrontRESUnified:
             "lambda_state_alpha": self.frontres_state_alpha_weight,
             "structured_joint_rl_loss": mean_structured_joint_rl_loss,
             "lambda_structured_joint_rl": self.frontres_structured_joint_rl_weight,
-            "ppo_actor_weight": float(getattr(self, "ppo_actor_weight", 1.0)),
+            "ppo_actor_weight": (
+                0.0
+                if (
+                    self._structured_joint_rl_enabled()
+                    and bool(getattr(self, "frontres_structured_joint_rl_disable_generic_ppo", True))
+                )
+                else float(getattr(self, "ppo_actor_weight", 1.0))
+            ),
+            "raw_ppo_actor_weight": float(getattr(self, "ppo_actor_weight", 1.0)),
             "grad_cos_ppo_supervised": grad_conflict_cos,
             "grad_norm_ratio_ppo_to_supervised": grad_conflict_norm_ratio,
         }

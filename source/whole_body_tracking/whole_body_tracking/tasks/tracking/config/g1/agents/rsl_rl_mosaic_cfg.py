@@ -656,6 +656,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Structured Joint RL updates only rho.  Alpha is a separate state-router
     # SSL head trained from Noisy/GMT executable-floor labels.
     frontres_structured_joint_rl_enabled = True
+    frontres_structured_joint_rl_disable_generic_ppo = True
     frontres_structured_joint_weight_floor = 0.10
     frontres_structured_joint_exec_floor = 0.0
     frontres_structured_joint_rho_retention_weight = 0.0
@@ -923,6 +924,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_structured_joint_rl_adv_clip = 5.0,
         frontres_structured_joint_rl_normalize_advantage = False,
         frontres_structured_joint_rl_keep_legacy_bce = False,
+        frontres_structured_joint_rl_disable_generic_ppo = True,
         frontres_structured_joint_exec_floor = 0.0,
         frontres_structured_joint_rho_retention_weight = 0.0,
         frontres_structured_joint_directional_weight = 1.0,

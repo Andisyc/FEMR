@@ -6862,6 +6862,8 @@ class OnPolicyRunner:
                             f"enabled={_loss_dict.get('structured_joint_rl_enabled', 0.0):.0f}, "
                             f"adv={_loss_dict.get('structured_joint_rl_adv_mean', 0.0):+.4f}, "
                             f"w={_loss_dict.get('structured_joint_rl_weight_mean', 0.0):.3f}, "
+                            f"dim={_loss_dict.get('structured_joint_rl_dim_active_mean', 0.0):.3f}, "
+                            f"generic={_loss_dict.get('ppo_actor_weight', 0.0):.3f}, "
                             f"rho_ratio={_loss_dict.get('structured_joint_rl_ratio_mean', 0.0):.3f})\n"
                         )
                     log_string += f"""{'learning rate:':>{pad}} {getattr(self.alg, 'learning_rate', 0.0):.2e}\n"""
@@ -7226,6 +7228,8 @@ class OnPolicyRunner:
                             f"enabled={_loss_dict.get('structured_joint_rl_enabled', 0.0):.0f}, "
                             f"adv={_loss_dict.get('structured_joint_rl_adv_mean', 0.0):+.4f}, "
                             f"w={_loss_dict.get('structured_joint_rl_weight_mean', 0.0):.3f}, "
+                            f"dim={_loss_dict.get('structured_joint_rl_dim_active_mean', 0.0):.3f}, "
+                            f"generic={_loss_dict.get('ppo_actor_weight', 0.0):.3f}, "
                             f"rho_ratio={_loss_dict.get('structured_joint_rl_ratio_mean', 0.0):.3f})\n"
                         )
                     if locs.get("frontres_window_mu_mean") is not None:
