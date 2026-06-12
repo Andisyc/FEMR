@@ -2607,3 +2607,26 @@ rho constrained adv:
 The old `ret=` field no longer means raw rho retention reward.  It means the
 signed retention-prior contribution.  This prevents the diagnostic from hiding
 whether the update is actually pushing rho up or down.
+
+### 2026-06-12 Live-Route Fallback Audit
+
+The fallback utility used by `direction` must match the route actually executed
+by the tri-anchor policy:
+
+```text
+F_exec = (1 - alpha_pred) * Noisy + alpha_pred * Stable
+```
+
+It must not use `alpha_target` except as an emergency fallback when the policy
+alpha is unavailable.  `alpha_target` is a teacher signal for the state router;
+using it inside rho advantage leaks an oracle route into rho credit assignment
+and can make rho receive a negative direction even when the executed Candidate
+has higher utility than Projected.
+
+This is an implementation contract:
+
+```text
+actual alpha used in _apply_frontres_task_corrections
+  -> same alpha source used in fallback_exec for rho advantage
+  -> rho direction compares Candidate/Projected/actual fallback
+```

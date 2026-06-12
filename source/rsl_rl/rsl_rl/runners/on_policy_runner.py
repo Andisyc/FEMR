@@ -4856,11 +4856,31 @@ class OnPolicyRunner:
                                     # Therefore rho needs a centered directional advantage:
                                     # Candidate>Projected rewards high-rho samples and discourages
                                     # low-rho samples; fallback>Projected does the inverse.
-                                    _fallback_alpha = (
-                                        _state_alpha_target[:_n_exec, 0]
-                                        .detach()
-                                        .clamp(0.0, 1.0)
+                                    # The rho advantage must compare against the fallback
+                                    # route actually used by tri-anchor execution.  The
+                                    # supervised alpha target is only a teacher signal; using
+                                    # it here leaks an oracle route into rho credit assignment.
+                                    _fallback_alpha_source = getattr(
+                                        self, "_frontres_state_alpha_prob_next", None
                                     )
+                                    if (
+                                        isinstance(_fallback_alpha_source, torch.Tensor)
+                                        and _fallback_alpha_source.numel() > 0
+                                    ):
+                                        _fallback_alpha = _fallback_alpha_source.to(
+                                            device=self.device,
+                                            dtype=_rho_retention.dtype,
+                                        ).view(-1)
+                                        if _fallback_alpha.numel() < _n_exec:
+                                            _fallback_alpha = torch.nn.functional.pad(
+                                                _fallback_alpha,
+                                                (0, _n_exec - _fallback_alpha.numel()),
+                                                value=0.0,
+                                            )
+                                        _fallback_alpha = _fallback_alpha[:_n_exec]
+                                    else:
+                                        _fallback_alpha = _state_alpha_target[:_n_exec, 0]
+                                    _fallback_alpha = _fallback_alpha.detach().clamp(0.0, 1.0)
                                     _fallback_exec = (
                                         (1.0 - _fallback_alpha) * _exec_perturbed.detach()
                                         + _fallback_alpha * _exec_feasible.detach()
