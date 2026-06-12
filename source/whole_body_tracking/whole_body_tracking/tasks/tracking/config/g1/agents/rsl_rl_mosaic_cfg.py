@@ -643,12 +643,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_state_alpha_exec_floor = 0.0
     frontres_state_alpha_safe_exec_floor = 0.05
     frontres_state_alpha_temp = 0.08
-    # Structured Joint RL samples alpha and rho in one rollout, but trains them
-    # with split credit assignment:
-    #   alpha: fallback endpoint selection (Noisy vs Stable proxy)
-    #   rho: executed repair improvement over the selected fallback
+    # Structured Joint RL updates only rho.  Alpha is a separate state-router
+    # SSL head trained from Noisy/GMT executable-floor labels.
     frontres_structured_joint_rl_enabled = True
     frontres_structured_joint_weight_floor = 0.10
+    frontres_structured_joint_exec_floor = 0.0
+    frontres_structured_joint_rho_retention_weight = 1.0
+    frontres_structured_joint_floor_penalty_weight = 5.0
+    frontres_structured_joint_full_repair_bonus_weight = 1.0
     # Legacy joint-utility shaping knobs.  Kept for checkpoint/config
     # compatibility; split alpha/rho advantage no longer consumes them.
     frontres_structured_joint_candidate_weight = 0.25
@@ -902,12 +904,16 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_acceptance_preference_focal_gamma = 1.0,
         frontres_acceptance_preference_balance_min = 0.5,
         frontres_acceptance_preference_balance_max = 3.0,
-        frontres_state_alpha_weight      = 0.0,
+        frontres_state_alpha_weight      = 0.2,
         frontres_structured_joint_rl_enabled = True,
         frontres_structured_joint_rl_weight = 1.0,
         frontres_structured_joint_rl_adv_clip = 5.0,
         frontres_structured_joint_rl_normalize_advantage = True,
         frontres_structured_joint_rl_keep_legacy_bce = False,
+        frontres_structured_joint_exec_floor = 0.0,
+        frontres_structured_joint_rho_retention_weight = 1.0,
+        frontres_structured_joint_floor_penalty_weight = 5.0,
+        frontres_structured_joint_full_repair_bonus_weight = 1.0,
         frontres_oracle_upper_bound_diag_enabled = True,
         frontres_oracle_upper_bound_margin = 0.0,
         lambda_supervised             = 1.0,   # initial weight

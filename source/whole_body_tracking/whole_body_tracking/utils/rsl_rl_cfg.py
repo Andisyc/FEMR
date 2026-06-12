@@ -322,7 +322,15 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     frontres_structured_joint_rl_normalize_advantage: bool = True
     """Normalize structured-joint advantages over active samples in each minibatch."""
     frontres_structured_joint_rl_keep_legacy_bce: bool = False
-    """Keep legacy acceptance/state-alpha BCE losses active while structured joint RL is enabled."""
+    """Keep legacy acceptance BCE active while structured joint RL is enabled."""
+    frontres_structured_joint_exec_floor: float = 0.0
+    """Executable floor used by constrained repair-retention RL for rho."""
+    frontres_structured_joint_rho_retention_weight: float = 1.0
+    """Reward weight for retaining the Repair proposal in structured rho RL."""
+    frontres_structured_joint_floor_penalty_weight: float = 5.0
+    """Penalty weight for projected references below the executable floor."""
+    frontres_structured_joint_full_repair_bonus_weight: float = 1.0
+    """Extra retention bonus when the full Repair proposal is executable."""
     frontres_oracle_upper_bound_diag_enabled: bool = True
     """Log an optimistic no-training oracle upper bound from noisy/projected/candidate/feasible scores."""
     frontres_oracle_upper_bound_margin: float = 0.0

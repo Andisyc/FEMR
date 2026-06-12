@@ -84,6 +84,10 @@ class FrontRESUnified:
         frontres_structured_joint_rl_adv_clip: float = 5.0,
         frontres_structured_joint_rl_normalize_advantage: bool = True,
         frontres_structured_joint_rl_keep_legacy_bce: bool = False,
+        frontres_structured_joint_exec_floor: float = 0.0,
+        frontres_structured_joint_rho_retention_weight: float = 1.0,
+        frontres_structured_joint_floor_penalty_weight: float = 5.0,
+        frontres_structured_joint_full_repair_bonus_weight: float = 1.0,
         diagnose_gradient_conflict: bool = True,
         hybrid: bool = True,
         use_ppo: bool = True,
@@ -194,6 +198,16 @@ class FrontRESUnified:
         )
         self.frontres_structured_joint_rl_keep_legacy_bce = bool(
             frontres_structured_joint_rl_keep_legacy_bce
+        )
+        self.frontres_structured_joint_exec_floor = float(frontres_structured_joint_exec_floor)
+        self.frontres_structured_joint_rho_retention_weight = max(
+            0.0, float(frontres_structured_joint_rho_retention_weight)
+        )
+        self.frontres_structured_joint_floor_penalty_weight = max(
+            0.0, float(frontres_structured_joint_floor_penalty_weight)
+        )
+        self.frontres_structured_joint_full_repair_bonus_weight = max(
+            0.0, float(frontres_structured_joint_full_repair_bonus_weight)
         )
         self.diagnose_gradient_conflict = bool(diagnose_gradient_conflict)
         self.ppo_actor_weight = 1.0
@@ -313,9 +327,12 @@ class FrontRESUnified:
               f"  adv_focal_power={self.ppo_advantage_focal_power}")
         if self._structured_joint_rl_enabled():
             print(
-                "  Structured Joint RL: enabled "
+                "  Structured Joint RL: constrained rho retention "
                 f"(weight={self.frontres_structured_joint_rl_weight}, "
-                f"legacy_bce={self.frontres_structured_joint_rl_keep_legacy_bce})"
+                f"floor={self.frontres_structured_joint_exec_floor}, "
+                f"ret_w={self.frontres_structured_joint_rho_retention_weight}, "
+                f"floor_w={self.frontres_structured_joint_floor_penalty_weight}, "
+                f"full_w={self.frontres_structured_joint_full_repair_bonus_weight})"
             )
         print("  MOSAIC teacher/off-policy branches: disabled by construction")
         print("=" * 80)
@@ -592,7 +609,6 @@ class FrontRESUnified:
                 )
                 if self._structured_joint_rl_enabled() and not self.frontres_structured_joint_rl_keep_legacy_bce:
                     legacy_preference_weight = 0.0
-                    legacy_alpha_weight = 0.0
                 loss = (
                     ppo_weight * surrogate_loss
                     + self.value_loss_coef * value_loss
@@ -1293,47 +1309,26 @@ class FrontRESUnified:
             "structured_joint_rl_adv_used_mean": 0.0,
             "structured_joint_rl_weight_mean": 0.0,
             "structured_joint_rl_rho_adv_mean": 0.0,
-            "structured_joint_rl_alpha_adv_mean": 0.0,
             "structured_joint_rl_rho_weight_mean": 0.0,
-            "structured_joint_rl_alpha_weight_mean": 0.0,
             "structured_joint_rl_rho_ratio_mean": 1.0,
-            "structured_joint_rl_alpha_ratio_mean": 1.0,
             "structured_joint_rl_rho_loss": 0.0,
-            "structured_joint_rl_alpha_loss": 0.0,
-            "structured_joint_rl_alpha_action_mean": 0.0,
-            "structured_joint_rl_alpha_logp_mean": 0.0,
             "structured_joint_rl_ratio_mean": 1.0,
         }
         if (
             not self._structured_joint_rl_enabled()
             or acceptance_target_batch is None
             or acceptance_mask_batch is None
-            or not hasattr(self.policy, "get_state_router_logit")
         ):
             return zero, metrics
 
         n = original_batch_size
-        carrier = acceptance_target_batch[:n, :4].to(device=self.device, dtype=obs_batch.dtype).detach()
-        weights = acceptance_mask_batch[:n, :2].to(device=self.device, dtype=obs_batch.dtype).detach()
+        carrier = acceptance_target_batch[:n, :1].to(device=self.device, dtype=obs_batch.dtype).detach()
+        weights = acceptance_mask_batch[:n, :1].to(device=self.device, dtype=obs_batch.dtype).detach()
         rho_adv_raw = torch.nan_to_num(carrier[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
-        old_alpha_logp = torch.nan_to_num(carrier[:, 1], nan=0.0, posinf=0.0, neginf=0.0)
-        alpha_action = torch.nan_to_num(carrier[:, 2], nan=0.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
-        if carrier.shape[-1] > 3:
-            alpha_adv_raw = torch.nan_to_num(carrier[:, 3], nan=0.0, posinf=0.0, neginf=0.0)
-        else:
-            alpha_adv_raw = rho_adv_raw
         rho_weight = torch.nan_to_num(weights[:, 0], nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
-        if weights.shape[-1] > 1:
-            alpha_weight = torch.nan_to_num(weights[:, 1], nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
-        else:
-            alpha_weight = rho_weight
 
         rho_active = rho_weight > 1e-6
-        alpha_active = alpha_weight > 1e-6
-        if (
-            not bool(rho_active.any().detach().item())
-            and not bool(alpha_active.any().detach().item())
-        ):
+        if not bool(rho_active.any().detach().item()):
             return zero, metrics
 
         def _prepare_advantage(raw_adv: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
@@ -1349,16 +1344,9 @@ class FrontRESUnified:
                     adv = (adv - adv_mean) / adv_std
             return adv
 
-        logits = self.policy.get_state_router_logit(obs_batch[:n]).view(-1)
-        alpha_logp = -nn.functional.binary_cross_entropy_with_logits(
-            logits,
-            alpha_action,
-            reduction="none",
-        )
         old_rho_logp = old_actions_log_prob_batch[:n].view(-1).to(device=self.device, dtype=obs_batch.dtype)
         new_rho_logp = actions_log_prob_batch[:n].view(-1).to(device=self.device, dtype=obs_batch.dtype)
         rho_adv = _prepare_advantage(rho_adv_raw, rho_active)
-        alpha_adv = _prepare_advantage(alpha_adv_raw, alpha_active)
 
         def _clipped_loss(
             adv: torch.Tensor,
@@ -1374,10 +1362,8 @@ class FrontRESUnified:
             return (loss_terms * weight).sum() / denom, ratio
 
         rho_log_ratio = new_rho_logp - old_rho_logp
-        alpha_log_ratio = alpha_logp - old_alpha_logp
         rho_loss, rho_ratio = _clipped_loss(rho_adv, rho_weight, rho_log_ratio)
-        alpha_loss, alpha_ratio = _clipped_loss(alpha_adv, alpha_weight, alpha_log_ratio)
-        loss = rho_loss + alpha_loss
+        loss = rho_loss
 
         metrics["structured_joint_rl_adv_mean"] = float(
             (rho_adv_raw[rho_active]).mean().detach().item()
@@ -1387,26 +1373,12 @@ class FrontRESUnified:
         ) if bool(rho_active.any().detach().item()) else 0.0
         metrics["structured_joint_rl_weight_mean"] = float(rho_weight.mean().detach().item())
         metrics["structured_joint_rl_rho_adv_mean"] = metrics["structured_joint_rl_adv_mean"]
-        metrics["structured_joint_rl_alpha_adv_mean"] = float(
-            (alpha_adv_raw[alpha_active]).mean().detach().item()
-        ) if bool(alpha_active.any().detach().item()) else 0.0
         metrics["structured_joint_rl_rho_weight_mean"] = float(rho_weight.mean().detach().item())
-        metrics["structured_joint_rl_alpha_weight_mean"] = float(alpha_weight.mean().detach().item())
-        metrics["structured_joint_rl_alpha_action_mean"] = float(
-            alpha_action[alpha_active].mean().detach().item()
-        ) if bool(alpha_active.any().detach().item()) else 0.0
-        metrics["structured_joint_rl_alpha_logp_mean"] = float(
-            old_alpha_logp[alpha_active].mean().detach().item()
-        ) if bool(alpha_active.any().detach().item()) else 0.0
         metrics["structured_joint_rl_rho_ratio_mean"] = float(
             rho_ratio.detach()[rho_active].mean().item()
         ) if bool(rho_active.any().detach().item()) else 1.0
-        metrics["structured_joint_rl_alpha_ratio_mean"] = float(
-            alpha_ratio.detach()[alpha_active].mean().item()
-        ) if bool(alpha_active.any().detach().item()) else 1.0
         metrics["structured_joint_rl_ratio_mean"] = metrics["structured_joint_rl_rho_ratio_mean"]
         metrics["structured_joint_rl_rho_loss"] = float(rho_loss.detach().item())
-        metrics["structured_joint_rl_alpha_loss"] = float(alpha_loss.detach().item())
         return loss, metrics
 
     def _compute_state_alpha_loss(
@@ -1424,11 +1396,6 @@ class FrontRESUnified:
             "state_alpha_abs_err": 0.0,
             "state_alpha_acc": 0.0,
         }
-        if (
-            self._structured_joint_rl_enabled()
-            and not self.frontres_structured_joint_rl_keep_legacy_bce
-        ):
-            return zero, metrics
         if (
             self.frontres_state_alpha_weight <= 0.0
             or state_alpha_target_batch is None

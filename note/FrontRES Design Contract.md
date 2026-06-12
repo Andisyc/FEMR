@@ -219,6 +219,65 @@ reward ordering.
   It is an auxiliary state-router head trained by supervised rollout labels and
   used by the runner to choose Stable Frame vs HSL/HRL route.
 
+## 2026-06-12 Executable-Floor Router And Repair-Retention Contract
+
+The current alpha/rho branch must separate two learning questions that were
+previously entangled:
+
+1. **State Router \(\alpha\)** asks whether the current Noisy/GMT continuation
+   is leaving the executable floor.  It is a state classifier, not an HRL action.
+2. **HRL \(\rho\)** asks how much of the clean-oriented Repair proposal can be
+   retained while staying executable.  It is the repair-retention policy.
+
+This gives the live contract:
+
+\[
+F_\alpha=(1-\alpha)N+\alpha S,\qquad
+P_\rho=\rho R+(1-\rho)F_\alpha.
+\]
+
+\(N\) is the Noisy reference, \(S\) is the Stable Frame, \(R\) is the HSL Repair
+proposal, and \(P_\rho\) is the executed projected reference.  The formula is
+only the behavior parameterization.  The gradients must be split:
+
+- \(\alpha\) is trained only by the auxiliary state-router BCE label from the
+  Noisy/GMT branch: fall or below floor means target 1; safely above floor means
+  target 0; ambiguous samples are masked.
+- Structured Joint RL must not update \(\alpha\).  In particular, it must not
+  store alpha log-prob, alpha action, or alpha advantage in the acceptance
+  target carrier.
+- \(\rho\) is trained by a constrained retention advantage:
+
+\[
+A_\rho
+=
+\lambda_{\rm ret}\,\bar\rho
+-\lambda_{\rm floor}\,[F-U(P_\rho)]_+
++\lambda_{\rm full}\,\mathbf{1}[U(R)\ge F]\,\bar\rho.
+\]
+
+The three terms mean: keep as much Repair as possible, strongly penalize falling
+below the executable floor, and reward full repair retention only when the full
+Repair proposal is itself executable.  \(U(\cdot)\) is the executable score and
+\(F\) is the floor threshold.  \(\bar\rho\) is the mean retention over the active
+acceptance dimensions.
+
+The storage contract is:
+
+- `state_alpha_target/state_alpha_mask` carry the alpha SSL signal.
+- `acceptance_target[:, 0]` carries only \(A_\rho\).
+- `acceptance_mask[:, 0]` carries only the rho update weight.
+- Other acceptance carrier columns are reserved and must not be interpreted as
+  alpha PPO data in the active branch.
+
+The required live diagnostics are:
+
+- `state alpha loss/acc` should be non-zero when labels are available.
+- `rho constrained adv:` should expose retention, floor violation, and full
+  repair bonus components.
+- Any diagnostic named `alpha advantage`, `alpha logp`, or `alpha PPO` is legacy
+  and must stay zero or disappear in the active branch.
+
 ## Repair Regime Boundary
 
 The current branch should distinguish three regimes:
@@ -2107,9 +2166,15 @@ decomposition.  A projected reference that is only slightly better than Noisy
 should receive a small positive advantage; a projected reference that is stable
 and closer to Clean should receive a larger one.
 
-### Implementation Contract
+### Superseded Implementation Contract
 
-- Add a guarded mode:
+Superseded by the 2026-06-12 Executable-Floor Router And Repair-Retention
+Contract above.  This older contract is kept as a failed-branch record: it
+trained `alpha` through PPO and therefore reintroduced alpha/rho mixed credit.
+The active branch must not store alpha log-prob, sampled alpha action, or alpha
+advantage in `acceptance_target`.
+
+- The old guarded mode was:
 
 ```text
 frontres_structured_joint_rl_enabled = True
@@ -2152,12 +2217,16 @@ acceptance_mask[:, 0]   = joint-RL sample weight
 
 ### Diagnostics
 
+Superseded by the 2026-06-12 Executable-Floor Router And Repair-Retention
+contract above.  This older diagnostic block belongs to the temporary alpha+rho
+joint-RL branch and must not be used to judge the active implementation.
+
 The next resume test must print and log:
 
 ```text
 joint adv pos/neg/near/ign: ...
 joint rl adv/w: ...
-joint rl alpha a/logp: ...
+legacy alpha PPO diagnostics are removed from active logs
 joint rl loss: ... (enabled=1, ...)
 FrontRES grad debug ... ppo_alpha=...
 ```
@@ -2308,7 +2377,12 @@ A_rho = U_P - U_F
 This is a clean repair-strength signal.  It only answers whether the sampled
 repair mass improved the frame beyond its chosen fallback.
 
-### Implementation Contract
+### Superseded Implementation Contract
+
+Superseded by the 2026-06-12 Executable-Floor Router And Repair-Retention
+Contract above.  The active branch does not train `alpha` by fallback-selection
+policy gradient; it trains `alpha` only from Noisy/GMT executable-floor labels.
+The structured RL carrier now stores only `A_rho` and the rho update weight.
 
 Do not add rollout branches for this change.  The first implementation uses the
 existing feasible/stable proxy as `U_S`, the noisy branch as `U_N`, and the
