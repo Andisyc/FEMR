@@ -824,6 +824,8 @@ class OnPolicyRunner:
         self._frontres_exec_floor_safe_last = safe_floor
         self._frontres_exec_floor_source_last = source
         self._frontres_exec_floor_adaptive_last = 1.0 if source == "adaptive" else 0.0
+        self._frontres_exec_floor_safe_count_last = safe_count
+        self._frontres_exec_floor_broken_count_last = broken_count
         return floor, safe_floor, source
 
     def _frontres_update_executable_floor_stats(
@@ -867,9 +869,11 @@ class OnPolicyRunner:
         elif decision == "broken":
             broken_mask = class_mask & valid
         elif decision == "frontier":
-            # A gray frontier decision is useful only when the rollout itself
-            # supplies hard evidence through early termination.
-            safe_mask = torch.zeros_like(class_mask)
+            # The frontier bucket is exactly where the executable floor should
+            # be calibrated: survived samples are safe evidence, early-fallen
+            # samples are broken evidence.
+            safe_mask = class_mask & valid & (~fall)
+            broken_mask = class_mask & valid & fall
 
         ema_alpha = float(self.cfg.get("frontres_executable_floor_ema_alpha", 0.95))
         ema_alpha = max(0.0, min(0.999, ema_alpha))
@@ -3393,6 +3397,8 @@ class OnPolicyRunner:
             _frontres_exec_floor_value_sum: float = 0.0
             _frontres_exec_floor_safe_sum: float = 0.0
             _frontres_exec_floor_adaptive_sum: float = 0.0
+            _frontres_exec_floor_safe_count_sum: float = 0.0
+            _frontres_exec_floor_broken_count_sum: float = 0.0
             _frontres_stable_route_frac_sum: float = 0.0
             _frontres_stable_endpoint_frac_sum: float = 0.0
             _frontres_tri_weight_repair_sum: float = 0.0
@@ -5266,6 +5272,12 @@ class OnPolicyRunner:
                             _frontres_exec_floor_adaptive_sum += float(
                                 getattr(self, "_frontres_exec_floor_adaptive_last", 0.0)
                             )
+                            _frontres_exec_floor_safe_count_sum += float(
+                                getattr(self, "_frontres_exec_floor_safe_count_last", 0.0)
+                            )
+                            _frontres_exec_floor_broken_count_sum += float(
+                                getattr(self, "_frontres_exec_floor_broken_count_last", 0.0)
+                            )
                             _frontres_stable_route_frac_sum += float(
                                 getattr(self, "_frontres_stable_route_applied_frac", 0.0)
                             )
@@ -5836,6 +5848,14 @@ class OnPolicyRunner:
                 _frontres_exec_floor_adaptive_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
+            frontres_exec_floor_safe_count_mean = (
+                _frontres_exec_floor_safe_count_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_exec_floor_broken_count_mean = (
+                _frontres_exec_floor_broken_count_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
             frontres_stable_route_frac_mean = (
                 _frontres_stable_route_frac_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
@@ -6243,6 +6263,7 @@ class OnPolicyRunner:
                 "window_mu", "safe_frac", "repair_frac", "broken_frac",
                 "candidate_floor_margin", "candidate_floor_pass",
                 "exec_floor_value", "exec_floor_safe", "exec_floor_adaptive",
+                "exec_floor_safe_count", "exec_floor_broken_count",
                 "stable_route_frac",
                 "stable_endpoint_frac", "tri_weight_repair", "tri_weight_noisy", "tri_weight_stable",
                 "structured_joint_rho_adv", "structured_joint_rho_weight",
@@ -6586,6 +6607,11 @@ class OnPolicyRunner:
                                 f"{locs.get('frontres_exec_floor_value_mean', 0.0):+.4f} / "
                                 f"{locs.get('frontres_exec_floor_safe_mean', 0.0):+.4f} / "
                                 f"{locs.get('frontres_exec_floor_adaptive_mean', 0.0):.3f}\n"
+                            )
+                            log_string += f"""{"exec floor cnt s/b:":>{pad}} """
+                            log_string += (
+                                f"{locs.get('frontres_exec_floor_safe_count_mean', 0.0):.0f} / "
+                                f"{locs.get('frontres_exec_floor_broken_count_mean', 0.0):.0f}\n"
                             )
                         if locs.get("frontres_state_alpha_pred_mean") is not None:
                             log_string += f"""{'state alpha p/t/m/r:':>{pad}} """
@@ -6932,6 +6958,11 @@ class OnPolicyRunner:
                                     f"{locs.get('frontres_exec_floor_value_mean', 0.0):+.4f} / "
                                     f"{locs.get('frontres_exec_floor_safe_mean', 0.0):+.4f} / "
                                     f"{locs.get('frontres_exec_floor_adaptive_mean', 0.0):.3f}\n"
+                                )
+                                log_string += f"""{"exec floor cnt s/b:":>{pad}} """
+                                log_string += (
+                                    f"{locs.get('frontres_exec_floor_safe_count_mean', 0.0):.0f} / "
+                                    f"{locs.get('frontres_exec_floor_broken_count_mean', 0.0):.0f}\n"
                                 )
                                 log_string += f"""{"rho space:":>{pad}} """
                                 log_string += f"{self.cfg.get('frontres_rho_space', 'noisy_to_repair')}\n"

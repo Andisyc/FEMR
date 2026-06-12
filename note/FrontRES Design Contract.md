@@ -340,6 +340,34 @@ The required live diagnostics are:
 - Any diagnostic named `alpha advantage`, `alpha logp`, or `alpha PPO` is legacy
   and must stay zero or disappear in the active branch.
 
+### 2026-06-12 Frontier Floor Evidence Fix
+
+The live `ExecutableFloor` must be calibrated from the frontier rollout itself.
+The earlier implementation still had a hidden first-version shortcut: when the
+GMT frontier probe returned `decision=frontier`, it updated broken evidence from
+falling samples but threw away safe evidence from surviving samples.  This made
+the adaptive floor stay at the fixed fallback even though the log already showed
+`GMT bracket safe/broken`.
+
+The correct implementation is:
+
+```text
+frontier bucket rollout
+  survived valid GMT samples -> safe score evidence
+  fallen valid GMT samples   -> broken score evidence
+  both mature                -> adaptive U_floor
+```
+
+This keeps the concept intact: `ExecutableFloor` is not a Candidate diagnostic
+and not an HRL target.  It is the GMT executable boundary translated into the
+same score space used by Candidate diagnostics, state alpha labels, and rho floor
+penalty.
+
+The log must expose floor evidence counts as `exec floor cnt s/b` so a resume run
+can distinguish "adaptive floor is conceptually unavailable because one side has
+no evidence" from "the implementation failed to connect the frontier evidence to
+the floor module".
+
 ## Repair Regime Boundary
 
 The current branch should distinguish three regimes:
