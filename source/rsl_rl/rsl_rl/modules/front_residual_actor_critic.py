@@ -1377,6 +1377,48 @@ class FrontRESActorCritic(nn.Module):
 
         return self.distribution.log_prob(actions)[:, dims].sum(dim=-1)
 
+    def get_actions_log_prob_per_dim(self, actions, selected_dims):
+        """Per-dimension log-probability for selected residual-action dimensions."""
+        return self._actions_log_prob_per_dim_from_normal(
+            actions,
+            self.distribution.mean,
+            self.distribution.stddev,
+            selected_dims,
+        )
+
+    def get_actions_log_prob_per_dim_from_stats(self, actions, mean, std, selected_dims):
+        """Per-dimension log-probability under a supplied Gaussian distribution."""
+        return self._actions_log_prob_per_dim_from_normal(actions, mean, std, selected_dims)
+
+    def _actions_log_prob_per_dim_from_normal(self, actions, mean, std, selected_dims):
+        dims = torch.as_tensor(selected_dims, device=actions.device, dtype=torch.long)
+        dims = dims[(dims >= 0) & (dims < actions.shape[-1])]
+        if dims.numel() == 0:
+            return torch.zeros(actions.shape[0], 0, device=actions.device, dtype=actions.dtype)
+
+        if self.num_task_corrections > 0:
+            _pos_rpy = actions[:, :6]
+            _coeff = actions[:, 6:6 + self.task_conf_dim]
+            max_d = torch.cat([
+                torch.full((3,), self.max_delta_pos, device=actions.device),
+                torch.full((3,), self.max_delta_rpy, device=actions.device),
+            ], dim=-1)
+            normalized = (_pos_rpy / max_d).clamp(-1 + 1e-6, 1 - 1e-6)
+            raw_pr = torch.atanh(normalized)
+            _coeff_clamped = _coeff.clamp(1e-6, 1.0 - 1e-6)
+            raw_coeff = torch.log(_coeff_clamped / (1.0 - _coeff_clamped))
+            raw_sample = torch.cat([raw_pr, raw_coeff], dim=-1)
+
+            dist = Normal(mean, std)
+            log_prob_all = dist.log_prob(raw_sample)
+            log_j_pr = torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)
+            log_j_c = torch.log(_coeff_clamped) + torch.log(1.0 - _coeff_clamped)
+            log_j_all = torch.cat([log_j_pr, log_j_c], dim=-1)
+            return log_prob_all[:, dims] - log_j_all[:, dims]
+
+        dist = Normal(mean, std)
+        return dist.log_prob(actions)[:, dims]
+
     def act_inference(self, observations):
         """Deterministic robot actions for evaluation / deployment."""
         actions, _ = self._frontres_forward(observations)

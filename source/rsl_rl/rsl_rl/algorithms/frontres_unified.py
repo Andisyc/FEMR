@@ -582,6 +582,9 @@ class FrontRESUnified:
             )
             structured_joint_rl_loss, structured_joint_rl_metrics = self._compute_structured_joint_rl_loss(
                 obs_batch_augmented,
+                actions_batch,
+                old_mu_batch,
+                old_sigma_batch,
                 actions_log_prob_batch,
                 old_actions_log_prob_batch,
                 acceptance_target_batch,
@@ -1248,6 +1251,9 @@ class FrontRESUnified:
     def _compute_structured_joint_rl_loss(
         self,
         obs_batch,
+        actions_batch,
+        old_mu_batch,
+        old_sigma_batch,
         actions_log_prob_batch,
         old_actions_log_prob_batch,
         acceptance_target_batch,
@@ -1265,6 +1271,7 @@ class FrontRESUnified:
             "structured_joint_rl_rho_ratio_mean": 1.0,
             "structured_joint_rl_rho_loss": 0.0,
             "structured_joint_rl_ratio_mean": 1.0,
+            "structured_joint_rl_dim_active_mean": 0.0,
         }
         if (
             not self._structured_joint_rl_enabled()
@@ -1274,10 +1281,13 @@ class FrontRESUnified:
             return zero, metrics
 
         n = original_batch_size
-        carrier = acceptance_target_batch[:n, :1].to(device=self.device, dtype=obs_batch.dtype).detach()
-        weights = acceptance_mask_batch[:n, :1].to(device=self.device, dtype=obs_batch.dtype).detach()
-        rho_adv_raw = torch.nan_to_num(carrier[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
-        rho_weight = torch.nan_to_num(weights[:, 0], nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
+        conf_dim = int(getattr(self.policy, "task_conf_dim", 1))
+        conf_dim = max(1, min(conf_dim, acceptance_target_batch.shape[-1]))
+        rho_dims = list(range(6, 6 + conf_dim))
+        carrier = acceptance_target_batch[:n, :conf_dim].to(device=self.device, dtype=obs_batch.dtype).detach()
+        weights = acceptance_mask_batch[:n, :conf_dim].to(device=self.device, dtype=obs_batch.dtype).detach()
+        rho_adv_raw = torch.nan_to_num(carrier, nan=0.0, posinf=0.0, neginf=0.0)
+        rho_weight = torch.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
 
         rho_active = rho_weight > 1e-6
         if not bool(rho_active.any().detach().item()):
@@ -1296,8 +1306,37 @@ class FrontRESUnified:
                     adv = (adv - adv_mean) / adv_std
             return adv
 
-        old_rho_logp = old_actions_log_prob_batch[:n].view(-1).to(device=self.device, dtype=obs_batch.dtype)
-        new_rho_logp = actions_log_prob_batch[:n].view(-1).to(device=self.device, dtype=obs_batch.dtype)
+        if hasattr(self.policy, "get_actions_log_prob_per_dim"):
+            new_rho_logp = self.policy.get_actions_log_prob_per_dim(actions_batch[:n], rho_dims)
+            new_rho_logp = new_rho_logp.to(device=self.device, dtype=obs_batch.dtype)
+        else:
+            new_rho_logp = actions_log_prob_batch[:n].view(-1, 1).to(
+                device=self.device, dtype=obs_batch.dtype
+            ).expand_as(rho_adv_raw)
+        if hasattr(self.policy, "get_actions_log_prob_per_dim_from_stats"):
+            old_rho_logp = self.policy.get_actions_log_prob_per_dim_from_stats(
+                actions_batch[:n],
+                old_mu_batch[:n],
+                old_sigma_batch[:n],
+                rho_dims,
+            )
+            old_rho_logp = old_rho_logp.to(device=self.device, dtype=obs_batch.dtype)
+        else:
+            old_rho_logp = old_actions_log_prob_batch[:n].view(-1, 1).to(
+                device=self.device, dtype=obs_batch.dtype
+            ).expand_as(rho_adv_raw)
+
+        cols = min(rho_adv_raw.shape[-1], rho_weight.shape[-1], new_rho_logp.shape[-1], old_rho_logp.shape[-1])
+        if cols <= 0:
+            return zero, metrics
+        rho_adv_raw = rho_adv_raw[:, :cols]
+        rho_weight = rho_weight[:, :cols]
+        new_rho_logp = new_rho_logp[:, :cols]
+        old_rho_logp = old_rho_logp[:, :cols]
+        rho_active = rho_weight > 1e-6
+        if not bool(rho_active.any().detach().item()):
+            return zero, metrics
+
         rho_adv = _prepare_advantage(rho_adv_raw, rho_active)
 
         def _clipped_loss(
@@ -1331,6 +1370,7 @@ class FrontRESUnified:
         ) if bool(rho_active.any().detach().item()) else 1.0
         metrics["structured_joint_rl_ratio_mean"] = metrics["structured_joint_rl_rho_ratio_mean"]
         metrics["structured_joint_rl_rho_loss"] = float(rho_loss.detach().item())
+        metrics["structured_joint_rl_dim_active_mean"] = float(rho_active.float().mean().detach().item())
         return loss, metrics
 
     def _compute_state_alpha_loss(

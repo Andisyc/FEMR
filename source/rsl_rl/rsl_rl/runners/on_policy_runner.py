@@ -4814,13 +4814,7 @@ class OnPolicyRunner:
                                 )
                                 if _structured_joint_enabled:
                                     _rho_dim_weight = _mask_exec.detach().clamp(min=0.0)
-                                    _rho_dim_weight_sum = _rho_dim_weight.sum(dim=-1)
-                                    _rho_retention = torch.where(
-                                        _rho_dim_weight_sum > 1e-6,
-                                        (_rho_current.detach() * _rho_dim_weight).sum(dim=-1)
-                                        / _rho_dim_weight_sum.clamp(min=1e-6),
-                                        _rho_current.detach().mean(dim=-1),
-                                    )
+                                    _rho_dim_active = _rho_dim_weight > 1e-6
                                     _rho_floor = float(
                                         getattr(
                                             self,
@@ -4832,7 +4826,7 @@ class OnPolicyRunner:
                                         )
                                     )
                                     _floor_violation = torch.relu(_rho_floor - _exec_frontres.detach())
-                                    _full_repair_ok = (_exec_candidate.detach() >= _rho_floor).to(_rho_retention.dtype)
+                                    _full_repair_ok = (_exec_candidate.detach() >= _rho_floor).to(_rho_current.dtype)
                                     _directional_weight = max(
                                         0.0,
                                         float(self.cfg.get("frontres_structured_joint_directional_weight", 1.0)),
@@ -4841,6 +4835,9 @@ class OnPolicyRunner:
                                         self.cfg.get("frontres_structured_joint_rho_center", 0.5)
                                     )
                                     _rho_center = max(0.0, min(1.0, _rho_center))
+                                    _rho_centered_dim = (
+                                        2.0 * (_rho_current.detach() - _rho_center)
+                                    ).clamp(-1.0, 1.0)
                                     _retention_weight = max(
                                         0.0,
                                         float(
@@ -4875,7 +4872,7 @@ class OnPolicyRunner:
                                     ):
                                         _fallback_alpha = _fallback_alpha_source.to(
                                             device=self.device,
-                                            dtype=_rho_retention.dtype,
+                                            dtype=_rho_current.dtype,
                                         ).view(-1)
                                         if _fallback_alpha.numel() < _n_exec:
                                             _fallback_alpha = torch.nn.functional.pad(
@@ -4905,71 +4902,107 @@ class OnPolicyRunner:
                                     _rho_direction = (
                                         (_candidate_regret - _fallback_regret) / _direction_scale
                                     ).clamp(-1.0, 1.0)
-                                    _rho_centered = (2.0 * (_rho_retention - _rho_center)).clamp(-1.0, 1.0)
-                                    _rho_directional_adv = (
-                                        _directional_weight * _rho_direction * _rho_centered
+                                    # Use the already computed grouped rho target as the
+                                    # per-dimension direction.  A scalar Candidate-vs-fallback
+                                    # comparison is useful diagnostically, but using it as the
+                                    # carrier collapses planar/rp/z credit back into one signal.
+                                    _rho_target_direction_dim = (
+                                        2.0 * (_target_exec.detach().clamp(0.0, 1.0) - _rho_center)
+                                    ).clamp(-1.0, 1.0)
+                                    _rho_direction_dim = torch.where(
+                                        _rho_target_direction_dim.abs() > 1.0e-6,
+                                        _rho_target_direction_dim,
+                                        _rho_direction.view(-1, 1).expand_as(_rho_current),
                                     )
-                                    _rho_retention_term = _retention_weight * _rho_centered
+                                    _rho_directional_adv_dim = (
+                                        _directional_weight * _rho_direction_dim * _rho_centered_dim
+                                    )
+                                    _rho_retention_term_dim = _retention_weight * _rho_centered_dim
                                     _floor_direction = torch.where(
                                         _full_repair_ok > 0.5,
-                                        torch.ones_like(_rho_centered),
-                                        -torch.ones_like(_rho_centered),
+                                        torch.ones_like(_rho_direction),
+                                        -torch.ones_like(_rho_direction),
                                     )
-                                    _rho_floor_term = (
+                                    _rho_floor_term_dim = (
                                         _floor_penalty_weight
-                                        * _floor_violation
-                                        * _floor_direction
-                                        * _rho_centered
+                                        * _floor_violation.view(-1, 1)
+                                        * _floor_direction.view(-1, 1)
+                                        * _rho_centered_dim
                                     )
-                                    _rho_full_bonus = (
-                                        _full_bonus_weight * _full_repair_ok * _rho_centered
+                                    _rho_full_bonus_dim = (
+                                        _full_bonus_weight
+                                        * _full_repair_ok.view(-1, 1)
+                                        * _rho_centered_dim
                                     )
-                                    _rho_adv = (
-                                        _rho_directional_adv
-                                        + _rho_retention_term
-                                        + _rho_floor_term
-                                        + _rho_full_bonus
+                                    _rho_adv_dim = (
+                                        _rho_directional_adv_dim
+                                        + _rho_retention_term_dim
+                                        + _rho_floor_term_dim
+                                        + _rho_full_bonus_dim
                                     )
                                     _joint_weight_floor = float(
                                         self.cfg.get("frontres_structured_joint_weight_floor", 0.10)
                                     )
                                     _joint_weight_floor = max(0.0, min(1.0, _joint_weight_floor))
-                                    _rho_weight = (
+                                    _rho_sample_weight = (
                                         _joint_weight_floor
                                         + (1.0 - _joint_weight_floor) * _actor_gate[:_n_exec]
                                     ).detach().clamp(0.0, 1.0)
+                                    _rho_weight_dim = (
+                                        _rho_sample_weight.view(-1, 1) * _rho_dim_weight
+                                    ).detach().clamp(0.0, 1.0)
                                     _accept_pref_target.zero_()
                                     _accept_pref_mask.zero_()
-                                    _accept_pref_target[:_n_exec, 0] = _rho_adv.detach()
-                                    _accept_pref_mask[:_n_exec, 0] = _rho_weight
-                                    _target_exec = _rho_adv.view(-1, 1).expand(-1, 6)
-                                    _mask_exec = _rho_weight.view(-1, 1).expand(-1, 6)
+                                    _accept_pref_target[:_n_exec, :6] = _rho_adv_dim.detach()
+                                    _accept_pref_mask[:_n_exec, :6] = _rho_weight_dim
+                                    _target_exec = _rho_adv_dim
+                                    _mask_exec = _rho_weight_dim
+                                    _rho_active_values = _rho_adv_dim[_rho_dim_active]
+                                    _rho_weight_values = _rho_weight_dim[_rho_dim_active]
                                     self._frontres_structured_joint_adv_last = float(
-                                        _rho_adv.mean().detach().item()
+                                        _rho_active_values.mean().detach().item()
+                                        if _rho_active_values.numel() > 0
+                                        else 0.0
                                     )
                                     self._frontres_structured_joint_weight_last = float(
-                                        _rho_weight.mean().detach().item()
+                                        _rho_weight_values.mean().detach().item()
+                                        if _rho_weight_values.numel() > 0
+                                        else 0.0
                                     )
                                     self._frontres_structured_joint_rho_adv_last = float(
-                                        _rho_adv.mean().detach().item()
+                                        _rho_active_values.mean().detach().item()
+                                        if _rho_active_values.numel() > 0
+                                        else 0.0
                                     )
                                     self._frontres_structured_joint_rho_weight_last = float(
-                                        _rho_weight.mean().detach().item()
+                                        _rho_weight_values.mean().detach().item()
+                                        if _rho_weight_values.numel() > 0
+                                        else 0.0
                                     )
                                     self._frontres_structured_joint_rho_retention_last = float(
-                                        _rho_retention_term.mean().detach().item()
+                                        _rho_retention_term_dim[_rho_dim_active].mean().detach().item()
+                                        if bool(_rho_dim_active.any().detach().item())
+                                        else 0.0
                                     )
                                     self._frontres_structured_joint_floor_violation_last = float(
-                                        _rho_floor_term.mean().detach().item()
+                                        _rho_floor_term_dim[_rho_dim_active].mean().detach().item()
+                                        if bool(_rho_dim_active.any().detach().item())
+                                        else 0.0
                                     )
                                     self._frontres_structured_joint_full_bonus_last = float(
-                                        _rho_full_bonus.mean().detach().item()
+                                        _rho_full_bonus_dim[_rho_dim_active].mean().detach().item()
+                                        if bool(_rho_dim_active.any().detach().item())
+                                        else 0.0
                                     )
                                     self._frontres_structured_joint_rho_direction_last = float(
-                                        _rho_direction.mean().detach().item()
+                                        _rho_direction_dim[_rho_dim_active].mean().detach().item()
+                                        if bool(_rho_dim_active.any().detach().item())
+                                        else 0.0
                                     )
                                     self._frontres_structured_joint_rho_centered_last = float(
-                                        _rho_centered.mean().detach().item()
+                                        _rho_centered_dim[_rho_dim_active].mean().detach().item()
+                                        if bool(_rho_dim_active.any().detach().item())
+                                        else 0.0
                                     )
                                 else:
                                     self._frontres_structured_joint_adv_last = 0.0
