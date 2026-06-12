@@ -358,6 +358,55 @@ The active FEMR/FrontRES contract targets the first two regimes.  The third
 regime belongs to a future state-bridging or \(\Delta q\)-level method, not to
 the current root-reference residual path.
 
+## 2026-06-12 Alpha/Rho Full Repair Execution Plan
+
+The current run shows that the concept is mostly written down, but two live code
+paths can still violate it:
+
+1. Structured Joint RL may leak gradients into the state-router alpha head.
+   This is wrong.  Alpha is a state classifier trained only by
+   `state_alpha_target/state_alpha_mask`; rho is the only policy variable trained
+   by Structured Joint RL.
+2. Rho's constrained-retention advantage is an absolute utility rule, not a
+   batch-relative preference.  Normalizing it per mini-batch can erase the
+   meaning of the executable floor and turn the rule back into an indirect
+   ranking signal.
+
+The repair must harden the complete chain:
+
+```text
+config defaults
+  -> runner route construction
+  -> unified executable floor evidence
+  -> alpha SSL target
+  -> rho constrained-retention carrier
+  -> algorithm loss/update
+  -> gradient boundary
+  -> live diagnostics
+```
+
+Implementation requirements:
+
+- Default `frontres_structured_joint_rl_normalize_advantage=False`.
+- In Structured Joint RL, keep RL gradients on rho/acceptance parameters only.
+  Preserve alpha's base supervised/SSL gradient, but remove any RL delta from
+  `state_router_head`.
+- In `tri_anchor` mode, alpha is a continuous fallback coefficient inside
+  \(F_\alpha=(1-\alpha)N+\alpha S\).  Old hard-route masks must not suppress rho
+  learning in this mode.
+- Console diagnostics must say which branch is active:
+  `rho update mode: structured_adv rho-only`.
+- Legacy rho-target and acceptance-preference diagnostics must be labeled as
+  diagnostics or disabled when the active branch is Structured Joint RL.  Logs
+  should not make the user think the old BCE preference target is still the
+  training signal.
+- The next short resume run should prove the fix by showing:
+  - nonzero `state alpha loss/acc` when labels exist;
+  - active `joint rl loss`;
+  - `accept pref` marked as legacy disabled;
+  - `ppo_alpha` or equivalent alpha RL-gradient diagnostic near zero;
+  - adaptive floor diagnostics still printed.
+
 ## Inertial Compatibility Contract
 
 The acceptance head must not judge a repair only by whether it is closer to the

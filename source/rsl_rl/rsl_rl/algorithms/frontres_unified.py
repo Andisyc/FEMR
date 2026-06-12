@@ -82,7 +82,7 @@ class FrontRESUnified:
         frontres_structured_joint_rl_enabled: bool = False,
         frontres_structured_joint_rl_weight: float = 0.0,
         frontres_structured_joint_rl_adv_clip: float = 5.0,
-        frontres_structured_joint_rl_normalize_advantage: bool = True,
+        frontres_structured_joint_rl_normalize_advantage: bool = False,
         frontres_structured_joint_rl_keep_legacy_bce: bool = False,
         frontres_structured_joint_exec_floor: float = 0.0,
         frontres_structured_joint_rho_retention_weight: float = 1.0,
@@ -327,12 +327,13 @@ class FrontRESUnified:
               f"  adv_focal_power={self.ppo_advantage_focal_power}")
         if self._structured_joint_rl_enabled():
             print(
-                "  Structured Joint RL: constrained rho retention "
+                "  Structured Joint RL: rho-only constrained retention "
                 f"(weight={self.frontres_structured_joint_rl_weight}, "
-                f"floor={self.frontres_structured_joint_exec_floor}, "
+                f"floor=runner-adaptive U_floor, fallback={self.frontres_structured_joint_exec_floor}, "
                 f"ret_w={self.frontres_structured_joint_rho_retention_weight}, "
                 f"floor_w={self.frontres_structured_joint_floor_penalty_weight}, "
-                f"full_w={self.frontres_structured_joint_full_repair_bonus_weight})"
+                f"full_w={self.frontres_structured_joint_full_repair_bonus_weight}, "
+                f"normalize_adv={self.frontres_structured_joint_rl_normalize_advantage})"
             )
         print("  MOSAIC teacher/off-policy branches: disabled by construction")
         print("=" * 80)
@@ -647,10 +648,7 @@ class FrontRESUnified:
                     for p in self.policy.parameters()
                 }
                 acceptance_only_loss.backward()
-                if self._structured_joint_rl_enabled():
-                    self._keep_rl_grad_on_acceptance_and_state_router_only(base_grads)
-                else:
-                    self._keep_ppo_grad_on_acceptance_head_only(base_grads)
+                self._keep_ppo_grad_on_acceptance_head_only(base_grads)
                 grad_diag = self._compute_acceptance_grad_diagnostics(base_grads)
                 if grad_diag:
                     for key, value in grad_diag.items():
@@ -807,72 +805,12 @@ class FrontRESUnified:
         )
 
     def _keep_rl_grad_on_acceptance_and_state_router_only(self, base_grads):
-        """Keep joint-RL gradients on rho acceptance and alpha router only."""
-        acceptance_actor = getattr(self.policy, "acceptance_actor", None)
-        state_router = getattr(self.policy, "state_router_head", None)
-        state_router_allowed = set(state_router.parameters()) if state_router is not None else set()
-        if acceptance_actor is not None:
-            allowed = {p for p in acceptance_actor.parameters()} | state_router_allowed
-            for p in self.policy.parameters():
-                base = base_grads.get(p)
-                if p not in allowed:
-                    p.grad = None if base is None else base.clone()
-                    continue
-                cur = p.grad
-                if cur is None:
-                    p.grad = None if base is None else base.clone()
-                    continue
-                p.grad = cur
-            return
+        """Deprecated compatibility alias.
 
-        final_linear = None
-        residual_actor = getattr(self.policy, "residual_actor", None)
-        if residual_actor is None:
-            return
-        acceptance_head = getattr(residual_actor, "acceptance_head", None)
-        if acceptance_head is not None:
-            allowed = {p for p in acceptance_head.parameters()} | state_router_allowed
-            for p in self.policy.parameters():
-                base = base_grads.get(p)
-                if p not in allowed:
-                    p.grad = None if base is None else base.clone()
-                    continue
-                cur = p.grad
-                if cur is None:
-                    p.grad = None if base is None else base.clone()
-                    continue
-                p.grad = cur
-            return
-
-        for module in residual_actor.modules():
-            if isinstance(module, nn.Linear):
-                final_linear = module
-        if final_linear is None:
-            return
-        conf_dim = int(getattr(self.policy, "task_conf_dim", 2))
-        start = int(getattr(self.policy, "num_task_corrections", 6))
-        end = min(start + conf_dim, final_linear.out_features)
-        allowed = {final_linear.weight, final_linear.bias} | state_router_allowed
-        for p in self.policy.parameters():
-            base = base_grads.get(p)
-            if p not in allowed:
-                p.grad = None if base is None else base.clone()
-                continue
-            cur = p.grad
-            if cur is None:
-                p.grad = None if base is None else base.clone()
-                continue
-            if p in state_router_allowed:
-                p.grad = cur
-                continue
-            base_tensor = torch.zeros_like(cur) if base is None else base
-            ppo_grad = cur - base_tensor
-            mask = torch.zeros_like(cur)
-            if p is final_linear.weight:
-                mask[start:end, :] = 1.0
-            else:
-                mask[start:end] = 1.0
-            p.grad = base_tensor + ppo_grad * mask
+        Structured Joint RL now trains rho only.  Alpha/state_router gradients
+        must come only from the separate state-alpha SSL loss.
+        """
+        return self._keep_ppo_grad_on_acceptance_head_only(base_grads)
 
     def _keep_ppo_grad_on_acceptance_head_only(self, base_grads):
         """Remove PPO leakage into proposal direction and shared trunk.

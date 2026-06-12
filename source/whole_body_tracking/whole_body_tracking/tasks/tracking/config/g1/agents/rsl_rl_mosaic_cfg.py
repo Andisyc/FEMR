@@ -637,7 +637,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Candidate-vs-Clean floor diagnostics.  Candidate floor is still logged as
     # evidence but does not own route selection.
     frontres_state_alpha_enabled = True
-    frontres_state_alpha_route_enabled = True
+    # tri_anchor uses alpha as a continuous fallback coefficient.  The old hard
+    # Stable route is kept only for ablations and must not mask rho learning.
+    frontres_state_alpha_route_enabled = False
     frontres_state_alpha_route_threshold = 0.70
     frontres_state_alpha_route_min_iteration = 0
     # Unified executable floor.  GMT frontier search discovers the perturbation
@@ -916,7 +918,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_structured_joint_rl_enabled = True,
         frontres_structured_joint_rl_weight = 1.0,
         frontres_structured_joint_rl_adv_clip = 5.0,
-        frontres_structured_joint_rl_normalize_advantage = True,
+        frontres_structured_joint_rl_normalize_advantage = False,
         frontres_structured_joint_rl_keep_legacy_bce = False,
         frontres_structured_joint_exec_floor = 0.0,
         frontres_structured_joint_rho_retention_weight = 1.0,

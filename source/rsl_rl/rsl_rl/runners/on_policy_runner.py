@@ -4198,7 +4198,16 @@ class OnPolicyRunner:
                                         value=False,
                                     )
                                 _stable_route_active = _stable_route_active[:_n_exec]
-                            _learnable_route_mask = (~_stable_route_active).to(_damage_gap.dtype)
+                            _rho_space_for_route = str(
+                                self.cfg.get("frontres_rho_space", "noisy_to_repair")
+                            ).lower()
+                            if _rho_space_for_route in ("tri_anchor", "tri-anchor", "tri"):
+                                # In tri_anchor, alpha is a continuous fallback
+                                # coefficient inside F_alpha.  The old hard
+                                # Stable-route mask must not suppress rho RL.
+                                _learnable_route_mask = torch.ones_like(_damage_gap)
+                            else:
+                                _learnable_route_mask = (~_stable_route_active).to(_damage_gap.dtype)
 
                             _restore_min_ratio = float(self.cfg.get("frontres_min_restore_ratio", 0.0))
                             _restore_under_weight = float(self.cfg.get("frontres_under_repair_weight", 0.0))
@@ -6489,12 +6498,22 @@ class OnPolicyRunner:
                             log_string += (
                                 f"{locs['frontres_structured_joint_rho_weight_mean']:.3f}\n"
                             )
+                            log_string += f"""{"rho update mode:":>{pad}} """
+                            log_string += "structured_adv rho-only\n"
                         if locs.get("frontres_candidate_floor_margin_mean") is not None:
                             log_string += f"""{"rho space:":>{pad}} """
                             log_string += f"{self.cfg.get('frontres_rho_space', 'noisy_to_repair')}\n"
                             log_string += f"""{"stable endpoint frac:":>{pad}} """
                             log_string += f"{locs.get('frontres_stable_endpoint_frac_mean', 0.0):.3f}\n"
-                            log_string += f"""{'stable route frac:':>{pad}} """
+                            _rho_space_label = str(
+                                self.cfg.get("frontres_rho_space", "noisy_to_repair")
+                            ).lower()
+                            _route_label = (
+                                "alpha hard-route diag:"
+                                if _rho_space_label in ("tri_anchor", "tri-anchor", "tri")
+                                else "stable route frac:"
+                            )
+                            log_string += f"""{_route_label:>{pad}} """
                             log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
                             if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower() in (
                                 "tri_anchor", "tri-anchor", "tri"
@@ -6510,13 +6529,26 @@ class OnPolicyRunner:
                             in ("tri_anchor", "tri-anchor", "tri")
                             and locs.get("frontres_rho_target_planar_mean") is not None
                         ):
-                            log_string += f"""{"rho target grp p/r/z:":>{pad}} """
+                            _structured_joint_diag = bool(
+                                self.cfg.get("frontres_structured_joint_rl_enabled", False)
+                            )
+                            _rho_target_label = (
+                                "legacy rho diag p/r/z:"
+                                if _structured_joint_diag
+                                else "rho target grp p/r/z:"
+                            )
+                            _rho_spread_label = (
+                                "legacy rho spread/mask:"
+                                if _structured_joint_diag
+                                else "rho target spread/weight:"
+                            )
+                            log_string += f"""{_rho_target_label:>{pad}} """
                             log_string += (
                                 f"{locs.get('frontres_rho_target_planar_mean', 0.0):.3f} / "
                                 f"{locs.get('frontres_rho_target_rp_mean', 0.0):.3f} / "
                                 f"{locs.get('frontres_rho_target_z_mean', 0.0):.3f}\n"
                             )
-                            log_string += f"""{"rho target spread/weight:":>{pad}} """
+                            log_string += f"""{_rho_spread_label:>{pad}} """
                             log_string += (
                                 f"{locs.get('frontres_rho_target_spread_mean', 0.0):.3f} / "
                                 f"{locs.get('frontres_grouped_rho_mask_mean', 0.0):.3f}\n"
@@ -6599,31 +6631,40 @@ class OnPolicyRunner:
                         log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
                     _apl = _loss_dict.get("acceptance_preference_loss", None)
                     if _apl is not None:
-                        log_string += f"""{'accept pref loss:':>{pad}} {_apl:.4f} """
-                        _low_target_label = (
-                            "stable"
-                            if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                            in ("stable_to_repair", "stable-repair", "stable")
-                            else (
-                                "noisy"
+                        _legacy_pref_disabled = (
+                            bool(self.cfg.get("frontres_structured_joint_rl_enabled", False))
+                            and not bool(self.cfg.get("frontres_structured_joint_rl_keep_legacy_bce", False))
+                            and float(_loss_dict.get("lambda_acceptance_preference", 0.0)) <= 0.0
+                        )
+                        if _legacy_pref_disabled:
+                            log_string += f"""{"legacy accept pref:":>{pad}} """
+                            log_string += "disabled (structured rho carrier active)\n"
+                        else:
+                            log_string += f"""{'accept pref loss:':>{pad}} {_apl:.4f} """
+                            _low_target_label = (
+                                "stable"
                                 if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                                in ("tri_anchor", "tri-anchor", "tri")
-                                else "noop"
+                                in ("stable_to_repair", "stable-repair", "stable")
+                                else (
+                                    "noisy"
+                                    if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                                    in ("tri_anchor", "tri-anchor", "tri")
+                                    else "noop"
+                                )
                             )
-                        )
-                        log_string += (
-                            f"(λ={_loss_dict.get('lambda_acceptance_preference', 0.0):.3f}, "
-                            f"mask={_loss_dict.get('acceptance_preference_mask_frac', 0.0):.3f}, "
-                            f"full={_loss_dict.get('acceptance_preference_full_frac', 0.0):.3f}, "
-                            f"{_low_target_label}={_loss_dict.get('acceptance_preference_noop_frac', 0.0):.3f}, "
-                            f"eff_full={_loss_dict.get('acceptance_preference_effective_full_frac', 0.0):.3f}, "
-                            f"fw={_loss_dict.get('acceptance_preference_full_weight', 1.0):.2f}, "
-                            f"low_w={_loss_dict.get('acceptance_preference_noop_weight', 1.0):.2f}, "
-                            f"γ={_loss_dict.get('acceptance_preference_focal_gamma', 0.0):.1f}, "
-                            f"rho={_loss_dict.get('acceptance_preference_rho_mean', 0.0):.3f}, "
-                            f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
-                            f"corr={_loss_dict.get('acceptance_preference_corr', 0.0):+.3f})\n"
-                        )
+                            log_string += (
+                                f"(λ={_loss_dict.get('lambda_acceptance_preference', 0.0):.3f}, "
+                                f"mask={_loss_dict.get('acceptance_preference_mask_frac', 0.0):.3f}, "
+                                f"full={_loss_dict.get('acceptance_preference_full_frac', 0.0):.3f}, "
+                                f"{_low_target_label}={_loss_dict.get('acceptance_preference_noop_frac', 0.0):.3f}, "
+                                f"eff_full={_loss_dict.get('acceptance_preference_effective_full_frac', 0.0):.3f}, "
+                                f"fw={_loss_dict.get('acceptance_preference_full_weight', 1.0):.2f}, "
+                                f"low_w={_loss_dict.get('acceptance_preference_noop_weight', 1.0):.2f}, "
+                                f"γ={_loss_dict.get('acceptance_preference_focal_gamma', 0.0):.1f}, "
+                                f"rho={_loss_dict.get('acceptance_preference_rho_mean', 0.0):.3f}, "
+                                f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
+                                f"corr={_loss_dict.get('acceptance_preference_corr', 0.0):+.3f})\n"
+                            )
                     _sal = _loss_dict.get("state_alpha_loss", None)
                     if _sal is not None:
                         log_string += f"""{'state alpha loss:':>{pad}} {_sal:.4f} """
@@ -6776,7 +6817,15 @@ class OnPolicyRunner:
                                 log_string += f"{self.cfg.get('frontres_rho_space', 'noisy_to_repair')}\n"
                                 log_string += f"""{"stable endpoint frac:":>{pad}} """
                                 log_string += f"{locs.get('frontres_stable_endpoint_frac_mean', 0.0):.3f}\n"
-                                log_string += f"""{'stable route frac:':>{pad}} """
+                                _rho_space_label = str(
+                                    self.cfg.get("frontres_rho_space", "noisy_to_repair")
+                                ).lower()
+                                _route_label = (
+                                    "alpha hard-route diag:"
+                                    if _rho_space_label in ("tri_anchor", "tri-anchor", "tri")
+                                    else "stable route frac:"
+                                )
+                                log_string += f"""{_route_label:>{pad}} """
                                 log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
                                 if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower() in (
                                     "tri_anchor", "tri-anchor", "tri"
@@ -6797,6 +6846,8 @@ class OnPolicyRunner:
                                 )
                                 log_string += f"""{"rho constrained weight:":>{pad}} """
                                 log_string += f"{locs.get('frontres_structured_joint_weight_mean', 0.0):.3f}\n"
+                                log_string += f"""{"rho update mode:":>{pad}} """
+                                log_string += "structured_adv rho-only\n"
 
                         log_string += f"""\n{'-' * 12} Detail Reward {'-' * 12}\n"""
                         if locs.get("frontres_r_z_mean") is not None:
@@ -6879,13 +6930,26 @@ class OnPolicyRunner:
                             in ("tri_anchor", "tri-anchor", "tri")
                             and locs.get("frontres_rho_target_planar_mean") is not None
                         ):
-                            log_string += f"""{"rho target grp p/r/z:":>{pad}} """
+                            _structured_joint_diag = bool(
+                                self.cfg.get("frontres_structured_joint_rl_enabled", False)
+                            )
+                            _rho_target_label = (
+                                "legacy rho diag p/r/z:"
+                                if _structured_joint_diag
+                                else "rho target grp p/r/z:"
+                            )
+                            _rho_spread_label = (
+                                "legacy rho spread/mask:"
+                                if _structured_joint_diag
+                                else "rho target spread/weight:"
+                            )
+                            log_string += f"""{_rho_target_label:>{pad}} """
                             log_string += (
                                 f"{locs.get('frontres_rho_target_planar_mean', 0.0):.3f} / "
                                 f"{locs.get('frontres_rho_target_rp_mean', 0.0):.3f} / "
                                 f"{locs.get('frontres_rho_target_z_mean', 0.0):.3f}\n"
                             )
-                            log_string += f"""{"rho target spread/weight:":>{pad}} """
+                            log_string += f"""{_rho_spread_label:>{pad}} """
                             log_string += (
                                 f"{locs.get('frontres_rho_target_spread_mean', 0.0):.3f} / "
                                 f"{locs.get('frontres_grouped_rho_mask_mean', 0.0):.3f}\n"
@@ -6931,31 +6995,40 @@ class OnPolicyRunner:
                         log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
                     _apl = _loss_dict.get("acceptance_preference_loss", None)
                     if _apl is not None:
-                        log_string += f"""{'accept pref loss:':>{pad}} {_apl:.4f} """
-                        _low_target_label = (
-                            "stable"
-                            if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                            in ("stable_to_repair", "stable-repair", "stable")
-                            else (
-                                "noisy"
+                        _legacy_pref_disabled = (
+                            bool(self.cfg.get("frontres_structured_joint_rl_enabled", False))
+                            and not bool(self.cfg.get("frontres_structured_joint_rl_keep_legacy_bce", False))
+                            and float(_loss_dict.get("lambda_acceptance_preference", 0.0)) <= 0.0
+                        )
+                        if _legacy_pref_disabled:
+                            log_string += f"""{"legacy accept pref:":>{pad}} """
+                            log_string += "disabled (structured rho carrier active)\n"
+                        else:
+                            log_string += f"""{'accept pref loss:':>{pad}} {_apl:.4f} """
+                            _low_target_label = (
+                                "stable"
                                 if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                                in ("tri_anchor", "tri-anchor", "tri")
-                                else "noop"
+                                in ("stable_to_repair", "stable-repair", "stable")
+                                else (
+                                    "noisy"
+                                    if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
+                                    in ("tri_anchor", "tri-anchor", "tri")
+                                    else "noop"
+                                )
                             )
-                        )
-                        log_string += (
-                            f"(λ={_loss_dict.get('lambda_acceptance_preference', 0.0):.3f}, "
-                            f"mask={_loss_dict.get('acceptance_preference_mask_frac', 0.0):.3f}, "
-                            f"full={_loss_dict.get('acceptance_preference_full_frac', 0.0):.3f}, "
-                            f"{_low_target_label}={_loss_dict.get('acceptance_preference_noop_frac', 0.0):.3f}, "
-                            f"eff_full={_loss_dict.get('acceptance_preference_effective_full_frac', 0.0):.3f}, "
-                            f"fw={_loss_dict.get('acceptance_preference_full_weight', 1.0):.2f}, "
-                            f"low_w={_loss_dict.get('acceptance_preference_noop_weight', 1.0):.2f}, "
-                            f"γ={_loss_dict.get('acceptance_preference_focal_gamma', 0.0):.1f}, "
-                            f"rho={_loss_dict.get('acceptance_preference_rho_mean', 0.0):.3f}, "
-                            f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
-                            f"corr={_loss_dict.get('acceptance_preference_corr', 0.0):+.3f})\n"
-                        )
+                            log_string += (
+                                f"(λ={_loss_dict.get('lambda_acceptance_preference', 0.0):.3f}, "
+                                f"mask={_loss_dict.get('acceptance_preference_mask_frac', 0.0):.3f}, "
+                                f"full={_loss_dict.get('acceptance_preference_full_frac', 0.0):.3f}, "
+                                f"{_low_target_label}={_loss_dict.get('acceptance_preference_noop_frac', 0.0):.3f}, "
+                                f"eff_full={_loss_dict.get('acceptance_preference_effective_full_frac', 0.0):.3f}, "
+                                f"fw={_loss_dict.get('acceptance_preference_full_weight', 1.0):.2f}, "
+                                f"low_w={_loss_dict.get('acceptance_preference_noop_weight', 1.0):.2f}, "
+                                f"γ={_loss_dict.get('acceptance_preference_focal_gamma', 0.0):.1f}, "
+                                f"rho={_loss_dict.get('acceptance_preference_rho_mean', 0.0):.3f}, "
+                                f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
+                                f"corr={_loss_dict.get('acceptance_preference_corr', 0.0):+.3f})\n"
+                            )
                     _sjl = _loss_dict.get("structured_joint_rl_loss", None)
                     if _sjl is not None and _loss_dict.get("lambda_structured_joint_rl", 0.0) > 0.0:
                         log_string += f"""{'joint rl loss:':>{pad}} {_sjl:.4f} """
