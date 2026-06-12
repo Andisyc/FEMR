@@ -319,14 +319,20 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Weight for structured joint alpha-rho policy-gradient loss."""
     frontres_structured_joint_rl_adv_clip: float = 5.0
     """Symmetric clip for raw structured-joint advantage before optional normalization."""
-    frontres_structured_joint_rl_normalize_advantage: bool = True
+    frontres_structured_joint_rl_normalize_advantage: bool = False
     """Normalize structured-joint advantages over active samples in each minibatch."""
     frontres_structured_joint_rl_keep_legacy_bce: bool = False
     """Keep legacy acceptance BCE active while structured joint RL is enabled."""
     frontres_structured_joint_exec_floor: float = 0.0
     """Executable floor used by constrained repair-retention RL for rho."""
-    frontres_structured_joint_rho_retention_weight: float = 1.0
-    """Reward weight for retaining the Repair proposal in structured rho RL."""
+    frontres_structured_joint_rho_retention_weight: float = 0.0
+    """Legacy absolute-retention weight; directional rho RL uses retention_prior instead."""
+    frontres_structured_joint_directional_weight: float = 1.0
+    """Weight for centered directional Candidate-vs-Projected rho advantage."""
+    frontres_structured_joint_rho_center: float = 0.5
+    """Reference rho value used to center sampled rho for directional PPO updates."""
+    frontres_structured_joint_retention_prior_weight: float = 0.0
+    """Weak signed prior toward larger rho, applied through centered rho only."""
     frontres_structured_joint_floor_penalty_weight: float = 5.0
     """Penalty weight for projected references below the executable floor."""
     frontres_structured_joint_full_repair_bonus_weight: float = 1.0

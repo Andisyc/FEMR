@@ -658,7 +658,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_structured_joint_rl_enabled = True
     frontres_structured_joint_weight_floor = 0.10
     frontres_structured_joint_exec_floor = 0.0
-    frontres_structured_joint_rho_retention_weight = 1.0
+    frontres_structured_joint_rho_retention_weight = 0.0
+    frontres_structured_joint_directional_weight = 1.0
+    frontres_structured_joint_rho_center = 0.5
+    frontres_structured_joint_retention_prior_weight = 0.0
     frontres_structured_joint_floor_penalty_weight = 5.0
     frontres_structured_joint_full_repair_bonus_weight = 1.0
     # Legacy joint-utility shaping knobs.  Kept for checkpoint/config
@@ -921,7 +924,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_structured_joint_rl_normalize_advantage = False,
         frontres_structured_joint_rl_keep_legacy_bce = False,
         frontres_structured_joint_exec_floor = 0.0,
-        frontres_structured_joint_rho_retention_weight = 1.0,
+        frontres_structured_joint_rho_retention_weight = 0.0,
+        frontres_structured_joint_directional_weight = 1.0,
+        frontres_structured_joint_rho_center = 0.5,
+        frontres_structured_joint_retention_prior_weight = 0.0,
         frontres_structured_joint_floor_penalty_weight = 5.0,
         frontres_structured_joint_full_repair_bonus_weight = 1.0,
         frontres_oracle_upper_bound_diag_enabled = True,

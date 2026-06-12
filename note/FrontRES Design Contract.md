@@ -2531,3 +2531,79 @@ joint split w rho/alpha
 
 The previous `joint rl adv/w` may remain as a backward-compatible rho summary,
 but interpretation must change: it no longer means a joint alpha-rho advantage.
+
+## 2026-06-12 Directional Rho Advantage Fix
+
+### Problem
+
+The constrained rho branch was still concept-code misaligned.
+
+The intended concept is:
+
+```text
+rho should keep more Repair when Candidate is better than the executed Projected frame,
+and keep less Repair when falling back is better than the executed Projected frame.
+```
+
+The implemented signal instead rewarded the absolute sampled rho value:
+
+```text
+A_rho = retention(rho_current) - floor_violation + full_repair_bonus
+```
+
+This is not a directional policy-gradient signal.  In PPO, a positive advantage
+reinforces the sampled action.  If the sampled action happened to be conservative
+but Projected still survived, this positive advantage reinforces conservative
+rho.  Therefore Candidate can have positive utility while rho is still trained
+to weaken it.
+
+### Fixed Signal
+
+The active structured-rho carrier must use a centered directional advantage:
+
+```text
+candidate_regret = max(0, U_candidate - U_projected - margin)
+fallback_regret  = max(0, U_fallback  - U_projected - margin)
+direction        = normalize(candidate_regret - fallback_regret)
+
+rho_centered = 2 * (mean_active(rho_current) - rho_center)
+
+A_directional = direction * rho_centered
+```
+
+This gives the policy a real direction:
+
+```text
+Candidate better than Projected:
+    high-rho samples get positive advantage
+    low-rho samples get negative advantage
+
+Fallback better than Projected:
+    low-rho samples get positive advantage
+    high-rho samples get negative advantage
+```
+
+The executable-floor and full-repair terms must also be directional, not absolute:
+
+```text
+if Candidate is above executable floor:
+    floor/full terms push rho upward
+else:
+    floor term pushes rho downward
+```
+
+### Diagnostics
+
+The log must expose:
+
+```text
+rho directional d/c:
+    direction / centered-rho
+
+rho constrained adv:
+    total / ret-prior / floor-term / full-term
+```
+
+The old `ret=` field no longer means raw rho retention reward.  It means the
+signed retention-prior contribution.  This prevents the diagnostic from hiding
+whether the update is actually pushing rho up or down.

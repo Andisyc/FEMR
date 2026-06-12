@@ -85,7 +85,10 @@ class FrontRESUnified:
         frontres_structured_joint_rl_normalize_advantage: bool = False,
         frontres_structured_joint_rl_keep_legacy_bce: bool = False,
         frontres_structured_joint_exec_floor: float = 0.0,
-        frontres_structured_joint_rho_retention_weight: float = 1.0,
+        frontres_structured_joint_rho_retention_weight: float = 0.0,
+        frontres_structured_joint_directional_weight: float = 1.0,
+        frontres_structured_joint_rho_center: float = 0.5,
+        frontres_structured_joint_retention_prior_weight: float = 0.0,
         frontres_structured_joint_floor_penalty_weight: float = 5.0,
         frontres_structured_joint_full_repair_bonus_weight: float = 1.0,
         diagnose_gradient_conflict: bool = True,
@@ -202,6 +205,15 @@ class FrontRESUnified:
         self.frontres_structured_joint_exec_floor = float(frontres_structured_joint_exec_floor)
         self.frontres_structured_joint_rho_retention_weight = max(
             0.0, float(frontres_structured_joint_rho_retention_weight)
+        )
+        self.frontres_structured_joint_directional_weight = max(
+            0.0, float(frontres_structured_joint_directional_weight)
+        )
+        self.frontres_structured_joint_rho_center = min(
+            1.0, max(0.0, float(frontres_structured_joint_rho_center))
+        )
+        self.frontres_structured_joint_retention_prior_weight = max(
+            0.0, float(frontres_structured_joint_retention_prior_weight)
         )
         self.frontres_structured_joint_floor_penalty_weight = max(
             0.0, float(frontres_structured_joint_floor_penalty_weight)
@@ -330,7 +342,9 @@ class FrontRESUnified:
                 "  Structured Joint RL: rho-only constrained retention "
                 f"(weight={self.frontres_structured_joint_rl_weight}, "
                 f"floor=runner-adaptive U_floor, fallback={self.frontres_structured_joint_exec_floor}, "
-                f"ret_w={self.frontres_structured_joint_rho_retention_weight}, "
+                f"dir_w={self.frontres_structured_joint_directional_weight}, "
+                f"rho_center={self.frontres_structured_joint_rho_center}, "
+                f"ret_prior_w={self.frontres_structured_joint_retention_prior_weight}, "
                 f"floor_w={self.frontres_structured_joint_floor_penalty_weight}, "
                 f"full_w={self.frontres_structured_joint_full_repair_bonus_weight}, "
                 f"normalize_adv={self.frontres_structured_joint_rl_normalize_advantage})"

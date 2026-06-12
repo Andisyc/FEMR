@@ -3420,6 +3420,8 @@ class OnPolicyRunner:
             _frontres_structured_joint_rho_retention_sum: float = 0.0
             _frontres_structured_joint_floor_violation_sum: float = 0.0
             _frontres_structured_joint_full_bonus_sum: float = 0.0
+            _frontres_structured_joint_rho_direction_sum: float = 0.0
+            _frontres_structured_joint_rho_centered_sum: float = 0.0
             _frontres_oracle_ub_gain_sum: float = 0.0
             _frontres_oracle_ub_pass_sum: float = 0.0
             _frontres_oracle_ub_projected_win_sum: float = 0.0
@@ -3512,6 +3514,14 @@ class OnPolicyRunner:
                                 _alpha_prob = self.alg.policy.get_state_router_alpha(
                                     _alpha_obs[:_n_alpha_route]
                                 ).view(-1).detach()
+                                if _alpha_prob.numel() < N_train:
+                                    _alpha_prob = torch.nn.functional.pad(
+                                        _alpha_prob,
+                                        (0, N_train - _alpha_prob.numel()),
+                                        value=0.0,
+                                    )
+                                else:
+                                    _alpha_prob = _alpha_prob[:N_train]
                                 _alpha_route_value = (_alpha_prob >= float(
                                     self.cfg.get("frontres_state_alpha_route_threshold", 0.70)
                                 )).to(_alpha_prob.dtype)
@@ -4401,6 +4411,8 @@ class OnPolicyRunner:
                             self._frontres_structured_joint_rho_retention_last = 0.0
                             self._frontres_structured_joint_floor_violation_last = 0.0
                             self._frontres_structured_joint_full_bonus_last = 0.0
+                            self._frontres_structured_joint_rho_direction_last = 0.0
+                            self._frontres_structured_joint_rho_centered_last = 0.0
                             _pref_enabled = (
                                 bool(self.cfg.get("frontres_acceptance_preference_enabled", True))
                                 and N_candidate > 0
@@ -4815,9 +4827,22 @@ class OnPolicyRunner:
                                     )
                                     _floor_violation = torch.relu(_rho_floor - _exec_frontres.detach())
                                     _full_repair_ok = (_exec_candidate.detach() >= _rho_floor).to(_rho_retention.dtype)
+                                    _directional_weight = max(
+                                        0.0,
+                                        float(self.cfg.get("frontres_structured_joint_directional_weight", 1.0)),
+                                    )
+                                    _rho_center = float(
+                                        self.cfg.get("frontres_structured_joint_rho_center", 0.5)
+                                    )
+                                    _rho_center = max(0.0, min(1.0, _rho_center))
                                     _retention_weight = max(
                                         0.0,
-                                        float(self.cfg.get("frontres_structured_joint_rho_retention_weight", 1.0)),
+                                        float(
+                                            self.cfg.get(
+                                                "frontres_structured_joint_retention_prior_weight",
+                                                0.0,
+                                            )
+                                        ),
                                     )
                                     _floor_penalty_weight = max(
                                         0.0,
@@ -4827,10 +4852,58 @@ class OnPolicyRunner:
                                         0.0,
                                         float(self.cfg.get("frontres_structured_joint_full_repair_bonus_weight", 1.0)),
                                     )
-                                    _rho_retention_term = _retention_weight * _rho_retention
-                                    _rho_floor_penalty = _floor_penalty_weight * _floor_violation
-                                    _rho_full_bonus = _full_bonus_weight * _full_repair_ok * _rho_retention
-                                    _rho_adv = _rho_retention_term - _rho_floor_penalty + _rho_full_bonus
+                                    # PPO reinforces the sampled action when advantage is positive.
+                                    # Therefore rho needs a centered directional advantage:
+                                    # Candidate>Projected rewards high-rho samples and discourages
+                                    # low-rho samples; fallback>Projected does the inverse.
+                                    _fallback_alpha = (
+                                        _state_alpha_target[:_n_exec, 0]
+                                        .detach()
+                                        .clamp(0.0, 1.0)
+                                    )
+                                    _fallback_exec = (
+                                        (1.0 - _fallback_alpha) * _exec_perturbed.detach()
+                                        + _fallback_alpha * _exec_feasible.detach()
+                                    )
+                                    _candidate_regret = torch.relu(
+                                        _exec_candidate.detach() - _exec_frontres.detach() - _pref_margin
+                                    )
+                                    _fallback_regret = torch.relu(
+                                        _fallback_exec - _exec_frontres.detach() - _pref_margin
+                                    )
+                                    _direction_scale = (
+                                        (_exec_candidate.detach() - _fallback_exec).abs()
+                                        + _pref_margin
+                                        + 1e-6
+                                    )
+                                    _rho_direction = (
+                                        (_candidate_regret - _fallback_regret) / _direction_scale
+                                    ).clamp(-1.0, 1.0)
+                                    _rho_centered = (2.0 * (_rho_retention - _rho_center)).clamp(-1.0, 1.0)
+                                    _rho_directional_adv = (
+                                        _directional_weight * _rho_direction * _rho_centered
+                                    )
+                                    _rho_retention_term = _retention_weight * _rho_centered
+                                    _floor_direction = torch.where(
+                                        _full_repair_ok > 0.5,
+                                        torch.ones_like(_rho_centered),
+                                        -torch.ones_like(_rho_centered),
+                                    )
+                                    _rho_floor_term = (
+                                        _floor_penalty_weight
+                                        * _floor_violation
+                                        * _floor_direction
+                                        * _rho_centered
+                                    )
+                                    _rho_full_bonus = (
+                                        _full_bonus_weight * _full_repair_ok * _rho_centered
+                                    )
+                                    _rho_adv = (
+                                        _rho_directional_adv
+                                        + _rho_retention_term
+                                        + _rho_floor_term
+                                        + _rho_full_bonus
+                                    )
                                     _joint_weight_floor = float(
                                         self.cfg.get("frontres_structured_joint_weight_floor", 0.10)
                                     )
@@ -4858,13 +4931,19 @@ class OnPolicyRunner:
                                         _rho_weight.mean().detach().item()
                                     )
                                     self._frontres_structured_joint_rho_retention_last = float(
-                                        _rho_retention.mean().detach().item()
+                                        _rho_retention_term.mean().detach().item()
                                     )
                                     self._frontres_structured_joint_floor_violation_last = float(
-                                        _floor_violation.mean().detach().item()
+                                        _rho_floor_term.mean().detach().item()
                                     )
                                     self._frontres_structured_joint_full_bonus_last = float(
                                         _rho_full_bonus.mean().detach().item()
+                                    )
+                                    self._frontres_structured_joint_rho_direction_last = float(
+                                        _rho_direction.mean().detach().item()
+                                    )
+                                    self._frontres_structured_joint_rho_centered_last = float(
+                                        _rho_centered.mean().detach().item()
                                     )
                                 else:
                                     self._frontres_structured_joint_adv_last = 0.0
@@ -4874,6 +4953,8 @@ class OnPolicyRunner:
                                     self._frontres_structured_joint_rho_retention_last = 0.0
                                     self._frontres_structured_joint_floor_violation_last = 0.0
                                     self._frontres_structured_joint_full_bonus_last = 0.0
+                                    self._frontres_structured_joint_rho_direction_last = 0.0
+                                    self._frontres_structured_joint_rho_centered_last = 0.0
                                 self._frontres_state_alpha_mask_last = float(
                                     _state_alpha_mask[:_n_exec, 0].mean().detach().item()
                                 )
@@ -5245,6 +5326,12 @@ class OnPolicyRunner:
                             )
                             _frontres_structured_joint_full_bonus_sum += float(
                                 getattr(self, "_frontres_structured_joint_full_bonus_last", 0.0)
+                            )
+                            _frontres_structured_joint_rho_direction_sum += float(
+                                getattr(self, "_frontres_structured_joint_rho_direction_last", 0.0)
+                            )
+                            _frontres_structured_joint_rho_centered_sum += float(
+                                getattr(self, "_frontres_structured_joint_rho_centered_last", 0.0)
                             )
                             _frontres_oracle_ub_gain_sum += _oracle_ub_gain.mean().item()
                             _frontres_oracle_ub_pass_sum += _oracle_ub_pass.mean().item()
@@ -5835,6 +5922,14 @@ class OnPolicyRunner:
             )
             frontres_structured_joint_full_bonus_mean = (
                 _frontres_structured_joint_full_bonus_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_structured_joint_rho_direction_mean = (
+                _frontres_structured_joint_rho_direction_sum / _frontres_reward_diag_steps
+                if _is_frontres and _frontres_reward_diag_steps > 0 else None
+            )
+            frontres_structured_joint_rho_centered_mean = (
+                _frontres_structured_joint_rho_centered_sum / _frontres_reward_diag_steps
                 if _is_frontres and _frontres_reward_diag_steps > 0 else None
             )
             frontres_actor_gate_mean = (
@@ -6487,12 +6582,17 @@ class OnPolicyRunner:
                                     f"{_loss_dict.get('state_alpha_acc', 0.0):.3f}\n"
                                 )
                         if locs.get("frontres_structured_joint_rho_adv_mean") is not None:
+                            log_string += f"""{"rho directional d/c:":>{pad}} """
+                            log_string += (
+                                f"{locs.get('frontres_structured_joint_rho_direction_mean', 0.0):+.3f} / "
+                                f"{locs.get('frontres_structured_joint_rho_centered_mean', 0.0):+.3f}\n"
+                            )
                             log_string += f"""{"rho constrained adv:":>{pad}} """
                             log_string += (
                                 f"{locs['frontres_structured_joint_rho_adv_mean']:+.4f} / "
-                                f"ret={locs.get('frontres_structured_joint_rho_retention_mean', 0.0):.3f}, "
-                                f"floor={locs.get('frontres_structured_joint_floor_violation_mean', 0.0):.4f}, "
-                                f"full={locs.get('frontres_structured_joint_full_bonus_mean', 0.0):.4f}\n"
+                                f"retp={locs.get('frontres_structured_joint_rho_retention_mean', 0.0):+.4f}, "
+                                f"floor={locs.get('frontres_structured_joint_floor_violation_mean', 0.0):+.4f}, "
+                                f"full={locs.get('frontres_structured_joint_full_bonus_mean', 0.0):+.4f}\n"
                             )
                             log_string += f"""{"rho constrained weight:":>{pad}} """
                             log_string += (
@@ -6837,12 +6937,17 @@ class OnPolicyRunner:
                                         f"{locs.get('frontres_tri_weight_stable_mean', 0.0):.3f}\n"
                                     )
                             if locs.get("frontres_structured_joint_adv_mean") is not None:
+                                log_string += f"""{"rho directional d/c:":>{pad}} """
+                                log_string += (
+                                    f"{locs.get('frontres_structured_joint_rho_direction_mean', 0.0):+.3f} / "
+                                    f"{locs.get('frontres_structured_joint_rho_centered_mean', 0.0):+.3f}\n"
+                                )
                                 log_string += f"""{"rho constrained adv:":>{pad}} """
                                 log_string += (
                                     f"{locs.get('frontres_structured_joint_adv_mean', 0.0):+.4f} / "
-                                    f"ret={locs.get('frontres_structured_joint_rho_retention_mean', 0.0):.3f}, "
-                                    f"floor={locs.get('frontres_structured_joint_floor_violation_mean', 0.0):.4f}, "
-                                    f"full={locs.get('frontres_structured_joint_full_bonus_mean', 0.0):.4f}\n"
+                                    f"retp={locs.get('frontres_structured_joint_rho_retention_mean', 0.0):+.4f}, "
+                                    f"floor={locs.get('frontres_structured_joint_floor_violation_mean', 0.0):+.4f}, "
+                                    f"full={locs.get('frontres_structured_joint_full_bonus_mean', 0.0):+.4f}\n"
                                 )
                                 log_string += f"""{"rho constrained weight:":>{pad}} """
                                 log_string += f"{locs.get('frontres_structured_joint_weight_mean', 0.0):.3f}\n"
