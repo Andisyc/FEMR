@@ -4552,6 +4552,7 @@ class OnPolicyRunner:
                                     _rho_current = actions[:_n_exec, 6:7].detach().clamp(0.0, 1.0).expand(-1, 6)
                                 _rho_space = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
                                 _grouped_targets_enabled = False
+                                _rho_direction_dim_from_regret = None
                                 if _rho_space in ("tri_anchor", "tri-anchor", "tri"):
                                     _rho_temp = max(
                                         1e-6,
@@ -4605,6 +4606,19 @@ class OnPolicyRunner:
                                                 _delta = _calib_step * ((_under - _over) / _score_range).clamp(-1.0, 1.0)
                                                 return (_rho_group + _delta).clamp(0.0, 1.0), _under, _over
 
+                                            def _regret_direction(
+                                                _candidate_score: torch.Tensor,
+                                                _base_score: torch.Tensor,
+                                                _under: torch.Tensor,
+                                                _over: torch.Tensor,
+                                            ) -> torch.Tensor:
+                                                _score_range = (
+                                                    (_candidate_score - _base_score).abs()
+                                                    + _pref_margin
+                                                    + 1.0e-6
+                                                )
+                                                return ((_under - _over) / _score_range).clamp(-1.0, 1.0)
+
                                             _rho_planar_current = (
                                                 0.5 * (_rho_current[:, 0] + _rho_current[:, 1]) + _rho_current[:, 5]
                                             ) / 2.0
@@ -4628,6 +4642,24 @@ class OnPolicyRunner:
                                                 _base_z,
                                                 _rho_z_current,
                                             )
+                                            _direction_planar = _regret_direction(
+                                                _candidate_planar,
+                                                _base_planar,
+                                                _regret_up_planar,
+                                                _regret_down_planar,
+                                            )
+                                            _direction_rp = _regret_direction(
+                                                _candidate_rp,
+                                                _base_rp,
+                                                _regret_up_rp,
+                                                _regret_down_rp,
+                                            )
+                                            _direction_z = _regret_direction(
+                                                _candidate_z,
+                                                _base_z,
+                                                _regret_up_z,
+                                                _regret_down_z,
+                                            )
                                         else:
                                             _xy_gain = _component_gain("xy", _comp["planar"])
                                             _yaw_gain = _component_gain("yaw", _comp["planar"])
@@ -4649,6 +4681,15 @@ class OnPolicyRunner:
                                             _regret_down_planar = torch.zeros_like(_regret_up_planar)
                                             _regret_down_rp = torch.zeros_like(_regret_up_rp)
                                             _regret_down_z = torch.zeros_like(_regret_up_z)
+                                            _direction_planar = (
+                                                _planar_gain / (_planar_gain.abs() + _pref_margin + 1.0e-6)
+                                            ).clamp(-1.0, 1.0)
+                                            _direction_rp = (
+                                                _rp_gain / (_rp_gain.abs() + _pref_margin + 1.0e-6)
+                                            ).clamp(-1.0, 1.0)
+                                            _direction_z = (
+                                                _z_gain / (_z_gain.abs() + _pref_margin + 1.0e-6)
+                                            ).clamp(-1.0, 1.0)
                                         _target_exec = torch.stack(
                                             [
                                                 _target_planar,
@@ -4660,6 +4701,17 @@ class OnPolicyRunner:
                                             ],
                                             dim=-1,
                                         )
+                                        _rho_direction_dim_from_regret = torch.stack(
+                                            [
+                                                _direction_planar,
+                                                _direction_planar,
+                                                _direction_z,
+                                                _direction_rp,
+                                                _direction_rp,
+                                                _direction_planar,
+                                            ],
+                                            dim=-1,
+                                        ).detach()
                                         _mask_exec = _pref_gate.view(-1, 1).expand(-1, 6).clone()
                                         _rho_target_planar_mean = (
                                             (0.5 * (_target_exec[:, 0] + _target_exec[:, 1]) + _target_exec[:, 5])
@@ -4902,18 +4954,25 @@ class OnPolicyRunner:
                                     _rho_direction = (
                                         (_candidate_regret - _fallback_regret) / _direction_scale
                                     ).clamp(-1.0, 1.0)
-                                    # Use the already computed grouped rho target as the
-                                    # per-dimension direction.  A scalar Candidate-vs-fallback
-                                    # comparison is useful diagnostically, but using it as the
-                                    # carrier collapses planar/rp/z credit back into one signal.
-                                    _rho_target_direction_dim = (
-                                        2.0 * (_target_exec.detach().clamp(0.0, 1.0) - _rho_center)
-                                    ).clamp(-1.0, 1.0)
-                                    _rho_direction_dim = torch.where(
-                                        _rho_target_direction_dim.abs() > 1.0e-6,
-                                        _rho_target_direction_dim,
-                                        _rho_direction.view(-1, 1).expand_as(_rho_current),
-                                    )
+                                    # Use Candidate/Projected/fallback regret as the policy-gradient
+                                    # direction.  Do not derive the direction from the calibrated rho
+                                    # target: that target is anchored at the sampled rho, so low-rho
+                                    # samples can remain below center even when Candidate is better,
+                                    # which would reinforce the conservative action we wanted to fix.
+                                    if (
+                                        isinstance(_rho_direction_dim_from_regret, torch.Tensor)
+                                        and _rho_direction_dim_from_regret.shape == _rho_current.shape
+                                    ):
+                                        _rho_direction_dim = _rho_direction_dim_from_regret.to(
+                                            device=self.device,
+                                            dtype=_rho_current.dtype,
+                                        ).detach()
+                                    else:
+                                        _rho_direction_dim = (
+                                            _rho_direction.view(-1, 1)
+                                            .expand_as(_rho_current)
+                                            .detach()
+                                        )
                                     _rho_directional_adv_dim = (
                                         _directional_weight * _rho_direction_dim * _rho_centered_dim
                                     )
