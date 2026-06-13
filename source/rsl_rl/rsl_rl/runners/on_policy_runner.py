@@ -4554,6 +4554,9 @@ class OnPolicyRunner:
                                 _rho_space = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
                                 _grouped_targets_enabled = False
                                 _rho_direction_dim_from_regret = None
+                                _candidate_planar = _candidate_rp = _candidate_z = None
+                                _projected_planar = _projected_rp = _projected_z = None
+                                _base_planar = _base_rp = _base_z = None
                                 if _rho_space in ("tri_anchor", "tri-anchor", "tri"):
                                     _rho_temp = max(
                                         1e-6,
@@ -4961,6 +4964,100 @@ class OnPolicyRunner:
                                         (1.0 - _fallback_alpha) * _exec_perturbed.detach()
                                         + _fallback_alpha * _exec_feasible.detach()
                                     )
+                                    _rho_direction_dim_live_route = None
+                                    if (
+                                        _rho_space in ("tri_anchor", "tri-anchor", "tri")
+                                        and _grouped_targets_enabled
+                                        and isinstance(_candidate_planar, torch.Tensor)
+                                        and isinstance(_candidate_rp, torch.Tensor)
+                                        and isinstance(_candidate_z, torch.Tensor)
+                                        and isinstance(_projected_planar, torch.Tensor)
+                                        and isinstance(_projected_rp, torch.Tensor)
+                                        and isinstance(_projected_z, torch.Tensor)
+                                        and isinstance(_base_planar, torch.Tensor)
+                                        and isinstance(_base_rp, torch.Tensor)
+                                        and isinstance(_base_z, torch.Tensor)
+                                        and isinstance(_feasible_components, dict)
+                                    ):
+                                        def _feasible_component(
+                                            _name: str, _fallback: torch.Tensor
+                                        ) -> torch.Tensor:
+                                            _component = _feasible_components.get(_name, _fallback)
+                                            return _component[:_n_exec].to(
+                                                device=self.device,
+                                                dtype=_rho_current.dtype,
+                                            )
+
+                                        _feasible_xy = _feasible_component("xy", _exec_feasible)
+                                        _feasible_yaw = _feasible_component("yaw", _exec_feasible)
+                                        _feasible_planar = 0.5 * (_feasible_xy + _feasible_yaw)
+                                        _feasible_rp = _feasible_component("rp", _exec_feasible)
+                                        _feasible_z = _feasible_component("z", _exec_feasible)
+
+                                        _fallback_planar = (
+                                            (1.0 - _fallback_alpha)
+                                            * _base_planar.detach().to(_rho_current.dtype)
+                                            + _fallback_alpha * _feasible_planar.detach()
+                                        )
+                                        _fallback_rp = (
+                                            (1.0 - _fallback_alpha)
+                                            * _base_rp.detach().to(_rho_current.dtype)
+                                            + _fallback_alpha * _feasible_rp.detach()
+                                        )
+                                        _fallback_z = (
+                                            (1.0 - _fallback_alpha)
+                                            * _base_z.detach().to(_rho_current.dtype)
+                                            + _fallback_alpha * _feasible_z.detach()
+                                        )
+
+                                        def _live_route_direction(
+                                            _candidate_score: torch.Tensor,
+                                            _projected_score: torch.Tensor,
+                                            _fallback_score: torch.Tensor,
+                                        ) -> torch.Tensor:
+                                            _candidate_regret_group = torch.relu(
+                                                _candidate_score.detach().to(_rho_current.dtype)
+                                                - _projected_score.detach().to(_rho_current.dtype)
+                                                - _pref_margin
+                                            )
+                                            _fallback_regret_group = torch.relu(
+                                                _fallback_score.detach().to(_rho_current.dtype)
+                                                - _projected_score.detach().to(_rho_current.dtype)
+                                                - _pref_margin
+                                            )
+                                            _group_scale = (
+                                                (
+                                                    _candidate_score.detach().to(_rho_current.dtype)
+                                                    - _fallback_score.detach().to(_rho_current.dtype)
+                                                ).abs()
+                                                + _pref_margin
+                                                + 1.0e-6
+                                            )
+                                            return (
+                                                (_candidate_regret_group - _fallback_regret_group)
+                                                / _group_scale
+                                            ).clamp(-1.0, 1.0)
+
+                                        _direction_planar_live = _live_route_direction(
+                                            _candidate_planar, _projected_planar, _fallback_planar
+                                        )
+                                        _direction_rp_live = _live_route_direction(
+                                            _candidate_rp, _projected_rp, _fallback_rp
+                                        )
+                                        _direction_z_live = _live_route_direction(
+                                            _candidate_z, _projected_z, _fallback_z
+                                        )
+                                        _rho_direction_dim_live_route = torch.stack(
+                                            [
+                                                _direction_planar_live,
+                                                _direction_planar_live,
+                                                _direction_z_live,
+                                                _direction_rp_live,
+                                                _direction_rp_live,
+                                                _direction_planar_live,
+                                            ],
+                                            dim=-1,
+                                        ).detach()
                                     _candidate_regret = torch.relu(
                                         _exec_candidate.detach() - _exec_frontres.detach() - _pref_margin
                                     )
@@ -4981,10 +5078,10 @@ class OnPolicyRunner:
                                     # samples can remain below center even when Candidate is better,
                                     # which would reinforce the conservative action we wanted to fix.
                                     if (
-                                        isinstance(_rho_direction_dim_from_regret, torch.Tensor)
-                                        and _rho_direction_dim_from_regret.shape == _rho_current.shape
+                                        isinstance(_rho_direction_dim_live_route, torch.Tensor)
+                                        and _rho_direction_dim_live_route.shape == _rho_current.shape
                                     ):
-                                        _rho_direction_dim = _rho_direction_dim_from_regret.to(
+                                        _rho_direction_dim = _rho_direction_dim_live_route.to(
                                             device=self.device,
                                             dtype=_rho_current.dtype,
                                         ).detach()
