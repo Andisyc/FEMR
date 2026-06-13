@@ -333,6 +333,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Weight for centered directional Candidate-vs-Projected rho advantage."""
     frontres_structured_joint_rho_center: float = 0.5
     """Reference rho value used to center sampled rho for directional PPO updates."""
+    frontres_structured_joint_center_drive_deadzone: float = 0.10
+    """Linear deadzone for converting centered sampled rho into a sign-like PPO carrier."""
     frontres_structured_joint_retention_prior_weight: float = 0.0
     """Weak signed prior toward larger rho, applied through centered rho only."""
     frontres_structured_joint_floor_penalty_weight: float = 5.0

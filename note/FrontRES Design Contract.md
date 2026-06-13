@@ -2658,3 +2658,41 @@ actual alpha used in _apply_frontres_task_corrections
   -> same alpha source used in fallback_exec for rho advantage
   -> rho direction compares Candidate/Projected/actual fallback
 ```
+
+### 2026-06-13 Rho Evidence Amplitude Fix
+
+The structured rho update must separate two roles:
+
+```text
+Candidate/Fallback/Projected utility difference:
+    evidence strength and direction
+
+sampled rho relative to rho_center:
+    which side of the center the sampled action is on
+```
+
+The sampled-rho center term must not shrink the evidence strength.  If the
+advantage is multiplied directly by `2 * (rho - rho_center)`, then samples near
+0.5 receive almost no update even when Candidate is clearly better than
+Projected.  This makes the policy look conservative although the rollout
+evidence is positive.
+
+Implementation contract:
+
+```text
+rho_centered = 2 * (rho - rho_center)
+rho_center_drive = signed side of rho_centered, with a small linear deadzone
+
+rho_adv =
+    evidence_direction * rho_center_drive
+    + floor_direction * rho_center_drive
+    + full_repair_bonus * rho_center_drive
+```
+
+`rho_centered` remains a diagnostic.  `rho_center_drive` is the policy-gradient
+carrier.  Therefore the log must expose both:
+
+```text
+rho directional d/c/drv:
+    evidence direction / raw centered rho / actual center-drive carrier
+```

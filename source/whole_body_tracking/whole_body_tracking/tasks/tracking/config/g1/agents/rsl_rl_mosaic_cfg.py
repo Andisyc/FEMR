@@ -662,6 +662,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_structured_joint_rho_retention_weight = 0.0
     frontres_structured_joint_directional_weight = 1.0
     frontres_structured_joint_rho_center = 0.5
+    # Evidence strength comes from Candidate/Fallback/Projected utility.  The
+    # sampled rho center term only tells PPO whether the sample is on the
+    # high-rho or low-rho side; it should not shrink the utility evidence.
+    frontres_structured_joint_center_drive_deadzone = 0.10
     frontres_structured_joint_retention_prior_weight = 0.0
     frontres_structured_joint_floor_penalty_weight = 5.0
     frontres_structured_joint_full_repair_bonus_weight = 1.0
