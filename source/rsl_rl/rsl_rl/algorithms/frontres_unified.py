@@ -1285,10 +1285,14 @@ class FrontRESUnified:
         metrics = {
             "structured_joint_rl_enabled": 1.0 if self._structured_joint_rl_enabled() else 0.0,
             "structured_joint_rl_adv_mean": 0.0,
+            "structured_joint_rl_adv_abs_mean": 0.0,
             "structured_joint_rl_adv_used_mean": 0.0,
             "structured_joint_rl_weight_mean": 0.0,
+            "structured_joint_rl_weight_all_mean": 0.0,
             "structured_joint_rl_rho_adv_mean": 0.0,
+            "structured_joint_rl_rho_adv_abs_mean": 0.0,
             "structured_joint_rl_rho_weight_mean": 0.0,
+            "structured_joint_rl_rho_weight_all_mean": 0.0,
             "structured_joint_rl_rho_ratio_mean": 1.0,
             "structured_joint_rl_rho_loss": 0.0,
             "structured_joint_rl_ratio_mean": 1.0,
@@ -1384,12 +1388,20 @@ class FrontRESUnified:
         metrics["structured_joint_rl_adv_mean"] = float(
             (rho_adv_raw[rho_active]).mean().detach().item()
         ) if bool(rho_active.any().detach().item()) else 0.0
+        metrics["structured_joint_rl_adv_abs_mean"] = float(
+            (rho_adv_raw[rho_active]).abs().mean().detach().item()
+        ) if bool(rho_active.any().detach().item()) else 0.0
         metrics["structured_joint_rl_adv_used_mean"] = float(
             (rho_adv[rho_active]).mean().detach().item()
         ) if bool(rho_active.any().detach().item()) else 0.0
-        metrics["structured_joint_rl_weight_mean"] = float(rho_weight.mean().detach().item())
+        metrics["structured_joint_rl_weight_mean"] = float(
+            rho_weight[rho_active].mean().detach().item()
+        ) if bool(rho_active.any().detach().item()) else 0.0
+        metrics["structured_joint_rl_weight_all_mean"] = float(rho_weight.mean().detach().item())
         metrics["structured_joint_rl_rho_adv_mean"] = metrics["structured_joint_rl_adv_mean"]
-        metrics["structured_joint_rl_rho_weight_mean"] = float(rho_weight.mean().detach().item())
+        metrics["structured_joint_rl_rho_adv_abs_mean"] = metrics["structured_joint_rl_adv_abs_mean"]
+        metrics["structured_joint_rl_rho_weight_mean"] = metrics["structured_joint_rl_weight_mean"]
+        metrics["structured_joint_rl_rho_weight_all_mean"] = metrics["structured_joint_rl_weight_all_mean"]
         metrics["structured_joint_rl_rho_ratio_mean"] = float(
             rho_ratio.detach()[rho_active].mean().item()
         ) if bool(rho_active.any().detach().item()) else 1.0
