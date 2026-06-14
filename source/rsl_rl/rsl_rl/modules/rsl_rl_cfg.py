@@ -342,6 +342,30 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Upper clamp for minibatch class-balancing weights in acceptance preference loss."""
     frontres_state_alpha_weight: float = 0.0
     """Weight for auxiliary State Router alpha BCE from Noisy/GMT rollout labels."""
+    frontres_state_alpha_enabled: bool = True
+    """Enable the auxiliary state-router alpha branch and its target construction."""
+    frontres_state_alpha_route_enabled: bool = True
+    """Allow live state alpha to route references when the rho space supports it."""
+    frontres_state_alpha_route_threshold: float = 0.70
+    """Threshold for hard state-alpha diagnostics or optional route switching."""
+    frontres_state_alpha_route_min_iteration: int = 0
+    """Minimum iteration before live state-alpha hard routing may activate."""
+    frontres_executable_floor_adaptive_enabled: bool = True
+    """Use GMT frontier evidence to calibrate the executable floor."""
+    frontres_executable_floor_score: float = 0.0
+    """Fixed score-space executable floor used before adaptive evidence is ready."""
+    frontres_executable_floor_safe_margin: float = 0.05
+    """Safety margin above the executable floor used for safe-state labels."""
+    frontres_executable_floor_min_samples: int = 32
+    """Minimum safe and broken frontier samples before adaptive floor is trusted."""
+    frontres_executable_floor_ema_alpha: float = 0.95
+    """EMA coefficient for adaptive executable-floor evidence."""
+    frontres_state_alpha_exec_floor: float = 0.0
+    """Fallback executable floor for state-alpha labels."""
+    frontres_state_alpha_safe_exec_floor: float = 0.05
+    """Fallback safe floor for state-alpha labels."""
+    frontres_state_alpha_temp: float = 0.08
+    """Temperature for soft state-alpha labels near the executable floor."""
     frontres_structured_joint_rl_enabled: bool = False
     """Use joint PPO-style alpha-rho advantage instead of detached rho/alpha BCE targets."""
     frontres_structured_joint_rl_weight: float = 0.0
@@ -350,6 +374,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Symmetric clip for raw structured-joint advantage before optional normalization."""
     frontres_structured_joint_rl_normalize_advantage: bool = False
     """Normalize structured-joint advantages over active samples in each minibatch."""
+    frontres_structured_joint_use_actor_gate_weight: bool = False
+    """Use legacy actor-gate attenuation for structured rho RL weights. Default keeps live rho evidence unsuppressed."""
+    frontres_structured_joint_show_legacy_rho_diag: bool = False
+    """Print legacy rho target diagnostics during structured-rho training for ablation/debug only."""
     frontres_structured_joint_rl_keep_legacy_bce: bool = False
     """Keep legacy acceptance BCE active while structured joint RL is enabled."""
     frontres_structured_joint_rl_disable_generic_ppo: bool = True
@@ -362,12 +390,16 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Weight for centered directional Candidate-vs-Projected rho advantage."""
     frontres_structured_joint_rho_center: float = 0.5
     """Reference rho value used to center sampled rho for directional PPO updates."""
+    frontres_structured_joint_center_drive_deadzone: float = 0.10
+    """Linear deadzone for converting centered sampled rho into a sign-like PPO carrier."""
     frontres_structured_joint_retention_prior_weight: float = 0.0
     """Weak signed prior toward larger rho, applied through centered rho only."""
     frontres_structured_joint_floor_penalty_weight: float = 5.0
     """Penalty weight for projected references below the executable floor."""
     frontres_structured_joint_full_repair_bonus_weight: float = 1.0
     """Extra retention bonus when the full Repair proposal is executable."""
+    frontres_structured_joint_weight_floor: float = 0.10
+    """Minimum structured-rho carrier weight for active executable samples."""
     frontres_oracle_upper_bound_diag_enabled: bool = True
     """Log an optimistic no-training oracle upper bound from noisy/projected/candidate/feasible scores."""
     frontres_oracle_upper_bound_margin: float = 0.0

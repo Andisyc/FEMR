@@ -16,6 +16,33 @@ from collections import deque
 
 import rsl_rl
 from rsl_rl.algorithms import PPO, Distillation, MOSAIC, FrontRESUnified
+from rsl_rl.runners.frontres_alpha_router import build_state_alpha_targets
+from rsl_rl.runners.frontres_diagnostics import (
+    format_frontres_floor_alpha_diagnostics,
+    format_frontres_optimization_diagnostics,
+    format_frontres_preference_diagnostics,
+    format_frontres_route_rho_diagnostics,
+)
+from rsl_rl.runners.frontres_executable_floor import (
+    ExecutableFloorState,
+    resolve_executable_floor,
+    update_executable_floor_stats,
+)
+from rsl_rl.runners.frontres_dr_curriculum import (
+    GMTFrontierState,
+    allowed_perturbation_bases,
+    choose_perturbation_choices,
+    choice_hash as frontres_curriculum_hash,
+    mode_complexity,
+    sample_per_env_dr_strength,
+    sample_perturbation_mix,
+    sample_scalar_dr_strength,
+    score_gmt_frontier,
+    update_boundary_ema,
+    update_gmt_frontier_state,
+    warmup_perturbation_mode_groups,
+)
+from rsl_rl.runners.frontres_structured_rho import build_structured_rho_carrier
 from whole_body_tracking.utils.supervise import SuperviseTrainer
 from rsl_rl.modules.supervise_learning import SuperviseLearning
 from rsl_rl.env import VecEnv
@@ -782,51 +809,33 @@ class OnPolicyRunner:
         GMT score evidence are available, it deliberately falls back to the fixed
         historical threshold for resume stability.
         """
-        fixed_floor = float(
-            self.cfg.get(
-                "frontres_executable_floor_score",
-                self.cfg.get("frontres_state_alpha_exec_floor", 0.0),
-            )
+        values = resolve_executable_floor(
+            self.cfg,
+            ExecutableFloorState(
+                safe_score_ema=getattr(self, "_frontres_exec_floor_safe_score_ema", None),
+                broken_score_ema=getattr(self, "_frontres_exec_floor_broken_score_ema", None),
+                safe_count=float(getattr(self, "_frontres_exec_floor_safe_count", 0.0)),
+                broken_count=float(getattr(self, "_frontres_exec_floor_broken_count", 0.0)),
+            ),
         )
-        safe_default = float(
-            self.cfg.get(
-                "frontres_state_alpha_safe_exec_floor",
-                fixed_floor + 0.05,
-            )
+        self._frontres_exec_floor_value_last = values.floor
+        self._frontres_exec_floor_safe_last = values.safe_floor
+        self._frontres_exec_floor_source_last = values.source
+        self._frontres_exec_floor_adaptive_last = values.adaptive
+        self._frontres_exec_floor_safe_count_last = values.safe_count
+        self._frontres_exec_floor_broken_count_last = values.broken_count
+        return values.floor, values.safe_floor, values.source
+
+    def _frontres_structured_joint_effective_enabled(self) -> bool:
+        """Mirror the algorithm-side structured-rho enable gate in the runner."""
+        enabled = getattr(getattr(self, "alg", None), "_structured_joint_rl_enabled", None)
+        if callable(enabled):
+            return bool(enabled())
+        return (
+            bool(self.cfg.get("frontres_structured_joint_rl_enabled", False))
+            and float(self.cfg.get("frontres_structured_joint_rl_weight", 0.0)) > 0.0
+            and str(self.cfg.get("frontres_training_objective", "")).lower() == "hsl_hybrid"
         )
-        safe_margin = float(
-            self.cfg.get(
-                "frontres_executable_floor_safe_margin",
-                max(0.0, safe_default - fixed_floor),
-            )
-        )
-        adaptive = bool(self.cfg.get("frontres_executable_floor_adaptive_enabled", True))
-        min_count = float(self.cfg.get("frontres_executable_floor_min_samples", 32.0))
-        safe_count = float(getattr(self, "_frontres_exec_floor_safe_count", 0.0))
-        broken_count = float(getattr(self, "_frontres_exec_floor_broken_count", 0.0))
-        safe_mean = getattr(self, "_frontres_exec_floor_safe_score_ema", None)
-        broken_mean = getattr(self, "_frontres_exec_floor_broken_score_ema", None)
-        if (
-            adaptive
-            and safe_mean is not None
-            and broken_mean is not None
-            and safe_count >= min_count
-            and broken_count >= min_count
-        ):
-            floor = 0.5 * (float(safe_mean) + float(broken_mean))
-            source = "adaptive"
-        else:
-            floor = fixed_floor
-            source = "fixed"
-        floor = float(floor)
-        safe_floor = floor + max(0.0, safe_margin)
-        self._frontres_exec_floor_value_last = floor
-        self._frontres_exec_floor_safe_last = safe_floor
-        self._frontres_exec_floor_source_last = source
-        self._frontres_exec_floor_adaptive_last = 1.0 if source == "adaptive" else 0.0
-        self._frontres_exec_floor_safe_count_last = safe_count
-        self._frontres_exec_floor_broken_count_last = broken_count
-        return floor, safe_floor, source
 
     def _frontres_update_executable_floor_stats(
         self,
@@ -836,64 +845,39 @@ class OnPolicyRunner:
         mix_class: torch.Tensor | None = None,
     ) -> tuple[float, float, str]:
         """Update GMT-score floor statistics and return the active floor."""
-        floor, safe_floor, source = self._frontres_executable_floor_values()
-        if not bool(self.cfg.get("frontres_executable_floor_adaptive_enabled", True)):
-            return floor, safe_floor, source
-        if exec_score.numel() == 0:
-            return floor, safe_floor, source
-
-        score = exec_score.detach().view(-1)
-        n = score.numel()
-        valid = torch.ones(n, device=score.device, dtype=torch.bool)
-        if timeout is not None:
-            timeout = timeout.to(score.device).view(-1)[:n].bool()
-            valid = valid & (~timeout)
-        fall = torch.zeros(n, device=score.device, dtype=torch.bool)
-        if done is not None:
-            done = done.to(score.device).view(-1)[:n].bool()
-            fall = done & valid
-
-        class_mask = torch.ones(n, device=score.device, dtype=torch.bool)
-        if mix_class is not None:
-            mix_class = mix_class.to(score.device).view(-1)
-            if mix_class.numel() >= n:
-                # Only the frontier bucket is used for floor calibration.  Easy
-                # and hard buckets are training coverage, not the boundary.
-                class_mask = mix_class[:n].long().eq(1)
-
-        decision = str(getattr(self, "_frontres_gmt_frontier_decision", "") or "").lower()
-        safe_mask = torch.zeros(n, device=score.device, dtype=torch.bool)
-        broken_mask = fall & class_mask
-        if decision == "safe":
-            safe_mask = class_mask & valid & (~fall)
-        elif decision == "broken":
-            broken_mask = class_mask & valid
-        elif decision == "frontier":
-            # The frontier bucket is exactly where the executable floor should
-            # be calibrated: survived samples are safe evidence, early-fallen
-            # samples are broken evidence.
-            safe_mask = class_mask & valid & (~fall)
-            broken_mask = class_mask & valid & fall
-
-        ema_alpha = float(self.cfg.get("frontres_executable_floor_ema_alpha", 0.95))
-        ema_alpha = max(0.0, min(0.999, ema_alpha))
-
-        def _update(name: str, values: torch.Tensor) -> None:
-            if values.numel() == 0:
-                return
-            batch_mean = float(values.mean().item())
-            count_name = f"_frontres_exec_floor_{name}_count"
-            ema_name = f"_frontres_exec_floor_{name}_score_ema"
-            prev = getattr(self, ema_name, None)
-            if prev is None:
-                setattr(self, ema_name, batch_mean)
+        state, values = update_executable_floor_stats(
+            self.cfg,
+            ExecutableFloorState(
+                safe_score_ema=getattr(self, "_frontres_exec_floor_safe_score_ema", None),
+                broken_score_ema=getattr(self, "_frontres_exec_floor_broken_score_ema", None),
+                safe_count=float(getattr(self, "_frontres_exec_floor_safe_count", 0.0)),
+                broken_count=float(getattr(self, "_frontres_exec_floor_broken_count", 0.0)),
+            ),
+            exec_score,
+            done=done,
+            timeout=timeout,
+            mix_class=mix_class,
+            frontier_decision=getattr(self, "_frontres_gmt_frontier_decision", ""),
+        )
+        for name, value in (
+            ("safe_score_ema", state.safe_score_ema),
+            ("broken_score_ema", state.broken_score_ema),
+            ("safe_count", state.safe_count),
+            ("broken_count", state.broken_count),
+        ):
+            attr = f"_frontres_exec_floor_{name}"
+            if value is None:
+                if hasattr(self, attr):
+                    delattr(self, attr)
             else:
-                setattr(self, ema_name, ema_alpha * float(prev) + (1.0 - ema_alpha) * batch_mean)
-            setattr(self, count_name, float(getattr(self, count_name, 0.0)) + float(values.numel()))
-
-        _update("safe", score[safe_mask])
-        _update("broken", score[broken_mask])
-        return self._frontres_executable_floor_values()
+                setattr(self, attr, float(value))
+        self._frontres_exec_floor_value_last = values.floor
+        self._frontres_exec_floor_safe_last = values.safe_floor
+        self._frontres_exec_floor_source_last = values.source
+        self._frontres_exec_floor_adaptive_last = values.adaptive
+        self._frontres_exec_floor_safe_count_last = values.safe_count
+        self._frontres_exec_floor_broken_count_last = values.broken_count
+        return values.floor, values.safe_floor, values.source
 
     def _frontres_project_task_target_to_action_cone(self, command, target: torch.Tensor) -> torch.Tensor:
         """Project supervised ΔSE3 targets into the same cone as applied actions.
@@ -2003,24 +1987,7 @@ class OnPolicyRunner:
 
         def _frontres_curriculum_allowed_bases() -> tuple[str, ...]:
             """Map the active FrontRES output dimensions to repairable perturbation families."""
-            _all_bases = ("planar", "yaw", "global_z", "local_rp")
-            _active_dims = self.cfg.get("frontres_active_task_dims", None)
-            if _active_dims is None:
-                return _all_bases
-
-            _dims = {int(_idx) for _idx in _active_dims}
-            _bases: list[str] = []
-            if 0 in _dims or 1 in _dims:
-                _bases.append("planar")
-            if 5 in _dims:
-                _bases.append("yaw")
-            if 2 in _dims:
-                _bases.append("global_z")
-            if 3 in _dims or 4 in _dims:
-                _bases.append("local_rp")
-            # If only confidence heads are active, keep the full disturbance set
-            # so the confidence channels still see meaningful artifact states.
-            return tuple(_bases) if _bases else _all_bases
+            return allowed_perturbation_bases(self.cfg.get("frontres_active_task_dims", None))
 
         def _set_frontres_perturbation_curriculum(progress: float, seq_idx: int) -> None:
             """Select which perturbation bases are active for the next rollout.
@@ -2035,127 +2002,23 @@ class OnPolicyRunner:
             self._frontres_curriculum_complexity = _complexity_for_modes(_choice, _complexity)
 
         def _complexity_for_modes(modes: tuple[str, ...], fallback: str | None = None) -> str:
-            if len(modes) == 1:
-                return "single"
-            if len(modes) == 2:
-                return "two"
-            if len(modes) == 3:
-                return "three"
-            return fallback or "full"
+            return mode_complexity(modes, fallback)
 
         def _frontres_curriculum_choices(progress: float, seq_idx: int) -> tuple[list[tuple[str, ...]], str]:
-            _bases = _frontres_curriculum_allowed_bases()
-            _specialist_mode = str(self.cfg.get("frontres_specialist_mode", "") or "").lower()
-            if _specialist_mode in ("rp", "local_rp", "rp_only", "strong_rp"):
-                return [("local_rp",)], "single"
-            if _specialist_mode in ("rp_z", "z_rp", "vertical_contact"):
-                return [("global_z", "local_rp")], "two"
-            if not (_is_frontres and bool(self.cfg.get("frontres_perturbation_curriculum_enabled", True))):
-                return [tuple(_bases)], "full"
-
-            _progress = max(0.0, min(1.0, float(progress)))
-            _single = [(m,) for m in _bases]
-            _canonical_two = [
-                ("planar", "yaw"),
-                ("planar", "local_rp"),
-                ("yaw", "local_rp"),
-                ("global_z", "local_rp"),
-                ("planar", "global_z"),
-                ("yaw", "global_z"),
-            ]
-            _canonical_three = [
-                ("planar", "yaw", "local_rp"),
-                ("planar", "global_z", "local_rp"),
-                ("yaw", "global_z", "local_rp"),
-                ("planar", "yaw", "global_z"),
-            ]
-            _base_set = set(_bases)
-            _two = [m for m in _canonical_two if set(m).issubset(_base_set)]
-            _three = [m for m in _canonical_three if set(m).issubset(_base_set)]
-            _full = [tuple(_bases)]
-
-            _single_until = float(self.cfg.get("frontres_curriculum_single_until", 0.30))
-            _two_until = float(self.cfg.get("frontres_curriculum_two_until", 0.70))
-            _full_prob = float(self.cfg.get("frontres_curriculum_full_prob", 0.05))
-            _three_prob = float(self.cfg.get("frontres_curriculum_three_prob", 0.10))
-            _two_mid_prob = float(self.cfg.get("frontres_curriculum_two_mid_prob", 0.35))
-            _two_late_prob = float(self.cfg.get("frontres_curriculum_two_late_prob", 0.40))
-
-            _bucket = (int(seq_idx) * 37) % 1000 / 1000.0
-            if bool(self.cfg.get("frontres_adaptive_perturb_curriculum_enabled", True)):
-                _stats = getattr(self, "_frontres_boundary_ema", None)
-                if _stats is None:
-                    _stats = getattr(self, "_last_frontres_boundary_stats", None)
-                if _stats is None:
-                    return _single, "single"
-                _safe = float(_stats.get("safe", 0.0))
-                _repair = float(_stats.get("repair", _stats.get("fragile", 0.0)))
-                _broken = float(_stats.get("broken", 0.0))
-                _gainpos = float(_stats.get("positive_gain", 0.5))
-                _safe_hi = float(self.cfg.get("frontres_boundary_safe_high", 0.45))
-                _broken_hi = float(self.cfg.get("frontres_boundary_broken_high", 0.35))
-                _broken_target = float(self.cfg.get("frontres_boundary_broken_target", 0.25))
-                _repair_lo = float(self.cfg.get(
-                    "frontres_boundary_repair_low",
-                    self.cfg.get("frontres_boundary_fragile_low", 0.45),
-                ))
-                _repair_hi = float(self.cfg.get(
-                    "frontres_boundary_repair_high",
-                    self.cfg.get("frontres_boundary_fragile_high", 0.70),
-                ))
-                _gain_hi = float(self.cfg.get("frontres_boundary_positive_gain_high", 0.55))
-                _gain_lo = float(self.cfg.get("frontres_boundary_positive_gain_low", 0.45))
-
-                # State-based curriculum:
-                # * broken-heavy or low-gain batches retreat to clean single-family credit assignment;
-                # * safe-heavy batches add pairs to reach the repair frontier;
-                # * learnable boundary batches add pairs/occasional composites;
-                # * otherwise keep mostly single with a little pair exposure.
-                if _broken > _broken_hi or (_gainpos < _gain_lo and _broken > _broken_target):
-                    _complexity, _choices = "single", _single
-                elif _safe > _safe_hi and _broken < _broken_target and _two:
-                    if _bucket < 0.65:
-                        _complexity, _choices = "two", _two
-                    else:
-                        _complexity, _choices = "single", _single
-                elif (_repair_lo <= _repair <= _repair_hi) and _gainpos > _gain_hi:
-                    if _bucket < _full_prob and len(_bases) > 1:
-                        _complexity, _choices = "full", _full
-                    elif _bucket < _full_prob + max(_three_prob, 0.15) and _three:
-                        _complexity, _choices = "three", _three
-                    elif _bucket < _full_prob + max(_three_prob, 0.15) + 0.55 and _two:
-                        _complexity, _choices = "two", _two
-                    else:
-                        _complexity, _choices = "single", _single
-                else:
-                    if _bucket < 0.30 and _two:
-                        _complexity, _choices = "two", _two
-                    else:
-                        _complexity, _choices = "single", _single
-                return _choices, _complexity
-
-            if _progress < _single_until:
-                _complexity, _choices = "single", _single
-            elif _progress < _two_until:
-                if _bucket < _two_mid_prob and _two:
-                    _complexity, _choices = "two", _two
-                else:
-                    _complexity, _choices = "single", _single
-            else:
-                if _bucket < _full_prob and len(_bases) > 1:
-                    _complexity, _choices = "full", _full
-                elif _bucket < _full_prob + _three_prob and _three:
-                    _complexity, _choices = "three", _three
-                elif _bucket < _full_prob + _three_prob + _two_late_prob and _two:
-                    _complexity, _choices = "two", _two
-                else:
-                    _complexity, _choices = "single", _single
-
-            return _choices, _complexity
+            _stats = getattr(self, "_frontres_boundary_ema", None)
+            if _stats is None:
+                _stats = getattr(self, "_last_frontres_boundary_stats", None)
+            return choose_perturbation_choices(
+                self.cfg,
+                self.cfg.get("frontres_active_task_dims", None),
+                progress,
+                seq_idx,
+                boundary_stats=_stats,
+                is_frontres=_is_frontres,
+            )
 
         def _sample_frontres_rollout_perturbation_mix(progress: float, seq_idx: int) -> None:
             """Assign perturbation mode groups across env triplets for one PPO rollout."""
-            _choices, _phase_complexity = _frontres_curriculum_choices(progress, seq_idx)
             try:
                 _n_train = int(N_train)
                 _n_candidate = int(N_candidate)
@@ -2166,18 +2029,21 @@ class OnPolicyRunner:
                 _n_candidate = 0
                 _n_base = 0
                 _n_clean = 0
-            _groups: list[tuple[str, ...]] = []
-            for _env_i in range(max(_n_train, 0)):
-                _groups.append(tuple(_choices[_choice_hash(seq_idx * 1009 + _env_i) % len(_choices)]))
-            if not _groups:
-                _groups = [tuple(_frontres_curriculum_allowed_bases())]
-            _active_union = tuple(sorted({mode for group in _groups for mode in group}))
-            self._frontres_curriculum_active_modes = _active_union
-            _unique_complexities = {_complexity_for_modes(group) for group in _groups}
-            if len(_unique_complexities) == 1:
-                self._frontres_curriculum_complexity = next(iter(_unique_complexities))
-            else:
-                self._frontres_curriculum_complexity = "mixed"
+            _stats = getattr(self, "_frontres_boundary_ema", None)
+            if _stats is None:
+                _stats = getattr(self, "_last_frontres_boundary_stats", None)
+            _plan = sample_perturbation_mix(
+                self.cfg,
+                self.cfg.get("frontres_active_task_dims", None),
+                progress,
+                seq_idx,
+                _n_train,
+                boundary_stats=_stats,
+                is_frontres=_is_frontres,
+            )
+            _groups = _plan.groups
+            self._frontres_curriculum_active_modes = _plan.active_modes
+            self._frontres_curriculum_complexity = _plan.complexity
             self._frontres_curriculum_env_mode_groups = _groups
 
             _env_raw = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
@@ -2220,13 +2086,7 @@ class OnPolicyRunner:
             )
 
         def _choice_hash(seq_idx: int) -> int:
-            _hash = (int(seq_idx) + 1) & 0xFFFFFFFF
-            _hash ^= (_hash >> 16)
-            _hash = (_hash * 0x7FEB352D) & 0xFFFFFFFF
-            _hash ^= (_hash >> 15)
-            _hash = (_hash * 0x846CA68B) & 0xFFFFFFFF
-            _hash ^= (_hash >> 16)
-            return _hash
+            return frontres_curriculum_hash(seq_idx)
 
         def _set_frontres_curriculum_modes(modes: tuple[str, ...]) -> None:
             self._frontres_curriculum_active_modes = tuple(modes)
@@ -2246,47 +2106,12 @@ class OnPolicyRunner:
             single-family samples inside each update avoids serial forgetting
             while keeping the supervised target cleaner than a full composite.
             """
-            _bases = _frontres_curriculum_allowed_bases()
-            _mode = str(self.cfg.get(
-                "frontres_warmup_perturbation_schedule",
-                self.cfg.get("supervised_warmup_perturbation_schedule", "mixed_single"),
-            ))
-            _specialist_mode = str(self.cfg.get("frontres_specialist_mode", "") or "").lower()
-            if _specialist_mode in ("rp", "local_rp", "rp_only", "strong_rp"):
-                return [("local_rp",)]
-            if _specialist_mode in ("rp_z", "z_rp", "vertical_contact"):
-                return [("global_z", "local_rp")]
-            if _mode == "rl_curriculum":
-                _active = tuple(getattr(self, "_frontres_curriculum_active_modes", tuple(_bases)))
-                return [_active] if _active else [tuple(_bases)]
-            if _mode == "full":
-                return [tuple(_bases)]
-            if _mode in ("mixed_pair", "balanced_pair"):
-                _canonical_two = [
-                    ("planar", "yaw"),
-                    ("planar", "local_rp"),
-                    ("yaw", "local_rp"),
-                    ("global_z", "local_rp"),
-                    ("planar", "global_z"),
-                    ("yaw", "global_z"),
-                ]
-                _base_set = set(_bases)
-                _pairs = [m for m in _canonical_two if set(m).issubset(_base_set)]
-                if _pairs:
-                    if _mode == "balanced_pair":
-                        return [_pairs[_choice_hash(seq_idx) % len(_pairs)]]
-                    return _pairs
-            if _mode == "single":
-                return [(_bases[_choice_hash(seq_idx) % len(_bases)],)]
-            if _mode in ("balanced_single", "mixed_single"):
-                # Every warmup SGD update contains each active single
-                # perturbation family. Each rollout step still has a clean
-                # single-family target, but the optimizer update is balanced
-                # across all currently repairable directions.
-                return [(base,) for base in _bases]
-            # Conservative fallback for unknown schedule names: use balanced
-            # single-family warmup instead of silently returning a composite.
-            return [(base,) for base in _bases]
+            return warmup_perturbation_mode_groups(
+                self.cfg,
+                self.cfg.get("frontres_active_task_dims", None),
+                seq_idx,
+                current_active_modes=tuple(getattr(self, "_frontres_curriculum_active_modes", ())),
+            )
 
         def _apply_frontres_dr_scale(scale: float) -> None:
             if not (_is_frontres and _perturb_target is not None):
@@ -2345,28 +2170,14 @@ class OnPolicyRunner:
 
         def _frontres_mixed_dr_scale(frontier_scale: float, enabled: bool, seq_idx: int) -> tuple[float, str]:
             """Sample an easy/frontier/hard perturbation magnitude around the current frontier."""
-            _effective_scale = float(frontier_scale)
-            _mix_enabled = bool(enabled) and bool(self.cfg.get("frontres_mixed_dr_strength_enabled", True))
-            _mix_mode = "frontier" if _mix_enabled else "fixed"
-            if _mix_enabled:
-                _easy_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_easy_weight", 0.5)))
-                _frontier_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_frontier_weight", 0.4)))
-                _hard_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_hard_weight", 0.1)))
-                _w_sum = max(_easy_w + _frontier_w + _hard_w, 1e-6)
-                _easy_w = _easy_w / _w_sum
-                _frontier_w = _frontier_w / _w_sum
-                _bucket = (int(seq_idx) * 2654435761 % 1000) / 1000.0
-                if _bucket < _easy_w:
-                    _mix_mode = "easy"
-                    _factor = float(self.cfg.get("frontres_mixed_dr_easy_factor", 0.75))
-                elif _bucket < _easy_w + _frontier_w:
-                    _mix_mode = "frontier"
-                    _factor = float(self.cfg.get("frontres_mixed_dr_frontier_factor", 1.0))
-                else:
-                    _mix_mode = "hard"
-                    _factor = float(self.cfg.get("frontres_mixed_dr_hard_factor", 1.05))
-                _effective_scale = float(frontier_scale) * max(0.0, _factor)
-            return max(_dr_min, min(_dr_max, _effective_scale)), _mix_mode
+            return sample_scalar_dr_strength(
+                self.cfg,
+                frontier_scale,
+                enabled,
+                seq_idx,
+                dr_min=_dr_min,
+                dr_max=_dr_max,
+            )
 
         def _frontres_mixed_dr_scale_env(
             frontier_scale: float,
@@ -2374,11 +2185,6 @@ class OnPolicyRunner:
             seq_idx: int,
         ) -> tuple[torch.Tensor | None, str, dict[str, float]]:
             """Sample per-env easy/frontier/hard DR strength for paired rollout branches."""
-            _mix_enabled = bool(enabled) and bool(
-                self.cfg.get("frontres_mixed_dr_strength_per_env", True)
-            )
-            if not _mix_enabled:
-                return None, "fixed", {"easy": 0.0, "frontier": 1.0, "hard": 0.0, "mean": float(frontier_scale)}
             try:
                 _n_train = int(N_train)
                 _n_candidate = int(N_candidate)
@@ -2387,54 +2193,30 @@ class OnPolicyRunner:
                 _n_train = self.env.num_envs
                 _n_candidate = 0
                 _n_base = 0
-            if _n_train <= 0:
-                return None, "fixed", {"easy": 0.0, "frontier": 1.0, "hard": 0.0, "mean": float(frontier_scale)}
-
-            _easy_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_easy_weight", 0.5)))
-            _frontier_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_frontier_weight", 0.4)))
-            _hard_w = max(0.0, float(self.cfg.get("frontres_mixed_dr_hard_weight", 0.1)))
-            _w_sum = max(_easy_w + _frontier_w + _hard_w, 1e-6)
-            _easy_w /= _w_sum
-            _frontier_w /= _w_sum
-
-            _easy_factor = max(0.0, float(self.cfg.get("frontres_mixed_dr_easy_factor", 0.75)))
-            _frontier_factor = max(0.0, float(self.cfg.get("frontres_mixed_dr_frontier_factor", 1.0)))
-            _hard_factor = max(0.0, float(self.cfg.get("frontres_mixed_dr_hard_factor", 1.05)))
-            _frontier_scale = max(_dr_min, min(_dr_max, float(frontier_scale)))
-            _train_scales = torch.empty(_n_train, device=self.device, dtype=torch.float32)
-            _class = torch.empty(_n_train, device=self.device, dtype=torch.long)
-            for _env_i in range(_n_train):
-                _bucket = (_choice_hash(seq_idx * 9176 + _env_i * 131 + 17) % 1000) / 1000.0
-                if _bucket < _easy_w:
-                    _factor = _easy_factor
-                    _class[_env_i] = 0
-                elif _bucket < _easy_w + _frontier_w:
-                    _factor = _frontier_factor
-                    _class[_env_i] = 1
-                else:
-                    _factor = _hard_factor
-                    _class[_env_i] = 2
-                _train_scales[_env_i] = max(_dr_min, min(_dr_max, _frontier_scale * _factor))
-
-            _scales = torch.zeros(self.env.num_envs, device=self.device, dtype=torch.float32)
-            _scales[:_n_train] = _train_scales
-            _candidate_start = _n_train
-            _base_start = _n_train + _n_candidate
-            _copy_candidate = min(_n_candidate, _n_train)
-            if _copy_candidate > 0:
-                _scales[_candidate_start:_candidate_start + _copy_candidate] = _train_scales[:_copy_candidate]
-            _copy_base = min(_n_base, _n_train)
-            if _copy_base > 0:
-                _scales[_base_start:_base_start + _copy_base] = _train_scales[:_copy_base]
-
-            _diag = {
-                "easy": float((_class == 0).float().mean().item()),
-                "frontier": float((_class == 1).float().mean().item()),
-                "hard": float((_class == 2).float().mean().item()),
-                "mean": float(_train_scales.mean().item()),
-            }
-            self._frontres_dr_mix_class_train = _class
-            return _scales, "per_env", _diag
+            _plan = sample_per_env_dr_strength(
+                self.cfg,
+                frontier_scale,
+                enabled,
+                seq_idx,
+                n_train=_n_train,
+                n_candidate=_n_candidate,
+                n_base=_n_base,
+                num_envs=self.env.num_envs,
+                dr_min=_dr_min,
+                dr_max=_dr_max,
+            )
+            if _plan.scale_vector is None:
+                return None, _plan.mix_mode, _plan.diag
+            _scales = torch.tensor(_plan.scale_vector, device=self.device, dtype=torch.float32)
+            if _plan.mix_class is not None:
+                self._frontres_dr_mix_class_train = torch.tensor(
+                    _plan.mix_class,
+                    device=self.device,
+                    dtype=torch.long,
+                )
+            else:
+                self._frontres_dr_mix_class_train = None
+            return _scales, _plan.mix_mode, _plan.diag
 
         def _apply_frontres_dr_scale_env(scale_vec: torch.Tensor, scalar_fallback: float) -> None:
             if not (_is_frontres and _perturb_target is not None):
@@ -3129,14 +2911,11 @@ class OnPolicyRunner:
                             delattr(self, "_dr_prev_error")
                         self._dr_hold_just_ended = False
 
-                    _ema_alpha = float(self.cfg.get("frontres_boundary_dr_ema_alpha", 0.90))
-                    _ema_alpha = max(0.0, min(0.999, _ema_alpha))
-                    _ema = getattr(self, "_frontres_boundary_ema", None)
-                    if _ema is None:
-                        _ema = dict(_boundary_stats)
-                    else:
-                        for _key, _value in _boundary_stats.items():
-                            _ema[_key] = _ema_alpha * float(_ema.get(_key, _value)) + (1.0 - _ema_alpha) * float(_value)
+                    _ema = update_boundary_ema(
+                        self.cfg,
+                        getattr(self, "_frontres_boundary_ema", None),
+                        _boundary_stats,
+                    )
                     self._frontres_boundary_ema = _ema
 
                     _safe = float(_ema.get("safe", 0.0))
@@ -3191,73 +2970,37 @@ class OnPolicyRunner:
                             "frontier-class" if _per_env_mix_active else "all-base"
                         )
                         self._frontres_gmt_frontier_probe_samples = len(_frontier_len_source)
-                        if len(_frontier_len_source) > 0:
-                            _gmt_ep_len = float(statistics.mean(_frontier_len_source))
-                            _gmt_frontier_score = max(0.0, min(1.5, _gmt_ep_len / _score_ref))
-                            _safe_thr = float(
-                                self.cfg.get("frontres_gmt_frontier_safe_threshold", 0.85)
-                            )
-                            _broken_thr = float(
-                                self.cfg.get("frontres_gmt_frontier_broken_threshold", 0.65)
-                            )
-                            _growth = max(
-                                1.001,
-                                float(self.cfg.get("frontres_gmt_frontier_growth_factor", 1.12)),
-                            )
-                            if _gmt_frontier_score >= _safe_thr:
-                                _safe_low = max(_safe_low, _probe_scale)
-                                _gmt_frontier_decision = "safe"
-                                if _broken_high is None:
-                                    _next_probe = min(_dr_max, max(_probe_scale * _growth, _safe_low + 1e-6))
-                                else:
-                                    _next_probe = 0.5 * (_safe_low + float(_broken_high))
-                            elif _gmt_frontier_score <= _broken_thr:
-                                _broken_high = (
-                                    _probe_scale
-                                    if _broken_high is None
-                                    else min(float(_broken_high), _probe_scale)
-                                )
-                                if _probe_scale <= _safe_low + 1e-6:
-                                    _retreat = max(
-                                        0.1,
-                                        min(0.99, float(self.cfg.get("frontres_gmt_frontier_retreat_factor", 0.85))),
-                                    )
-                                    _safe_low = max(_dr_min, min(_safe_low * _retreat, _probe_scale - 1e-6))
-                                _gmt_frontier_decision = "broken"
-                                _next_probe = 0.5 * (_safe_low + float(_broken_high))
-                            else:
-                                _gmt_frontier_decision = "frontier"
-                                if _broken_high is None:
-                                    _broken_high = min(_dr_max, max(_probe_scale * _growth, _probe_scale + 1e-6))
-                                _next_probe = _probe_scale
-                            _safe_low = max(_dr_min, min(_dr_max, _safe_low))
-                            if _broken_high is not None:
-                                _broken_high = max(_safe_low, min(_dr_max, float(_broken_high)))
-                            _conservative = max(
-                                0.0,
-                                min(1.0, float(self.cfg.get("frontres_gmt_frontier_conservative_frac", 0.0))),
-                            )
-                            if _broken_high is not None:
-                                _frontier = _safe_low + _conservative * (float(_broken_high) - _safe_low)
-                            else:
-                                _frontier = _safe_low
-                            self._frontres_gmt_frontier_safe_low = _safe_low
-                            self._frontres_gmt_frontier_broken_high = _broken_high
-                            self._frontres_gmt_frontier_confirmed = max(_dr_min, min(_dr_max, _frontier))
-                            self._frontres_gmt_frontier_probe_scale = max(_dr_min, min(_dr_max, _next_probe))
-                            # The next rollout uses the probe scale.  The confirmed
-                            # safe frontier is logged separately so we can see the
-                            # bracket converge instead of mistaking a probe for a
-                            # validated boundary.
-                            _dr_scale = self._frontres_gmt_frontier_probe_scale
-                        else:
-                            _gmt_frontier_decision = "waiting"
-                            self._frontres_gmt_frontier_probe_scale = _probe_scale
-                            self._frontres_gmt_frontier_confirmed = float(
-                                getattr(self, "_frontres_gmt_frontier_confirmed", _dr_scale)
-                            )
-                        self._frontres_gmt_frontier_probe_score = _gmt_frontier_score
-                        self._frontres_gmt_frontier_decision = _gmt_frontier_decision
+                        _gmt_frontier_score = score_gmt_frontier(
+                            list(_frontier_len_source),
+                            _score_ref,
+                        )
+                        _frontier_state = GMTFrontierState(
+                            safe_low=_safe_low,
+                            broken_high=_broken_high,
+                            probe_scale=_probe_scale,
+                            probe_score=getattr(self, "_frontres_gmt_frontier_probe_score", None),
+                            decision=str(getattr(self, "_frontres_gmt_frontier_decision", "init")),
+                            confirmed=float(getattr(self, "_frontres_gmt_frontier_confirmed", _dr_scale)),
+                        )
+                        _frontier_update = update_gmt_frontier_state(
+                            self.cfg,
+                            _frontier_state,
+                            score=_gmt_frontier_score,
+                            samples=len(_frontier_len_source),
+                            dr_scale=_dr_scale,
+                            dr_scale_init=_dr_scale_init,
+                            dr_min=_dr_min,
+                            dr_max=_dr_max,
+                        )
+                        _new_frontier_state = _frontier_update.state
+                        self._frontres_gmt_frontier_safe_low = _new_frontier_state.safe_low
+                        self._frontres_gmt_frontier_broken_high = _new_frontier_state.broken_high
+                        self._frontres_gmt_frontier_confirmed = float(_new_frontier_state.confirmed)
+                        self._frontres_gmt_frontier_probe_scale = _new_frontier_state.probe_scale
+                        self._frontres_gmt_frontier_probe_score = _new_frontier_state.probe_score
+                        self._frontres_gmt_frontier_decision = _new_frontier_state.decision
+                        _gmt_frontier_decision = _new_frontier_state.decision
+                        _dr_scale = _frontier_update.next_dr_scale
                     else:
                         # Multiplicative controller.  Broken samples dominate because
                         # they pollute the actor with unrepairable targets.  Safe-heavy
@@ -4317,7 +4060,6 @@ class OnPolicyRunner:
                                     _base_timeout = _timeout[_base_start:_base_start + _n_exec] > 0
                                 else:
                                     _base_timeout = torch.zeros(_n_exec, device=self.device, dtype=torch.bool)
-                                _fall_now = _base_done & (~_base_timeout)
                                 _alpha_exec_floor = float(
                                     getattr(
                                         self,
@@ -4339,26 +4081,21 @@ class OnPolicyRunner:
                                     1e-6,
                                     float(self.cfg.get("frontres_state_alpha_temp", 0.08)),
                                 )
-                                _floor_mid = 0.5 * (_alpha_exec_floor + _alpha_safe_floor)
-                                _soft_label = torch.sigmoid(
-                                    (_floor_mid - _exec_perturbed) / _alpha_temp
+                                _alpha_targets = build_state_alpha_targets(
+                                    num_envs=self.env.num_envs,
+                                    n_exec=_n_exec,
+                                    exec_perturbed=_exec_perturbed,
+                                    base_done=_base_done,
+                                    base_timeout=_base_timeout,
+                                    exec_floor=_alpha_exec_floor,
+                                    safe_floor=_alpha_safe_floor,
+                                    temp=_alpha_temp,
+                                    device=self.device,
                                 )
-                                _soft_label = torch.where(
-                                    _fall_now,
-                                    torch.ones_like(_soft_label),
-                                    _soft_label,
-                                )
-                                _safe_signal = (~_base_done) & (_exec_perturbed >= _alpha_safe_floor)
-                                _broken_signal = _fall_now | (_exec_perturbed <= _alpha_exec_floor)
-                                _label_active = (_broken_signal | _safe_signal) & (~_base_timeout)
-                                _state_alpha_target[:_n_exec, 0] = _soft_label.detach()
-                                _state_alpha_mask[:_n_exec, 0] = _label_active.to(_state_alpha_mask.dtype).detach()
-                                self._frontres_state_alpha_target_last = float(
-                                    _state_alpha_target[:_n_exec, 0][_label_active].mean().item()
-                                ) if bool(_label_active.any().item()) else 0.0
-                                self._frontres_state_alpha_mask_last = float(
-                                    _label_active.float().mean().item()
-                                )
+                                _state_alpha_target = _alpha_targets.target
+                                _state_alpha_mask = _alpha_targets.mask
+                                self._frontres_state_alpha_target_last = _alpha_targets.target_mean
+                                self._frontres_state_alpha_mask_last = _alpha_targets.mask_mean
                             self.alg.transition.state_alpha_target = _state_alpha_target
                             self.alg.transition.state_alpha_mask = _state_alpha_mask
                             _harm_penalty = torch.zeros(N_train, device=self.device)
@@ -4420,8 +4157,10 @@ class OnPolicyRunner:
                             self._frontres_structured_joint_full_bonus_last = 0.0
                             self._frontres_structured_joint_rho_direction_last = 0.0
                             self._frontres_structured_joint_rho_centered_last = 0.0
+                            _structured_joint_requested = self._frontres_structured_joint_effective_enabled()
+                            _legacy_pref_enabled = bool(self.cfg.get("frontres_acceptance_preference_enabled", True))
                             _pref_enabled = (
-                                bool(self.cfg.get("frontres_acceptance_preference_enabled", True))
+                                (_legacy_pref_enabled or _structured_joint_requested)
                                 and N_candidate > 0
                                 and _n_exec > 0
                             )
@@ -4855,7 +4594,30 @@ class OnPolicyRunner:
                                         _target_active_for_alpha,
                                         _target_mean_for_alpha,
                                     )
-                                    _tri_alpha = _state_alpha_target[:_n_exec, 0].detach().clamp(0.0, 1.0)
+                                    _tri_alpha_source = getattr(
+                                        self, "_frontres_state_alpha_prob_next", None
+                                    )
+                                    if (
+                                        isinstance(_tri_alpha_source, torch.Tensor)
+                                        and _tri_alpha_source.numel() > 0
+                                    ):
+                                        _tri_alpha = _tri_alpha_source.to(
+                                            device=self.device,
+                                            dtype=_target_exec.dtype,
+                                        ).view(-1)
+                                        if _tri_alpha.numel() < _n_exec:
+                                            _tri_alpha = torch.nn.functional.pad(
+                                                _tri_alpha,
+                                                (0, _n_exec - _tri_alpha.numel()),
+                                                value=0.0,
+                                            )
+                                        _tri_alpha = _tri_alpha[:_n_exec].detach().clamp(0.0, 1.0)
+                                    else:
+                                        _tri_alpha = (
+                                            _state_alpha_target[:_n_exec, 0]
+                                            .detach()
+                                            .clamp(0.0, 1.0)
+                                        )
                                     _tri_weight_repair_mean = _target_sample_for_alpha.mean()
                                     _tri_weight_stable_mean = (
                                         (1.0 - _target_sample_for_alpha) * _tri_alpha
@@ -4865,12 +4627,11 @@ class OnPolicyRunner:
                                     ).mean()
                                 _accept_pref_target[:_n_exec] = _target_exec.detach()
                                 _accept_pref_mask[:_n_exec] = _mask_exec.detach()
-                                _structured_joint_enabled = bool(
-                                    self.cfg.get("frontres_structured_joint_rl_enabled", False)
+                                _structured_joint_enabled = (
+                                    self._frontres_structured_joint_effective_enabled()
                                 )
+
                                 if _structured_joint_enabled:
-                                    _rho_dim_weight = _mask_exec.detach().clamp(min=0.0)
-                                    _rho_dim_active = _rho_dim_weight > 1e-6
                                     _rho_floor = float(
                                         getattr(
                                             self,
@@ -4881,311 +4642,92 @@ class OnPolicyRunner:
                                             ),
                                         )
                                     )
-                                    _floor_violation = torch.relu(_rho_floor - _exec_frontres.detach())
-                                    _full_repair_ok = (_exec_candidate.detach() >= _rho_floor).to(_rho_current.dtype)
-                                    _directional_weight = max(
-                                        0.0,
-                                        float(self.cfg.get("frontres_structured_joint_directional_weight", 1.0)),
-                                    )
-                                    _rho_center = float(
-                                        self.cfg.get("frontres_structured_joint_rho_center", 0.5)
-                                    )
-                                    _rho_center = max(0.0, min(1.0, _rho_center))
-                                    _rho_centered_dim = (
-                                        2.0 * (_rho_current.detach() - _rho_center)
-                                    ).clamp(-1.0, 1.0)
-                                    _rho_center_drive_deadzone = max(
-                                        0.0,
-                                        float(
+                                    _rho_carrier = build_structured_rho_carrier(
+                                        num_envs=self.env.num_envs,
+                                        n_exec=_n_exec,
+                                        rho_current=_rho_current,
+                                        rho_dim_weight=_mask_exec.detach().clamp(min=0.0),
+                                        actor_gate=_actor_gate[:_n_exec],
+                                        exec_perturbed=_exec_perturbed,
+                                        exec_feasible=_exec_feasible,
+                                        exec_frontres=_exec_frontres,
+                                        exec_candidate=_exec_candidate,
+                                        state_alpha_target=_state_alpha_target,
+                                        live_alpha=getattr(self, "_frontres_state_alpha_prob_next", None),
+                                        rho_space=_rho_space,
+                                        grouped_targets_enabled=_grouped_targets_enabled,
+                                        feasible_components=_feasible_components,
+                                        candidate_planar=_candidate_planar,
+                                        candidate_rp=_candidate_rp,
+                                        candidate_z=_candidate_z,
+                                        projected_planar=_projected_planar,
+                                        projected_rp=_projected_rp,
+                                        projected_z=_projected_z,
+                                        base_planar=_base_planar,
+                                        base_rp=_base_rp,
+                                        base_z=_base_z,
+                                        pref_margin=_pref_margin,
+                                        rho_floor=_rho_floor,
+                                        directional_weight=max(
+                                            0.0,
+                                            float(self.cfg.get("frontres_structured_joint_directional_weight", 1.0)),
+                                        ),
+                                        rho_center=float(self.cfg.get("frontres_structured_joint_rho_center", 0.5)),
+                                        center_drive_deadzone=max(
+                                            0.0,
+                                            float(
+                                                self.cfg.get(
+                                                    "frontres_structured_joint_center_drive_deadzone",
+                                                    0.10,
+                                                )
+                                            ),
+                                        ),
+                                        retention_weight=max(
+                                            0.0,
+                                            float(
+                                                self.cfg.get(
+                                                    "frontres_structured_joint_retention_prior_weight",
+                                                    0.0,
+                                                )
+                                            ),
+                                        ),
+                                        floor_penalty_weight=max(
+                                            0.0,
+                                            float(self.cfg.get("frontres_structured_joint_floor_penalty_weight", 5.0)),
+                                        ),
+                                        full_bonus_weight=max(
+                                            0.0,
+                                            float(self.cfg.get("frontres_structured_joint_full_repair_bonus_weight", 1.0)),
+                                        ),
+                                        joint_weight_floor=max(
+                                            0.0,
+                                            min(
+                                                1.0,
+                                                float(self.cfg.get("frontres_structured_joint_weight_floor", 0.10)),
+                                            ),
+                                        ),
+                                        use_actor_gate_weight=bool(
                                             self.cfg.get(
-                                                "frontres_structured_joint_center_drive_deadzone",
-                                                0.10,
+                                                "frontres_structured_joint_use_actor_gate_weight",
+                                                False,
                                             )
                                         ),
+                                        device=self.device,
                                     )
-                                    if _rho_center_drive_deadzone > 1e-6:
-                                        _rho_center_drive_dim = torch.where(
-                                            _rho_centered_dim.abs() >= _rho_center_drive_deadzone,
-                                            torch.sign(_rho_centered_dim),
-                                            _rho_centered_dim / _rho_center_drive_deadzone,
-                                        )
-                                    else:
-                                        _rho_center_drive_dim = torch.sign(_rho_centered_dim)
-                                    _retention_weight = max(
-                                        0.0,
-                                        float(
-                                            self.cfg.get(
-                                                "frontres_structured_joint_retention_prior_weight",
-                                                0.0,
-                                            )
-                                        ),
-                                    )
-                                    _floor_penalty_weight = max(
-                                        0.0,
-                                        float(self.cfg.get("frontres_structured_joint_floor_penalty_weight", 5.0)),
-                                    )
-                                    _full_bonus_weight = max(
-                                        0.0,
-                                        float(self.cfg.get("frontres_structured_joint_full_repair_bonus_weight", 1.0)),
-                                    )
-                                    # PPO reinforces the sampled action when advantage is positive.
-                                    # Therefore rho needs a centered directional advantage:
-                                    # Candidate>Projected rewards high-rho samples and discourages
-                                    # low-rho samples; fallback>Projected does the inverse.  The
-                                    # utility difference supplies evidence strength; the sampled rho
-                                    # center-drive only says which side of rho_center the action
-                                    # belongs to, so evidence is not attenuated near rho=0.5.
-                                    # The rho advantage must compare against the fallback
-                                    # route actually used by tri-anchor execution.  The
-                                    # supervised alpha target is only a teacher signal; using
-                                    # it here leaks an oracle route into rho credit assignment.
-                                    _fallback_alpha_source = getattr(
-                                        self, "_frontres_state_alpha_prob_next", None
-                                    )
-                                    if (
-                                        isinstance(_fallback_alpha_source, torch.Tensor)
-                                        and _fallback_alpha_source.numel() > 0
-                                    ):
-                                        _fallback_alpha = _fallback_alpha_source.to(
-                                            device=self.device,
-                                            dtype=_rho_current.dtype,
-                                        ).view(-1)
-                                        if _fallback_alpha.numel() < _n_exec:
-                                            _fallback_alpha = torch.nn.functional.pad(
-                                                _fallback_alpha,
-                                                (0, _n_exec - _fallback_alpha.numel()),
-                                                value=0.0,
-                                            )
-                                        _fallback_alpha = _fallback_alpha[:_n_exec]
-                                    else:
-                                        _fallback_alpha = _state_alpha_target[:_n_exec, 0]
-                                    _fallback_alpha = _fallback_alpha.detach().clamp(0.0, 1.0)
-                                    _fallback_exec = (
-                                        (1.0 - _fallback_alpha) * _exec_perturbed.detach()
-                                        + _fallback_alpha * _exec_feasible.detach()
-                                    )
-                                    _rho_direction_dim_live_route = None
-                                    if (
-                                        _rho_space in ("tri_anchor", "tri-anchor", "tri")
-                                        and _grouped_targets_enabled
-                                        and isinstance(_candidate_planar, torch.Tensor)
-                                        and isinstance(_candidate_rp, torch.Tensor)
-                                        and isinstance(_candidate_z, torch.Tensor)
-                                        and isinstance(_projected_planar, torch.Tensor)
-                                        and isinstance(_projected_rp, torch.Tensor)
-                                        and isinstance(_projected_z, torch.Tensor)
-                                        and isinstance(_base_planar, torch.Tensor)
-                                        and isinstance(_base_rp, torch.Tensor)
-                                        and isinstance(_base_z, torch.Tensor)
-                                        and isinstance(_feasible_components, dict)
-                                    ):
-                                        def _feasible_component(
-                                            _name: str, _fallback: torch.Tensor
-                                        ) -> torch.Tensor:
-                                            _component = _feasible_components.get(_name, _fallback)
-                                            return _component[:_n_exec].to(
-                                                device=self.device,
-                                                dtype=_rho_current.dtype,
-                                            )
-
-                                        _feasible_xy = _feasible_component("xy", _exec_feasible)
-                                        _feasible_yaw = _feasible_component("yaw", _exec_feasible)
-                                        _feasible_planar = 0.5 * (_feasible_xy + _feasible_yaw)
-                                        _feasible_rp = _feasible_component("rp", _exec_feasible)
-                                        _feasible_z = _feasible_component("z", _exec_feasible)
-
-                                        _fallback_planar = (
-                                            (1.0 - _fallback_alpha)
-                                            * _base_planar.detach().to(_rho_current.dtype)
-                                            + _fallback_alpha * _feasible_planar.detach()
-                                        )
-                                        _fallback_rp = (
-                                            (1.0 - _fallback_alpha)
-                                            * _base_rp.detach().to(_rho_current.dtype)
-                                            + _fallback_alpha * _feasible_rp.detach()
-                                        )
-                                        _fallback_z = (
-                                            (1.0 - _fallback_alpha)
-                                            * _base_z.detach().to(_rho_current.dtype)
-                                            + _fallback_alpha * _feasible_z.detach()
-                                        )
-
-                                        def _live_route_direction(
-                                            _candidate_score: torch.Tensor,
-                                            _projected_score: torch.Tensor,
-                                            _fallback_score: torch.Tensor,
-                                        ) -> torch.Tensor:
-                                            _candidate_regret_group = torch.relu(
-                                                _candidate_score.detach().to(_rho_current.dtype)
-                                                - _projected_score.detach().to(_rho_current.dtype)
-                                                - _pref_margin
-                                            )
-                                            _fallback_regret_group = torch.relu(
-                                                _fallback_score.detach().to(_rho_current.dtype)
-                                                - _projected_score.detach().to(_rho_current.dtype)
-                                                - _pref_margin
-                                            )
-                                            _group_scale = (
-                                                (
-                                                    _candidate_score.detach().to(_rho_current.dtype)
-                                                    - _fallback_score.detach().to(_rho_current.dtype)
-                                                ).abs()
-                                                + _pref_margin
-                                                + 1.0e-6
-                                            )
-                                            return (
-                                                (_candidate_regret_group - _fallback_regret_group)
-                                                / _group_scale
-                                            ).clamp(-1.0, 1.0)
-
-                                        _direction_planar_live = _live_route_direction(
-                                            _candidate_planar, _projected_planar, _fallback_planar
-                                        )
-                                        _direction_rp_live = _live_route_direction(
-                                            _candidate_rp, _projected_rp, _fallback_rp
-                                        )
-                                        _direction_z_live = _live_route_direction(
-                                            _candidate_z, _projected_z, _fallback_z
-                                        )
-                                        _rho_direction_dim_live_route = torch.stack(
-                                            [
-                                                _direction_planar_live,
-                                                _direction_planar_live,
-                                                _direction_z_live,
-                                                _direction_rp_live,
-                                                _direction_rp_live,
-                                                _direction_planar_live,
-                                            ],
-                                            dim=-1,
-                                        ).detach()
-                                    _candidate_regret = torch.relu(
-                                        _exec_candidate.detach() - _exec_frontres.detach() - _pref_margin
-                                    )
-                                    _fallback_regret = torch.relu(
-                                        _fallback_exec - _exec_frontres.detach() - _pref_margin
-                                    )
-                                    _direction_scale = (
-                                        (_exec_candidate.detach() - _fallback_exec).abs()
-                                        + _pref_margin
-                                        + 1e-6
-                                    )
-                                    _rho_direction = (
-                                        (_candidate_regret - _fallback_regret) / _direction_scale
-                                    ).clamp(-1.0, 1.0)
-                                    # Use Candidate/Projected/fallback regret as the policy-gradient
-                                    # direction.  Do not derive the direction from the calibrated rho
-                                    # target: that target is anchored at the sampled rho, so low-rho
-                                    # samples can remain below center even when Candidate is better,
-                                    # which would reinforce the conservative action we wanted to fix.
-                                    if (
-                                        isinstance(_rho_direction_dim_live_route, torch.Tensor)
-                                        and _rho_direction_dim_live_route.shape == _rho_current.shape
-                                    ):
-                                        _rho_direction_dim = _rho_direction_dim_live_route.to(
-                                            device=self.device,
-                                            dtype=_rho_current.dtype,
-                                        ).detach()
-                                    else:
-                                        _rho_direction_dim = (
-                                            _rho_direction.view(-1, 1)
-                                            .expand_as(_rho_current)
-                                            .detach()
-                                        )
-                                    _rho_directional_adv_dim = (
-                                        _directional_weight * _rho_direction_dim * _rho_center_drive_dim
-                                    )
-                                    _rho_retention_term_dim = _retention_weight * _rho_center_drive_dim
-                                    _floor_direction = torch.where(
-                                        _full_repair_ok > 0.5,
-                                        torch.ones_like(_rho_direction),
-                                        -torch.ones_like(_rho_direction),
-                                    )
-                                    _rho_floor_term_dim = (
-                                        _floor_penalty_weight
-                                        * _floor_violation.view(-1, 1)
-                                        * _floor_direction.view(-1, 1)
-                                        * _rho_center_drive_dim
-                                    )
-                                    _rho_full_bonus_dim = (
-                                        _full_bonus_weight
-                                        * _full_repair_ok.view(-1, 1)
-                                        * _rho_center_drive_dim
-                                    )
-                                    _rho_adv_dim = (
-                                        _rho_directional_adv_dim
-                                        + _rho_retention_term_dim
-                                        + _rho_floor_term_dim
-                                        + _rho_full_bonus_dim
-                                    )
-                                    _joint_weight_floor = float(
-                                        self.cfg.get("frontres_structured_joint_weight_floor", 0.10)
-                                    )
-                                    _joint_weight_floor = max(0.0, min(1.0, _joint_weight_floor))
-                                    _rho_sample_weight = (
-                                        _joint_weight_floor
-                                        + (1.0 - _joint_weight_floor) * _actor_gate[:_n_exec]
-                                    ).detach().clamp(0.0, 1.0)
-                                    _rho_weight_dim = (
-                                        _rho_sample_weight.view(-1, 1) * _rho_dim_weight
-                                    ).detach().clamp(0.0, 1.0)
-                                    _accept_pref_target.zero_()
-                                    _accept_pref_mask.zero_()
-                                    _accept_pref_target[:_n_exec, :6] = _rho_adv_dim.detach()
-                                    _accept_pref_mask[:_n_exec, :6] = _rho_weight_dim
-                                    _target_exec = _rho_adv_dim
-                                    _mask_exec = _rho_weight_dim
-                                    _rho_active_values = _rho_adv_dim[_rho_dim_active]
-                                    _rho_weight_values = _rho_weight_dim[_rho_dim_active]
-                                    self._frontres_structured_joint_adv_last = float(
-                                        _rho_active_values.mean().detach().item()
-                                        if _rho_active_values.numel() > 0
-                                        else 0.0
-                                    )
-                                    self._frontres_structured_joint_weight_last = float(
-                                        _rho_weight_values.mean().detach().item()
-                                        if _rho_weight_values.numel() > 0
-                                        else 0.0
-                                    )
-                                    self._frontres_structured_joint_rho_adv_last = float(
-                                        _rho_active_values.mean().detach().item()
-                                        if _rho_active_values.numel() > 0
-                                        else 0.0
-                                    )
-                                    self._frontres_structured_joint_rho_weight_last = float(
-                                        _rho_weight_values.mean().detach().item()
-                                        if _rho_weight_values.numel() > 0
-                                        else 0.0
-                                    )
-                                    self._frontres_structured_joint_rho_retention_last = float(
-                                        _rho_retention_term_dim[_rho_dim_active].mean().detach().item()
-                                        if bool(_rho_dim_active.any().detach().item())
-                                        else 0.0
-                                    )
-                                    self._frontres_structured_joint_floor_violation_last = float(
-                                        _rho_floor_term_dim[_rho_dim_active].mean().detach().item()
-                                        if bool(_rho_dim_active.any().detach().item())
-                                        else 0.0
-                                    )
-                                    self._frontres_structured_joint_full_bonus_last = float(
-                                        _rho_full_bonus_dim[_rho_dim_active].mean().detach().item()
-                                        if bool(_rho_dim_active.any().detach().item())
-                                        else 0.0
-                                    )
-                                    self._frontres_structured_joint_rho_direction_last = float(
-                                        _rho_direction_dim[_rho_dim_active].mean().detach().item()
-                                        if bool(_rho_dim_active.any().detach().item())
-                                        else 0.0
-                                    )
-                                    self._frontres_structured_joint_rho_centered_last = float(
-                                        _rho_centered_dim[_rho_dim_active].mean().detach().item()
-                                        if bool(_rho_dim_active.any().detach().item())
-                                        else 0.0
-                                    )
-                                    self._frontres_structured_joint_rho_drive_last = float(
-                                        _rho_center_drive_dim[_rho_dim_active].mean().detach().item()
-                                        if bool(_rho_dim_active.any().detach().item())
-                                        else 0.0
-                                    )
+                                    _accept_pref_target = _rho_carrier.accept_target
+                                    _accept_pref_mask = _rho_carrier.accept_mask
+                                    _target_exec = _rho_carrier.target_exec
+                                    _mask_exec = _rho_carrier.mask_exec
+                                    self._frontres_structured_joint_adv_last = _rho_carrier.adv_mean
+                                    self._frontres_structured_joint_weight_last = _rho_carrier.weight_mean
+                                    self._frontres_structured_joint_rho_adv_last = _rho_carrier.adv_mean
+                                    self._frontres_structured_joint_rho_weight_last = _rho_carrier.weight_mean
+                                    self._frontres_structured_joint_rho_retention_last = _rho_carrier.retention_mean
+                                    self._frontres_structured_joint_floor_violation_last = _rho_carrier.floor_mean
+                                    self._frontres_structured_joint_full_bonus_last = _rho_carrier.full_bonus_mean
+                                    self._frontres_structured_joint_rho_direction_last = _rho_carrier.direction_mean
+                                    self._frontres_structured_joint_rho_centered_last = _rho_carrier.centered_mean
+                                    self._frontres_structured_joint_rho_drive_last = _rho_carrier.drive_mean
                                 else:
                                     self._frontres_structured_joint_adv_last = 0.0
                                     self._frontres_structured_joint_weight_last = 0.0
@@ -6819,164 +6361,15 @@ class OnPolicyRunner:
                                 f"{locs['frontres_projection_gain_mean']:+.4f} "
                                 f"(under={locs['frontres_underwrite_mean']:+.4f})\n"
                             )
-                        if locs.get("frontres_candidate_floor_margin_mean") is not None:
-                            log_string += f"""{'cand floor pass/margin:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_candidate_floor_pass_mean']:.3f} / "
-                                f"{locs['frontres_candidate_floor_margin_mean']:+.4f}\n"
-                            )
-                            log_string += f"""{"exec floor val/safe/adapt:":>{pad}} """
-                            log_string += (
-                                f"{locs.get('frontres_exec_floor_value_mean', 0.0):+.4f} / "
-                                f"{locs.get('frontres_exec_floor_safe_mean', 0.0):+.4f} / "
-                                f"{locs.get('frontres_exec_floor_adaptive_mean', 0.0):.3f}\n"
-                            )
-                            log_string += f"""{"exec floor cnt s/b:":>{pad}} """
-                            log_string += (
-                                f"{locs.get('frontres_exec_floor_safe_count_mean', 0.0):.0f} / "
-                                f"{locs.get('frontres_exec_floor_broken_count_mean', 0.0):.0f}\n"
-                            )
-                        if locs.get("frontres_state_alpha_pred_mean") is not None:
-                            log_string += f"""{'state alpha p/t/m/r:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_state_alpha_pred_mean']:.3f} / "
-                                f"{locs['frontres_state_alpha_target_mean']:.3f} / "
-                                f"{locs['frontres_state_alpha_mask_mean']:.3f} / "
-                                f"{locs['frontres_state_alpha_route_mean']:.3f}\n"
-                            )
-                            if _loss_dict.get("state_alpha_loss", None) is not None:
-                                log_string += f"""{'state alpha loss/acc:':>{pad}} """
-                                log_string += (
-                                    f"{_loss_dict.get('state_alpha_loss', 0.0):.4f} / "
-                                    f"{_loss_dict.get('state_alpha_acc', 0.0):.3f}\n"
-                                )
-                        if locs.get("frontres_structured_joint_rho_adv_mean") is not None:
-                            log_string += f"""{"rho directional d/c/drv:":>{pad}} """
-                            log_string += (
-                                f"{locs.get('frontres_structured_joint_rho_direction_mean', 0.0):+.3f} / "
-                                f"{locs.get('frontres_structured_joint_rho_centered_mean', 0.0):+.3f} / "
-                                f"{locs.get('frontres_structured_joint_rho_drive_mean', 0.0):+.3f}\n"
-                            )
-                            log_string += f"""{"rho constrained adv:":>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_structured_joint_rho_adv_mean']:+.4f} / "
-                                f"retp={locs.get('frontres_structured_joint_rho_retention_mean', 0.0):+.4f}, "
-                                f"floor={locs.get('frontres_structured_joint_floor_violation_mean', 0.0):+.4f}, "
-                                f"full={locs.get('frontres_structured_joint_full_bonus_mean', 0.0):+.4f}\n"
-                            )
-                            log_string += f"""{"rho constrained weight:":>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_structured_joint_rho_weight_mean']:.3f}\n"
-                            )
-                            log_string += f"""{"rho update mode:":>{pad}} """
-                            log_string += "structured_adv rho-only\n"
-                        if locs.get("frontres_candidate_floor_margin_mean") is not None:
-                            log_string += f"""{"rho space:":>{pad}} """
-                            log_string += f"{self.cfg.get('frontres_rho_space', 'noisy_to_repair')}\n"
-                            log_string += f"""{"stable endpoint frac:":>{pad}} """
-                            log_string += f"{locs.get('frontres_stable_endpoint_frac_mean', 0.0):.3f}\n"
-                            _rho_space_label = str(
-                                self.cfg.get("frontres_rho_space", "noisy_to_repair")
-                            ).lower()
-                            _route_label = (
-                                "alpha hard-route diag:"
-                                if _rho_space_label in ("tri_anchor", "tri-anchor", "tri")
-                                else "stable route frac:"
-                            )
-                            log_string += f"""{_route_label:>{pad}} """
-                            log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
-                            if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower() in (
-                                "tri_anchor", "tri-anchor", "tri"
-                            ):
-                                log_string += f"""{'tri weights R/N/S:':>{pad}} """
-                                log_string += (
-                                    f"{locs.get('frontres_tri_weight_repair_mean', 0.0):.3f} / "
-                                    f"{locs.get('frontres_tri_weight_noisy_mean', 0.0):.3f} / "
-                                    f"{locs.get('frontres_tri_weight_stable_mean', 0.0):.3f}\n"
-                                )
-                        if (
-                            str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                            in ("tri_anchor", "tri-anchor", "tri")
-                            and locs.get("frontres_rho_target_planar_mean") is not None
-                        ):
-                            _structured_joint_diag = bool(
-                                self.cfg.get("frontres_structured_joint_rl_enabled", False)
-                            )
-                            _rho_target_label = (
-                                "legacy rho diag p/r/z:"
-                                if _structured_joint_diag
-                                else "rho target grp p/r/z:"
-                            )
-                            _rho_spread_label = (
-                                "legacy rho spread/mask:"
-                                if _structured_joint_diag
-                                else "rho target spread/weight:"
-                            )
-                            log_string += f"""{_rho_target_label:>{pad}} """
-                            log_string += (
-                                f"{locs.get('frontres_rho_target_planar_mean', 0.0):.3f} / "
-                                f"{locs.get('frontres_rho_target_rp_mean', 0.0):.3f} / "
-                                f"{locs.get('frontres_rho_target_z_mean', 0.0):.3f}\n"
-                            )
-                            log_string += f"""{_rho_spread_label:>{pad}} """
-                            log_string += (
-                                f"{locs.get('frontres_rho_target_spread_mean', 0.0):.3f} / "
-                                f"{locs.get('frontres_grouped_rho_mask_mean', 0.0):.3f}\n"
-                            )
-                            log_string += f"""{"rho regret up/dn p/r/z:":>{pad}} """
-                            log_string += (
-                                f"{locs.get('frontres_rho_regret_up_planar_mean', 0.0):.4f}/"
-                                f"{locs.get('frontres_rho_regret_down_planar_mean', 0.0):.4f} / "
-                                f"{locs.get('frontres_rho_regret_up_rp_mean', 0.0):.4f}/"
-                                f"{locs.get('frontres_rho_regret_down_rp_mean', 0.0):.4f} / "
-                                f"{locs.get('frontres_rho_regret_up_z_mean', 0.0):.4f}/"
-                                f"{locs.get('frontres_rho_regret_down_z_mean', 0.0):.4f}\n"
-                            )
-                            if locs.get("frontres_accept_pref_mask_mean") is not None:
-                                _structured_joint_diag = bool(
-                                    self.cfg.get("frontres_structured_joint_rl_enabled", False)
-                                )
-                                _rho_space_diag = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                                if _structured_joint_diag:
-                                    _pref_label = "joint adv pos/neg/near/ign:"
-                                elif _rho_space_diag in ("stable_to_repair", "stable-repair", "stable"):
-                                    _pref_label = "accept pref repair/stable/keep/ign:"
-                                elif _rho_space_diag in ("tri_anchor", "tri-anchor", "tri"):
-                                    _pref_label = "accept pref repair/fallback/keep/ign:"
-                                else:
-                                    _pref_label = "accept pref full/noop/keep/ign:"
-                            log_string += f"""{_pref_label:>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_accept_pref_full_mean']:.3f} / "
-                                f"{locs['frontres_accept_pref_noop_mean']:.3f} / "
-                                f"{locs['frontres_accept_pref_keep_mean']:.3f} / "
-                                f"{locs['frontres_accept_pref_ignore_mean']:.3f} "
-                                f"(mask={locs['frontres_accept_pref_mask_mean']:.3f}, "
-                                f"margin={locs['frontres_accept_pref_margin_mean']:+.4f})\n"
-                            )
-                        if (
-                            bool(self.cfg.get("frontres_acceptance_direct_target_enabled", False))
-                            and locs.get("frontres_accept_pref_need_mean") is not None
-                        ):
-                            _accept_target_diag = locs.get(
-                                "frontres_accept_pref_target_mean",
-                                _loss_dict.get("acceptance_preference_target_mean", 0.0),
-                            )
-                            log_string += f"""{'accept need/admiss/tgt:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_accept_pref_need_mean']:.3f} / "
-                                f"{locs['frontres_accept_pref_admiss_mean']:.3f} / "
-                                f"{_accept_target_diag:.3f}\n"
-                            )
-                        if (
-                            bool(self.cfg.get("frontres_inertial_preference_enabled", False))
-                            and locs.get("frontres_inertial_pref_penalty_rho_mean") is not None
-                        ):
-                            log_string += f"""{"inert pref pen rho/cand:":>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_inertial_pref_penalty_rho_mean']:.3f} / "
-                                f"{locs['frontres_inertial_pref_penalty_one_mean']:.3f}\n"
-                            )
+                        log_string += format_frontres_floor_alpha_diagnostics(locs, _loss_dict, pad=pad)
+                        log_string += format_frontres_route_rho_diagnostics(locs, self.cfg, pad=pad)
+                        log_string += format_frontres_preference_diagnostics(
+                            locs,
+                            _loss_dict,
+                            self.cfg,
+                            pad=pad,
+                            structured_label="joint adv pos/neg/near/ign:",
+                        )
 
                     log_string += f"""\n{'-' * 10} Correction Geometry {'-' * 10}\n"""
                     if locs.get("frontres_delta_pos_abs_mean") is not None:
@@ -7002,7 +6395,7 @@ class OnPolicyRunner:
                     _apl = _loss_dict.get("acceptance_preference_loss", None)
                     if _apl is not None:
                         _legacy_pref_disabled = (
-                            bool(self.cfg.get("frontres_structured_joint_rl_enabled", False))
+                            self._frontres_structured_joint_effective_enabled()
                             and not bool(self.cfg.get("frontres_structured_joint_rl_keep_legacy_bce", False))
                             and float(_loss_dict.get("lambda_acceptance_preference", 0.0)) <= 0.0
                         )
@@ -7035,28 +6428,7 @@ class OnPolicyRunner:
                                 f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
                                 f"corr={_loss_dict.get('acceptance_preference_corr', 0.0):+.3f})\n"
                             )
-                    _sal = _loss_dict.get("state_alpha_loss", None)
-                    if _sal is not None:
-                        log_string += f"""{'state alpha loss:':>{pad}} {_sal:.4f} """
-                        log_string += (
-                            f"(λ={_loss_dict.get('lambda_state_alpha', 0.0):.3f}, "
-                            f"mask={_loss_dict.get('state_alpha_mask_frac', 0.0):.3f}, "
-                            f"tgt={_loss_dict.get('state_alpha_target_mean', 0.0):.3f}, "
-                            f"pred={_loss_dict.get('state_alpha_pred_mean', 0.0):.3f}, "
-                            f"acc={_loss_dict.get('state_alpha_acc', 0.0):.3f})\n"
-                        )
-                    _sjl = _loss_dict.get("structured_joint_rl_loss", None)
-                    if _sjl is not None and _loss_dict.get("lambda_structured_joint_rl", 0.0) > 0.0:
-                        log_string += f"""{'joint rl loss:':>{pad}} {_sjl:.4f} """
-                        log_string += (
-                            f"(λ={_loss_dict.get('lambda_structured_joint_rl', 0.0):.3f}, "
-                            f"enabled={_loss_dict.get('structured_joint_rl_enabled', 0.0):.0f}, "
-                            f"adv={_loss_dict.get('structured_joint_rl_adv_mean', 0.0):+.4f}, "
-                            f"w={_loss_dict.get('structured_joint_rl_weight_mean', 0.0):.3f}, "
-                            f"dim={_loss_dict.get('structured_joint_rl_dim_active_mean', 0.0):.3f}, "
-                            f"generic={_loss_dict.get('ppo_actor_weight', 0.0):.3f}, "
-                            f"rho_ratio={_loss_dict.get('structured_joint_rl_ratio_mean', 0.0):.3f})\n"
-                        )
+                    log_string += format_frontres_optimization_diagnostics(_loss_dict, pad=pad)
                     log_string += f"""{'learning rate:':>{pad}} {getattr(self.alg, 'learning_rate', 0.0):.2e}\n"""
                     _objective_name = f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
                     if _objective_name == "hsl_hybrid":
@@ -7173,64 +6545,8 @@ class OnPolicyRunner:
                                 f"{locs['frontres_repair_frac_mean']:.3f} / "
                                 f"{locs['frontres_broken_frac_mean']:.3f}\n"
                             )
-                            if locs.get("frontres_candidate_floor_margin_mean") is not None:
-                                log_string += f"""{'cand floor pass/margin:':>{pad}} """
-                                log_string += (
-                                    f"{locs['frontres_candidate_floor_pass_mean']:.3f} / "
-                                    f"{locs['frontres_candidate_floor_margin_mean']:+.4f}\n"
-                                )
-                                log_string += f"""{"exec floor val/safe/adapt:":>{pad}} """
-                                log_string += (
-                                    f"{locs.get('frontres_exec_floor_value_mean', 0.0):+.4f} / "
-                                    f"{locs.get('frontres_exec_floor_safe_mean', 0.0):+.4f} / "
-                                    f"{locs.get('frontres_exec_floor_adaptive_mean', 0.0):.3f}\n"
-                                )
-                                log_string += f"""{"exec floor cnt s/b:":>{pad}} """
-                                log_string += (
-                                    f"{locs.get('frontres_exec_floor_safe_count_mean', 0.0):.0f} / "
-                                    f"{locs.get('frontres_exec_floor_broken_count_mean', 0.0):.0f}\n"
-                                )
-                                log_string += f"""{"rho space:":>{pad}} """
-                                log_string += f"{self.cfg.get('frontres_rho_space', 'noisy_to_repair')}\n"
-                                log_string += f"""{"stable endpoint frac:":>{pad}} """
-                                log_string += f"{locs.get('frontres_stable_endpoint_frac_mean', 0.0):.3f}\n"
-                                _rho_space_label = str(
-                                    self.cfg.get("frontres_rho_space", "noisy_to_repair")
-                                ).lower()
-                                _route_label = (
-                                    "alpha hard-route diag:"
-                                    if _rho_space_label in ("tri_anchor", "tri-anchor", "tri")
-                                    else "stable route frac:"
-                                )
-                                log_string += f"""{_route_label:>{pad}} """
-                                log_string += f"{locs.get('frontres_stable_route_frac_mean', 0.0):.3f}\n"
-                                if str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower() in (
-                                    "tri_anchor", "tri-anchor", "tri"
-                                ):
-                                    log_string += f"""{'tri weights R/N/S:':>{pad}} """
-                                    log_string += (
-                                        f"{locs.get('frontres_tri_weight_repair_mean', 0.0):.3f} / "
-                                        f"{locs.get('frontres_tri_weight_noisy_mean', 0.0):.3f} / "
-                                        f"{locs.get('frontres_tri_weight_stable_mean', 0.0):.3f}\n"
-                                    )
-                            if locs.get("frontres_structured_joint_adv_mean") is not None:
-                                log_string += f"""{"rho directional d/c/drv:":>{pad}} """
-                                log_string += (
-                                    f"{locs.get('frontres_structured_joint_rho_direction_mean', 0.0):+.3f} / "
-                                    f"{locs.get('frontres_structured_joint_rho_centered_mean', 0.0):+.3f} / "
-                                    f"{locs.get('frontres_structured_joint_rho_drive_mean', 0.0):+.3f}\n"
-                                )
-                                log_string += f"""{"rho constrained adv:":>{pad}} """
-                                log_string += (
-                                    f"{locs.get('frontres_structured_joint_adv_mean', 0.0):+.4f} / "
-                                    f"retp={locs.get('frontres_structured_joint_rho_retention_mean', 0.0):+.4f}, "
-                                    f"floor={locs.get('frontres_structured_joint_floor_violation_mean', 0.0):+.4f}, "
-                                    f"full={locs.get('frontres_structured_joint_full_bonus_mean', 0.0):+.4f}\n"
-                                )
-                                log_string += f"""{"rho constrained weight:":>{pad}} """
-                                log_string += f"{locs.get('frontres_structured_joint_weight_mean', 0.0):.3f}\n"
-                                log_string += f"""{"rho update mode:":>{pad}} """
-                                log_string += "structured_adv rho-only\n"
+                            log_string += format_frontres_floor_alpha_diagnostics(locs, _loss_dict, pad=pad)
+                            log_string += format_frontres_route_rho_diagnostics(locs, self.cfg, pad=pad)
 
                         log_string += f"""\n{'-' * 12} Detail Reward {'-' * 12}\n"""
                         if locs.get("frontres_r_z_mean") is not None:
@@ -7263,89 +6579,13 @@ class OnPolicyRunner:
                                 f"{locs['frontres_projection_gain_mean']:+.4f} "
                                 f"(under={locs['frontres_underwrite_mean']:+.4f})\n"
                             )
-                        if locs.get("frontres_accept_pref_mask_mean") is not None:
-                            _structured_joint_diag = bool(
-                                self.cfg.get("frontres_structured_joint_rl_enabled", False)
-                            )
-                            _rho_space_diag = str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                            if _structured_joint_diag:
-                                _pref_label = "rho adv pos/neg/near/ign:"
-                            elif _rho_space_diag in ("stable_to_repair", "stable-repair", "stable"):
-                                _pref_label = "accept pref repair/stable/keep/ign:"
-                            elif _rho_space_diag in ("tri_anchor", "tri-anchor", "tri"):
-                                _pref_label = "accept pref repair/fallback/keep/ign:"
-                            else:
-                                _pref_label = "accept pref full/noop/keep/ign:"
-                            log_string += f"""{_pref_label:>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_accept_pref_full_mean']:.3f} / "
-                                f"{locs['frontres_accept_pref_noop_mean']:.3f} / "
-                                f"{locs['frontres_accept_pref_keep_mean']:.3f} / "
-                                f"{locs['frontres_accept_pref_ignore_mean']:.3f} "
-                                f"(mask={locs['frontres_accept_pref_mask_mean']:.3f}, "
-                                f"margin={locs['frontres_accept_pref_margin_mean']:+.4f})\n"
-                            )
-                        if (
-                            bool(self.cfg.get("frontres_acceptance_direct_target_enabled", False))
-                            and locs.get("frontres_accept_pref_need_mean") is not None
-                        ):
-                            _accept_target_diag = locs.get(
-                                "frontres_accept_pref_target_mean",
-                                _loss_dict.get("acceptance_preference_target_mean", 0.0),
-                            )
-                            log_string += f"""{'accept need/admiss/tgt:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_accept_pref_need_mean']:.3f} / "
-                                f"{locs['frontres_accept_pref_admiss_mean']:.3f} / "
-                                f"{_accept_target_diag:.3f}\n"
-                            )
-                        if (
-                            bool(self.cfg.get("frontres_inertial_preference_enabled", False))
-                            and locs.get("frontres_inertial_pref_penalty_rho_mean") is not None
-                        ):
-                            log_string += f"""{'inert pref pen rho/cand:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_inertial_pref_penalty_rho_mean']:.3f} / "
-                                f"{locs['frontres_inertial_pref_penalty_one_mean']:.3f}\n"
-                            )
-                        if (
-                            str(self.cfg.get("frontres_rho_space", "noisy_to_repair")).lower()
-                            in ("tri_anchor", "tri-anchor", "tri")
-                            and locs.get("frontres_rho_target_planar_mean") is not None
-                        ):
-                            _structured_joint_diag = bool(
-                                self.cfg.get("frontres_structured_joint_rl_enabled", False)
-                            )
-                            _rho_target_label = (
-                                "legacy rho diag p/r/z:"
-                                if _structured_joint_diag
-                                else "rho target grp p/r/z:"
-                            )
-                            _rho_spread_label = (
-                                "legacy rho spread/mask:"
-                                if _structured_joint_diag
-                                else "rho target spread/weight:"
-                            )
-                            log_string += f"""{_rho_target_label:>{pad}} """
-                            log_string += (
-                                f"{locs.get('frontres_rho_target_planar_mean', 0.0):.3f} / "
-                                f"{locs.get('frontres_rho_target_rp_mean', 0.0):.3f} / "
-                                f"{locs.get('frontres_rho_target_z_mean', 0.0):.3f}\n"
-                            )
-                            log_string += f"""{_rho_spread_label:>{pad}} """
-                            log_string += (
-                                f"{locs.get('frontres_rho_target_spread_mean', 0.0):.3f} / "
-                                f"{locs.get('frontres_grouped_rho_mask_mean', 0.0):.3f}\n"
-                            )
-                            log_string += f"""{"rho regret up/dn p/r/z:":>{pad}} """
-                            log_string += (
-                                f"{locs.get('frontres_rho_regret_up_planar_mean', 0.0):.4f}/"
-                                f"{locs.get('frontres_rho_regret_down_planar_mean', 0.0):.4f} / "
-                                f"{locs.get('frontres_rho_regret_up_rp_mean', 0.0):.4f}/"
-                                f"{locs.get('frontres_rho_regret_down_rp_mean', 0.0):.4f} / "
-                                f"{locs.get('frontres_rho_regret_up_z_mean', 0.0):.4f}/"
-                                f"{locs.get('frontres_rho_regret_down_z_mean', 0.0):.4f}\n"
-                            )
+                        log_string += format_frontres_preference_diagnostics(
+                            locs,
+                            _loss_dict,
+                            self.cfg,
+                            pad=pad,
+                            structured_label="rho adv pos/neg/near/ign:",
+                        )
                         if locs.get("frontres_exec_planar_mean") is not None:
                             log_string += f"""{'exec planar/vertical/task:':>{pad}} """
                             log_string += (
@@ -7379,7 +6619,7 @@ class OnPolicyRunner:
                     _apl = _loss_dict.get("acceptance_preference_loss", None)
                     if _apl is not None:
                         _legacy_pref_disabled = (
-                            bool(self.cfg.get("frontres_structured_joint_rl_enabled", False))
+                            self._frontres_structured_joint_effective_enabled()
                             and not bool(self.cfg.get("frontres_structured_joint_rl_keep_legacy_bce", False))
                             and float(_loss_dict.get("lambda_acceptance_preference", 0.0)) <= 0.0
                         )
@@ -7412,18 +6652,7 @@ class OnPolicyRunner:
                                 f"err={_loss_dict.get('acceptance_preference_abs_err', 0.0):.3f}, "
                                 f"corr={_loss_dict.get('acceptance_preference_corr', 0.0):+.3f})\n"
                             )
-                    _sjl = _loss_dict.get("structured_joint_rl_loss", None)
-                    if _sjl is not None and _loss_dict.get("lambda_structured_joint_rl", 0.0) > 0.0:
-                        log_string += f"""{'joint rl loss:':>{pad}} {_sjl:.4f} """
-                        log_string += (
-                            f"(λ={_loss_dict.get('lambda_structured_joint_rl', 0.0):.3f}, "
-                            f"enabled={_loss_dict.get('structured_joint_rl_enabled', 0.0):.0f}, "
-                            f"adv={_loss_dict.get('structured_joint_rl_adv_mean', 0.0):+.4f}, "
-                            f"w={_loss_dict.get('structured_joint_rl_weight_mean', 0.0):.3f}, "
-                            f"dim={_loss_dict.get('structured_joint_rl_dim_active_mean', 0.0):.3f}, "
-                            f"generic={_loss_dict.get('ppo_actor_weight', 0.0):.3f}, "
-                            f"rho_ratio={_loss_dict.get('structured_joint_rl_ratio_mean', 0.0):.3f})\n"
-                        )
+                    log_string += format_frontres_optimization_diagnostics(_loss_dict, pad=pad)
                     if locs.get("frontres_window_mu_mean") is not None:
                         log_string += f"""{'actor/exec/cost:':>{pad}} """
                         log_string += (
@@ -7613,6 +6842,8 @@ class OnPolicyRunner:
             _attr = f"_frontres_exec_floor_{_name}"
             if hasattr(self, _attr):
                 saved_dict[f"frontres_exec_floor_{_name}"] = getattr(self, _attr)
+        if hasattr(self, "_frontres_exec_floor_source_last"):
+            saved_dict["frontres_exec_floor_source_last"] = self._frontres_exec_floor_source_last
         if hasattr(self, '_frontres_warmup_complete'):
             saved_dict["frontres_warmup_complete"] = bool(self._frontres_warmup_complete)
         
@@ -7952,6 +7183,9 @@ class OnPolicyRunner:
                     setattr(self, _attr, float(loaded_dict[_key]))
                 elif hasattr(self, _attr):
                     delattr(self, _attr)
+            self._frontres_exec_floor_source_last = str(
+                loaded_dict.get("frontres_exec_floor_source_last", "resume")
+            )
             print(f"[Runner] Adaptive DR scale restored from checkpoint: {self._dr_scale:.4f}")
         else:
             _dr_init = float(self.cfg.get("dr_scale_init", 1.0))
@@ -7973,6 +7207,7 @@ class OnPolicyRunner:
                 _attr = f"_frontres_exec_floor_{_name}"
                 if hasattr(self, _attr):
                     delattr(self, _attr)
+            self._frontres_exec_floor_source_last = "cold_start"
             print(f"[Runner] Stage1→Stage2 cold-start: dr_scale initialised to "
                   f"dr_scale_init={_dr_init:.4f} (ignoring checkpoint value "
                   f"{loaded_dict.get('dr_scale', 0.0):.4f})")

@@ -1319,7 +1319,11 @@ class FrontRESUnified:
             clip = float(getattr(self, "frontres_structured_joint_rl_adv_clip", 0.0))
             if clip > 0.0:
                 adv = adv.clamp(-clip, clip)
-            if bool(getattr(self, "frontres_structured_joint_rl_normalize_advantage", True)):
+            # Structured rho advantages already carry an absolute signed
+            # direction.  Normalizing them inside a minibatch can turn globally
+            # useful repair evidence into relative negative samples, so keep it
+            # opt-in even for older configs/checkpoints that lack the flag.
+            if bool(getattr(self, "frontres_structured_joint_rl_normalize_advantage", False)):
                 active_adv = adv[active_mask]
                 if int(active_adv.numel()) > 1:
                     adv_mean = active_adv.mean()

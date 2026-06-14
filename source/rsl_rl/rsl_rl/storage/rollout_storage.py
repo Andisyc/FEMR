@@ -45,8 +45,10 @@ class RolloutStorage:
             # Optional harmful-repair weight for HSL.  This keeps the explicit harmful
             # no-op penalty separate from the ordinary supervised sample weight.
             self.supervised_harm_weight = None
-            # Rollout preference learning for hsl_hybrid acceptance.  These are
-            # detached labels from quartet rollout ordering, not deployment inputs.
+            # FrontRES acceptance carrier.  In the active structured-rho branch,
+            # columns [:6] carry detached per-axis rho advantages and weights.
+            # Legacy preference/BCE labels may reuse this storage only when the
+            # structured carrier is disabled.
             self.acceptance_target = None
             self.acceptance_mask = None
             # Auxiliary State Router alpha: labels from paired Noisy/GMT

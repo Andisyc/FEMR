@@ -327,10 +327,14 @@ The code contract is:
 The storage contract is:
 
 - `state_alpha_target/state_alpha_mask` carry the alpha SSL signal.
-- `acceptance_target[:, 0]` carries only \(A_\rho\).
-- `acceptance_mask[:, 0]` carries only the rho update weight.
-- Other acceptance carrier columns are reserved and must not be interpreted as
-  alpha PPO data in the active branch.
+- In the active structured-rho branch, `acceptance_target[:, :6]` carries the
+  six-dimensional per-axis rho advantage \(A_{\rho,d}\).
+- In the active structured-rho branch, `acceptance_mask[:, :6]` carries the
+  matching per-axis rho update weight.
+- No acceptance carrier column carries alpha log-prob, alpha action, or alpha
+  PPO advantage in the active branch.
+- The old scalar `acceptance_target[:, 0]` carrier is legacy-only.  It must not
+  be used to describe the active structured-rho implementation.
 
 The required live diagnostics are:
 
@@ -2521,13 +2525,15 @@ repair mass improved the frame beyond its chosen fallback.
 Superseded by the 2026-06-12 Executable-Floor Router And Repair-Retention
 Contract above.  The active branch does not train `alpha` by fallback-selection
 policy gradient; it trains `alpha` only from Noisy/GMT executable-floor labels.
-The structured RL carrier now stores only `A_rho` and the rho update weight.
+The text below is historical and is not the active storage contract.  It used
+scalar-column and alpha-PPO carriers before the current 6D structured-rho
+contract was settled.
 
 Do not add rollout branches for this change.  The first implementation uses the
 existing feasible/stable proxy as `U_S`, the noisy branch as `U_N`, and the
 projected branch as `U_P`.
 
-Store the structured RL carrier as:
+Historical carrier sketch:
 
 ```text
 acceptance_target[:, 0] = A_rho
@@ -2538,7 +2544,15 @@ acceptance_mask[:, 0] = rho update weight
 acceptance_mask[:, 1] = alpha update weight
 ```
 
-The algorithm must compute two PPO-style losses:
+This has been replaced by the active contract:
+
+```text
+acceptance_target[:, :6] = A_{rho,d}
+acceptance_mask[:, :6] = rho per-axis update weight
+alpha PPO fields          = absent
+```
+
+The historical algorithm would have computed two PPO-style losses:
 
 ```text
 rho loss   uses rho log-prob ratio   and A_rho
@@ -2696,3 +2710,401 @@ carrier.  Therefore the log must expose both:
 rho directional d/c/drv:
     evidence direction / raw centered rho / actual center-drive carrier
 ```
+
+### 2026-06-13 Structured Rho Optimizer-Signal Fix
+
+The structured rho branch already builds a signed policy-gradient carrier from
+Candidate / Projected / fallback executable evidence.  Once this carrier exists,
+the optimizer path must preserve that evidence instead of reusing old gates that
+belonged to the legacy acceptance-preference path.
+
+Implementation contract:
+
+```text
+structured rho evidence:
+    Candidate / Projected / fallback utility -> signed rho advantage
+
+structured rho update weight:
+    active repair dimensions only
+    no actor-gate attenuation by default
+
+advantage normalization:
+    disabled by default
+    preserving absolute sign matters more than batch-relative ranking
+
+tri-anchor diagnostics:
+    use the live policy alpha when available
+    do not report alpha-target weights as if they were the executed route
+```
+
+The expected diagnostic change is concrete:
+
+```text
+rho constrained weight:
+    should rise from the old actor-gate floor (~0.1 active weight)
+    to the active-dimension weight (~1.0 on active rho dimensions)
+
+joint rl loss ... w:
+    remains lower than 1.0 when only part of the 6D rho vector is active,
+    but should no longer be suppressed by actor_gate
+```
+
+If `gain cand > gain proj` and `rho constrained adv > 0`, the optimizer should
+receive a real upward rho update.  If rho still does not move after this fix, the
+remaining failure is not hidden attenuation in the update path and should be
+treated as a method-level signal problem.
+
+### 2026-06-13 Diagnostics Cleanup Contract
+
+After the structured-rho and executable-floor changes, diagnostics must no
+longer mix live optimizer signals with old acceptance-preference labels.  The log
+should answer three questions only:
+
+```text
+1. Is the executable-floor estimate live?
+2. Is alpha trained as the state-router SSL head?
+3. Is rho updated by structured advantage on active dimensions?
+```
+
+Diagnostic ownership:
+
+```text
+live route:
+    tri route w R/N/S
+    uses live policy alpha, not the alpha target
+
+live rho optimizer:
+    rho directional d/c/drv
+    rho constrained adv
+    rho weight active
+    joint rl loss ... dim/rho_ratio
+
+legacy rho target:
+    hidden by default under structured-rho training
+    optional only as an ablation/debug comparison
+```
+
+Hard-route diagnostics such as `stable endpoint frac` and
+`alpha hard-route diag` are misleading in continuous tri-anchor mode because the
+stable component enters through alpha weights, not through a binary route.  They
+should be printed only when the hard-route branch is explicitly enabled or when
+the value is nonzero.
+
+This cleanup is part of the method contract.  A diagnostic is valid only if its
+name matches the live authority of the variable it reports.
+
+### 2026-06-14 FrontRES Modularization Contract
+
+The current failure mode is no longer only a numerical tuning problem.  The
+runner contains duplicated FrontRES diagnostic branches, so one conceptual fix
+can be connected to one branch but silently miss another.  This violates the
+project rule that concept-code alignment must be checkable end to end.
+
+The modularization target follows the MOSAIC style: small modules with one
+authority, no hidden side effects, and call sites that show the experiment flow.
+The first required extraction is diagnostics because it is the current source of
+repeated execution/design drift.
+
+```text
+OnPolicyRunner
+    owns rollout/control flow only
+
+runners/frontres_diagnostics.py
+    owns console diagnostic formatting only
+    reads locs/loss_dict/cfg
+    does not mutate tensors, cfg, policy, optimizer, or storage
+
+Future pure modules
+    executable floor: one callable threshold authority
+    state alpha: one callable target/mask/metric authority
+    structured rho: one callable advantage/weight authority
+    DR curriculum: one callable frontier/sampling authority
+```
+
+Required invariant for this extraction:
+
+```text
+training behavior must be unchanged
+diagnostic labels must be generated from one source of truth
+metric aliasing must be normalized in the formatter
+legacy diagnostics must remain hidden by default under structured rho
+```
+
+If a future change modifies a FrontRES concept, it must update the owning module
+and its diagnostics together.  Patching local print blocks inside the runner is
+not allowed unless the formatter API itself is being changed.
+
+### 2026-06-14 FrontRES Modularization Continuation
+
+The next extraction must preserve training behavior.  The purpose is to make the
+live FrontRES path auditable, not to retune alpha, rho, or the executable floor.
+
+```text
+OnPolicyRunner
+    samples rollouts
+    gathers tensors
+    calls pure FrontRES helpers
+    writes transition/storage fields
+
+frontres_alpha_router.py
+    owns state-alpha target and mask construction
+    input: Noisy/GMT continuation evidence and executable-floor thresholds
+    output: target, mask, and scalar diagnostics
+    no policy, optimizer, storage, or cfg mutation
+
+frontres_diagnostics.py
+    owns all console labels for FrontRES diagnostics
+    includes optimization/update diagnostics
+
+frontres_structured_rho.py
+    owns rho advantage/weight carrier construction
+    must expose direction, floor, retention, and full-bonus terms separately
+    no policy, optimizer, storage, or cfg mutation
+```
+
+Required invariant:
+
+```text
+alpha target means before/after extraction must match
+alpha mask means before/after extraction must match
+optimizer diagnostics must have one formatter path
+runner must remain an orchestrator, not the owner of FrontRES math
+structured-rho diagnostics must come from the carrier, not duplicated runner math
+```
+
+### 2026-06-14 FrontRES Live Contract Before Next Modularization
+
+This section is the current live-path contract before extracting
+`ExecutableFloor` and `DRCurriculum`.  It is meant to prevent another partial
+implementation where a local helper exists but the training path still follows
+old runner logic.
+
+The active research chain is:
+
+```text
+corrupted reference
+  -> HSL clean-oriented Delta SE(3) proposal
+  -> alpha state router from Noisy/GMT executable-floor evidence
+  -> structured rho repair-retention update
+  -> projected reference written to frozen GMT
+```
+
+The live code must preserve the following ownership boundaries.
+
+```text
+OnPolicyRunner
+    owns rollout orchestration only
+    may gather tensors and call FrontRES helper modules
+    must not own floor math, DR scheduling math, alpha label math, rho carrier
+    math, or console formatting after those modules exist
+
+frontres_alpha_router.py
+    owns state-alpha target/mask construction
+    evidence source: Noisy/GMT continuation under the current executable floor
+    alpha is SSL/supervised only, not a PPO action and not an acceptance value
+
+frontres_structured_rho.py
+    owns structured rho advantage/weight carrier construction
+    evidence source: Projected/Candidate/Fallback executable scores
+    rho is repair retention, not geometric direction and not state routing
+
+frontres_diagnostics.py
+    owns all FrontRES console diagnostic labels
+    diagnostics must report the live deployed path, not stale conceptual names
+
+frontres_executable_floor.py  [missing extraction]
+    must own one executable-score floor interface
+    evidence source: GMT baseline frontier rollout only
+    consumers: Candidate diagnostic, state-alpha labels, structured-rho floor
+    penalty/full-repair admissibility
+
+frontres_dr_curriculum.py  [missing extraction]
+    must own perturbation-family sampling, per-env DR strength sampling, GMT
+    frontier probing, and the safe/broken bracket state
+    runner may apply the sampled plan, but must not decide the curriculum inline
+```
+
+#### Live Tensor Contract
+
+The current active branch must use these tensor roles.
+
+```text
+state_alpha_target/state_alpha_mask
+    carry only the alpha SSL label and mask
+    source: Noisy/GMT executable-floor evidence
+    consumed by: alpha auxiliary BCE loss
+
+acceptance_target/acceptance_mask
+    active structured-rho carrier
+    source: structured-rho advantage and update weight
+    consumed by: structured joint rho-only PPO loss
+    must not carry alpha PPO data in the active branch
+
+rho_current
+    six-dimensional acceptance output from the policy
+    concept: per-axis repair retention
+    gradient authority: PPO/structured joint update only on acceptance outputs
+
+HSL Delta SE(3)
+    six-dimensional clean-oriented repair proposal
+    gradient authority: supervised/HSL losses, not PPO in hsl_hybrid
+```
+
+The storage contract alignment item is now resolved:
+
+```text
+Active contract:
+    frontres_structured_rho.py writes a six-dimensional per-axis carrier
+    into acceptance_target[:, :6] and acceptance_mask[:, :6].
+
+Legacy-only contract:
+    acceptance_target[:, 0] carries scalar A_rho.
+```
+
+This is not a tuning detail.  It is a concept-code contract decision.  The
+active branch uses the six-dimensional carrier because rho is no longer a
+single accept/reject scalar; it is a per-axis repair-retention field.  Collapsing
+the signal to `acceptance_target[:, 0]` would hide whether planar, vertical, or
+roll/pitch repair is executable and would recreate the credit-assignment
+failure that motivated structured rho.
+
+Required live path:
+
+```text
+structured rho builder
+  -> acceptance_target[:, :6], acceptance_mask[:, :6]
+  -> rollout storage
+  -> structured_joint_rl_loss reads the same first six columns
+  -> rho/action dimensions receive per-axis PPO gradients
+```
+
+Any future module that wants a scalar rho advantage must create a separately
+named diagnostic or ablation field.  It must not reuse the active
+`acceptance_target` contract silently.
+
+#### ExecutableFloor Live Contract
+
+`ExecutableFloor` is the score-space translation of the GMT frontier.  It is
+not a Candidate-specific diagnostic and not an HRL target.
+
+```text
+GMT frontier rollout
+  -> safe score evidence from valid surviving GMT samples
+  -> broken score evidence from valid falling/broken GMT samples
+  -> adaptive U_floor when both sides mature
+  -> fixed fallback while evidence is immature
+```
+
+All floor consumers must use the same value in the same iteration:
+
+```text
+candidate floor pass/margin
+    diagnostic only: U(Candidate) >= U_floor
+
+state alpha
+    target 1: Noisy/GMT falls or U(Noisy/GMT) <= U_floor
+    target 0: Noisy/GMT survives and U(Noisy/GMT) >= U_floor + margin
+    masked: near-floor or timeout-only ambiguous states
+
+structured rho
+    floor penalty: [U_floor - U(Projected)]_+
+    full-repair bonus allowed only if U(Candidate) >= U_floor
+```
+
+Required diagnostics:
+
+```text
+exec floor val/safe/adapt
+exec floor cnt s/b
+cand floor pass/margin
+state alpha loss/acc
+rho constrained adv: retp, floor, full
+```
+
+Required checkpoint behavior:
+
+```text
+safe_score_ema, broken_score_ema, safe_count, broken_count, last_floor_source
+must save and restore with the GMT frontier state.
+```
+
+#### DRCurriculum Live Contract
+
+`DRCurriculum` is two coupled mechanisms, but both belong to one curriculum
+authority:
+
+```text
+perturbation family curriculum
+    chooses which artifact family is active
+    must respect frontres_active_task_dims and the action cone
+
+DR strength frontier curriculum
+    probes GMT's current executable boundary
+    maintains safe/broken bracket
+    samples easy/frontier/hard per-env training strengths around that boundary
+```
+
+The intended training behavior is distributional, not a single scalar DR scale:
+
+```text
+easy      -> stable supervised/low-risk samples
+frontier  -> main learning signal near GMT capability boundary
+hard      -> limited broken/out-of-cone exposure
+```
+
+The runner may receive a `DRBatchPlan` and apply it to rollout branches, but the
+plan itself must come from `frontres_dr_curriculum.py`.
+
+Implementation status:
+
+```text
+frontres_dr_curriculum.py
+    owns pure plan construction
+    chooses perturbation family groups
+    samples easy/frontier/hard DR strengths
+    updates boundary EMA and GMT safe/broken frontier state
+
+on_policy_runner.py
+    remains the integration adapter
+    converts plans to torch tensors and MotionPerturber masks
+    reads rollout episode buffers for frontier evidence
+    writes runtime diagnostics
+```
+
+Required branch invariant:
+
+```text
+Clean branch: no perturbation
+Noisy/GMT baseline branch: same perturbation family and strength as FrontRES
+Candidate/Repaired branch: same corruption source before HSL correction
+per-env mix class length: equals the train branch environment count
+```
+
+Required diagnostics:
+
+```text
+DR scale
+DR frontier/mix
+DR train mix e/f/h
+DR train scale mean
+GMT frontier probe: next, score, decision, source, n
+GMT bracket safe/broken
+```
+
+#### Live-Path Sentinel
+
+Every short resume test after the next modularization should be able to prove
+the active path with one glance.  The log should expose a compact sentinel with
+these meanings, either as one line or as nearby diagnostics:
+
+```text
+floor owner      = module/fixed/adaptive
+dr owner         = module/per_env
+rho carrier      = six_dim in the active structured-rho branch
+legacy bce       = disabled when structured rho carrier is active
+generic ppo      = disabled for HSL proposal in hsl_hybrid
+alpha rl         = absent or zero in active branch
+```
+
+If a future run cannot prove these facts from the log, the implementation is
+not ready for expensive training, even if it compiles.
