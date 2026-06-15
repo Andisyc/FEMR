@@ -151,14 +151,14 @@
   </main>
 
   <script type="module">
-    import rough from "../node_modules/roughjs/bundled/rough.esm.js";
+    import rough from "./node_modules/roughjs/bundled/rough.esm.js";
 
     const source = document.getElementById("source");
     const status = document.getElementById("status");
     const svg = document.getElementById("diagram");
     const reloadButton = document.getElementById("reload");
     const renderButton = document.getElementById("render");
-    const dataUrl = "./03_frontres_concept_tabs.data.json";
+    const dataUrl = "../../concept/03_frontres_concept_tabs.data.json";
     let lastServerData = null;
 
     function setStatus(text) {
@@ -352,7 +352,7 @@
     });
 
     if ("EventSource" in window) {
-      const events = new EventSource("./events");
+      const events = new EventSource("/events");
       events.addEventListener("architecture-data", () => {
         loadFromFile().catch((error) => setStatus(error.message));
       });

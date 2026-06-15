@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MOSAIC Architecture Atlas</title>
+  <title>MOSAIC-FEMR Architecture Snapshot</title>
   <style>
     body {
       margin: 0;
@@ -58,20 +58,20 @@
   </style>
 </head>
 <body>
-  <h1>MOSAIC Architecture Atlas</h1>
+  <h1>MOSAIC-FEMR Architecture Snapshot</h1>
   <p>
-    These maps are meant to be read side by side with code. They share Code Block IDs and concept colors, so a design idea can be traced from concept to file to runtime flow.
+    These maps are meant to be read side by side with code. They share Code Block IDs and concept colors, so a design idea can be traced from concept to file to interface boundary.
   </p>
   <section class="grid">
-    <a href="./architecture_atlas.html?data=architecture/01_repo_architecture.data.json">
+    <a href="./auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json">
       <strong>01 Repo Architecture</strong>
       <span>VSCode-style file tree. Each file expands into code blocks with role-first labels and line hints.</span>
     </a>
-    <a href="./architecture_atlas.html?data=runtime/02_frontres_flow.data.json">
-      <strong>02 Runtime Flow</strong>
-      <span>Top-down execution tree. The same block IDs show where each file block participates in training.</span>
+    <a href="./auxiliary/atlas_app/architecture_atlas.html?data=../../runtime/02_frontres_flow.data.json">
+      <strong>02 Interface Contract Map</strong>
+      <span>Module boundary map. Each block shows input, ownership, output, forbidden freedom, and diagnostics.</span>
     </a>
-    <a href="./architecture_atlas.html?data=concept/03_frontres_concept_tabs.data.json">
+    <a href="./auxiliary/atlas_app/architecture_atlas.html?data=../../concept/03_frontres_concept_tabs.data.json">
       <strong>03 Concept Tabs</strong>
       <span>Problem, concept, and engineering layers for FrontRES design memory.</span>
     </a>

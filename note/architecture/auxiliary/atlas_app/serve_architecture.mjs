@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const atlasRoot = path.resolve(__dirname, "../..");
 const port = Number(process.env.PORT || 8765);
 const clients = new Set();
 
@@ -25,10 +26,9 @@ function sendEvent(eventName) {
 
 function watchDataFiles() {
   for (const dir of [
-    __dirname,
-    path.join(__dirname, "architecture"),
-    path.join(__dirname, "runtime"),
-    path.join(__dirname, "concept"),
+    path.join(atlasRoot, "architecture"),
+    path.join(atlasRoot, "runtime"),
+    path.join(atlasRoot, "concept"),
   ]) {
     if (!fs.existsSync(dir)) continue;
     fs.watch(dir, { persistent: true }, (_eventType, filename) => {
@@ -42,8 +42,8 @@ function watchDataFiles() {
 function safeResolve(urlPath) {
   const cleanPath = decodeURIComponent(urlPath.split("?")[0]);
   const relativePath = cleanPath === "/" ? "index.html" : cleanPath.slice(1);
-  const resolved = path.resolve(__dirname, relativePath);
-  if (!resolved.startsWith(__dirname)) return null;
+  const resolved = path.resolve(atlasRoot, relativePath);
+  if (!resolved.startsWith(atlasRoot)) return null;
   return resolved;
 }
 
@@ -84,9 +84,9 @@ const server = http.createServer((req, res) => {
 watchDataFiles();
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`MOSAIC architecture atlas: http://127.0.0.1:${port}/architecture_atlas.html`);
-  console.log(`Repo map: http://127.0.0.1:${port}/architecture_atlas.html?data=architecture/01_repo_architecture.data.json`);
-  console.log(`Flow map: http://127.0.0.1:${port}/architecture_atlas.html?data=runtime/02_frontres_flow.data.json`);
-  console.log(`Concept tabs: http://127.0.0.1:${port}/architecture_atlas.html?data=concept/03_frontres_concept_tabs.data.json`);
+  console.log(`MOSAIC architecture atlas: http://127.0.0.1:${port}/`);
+  console.log(`Repo map: http://127.0.0.1:${port}/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json`);
+  console.log(`Interface map: http://127.0.0.1:${port}/auxiliary/atlas_app/architecture_atlas.html?data=../../runtime/02_frontres_flow.data.json`);
+  console.log(`Concept tabs: http://127.0.0.1:${port}/auxiliary/atlas_app/architecture_atlas.html?data=../../concept/03_frontres_concept_tabs.data.json`);
   console.log(`Watching data folders: architecture/, runtime/, concept/`);
 });

@@ -1,6 +1,6 @@
 {
-  "title": "FrontRES Runtime Flow Tree",
-  "subtitle": "Execution order from train.py to diagnostics. Node IDs match the repository map.",
+  "title": "FrontRES Interface Contract Map",
+  "subtitle": "Module boundary map. English titles stay stable; each card shows input, ownership, output, forbidden freedom, and diagnostic proof.",
   "layout": "flow_tree",
   "concepts": {
     "C-DR": {
@@ -36,25 +36,41 @@
     {
       "id": "E-01",
       "title": "train.py starts experiment",
-      "role": "Resolve task/config/checkpoint and instantiate OnPolicyRunner.",
+      "role": "实验入口与全局配置解析。",
+      "input": "Hydra task、CLI 参数、checkpoint 路径、device。",
+      "output": "已实例化的 OnPolicyRunner 和 resolved config。",
+      "forbidden": "不承担 FrontRES 训练语义，不直接构造 repair target。",
+      "diagnostic": "启动日志、resolved task/config、checkpoint resume 信息。",
       "concept": "C-CONTRACT",
       "children": [
         {
           "id": "R-01",
           "title": "Runner init / resume",
-          "role": "Set phase, resume state, policy, algorithm, and storage contracts.",
+          "role": "训练阶段与主循环所有者。",
+          "input": "runner config、resume state、policy/algorithm/storage 类。",
+          "output": "phase、rollout loop、storage/update 调用契约。",
+          "forbidden": "不能让旧 objective 悄悄覆盖当前 FEMR live path。",
+          "diagnostic": "phase/objective 日志、resume/cold-start 分支日志。",
           "concept": "C-CONTRACT",
           "children": [
             {
               "id": "DR-01",
               "title": "Sample perturbation family",
-              "role": "Choose artifact family mix allowed by the active repair cone.",
+              "role": "扰动族选择边界。",
+              "input": "active task dims、当前训练阶段、curriculum 配置。",
+              "output": "本轮可修复 artifact family mix。",
+              "forbidden": "不能采样当前 action cone 无法修复的扰动族。",
+              "diagnostic": "modes=(...)、valid_pos/valid_rpy、family 统计。",
               "concept": "C-DR",
               "children": [
                 {
                   "id": "DR-02",
                   "title": "Probe GMT frontier",
-                  "role": "Estimate current executable DR boundary and train scale.",
+                  "role": "GMT 可执行边界估计。",
+                  "input": "当前 GMT tracker、扰动尺度候选、rollout 结果。",
+                  "output": "executable DR boundary 和训练 scale。",
+                  "forbidden": "不能把深度 broken 状态当成可学习 frontier。",
+                  "diagnostic": "frontier scale、safe/fragile/broken 分布。",
                   "concept": "C-DR"
                 }
               ]
@@ -62,37 +78,61 @@
             {
               "id": "R-02",
               "title": "Build FrontRES rollout",
-              "role": "Collect Noisy, Candidate, Projected, and GMT evidence for the batch.",
+              "role": "FrontRES 证据构造总线。",
+              "input": "tracking observation、扰动参考、GMT rollout 反馈。",
+              "output": "Noisy、Candidate、Projected、GMT evidence batch。",
+              "forbidden": "不能只生成本地张量而不写入后续 storage/update。",
+              "diagnostic": "live path sentinel、candidate/projected 统计、reward 分解。",
               "concept": "C-HSL",
               "children": [
                 {
                   "id": "A-02",
                   "title": "HSL repair proposal",
-                  "role": "Predict geometric Delta SE repair candidate.",
+                  "role": "几何修复方向 proposal。",
+                  "input": "tracking observation、anchor-error/history、active action mask。",
+                  "output": "clean-oriented Delta SE(3) repair candidate。",
+                  "forbidden": "不能决定动态 acceptance 或 repair-retention 强度。",
+                  "diagnostic": "HSL supervised loss、cosine、proposal magnitude。",
                   "concept": "C-HSL"
                 },
                 {
                   "id": "F-01",
                   "title": "Executable Floor",
-                  "role": "Convert frontier evidence into a shared floor value and pass/adapt masks.",
+                  "role": "可执行地板判定。",
+                  "input": "GMT frontier evidence、sample difficulty、rollout outcome。",
+                  "output": "floor value、pass/adapt mask、safe/adapt 判定。",
+                  "forbidden": "不能替代 HSL 生成修复方向。",
+                  "diagnostic": "floor counts、pass/adapt ratio、safe/fragile/broken。",
                   "concept": "C-FLOOR"
                 },
                 {
                   "id": "AL-01",
                   "title": "State alpha target",
-                  "role": "Build state-risk signal from floor evidence before rho credit assignment.",
+                  "role": "状态风险目标构造。",
+                  "input": "floor evidence、当前状态、sample difficulty。",
+                  "output": "alpha target / state-risk supervision signal。",
+                  "forbidden": "不能使用部署时不可见的未来 rollout 信息作为输入。",
+                  "diagnostic": "alpha target、prediction、accuracy。",
                   "concept": "C-ALPHA"
                 },
                 {
                   "id": "RH-01",
                   "title": "Structured rho carrier",
-                  "role": "Represent repair retention without reviving old scalar acceptance semantics.",
+                  "role": "repair-retention 载体。",
+                  "input": "candidate repair、alpha/floor context、rho branch state。",
+                  "output": "结构化 rho carrier。",
+                  "forbidden": "不能重新生成 repair direction，不能退回旧 scalar accept target。",
+                  "diagnostic": "rho direction、rho value、route weight。",
                   "concept": "C-RHO",
                   "children": [
                     {
                       "id": "RH-02",
                       "title": "Rho advantage evidence",
-                      "role": "Compare rollout utility and build signed repair-retention advantage.",
+                      "role": "rho 更新证据。",
+                      "input": "Noisy/Candidate/Projected rollout utility 或 no-regret 证据。",
+                      "output": "signed repair-retention advantage。",
+                      "forbidden": "不能把 evaluator oracle 的动作直接记为 actor credit。",
+                      "diagnostic": "constrained advantage、positive gain、regret。",
                       "concept": "C-RHO"
                     }
                   ]
@@ -102,19 +142,31 @@
             {
               "id": "R-03",
               "title": "Write storage contract",
-              "role": "Persist alpha targets, rho carrier, executable floor, masks, and rewards.",
+              "role": "训练证据持久化入口。",
+              "input": "rollout 构造出的 targets、masks、floor、rho、rewards。",
+              "output": "写入 RolloutStorage 的稳定训练字段。",
+              "forbidden": "不能只打印诊断而不保存训练所需信号。",
+              "diagnostic": "storage write branch、field shape、non-null 统计。",
               "concept": "C-CONTRACT",
               "children": [
                 {
                   "id": "S-01",
                   "title": "Transition fields",
-                  "role": "Store batch tensors with stable semantics.",
+                  "role": "transition 字段契约。",
+                  "input": "runner 写入的 FrontRES batch tensors。",
+                  "output": "语义稳定的 transition fields。",
+                  "forbidden": "不能复用旧字段名承载新语义而不更新 unpack。",
+                  "diagnostic": "field shape、dtype、device、mask 非空率。",
                   "concept": "C-CONTRACT"
                 },
                 {
                   "id": "S-02",
                   "title": "Minibatch contract",
-                  "role": "Expose the same tensors to the algorithm update.",
+                  "role": "minibatch 暴露契约。",
+                  "input": "RolloutStorage 中的 transition fields。",
+                  "output": "algorithm update 可读取的 minibatch tuple。",
+                  "forbidden": "不能在 generator 中丢失或重排 FrontRES 证据。",
+                  "diagnostic": "batch unpack 顺序、tuple length、field presence。",
                   "concept": "C-CONTRACT"
                 }
               ]
@@ -122,19 +174,31 @@
             {
               "id": "A-01",
               "title": "Algorithm update",
-              "role": "Apply PPO boundary plus FrontRES-specific losses.",
+              "role": "统一优化入口。",
+              "input": "minibatch、policy output、FrontRES evidence fields。",
+              "output": "PPO loss、HSL loss、alpha SSL、structured rho RL 更新。",
+              "forbidden": "不能让 PPO 路径越权训练 proposal 方向或 legacy accept pref。",
+              "diagnostic": "enabled losses、loss weights、gradient boundary 日志。",
               "concept": "C-CONTRACT",
               "children": [
                 {
                   "id": "A-03",
                   "title": "Alpha SSL update",
-                  "role": "Train state-risk branch from floor-derived targets.",
+                  "role": "alpha 分支监督更新。",
+                  "input": "state observation、floor-derived alpha target。",
+                  "output": "state-risk predictor 参数更新。",
+                  "forbidden": "不能泄漏部署不可见证据到 inference input。",
+                  "diagnostic": "alpha loss、target/pred/accuracy。",
                   "concept": "C-ALPHA"
                 },
                 {
                   "id": "A-04",
                   "title": "Structured rho RL update",
-                  "role": "Update repair-retention carrier from advantage; leave legacy accept pref disabled.",
+                  "role": "rho 分支 RL 更新。",
+                  "input": "rho carrier、repair-retention advantage、active mask。",
+                  "output": "rho branch / retention strength 更新。",
+                  "forbidden": "不能更新 HSL direction，不能启用 legacy accept preference。",
+                  "diagnostic": "rho loss、active weight、legacy disabled sentinel。",
                   "concept": "C-RHO"
                 }
               ]
@@ -142,25 +206,41 @@
             {
               "id": "R-04",
               "title": "Print live diagnostics",
-              "role": "Prove each concept is connected to the active runtime path.",
+              "role": "live path 证明层。",
+              "input": "runner、storage、algorithm 汇总出的训练统计。",
+              "output": "可读日志，证明每个概念在 active path 上。",
+              "forbidden": "不能只报告离线/未接入路径的漂亮数值。",
+              "diagnostic": "console live log、sentinel、nearby old/new labels。",
               "concept": "C-DIAG",
               "children": [
                 {
                   "id": "G-01",
                   "title": "Floor / alpha diagnostics",
-                  "role": "Floor value, pass/adapt ratio, alpha target/pred/accuracy.",
+                  "role": "floor/alpha 诊断出口。",
+                  "input": "floor value、pass/adapt mask、alpha target/pred。",
+                  "output": "floor/alpha 可解释训练日志。",
+                  "forbidden": "不能隐藏 class imbalance 或 all-zero target。",
+                  "diagnostic": "floor counts、pass/adapt ratio、alpha accuracy。",
                   "concept": "C-DIAG"
                 },
                 {
                   "id": "G-02",
                   "title": "Rho diagnostics",
-                  "role": "Rho direction, constrained advantage, active weight, regret.",
+                  "role": "rho 诊断出口。",
+                  "input": "rho value、advantage、active mask、regret signal。",
+                  "output": "rho retention 学习是否有效的日志。",
+                  "forbidden": "不能只看均值而忽略 harmful/regret 样本。",
+                  "diagnostic": "rho direction、constrained advantage、active weight、regret。",
                   "concept": "C-DIAG"
                 },
                 {
                   "id": "G-03",
                   "title": "Loss-path diagnostics",
-                  "role": "Enabled losses, disabled legacy paths, and gradient boundary hints.",
+                  "role": "优化路径诊断出口。",
+                  "input": "loss config、legacy flags、gradient boundary 状态。",
+                  "output": "当前优化路径启停状态。",
+                  "forbidden": "不能让旧 loss 静默参与当前实验。",
+                  "diagnostic": "enabled/disabled losses、legacy path sentinel、gradient boundary hints。",
                   "concept": "C-DIAG"
                 }
               ]

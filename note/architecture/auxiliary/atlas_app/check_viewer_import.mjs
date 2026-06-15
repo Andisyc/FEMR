@@ -2,9 +2,9 @@ import fs from "node:fs";
 import rough from "./node_modules/roughjs/bundled/rough.esm.js";
 
 const html = fs.readFileSync("architecture_atlas.html", "utf8");
-const repoMap = JSON.parse(fs.readFileSync("architecture/01_repo_architecture.data.json", "utf8"));
-const flowMap = JSON.parse(fs.readFileSync("runtime/02_frontres_flow.data.json", "utf8"));
-const conceptTabs = JSON.parse(fs.readFileSync("concept/03_frontres_concept_tabs.data.json", "utf8"));
+const repoMap = JSON.parse(fs.readFileSync("../../architecture/01_repo_architecture.data.json", "utf8"));
+const flowMap = JSON.parse(fs.readFileSync("../../runtime/02_frontres_flow.data.json", "utf8"));
+const conceptTabs = JSON.parse(fs.readFileSync("../../concept/03_frontres_concept_tabs.data.json", "utf8"));
 
 if (typeof rough.svg !== "function") {
   throw new Error("roughjs import succeeded but rough.svg is missing");
@@ -14,7 +14,7 @@ if (!html.includes('import rough from "./node_modules/roughjs/bundled/rough.esm.
   throw new Error("architecture_atlas.html does not import local roughjs");
 }
 
-if (!html.includes('new EventSource("./events")')) {
+if (!html.includes('new EventSource("/events")')) {
   throw new Error("architecture_atlas.html is not wired to the auto-refresh event stream");
 }
 
@@ -55,8 +55,8 @@ for (const requiredHandler of [
   }
 }
 
-if (!html.includes("./concept/03_frontres_concept_tabs.data.json")) {
-  throw new Error("architecture_atlas.html default data path must point to concept/");
+if (!html.includes("../../concept/03_frontres_concept_tabs.data.json")) {
+  throw new Error("architecture_atlas.html default data path must point to ../../concept/");
 }
 
 if (repoMap.layout !== "repo_tree") {

@@ -41,8 +41,8 @@
       "blocks": [
         {
           "id": "E-01",
-          "role": "Hydra/IsaacLab training entry. Resolves task, checkpoint, device, and starts the runner.",
-          "lines": "entry",
+          "role": "Hydra/IsaacLab 训练入口。解析任务、配置、检查点和设备，然后启动 runner。",
+          "lines": "53-99; 439-580",
           "concept": "C-CONTRACT"
         }
       ]
@@ -54,26 +54,26 @@
       "blocks": [
         {
           "id": "R-01",
-          "role": "Runner init and resume contract. Owns phase, policy, algorithm, and rollout loop wiring.",
-          "lines": "init/resume",
+          "role": "Runner 初始化与恢复契约。负责阶段、策略、算法和 rollout 循环的接线。",
+          "lines": "143-430; 6877-7214",
           "concept": "C-CONTRACT"
         },
         {
           "id": "R-02",
-          "role": "FrontRES rollout builder. Creates Noisy, HSL Candidate, Projected, and GMT evidence.",
-          "lines": "rollout",
+          "role": "FrontRES rollout 构造器。生成 Noisy、HSL Candidate、Projected 和 GMT 证据。",
+          "lines": "2247-2970; 7312-7558",
           "concept": "C-HSL"
         },
         {
           "id": "R-03",
-          "role": "Live contract bridge. Sends floor, alpha, rho, masks, and rewards into storage/update.",
-          "lines": "storage write",
+          "role": "实时契约桥。把 floor、alpha、rho、mask 和 reward 写入 storage/update 路径。",
+          "lines": "2796-2970; storage bridge",
           "concept": "C-CONTRACT"
         },
         {
           "id": "R-04",
-          "role": "Diagnostics bridge. Prints only values proven to come from the live training path.",
-          "lines": "logging",
+          "role": "诊断桥。只打印能证明来自实时训练路径的数值。",
+          "lines": "6334-6659; 7744-8146",
           "concept": "C-DIAG"
         }
       ]
@@ -85,14 +85,14 @@
       "blocks": [
         {
           "id": "DR-01",
-          "role": "Perturbation family schedule. Samples repairable artifact families while respecting active task dims.",
-          "lines": "module",
+          "role": "扰动族调度。在遵守 active task dims 的前提下采样可修复 artifact 族。",
+          "lines": "72-301",
           "concept": "C-DR"
         },
         {
           "id": "DR-02",
-          "role": "GMT frontier probe. Searches the current tracker executability boundary for DR scale.",
-          "lines": "module",
+          "role": "GMT frontier 探针。搜索当前 tracker 的可执行边界，用于确定 DR scale。",
+          "lines": "390-430",
           "concept": "C-DR"
         }
       ]
@@ -104,8 +104,8 @@
       "blocks": [
         {
           "id": "F-01",
-          "role": "Executable Floor module. Converts GMT frontier evidence into usable floor value and masks.",
-          "lines": "module",
+          "role": "Executable Floor 模块。把 GMT frontier 证据转换为可用的 floor 值和 mask。",
+          "lines": "13-187",
           "concept": "C-FLOOR"
         }
       ]
@@ -117,8 +117,8 @@
       "blocks": [
         {
           "id": "AL-01",
-          "role": "State alpha target builder. Estimates whether current state should rely on direct repair or fallback.",
-          "lines": "module",
+          "role": "State alpha 目标构造器。估计当前状态应直接修复还是回退处理。",
+          "lines": "16-66",
           "concept": "C-ALPHA"
         }
       ]
@@ -130,14 +130,14 @@
       "blocks": [
         {
           "id": "RH-01",
-          "role": "Structured rho carrier. Keeps repair-retention semantics separate from old acceptance targets.",
-          "lines": "module",
+          "role": "Structured rho 载体。把 repair-retention 语义与旧 acceptance target 分开。",
+          "lines": "17-178",
           "concept": "C-RHO"
         },
         {
           "id": "RH-02",
-          "role": "Rho advantage signal. Rewards retaining repair only when rollout evidence says it helps.",
-          "lines": "module",
+          "role": "Rho advantage 信号。只有 rollout 证据显示修复有帮助时才奖励保留 repair。",
+          "lines": "179-313",
           "concept": "C-RHO"
         }
       ]
@@ -149,14 +149,14 @@
       "blocks": [
         {
           "id": "S-01",
-          "role": "Transition fields. Stores FrontRES targets, masks, alpha/rho carriers, and diagnostic tensors.",
-          "lines": "Transition",
+          "role": "Transition 字段。存储 FrontRES target、mask、alpha/rho 载体和诊断张量。",
+          "lines": "13-126",
           "concept": "C-CONTRACT"
         },
         {
           "id": "S-02",
-          "role": "Minibatch contract. Moves stored FrontRES evidence into algorithm update without semantic drift.",
-          "lines": "generator",
+          "role": "Minibatch 契约。把已存储的 FrontRES 证据无语义漂移地送入算法更新。",
+          "lines": "316-430",
           "concept": "C-CONTRACT"
         }
       ]
@@ -168,26 +168,26 @@
       "blocks": [
         {
           "id": "A-01",
-          "role": "Unified update entry. Combines PPO, HSL supervision, alpha SSL, and structured rho RL.",
-          "lines": "update",
+          "role": "统一 update 入口。组合 PPO、HSL 监督、alpha SSL 和 structured rho RL。",
+          "lines": "430-809",
           "concept": "C-CONTRACT"
         },
         {
           "id": "A-02",
-          "role": "HSL supervised loss. Learns geometric Delta SE proposal, not executable acceptance.",
-          "lines": "loss",
+          "role": "HSL 监督损失。学习几何 Delta SE proposal，而不是学习可执行 acceptance。",
+          "lines": "1466-1792",
           "concept": "C-HSL"
         },
         {
           "id": "A-03",
-          "role": "State alpha loss. Trains state-risk branch from executable-floor evidence.",
-          "lines": "loss",
+          "role": "State alpha 损失。用 executable-floor 证据训练 state-risk 分支。",
+          "lines": "1413-1465",
           "concept": "C-ALPHA"
         },
         {
           "id": "A-04",
-          "role": "Structured rho RL loss. Uses advantage to update repair-retention carrier only.",
-          "lines": "loss",
+          "role": "Structured rho RL 损失。只用 advantage 更新 repair-retention 载体。",
+          "lines": "1272-1412",
           "concept": "C-RHO"
         }
       ]
@@ -199,20 +199,20 @@
       "blocks": [
         {
           "id": "G-01",
-          "role": "Floor/alpha diagnostics. Verifies floor counts, alpha targets, predictions, and accuracy.",
-          "lines": "format_*",
+          "role": "Floor/alpha 诊断。验证 floor 计数、alpha target、prediction 和 accuracy。",
+          "lines": "52-96",
           "concept": "C-DIAG"
         },
         {
           "id": "G-02",
-          "role": "Rho diagnostics. Verifies rho direction, constrained advantage, active weight, and route weights.",
-          "lines": "format_*",
+          "role": "Rho 诊断。验证 rho 方向、受约束 advantage、active weight 和 route weight。",
+          "lines": "97-197",
           "concept": "C-DIAG"
         },
         {
           "id": "G-03",
-          "role": "Optimization diagnostics. Confirms which losses are enabled and which legacy paths are disabled.",
-          "lines": "format_*",
+          "role": "优化诊断。确认哪些 loss 已启用，以及哪些 legacy path 已禁用。",
+          "lines": "198-286",
           "concept": "C-DIAG"
         }
       ]

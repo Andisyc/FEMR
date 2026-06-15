@@ -1,94 +1,95 @@
 {
-  "title": "FrontRES Concept Tabs",
+  "title": "FrontRES 概念标签页",
+  "subtitle": "每个标签页是一层设计视角：真实问题、概念变量、工程承载。",
   "tabs": [
     {
       "id": "T1",
-      "title": "Real Problem",
+      "title": "真实问题层",
       "color": "#ef6f6c",
       "cards": [
         {
           "id": "P-01",
-          "title": "Reference Artifact",
-          "body": "Video or retargeting artifacts corrupt the root-level reference."
+          "title": "参考帧伪影",
+          "body": "视频估计或重定向会让根节点参考帧出现滑步、倾斜、浮空或穿模。"
         },
         {
           "id": "P-02",
-          "title": "Robustness Budget",
-          "body": "Artifacts consume the frozen GMT tracker margin before real disturbances."
+          "title": "鲁棒性预算",
+          "body": "伪影会先消耗冻结 GMT 的稳定裕度，使真实扰动来临时更容易失败。"
         },
         {
           "id": "P-03",
-          "title": "Executable Gap",
-          "body": "A geometrically plausible reference can still be dynamically hard to execute."
+          "title": "可执行缺口",
+          "body": "几何上像人的动作，不一定是当前机器人和 GMT 能执行的动作。"
         }
       ]
     },
     {
       "id": "T2",
-      "title": "Concept Variables",
+      "title": "概念变量层",
       "color": "#f2b84b",
       "cards": [
         {
           "id": "C-01",
-          "title": "Geometric Repair Need",
-          "body": "What should be repaired in task-space SE(3)."
+          "title": "几何修复需求",
+          "body": "HSL 负责判断哪里需要修：在任务空间 Delta SE(3) 中靠近干净参考。"
         },
         {
           "id": "C-02",
-          "title": "Executable Floor",
-          "body": "The GMT capability boundary used to judge whether a reference is executable."
+          "title": "可执行地板",
+          "body": "用 GMT frontier 判断参考帧是否仍在可恢复范围内。"
         },
         {
           "id": "C-03",
-          "title": "State Risk / Alpha",
-          "body": "Whether the current state needs conservative recovery before repair."
+          "title": "状态风险 / Alpha",
+          "body": "当前状态是否需要保守处理，避免直接修复把系统推坏。"
         },
         {
           "id": "C-04",
-          "title": "Repair Retention / Rho",
-          "body": "How much of the repair should be retained under executable feedback."
+          "title": "修复保留 / Rho",
+          "body": "在可执行反馈下决定保留多少 repair 分量。"
         },
         {
           "id": "C-05",
-          "title": "DR Frontier",
-          "body": "The training frontier that probes the GMT executable boundary."
+          "title": "DR 边界",
+          "body": "训练时自动探测 GMT 的可执行强度边界。"
         }
       ]
     },
     {
       "id": "T3",
-      "title": "Engineering Owners",
+      "title": "工程承载层",
       "color": "#66a96b",
       "cards": [
         {
           "id": "M-01",
           "title": "HSL Proposal",
-          "body": "Produces the clean-oriented task-space repair candidate."
+          "body": "输出 clean-oriented 的任务空间修复候选。"
         },
         {
           "id": "M-02",
           "title": "ExecutableFloor",
-          "body": "Centralizes floor value, safe/adapt decision, and diagnostics."
+          "body": "统一 floor 数值、safe/adapt 判定和诊断口径。"
         },
         {
           "id": "M-03",
-          "title": "State Alpha Branch",
-          "body": "Estimates state risk and conservative routing pressure."
+          "title": "State Alpha",
+          "body": "从 floor 证据训练状态风险分支。"
         },
         {
           "id": "M-04",
-          "title": "Structured Rho Update",
-          "body": "Updates repair retention through structured advantage feedback."
+          "title": "Structured Rho",
+          "body": "用 advantage 更新 repair-retention carrier。"
         },
         {
           "id": "M-05",
           "title": "DR Curriculum",
-          "body": "Samples perturbation strength near the recoverable frontier."
+          "body": "在可恢复边界附近采样扰动强度和扰动族。"
         },
         {
           "id": "M-06",
           "title": "Diagnostics",
-          "body": "Proves the live path and exposes concept-code mismatches."
+          "body": "证明 live path 接通，并暴露概念-代码错位。"
         }
       ]
     }
