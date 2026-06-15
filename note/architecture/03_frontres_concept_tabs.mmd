@@ -1,0 +1,43 @@
+flowchart LR
+  subgraph T1["Real Problem"]
+    P01["P-01 Reference Artifact"]
+    P02["P-02 Robustness Budget"]
+    P03["P-03 Executable Gap"]
+  end
+
+  subgraph T2["Concept Variables"]
+    C01["C-01 Geometric Repair Need"]
+    C02["C-02 Executable Floor"]
+    C03["C-03 State Risk / Alpha"]
+    C04["C-04 Repair Retention / Rho"]
+    C05["C-05 DR Frontier"]
+  end
+
+  subgraph T3["Engineering Owners"]
+    M01["M-01 HSL Proposal"]
+    M02["M-02 ExecutableFloor"]
+    M03["M-03 State Alpha Branch"]
+    M04["M-04 Structured Rho Update"]
+    M05["M-05 DR Curriculum"]
+    M06["M-06 Diagnostics"]
+  end
+
+  P01 --> C01
+  P02 --> C02
+  P03 --> C03
+  C01 --> M01
+  C02 --> M02
+  C03 --> M03
+  C04 --> M04
+  C05 --> M05
+  M02 --> M06
+  M03 --> M06
+  M04 --> M06
+  M05 --> M06
+
+  classDef problem fill:#ef6f6c,stroke:#222,color:#111
+  classDef concept fill:#f2b84b,stroke:#222,color:#111
+  classDef module fill:#66a96b,stroke:#222,color:#111
+  class P01,P02,P03 problem
+  class C01,C02,C03,C04,C05 concept
+  class M01,M02,M03,M04,M05,M06 module

@@ -1,0 +1,110 @@
+{
+  "title": "FrontRES Concept Tabs",
+  "tabs": [
+    {
+      "id": "T1",
+      "title": "Real Problem",
+      "color": "#ef6f6c",
+      "cards": [
+        {
+          "id": "P-01",
+          "title": "Reference Artifact",
+          "body": "Video or retargeting artifacts corrupt the root-level reference."
+        },
+        {
+          "id": "P-02",
+          "title": "Robustness Budget",
+          "body": "Artifacts consume the frozen GMT tracker margin before real disturbances."
+        },
+        {
+          "id": "P-03",
+          "title": "Executable Gap",
+          "body": "A geometrically plausible reference can still be dynamically hard to execute."
+        }
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Concept Variables",
+      "color": "#f2b84b",
+      "cards": [
+        {
+          "id": "C-01",
+          "title": "Geometric Repair Need",
+          "body": "What should be repaired in task-space SE(3)."
+        },
+        {
+          "id": "C-02",
+          "title": "Executable Floor",
+          "body": "The GMT capability boundary used to judge whether a reference is executable."
+        },
+        {
+          "id": "C-03",
+          "title": "State Risk / Alpha",
+          "body": "Whether the current state needs conservative recovery before repair."
+        },
+        {
+          "id": "C-04",
+          "title": "Repair Retention / Rho",
+          "body": "How much of the repair should be retained under executable feedback."
+        },
+        {
+          "id": "C-05",
+          "title": "DR Frontier",
+          "body": "The training frontier that probes the GMT executable boundary."
+        }
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "Engineering Owners",
+      "color": "#66a96b",
+      "cards": [
+        {
+          "id": "M-01",
+          "title": "HSL Proposal",
+          "body": "Produces the clean-oriented task-space repair candidate."
+        },
+        {
+          "id": "M-02",
+          "title": "ExecutableFloor",
+          "body": "Centralizes floor value, safe/adapt decision, and diagnostics."
+        },
+        {
+          "id": "M-03",
+          "title": "State Alpha Branch",
+          "body": "Estimates state risk and conservative routing pressure."
+        },
+        {
+          "id": "M-04",
+          "title": "Structured Rho Update",
+          "body": "Updates repair retention through structured advantage feedback."
+        },
+        {
+          "id": "M-05",
+          "title": "DR Curriculum",
+          "body": "Samples perturbation strength near the recoverable frontier."
+        },
+        {
+          "id": "M-06",
+          "title": "Diagnostics",
+          "body": "Proves the live path and exposes concept-code mismatches."
+        }
+      ]
+    }
+  ],
+  "links": [
+    ["P-01", "C-01"],
+    ["P-02", "C-02"],
+    ["P-03", "C-03"],
+    ["C-01", "M-01"],
+    ["C-02", "M-02"],
+    ["C-03", "M-03"],
+    ["C-04", "M-04"],
+    ["C-05", "M-05"],
+    ["M-02", "M-06"],
+    ["M-03", "M-06"],
+    ["M-04", "M-06"],
+    ["M-05", "M-06"]
+  ]
+}
