@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 8765);
-const watchedFile = path.join(__dirname, "03_frontres_concept_tabs.data.json");
 const clients = new Set();
 
 const mimeTypes = new Map([
@@ -24,9 +23,25 @@ function sendEvent(eventName) {
   }
 }
 
+function watchDataFiles() {
+  for (const dir of [
+    __dirname,
+    path.join(__dirname, "architecture"),
+    path.join(__dirname, "runtime"),
+    path.join(__dirname, "concept"),
+  ]) {
+    if (!fs.existsSync(dir)) continue;
+    fs.watch(dir, { persistent: true }, (_eventType, filename) => {
+      if (filename && filename.endsWith(".data.json")) {
+        sendEvent("architecture-data");
+      }
+    });
+  }
+}
+
 function safeResolve(urlPath) {
   const cleanPath = decodeURIComponent(urlPath.split("?")[0]);
-  const relativePath = cleanPath === "/" ? "frontres_concept_tabs.html" : cleanPath.slice(1);
+  const relativePath = cleanPath === "/" ? "index.html" : cleanPath.slice(1);
   const resolved = path.resolve(__dirname, relativePath);
   if (!resolved.startsWith(__dirname)) return null;
   return resolved;
@@ -66,11 +81,12 @@ const server = http.createServer((req, res) => {
   });
 });
 
-fs.watch(watchedFile, { persistent: true }, () => {
-  sendEvent("architecture-data");
-});
+watchDataFiles();
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`FrontRES architecture viewer: http://127.0.0.1:${port}/frontres_concept_tabs.html`);
-  console.log(`Watching: ${watchedFile}`);
+  console.log(`MOSAIC architecture atlas: http://127.0.0.1:${port}/architecture_atlas.html`);
+  console.log(`Repo map: http://127.0.0.1:${port}/architecture_atlas.html?data=architecture/01_repo_architecture.data.json`);
+  console.log(`Flow map: http://127.0.0.1:${port}/architecture_atlas.html?data=runtime/02_frontres_flow.data.json`);
+  console.log(`Concept tabs: http://127.0.0.1:${port}/architecture_atlas.html?data=concept/03_frontres_concept_tabs.data.json`);
+  console.log(`Watching data folders: architecture/, runtime/, concept/`);
 });

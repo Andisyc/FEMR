@@ -1,0 +1,221 @@
+{
+  "title": "MOSAIC FrontRES Repo Architecture",
+  "subtitle": "VSCode-style file tree with code blocks. Role is primary; lines are audit hints.",
+  "layout": "repo_tree",
+  "root": "MOSAIC",
+  "concepts": {
+    "C-DR": {
+      "name": "DR frontier / perturbation curriculum",
+      "color": "#d97706"
+    },
+    "C-HSL": {
+      "name": "geometric repair proposal",
+      "color": "#2563eb"
+    },
+    "C-FLOOR": {
+      "name": "Executable Floor",
+      "color": "#059669"
+    },
+    "C-ALPHA": {
+      "name": "state risk / alpha",
+      "color": "#7c3aed"
+    },
+    "C-RHO": {
+      "name": "structured repair retention / rho",
+      "color": "#dc2626"
+    },
+    "C-CONTRACT": {
+      "name": "storage and update contract",
+      "color": "#475569"
+    },
+    "C-DIAG": {
+      "name": "live diagnostics",
+      "color": "#0891b2"
+    }
+  },
+  "files": [
+    {
+      "group": "Entry",
+      "path": "scripts/rsl_rl/train.py",
+      "color": "#64748b",
+      "blocks": [
+        {
+          "id": "E-01",
+          "role": "Hydra/IsaacLab training entry. Resolves task, checkpoint, device, and starts the runner.",
+          "lines": "entry",
+          "concept": "C-CONTRACT"
+        }
+      ]
+    },
+    {
+      "group": "Runner",
+      "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py",
+      "color": "#475569",
+      "blocks": [
+        {
+          "id": "R-01",
+          "role": "Runner init and resume contract. Owns phase, policy, algorithm, and rollout loop wiring.",
+          "lines": "init/resume",
+          "concept": "C-CONTRACT"
+        },
+        {
+          "id": "R-02",
+          "role": "FrontRES rollout builder. Creates Noisy, HSL Candidate, Projected, and GMT evidence.",
+          "lines": "rollout",
+          "concept": "C-HSL"
+        },
+        {
+          "id": "R-03",
+          "role": "Live contract bridge. Sends floor, alpha, rho, masks, and rewards into storage/update.",
+          "lines": "storage write",
+          "concept": "C-CONTRACT"
+        },
+        {
+          "id": "R-04",
+          "role": "Diagnostics bridge. Prints only values proven to come from the live training path.",
+          "lines": "logging",
+          "concept": "C-DIAG"
+        }
+      ]
+    },
+    {
+      "group": "Runner Module",
+      "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_curriculum.py",
+      "color": "#d97706",
+      "blocks": [
+        {
+          "id": "DR-01",
+          "role": "Perturbation family schedule. Samples repairable artifact families while respecting active task dims.",
+          "lines": "module",
+          "concept": "C-DR"
+        },
+        {
+          "id": "DR-02",
+          "role": "GMT frontier probe. Searches the current tracker executability boundary for DR scale.",
+          "lines": "module",
+          "concept": "C-DR"
+        }
+      ]
+    },
+    {
+      "group": "Runner Module",
+      "path": "source/rsl_rl/rsl_rl/runners/frontres_executable_floor.py",
+      "color": "#059669",
+      "blocks": [
+        {
+          "id": "F-01",
+          "role": "Executable Floor module. Converts GMT frontier evidence into usable floor value and masks.",
+          "lines": "module",
+          "concept": "C-FLOOR"
+        }
+      ]
+    },
+    {
+      "group": "Runner Module",
+      "path": "source/rsl_rl/rsl_rl/runners/frontres_alpha_router.py",
+      "color": "#7c3aed",
+      "blocks": [
+        {
+          "id": "AL-01",
+          "role": "State alpha target builder. Estimates whether current state should rely on direct repair or fallback.",
+          "lines": "module",
+          "concept": "C-ALPHA"
+        }
+      ]
+    },
+    {
+      "group": "Runner Module",
+      "path": "source/rsl_rl/rsl_rl/runners/frontres_structured_rho.py",
+      "color": "#dc2626",
+      "blocks": [
+        {
+          "id": "RH-01",
+          "role": "Structured rho carrier. Keeps repair-retention semantics separate from old acceptance targets.",
+          "lines": "module",
+          "concept": "C-RHO"
+        },
+        {
+          "id": "RH-02",
+          "role": "Rho advantage signal. Rewards retaining repair only when rollout evidence says it helps.",
+          "lines": "module",
+          "concept": "C-RHO"
+        }
+      ]
+    },
+    {
+      "group": "Storage",
+      "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py",
+      "color": "#475569",
+      "blocks": [
+        {
+          "id": "S-01",
+          "role": "Transition fields. Stores FrontRES targets, masks, alpha/rho carriers, and diagnostic tensors.",
+          "lines": "Transition",
+          "concept": "C-CONTRACT"
+        },
+        {
+          "id": "S-02",
+          "role": "Minibatch contract. Moves stored FrontRES evidence into algorithm update without semantic drift.",
+          "lines": "generator",
+          "concept": "C-CONTRACT"
+        }
+      ]
+    },
+    {
+      "group": "Algorithm",
+      "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py",
+      "color": "#334155",
+      "blocks": [
+        {
+          "id": "A-01",
+          "role": "Unified update entry. Combines PPO, HSL supervision, alpha SSL, and structured rho RL.",
+          "lines": "update",
+          "concept": "C-CONTRACT"
+        },
+        {
+          "id": "A-02",
+          "role": "HSL supervised loss. Learns geometric Delta SE proposal, not executable acceptance.",
+          "lines": "loss",
+          "concept": "C-HSL"
+        },
+        {
+          "id": "A-03",
+          "role": "State alpha loss. Trains state-risk branch from executable-floor evidence.",
+          "lines": "loss",
+          "concept": "C-ALPHA"
+        },
+        {
+          "id": "A-04",
+          "role": "Structured rho RL loss. Uses advantage to update repair-retention carrier only.",
+          "lines": "loss",
+          "concept": "C-RHO"
+        }
+      ]
+    },
+    {
+      "group": "Diagnostics",
+      "path": "source/rsl_rl/rsl_rl/runners/frontres_diagnostics.py",
+      "color": "#0891b2",
+      "blocks": [
+        {
+          "id": "G-01",
+          "role": "Floor/alpha diagnostics. Verifies floor counts, alpha targets, predictions, and accuracy.",
+          "lines": "format_*",
+          "concept": "C-DIAG"
+        },
+        {
+          "id": "G-02",
+          "role": "Rho diagnostics. Verifies rho direction, constrained advantage, active weight, and route weights.",
+          "lines": "format_*",
+          "concept": "C-DIAG"
+        },
+        {
+          "id": "G-03",
+          "role": "Optimization diagnostics. Confirms which losses are enabled and which legacy paths are disabled.",
+          "lines": "format_*",
+          "concept": "C-DIAG"
+        }
+      ]
+    }
+  ]
+}

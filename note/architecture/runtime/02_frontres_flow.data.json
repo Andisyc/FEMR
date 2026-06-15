@@ -1,0 +1,173 @@
+{
+  "title": "FrontRES Runtime Flow Tree",
+  "subtitle": "Execution order from train.py to diagnostics. Node IDs match the repository map.",
+  "layout": "flow_tree",
+  "concepts": {
+    "C-DR": {
+      "name": "DR frontier / perturbation curriculum",
+      "color": "#d97706"
+    },
+    "C-HSL": {
+      "name": "geometric repair proposal",
+      "color": "#2563eb"
+    },
+    "C-FLOOR": {
+      "name": "Executable Floor",
+      "color": "#059669"
+    },
+    "C-ALPHA": {
+      "name": "state risk / alpha",
+      "color": "#7c3aed"
+    },
+    "C-RHO": {
+      "name": "structured repair retention / rho",
+      "color": "#dc2626"
+    },
+    "C-CONTRACT": {
+      "name": "storage and update contract",
+      "color": "#475569"
+    },
+    "C-DIAG": {
+      "name": "live diagnostics",
+      "color": "#0891b2"
+    }
+  },
+  "nodes": [
+    {
+      "id": "E-01",
+      "title": "train.py starts experiment",
+      "role": "Resolve task/config/checkpoint and instantiate OnPolicyRunner.",
+      "concept": "C-CONTRACT",
+      "children": [
+        {
+          "id": "R-01",
+          "title": "Runner init / resume",
+          "role": "Set phase, resume state, policy, algorithm, and storage contracts.",
+          "concept": "C-CONTRACT",
+          "children": [
+            {
+              "id": "DR-01",
+              "title": "Sample perturbation family",
+              "role": "Choose artifact family mix allowed by the active repair cone.",
+              "concept": "C-DR",
+              "children": [
+                {
+                  "id": "DR-02",
+                  "title": "Probe GMT frontier",
+                  "role": "Estimate current executable DR boundary and train scale.",
+                  "concept": "C-DR"
+                }
+              ]
+            },
+            {
+              "id": "R-02",
+              "title": "Build FrontRES rollout",
+              "role": "Collect Noisy, Candidate, Projected, and GMT evidence for the batch.",
+              "concept": "C-HSL",
+              "children": [
+                {
+                  "id": "A-02",
+                  "title": "HSL repair proposal",
+                  "role": "Predict geometric Delta SE repair candidate.",
+                  "concept": "C-HSL"
+                },
+                {
+                  "id": "F-01",
+                  "title": "Executable Floor",
+                  "role": "Convert frontier evidence into a shared floor value and pass/adapt masks.",
+                  "concept": "C-FLOOR"
+                },
+                {
+                  "id": "AL-01",
+                  "title": "State alpha target",
+                  "role": "Build state-risk signal from floor evidence before rho credit assignment.",
+                  "concept": "C-ALPHA"
+                },
+                {
+                  "id": "RH-01",
+                  "title": "Structured rho carrier",
+                  "role": "Represent repair retention without reviving old scalar acceptance semantics.",
+                  "concept": "C-RHO",
+                  "children": [
+                    {
+                      "id": "RH-02",
+                      "title": "Rho advantage evidence",
+                      "role": "Compare rollout utility and build signed repair-retention advantage.",
+                      "concept": "C-RHO"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "R-03",
+              "title": "Write storage contract",
+              "role": "Persist alpha targets, rho carrier, executable floor, masks, and rewards.",
+              "concept": "C-CONTRACT",
+              "children": [
+                {
+                  "id": "S-01",
+                  "title": "Transition fields",
+                  "role": "Store batch tensors with stable semantics.",
+                  "concept": "C-CONTRACT"
+                },
+                {
+                  "id": "S-02",
+                  "title": "Minibatch contract",
+                  "role": "Expose the same tensors to the algorithm update.",
+                  "concept": "C-CONTRACT"
+                }
+              ]
+            },
+            {
+              "id": "A-01",
+              "title": "Algorithm update",
+              "role": "Apply PPO boundary plus FrontRES-specific losses.",
+              "concept": "C-CONTRACT",
+              "children": [
+                {
+                  "id": "A-03",
+                  "title": "Alpha SSL update",
+                  "role": "Train state-risk branch from floor-derived targets.",
+                  "concept": "C-ALPHA"
+                },
+                {
+                  "id": "A-04",
+                  "title": "Structured rho RL update",
+                  "role": "Update repair-retention carrier from advantage; leave legacy accept pref disabled.",
+                  "concept": "C-RHO"
+                }
+              ]
+            },
+            {
+              "id": "R-04",
+              "title": "Print live diagnostics",
+              "role": "Prove each concept is connected to the active runtime path.",
+              "concept": "C-DIAG",
+              "children": [
+                {
+                  "id": "G-01",
+                  "title": "Floor / alpha diagnostics",
+                  "role": "Floor value, pass/adapt ratio, alpha target/pred/accuracy.",
+                  "concept": "C-DIAG"
+                },
+                {
+                  "id": "G-02",
+                  "title": "Rho diagnostics",
+                  "role": "Rho direction, constrained advantage, active weight, regret.",
+                  "concept": "C-DIAG"
+                },
+                {
+                  "id": "G-03",
+                  "title": "Loss-path diagnostics",
+                  "role": "Enabled losses, disabled legacy paths, and gradient boundary hints.",
+                  "concept": "C-DIAG"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

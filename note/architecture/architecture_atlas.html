@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MOSAIC Architecture Atlas</title>
+  <style>
+    :root {
+      --ink: #1f2933;
+      --muted: #5d6976;
+      --paper: #fbfaf4;
+      --panel: #fffdf6;
+      --line: #d9d2c3;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--line);
+      background: #fffef9;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .zoom-label {
+      min-width: 48px;
+      text-align: center;
+      color: #3f4b59;
+      font-variant-numeric: tabular-nums;
+    }
+
+    button {
+      border: 1px solid #b9b1a2;
+      background: #fff7df;
+      color: var(--ink);
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(360px, 0.32fr) minmax(760px, 1fr);
+      height: calc(100vh - 54px);
+      min-height: 620px;
+      overflow: hidden;
+    }
+
+    main.editor-hidden {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    aside {
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    main.editor-hidden aside {
+      display: none;
+    }
+
+    .hint {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    textarea {
+      flex: 1;
+      width: 100%;
+      box-sizing: border-box;
+      resize: none;
+      border: 0;
+      outline: 0;
+      padding: 14px;
+      background: #fffdf8;
+      color: #222;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      tab-size: 2;
+    }
+
+    .stage {
+      position: relative;
+      overflow: auto;
+      min-width: 0;
+      background:
+        linear-gradient(rgba(31, 41, 51, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(31, 41, 51, 0.025) 1px, transparent 1px),
+        var(--paper);
+      background-size: 24px 24px;
+      cursor: grab;
+      overscroll-behavior: contain;
+    }
+
+    .stage.dragging {
+      cursor: grabbing;
+      user-select: none;
+    }
+
+    svg {
+      display: block;
+      width: 1520px;
+      height: 980px;
+      transform-origin: 0 0;
+    }
+
+    .status {
+      font-variant-numeric: tabular-nums;
+    }
+
+    @media (max-width: 1040px) {
+      main {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+
+      aside {
+        height: 360px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="page-title">MOSAIC Architecture Atlas</h1>
+    <div class="toolbar">
+      <span class="status" id="status">loading</span>
+      <button id="toggle-editor">Show Editor</button>
+      <button id="zoom-out">-</button>
+      <span class="zoom-label" id="zoom-label">100%</span>
+      <button id="zoom-in">+</button>
+      <button id="zoom-fit">Fit Width</button>
+      <button id="zoom-reset">100%</button>
+      <button id="reload">Reload JSON</button>
+      <button id="render">Render Editor</button>
+    </div>
+  </header>
+  <main id="layout" class="editor-hidden">
+    <aside>
+      <div class="hint" id="hint"></div>
+      <textarea id="source" spellcheck="false"></textarea>
+    </aside>
+    <section class="stage" id="stage">
+      <svg id="diagram" viewBox="0 0 1520 980" role="img" aria-label="MOSAIC architecture atlas"></svg>
+    </section>
+  </main>
+
+  <script type="module">
+    import rough from "./node_modules/roughjs/bundled/rough.esm.js";
+
+    const params = new URLSearchParams(window.location.search);
+    const dataUrl = params.get("data") || "./concept/03_frontres_concept_tabs.data.json";
+    const source = document.getElementById("source");
+    const status = document.getElementById("status");
+    const svg = document.getElementById("diagram");
+    const reloadButton = document.getElementById("reload");
+    const renderButton = document.getElementById("render");
+    const toggleEditorButton = document.getElementById("toggle-editor");
+    const zoomOutButton = document.getElementById("zoom-out");
+    const zoomInButton = document.getElementById("zoom-in");
+    const zoomFitButton = document.getElementById("zoom-fit");
+    const zoomResetButton = document.getElementById("zoom-reset");
+    const zoomLabel = document.getElementById("zoom-label");
+    const layout = document.getElementById("layout");
+    const stage = document.getElementById("stage");
+    const title = document.getElementById("page-title");
+    const hint = document.getElementById("hint");
+    let lastServerData = null;
+    let sourceDirty = false;
+    let canvasWidth = 1520;
+    let canvasHeight = 980;
+    let zoom = 1;
+    let autoFitWidth = true;
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let panScrollLeft = 0;
+    let panScrollTop = 0;
+
+    function setStatus(text) {
+      status.textContent = text;
+    }
+
+    function clearSvg() {
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+    }
+
+    function setCanvas(width, height) {
+      canvasWidth = width;
+      canvasHeight = height;
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      applyZoom();
+    }
+
+    function clampZoom(value) {
+      return Math.max(0.25, Math.min(2.8, value));
+    }
+
+    function applyZoom(anchor = null) {
+      const oldWidth = Number.parseFloat(svg.style.width) || canvasWidth;
+      const oldHeight = Number.parseFloat(svg.style.height) || canvasHeight;
+      const nextWidth = canvasWidth * zoom;
+      const nextHeight = canvasHeight * zoom;
+      const centerX = anchor?.x ?? stage.scrollLeft + stage.clientWidth / 2;
+      const centerY = anchor?.y ?? stage.scrollTop + stage.clientHeight / 2;
+      const ratioX = oldWidth > 0 ? centerX / oldWidth : 0;
+      const ratioY = oldHeight > 0 ? centerY / oldHeight : 0;
+      svg.style.width = `${nextWidth}px`;
+      svg.style.height = `${nextHeight}px`;
+      zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+      requestAnimationFrame(() => {
+        stage.scrollLeft = Math.max(0, nextWidth * ratioX - stage.clientWidth / 2);
+        stage.scrollTop = Math.max(0, nextHeight * ratioY - stage.clientHeight / 2);
+      });
+    }
+
+    function setZoom(nextZoom, options = {}) {
+      if (!options.keepAutoFit) {
+        autoFitWidth = false;
+      }
+      zoom = clampZoom(nextZoom);
+      applyZoom();
+    }
+
+    function fitWidth() {
+      autoFitWidth = true;
+      const padding = 48;
+      const available = Math.max(320, stage.clientWidth - padding);
+      zoom = clampZoom(available / canvasWidth);
+      applyZoom();
+    }
+
+    function addText(text, x, y, options = {}) {
+      const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      el.setAttribute("x", x);
+      el.setAttribute("y", y);
+      el.setAttribute("fill", options.fill || "#1f2933");
+      el.setAttribute("font-size", options.size || 18);
+      el.setAttribute("font-weight", options.weight || 500);
+      el.setAttribute("font-family", options.family || "ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif");
+      if (options.anchor) el.setAttribute("text-anchor", options.anchor);
+      el.textContent = text;
+      svg.appendChild(el);
+      return el;
+    }
+
+    function splitLongWord(word, maxChars) {
+      if (word.length <= maxChars) return [word];
+      const chunks = [];
+      for (let i = 0; i < word.length; i += maxChars) {
+        chunks.push(word.slice(i, i + maxChars));
+      }
+      return chunks;
+    }
+
+    function wrapText(text, x, y, width, options = {}) {
+      const charWidth = options.charWidth || 7;
+      const maxChars = Math.max(8, Math.floor(width / charWidth));
+      const tokens = String(text || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(" ")
+        .flatMap((word) => splitLongWord(word, maxChars));
+      const lines = [];
+      let line = "";
+      for (const token of tokens) {
+        const probe = line ? `${line} ${token}` : token;
+        if (probe.length > maxChars && line) {
+          lines.push(line);
+          line = token;
+        } else {
+          line = probe;
+        }
+      }
+      if (line) lines.push(line);
+      lines.slice(0, options.maxLines || 3).forEach((ln, idx) => {
+        addText(ln, x, y + idx * (options.lineHeight || 18), {
+          size: options.size || 13,
+          fill: options.fill || "#364250",
+          weight: options.weight || 400,
+        });
+      });
+    }
+
+    function colorWithAlpha(hex, alpha) {
+      const clean = String(hex || "#6688aa").replace("#", "");
+      const r = parseInt(clean.slice(0, 2), 16);
+      const g = parseInt(clean.slice(2, 4), 16);
+      const b = parseInt(clean.slice(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    function conceptColor(data, concept, fallback = "#6688aa") {
+      return data.concepts?.[concept]?.color || data.palette?.[concept] || fallback;
+    }
+
+    function drawCard(rc, x, y, w, h, color, options = {}) {
+      svg.appendChild(rc.rectangle(x, y, w, h, {
+        stroke: options.stroke || "#1f2933",
+        strokeWidth: options.strokeWidth || 1.4,
+        roughness: options.roughness || 1.35,
+        bowing: options.bowing || 1.05,
+        fill: options.fill || colorWithAlpha(color, 0.13),
+        fillStyle: options.fillStyle || "solid",
+        hachureGap: 8,
+      }));
+    }
+
+    function drawHeader(data, subtitle, width = 1520) {
+      const rc = rough.svg(svg);
+      svg.appendChild(rc.rectangle(28, 26, width - 56, 92, {
+        stroke: "#d8cdb8",
+        strokeWidth: 1.2,
+        roughness: 0.9,
+        bowing: 0.6,
+        fill: "rgba(255,255,255,0.35)",
+        fillStyle: "solid",
+      }));
+      addText(data.title || "Architecture Map", 70, 73, { size: 32, weight: 800 });
+      addText(subtitle || data.subtitle || "", 74, 102, { size: 15, fill: "#5d6976", weight: 500 });
+      return rc;
+    }
+
+    function drawLegend(data, x, y) {
+      const entries = Object.entries(data.concepts || {});
+      if (!entries.length) return;
+      const rc = rough.svg(svg);
+      addText("Concept Colors", x, y, { size: 14, fill: "#5d6976", weight: 800 });
+      entries.forEach(([id, concept], idx) => {
+        const yy = y + 24 + idx * 24;
+        const color = concept.color || "#6688aa";
+        svg.appendChild(rc.rectangle(x, yy - 12, 16, 14, {
+          stroke: color,
+          fill: colorWithAlpha(color, 0.55),
+          fillStyle: "solid",
+          roughness: 1.1,
+        }));
+        addText(`${id}  ${concept.name}`, x + 25, yy, { size: 12, fill: "#495463", weight: 600 });
+      });
+    }
+
+    function renderTabs(data) {
+      const width = 1480;
+      const height = 980;
+      setCanvas(width, height);
+      const rc = drawHeader(data, "Concept -> Code -> Diagnostics", width);
+      const positions = new Map();
+      const cols = [
+        { x: 70, y: 150, w: 380 },
+        { x: 550, y: 150, w: 380 },
+        { x: 1030, y: 150, w: 380 },
+      ];
+
+      (data.tabs || []).forEach((tab, idx) => {
+        const col = cols[idx] || cols[cols.length - 1];
+        const tabColor = tab.color || "#6688aa";
+        const cards = tab.cards || [];
+        const tabHeight = Math.max(650, 92 + cards.length * 102);
+        drawCard(rc, col.x, col.y, col.w, tabHeight, tabColor, {
+          stroke: tabColor,
+          strokeWidth: 2.4,
+          roughness: 1.8,
+          bowing: 1.2,
+          fill: colorWithAlpha(tabColor, 0.08),
+          fillStyle: "hachure",
+        });
+        drawCard(rc, col.x + 18, col.y - 36, 240, 52, tabColor, {
+          stroke: tabColor,
+          strokeWidth: 2.3,
+          fill: colorWithAlpha(tabColor, 0.2),
+        });
+        addText(`${tab.id}  ${tab.title}`, col.x + 34, col.y - 5, { size: 20, weight: 800 });
+
+        cards.forEach((card, cardIdx) => {
+          const cardX = col.x + 28;
+          const cardY = col.y + 44 + cardIdx * 102;
+          const cardW = col.w - 56;
+          const cardH = 74;
+          positions.set(card.id, {
+            x: cardX + cardW / 2,
+            y: cardY + cardH / 2,
+            left: cardX,
+            right: cardX + cardW,
+            color: tabColor,
+          });
+          drawCard(rc, cardX, cardY, cardW, cardH, tabColor);
+          addText(`${card.id}  ${card.title}`, cardX + 18, cardY + 27, { size: 16, weight: 800 });
+          wrapText(card.body || "", cardX + 18, cardY + 50, cardW - 36, {
+            size: 12,
+            maxLines: 2,
+            lineHeight: 15,
+            charWidth: 6.4,
+            fill: "#495463",
+          });
+        });
+      });
+
+      (data.links || []).forEach(([from, to]) => {
+        const a = positions.get(from);
+        const b = positions.get(to);
+        if (!a || !b) return;
+        const startX = a.right;
+        const startY = a.y;
+        const endX = b.left;
+        const endY = b.y;
+        const midX = (startX + endX) / 2;
+        svg.appendChild(rc.path(`M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`, {
+          stroke: b.color || "#4d657b",
+          strokeWidth: 2.2,
+          roughness: 1.8,
+          bowing: 1.1,
+        }));
+        svg.appendChild(rc.circle(endX, endY, 8, {
+          stroke: b.color || "#4d657b",
+          strokeWidth: 1.2,
+          fill: b.color || "#4d657b",
+          fillStyle: "solid",
+        }));
+      });
+    }
+
+    function renderRepoTree(data) {
+      const files = data.files || [];
+      const fileHeights = files.map((file) => 70 + Math.max(1, file.blocks?.length || 0) * 76);
+      const height = Math.max(980, 170 + fileHeights.reduce((a, b) => a + b + 26, 0));
+      const width = 1680;
+      setCanvas(width, height);
+      const rc = drawHeader(data, "File tree -> code block roles. Same block IDs appear in the flow map.", width);
+
+      let y = 150;
+      const rootX = 62;
+      const fileX = 165;
+      const blockX = 610;
+      svg.appendChild(rc.line(rootX, 142, rootX, height - 80, {
+        stroke: "#8792a0",
+        strokeWidth: 2.2,
+        roughness: 1.1,
+      }));
+      addText(data.root || "MOSAIC", rootX - 8, 134, { size: 15, weight: 800, fill: "#5d6976" });
+
+      files.forEach((file, idx) => {
+        const h = fileHeights[idx];
+        const groupColor = file.color || "#627d98";
+        svg.appendChild(rc.line(rootX, y + 28, fileX - 18, y + 28, {
+          stroke: groupColor,
+          strokeWidth: 2,
+          roughness: 1.4,
+        }));
+        drawCard(rc, fileX, y, 390, h, groupColor, {
+          stroke: groupColor,
+          strokeWidth: 2,
+          fill: colorWithAlpha(groupColor, 0.07),
+          fillStyle: "hachure",
+        });
+        addText(file.group || "module", fileX + 18, y + 24, { size: 12, weight: 800, fill: groupColor });
+        wrapText(file.path || "", fileX + 18, y + 48, 350, {
+          size: 13,
+          maxLines: 2,
+          lineHeight: 16,
+          charWidth: 6.6,
+          fill: "#26313d",
+          weight: 800,
+        });
+
+        (file.blocks || []).forEach((block, blockIdx) => {
+          const blockY = y + 78 + blockIdx * 76;
+          const color = conceptColor(data, block.concept, groupColor);
+          svg.appendChild(rc.line(fileX + 390, blockY + 26, blockX - 18, blockY + 26, {
+            stroke: color,
+            strokeWidth: 1.8,
+            roughness: 1.2,
+          }));
+          drawCard(rc, blockX, blockY, 760, 58, color, {
+            stroke: color,
+            strokeWidth: 1.6,
+            fill: colorWithAlpha(color, 0.12),
+          });
+          drawCard(rc, blockX + 14, blockY + 14, 78, 28, color, {
+            stroke: color,
+            fill: colorWithAlpha(color, 0.28),
+          });
+          addText(block.id, blockX + 29, blockY + 34, { size: 12, weight: 900, fill: "#1f2933" });
+          wrapText(block.role || "", blockX + 112, blockY + 24, 500, {
+            size: 14,
+            maxLines: 2,
+            lineHeight: 16,
+            charWidth: 7.2,
+            weight: 800,
+            fill: "#26313d",
+          });
+          const meta = block.lines ? `lines ${block.lines}` : "lines: TBD";
+          addText(meta, blockX + 635, blockY + 24, { size: 11, fill: "#6f7b86", weight: 700 });
+          if (block.concept) addText(block.concept, blockX + 635, blockY + 42, { size: 11, fill: color, weight: 800 });
+        });
+
+        y += h + 26;
+      });
+
+      drawLegend(data, 1400, 150);
+    }
+
+    function flattenFlow(nodes, depth = 0, parent = null, rows = []) {
+      for (const node of nodes || []) {
+        rows.push({ node, depth, parent });
+        flattenFlow(node.children || [], depth + 1, node.id, rows);
+      }
+      return rows;
+    }
+
+    function renderFlowTree(data) {
+      const rows = flattenFlow(data.nodes || []);
+      const height = Math.max(980, 180 + rows.length * 92);
+      const width = 1720;
+      setCanvas(width, height);
+      const rc = drawHeader(data, "Top-down runtime flow. IDs match the repository map.", width);
+      const positions = new Map();
+      const y0 = 155;
+      const rowH = 92;
+
+      rows.forEach((row, idx) => {
+        const x = 85 + row.depth * 285;
+        const y = y0 + idx * rowH;
+        const w = row.depth === 0 ? 360 : 520;
+        const h = 62;
+        const color = conceptColor(data, row.node.concept, row.node.color || "#6688aa");
+        positions.set(row.node.id, { x, y, w, h, color });
+        if (row.parent) {
+          const parent = positions.get(row.parent);
+          if (parent) {
+            const sx = parent.x + parent.w;
+            const sy = parent.y + parent.h / 2;
+            const ex = x - 18;
+            const ey = y + h / 2;
+            const mx = sx + Math.max(36, (ex - sx) * 0.45);
+            svg.appendChild(rc.path(`M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ey}, ${ex} ${ey}`, {
+              stroke: color,
+              strokeWidth: 2.0,
+              roughness: 1.5,
+              bowing: 1.05,
+            }));
+            svg.appendChild(rc.circle(ex, ey, 7, {
+              stroke: color,
+              fill: color,
+              fillStyle: "solid",
+              strokeWidth: 1,
+            }));
+          }
+        } else if (idx > 0) {
+          const prev = rows[idx - 1];
+          const p = positions.get(prev.node.id);
+          if (p) {
+            svg.appendChild(rc.line(p.x + p.w / 2, p.y + p.h, x + w / 2, y - 12, {
+              stroke: "#8792a0",
+              strokeWidth: 1.6,
+              roughness: 1.2,
+            }));
+          }
+        }
+
+        drawCard(rc, x, y, w, h, color, {
+          stroke: color,
+          strokeWidth: 1.8,
+          fill: colorWithAlpha(color, 0.12),
+        });
+        drawCard(rc, x + 14, y + 16, 82, 30, color, {
+          stroke: color,
+          fill: colorWithAlpha(color, 0.28),
+        });
+        addText(row.node.id, x + 29, y + 37, { size: 12, weight: 900 });
+        addText(row.node.title || "", x + 112, y + 25, { size: 14, weight: 900, fill: "#26313d" });
+        wrapText(row.node.role || "", x + 112, y + 45, w - 138, {
+          size: 12,
+          maxLines: 2,
+          lineHeight: 14,
+          charWidth: 6.4,
+          fill: "#56616d",
+        });
+      });
+
+      drawLegend(data, 1400, 150);
+    }
+
+    function render(data) {
+      clearSvg();
+      title.textContent = data.title || "MOSAIC Architecture Atlas";
+      const layout = data.layout || "tabs";
+      if (layout === "repo_tree") {
+        renderRepoTree(data);
+      } else if (layout === "flow_tree") {
+        renderFlowTree(data);
+      } else {
+        renderTabs(data);
+      }
+      if (autoFitWidth) {
+        requestAnimationFrame(() => fitWidth());
+      }
+    }
+
+    async function loadFromFile(force = false) {
+      if (!force && document.activeElement === source && sourceDirty) return;
+      const response = await fetch(`${dataUrl}?t=${Date.now()}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const serialized = JSON.stringify(data, null, 2);
+      if (!force && serialized === lastServerData) return;
+      lastServerData = serialized;
+      sourceDirty = false;
+      source.value = serialized;
+      render(data);
+      setStatus(`loaded ${new Date().toLocaleTimeString()}`);
+      hint.innerHTML = `Edit <code>${dataUrl.replace("./", "")}</code> in VSCode. Hide this editor for full-width review. Drag the canvas to pan; use zoom controls or trackpad scroll for large maps.`;
+    }
+
+    function renderEditor() {
+      try {
+        const data = JSON.parse(source.value);
+        render(data);
+        setStatus(`rendered editor ${new Date().toLocaleTimeString()}`);
+      } catch (error) {
+        setStatus(`JSON error: ${error.message}`);
+      }
+    }
+
+    reloadButton.addEventListener("click", () => loadFromFile(true).catch((error) => setStatus(error.message)));
+    renderButton.addEventListener("click", renderEditor);
+    toggleEditorButton.addEventListener("click", () => {
+      layout.classList.toggle("editor-hidden");
+      toggleEditorButton.textContent = layout.classList.contains("editor-hidden") ? "Show Editor" : "Hide Editor";
+      requestAnimationFrame(() => {
+        if (autoFitWidth) {
+          fitWidth();
+        } else {
+          applyZoom();
+        }
+      });
+    });
+    zoomOutButton.addEventListener("click", () => setZoom(zoom / 1.18));
+    zoomInButton.addEventListener("click", () => setZoom(zoom * 1.18));
+    zoomFitButton.addEventListener("click", fitWidth);
+    zoomResetButton.addEventListener("click", () => setZoom(1));
+    stage.addEventListener("wheel", (event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      const rect = stage.getBoundingClientRect();
+      const anchor = {
+        x: stage.scrollLeft + event.clientX - rect.left,
+        y: stage.scrollTop + event.clientY - rect.top,
+      };
+      autoFitWidth = false;
+      zoom = clampZoom(zoom * (event.deltaY > 0 ? 0.92 : 1.08));
+      applyZoom(anchor);
+    }, { passive: false });
+    window.addEventListener("resize", () => {
+      if (autoFitWidth) {
+        requestAnimationFrame(() => fitWidth());
+      }
+    });
+    stage.addEventListener("mousedown", (event) => {
+      if (event.button !== 0 || event.target.closest("button")) return;
+      isPanning = true;
+      panStartX = event.clientX;
+      panStartY = event.clientY;
+      panScrollLeft = stage.scrollLeft;
+      panScrollTop = stage.scrollTop;
+      stage.classList.add("dragging");
+    });
+    window.addEventListener("mousemove", (event) => {
+      if (!isPanning) return;
+      stage.scrollLeft = panScrollLeft - (event.clientX - panStartX);
+      stage.scrollTop = panScrollTop - (event.clientY - panStartY);
+    });
+    window.addEventListener("mouseup", () => {
+      if (!isPanning) return;
+      isPanning = false;
+      stage.classList.remove("dragging");
+    });
+    source.addEventListener("input", () => {
+      sourceDirty = true;
+      window.clearTimeout(source._renderTimer);
+      source._renderTimer = window.setTimeout(renderEditor, 250);
+    });
+
+    if ("EventSource" in window) {
+      const events = new EventSource("./events");
+      events.addEventListener("architecture-data", () => {
+        loadFromFile().catch((error) => setStatus(error.message));
+      });
+    }
+
+    window.setInterval(() => {
+      loadFromFile().catch(() => {});
+    }, 1500);
+
+    loadFromFile(true).catch((error) => {
+      source.value = JSON.stringify({ title: "MOSAIC Architecture Atlas", layout: "repo_tree", files: [] }, null, 2);
+      renderEditor();
+      setStatus(`open through serve_architecture.mjs: ${error.message}`);
+    });
+  </script>
+</body>
+</html>

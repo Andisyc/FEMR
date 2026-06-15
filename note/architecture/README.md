@@ -11,14 +11,28 @@ same Code Block ID
   -> same code location
 ```
 
-## Current Prototype
+## Current Maps
 
-- `03_frontres_concept_tabs.data.json`: editable source data for the concept-tab map.
-- `03_frontres_concept_tabs.mmd`: Mermaid structural source.
-- `frontres_concept_tabs.html`: interactive rough.js viewer.
+- `architecture/01_repo_architecture.data.json`: editable source data for the VSCode-style repo map.
+- `runtime/02_frontres_flow.data.json`: editable source data for the top-down runtime flow map.
+- `concept/03_frontres_concept_tabs.data.json`: editable source data for the concept-tab map.
+- `concept/03_frontres_concept_tabs.mmd`: Mermaid structural source.
+- `architecture_atlas.html`: interactive rough.js viewer for all atlas data files.
+- `concept/frontres_concept_tabs.html`: original concept-tab viewer kept for compatibility.
 - `serve_architecture.mjs`: local auto-refresh server for VSCode side-by-side editing.
 - `render_rough_arch_svg.mjs`: static SVG renderer with a rough hand-drawn style.
-- `03_frontres_concept_tabs.svg`: generated static visual artifact.
+- `concept/03_frontres_concept_tabs.svg`: generated static visual artifact.
+
+## Folder Contract
+
+```text
+note/architecture/
+  architecture/   repo/file/block mind map
+  runtime/        top-down training execution flow
+  concept/        FrontRES design concept tabs
+  architecture_atlas.html
+  index.html
+```
 
 ## VSCode Workflow
 
@@ -27,14 +41,27 @@ cd note/architecture
 npm run serve
 ```
 
-Open this URL on the right side of VSCode:
+Open one of these URLs on the right side of VSCode:
 
 ```text
-http://127.0.0.1:8765/frontres_concept_tabs.html
+http://127.0.0.1:8765/
+http://127.0.0.1:8765/architecture_atlas.html?data=architecture/01_repo_architecture.data.json
+http://127.0.0.1:8765/architecture_atlas.html?data=runtime/02_frontres_flow.data.json
+http://127.0.0.1:8765/architecture_atlas.html?data=concept/03_frontres_concept_tabs.data.json
 ```
 
-Open `03_frontres_concept_tabs.data.json` on the left. Saving the JSON refreshes
-the graph automatically.
+Open the matching `*.data.json` on the left. Saving the JSON refreshes the graph
+automatically. The atlas page also polls the current JSON file, so it still
+updates even if an older server process is running.
+
+Viewer controls:
+
+- The built-in JSON editor is hidden by default so the graph uses the full page.
+- `Show Editor` opens the built-in JSON editor when quick in-browser edits are useful.
+- `+`, `-`, `Fit Width`, and `100%` control graph zoom.
+- `Fit Width` also restores auto-fit behavior after manual zooming.
+- Drag the graph canvas to pan. Trackpad horizontal scroll also works on large maps.
+- `Ctrl`/`Cmd` + wheel zooms around the pointer.
 
 ## Static SVG
 
@@ -51,3 +78,8 @@ node note/architecture/render_rough_arch_svg.mjs
 - `A-*`: algorithm code block.
 - `S-*`: storage contract block.
 - `D-*`: diagnostics block.
+- `DR-*`: DR curriculum / GMT frontier block.
+- `F-*`: executable floor block.
+- `AL-*`: state alpha block.
+- `RH-*`: structured rho block.
+- `G-*`: diagnostics block.

@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const input = process.argv[2] || "03_frontres_concept_tabs.data.json";
-const output = process.argv[3] || "03_frontres_concept_tabs.svg";
+const input = process.argv[2] || "concept/03_frontres_concept_tabs.data.json";
+const output = process.argv[3] || "concept/03_frontres_concept_tabs.svg";
 const cwd = path.dirname(new URL(import.meta.url).pathname);
 const data = JSON.parse(fs.readFileSync(path.resolve(cwd, input), "utf8"));
 

@@ -140,7 +140,7 @@
   <main>
     <aside>
       <div class="hint">
-        Edit <code>03_frontres_concept_tabs.data.json</code> in VSCode and keep this HTML open on the side.
+        Edit <code>concept/03_frontres_concept_tabs.data.json</code> in VSCode and keep this HTML open on the side.
         When served by <code>serve_architecture.mjs</code>, saving JSON refreshes this drawing automatically.
       </div>
       <textarea id="source" spellcheck="false"></textarea>
@@ -151,7 +151,7 @@
   </main>
 
   <script type="module">
-    import rough from "./node_modules/roughjs/bundled/rough.esm.js";
+    import rough from "../node_modules/roughjs/bundled/rough.esm.js";
 
     const source = document.getElementById("source");
     const status = document.getElementById("status");

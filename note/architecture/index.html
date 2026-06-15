@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MOSAIC Architecture Atlas</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 42px;
+      background: #fbfaf4;
+      color: #1f2933;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+      letter-spacing: 0;
+    }
+
+    p {
+      color: #5d6976;
+      max-width: 780px;
+      line-height: 1.6;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 18px;
+      max-width: 1120px;
+      margin-top: 28px;
+    }
+
+    a {
+      display: block;
+      min-height: 138px;
+      padding: 22px;
+      color: inherit;
+      text-decoration: none;
+      background: #fffdf6;
+      border: 1px solid #d9d2c3;
+      border-radius: 8px;
+      box-shadow: 0 10px 24px rgba(31, 41, 51, 0.06);
+    }
+
+    a strong {
+      display: block;
+      margin-bottom: 12px;
+      font-size: 20px;
+    }
+
+    a span {
+      color: #5d6976;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <h1>MOSAIC Architecture Atlas</h1>
+  <p>
+    These maps are meant to be read side by side with code. They share Code Block IDs and concept colors, so a design idea can be traced from concept to file to runtime flow.
+  </p>
+  <section class="grid">
+    <a href="./architecture_atlas.html?data=architecture/01_repo_architecture.data.json">
+      <strong>01 Repo Architecture</strong>
+      <span>VSCode-style file tree. Each file expands into code blocks with role-first labels and line hints.</span>
+    </a>
+    <a href="./architecture_atlas.html?data=runtime/02_frontres_flow.data.json">
+      <strong>02 Runtime Flow</strong>
+      <span>Top-down execution tree. The same block IDs show where each file block participates in training.</span>
+    </a>
+    <a href="./architecture_atlas.html?data=concept/03_frontres_concept_tabs.data.json">
+      <strong>03 Concept Tabs</strong>
+      <span>Problem, concept, and engineering layers for FrontRES design memory.</span>
+    </a>
+  </section>
+</body>
+</html>
