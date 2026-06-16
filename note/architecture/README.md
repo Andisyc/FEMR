@@ -14,6 +14,7 @@ same Code Block ID
 ## Current Maps
 
 - `architecture/01_repo_architecture.data.json`: editable source data for the VSCode-style repo map.
+- `architecture/04_femr_modular_architecture.data.json`: object-oriented FEMR modular redesign before code refactor.
 - `runtime/02_frontres_flow.data.json`: editable source data for the Interface Contract Map.
 - `concept/03_frontres_concept_tabs.data.json`: editable source data for the concept-tab map.
 - `concept/03_frontres_concept_tabs.mmd`: Mermaid structural source.
@@ -25,11 +26,21 @@ same Code Block ID
 ```text
 note/architecture/
   architecture/   repo/file/block mind map
+                 FEMR modular redesign map
   runtime/        module interface contract map
   concept/        FrontRES design concept tabs
   auxiliary/      helper app files kept out of the map folders
   index.html      clean entry page
 ```
+
+## Map Lifecycle
+
+Temporary maps are allowed, including in the main entry page, while they are
+actively guiding a change. After the change lands, a temporary map must be
+either deleted or integrated into one of the active maps.
+
+The main entry should stay small: repo map, interface contract, concept tabs,
+and one active refactor map.
 
 ## VSCode Workflow
 
@@ -45,6 +56,7 @@ http://127.0.0.1:8765/
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../runtime/02_frontres_flow.data.json
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../concept/03_frontres_concept_tabs.data.json
+http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/04_femr_modular_architecture.data.json
 ```
 
 Open the matching `*.data.json` on the left. Saving the JSON refreshes the graph
@@ -59,6 +71,137 @@ Viewer controls:
 - `Fit Width` also restores auto-fit behavior after manual zooming.
 - Drag the graph canvas to pan. Trackpad horizontal scroll also works on large maps.
 - `Ctrl`/`Cmd` + wheel zooms around the pointer.
+
+## HTML Design Contract
+
+The current atlas uses one reusable HTML viewer:
+
+```text
+auxiliary/atlas_app/architecture_atlas.html
+  -> loads one *.data.json through ?data=...
+  -> chooses renderer by data.layout
+  -> draws rough SVG cards with shared colors, IDs, zoom, pan, editor, and live reload
+```
+
+The three main pages are data variants, not separate applications:
+
+- Architecture uses `layout: "repo_tree"`.
+  - Source: `architecture/01_repo_architecture.data.json`.
+  - Purpose: file tree -> code block ownership.
+  - Main schema: `title`, `subtitle`, `layout`, `root`, `concepts`, `files[]`.
+  - Each file has `group`, `path`, `color`, `blocks[]`.
+  - Each block has `id`, `role`, `lines`, `concept`.
+
+- Runtime uses `layout: "flow_tree"`.
+  - Source: `runtime/02_frontres_flow.data.json`.
+  - Purpose: interface boundary -> input / ownership / output / forbidden freedom / diagnostic proof.
+  - Main schema: `title`, `subtitle`, `layout`, `concepts`, `nodes[]`.
+  - Each node has `id`, `title`, `role`, `input`, `output`, `forbidden`, `diagnostic`, `concept`, optional `children[]`.
+
+- Concept uses the default tab renderer.
+  - Source: `concept/03_frontres_concept_tabs.data.json`.
+  - Purpose: real problem layer -> concept variable layer -> engineering carrier layer.
+  - Main schema: `title`, `subtitle`, `tabs[]`, optional `links[]`.
+  - Each tab has `id`, `title`, `color`, `cards[]`.
+  - Each card has `id`, `title`, `body`.
+
+`frontres_concept_tabs.legacy.html` is an older Concept-only viewer. Keep it only
+as a reference while migrating old behavior; new maps should use
+`architecture_atlas.html` unless a genuinely new interaction model is needed.
+
+## Reuse Contract
+
+For another LLM Agent: this atlas is meant to be reused by copying the whole
+folder, not by copying a single HTML file. The folder is a small self-contained
+viewer plus JSON map sources.
+
+Copy this directory into the new project:
+
+```text
+note/architecture/
+```
+
+The copied folder should keep this shape:
+
+```text
+note/architecture/
+  index.html
+  README.md
+  architecture/
+    *.data.json
+  runtime/
+    *.data.json
+  concept/
+    *.data.json
+  auxiliary/atlas_app/
+    architecture_atlas.html
+    serve_architecture.mjs
+    render_rough_arch_svg.mjs
+    package.json
+    package-lock.json
+```
+
+In the new project, start the viewer from the copied folder:
+
+```bash
+cd note/architecture
+npm --prefix auxiliary/atlas_app install
+node auxiliary/atlas_app/serve_architecture.mjs
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8765/
+```
+
+To reuse the current HTML page for a specific map, create or edit a
+`*.data.json` file and open:
+
+```text
+http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../PATH/TO/MAP.data.json
+```
+
+Choose the `layout` field by the thinking task:
+
+- Use `repo_tree` when the question is "which file owns which code block?".
+- Use `flow_tree` when the question is "what enters a module, what does it own, what exits, and what is forbidden?".
+- Omit `layout` or use `tabs` when the question is conceptual taxonomy rather than code ownership.
+
+Reusable parts:
+
+- Page shell: header, hidden editor, status, live reload, zoom, fit-width, pan.
+- Drawing helpers: `drawHeader`, `drawLegend`, `drawCard`, `wrapText`, `conceptColor`.
+- Shared visual grammar: Code Block IDs, concept color IDs, rough SVG cards, Chinese explanatory text with stable English names.
+- Data-driven rendering: a new map should usually require only a new JSON file and an `index.html` link.
+
+Non-reusable parts without refactoring:
+
+- The renderer functions are currently embedded in `architecture_atlas.html`, not exported as a JS library.
+- Adding a fourth layout still requires editing `architecture_atlas.html`.
+- Cross-file automatic consistency checks are not built into the viewer; consistency is maintained by the JSON contract and review.
+
+New-project adaptation checklist for another LLM Agent:
+
+- Keep `auxiliary/atlas_app/architecture_atlas.html` unchanged at first.
+- Replace the example JSON content with the new project's architecture data.
+- Update `index.html` links so they point to the new JSON files.
+- Keep stable English names in `title` / module labels when they identify code concepts.
+- Put explanations, roles, risks, and diagnostics in Chinese if the project owner reads Chinese.
+- Preserve Code Block IDs and concept color IDs across maps when the same concept appears in multiple diagrams.
+- Do not split the HTML into a JS library unless the viewer itself becomes difficult to maintain.
+
+If the atlas grows further, the next engineering step should be to split the
+embedded script into:
+
+```text
+viewer_shell.js       shared loading, editor, status, zoom, pan
+render_helpers.js    SVG text, cards, colors, wrapping
+layouts/             repo_tree.js, flow_tree.js, tabs.js
+```
+
+Do not do this split merely because one map changes. Do it only when the HTML
+itself becomes a maintenance bottleneck.
 
 ## Static SVG
 
