@@ -92,14 +92,14 @@ def build_frontres_hsl_rollout_target(
 
     eta = float(runner.cfg.get("frontres_hsl_rollout_eta", 1.0))
     label = current + eta * sim_residual
-    label = runner._frontres_project_task_target_to_action_cone(command, label)
+    label = runner._frontres_action_cone.project_task_target(command, label)
     if bool(runner.cfg.get("frontres_per_mode_supervised_mask", True)):
         mode_groups = list(getattr(
             runner,
             "_frontres_curriculum_env_mode_groups",
             [tuple(getattr(runner, "_frontres_curriculum_active_modes", ()))] * n,
         ))[:n]
-        label = runner._frontres_apply_per_mode_supervised_mask(label, mode_groups, n)
+        label = runner._frontres_action_cone.apply_per_mode_supervised_mask(label, mode_groups, n)
 
     rot_scale = float(runner.cfg.get("frontres_hsl_rot_error_scale", 0.25))
     noisy_err = (

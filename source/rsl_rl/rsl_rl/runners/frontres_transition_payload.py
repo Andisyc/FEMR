@@ -710,6 +710,327 @@ def summarize_frontres_acceptance_payload(
     )
 
 
+def build_and_write_frontres_acceptance_payload(
+    runner: Any,
+    *,
+    actions: torch.Tensor,
+    n_candidate: int,
+    n_exec: int,
+    candidate_start: int,
+    base_start: int,
+    a_w: torch.Tensor,
+    a_raw: torch.Tensor,
+    a_fr: torch.Tensor,
+    q_w: torch.Tensor,
+    q_raw: torch.Tensor,
+    q_fr: torch.Tensor,
+    cmd_for_inertia: Any,
+    repair_gain: torch.Tensor,
+    candidate_gain: torch.Tensor,
+    repair_gate: torch.Tensor,
+    oracle_trust: torch.Tensor,
+    learnable_route_mask: torch.Tensor,
+    exec_components: Mapping[str, torch.Tensor],
+    feasible_components: Mapping[str, torch.Tensor] | None,
+    exec_perturbed: torch.Tensor,
+    exec_feasible: torch.Tensor,
+    exec_frontres: torch.Tensor,
+    exec_candidate: torch.Tensor,
+    actor_gate: torch.Tensor,
+    state_alpha_target: torch.Tensor,
+    state_alpha_mask: torch.Tensor,
+    mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
+    quat_to_rotvec_wxyz: Any,
+    quat_mul_fn: Any,
+    quat_inv_fn: Any,
+) -> FrontRESAcceptancePayload:
+    """Build rollout acceptance/rho targets, write them to transition, and summarize diagnostics."""
+
+    accept_payload = initialize_frontres_acceptance_payload(runner)
+    accept_target = accept_payload.accept_target
+    accept_mask = accept_payload.accept_mask
+    pref_inertial_penalty_rho_mean = accept_payload.pref_inertial_penalty_rho_mean
+    pref_inertial_penalty_one_mean = accept_payload.pref_inertial_penalty_one_mean
+    tri_weight_repair_mean = accept_payload.tri_weight_repair_mean
+    tri_weight_noisy_mean = accept_payload.tri_weight_noisy_mean
+    tri_weight_stable_mean = accept_payload.tri_weight_stable_mean
+    rho_target_planar_mean = accept_payload.rho_target_planar_mean
+    rho_target_rp_mean = accept_payload.rho_target_rp_mean
+    rho_target_z_mean = accept_payload.rho_target_z_mean
+    rho_target_spread_mean = accept_payload.rho_target_spread_mean
+    grouped_rho_mask_mean = accept_payload.grouped_rho_mask_mean
+    rho_regret_up_planar_mean = accept_payload.rho_regret_up_planar_mean
+    rho_regret_up_rp_mean = accept_payload.rho_regret_up_rp_mean
+    rho_regret_up_z_mean = accept_payload.rho_regret_up_z_mean
+    rho_regret_down_planar_mean = accept_payload.rho_regret_down_planar_mean
+    rho_regret_down_rp_mean = accept_payload.rho_regret_down_rp_mean
+    rho_regret_down_z_mean = accept_payload.rho_regret_down_z_mean
+
+    structured_joint_requested = runner._frontres_structured_joint_effective_enabled()
+    legacy_pref_enabled = bool(runner.cfg.get("frontres_acceptance_preference_enabled", True))
+    pref_enabled = (legacy_pref_enabled or structured_joint_requested) and n_candidate > 0 and n_exec > 0
+    if pref_enabled:
+        pref_margin = max(float(runner.cfg.get("frontres_acceptance_preference_margin", 0.003)), 0.0)
+        j_rho = repair_gain
+        j_one = candidate_gain
+        j_zero = torch.zeros_like(repair_gain)
+        c_zero = None
+        c_one = None
+        if bool(runner.cfg.get("frontres_inertial_preference_enabled", False)):
+            have_inertia = (
+                hasattr(cmd_for_inertia, "robot_anchor_quat_w")
+                and hasattr(cmd_for_inertia, "robot_anchor_ang_vel_w")
+            )
+            if have_inertia:
+                robot_q = cmd_for_inertia.robot_anchor_quat_w[:n_exec].to(runner.device)
+                robot_w = cmd_for_inertia.robot_anchor_ang_vel_w[:n_exec].to(runner.device)
+                robot_p = (
+                    cmd_for_inertia.robot_anchor_pos_w[:n_exec].to(runner.device)
+                    if hasattr(cmd_for_inertia, "robot_anchor_pos_w")
+                    else None
+                )
+                robot_v = (
+                    cmd_for_inertia.robot_anchor_lin_vel_w[:n_exec].to(runner.device)
+                    if hasattr(cmd_for_inertia, "robot_anchor_lin_vel_w")
+                    else None
+                )
+                ang_w = float(runner.cfg.get("frontres_inertial_preference_ang_weight", 0.5))
+
+                def branch_compat(branch_pos, branch_q):
+                    rot_err = quat_to_rotvec_wxyz(quat_mul_fn(quat_inv_fn(robot_q), branch_q))[:, :3]
+                    compat = torch.zeros(n_exec, device=runner.device, dtype=j_rho.dtype)
+                    if branch_pos is not None and robot_p is not None and robot_v is not None:
+                        pos_err = branch_pos - robot_p
+                        compat = compat + (pos_err * robot_v).sum(-1) / (
+                            pos_err.norm(dim=-1) * robot_v.norm(dim=-1) + 1e-8
+                        )
+                    compat = compat + ang_w * (rot_err * robot_w).sum(-1) / (
+                        rot_err.norm(dim=-1) * robot_w.norm(dim=-1) + 1e-8
+                    )
+                    return torch.nan_to_num(compat, nan=0.0, posinf=0.0, neginf=0.0)
+
+                pos_all = getattr(cmd_for_inertia, "anchor_pos_w", None)
+                quat_all = getattr(cmd_for_inertia, "anchor_quat_w", None)
+                if quat_all is not None:
+                    noisy_pos = (
+                        pos_all[base_start:base_start + n_exec].to(runner.device)
+                        if pos_all is not None
+                        else None
+                    )
+                    rho_pos = pos_all[:n_exec].to(runner.device) if pos_all is not None else None
+                    one_pos = (
+                        pos_all[candidate_start:candidate_start + n_exec].to(runner.device)
+                        if pos_all is not None and n_candidate > 0
+                        else None
+                    )
+                    c_zero = branch_compat(noisy_pos, quat_all[base_start:base_start + n_exec].to(runner.device))
+                    c_rho = branch_compat(rho_pos, quat_all[:n_exec].to(runner.device))
+                    c_one = branch_compat(one_pos, quat_all[candidate_start:candidate_start + n_exec].to(runner.device))
+                    inertial_margin = float(runner.cfg.get("frontres_inertial_preference_margin", 0.05))
+                    inertial_weight = max(0.0, float(runner.cfg.get("frontres_inertial_preference_weight", 0.0)))
+                    penalty_rho = torch.relu(c_zero - c_rho + inertial_margin)
+                    penalty_one = torch.relu(c_zero - c_one + inertial_margin)
+                    j_rho = j_rho - inertial_weight * penalty_rho
+                    j_one = j_one - inertial_weight * penalty_one
+                    pref_inertial_penalty_rho_mean = penalty_rho.mean()
+                    pref_inertial_penalty_one_mean = penalty_one.mean()
+
+        full_win = (j_one > j_rho + pref_margin) & (j_one > j_zero + pref_margin)
+        noop_win = (j_zero > j_rho + pref_margin) & (j_zero > j_one + pref_margin)
+        keep_win = (j_rho > j_one + pref_margin) & (j_rho > j_zero + pref_margin)
+        regret_target_enabled = bool(runner.cfg.get("frontres_acceptance_regret_target_enabled", True))
+        if regret_target_enabled:
+            regret_mask_floor = float(runner.cfg.get("frontres_acceptance_regret_soft_mask_floor", 1.0))
+            regret_mask_floor = max(0.0, min(1.0, regret_mask_floor))
+            repair_pref_gate = (regret_mask_floor + (1.0 - regret_mask_floor) * repair_gate).clamp(0.0, 1.0)
+            oracle_pref_floor = float(runner.cfg.get("frontres_acceptance_regret_oracle_trust_floor", 0.25))
+            oracle_pref_floor = max(0.0, min(1.0, oracle_pref_floor))
+            oracle_pref_gate = (oracle_pref_floor + (1.0 - oracle_pref_floor) * oracle_trust).clamp(0.0, 1.0)
+        else:
+            repair_pref_gate = repair_gate
+            oracle_pref_gate = oracle_trust
+        pref_gate = (oracle_pref_gate * repair_pref_gate * learnable_route_mask).detach().clamp(0.0, 1.0)
+        task_conf_dim = int(getattr(getattr(runner.alg, "policy", None), "task_conf_dim", 2))
+        tri_rho_payload = build_frontres_tri_anchor_rho_payload(
+            cfg=runner.cfg,
+            actions=actions,
+            n_exec=n_exec,
+            task_conf_dim=task_conf_dim,
+            j_one=j_one,
+            j_zero=j_zero,
+            pref_margin=pref_margin,
+            pref_gate=pref_gate,
+            exec_components=exec_components,
+            candidate_start=candidate_start,
+            base_start=base_start,
+            regret_target_enabled=regret_target_enabled,
+            device=runner.device,
+        )
+        target_exec = tri_rho_payload.target_exec
+        mask_exec = tri_rho_payload.mask_exec
+        rho_current = tri_rho_payload.rho_current
+        rho_space = tri_rho_payload.rho_space
+        grouped_targets_enabled = tri_rho_payload.grouped_targets_enabled
+        rho_target_planar_mean = tri_rho_payload.rho_target_planar_mean
+        rho_target_rp_mean = tri_rho_payload.rho_target_rp_mean
+        rho_target_z_mean = tri_rho_payload.rho_target_z_mean
+        rho_target_spread_mean = tri_rho_payload.rho_target_spread_mean
+        rho_regret_up_planar_mean = tri_rho_payload.rho_regret_up_planar_mean
+        rho_regret_up_rp_mean = tri_rho_payload.rho_regret_up_rp_mean
+        rho_regret_up_z_mean = tri_rho_payload.rho_regret_up_z_mean
+        rho_regret_down_planar_mean = tri_rho_payload.rho_regret_down_planar_mean
+        rho_regret_down_rp_mean = tri_rho_payload.rho_regret_down_rp_mean
+        rho_regret_down_z_mean = tri_rho_payload.rho_regret_down_z_mean
+        non_tri_acceptance_payload = build_frontres_non_tri_acceptance_target_payload(
+            cfg=runner.cfg,
+            rho_space=rho_space,
+            target_exec=target_exec,
+            mask_exec=mask_exec,
+            n_exec=n_exec,
+            base_start=base_start,
+            candidate_start=candidate_start,
+            a_w=a_w,
+            a_raw=a_raw,
+            a_fr=a_fr,
+            q_w=q_w,
+            q_raw=q_raw,
+            q_fr=q_fr,
+            c_zero=c_zero,
+            c_one=c_one,
+            rho_current=rho_current,
+            j_one=j_one,
+            j_zero=j_zero,
+            j_rho=j_rho,
+            full_win=full_win,
+            noop_win=noop_win,
+            keep_win=keep_win,
+            pref_margin=pref_margin,
+            pref_gate=pref_gate,
+            quat_to_rotvec_wxyz=quat_to_rotvec_wxyz,
+            quat_mul_fn=quat_mul_fn,
+            quat_inv_fn=quat_inv_fn,
+            device=runner.device,
+        )
+        target_exec = non_tri_acceptance_payload.target_exec
+        mask_exec = non_tri_acceptance_payload.mask_exec
+        need = non_tri_acceptance_payload.need
+        admissibility = non_tri_acceptance_payload.admissibility
+        if bool(runner.cfg.get("frontres_per_mode_acceptance_preference_mask", True)):
+            mode_dim_mask = runner._frontres_action_cone.mode_dim_mask(
+                mode_groups, n_exec, runner.device, mask_exec.dtype
+            )
+            if regret_target_enabled and grouped_targets_enabled:
+                mode_soft_floor = float(runner.cfg.get("frontres_acceptance_regret_per_mode_soft_floor", 1.0))
+                mode_soft_floor = max(0.0, min(1.0, mode_soft_floor))
+                mode_dim_mask = (mode_soft_floor + (1.0 - mode_soft_floor) * mode_dim_mask).clamp(0.0, 1.0)
+            mask_exec = mask_exec * mode_dim_mask
+        active_dims_cfg = runner.cfg.get("frontres_active_task_dims", None)
+        if active_dims_cfg is not None:
+            dim_mask = torch.zeros(6, device=runner.device, dtype=mask_exec.dtype)
+            for idx in active_dims_cfg:
+                idx = int(idx)
+                if 0 <= idx < 6:
+                    dim_mask[idx] = 1.0
+                elif 6 <= idx < 12:
+                    dim_mask[idx - 6] = 1.0
+            mask_exec = mask_exec * dim_mask.view(1, -1)
+        grouped_rho_mask_mean = mask_exec.mean()
+        if rho_space in ("tri_anchor", "tri-anchor", "tri"):
+            mask_sum_for_alpha = mask_exec.sum(dim=-1)
+            target_mean_for_alpha = target_exec.mean(dim=-1).detach().clamp(0.0, 1.0)
+            target_active_for_alpha = (
+                (target_exec * mask_exec).sum(dim=-1) / mask_sum_for_alpha.clamp(min=1e-6)
+            ).detach().clamp(0.0, 1.0)
+            target_sample_for_alpha = torch.where(
+                mask_sum_for_alpha > 0.0,
+                target_active_for_alpha,
+                target_mean_for_alpha,
+            )
+            tri_alpha_source = getattr(runner, "_frontres_state_alpha_prob_next", None)
+            if isinstance(tri_alpha_source, torch.Tensor) and tri_alpha_source.numel() > 0:
+                tri_alpha = tri_alpha_source.to(device=runner.device, dtype=target_exec.dtype).view(-1)
+                if tri_alpha.numel() < n_exec:
+                    tri_alpha = torch.nn.functional.pad(tri_alpha, (0, n_exec - tri_alpha.numel()), value=0.0)
+                tri_alpha = tri_alpha[:n_exec].detach().clamp(0.0, 1.0)
+            else:
+                tri_alpha = state_alpha_target[:n_exec, 0].detach().clamp(0.0, 1.0)
+            tri_weight_repair_mean = target_sample_for_alpha.mean()
+            tri_weight_stable_mean = ((1.0 - target_sample_for_alpha) * tri_alpha).mean()
+            tri_weight_noisy_mean = ((1.0 - target_sample_for_alpha) * (1.0 - tri_alpha)).mean()
+        accept_target[:n_exec] = target_exec.detach()
+        accept_mask[:n_exec] = mask_exec.detach()
+        structured_rho_payload = apply_frontres_structured_rho_payload(
+            runner,
+            accept_target=accept_target,
+            accept_mask=accept_mask,
+            target_exec=target_exec,
+            mask_exec=mask_exec,
+            n_exec=n_exec,
+            rho_current=rho_current,
+            actor_gate=actor_gate,
+            exec_perturbed=exec_perturbed,
+            exec_feasible=exec_feasible,
+            exec_frontres=exec_frontres,
+            exec_candidate=exec_candidate,
+            state_alpha_target=state_alpha_target,
+            rho_space=rho_space,
+            grouped_targets_enabled=grouped_targets_enabled,
+            feasible_components=feasible_components,
+            candidate_planar=tri_rho_payload.candidate_planar,
+            candidate_rp=tri_rho_payload.candidate_rp,
+            candidate_z=tri_rho_payload.candidate_z,
+            projected_planar=tri_rho_payload.projected_planar,
+            projected_rp=tri_rho_payload.projected_rp,
+            projected_z=tri_rho_payload.projected_z,
+            base_planar=tri_rho_payload.base_planar,
+            base_rp=tri_rho_payload.base_rp,
+            base_z=tri_rho_payload.base_z,
+            pref_margin=pref_margin,
+        )
+        accept_target = structured_rho_payload.accept_target
+        accept_mask = structured_rho_payload.accept_mask
+        target_exec = structured_rho_payload.target_exec
+        mask_exec = structured_rho_payload.mask_exec
+        structured_joint_enabled = structured_rho_payload.enabled
+        runner._frontres_state_alpha_mask_last = float(state_alpha_mask[:n_exec, 0].mean().detach().item())
+        accept_payload = summarize_frontres_acceptance_payload(
+            runner,
+            accept_target=accept_target,
+            accept_mask=accept_mask,
+            target_exec=target_exec,
+            mask_exec=mask_exec,
+            structured_joint_enabled=structured_joint_enabled,
+            pref_margin=pref_margin,
+            need=need,
+            admissibility=admissibility,
+            j_one=j_one,
+            j_rho=j_rho,
+            j_zero=j_zero,
+            tri_weight_repair_mean=tri_weight_repair_mean,
+            tri_weight_noisy_mean=tri_weight_noisy_mean,
+            tri_weight_stable_mean=tri_weight_stable_mean,
+            pref_inertial_penalty_rho_mean=pref_inertial_penalty_rho_mean,
+            pref_inertial_penalty_one_mean=pref_inertial_penalty_one_mean,
+            rho_target_planar_mean=rho_target_planar_mean,
+            rho_target_rp_mean=rho_target_rp_mean,
+            rho_target_z_mean=rho_target_z_mean,
+            rho_target_spread_mean=rho_target_spread_mean,
+            grouped_rho_mask_mean=grouped_rho_mask_mean,
+            rho_regret_up_planar_mean=rho_regret_up_planar_mean,
+            rho_regret_up_rp_mean=rho_regret_up_rp_mean,
+            rho_regret_up_z_mean=rho_regret_up_z_mean,
+            rho_regret_down_planar_mean=rho_regret_down_planar_mean,
+            rho_regret_down_rp_mean=rho_regret_down_rp_mean,
+            rho_regret_down_z_mean=rho_regret_down_z_mean,
+        )
+        accept_target = accept_payload.accept_target
+        accept_mask = accept_payload.accept_mask
+
+    runner.alg.transition.acceptance_target = accept_target
+    runner.alg.transition.acceptance_mask = accept_mask
+    return accept_payload
+
+
 def write_frontres_actor_gate(
     runner: Any,
     *,

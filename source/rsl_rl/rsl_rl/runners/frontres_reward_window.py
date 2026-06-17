@@ -18,6 +18,10 @@ from typing import Any
 
 import torch
 
+from rsl_rl.runners.frontres_oracle import compute_frontres_oracle_upper_bound
+from rsl_rl.runners.frontres_rollout_evidence import compute_frontres_rollout_evidence
+from rsl_rl.runners.frontres_executable_floor import update_runner_executable_floor_stats
+
 
 @dataclass
 class FrontRESRewardWindow:
@@ -53,6 +57,558 @@ class FrontRESRewardWindow:
     ranking_reward: torch.Tensor | None
     reward_progress: float
     constraint_progress: float
+
+
+@dataclass
+class FrontRESRewardContext:
+    """Post-step rollout evidence used to construct FrontRES reward and payloads."""
+
+    candidate_start: int
+    candidate_end: int
+    base_start: int
+    base_end: int
+    clean_start: int
+    clean_end: int
+    n_exec: int
+    n_pair: int
+    r_raw_gmt: torch.Tensor
+    r_clean_gmt: torch.Tensor
+    r_candidate_gmt: torch.Tensor | None
+    r_total: torch.Tensor
+    cmd: Any
+    use_clean: bool
+    a_w: torch.Tensor
+    a_raw: torch.Tensor
+    a_fr: torch.Tensor
+    q_w: torch.Tensor
+    q_raw: torch.Tensor
+    q_fr: torch.Tensor
+    r_step: torch.Tensor
+    r_rescue: torch.Tensor
+    r_exec: torch.Tensor
+    dr_z_abs_log: torch.Tensor
+    dr_xy_abs_log: torch.Tensor
+    dr_rp_abs_log: torch.Tensor
+    dr_yaw_abs_log: torch.Tensor
+    corr_z_abs_log: torch.Tensor
+    corr_xy_abs_log: torch.Tensor
+    corr_rp_abs_log: torch.Tensor
+    corr_yaw_abs_log: torch.Tensor
+    rot_raw_to_clean: torch.Tensor
+    rot_raw_to_fr: torch.Tensor
+    e_raw: torch.Tensor
+    e_fr: torch.Tensor
+    exec_score_all: torch.Tensor
+    exec_components: Mapping[str, torch.Tensor]
+    feasible_components: Mapping[str, torch.Tensor]
+    mode_groups: list[tuple[str, ...]]
+    exec_frontres: torch.Tensor
+    exec_candidate: torch.Tensor
+    exec_perturbed: torch.Tensor
+    exec_clean: torch.Tensor
+    exec_feasible: torch.Tensor
+    exec_planar_log: torch.Tensor
+    exec_vertical_log: torch.Tensor
+    exec_task_log: torch.Tensor
+    intervention_cost: torch.Tensor
+    clean_bound_cost: torch.Tensor
+    side_cost: torch.Tensor
+    over_cost: torch.Tensor
+    overcorrection_cost: torch.Tensor
+    under_repair_penalty: torch.Tensor
+    action_activity: torch.Tensor
+    w_exec: float
+    repair_scale: float
+    w_geom: float
+    w_rescue: float
+    w_exec_harm: float
+    repair_gain: torch.Tensor
+    candidate_gain: torch.Tensor
+    projection_gain: torch.Tensor
+    oracle_ub_gain: torch.Tensor
+    oracle_ub_pass: torch.Tensor
+    oracle_ub_noisy_win: torch.Tensor
+    oracle_ub_projected_win: torch.Tensor
+    oracle_ub_candidate_win: torch.Tensor
+    oracle_ub_feasible_win: torch.Tensor
+    exec_floor: float
+    exec_safe_floor: float
+    exec_floor_source: str
+    candidate_floor_margin: torch.Tensor
+    candidate_floor_pass: torch.Tensor
+    candidate_floor_pass_frac: torch.Tensor
+    stable_route_next: torch.Tensor
+    stable_route_active: torch.Tensor
+    reward_window: FrontRESRewardWindow
+
+
+def frontres_family_gain_std(
+    runner: Any,
+    mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
+    gain: torch.Tensor,
+) -> torch.Tensor:
+    """Return per-sample gain std from per-family EMA stats, then update stats."""
+
+    if gain.numel() == 0:
+        return torch.empty_like(gain)
+    cfg = runner.cfg
+    init_std = float(cfg.get("frontres_family_gain_initial_std", 0.01))
+    min_std = float(cfg.get("frontres_family_gain_min_std", 0.002))
+    alpha = float(cfg.get("frontres_family_gain_ema_alpha", 0.05))
+    alpha = max(0.0, min(1.0, alpha))
+    stats = getattr(runner, "_frontres_family_gain_stats", None)
+    if stats is None:
+        stats = {}
+        runner._frontres_family_gain_stats = stats
+
+    mode_groups_list = list(mode_groups)[: gain.shape[0]]
+    if len(mode_groups_list) < gain.shape[0]:
+        fallback_modes = ("planar", "yaw", "global_z", "local_rp")
+        mode_groups_list.extend([fallback_modes] * (gain.shape[0] - len(mode_groups_list)))
+    std = torch.full_like(gain, max(init_std, min_std))
+    for idx, modes in enumerate(mode_groups_list):
+        families = tuple(m for m in modes if m in ("planar", "yaw", "global_z", "local_rp"))
+        if not families:
+            families = ("all",)
+        vals = []
+        for family in families:
+            entry = stats.get(family)
+            if entry is None:
+                vals.append(max(init_std, min_std))
+            else:
+                vals.append(max(float(entry.get("std", init_std)), min_std))
+        std[idx] = sum(vals) / float(len(vals))
+
+    with torch.no_grad():
+        gain_detached = gain.detach()
+        for family in ("planar", "yaw", "global_z", "local_rp"):
+            mask_vals = [family in set(modes) for modes in mode_groups_list]
+            if not any(mask_vals):
+                continue
+            mask = torch.tensor(mask_vals, device=gain.device, dtype=torch.bool)
+            values = gain_detached[mask]
+            if values.numel() == 0:
+                continue
+            batch_mean = values.mean().item()
+            batch_var = values.var(unbiased=False).item() if values.numel() > 1 else 0.0
+            entry = stats.get(family)
+            if entry is None:
+                mean = batch_mean
+                var = max(batch_var, init_std * init_std)
+            else:
+                old_mean = float(entry.get("mean", 0.0))
+                old_var = float(entry.get("var", init_std * init_std))
+                mean = (1.0 - alpha) * old_mean + alpha * batch_mean
+                var = (1.0 - alpha) * old_var + alpha * batch_var
+            stats[family] = {
+                "mean": mean,
+                "var": max(var, min_std * min_std),
+                "std": max(math.sqrt(max(var, 0.0)), min_std),
+            }
+    return std.clamp(min=min_std)
+
+
+def build_frontres_reward_context(
+    runner: Any,
+    *,
+    rewards: torch.Tensor,
+    dones: torch.Tensor,
+    infos: dict[str, Any],
+    actions: torch.Tensor,
+    n_train: int,
+    n_candidate: int,
+    n_base: int,
+    n_clean: int,
+    is_task_space_mode: bool,
+    dr_scale: float,
+    ppo_actor_weight_current: float,
+    quat_to_rotvec_wxyz: Any,
+    quat_mul_fn: Any,
+    quat_inv_fn: Any,
+    euler_xyz_from_quat_fn: Any,
+    device: torch.device,
+) -> FrontRESRewardContext | None:
+    """Build post-env FrontRES reward evidence and reward window."""
+
+    candidate_start = n_train
+    candidate_end = candidate_start + n_candidate
+    base_start = candidate_end
+    base_end = base_start + n_base
+    clean_start = base_end
+    clean_end = clean_start + n_clean
+    r_raw_gmt = rewards[base_start:base_end].view(-1).clone()
+    r_clean_gmt = rewards[clean_start:clean_end].view(-1).clone()
+    r_candidate_gmt = (
+        rewards[candidate_start:candidate_end].view(-1).clone()
+        if n_candidate > 0
+        else None
+    )
+    r_total = rewards[:n_train].view(-1).clone()
+
+    env_for_rdelta = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    cmd = env_for_rdelta.command_manager._terms.get("motion")
+    use_clean = (
+        cmd is not None
+        and hasattr(cmd, "anchor_pos_w_original")
+        and hasattr(cmd, "anchor_quat_w_original")
+    )
+    if not use_clean:
+        return None
+
+    a_w = cmd.anchor_pos_w_original
+    a_raw = cmd.anchor_pos_w_raw
+    a_fr = cmd.anchor_pos_w
+    q_w = cmd.anchor_quat_w_original
+    q_raw = cmd.anchor_quat_w_raw
+    q_fr = cmd.anchor_quat_w
+
+    def r_axis(dr, corr):
+        return dr.abs() - (dr + corr).abs()
+
+    def r_vec(dr_vec, corr_vec):
+        return dr_vec.norm(dim=-1) - (dr_vec + corr_vec).norm(dim=-1)
+
+    dr_z_fr = a_raw[:n_train, 2] - a_w[:n_train, 2]
+    corr_z_fr = a_fr[:n_train, 2] - a_raw[:n_train, 2]
+    r_z = r_axis(dr_z_fr, corr_z_fr)
+    dr_xy_fr = a_raw[:n_train, :2] - a_w[:n_train, :2]
+    corr_xy_fr = a_fr[:n_train, :2] - a_raw[:n_train, :2]
+    r_xy = r_vec(dr_xy_fr, corr_xy_fr)
+
+    def wrap_pi(angle: torch.Tensor):
+        return torch.atan2(torch.sin(angle), torch.cos(angle))
+
+    rot_raw_to_clean = quat_to_rotvec_wxyz(quat_mul_fn(quat_inv_fn(q_raw[:n_train]), q_w[:n_train]))
+    rot_fr_to_clean = quat_to_rotvec_wxyz(quat_mul_fn(quat_inv_fn(q_fr[:n_train]), q_w[:n_train]))
+    rot_raw_to_fr = quat_to_rotvec_wxyz(quat_mul_fn(quat_inv_fn(q_raw[:n_train]), q_fr[:n_train]))
+    rp_raw = rot_raw_to_clean[:, :2]
+    rp_fr = rot_fr_to_clean[:, :2]
+    e_raw = rp_raw.norm(dim=-1)
+    e_fr = rp_fr.norm(dim=-1)
+    r_rp = e_raw - e_fr
+    _, _, yaw_raw = euler_xyz_from_quat_fn(q_raw[:n_train])
+    _, _, yaw_fr = euler_xyz_from_quat_fn(q_fr[:n_train])
+    _, _, yaw_w = euler_xyz_from_quat_fn(q_w[:n_train])
+    yaw_err_raw = wrap_pi(yaw_raw - yaw_w)
+    yaw_corr = wrap_pi(yaw_fr - yaw_raw)
+    r_ya = r_axis(yaw_err_raw, yaw_corr)
+
+    restore_z_weight = float(runner.cfg.get("frontres_restore_z_weight", 0.3))
+    restore_xy_weight = float(runner.cfg.get("frontres_restore_xy_weight", 0.3))
+    restore_rp_weight = float(runner.cfg.get("frontres_restore_rp_weight", 0.15))
+    restore_yaw_weight = float(runner.cfg.get("frontres_restore_yaw_weight", 0.02))
+    r_step = (
+        restore_z_weight * r_z
+        + restore_xy_weight * r_xy
+        + restore_rp_weight * r_rp
+        + restore_yaw_weight * r_ya
+    )
+    dr_z_abs_log = dr_z_fr.abs().mean()
+    dr_xy_abs_log = dr_xy_fr.norm(dim=-1).mean()
+    dr_rp_abs_log = e_raw.mean()
+    dr_yaw_abs_log = yaw_err_raw.abs().mean()
+    corr_z_abs_log = corr_z_fr.abs().mean()
+    corr_xy_abs_log = corr_xy_fr.norm(dim=-1).mean()
+    corr_rp_abs_log = rot_raw_to_fr[:, :2].norm(dim=-1).mean()
+    corr_yaw_abs_log = yaw_corr.abs().mean()
+
+    n_pair = min(n_train, n_candidate if n_candidate > 0 else n_train, n_base, n_clean)
+    fell_base = dones[base_start:base_start + n_pair].view(-1) > 0
+    fell_fr = dones[:n_pair].view(-1) > 0
+    r_rescue = torch.zeros(n_train, device=device)
+    r_rescue_pair = torch.zeros(n_pair, device=device)
+    rescue_mag = float(runner.cfg.get("r_rescue_magnitude", 0.5))
+    r_rescue_pair[fell_base & ~fell_fr] = rescue_mag
+    r_rescue_pair[fell_base & fell_fr] = -0.1 * rescue_mag
+    r_rescue_pair[~fell_base & fell_fr] = -rescue_mag
+    r_rescue[:n_pair] = r_rescue_pair
+
+    r_exec = torch.zeros(n_train, device=device)
+    n_exec = min(n_train, n_candidate if n_candidate > 0 else n_train, n_base, n_clean)
+    executability = runner._frontres_executability
+    active_modes = tuple(getattr(runner, "_frontres_curriculum_active_modes", ()))
+    exec_score_all, exec_components = executability.exec_score(cmd, return_components=True)
+    mode_groups = list(getattr(
+        runner,
+        "_frontres_curriculum_env_mode_groups",
+        [tuple(getattr(runner, "_frontres_curriculum_active_modes", ()))] * n_exec,
+    ))[:n_exec]
+    exec_frontres = executability.exec_score_for_modes(
+        exec_components, 0, n_exec, mode_groups=mode_groups, active_modes=active_modes
+    )
+    if n_candidate > 0:
+        exec_candidate = executability.exec_score_for_modes(
+            exec_components, candidate_start, n_exec, mode_groups=mode_groups, active_modes=active_modes
+        )
+    else:
+        exec_candidate = exec_frontres.detach()
+    exec_perturbed = executability.exec_score_for_modes(
+        exec_components, base_start, n_exec, mode_groups=mode_groups, active_modes=active_modes
+    )
+    exec_clean = executability.exec_score_for_modes(
+        exec_components, clean_start, n_exec, mode_groups=mode_groups, active_modes=active_modes
+    )
+    _, feasible_components = executability.feasible_oracle_exec_score(
+        cmd, base_start, n_exec, return_components=True
+    )
+    exec_feasible = executability.exec_score_for_modes(
+        feasible_components, 0, n_exec, mode_groups=mode_groups, active_modes=active_modes
+    ).to(device).view(-1)
+    exec_planar_log = exec_components["planar"][:n_exec].mean()
+    exec_vertical_log = exec_components["vertical"][:n_exec].mean()
+    exec_task_log = exec_components["task"][:n_exec].mean()
+
+    intervention_cost = torch.zeros(n_train, device=device)
+    clean_bound_cost = torch.zeros(n_train, device=device)
+    side_cost = torch.zeros(n_train, device=device)
+    over_cost = torch.zeros(n_train, device=device)
+    under_repair_penalty = torch.zeros(n_train, device=device)
+    action_activity = torch.zeros(n_train, device=device)
+    if is_task_space_mode and actions.shape[-1] >= 6:
+        delta = actions[:n_train, :6]
+        max_delta = torch.tensor(
+            [
+                runner.alg.policy.max_delta_pos,
+                runner.alg.policy.max_delta_pos,
+                runner.alg.policy.max_delta_pos,
+                runner.alg.policy.max_delta_rpy,
+                runner.alg.policy.max_delta_rpy,
+                runner.alg.policy.max_delta_rpy,
+            ],
+            device=device,
+            dtype=delta.dtype,
+        ).clamp(min=1e-6)
+        weights = torch.tensor(
+            runner.cfg.get(
+                "frontres_intervention_cost_weights",
+                [0.02, 0.02, 0.05, 0.30, 0.30, 0.10],
+            ),
+            device=device,
+            dtype=delta.dtype,
+        )
+        intervention_cost = (weights * (delta / max_delta).pow(2)).sum(dim=-1)
+        active_dims_cfg = runner.cfg.get("frontres_active_task_dims", None)
+        if active_dims_cfg is not None:
+            active_delta_dims = [
+                int(idx) for idx in active_dims_cfg
+                if 0 <= int(idx) < min(6, delta.shape[-1])
+            ]
+        else:
+            active_delta_dims = list(range(min(6, delta.shape[-1])))
+        if active_delta_dims:
+            active_idx = torch.tensor(active_delta_dims, device=device, dtype=torch.long)
+            action_activity = (delta[:, active_idx] / max_delta[active_idx]).pow(2).mean(dim=-1)
+            target_delta = torch.cat(
+                [
+                    (a_w[:n_train] - a_raw[:n_train]),
+                    rot_raw_to_clean,
+                ],
+                dim=-1,
+            )
+            corr_delta = torch.cat(
+                [
+                    (a_fr[:n_train] - a_raw[:n_train]),
+                    rot_raw_to_fr,
+                ],
+                dim=-1,
+            )
+            target_active = target_delta[:, active_idx] / max_delta[active_idx]
+            corr_active = corr_delta[:, active_idx] / max_delta[active_idx]
+            target_norm = target_active.norm(dim=-1, keepdim=True)
+            target_dir = target_active / target_norm.clamp(min=1e-6)
+            parallel_scalar = (corr_active * target_dir).sum(dim=-1, keepdim=True)
+            parallel = parallel_scalar * target_dir
+            side = corr_active - parallel
+
+            side_weight = float(runner.cfg.get("frontres_clean_bound_side_weight", 0.0))
+            side_cost = max(side_weight, 0.0) * side.pow(2).sum(dim=-1)
+            over_margin = float(runner.cfg.get("frontres_overcorrection_margin", 0.0))
+            over_weight = float(runner.cfg.get("frontres_overcorrection_weight", 0.0))
+            over = torch.relu(
+                parallel_scalar.squeeze(-1)
+                - target_norm.squeeze(-1)
+                - max(over_margin, 0.0)
+            )
+            over_cost = max(over_weight, 0.0) * over.pow(2)
+            clean_bound_cost = side_cost + over_cost
+    overcorrection_cost = clean_bound_cost
+
+    w_exec = float(runner.cfg.get("frontres_exec_reward_weight", 1.0))
+    repair_scale = float(runner.cfg.get("frontres_repair_reward_scale", 1.0))
+    w_geom = float(runner.cfg.get("frontres_geometry_reward_weight", 0.05))
+    w_rescue = float(runner.cfg.get("frontres_rescue_reward_weight", 1.0))
+    w_exec_harm = float(runner.cfg.get("frontres_executable_harm_weight", 1.0))
+    rollout_evidence = compute_frontres_rollout_evidence(
+        noisy_score=exec_perturbed,
+        projected_score=exec_frontres,
+        candidate_score=exec_candidate,
+    )
+    repair_gain = rollout_evidence.repair_gain
+    candidate_gain = rollout_evidence.candidate_gain
+    projection_gain = rollout_evidence.projection_gain
+    oracle_ub = compute_frontres_oracle_upper_bound(
+        exec_perturbed,
+        exec_frontres,
+        exec_candidate,
+        exec_feasible,
+        margin=float(runner.cfg.get("frontres_oracle_upper_bound_margin", 0.0)),
+        enabled=bool(runner.cfg.get("frontres_oracle_upper_bound_diag_enabled", True)),
+    )
+    base_done_for_floor = dones[base_start:base_start + n_exec].view(-1) > 0
+    timeout_for_floor = infos.get("time_outs", None)
+    if timeout_for_floor is not None:
+        timeout_for_floor = timeout_for_floor.to(device).view(-1)
+        base_timeout_for_floor = timeout_for_floor[base_start:base_start + n_exec] > 0
+    else:
+        base_timeout_for_floor = torch.zeros(n_exec, device=device, dtype=torch.bool)
+    mix_class_for_floor = getattr(runner, "_frontres_dr_mix_class_train", None)
+    exec_floor, exec_safe_floor, exec_floor_source = update_runner_executable_floor_stats(
+        runner,
+        exec_perturbed,
+        done=base_done_for_floor,
+        timeout=base_timeout_for_floor,
+        mix_class=mix_class_for_floor,
+    )
+    exec_floor_tensor = torch.full_like(exec_candidate, float(exec_floor))
+    candidate_floor_margin = exec_candidate - exec_floor_tensor
+    candidate_floor_pass = (candidate_floor_margin >= 0.0).to(candidate_floor_margin.dtype)
+    candidate_floor_pass_frac = candidate_floor_pass.mean()
+    stable_route_next = getattr(
+        runner,
+        "_frontres_stable_route_next_mask",
+        torch.zeros_like(candidate_floor_margin, dtype=torch.bool),
+    )
+    stable_route_next = stable_route_next.to(device).view(-1).bool()
+    if stable_route_next.numel() < n_exec:
+        stable_route_next = torch.nn.functional.pad(
+            stable_route_next,
+            (0, n_exec - stable_route_next.numel()),
+            value=False,
+        )
+    stable_route_next = stable_route_next[:n_exec]
+    if n_exec > 0:
+        alive_next = ~(dones[:n_exec].view(-1) > 0)
+        stable_route_next = stable_route_next & alive_next
+    runner._frontres_stable_route_next_mask = stable_route_next.detach()
+    runner._frontres_candidate_floor_margin_last = float(candidate_floor_margin.mean().detach().item())
+    runner._frontres_candidate_floor_pass_last = float(candidate_floor_pass_frac.detach().item())
+    runner._frontres_stable_route_frac_last = float(
+        stable_route_next.to(candidate_floor_margin.dtype).mean().detach().item()
+    )
+    stable_route_active = getattr(runner, "_frontres_stable_route_active_mask", None)
+    if stable_route_active is None:
+        stable_route_active = torch.zeros(n_exec, device=device, dtype=torch.bool)
+    else:
+        stable_route_active = stable_route_active.to(device).view(-1).bool()
+        if stable_route_active.numel() < n_exec:
+            stable_route_active = torch.nn.functional.pad(
+                stable_route_active,
+                (0, n_exec - stable_route_active.numel()),
+                value=False,
+            )
+        stable_route_active = stable_route_active[:n_exec]
+    reward_window = build_frontres_reward_window(
+        runner=runner,
+        cfg=runner.cfg,
+        n_train=n_train,
+        n_exec=n_exec,
+        exec_clean=exec_clean,
+        exec_perturbed=exec_perturbed,
+        exec_feasible=exec_feasible,
+        exec_frontres=exec_frontres,
+        repair_gain=repair_gain,
+        mode_groups=mode_groups,
+        e_raw=e_raw,
+        e_fr=e_fr,
+        intervention_cost=intervention_cost,
+        action_activity=action_activity,
+        under_repair_penalty=under_repair_penalty,
+        dr_scale=dr_scale,
+        ppo_actor_weight_current=ppo_actor_weight_current,
+        stable_route_active_mask=stable_route_active,
+        device=device,
+    )
+    r_exec = reward_window.r_exec
+
+    return FrontRESRewardContext(
+        candidate_start=candidate_start,
+        candidate_end=candidate_end,
+        base_start=base_start,
+        base_end=base_end,
+        clean_start=clean_start,
+        clean_end=clean_end,
+        n_exec=n_exec,
+        n_pair=n_pair,
+        r_raw_gmt=r_raw_gmt,
+        r_clean_gmt=r_clean_gmt,
+        r_candidate_gmt=r_candidate_gmt,
+        r_total=r_total,
+        cmd=cmd,
+        use_clean=use_clean,
+        a_w=a_w,
+        a_raw=a_raw,
+        a_fr=a_fr,
+        q_w=q_w,
+        q_raw=q_raw,
+        q_fr=q_fr,
+        r_step=r_step,
+        r_rescue=r_rescue,
+        r_exec=r_exec,
+        dr_z_abs_log=dr_z_abs_log,
+        dr_xy_abs_log=dr_xy_abs_log,
+        dr_rp_abs_log=dr_rp_abs_log,
+        dr_yaw_abs_log=dr_yaw_abs_log,
+        corr_z_abs_log=corr_z_abs_log,
+        corr_xy_abs_log=corr_xy_abs_log,
+        corr_rp_abs_log=corr_rp_abs_log,
+        corr_yaw_abs_log=corr_yaw_abs_log,
+        rot_raw_to_clean=rot_raw_to_clean,
+        rot_raw_to_fr=rot_raw_to_fr,
+        e_raw=e_raw,
+        e_fr=e_fr,
+        exec_score_all=exec_score_all,
+        exec_components=exec_components,
+        feasible_components=feasible_components,
+        mode_groups=mode_groups,
+        exec_frontres=exec_frontres,
+        exec_candidate=exec_candidate,
+        exec_perturbed=exec_perturbed,
+        exec_clean=exec_clean,
+        exec_feasible=exec_feasible,
+        exec_planar_log=exec_planar_log,
+        exec_vertical_log=exec_vertical_log,
+        exec_task_log=exec_task_log,
+        intervention_cost=intervention_cost,
+        clean_bound_cost=clean_bound_cost,
+        side_cost=side_cost,
+        over_cost=over_cost,
+        overcorrection_cost=overcorrection_cost,
+        under_repair_penalty=reward_window.under_repair_penalty,
+        action_activity=action_activity,
+        w_exec=w_exec,
+        repair_scale=repair_scale,
+        w_geom=w_geom,
+        w_rescue=w_rescue,
+        w_exec_harm=w_exec_harm,
+        repair_gain=repair_gain,
+        candidate_gain=candidate_gain,
+        projection_gain=projection_gain,
+        oracle_ub_gain=oracle_ub.gain,
+        oracle_ub_pass=oracle_ub.pass_mask,
+        oracle_ub_noisy_win=oracle_ub.noisy_win,
+        oracle_ub_projected_win=oracle_ub.projected_win,
+        oracle_ub_candidate_win=oracle_ub.candidate_win,
+        oracle_ub_feasible_win=oracle_ub.feasible_win,
+        exec_floor=exec_floor,
+        exec_safe_floor=exec_safe_floor,
+        exec_floor_source=exec_floor_source,
+        candidate_floor_margin=candidate_floor_margin,
+        candidate_floor_pass=candidate_floor_pass,
+        candidate_floor_pass_frac=candidate_floor_pass_frac,
+        stable_route_next=stable_route_next,
+        stable_route_active=stable_route_active,
+        reward_window=reward_window,
+    )
 
 
 def build_frontres_reward_window(
@@ -108,7 +664,7 @@ def build_frontres_reward_window(
     repair_ratio = (repair_gain / damage_gap.clamp(min=gap_floor)).clamp(-1.0, 1.0)
     reward_signal_mode = str(cfg.get("frontres_exec_reward_signal", "gain")).lower()
     if reward_signal_mode in ("family_preference", "preference", "ranking"):
-        gain_std = runner._frontres_family_gain_std(mode_groups, repair_gain.detach())
+        gain_std = frontres_family_gain_std(runner, mode_groups, repair_gain.detach())
         tau = max(float(cfg.get("frontres_family_preference_tau", 1.0)), 1e-6)
         pref = torch.tanh((repair_gain / gain_std) / tau)
         alpha = float(cfg.get("frontres_family_preference_alpha", 0.7))

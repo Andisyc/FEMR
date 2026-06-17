@@ -175,3 +175,64 @@ def update_executable_floor_stats(
         broken_count=broken_count,
     )
     return next_state, resolve_executable_floor(cfg, next_state)
+
+
+def _runner_floor_state(runner: Any) -> ExecutableFloorState:
+    return ExecutableFloorState(
+        safe_score_ema=getattr(runner, "_frontres_exec_floor_safe_score_ema", None),
+        broken_score_ema=getattr(runner, "_frontres_exec_floor_broken_score_ema", None),
+        safe_count=float(getattr(runner, "_frontres_exec_floor_safe_count", 0.0)),
+        broken_count=float(getattr(runner, "_frontres_exec_floor_broken_count", 0.0)),
+    )
+
+
+def _write_runner_floor_values(runner: Any, values: ExecutableFloorValues) -> None:
+    runner._frontres_exec_floor_value_last = values.floor
+    runner._frontres_exec_floor_safe_last = values.safe_floor
+    runner._frontres_exec_floor_source_last = values.source
+    runner._frontres_exec_floor_adaptive_last = values.adaptive
+    runner._frontres_exec_floor_safe_count_last = values.safe_count
+    runner._frontres_exec_floor_broken_count_last = values.broken_count
+
+
+def resolve_runner_executable_floor(runner: Any) -> tuple[float, float, str]:
+    """Return the runner's live executable floor and update last-value diagnostics."""
+
+    values = resolve_executable_floor(runner.cfg, _runner_floor_state(runner))
+    _write_runner_floor_values(runner, values)
+    return values.floor, values.safe_floor, values.source
+
+
+def update_runner_executable_floor_stats(
+    runner: Any,
+    exec_score: "torch.Tensor",
+    *,
+    done: "torch.Tensor | None" = None,
+    timeout: "torch.Tensor | None" = None,
+    mix_class: "torch.Tensor | None" = None,
+) -> tuple[float, float, str]:
+    """Update runner GMT-score floor evidence and return the active floor."""
+
+    state, values = update_executable_floor_stats(
+        runner.cfg,
+        _runner_floor_state(runner),
+        exec_score,
+        done=done,
+        timeout=timeout,
+        mix_class=mix_class,
+        frontier_decision=getattr(runner, "_frontres_gmt_frontier_decision", ""),
+    )
+    for name, value in (
+        ("safe_score_ema", state.safe_score_ema),
+        ("broken_score_ema", state.broken_score_ema),
+        ("safe_count", state.safe_count),
+        ("broken_count", state.broken_count),
+    ):
+        attr = f"_frontres_exec_floor_{name}"
+        if value is None:
+            if hasattr(runner, attr):
+                delattr(runner, attr)
+        else:
+            setattr(runner, attr, float(value))
+    _write_runner_floor_values(runner, values)
+    return values.floor, values.safe_floor, values.source

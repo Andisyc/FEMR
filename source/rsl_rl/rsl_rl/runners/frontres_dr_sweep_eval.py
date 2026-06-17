@@ -15,6 +15,7 @@ from typing import Any
 import torch
 
 from rsl_rl.modules import FrontRESActorCritic
+from rsl_rl.runners.frontres_runtime import frontres_invalidate_temporal_reference_cache
 
 
 def evaluate_frontres_dr_sweep(
@@ -274,7 +275,7 @@ def evaluate_frontres_dr_sweep(
                         cur_episode_length[done_ids] = 0.0
                         if hasattr(runner.alg.policy, "reset"):
                             runner.alg.policy.reset(dones)
-                        runner._frontres_invalidate_temporal_reference_cache(dones)
+                        frontres_invalidate_temporal_reference_cache(runner, dones)
                     obs, ref_vel_estimator_obs = _policy_obs_from_extras(obs, infos)
                     obs = _frontres_policy_input(obs, ref_vel_estimator_obs)
 

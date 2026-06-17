@@ -232,9 +232,7 @@ def apply_frontres_task_corrections(
         stable_pos_corr = None
         stable_rpy_corr = None
         if stable_to_repair:
-            stable = self._frontres_stabilizing_candidate_correction(
-                cmd_term, n_train, task_corr.device, task_corr.dtype
-            )
+            stable = frontres_stabilizing_candidate_correction(self, cmd_term, n_train, task_corr.device, task_corr.dtype)
             if stable is not None:
                 stable_pos_corr, stable_rpy_corr = stable
                 # New HRL coordinate system:
@@ -248,9 +246,7 @@ def apply_frontres_task_corrections(
             else:
                 self._frontres_stable_endpoint_frac = 0.0
         elif tri_anchor:
-            stable = self._frontres_stabilizing_candidate_correction(
-                cmd_term, n_train, task_corr.device, task_corr.dtype
-            )
+            stable = frontres_stabilizing_candidate_correction(self, cmd_term, n_train, task_corr.device, task_corr.dtype)
             if stable is not None:
                 stable_pos_corr, stable_rpy_corr = stable
                 alpha_source = getattr(self, "_frontres_state_alpha_prob_next", None)
@@ -302,8 +298,8 @@ def apply_frontres_task_corrections(
                 route_mask = route_mask[:n_train]
                 if route_mask.any():
                     if stable_pos_corr is None or stable_rpy_corr is None:
-                        stable = self._frontres_stabilizing_candidate_correction(
-                            cmd_term, n_train, task_corr.device, task_corr.dtype
+                        stable = frontres_stabilizing_candidate_correction(
+                            self, cmd_term, n_train, task_corr.device, task_corr.dtype
                         )
                         if stable is not None:
                             stable_pos_corr, stable_rpy_corr = stable
@@ -349,7 +345,7 @@ def apply_frontres_task_corrections(
             cand_end = cand_start + n_candidate
             cmd_term._frontres_pos_correction[cand_start:cand_end].copy_(cand_pos_corr)
             cmd_term._frontres_quat_correction[cand_start:cand_end].copy_(_rotvec_to_quat_wxyz(cand_rpy_corr))
-        self._frontres_update_temporal_reference_cache(cmd_term, n_train)
+        frontres_update_temporal_reference_cache(self, cmd_term, n_train)
         zero_start = n_train + n_candidate
         if zero_start < self.env.num_envs:
             cmd_term._frontres_pos_correction[zero_start:].zero_()
@@ -396,7 +392,7 @@ def frontres_stabilizing_candidate_correction(
     """
     if n <= 0:
         return None
-    pose = self._frontres_raw_anchor_pose(cmd_term, n, device, dtype)
+    pose = frontres_raw_anchor_pose(self, cmd_term, n, device, dtype)
     if pose is None or not hasattr(cmd_term, "robot_anchor_quat_w"):
         return None
     raw_pos, raw_quat = pose
@@ -441,7 +437,7 @@ def frontres_temporal_continuity_correction(
     """
     if n <= 0:
         return None
-    pose = self._frontres_raw_anchor_pose(cmd_term, n, hsl_pos_corr.device, hsl_pos_corr.dtype)
+    pose = frontres_raw_anchor_pose(self, cmd_term, n, hsl_pos_corr.device, hsl_pos_corr.dtype)
     if pose is None:
         return None
     raw_pos, raw_quat = pose
@@ -500,7 +496,7 @@ def frontres_update_temporal_reference_cache(self, cmd_term, n: int) -> None:
         return
     device = cmd_term._frontres_pos_correction.device
     dtype = cmd_term._frontres_pos_correction.dtype
-    pose = self._frontres_raw_anchor_pose(cmd_term, n, device, dtype)
+    pose = frontres_raw_anchor_pose(self, cmd_term, n, device, dtype)
     if pose is None:
         return
     raw_pos, raw_quat = pose

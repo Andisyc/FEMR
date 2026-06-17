@@ -200,22 +200,32 @@ def run_frontres_joint_warmup(
                 _target = _get_warmup_target(_env_raw, "motion").to(self.device)
                 _mcmd_wu = _env_raw.command_manager._terms.get("motion")
                 if _mcmd_wu is not None:
-                    _target = self._frontres_project_task_target_to_action_cone(_mcmd_wu, _target)
+                    _target = self._frontres_action_cone.project_task_target(_mcmd_wu, _target)
                 if n_train > 0 and n_base > 0 and n_clean > 0:
                     _n_energy = min(n_train, n_base, n_clean)
                     if _mcmd_wu is not None:
-                        _, _exec_wu_components = self._frontres_exec_score(_mcmd_wu, return_components=True)
+                        _executability = self._frontres_executability
+                        _active_modes = tuple(getattr(self, "_frontres_curriculum_active_modes", ()))
+                        _, _exec_wu_components = _executability.exec_score(_mcmd_wu, return_components=True)
                         _wu_modes = [
                             tuple(getattr(self, "_frontres_curriculum_active_modes", ()))
                         ] * _n_energy
-                        _r_perturbed_wu = self._frontres_exec_score_for_modes(
-                            _exec_wu_components, n_train, _n_energy, _wu_modes
+                        _r_perturbed_wu = _executability.exec_score_for_modes(
+                            _exec_wu_components,
+                            n_train,
+                            _n_energy,
+                            mode_groups=_wu_modes,
+                            active_modes=_active_modes,
                         ).view(-1)
-                        _, _feasible_wu_components = self._frontres_feasible_oracle_exec_score(
+                        _, _feasible_wu_components = _executability.feasible_oracle_exec_score(
                             _mcmd_wu, n_train, _n_energy, return_components=True
                         )
-                        _r_feasible_wu = self._frontres_exec_score_for_modes(
-                            _feasible_wu_components, 0, _n_energy, _wu_modes
+                        _r_feasible_wu = _executability.exec_score_for_modes(
+                            _feasible_wu_components,
+                            0,
+                            _n_energy,
+                            mode_groups=_wu_modes,
+                            active_modes=_active_modes,
                         ).to(self.device).view(-1)
                         _energy_target = (_r_feasible_wu - _r_perturbed_wu).clamp(min=0.0).unsqueeze(-1)
                     else:

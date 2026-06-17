@@ -70,13 +70,13 @@
         {
           "id": "MOD-02",
           "title": "OnPolicyRunner keeps rollout orchestration only",
-          "role": "Runner 应保留训练循环、obs 获取与归一化、env.step、split-env 索引、调用 alg.act/process_env_step/compute_returns/update、save/load/log/eval 入口。Rollout step preparation、joint warmup phase、post-step reward/evidence connector、episode bookkeeping 与 fixed-DR sweep evaluator 已拆出，但 PPO env.step 主循环仍留在 runner 内。",
+          "role": "Runner 应保留训练循环、obs 获取与归一化、env.step、split-env 索引、调用 alg.act/process_env_step/compute_returns/update、save/load/log/eval 入口。Rollout step preparation、joint warmup phase、reward/evidence context、post-step reward/evidence connector、episode bookkeeping、fixed-DR sweep evaluator、supervised controller 与 runtime temporal-cache helpers 已拆出，但 PPO env.step 主循环仍留在 runner 内。",
           "input": "env、train_cfg、policy/algorithm/storage 实例、各 FEMR runner helper 返回的 payload，包括 pre-step action/env_action plan、warmup phase completion state、post-step reward/evidence result、episode bookkeeping buffers 和 fixed-DR eval results。",
           "output": "按阶段调用 helper，并把 actions/env_actions、transition payload、rewards 或 done masks 交给 env.step、self.alg.process_env_step 与 runner service helpers。",
-          "forbidden": "不再直接展开 FEMR reward、oracle、rho target、action cone、checkpoint、runtime correction、pre-step action rewrite、post-step reward/evidence connector、episode buffer bookkeeping 或大段 diagnostics。",
-          "diagnostic": "OnPolicyRunner 中 FEMR 逻辑应逐步收缩为 component calls 和 payload wiring；pre-step action/mask/env_action preparation 已由 FrontRESRolloutStepPlan 承接，joint warmup 已由 run_frontres_joint_warmup 承接，post-step reward/evidence connector 已由 apply_frontres_post_step_reward_connector 承接，post-step episode bookkeeping 已由 update_episode_bookkeeping 承接，fixed-DR sweep eval 已由 run_frontres_dr_sweep_eval 承接。",
+          "forbidden": "不再直接展开 FEMR reward、oracle、rho target、action cone、checkpoint、runtime correction、pre-step action rewrite、reward/evidence context、post-step reward/evidence connector、episode buffer bookkeeping 或大段 diagnostics。",
+          "diagnostic": "OnPolicyRunner 中 FEMR 逻辑应逐步收缩为 component calls 和 payload wiring；pre-step action/mask/env_action preparation 已由 FrontRESRolloutStepPlan 承接，joint warmup 已由 run_frontres_joint_warmup 承接，reward/evidence context 已由 build_frontres_reward_context 承接，post-step reward/evidence connector 已由 apply_frontres_post_step_reward_connector 承接，post-step episode bookkeeping 已由 update_episode_bookkeeping 承接，fixed-DR sweep eval 已由 run_frontres_dr_sweep_eval 承接，supervised controller 已由 update_frontres_supervised_controller 承接，runtime temporal-cache invalidation 已直接调用 frontres_runtime helper。",
           "concept": "C-RUNNER",
-          "lines": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py eval wrapper 758-772, warmup call 1009-1023, rollout call 1095-1120, post-step connector call 1961-1980, bookkeeping call 2018-2075; current 2322 lines; source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py 1-334; source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py 1-361; source/rsl_rl/rsl_rl/runners/frontres_post_step_connector.py 1-213; source/rsl_rl/rsl_rl/runners/frontres_episode_bookkeeping.py 1-130"
+          "lines": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py eval wrapper 494-508, learn entry 510, temporal cache invalidation 855, HSL rollout target call 873-884, reward context call 912-940, post-step connector call 1114-1131, supervised controller call 1245-1250; current 1449 lines; source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py 1-335; source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py 1-363; source/rsl_rl/rsl_rl/runners/frontres_post_step_connector.py 1-213; source/rsl_rl/rsl_rl/runners/frontres_episode_bookkeeping.py 1-130"
         },
         {
           "id": "MOD-03",
@@ -125,13 +125,13 @@
         {
           "id": "MOD-07",
           "title": "FrontRES executable utility stays in runners",
-          "role": "Executable utility 是 rollout 证据的评分器：它读取 command 中的 anchor/body/foot/robot state，为 runner 构造 reward/evidence 提供分数。",
+          "role": "Executable utility 是 rollout 证据的评分器和 score-space floor 校准器：它读取 command 中的 anchor/body/foot/robot state，为 runner 构造 reward/evidence 提供分数，并维护 GMT executable floor 的 runner-state 读写。",
           "input": "motion command、active mode groups、GMT frontier state、feasible branch state。",
-          "output": "planar/vertical/xy/yaw/z/rp/task score、mode-selected score、feasible oracle score。",
+          "output": "planar/vertical/xy/yaw/z/rp/task score、mode-selected score、feasible oracle score、executable floor/safe floor/source。",
           "forbidden": "不生成 policy action，不写 storage，不组合 loss。",
-          "diagnostic": "exec planar/vertical/task、feasible oracle score、floor source。",
+          "diagnostic": "exec planar/vertical/task、feasible oracle score、floor source；resolve_runner_executable_floor 与 update_runner_executable_floor_stats 已落地，负责 runner 上的 safe/broken EMA、last floor diagnostics 和 score floor 返回；runner 内 exec scorer facade 已清空，reward window 和 warmup 直接使用 runner._frontres_executability。",
           "concept": "C-EXEC",
-          "lines": "source/rsl_rl/rsl_rl/runners/frontres_executability.py; runner wrappers 473-491"
+          "lines": "source/rsl_rl/rsl_rl/runners/frontres_executability.py; source/rsl_rl/rsl_rl/runners/frontres_executable_floor.py state/value 13-30, runner resolve/update helpers 198-238; source/rsl_rl/rsl_rl/runners/frontres_reward_window.py direct executability calls 328-356; source/rsl_rl/rsl_rl/runners/frontres_warmup.py direct executability calls 207-226"
         },
         {
           "id": "MOD-08",
@@ -140,9 +140,9 @@
           "input": "damage_gap、repair_gain、oracle trust、route mask、action cost、cfg gates。",
           "output": "safe_gate、repair_gate、broken_gate、exec_weight、cost_weight、actor_gate、r_delta components。",
           "forbidden": "不能把 actor_gate 的含义藏进 algorithm loss；不能让 broken samples 主导 actor update。",
-          "diagnostic": "safe/repair/broken frac、actor/exec/cost weight、train_reward、effective_gain_bonus、harm_rate；FrontRESRewardWindow 已落地，负责 damage_gap、oracle_trust、repair_ratio、double-sigmoid window、actor_gate、exec/cost weights、harm_penalty、effective_gain_bonus、ranking reward 和 final r_delta composition；post-step reward/evidence connector 已落地，负责 reward overwrite、smooth/reg shaping、diagnostic accumulation、termination counters 与 previous residual reset；reward diagnostic final mean materialization 已移入 FrontRES reward diagnostics。",
+          "diagnostic": "safe/repair/broken frac、actor/exec/cost weight、train_reward、effective_gain_bonus、harm_rate；FrontRESRewardContext 已落地，负责 env.step 后的 quartet index、clean/noisy/projected anchor geometry、r_step/r_rescue、exec/feasible scores、rollout evidence gain、oracle upper bound、executable floor、candidate floor pass、stable route mask 和 action/clean-bound costs；FrontRESRewardWindow 负责 damage_gap、oracle_trust、repair_ratio、double-sigmoid window、actor_gate、exec/cost weights、harm_penalty、effective_gain_bonus、ranking reward 和 final r_delta composition；frontres_family_gain_std 已落地，负责 family-preference reward 的 per-family EMA std；post-step reward/evidence connector 已落地，负责 reward overwrite、smooth/reg shaping、diagnostic accumulation、termination counters 与 previous residual reset；本次审计新增接口契约：task-space reward/evidence 必须有 clean anchor evidence，否则 runner 直接报错；非 task-space 旧分支保留 quartet split 索引并走 baseline r_delta。reward diagnostic final mean materialization 已移入 FrontRES reward diagnostics。",
           "concept": "C-EVIDENCE",
-          "lines": "source/rsl_rl/rsl_rl/runners/frontres_reward_window.py 17-337; source/rsl_rl/rsl_rl/runners/frontres_post_step_connector.py 1-213; extracted from on_policy_runner.py old 3421-3702, old 3995-4029, and current 2263-2282 connector call; reward diagnostic final mean materialization moved to frontres_reward_diagnostics.py 17-399"
+          "lines": "source/rsl_rl/rsl_rl/runners/frontres_reward_window.py family gain helper 145-209, reward context 211-533, direct executability calls 328-356, family preference call 667; source/rsl_rl/rsl_rl/runners/frontres_post_step_connector.py 1-213; source/rsl_rl/rsl_rl/runners/on_policy_runner.py reward context call 912-940, reward context unpack/payload 942-1113, connector call 1114-1131; reward diagnostic final mean materialization moved to frontres_reward_diagnostics.py 17-399"
         },
         {
           "id": "MOD-09",
@@ -151,9 +151,9 @@
           "input": "frontres_active_task_dims、mode groups、task-space target、motion command correction snapshots。",
           "output": "projected supervised_target、per-mode mask、supervised_weight、supervised_harm_weight。",
           "forbidden": "不能采样或监督当前 action cone 不能修复的维度；不能在 module 中读取 command_manager。",
-          "diagnostic": "active mask、valid_pos/valid_rpy、diag_valid_axes、HSL target nonzero/mask；FrontRESHSLRolloutTarget 已落地，负责 Clean/Noisy/FEMR rollout state -> supervised_target/supervised_weight/supervised_harm_weight。",
+          "diagnostic": "active mask、valid_pos/valid_rpy、diag_valid_axes、HSL target nonzero/mask；FrontRESHSLRolloutTarget 已落地，负责 Clean/Noisy/FEMR rollout state -> supervised_target/supervised_weight/supervised_harm_weight；runner 内 action cone/HSL wrapper 已清空，rollout step、warmup、transition payload 和 HSL rollout target 直接调用 runner._frontres_action_cone。",
           "concept": "C-ACTION",
-          "lines": "source/rsl_rl/rsl_rl/runners/frontres_action_cone.py 17-100; source/rsl_rl/rsl_rl/runners/frontres_hsl_rollout_target.py 17-150; on_policy_runner.py wrapper 617-641 and call site 3026-3036"
+          "lines": "source/rsl_rl/rsl_rl/runners/frontres_action_cone.py project/mask 20-100; source/rsl_rl/rsl_rl/runners/frontres_hsl_rollout_target.py action cone calls 95 and 102; source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py supervised target action cone calls 199-210; source/rsl_rl/rsl_rl/runners/frontres_transition_payload.py mode_dim_mask call 919-922; source/rsl_rl/rsl_rl/runners/frontres_warmup.py warmup target projection 203; source/rsl_rl/rsl_rl/runners/on_policy_runner.py HSL rollout target call 909-920"
         },
         {
           "id": "MOD-10",
@@ -162,9 +162,9 @@
           "input": "actor_gate、state-alpha evidence、rho current、structured rho carrier inputs、active dim masks。",
           "output": "frontres_actor_gate、state_alpha_target/mask、FrontRESAcceptancePayload、acceptance_target/mask。",
           "forbidden": "不能计算 loss；不能替代 RolloutStorage；不能访问 optimizer 或 minibatch。",
-          "diagnostic": "state_alpha target/mask、rho target planar/rp/z、grouped_rho_mask、structured_joint adv/weight；FrontRESAcceptancePayload、FrontRESTriAnchorRhoPayload、FrontRESNonTriAcceptanceTargetPayload 和 FrontRESStructuredRhoPayload 已落地，负责默认 payload、last-step diagnostics reset、rho_current 读取、tri-anchor/grouped rho target、非 tri-anchor direct/legacy acceptance target、structured rho carrier 调用、post-target preference summary 和 diagnostics 写回。",
+          "diagnostic": "state_alpha target/mask、rho target planar/rp/z、grouped_rho_mask、structured_joint adv/weight；FrontRESAcceptancePayload、FrontRESTriAnchorRhoPayload、FrontRESNonTriAcceptanceTargetPayload 和 FrontRESStructuredRhoPayload 已落地。build_and_write_frontres_acceptance_payload 现在统一编排默认 payload、last-step diagnostics reset、rho_current 读取、tri-anchor/grouped rho target、非 tri-anchor direct/legacy acceptance target、mode/active-dim mask、structured rho carrier 调用、post-target preference summary、transition.acceptance_target/mask 写回。",
           "concept": "C-ROUTE",
-          "lines": "source/rsl_rl/rsl_rl/runners/frontres_alpha_rho_bridge.py; source/rsl_rl/rsl_rl/runners/frontres_transition_payload.py 17-788; source/rsl_rl/rsl_rl/runners/frontres_structured_rho.py 16-311; remaining runner block 3701-4164"
+          "lines": "source/rsl_rl/rsl_rl/runners/frontres_alpha_rho_bridge.py; source/rsl_rl/rsl_rl/runners/frontres_transition_payload.py 17-1109; source/rsl_rl/rsl_rl/runners/frontres_structured_rho.py 16-311; source/rsl_rl/rsl_rl/runners/on_policy_runner.py call site 1091-1149"
         },
         {
           "id": "MOD-11",
@@ -173,9 +173,9 @@
           "input": "resume iteration、warmup config、frontier stats、active task dims、env perturbation hooks。",
           "output": "WarmupPlan、DRStrengthPlan、PerturbationMixPlan、frontier diagnostics。",
           "forbidden": "不能在 resume 后重跑已完成 warmup；不能采样 action cone 无法修复的扰动族。",
-          "diagnostic": "warmup mode_mix、dr_scale、valid axes、frontier safe/repair/broken；FrontRES warmup 已落地，负责 joint supervised/energy warmup 的采样、actor/critic warmup optimizer、warmup diagnostics 与 warmup checkpoint；FrontRES training setup / perturbation setup 已落地，负责 mode/objective 解析、debug training override、PPO actor takeover weight、split-env pair layout、task action mask、DR/frontier state 初始化、perturbation target snapshot、perturbation curriculum choices、per-env family masks、scalar/per-env DR strength sampling、perturber scale 写入和 iteration-level DR controller plan。",
+          "diagnostic": "warmup mode_mix、dr_scale、valid axes、frontier safe/repair/broken；FrontRES warmup 已落地，负责 joint supervised/energy warmup 的采样、actor/critic warmup optimizer、warmup diagnostics 与 warmup checkpoint，并直接使用 runner._frontres_executability 计算 warmup energy target；FrontRES training setup / perturbation setup 已落地，负责 mode/objective 解析、debug training override、PPO actor takeover weight、supervised controller decay、split-env pair layout、task action mask、DR/frontier state 初始化、perturbation target snapshot、perturbation curriculum choices、per-env family masks、scalar/per-env DR strength sampling、perturber scale 写入和 iteration-level DR controller plan。",
           "concept": "C-ACTION",
-          "lines": "source/rsl_rl/rsl_rl/runners/frontres_warmup.py 1-631; source/rsl_rl/rsl_rl/runners/frontres_training_setup.py 17-1071; source/rsl_rl/rsl_rl/runners/on_policy_runner.py warmup call 1311-1325 and controller call 1347-1379"
+          "lines": "source/rsl_rl/rsl_rl/runners/frontres_warmup.py 1-641, direct executability calls 207-226; source/rsl_rl/rsl_rl/runners/frontres_training_setup.py ppo weight 163-190, supervised controller 193-241, pair layout 243-304, iteration DR controller 693-804; source/rsl_rl/rsl_rl/runners/on_policy_runner.py supervised controller call 1245-1250"
         },
         {
           "id": "MOD-12",
@@ -184,9 +184,9 @@
           "input": "policy correction、motion command term、active task dims、alpha/rho route state、temporal reference cache、debug tensors。",
           "output": "corrected command reference、inference policy callable、temporal cache updates、restore debug prints。",
           "forbidden": "不能改变 algorithm.update；不能把 evaluator oracle credit 写成 runtime actor credit。",
-          "diagnostic": "runtime correction applied、temporal cache reset、restore debug sample vectors。",
+          "diagnostic": "runtime correction applied、temporal cache reset、restore debug sample vectors；raw anchor pose、stabilizing candidate、temporal continuity candidate、temporal cache update/invalidate 已直接保留在 frontres_runtime.py，runner 内对应 _frontres_* wrapper 已清空；runner 仅保留 _apply_frontres_task_corrections 与 _maybe_print_frontres_restore_debug 作为兼容入口。",
           "concept": "C-RUNNER",
-          "lines": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py; runner wrappers 5444-5499"
+          "lines": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py apply corrections 111-354, raw pose 356-378, stable candidate 380-422, temporal continuity 424-491, cache update/invalidate 493-535, restore debug 539-949; source/rsl_rl/rsl_rl/runners/on_policy_runner.py runtime entry wrappers 1332-1362"
         },
         {
           "id": "MOD-13",
@@ -206,9 +206,9 @@
           "input": "当前 OnPolicyRunner live path 和短跑测试诊断。",
           "output": "小步迁移，每步 py_compile + architecture 更新 + diagnostics 对齐。",
           "forbidden": "不能一刀切搬 learn() 主体；不能先改训练行为再补 diagnostics；不能因为想减少图数量而丢失概念边界。",
-          "diagnostic": "已完成：HSL rollout target helper、非 tri-anchor direct/legacy acceptance target、structured rho carrier connector、post-target preference summary、reward window gates/weights/ranking/final r_delta composition、post-step reward/evidence connector、FrontRES reward diagnostics accumulation/final mean materialization、FrontRES training setup / perturbation setup、perturbation control、iteration-level DR controller、rollout action/mask/env_action preparation、joint warmup loop、post-step episode bookkeeping、fixed-DR sweep evaluator 迁入 runners helpers。建议下一步：评估 storage tuple contract。",
+          "diagnostic": "已完成：HSL rollout target helper、非 tri-anchor direct/legacy acceptance target、structured rho carrier connector、post-target preference summary、reward window gates/weights/ranking/final r_delta composition、reward/evidence context、post-step reward/evidence connector、FrontRES reward diagnostics accumulation/final mean materialization、FrontRES training setup / perturbation setup、supervised controller、perturbation control、iteration-level DR controller、rollout action/mask/env_action preparation、joint warmup loop、post-step episode bookkeeping、fixed-DR sweep evaluator、executable floor runner-state helper、family gain stats、action cone/HSL rollout target wrappers、runtime temporal-cache wrappers、exec scorer facade 迁入 runners helpers。本次审计已收口 task-space clean evidence 契约。建议下一步：暂停拆分，做 FrontRES live-path 集成审计。",
           "concept": "C-MOSAIC",
-          "lines": "completed: on_policy_runner.py old HSL rollout target -> frontres_hsl_rollout_target.py 17-150; old 3895-3976, old 4003-4114, and post-target preference summary -> frontres_transition_payload.py 17-788; old 3421-3702 and old 3995-4029 -> frontres_reward_window.py; old post-step reward/evidence connector -> frontres_post_step_connector.py 1-213; old 4084-4339 and old 4490 final means -> frontres_reward_diagnostics.py 17-399; old FrontRES setup, perturbation control, and iteration DR controller blocks -> frontres_training_setup.py 17-1071; old rollout action/mask/env_action preparation -> frontres_rollout_step.py 1-361; old joint warmup loop -> frontres_warmup.py 1-631; old post-step episode bookkeeping -> frontres_episode_bookkeeping.py 1-130; old fixed-DR sweep eval -> frontres_dr_sweep_eval.py 1-334; next candidate: storage tuple contract"
+          "lines": "completed: on_policy_runner.py old HSL rollout target -> frontres_hsl_rollout_target.py 17-150 and direct call 873-884; old 3895-3976, old 4003-4114, and post-target preference summary -> frontres_transition_payload.py 17-1109; old 3421-3702 and old 3995-4029 plus reward/evidence context/family gain stats/direct exec scorer calls -> frontres_reward_window.py 17-893; old executable floor runner-state helpers -> frontres_executable_floor.py 198-238; old post-step reward/evidence connector -> frontres_post_step_connector.py 1-213; old 4084-4339 and old 4490 final means -> frontres_reward_diagnostics.py 17-399; old FrontRES setup, supervised controller, perturbation control, and iteration DR controller blocks -> frontres_training_setup.py 17-1121; old rollout action/mask/env_action preparation plus direct action cone calls -> frontres_rollout_step.py 1-363; old joint warmup loop plus direct action cone/exec scorer calls -> frontres_warmup.py 1-641; old post-step episode bookkeeping -> frontres_episode_bookkeeping.py 1-130; old fixed-DR sweep eval plus direct runtime cache invalidation -> frontres_dr_sweep_eval.py 1-335; old runtime temporal-cache wrappers -> frontres_runtime.py 356-535; next candidate: FrontRES live-path integration audit"
         }
       ]
     }

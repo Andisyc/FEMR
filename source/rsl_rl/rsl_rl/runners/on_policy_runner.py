@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import math
 import os
 import time
 import torch
@@ -21,32 +20,22 @@ from rsl_rl.runners.frontres_checkpointing import (
     save_runner,
 )
 from rsl_rl.runners.frontres_episode_bookkeeping import update_episode_bookkeeping
-from rsl_rl.runners.frontres_executable_floor import (
-    ExecutableFloorState,
-    resolve_executable_floor,
-    update_executable_floor_stats,
-)
+from rsl_rl.runners.frontres_executable_floor import resolve_runner_executable_floor
 from rsl_rl.runners.frontres_executability import FrontRESExecutabilityScorer
 from rsl_rl.runners.frontres_dr_sweep_eval import evaluate_frontres_dr_sweep as run_frontres_dr_sweep_eval
-from rsl_rl.runners.frontres_oracle import compute_frontres_oracle_upper_bound
 from rsl_rl.runners.frontres_metrics import frontres_boundary_stats
-from rsl_rl.runners.frontres_rollout_evidence import compute_frontres_rollout_evidence
 from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
 from rsl_rl.runners.frontres_hsl_rollout_target import build_frontres_hsl_rollout_target
 from rsl_rl.runners.frontres_runtime import (
     apply_frontres_task_corrections,
     apply_obs_normalizer,
     frontres_invalidate_temporal_reference_cache,
-    frontres_raw_anchor_pose,
-    frontres_stabilizing_candidate_correction,
-    frontres_temporal_continuity_correction,
-    frontres_update_temporal_reference_cache,
     get_inference_policy_runner,
     mask_frontres_task_actions,
     maybe_print_frontres_restore_debug,
 )
 from rsl_rl.runners.frontres_reward_window import (
-    build_frontres_reward_window,
+    build_frontres_reward_context,
 )
 from rsl_rl.runners.frontres_reward_diagnostics import (
     initialize_frontres_reward_diagnostic_sums,
@@ -55,11 +44,7 @@ from rsl_rl.runners.frontres_reward_diagnostics import (
 from rsl_rl.runners.frontres_post_step_connector import apply_frontres_post_step_reward_connector
 from rsl_rl.runners.frontres_runner_logging import log_runner
 from rsl_rl.runners.frontres_transition_payload import (
-    apply_frontres_structured_rho_payload,
-    build_frontres_non_tri_acceptance_target_payload,
-    build_frontres_tri_anchor_rho_payload,
-    initialize_frontres_acceptance_payload,
-    summarize_frontres_acceptance_payload,
+    build_and_write_frontres_acceptance_payload,
     write_frontres_actor_gate,
     write_frontres_state_alpha_payload,
 )
@@ -77,6 +62,7 @@ from rsl_rl.runners.frontres_training_setup import (
     resolve_frontres_mode_state,
     set_frontres_curriculum_modes,
     set_frontres_perturbation_curriculum,
+    update_frontres_supervised_controller,
 )
 from rsl_rl.runners.frontres_warmup import (
     resolve_frontres_warmup_iterations,
@@ -484,38 +470,6 @@ class OnPolicyRunner:
         self.current_learning_iteration = 0
         self.git_status_repos = [rsl_rl.__file__]
 
-    def _frontres_exec_score(self, command, return_components: bool = False):
-        return self._frontres_executability.exec_score(command, return_components=return_components)
-
-    def _frontres_feasible_oracle_exec_score(
-        self,
-        command,
-        start: int,
-        count: int,
-        return_components: bool = False,
-    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        return self._frontres_executability.feasible_oracle_exec_score(
-            command,
-            start,
-            count,
-            return_components=return_components,
-        )
-
-    def _frontres_exec_score_for_modes(
-        self,
-        components: dict[str, torch.Tensor],
-        start: int,
-        count: int,
-        mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...] | None = None,
-    ) -> torch.Tensor:
-        return self._frontres_executability.exec_score_for_modes(
-            components,
-            start,
-            count,
-            mode_groups=mode_groups,
-            active_modes=tuple(getattr(self, "_frontres_curriculum_active_modes", ())),
-        )
-
     def _frontres_executable_floor_values(self) -> tuple[float, float, str]:
         """Return the unified executable floor used by alpha, rho, and diagnostics.
 
@@ -524,22 +478,7 @@ class OnPolicyRunner:
         GMT score evidence are available, it deliberately falls back to the fixed
         historical threshold for resume stability.
         """
-        values = resolve_executable_floor(
-            self.cfg,
-            ExecutableFloorState(
-                safe_score_ema=getattr(self, "_frontres_exec_floor_safe_score_ema", None),
-                broken_score_ema=getattr(self, "_frontres_exec_floor_broken_score_ema", None),
-                safe_count=float(getattr(self, "_frontres_exec_floor_safe_count", 0.0)),
-                broken_count=float(getattr(self, "_frontres_exec_floor_broken_count", 0.0)),
-            ),
-        )
-        self._frontres_exec_floor_value_last = values.floor
-        self._frontres_exec_floor_safe_last = values.safe_floor
-        self._frontres_exec_floor_source_last = values.source
-        self._frontres_exec_floor_adaptive_last = values.adaptive
-        self._frontres_exec_floor_safe_count_last = values.safe_count
-        self._frontres_exec_floor_broken_count_last = values.broken_count
-        return values.floor, values.safe_floor, values.source
+        return resolve_runner_executable_floor(self)
 
     def _frontres_structured_joint_effective_enabled(self) -> bool:
         """Mirror the algorithm-side structured-rho enable gate in the runner."""
@@ -551,209 +490,6 @@ class OnPolicyRunner:
             and float(self.cfg.get("frontres_structured_joint_rl_weight", 0.0)) > 0.0
             and str(self.cfg.get("frontres_training_objective", "")).lower() == "hsl_hybrid"
         )
-
-    def _frontres_update_executable_floor_stats(
-        self,
-        exec_score: torch.Tensor,
-        done: torch.Tensor | None = None,
-        timeout: torch.Tensor | None = None,
-        mix_class: torch.Tensor | None = None,
-    ) -> tuple[float, float, str]:
-        """Update GMT-score floor statistics and return the active floor."""
-        state, values = update_executable_floor_stats(
-            self.cfg,
-            ExecutableFloorState(
-                safe_score_ema=getattr(self, "_frontres_exec_floor_safe_score_ema", None),
-                broken_score_ema=getattr(self, "_frontres_exec_floor_broken_score_ema", None),
-                safe_count=float(getattr(self, "_frontres_exec_floor_safe_count", 0.0)),
-                broken_count=float(getattr(self, "_frontres_exec_floor_broken_count", 0.0)),
-            ),
-            exec_score,
-            done=done,
-            timeout=timeout,
-            mix_class=mix_class,
-            frontier_decision=getattr(self, "_frontres_gmt_frontier_decision", ""),
-        )
-        for name, value in (
-            ("safe_score_ema", state.safe_score_ema),
-            ("broken_score_ema", state.broken_score_ema),
-            ("safe_count", state.safe_count),
-            ("broken_count", state.broken_count),
-        ):
-            attr = f"_frontres_exec_floor_{name}"
-            if value is None:
-                if hasattr(self, attr):
-                    delattr(self, attr)
-            else:
-                setattr(self, attr, float(value))
-        self._frontres_exec_floor_value_last = values.floor
-        self._frontres_exec_floor_safe_last = values.safe_floor
-        self._frontres_exec_floor_source_last = values.source
-        self._frontres_exec_floor_adaptive_last = values.adaptive
-        self._frontres_exec_floor_safe_count_last = values.safe_count
-        self._frontres_exec_floor_broken_count_last = values.broken_count
-        return values.floor, values.safe_floor, values.source
-
-    def _frontres_project_task_target_to_action_cone(self, command, target: torch.Tensor) -> torch.Tensor:
-        return self._frontres_action_cone.project_task_target(command, target)
-
-    def _frontres_mode_dim_mask(
-        self,
-        mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
-        count: int,
-        device: torch.device,
-        dtype: torch.dtype,
-    ) -> torch.Tensor:
-        return self._frontres_action_cone.mode_dim_mask(mode_groups, count, device, dtype)
-
-    def _frontres_apply_per_mode_supervised_mask(
-        self,
-        target: torch.Tensor,
-        mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
-        count: int,
-    ) -> torch.Tensor:
-        return self._frontres_action_cone.apply_per_mode_supervised_mask(target, mode_groups, count)
-
-    def _maybe_update_frontres_hsl_rollout_target(
-        self,
-        command,
-        actions: torch.Tensor | None,
-        dones: torch.Tensor | None,
-        current_pos_correction: torch.Tensor | None,
-        current_quat_correction: torch.Tensor | None,
-        n_train: int,
-        n_candidate: int,
-        n_base: int,
-        n_clean: int,
-    ) -> None:
-        return build_frontres_hsl_rollout_target(
-            self,
-            command=command,
-            actions=actions,
-            dones=dones,
-            current_pos_correction=current_pos_correction,
-            current_quat_correction=current_quat_correction,
-            n_train=n_train,
-            n_candidate=n_candidate,
-            n_base=n_base,
-            n_clean=n_clean,
-            quat_to_rotvec_wxyz=_quat_to_rotvec_wxyz,
-        )
-
-    def _frontres_family_gain_std(
-        self,
-        mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
-        gain: torch.Tensor,
-    ) -> torch.Tensor:
-        """Return per-sample gain std from per-family EMA stats, then update stats."""
-        if gain.numel() == 0:
-            return torch.empty_like(gain)
-        init_std = float(self.cfg.get("frontres_family_gain_initial_std", 0.01))
-        min_std = float(self.cfg.get("frontres_family_gain_min_std", 0.002))
-        alpha = float(self.cfg.get("frontres_family_gain_ema_alpha", 0.05))
-        alpha = max(0.0, min(1.0, alpha))
-        stats = getattr(self, "_frontres_family_gain_stats", None)
-        if stats is None:
-            stats = {}
-            self._frontres_family_gain_stats = stats
-
-        mode_groups_list = list(mode_groups)[: gain.shape[0]]
-        if len(mode_groups_list) < gain.shape[0]:
-            fallback_modes = ("planar", "yaw", "global_z", "local_rp")
-            mode_groups_list.extend([fallback_modes] * (gain.shape[0] - len(mode_groups_list)))
-        std = torch.full_like(gain, max(init_std, min_std))
-        for idx, modes in enumerate(mode_groups_list):
-            families = tuple(m for m in modes if m in ("planar", "yaw", "global_z", "local_rp"))
-            if not families:
-                families = ("all",)
-            vals = []
-            for family in families:
-                entry = stats.get(family)
-                if entry is None:
-                    vals.append(max(init_std, min_std))
-                else:
-                    vals.append(max(float(entry.get("std", init_std)), min_std))
-            std[idx] = sum(vals) / float(len(vals))
-
-        with torch.no_grad():
-            gain_detached = gain.detach()
-            for family in ("planar", "yaw", "global_z", "local_rp"):
-                mask_vals = [
-                    family in set(modes)
-                    for modes in mode_groups_list
-                ]
-                if not any(mask_vals):
-                    continue
-                mask = torch.tensor(mask_vals, device=gain.device, dtype=torch.bool)
-                values = gain_detached[mask]
-                if values.numel() == 0:
-                    continue
-                batch_mean = values.mean().item()
-                batch_var = values.var(unbiased=False).item() if values.numel() > 1 else 0.0
-                entry = stats.get(family)
-                if entry is None:
-                    mean = batch_mean
-                    var = max(batch_var, init_std * init_std)
-                else:
-                    old_mean = float(entry.get("mean", 0.0))
-                    old_var = float(entry.get("var", init_std * init_std))
-                    mean = (1.0 - alpha) * old_mean + alpha * batch_mean
-                    var = (1.0 - alpha) * old_var + alpha * batch_var
-                stats[family] = {
-                    "mean": mean,
-                    "var": max(var, min_std * min_std),
-                    "std": max(math.sqrt(max(var, 0.0)), min_std),
-                }
-        return std.clamp(min=min_std)
-
-    def _frontres_update_supervised_controller(
-        self,
-        *,
-        loss_dict: dict,
-        positive_gain_frac: float | None,
-        harm_rate: float | None,
-    ) -> None:
-        """Decay supervised learning into a one-way anchor once PPO is learnable."""
-        if not bool(self.cfg.get("frontres_state_supervised_controller_enabled", True)):
-            return
-        if not hasattr(self.alg, "lambda_supervised"):
-            return
-        self.alg.state_supervised_controller_enabled = True
-        lam = float(getattr(self.alg, "lambda_supervised", 0.0))
-        if lam <= 0.0:
-            return
-
-        anchor = float(self.cfg.get(
-            "frontres_supervised_anchor_weight",
-            self.cfg.get("lambda_supervised_min", 0.02),
-        ))
-        hold_iters = int(self.cfg.get("frontres_supervised_min_hold_iters", 5))
-        seen = int(getattr(self, "_frontres_supervised_controller_seen", 0)) + 1
-        self._frontres_supervised_controller_seen = seen
-        if seen < max(0, hold_iters):
-            return
-
-        pos_trigger = float(self.cfg.get("frontres_supervised_positive_gain_trigger", 0.52))
-        harm_limit = float(self.cfg.get("frontres_supervised_harm_limit", 0.06))
-        grad_low = float(self.cfg.get("frontres_supervised_grad_cos_low", 0.03))
-        decay_good = float(self.cfg.get("frontres_supervised_decay_good", 0.985))
-        decay_conflict = float(self.cfg.get("frontres_supervised_decay_conflict", 0.97))
-        grad_cos = float(loss_dict.get("grad_cos_ppo_supervised", 0.0))
-
-        learnable = (
-            positive_gain_frac is not None
-            and harm_rate is not None
-            and float(positive_gain_frac) >= pos_trigger
-            and float(harm_rate) <= harm_limit
-        )
-        factor = 1.0
-        if learnable:
-            factor = min(factor, decay_good)
-        if grad_cos < grad_low and positive_gain_frac is not None and float(positive_gain_frac) >= 0.50:
-            factor = min(factor, decay_conflict)
-        if factor < 1.0:
-            setattr(self.alg, "lambda_supervised", max(anchor, lam * factor))
-
 
     def evaluate_frontres_dr_sweep(
         self,
@@ -1116,7 +852,7 @@ class OnPolicyRunner:
                     # Move to device
                     rewards, dones = rewards.to(self.device), dones.to(self.device)
                     if _is_frontres and _is_task_space_mode:
-                        self._frontres_invalidate_temporal_reference_cache(dones)
+                        frontres_invalidate_temporal_reference_cache(self, dones)
 
                     if (
                         _is_frontres
@@ -1134,16 +870,18 @@ class OnPolicyRunner:
                                     _cmd_hsl = _term_hsl
                                     break
                         if _cmd_hsl is not None:
-                            self._maybe_update_frontres_hsl_rollout_target(
-                                _cmd_hsl,
-                                actions,
-                                dones,
-                                _hsl_pos_snapshot,
-                                _hsl_quat_snapshot,
-                                N_train,
-                                N_candidate,
-                                N_base,
-                                N_clean,
+                            build_frontres_hsl_rollout_target(
+                                self,
+                                command=_cmd_hsl,
+                                actions=actions,
+                                dones=dones,
+                                current_pos_correction=_hsl_pos_snapshot,
+                                current_quat_correction=_hsl_quat_snapshot,
+                                n_train=N_train,
+                                n_candidate=N_candidate,
+                                n_base=N_base,
+                                n_clean=N_clean,
+                                quat_to_rotvec_wxyz=_quat_to_rotvec_wxyz,
                             )
 
                     # ── GMT baselines ────────────────────────────────────────────────
@@ -1170,375 +908,109 @@ class OnPolicyRunner:
                         _base_end = _base_start + N_base
                         _clean_start = _base_end
                         _clean_end = _clean_start + N_clean
-                        r_raw_gmt = rewards[_base_start:_base_end].view(-1).clone()
-                        r_clean_gmt = rewards[_clean_start:_clean_end].view(-1).clone()
-                        r_candidate_gmt = rewards[_candidate_start:_candidate_end].view(-1).clone() if N_candidate > 0 else None
-                        r_total = rewards[:N_train].view(-1).clone()
-
-                        # ── Anchor-only r_delta (GMT-free) ────────────────────────────
-                        # Compares corrected anchor against ORIGINAL motion data,
-                        # NOT against robot position.  GMT tracking noise ~28cm
-                        # cannot drown a 2cm FrontRES correction anymore.
-                        _env_for_rdelta = self.env.unwrapped if hasattr(self.env, 'unwrapped') else self.env
-                        _mcmd_rdelta = _env_for_rdelta.command_manager._terms.get('motion')
-                        _use_clean = (
-                            _mcmd_rdelta is not None
-                            and hasattr(_mcmd_rdelta, 'anchor_pos_w_original')
-                            and hasattr(_mcmd_rdelta, 'anchor_quat_w_original')
+                        _reward_window = None
+                        _reward_context = build_frontres_reward_context(
+                            self,
+                            rewards=rewards,
+                            dones=dones,
+                            infos=infos,
+                            actions=actions,
+                            n_train=N_train,
+                            n_candidate=N_candidate,
+                            n_base=N_base,
+                            n_clean=N_clean,
+                            is_task_space_mode=_is_task_space_mode,
+                            dr_scale=_dr_scale,
+                            ppo_actor_weight_current=_ppo_actor_weight_current,
+                            quat_to_rotvec_wxyz=_quat_to_rotvec_wxyz,
+                            quat_mul_fn=quat_mul,
+                            quat_inv_fn=quat_inv,
+                            euler_xyz_from_quat_fn=euler_xyz_from_quat,
+                            device=self.device,
                         )
-                        if _use_clean:
-                            # ── Per-axis r_step ───────────────────────────
-                            # r_axis[i] = |DR_i| - |DR_i + correction_i|
-                            # Keep this per-env; batch-averaging here destroys PPO
-                            # credit assignment because every action receives the same reward.
-                            _a_w   = _mcmd_rdelta.anchor_pos_w_original
-                            _a_raw = _mcmd_rdelta.anchor_pos_w_raw
-                            _a_fr  = _mcmd_rdelta.anchor_pos_w
-                            _q_w   = _mcmd_rdelta.anchor_quat_w_original
-                            _q_raw = _mcmd_rdelta.anchor_quat_w_raw
-                            _q_fr  = _mcmd_rdelta.anchor_quat_w
-
-                            def _r_axis(dr, corr):
-                                return dr.abs() - (dr + corr).abs()
-
-                            def _r_vec(dr_vec, corr_vec):
-                                return dr_vec.norm(dim=-1) - (dr_vec + corr_vec).norm(dim=-1)
-
-                            # Z
-                            _dr_z_fr   = _a_raw[:N_train, 2] - _a_w[:N_train, 2]
-                            _corr_z_fr = _a_fr[:N_train,  2] - _a_raw[:N_train, 2]
-                            _r_z = _r_axis(_dr_z_fr, _corr_z_fr)
-                            # XY
-                            _dr_xy_fr   = _a_raw[:N_train, :2] - _a_w[:N_train, :2]
-                            _corr_xy_fr = _a_fr[:N_train,  :2] - _a_raw[:N_train, :2]
-                            _r_xy = _r_vec(_dr_xy_fr, _corr_xy_fr)
-                            def _wrap_pi(a: torch.Tensor):
-                                return torch.atan2(torch.sin(a), torch.cos(a))
-
-                            # Roll/Pitch diagnostics live in the same local tangent
-                            # space as the FrontRES action:
-                            #   q_frontres = q_raw * exp(delta_rotvec)
-                            # Therefore the target error is log(inv(q_raw)*q_clean)
-                            # and the residual error is log(inv(q_frontres)*q_clean).
-                            _rot_raw_to_clean = _quat_to_rotvec_wxyz(
-                                quat_mul(quat_inv(_q_raw[:N_train]), _q_w[:N_train])
+                        if _reward_context is None and _is_task_space_mode:
+                            raise RuntimeError(
+                                "FrontRES task-space reward/evidence requires clean anchor evidence "
+                                "(anchor_pos_w_original and anchor_quat_w_original)."
                             )
-                            _rot_fr_to_clean = _quat_to_rotvec_wxyz(
-                                quat_mul(quat_inv(_q_fr[:N_train]), _q_w[:N_train])
-                            )
-                            _rot_raw_to_fr = _quat_to_rotvec_wxyz(
-                                quat_mul(quat_inv(_q_raw[:N_train]), _q_fr[:N_train])
-                            )
-                            _rp_raw = _rot_raw_to_clean[:, :2]
-                            _rp_fr = _rot_fr_to_clean[:, :2]
-                            _e_raw = _rp_raw.norm(dim=-1)
-                            _e_fr = _rp_fr.norm(dim=-1)
-                            _r_rp = _e_raw - _e_fr
-                            # Yaw
-                            _roll_raw, _pitch_raw, _yaw_raw = euler_xyz_from_quat(_q_raw[:N_train])
-                            _roll_fr,  _pitch_fr,  _yaw_fr  = euler_xyz_from_quat(_q_fr[:N_train])
-                            _roll_w,   _pitch_w,   _yaw_w   = euler_xyz_from_quat(_q_w[:N_train])
-                            _yaw_err_raw = _wrap_pi(_yaw_raw - _yaw_w)
-                            _yaw_corr = _wrap_pi(_yaw_fr - _yaw_raw)
-                            _r_ya = _r_axis(_yaw_err_raw, _yaw_corr)
-
-                            _restore_z_weight = float(self.cfg.get("frontres_restore_z_weight", 0.3))
-                            _restore_xy_weight = float(self.cfg.get("frontres_restore_xy_weight", 0.3))
-                            _restore_rp_weight = float(self.cfg.get("frontres_restore_rp_weight", 0.15))
-                            _restore_yaw_weight = float(self.cfg.get("frontres_restore_yaw_weight", 0.02))
-                            _r_step = (
-                                _restore_z_weight * _r_z
-                                + _restore_xy_weight * _r_xy
-                                + _restore_rp_weight * _r_rp
-                                + _restore_yaw_weight * _r_ya
-                            )
-                            _dr_z_abs_log = _dr_z_fr.abs().mean()
-                            _dr_xy_abs_log = _dr_xy_fr.norm(dim=-1).mean()
-                            _dr_rp_abs_log = _e_raw.mean()
-                            _dr_yaw_abs_log = _yaw_err_raw.abs().mean()
-                            _corr_z_abs_log = _corr_z_fr.abs().mean()
-                            _corr_xy_abs_log = _corr_xy_fr.norm(dim=-1).mean()
-                            _corr_rp_abs_log = _rot_raw_to_fr[:, :2].norm(dim=-1).mean()
-                            _corr_yaw_abs_log = _yaw_corr.abs().mean()
-
-                            # ── r_rescue ─────────────────────────────────
-                            _n_pair = min(N_train, N_candidate if N_candidate > 0 else N_train, N_base, N_clean)
-                            _fell_base = dones[_base_start:_base_start+_n_pair].view(-1) > 0
-                            _fell_fr   = dones[:_n_pair].view(-1) > 0
-                            _r_rescue = torch.zeros(N_train, device=self.device)
-                            _r_rescue_pair = torch.zeros(_n_pair, device=self.device)
-                            # ±0.5 matches r_step magnitude (~0.02-0.05/step).
-                            # ±10 was 200× larger, making Value learn fall-probability
-                            # instead of correction quality, drowning the r_step signal.
-                            _RESCUE_MAG = float(self.cfg.get("r_rescue_magnitude", 0.5))
-                            _r_rescue_pair[_fell_base & ~_fell_fr] =  _RESCUE_MAG   # rescued
-                            _r_rescue_pair[_fell_base &  _fell_fr] = -0.1 * _RESCUE_MAG   # both failed
-                            _r_rescue_pair[~_fell_base & _fell_fr] = -_RESCUE_MAG   # FrontRES caused fall
-                            _r_rescue[:_n_pair] = _r_rescue_pair
-
-                            # ── Execution advantage (main HRL signal) ───────────────
-                            # FrontRES should optimize the frozen tracker's
-                            # executability, not the full environment reward.  The
-                            # full reward contains teleop terms and low-level action
-                            # penalties that are not aligned with reference-frame
-                            # repair, so we build a dedicated continuous execution
-                            # score here:
-                            #   - stability margins: anchor z, anchor orientation,
-                            #     and key end-effector z tracking margins
-                            #   - weak velocity tracking: preserves motion semantics
-                            #     so "be stable by doing nothing" is not a loophole
-                            _r_exec = torch.zeros(N_train, device=self.device)
-                            _n_exec = min(N_train, N_candidate if N_candidate > 0 else N_train, N_base, N_clean)
-
-                            _exec_score_all, _exec_components = self._frontres_exec_score(
-                                _mcmd_rdelta, return_components=True
-                            )
-                            _mode_groups = list(getattr(
-                                self,
-                                "_frontres_curriculum_env_mode_groups",
-                                [tuple(getattr(self, "_frontres_curriculum_active_modes", ()))] * _n_exec,
-                            ))[:_n_exec]
-                            _exec_frontres = self._frontres_exec_score_for_modes(
-                                _exec_components, 0, _n_exec, _mode_groups
-                            )
-                            if N_candidate > 0:
-                                _exec_candidate = self._frontres_exec_score_for_modes(
-                                    _exec_components, _candidate_start, _n_exec, _mode_groups
-                                )
-                            else:
-                                _exec_candidate = _exec_frontres.detach()
-                            _exec_perturbed = self._frontres_exec_score_for_modes(
-                                _exec_components, _base_start, _n_exec, _mode_groups
-                            )
-                            _exec_clean = self._frontres_exec_score_for_modes(
-                                _exec_components, _clean_start, _n_exec, _mode_groups
-                            )
-                            _, _feasible_components = self._frontres_feasible_oracle_exec_score(
-                                _mcmd_rdelta, _base_start, _n_exec, return_components=True
-                            )
-                            _exec_feasible = self._frontres_exec_score_for_modes(
-                                _feasible_components, 0, _n_exec, _mode_groups
-                            ).to(self.device).view(-1)
-                            _exec_planar_log = _exec_components["planar"][:_n_exec].mean()
-                            _exec_vertical_log = _exec_components["vertical"][:_n_exec].mean()
-                            _exec_task_log = _exec_components["task"][:_n_exec].mean()
-
-                            # ── Clean-bounded intervention costs ───────────────────
-                            # A plain ||delta|| penalty suppresses necessary repairs.
-                            # The default regularizer is therefore target-relative:
-                            #   - side cost: correction away from the Clean direction;
-                            #   - over cost: correction past the Clean target.
-                            # The legacy magnitude cost remains configurable, but its
-                            # default weights are zero for demo-oriented training.
-                            _intervention_cost = torch.zeros(N_train, device=self.device)
-                            _clean_bound_cost = torch.zeros(N_train, device=self.device)
-                            _side_cost = torch.zeros(N_train, device=self.device)
-                            _over_cost = torch.zeros(N_train, device=self.device)
-                            _under_repair_penalty = torch.zeros(N_train, device=self.device)
-                            _action_activity = torch.zeros(N_train, device=self.device)
-                            if _is_task_space_mode and actions.shape[-1] >= 6:
-                                _delta = actions[:N_train, :6]
-                                _max_delta = torch.tensor(
-                                    [
-                                        self.alg.policy.max_delta_pos,
-                                        self.alg.policy.max_delta_pos,
-                                        self.alg.policy.max_delta_pos,
-                                        self.alg.policy.max_delta_rpy,
-                                        self.alg.policy.max_delta_rpy,
-                                        self.alg.policy.max_delta_rpy,
-                                    ],
-                                    device=self.device,
-                                    dtype=_delta.dtype,
-                                ).clamp(min=1e-6)
-                                _weights = torch.tensor(
-                                    self.cfg.get(
-                                        "frontres_intervention_cost_weights",
-                                        [0.02, 0.02, 0.05, 0.30, 0.30, 0.10],
-                                    ),
-                                    device=self.device,
-                                    dtype=_delta.dtype,
-                                )
-                                _intervention_cost = (_weights * (_delta / _max_delta).pow(2)).sum(dim=-1)
-                                _active_dims_cfg = self.cfg.get("frontres_active_task_dims", None)
-                                if _active_dims_cfg is not None:
-                                    _active_delta_dims = [
-                                        int(_idx) for _idx in _active_dims_cfg
-                                        if 0 <= int(_idx) < min(6, _delta.shape[-1])
-                                    ]
-                                else:
-                                    _active_delta_dims = list(range(min(6, _delta.shape[-1])))
-                                if _active_delta_dims:
-                                    _active_idx = torch.tensor(_active_delta_dims, device=self.device, dtype=torch.long)
-                                    _action_activity = (_delta[:, _active_idx] / _max_delta[_active_idx]).pow(2).mean(dim=-1)
-                                    _target_delta = torch.cat(
-                                        [
-                                            (_a_w[:N_train] - _a_raw[:N_train]),
-                                            _rot_raw_to_clean,
-                                        ],
-                                        dim=-1,
-                                    )
-                                    _corr_delta = torch.cat(
-                                        [
-                                            (_a_fr[:N_train] - _a_raw[:N_train]),
-                                            _rot_raw_to_fr,
-                                        ],
-                                        dim=-1,
-                                    )
-                                    _target_active = _target_delta[:, _active_idx] / _max_delta[_active_idx]
-                                    _corr_active = _corr_delta[:, _active_idx] / _max_delta[_active_idx]
-                                    _target_norm = _target_active.norm(dim=-1, keepdim=True)
-                                    _target_dir = _target_active / _target_norm.clamp(min=1e-6)
-                                    _parallel_scalar = (_corr_active * _target_dir).sum(dim=-1, keepdim=True)
-                                    _parallel = _parallel_scalar * _target_dir
-                                    _side = _corr_active - _parallel
-
-                                    _side_weight = float(self.cfg.get("frontres_clean_bound_side_weight", 0.0))
-                                    _side_cost = max(_side_weight, 0.0) * _side.pow(2).sum(dim=-1)
-
-                                    _over_margin = float(self.cfg.get("frontres_overcorrection_margin", 0.0))
-                                    _over_weight = float(self.cfg.get("frontres_overcorrection_weight", 0.0))
-                                    _over = torch.relu(
-                                        _parallel_scalar.squeeze(-1)
-                                        - _target_norm.squeeze(-1)
-                                        - max(_over_margin, 0.0)
-                                    )
-                                    _over_cost = max(_over_weight, 0.0) * _over.pow(2)
-                                    _clean_bound_cost = _side_cost + _over_cost
-                            _overcorrection_cost = _clean_bound_cost
-
-                            _w_exec = float(self.cfg.get("frontres_exec_reward_weight", 1.0))
-                            _repair_scale = float(self.cfg.get("frontres_repair_reward_scale", 1.0))
-                            _w_geom = float(self.cfg.get("frontres_geometry_reward_weight", 0.05))
-                            _w_rescue = float(self.cfg.get("frontres_rescue_reward_weight", 1.0))
-                            _w_exec_harm = float(self.cfg.get("frontres_executable_harm_weight", 1.0))
-                            # Executable diagnostics and sample gates:
-                            #   damage_gap  = R_clean_exec - R_perturbed_exec
-                            #   repair_gain = R_frontres_exec - R_perturbed_exec
-                            #   repair_ratio = repair_gain / damage_gap
-                            #
-                            # Clean is the behavior target.  The feasible oracle is
-                            # only a trust diagnostic: if its executable score falls
-                            # below Clean, it must not become a false repair ceiling.
-                            #
-                            # Safe/no-op and deeply broken samples should not
-                            # drive the repair reward.  A double-sigmoid window
-                            # gives one smooth repairability weight:
-                            #   mu ~= 0 below safe_gap
-                            #   mu ~= 1 between safe_gap and broken_gap
-                            #   mu ~= 0 above broken_gap
-                            # In selective mode this becomes a three-way objective:
-                            #   safe:       abstain (action cost)
-                            #   repairable: repair decisively (gain + margin bonus)
-                            #   broken:     abstain/conservative repair (cost + harm)
-                            _rollout_evidence = compute_frontres_rollout_evidence(
-                                noisy_score=_exec_perturbed,
-                                projected_score=_exec_frontres,
-                                candidate_score=_exec_candidate,
-                            )
-                            _repair_gain = _rollout_evidence.repair_gain
-                            _candidate_gain = _rollout_evidence.candidate_gain
-                            _projection_gain = _rollout_evidence.projection_gain
-                            _oracle_ub = compute_frontres_oracle_upper_bound(
-                                _exec_perturbed,
-                                _exec_frontres,
-                                _exec_candidate,
-                                _exec_feasible,
-                                margin=float(self.cfg.get("frontres_oracle_upper_bound_margin", 0.0)),
-                                enabled=bool(self.cfg.get("frontres_oracle_upper_bound_diag_enabled", True)),
-                            )
-                            _oracle_ub_gain = _oracle_ub.gain
-                            _oracle_ub_pass = _oracle_ub.pass_mask
-                            _oracle_ub_noisy_win = _oracle_ub.noisy_win
-                            _oracle_ub_projected_win = _oracle_ub.projected_win
-                            _oracle_ub_candidate_win = _oracle_ub.candidate_win
-                            _oracle_ub_feasible_win = _oracle_ub.feasible_win
-                            _base_done_for_floor = dones[_base_start:_base_start + _n_exec].view(-1) > 0
-                            _timeout_for_floor = infos.get("time_outs", None)
-                            if _timeout_for_floor is not None:
-                                _timeout_for_floor = _timeout_for_floor.to(self.device).view(-1)
-                                _base_timeout_for_floor = (
-                                    _timeout_for_floor[_base_start:_base_start + _n_exec] > 0
-                                )
-                            else:
-                                _base_timeout_for_floor = torch.zeros(
-                                    _n_exec, device=self.device, dtype=torch.bool
-                                )
-                            _mix_class_for_floor = getattr(self, "_frontres_dr_mix_class_train", None)
-                            _exec_floor, _exec_safe_floor, _exec_floor_source = (
-                                self._frontres_update_executable_floor_stats(
-                                    _exec_perturbed,
-                                    done=_base_done_for_floor,
-                                    timeout=_base_timeout_for_floor,
-                                    mix_class=_mix_class_for_floor,
-                                )
-                            )
-                            _exec_floor_tensor = torch.full_like(_exec_candidate, float(_exec_floor))
-                            # Diagnostic-only executable floor: Candidate is
-                            # judged against the unified GMT-calibrated floor,
-                            # not against Clean or Noisy.
-                            _candidate_floor_margin = _exec_candidate - _exec_floor_tensor
-                            _candidate_floor_pass = (_candidate_floor_margin >= 0.0).to(_damage_gap.dtype)
-                            _candidate_floor_pass_frac = _candidate_floor_pass.mean()
-                            _stable_route_next = getattr(
-                                self,
-                                "_frontres_stable_route_next_mask",
-                                torch.zeros_like(_candidate_floor_margin, dtype=torch.bool),
-                            )
-                            _stable_route_next = _stable_route_next.to(self.device).view(-1).bool()
-                            if _stable_route_next.numel() < _n_exec:
-                                _stable_route_next = torch.nn.functional.pad(
-                                    _stable_route_next,
-                                    (0, _n_exec - _stable_route_next.numel()),
-                                    value=False,
-                                )
-                            _stable_route_next = _stable_route_next[:_n_exec]
-                            if _n_exec > 0:
-                                _alive_next = ~(dones[:_n_exec].view(-1) > 0)
-                                _stable_route_next = _stable_route_next & _alive_next
-                            self._frontres_stable_route_next_mask = _stable_route_next.detach()
-                            self._frontres_candidate_floor_margin_last = float(
-                                _candidate_floor_margin.mean().detach().item()
-                            )
-                            self._frontres_candidate_floor_pass_last = float(
-                                _candidate_floor_pass_frac.detach().item()
-                            )
-                            self._frontres_stable_route_frac_last = float(
-                                _stable_route_next.to(_damage_gap.dtype).mean().detach().item()
-                            )
-                            _stable_route_active = getattr(self, "_frontres_stable_route_active_mask", None)
-                            if _stable_route_active is None:
-                                _stable_route_active = torch.zeros(_n_exec, device=self.device, dtype=torch.bool)
-                            else:
-                                _stable_route_active = _stable_route_active.to(self.device).view(-1).bool()
-                                if _stable_route_active.numel() < _n_exec:
-                                    _stable_route_active = torch.nn.functional.pad(
-                                        _stable_route_active,
-                                        (0, _n_exec - _stable_route_active.numel()),
-                                        value=False,
-                                    )
-                                _stable_route_active = _stable_route_active[:_n_exec]
-                            _reward_window = build_frontres_reward_window(
-                                runner=self,
-                                cfg=self.cfg,
-                                n_train=N_train,
-                                n_exec=_n_exec,
-                                exec_clean=_exec_clean,
-                                exec_perturbed=_exec_perturbed,
-                                exec_feasible=_exec_feasible,
-                                exec_frontres=_exec_frontres,
-                                repair_gain=_repair_gain,
-                                mode_groups=_mode_groups,
-                                e_raw=_e_raw,
-                                e_fr=_e_fr,
-                                intervention_cost=_intervention_cost,
-                                action_activity=_action_activity,
-                                under_repair_penalty=_under_repair_penalty,
-                                dr_scale=_dr_scale,
-                                ppo_actor_weight_current=_ppo_actor_weight_current,
-                                stable_route_active_mask=_stable_route_active,
-                                device=self.device,
-                            )
-                            _r_exec = _reward_window.r_exec
+                        if _reward_context is not None:
+                            _candidate_start = _reward_context.candidate_start
+                            _candidate_end = _reward_context.candidate_end
+                            _base_start = _reward_context.base_start
+                            _base_end = _reward_context.base_end
+                            _clean_start = _reward_context.clean_start
+                            _clean_end = _reward_context.clean_end
+                            _n_exec = _reward_context.n_exec
+                            _n_pair = _reward_context.n_pair
+                            r_raw_gmt = _reward_context.r_raw_gmt
+                            r_clean_gmt = _reward_context.r_clean_gmt
+                            r_candidate_gmt = _reward_context.r_candidate_gmt
+                            r_total = _reward_context.r_total
+                            _mcmd_rdelta = _reward_context.cmd
+                            _use_clean = _reward_context.use_clean
+                            _a_w = _reward_context.a_w
+                            _a_raw = _reward_context.a_raw
+                            _a_fr = _reward_context.a_fr
+                            _q_w = _reward_context.q_w
+                            _q_raw = _reward_context.q_raw
+                            _q_fr = _reward_context.q_fr
+                            _r_step = _reward_context.r_step
+                            _r_rescue = _reward_context.r_rescue
+                            _r_exec = _reward_context.r_exec
+                            _dr_z_abs_log = _reward_context.dr_z_abs_log
+                            _dr_xy_abs_log = _reward_context.dr_xy_abs_log
+                            _dr_rp_abs_log = _reward_context.dr_rp_abs_log
+                            _dr_yaw_abs_log = _reward_context.dr_yaw_abs_log
+                            _corr_z_abs_log = _reward_context.corr_z_abs_log
+                            _corr_xy_abs_log = _reward_context.corr_xy_abs_log
+                            _corr_rp_abs_log = _reward_context.corr_rp_abs_log
+                            _corr_yaw_abs_log = _reward_context.corr_yaw_abs_log
+                            _rot_raw_to_clean = _reward_context.rot_raw_to_clean
+                            _rot_raw_to_fr = _reward_context.rot_raw_to_fr
+                            _e_raw = _reward_context.e_raw
+                            _e_fr = _reward_context.e_fr
+                            _exec_score_all = _reward_context.exec_score_all
+                            _exec_components = _reward_context.exec_components
+                            _feasible_components = _reward_context.feasible_components
+                            _mode_groups = _reward_context.mode_groups
+                            _exec_frontres = _reward_context.exec_frontres
+                            _exec_candidate = _reward_context.exec_candidate
+                            _exec_perturbed = _reward_context.exec_perturbed
+                            _exec_clean = _reward_context.exec_clean
+                            _exec_feasible = _reward_context.exec_feasible
+                            _exec_planar_log = _reward_context.exec_planar_log
+                            _exec_vertical_log = _reward_context.exec_vertical_log
+                            _exec_task_log = _reward_context.exec_task_log
+                            _intervention_cost = _reward_context.intervention_cost
+                            _clean_bound_cost = _reward_context.clean_bound_cost
+                            _side_cost = _reward_context.side_cost
+                            _over_cost = _reward_context.over_cost
+                            _overcorrection_cost = _reward_context.overcorrection_cost
+                            _under_repair_penalty = _reward_context.under_repair_penalty
+                            _action_activity = _reward_context.action_activity
+                            _w_exec = _reward_context.w_exec
+                            _repair_scale = _reward_context.repair_scale
+                            _w_geom = _reward_context.w_geom
+                            _w_rescue = _reward_context.w_rescue
+                            _w_exec_harm = _reward_context.w_exec_harm
+                            _repair_gain = _reward_context.repair_gain
+                            _candidate_gain = _reward_context.candidate_gain
+                            _projection_gain = _reward_context.projection_gain
+                            _oracle_ub_gain = _reward_context.oracle_ub_gain
+                            _oracle_ub_pass = _reward_context.oracle_ub_pass
+                            _oracle_ub_noisy_win = _reward_context.oracle_ub_noisy_win
+                            _oracle_ub_projected_win = _reward_context.oracle_ub_projected_win
+                            _oracle_ub_candidate_win = _reward_context.oracle_ub_candidate_win
+                            _oracle_ub_feasible_win = _reward_context.oracle_ub_feasible_win
+                            _exec_floor = _reward_context.exec_floor
+                            _exec_safe_floor = _reward_context.exec_safe_floor
+                            _exec_floor_source = _reward_context.exec_floor_source
+                            _candidate_floor_margin = _reward_context.candidate_floor_margin
+                            _candidate_floor_pass = _reward_context.candidate_floor_pass
+                            _candidate_floor_pass_frac = _reward_context.candidate_floor_pass_frac
+                            _stable_route_next = _reward_context.stable_route_next
+                            _stable_route_active = _reward_context.stable_route_active
+                            _reward_window = _reward_context.reward_window
                             _damage_gap = _reward_window.damage_gap
                             _oracle_clean_gap = _reward_window.oracle_clean_gap
                             _oracle_trust = _reward_window.oracle_trust
@@ -1580,7 +1052,39 @@ class OnPolicyRunner:
                                 infos=infos,
                                 base_start=_base_start,
                             )
-                            _accept_payload = initialize_frontres_acceptance_payload(self)
+                            _accept_payload = build_and_write_frontres_acceptance_payload(
+                                self,
+                                actions=actions,
+                                n_candidate=N_candidate,
+                                n_exec=_n_exec,
+                                candidate_start=_candidate_start,
+                                base_start=_base_start,
+                                a_w=_a_w,
+                                a_raw=_a_raw,
+                                a_fr=_a_fr,
+                                q_w=_q_w,
+                                q_raw=_q_raw,
+                                q_fr=_q_fr,
+                                cmd_for_inertia=_mcmd_rdelta,
+                                repair_gain=_repair_gain,
+                                candidate_gain=_candidate_gain,
+                                repair_gate=_repair_gate,
+                                oracle_trust=_oracle_trust,
+                                learnable_route_mask=_learnable_route_mask,
+                                exec_components=_exec_components,
+                                feasible_components=_feasible_components,
+                                exec_perturbed=_exec_perturbed,
+                                exec_feasible=_exec_feasible,
+                                exec_frontres=_exec_frontres,
+                                exec_candidate=_exec_candidate,
+                                actor_gate=_actor_gate,
+                                state_alpha_target=_state_alpha_target,
+                                state_alpha_mask=_state_alpha_mask,
+                                mode_groups=_mode_groups,
+                                quat_to_rotvec_wxyz=_quat_to_rotvec_wxyz,
+                                quat_mul_fn=quat_mul,
+                                quat_inv_fn=quat_inv,
+                            )
                             _accept_pref_target = _accept_payload.accept_target
                             _accept_pref_mask = _accept_payload.accept_mask
                             _pref_full_frac = _accept_payload.pref_full_frac
@@ -1607,357 +1111,6 @@ class OnPolicyRunner:
                             _rho_regret_down_planar_mean = _accept_payload.rho_regret_down_planar_mean
                             _rho_regret_down_rp_mean = _accept_payload.rho_regret_down_rp_mean
                             _rho_regret_down_z_mean = _accept_payload.rho_regret_down_z_mean
-                            _structured_joint_requested = self._frontres_structured_joint_effective_enabled()
-                            _legacy_pref_enabled = bool(self.cfg.get("frontres_acceptance_preference_enabled", True))
-                            _pref_enabled = (
-                                (_legacy_pref_enabled or _structured_joint_requested)
-                                and N_candidate > 0
-                                and _n_exec > 0
-                            )
-                            if _pref_enabled:
-                                _pref_margin = max(
-                                    float(self.cfg.get("frontres_acceptance_preference_margin", 0.003)),
-                                    0.0,
-                                )
-                                _j_rho = _repair_gain
-                                _j_one = _candidate_gain
-                                _j_zero = torch.zeros_like(_repair_gain)
-                                _c_zero = None
-                                _c_one = None
-                                if bool(self.cfg.get("frontres_inertial_preference_enabled", False)):
-                                    _cmd_for_inertia = _mcmd_rdelta
-                                    _have_inertia = (
-                                        hasattr(_cmd_for_inertia, "robot_anchor_quat_w")
-                                        and hasattr(_cmd_for_inertia, "robot_anchor_ang_vel_w")
-                                    )
-                                    if _have_inertia:
-                                        _robot_q = _cmd_for_inertia.robot_anchor_quat_w[:_n_exec].to(self.device)
-                                        _robot_w = _cmd_for_inertia.robot_anchor_ang_vel_w[:_n_exec].to(self.device)
-                                        _robot_p = (
-                                            _cmd_for_inertia.robot_anchor_pos_w[:_n_exec].to(self.device)
-                                            if hasattr(_cmd_for_inertia, "robot_anchor_pos_w")
-                                            else None
-                                        )
-                                        _robot_v = (
-                                            _cmd_for_inertia.robot_anchor_lin_vel_w[:_n_exec].to(self.device)
-                                            if hasattr(_cmd_for_inertia, "robot_anchor_lin_vel_w")
-                                            else None
-                                        )
-                                        _ang_w = float(self.cfg.get("frontres_inertial_preference_ang_weight", 0.5))
-
-                                        def _branch_compat(_branch_pos, _branch_q):
-                                            _rot_err = _quat_to_rotvec_wxyz(
-                                                quat_mul(quat_inv(_robot_q), _branch_q)
-                                            )[:, :3]
-                                            _compat = torch.zeros(_n_exec, device=self.device, dtype=_j_rho.dtype)
-                                            if _branch_pos is not None and _robot_p is not None and _robot_v is not None:
-                                                _pos_err = _branch_pos - _robot_p
-                                                _compat = _compat + (_pos_err * _robot_v).sum(-1) / (
-                                                    _pos_err.norm(dim=-1) * _robot_v.norm(dim=-1) + 1e-8
-                                                )
-                                            _compat = _compat + _ang_w * (_rot_err * _robot_w).sum(-1) / (
-                                                _rot_err.norm(dim=-1) * _robot_w.norm(dim=-1) + 1e-8
-                                            )
-                                            return torch.nan_to_num(_compat, nan=0.0, posinf=0.0, neginf=0.0)
-
-                                        _pos_all = getattr(_cmd_for_inertia, "anchor_pos_w", None)
-                                        _quat_all = getattr(_cmd_for_inertia, "anchor_quat_w", None)
-                                        if _quat_all is not None:
-                                            _noisy_pos = (
-                                                _pos_all[_base_start:_base_start + _n_exec].to(self.device)
-                                                if _pos_all is not None
-                                                else None
-                                            )
-                                            _rho_pos = (
-                                                _pos_all[:_n_exec].to(self.device)
-                                                if _pos_all is not None
-                                                else None
-                                            )
-                                            _one_pos = (
-                                                _pos_all[_candidate_start:_candidate_start + _n_exec].to(self.device)
-                                                if _pos_all is not None and N_candidate > 0
-                                                else None
-                                            )
-                                            _c_zero = _branch_compat(
-                                                _noisy_pos,
-                                                _quat_all[_base_start:_base_start + _n_exec].to(self.device),
-                                            )
-                                            _c_rho = _branch_compat(
-                                                _rho_pos,
-                                                _quat_all[:_n_exec].to(self.device),
-                                            )
-                                            _c_one = _branch_compat(
-                                                _one_pos,
-                                                _quat_all[_candidate_start:_candidate_start + _n_exec].to(self.device),
-                                            )
-                                            _inertial_margin = float(
-                                                self.cfg.get("frontres_inertial_preference_margin", 0.05)
-                                            )
-                                            _inertial_weight = max(
-                                                0.0,
-                                                float(self.cfg.get("frontres_inertial_preference_weight", 0.0)),
-                                            )
-                                            _penalty_rho = torch.relu(_c_zero - _c_rho + _inertial_margin)
-                                            _penalty_one = torch.relu(_c_zero - _c_one + _inertial_margin)
-                                            _j_rho = _j_rho - _inertial_weight * _penalty_rho
-                                            _j_one = _j_one - _inertial_weight * _penalty_one
-                                            _pref_inertial_penalty_rho_mean = _penalty_rho.mean()
-                                            _pref_inertial_penalty_one_mean = _penalty_one.mean()
-                                _full_win = (_j_one > _j_rho + _pref_margin) & (_j_one > _j_zero + _pref_margin)
-                                _noop_win = (_j_zero > _j_rho + _pref_margin) & (_j_zero > _j_one + _pref_margin)
-                                _keep_win = (_j_rho > _j_one + _pref_margin) & (_j_rho > _j_zero + _pref_margin)
-                                _regret_target_enabled = bool(
-                                    self.cfg.get("frontres_acceptance_regret_target_enabled", True)
-                                )
-                                if _regret_target_enabled:
-                                    _regret_mask_floor = float(
-                                        self.cfg.get("frontres_acceptance_regret_soft_mask_floor", 1.0)
-                                    )
-                                    _regret_mask_floor = max(0.0, min(1.0, _regret_mask_floor))
-                                    _repair_pref_gate = (
-                                        _regret_mask_floor
-                                        + (1.0 - _regret_mask_floor) * _repair_gate
-                                    ).clamp(0.0, 1.0)
-                                    _oracle_pref_floor = float(
-                                        self.cfg.get("frontres_acceptance_regret_oracle_trust_floor", 0.25)
-                                    )
-                                    _oracle_pref_floor = max(0.0, min(1.0, _oracle_pref_floor))
-                                    _oracle_pref_gate = (
-                                        _oracle_pref_floor
-                                        + (1.0 - _oracle_pref_floor) * _oracle_trust
-                                    ).clamp(0.0, 1.0)
-                                else:
-                                    _repair_pref_gate = _repair_gate
-                                    _oracle_pref_gate = _oracle_trust
-                                _pref_gate = (
-                                    _oracle_pref_gate * _repair_pref_gate * _learnable_route_mask
-                                ).detach().clamp(0.0, 1.0)
-                                _task_conf_dim = int(getattr(getattr(self.alg, "policy", None), "task_conf_dim", 2))
-                                _tri_rho_payload = build_frontres_tri_anchor_rho_payload(
-                                    cfg=self.cfg,
-                                    actions=actions,
-                                    n_exec=_n_exec,
-                                    task_conf_dim=_task_conf_dim,
-                                    j_one=_j_one,
-                                    j_zero=_j_zero,
-                                    pref_margin=_pref_margin,
-                                    pref_gate=_pref_gate,
-                                    exec_components=_exec_components,
-                                    candidate_start=_candidate_start,
-                                    base_start=_base_start,
-                                    regret_target_enabled=_regret_target_enabled,
-                                    device=self.device,
-                                )
-                                _target_exec = _tri_rho_payload.target_exec
-                                _mask_exec = _tri_rho_payload.mask_exec
-                                _rho_current = _tri_rho_payload.rho_current
-                                _rho_space = _tri_rho_payload.rho_space
-                                _grouped_targets_enabled = _tri_rho_payload.grouped_targets_enabled
-                                _rho_direction_dim_from_regret = _tri_rho_payload.rho_direction_dim_from_regret
-                                _candidate_planar = _tri_rho_payload.candidate_planar
-                                _candidate_rp = _tri_rho_payload.candidate_rp
-                                _candidate_z = _tri_rho_payload.candidate_z
-                                _projected_planar = _tri_rho_payload.projected_planar
-                                _projected_rp = _tri_rho_payload.projected_rp
-                                _projected_z = _tri_rho_payload.projected_z
-                                _base_planar = _tri_rho_payload.base_planar
-                                _base_rp = _tri_rho_payload.base_rp
-                                _base_z = _tri_rho_payload.base_z
-                                _rho_target_planar_mean = _tri_rho_payload.rho_target_planar_mean
-                                _rho_target_rp_mean = _tri_rho_payload.rho_target_rp_mean
-                                _rho_target_z_mean = _tri_rho_payload.rho_target_z_mean
-                                _rho_target_spread_mean = _tri_rho_payload.rho_target_spread_mean
-                                _rho_regret_up_planar_mean = _tri_rho_payload.rho_regret_up_planar_mean
-                                _rho_regret_up_rp_mean = _tri_rho_payload.rho_regret_up_rp_mean
-                                _rho_regret_up_z_mean = _tri_rho_payload.rho_regret_up_z_mean
-                                _rho_regret_down_planar_mean = _tri_rho_payload.rho_regret_down_planar_mean
-                                _rho_regret_down_rp_mean = _tri_rho_payload.rho_regret_down_rp_mean
-                                _rho_regret_down_z_mean = _tri_rho_payload.rho_regret_down_z_mean
-                                _non_tri_acceptance_payload = build_frontres_non_tri_acceptance_target_payload(
-                                    cfg=self.cfg,
-                                    rho_space=_rho_space,
-                                    target_exec=_target_exec,
-                                    mask_exec=_mask_exec,
-                                    n_exec=_n_exec,
-                                    base_start=_base_start,
-                                    candidate_start=_candidate_start,
-                                    a_w=_a_w,
-                                    a_raw=_a_raw,
-                                    a_fr=_a_fr,
-                                    q_w=_q_w,
-                                    q_raw=_q_raw,
-                                    q_fr=_q_fr,
-                                    c_zero=_c_zero,
-                                    c_one=_c_one,
-                                    rho_current=_rho_current,
-                                    j_one=_j_one,
-                                    j_zero=_j_zero,
-                                    j_rho=_j_rho,
-                                    full_win=_full_win,
-                                    noop_win=_noop_win,
-                                    keep_win=_keep_win,
-                                    pref_margin=_pref_margin,
-                                    pref_gate=_pref_gate,
-                                    quat_to_rotvec_wxyz=_quat_to_rotvec_wxyz,
-                                    quat_mul_fn=quat_mul,
-                                    quat_inv_fn=quat_inv,
-                                    device=self.device,
-                                )
-                                _target_exec = _non_tri_acceptance_payload.target_exec
-                                _mask_exec = _non_tri_acceptance_payload.mask_exec
-                                _need = _non_tri_acceptance_payload.need
-                                _admissibility = _non_tri_acceptance_payload.admissibility
-                                if bool(self.cfg.get("frontres_per_mode_acceptance_preference_mask", True)):
-                                    _mode_dim_mask = self._frontres_mode_dim_mask(
-                                        _mode_groups, _n_exec, self.device, _mask_exec.dtype
-                                    )
-                                    if _regret_target_enabled and _grouped_targets_enabled:
-                                        _mode_soft_floor = float(
-                                            self.cfg.get(
-                                                "frontres_acceptance_regret_per_mode_soft_floor",
-                                                1.0,
-                                            )
-                                        )
-                                        _mode_soft_floor = max(0.0, min(1.0, _mode_soft_floor))
-                                        _mode_dim_mask = (
-                                            _mode_soft_floor
-                                            + (1.0 - _mode_soft_floor) * _mode_dim_mask
-                                        ).clamp(0.0, 1.0)
-                                    _mask_exec = _mask_exec * _mode_dim_mask
-                                _active_dims_cfg = self.cfg.get("frontres_active_task_dims", None)
-                                if _active_dims_cfg is not None:
-                                    _dim_mask = torch.zeros(6, device=self.device, dtype=_mask_exec.dtype)
-                                    for _idx in _active_dims_cfg:
-                                        _idx = int(_idx)
-                                        if 0 <= _idx < 6:
-                                            _dim_mask[_idx] = 1.0
-                                        elif 6 <= _idx < 12:
-                                            _dim_mask[_idx - 6] = 1.0
-                                    _mask_exec = _mask_exec * _dim_mask.view(1, -1)
-                                _grouped_rho_mask_mean = _mask_exec.mean()
-                                if _rho_space in ("tri_anchor", "tri-anchor", "tri"):
-                                    _mask_sum_for_alpha = _mask_exec.sum(dim=-1)
-                                    _target_mean_for_alpha = _target_exec.mean(dim=-1).detach().clamp(0.0, 1.0)
-                                    _target_active_for_alpha = (
-                                        (_target_exec * _mask_exec).sum(dim=-1)
-                                        / _mask_sum_for_alpha.clamp(min=1e-6)
-                                    ).detach().clamp(0.0, 1.0)
-                                    _target_sample_for_alpha = torch.where(
-                                        _mask_sum_for_alpha > 0.0,
-                                        _target_active_for_alpha,
-                                        _target_mean_for_alpha,
-                                    )
-                                    _tri_alpha_source = getattr(
-                                        self, "_frontres_state_alpha_prob_next", None
-                                    )
-                                    if (
-                                        isinstance(_tri_alpha_source, torch.Tensor)
-                                        and _tri_alpha_source.numel() > 0
-                                    ):
-                                        _tri_alpha = _tri_alpha_source.to(
-                                            device=self.device,
-                                            dtype=_target_exec.dtype,
-                                        ).view(-1)
-                                        if _tri_alpha.numel() < _n_exec:
-                                            _tri_alpha = torch.nn.functional.pad(
-                                                _tri_alpha,
-                                                (0, _n_exec - _tri_alpha.numel()),
-                                                value=0.0,
-                                            )
-                                        _tri_alpha = _tri_alpha[:_n_exec].detach().clamp(0.0, 1.0)
-                                    else:
-                                        _tri_alpha = (
-                                            _state_alpha_target[:_n_exec, 0]
-                                            .detach()
-                                            .clamp(0.0, 1.0)
-                                        )
-                                    _tri_weight_repair_mean = _target_sample_for_alpha.mean()
-                                    _tri_weight_stable_mean = (
-                                        (1.0 - _target_sample_for_alpha) * _tri_alpha
-                                    ).mean()
-                                    _tri_weight_noisy_mean = (
-                                        (1.0 - _target_sample_for_alpha) * (1.0 - _tri_alpha)
-                                    ).mean()
-                                _accept_pref_target[:_n_exec] = _target_exec.detach()
-                                _accept_pref_mask[:_n_exec] = _mask_exec.detach()
-                                _structured_rho_payload = apply_frontres_structured_rho_payload(
-                                    self,
-                                    accept_target=_accept_pref_target,
-                                    accept_mask=_accept_pref_mask,
-                                    target_exec=_target_exec,
-                                    mask_exec=_mask_exec,
-                                    n_exec=_n_exec,
-                                    rho_current=_rho_current,
-                                    actor_gate=_actor_gate,
-                                    exec_perturbed=_exec_perturbed,
-                                    exec_feasible=_exec_feasible,
-                                    exec_frontres=_exec_frontres,
-                                    exec_candidate=_exec_candidate,
-                                    state_alpha_target=_state_alpha_target,
-                                    rho_space=_rho_space,
-                                    grouped_targets_enabled=_grouped_targets_enabled,
-                                    feasible_components=_feasible_components,
-                                    candidate_planar=_candidate_planar,
-                                    candidate_rp=_candidate_rp,
-                                    candidate_z=_candidate_z,
-                                    projected_planar=_projected_planar,
-                                    projected_rp=_projected_rp,
-                                    projected_z=_projected_z,
-                                    base_planar=_base_planar,
-                                    base_rp=_base_rp,
-                                    base_z=_base_z,
-                                    pref_margin=_pref_margin,
-                                )
-                                _accept_pref_target = _structured_rho_payload.accept_target
-                                _accept_pref_mask = _structured_rho_payload.accept_mask
-                                _target_exec = _structured_rho_payload.target_exec
-                                _mask_exec = _structured_rho_payload.mask_exec
-                                _structured_joint_enabled = _structured_rho_payload.enabled
-                                self._frontres_state_alpha_mask_last = float(
-                                    _state_alpha_mask[:_n_exec, 0].mean().detach().item()
-                                )
-                                _accept_payload = summarize_frontres_acceptance_payload(
-                                    self,
-                                    accept_target=_accept_pref_target,
-                                    accept_mask=_accept_pref_mask,
-                                    target_exec=_target_exec,
-                                    mask_exec=_mask_exec,
-                                    structured_joint_enabled=_structured_joint_enabled,
-                                    pref_margin=_pref_margin,
-                                    need=_need,
-                                    admissibility=_admissibility,
-                                    j_one=_j_one,
-                                    j_rho=_j_rho,
-                                    j_zero=_j_zero,
-                                    tri_weight_repair_mean=_tri_weight_repair_mean,
-                                    tri_weight_noisy_mean=_tri_weight_noisy_mean,
-                                    tri_weight_stable_mean=_tri_weight_stable_mean,
-                                    pref_inertial_penalty_rho_mean=_pref_inertial_penalty_rho_mean,
-                                    pref_inertial_penalty_one_mean=_pref_inertial_penalty_one_mean,
-                                    rho_target_planar_mean=_rho_target_planar_mean,
-                                    rho_target_rp_mean=_rho_target_rp_mean,
-                                    rho_target_z_mean=_rho_target_z_mean,
-                                    rho_target_spread_mean=_rho_target_spread_mean,
-                                    grouped_rho_mask_mean=_grouped_rho_mask_mean,
-                                    rho_regret_up_planar_mean=_rho_regret_up_planar_mean,
-                                    rho_regret_up_rp_mean=_rho_regret_up_rp_mean,
-                                    rho_regret_up_z_mean=_rho_regret_up_z_mean,
-                                    rho_regret_down_planar_mean=_rho_regret_down_planar_mean,
-                                    rho_regret_down_rp_mean=_rho_regret_down_rp_mean,
-                                    rho_regret_down_z_mean=_rho_regret_down_z_mean,
-                                )
-                                _accept_pref_target = _accept_payload.accept_target
-                                _accept_pref_mask = _accept_payload.accept_mask
-                                _pref_full_frac = _accept_payload.pref_full_frac
-                                _pref_noop_frac = _accept_payload.pref_noop_frac
-                                _pref_keep_frac = _accept_payload.pref_keep_frac
-                                _pref_ignore_frac = _accept_payload.pref_ignore_frac
-                                _pref_margin_mean = _accept_payload.pref_margin_mean
-                                _pref_need_mean = _accept_payload.pref_need_mean
-                                _pref_admiss_mean = _accept_payload.pref_admiss_mean
-                                _pref_target_mean = _accept_payload.pref_target_mean
-                            self.alg.transition.acceptance_target = _accept_pref_target
-                            self.alg.transition.acceptance_mask = _accept_pref_mask
                         _post_step = apply_frontres_post_step_reward_connector(
                             self,
                             locs=locals(),
@@ -2089,7 +1242,8 @@ class OnPolicyRunner:
 
             if _is_frontres:
                 if not _frontres_supervised_restore:
-                    self._frontres_update_supervised_controller(
+                    update_frontres_supervised_controller(
+                        self,
                         loss_dict=loss_dict,
                         positive_gain_frac=frontres_positive_gain_frac_mean,
                         harm_rate=frontres_harm_rate_mean,
@@ -2190,33 +1344,6 @@ class OnPolicyRunner:
             allow_oracle=allow_oracle,
             n_candidate=n_candidate,
         )
-
-    def _frontres_raw_anchor_pose(self, cmd_term, n: int, device: torch.device, dtype: torch.dtype):
-        return frontres_raw_anchor_pose(self, cmd_term, n, device, dtype)
-
-    def _frontres_stabilizing_candidate_correction(
-        self,
-        cmd_term,
-        n: int,
-        device: torch.device,
-        dtype: torch.dtype,
-    ) -> tuple[torch.Tensor, torch.Tensor] | None:
-        return frontres_stabilizing_candidate_correction(self, cmd_term, n, device, dtype)
-
-    def _frontres_temporal_continuity_correction(
-        self,
-        cmd_term,
-        n: int,
-        device: torch.device,
-        dtype: torch.dtype,
-    ) -> tuple[torch.Tensor, torch.Tensor] | None:
-        return frontres_temporal_continuity_correction(self, cmd_term, n, device, dtype)
-
-    def _frontres_update_temporal_reference_cache(self, cmd_term, n: int) -> None:
-        return frontres_update_temporal_reference_cache(self, cmd_term, n)
-
-    def _frontres_invalidate_temporal_reference_cache(self, dones: torch.Tensor | None) -> None:
-        return frontres_invalidate_temporal_reference_cache(self, dones)
 
     def _maybe_print_frontres_restore_debug(
         self,

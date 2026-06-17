@@ -190,6 +190,56 @@ def frontres_ppo_actor_weight_for_iter(
     return 1.0
 
 
+def update_frontres_supervised_controller(
+    runner: Any,
+    *,
+    loss_dict: dict,
+    positive_gain_frac: float | None,
+    harm_rate: float | None,
+) -> None:
+    """Decay supervised learning into a one-way anchor once PPO is learnable."""
+
+    if not bool(runner.cfg.get("frontres_state_supervised_controller_enabled", True)):
+        return
+    if not hasattr(runner.alg, "lambda_supervised"):
+        return
+    runner.alg.state_supervised_controller_enabled = True
+    lam = float(getattr(runner.alg, "lambda_supervised", 0.0))
+    if lam <= 0.0:
+        return
+
+    anchor = float(runner.cfg.get(
+        "frontres_supervised_anchor_weight",
+        runner.cfg.get("lambda_supervised_min", 0.02),
+    ))
+    hold_iters = int(runner.cfg.get("frontres_supervised_min_hold_iters", 5))
+    seen = int(getattr(runner, "_frontres_supervised_controller_seen", 0)) + 1
+    runner._frontres_supervised_controller_seen = seen
+    if seen < max(0, hold_iters):
+        return
+
+    pos_trigger = float(runner.cfg.get("frontres_supervised_positive_gain_trigger", 0.52))
+    harm_limit = float(runner.cfg.get("frontres_supervised_harm_limit", 0.06))
+    grad_low = float(runner.cfg.get("frontres_supervised_grad_cos_low", 0.03))
+    decay_good = float(runner.cfg.get("frontres_supervised_decay_good", 0.985))
+    decay_conflict = float(runner.cfg.get("frontres_supervised_decay_conflict", 0.97))
+    grad_cos = float(loss_dict.get("grad_cos_ppo_supervised", 0.0))
+
+    learnable = (
+        positive_gain_frac is not None
+        and harm_rate is not None
+        and float(positive_gain_frac) >= pos_trigger
+        and float(harm_rate) <= harm_limit
+    )
+    factor = 1.0
+    if learnable:
+        factor = min(factor, decay_good)
+    if grad_cos < grad_low and positive_gain_frac is not None and float(positive_gain_frac) >= 0.50:
+        factor = min(factor, decay_conflict)
+    if factor < 1.0:
+        setattr(runner.alg, "lambda_supervised", max(anchor, lam * factor))
+
+
 def configure_frontres_pair_layout(runner: Any, *, is_frontres: bool) -> FrontRESPairLayout:
     """Configure FrontRES projected/candidate/noisy/clean env layout."""
 

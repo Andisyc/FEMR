@@ -196,7 +196,7 @@ def _write_supervised_target_before_step(
     for cmd_sup in env_for_sup.command_manager._terms.values():
         if hasattr(cmd_sup, "supervised_target"):
             sup_target = cmd_sup.supervised_target.clone().to(runner.device)
-            sup_target = runner._frontres_project_task_target_to_action_cone(cmd_sup, sup_target)
+            sup_target = runner._frontres_action_cone.project_task_target(cmd_sup, sup_target)
             if bool(runner.cfg.get("frontres_per_mode_supervised_mask", True)):
                 sup_mode_groups = list(
                     getattr(
@@ -205,7 +205,9 @@ def _write_supervised_target_before_step(
                         [tuple(getattr(runner, "_frontres_curriculum_active_modes", ()))] * n_train,
                     )
                 )[:n_train]
-                sup_target = runner._frontres_apply_per_mode_supervised_mask(sup_target, sup_mode_groups, n_train)
+                sup_target = runner._frontres_action_cone.apply_per_mode_supervised_mask(
+                    sup_target, sup_mode_groups, n_train
+                )
             runner.alg.transition.supervised_target = sup_target
             runner._maybe_print_frontres_restore_debug(
                 it=iteration,
