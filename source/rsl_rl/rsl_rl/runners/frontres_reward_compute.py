@@ -313,7 +313,7 @@ def _debug_cfg() -> dict[str, Any]:
         "frontres_gap_floor_per_step": 0.01,
         "frontres_safe_gap_per_step": 0.03,
         "frontres_broken_gap_per_step": 0.50,
-        "frontres_gap_gate_temp": 0.04,
+        "frontres_gap_gate_temp": 0.01,
         "frontres_oracle_clean_gap_threshold": 1.0e9,
         "frontres_reward_scale_dr_reference": 1.0,
         "frontres_reward_progress_min": 1.0,
