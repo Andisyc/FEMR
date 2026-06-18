@@ -5,109 +5,36 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from types import SimpleNamespace
 from typing import Any
 
 import torch
 
-from rsl_rl.runners.frontres_dr_curriculum import (
+from rsl_rl.frontres.perturbation_runtime import (
+    apply_frontres_dr_scale,
+    apply_frontres_dr_scale_env,
+    apply_frontres_family_env_masks,
+    snapshot_frontres_perturbation_target,
+)
+from rsl_rl.frontres.training_schedule import (
+    FrontRESDRIterationPlan,
+    FrontRESDRScaleEnvPlan,
+    FrontRESDRSetup,
+    FrontRESPairLayout,
     GMTFrontierState,
-    allowed_perturbation_bases,
-    choice_hash as frontres_curriculum_hash,
-    choose_perturbation_choices,
+    frontres_curriculum_allowed_bases,
+    frontres_curriculum_choices,
+    frontres_curriculum_hash,
+    frontres_mixed_dr_scale,
+    frontres_mixed_dr_scale_env,
     mode_complexity,
-    sample_per_env_dr_strength,
     sample_perturbation_mix,
-    sample_scalar_dr_strength,
     score_gmt_frontier,
     update_boundary_ema,
     update_gmt_frontier_state,
-    warmup_perturbation_mode_groups,
+    _frontres_boundary_scale_step,
+    _frontres_curriculum_progress,
+    _frontres_pi_scale_step,
 )
-
-
-@dataclass(frozen=True)
-class FrontRESModeState:
-    is_frontres: bool
-    training_objective: str
-    supervised_restore: bool
-    hsl_restore: bool
-    is_task_space_mode: bool
-    critic_warmup_iters: int
-
-
-@dataclass(frozen=True)
-class FrontRESPairLayout:
-    use_quartet_reward: bool
-    n_train: int
-    n_candidate: int
-    n_base: int
-    n_clean: int
-    cur_reward_sum_gmt: torch.Tensor | None
-
-
-@dataclass(frozen=True)
-class FrontRESDRSetup:
-    dr_max: float
-    dr_min: float
-    dr_ema_alpha: float
-    dr_scale_init: float
-    dr_scale: float
-    r_delta_ema: float
-    perturb_target: Any | None
-
-
-@dataclass(frozen=True)
-class FrontRESDRScaleEnvPlan:
-    scale_vector: torch.Tensor | None
-    mix_mode: str
-    diag: dict[str, float]
-
-
-@dataclass(frozen=True)
-class FrontRESDRIterationPlan:
-    dr_scale: float
-    r_delta_ema: float
-    effective_dr_scale: float | None
-    dr_mix_mode: str | None
-    mix_diag: dict[str, float] | None
-    critic_warmup: bool
-    actor_takeover_active: bool
-    hsl_boundary_available: bool
-    use_boundary: bool
-    gmt_frontier_score: float | None
-    gmt_frontier_decision: str | None
-    applied: bool
-
-
-def resolve_frontres_mode_state(runner: Any, policy_cls: type) -> FrontRESModeState:
-    """Resolve the current FrontRES objective and task-space mode."""
-
-    is_frontres = isinstance(runner.alg.policy, policy_cls)
-    training_objective = str(getattr(
-        runner.alg,
-        "frontres_training_objective",
-        runner.cfg.get("frontres_training_objective", "ppo_hrl"),
-    )).lower()
-    supervised_restore = (
-        is_frontres and training_objective in ("supervised_restore", "basis_restore")
-    )
-    hsl_restore = (
-        is_frontres
-        and training_objective in ("supervised_restore", "basis_restore", "hsl_hybrid")
-    )
-    is_task_space_mode = (
-        is_frontres and getattr(runner.alg.policy, "num_task_corrections", 0) > 0
-    )
-    return FrontRESModeState(
-        is_frontres=is_frontres,
-        training_objective=training_objective,
-        supervised_restore=supervised_restore,
-        hsl_restore=hsl_restore,
-        is_task_space_mode=is_task_space_mode,
-        critic_warmup_iters=int(runner.cfg.get("critic_warmup_iterations", 0)),
-    )
 
 
 def apply_frontres_debug_training_overrides(runner: Any, *, is_frontres: bool) -> None:
@@ -158,36 +85,6 @@ def apply_frontres_debug_training_overrides(runner: Any, *, is_frontres: bool) -
         f"frontres_gap_gate_temp={runner.cfg['frontres_gap_gate_temp']}",
         flush=True,
     )
-
-
-def frontres_ppo_actor_weight_for_iter(
-    runner: Any,
-    *,
-    iteration: int,
-    is_frontres: bool,
-    supervised_restore: bool,
-) -> float:
-    """Linear supervised-to-PPO takeover schedule for the current iteration."""
-
-    if not (is_frontres and hasattr(runner.alg, "ppo_actor_weight")):
-        return 1.0
-    if supervised_restore:
-        return 0.0
-    actor_warmup = int(runner.alg_cfg.get(
-        "ppo_actor_warmup_iterations",
-        runner.cfg.get("ppo_actor_warmup_iterations", 0),
-    ))
-    actor_ramp = int(runner.alg_cfg.get(
-        "ppo_actor_ramp_iterations",
-        runner.cfg.get("ppo_actor_ramp_iterations", 0),
-    ))
-    phase_iter = max(0, iteration)
-    if phase_iter < actor_warmup:
-        return 0.0
-    if actor_ramp > 0 and phase_iter < actor_warmup + actor_ramp:
-        weight = (phase_iter - actor_warmup + 1) / float(actor_ramp)
-        return max(0.0, min(1.0, weight))
-    return 1.0
 
 
 def update_frontres_supervised_controller(
@@ -396,12 +293,6 @@ def initialize_frontres_dr_setup(runner: Any, *, is_frontres: bool) -> FrontRESD
     )
 
 
-def frontres_curriculum_allowed_bases(runner: Any) -> tuple[str, ...]:
-    """Map the active FrontRES output dimensions to repairable perturbation families."""
-
-    return allowed_perturbation_bases(runner.cfg.get("frontres_active_task_dims", None))
-
-
 def set_frontres_perturbation_curriculum(
     runner: Any,
     *,
@@ -420,26 +311,6 @@ def set_frontres_perturbation_curriculum(
     choice = choices[frontres_curriculum_hash(seq_idx) % len(choices)]
     runner._frontres_curriculum_active_modes = tuple(choice)
     runner._frontres_curriculum_complexity = mode_complexity(tuple(choice), complexity)
-
-
-def frontres_curriculum_choices(
-    runner: Any,
-    *,
-    progress: float,
-    seq_idx: int,
-    is_frontres: bool,
-) -> tuple[list[tuple[str, ...]], str]:
-    stats = getattr(runner, "_frontres_boundary_ema", None)
-    if stats is None:
-        stats = getattr(runner, "_last_frontres_boundary_stats", None)
-    return choose_perturbation_choices(
-        runner.cfg,
-        runner.cfg.get("frontres_active_task_dims", None),
-        progress,
-        seq_idx,
-        boundary_stats=stats,
-        is_frontres=is_frontres,
-    )
 
 
 def sample_frontres_rollout_perturbation_mix(
@@ -471,35 +342,13 @@ def sample_frontres_rollout_perturbation_mix(
     runner._frontres_curriculum_active_modes = plan.active_modes
     runner._frontres_curriculum_complexity = plan.complexity
     runner._frontres_curriculum_env_mode_groups = groups
-
-    env_raw = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
-    if not (hasattr(env_raw, "command_manager") and "motion" in env_raw.command_manager._terms):
-        return
-    motion_command = env_raw.command_manager._terms["motion"]
-    if not (
-        hasattr(motion_command, "perturber")
-        and hasattr(motion_command.perturber, "set_family_env_masks")
-    ):
-        return
-
-    family_masks = {
-        "planar": torch.zeros(runner.env.num_envs, dtype=torch.bool, device=runner.device),
-        "yaw": torch.zeros(runner.env.num_envs, dtype=torch.bool, device=runner.device),
-        "global_z": torch.zeros(runner.env.num_envs, dtype=torch.bool, device=runner.device),
-        "local_rp": torch.zeros(runner.env.num_envs, dtype=torch.bool, device=runner.device),
-    }
-    candidate_start = int(n_train)
-    base_start = int(n_train) + int(n_candidate)
-    for env_i, group in enumerate(groups[: int(n_train)]):
-        for mode in group:
-            if mode in family_masks:
-                family_masks[mode][env_i] = True
-                if env_i < int(n_candidate):
-                    family_masks[mode][candidate_start + env_i] = True
-                if env_i < int(n_base):
-                    family_masks[mode][base_start + env_i] = True
-    # Clean-GMT envs intentionally remain all False; baseline masking keeps them clean.
-    motion_command.perturber.set_family_env_masks(family_masks)
+    apply_frontres_family_env_masks(
+        runner,
+        groups=groups,
+        n_train=n_train,
+        n_candidate=n_candidate,
+        n_base=n_base,
+    )
 
 
 def maybe_print_frontres_perturbation_curriculum(runner: Any, *, is_frontres: bool) -> None:
@@ -520,174 +369,6 @@ def maybe_print_frontres_perturbation_curriculum(runner: Any, *, is_frontres: bo
 def set_frontres_curriculum_modes(runner: Any, modes: tuple[str, ...]) -> None:
     runner._frontres_curriculum_active_modes = tuple(modes)
     runner._frontres_curriculum_complexity = mode_complexity(tuple(modes))
-
-
-def frontres_warmup_perturbation_mode_groups(
-    runner: Any,
-    *,
-    seq_idx: int,
-) -> list[tuple[str, ...]]:
-    """Return perturbation families to mix inside one warmup update."""
-
-    return warmup_perturbation_mode_groups(
-        runner.cfg,
-        runner.cfg.get("frontres_active_task_dims", None),
-        seq_idx,
-        current_active_modes=tuple(getattr(runner, "_frontres_curriculum_active_modes", ())),
-    )
-
-
-def apply_frontres_dr_scale(
-    runner: Any,
-    *,
-    scale: float,
-    is_frontres: bool,
-    perturb_target: Any | None,
-) -> None:
-    """Write the current scalar DR scale and active family gates to the perturber."""
-
-    if not (is_frontres and perturb_target is not None):
-        return
-    env_raw = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
-    if not (hasattr(env_raw, "command_manager") and "motion" in env_raw.command_manager._terms):
-        return
-    motion_command = env_raw.command_manager._terms["motion"]
-    if not hasattr(motion_command, "perturber"):
-        return
-
-    def pt(attr: str, default: float = 0.0) -> float:
-        return getattr(perturb_target, attr, default)
-
-    modes = set(getattr(
-        runner,
-        "_frontres_curriculum_active_modes",
-        ("planar", "yaw", "global_z", "local_rp"),
-    ))
-    planar = "planar" in modes
-    yaw = "yaw" in modes
-    global_z = "global_z" in modes
-    local_rp = "local_rp" in modes
-
-    motion_command.perturber.cfg.float_prob = pt("float_prob") if global_z else 0.0
-    motion_command.perturber.cfg.float_ratio = pt("float_ratio") * scale
-    motion_command.perturber.cfg.sink_prob = pt("sink_prob") if global_z else 0.0
-    motion_command.perturber.cfg.sink_ratio = pt("sink_ratio") * scale
-    motion_command.perturber.cfg.foot_slip_prob = pt("foot_slip_prob") if planar else 0.0
-    motion_command.perturber.cfg.foot_slip_ratio = pt("foot_slip_ratio") * scale
-    motion_command.perturber.cfg.lateral_drift_prob = pt("lateral_drift_prob") if planar else 0.0
-    motion_command.perturber.cfg.lateral_drift_std = pt("lateral_drift_std") * scale
-    motion_command.perturber.cfg.root_tilt_prob = pt("root_tilt_prob") if local_rp else 0.0
-    motion_command.perturber.cfg.root_tilt_max_rad = pt("root_tilt_max_rad") * scale
-    motion_command.perturber.cfg.joint_noise_prob = pt("joint_noise_prob")
-    motion_command.perturber.cfg.joint_noise_std = pt("joint_noise_std") * scale
-    motion_command.perturber.cfg.iid_prob_z = pt("iid_prob_z") if global_z else 0.0
-    motion_command.perturber.cfg.iid_std_z = pt("iid_std_z") * scale
-    motion_command.perturber.cfg.iid_prob_xy = pt("iid_prob_xy") if planar else 0.0
-    motion_command.perturber.cfg.iid_std_xy = pt("iid_std_xy") * scale
-    motion_command.perturber.cfg.iid_prob_rp = pt("iid_prob_rp") if local_rp else 0.0
-    motion_command.perturber.cfg.iid_std_rp = pt("iid_std_rp") * scale
-    motion_command.perturber.cfg.iid_prob_ya = pt("iid_prob_ya") if yaw else 0.0
-    motion_command.perturber.cfg.iid_std_ya = pt("iid_std_ya") * scale
-    motion_command.perturber.cfg.local_root_artifact_prob = (
-        pt("local_root_artifact_prob") if (planar or yaw) else 0.0
-    )
-    # Local artifact magnitudes are multiplied by perturber._dr_scale at burst sampling time.
-    motion_command.perturber.cfg.local_root_artifact_xy_std = (
-        pt("local_root_artifact_xy_std") if planar else 0.0
-    )
-    motion_command.perturber.cfg.local_root_artifact_yaw_std = (
-        pt("local_root_artifact_yaw_std") if yaw else 0.0
-    )
-    motion_command.perturber._dr_scale = float(scale)
-    if hasattr(motion_command.perturber, "set_dr_scale_env"):
-        motion_command.perturber.set_dr_scale_env(None)
-
-
-def frontres_mixed_dr_scale(
-    runner: Any,
-    *,
-    frontier_scale: float,
-    enabled: bool,
-    seq_idx: int,
-    dr_min: float,
-    dr_max: float,
-) -> tuple[float, str]:
-    """Sample one easy/frontier/hard perturbation magnitude around the frontier."""
-
-    return sample_scalar_dr_strength(
-        runner.cfg,
-        frontier_scale,
-        enabled,
-        seq_idx,
-        dr_min=dr_min,
-        dr_max=dr_max,
-    )
-
-
-def frontres_mixed_dr_scale_env(
-    runner: Any,
-    *,
-    frontier_scale: float,
-    enabled: bool,
-    seq_idx: int,
-    n_train: int,
-    n_candidate: int,
-    n_base: int,
-    dr_min: float,
-    dr_max: float,
-) -> FrontRESDRScaleEnvPlan:
-    """Sample per-env easy/frontier/hard DR strength for split rollout branches."""
-
-    plan = sample_per_env_dr_strength(
-        runner.cfg,
-        frontier_scale,
-        enabled,
-        seq_idx,
-        n_train=int(n_train),
-        n_candidate=int(n_candidate),
-        n_base=int(n_base),
-        num_envs=runner.env.num_envs,
-        dr_min=dr_min,
-        dr_max=dr_max,
-    )
-    if plan.scale_vector is None:
-        runner._frontres_dr_mix_class_train = None
-        return FrontRESDRScaleEnvPlan(None, plan.mix_mode, plan.diag)
-    scales = torch.tensor(plan.scale_vector, device=runner.device, dtype=torch.float32)
-    if plan.mix_class is not None:
-        runner._frontres_dr_mix_class_train = torch.tensor(
-            plan.mix_class,
-            device=runner.device,
-            dtype=torch.long,
-        )
-    else:
-        runner._frontres_dr_mix_class_train = None
-    return FrontRESDRScaleEnvPlan(scales, plan.mix_mode, plan.diag)
-
-
-def apply_frontres_dr_scale_env(
-    runner: Any,
-    *,
-    scale_vec: torch.Tensor,
-    is_frontres: bool,
-    perturb_target: Any | None,
-) -> None:
-    """Write unscaled base magnitudes and per-env DR scale vector to the perturber."""
-
-    if not (is_frontres and perturb_target is not None):
-        return
-    apply_frontres_dr_scale(
-        runner,
-        scale=1.0,
-        is_frontres=is_frontres,
-        perturb_target=perturb_target,
-    )
-    env_raw = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
-    if not (hasattr(env_raw, "command_manager") and "motion" in env_raw.command_manager._terms):
-        return
-    motion_command = env_raw.command_manager._terms["motion"]
-    if hasattr(motion_command, "perturber") and hasattr(motion_command.perturber, "set_dr_scale_env"):
-        motion_command.perturber.set_dr_scale_env(scale_vec)
 
 
 def apply_frontres_iteration_dr_controller(
@@ -916,12 +597,6 @@ def apply_frontres_iteration_dr_controller(
     )
 
 
-def _frontres_curriculum_progress(runner: Any, iteration: int) -> float:
-    curriculum_iters = int(runner.cfg.get("frontres_curriculum_total_iterations", 1500))
-    curriculum_iters = max(1, curriculum_iters)
-    return min(1.0, max(0.0, int(iteration) / float(curriculum_iters)))
-
-
 def _apply_frontres_strength_plan(
     runner: Any,
     *,
@@ -934,6 +609,7 @@ def _apply_frontres_strength_plan(
     is_frontres: bool,
     perturb_target: Any | None,
 ) -> tuple[float, str, dict[str, float]]:
+    runner._frontres_dr_mix_class_train = scale_plan.mix_class
     if scale_plan.scale_vector is None:
         effective_dr_scale, dr_mix_mode = frontres_mixed_dr_scale(
             runner,
@@ -944,7 +620,6 @@ def _apply_frontres_strength_plan(
             dr_max=dr_max,
         )
         mix_diag = {"easy": 0.0, "frontier": 1.0, "hard": 0.0, "mean": effective_dr_scale}
-        runner._frontres_dr_mix_class_train = None
         apply_frontres_dr_scale(
             runner,
             scale=effective_dr_scale,
@@ -1030,92 +705,5 @@ def _update_frontres_gmt_frontier(
     return frontier_update
 
 
-def _frontres_boundary_scale_step(
-    runner: Any,
-    *,
-    ema: dict[str, float],
-    dr_scale: float,
-    dr_min: float,
-    dr_max: float,
-) -> float:
-    safe = float(ema.get("safe", 0.0))
-    repair = float(ema.get("repair", ema.get("fragile", 0.0)))
-    broken = float(ema.get("broken", 0.0))
-    gainpos = float(ema.get("positive_gain", 0.5))
-    safe_hi = float(runner.cfg.get("frontres_boundary_safe_high", 0.45))
-    broken_hi = float(runner.cfg.get("frontres_boundary_broken_high", 0.35))
-    broken_target = float(runner.cfg.get("frontres_boundary_broken_target", 0.25))
-    repair_lo = float(runner.cfg.get(
-        "frontres_boundary_repair_low",
-        runner.cfg.get("frontres_boundary_fragile_low", 0.45),
-    ))
-    repair_hi = float(runner.cfg.get(
-        "frontres_boundary_repair_high",
-        runner.cfg.get("frontres_boundary_fragile_high", 0.70),
-    ))
-    gain_hi = float(runner.cfg.get("frontres_boundary_positive_gain_high", 0.55))
-    gain_lo = float(runner.cfg.get("frontres_boundary_positive_gain_low", 0.45))
-    step = float(runner.cfg.get("frontres_boundary_dr_step", 0.03))
-    factor = 1.0
-    if broken > broken_hi:
-        factor = 1.0 - step * min(3.0, 1.0 + (broken - broken_hi) / max(1.0 - broken_hi, 1e-6))
-    elif safe > safe_hi and broken < broken_target:
-        factor = 1.0 + step
-    elif (repair_lo <= repair <= repair_hi) and gainpos > gain_hi and broken < broken_hi:
-        factor = 1.0 + 0.5 * step
-    elif gainpos < gain_lo and broken > broken_target:
-        factor = 1.0 - 0.5 * step
-    factor = max(0.80, min(1.10, factor))
-    return max(dr_min, min(dr_max, dr_scale * factor))
-
-
-def _frontres_pi_scale_step(
-    runner: Any,
-    *,
-    dr_scale: float,
-    dr_min: float,
-    dr_max: float,
-    r_delta_ema: float,
-) -> float:
-    kp = float(runner.cfg.get("dr_p_gain", 0.10))
-    ki = float(runner.cfg.get("dr_i_gain", 0.01))
-    dr_target = float(runner.cfg.get("dr_target_r_delta", 0.01))
-    error = r_delta_ema - dr_target
-    prev_err = getattr(runner, "_dr_prev_error", error)
-    delta = kp * (error - prev_err) + ki * error
-    runner._dr_prev_error = error
-    return max(dr_min, min(dr_max, dr_scale + delta))
-
-
 def _snapshot_frontres_perturbation_target(runner: Any, *, is_frontres: bool) -> Any | None:
-    if not is_frontres:
-        return None
-    env_raw = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
-    if not (hasattr(env_raw, "cfg") and hasattr(env_raw.cfg, "motion_perturbations")):
-        return None
-    pt = env_raw.cfg.motion_perturbations
-    return SimpleNamespace(
-        float_prob=float(pt.float_prob),
-        float_ratio=float(pt.float_ratio),
-        sink_prob=float(pt.sink_prob),
-        sink_ratio=float(pt.sink_ratio),
-        foot_slip_prob=float(pt.foot_slip_prob),
-        foot_slip_ratio=float(pt.foot_slip_ratio),
-        lateral_drift_prob=float(getattr(pt, "lateral_drift_prob", 0.0)),
-        lateral_drift_std=float(getattr(pt, "lateral_drift_std", 0.0)),
-        root_tilt_prob=float(getattr(pt, "root_tilt_prob", 0.0)),
-        root_tilt_max_rad=float(getattr(pt, "root_tilt_max_rad", 0.0)),
-        joint_noise_prob=float(getattr(pt, "joint_noise_prob", 0.0)),
-        joint_noise_std=float(getattr(pt, "joint_noise_std", 0.0)),
-        iid_prob_z=float(getattr(pt, "iid_prob_z", 0.0)),
-        iid_std_z=float(getattr(pt, "iid_std_z", 0.0)),
-        iid_prob_xy=float(getattr(pt, "iid_prob_xy", 0.0)),
-        iid_std_xy=float(getattr(pt, "iid_std_xy", 0.0)),
-        iid_prob_rp=float(getattr(pt, "iid_prob_rp", 0.0)),
-        iid_std_rp=float(getattr(pt, "iid_std_rp", 0.0)),
-        iid_prob_ya=float(getattr(pt, "iid_prob_ya", 0.0)),
-        iid_std_ya=float(getattr(pt, "iid_std_ya", 0.0)),
-        local_root_artifact_prob=float(getattr(pt, "local_root_artifact_prob", 0.0)),
-        local_root_artifact_xy_std=float(getattr(pt, "local_root_artifact_xy_std", 0.0)),
-        local_root_artifact_yaw_std=float(getattr(pt, "local_root_artifact_yaw_std", 0.0)),
-    )
+    return snapshot_frontres_perturbation_target(runner, is_frontres=is_frontres)

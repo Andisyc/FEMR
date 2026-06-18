@@ -17,8 +17,8 @@ from typing import Any
 
 import torch
 
-from rsl_rl.runners.frontres_reward_diagnostics import accumulate_frontres_reward_diagnostics
-from rsl_rl.runners.frontres_reward_window import FrontRESRewardWindow, compose_frontres_reward_delta
+from rsl_rl.frontres.frontres_reward_diagnostics import accumulate_frontres_reward_diagnostics
+from rsl_rl.frontres.frontres_reward_window import FrontRESRewardWindow, compose_frontres_reward_delta
 
 
 @dataclass

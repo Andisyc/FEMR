@@ -1,0 +1,204 @@
+# Copyright (c) 2021-2025, ETH Zurich and NVIDIA CORPORATION
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+"""FrontRES domain helpers for runner, algorithm, and diagnostics code."""
+
+from .frontres_action_cone import FrontRESActionCone
+from .frontres_alpha_rho_bridge import FrontRESAlphaRhoBridge
+from .frontres_alpha_router import FrontRESStateAlphaTargets, build_state_alpha_targets
+from .frontres_diagnostics import (
+    format_frontres_floor_alpha_diagnostics,
+    format_frontres_optimization_diagnostics,
+    format_frontres_preference_diagnostics,
+    format_frontres_route_rho_diagnostics,
+)
+from .frontres_dr_curriculum import (
+    DRStrengthPlan,
+    GMTFrontierState,
+    GMTFrontierUpdate,
+    PerturbationMixPlan,
+    allowed_perturbation_bases,
+    choose_perturbation_choices,
+    mode_complexity,
+    sample_per_env_dr_strength,
+    sample_perturbation_mix,
+    sample_scalar_dr_strength,
+    score_gmt_frontier,
+    update_boundary_ema,
+    update_gmt_frontier_state,
+    warmup_perturbation_mode_groups,
+)
+from .frontres_executability import (
+    FrontRESExecutabilityScorer,
+    quat_to_rotvec_wxyz,
+    rotvec_to_quat_wxyz,
+)
+from .frontres_executable_floor import (
+    ExecutableFloorState,
+    ExecutableFloorValues,
+    resolve_executable_floor,
+    resolve_runner_executable_floor,
+    update_executable_floor_stats,
+    update_runner_executable_floor_stats,
+)
+from .frontres_metrics import (
+    FrontRESMetricsAccumulator,
+    frontres_boundary_stats,
+    frontres_metric_mean,
+)
+from .frontres_oracle import FrontRESOracleUpperBound, compute_frontres_oracle_upper_bound
+from .frontres_reward_window import (
+    FrontRESRewardContext,
+    FrontRESRewardWindow,
+    build_frontres_reward_context,
+    build_frontres_reward_window,
+    compose_frontres_reward_delta,
+    frontres_family_gain_std,
+)
+from .frontres_reward_diagnostics import (
+    accumulate_frontres_reward_diagnostics,
+    expose_frontres_reward_diagnostic_sums,
+    initialize_frontres_reward_diagnostic_sums,
+    materialize_frontres_reward_diagnostic_means,
+)
+from .frontres_rollout_evidence import FrontRESRolloutEvidence, compute_frontres_rollout_evidence
+from .frontres_structured_rho import FrontRESStructuredRhoCarrier, build_structured_rho_carrier
+from .frontres_transition_payload import (
+    FrontRESAcceptancePayload,
+    FrontRESNonTriAcceptanceTargetPayload,
+    FrontRESStructuredRhoPayload,
+    FrontRESTriAnchorRhoPayload,
+    build_and_write_frontres_acceptance_payload,
+    build_frontres_non_tri_acceptance_target_payload,
+    build_frontres_tri_anchor_rho_payload,
+    frontres_rho_current_from_actions,
+    initialize_frontres_acceptance_payload,
+    summarize_frontres_acceptance_payload,
+    write_frontres_actor_gate,
+    write_frontres_state_alpha_payload,
+)
+from .perturbation_runtime import (
+    apply_frontres_dr_scale,
+    apply_frontres_dr_scale_env,
+    apply_frontres_family_env_masks,
+    snapshot_frontres_perturbation_target,
+)
+from .runtime_diagnostics import maybe_print_frontres_restore_debug
+from .task_space_correction import (
+    apply_frontres_task_corrections,
+    frontres_stabilizing_candidate_correction,
+    mask_frontres_task_actions,
+)
+from .temporal_reference_cache import (
+    frontres_invalidate_temporal_reference_cache,
+    frontres_raw_anchor_pose,
+    frontres_temporal_continuity_correction,
+    frontres_update_temporal_reference_cache,
+)
+from .training_schedule import (
+    FrontRESDRIterationPlan,
+    FrontRESDRScaleEnvPlan,
+    FrontRESDRSetup,
+    FrontRESModeState,
+    FrontRESPairLayout,
+    frontres_curriculum_allowed_bases,
+    frontres_curriculum_choices,
+    frontres_curriculum_hash,
+    frontres_mixed_dr_scale,
+    frontres_mixed_dr_scale_env,
+    frontres_ppo_actor_weight_for_iter,
+    frontres_warmup_perturbation_mode_groups,
+    resolve_frontres_mode_state,
+)
+
+__all__ = [
+    "DRStrengthPlan",
+    "ExecutableFloorState",
+    "ExecutableFloorValues",
+    "FrontRESAcceptancePayload",
+    "FrontRESActionCone",
+    "FrontRESAlphaRhoBridge",
+    "FrontRESDRIterationPlan",
+    "FrontRESDRScaleEnvPlan",
+    "FrontRESDRSetup",
+    "FrontRESExecutabilityScorer",
+    "FrontRESMetricsAccumulator",
+    "FrontRESModeState",
+    "FrontRESNonTriAcceptanceTargetPayload",
+    "FrontRESOracleUpperBound",
+    "FrontRESPairLayout",
+    "FrontRESRewardContext",
+    "FrontRESRewardWindow",
+    "FrontRESRolloutEvidence",
+    "FrontRESStateAlphaTargets",
+    "FrontRESStructuredRhoCarrier",
+    "FrontRESStructuredRhoPayload",
+    "FrontRESTriAnchorRhoPayload",
+    "GMTFrontierState",
+    "GMTFrontierUpdate",
+    "PerturbationMixPlan",
+    "accumulate_frontres_reward_diagnostics",
+    "allowed_perturbation_bases",
+    "apply_frontres_dr_scale",
+    "apply_frontres_dr_scale_env",
+    "apply_frontres_family_env_masks",
+    "apply_frontres_task_corrections",
+    "build_and_write_frontres_acceptance_payload",
+    "build_frontres_non_tri_acceptance_target_payload",
+    "build_frontres_reward_context",
+    "build_frontres_reward_window",
+    "build_frontres_tri_anchor_rho_payload",
+    "build_state_alpha_targets",
+    "build_structured_rho_carrier",
+    "choose_perturbation_choices",
+    "compose_frontres_reward_delta",
+    "compute_frontres_oracle_upper_bound",
+    "compute_frontres_rollout_evidence",
+    "frontres_boundary_stats",
+    "frontres_curriculum_allowed_bases",
+    "frontres_curriculum_choices",
+    "frontres_curriculum_hash",
+    "frontres_family_gain_std",
+    "frontres_metric_mean",
+    "frontres_mixed_dr_scale",
+    "frontres_mixed_dr_scale_env",
+    "frontres_ppo_actor_weight_for_iter",
+    "frontres_invalidate_temporal_reference_cache",
+    "frontres_raw_anchor_pose",
+    "frontres_rho_current_from_actions",
+    "frontres_stabilizing_candidate_correction",
+    "frontres_temporal_continuity_correction",
+    "frontres_update_temporal_reference_cache",
+    "frontres_warmup_perturbation_mode_groups",
+    "expose_frontres_reward_diagnostic_sums",
+    "format_frontres_floor_alpha_diagnostics",
+    "format_frontres_optimization_diagnostics",
+    "format_frontres_preference_diagnostics",
+    "format_frontres_route_rho_diagnostics",
+    "initialize_frontres_acceptance_payload",
+    "initialize_frontres_reward_diagnostic_sums",
+    "materialize_frontres_reward_diagnostic_means",
+    "mask_frontres_task_actions",
+    "maybe_print_frontres_restore_debug",
+    "mode_complexity",
+    "quat_to_rotvec_wxyz",
+    "resolve_executable_floor",
+    "resolve_frontres_mode_state",
+    "resolve_runner_executable_floor",
+    "rotvec_to_quat_wxyz",
+    "sample_per_env_dr_strength",
+    "sample_perturbation_mix",
+    "sample_scalar_dr_strength",
+    "score_gmt_frontier",
+    "snapshot_frontres_perturbation_target",
+    "summarize_frontres_acceptance_payload",
+    "update_boundary_ema",
+    "update_executable_floor_stats",
+    "update_gmt_frontier_state",
+    "update_runner_executable_floor_stats",
+    "warmup_perturbation_mode_groups",
+    "write_frontres_actor_gate",
+    "write_frontres_state_alpha_payload",
+]

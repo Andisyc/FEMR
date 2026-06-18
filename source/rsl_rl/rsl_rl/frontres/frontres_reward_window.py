@@ -5,8 +5,9 @@
 
 """FrontRES rollout reward-window construction.
 
-The reward window lives in runners because it converts post-env rollout evidence
-into per-sample reward weights and actor-credit gates before process_env_step.
+The reward window is a FrontRES domain service that converts post-env rollout
+evidence into per-sample reward weights and actor-credit gates before
+process_env_step.
 """
 
 from __future__ import annotations
@@ -18,9 +19,9 @@ from typing import Any
 
 import torch
 
-from rsl_rl.runners.frontres_oracle import compute_frontres_oracle_upper_bound
-from rsl_rl.runners.frontres_rollout_evidence import compute_frontres_rollout_evidence
-from rsl_rl.runners.frontres_executable_floor import update_runner_executable_floor_stats
+from rsl_rl.frontres.frontres_oracle import compute_frontres_oracle_upper_bound
+from rsl_rl.frontres.frontres_rollout_evidence import compute_frontres_rollout_evidence
+from rsl_rl.frontres.frontres_executable_floor import update_runner_executable_floor_stats
 
 
 @dataclass

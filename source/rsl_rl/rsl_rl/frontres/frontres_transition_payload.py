@@ -11,8 +11,8 @@ from typing import Any
 
 import torch
 
-from rsl_rl.runners.frontres_alpha_router import build_state_alpha_targets
-from rsl_rl.runners.frontres_structured_rho import build_structured_rho_carrier
+from rsl_rl.frontres.frontres_alpha_router import build_state_alpha_targets
+from rsl_rl.frontres.frontres_structured_rho import build_structured_rho_carrier
 
 
 @dataclass

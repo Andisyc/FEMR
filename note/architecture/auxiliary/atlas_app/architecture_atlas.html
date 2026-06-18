@@ -580,12 +580,15 @@
 
     function renderFlowTree(data) {
       const rows = flattenFlow(data.nodes || []);
-      const height = Math.max(1180, 180 + rows.length * 148);
-      const width = 1960;
+      const rowH = data.flowRowHeight || 148;
+      const cardH = data.flowCardHeight || 116;
+      const fieldMaxLines = data.flowFieldMaxLines || 1;
+      const fieldRowGap = data.flowFieldRowGap || 23;
+      const height = Math.max(1180, 180 + rows.length * rowH);
+      const width = data.flowWidth || 1960;
       setCanvas(width, height);
       const rc = drawHeader(data, data.subtitle || "Interface contracts. IDs match the repository map.", width);
       const y0 = 155;
-      const rowH = 148;
       const spineX = 118;
       const baseX = 190;
 
@@ -601,7 +604,7 @@
         const x = baseX + row.depth * 42;
         const y = y0 + idx * rowH;
         const w = Math.min(1320 - row.depth * 18, 1240);
-        const h = 116;
+        const h = cardH;
         const color = conceptColor(data, row.node.concept, row.node.color || "#6688aa");
         const centerY = y + h / 2;
         svg.appendChild(rc.line(spineX, centerY, x - 18, centerY, {
@@ -633,14 +636,22 @@
         addText(row.node.id, x + 29, y + 37, { size: 12, weight: 900 });
         addText(row.node.title || "", x + 112, y + 25, { size: 14, weight: 900, fill: "#26313d" });
 
-        const fields = [
+        const methodNode = row.node.problem || row.node.method || row.node.code || row.node.review;
+        const fields = (methodNode ? [
+          ["Problem", row.node.problem],
+          ["Method", row.node.method],
+          ["Code", row.node.code],
+          ["Review", row.node.review],
+          ["Boundary", row.node.forbidden],
+          ["Diagnostic", row.node.diagnostic],
+        ] : [
           ["Lines", row.node.lines],
           ["Input", row.node.input],
           ["Owns", row.node.role],
           ["Output", row.node.output],
           ["Forbidden", row.node.forbidden],
           ["Diagnostic", row.node.diagnostic],
-        ].filter(([, value]) => value);
+        ]).filter(([, value]) => value);
         const fieldX = x + 112;
         const fieldY = y + 48;
         const colW = Math.floor((w - 145) / 2);
@@ -648,7 +659,7 @@
           const col = fieldIdx % 2;
           const rowNo = Math.floor(fieldIdx / 2);
           const itemX = fieldX + col * (colW + 18);
-          const itemY = fieldY + rowNo * 23;
+          const itemY = fieldY + rowNo * fieldRowGap;
           addText(`${label}:`, itemX, itemY, {
             size: 10,
             weight: 900,
@@ -656,7 +667,7 @@
           });
           wrapText(value, itemX + 70, itemY, colW - 76, {
             size: 10,
-            maxLines: 1,
+            maxLines: fieldMaxLines,
             lineHeight: 12,
             charWidth: 5.4,
             fill: "#56616d",

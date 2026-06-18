@@ -15,7 +15,7 @@ from typing import Any
 import torch
 
 from rsl_rl.modules import FrontRESActorCritic
-from rsl_rl.runners.frontres_runtime import frontres_invalidate_temporal_reference_cache
+from rsl_rl.frontres.temporal_reference_cache import frontres_invalidate_temporal_reference_cache
 
 
 def evaluate_frontres_dr_sweep(

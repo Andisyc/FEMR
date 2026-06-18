@@ -12,7 +12,7 @@ import time
 import torch
 
 from rsl_rl.modules import FrontRESActorCritic
-from rsl_rl.runners.frontres_diagnostics import (
+from rsl_rl.frontres.frontres_diagnostics import (
     format_frontres_floor_alpha_diagnostics,
     format_frontres_optimization_diagnostics,
     format_frontres_preference_diagnostics,
@@ -852,4 +852,3 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                            locs['start_iter'] + locs['num_learning_iterations'] - locs['it'])))}\n""")
     
     print(log_string)
-

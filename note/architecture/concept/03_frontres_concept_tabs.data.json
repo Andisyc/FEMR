@@ -1,111 +1,202 @@
 {
-  "title": "FrontRES 概念标签页",
-  "subtitle": "每个标签页是一层设计视角：真实问题、概念变量、工程承载。",
-  "tabs": [
-    {
-      "id": "T1",
-      "title": "真实问题层",
-      "color": "#ef6f6c",
-      "cards": [
-        {
-          "id": "P-01",
-          "title": "参考帧伪影",
-          "body": "视频估计或重定向会让根节点参考帧出现滑步、倾斜、浮空或穿模。"
-        },
-        {
-          "id": "P-02",
-          "title": "鲁棒性预算",
-          "body": "伪影会先消耗冻结 GMT 的稳定裕度，使真实扰动来临时更容易失败。"
-        },
-        {
-          "id": "P-03",
-          "title": "可执行缺口",
-          "body": "几何上像人的动作，不一定是当前机器人和 GMT 能执行的动作。"
-        }
-      ]
+  "title": "FrontRES Method Design Tree",
+  "subtitle": "Concept page arranged by Runtime Pipeline. Each node is one method design: Problem -> Method -> Code -> Review.",
+  "layout": "flow_tree",
+  "flowWidth": 2060,
+  "flowRowHeight": 168,
+  "flowCardHeight": 136,
+  "flowFieldMaxLines": 2,
+  "flowFieldRowGap": 34,
+  "concepts": {
+    "C-DATA": {
+      "name": "perturbation and rollout evidence",
+      "color": "#2563eb"
     },
-    {
-      "id": "T2",
-      "title": "概念变量层",
-      "color": "#f2b84b",
-      "cards": [
-        {
-          "id": "C-01",
-          "title": "几何修复需求",
-          "body": "HSL 负责判断哪里需要修：在任务空间 Delta SE(3) 中靠近干净参考。"
-        },
-        {
-          "id": "C-02",
-          "title": "可执行地板",
-          "body": "用 GMT frontier 判断参考帧是否仍在可恢复范围内。"
-        },
-        {
-          "id": "C-03",
-          "title": "状态风险 / Alpha",
-          "body": "当前状态是否需要保守处理，避免直接修复把系统推坏。"
-        },
-        {
-          "id": "C-04",
-          "title": "修复保留 / Rho",
-          "body": "在可执行反馈下决定保留多少 repair 分量。"
-        },
-        {
-          "id": "C-05",
-          "title": "DR 边界",
-          "body": "训练时自动探测 GMT 的可执行强度边界。"
-        }
-      ]
+    "C-HSL": {
+      "name": "Delta SE(3) proposal and HSL supervision",
+      "color": "#7c3aed"
     },
+    "C-RUNTIME": {
+      "name": "runtime write and executable boundary",
+      "color": "#0f766e"
+    },
+    "C-ROUTE": {
+      "name": "alpha route and rho acceptance",
+      "color": "#dc2626"
+    },
+    "C-UPDATE": {
+      "name": "reward, warmup, curriculum, update",
+      "color": "#d97706"
+    },
+    "C-DIAG": {
+      "name": "storage and diagnostics contract",
+      "color": "#475569"
+    }
+  },
+  "nodes": [
     {
-      "id": "T3",
-      "title": "工程承载层",
-      "color": "#66a96b",
-      "cards": [
+      "id": "M-00",
+      "title": "Runtime Pipeline: corrupted reference -> repair proposal -> dynamic acceptance -> GMT execution",
+      "problem": "FrontRES 设计点很多，若按功能名平铺，会看不出它们在训练/执行链路中的位置。",
+      "method": "Concept 图按 Runtime Pipeline 排列：先构造扰动与证据，再生成 Delta SE(3) proposal，再做 runtime write、alpha/rho acceptance、reward/update、storage/diagnostics。",
+      "code": "主入口仍是 source/rsl_rl/rsl_rl/runners/on_policy_runner.py；FrontRES 逻辑被分散到 runners/frontres_*.py 与 frontres/*.py。",
+      "review": "Review 时从上往下读，不按文件名读：每个节点都要能回答 problem、method、code、live check。",
+      "concept": "C-DIAG",
+      "children": [
         {
           "id": "M-01",
-          "title": "HSL Proposal",
-          "body": "输出 clean-oriented 的任务空间修复候选。"
-        },
-        {
-          "id": "M-02",
-          "title": "ExecutableFloor",
-          "body": "统一 floor 数值、safe/adapt 判定和诊断口径。"
-        },
-        {
-          "id": "M-03",
-          "title": "State Alpha",
-          "body": "从 floor 证据训练状态风险分支。"
+          "title": "Perturbation Family",
+          "problem": "不同 reference artifact 对应不同可修复维度；若采样了 action cone 不能修复的 family，监督标签和 reward 会冲突。",
+          "method": "Warmup 用 balanced_single 提供清晰单 family 信号；RL 从 single 逐步进入 pairs/mixed/full。family sampling 必须服从 frontres_active_task_dims。",
+          "code": "frontres/training_schedule.py；frontres/perturbation_runtime.py；runners/frontres_training_setup.py。",
+          "review": "检查 active dims、family env masks、modes=(...)、valid_pos/valid_rpy 是否一致。",
+          "concept": "C-DATA",
+          "children": [
+            {
+              "id": "M-02",
+              "title": "DR Scale Curriculum",
+              "problem": "DR scale 太小没有修复信号，太大则 batch 深入 broken 区，critic 与 actor 都学不到可修复边界。",
+              "method": "使用 GMT frontier-oriented curriculum：根据 safe/broken 统计维护 scale/EMA，并按 easy/frontier/hard 给 env 分配强度。",
+              "code": "frontres/training_schedule.py；frontres/frontres_dr_curriculum.py；frontres/perturbation_runtime.py；runners/frontres_training_setup.py。",
+              "review": "检查 DR scale、frontier mix、safe/fragile/broken、survival rate；broken 过高时先降 DR 或简化 curriculum。",
+              "concept": "C-DATA",
+              "children": [
+                {
+                  "id": "M-03",
+                  "title": "Four-Branch Rollout",
+                  "problem": "单一 rollout 无法判断 correction 是否真的优于 Noisy baseline，也无法区分几何接近与动态可执行。",
+                  "method": "同一扰动下构造 Projected/FrontRES written、Candidate/HSL full repair、Noisy/GMT baseline、Clean/GMT reference 四类证据。",
+                  "code": "runners/frontres_training_setup.py；runners/frontres_rollout_step.py；frontres/frontres_reward_window.py。",
+                  "review": "检查 projected/candidate/noisy/clean env index、snapshot 与 branch evidence 是否同 step 对齐。",
+                  "concept": "C-DATA"
+                }
+              ]
+            }
+          ]
         },
         {
           "id": "M-04",
-          "title": "Structured Rho",
-          "body": "用 advantage 更新 repair-retention carrier。"
+          "title": "Delta SE(3) Proposal",
+          "problem": "reference-frame artifact 是 task-space root reference 错误；若输出 Delta q，会把 FrontRES 变成重新学习 tracker。",
+          "method": "HSL proposal 输出 dx, dy, dz, droll, dpitch, dyaw。它只负责 clean-oriented 几何修复方向，后续 acceptance 决定写入多少。",
+          "code": "modules/front_residual_actor_critic.py；frontres/task_space_correction.py；frontres/frontres_action_cone.py；runners/frontres_hsl_rollout_target.py。",
+          "review": "检查 hsl_hybrid 前 6 维是否始终是 proposal；PPO 不应直接更新 proposal direction。",
+          "concept": "C-HSL",
+          "children": [
+            {
+              "id": "M-05",
+              "title": "Action Cone + jump_degree",
+              "problem": "几何更接近 clean 不等于动态可执行，尤其 upward dz、roll/pitch 与 contact 状态会制造不连续。",
+              "method": "Action cone 约束 active dims、bounds、contact gates 与 upward dz；jump_degree 控制向上修复许可，避免用跳跃式 dz 掩盖 broken state。",
+              "code": "frontres/frontres_action_cone.py；frontres/task_space_correction.py；runners/frontres_training_setup.py。",
+              "review": "重点看 dz 上界、local_rp、contact gate 与 jump_degree；若 correction closer 但 survival 降，先审 action cone。",
+              "concept": "C-HSL",
+              "children": [
+                {
+                  "id": "M-06",
+                  "title": "HSL Loss",
+                  "problem": "HSL 需要学 clean-oriented direction，但并非所有样本都有有效 clean target；有些 candidate 动力学上 harmful。",
+                  "method": "以 weighted pos/rpy Huber 为核心，结合 valid mask、magnitude、over-correction、direction、smooth 与 harmful proposal suppression。",
+                  "code": "algorithms/frontres_unified.py；runners/frontres_warmup.py；runners/frontres_hsl_rollout_target.py。",
+                  "review": "检查 supervised_cos_sim、valid target frac、accept pos/rpy、harmful penalty；高 cosine 不代表 reward 对齐。",
+                  "concept": "C-HSL"
+                }
+              ]
+            }
+          ]
         },
         {
-          "id": "M-05",
-          "title": "DR Curriculum",
-          "body": "在可恢复边界附近采样扰动强度和扰动族。"
+          "id": "M-07",
+          "title": "Task-Space Runtime Write",
+          "problem": "如果训练、diagnostics、deployment 看的不是实际写给 GMT 的 reference，就会出现概念正确但 live path 断开。",
+          "method": "runtime 解析 action、mask active dims、读取 temporal reference cache，再把 Delta SE(3)、alpha route 与 rho acceptance 合成 written reference。",
+          "code": "frontres/task_space_correction.py；frontres/temporal_reference_cache.py；runners/frontres_runtime.py；runners/on_policy_runner.py。",
+          "review": "所有 reward/evidence/debug 都应回到 written branch；episode reset 后 temporal cache 必须失效。",
+          "concept": "C-RUNTIME",
+          "children": [
+            {
+              "id": "M-08",
+              "title": "Executable Floor",
+              "problem": "candidate diagnostics、alpha label 与 rho reward 若使用不同安全阈值，会给模型互相矛盾的 floor 信号。",
+              "method": "统一 U_floor：从 GMT frontier 的 safe/broken exec-score 统计校准；同一 floor 用于 candidate pass、alpha unsafe label、rho floor penalty。",
+              "code": "frontres/frontres_executable_floor.py；frontres/frontres_reward_window.py；frontres/frontres_structured_rho.py；frontres/frontres_diagnostics.py。",
+              "review": "检查 exec floor val/safe/adapt、candidate pass rate、alpha target、rho floor penalty 是否共用同一 U_floor。",
+              "concept": "C-RUNTIME"
+            }
+          ]
         },
         {
-          "id": "M-06",
-          "title": "Diagnostics",
-          "body": "证明 live path 接通，并暴露概念-代码错位。"
+          "id": "M-09",
+          "title": "Alpha Route",
+          "problem": "某些 noisy state 已在 GMT 不可执行区，直接执行 HSL repair 可能不如切到 Stable Frame route。",
+          "method": "alpha 是非 action state router：估计 Noisy/GMT continuation 是否跌破 executable floor。高 alpha 倾向 Stable Frame，低 alpha 保持 HSL/HRL route。",
+          "code": "frontres/frontres_alpha_router.py；frontres/frontres_alpha_rho_bridge.py；frontres/frontres_transition_payload.py；modules/front_residual_actor_critic.py。",
+          "review": "alpha label 必须来自 Noisy/GMT 与 floor 的关系；alpha 不进入 PPO action carrier，也不是 rho confidence。",
+          "concept": "C-ROUTE",
+          "children": [
+            {
+              "id": "M-10",
+              "title": "Rho Vector",
+              "problem": "单一 confidence 无法表达每个轴向的动态可接受性；dx/dy/dyaw 可修复时，dz 或 roll/pitch 仍可能破坏接触。",
+              "method": "rho 是 6D per-axis acceptance vector。hsl_hybrid 中前 6 维是 Delta SE(3) proposal，后 6 维是 rho；Delta_write = rho * Delta_HSL。",
+              "code": "frontres/frontres_transition_payload.py；frontres/frontres_structured_rho.py；frontres/task_space_correction.py；algorithms/frontres_unified.py。",
+              "review": "检查 PPO 是否只更新 rho acceptance；acceptance_target[:, :6] 与 acceptance_mask[:, :6] 是否承载 per-axis rho advantage。",
+              "concept": "C-ROUTE"
+            }
+          ]
+        },
+        {
+          "id": "M-11",
+          "title": "HRL Reward",
+          "problem": "完整 env reward 混有任务、接触和 tracking 噪声，不能直接告诉 rho 哪个 correction 更可执行。",
+          "method": "使用 narrow executability evidence：Projected vs Noisy gain、Candidate 可修复性、floor penalty、retention bonus、harmful suppression 与 actor gate。",
+          "code": "frontres/frontres_reward_window.py；frontres/frontres_structured_rho.py；frontres/frontres_transition_payload.py；runners/frontres_post_step_connector.py。",
+          "review": "检查 gain、ratio、positive_gain_frac、safe/fragile/broken、actor_gate；gain 为负时先审 family、cone、reward component。",
+          "concept": "C-UPDATE",
+          "children": [
+            {
+              "id": "M-12",
+              "title": "Critic Warmup",
+              "problem": "PPO actor 太早介入会让 critic 看到漂移 action distribution，尤其 executable reward 还没稳定时 advantage 很噪声。",
+              "method": "critic 先学习 executable damage energy 与 branch evidence；actor 可暂时 hold 或只接受 supervised anchor；DR scale 保持受控。",
+              "code": "runners/frontres_warmup.py；runners/frontres_training_setup.py；frontres/training_schedule.py；algorithms/frontres_unified.py。",
+              "review": "检查 lambda_supervised、PPO actor weight、critic loss、survival rate；warmup 期避免 composite perturbation 混乱 first signal。",
+              "concept": "C-UPDATE",
+              "children": [
+                {
+                  "id": "M-13",
+                  "title": "Actor Curriculum",
+                  "problem": "从 HSL supervised proposal 到 PPO acceptance 的切换若过猛，会让 actor 覆盖尚未稳定的几何修复方向。",
+                  "method": "逐步提升 PPO actor weight，同时保留 supervised anchor；actor gate 只让合适难度样本更新 acceptance，后期再增加 mixed perturbation。",
+                  "code": "frontres/training_schedule.py；runners/frontres_training_setup.py；frontres/frontres_reward_window.py；algorithms/frontres_unified.py。",
+                  "review": "检查 objective 是否为 HSL supervised + PPO 6D acceptance；actor update 是否集中在 frontier 样本。",
+                  "concept": "C-UPDATE",
+                  "children": [
+                    {
+                      "id": "M-14",
+                      "title": "Learning Rate Schedule",
+                      "problem": "固定 learning rate 容易让 early supervised label 过拟合，或在 actor takeover 时衰减不及时。",
+                      "method": "分开管理 supervised LR、PPO LR 与 warmup/decay；典型结构是 warmup 到 peak，再按 phase 或 cosine/linear decay 降到 min。",
+                      "code": "algorithms/frontres_unified.py；runners/frontres_warmup.py；frontres/training_schedule.py；训练 config 中 frontres_supervised_lr_* 与 PPO learning rate。",
+                      "review": "检查 learning rate、loss decay 与 phase 是否同步；supervised loss 降但 reward 不涨时，审 LR/phase 与 reward evidence。",
+                      "concept": "C-UPDATE"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "M-15",
+          "title": "Diagnostics + Storage Contract",
+          "problem": "方法可能在局部函数中存在，却没有进入 live path；也可能进入 live path，但没有被 storage、update 与 diagnostics 正确承载。",
+          "method": "storage 保存 state_alpha_target/mask、acceptance_target/mask、structured rho carrier 与 reward diagnostics；日志证明 actual written branch 的 gap/gain/ratio/rho/alpha/floor/family/DR scale/loss。",
+          "code": "storage/rollout_storage.py；frontres/frontres_transition_payload.py；frontres/frontres_reward_diagnostics.py；frontres/frontres_diagnostics.py；runners/frontres_runner_logging.py。",
+          "review": "按 config -> rollout -> storage -> loss/update -> gradient boundary -> deployment -> diagnostics 链路检查；任何一环断开，先修代码再训练。",
+          "concept": "C-DIAG"
         }
       ]
     }
-  ],
-  "links": [
-    ["P-01", "C-01"],
-    ["P-02", "C-02"],
-    ["P-03", "C-03"],
-    ["C-01", "M-01"],
-    ["C-02", "M-02"],
-    ["C-03", "M-03"],
-    ["C-04", "M-04"],
-    ["C-05", "M-05"],
-    ["M-02", "M-06"],
-    ["M-03", "M-06"],
-    ["M-04", "M-06"],
-    ["M-05", "M-06"]
   ]
 }
