@@ -561,12 +561,137 @@ def _quat_inv_identity(q: torch.Tensor) -> torch.Tensor:
     return q
 
 
+def _fmt_tensor(values: torch.Tensor, digits: int = 3) -> str:
+    flat = values.detach().cpu().view(-1).tolist()
+    return "[" + ", ".join(f"{float(v):.{digits}f}" for v in flat) + "]"
+
+
+def _print_debug_boundary(title: str) -> None:
+    print(f"\n=== {title} ===")
+
+
+def _print_sample_inputs(samples: list[DebugSample]) -> None:
+    _print_debug_boundary("A. manual sample inputs")
+    print("name       noisy  frontres  candidate  clean  damage_gap  repair_gain  candidate_gain")
+    print("-" * 86)
+    for sample in samples:
+        damage_gap = max(sample.exec_clean - sample.exec_noisy, 0.0)
+        repair_gain = sample.exec_frontres - sample.exec_noisy
+        candidate_gain = sample.exec_candidate - sample.exec_noisy
+        print(
+            f"{sample.name:<10}"
+            f"{sample.exec_noisy:>5.3f}  "
+            f"{sample.exec_frontres:>8.3f}  "
+            f"{sample.exec_candidate:>9.3f}  "
+            f"{sample.exec_clean:>5.3f}  "
+            f"{damage_gap:>10.3f}  "
+            f"{repair_gain:>11.3f}  "
+            f"{candidate_gain:>14.3f}"
+        )
+
+
+def _print_reward_window_debug(samples: list[DebugSample], truth: FrontRESRewardContext) -> None:
+    window = truth.reward_window
+    _print_debug_boundary("B. sample classification gates")
+    print(
+        "name       damage_gap  safe_gate  repair_gate  broken_gate  "
+        "actor_weight  exec_weight  cost_weight"
+    )
+    print("-" * 100)
+    for i, sample in enumerate(samples):
+        print(
+            f"{sample.name:<10}"
+            f"{window.damage_gap[i].item():>10.3f}  "
+            f"{window.safe_gate[i].item():>9.3f}  "
+            f"{window.repair_gate[i].item():>11.3f}  "
+            f"{window.broken_gate[i].item():>11.3f}  "
+            f"{window.actor_gate[i].item():>12.3f}  "
+            f"{window.exec_weight[i].item():>11.3f}  "
+            f"{window.cost_weight[i].item():>11.3f}"
+        )
+
+
+def _print_alpha_debug(
+    samples: list[DebugSample],
+    runner: Any,
+    truth: FrontRESRewardContext,
+    alpha_groundtruth: torch.Tensor,
+    alpha_groundtruth_mask: torch.Tensor,
+) -> None:
+    _print_debug_boundary("C. alpha groundtruth")
+    exec_floor = runner._frontres_exec_floor_value_last
+    safe_floor = runner._frontres_exec_floor_safe_last
+    temp = float(runner.cfg.get("frontres_state_alpha_temp", 0.08))
+    floor_mid = 0.5 * (exec_floor + safe_floor)
+    print(f"exec_floor={exec_floor:.3f}, safe_floor={safe_floor:.3f}, mid={floor_mid:.3f}, temp={temp:.3f}")
+    print("alpha formula in code: sigmoid((mid - noisy_exec) / temp), active only below floor or above safe")
+    print("name       noisy_exec  formula_alpha  written_alpha  alpha_mask")
+    print("-" * 68)
+    formula = torch.sigmoid((floor_mid - truth.exec_perturbed) / max(temp, 1.0e-6))
+    for i, sample in enumerate(samples):
+        print(
+            f"{sample.name:<10}"
+            f"{truth.exec_perturbed[i].item():>10.3f}  "
+            f"{formula[i].item():>13.3f}  "
+            f"{alpha_groundtruth[i, 0].item():>13.3f}  "
+            f"{alpha_groundtruth_mask[i, 0].item():>10.1f}"
+        )
+
+
+def _print_rho_debug(samples: list[DebugSample], runner: Any, rho_groundtruth: Any) -> None:
+    _print_debug_boundary("D. rho groundtruth")
+    target = runner.alg.transition.acceptance_target
+    mask = runner.alg.transition.acceptance_mask
+    print("rho target columns: dx dy dz roll pitch yaw")
+    print("name       target_mean  mask_mean  target[6]                         mask[6]")
+    print("-" * 102)
+    for i, sample in enumerate(samples):
+        print(
+            f"{sample.name:<10}"
+            f"{target[i].mean().item():>11.3f}  "
+            f"{mask[i].mean().item():>9.3f}  "
+            f"{_fmt_tensor(target[i], 3):<32} "
+            f"{_fmt_tensor(mask[i], 1)}"
+        )
+    print(
+        "rho diag means: "
+        f"planar={float(rho_groundtruth.rho_target_planar_mean):.3f}, "
+        f"rp={float(rho_groundtruth.rho_target_rp_mean):.3f}, "
+        f"z={float(rho_groundtruth.rho_target_z_mean):.3f}, "
+        f"group_mask={float(rho_groundtruth.grouped_rho_mask_mean):.3f}"
+    )
+
+
+def _print_reward_debug(
+    samples: list[DebugSample],
+    truth: FrontRESRewardContext,
+    frontres_reward: FrontRESPostStepResult,
+) -> None:
+    window = frontres_reward.reward_window
+    if window is None:
+        return
+    _print_debug_boundary("E. final reward composition")
+    print("name       r_exec  harm_penalty  intervention_cost  r_delta")
+    print("-" * 64)
+    for i, sample in enumerate(samples):
+        print(
+            f"{sample.name:<10}"
+            f"{window.r_exec[i].item():>6.3f}  "
+            f"{window.harm_penalty[i].item():>12.3f}  "
+            f"{truth.intervention_cost[i].item():>17.3f}  "
+            f"{frontres_reward.rewards[i].item():>7.3f}"
+        )
+
+
 def run_debug_reward_compute() -> None:
     device = torch.device("cpu")
     samples = _debug_samples()
     cfg = _debug_cfg()
     runner = FakeRunner(cfg=cfg, num_envs=len(samples) * 4, device=device)
     frontres_truth, actions, dones, infos = build_debug_frontres_truth(runner, samples)
+
+    _print_sample_inputs(samples)
+    _print_reward_window_debug(samples, frontres_truth)
 
     write_actor_sample_weight(
         runner,
@@ -581,6 +706,8 @@ def run_debug_reward_compute() -> None:
         infos=infos,
         base_start=frontres_truth.base_start,
     )
+    _print_alpha_debug(samples, runner, frontres_truth, alpha_groundtruth, alpha_groundtruth_mask)
+
     rho_groundtruth = write_rho_groundtruth(
         runner,
         actions=actions,
@@ -591,6 +718,7 @@ def run_debug_reward_compute() -> None:
         quat_mul_fn=_quat_mul_identity,
         quat_inv_fn=_quat_inv_identity,
     )
+    _print_rho_debug(samples, runner, rho_groundtruth)
 
     diagnostic_sums = initialize_frontres_reward_diagnostic_sums()
     frontres_reward = compute_frontres_reward(
@@ -614,6 +742,8 @@ def run_debug_reward_compute() -> None:
         term_count=0,
         step_count=0,
     )
+    _print_reward_debug(samples, frontres_truth, frontres_reward)
+
     means = materialize_frontres_reward_diagnostic_means(
         diagnostic_sums,
         is_frontres=True,
