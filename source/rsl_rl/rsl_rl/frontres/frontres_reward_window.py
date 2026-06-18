@@ -84,6 +84,10 @@ class FrontRESRewardContext:
     q_w: torch.Tensor
     q_raw: torch.Tensor
     q_fr: torch.Tensor
+    r_z: torch.Tensor
+    r_xy: torch.Tensor
+    r_rp: torch.Tensor
+    r_ya: torch.Tensor
     r_step: torch.Tensor
     r_rescue: torch.Tensor
     r_exec: torch.Tensor
@@ -552,6 +556,10 @@ def build_frontres_reward_context(
         q_w=q_w,
         q_raw=q_raw,
         q_fr=q_fr,
+        r_z=r_z,
+        r_xy=r_xy,
+        r_rp=r_rp,
+        r_ya=r_ya,
         r_step=r_step,
         r_rescue=r_rescue,
         r_exec=r_exec,
@@ -827,6 +835,11 @@ def build_frontres_reward_window(
         reward_progress=reward_progress,
         constraint_progress=constraint_progress,
     )
+
+
+# Readability alias used by the runner: this object is the training truth
+# extracted from the four-branch FrontRES rollout.
+compute_frontres_training_truth = build_frontres_reward_context
 
 
 def compose_frontres_reward_delta(

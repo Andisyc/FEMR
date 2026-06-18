@@ -12,6 +12,7 @@ from typing import Any
 import torch
 
 from rsl_rl.frontres.frontres_alpha_router import build_state_alpha_targets
+from rsl_rl.frontres.frontres_reward_window import FrontRESRewardContext
 from rsl_rl.frontres.frontres_structured_rho import build_structured_rho_carrier
 
 
@@ -714,37 +715,21 @@ def build_and_write_frontres_acceptance_payload(
     runner: Any,
     *,
     actions: torch.Tensor,
-    n_candidate: int,
-    n_exec: int,
-    candidate_start: int,
-    base_start: int,
-    a_w: torch.Tensor,
-    a_raw: torch.Tensor,
-    a_fr: torch.Tensor,
-    q_w: torch.Tensor,
-    q_raw: torch.Tensor,
-    q_fr: torch.Tensor,
-    cmd_for_inertia: Any,
-    repair_gain: torch.Tensor,
-    candidate_gain: torch.Tensor,
-    repair_gate: torch.Tensor,
-    oracle_trust: torch.Tensor,
-    learnable_route_mask: torch.Tensor,
-    exec_components: Mapping[str, torch.Tensor],
-    feasible_components: Mapping[str, torch.Tensor] | None,
-    exec_perturbed: torch.Tensor,
-    exec_feasible: torch.Tensor,
-    exec_frontres: torch.Tensor,
-    exec_candidate: torch.Tensor,
-    actor_gate: torch.Tensor,
+    reward_context: FrontRESRewardContext,
     state_alpha_target: torch.Tensor,
     state_alpha_mask: torch.Tensor,
-    mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...],
     quat_to_rotvec_wxyz: Any,
     quat_mul_fn: Any,
     quat_inv_fn: Any,
 ) -> FrontRESAcceptancePayload:
     """Build rollout acceptance/rho targets, write them to transition, and summarize diagnostics."""
+
+    ctx = reward_context
+    window = ctx.reward_window
+    n_candidate = ctx.candidate_end - ctx.candidate_start
+    n_exec = ctx.n_exec
+    candidate_start = ctx.candidate_start
+    base_start = ctx.base_start
 
     accept_payload = initialize_frontres_acceptance_payload(runner)
     accept_target = accept_payload.accept_target
@@ -771,27 +756,27 @@ def build_and_write_frontres_acceptance_payload(
     pref_enabled = (legacy_pref_enabled or structured_joint_requested) and n_candidate > 0 and n_exec > 0
     if pref_enabled:
         pref_margin = max(float(runner.cfg.get("frontres_acceptance_preference_margin", 0.003)), 0.0)
-        j_rho = repair_gain
-        j_one = candidate_gain
-        j_zero = torch.zeros_like(repair_gain)
+        j_rho = ctx.repair_gain
+        j_one = ctx.candidate_gain
+        j_zero = torch.zeros_like(ctx.repair_gain)
         c_zero = None
         c_one = None
         if bool(runner.cfg.get("frontres_inertial_preference_enabled", False)):
             have_inertia = (
-                hasattr(cmd_for_inertia, "robot_anchor_quat_w")
-                and hasattr(cmd_for_inertia, "robot_anchor_ang_vel_w")
+                hasattr(ctx.cmd, "robot_anchor_quat_w")
+                and hasattr(ctx.cmd, "robot_anchor_ang_vel_w")
             )
             if have_inertia:
-                robot_q = cmd_for_inertia.robot_anchor_quat_w[:n_exec].to(runner.device)
-                robot_w = cmd_for_inertia.robot_anchor_ang_vel_w[:n_exec].to(runner.device)
+                robot_q = ctx.cmd.robot_anchor_quat_w[:n_exec].to(runner.device)
+                robot_w = ctx.cmd.robot_anchor_ang_vel_w[:n_exec].to(runner.device)
                 robot_p = (
-                    cmd_for_inertia.robot_anchor_pos_w[:n_exec].to(runner.device)
-                    if hasattr(cmd_for_inertia, "robot_anchor_pos_w")
+                    ctx.cmd.robot_anchor_pos_w[:n_exec].to(runner.device)
+                    if hasattr(ctx.cmd, "robot_anchor_pos_w")
                     else None
                 )
                 robot_v = (
-                    cmd_for_inertia.robot_anchor_lin_vel_w[:n_exec].to(runner.device)
-                    if hasattr(cmd_for_inertia, "robot_anchor_lin_vel_w")
+                    ctx.cmd.robot_anchor_lin_vel_w[:n_exec].to(runner.device)
+                    if hasattr(ctx.cmd, "robot_anchor_lin_vel_w")
                     else None
                 )
                 ang_w = float(runner.cfg.get("frontres_inertial_preference_ang_weight", 0.5))
@@ -809,8 +794,8 @@ def build_and_write_frontres_acceptance_payload(
                     )
                     return torch.nan_to_num(compat, nan=0.0, posinf=0.0, neginf=0.0)
 
-                pos_all = getattr(cmd_for_inertia, "anchor_pos_w", None)
-                quat_all = getattr(cmd_for_inertia, "anchor_quat_w", None)
+                pos_all = getattr(ctx.cmd, "anchor_pos_w", None)
+                quat_all = getattr(ctx.cmd, "anchor_quat_w", None)
                 if quat_all is not None:
                     noisy_pos = (
                         pos_all[base_start:base_start + n_exec].to(runner.device)
@@ -842,14 +827,14 @@ def build_and_write_frontres_acceptance_payload(
         if regret_target_enabled:
             regret_mask_floor = float(runner.cfg.get("frontres_acceptance_regret_soft_mask_floor", 1.0))
             regret_mask_floor = max(0.0, min(1.0, regret_mask_floor))
-            repair_pref_gate = (regret_mask_floor + (1.0 - regret_mask_floor) * repair_gate).clamp(0.0, 1.0)
+            repair_pref_gate = (regret_mask_floor + (1.0 - regret_mask_floor) * window.repair_gate).clamp(0.0, 1.0)
             oracle_pref_floor = float(runner.cfg.get("frontres_acceptance_regret_oracle_trust_floor", 0.25))
             oracle_pref_floor = max(0.0, min(1.0, oracle_pref_floor))
-            oracle_pref_gate = (oracle_pref_floor + (1.0 - oracle_pref_floor) * oracle_trust).clamp(0.0, 1.0)
+            oracle_pref_gate = (oracle_pref_floor + (1.0 - oracle_pref_floor) * window.oracle_trust).clamp(0.0, 1.0)
         else:
-            repair_pref_gate = repair_gate
-            oracle_pref_gate = oracle_trust
-        pref_gate = (oracle_pref_gate * repair_pref_gate * learnable_route_mask).detach().clamp(0.0, 1.0)
+            repair_pref_gate = window.repair_gate
+            oracle_pref_gate = window.oracle_trust
+        pref_gate = (oracle_pref_gate * repair_pref_gate * window.learnable_route_mask).detach().clamp(0.0, 1.0)
         task_conf_dim = int(getattr(getattr(runner.alg, "policy", None), "task_conf_dim", 2))
         tri_rho_payload = build_frontres_tri_anchor_rho_payload(
             cfg=runner.cfg,
@@ -860,7 +845,7 @@ def build_and_write_frontres_acceptance_payload(
             j_zero=j_zero,
             pref_margin=pref_margin,
             pref_gate=pref_gate,
-            exec_components=exec_components,
+            exec_components=ctx.exec_components,
             candidate_start=candidate_start,
             base_start=base_start,
             regret_target_enabled=regret_target_enabled,
@@ -889,12 +874,12 @@ def build_and_write_frontres_acceptance_payload(
             n_exec=n_exec,
             base_start=base_start,
             candidate_start=candidate_start,
-            a_w=a_w,
-            a_raw=a_raw,
-            a_fr=a_fr,
-            q_w=q_w,
-            q_raw=q_raw,
-            q_fr=q_fr,
+            a_w=ctx.a_w,
+            a_raw=ctx.a_raw,
+            a_fr=ctx.a_fr,
+            q_w=ctx.q_w,
+            q_raw=ctx.q_raw,
+            q_fr=ctx.q_fr,
             c_zero=c_zero,
             c_one=c_one,
             rho_current=rho_current,
@@ -917,7 +902,7 @@ def build_and_write_frontres_acceptance_payload(
         admissibility = non_tri_acceptance_payload.admissibility
         if bool(runner.cfg.get("frontres_per_mode_acceptance_preference_mask", True)):
             mode_dim_mask = runner._frontres_action_cone.mode_dim_mask(
-                mode_groups, n_exec, runner.device, mask_exec.dtype
+                ctx.mode_groups, n_exec, runner.device, mask_exec.dtype
             )
             if regret_target_enabled and grouped_targets_enabled:
                 mode_soft_floor = float(runner.cfg.get("frontres_acceptance_regret_per_mode_soft_floor", 1.0))
@@ -967,15 +952,15 @@ def build_and_write_frontres_acceptance_payload(
             mask_exec=mask_exec,
             n_exec=n_exec,
             rho_current=rho_current,
-            actor_gate=actor_gate,
-            exec_perturbed=exec_perturbed,
-            exec_feasible=exec_feasible,
-            exec_frontres=exec_frontres,
-            exec_candidate=exec_candidate,
+            actor_gate=window.actor_gate,
+            exec_perturbed=ctx.exec_perturbed,
+            exec_feasible=ctx.exec_feasible,
+            exec_frontres=ctx.exec_frontres,
+            exec_candidate=ctx.exec_candidate,
             state_alpha_target=state_alpha_target,
             rho_space=rho_space,
             grouped_targets_enabled=grouped_targets_enabled,
-            feasible_components=feasible_components,
+            feasible_components=ctx.feasible_components,
             candidate_planar=tri_rho_payload.candidate_planar,
             candidate_rp=tri_rho_payload.candidate_rp,
             candidate_z=tri_rho_payload.candidate_z,
@@ -1107,3 +1092,9 @@ def write_frontres_state_alpha_payload(
     runner.alg.transition.state_alpha_target = state_alpha_target
     runner.alg.transition.state_alpha_mask = state_alpha_mask
     return state_alpha_target, state_alpha_mask
+
+
+# Readability aliases used by the runner.
+write_rho_groundtruth = build_and_write_frontres_acceptance_payload
+write_actor_sample_weight = write_frontres_actor_gate
+write_alpha_groundtruth = write_frontres_state_alpha_payload

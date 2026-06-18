@@ -55,6 +55,7 @@ from .frontres_reward_window import (
     build_frontres_reward_context,
     build_frontres_reward_window,
     compose_frontres_reward_delta,
+    compute_frontres_training_truth,
     frontres_family_gain_std,
 )
 from .frontres_reward_diagnostics import (
@@ -76,8 +77,11 @@ from .frontres_transition_payload import (
     frontres_rho_current_from_actions,
     initialize_frontres_acceptance_payload,
     summarize_frontres_acceptance_payload,
+    write_actor_sample_weight,
+    write_alpha_groundtruth,
     write_frontres_actor_gate,
     write_frontres_state_alpha_payload,
+    write_rho_groundtruth,
 )
 from .perturbation_runtime import (
     apply_frontres_dr_scale,
@@ -154,6 +158,7 @@ __all__ = [
     "build_structured_rho_carrier",
     "choose_perturbation_choices",
     "compose_frontres_reward_delta",
+    "compute_frontres_training_truth",
     "compute_frontres_oracle_upper_bound",
     "compute_frontres_rollout_evidence",
     "frontres_boundary_stats",
@@ -201,4 +206,7 @@ __all__ = [
     "warmup_perturbation_mode_groups",
     "write_frontres_actor_gate",
     "write_frontres_state_alpha_payload",
+    "write_actor_sample_weight",
+    "write_alpha_groundtruth",
+    "write_rho_groundtruth",
 ]

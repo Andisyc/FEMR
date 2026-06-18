@@ -37,18 +37,18 @@ from rsl_rl.runners.frontres_runtime import (
     maybe_print_frontres_restore_debug,
 )
 from rsl_rl.frontres.frontres_reward_window import (
-    build_frontres_reward_context,
+    compute_frontres_training_truth,
 )
 from rsl_rl.frontres.frontres_reward_diagnostics import (
     initialize_frontres_reward_diagnostic_sums,
     materialize_frontres_reward_diagnostic_means,
 )
-from rsl_rl.runners.frontres_post_step_connector import apply_frontres_post_step_reward_connector
+from rsl_rl.runners.frontres_post_step_connector import compute_frontres_reward
 from rsl_rl.runners.frontres_runner_logging import log_runner
 from rsl_rl.frontres.frontres_transition_payload import (
-    build_and_write_frontres_acceptance_payload,
-    write_frontres_actor_gate,
-    write_frontres_state_alpha_payload,
+    write_actor_sample_weight,
+    write_alpha_groundtruth,
+    write_rho_groundtruth,
 )
 from rsl_rl.frontres.training_schedule import (
     frontres_curriculum_allowed_bases,
@@ -512,8 +512,11 @@ class OnPolicyRunner:
         )
 
     def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False):  # noqa: C901
+
+        # ------------------- 初始化参数 -------------------
+
         print("[Runner] learn() entered — initializing logger...", flush=True)
-        # initialize writer
+        # 入口阶段：准备 logger、writer 与算法侧日志句柄；这里不产生训练数据。
         if self.log_dir is not None and self.writer is None and not self.disable_logs:
             # Launch either Tensorboard or Neptune & Tensorboard summary writer(s), default: Tensorboard.
             self.logger_type = self.cfg.get("logger", "tensorboard")
@@ -543,7 +546,7 @@ class OnPolicyRunner:
 
         self.alg.log_interval = 1 # Default log interval
 
-        # check if teacher is loaded
+        # 训练前检查：确认 teacher / multi-teacher 等外部依赖已经接好。
         if self.training_type == "distillation" and not self.alg.policy.loaded_teacher:
             raise ValueError("Teacher model parameters not loaded. Please load a teacher model to distill.")
 
@@ -573,7 +576,7 @@ class OnPolicyRunner:
             self.env.episode_length_buf = torch.randint_like(
                 self.env.episode_length_buf, high=int(self.env.max_episode_length))
 
-        # start learning
+        # 初始观测：拿到 env 的第一帧 obs，并拆成 policy / critic / teacher / estimator 输入。
         print("[Runner] Getting initial observations...", flush=True)
         obs, extras = self.env.get_observations() # obs.shape=[num_env, 770], 770=[t, t-1, t-2, t-3, t-4]
         print("[Runner] Observations received.", flush=True)
@@ -629,7 +632,7 @@ class OnPolicyRunner:
         self.train_mode() # switch to train mode (for dropout for example)
         print("[Runner] Train mode set.", flush=True)
 
-        # Book keeping
+        # 回合统计缓存：这些 deque 只服务日志和 curriculum 反馈，不直接更新网络权重。
         print("[Runner] Initializing bookkeeping buffers...", flush=True)
         ep_infos = []
         rewbuffer = deque(maxlen=100)  # FrontRES envs: r_delta per episode; others: raw reward
@@ -673,12 +676,17 @@ class OnPolicyRunner:
             # TODO: Do we need to synchronize empirical normalizers?
             #   Right now: No, because they all should converge to the same values "asymptotically".
 
+        # ------------------- 初始化参数 -------------------
+
+        # ------------------- 预热Critic -------------------
+
         # Start training
         print("[Runner] Preparing iteration counters...", flush=True)
         start_iter = self.current_learning_iteration
         tot_iter = start_iter + num_learning_iterations
         print(f"[Runner] Iteration counters ready: start={start_iter}, total={tot_iter}", flush=True)
 
+        # FrontRES 模式解析：把 config / policy 类型压缩成后续主循环使用的阶段开关。
         _frontres_mode = resolve_frontres_mode_state(self, FrontRESActorCritic)
         _is_frontres = _frontres_mode.is_frontres
         _frontres_training_objective = _frontres_mode.training_objective
@@ -710,6 +718,7 @@ class OnPolicyRunner:
                 supervised_restore=_frontres_supervised_restore,
             )
 
+        # 四分支 rollout 布局：Train / Candidate / Noisy-GMT / Clean-GMT 的 env 区间在这里确定。
         _frontres_pair_layout = configure_frontres_pair_layout(self, is_frontres=_is_frontres)
         _use_quartet_reward = _frontres_pair_layout.use_quartet_reward
         N_train = _frontres_pair_layout.n_train
@@ -726,6 +735,7 @@ class OnPolicyRunner:
         def _mask_frontres_task_actions(_actions: torch.Tensor) -> torch.Tensor:
             return self._mask_frontres_task_actions(_actions)
 
+        # DR curriculum 初值：后续每个 iteration 会基于这一组状态更新 perturbation 强度。
         _frontres_dr_setup = initialize_frontres_dr_setup(self, is_frontres=_is_frontres)
         _dr_max = _frontres_dr_setup.dr_max
         _dr_min = _frontres_dr_setup.dr_min
@@ -738,6 +748,7 @@ class OnPolicyRunner:
         maybe_print_frontres_perturbation_curriculum(self, is_frontres=_is_frontres)
 
         # FrontRES joint warmup runs before PPO and owns its own rollout/loss diagnostics.
+        # 这段属于主 PPO 循环之前的预训练：critic / supervised anchor 先稳定，再让 PPO actor 接管。
         _warmup_decision = resolve_frontres_warmup_iterations(
             configured_iterations=int(self.cfg.get("supervised_warmup_iterations", 0)),
             start_iter=start_iter,
@@ -762,7 +773,8 @@ class OnPolicyRunner:
             warmup_perturbation_mode_groups=frontres_warmup_perturbation_mode_groups,
             apply_dr_scale=apply_frontres_dr_scale,
         )
-        # ── END supervised warmup ─────────────────────────────────────────────────
+
+        # ------------------- 预热Critic -------------------
 
         print(
             f"[Runner] Entering PPO loop: start_iter={start_iter}, "
@@ -771,11 +783,14 @@ class OnPolicyRunner:
         )
         for it in range(start_iter, tot_iter):
             start = time.time()
+            # Iteration controller：本轮的 actor 权重、DR scale、frontier/boundary 状态都在 rollout 前确定。
             _ppo_actor_weight_current = _frontres_ppo_actor_weight_for_iter(it)
             if _is_frontres and hasattr(self.alg, "ppo_actor_weight"):
                 # Set before collection as well as before update so diagnostics,
                 # curriculum gates, and PPO loss all see the same phase.
                 self.alg.ppo_actor_weight = _ppo_actor_weight_current
+            
+            # ------------------- Update Curriculum -------------------
 
             _dr_iter_plan = apply_frontres_iteration_dr_controller(
                 self,
@@ -823,9 +838,15 @@ class OnPolicyRunner:
             _lambda_reg = getattr(self.alg, 'lambda_reg_current', 0.0) if _is_frontres else 0.0
             _dr_done    = _is_frontres and (_dr_scale >= 1.0)
 
-            # Rollout: 训练首先需要积攒数据, 等数据攒够才能调用self.alg.update()更新权重
+            # ------------------- Update Curriculum -------------------
+
+            # Rollout 收集：先用当前 policy 跑 num_steps_per_env 步，写满 storage 后再 update。
             with torch.inference_mode(): # 关闭计算图的梯度追踪, 只进行推理
                 for _rollout_step in range(self.num_steps_per_env):
+
+                    # ------------------- Policy Rollout -------------------
+
+                    # Step preparation：policy action 在这里产生；FrontRES task-space 模式还会写入 GMT 可执行动作。
                     step_plan = prepare_frontres_rollout_step(
                         self,
                         obs=obs,
@@ -848,7 +869,7 @@ class OnPolicyRunner:
                     _hsl_pos_snapshot = step_plan.hsl_pos_snapshot
                     _hsl_quat_snapshot = step_plan.hsl_quat_snapshot
 
-                    # Step the environment 仿真环境更新观测量/动作评分/序列结束与否/监控数据
+                    # Env step：真正推进仿真；从这里开始得到下一帧 obs、reward、done 和诊断 infos。
                     # NOTE: This is where the environment computes the *next* observation internally.
                     # The result is returned here and then used in the next loop iteration.
                     obs, rewards, dones, infos = self.env.step(env_actions.to(self.env.device))
@@ -863,6 +884,7 @@ class OnPolicyRunner:
                         and _is_task_space_mode
                         and bool(self.cfg.get("frontres_hsl_rollout_label_enabled", False))
                     ):
+                        # HSL rollout target：用实际执行后的 reference 证据构造 supervised Delta SE(3) target。
                         _env_for_hsl = self.env.unwrapped if hasattr(self.env, "unwrapped") else self.env
                         _cmd_hsl = None
                         if hasattr(_env_for_hsl, "command_manager"):
@@ -887,6 +909,10 @@ class OnPolicyRunner:
                                 n_clean=N_clean,
                                 quat_to_rotvec_wxyz=_quat_to_rotvec_wxyz,
                             )
+                    
+                    # ------------------- Policy Rollout -------------------
+
+                    # ------------------- Reward Compute -------------------
 
                     # ── GMT baselines ────────────────────────────────────────────────
                     # Noisy-GMT envs share the FrontRES perturbation and receive no
@@ -898,22 +924,28 @@ class OnPolicyRunner:
                     # correction, so their reward is the GMT-only baseline.
                     # r_delta isolates FrontRES contribution to anchor tracking only.
                     # GMT env rewards are zeroed → returns ≈ 0 → advantage ≈ 0 → no policy gradient.
-                    #
+                    
                     # Fix 1: anchor-only r_delta (HRL intrinsic reward)
                     # Global reward (joint_torque, contact, body vel) conflates FrontRES with GMT:
                     #   - FrontRES corrects correctly but causes torque spike → penalises correct action
                     #   - FrontRES correction has no effect → should give 0, not negative
+
                     # Anchor error is the ONLY thing FrontRES directly controls. Using it as the
                     # intrinsic reward decouples FrontRES credit from GMT behaviour.
-                    if _is_frontres:
+
+                    # FrontRES reward/evidence window：四分支 rollout 转成 gap/gain 等HRL参数
+                    if _is_frontres: 
+                        
+                        # 确定四个分支在Env中的位置
                         _candidate_start = N_train
                         _candidate_end = _candidate_start + N_candidate
                         _base_start = _candidate_end
                         _base_end = _base_start + N_base
                         _clean_start = _base_end
                         _clean_end = _clean_start + N_clean
-                        _reward_window = None
-                        _reward_context = build_frontres_reward_context(
+
+                        # 整理四分支 rollout，得到后续真值和 reward 计算所需的 FrontRES 训练事实。
+                        frontres_truth = compute_frontres_training_truth(
                             self,
                             rewards=rewards,
                             dones=dones,
@@ -932,211 +964,70 @@ class OnPolicyRunner:
                             euler_xyz_from_quat_fn=euler_xyz_from_quat,
                             device=self.device,
                         )
-                        if _reward_context is None and _is_task_space_mode:
+
+                        if frontres_truth is None and _is_task_space_mode:
                             raise RuntimeError(
                                 "FrontRES task-space reward/evidence requires clean anchor evidence "
                                 "(anchor_pos_w_original and anchor_quat_w_original)."
                             )
-                        if _reward_context is not None:
-                            _candidate_start = _reward_context.candidate_start
-                            _candidate_end = _reward_context.candidate_end
-                            _base_start = _reward_context.base_start
-                            _base_end = _reward_context.base_end
-                            _clean_start = _reward_context.clean_start
-                            _clean_end = _reward_context.clean_end
-                            _n_exec = _reward_context.n_exec
-                            _n_pair = _reward_context.n_pair
-                            r_raw_gmt = _reward_context.r_raw_gmt
-                            r_clean_gmt = _reward_context.r_clean_gmt
-                            r_candidate_gmt = _reward_context.r_candidate_gmt
-                            r_total = _reward_context.r_total
-                            _mcmd_rdelta = _reward_context.cmd
-                            _use_clean = _reward_context.use_clean
-                            _a_w = _reward_context.a_w
-                            _a_raw = _reward_context.a_raw
-                            _a_fr = _reward_context.a_fr
-                            _q_w = _reward_context.q_w
-                            _q_raw = _reward_context.q_raw
-                            _q_fr = _reward_context.q_fr
-                            _r_step = _reward_context.r_step
-                            _r_rescue = _reward_context.r_rescue
-                            _r_exec = _reward_context.r_exec
-                            _dr_z_abs_log = _reward_context.dr_z_abs_log
-                            _dr_xy_abs_log = _reward_context.dr_xy_abs_log
-                            _dr_rp_abs_log = _reward_context.dr_rp_abs_log
-                            _dr_yaw_abs_log = _reward_context.dr_yaw_abs_log
-                            _corr_z_abs_log = _reward_context.corr_z_abs_log
-                            _corr_xy_abs_log = _reward_context.corr_xy_abs_log
-                            _corr_rp_abs_log = _reward_context.corr_rp_abs_log
-                            _corr_yaw_abs_log = _reward_context.corr_yaw_abs_log
-                            _rot_raw_to_clean = _reward_context.rot_raw_to_clean
-                            _rot_raw_to_fr = _reward_context.rot_raw_to_fr
-                            _e_raw = _reward_context.e_raw
-                            _e_fr = _reward_context.e_fr
-                            _exec_score_all = _reward_context.exec_score_all
-                            _exec_components = _reward_context.exec_components
-                            _feasible_components = _reward_context.feasible_components
-                            _mode_groups = _reward_context.mode_groups
-                            _exec_frontres = _reward_context.exec_frontres
-                            _exec_candidate = _reward_context.exec_candidate
-                            _exec_perturbed = _reward_context.exec_perturbed
-                            _exec_clean = _reward_context.exec_clean
-                            _exec_feasible = _reward_context.exec_feasible
-                            _exec_planar_log = _reward_context.exec_planar_log
-                            _exec_vertical_log = _reward_context.exec_vertical_log
-                            _exec_task_log = _reward_context.exec_task_log
-                            _intervention_cost = _reward_context.intervention_cost
-                            _clean_bound_cost = _reward_context.clean_bound_cost
-                            _side_cost = _reward_context.side_cost
-                            _over_cost = _reward_context.over_cost
-                            _overcorrection_cost = _reward_context.overcorrection_cost
-                            _under_repair_penalty = _reward_context.under_repair_penalty
-                            _action_activity = _reward_context.action_activity
-                            _w_exec = _reward_context.w_exec
-                            _repair_scale = _reward_context.repair_scale
-                            _w_geom = _reward_context.w_geom
-                            _w_rescue = _reward_context.w_rescue
-                            _w_exec_harm = _reward_context.w_exec_harm
-                            _repair_gain = _reward_context.repair_gain
-                            _candidate_gain = _reward_context.candidate_gain
-                            _projection_gain = _reward_context.projection_gain
-                            _oracle_ub_gain = _reward_context.oracle_ub_gain
-                            _oracle_ub_pass = _reward_context.oracle_ub_pass
-                            _oracle_ub_noisy_win = _reward_context.oracle_ub_noisy_win
-                            _oracle_ub_projected_win = _reward_context.oracle_ub_projected_win
-                            _oracle_ub_candidate_win = _reward_context.oracle_ub_candidate_win
-                            _oracle_ub_feasible_win = _reward_context.oracle_ub_feasible_win
-                            _exec_floor = _reward_context.exec_floor
-                            _exec_safe_floor = _reward_context.exec_safe_floor
-                            _exec_floor_source = _reward_context.exec_floor_source
-                            _candidate_floor_margin = _reward_context.candidate_floor_margin
-                            _candidate_floor_pass = _reward_context.candidate_floor_pass
-                            _candidate_floor_pass_frac = _reward_context.candidate_floor_pass_frac
-                            _stable_route_next = _reward_context.stable_route_next
-                            _stable_route_active = _reward_context.stable_route_active
-                            _reward_window = _reward_context.reward_window
-                            _damage_gap = _reward_window.damage_gap
-                            _oracle_clean_gap = _reward_window.oracle_clean_gap
-                            _oracle_trust = _reward_window.oracle_trust
-                            _repair_ratio = _reward_window.repair_ratio
-                            _safe_gate = _reward_window.safe_gate
-                            _repair_gate = _reward_window.repair_gate
-                            _broken_gate = _reward_window.broken_gate
-                            _window_mu = _reward_window.window_mu
-                            _exec_gate = _reward_window.exec_gate
-                            _cost_gate = _reward_window.cost_gate
-                            _safe_frac = _reward_window.safe_frac
-                            _repair_frac = _reward_window.repair_frac
-                            _broken_frac = _reward_window.broken_frac
-                            _safe_gap = _reward_window.safe_gap
-                            _broken_gap = _reward_window.broken_gap
-                            _learnable_route_mask = _reward_window.learnable_route_mask
-                            _exec_weight = _reward_window.exec_weight
-                            _cost_weight = _reward_window.cost_weight
-                            _actor_gate = _reward_window.actor_gate
-                            _harm_penalty = _reward_window.harm_penalty
-                            _harm_penalty_exec = _reward_window.harm_penalty_exec
-                            _harm_mag = _reward_window.harm_mag
-                            _cost_exec = _reward_window.cost_exec
-                            _effective_gain_bonus = _reward_window.effective_gain_bonus
-                            _effective_gain_bonus_exec = _reward_window.effective_gain_bonus_exec
-                            _under_repair_penalty = _reward_window.under_repair_penalty
-                            _reward_progress = _reward_window.reward_progress
-                            _constraint_progress = _reward_window.constraint_progress
-                            _frontres_actor_gate = write_frontres_actor_gate(
+                        
+                        rho_groundtruth = None
+                        if frontres_truth is not None:
+
+                            # 双 Sigmoid 样本分类
+                            write_actor_sample_weight(
                                 self,
-                                n_exec=_n_exec,
-                                actor_gate=_actor_gate,
+                                n_exec=frontres_truth.n_exec,
+                                actor_gate=frontres_truth.reward_window.actor_gate,
                             )
-                            _state_alpha_target, _state_alpha_mask = write_frontres_state_alpha_payload(
+
+                            # 构造 alpha groundtruth
+                            alpha_groundtruth, alpha_groundtruth_mask = write_alpha_groundtruth(
                                 self,
-                                n_exec=_n_exec,
-                                exec_perturbed=_exec_perturbed,
+                                n_exec=frontres_truth.n_exec,
+                                exec_perturbed=frontres_truth.exec_perturbed,
                                 dones=dones,
                                 infos=infos,
-                                base_start=_base_start,
+                                base_start=frontres_truth.base_start,
                             )
-                            _accept_payload = build_and_write_frontres_acceptance_payload(
+
+                            # 构造 rho groundtruth
+                            rho_groundtruth = write_rho_groundtruth(
                                 self,
                                 actions=actions,
-                                n_candidate=N_candidate,
-                                n_exec=_n_exec,
-                                candidate_start=_candidate_start,
-                                base_start=_base_start,
-                                a_w=_a_w,
-                                a_raw=_a_raw,
-                                a_fr=_a_fr,
-                                q_w=_q_w,
-                                q_raw=_q_raw,
-                                q_fr=_q_fr,
-                                cmd_for_inertia=_mcmd_rdelta,
-                                repair_gain=_repair_gain,
-                                candidate_gain=_candidate_gain,
-                                repair_gate=_repair_gate,
-                                oracle_trust=_oracle_trust,
-                                learnable_route_mask=_learnable_route_mask,
-                                exec_components=_exec_components,
-                                feasible_components=_feasible_components,
-                                exec_perturbed=_exec_perturbed,
-                                exec_feasible=_exec_feasible,
-                                exec_frontres=_exec_frontres,
-                                exec_candidate=_exec_candidate,
-                                actor_gate=_actor_gate,
-                                state_alpha_target=_state_alpha_target,
-                                state_alpha_mask=_state_alpha_mask,
-                                mode_groups=_mode_groups,
+                                reward_context=frontres_truth,
+                                state_alpha_target=alpha_groundtruth,
+                                state_alpha_mask=alpha_groundtruth_mask,
                                 quat_to_rotvec_wxyz=_quat_to_rotvec_wxyz,
                                 quat_mul_fn=quat_mul,
                                 quat_inv_fn=quat_inv,
                             )
-                            _accept_pref_target = _accept_payload.accept_target
-                            _accept_pref_mask = _accept_payload.accept_mask
-                            _pref_full_frac = _accept_payload.pref_full_frac
-                            _pref_noop_frac = _accept_payload.pref_noop_frac
-                            _pref_keep_frac = _accept_payload.pref_keep_frac
-                            _pref_ignore_frac = _accept_payload.pref_ignore_frac
-                            _pref_margin_mean = _accept_payload.pref_margin_mean
-                            _pref_need_mean = _accept_payload.pref_need_mean
-                            _pref_admiss_mean = _accept_payload.pref_admiss_mean
-                            _pref_target_mean = _accept_payload.pref_target_mean
-                            _tri_weight_repair_mean = _accept_payload.tri_weight_repair_mean
-                            _tri_weight_noisy_mean = _accept_payload.tri_weight_noisy_mean
-                            _tri_weight_stable_mean = _accept_payload.tri_weight_stable_mean
-                            _pref_inertial_penalty_rho_mean = _accept_payload.pref_inertial_penalty_rho_mean
-                            _pref_inertial_penalty_one_mean = _accept_payload.pref_inertial_penalty_one_mean
-                            _rho_target_planar_mean = _accept_payload.rho_target_planar_mean
-                            _rho_target_rp_mean = _accept_payload.rho_target_rp_mean
-                            _rho_target_z_mean = _accept_payload.rho_target_z_mean
-                            _rho_target_spread_mean = _accept_payload.rho_target_spread_mean
-                            _grouped_rho_mask_mean = _accept_payload.grouped_rho_mask_mean
-                            _rho_regret_up_planar_mean = _accept_payload.rho_regret_up_planar_mean
-                            _rho_regret_up_rp_mean = _accept_payload.rho_regret_up_rp_mean
-                            _rho_regret_up_z_mean = _accept_payload.rho_regret_up_z_mean
-                            _rho_regret_down_planar_mean = _accept_payload.rho_regret_down_planar_mean
-                            _rho_regret_down_rp_mean = _accept_payload.rho_regret_down_rp_mean
-                            _rho_regret_down_z_mean = _accept_payload.rho_regret_down_z_mean
-                        _post_step = apply_frontres_post_step_reward_connector(
+                        
+                        # 计算∆_reward并累积日志诊断
+                        frontres_reward = compute_frontres_reward(
                             self,
                             locs=locals(),
+                            reward_context=frontres_truth,
+                            accept_payload=rho_groundtruth,
                             rewards=rewards,
                             dones=dones,
                             actions=actions,
-                            reward_window=_reward_window if _is_task_space_mode else None,
                             diagnostic_sums=_frontres_diag_sums,
                             prev_delta_q=_frontres_prev_delta_q,
                             term_count=_frontres_term_count,
                             step_count=_frontres_step_count,
                         )
-                        rewards = _post_step.rewards
-                        _reward_window = _post_step.reward_window
-                        r_raw_gmt = _post_step.r_raw_gmt
-                        r_candidate_gmt = _post_step.r_candidate_gmt
-                        r_clean_gmt = _post_step.r_clean_gmt
-                        _frontres_prev_delta_q = _post_step.prev_delta_q
-                        _frontres_term_count = _post_step.term_count
-                        _frontres_step_count = _post_step.step_count
-                    # ── END FrontRES B1 delta-reward ─────────────────────────────────────
 
+                        rewards = frontres_reward.rewards
+                        _frontres_prev_delta_q = frontres_reward.prev_delta_q
+                        _frontres_term_count = frontres_reward.term_count
+                        _frontres_step_count = frontres_reward.step_count
+                    
+                    # ------------------- Reward Compute -------------------
+
+                    # ------------------- logging info -------------------
+
+                    # Observation refresh：把 env 返回的下一帧 obs 归一化，准备下一次 policy forward。
                     obs_dict = infos.get("observations", {})
                     if self.policy_obs_type is not None and self.policy_obs_type in obs_dict:
                         obs = obs_dict[self.policy_obs_type].to(self.device)
@@ -1166,12 +1057,13 @@ class OnPolicyRunner:
                     else: # 提取速度估计器的速度观测量
                         ref_vel_estimator_obs = None
 
-                    # process the step 更新回放池的数据 (奖励值, 完成布尔值, 额外信息)
+                    # Storage write：algorithm.process_env_step() 将当前 transition 写入 rollout buffer。
                     self.alg.process_env_step(rewards, dones, infos)  # stores FrontRES residual actions, not GMT robot actions
 
                     # Extract intrinsic rewards (only for logging)
                     intrinsic_rewards = self.alg.intrinsic_rewards if hasattr(self.alg, "rnd") and self.alg.rnd else None
 
+                    # Episode bookkeeping：只更新日志/curriculum 统计，不改变 storage 中的训练样本。
                     update_episode_bookkeeping(
                         self,
                         infos=infos,
@@ -1197,20 +1089,22 @@ class OnPolicyRunner:
                         n_candidate=N_candidate,
                         n_base=N_base,
                         n_clean=N_clean,
-                        r_candidate_gmt=r_candidate_gmt if _is_frontres else None,
-                        r_raw_gmt=r_raw_gmt if _is_frontres else None,
-                        r_clean_gmt=r_clean_gmt if _is_frontres else None,
+                        r_candidate_gmt=frontres_reward.r_candidate_gmt if _is_frontres else None,
+                        r_raw_gmt=frontres_reward.r_raw_gmt if _is_frontres else None,
+                        r_clean_gmt=frontres_reward.r_clean_gmt if _is_frontres else None,
                     )
+                
+                    # ------------------- logging info -------------------
 
                 stop = time.time()
                 collection_time = stop - start
                 start = stop
 
-                # compute returns 计算广义优势值
+                # Return / advantage：rollout 收集完成后，用 critic 观测计算 GAE/returns。
                 if self.training_type in ["rl", "mosaic", "frontres"]:
                     self.alg.compute_returns(privileged_obs)
 
-            # update policy Rollout结束, 开始使用buffer计算Loss更新权重
+            # Algorithm update：唯一真正反向传播更新参数的位置；FrontRES 的 HSL/rho/alpha/PPO loss 都在 alg.update() 内汇合。
             # Pass current iteration to algorithm for logging (needed by MOSAIC)
             self.alg.current_learning_iteration = it
             if _is_frontres and hasattr(self.alg, "ppo_actor_weight"):
@@ -1224,6 +1118,7 @@ class OnPolicyRunner:
             learn_time = stop - start
             self.current_learning_iteration = it
 
+            # Iteration diagnostics：把 rollout 期间累积的 FrontRES reward/evidence 统计转成可打印均值。
             _frontres_diag_means = materialize_frontres_reward_diagnostic_means(
                 _frontres_diag_sums,
                 is_frontres=_is_frontres,
@@ -1279,7 +1174,7 @@ class OnPolicyRunner:
             _frontres_log_locs = locals().copy()
             _frontres_log_locs.update(_frontres_diag_means)
 
-            # log info
+            # Log / checkpoint：打印本轮训练状态，并按 save_interval 保存模型。
             if self.log_dir is not None and not self.disable_logs:
                 # Log information
                 self.log(_frontres_log_locs)
