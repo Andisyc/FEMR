@@ -318,8 +318,8 @@ def _debug_cfg() -> dict[str, Any]:
         "frontres_gap_gate_temp": 0.005,
         "frontres_oracle_clean_gap_threshold": 1.0e9,
         "frontres_reward_scale_dr_reference": 1.25,
-        "frontres_reward_progress_min": 1.0,
-        "frontres_constraint_progress_exponent": 1.0,
+        "frontres_reward_progress_min": 0.0,
+        "frontres_constraint_progress_exponent": 2.0,
         "frontres_selective_reward_enabled": True,
         "frontres_exec_reward_signal": "gain",
         "frontres_exec_reward_weight": 1.0,
@@ -330,28 +330,40 @@ def _debug_cfg() -> dict[str, Any]:
         "frontres_harm_epsilon": 0.001,
         "frontres_harm_penalty_weight": 1.0,
         "frontres_side_harm_weight": 0.0,
-        "frontres_harm_action_cost_floor": 0.0,
+        "frontres_harm_action_cost_floor": 0.001,
         "frontres_harm_action_cost_ref": 0.01,
         "frontres_side_actor_gate_weight": 0.05,
-        "frontres_min_effective_gain": 0.006,
+        "frontres_min_effective_gain": 0.008,
         "frontres_effective_gain_bonus_weight": 0.0,
-        "frontres_candidate_ranking_reward_enabled": False,
-        "frontres_rho_space": "tri_anchor",
+        "frontres_candidate_ranking_reward_enabled": True,
+        "frontres_candidate_ranking_reward_weight": 1.0,
+        "frontres_candidate_underwrite_weight": 1.0,
+        "frontres_candidate_projection_weight": 0.25,
+        "frontres_candidate_harm_weight": 1.0,
+        "frontres_rho_space": "noisy_to_repair",
         "frontres_acceptance_preference_enabled": True,
         "frontres_acceptance_preference_margin": 0.003,
         "frontres_acceptance_regret_target_enabled": True,
-        "frontres_acceptance_regret_soft_mask_floor": 0.0,
-        "frontres_acceptance_regret_oracle_trust_floor": 0.0,
-        "frontres_acceptance_regret_per_mode_soft_floor": 0.0,
+        "frontres_acceptance_regret_soft_mask_floor": 1.0,
+        "frontres_acceptance_regret_oracle_trust_floor": 0.25,
+        "frontres_acceptance_regret_per_mode_soft_floor": 1.0,
         "frontres_acceptance_rho_target_temp": 0.08,
         "frontres_acceptance_calibration_step": 0.5,
         "frontres_grouped_rho_target_enabled": True,
         "frontres_per_mode_acceptance_preference_mask": True,
-        "frontres_active_task_dims": [0, 1, 2, 3, 4, 5],
-        "frontres_state_alpha_enabled": True,
+        "frontres_active_task_dims": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+        "frontres_state_alpha_enabled": False,
+        "frontres_state_alpha_route_enabled": False,
+        "frontres_stable_route_enabled": False,
         "frontres_state_alpha_exec_floor": 0.0,
         "frontres_state_alpha_safe_exec_floor": 0.05,
         "frontres_state_alpha_temp": 0.08,
+        "frontres_mixed_dr_easy_weight": 0.45,
+        "frontres_mixed_dr_frontier_weight": 0.40,
+        "frontres_mixed_dr_hard_weight": 0.15,
+        "frontres_mixed_dr_easy_factor": 0.75,
+        "frontres_mixed_dr_frontier_factor": 1.00,
+        "frontres_mixed_dr_hard_factor": 1.08,
         "frontres_oracle_upper_bound_diag_enabled": True,
         "frontres_oracle_upper_bound_margin": 0.0,
     }
@@ -592,6 +604,26 @@ def _print_sample_inputs(samples: list[DebugSample]) -> None:
         )
 
 
+def _print_live_config(cfg: dict[str, Any]) -> None:
+    _print_debug_boundary("0. live branch/config used by this debug harness")
+    print(f"rho_space: {cfg['frontres_rho_space']}")
+    print(f"state_alpha_enabled: {cfg['frontres_state_alpha_enabled']}")
+    print(f"stable_route_enabled: {cfg['frontres_stable_route_enabled']}")
+    print(
+        "gap floors/temp: "
+        f"safe={cfg['frontres_safe_gap_per_step']}, "
+        f"floor={cfg['frontres_gap_floor_per_step']}, "
+        f"broken={cfg['frontres_broken_gap_per_step']}, "
+        f"temp={cfg['frontres_gap_gate_temp']}"
+    )
+    print(
+        "mixed DR bands: "
+        f"easy={cfg['frontres_mixed_dr_easy_weight']}@{cfg['frontres_mixed_dr_easy_factor']}, "
+        f"frontier={cfg['frontres_mixed_dr_frontier_weight']}@{cfg['frontres_mixed_dr_frontier_factor']}, "
+        f"hard={cfg['frontres_mixed_dr_hard_weight']}@{cfg['frontres_mixed_dr_hard_factor']}"
+    )
+
+
 def _print_reward_window_debug(samples: list[DebugSample], truth: FrontRESRewardContext) -> None:
     window = truth.reward_window
     _print_debug_boundary("B. sample classification gates")
@@ -621,6 +653,8 @@ def _print_alpha_debug(
     alpha_groundtruth_mask: torch.Tensor,
 ) -> None:
     _print_debug_boundary("C. alpha groundtruth")
+    if not bool(runner.cfg.get("frontres_state_alpha_enabled", True)):
+        print("alpha branch disabled in live config; target/mask should stay zero.")
     exec_floor = runner._frontres_exec_floor_value_last
     safe_floor = runner._frontres_exec_floor_safe_last
     temp = float(runner.cfg.get("frontres_state_alpha_temp", 0.08))
@@ -692,6 +726,7 @@ def run_debug_reward_compute() -> None:
     runner = FakeRunner(cfg=cfg, num_envs=len(samples) * 4, device=device)
     frontres_truth, actions, dones, infos = build_debug_frontres_truth(runner, samples)
 
+    _print_live_config(cfg)
     _print_sample_inputs(samples)
     _print_reward_window_debug(samples, frontres_truth)
 

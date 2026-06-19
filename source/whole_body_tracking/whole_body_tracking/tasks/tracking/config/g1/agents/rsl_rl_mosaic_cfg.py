@@ -622,23 +622,23 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_adaptive_perturb_curriculum_enabled = True
     frontres_mixed_dr_strength_enabled = True
     frontres_mixed_dr_strength_per_env = True
-    frontres_mixed_dr_easy_weight = 0.50
+    # Expose a small hard band just beyond the GMT frontier.  These samples are
+    # for learning low/no repair authority, not for claiming deep recovery.
+    frontres_mixed_dr_easy_weight = 0.45
     frontres_mixed_dr_frontier_weight = 0.40
-    frontres_mixed_dr_hard_weight = 0.10
+    frontres_mixed_dr_hard_weight = 0.15
     frontres_mixed_dr_easy_factor = 0.75
     frontres_mixed_dr_frontier_factor = 1.00
-    frontres_mixed_dr_hard_factor = 1.05
-    frontres_stable_route_enabled = True
-    # HRL rho search space.  "tri_anchor" keeps rho as Repair retention and uses
-    # the state-router alpha as fallback direction between Noisy and Stable.
-    # "noisy_to_repair" and "stable_to_repair" keep old ablations.
-    frontres_rho_space = "tri_anchor"
-    # Stable Frame is now driven by the state-router alpha head, not by
-    # Candidate-vs-Clean floor diagnostics.  Candidate floor is still logged as
-    # evidence but does not own route selection.
-    frontres_state_alpha_enabled = True
-    # tri_anchor uses alpha as a continuous fallback coefficient.  The old hard
-    # Stable route is kept only for ablations and must not mask rho learning.
+    frontres_mixed_dr_hard_factor = 1.08
+    # Minimal repair-authority formulation: rho owns how much of the
+    # Clean-oriented proposal is written.  Stable/alpha fallback is kept in the
+    # codebase as an ablation path, but disabled on the live training path until
+    # admissible recovery anchors are a separate method object.
+    frontres_stable_route_enabled = False
+    # "tri_anchor" uses alpha as fallback direction between Noisy and Stable.
+    # "stable_to_repair" keeps the older Stable-to-Repair ablation.
+    frontres_rho_space = "noisy_to_repair"
+    frontres_state_alpha_enabled = False
     frontres_state_alpha_route_enabled = False
     frontres_state_alpha_route_threshold = 0.70
     frontres_state_alpha_route_min_iteration = 0
@@ -653,8 +653,8 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_state_alpha_exec_floor = 0.0
     frontres_state_alpha_safe_exec_floor = 0.05
     frontres_state_alpha_temp = 0.08
-    # Structured Joint RL updates only rho.  Alpha is a separate state-router
-    # SSL head trained from Noisy/GMT executable-floor labels.
+    # Structured Joint RL updates only rho.  The alpha SSL head is disabled
+    # above for the minimal repair-authority path.
     frontres_structured_joint_rl_enabled = True
     frontres_structured_joint_rl_disable_generic_ppo = True
     frontres_structured_joint_weight_floor = 0.10
@@ -924,7 +924,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_acceptance_preference_focal_gamma = 1.0,
         frontres_acceptance_preference_balance_min = 0.5,
         frontres_acceptance_preference_balance_max = 3.0,
-        frontres_state_alpha_weight      = 0.2,
+        frontres_state_alpha_weight      = 0.0,
         frontres_structured_joint_rl_enabled = True,
         frontres_structured_joint_rl_weight = 1.0,
         frontres_structured_joint_rl_adv_clip = 5.0,
