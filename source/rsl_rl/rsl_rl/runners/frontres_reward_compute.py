@@ -310,12 +310,14 @@ class FakeRunner:
 
 def _debug_cfg() -> dict[str, Any]:
     return {
-        "frontres_gap_floor_per_step": 0.01,
-        "frontres_safe_gap_per_step": 0.03,
-        "frontres_broken_gap_per_step": 0.50,
-        "frontres_gap_gate_temp": 0.01,
+        # Match the formal FrontRES config in rsl_rl_mosaic_cfg.py.  This
+        # harness is for checking live training semantics, not toy curves.
+        "frontres_gap_floor_per_step": 0.005,
+        "frontres_safe_gap_per_step": 0.003,
+        "frontres_broken_gap_per_step": 0.10,
+        "frontres_gap_gate_temp": 0.005,
         "frontres_oracle_clean_gap_threshold": 1.0e9,
-        "frontres_reward_scale_dr_reference": 1.0,
+        "frontres_reward_scale_dr_reference": 1.25,
         "frontres_reward_progress_min": 1.0,
         "frontres_constraint_progress_exponent": 1.0,
         "frontres_selective_reward_enabled": True,
@@ -326,7 +328,7 @@ def _debug_cfg() -> dict[str, Any]:
         "frontres_rescue_reward_weight": 0.0,
         "frontres_executable_harm_weight": 1.0,
         "frontres_harm_epsilon": 0.001,
-        "frontres_harm_penalty_weight": 0.25,
+        "frontres_harm_penalty_weight": 1.0,
         "frontres_side_harm_weight": 0.0,
         "frontres_harm_action_cost_floor": 0.0,
         "frontres_harm_action_cost_ref": 0.01,
@@ -347,8 +349,8 @@ def _debug_cfg() -> dict[str, Any]:
         "frontres_per_mode_acceptance_preference_mask": True,
         "frontres_active_task_dims": [0, 1, 2, 3, 4, 5],
         "frontres_state_alpha_enabled": True,
-        "frontres_state_alpha_exec_floor": 0.50,
-        "frontres_state_alpha_safe_exec_floor": 0.60,
+        "frontres_state_alpha_exec_floor": 0.0,
+        "frontres_state_alpha_safe_exec_floor": 0.05,
         "frontres_state_alpha_temp": 0.08,
         "frontres_oracle_upper_bound_diag_enabled": True,
         "frontres_oracle_upper_bound_margin": 0.0,
