@@ -372,10 +372,10 @@ def _debug_cfg() -> dict[str, Any]:
 def _debug_samples() -> list[DebugSample]:
     return [
         DebugSample("safe", 0.950, 0.949, 0.952, 0.952, "low sample weight, no strong repair"),
-        DebugSample("repairable", 0.550, 0.750, 0.850, 0.900, "high sample weight, positive reward"),
-        DebugSample("harmful", 0.700, 0.450, 0.800, 0.880, "negative reward, reject current repair"),
-        DebugSample("broken", 0.050, 0.080, 0.120, 0.900, "low sample weight, weak actor signal"),
-        DebugSample("keep", 0.600, 0.780, 0.760, 0.900, "keep current repair"),
+        DebugSample("raise_rho", 0.920, 0.945, 0.970, 0.980, "candidate better than current repair; raise rho"),
+        DebugSample("lower_rho", 0.930, 0.900, 0.880, 0.980, "candidate worse than noisy; lower rho/no-write"),
+        DebugSample("keep_rho", 0.920, 0.965, 0.955, 0.980, "current rho best; keep current repair"),
+        DebugSample("deep_broken", 0.750, 0.760, 0.770, 0.980, "outside repair frontier; low actor signal"),
     ]
 
 
