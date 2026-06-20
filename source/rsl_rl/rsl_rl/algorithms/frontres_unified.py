@@ -1414,10 +1414,11 @@ class FrontRESUnified:
 
         rho_log_ratio = new_rho_logp - old_rho_logp
         rho_loss, rho_ratio = _clipped_loss(rho_adv, rho_weight, rho_log_ratio)
-        rho_action_raw = actions_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype)
+        rho_action = actions_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype)
+        rho_action = rho_action.clamp(1e-6, 1.0 - 1e-6)
+        rho_action_raw = torch.log(rho_action / (1.0 - rho_action))
         rho_mean_raw = mu_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype)
         rho_mean = torch.sigmoid(rho_mean_raw)
-        rho_action = torch.sigmoid(rho_action_raw)
         prior_loss = zero
         prior_loss_weight = float(getattr(self, "frontres_structured_joint_prior_loss_weight", 0.0))
         if (
