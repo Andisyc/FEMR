@@ -1027,8 +1027,8 @@ def build_and_write_frontres_acceptance_payload(
 
     if bool(runner.cfg.get("frontres_reward_compute_live_debug", False)) and n_exec > 0:
         it = int(getattr(runner, "current_learning_iteration", 0))
-        interval = max(1, int(runner.cfg.get("frontres_restore_debug_print_interval", 10)))
-        if it % interval == 0:
+        interval = int(runner.cfg.get("frontres_restore_debug_print_interval", 10))
+        if interval > 0 and it % interval == 0:
             print(
                 "[FrontRES reward live payload] "
                 f"it={it} "

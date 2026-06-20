@@ -761,9 +761,9 @@ class FrontRESUnified:
             key: value / max(1, grad_diag_count) for key, value in grad_diag_sums.items()
         }
         if mean_grad_diag:
-            interval = max(1, int(getattr(self, "frontres_restore_debug_print_interval", 10)))
+            interval = int(getattr(self, "frontres_restore_debug_print_interval", 10))
             it = int(getattr(self, "current_learning_iteration", 0))
-            if it % interval == 0:
+            if interval > 0 and it % interval == 0:
                 print(
                     "[FrontRES grad debug] "
                     f"it={it} "
@@ -1463,8 +1463,8 @@ class FrontRESUnified:
         metrics["structured_joint_rl_dim_active_mean"] = float(rho_active.float().mean().detach().item())
         if bool(getattr(self, "frontres_reward_compute_live_debug", False)):
             it = int(getattr(self, "current_learning_iteration", 0))
-            interval = max(1, int(getattr(self, "frontres_restore_debug_print_interval", 10)))
-            if it % interval == 0:
+            interval = int(getattr(self, "frontres_restore_debug_print_interval", 10))
+            if interval > 0 and it % interval == 0:
                 print(
                     "[FrontRES reward live loss] "
                     f"it={it} "

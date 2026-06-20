@@ -76,7 +76,16 @@ def format_frontres_floor_alpha_diagnostics(
             f"{_value(locs, 'frontres_exec_floor_broken_count_mean'):.0f}\n"
         )
 
-    if locs.get("frontres_state_alpha_pred_mean") is not None:
+    show_state_alpha = (
+        locs.get("frontres_state_alpha_pred_mean") is not None
+        and (
+            _value(loss_dict, "lambda_state_alpha", 0.0) > 0.0
+            or abs(float(_value(locs, "frontres_state_alpha_mask_mean", 0.0))) > 1.0e-6
+            or abs(float(_value(locs, "frontres_state_alpha_route_mean", 0.0))) > 1.0e-6
+            or abs(float(_value(loss_dict, "state_alpha_loss", 0.0))) > 1.0e-8
+        )
+    )
+    if show_state_alpha:
         lines.append(
             f"{'state alpha p/t/m/hard:':>{pad}} "
             f"{_value(locs, 'frontres_state_alpha_pred_mean'):.3f} / "
@@ -151,6 +160,13 @@ def format_frontres_route_rho_diagnostics(
                     f"{_value(locs, 'frontres_stable_route_frac_mean'):.3f}\n"
                 )
         else:
+            show_stable_route = (
+                bool(cfg.get("frontres_state_alpha_route_enabled", False))
+                or abs(float(_value(locs, "frontres_stable_endpoint_frac_mean"))) > 1.0e-6
+                or abs(float(_value(locs, "frontres_stable_route_frac_mean"))) > 1.0e-6
+            )
+            if not show_stable_route:
+                return "".join(lines)
             lines.append(
                 f"{'stable endpoint frac:':>{pad}} "
                 f"{_value(locs, 'frontres_stable_endpoint_frac_mean'):.3f}\n"
@@ -205,10 +221,13 @@ def format_frontres_preference_diagnostics(
 ) -> str:
     """Format acceptance/preference diagnostics that are still active."""
     lines: list[str] = []
+    structured_joint_live = _structured_joint_enabled(cfg) or bool(
+        _value(loss_dict, "structured_joint_rl_enabled", 0.0) > 0.5
+    ) or bool(_value(loss_dict, "lambda_structured_joint_rl", 0.0) > 0.0)
 
-    if locs.get("frontres_accept_pref_mask_mean") is not None and not _structured_joint_enabled(cfg):
+    if locs.get("frontres_accept_pref_mask_mean") is not None and not structured_joint_live:
         rho_space = _rho_space(cfg).lower()
-        if _structured_joint_enabled(cfg):
+        if structured_joint_live:
             pref_label = structured_label
         elif rho_space in ("stable_to_repair", "stable-repair", "stable"):
             pref_label = "accept pref repair/stable/keep/ign:"
