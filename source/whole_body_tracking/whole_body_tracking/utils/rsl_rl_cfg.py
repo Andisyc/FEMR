@@ -345,8 +345,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Symmetric clip for raw structured-joint advantage before optional normalization."""
     frontres_structured_joint_rl_normalize_advantage: bool = False
     """Normalize structured-joint advantages over active samples in each minibatch."""
+    frontres_structured_joint_use_sample_weight: bool = False
+    """Use sample-selection weights for structured rho advantage learning."""
     frontres_structured_joint_use_actor_gate_weight: bool = False
-    """Use legacy actor-gate attenuation for structured rho RL weights. Default keeps live rho evidence unsuppressed."""
+    """Legacy alias for frontres_structured_joint_use_sample_weight."""
     frontres_structured_joint_show_legacy_rho_diag: bool = False
     """Print legacy rho target diagnostics during structured-rho training for ablation/debug only."""
     frontres_structured_joint_rl_keep_legacy_bce: bool = False
@@ -369,6 +371,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Penalty weight for projected references below the executable floor."""
     frontres_structured_joint_full_repair_bonus_weight: float = 1.0
     """Extra retention bonus when the full Repair proposal is executable."""
+    frontres_structured_joint_prior_loss_weight: float = 0.0
+    """Boundary-prior regularization weight for safe/deep-broken rho authority."""
+    frontres_reward_compute_live_debug: bool = False
+    """Print live formal Reward Compute payload/loss diagnostics during smoke tests."""
     frontres_structured_joint_weight_floor: float = 0.10
     """Minimum structured-rho carrier weight for active executable samples."""
     frontres_oracle_upper_bound_diag_enabled: bool = True
