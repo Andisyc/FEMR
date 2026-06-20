@@ -1317,6 +1317,8 @@ class FrontRESUnified:
             "structured_joint_rl_rho_mean": 0.0,
             "structured_joint_rl_rho_abs_from_half": 0.0,
             "structured_joint_rl_rho_near_half_frac": 0.0,
+            "structured_joint_rl_rho_action_minus_mean_abs": 0.0,
+            "structured_joint_rl_rho_action_minus_mean_rho_abs": 0.0,
             "structured_joint_rl_adv_pos_frac": 0.0,
             "structured_joint_rl_adv_neg_frac": 0.0,
             "structured_joint_rl_adv_near_zero_frac": 0.0,
@@ -1412,7 +1414,10 @@ class FrontRESUnified:
 
         rho_log_ratio = new_rho_logp - old_rho_logp
         rho_loss, rho_ratio = _clipped_loss(rho_adv, rho_weight, rho_log_ratio)
-        rho_mean = torch.sigmoid(mu_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype))
+        rho_action_raw = actions_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype)
+        rho_mean_raw = mu_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype)
+        rho_mean = torch.sigmoid(rho_mean_raw)
+        rho_action = torch.sigmoid(rho_action_raw)
         prior_loss = zero
         prior_loss_weight = float(getattr(self, "frontres_structured_joint_prior_loss_weight", 0.0))
         if (
@@ -1470,12 +1475,21 @@ class FrontRESUnified:
         if bool(rho_active.any().detach().item()):
             active_adv_raw = rho_adv_raw[rho_active]
             active_rho_mean = rho_mean[rho_active]
+            active_action_raw = rho_action_raw[rho_active]
+            active_mean_raw = rho_mean_raw[rho_active]
+            active_rho_action = rho_action[rho_active]
             metrics["structured_joint_rl_rho_mean"] = float(active_rho_mean.mean().detach().item())
             metrics["structured_joint_rl_rho_abs_from_half"] = float(
                 (active_rho_mean - 0.5).abs().mean().detach().item()
             )
             metrics["structured_joint_rl_rho_near_half_frac"] = float(
                 ((active_rho_mean - 0.5).abs() < 0.05).float().mean().detach().item()
+            )
+            metrics["structured_joint_rl_rho_action_minus_mean_abs"] = float(
+                (active_action_raw - active_mean_raw).abs().mean().detach().item()
+            )
+            metrics["structured_joint_rl_rho_action_minus_mean_rho_abs"] = float(
+                (active_rho_action - active_rho_mean).abs().mean().detach().item()
             )
             metrics["structured_joint_rl_adv_pos_frac"] = float(
                 (active_adv_raw > 1e-6).float().mean().detach().item()
@@ -1501,6 +1515,7 @@ class FrontRESUnified:
                     f"prior_rho={metrics['structured_joint_rl_prior_rho_mean']:.3f} "
                     f"rho_mean={metrics['structured_joint_rl_rho_mean']:.3f} "
                     f"rho_|.5|={metrics['structured_joint_rl_rho_abs_from_half']:.3f} "
+                    f"rho_act-mu={metrics['structured_joint_rl_rho_action_minus_mean_abs']:.4f} "
                     f"rho_loss={metrics['structured_joint_rl_rho_loss']:.4f}",
                     flush=True,
                 )

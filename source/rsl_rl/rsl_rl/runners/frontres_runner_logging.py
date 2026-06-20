@@ -133,6 +133,8 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
         "structured_joint_rl_rho_mean",
         "structured_joint_rl_rho_abs_from_half",
         "structured_joint_rl_rho_near_half_frac",
+        "structured_joint_rl_rho_action_minus_mean_abs",
+        "structured_joint_rl_rho_action_minus_mean_rho_abs",
         "structured_joint_rl_adv_pos_frac",
         "structured_joint_rl_adv_neg_frac",
         "structured_joint_rl_adv_near_zero_frac",

@@ -304,6 +304,7 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
             f"rho={_value(loss_dict, 'structured_joint_rl_rho_mean'):.3f}, "
             f"|rho-.5|={_value(loss_dict, 'structured_joint_rl_rho_abs_from_half'):.3f}, "
             f"near.5={_value(loss_dict, 'structured_joint_rl_rho_near_half_frac'):.3f}, "
+            f"act-mu={_value(loss_dict, 'structured_joint_rl_rho_action_minus_mean_abs'):.4f}, "
             f"generic={_value(loss_dict, 'ppo_actor_weight'):.3f}, "
             f"rho_ratio={_value(loss_dict, 'structured_joint_rl_ratio_mean'):.3f})\n"
         )
