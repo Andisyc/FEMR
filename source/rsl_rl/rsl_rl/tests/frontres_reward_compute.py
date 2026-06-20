@@ -13,7 +13,7 @@ FrontRES samples, then runs:
 
 Run from the repository root with:
 
-    python source/rsl_rl/rsl_rl/runners/frontres_reward_compute.py
+    python source/rsl_rl/rsl_rl/tests/frontres_reward_compute.py
 """
 
 from __future__ import annotations
@@ -896,10 +896,13 @@ def _print_algorithm_loss_toy_check(
     total_loss = rho_loss + prior_weight * prior_loss
 
     print(
-        "name       adv    mask prior_auth policy_rho prior_loss_i ppo_loss_i expected"
+        "name       adv    mask prior_auth policy_rho prior_loss_i weighted_prior_i ppo_loss_i expected"
     )
     print("-" * 104)
-    per_sample_prior = (prior_error * prior_dim_weight).sum(dim=-1) / prior_dim_weight.sum(dim=-1).clamp(min=1.0e-6)
+    per_sample_prior = prior_error.mean(dim=-1)
+    per_sample_weighted_prior = (prior_error * prior_dim_weight).sum(dim=-1) / rho_weight.sum(dim=-1).clamp(
+        min=1.0e-6
+    )
     per_sample_ppo = (rho_loss_terms * rho_weight).sum(dim=-1) / rho_weight.sum(dim=-1).clamp(min=1.0e-6)
     for i, sample in enumerate(samples):
         print(
@@ -909,6 +912,7 @@ def _print_algorithm_loss_toy_check(
             f"{prior_authority[i].item():>10.3f} "
             f"{policy_rho_mean[i].mean().item():>10.3f} "
             f"{per_sample_prior[i].item():>12.3f} "
+            f"{per_sample_weighted_prior[i].item():>16.3f} "
             f"{per_sample_ppo[i].item():>10.3f} "
             f"{sample.expected}"
         )
