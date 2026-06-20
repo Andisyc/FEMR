@@ -233,7 +233,7 @@ def apply_frontres_structured_rho_payload(
     mask_exec: torch.Tensor,
     n_exec: int,
     rho_current: torch.Tensor,
-    actor_gate: torch.Tensor,
+    rho_update_weight: torch.Tensor,
     exec_perturbed: torch.Tensor,
     exec_feasible: torch.Tensor,
     exec_frontres: torch.Tensor,
@@ -272,7 +272,7 @@ def apply_frontres_structured_rho_payload(
             n_exec=n_exec,
             rho_current=rho_current,
             rho_dim_weight=mask_exec.detach().clamp(min=0.0),
-            actor_gate=actor_gate[:n_exec],
+            rho_update_weight=rho_update_weight[:n_exec],
             exec_perturbed=exec_perturbed,
             exec_feasible=exec_feasible,
             exec_frontres=exec_frontres,
@@ -318,15 +318,20 @@ def apply_frontres_structured_rho_payload(
                 0.0,
                 min(1.0, float(runner.cfg.get("frontres_structured_joint_weight_floor", 0.10))),
             ),
-            use_actor_gate_weight=bool(
-                runner.cfg.get("frontres_structured_joint_use_actor_gate_weight", False)
+            use_rho_update_weight=bool(
+                runner.cfg.get(
+                    "frontres_structured_joint_use_sample_weight",
+                    runner.cfg.get("frontres_structured_joint_use_actor_gate_weight", False),
+                )
             ),
             device=runner.device,
         )
-        accept_target = rho_carrier.accept_target
-        accept_mask = rho_carrier.accept_mask
-        target_exec = rho_carrier.target_exec
-        mask_exec = rho_carrier.mask_exec
+        # Legacy storage fields still use acceptance_* names.  On the live
+        # structured-rho path they carry rho PPO advantages and weights.
+        accept_target = rho_carrier.rho_advantage
+        accept_mask = rho_carrier.rho_validity_weight
+        target_exec = rho_carrier.rho_advantage_exec
+        mask_exec = rho_carrier.rho_validity_weight_exec
         runner._frontres_structured_joint_adv_last = rho_carrier.adv_mean
         runner._frontres_structured_joint_weight_last = rho_carrier.weight_mean
         runner._frontres_structured_joint_rho_adv_last = rho_carrier.adv_mean
@@ -952,7 +957,7 @@ def build_and_write_frontres_acceptance_payload(
             mask_exec=mask_exec,
             n_exec=n_exec,
             rho_current=rho_current,
-            actor_gate=window.actor_gate,
+            rho_update_weight=window.rho_update_weight,
             exec_perturbed=ctx.exec_perturbed,
             exec_feasible=ctx.exec_feasible,
             exec_frontres=ctx.exec_frontres,
@@ -1016,20 +1021,48 @@ def build_and_write_frontres_acceptance_payload(
     return accept_payload
 
 
+def write_rho_update_weight(
+    runner: Any,
+    *,
+    n_exec: int,
+    rho_update_weight: torch.Tensor,
+) -> torch.Tensor:
+    """Write rollout rho-update weight into the active transition."""
+
+    return runner._frontres_alpha_rho_bridge.write_rho_update_weight(
+        runner.alg.transition,
+        num_envs=runner.env.num_envs,
+        n_exec=n_exec,
+        rho_update_weight=rho_update_weight,
+        device=runner.device,
+    )
+
+
+def write_frontres_sample_weight(
+    runner: Any,
+    *,
+    n_exec: int,
+    sample_weight: torch.Tensor,
+) -> torch.Tensor:
+    """Legacy alias for write_rho_update_weight()."""
+    return write_rho_update_weight(
+        runner,
+        n_exec=n_exec,
+        rho_update_weight=sample_weight,
+    )
+
+
 def write_frontres_actor_gate(
     runner: Any,
     *,
     n_exec: int,
     actor_gate: torch.Tensor,
 ) -> torch.Tensor:
-    """Write rollout actor credit gate into the active algorithm transition."""
-
-    return runner._frontres_alpha_rho_bridge.write_actor_gate(
-        runner.alg.transition,
-        num_envs=runner.env.num_envs,
+    """Legacy alias for write_rho_update_weight()."""
+    return write_rho_update_weight(
+        runner,
         n_exec=n_exec,
-        actor_gate=actor_gate,
-        device=runner.device,
+        rho_update_weight=actor_gate,
     )
 
 
@@ -1095,6 +1128,7 @@ def write_frontres_state_alpha_payload(
 
 
 # Readability aliases used by the runner.
-write_rho_groundtruth = build_and_write_frontres_acceptance_payload
-write_actor_sample_weight = write_frontres_actor_gate
+write_rho_advantage = build_and_write_frontres_acceptance_payload
+write_rho_groundtruth = build_and_write_frontres_acceptance_payload  # legacy alias
+write_actor_sample_weight = write_frontres_sample_weight
 write_alpha_groundtruth = write_frontres_state_alpha_payload

@@ -5,6 +5,138 @@ It is more specific than the Dr.Cheng skill.  Read this before implementing
 nontrivial changes to FrontRES training, rollout labels, PPO/HRL behavior, or
 diagnostics.
 
+## 2026-06-19 Conditional HRL Repair-Authority Contract
+
+The current minimal FrontRES method should be described as conditional HRL over a
+clean-oriented residual proposal.
+
+FrontRES does not learn a new tracker and does not generate a new recovery
+reference.  It learns one indispensable variable:
+
+\[
+\text{repair authority: how much of the Clean-oriented repair should be written
+under the current state?}
+\]
+
+This keeps the method closed:
+
+```text
+Clean provides the repair direction
+Noisy/GMT provides the do-nothing baseline
+sample classification provides the state-region prior
+rollout comparison provides no-regret evidence
+rho expresses repair authority
+```
+
+### Sample Classification Is A Prior, Not Only A Weight
+
+The previous "sample weight" interpretation is too weak.  If the sample
+classification only multiplies the rollout/RL signal,
+
+\[
+A_\rho = w_{\rm sample} A_{\rm evidence},
+\]
+
+then it only decides how loudly a sample trains the policy.  It cannot teach the
+policy that a state region should default to low write authority.  This is
+especially wrong for broken states: broken samples should not merely become weak
+updates; they should usually teach low \(\rho\) unless rollout evidence strongly
+contradicts that prior.
+
+The preferred contract is therefore:
+
+\[
+A_\rho = A_{\rm evidence} + \beta A_{\rm prior}.
+\]
+
+- \(A_{\rm evidence}\) is the rollout comparison signal from Noisy, current
+  FrontRES, Candidate, and Clean-side evidence.  It answers whether writing more
+  repair would improve or damage execution relative to the baseline.
+- \(A_{\rm prior}\) is the continuous state-region prior from sample
+  classification.  It may enter PPO only as a weak prior advantage, not as a
+  supervised \(\rho\) ground truth.  It answers what repair authority should be
+  expected before trusting a weak rollout signal.
+- \(\beta\) controls prior authority.  The prior must be falsifiable: strong
+  rollout evidence can override it.
+
+The state-region meaning is:
+
+- **safe**: the reference is already executable, so default \(\rho\) should be
+  low unless evidence shows a clear benefit.
+- **repairable**: Clean-oriented repair is likely admissible, so rollout
+  evidence should dominate and may increase \(\rho\).
+- **broken**: the current state is outside the reliable repair frontier, so
+  default \(\rho\) should be low unless evidence strongly proves that the
+  candidate is no-regret.
+
+This makes sample classification part of conditional HRL: it describes the
+condition under which the repair authority policy acts.  It is not a separate
+target, not a deployment-time oracle, and not a replacement for rollout
+evidence.
+
+### Prior Advantage And Loss Mask Boundary
+
+The state-region prior has a supervised-learning flavor because it is built from
+a hand-designed continuous sample classification curve.  It must not be turned
+into a direct supervised target such as \(\rho_{\rm gt}=f(\text{region})\).  That
+would collapse repair authority learning into a hand-built classifier and remove
+the rollout counterfactual as the behavior judge.
+
+The clean boundary is:
+
+```text
+sample classification -> rho_prior_advantage
+rollout comparison    -> rho_evidence_advantage
+PPO                   -> trains the sampled rho action using their signed sum
+```
+
+In other words, the prior can enter PPO because it is converted into an
+advantage over the sampled \(\rho\) action.  It does not define the final desired
+\(\rho\) value.
+
+The first testable version should use the minimal form:
+
+\[
+A_\rho = A_{\rm evidence} + \beta A_{\rm prior}.
+\]
+
+Do not add a weak-evidence gate or other protective coefficient unless the
+debug numbers show that the prior overpowers strong rollout evidence.  The
+method should first test the smallest prior-plus-evidence construction.
+
+The old `rho_weight` / `rho_validity_weight` concept should not be treated as
+sample confidence or sample importance.  The only clean role left for a mask is
+the Action-Cone loss mask:
+
+```text
+rho_loss_mask = active rho dimensions allowed by the action cone
+```
+
+Thus:
+
+```text
+rho_advantage = what direction PPO should learn
+rho_loss_mask = which rho dimensions are allowed to learn
+```
+
+For the current full-size repair setting, `rho_loss_mask` should usually be all
+ones except dimensions disabled by the action cone, such as upward-z repair when
+that axis is intentionally blocked.
+
+Recommended implementation vocabulary:
+
+```text
+sample_region / repair_region_prior      # state classification
+rho_prior_advantage                      # direction supplied by the prior
+rho_evidence_advantage                   # direction supplied by rollout evidence
+rho_advantage                            # final training signal for rho
+rho_loss_mask                            # action-cone mask only
+```
+
+Avoid using `sample_weight` as the main conceptual name when the value decides
+the direction of \(\rho\) learning.  `sample_weight` is acceptable only for a
+pure multiplicative confidence term.
+
 ## 2026-06-11 Fixed-DR Stress Evaluation Branch
 
 Training and evaluation have different authority.
@@ -63,10 +195,14 @@ approach the clean rollout closely enough for demo-quality behavior.
   \((\Delta x,\Delta y,\Delta z,\Delta r,\Delta p,\Delta y)\).
 - **HSL** owns the main geometric restoration direction.  It uses Clean,
   Noisy, and Repaired rollout information to construct continuous sample
-  weights, harmful-repair penalties, and rollout-aware supervised labels.
+  classification signals, harmful-repair penalties, and rollout-aware
+  supervised labels.
 - **HRL / PPO** does not own the repair direction.  In the current hybrid
   design, PPO owns only the six-dimensional dynamics-aware acceptance vector
   \(\rho_t\in[0,1]^6\).
+- **Sample classification** owns the state-region prior for \(\rho_t\).  It
+  should not be reduced to a pure multiplicative sample weight when the desired
+  behavior is to teach safe/broken states low repair authority.
 - **Dynamics-aware acceptance** decides a current-state-conditioned dynamic
   projection of the HSL clean-oriented candidate:
   \[

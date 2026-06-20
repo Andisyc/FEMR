@@ -1300,17 +1300,17 @@ class FrontRESUnified:
         }
         if (
             not self._structured_joint_rl_enabled()
-            or acceptance_target_batch is None
-            or acceptance_mask_batch is None
+            or rho_advantage_batch is None
+            or rho_weight_batch is None
         ):
             return zero, metrics
 
         n = original_batch_size
         conf_dim = int(getattr(self.policy, "task_conf_dim", 1))
-        conf_dim = max(1, min(conf_dim, acceptance_target_batch.shape[-1]))
+        conf_dim = max(1, min(conf_dim, rho_advantage_batch.shape[-1]))
         rho_dims = list(range(6, 6 + conf_dim))
-        carrier = acceptance_target_batch[:n, :conf_dim].to(device=self.device, dtype=obs_batch.dtype).detach()
-        weights = acceptance_mask_batch[:n, :conf_dim].to(device=self.device, dtype=obs_batch.dtype).detach()
+        carrier = rho_advantage_batch[:n, :conf_dim].to(device=self.device, dtype=obs_batch.dtype).detach()
+        weights = rho_weight_batch[:n, :conf_dim].to(device=self.device, dtype=obs_batch.dtype).detach()
         rho_adv_raw = torch.nan_to_num(carrier, nan=0.0, posinf=0.0, neginf=0.0)
         rho_weight = torch.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0).clamp(min=0.0)
 

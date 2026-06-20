@@ -6,7 +6,7 @@
 """FrontRES rollout reward-window construction.
 
 The reward window is a FrontRES domain service that converts post-env rollout
-evidence into per-sample reward weights and actor-credit gates before
+evidence into per-sample reward weights and rho-update signals before
 process_env_step.
 """
 
@@ -31,9 +31,9 @@ class FrontRESRewardWindow:
     oracle_clean_gap: torch.Tensor
     oracle_trust: torch.Tensor
     repair_ratio: torch.Tensor
-    safe_gate: torch.Tensor
-    repair_gate: torch.Tensor
-    broken_gate: torch.Tensor
+    safe_score: torch.Tensor
+    repairable_score: torch.Tensor
+    broken_score: torch.Tensor
     window_mu: torch.Tensor
     exec_gate: torch.Tensor
     cost_gate: torch.Tensor
@@ -45,7 +45,7 @@ class FrontRESRewardWindow:
     learnable_route_mask: torch.Tensor
     exec_weight: torch.Tensor
     cost_weight: torch.Tensor
-    actor_gate: torch.Tensor
+    rho_update_weight: torch.Tensor
     harm_penalty: torch.Tensor
     harm_penalty_exec: torch.Tensor
     harm_mag: torch.Tensor
@@ -58,6 +58,26 @@ class FrontRESRewardWindow:
     ranking_reward: torch.Tensor | None
     reward_progress: float
     constraint_progress: float
+
+    @property
+    def safe_gate(self) -> torch.Tensor:
+        """Legacy alias for the continuous safe-region score."""
+        return self.safe_score
+
+    @property
+    def repair_gate(self) -> torch.Tensor:
+        """Legacy alias for the continuous repairable-region score."""
+        return self.repairable_score
+
+    @property
+    def broken_gate(self) -> torch.Tensor:
+        """Legacy alias for the continuous broken-region score."""
+        return self.broken_score
+
+    @property
+    def actor_gate(self) -> torch.Tensor:
+        """Legacy alias for the rho update weight."""
+        return self.rho_update_weight
 
 
 @dataclass
@@ -703,9 +723,9 @@ def build_frontres_reward_window(
         * 1.0 / (1.0 + math.exp(-peak_exit_arg))
     )
     window_mu = (window_mu_raw / max(window_peak, 1e-6)).clamp(0.0, 1.0)
-    safe_gate = (1.0 - enter_window).clamp(0.0, 1.0)
-    repair_gate = window_mu
-    broken_gate = (1.0 - exit_window).clamp(0.0, 1.0)
+    safe_score = (1.0 - enter_window).clamp(0.0, 1.0)
+    repairable_score = window_mu
+    broken_score = (1.0 - exit_window).clamp(0.0, 1.0)
     safe_frac = (damage_gap < safe_gap).float().mean()
     repair_frac = ((damage_gap >= safe_gap) & (damage_gap <= broken_gap)).float().mean()
     broken_frac = (damage_gap > broken_gap).float().mean()
@@ -733,18 +753,18 @@ def build_frontres_reward_window(
     if restore_min_ratio > 0.0 and restore_under_weight > 0.0:
         restore_ratio = ((e_raw - e_fr) / e_raw.clamp(min=1e-6)).clamp(-1.0, 1.0)
         under = torch.relu(restore_min_ratio - restore_ratio)
-        under_repair_penalty[:n_exec] = restore_under_weight * repair_gate * under[:n_exec].pow(2)
+        under_repair_penalty[:n_exec] = restore_under_weight * repairable_score * under[:n_exec].pow(2)
 
     selective_reward = bool(cfg.get("frontres_selective_reward_enabled", True))
     if selective_reward:
-        exec_gate = repair_gate
+        exec_gate = repairable_score
         safe_cost_weight = float(cfg.get("frontres_safe_cost_weight", 1.0))
         repair_cost_weight = float(cfg.get("frontres_repair_cost_weight", 0.15))
         broken_cost_weight = float(cfg.get("frontres_broken_cost_weight", 1.0))
         cost_gate = (
-            safe_cost_weight * safe_gate
-            + repair_cost_weight * repair_gate
-            + broken_cost_weight * broken_gate
+            safe_cost_weight * safe_score
+            + repair_cost_weight * repairable_score
+            + broken_cost_weight * broken_score
         ).clamp(min=0.0)
     else:
         exec_gate = window_mu
@@ -765,26 +785,26 @@ def build_frontres_reward_window(
     if selective_reward:
         broken_harm_weight = float(cfg.get("frontres_broken_harm_weight", 1.0))
         harm_weight = (
-            repair_gate
-            + broken_harm_weight * broken_gate
-            + side_harm_weight * safe_gate
+            repairable_score
+            + broken_harm_weight * broken_score
+            + side_harm_weight * safe_score
         ).clamp(0.0, 1.0)
     else:
         harm_weight = (window_mu + side_harm_weight * (1.0 - window_mu)).clamp(0.0, 1.0)
     harm_penalty_exec = harm_weight_cfg * harm_weight * harm_mag
 
-    side_actor_weight = float(cfg.get("frontres_side_actor_gate_weight", 0.05))
-    side_actor_weight = max(0.0, min(1.0, side_actor_weight))
+    side_update_weight = float(cfg.get("frontres_side_actor_gate_weight", 0.05))
+    side_update_weight = max(0.0, min(1.0, side_update_weight))
     if selective_reward:
-        actor_gate = (
-            oracle_trust * repair_gate
-            + side_actor_weight * (safe_gate + broken_gate)
+        rho_update_weight = (
+            oracle_trust * repairable_score
+            + side_update_weight * (safe_score + broken_score)
         ).clamp(0.0, 1.0)
     else:
-        actor_gate = (
-            oracle_trust * window_mu + side_actor_weight * (1.0 - window_mu)
+        rho_update_weight = (
+            oracle_trust * window_mu + side_update_weight * (1.0 - window_mu)
         ).clamp(0.0, 1.0)
-    actor_gate = actor_gate * learnable_route_mask
+    rho_update_weight = rho_update_weight * learnable_route_mask
 
     exec_weight = torch.zeros(n_train, device=device)
     cost_weight = torch.ones(n_train, device=device)
@@ -797,7 +817,7 @@ def build_frontres_reward_window(
     if selective_reward:
         min_effective_gain = float(cfg.get("frontres_min_effective_gain", 0.006))
         bonus_weight = float(cfg.get("frontres_effective_gain_bonus_weight", 0.5))
-        effective_gain_bonus_exec = bonus_weight * repair_gate * torch.relu(repair_gain - min_effective_gain)
+        effective_gain_bonus_exec = bonus_weight * repairable_score * torch.relu(repair_gain - min_effective_gain)
     effective_gain_bonus = torch.zeros(n_train, device=device)
     effective_gain_bonus[:n_exec] = effective_gain_bonus_exec
 
@@ -807,9 +827,9 @@ def build_frontres_reward_window(
         oracle_clean_gap=oracle_clean_gap,
         oracle_trust=oracle_trust,
         repair_ratio=repair_ratio,
-        safe_gate=safe_gate,
-        repair_gate=repair_gate,
-        broken_gate=broken_gate,
+        safe_score=safe_score,
+        repairable_score=repairable_score,
+        broken_score=broken_score,
         window_mu=window_mu,
         exec_gate=exec_gate,
         cost_gate=cost_gate,
@@ -821,7 +841,7 @@ def build_frontres_reward_window(
         learnable_route_mask=learnable_route_mask,
         exec_weight=exec_weight,
         cost_weight=cost_weight,
-        actor_gate=actor_gate,
+        rho_update_weight=rho_update_weight,
         harm_penalty=harm_penalty,
         harm_penalty_exec=harm_penalty_exec,
         harm_mag=harm_mag,

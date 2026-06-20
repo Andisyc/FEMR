@@ -1,8 +1,10 @@
-"""Structured-rho carrier construction for FrontRES PPO updates.
+"""Structured-rho advantage construction for FrontRES PPO updates.
 
-The structured-rho branch uses the acceptance target/mask tensors as a carrier
-for PPO advantages.  This module owns that carrier construction so the runner
-does not also own the rho credit-assignment math.
+The structured-rho branch is Advantage Learning, not supervised rho regression:
+rollout preference builds a signed rho advantage, and rho-update validity
+weights decide how strongly that advantage should enter PPO.  The legacy
+storage tensors are still named ``acceptance_target`` / ``acceptance_mask``
+elsewhere; inside this module we use the live concept names instead.
 """
 
 from __future__ import annotations
@@ -15,10 +17,10 @@ import torch
 
 @dataclass(frozen=True)
 class FrontRESStructuredRhoCarrier:
-    accept_target: torch.Tensor
-    accept_mask: torch.Tensor
-    target_exec: torch.Tensor
-    mask_exec: torch.Tensor
+    rho_advantage: torch.Tensor
+    rho_validity_weight: torch.Tensor
+    rho_advantage_exec: torch.Tensor
+    rho_validity_weight_exec: torch.Tensor
     adv_mean: float
     weight_mean: float
     retention_mean: float
@@ -27,6 +29,16 @@ class FrontRESStructuredRhoCarrier:
     direction_mean: float
     centered_mean: float
     drive_mean: float
+
+    @property
+    def rho_weight(self) -> torch.Tensor:
+        """Legacy alias for rho_validity_weight."""
+        return self.rho_validity_weight
+
+    @property
+    def rho_weight_exec(self) -> torch.Tensor:
+        """Legacy alias for rho_validity_weight_exec."""
+        return self.rho_validity_weight_exec
 
 
 def _mean_active(values: torch.Tensor, active: torch.Tensor) -> float:
@@ -182,7 +194,7 @@ def build_structured_rho_carrier(
     n_exec: int,
     rho_current: torch.Tensor,
     rho_dim_weight: torch.Tensor,
-    actor_gate: torch.Tensor,
+    rho_update_weight: torch.Tensor,
     exec_perturbed: torch.Tensor,
     exec_feasible: torch.Tensor,
     exec_frontres: torch.Tensor,
@@ -210,16 +222,16 @@ def build_structured_rho_carrier(
     floor_penalty_weight: float,
     full_bonus_weight: float,
     joint_weight_floor: float,
-    use_actor_gate_weight: bool,
+    use_rho_update_weight: bool,
     device: torch.device,
 ) -> FrontRESStructuredRhoCarrier:
-    """Build the structured-rho PPO advantage carrier and diagnostics."""
-    accept_target = torch.zeros(num_envs, 6, device=device, dtype=rho_current.dtype)
-    accept_mask = torch.zeros(num_envs, 6, device=device, dtype=rho_current.dtype)
+    """Build rho PPO advantages, validity weights, and diagnostics."""
+    rho_advantage = torch.zeros(num_envs, 6, device=device, dtype=rho_current.dtype)
+    rho_validity_weight = torch.zeros(num_envs, 6, device=device, dtype=rho_current.dtype)
     if n_exec <= 0:
         zero = torch.zeros(0, 6, device=device, dtype=rho_current.dtype)
         return FrontRESStructuredRhoCarrier(
-            accept_target, accept_mask, zero, zero, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            rho_advantage, rho_validity_weight, zero, zero, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         )
 
     n = min(int(n_exec), int(rho_current.shape[0]))
@@ -287,19 +299,21 @@ def build_structured_rho_carrier(
     adv_dim = directional_adv + retention_term + floor_term + full_bonus
 
     weight_floor = max(0.0, min(1.0, float(joint_weight_floor)))
-    if use_actor_gate_weight:
-        sample_weight = (weight_floor + (1.0 - weight_floor) * actor_gate[:n]).detach().clamp(0.0, 1.0)
+    if use_rho_update_weight:
+        effective_update_weight = (
+            weight_floor + (1.0 - weight_floor) * rho_update_weight[:n]
+        ).detach().clamp(0.0, 1.0)
     else:
-        sample_weight = torch.ones((n,), device=device, dtype=rho.dtype)
-    weight_dim = (sample_weight.view(-1, 1) * dim_weight).detach().clamp(0.0, 1.0)
+        effective_update_weight = torch.ones((n,), device=device, dtype=rho.dtype)
+    weight_dim = (effective_update_weight.view(-1, 1) * dim_weight).detach().clamp(0.0, 1.0)
 
-    accept_target[:n, :6] = adv_dim.detach()
-    accept_mask[:n, :6] = weight_dim
+    rho_advantage[:n, :6] = adv_dim.detach()
+    rho_validity_weight[:n, :6] = weight_dim
     return FrontRESStructuredRhoCarrier(
-        accept_target=accept_target,
-        accept_mask=accept_mask,
-        target_exec=adv_dim,
-        mask_exec=weight_dim,
+        rho_advantage=rho_advantage,
+        rho_validity_weight=rho_validity_weight,
+        rho_advantage_exec=adv_dim,
+        rho_validity_weight_exec=weight_dim,
         adv_mean=_mean_active(adv_dim, dim_active),
         weight_mean=_mean_active(weight_dim, dim_active),
         retention_mean=_mean_active(retention_term, dim_active),

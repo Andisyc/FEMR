@@ -46,9 +46,9 @@ from rsl_rl.frontres.frontres_reward_diagnostics import (
 from rsl_rl.runners.frontres_post_step_connector import compute_frontres_reward
 from rsl_rl.runners.frontres_runner_logging import log_runner
 from rsl_rl.frontres.frontres_transition_payload import (
-    write_actor_sample_weight,
     write_alpha_groundtruth,
-    write_rho_groundtruth,
+    write_rho_update_weight,
+    write_rho_advantage,
 )
 from rsl_rl.frontres.training_schedule import (
     frontres_curriculum_allowed_bases,
@@ -971,14 +971,14 @@ class OnPolicyRunner:
                                 "(anchor_pos_w_original and anchor_quat_w_original)."
                             )
                         
-                        rho_groundtruth = None
+                        rho_advantage = None
                         if frontres_truth is not None:
 
-                            # 双 Sigmoid 样本分类
-                            write_actor_sample_weight(
+                            # 双 Sigmoid 连续区域分数派生出的 rho 更新权重；它不是部署时的 gate。
+                            write_rho_update_weight(
                                 self,
                                 n_exec=frontres_truth.n_exec,
-                                actor_gate=frontres_truth.reward_window.actor_gate,
+                                rho_update_weight=frontres_truth.reward_window.rho_update_weight,
                             )
 
                             # 构造 alpha groundtruth
@@ -991,8 +991,8 @@ class OnPolicyRunner:
                                 base_start=frontres_truth.base_start,
                             )
 
-                            # 构造 rho groundtruth
-                            rho_groundtruth = write_rho_groundtruth(
+                            # 构造 rho advantage：由 Noisy / FrontRES / Candidate 偏好比较得到。
+                            rho_advantage = write_rho_advantage(
                                 self,
                                 actions=actions,
                                 reward_context=frontres_truth,
@@ -1008,7 +1008,7 @@ class OnPolicyRunner:
                             self,
                             locs=locals(),
                             reward_context=frontres_truth,
-                            accept_payload=rho_groundtruth,
+                            accept_payload=rho_advantage,
                             rewards=rewards,
                             dones=dones,
                             actions=actions,

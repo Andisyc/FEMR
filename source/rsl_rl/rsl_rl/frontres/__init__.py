@@ -77,10 +77,13 @@ from .frontres_transition_payload import (
     frontres_rho_current_from_actions,
     initialize_frontres_acceptance_payload,
     summarize_frontres_acceptance_payload,
+    write_rho_update_weight,
     write_actor_sample_weight,
     write_alpha_groundtruth,
     write_frontres_actor_gate,
+    write_frontres_sample_weight,
     write_frontres_state_alpha_payload,
+    write_rho_advantage,
     write_rho_groundtruth,
 )
 from .perturbation_runtime import (
@@ -205,8 +208,11 @@ __all__ = [
     "update_runner_executable_floor_stats",
     "warmup_perturbation_mode_groups",
     "write_frontres_actor_gate",
+    "write_frontres_sample_weight",
     "write_frontres_state_alpha_payload",
+    "write_rho_update_weight",
     "write_actor_sample_weight",
     "write_alpha_groundtruth",
+    "write_rho_advantage",
     "write_rho_groundtruth",
 ]

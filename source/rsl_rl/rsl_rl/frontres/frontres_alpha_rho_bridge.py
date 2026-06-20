@@ -14,6 +14,44 @@ class FrontRESAlphaRhoBridge:
     """Write alpha/rho route signals into the live algorithm transition."""
 
     @staticmethod
+    def write_rho_update_weight(
+        transition: Any,
+        *,
+        num_envs: int,
+        n_exec: int,
+        rho_update_weight: torch.Tensor,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """Write the per-env FrontRES rho-update weight.
+
+        ``frontres_actor_gate`` is the legacy storage field name.  Conceptually
+        this tensor is a rho-update validity/strength weight, not a hard actor
+        gate and not the rho direction signal itself.
+        """
+        frontres_rho_update_weight = torch.zeros(num_envs, 1, device=device)
+        frontres_rho_update_weight[:n_exec, 0] = rho_update_weight
+        transition.frontres_actor_gate = frontres_rho_update_weight
+        return frontres_rho_update_weight
+
+    @staticmethod
+    def write_sample_weight(
+        transition: Any,
+        *,
+        num_envs: int,
+        n_exec: int,
+        sample_weight: torch.Tensor,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """Legacy alias for write_rho_update_weight()."""
+        return FrontRESAlphaRhoBridge.write_rho_update_weight(
+            transition,
+            num_envs=num_envs,
+            n_exec=n_exec,
+            rho_update_weight=sample_weight,
+            device=device,
+        )
+
+    @staticmethod
     def write_actor_gate(
         transition: Any,
         *,
@@ -22,13 +60,11 @@ class FrontRESAlphaRhoBridge:
         actor_gate: torch.Tensor,
         device: torch.device,
     ) -> torch.Tensor:
-        """Write the per-env FrontRES actor gate to transition and return it.
-
-        The actor gate is a credit-assignment signal.  Keeping this write in one
-        bridge makes it easier to audit whether rho/actor updates are being
-        suppressed by route masks or sample gates.
-        """
-        frontres_actor_gate = torch.zeros(num_envs, 1, device=device)
-        frontres_actor_gate[:n_exec, 0] = actor_gate
-        transition.frontres_actor_gate = frontres_actor_gate
-        return frontres_actor_gate
+        """Legacy alias for write_rho_update_weight()."""
+        return FrontRESAlphaRhoBridge.write_rho_update_weight(
+            transition,
+            num_envs=num_envs,
+            n_exec=n_exec,
+            rho_update_weight=actor_gate,
+            device=device,
+        )

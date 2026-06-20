@@ -258,9 +258,13 @@ def accumulate_frontres_reward_diagnostics(
         sums["reward_progress"] += float(locs["_reward_progress"])
         sums["constraint_progress"] += float(locs["_constraint_progress"])
         sums["effective_gain_bonus"] += _mean_item(locs["_effective_gain_bonus"][:n_exec])
-        sums["safe_cost"] += _mean_item(locs["_safe_gate"] * cost_exec)
-        sums["repair_cost"] += _mean_item(locs["_repair_gate"] * cost_exec)
-        sums["broken_cost"] += _mean_item(locs["_broken_gate"] * cost_exec)
+        safe_score = locs["_safe_score"] if "_safe_score" in locs else locs["_safe_gate"]
+        repairable_score = locs["_repairable_score"] if "_repairable_score" in locs else locs["_repair_gate"]
+        broken_score = locs["_broken_score"] if "_broken_score" in locs else locs["_broken_gate"]
+        rho_update_weight = locs["_rho_update_weight"] if "_rho_update_weight" in locs else locs["_actor_gate"]
+        sums["safe_cost"] += _mean_item(safe_score * cost_exec)
+        sums["repair_cost"] += _mean_item(repairable_score * cost_exec)
+        sums["broken_cost"] += _mean_item(broken_score * cost_exec)
 
         mu_sum = window_mu.sum().clamp(min=eps_fit)
         repair_fit_num = (window_mu * repair_gain).sum()
@@ -364,7 +368,7 @@ def accumulate_frontres_reward_diagnostics(
         sums["oracle_ub_candidate_win"] += _mean_item(locs["_oracle_ub_candidate_win"])
         sums["oracle_ub_feasible_win"] += _mean_item(locs["_oracle_ub_feasible_win"])
         sums["oracle_ub_noisy_win"] += _mean_item(locs["_oracle_ub_noisy_win"])
-        sums["actor_gate"] += _mean_item(locs["_actor_gate"])
+        sums["actor_gate"] += _mean_item(rho_update_weight)
         sums["exec_gate"] += _mean_item(locs["_exec_gate"])
         sums["cost_gate"] += _mean_item(locs["_cost_gate"])
         sums["reward_diag_steps"] += 1

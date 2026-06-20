@@ -9,7 +9,7 @@ This file intentionally copies the runner-side Reward Compute sequence without
 being imported by ``on_policy_runner.py``.  It builds simple hand-checkable
 FrontRES samples, then runs:
 
-    sample weight -> alpha groundtruth -> rho groundtruth -> reward
+    rho update weight -> alpha groundtruth -> rho advantage -> reward
 
 Run from the repository root with:
 
@@ -45,9 +45,9 @@ from rsl_rl.frontres.frontres_reward_window import (
 )
 from rsl_rl.frontres.frontres_rollout_evidence import compute_frontres_rollout_evidence
 from rsl_rl.frontres.frontres_transition_payload import (
-    write_actor_sample_weight,
     write_alpha_groundtruth,
-    write_rho_groundtruth,
+    write_rho_update_weight,
+    write_rho_advantage,
 )
 
 
@@ -185,9 +185,12 @@ def compute_frontres_reward(
             "_oracle_clean_gap": reward_window.oracle_clean_gap,
             "_oracle_trust": reward_window.oracle_trust,
             "_repair_ratio": reward_window.repair_ratio,
-            "_safe_gate": reward_window.safe_gate,
-            "_repair_gate": reward_window.repair_gate,
-            "_broken_gate": reward_window.broken_gate,
+            "_safe_score": reward_window.safe_score,
+            "_repairable_score": reward_window.repairable_score,
+            "_broken_score": reward_window.broken_score,
+            "_safe_gate": reward_window.safe_score,
+            "_repair_gate": reward_window.repairable_score,
+            "_broken_gate": reward_window.broken_score,
             "_window_mu": reward_window.window_mu,
             "_exec_gate": reward_window.exec_gate,
             "_cost_gate": reward_window.cost_gate,
@@ -199,7 +202,8 @@ def compute_frontres_reward(
             "_learnable_route_mask": reward_window.learnable_route_mask,
             "_exec_weight": reward_window.exec_weight,
             "_cost_weight": reward_window.cost_weight,
-            "_actor_gate": reward_window.actor_gate,
+            "_rho_update_weight": reward_window.rho_update_weight,
+            "_actor_gate": reward_window.rho_update_weight,
             "_harm_penalty": reward_window.harm_penalty,
             "_harm_penalty_exec": reward_window.harm_penalty_exec,
             "_harm_mag": reward_window.harm_mag,
@@ -274,6 +278,7 @@ class DebugSample:
     exec_frontres: float
     exec_candidate: float
     exec_clean: float
+    rho_action: float
     expected: str
 
 
@@ -305,7 +310,9 @@ class FakeRunner:
         self._frontres_stable_endpoint_frac = 0.0
 
     def _frontres_structured_joint_effective_enabled(self) -> bool:
-        return False
+        return bool(self.cfg.get("frontres_structured_joint_rl_enabled", False)) and float(
+            self.cfg.get("frontres_structured_joint_rl_weight", 0.0)
+        ) > 0.0
 
 
 def _debug_cfg() -> dict[str, Any]:
@@ -352,6 +359,20 @@ def _debug_cfg() -> dict[str, Any]:
         "frontres_grouped_rho_target_enabled": True,
         "frontres_per_mode_acceptance_preference_mask": True,
         "frontres_active_task_dims": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+        "frontres_structured_joint_rl_enabled": True,
+        "frontres_structured_joint_rl_weight": 1.0,
+        "frontres_structured_joint_rl_adv_clip": 5.0,
+        "frontres_structured_joint_directional_weight": 1.0,
+        "frontres_structured_joint_rho_center": 0.5,
+        "frontres_structured_joint_center_drive_deadzone": 0.10,
+        "frontres_structured_joint_retention_prior_weight": 0.0,
+        "frontres_structured_joint_floor_penalty_weight": 5.0,
+        "frontres_structured_joint_full_repair_bonus_weight": 1.0,
+        "frontres_structured_joint_weight_floor": 0.10,
+        "frontres_structured_joint_use_sample_weight": True,
+        "frontres_structured_joint_use_actor_gate_weight": True,
+        "frontres_debug_rho_prior_beta": 0.5,
+        "frontres_debug_repairable_prior_weight": 0.5,
         "frontres_state_alpha_enabled": False,
         "frontres_state_alpha_route_enabled": False,
         "frontres_stable_route_enabled": False,
@@ -371,11 +392,11 @@ def _debug_cfg() -> dict[str, Any]:
 
 def _debug_samples() -> list[DebugSample]:
     return [
-        DebugSample("safe", 0.950, 0.949, 0.952, 0.952, "low sample weight, no strong repair"),
-        DebugSample("raise_rho", 0.920, 0.945, 0.970, 0.980, "candidate better than current repair; raise rho"),
-        DebugSample("lower_rho", 0.930, 0.900, 0.880, 0.980, "candidate worse than noisy; lower rho/no-write"),
-        DebugSample("keep_rho", 0.920, 0.965, 0.955, 0.980, "current rho best; keep current repair"),
-        DebugSample("deep_broken", 0.750, 0.760, 0.770, 0.980, "outside repair frontier; low actor signal"),
+        DebugSample("safe", 0.950, 0.949, 0.952, 0.952, 0.75, "prior should punish high rho"),
+        DebugSample("raise_rho", 0.920, 0.945, 0.970, 0.980, 0.75, "evidence should reward high rho"),
+        DebugSample("lower_rho", 0.930, 0.900, 0.880, 0.980, 0.75, "evidence should punish high rho"),
+        DebugSample("keep_rho", 0.920, 0.965, 0.955, 0.980, 0.25, "evidence should avoid pushing higher rho"),
+        DebugSample("deep_broken", 0.750, 0.760, 0.770, 0.980, 0.75, "prior should punish high rho unless evidence is strong"),
     ]
 
 
@@ -475,7 +496,8 @@ def build_debug_frontres_truth(
     identity_quat = torch.zeros(num_envs, 4, device=device)
     identity_quat[:, 0] = 1.0
     actions = torch.zeros(num_envs, 12, device=device)
-    actions[:n_train, 6:12] = 0.5
+    rho_actions = torch.tensor([s.rho_action for s in samples], device=device).view(-1, 1)
+    actions[:n_train, 6:12] = rho_actions.expand(-1, 6)
 
     context = FrontRESRewardContext(
         candidate_start=candidate_start,
@@ -607,6 +629,13 @@ def _print_sample_inputs(samples: list[DebugSample]) -> None:
 def _print_live_config(cfg: dict[str, Any]) -> None:
     _print_debug_boundary("0. live branch/config used by this debug harness")
     print(f"rho_space: {cfg['frontres_rho_space']}")
+    print(f"structured_rho_advantage_learning: {cfg['frontres_structured_joint_rl_enabled']}")
+    print(f"use_rho_update_weight (legacy config key): {cfg['frontres_structured_joint_use_sample_weight']}")
+    print(
+        "debug prior: "
+        f"beta={cfg['frontres_debug_rho_prior_beta']}, "
+        f"repairable_prior_weight={cfg['frontres_debug_repairable_prior_weight']}"
+    )
     print(f"state_alpha_enabled: {cfg['frontres_state_alpha_enabled']}")
     print(f"stable_route_enabled: {cfg['frontres_stable_route_enabled']}")
     print(
@@ -626,20 +655,20 @@ def _print_live_config(cfg: dict[str, Any]) -> None:
 
 def _print_reward_window_debug(samples: list[DebugSample], truth: FrontRESRewardContext) -> None:
     window = truth.reward_window
-    _print_debug_boundary("B. sample classification gates")
+    _print_debug_boundary("B. continuous sample-region scores")
     print(
-        "name       damage_gap  safe_gate  repair_gate  broken_gate  "
-        "actor_weight  exec_weight  cost_weight"
+        "name       damage_gap  safe_score  repair_score  broken_score  "
+        "rho_update_weight exec_weight  cost_weight"
     )
     print("-" * 100)
     for i, sample in enumerate(samples):
         print(
             f"{sample.name:<10}"
             f"{window.damage_gap[i].item():>10.3f}  "
-            f"{window.safe_gate[i].item():>9.3f}  "
-            f"{window.repair_gate[i].item():>11.3f}  "
-            f"{window.broken_gate[i].item():>11.3f}  "
-            f"{window.actor_gate[i].item():>12.3f}  "
+            f"{window.safe_score[i].item():>10.3f}  "
+            f"{window.repairable_score[i].item():>12.3f}  "
+            f"{window.broken_score[i].item():>12.3f}  "
+            f"{window.rho_update_weight[i].item():>17.3f}  "
             f"{window.exec_weight[i].item():>11.3f}  "
             f"{window.cost_weight[i].item():>11.3f}"
         )
@@ -674,27 +703,130 @@ def _print_alpha_debug(
         )
 
 
-def _print_rho_debug(samples: list[DebugSample], runner: Any, rho_groundtruth: Any) -> None:
-    _print_debug_boundary("D. rho groundtruth")
-    target = runner.alg.transition.acceptance_target
-    mask = runner.alg.transition.acceptance_mask
-    print("rho target columns: dx dy dz roll pitch yaw")
-    print("name       target_mean  mask_mean  target[6]                         mask[6]")
-    print("-" * 102)
+def _rho_drive_from_action(rho_current: torch.Tensor, cfg: dict[str, Any]) -> torch.Tensor:
+    rho_center = max(0.0, min(1.0, float(cfg.get("frontres_structured_joint_rho_center", 0.5))))
+    deadzone = max(0.0, float(cfg.get("frontres_structured_joint_center_drive_deadzone", 0.10)))
+    centered = (2.0 * (rho_current.detach() - rho_center)).clamp(-1.0, 1.0)
+    if deadzone > 1.0e-6:
+        return torch.where(
+            centered.abs() >= deadzone,
+            torch.sign(centered),
+            centered / deadzone,
+        )
+    return torch.sign(centered)
+
+
+def _rho_loss_mask_from_action_cone(
+    *,
+    cfg: dict[str, Any],
+    n_exec: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    active_dims = set(int(dim) for dim in cfg.get("frontres_active_task_dims", list(range(12))))
+    # A rho dimension can train only if both its proposal dimension and its rho
+    # action dimension are enabled by the action cone.
+    per_dim = torch.tensor(
+        [1.0 if (dim in active_dims and dim + 6 in active_dims) else 0.0 for dim in range(6)],
+        device=device,
+        dtype=dtype,
+    )
+    return per_dim.view(1, 6).expand(n_exec, 6).clone()
+
+
+def apply_debug_prior_plus_evidence_rho_advantage(
+    runner: Any,
+    truth: FrontRESRewardContext,
+    actions: torch.Tensor,
+) -> dict[str, torch.Tensor]:
+    """Debug-only rho advantage design from the note contract.
+
+    This intentionally lives only in the standalone harness.  It tests the
+    concept before we touch the formal training path.
+    """
+    cfg = runner.cfg
+    n = int(truth.n_exec)
+    rho_current = actions[:n, 6:12].detach().clamp(0.0, 1.0)
+    rho_drive = _rho_drive_from_action(rho_current, cfg)
+    pref_margin = float(cfg.get("frontres_acceptance_preference_margin", 0.0))
+
+    candidate_regret = torch.relu(truth.exec_candidate[:n].detach() - truth.exec_frontres[:n].detach() - pref_margin)
+    noisy_regret = torch.relu(truth.exec_perturbed[:n].detach() - truth.exec_frontres[:n].detach() - pref_margin)
+    evidence_scale = (truth.exec_candidate[:n].detach() - truth.exec_perturbed[:n].detach()).abs() + pref_margin + 1.0e-6
+    evidence_direction = ((candidate_regret - noisy_regret) / evidence_scale).clamp(-1.0, 1.0)
+    rho_evidence_advantage = evidence_direction.view(-1, 1) * rho_drive
+
+    window = truth.reward_window
+    repairable_prior_weight = float(cfg.get("frontres_debug_repairable_prior_weight", 0.5))
+    prior_direction = (
+        repairable_prior_weight * window.repairable_score[:n].detach()
+        - window.safe_score[:n].detach()
+        - window.broken_score[:n].detach()
+    ).clamp(-1.0, 1.0)
+    rho_prior_advantage = prior_direction.view(-1, 1) * rho_drive
+    beta = float(cfg.get("frontres_debug_rho_prior_beta", 0.5))
+    rho_advantage = rho_evidence_advantage + beta * rho_prior_advantage
+    rho_loss_mask = _rho_loss_mask_from_action_cone(
+        cfg=cfg,
+        n_exec=n,
+        device=runner.device,
+        dtype=rho_advantage.dtype,
+    )
+
+    runner.alg.transition.acceptance_target = torch.zeros_like(runner.alg.transition.acceptance_target)
+    runner.alg.transition.acceptance_mask = torch.zeros_like(runner.alg.transition.acceptance_mask)
+    runner.alg.transition.acceptance_target[:n, :6] = rho_advantage.detach()
+    runner.alg.transition.acceptance_mask[:n, :6] = rho_loss_mask.detach()
+    return {
+        "rho_current": rho_current,
+        "rho_drive": rho_drive,
+        "evidence_direction": evidence_direction,
+        "rho_evidence_advantage": rho_evidence_advantage,
+        "prior_direction": prior_direction,
+        "rho_prior_advantage": rho_prior_advantage,
+        "rho_advantage": rho_advantage,
+        "rho_loss_mask": rho_loss_mask,
+    }
+
+
+def _print_rho_debug(
+    samples: list[DebugSample],
+    runner: Any,
+    rho_payload: Any,
+    rho_debug: dict[str, torch.Tensor],
+) -> None:
+    _print_debug_boundary("D. rho advantage learning")
+    rho_advantage = runner.alg.transition.acceptance_target
+    rho_loss_mask = runner.alg.transition.acceptance_mask
+    print("debug override: acceptance_target=rho_advantage, acceptance_mask=rho_loss_mask")
+    print(
+        "formula: rho_advantage = evidence_advantage + "
+        f"{runner.cfg['frontres_debug_rho_prior_beta']:.3f} * prior_advantage"
+    )
+    print("rho columns: dx dy dz roll pitch yaw")
+    print(
+        "name       rho  drive  ev_dir prior_dir ev_adv prior_adv final_adv loss_mask"
+    )
+    print("-" * 104)
     for i, sample in enumerate(samples):
         print(
             f"{sample.name:<10}"
-            f"{target[i].mean().item():>11.3f}  "
-            f"{mask[i].mean().item():>9.3f}  "
-            f"{_fmt_tensor(target[i], 3):<32} "
-            f"{_fmt_tensor(mask[i], 1)}"
+            f"{rho_debug['rho_current'][i].mean().item():>4.2f} "
+            f"{rho_debug['rho_drive'][i].mean().item():>6.2f} "
+            f"{rho_debug['evidence_direction'][i].item():>7.3f} "
+            f"{rho_debug['prior_direction'][i].item():>9.3f} "
+            f"{rho_debug['rho_evidence_advantage'][i].mean().item():>7.3f} "
+            f"{rho_debug['rho_prior_advantage'][i].mean().item():>9.3f} "
+            f"{rho_advantage[i].mean().item():>9.3f} "
+            f"{rho_loss_mask[i].mean().item():>9.1f}"
         )
     print(
         "rho diag means: "
-        f"planar={float(rho_groundtruth.rho_target_planar_mean):.3f}, "
-        f"rp={float(rho_groundtruth.rho_target_rp_mean):.3f}, "
-        f"z={float(rho_groundtruth.rho_target_z_mean):.3f}, "
-        f"group_mask={float(rho_groundtruth.grouped_rho_mask_mean):.3f}"
+        f"planar={float(rho_payload.rho_target_planar_mean):.3f}, "
+        f"rp={float(rho_payload.rho_target_rp_mean):.3f}, "
+        f"z={float(rho_payload.rho_target_z_mean):.3f}, "
+        f"group_weight={float(rho_payload.grouped_rho_mask_mean):.3f} "
+        "(formal payload before debug override)"
     )
 
 
@@ -730,10 +862,10 @@ def run_debug_reward_compute() -> None:
     _print_sample_inputs(samples)
     _print_reward_window_debug(samples, frontres_truth)
 
-    write_actor_sample_weight(
+    write_rho_update_weight(
         runner,
         n_exec=frontres_truth.n_exec,
-        actor_gate=frontres_truth.reward_window.actor_gate,
+        rho_update_weight=frontres_truth.reward_window.rho_update_weight,
     )
     alpha_groundtruth, alpha_groundtruth_mask = write_alpha_groundtruth(
         runner,
@@ -745,7 +877,7 @@ def run_debug_reward_compute() -> None:
     )
     _print_alpha_debug(samples, runner, frontres_truth, alpha_groundtruth, alpha_groundtruth_mask)
 
-    rho_groundtruth = write_rho_groundtruth(
+    rho_payload = write_rho_advantage(
         runner,
         actions=actions,
         reward_context=frontres_truth,
@@ -755,7 +887,8 @@ def run_debug_reward_compute() -> None:
         quat_mul_fn=_quat_mul_identity,
         quat_inv_fn=_quat_inv_identity,
     )
-    _print_rho_debug(samples, runner, rho_groundtruth)
+    rho_debug = apply_debug_prior_plus_evidence_rho_advantage(runner, frontres_truth, actions)
+    _print_rho_debug(samples, runner, rho_payload, rho_debug)
 
     diagnostic_sums = initialize_frontres_reward_diagnostic_sums()
     frontres_reward = compute_frontres_reward(
@@ -770,7 +903,7 @@ def run_debug_reward_compute() -> None:
             "_dr_done": False,
         },
         reward_context=frontres_truth,
-        accept_payload=rho_groundtruth,
+        accept_payload=rho_payload,
         rewards=torch.zeros(len(samples) * 4, device=device),
         dones=dones,
         actions=actions,
@@ -791,13 +924,13 @@ def run_debug_reward_compute() -> None:
 
     header = (
         "name       noisy  frontres  candidate  clean  gap   gain  "
-        "weight alpha mask  rho_mean rho_mask reward expected"
+        "rho_update alpha mask  rho_adv  rho_mask reward expected"
     )
     print(header)
     print("-" * len(header))
     for i, sample in enumerate(samples):
-        rho_mask = runner.alg.transition.acceptance_mask[i].mean().item()
-        rho_target = runner.alg.transition.acceptance_target[i].mean().item()
+        rho_loss_mask = runner.alg.transition.acceptance_mask[i].mean().item()
+        rho_advantage = runner.alg.transition.acceptance_target[i].mean().item()
         print(
             f"{sample.name:<10}"
             f"{sample.exec_noisy:>5.3f}  "
@@ -809,8 +942,8 @@ def run_debug_reward_compute() -> None:
             f"{runner.alg.transition.frontres_actor_gate[i, 0].item():>6.3f} "
             f"{alpha_groundtruth[i, 0].item():>5.3f} "
             f"{alpha_groundtruth_mask[i, 0].item():>4.1f}  "
-            f"{rho_target:>8.3f} "
-            f"{rho_mask:>8.3f} "
+            f"{rho_advantage:>7.3f} "
+            f"{rho_loss_mask:>8.3f} "
             f"{frontres_reward.rewards[i].item():>6.3f} "
             f"{sample.expected}"
         )
@@ -818,7 +951,7 @@ def run_debug_reward_compute() -> None:
     print("\nDiagnostics means:")
     for key in (
         "frontres_damage_gap_mean",
-        "frontres_actor_gate_mean",
+        "frontres_actor_gate_mean",  # legacy diagnostic name for rho_update_weight
         "frontres_repair_gain_mean",
         "frontres_train_reward_mean",
         "frontres_accept_pref_mask_mean",
