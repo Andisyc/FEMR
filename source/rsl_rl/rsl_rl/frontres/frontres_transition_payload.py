@@ -907,6 +907,7 @@ def build_and_write_frontres_acceptance_payload(
         mask_exec = non_tri_acceptance_payload.mask_exec
         need = non_tri_acceptance_payload.need
         admissibility = non_tri_acceptance_payload.admissibility
+        structured_rho_loss_mask = torch.ones_like(mask_exec)
         if bool(runner.cfg.get("frontres_per_mode_acceptance_preference_mask", True)):
             mode_dim_mask = runner._frontres_action_cone.mode_dim_mask(
                 ctx.mode_groups, n_exec, runner.device, mask_exec.dtype
@@ -916,6 +917,7 @@ def build_and_write_frontres_acceptance_payload(
                 mode_soft_floor = max(0.0, min(1.0, mode_soft_floor))
                 mode_dim_mask = (mode_soft_floor + (1.0 - mode_soft_floor) * mode_dim_mask).clamp(0.0, 1.0)
             mask_exec = mask_exec * mode_dim_mask
+            structured_rho_loss_mask = structured_rho_loss_mask * mode_dim_mask
         active_dims_cfg = runner.cfg.get("frontres_active_task_dims", None)
         if active_dims_cfg is not None:
             dim_mask = torch.zeros(6, device=runner.device, dtype=mask_exec.dtype)
@@ -926,11 +928,12 @@ def build_and_write_frontres_acceptance_payload(
                 elif 6 <= idx < 12:
                     dim_mask[idx - 6] = 1.0
             mask_exec = mask_exec * dim_mask.view(1, -1)
+            structured_rho_loss_mask = structured_rho_loss_mask * dim_mask.view(1, -1)
         # Boundary prior is kept separate from rollout rho advantage.  It only
         # says when the prior has authority; the loss decides how to use it.
         rho_prior_authority[:n_exec, 0] = (window.safe_score + window.broken_score).detach().clamp(0.0, 1.0)
         rho_prior_target[:n_exec] = 0.0
-        grouped_rho_mask_mean = mask_exec.mean()
+        grouped_rho_mask_mean = structured_rho_loss_mask.mean()
         if rho_space in ("tri_anchor", "tri-anchor", "tri"):
             mask_sum_for_alpha = mask_exec.sum(dim=-1)
             target_mean_for_alpha = target_exec.mean(dim=-1).detach().clamp(0.0, 1.0)
@@ -960,7 +963,7 @@ def build_and_write_frontres_acceptance_payload(
             accept_target=accept_target,
             accept_mask=accept_mask,
             target_exec=target_exec,
-            mask_exec=mask_exec,
+            mask_exec=structured_rho_loss_mask,
             n_exec=n_exec,
             rho_current=rho_current,
             rho_update_weight=window.rho_update_weight,

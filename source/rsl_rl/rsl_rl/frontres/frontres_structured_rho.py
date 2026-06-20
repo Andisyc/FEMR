@@ -277,35 +277,28 @@ def build_structured_rho_carrier(
         pref_margin=float(pref_margin),
     )
 
-    candidate_regret = torch.relu(exec_candidate[:n].detach() - exec_frontres[:n].detach() - pref_margin)
-    fallback_regret = torch.relu(fallback_exec - exec_frontres[:n].detach() - pref_margin)
-    direction_scale = (exec_candidate[:n].detach() - fallback_exec).abs() + pref_margin + 1.0e-6
-    rho_direction = ((candidate_regret - fallback_regret) / direction_scale).clamp(-1.0, 1.0)
-    if isinstance(route_direction, torch.Tensor) and route_direction.shape == rho.shape:
-        rho_direction_dim = route_direction.to(device=device, dtype=rho.dtype).detach()
-    else:
-        rho_direction_dim = rho_direction.view(-1, 1).expand_as(rho).detach()
-
-    directional_adv = float(directional_weight) * rho_direction_dim * rho_drive
-    retention_term = float(retention_weight) * rho_drive
-    floor_direction = torch.where(full_repair_ok > 0.5, torch.ones_like(rho_direction), -torch.ones_like(rho_direction))
-    floor_term = (
-        float(floor_penalty_weight)
-        * floor_violation.view(-1, 1)
-        * floor_direction.view(-1, 1)
-        * rho_drive
+    rollout_gain = exec_frontres[:n].detach() - exec_perturbed[:n].detach()
+    evidence_scale = (
+        exec_candidate[:n].detach() - exec_perturbed[:n].detach()
+    ).abs() + float(pref_margin) + 1.0e-6
+    rho_direction = (rollout_gain / evidence_scale).clamp(-1.0, 1.0)
+    rho_direction = torch.where(
+        rollout_gain.abs() > float(pref_margin),
+        rho_direction,
+        torch.zeros_like(rho_direction),
     )
-    full_bonus = float(full_bonus_weight) * full_repair_ok.view(-1, 1) * rho_drive
-    adv_dim = directional_adv + retention_term + floor_term + full_bonus
+    rho_direction_dim = rho_direction.view(-1, 1).expand_as(rho).detach()
 
-    weight_floor = max(0.0, min(1.0, float(joint_weight_floor)))
-    if use_rho_update_weight:
-        effective_update_weight = (
-            weight_floor + (1.0 - weight_floor) * rho_update_weight[:n]
-        ).detach().clamp(0.0, 1.0)
-    else:
-        effective_update_weight = torch.ones((n,), device=device, dtype=rho.dtype)
-    weight_dim = (effective_update_weight.view(-1, 1) * dim_weight).detach().clamp(0.0, 1.0)
+    # Formal rho advantage must match the debug contract: rollout evidence
+    # owns PPO advantage; boundary priors are handled by a separate loss.
+    adv_dim = float(directional_weight) * rho_direction_dim
+    retention_term = torch.zeros_like(adv_dim)
+    floor_term = torch.zeros_like(adv_dim)
+    full_bonus = torch.zeros_like(adv_dim)
+
+    # The validity weight is now only the rho/action-cone loss mask.  Sample
+    # selection and boundary priors must not be hidden inside this mask.
+    weight_dim = dim_weight.detach().clamp(0.0, 1.0)
 
     rho_advantage[:n, :6] = adv_dim.detach()
     rho_validity_weight[:n, :6] = weight_dim
