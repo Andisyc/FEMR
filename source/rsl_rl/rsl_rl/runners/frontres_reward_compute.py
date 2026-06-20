@@ -862,6 +862,65 @@ def _print_reward_debug(
         )
 
 
+def _print_algorithm_loss_toy_check(
+    samples: list[DebugSample],
+    runner: Any,
+    *,
+    rho_advantage: torch.Tensor,
+    rho_loss_mask: torch.Tensor,
+    prior_authority: torch.Tensor,
+    rho_prior: torch.Tensor,
+    policy_rho_mean: torch.Tensor,
+) -> None:
+    """TEST ONLY: mirror the algorithm-side rho/prior loss inputs.
+
+    This is not part of Reward Compute and is not imported by the runner.  It
+    verifies that the tensors produced by Reward Compute would be consumed by
+    the structured-rho algorithm loss with the intended signs and prior pull.
+    """
+
+    _print_debug_boundary("F. TEST ONLY algorithm loss toy check")
+    print("This section is TEST ONLY. It mirrors frontres_unified.py loss inputs.")
+    rho_weight = rho_loss_mask.detach().clamp(min=0.0)
+    rho_active = rho_weight > 1.0e-6
+    # At ratio=1, PPO's clipped surrogate is simply -adv.  This is enough to
+    # inspect the sign of the learning signal without constructing a policy.
+    rho_loss_terms = -rho_advantage.detach()
+    rho_loss = (rho_loss_terms * rho_weight).sum() / rho_weight.sum().clamp(min=1.0e-6)
+    prior_weight = float(runner.cfg.get("frontres_structured_joint_prior_loss_weight", 1.0))
+    prior_dim_weight = (prior_authority.view(-1, 1) * rho_active.to(rho_weight.dtype)).clamp(0.0, 1.0)
+    prior_error = (policy_rho_mean.detach() - rho_prior.detach()).pow(2)
+    prior_loss = torch.zeros((), device=runner.device)
+    if bool((prior_dim_weight > 1.0e-6).any().detach().item()):
+        prior_loss = (prior_error * prior_dim_weight).sum() / prior_dim_weight.sum().clamp(min=1.0e-6)
+    total_loss = rho_loss + prior_weight * prior_loss
+
+    print(
+        "name       adv    mask prior_auth policy_rho prior_loss_i ppo_loss_i expected"
+    )
+    print("-" * 104)
+    per_sample_prior = (prior_error * prior_dim_weight).sum(dim=-1) / prior_dim_weight.sum(dim=-1).clamp(min=1.0e-6)
+    per_sample_ppo = (rho_loss_terms * rho_weight).sum(dim=-1) / rho_weight.sum(dim=-1).clamp(min=1.0e-6)
+    for i, sample in enumerate(samples):
+        print(
+            f"{sample.name:<10}"
+            f"{rho_advantage[i].mean().item():>6.3f} "
+            f"{rho_weight[i].mean().item():>7.3f} "
+            f"{prior_authority[i].item():>10.3f} "
+            f"{policy_rho_mean[i].mean().item():>10.3f} "
+            f"{per_sample_prior[i].item():>12.3f} "
+            f"{per_sample_ppo[i].item():>10.3f} "
+            f"{sample.expected}"
+        )
+    print(
+        "loss means: "
+        f"rho_loss={rho_loss.item():+.4f}, "
+        f"prior_loss={prior_loss.item():.4f}, "
+        f"prior_weight={prior_weight:.3f}, "
+        f"total={total_loss.item():+.4f}"
+    )
+
+
 def run_debug_reward_compute() -> None:
     device = torch.device("cpu")
     samples = _debug_samples()
@@ -902,6 +961,15 @@ def run_debug_reward_compute() -> None:
     formal_rho_loss_mask = runner.alg.transition.acceptance_mask.detach().clone()
     rho_debug = apply_debug_rollout_rho_advantage_with_prior_anchor(runner, frontres_truth, actions)
     _print_rho_debug(samples, runner, rho_payload, rho_debug, formal_rho_advantage, formal_rho_loss_mask)
+    _print_algorithm_loss_toy_check(
+        samples,
+        runner,
+        rho_advantage=formal_rho_advantage[:frontres_truth.n_exec, :6],
+        rho_loss_mask=formal_rho_loss_mask[:frontres_truth.n_exec, :6],
+        prior_authority=rho_debug["prior_authority"],
+        rho_prior=rho_debug["rho_prior"],
+        policy_rho_mean=rho_debug["rho_current"],
+    )
 
     diagnostic_sums = initialize_frontres_reward_diagnostic_sums()
     frontres_reward = compute_frontres_reward(
