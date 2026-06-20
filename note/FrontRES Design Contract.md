@@ -43,21 +43,31 @@ especially wrong for broken states: broken samples should not merely become weak
 updates; they should usually teach low \(\rho\) unless rollout evidence strongly
 contradicts that prior.
 
-The preferred contract is therefore:
+The preferred contract is therefore not a direct prior-plus-advantage sum.
+Rollout evidence should judge the sampled \(\rho\) action, while sample
+classification should decide whether a conservative prior is allowed to
+intervene:
 
 \[
-A_\rho = A_{\rm evidence} + \beta A_{\rm prior}.
+A_\rho = A_{\rm rollout},
 \]
 
-- \(A_{\rm evidence}\) is the rollout comparison signal from Noisy, current
-  FrontRES, Candidate, and Clean-side evidence.  It answers whether writing more
-  repair would improve or damage execution relative to the baseline.
-- \(A_{\rm prior}\) is the continuous state-region prior from sample
-  classification.  It may enter PPO only as a weak prior advantage, not as a
-  supervised \(\rho\) ground truth.  It answers what repair authority should be
-  expected before trusting a weak rollout signal.
-- \(\beta\) controls prior authority.  The prior must be falsifiable: strong
-  rollout evidence can override it.
+\[
+L_{\rm prior}
+  = \beta \lambda_{\rm prior}\|\rho-\rho_{\rm prior}\|^2.
+\]
+
+- \(A_{\rm rollout}\) is the rollout comparison signal from Noisy, current
+  FrontRES, Candidate, and Clean-side evidence.  It answers whether the sampled
+  \(\rho\) action improved or damaged execution relative to the baseline.
+- \(\lambda_{\rm prior}\) is the continuous prior authority from sample
+  classification.  It is high on safe/broken boundary states and low on ordinary
+  repairable states.
+- \(\rho_{\rm prior}\) is the conservative boundary anchor.  In the current
+  minimal design, \(\rho_{\rm prior}=0\) for safe/broken boundary protection.
+- \(\beta\) controls the strength of this boundary pull.  The prior must be
+  falsifiable: strong rollout evidence can override it through the PPO
+  advantage.
 
 The state-region meaning is:
 
@@ -74,7 +84,7 @@ condition under which the repair authority policy acts.  It is not a separate
 target, not a deployment-time oracle, and not a replacement for rollout
 evidence.
 
-### Prior Advantage And Loss Mask Boundary
+### Continuous Boundary Prior Authority
 
 The state-region prior has a supervised-learning flavor because it is built from
 a hand-designed continuous sample classification curve.  It must not be turned
@@ -82,27 +92,56 @@ into a direct supervised target such as \(\rho_{\rm gt}=f(\text{region})\).  Tha
 would collapse repair authority learning into a hand-built classifier and remove
 the rollout counterfactual as the behavior judge.
 
-The clean boundary is:
+The updated boundary is:
 
 ```text
-sample classification -> rho_prior_advantage
-rollout comparison    -> rho_evidence_advantage
-PPO                   -> trains the sampled rho action using their signed sum
+rollout comparison    -> rho_advantage
+sample classification -> prior_authority
+action cone           -> rho_loss_mask
 ```
 
-In other words, the prior can enter PPO because it is converted into an
-advantage over the sampled \(\rho\) action.  It does not define the final desired
-\(\rho\) value.
+Thus, rollout evidence remains the judge of the sampled \(\rho\) action.  The
+prior does not produce a second advantage and does not directly vote on whether
+the sampled action was good.  Instead, the prior decides whether the current
+state is a boundary case where \(\rho\) should be softly pulled toward a
+conservative value.
 
-The first testable version should use the minimal form:
+The prior authority must remain continuous because the sample classification is
+continuous:
 
 \[
-A_\rho = A_{\rm evidence} + \beta A_{\rm prior}.
+\lambda_{\rm prior}
+  = \operatorname{clip}(s_{\rm safe} + s_{\rm broken}, 0, 1).
 \]
 
-Do not add a weak-evidence gate or other protective coefficient unless the
-debug numbers show that the prior overpowers strong rollout evidence.  The
-method should first test the smallest prior-plus-evidence construction.
+This means:
+
+```text
+safe region       -> high prior authority, pull rho low
+repairable region -> low prior authority, let rollout decide
+broken region     -> high prior authority, pull rho low unless evidence is strong
+```
+
+The minimal debug objective is:
+
+\[
+A_\rho = A_{\rm rollout},
+\]
+
+\[
+L_{\rm prior}
+  = \beta \lambda_{\rm prior} \|\rho - \rho_{\rm prior}\|^2,
+  \qquad \rho_{\rm prior}=0.
+\]
+
+This preserves the intended roles:
+
+```text
+rho_advantage     = rollout evidence for the sampled rho action
+prior_authority   = continuous permission for the prior to intervene
+rho_prior_loss    = conservative boundary pull for safe/broken states
+rho_loss_mask     = active rho dimensions allowed by the action cone
+```
 
 The old `rho_weight` / `rho_validity_weight` concept should not be treated as
 sample confidence or sample importance.  The only clean role left for a mask is
@@ -112,26 +151,9 @@ the Action-Cone loss mask:
 rho_loss_mask = active rho dimensions allowed by the action cone
 ```
 
-Thus:
-
-```text
-rho_advantage = what direction PPO should learn
-rho_loss_mask = which rho dimensions are allowed to learn
-```
-
 For the current full-size repair setting, `rho_loss_mask` should usually be all
 ones except dimensions disabled by the action cone, such as upward-z repair when
 that axis is intentionally blocked.
-
-Recommended implementation vocabulary:
-
-```text
-sample_region / repair_region_prior      # state classification
-rho_prior_advantage                      # direction supplied by the prior
-rho_evidence_advantage                   # direction supplied by rollout evidence
-rho_advantage                            # final training signal for rho
-rho_loss_mask                            # action-cone mask only
-```
 
 Avoid using `sample_weight` as the main conceptual name when the value decides
 the direction of \(\rho\) learning.  `sample_weight` is acceptable only for a
