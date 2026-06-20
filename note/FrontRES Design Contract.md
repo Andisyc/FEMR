@@ -143,6 +143,36 @@ rho_prior_loss    = conservative boundary pull for safe/broken states
 rho_loss_mask     = active rho dimensions allowed by the action cone
 ```
 
+The expected debug behavior is:
+
+```text
+safe sample:
+  rollout advantage may be zero if the damage is inside the margin,
+  but prior_authority should be positive and rho_prior_loss should pull high rho
+  down.
+
+ordinary repairable sample:
+  prior_authority should be near zero, so rollout evidence alone decides whether
+  the sampled rho action is encouraged or discouraged.
+
+low-rho-good sample:
+  if a low sampled rho already improves execution, rho_advantage should be
+  positive and prior_authority should stay near zero.  The prior must not punish
+  the low rho merely because the state is repairable.
+
+deep-broken sample:
+  rollout advantage may be weakly positive, but prior_authority should be high
+  and rho_prior_loss should pull high rho down unless the rollout evidence is
+  strong enough to justify override.
+```
+
+The current standalone debug harness implements this contract only as a
+diagnostic prototype.  `rho_advantage` is written into the temporary acceptance
+target, while `rho_prior_loss` is printed as a proxy and is not yet connected to
+the formal algorithm loss.  Do not treat the prior boundary mechanism as live
+training code until the algorithm update path explicitly consumes this loss and
+prints a live-path diagnostic.
+
 The old `rho_weight` / `rho_validity_weight` concept should not be treated as
 sample confidence or sample importance.  The only clean role left for a mask is
 the Action-Cone loss mask:
@@ -158,6 +188,144 @@ that axis is intentionally blocked.
 Avoid using `sample_weight` as the main conceptual name when the value decides
 the direction of \(\rho\) learning.  `sample_weight` is acceptable only for a
 pure multiplicative confidence term.
+
+### Reward Compute Review Contract
+
+When reviewing or modifying Reward Compute, treat it as a causal converter, not
+as a general training module.
+
+Its concept-level responsibility is:
+
+```text
+rollout evidence + state-region prior
+  -> rho advantage
+  -> rho prior authority
+  -> rho loss mask
+  -> reward diagnostics
+```
+
+Reward Compute must answer four separate questions and must not collapse them
+into one parameter:
+
+```text
+1. Did the sampled rho action improve execution?
+   Output: rho_advantage.
+   Source: rollout comparison against Noisy/Fallback/Candidate evidence.
+
+2. Is this state a boundary region where low rho should be preferred by prior?
+   Output: rho_prior_authority.
+   Source: continuous safe_score + broken_score.
+
+3. Which rho dimensions are allowed to learn?
+   Output: rho_loss_mask.
+   Source: action cone and active task dimensions.
+
+4. What scalar reward should be written back to PPO/environment bookkeeping?
+   Output: reward delta and reward diagnostics.
+   Source: executable improvement, harm penalty, intervention cost, and related
+   diagnostics.
+```
+
+The forbidden collapses are:
+
+```text
+sample classification must not become rho advantage directly;
+rho loss mask must not be used as sample confidence;
+prior authority must not overwrite rollout evidence;
+reward scalar must not silently redefine rho advantage;
+diagnostics must not be the only place where a training signal exists.
+```
+
+The minimal review order for Reward Compute is:
+
+```text
+manual sample table
+  -> sample classification values
+  -> rollout evidence values
+  -> rho_advantage
+  -> rho_prior_authority / rho_prior_target
+  -> rho_loss_mask
+  -> final reward delta
+  -> storage fields written for algorithm update
+```
+
+Each row in the manual sample table should have an expected human-readable
+verdict before looking at code output, such as:
+
+```text
+safe: low rho preferred by prior; rollout advantage may be zero.
+raise-rho repairable: rollout should encourage higher rho; prior should stay weak.
+lower-rho harmful: rollout should discourage rho; prior should stay weak.
+low-rho-good: rollout should reward the sampled low rho; prior should stay weak.
+deep-broken: prior should pull rho low unless rollout evidence is very strong.
+```
+
+This contract is intentionally smaller than the whole training pipeline.  It is
+the first local review unit for `frontres_reward_compute.py`,
+`frontres_reward_window.py`, `frontres_transition_payload.py`, and
+`frontres_structured_rho.py`.
+
+### Reward Compute Interface Map
+
+Use this map when reviewing code.  Do not start from a large function body.
+Start from one interface row, then inspect only the producer, storage field, and
+consumer for that row.
+
+```text
+rollout scores
+  producer: frontres_reward_window.py
+  names: exec_perturbed, exec_frontres, exec_candidate, exec_feasible,
+         safe_score, repairable_score, broken_score
+  role: evidence and region prior source
+  must not: directly update policy
+
+rho advantage
+  producer: frontres_structured_rho.py
+  formal storage: transition.acceptance_target / storage.acceptance_target
+  live meaning: rho_advantage, not BCE target
+  consumer: frontres_unified.py structured rho PPO loss
+  gradient target: sampled rho action through PPO log probability
+
+rho loss mask
+  producer: frontres_transition_payload.py plus action cone / active dims
+  formal storage: transition.acceptance_mask / storage.acceptance_mask
+  live meaning: active rho dimensions allowed to train
+  consumer: frontres_unified.py structured rho PPO loss
+  must not: be interpreted as sample confidence unless explicitly documented
+
+rho prior authority
+  producer: frontres_transition_payload.py
+  formula: clip(safe_score + broken_score, 0, 1)
+  storage: transition.rho_prior_authority / storage.rho_prior_authority
+  consumer: frontres_unified.py prior regularization
+  gradient target: policy rho mean, sigmoid(mu[:, 6:12])
+
+rho prior target
+  producer: frontres_transition_payload.py
+  current value: zero
+  storage: transition.rho_prior_target / storage.rho_prior_target
+  consumer: frontres_unified.py prior regularization
+  meaning: conservative boundary anchor, not rollout evidence
+
+reward delta
+  producer: frontres_reward_window.py and post-step connector
+  storage/use: written back to rewards and diagnostics
+  consumer: PPO critic / ordinary return bookkeeping
+  must not: silently redefine rho_advantage
+
+diagnostics
+  producer: reward window, transition payload, algorithm loss
+  consumer: frontres_runner_logging.py / frontres_diagnostics.py
+  required live sentinels: structured_joint_rl_prior_loss,
+                           structured_joint_rl_prior_authority_mean,
+                           structured_joint_rl_prior_rho_mean
+```
+
+The current review boundary is Reward Compute only.  A bug is inside this
+boundary if it changes one of the listed fields or breaks the relationship
+between producer, storage, and consumer.  A bug is outside this boundary if it
+requires changing the policy architecture, the GMT tracker, or the environment
+rollout layout.
 
 ## 2026-06-11 Fixed-DR Stress Evaluation Branch
 

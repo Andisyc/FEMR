@@ -797,10 +797,13 @@ def _print_rho_debug(
     runner: Any,
     rho_payload: Any,
     rho_debug: dict[str, torch.Tensor],
+    formal_rho_advantage: torch.Tensor,
+    formal_rho_loss_mask: torch.Tensor,
 ) -> None:
     _print_debug_boundary("D. rho advantage learning")
     rho_advantage = runner.alg.transition.acceptance_target
     rho_loss_mask = runner.alg.transition.acceptance_mask
+    print("formal payload is printed before the debug override for direct comparison.")
     print("debug override: acceptance_target=rho_advantage, acceptance_mask=rho_loss_mask")
     print("formula: rho_advantage = rollout_gain(sampled rho vs Noisy) / evidence_scale")
     print(
@@ -811,9 +814,9 @@ def _print_rho_debug(
     )
     print("rho columns: dx dy dz roll pitch yaw")
     print(
-        "name       rho  gain roll_adv prior_auth rho_prior prior_loss final_adv loss_mask"
+        "name       rho  gain roll_adv prior_auth rho_prior prior_loss formal_adv formal_mask debug_adv debug_mask"
     )
-    print("-" * 104)
+    print("-" * 116)
     for i, sample in enumerate(samples):
         print(
             f"{sample.name:<10}"
@@ -823,8 +826,10 @@ def _print_rho_debug(
             f"{rho_debug['prior_authority'][i].item():>10.3f} "
             f"{rho_debug['rho_prior'][i].mean().item():>9.3f} "
             f"{rho_debug['rho_prior_loss_proxy'][i].mean().item():>10.3f} "
+            f"{formal_rho_advantage[i].mean().item():>10.3f} "
+            f"{formal_rho_loss_mask[i].mean().item():>11.3f} "
             f"{rho_advantage[i].mean().item():>9.3f} "
-            f"{rho_loss_mask[i].mean().item():>9.1f}"
+            f"{rho_loss_mask[i].mean().item():>10.3f}"
         )
     print(
         "rho diag means: "
@@ -893,8 +898,10 @@ def run_debug_reward_compute() -> None:
         quat_mul_fn=_quat_mul_identity,
         quat_inv_fn=_quat_inv_identity,
     )
+    formal_rho_advantage = runner.alg.transition.acceptance_target.detach().clone()
+    formal_rho_loss_mask = runner.alg.transition.acceptance_mask.detach().clone()
     rho_debug = apply_debug_rollout_rho_advantage_with_prior_anchor(runner, frontres_truth, actions)
-    _print_rho_debug(samples, runner, rho_payload, rho_debug)
+    _print_rho_debug(samples, runner, rho_payload, rho_debug, formal_rho_advantage, formal_rho_loss_mask)
 
     diagnostic_sums = initialize_frontres_reward_diagnostic_sums()
     frontres_reward = compute_frontres_reward(

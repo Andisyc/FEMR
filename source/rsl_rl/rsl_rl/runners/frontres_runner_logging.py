@@ -126,6 +126,11 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
         "structured_joint_rl_rho_weight_all_mean",
         "structured_joint_rl_rho_ratio_mean",
         "structured_joint_rl_rho_loss",
+        "structured_joint_rl_prior_loss",
+        "structured_joint_rl_prior_authority_mean",
+        "structured_joint_rl_prior_target_mean",
+        "structured_joint_rl_prior_rho_mean",
+        "lambda_structured_joint_prior",
         "structured_joint_rl_ratio_mean",
     }      # diagnostics, not losses
     _to_curriculum = {"lambda_supervised", "ppo_actor_weight"}  # scheduler state, not a loss

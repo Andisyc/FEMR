@@ -51,6 +51,10 @@ class RolloutStorage:
             # structured carrier is disabled.
             self.acceptance_target = None
             self.acceptance_mask = None
+            # Boundary prior for rho authority.  This is separate from rollout
+            # rho advantage so the prior can act as a regularizer, not as PPO evidence.
+            self.rho_prior_authority = None
+            self.rho_prior_target = None
             # Auxiliary State Router alpha: labels from paired Noisy/GMT
             # continuation.  This is not an action dimension.
             self.state_alpha_target = None
@@ -156,6 +160,8 @@ class RolloutStorage:
             self.supervised_harm_weight = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
             self.acceptance_target = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
             self.acceptance_mask = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
+            self.rho_prior_authority = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            self.rho_prior_target = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
             self.state_alpha_target = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
             self.state_alpha_mask = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
 
@@ -228,6 +234,10 @@ class RolloutStorage:
                 self.acceptance_target[self.step].copy_(transition.acceptance_target)
             if hasattr(transition, 'acceptance_mask') and transition.acceptance_mask is not None:
                 self.acceptance_mask[self.step].copy_(transition.acceptance_mask)
+            if hasattr(transition, 'rho_prior_authority') and transition.rho_prior_authority is not None:
+                self.rho_prior_authority[self.step].copy_(transition.rho_prior_authority)
+            if hasattr(transition, 'rho_prior_target') and transition.rho_prior_target is not None:
+                self.rho_prior_target[self.step].copy_(transition.rho_prior_target)
             if hasattr(transition, 'state_alpha_target') and transition.state_alpha_target is not None:
                 self.state_alpha_target[self.step].copy_(transition.state_alpha_target)
             if hasattr(transition, 'state_alpha_mask') and transition.state_alpha_mask is not None:
@@ -359,6 +369,8 @@ class RolloutStorage:
             supervised_harm_weight = self.supervised_harm_weight.flatten(0, 1)
             acceptance_target = self.acceptance_target.flatten(0, 1)
             acceptance_mask = self.acceptance_mask.flatten(0, 1)
+            rho_prior_authority = self.rho_prior_authority.flatten(0, 1)
+            rho_prior_target = self.rho_prior_target.flatten(0, 1)
             state_alpha_target = self.state_alpha_target.flatten(0, 1)
             state_alpha_mask = self.state_alpha_mask.flatten(0, 1)
             # For velocity estimator
@@ -412,6 +424,8 @@ class RolloutStorage:
                     supervised_harm_weight_batch = supervised_harm_weight[batch_idx]
                     acceptance_target_batch = acceptance_target[batch_idx]
                     acceptance_mask_batch = acceptance_mask[batch_idx]
+                    rho_prior_authority_batch = rho_prior_authority[batch_idx]
+                    rho_prior_target_batch = rho_prior_target[batch_idx]
                     state_alpha_target_batch = state_alpha_target[batch_idx]
                     state_alpha_mask_batch = state_alpha_mask[batch_idx]
                     # For velocity estimator
@@ -432,6 +446,8 @@ class RolloutStorage:
                     supervised_harm_weight_batch = None
                     acceptance_target_batch = None
                     acceptance_mask_batch = None
+                    rho_prior_authority_batch = None
+                    rho_prior_target_batch = None
                     state_alpha_target_batch = None
                     state_alpha_mask_batch = None
 
@@ -447,6 +463,7 @@ class RolloutStorage:
                         ref_vel_estimator_obs_batch, motion_groups_batch, frontres_mask_batch,
                         supervised_target_batch, frontres_actor_gate_batch, supervised_weight_batch,
                         supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch,
+                        rho_prior_authority_batch, rho_prior_target_batch,
                         state_alpha_target_batch, state_alpha_mask_batch,
                     )
                     if getattr(self, "yield_batch_indices", False):
@@ -555,6 +572,8 @@ class RolloutStorage:
                         supervised_harm_weight_batch = self.supervised_harm_weight[:, start:stop]
                         acceptance_target_batch = self.acceptance_target[:, start:stop]
                         acceptance_mask_batch = self.acceptance_mask[:, start:stop]
+                        rho_prior_authority_batch = self.rho_prior_authority[:, start:stop]
+                        rho_prior_target_batch = self.rho_prior_target[:, start:stop]
                         state_alpha_target_batch = self.state_alpha_target[:, start:stop]
                         state_alpha_mask_batch = self.state_alpha_mask[:, start:stop]
                     else:
@@ -566,13 +585,15 @@ class RolloutStorage:
                         supervised_harm_weight_batch = None
                         acceptance_target_batch = None
                         acceptance_mask_batch = None
+                        rho_prior_authority_batch = None
+                        rho_prior_target_batch = None
                         state_alpha_target_batch = None
                         state_alpha_mask_batch = None
                     if self.training_type == "frontres":
                         yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                             hid_a_batch,
                             hid_c_batch,
-                        ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch, frontres_actor_gate_batch, supervised_weight_batch, supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch, state_alpha_target_batch, state_alpha_mask_batch
+                        ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch, frontres_actor_gate_batch, supervised_weight_batch, supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch, rho_prior_authority_batch, rho_prior_target_batch, state_alpha_target_batch, state_alpha_mask_batch
                     else:
                         yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                             hid_a_batch,

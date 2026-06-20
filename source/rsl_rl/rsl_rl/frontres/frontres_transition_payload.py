@@ -739,6 +739,8 @@ def build_and_write_frontres_acceptance_payload(
     accept_payload = initialize_frontres_acceptance_payload(runner)
     accept_target = accept_payload.accept_target
     accept_mask = accept_payload.accept_mask
+    rho_prior_authority = torch.zeros(runner.env.num_envs, 1, device=runner.device)
+    rho_prior_target = torch.zeros(runner.env.num_envs, 6, device=runner.device)
     pref_inertial_penalty_rho_mean = accept_payload.pref_inertial_penalty_rho_mean
     pref_inertial_penalty_one_mean = accept_payload.pref_inertial_penalty_one_mean
     tri_weight_repair_mean = accept_payload.tri_weight_repair_mean
@@ -924,6 +926,10 @@ def build_and_write_frontres_acceptance_payload(
                 elif 6 <= idx < 12:
                     dim_mask[idx - 6] = 1.0
             mask_exec = mask_exec * dim_mask.view(1, -1)
+        # Boundary prior is kept separate from rollout rho advantage.  It only
+        # says when the prior has authority; the loss decides how to use it.
+        rho_prior_authority[:n_exec, 0] = (window.safe_score + window.broken_score).detach().clamp(0.0, 1.0)
+        rho_prior_target[:n_exec] = 0.0
         grouped_rho_mask_mean = mask_exec.mean()
         if rho_space in ("tri_anchor", "tri-anchor", "tri"):
             mask_sum_for_alpha = mask_exec.sum(dim=-1)
@@ -1016,8 +1022,27 @@ def build_and_write_frontres_acceptance_payload(
         accept_target = accept_payload.accept_target
         accept_mask = accept_payload.accept_mask
 
+    if bool(runner.cfg.get("frontres_reward_compute_live_debug", False)) and n_exec > 0:
+        it = int(getattr(runner, "current_learning_iteration", 0))
+        interval = max(1, int(runner.cfg.get("frontres_restore_debug_print_interval", 10)))
+        if it % interval == 0:
+            print(
+                "[FrontRES reward live payload] "
+                f"it={it} "
+                f"safe={window.safe_score[:n_exec].mean().detach().item():.3f} "
+                f"repair={window.repairable_score[:n_exec].mean().detach().item():.3f} "
+                f"broken={window.broken_score[:n_exec].mean().detach().item():.3f} "
+                f"prior_auth={rho_prior_authority[:n_exec, 0].mean().detach().item():.3f} "
+                f"rho_adv={accept_target[:n_exec].mean().detach().item():+.4f} "
+                f"rho_mask={accept_mask[:n_exec].mean().detach().item():.3f} "
+                f"reward={ctx.reward_window.r_delta[:n_exec].mean().detach().item() if ctx.reward_window.r_delta is not None else 0.0:+.4f}",
+                flush=True,
+            )
+
     runner.alg.transition.acceptance_target = accept_target
     runner.alg.transition.acceptance_mask = accept_mask
+    runner.alg.transition.rho_prior_authority = rho_prior_authority
+    runner.alg.transition.rho_prior_target = rho_prior_target
     return accept_payload
 
 

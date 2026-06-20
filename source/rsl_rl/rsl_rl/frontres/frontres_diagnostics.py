@@ -279,6 +279,9 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
             f"w_act={_value(loss_dict, 'structured_joint_rl_weight_mean'):.3f}, "
             f"w_all={_value(loss_dict, 'structured_joint_rl_weight_all_mean'):.3f}, "
             f"dim={_value(loss_dict, 'structured_joint_rl_dim_active_mean'):.3f}, "
+            f"prior={_value(loss_dict, 'structured_joint_rl_prior_loss'):.4f}, "
+            f"p_auth={_value(loss_dict, 'structured_joint_rl_prior_authority_mean'):.3f}, "
+            f"p_rho={_value(loss_dict, 'structured_joint_rl_prior_rho_mean'):.3f}, "
             f"generic={_value(loss_dict, 'ppo_actor_weight'):.3f}, "
             f"rho_ratio={_value(loss_dict, 'structured_joint_rl_ratio_mean'):.3f})\n"
         )

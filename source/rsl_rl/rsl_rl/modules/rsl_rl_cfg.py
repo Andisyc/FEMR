@@ -400,6 +400,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Penalty weight for projected references below the executable floor."""
     frontres_structured_joint_full_repair_bonus_weight: float = 1.0
     """Extra retention bonus when the full Repair proposal is executable."""
+    frontres_structured_joint_prior_loss_weight: float = 0.0
+    """Boundary-prior regularization weight for safe/deep-broken rho authority."""
+    frontres_reward_compute_live_debug: bool = False
+    """Print live formal Reward Compute payload/loss diagnostics during smoke tests."""
     frontres_structured_joint_weight_floor: float = 0.10
     """Minimum structured-rho carrier weight for active executable samples."""
     frontres_oracle_upper_bound_diag_enabled: bool = True

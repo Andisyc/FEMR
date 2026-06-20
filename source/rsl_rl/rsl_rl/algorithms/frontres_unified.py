@@ -92,6 +92,8 @@ class FrontRESUnified:
         frontres_structured_joint_retention_prior_weight: float = 0.0,
         frontres_structured_joint_floor_penalty_weight: float = 5.0,
         frontres_structured_joint_full_repair_bonus_weight: float = 1.0,
+        frontres_structured_joint_prior_loss_weight: float = 0.0,
+        frontres_reward_compute_live_debug: bool = False,
         diagnose_gradient_conflict: bool = True,
         hybrid: bool = True,
         use_ppo: bool = True,
@@ -225,6 +227,10 @@ class FrontRESUnified:
         self.frontres_structured_joint_full_repair_bonus_weight = max(
             0.0, float(frontres_structured_joint_full_repair_bonus_weight)
         )
+        self.frontres_structured_joint_prior_loss_weight = max(
+            0.0, float(frontres_structured_joint_prior_loss_weight)
+        )
+        self.frontres_reward_compute_live_debug = bool(frontres_reward_compute_live_debug)
         self.diagnose_gradient_conflict = bool(diagnose_gradient_conflict)
         self.ppo_actor_weight = 1.0
         self._supervised_decay_triggered = False
@@ -531,10 +537,12 @@ class FrontRESUnified:
                 supervised_harm_weight_batch,
                 acceptance_target_batch,
                 acceptance_mask_batch,
+                rho_prior_authority_batch,
+                rho_prior_target_batch,
                 state_alpha_target_batch,
                 state_alpha_mask_batch,
-            ) = batch[:26]
-            batch_indices = batch[26] if len(batch) > 26 else None
+            ) = batch[:28]
+            batch_indices = batch[28] if len(batch) > 28 else None
             original_batch_size = obs_batch.shape[0]
             if self.normalize_advantage_per_mini_batch:
                 with torch.no_grad():
@@ -586,6 +594,7 @@ class FrontRESUnified:
             )
             structured_joint_rl_loss, structured_joint_rl_metrics = self._compute_structured_joint_rl_loss(
                 obs_batch_augmented,
+                mu_batch,
                 actions_batch,
                 old_mu_batch,
                 old_sigma_batch,
@@ -593,6 +602,8 @@ class FrontRESUnified:
                 old_actions_log_prob_batch,
                 acceptance_target_batch,
                 acceptance_mask_batch,
+                rho_prior_authority_batch,
+                rho_prior_target_batch,
                 original_batch_size,
             )
 
@@ -786,6 +797,7 @@ class FrontRESUnified:
             "lambda_state_alpha": self.frontres_state_alpha_weight,
             "structured_joint_rl_loss": mean_structured_joint_rl_loss,
             "lambda_structured_joint_rl": self.frontres_structured_joint_rl_weight,
+            "lambda_structured_joint_prior": self.frontres_structured_joint_prior_loss_weight,
             "ppo_actor_weight": (
                 0.0
                 if (
@@ -1272,6 +1284,7 @@ class FrontRESUnified:
     def _compute_structured_joint_rl_loss(
         self,
         obs_batch,
+        mu_batch,
         actions_batch,
         old_mu_batch,
         old_sigma_batch,
@@ -1279,6 +1292,8 @@ class FrontRESUnified:
         old_actions_log_prob_batch,
         acceptance_target_batch,
         acceptance_mask_batch,
+        rho_prior_authority_batch,
+        rho_prior_target_batch,
         original_batch_size,
     ):
         zero = obs_batch[:original_batch_size].sum() * 0.0
@@ -1295,9 +1310,17 @@ class FrontRESUnified:
             "structured_joint_rl_rho_weight_all_mean": 0.0,
             "structured_joint_rl_rho_ratio_mean": 1.0,
             "structured_joint_rl_rho_loss": 0.0,
+            "structured_joint_rl_prior_loss": 0.0,
+            "structured_joint_rl_prior_authority_mean": 0.0,
+            "structured_joint_rl_prior_target_mean": 0.0,
+            "structured_joint_rl_prior_rho_mean": 0.0,
             "structured_joint_rl_ratio_mean": 1.0,
             "structured_joint_rl_dim_active_mean": 0.0,
         }
+        # Structured-rho mode reuses legacy acceptance_* storage fields:
+        # target carries rho advantage, mask carries rho loss weight.
+        rho_advantage_batch = acceptance_target_batch
+        rho_weight_batch = acceptance_mask_batch
         if (
             not self._structured_joint_rl_enabled()
             or rho_advantage_batch is None
@@ -1383,7 +1406,37 @@ class FrontRESUnified:
 
         rho_log_ratio = new_rho_logp - old_rho_logp
         rho_loss, rho_ratio = _clipped_loss(rho_adv, rho_weight, rho_log_ratio)
-        loss = rho_loss
+        prior_loss = zero
+        prior_loss_weight = float(getattr(self, "frontres_structured_joint_prior_loss_weight", 0.0))
+        if (
+            prior_loss_weight > 0.0
+            and rho_prior_authority_batch is not None
+            and rho_prior_target_batch is not None
+        ):
+            prior_authority = rho_prior_authority_batch[:n].to(
+                device=self.device, dtype=obs_batch.dtype
+            ).detach().clamp(0.0, 1.0)
+            if prior_authority.ndim == 1:
+                prior_authority = prior_authority.view(-1, 1)
+            prior_target = rho_prior_target_batch[:n, :cols].to(
+                device=self.device, dtype=obs_batch.dtype
+            ).detach().clamp(0.0, 1.0)
+            rho_mean = torch.sigmoid(mu_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype))
+            prior_dim_weight = (prior_authority[:, :1] * (rho_weight > 1e-6).to(obs_batch.dtype)).clamp(0.0, 1.0)
+            if bool((prior_dim_weight > 1e-6).any().detach().item()):
+                prior_error = (rho_mean - prior_target).pow(2)
+                prior_loss = (prior_error * prior_dim_weight).sum() / prior_dim_weight.sum().clamp(min=1e-6)
+                metrics["structured_joint_rl_prior_loss"] = float(prior_loss.detach().item())
+                metrics["structured_joint_rl_prior_authority_mean"] = float(
+                    prior_authority.mean().detach().item()
+                )
+                metrics["structured_joint_rl_prior_target_mean"] = float(
+                    prior_target[prior_dim_weight > 1e-6].mean().detach().item()
+                )
+                metrics["structured_joint_rl_prior_rho_mean"] = float(
+                    rho_mean[prior_dim_weight > 1e-6].mean().detach().item()
+                )
+        loss = rho_loss + prior_loss_weight * prior_loss
 
         metrics["structured_joint_rl_adv_mean"] = float(
             (rho_adv_raw[rho_active]).mean().detach().item()
@@ -1408,6 +1461,22 @@ class FrontRESUnified:
         metrics["structured_joint_rl_ratio_mean"] = metrics["structured_joint_rl_rho_ratio_mean"]
         metrics["structured_joint_rl_rho_loss"] = float(rho_loss.detach().item())
         metrics["structured_joint_rl_dim_active_mean"] = float(rho_active.float().mean().detach().item())
+        if bool(getattr(self, "frontres_reward_compute_live_debug", False)):
+            it = int(getattr(self, "current_learning_iteration", 0))
+            interval = max(1, int(getattr(self, "frontres_restore_debug_print_interval", 10)))
+            if it % interval == 0:
+                print(
+                    "[FrontRES reward live loss] "
+                    f"it={it} "
+                    f"adv={metrics['structured_joint_rl_adv_mean']:+.4f} "
+                    f"|adv|={metrics['structured_joint_rl_adv_abs_mean']:.4f} "
+                    f"weight={metrics['structured_joint_rl_weight_mean']:.3f} "
+                    f"prior_loss={metrics['structured_joint_rl_prior_loss']:.4f} "
+                    f"prior_auth={metrics['structured_joint_rl_prior_authority_mean']:.3f} "
+                    f"prior_rho={metrics['structured_joint_rl_prior_rho_mean']:.3f} "
+                    f"rho_loss={metrics['structured_joint_rl_rho_loss']:.4f}",
+                    flush=True,
+                )
         return loss, metrics
 
     def _compute_state_alpha_loss(
