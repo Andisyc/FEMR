@@ -832,12 +832,9 @@ def _print_rho_debug(
             f"{rho_loss_mask[i].mean().item():>10.3f}"
         )
     print(
-        "rho diag means: "
-        f"planar={float(rho_payload.rho_target_planar_mean):.3f}, "
-        f"rp={float(rho_payload.rho_target_rp_mean):.3f}, "
-        f"z={float(rho_payload.rho_target_z_mean):.3f}, "
-        f"group_weight={float(rho_payload.grouped_rho_mask_mean):.3f} "
-        "(formal payload before debug override)"
+        "rho carrier means: "
+        f"formal_adv={formal_rho_advantage[:len(samples), :6].mean().item():+.3f}, "
+        f"formal_mask={formal_rho_loss_mask[:len(samples), :6].mean().item():.3f}"
     )
 
 
@@ -895,11 +892,8 @@ def _print_algorithm_loss_toy_check(
         prior_loss = (prior_error * prior_dim_weight).sum() / prior_dim_weight.sum().clamp(min=1.0e-6)
     total_loss = rho_loss + prior_weight * prior_loss
 
-    print(
-        "name       adv    mask prior_auth policy_rho prior_loss_i weighted_prior_i ppo_loss_i expected"
-    )
+    print("name       adv    mask prior_auth policy_rho prior_loss_i ppo_loss_i expected")
     print("-" * 104)
-    per_sample_prior = prior_error.mean(dim=-1)
     per_sample_weighted_prior = (prior_error * prior_dim_weight).sum(dim=-1) / rho_weight.sum(dim=-1).clamp(
         min=1.0e-6
     )
@@ -911,8 +905,7 @@ def _print_algorithm_loss_toy_check(
             f"{rho_weight[i].mean().item():>7.3f} "
             f"{prior_authority[i].item():>10.3f} "
             f"{policy_rho_mean[i].mean().item():>10.3f} "
-            f"{per_sample_prior[i].item():>12.3f} "
-            f"{per_sample_weighted_prior[i].item():>16.3f} "
+            f"{per_sample_weighted_prior[i].item():>12.3f} "
             f"{per_sample_ppo[i].item():>10.3f} "
             f"{sample.expected}"
         )
@@ -949,7 +942,6 @@ def run_debug_reward_compute() -> None:
         infos=infos,
         base_start=frontres_truth.base_start,
     )
-    _print_alpha_debug(samples, runner, frontres_truth, alpha_groundtruth, alpha_groundtruth_mask)
 
     rho_payload = write_rho_advantage(
         runner,
@@ -1009,7 +1001,7 @@ def run_debug_reward_compute() -> None:
 
     header = (
         "name       noisy  frontres  candidate  clean  gap   gain  "
-        "rho_update alpha mask  rho_adv  rho_mask reward expected"
+        "rho_adv  rho_mask reward expected"
     )
     print(header)
     print("-" * len(header))
@@ -1024,25 +1016,13 @@ def run_debug_reward_compute() -> None:
             f"{sample.exec_clean:>5.3f}  "
             f"{frontres_truth.reward_window.damage_gap[i].item():>4.3f}  "
             f"{frontres_truth.repair_gain[i].item():>5.3f}  "
-            f"{runner.alg.transition.frontres_actor_gate[i, 0].item():>6.3f} "
-            f"{alpha_groundtruth[i, 0].item():>5.3f} "
-            f"{alpha_groundtruth_mask[i, 0].item():>4.1f}  "
             f"{rho_advantage:>7.3f} "
             f"{rho_loss_mask:>8.3f} "
             f"{frontres_reward.rewards[i].item():>6.3f} "
             f"{sample.expected}"
         )
-
-    print("\nDiagnostics means:")
-    for key in (
-        "frontres_damage_gap_mean",
-        "frontres_actor_gate_mean",  # legacy diagnostic name for rho_update_weight
-        "frontres_repair_gain_mean",
-        "frontres_train_reward_mean",
-        "frontres_accept_pref_mask_mean",
-        "frontres_state_alpha_target_mean",
-        "frontres_rho_target_planar_mean",
-    ):
+    print("\nCore means:")
+    for key in ("frontres_damage_gap_mean", "frontres_repair_gain_mean", "frontres_train_reward_mean"):
         print(f"  {key}: {means.get(key)}")
 
 

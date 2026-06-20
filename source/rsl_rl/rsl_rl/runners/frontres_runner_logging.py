@@ -568,8 +568,7 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                         and float(_loss_dict.get("lambda_acceptance_preference", 0.0)) <= 0.0
                     )
                     if _legacy_pref_disabled:
-                        log_string += f"""{"legacy accept pref:":>{pad}} """
-                        log_string += "disabled (structured rho carrier active)\n"
+                        pass
                     else:
                         log_string += f"""{'accept pref loss:':>{pad}} {_apl:.4f} """
                         _low_target_label = (
@@ -771,7 +770,8 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                 log_string += f"""\n{'-' * 10} Optimization / Update {'-' * 10}\n"""
                 if locs.get("frontres_window_mu_mean") is not None:
                     log_string += f"""{'mu (reward window):':>{pad}} {locs['frontres_window_mu_mean']:.3f}\n"""
-                    log_string += f"""{'actor sample weight:':>{pad}} {locs['frontres_actor_gate_mean']:.3f}\n"""
+                    if not self._frontres_structured_joint_effective_enabled():
+                        log_string += f"""{'actor sample weight:':>{pad}} {locs['frontres_actor_gate_mean']:.3f}\n"""
                 _gc = _loss_dict.get("grad_cos_ppo_supervised", None)
                 if _gc is not None:
                     _gr = _loss_dict.get("grad_norm_ratio_ppo_to_supervised", 0.0)
@@ -791,10 +791,7 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                         and not bool(self.cfg.get("frontres_structured_joint_rl_keep_legacy_bce", False))
                         and float(_loss_dict.get("lambda_acceptance_preference", 0.0)) <= 0.0
                     )
-                    if _legacy_pref_disabled:
-                        log_string += f"""{"legacy accept pref:":>{pad}} """
-                        log_string += "disabled (structured rho carrier active)\n"
-                    else:
+                    if not _legacy_pref_disabled:
                         log_string += f"""{'accept pref loss:':>{pad}} {_apl:.4f} """
                         _low_target_label = (
                             "stable"
@@ -822,12 +819,13 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                         )
                 log_string += format_frontres_optimization_diagnostics(_loss_dict, pad=pad)
                 if locs.get("frontres_window_mu_mean") is not None:
-                    log_string += f"""{'actor/exec/cost:':>{pad}} """
-                    log_string += (
-                        f"{locs['frontres_actor_gate_mean']:.3f} / "
-                        f"{locs['frontres_exec_gate_mean']:.3f} / "
-                        f"{locs['frontres_cost_gate_mean']:.3f}\n"
-                    )
+                    if not self._frontres_structured_joint_effective_enabled():
+                        log_string += f"""{'actor/exec/cost:':>{pad}} """
+                        log_string += (
+                            f"{locs['frontres_actor_gate_mean']:.3f} / "
+                            f"{locs['frontres_exec_gate_mean']:.3f} / "
+                            f"{locs['frontres_cost_gate_mean']:.3f}\n"
+                        )
     else:
         log_string = (
             f"""{'#' * width}\n"""

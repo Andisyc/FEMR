@@ -206,7 +206,7 @@ def format_frontres_preference_diagnostics(
     """Format acceptance/preference diagnostics that are still active."""
     lines: list[str] = []
 
-    if locs.get("frontres_accept_pref_mask_mean") is not None:
+    if locs.get("frontres_accept_pref_mask_mean") is not None and not _structured_joint_enabled(cfg):
         rho_space = _rho_space(cfg).lower()
         if _structured_joint_enabled(cfg):
             pref_label = structured_label
