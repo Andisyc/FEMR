@@ -32,7 +32,7 @@ from rsl_rl.algorithms.frontres_unified import FrontRESUnified
 @dataclass(frozen=True)
 class AdvantageCase:
     name: str
-    action_raw: float
+    action_rho: float
     rho_advantage: float
     rho_weight: float
     prior_authority: float
@@ -53,7 +53,10 @@ class LearnableRhoPolicy(torch.nn.Module):
     def get_actions_log_prob_per_dim(self, actions: torch.Tensor, dims: list[int]) -> torch.Tensor:
         mu = self.action_mean[:, dims]
         sigma = self.action_std[:, dims].clamp(min=1e-6)
-        action = actions[:, dims]
+        # Formal FrontRES stores rho actions after sigmoid, while action_mean
+        # remains in raw Gaussian/logit space.
+        action = actions[:, dims].clamp(1e-6, 1.0 - 1e-6)
+        action = torch.log(action / (1.0 - action))
         return -0.5 * ((action - mu) / sigma).pow(2) - torch.log(sigma)
 
     def get_actions_log_prob_per_dim_from_stats(
@@ -65,7 +68,8 @@ class LearnableRhoPolicy(torch.nn.Module):
     ) -> torch.Tensor:
         mu = old_mu[:, dims]
         sigma = old_sigma[:, dims].clamp(min=1e-6)
-        action = actions[:, dims]
+        action = actions[:, dims].clamp(1e-6, 1.0 - 1e-6)
+        action = torch.log(action / (1.0 - action))
         return -0.5 * ((action - mu) / sigma).pow(2) - torch.log(sigma)
 
 
@@ -92,7 +96,7 @@ def _build_cases() -> list[AdvantageCase]:
     return [
         AdvantageCase(
             name="raise_rho",
-            action_raw=0.70,
+            action_rho=0.70,
             rho_advantage=1.0,
             rho_weight=1.0,
             prior_authority=0.0,
@@ -101,7 +105,7 @@ def _build_cases() -> list[AdvantageCase]:
         ),
         AdvantageCase(
             name="lower_rho",
-            action_raw=0.70,
+            action_rho=0.70,
             rho_advantage=-1.0,
             rho_weight=1.0,
             prior_authority=0.0,
@@ -110,7 +114,7 @@ def _build_cases() -> list[AdvantageCase]:
         ),
         AdvantageCase(
             name="dead_at_mean",
-            action_raw=0.00,
+            action_rho=0.50,
             rho_advantage=1.0,
             rho_weight=1.0,
             prior_authority=0.0,
@@ -119,7 +123,7 @@ def _build_cases() -> list[AdvantageCase]:
         ),
         AdvantageCase(
             name="safe_prior",
-            action_raw=0.00,
+            action_rho=0.50,
             rho_advantage=0.0,
             rho_weight=1.0,
             prior_authority=1.0,
@@ -128,7 +132,7 @@ def _build_cases() -> list[AdvantageCase]:
         ),
         AdvantageCase(
             name="masked",
-            action_raw=0.70,
+            action_rho=0.70,
             rho_advantage=1.0,
             rho_weight=0.0,
             prior_authority=0.0,
@@ -147,7 +151,7 @@ def _case_tensors(cases: list[AdvantageCase]) -> dict[str, torch.Tensor]:
     prior_target = torch.zeros(n, 6)
 
     for i, case in enumerate(cases):
-        actions[i, 6:12] = case.action_raw
+        actions[i, 6:12] = case.action_rho
         rho_advantage[i, :] = case.rho_advantage
         rho_weight[i, :] = case.rho_weight
         prior_authority[i, 0] = case.prior_authority
@@ -212,7 +216,7 @@ def run_advantage_learning_check() -> None:
 
     print("=== FrontRES Advantage Learning TEST ONLY ===")
     print("This checks whether formal structured-rho loss can move rho away from 0.5.")
-    print("name           action  adv   mask  prior_auth  prior_gt  initial  final   expected   result")
+    print("name           rho_act adv   mask  prior_auth  prior_gt  initial  final   expected   result")
     print("-" * 96)
     failures: list[str] = []
     for i, case in enumerate(cases):
@@ -222,7 +226,7 @@ def run_advantage_learning_check() -> None:
         if not passed:
             failures.append(case.name)
         print(
-            f"{case.name:<14} {case.action_raw:+.2f}  {case.rho_advantage:+.2f}  "
+            f"{case.name:<14} {case.action_rho:+.2f}  {case.rho_advantage:+.2f}  "
             f"{case.rho_weight:.1f}   {case.prior_authority:.1f}         {case.prior_target:.1f}      "
             f"{initial:.3f}    {final:.3f}   {case.expected:<9} {'PASS' if passed else 'FAIL'}"
         )
