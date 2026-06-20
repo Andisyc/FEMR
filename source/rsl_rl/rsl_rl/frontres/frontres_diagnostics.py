@@ -301,7 +301,16 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
             f"prior={_value(loss_dict, 'structured_joint_rl_prior_loss'):.4f}, "
             f"p_auth={_value(loss_dict, 'structured_joint_rl_prior_authority_mean'):.3f}, "
             f"p_rho={_value(loss_dict, 'structured_joint_rl_prior_rho_mean'):.3f}, "
+            f"rho={_value(loss_dict, 'structured_joint_rl_rho_mean'):.3f}, "
+            f"|rho-.5|={_value(loss_dict, 'structured_joint_rl_rho_abs_from_half'):.3f}, "
+            f"near.5={_value(loss_dict, 'structured_joint_rl_rho_near_half_frac'):.3f}, "
             f"generic={_value(loss_dict, 'ppo_actor_weight'):.3f}, "
             f"rho_ratio={_value(loss_dict, 'structured_joint_rl_ratio_mean'):.3f})\n"
+        )
+        lines.append(
+            f"{'rho adv sign pos/neg/zero:':>{pad}} "
+            f"{_value(loss_dict, 'structured_joint_rl_adv_pos_frac'):.3f} / "
+            f"{_value(loss_dict, 'structured_joint_rl_adv_neg_frac'):.3f} / "
+            f"{_value(loss_dict, 'structured_joint_rl_adv_near_zero_frac'):.3f}\n"
         )
     return "".join(lines)

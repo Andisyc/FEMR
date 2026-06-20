@@ -1314,6 +1314,12 @@ class FrontRESUnified:
             "structured_joint_rl_prior_authority_mean": 0.0,
             "structured_joint_rl_prior_target_mean": 0.0,
             "structured_joint_rl_prior_rho_mean": 0.0,
+            "structured_joint_rl_rho_mean": 0.0,
+            "structured_joint_rl_rho_abs_from_half": 0.0,
+            "structured_joint_rl_rho_near_half_frac": 0.0,
+            "structured_joint_rl_adv_pos_frac": 0.0,
+            "structured_joint_rl_adv_neg_frac": 0.0,
+            "structured_joint_rl_adv_near_zero_frac": 0.0,
             "structured_joint_rl_ratio_mean": 1.0,
             "structured_joint_rl_dim_active_mean": 0.0,
         }
@@ -1406,6 +1412,7 @@ class FrontRESUnified:
 
         rho_log_ratio = new_rho_logp - old_rho_logp
         rho_loss, rho_ratio = _clipped_loss(rho_adv, rho_weight, rho_log_ratio)
+        rho_mean = torch.sigmoid(mu_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype))
         prior_loss = zero
         prior_loss_weight = float(getattr(self, "frontres_structured_joint_prior_loss_weight", 0.0))
         if (
@@ -1421,7 +1428,6 @@ class FrontRESUnified:
             prior_target = rho_prior_target_batch[:n, :cols].to(
                 device=self.device, dtype=obs_batch.dtype
             ).detach().clamp(0.0, 1.0)
-            rho_mean = torch.sigmoid(mu_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype))
             prior_dim_weight = (prior_authority[:, :1] * (rho_weight > 1e-6).to(obs_batch.dtype)).clamp(0.0, 1.0)
             if bool((prior_dim_weight > 1e-6).any().detach().item()):
                 prior_error = (rho_mean - prior_target).pow(2)
@@ -1461,6 +1467,25 @@ class FrontRESUnified:
         metrics["structured_joint_rl_ratio_mean"] = metrics["structured_joint_rl_rho_ratio_mean"]
         metrics["structured_joint_rl_rho_loss"] = float(rho_loss.detach().item())
         metrics["structured_joint_rl_dim_active_mean"] = float(rho_active.float().mean().detach().item())
+        if bool(rho_active.any().detach().item()):
+            active_adv_raw = rho_adv_raw[rho_active]
+            active_rho_mean = rho_mean[rho_active]
+            metrics["structured_joint_rl_rho_mean"] = float(active_rho_mean.mean().detach().item())
+            metrics["structured_joint_rl_rho_abs_from_half"] = float(
+                (active_rho_mean - 0.5).abs().mean().detach().item()
+            )
+            metrics["structured_joint_rl_rho_near_half_frac"] = float(
+                ((active_rho_mean - 0.5).abs() < 0.05).float().mean().detach().item()
+            )
+            metrics["structured_joint_rl_adv_pos_frac"] = float(
+                (active_adv_raw > 1e-6).float().mean().detach().item()
+            )
+            metrics["structured_joint_rl_adv_neg_frac"] = float(
+                (active_adv_raw < -1e-6).float().mean().detach().item()
+            )
+            metrics["structured_joint_rl_adv_near_zero_frac"] = float(
+                (active_adv_raw.abs() <= 1e-6).float().mean().detach().item()
+            )
         if bool(getattr(self, "frontres_reward_compute_live_debug", False)):
             it = int(getattr(self, "current_learning_iteration", 0))
             interval = int(getattr(self, "frontres_restore_debug_print_interval", 10))
@@ -1474,6 +1499,8 @@ class FrontRESUnified:
                     f"prior_loss={metrics['structured_joint_rl_prior_loss']:.4f} "
                     f"prior_auth={metrics['structured_joint_rl_prior_authority_mean']:.3f} "
                     f"prior_rho={metrics['structured_joint_rl_prior_rho_mean']:.3f} "
+                    f"rho_mean={metrics['structured_joint_rl_rho_mean']:.3f} "
+                    f"rho_|.5|={metrics['structured_joint_rl_rho_abs_from_half']:.3f} "
                     f"rho_loss={metrics['structured_joint_rl_rho_loss']:.4f}",
                     flush=True,
                 )
