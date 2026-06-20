@@ -372,7 +372,6 @@ def _debug_cfg() -> dict[str, Any]:
         "frontres_structured_joint_use_sample_weight": True,
         "frontres_structured_joint_use_actor_gate_weight": True,
         "frontres_debug_rho_prior_beta": 0.5,
-        "frontres_debug_repairable_prior_weight": 0.5,
         "frontres_state_alpha_enabled": False,
         "frontres_state_alpha_route_enabled": False,
         "frontres_stable_route_enabled": False,
@@ -392,11 +391,11 @@ def _debug_cfg() -> dict[str, Any]:
 
 def _debug_samples() -> list[DebugSample]:
     return [
-        DebugSample("safe", 0.950, 0.949, 0.952, 0.952, 0.75, "prior should punish high rho"),
+        DebugSample("safe", 0.950, 0.949, 0.952, 0.952, 0.75, "rollout should punish high rho"),
         DebugSample("raise_rho", 0.920, 0.945, 0.970, 0.980, 0.75, "evidence should reward high rho"),
         DebugSample("lower_rho", 0.930, 0.900, 0.880, 0.980, 0.75, "evidence should punish high rho"),
-        DebugSample("keep_rho", 0.920, 0.965, 0.955, 0.980, 0.25, "evidence should avoid pushing higher rho"),
-        DebugSample("deep_broken", 0.750, 0.760, 0.770, 0.980, 0.75, "prior should punish high rho unless evidence is strong"),
+        DebugSample("low_rho_good", 0.920, 0.965, 0.955, 0.980, 0.25, "rollout should reward current low rho"),
+        DebugSample("deep_broken", 0.750, 0.760, 0.770, 0.980, 0.75, "rollout is weak; prior anchor should stay low"),
     ]
 
 
@@ -633,8 +632,8 @@ def _print_live_config(cfg: dict[str, Any]) -> None:
     print(f"use_rho_update_weight (legacy config key): {cfg['frontres_structured_joint_use_sample_weight']}")
     print(
         "debug prior: "
-        f"beta={cfg['frontres_debug_rho_prior_beta']}, "
-        f"repairable_prior_weight={cfg['frontres_debug_repairable_prior_weight']}"
+        f"beta={cfg['frontres_debug_rho_prior_beta']} "
+        "(prior is reported as an anchor, not added to PPO advantage)"
     )
     print(f"state_alpha_enabled: {cfg['frontres_state_alpha_enabled']}")
     print(f"stable_route_enabled: {cfg['frontres_stable_route_enabled']}")
@@ -734,15 +733,16 @@ def _rho_loss_mask_from_action_cone(
     return per_dim.view(1, 6).expand(n_exec, 6).clone()
 
 
-def apply_debug_prior_plus_evidence_rho_advantage(
+def apply_debug_rollout_rho_advantage_with_prior_anchor(
     runner: Any,
     truth: FrontRESRewardContext,
     actions: torch.Tensor,
 ) -> dict[str, torch.Tensor]:
     """Debug-only rho advantage design from the note contract.
 
-    This intentionally lives only in the standalone harness.  It tests the
-    concept before we touch the formal training path.
+    The PPO advantage is owned by rollout evidence: did the sampled rho action
+    improve executable behavior over the Noisy/GMT baseline?  The sample-region
+    prior is reported separately as an anchor, not added to the advantage.
     """
     cfg = runner.cfg
     n = int(truth.n_exec)
@@ -750,22 +750,28 @@ def apply_debug_prior_plus_evidence_rho_advantage(
     rho_drive = _rho_drive_from_action(rho_current, cfg)
     pref_margin = float(cfg.get("frontres_acceptance_preference_margin", 0.0))
 
-    candidate_regret = torch.relu(truth.exec_candidate[:n].detach() - truth.exec_frontres[:n].detach() - pref_margin)
-    noisy_regret = torch.relu(truth.exec_perturbed[:n].detach() - truth.exec_frontres[:n].detach() - pref_margin)
-    evidence_scale = (truth.exec_candidate[:n].detach() - truth.exec_perturbed[:n].detach()).abs() + pref_margin + 1.0e-6
-    evidence_direction = ((candidate_regret - noisy_regret) / evidence_scale).clamp(-1.0, 1.0)
-    rho_evidence_advantage = evidence_direction.view(-1, 1) * rho_drive
+    rollout_gain = truth.exec_frontres[:n].detach() - truth.exec_perturbed[:n].detach()
+    evidence_scale = (
+        truth.exec_candidate[:n].detach() - truth.exec_perturbed[:n].detach()
+    ).abs() + pref_margin + 1.0e-6
+    rollout_advantage = (rollout_gain / evidence_scale).clamp(-1.0, 1.0)
+    rollout_advantage = torch.where(
+        rollout_gain.abs() > pref_margin,
+        rollout_advantage,
+        torch.zeros_like(rollout_advantage),
+    )
+    rho_advantage = rollout_advantage.view(-1, 1).expand_as(rho_current).clone()
 
     window = truth.reward_window
-    repairable_prior_weight = float(cfg.get("frontres_debug_repairable_prior_weight", 0.5))
     prior_direction = (
-        repairable_prior_weight * window.repairable_score[:n].detach()
+        window.repairable_score[:n].detach()
         - window.safe_score[:n].detach()
         - window.broken_score[:n].detach()
     ).clamp(-1.0, 1.0)
-    rho_prior_advantage = prior_direction.view(-1, 1) * rho_drive
+    rho_prior = (0.5 + 0.5 * prior_direction).clamp(0.0, 1.0)
+    rho_prior = rho_prior.view(-1, 1).expand_as(rho_current).clone()
     beta = float(cfg.get("frontres_debug_rho_prior_beta", 0.5))
-    rho_advantage = rho_evidence_advantage + beta * rho_prior_advantage
+    rho_prior_loss_proxy = beta * (rho_current - rho_prior).pow(2)
     rho_loss_mask = _rho_loss_mask_from_action_cone(
         cfg=cfg,
         n_exec=n,
@@ -780,10 +786,11 @@ def apply_debug_prior_plus_evidence_rho_advantage(
     return {
         "rho_current": rho_current,
         "rho_drive": rho_drive,
-        "evidence_direction": evidence_direction,
-        "rho_evidence_advantage": rho_evidence_advantage,
+        "rollout_gain": rollout_gain,
+        "rollout_advantage": rollout_advantage,
         "prior_direction": prior_direction,
-        "rho_prior_advantage": rho_prior_advantage,
+        "rho_prior": rho_prior,
+        "rho_prior_loss_proxy": rho_prior_loss_proxy,
         "rho_advantage": rho_advantage,
         "rho_loss_mask": rho_loss_mask,
     }
@@ -799,24 +806,25 @@ def _print_rho_debug(
     rho_advantage = runner.alg.transition.acceptance_target
     rho_loss_mask = runner.alg.transition.acceptance_mask
     print("debug override: acceptance_target=rho_advantage, acceptance_mask=rho_loss_mask")
+    print("formula: rho_advantage = rollout_gain(sampled rho vs Noisy) / evidence_scale")
     print(
-        "formula: rho_advantage = evidence_advantage + "
-        f"{runner.cfg['frontres_debug_rho_prior_beta']:.3f} * prior_advantage"
+        "prior anchor is reported separately: "
+        f"rho_prior_loss_proxy = {runner.cfg['frontres_debug_rho_prior_beta']:.3f} * (rho - rho_prior)^2"
     )
     print("rho columns: dx dy dz roll pitch yaw")
     print(
-        "name       rho  drive  ev_dir prior_dir ev_adv prior_adv final_adv loss_mask"
+        "name       rho  gain roll_adv prior_dir rho_prior prior_loss final_adv loss_mask"
     )
     print("-" * 104)
     for i, sample in enumerate(samples):
         print(
             f"{sample.name:<10}"
             f"{rho_debug['rho_current'][i].mean().item():>4.2f} "
-            f"{rho_debug['rho_drive'][i].mean().item():>6.2f} "
-            f"{rho_debug['evidence_direction'][i].item():>7.3f} "
+            f"{rho_debug['rollout_gain'][i].item():>6.3f} "
+            f"{rho_debug['rollout_advantage'][i].item():>8.3f} "
             f"{rho_debug['prior_direction'][i].item():>9.3f} "
-            f"{rho_debug['rho_evidence_advantage'][i].mean().item():>7.3f} "
-            f"{rho_debug['rho_prior_advantage'][i].mean().item():>9.3f} "
+            f"{rho_debug['rho_prior'][i].mean().item():>9.3f} "
+            f"{rho_debug['rho_prior_loss_proxy'][i].mean().item():>10.3f} "
             f"{rho_advantage[i].mean().item():>9.3f} "
             f"{rho_loss_mask[i].mean().item():>9.1f}"
         )
@@ -887,7 +895,7 @@ def run_debug_reward_compute() -> None:
         quat_mul_fn=_quat_mul_identity,
         quat_inv_fn=_quat_inv_identity,
     )
-    rho_debug = apply_debug_prior_plus_evidence_rho_advantage(runner, frontres_truth, actions)
+    rho_debug = apply_debug_rollout_rho_advantage_with_prior_anchor(runner, frontres_truth, actions)
     _print_rho_debug(samples, runner, rho_payload, rho_debug)
 
     diagnostic_sums = initialize_frontres_reward_diagnostic_sums()
