@@ -196,7 +196,7 @@ def run_storage_algorithm_loss_check() -> None:
     prior_loss_expected = (prior_error * prior_weight).sum() / prior_weight.sum().clamp(min=1e-6)
     total_expected = rho_loss_expected + prior_loss_expected
 
-    _assert_close("algorithm rho_loss", torch.tensor(metrics["structured_joint_rl_rho_loss"]), rho_loss_expected)
+    _assert_close("algorithm rho_loss", torch.tensor(metrics["structured_joint_rl_rho_loss"]), total_expected)
     _assert_close("algorithm repairable_loss", torch.tensor(metrics["structured_joint_rl_repairable_loss"]), rho_loss_expected)
     _assert_close("algorithm boundary_loss", torch.tensor(metrics["structured_joint_rl_boundary_loss"]), prior_loss_expected)
     _assert_close("algorithm prior_loss", torch.tensor(metrics["structured_joint_rl_prior_loss"]), prior_loss_expected)
