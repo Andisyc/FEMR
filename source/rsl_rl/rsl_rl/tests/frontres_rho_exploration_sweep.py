@@ -212,7 +212,7 @@ def _run_case(case: SweepCase, *, batch_size: int = 100, init_rho: float = 0.45)
         "grad0": grad0,
         "rho_loss": float(metrics["structured_joint_rl_rho_loss"]),
         "prior_loss": float(metrics["structured_joint_rl_prior_loss"]),
-        "weighted_loss": float(case.loss_weight * metrics["structured_joint_rl_loss"]),
+        "weighted_loss": float(case.loss_weight * loss.detach().item()),
         "act_mu": float(metrics["structured_joint_rl_rho_action_minus_mean_abs"]),
         "ratio": float(metrics["structured_joint_rl_ratio_mean"]),
     }
