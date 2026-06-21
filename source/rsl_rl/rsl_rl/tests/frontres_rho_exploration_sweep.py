@@ -227,6 +227,50 @@ def _loss_once_unclipped_rho(
     }
 
 
+def _loss_once_direct_rho_mean(
+    alg: SweepAlgorithm,
+    tensors: dict[str, torch.Tensor],
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """TEST ONLY: train repair authority directly on rho_mean.
+
+    This removes PPO's sampled-action log-prob ratio entirely.  Positive rho
+    advantage pushes rho_mean up; negative rho advantage pushes rho_mean down.
+    It is the simplest check of whether the repair-authority signal itself is
+    learnable before adding PPO safety machinery around it.
+    """
+
+    n = tensors["obs"].shape[0]
+    cols = int(getattr(alg.policy, "task_conf_dim", 6))
+    rho_adv = tensors["rho_adv"][:n, :cols].detach()
+    rho_weight = tensors["rho_weight"][:n, :cols].detach().clamp(min=0.0)
+    active = rho_weight > 1e-6
+    zero = alg.policy.action_mean.sum() * 0.0
+    if not bool(active.any().detach().item()):
+        return zero, {"rho_loss": 0.0, "prior_loss": 0.0, "rho_mean": 0.0}
+
+    rho_mean = torch.sigmoid(alg.policy.action_mean[:n, 6:6 + cols])
+    rho_loss = (-rho_adv * rho_mean * rho_weight).sum() / rho_weight.sum().clamp(min=1e-6)
+
+    prior_loss = zero
+    prior_loss_weight = float(getattr(alg, "frontres_structured_joint_prior_loss_weight", 0.0))
+    if prior_loss_weight > 0.0:
+        prior_authority = tensors["prior_authority"][:n].detach().clamp(0.0, 1.0)
+        if prior_authority.ndim == 1:
+            prior_authority = prior_authority.view(-1, 1)
+        prior_target = tensors["prior_target"][:n, :cols].detach().clamp(0.0, 1.0)
+        prior_dim_weight = (prior_authority[:, :1] * active.to(rho_mean.dtype)).clamp(0.0, 1.0)
+        if bool((prior_dim_weight > 1e-6).any().detach().item()):
+            prior_loss = ((rho_mean - prior_target).pow(2) * prior_dim_weight).sum()
+            prior_loss = prior_loss / prior_dim_weight.sum().clamp(min=1e-6)
+
+    loss = rho_loss + prior_loss_weight * prior_loss
+    return loss, {
+        "rho_loss": float(rho_loss.detach().item()),
+        "prior_loss": float(prior_loss.detach().item()),
+        "rho_mean": float(rho_mean[active].detach().mean().item()),
+    }
+
+
 def _compute_clip_diagnostics(
     alg: SweepAlgorithm,
     tensors: dict[str, torch.Tensor],
@@ -495,9 +539,13 @@ def _run_clip_probe(
     *,
     checkpoints: tuple[int, ...],
     unclipped_rho: bool = False,
+    loss_mode: str | None = None,
     batch_size: int = 100,
     init_rho: float = 0.45,
 ) -> list[dict[str, float]]:
+    if loss_mode is None:
+        loss_mode = "unclipped" if unclipped_rho else "clipped"
+
     torch.manual_seed(11)
     alg = SweepAlgorithm(
         batch_size=batch_size,
@@ -533,7 +581,9 @@ def _run_clip_probe(
         if step == max_step:
             break
         optimizer.zero_grad()
-        if unclipped_rho:
+        if loss_mode == "direct":
+            loss, _ = _loss_once_direct_rho_mean(alg, tensors)
+        elif loss_mode == "unclipped":
             loss, _ = _loss_once_unclipped_rho(alg, tensors)
         else:
             loss, _ = _loss_once(alg, tensors)
@@ -635,14 +685,17 @@ def run_rho_unclipped_comparison() -> None:
     ]
 
     print()
-    print("=== FrontRES Rho Clipped vs Unclipped Loss TEST ONLY ===")
-    print("Same toy batch and prior; only the rho PPO clipping is removed in the unclipped branch.")
+    print("=== FrontRES Rho Loss Form Comparison TEST ONLY ===")
+    print("Same toy batch and prior; compare PPO clipped, PPO unclipped, and direct rho_mean loss.")
     print("case         mode       rho0   rho200 delta    r_min  r_max  clip  selected_gap")
     print("-" * 86)
     for case in cases:
-        clipped_rows = _run_clip_probe(case, checkpoints=(0, 200), unclipped_rho=False)
-        unclipped_rows = _run_clip_probe(case, checkpoints=(0, 200), unclipped_rho=True)
-        for mode, rows in (("clipped", clipped_rows), ("unclipped", unclipped_rows)):
+        rows_by_mode = [
+            ("clipped", _run_clip_probe(case, checkpoints=(0, 200), loss_mode="clipped")),
+            ("unclipped", _run_clip_probe(case, checkpoints=(0, 200), loss_mode="unclipped")),
+            ("direct", _run_clip_probe(case, checkpoints=(0, 200), loss_mode="direct")),
+        ]
+        for mode, rows in rows_by_mode:
             start, end = rows[0], rows[-1]
             print(
                 f"{case.name:<12} "
@@ -658,9 +711,9 @@ def run_rho_unclipped_comparison() -> None:
 
     print()
     print(
-        "Readout: if unclipped moves rho much more than clipped, the PPO safety "
-        "layer is suppressing the repair-authority signal.  If both barely move, "
-        "the bottleneck is not clipping."
+        "Readout: if direct moves rho but PPO modes do not, the repair-authority "
+        "signal exists but is weakened by the PPO log-prob/ratio formulation.  "
+        "If direct also barely moves, the toy advantage itself is too weak."
     )
 
 
