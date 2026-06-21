@@ -27,6 +27,12 @@ def _first_value(metrics: MetricMap, keys: tuple[str, ...], default: float = 0.0
     return default
 
 
+def _fmt_active_value(metrics: MetricMap, key: str, active_key: str) -> str:
+    if float(_value(metrics, active_key)) <= 1.0e-6:
+        return "n/a"
+    return f"{_value(metrics, key):.3f}"
+
+
 def _rho_space(cfg: MetricMap) -> str:
     return str(cfg.get("frontres_rho_space", "noisy_to_repair"))
 
@@ -361,16 +367,18 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
         )
         lines.append(
             f"{'rho dims pos/rpy:':>{pad}} "
-            f"all={_value(loss_dict, 'structured_joint_rl_rho_pos_dim_mean'):.3f} / "
-            f"{_value(loss_dict, 'structured_joint_rl_rho_rpy_dim_mean'):.3f}, "
-            f"+adv={_value(loss_dict, 'structured_joint_rl_rho_pos_adv_pos_dim_mean'):.3f} / "
-            f"{_value(loss_dict, 'structured_joint_rl_rho_pos_adv_rpy_dim_mean'):.3f}, "
-            f"-adv={_value(loss_dict, 'structured_joint_rl_rho_neg_adv_pos_dim_mean'):.3f} / "
-            f"{_value(loss_dict, 'structured_joint_rl_rho_neg_adv_rpy_dim_mean'):.3f}\n"
+            f"active={_value(loss_dict, 'structured_joint_rl_active_frac_pos_dim'):.3f} / "
+            f"{_value(loss_dict, 'structured_joint_rl_active_frac_rpy_dim'):.3f}, "
+            f"all={_fmt_active_value(loss_dict, 'structured_joint_rl_rho_pos_dim_mean', 'structured_joint_rl_active_frac_pos_dim')} / "
+            f"{_fmt_active_value(loss_dict, 'structured_joint_rl_rho_rpy_dim_mean', 'structured_joint_rl_active_frac_rpy_dim')}, "
+            f"+adv={_fmt_active_value(loss_dict, 'structured_joint_rl_rho_pos_adv_pos_dim_mean', 'structured_joint_rl_active_frac_pos_dim')} / "
+            f"{_fmt_active_value(loss_dict, 'structured_joint_rl_rho_pos_adv_rpy_dim_mean', 'structured_joint_rl_active_frac_rpy_dim')}, "
+            f"-adv={_fmt_active_value(loss_dict, 'structured_joint_rl_rho_neg_adv_pos_dim_mean', 'structured_joint_rl_active_frac_pos_dim')} / "
+            f"{_fmt_active_value(loss_dict, 'structured_joint_rl_rho_neg_adv_rpy_dim_mean', 'structured_joint_rl_active_frac_rpy_dim')}\n"
         )
         lines.append(
             f"{'adv+ pos/rpy frac:':>{pad}} "
-            f"{_value(loss_dict, 'structured_joint_rl_adv_pos_frac_pos_dim'):.3f} / "
-            f"{_value(loss_dict, 'structured_joint_rl_adv_pos_frac_rpy_dim'):.3f}\n"
+            f"{_fmt_active_value(loss_dict, 'structured_joint_rl_adv_pos_frac_pos_dim', 'structured_joint_rl_active_frac_pos_dim')} / "
+            f"{_fmt_active_value(loss_dict, 'structured_joint_rl_adv_pos_frac_rpy_dim', 'structured_joint_rl_active_frac_rpy_dim')}\n"
         )
     return "".join(lines)

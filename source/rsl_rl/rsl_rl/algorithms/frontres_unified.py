@@ -1389,6 +1389,8 @@ class FrontRESUnified:
             "structured_joint_rl_rho_neg_adv_rpy_dim_mean": 0.0,
             "structured_joint_rl_adv_pos_frac_pos_dim": 0.0,
             "structured_joint_rl_adv_pos_frac_rpy_dim": 0.0,
+            "structured_joint_rl_active_frac_pos_dim": 0.0,
+            "structured_joint_rl_active_frac_rpy_dim": 0.0,
             "structured_joint_rl_adv_pos_frac": 0.0,
             "structured_joint_rl_adv_neg_frac": 0.0,
             "structured_joint_rl_adv_near_zero_frac": 0.0,
@@ -1665,6 +1667,16 @@ class FrontRESUnified:
             dim_ids = torch.arange(cols, device=self.device).view(1, cols)
             pos_dim_mask = rho_active & (dim_ids < min(3, cols))
             rpy_dim_mask = rho_active & (dim_ids >= 3)
+            pos_dim_all = dim_ids < min(3, cols)
+            rpy_dim_all = dim_ids >= 3
+            if bool(pos_dim_all.any().detach().item()):
+                metrics["structured_joint_rl_active_frac_pos_dim"] = float(
+                    rho_active[pos_dim_all.expand_as(rho_active)].float().mean().detach().item()
+                )
+            if bool(rpy_dim_all.any().detach().item()):
+                metrics["structured_joint_rl_active_frac_rpy_dim"] = float(
+                    rho_active[rpy_dim_all.expand_as(rho_active)].float().mean().detach().item()
+                )
             if bool(pos_dim_mask.any().detach().item()):
                 metrics["structured_joint_rl_rho_pos_dim_mean"] = float(
                     rho_mean[pos_dim_mask].mean().detach().item()

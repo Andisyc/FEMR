@@ -335,7 +335,13 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
             self.writer.add_scalar("Train/mean_reward/time", statistics.mean(locs["rewbuffer"]), self.tot_time)
             self.writer.add_scalar("Train/mean_episode_length/time", statistics.mean(locs["lenbuffer"]), self.tot_time)
 
-    iter_title = f" \033[1m Learning iteration {locs['it']}/{locs['tot_iter']} \033[0m "
+    _resume_label = ""
+    if bool(getattr(self.alg, "is_frontres_unified", False)):
+        _resume_label = "full-resume" if bool(self.cfg.get("is_full_resume", True)) else "checkpoint-init"
+    iter_title = f" \033[1m Learning iteration {locs['it']}/{locs['tot_iter']}"
+    if _resume_label:
+        iter_title += f" [{_resume_label}]"
+    iter_title += " \033[0m "
 
     if self.training_type != "supervise" and len(locs["rewbuffer"]) > 0:
         # ── Phase indicator ──────────────────────────────────────────────
@@ -358,8 +364,15 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
             elif _is_critic:
                 _phase = "CRITIC WARMUP"
                 _paw = locs.get("loss_dict", {}).get("ppo_actor_weight", None)
+                _rho_active = bool(
+                    locs.get("loss_dict", {}).get("structured_joint_rl_enabled", 0.0) > 0.5
+                    and locs.get("loss_dict", {}).get("lambda_structured_joint_rl", 0.0) > 0.0
+                )
                 if _paw is not None and _paw <= 0.0:
-                    _notes = "(fixed low DR, PPO actor frozen; critic + supervised train)"
+                    if _rho_active:
+                        _notes = "(fixed low DR; generic PPO frozen, structured rho active)"
+                    else:
+                        _notes = "(fixed low DR; generic PPO frozen, critic + supervised train)"
                 else:
                     _notes = "(fixed low DR; critic + supervised train)"
             elif _is_actor_takeover:
