@@ -1381,6 +1381,14 @@ class FrontRESUnified:
             "structured_joint_rl_rho_repairable_mean": 0.0,
             "structured_joint_rl_rho_boundary_mean": 0.0,
             "structured_joint_rl_repairable_pos_frac": 0.0,
+            "structured_joint_rl_rho_pos_dim_mean": 0.0,
+            "structured_joint_rl_rho_rpy_dim_mean": 0.0,
+            "structured_joint_rl_rho_pos_adv_pos_dim_mean": 0.0,
+            "structured_joint_rl_rho_pos_adv_rpy_dim_mean": 0.0,
+            "structured_joint_rl_rho_neg_adv_pos_dim_mean": 0.0,
+            "structured_joint_rl_rho_neg_adv_rpy_dim_mean": 0.0,
+            "structured_joint_rl_adv_pos_frac_pos_dim": 0.0,
+            "structured_joint_rl_adv_pos_frac_rpy_dim": 0.0,
             "structured_joint_rl_adv_pos_frac": 0.0,
             "structured_joint_rl_adv_neg_frac": 0.0,
             "structured_joint_rl_adv_near_zero_frac": 0.0,
@@ -1653,6 +1661,45 @@ class FrontRESUnified:
             if bool(boundary_mask.any().detach().item()):
                 metrics["structured_joint_rl_rho_boundary_mean"] = float(
                     rho_mean[boundary_mask].mean().detach().item()
+                )
+            dim_ids = torch.arange(cols, device=self.device).view(1, cols)
+            pos_dim_mask = rho_active & (dim_ids < min(3, cols))
+            rpy_dim_mask = rho_active & (dim_ids >= 3)
+            if bool(pos_dim_mask.any().detach().item()):
+                metrics["structured_joint_rl_rho_pos_dim_mean"] = float(
+                    rho_mean[pos_dim_mask].mean().detach().item()
+                )
+                pos_dim_adv = rho_adv_raw[pos_dim_mask]
+                metrics["structured_joint_rl_adv_pos_frac_pos_dim"] = float(
+                    (pos_dim_adv > 1e-6).float().mean().detach().item()
+                )
+            if bool(rpy_dim_mask.any().detach().item()):
+                metrics["structured_joint_rl_rho_rpy_dim_mean"] = float(
+                    rho_mean[rpy_dim_mask].mean().detach().item()
+                )
+                rpy_dim_adv = rho_adv_raw[rpy_dim_mask]
+                metrics["structured_joint_rl_adv_pos_frac_rpy_dim"] = float(
+                    (rpy_dim_adv > 1e-6).float().mean().detach().item()
+                )
+            pos_adv_pos_dim_mask = pos_adv_mask & pos_dim_mask
+            pos_adv_rpy_dim_mask = pos_adv_mask & rpy_dim_mask
+            neg_adv_pos_dim_mask = neg_adv_mask & pos_dim_mask
+            neg_adv_rpy_dim_mask = neg_adv_mask & rpy_dim_mask
+            if bool(pos_adv_pos_dim_mask.any().detach().item()):
+                metrics["structured_joint_rl_rho_pos_adv_pos_dim_mean"] = float(
+                    rho_mean[pos_adv_pos_dim_mask].mean().detach().item()
+                )
+            if bool(pos_adv_rpy_dim_mask.any().detach().item()):
+                metrics["structured_joint_rl_rho_pos_adv_rpy_dim_mean"] = float(
+                    rho_mean[pos_adv_rpy_dim_mask].mean().detach().item()
+                )
+            if bool(neg_adv_pos_dim_mask.any().detach().item()):
+                metrics["structured_joint_rl_rho_neg_adv_pos_dim_mean"] = float(
+                    rho_mean[neg_adv_pos_dim_mask].mean().detach().item()
+                )
+            if bool(neg_adv_rpy_dim_mask.any().detach().item()):
+                metrics["structured_joint_rl_rho_neg_adv_rpy_dim_mean"] = float(
+                    rho_mean[neg_adv_rpy_dim_mask].mean().detach().item()
                 )
         if bool(getattr(self, "frontres_reward_compute_live_debug", False)):
             it = int(getattr(self, "current_learning_iteration", 0))
