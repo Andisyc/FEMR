@@ -38,6 +38,9 @@ class SweepCase:
     action_delta_raw: float
     prior_weight: float
     action_std: float
+    lr: float = 6.5e-5
+    loss_weight: float = 1.0
+    steps: int = 200
 
 
 class SweepPolicy(torch.nn.Module):
@@ -191,14 +194,14 @@ def _run_case(case: SweepCase, *, batch_size: int = 100, init_rho: float = 0.45)
     tensors["old_mu"] = alg.policy.action_mean.detach().clone()
 
     loss, metrics = _loss_once(alg, tensors)
-    loss.backward()
+    (case.loss_weight * loss).backward()
     grad0 = float(alg.policy.action_mean.grad[:, 6:12].mean().detach().item())
 
-    optimizer = torch.optim.Adam(alg.parameters(), lr=6.5e-5)
-    for _ in range(200):
+    optimizer = torch.optim.Adam(alg.parameters(), lr=case.lr)
+    for _ in range(case.steps):
         optimizer.zero_grad()
         loss, metrics = _loss_once(alg, tensors)
-        loss.backward()
+        (case.loss_weight * loss).backward()
         optimizer.step()
 
     final_rho = torch.sigmoid(alg.policy.action_mean[:, 6:12]).mean().detach().item()
@@ -209,6 +212,7 @@ def _run_case(case: SweepCase, *, batch_size: int = 100, init_rho: float = 0.45)
         "grad0": grad0,
         "rho_loss": float(metrics["structured_joint_rl_rho_loss"]),
         "prior_loss": float(metrics["structured_joint_rl_prior_loss"]),
+        "weighted_loss": float(case.loss_weight * metrics["structured_joint_rl_loss"]),
         "act_mu": float(metrics["structured_joint_rl_rho_action_minus_mean_abs"]),
         "ratio": float(metrics["structured_joint_rl_ratio_mean"]),
     }
@@ -252,5 +256,109 @@ def run_rho_exploration_sweep() -> None:
     )
 
 
+def run_rho_update_strength_sweep() -> None:
+    """Sweep optimizer strength while keeping the live-like batch fixed.
+
+    This is the next local check after the exploration sweep.  The recent live
+    logs show a valid advantage sign mix but tiny rho movement.  If this table
+    only moves rho when lr or loss_weight is raised, the bottleneck is update
+    strength rather than reward construction.
+    """
+
+    cases = [
+        SweepCase(
+            "base_lr_w1",
+            action_delta_raw=0.01,
+            prior_weight=1.0,
+            action_std=0.01,
+            lr=6.5e-5,
+            loss_weight=1.0,
+        ),
+        SweepCase(
+            "lr_2e4_w1",
+            action_delta_raw=0.01,
+            prior_weight=1.0,
+            action_std=0.01,
+            lr=2.0e-4,
+            loss_weight=1.0,
+        ),
+        SweepCase(
+            "lr_5e4_w1",
+            action_delta_raw=0.01,
+            prior_weight=1.0,
+            action_std=0.01,
+            lr=5.0e-4,
+            loss_weight=1.0,
+        ),
+        SweepCase(
+            "lr_1e3_w1",
+            action_delta_raw=0.01,
+            prior_weight=1.0,
+            action_std=0.01,
+            lr=1.0e-3,
+            loss_weight=1.0,
+        ),
+        SweepCase(
+            "base_lr_w3",
+            action_delta_raw=0.01,
+            prior_weight=1.0,
+            action_std=0.01,
+            lr=6.5e-5,
+            loss_weight=3.0,
+        ),
+        SweepCase(
+            "base_lr_w5",
+            action_delta_raw=0.01,
+            prior_weight=1.0,
+            action_std=0.01,
+            lr=6.5e-5,
+            loss_weight=5.0,
+        ),
+        SweepCase(
+            "lr_2e4_w3",
+            action_delta_raw=0.01,
+            prior_weight=1.0,
+            action_std=0.01,
+            lr=2.0e-4,
+            loss_weight=3.0,
+        ),
+        SweepCase(
+            "lr_5e4_w3",
+            action_delta_raw=0.01,
+            prior_weight=1.0,
+            action_std=0.01,
+            lr=5.0e-4,
+            loss_weight=3.0,
+        ),
+    ]
+
+    print()
+    print("=== FrontRES Rho Update Strength Sweep TEST ONLY ===")
+    print("Fixed live-like batch: act_mu_raw=0.01, prior=1.0, std=0.01, steps=200.")
+    print("name          lr       w    act_mu  init   final  delta    grad0      weighted_loss")
+    print("-" * 91)
+    for case in cases:
+        result = _run_case(case)
+        print(
+            f"{case.name:<13} "
+            f"{case.lr:>8.1e} "
+            f"{case.loss_weight:>4.1f} "
+            f"{result['act_mu']:>7.4f} "
+            f"{result['init_rho']:>6.3f} "
+            f"{result['final_rho']:>6.3f} "
+            f"{result['delta_rho']:>+7.4f} "
+            f"{result['grad0']:>+9.5f} "
+            f"{result['weighted_loss']:>+13.4f}"
+        )
+
+    print()
+    print(
+        "Readout: this table isolates update strength.  If only higher lr or "
+        "loss weight produces visible rho motion, the formal signal is present "
+        "but too weak under the current optimizer scale."
+    )
+
+
 if __name__ == "__main__":
     run_rho_exploration_sweep()
+    run_rho_update_strength_sweep()
