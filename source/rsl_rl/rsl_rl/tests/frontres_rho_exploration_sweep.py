@@ -5,9 +5,13 @@
 
 """TEST ONLY: FrontRES rho exploration/update sweep.
 
-Run from the repository root with:
+Run the newest clip diagnostic from the repository root with:
 
     python source/rsl_rl/rsl_rl/tests/frontres_rho_exploration_sweep.py
+
+Run the older sweeps explicitly with:
+
+    python source/rsl_rl/rsl_rl/tests/frontres_rho_exploration_sweep.py --section all
 
 This module does not start an environment.  It answers a narrow debugging
 question: under the formal structured-rho loss, how much does rho move when the
@@ -20,6 +24,7 @@ The live log field to compare against is:
 
 from __future__ import annotations
 
+import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -175,6 +180,87 @@ def _loss_once(
         tensors["prior_target"],
         original_batch_size=tensors["obs"].shape[0],
     )
+
+
+def _compute_clip_diagnostics(
+    alg: SweepAlgorithm,
+    tensors: dict[str, torch.Tensor],
+) -> dict[str, float]:
+    """Mirror the formal rho PPO clip math and print what it hides.
+
+    The formal loss returns the mean ratio, but mean ratio can look harmless
+    even when many positive or negative advantage dimensions are clipped.  This
+    helper keeps the same action/logit convention as the production loss and
+    only derives TEST ONLY diagnostics.
+    """
+
+    n = tensors["obs"].shape[0]
+    cols = int(getattr(alg.policy, "task_conf_dim", 6))
+    rho_dims = list(range(6, 6 + cols))
+    actions = tensors["actions"][:n]
+    old_mu = tensors["old_mu"][:n]
+    old_sigma = tensors["old_sigma"][:n]
+    rho_adv = tensors["rho_adv"][:n, :cols]
+    rho_weight = tensors["rho_weight"][:n, :cols].clamp(min=0.0)
+    active = rho_weight > 1e-6
+
+    if not bool(active.any().detach().item()):
+        return {
+            "ratio_min": 1.0,
+            "ratio_max": 1.0,
+            "clip_frac": 0.0,
+            "clip_pos_frac": 0.0,
+            "clip_neg_frac": 0.0,
+            "pos_clip_use_frac": 0.0,
+            "neg_clip_use_frac": 0.0,
+            "unclipped_loss": 0.0,
+            "clipped_loss": 0.0,
+            "selected_loss": 0.0,
+            "clip_gap": 0.0,
+        }
+
+    new_logp = alg.policy.get_actions_log_prob_per_dim(actions, rho_dims)
+    old_logp = alg.policy.get_actions_log_prob_per_dim_from_stats(actions, old_mu, old_sigma, rho_dims)
+    log_ratio = new_logp[:, :cols] - old_logp[:, :cols]
+    ratio = torch.exp(log_ratio.clamp(-10.0, 10.0))
+    ratio_clipped = torch.clamp(ratio, 1.0 - alg.clip_param, 1.0 + alg.clip_param)
+
+    surrogate = -rho_adv * ratio
+    surrogate_clipped = -rho_adv * ratio_clipped
+    selected = torch.max(surrogate, surrogate_clipped)
+    clip_boundary = (ratio < 1.0 - alg.clip_param) | (ratio > 1.0 + alg.clip_param)
+    clip_selected = surrogate_clipped > surrogate
+
+    pos = active & (rho_adv > 1e-6)
+    neg = active & (rho_adv < -1e-6)
+    denom = rho_weight.sum().clamp(min=1e-6)
+
+    def _frac(mask: torch.Tensor) -> float:
+        return float(mask.float().mean().detach().item()) if int(mask.numel()) > 0 else 0.0
+
+    def _masked_frac(mask: torch.Tensor, base: torch.Tensor) -> float:
+        if not bool(base.any().detach().item()):
+            return 0.0
+        return float(mask[base].float().mean().detach().item())
+
+    unclipped_loss = (surrogate * rho_weight).sum() / denom
+    clipped_candidate_loss = (surrogate_clipped * rho_weight).sum() / denom
+    selected_loss = (selected * rho_weight).sum() / denom
+
+    active_ratio = ratio[active].detach()
+    return {
+        "ratio_min": float(active_ratio.min().item()),
+        "ratio_max": float(active_ratio.max().item()),
+        "clip_frac": _masked_frac(clip_boundary, active),
+        "clip_pos_frac": _masked_frac(clip_boundary, pos),
+        "clip_neg_frac": _masked_frac(clip_boundary, neg),
+        "pos_clip_use_frac": _masked_frac(clip_selected, pos),
+        "neg_clip_use_frac": _masked_frac(clip_selected, neg),
+        "unclipped_loss": float(unclipped_loss.detach().item()),
+        "clipped_loss": float(clipped_candidate_loss.detach().item()),
+        "selected_loss": float(selected_loss.detach().item()),
+        "clip_gap": float((selected_loss - unclipped_loss).detach().item()),
+    }
 
 
 def _run_case(case: SweepCase, *, batch_size: int = 100, init_rho: float = 0.45) -> dict[str, float]:
@@ -359,6 +445,135 @@ def run_rho_update_strength_sweep() -> None:
     )
 
 
+def _run_clip_probe(
+    case: SweepCase,
+    *,
+    checkpoints: tuple[int, ...],
+    batch_size: int = 100,
+    init_rho: float = 0.45,
+) -> list[dict[str, float]]:
+    torch.manual_seed(11)
+    alg = SweepAlgorithm(
+        batch_size=batch_size,
+        init_rho=init_rho,
+        prior_weight=case.prior_weight,
+        action_std=case.action_std,
+    )
+    tensors = _make_live_like_batch(
+        batch_size=batch_size,
+        init_rho=init_rho,
+        action_delta_raw=case.action_delta_raw,
+        action_std=case.action_std,
+    )
+    tensors["old_mu"] = alg.policy.action_mean.detach().clone()
+
+    optimizer = torch.optim.Adam(alg.parameters(), lr=case.lr)
+    rows: list[dict[str, float]] = []
+    checkpoint_set = set(checkpoints)
+    max_step = max(checkpoints)
+    for step in range(max_step + 1):
+        if step in checkpoint_set:
+            loss, metrics = _loss_once(alg, tensors)
+            clip = _compute_clip_diagnostics(alg, tensors)
+            rows.append(
+                {
+                    "step": float(step),
+                    "rho": float(torch.sigmoid(alg.policy.action_mean[:, 6:12]).mean().detach().item()),
+                    "formal_loss": float(loss.detach().item()),
+                    "ratio": float(metrics["structured_joint_rl_ratio_mean"]),
+                    **clip,
+                }
+            )
+        if step == max_step:
+            break
+        optimizer.zero_grad()
+        loss, _ = _loss_once(alg, tensors)
+        (case.loss_weight * loss).backward()
+        optimizer.step()
+    return rows
+
+
+def run_rho_clip_diagnostics() -> None:
+    cases = [
+        SweepCase(
+            "live_base",
+            action_delta_raw=0.01,
+            prior_weight=1.0,
+            action_std=0.01,
+            lr=6.5e-5,
+            loss_weight=1.0,
+        ),
+        SweepCase(
+            "strong_lr_w3",
+            action_delta_raw=0.01,
+            prior_weight=1.0,
+            action_std=0.01,
+            lr=5.0e-4,
+            loss_weight=3.0,
+        ),
+        SweepCase(
+            "wide_action",
+            action_delta_raw=0.10,
+            prior_weight=1.0,
+            action_std=0.10,
+            lr=6.5e-5,
+            loss_weight=1.0,
+        ),
+    ]
+
+    print()
+    print("=== FrontRES Rho PPO Clip Diagnostics TEST ONLY ===")
+    print("clip_frac means ratio outside [0.8, 1.2]; *_use means clipped term selected by max().")
+    print(
+        "case         step rho    r_min  r_max  clip  clip+ clip- use+  use-  "
+        "unclip  clip_c selected gap"
+    )
+    print("-" * 112)
+    for case in cases:
+        rows = _run_clip_probe(case, checkpoints=(0, 1, 10, 50, 200))
+        for row in rows:
+            print(
+                f"{case.name:<12} "
+                f"{int(row['step']):>4d} "
+                f"{row['rho']:>5.3f} "
+                f"{row['ratio_min']:>6.3f} "
+                f"{row['ratio_max']:>6.3f} "
+                f"{row['clip_frac']:>5.2f} "
+                f"{row['clip_pos_frac']:>5.2f} "
+                f"{row['clip_neg_frac']:>5.2f} "
+                f"{row['pos_clip_use_frac']:>5.2f} "
+                f"{row['neg_clip_use_frac']:>5.2f} "
+                f"{row['unclipped_loss']:>+7.3f} "
+                f"{row['clipped_loss']:>+7.3f} "
+                f"{row['selected_loss']:>+8.3f} "
+                f"{row['clip_gap']:>+6.3f}"
+            )
+
+    print()
+    print(
+        "Readout: if clip/use fractions stay near zero, PPO clipping is not the "
+        "main brake.  If they jump high while rho barely moves, the clipped "
+        "surrogate is cutting off the effective rho update."
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="TEST ONLY FrontRES rho loss diagnostics.")
+    parser.add_argument(
+        "--section",
+        choices=("clip", "exploration", "update", "all"),
+        default="clip",
+        help="Which diagnostic section to run. Defaults to clip for quick iteration.",
+    )
+    args = parser.parse_args()
+
+    if args.section in ("exploration", "all"):
+        run_rho_exploration_sweep()
+    if args.section in ("update", "all"):
+        run_rho_update_strength_sweep()
+    if args.section in ("clip", "all"):
+        run_rho_clip_diagnostics()
+
+
 if __name__ == "__main__":
-    run_rho_exploration_sweep()
-    run_rho_update_strength_sweep()
+    main()
