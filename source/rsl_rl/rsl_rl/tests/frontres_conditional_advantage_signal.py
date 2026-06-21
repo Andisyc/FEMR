@@ -168,7 +168,43 @@ def run_repairable_mixture_table() -> None:
     )
 
 
-def _train_two_state_policy(repair_adv: float, *, steps: int = 500, lr: float = 5.0e-2) -> tuple[float, float]:
+def run_live_like_underwrite_table() -> None:
+    rows: list[EvidenceRow] = []
+    # Candidate is consistently better than Noisy, but the currently executed
+    # Projected action only writes a tiny amount and jitters around Noisy.
+    rows += [EvidenceRow("good_candidate_projected_tiny_pos", 0.50, 0.505, 0.60, "rho should rise") for _ in range(25)]
+    rows += [EvidenceRow("good_candidate_projected_tiny_neg", 0.50, 0.495, 0.60, "rho should rise") for _ in range(25)]
+    out = _formal_rho_adv(rows)
+    adv = out["formal_adv"]
+    pressure = out["candidate_pressure"]
+
+    print()
+    print("C. live-like under-write batch")
+    print(
+        f"candidate_gain_mean={out['candidate_gain'].mean().item():+.4f} "
+        f"projected_gain_mean={out['projected_gain'].mean().item():+.4f} "
+        f"formal_adv_mean={adv.mean().item():+.4f} "
+        f"candidate_pressure_mean={pressure.mean().item():+.4f}"
+    )
+    print(
+        f"formal_adv sign pos/neg/zero: "
+        f"{(adv > 1e-6).float().mean().item():.3f} / "
+        f"{(adv < -1e-6).float().mean().item():.3f} / "
+        f"{(adv.abs() <= 1e-6).float().mean().item():.3f}"
+    )
+    print(
+        f"candidate_pressure sign pos/neg/zero: "
+        f"{(pressure > 1e-6).float().mean().item():.3f} / "
+        f"{(pressure < -1e-6).float().mean().item():.3f} / "
+        f"{(pressure.abs() <= 1e-6).float().mean().item():.3f}"
+    )
+    print(
+        "Readout: this is the suspected live failure mode.  Candidate says repair is useful, "
+        "but formal_adv follows the tiny Projected write and can cancel to about zero."
+    )
+
+
+def _train_two_state_policy(repair_adv: float, *, steps: int = 80, lr: float = 5.0e-1) -> tuple[float, float]:
     features = torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32)
     # Row 0: repairable state.  Row 1: boundary state.
     rho_adv = torch.tensor([[repair_adv], [0.0]], dtype=torch.float32)
@@ -177,7 +213,7 @@ def _train_two_state_policy(repair_adv: float, *, steps: int = 500, lr: float = 
     prior_target = torch.zeros(2, 1, dtype=torch.float32)
     model = torch.nn.Linear(2, 1, bias=False)
     torch.nn.init.zeros_(model.weight)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     for _ in range(steps):
         rho = torch.sigmoid(model(features))
         repair_loss = (-rho_adv * rho * repairable_authority).sum() / repairable_authority.sum().clamp(min=1e-6)
@@ -198,20 +234,22 @@ def run_conditional_policy_toy() -> None:
     strong_repair_rho, strong_boundary_rho = _train_two_state_policy(strong_repair_adv)
 
     print()
-    print("C. two-state conditional rho policy")
+    print("D. two-state conditional rho policy")
     print("signal             repair_adv  rho(repairable)  rho(boundary)")
     print("-" * 68)
     print(f"formal weak signal {weak_repair_adv:>10.3f} {weak_repair_rho:>16.3f} {weak_boundary_rho:>14.3f}")
     print(f"strong write signal{strong_repair_adv:>10.3f} {strong_repair_rho:>16.3f} {strong_boundary_rho:>14.3f}")
     print(
-        "Readout: the model can represent conditional behavior.  If the repairable signal is too weak in live training, "
-        "the learned policy can still become globally conservative even though the architecture is conditional."
+        "Readout: the model can represent conditional behavior.  Weak repair evidence moves the repairable state "
+        "slowly, while the boundary prior can still push the boundary state down.  This separates architecture "
+        "capacity from training-signal quality."
     )
 
 
 def main() -> None:
     run_single_case_table()
     run_repairable_mixture_table()
+    run_live_like_underwrite_table()
     run_conditional_policy_toy()
 
 
