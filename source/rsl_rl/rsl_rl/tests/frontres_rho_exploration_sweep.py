@@ -748,7 +748,9 @@ def _run_minimal_evidence_probe(
     rho0 = float(torch.sigmoid(alg.policy.action_mean[:, 6:12]).mean().detach().item())
     for _ in range(case.steps):
         optimizer.zero_grad()
-        if loss_mode == "direct":
+        if loss_mode == "region_direct":
+            loss, _ = _loss_once_region_authority_direct(alg, tensors)
+        elif loss_mode == "direct":
             loss, _ = _loss_once_direct_rho_mean(alg, tensors)
         elif loss_mode == "unclipped":
             loss, _ = _loss_once_unclipped_rho(alg, tensors)
