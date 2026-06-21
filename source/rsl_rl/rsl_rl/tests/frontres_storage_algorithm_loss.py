@@ -207,12 +207,13 @@ def run_storage_algorithm_loss_check() -> None:
     print("storage fields: PASS")
     print(
         "loss check: "
-        f"rho_loss={metrics['structured_joint_rl_rho_loss']:+.4f}, "
-        f"prior_loss={metrics['structured_joint_rl_prior_loss']:.4f}, "
+        f"region_total={metrics['structured_joint_rl_rho_loss']:+.4f}, "
+        f"repairable={metrics['structured_joint_rl_repairable_loss']:+.4f}, "
+        f"boundary={metrics['structured_joint_rl_boundary_loss']:.4f}, "
         f"total={loss.item():+.4f}"
     )
     print(
-        "meaning: positive rho_adv lowers PPO loss; negative rho_adv raises it; "
+        "meaning: repairable samples follow rollout evidence directly; "
         "region_direct lets repairable samples follow rollout evidence while "
         "safe/deep_broken samples follow the conservative rho prior."
     )

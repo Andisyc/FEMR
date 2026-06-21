@@ -289,29 +289,46 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
 
     sjl = loss_dict.get("structured_joint_rl_loss", None)
     if sjl is not None and _value(loss_dict, "lambda_structured_joint_rl") > 0.0:
-        lines.append(
-            f"{'joint rl loss:':>{pad}} {sjl:.4f} "
-            f"(λ={_value(loss_dict, 'lambda_structured_joint_rl'):.3f}, "
-            f"enabled={_value(loss_dict, 'structured_joint_rl_enabled'):.0f}, "
-            f"region={_value(loss_dict, 'structured_joint_rl_mode_region_direct'):.0f}, "
-            f"adv={_value(loss_dict, 'structured_joint_rl_adv_mean'):+.4f}, "
-            f"|adv|={_value(loss_dict, 'structured_joint_rl_adv_abs_mean'):.4f}, "
-            f"w_act={_value(loss_dict, 'structured_joint_rl_weight_mean'):.3f}, "
-            f"w_all={_value(loss_dict, 'structured_joint_rl_weight_all_mean'):.3f}, "
-            f"dim={_value(loss_dict, 'structured_joint_rl_dim_active_mean'):.3f}, "
-            f"rep={_value(loss_dict, 'structured_joint_rl_repairable_loss'):+.4f}, "
-            f"bound={_value(loss_dict, 'structured_joint_rl_boundary_loss'):.4f}, "
-            f"prior={_value(loss_dict, 'structured_joint_rl_prior_loss'):.4f}, "
-            f"p_auth={_value(loss_dict, 'structured_joint_rl_prior_authority_mean'):.3f}, "
-            f"r_auth={_value(loss_dict, 'structured_joint_rl_repairable_authority_mean'):.3f}, "
-            f"p_rho={_value(loss_dict, 'structured_joint_rl_prior_rho_mean'):.3f}, "
-            f"rho={_value(loss_dict, 'structured_joint_rl_rho_mean'):.3f}, "
-            f"|rho-.5|={_value(loss_dict, 'structured_joint_rl_rho_abs_from_half'):.3f}, "
-            f"near.5={_value(loss_dict, 'structured_joint_rl_rho_near_half_frac'):.3f}, "
-            f"act-mu={_value(loss_dict, 'structured_joint_rl_rho_action_minus_mean_abs'):.4f}, "
-            f"generic={_value(loss_dict, 'ppo_actor_weight'):.3f}, "
-            f"rho_ratio={_value(loss_dict, 'structured_joint_rl_ratio_mean'):.3f})\n"
-        )
+        region_direct = _value(loss_dict, "structured_joint_rl_mode_region_direct") > 0.5
+        if region_direct:
+            lines.append(
+                f"{'rho region loss:':>{pad}} {sjl:.4f} "
+                f"(λ={_value(loss_dict, 'lambda_structured_joint_rl'):.3f}, "
+                f"enabled={_value(loss_dict, 'structured_joint_rl_enabled'):.0f}, "
+                f"rep={_value(loss_dict, 'structured_joint_rl_repairable_loss'):+.4f}, "
+                f"bound={_value(loss_dict, 'structured_joint_rl_boundary_loss'):.4f}, "
+                f"adv={_value(loss_dict, 'structured_joint_rl_adv_mean'):+.4f}, "
+                f"|adv|={_value(loss_dict, 'structured_joint_rl_adv_abs_mean'):.4f}, "
+                f"w_act={_value(loss_dict, 'structured_joint_rl_weight_mean'):.3f}, "
+                f"dim={_value(loss_dict, 'structured_joint_rl_dim_active_mean'):.3f}, "
+                f"p_auth={_value(loss_dict, 'structured_joint_rl_prior_authority_mean'):.3f}, "
+                f"r_auth={_value(loss_dict, 'structured_joint_rl_repairable_authority_mean'):.3f}, "
+                f"p_rho={_value(loss_dict, 'structured_joint_rl_prior_rho_mean'):.3f}, "
+                f"rho={_value(loss_dict, 'structured_joint_rl_rho_mean'):.3f}, "
+                f"|rho-.5|={_value(loss_dict, 'structured_joint_rl_rho_abs_from_half'):.3f}, "
+                f"near.5={_value(loss_dict, 'structured_joint_rl_rho_near_half_frac'):.3f}, "
+                f"generic={_value(loss_dict, 'ppo_actor_weight'):.3f})\n"
+            )
+        else:
+            lines.append(
+                f"{'joint rl loss:':>{pad}} {sjl:.4f} "
+                f"(λ={_value(loss_dict, 'lambda_structured_joint_rl'):.3f}, "
+                f"enabled={_value(loss_dict, 'structured_joint_rl_enabled'):.0f}, "
+                f"adv={_value(loss_dict, 'structured_joint_rl_adv_mean'):+.4f}, "
+                f"|adv|={_value(loss_dict, 'structured_joint_rl_adv_abs_mean'):.4f}, "
+                f"w_act={_value(loss_dict, 'structured_joint_rl_weight_mean'):.3f}, "
+                f"w_all={_value(loss_dict, 'structured_joint_rl_weight_all_mean'):.3f}, "
+                f"dim={_value(loss_dict, 'structured_joint_rl_dim_active_mean'):.3f}, "
+                f"prior={_value(loss_dict, 'structured_joint_rl_prior_loss'):.4f}, "
+                f"p_auth={_value(loss_dict, 'structured_joint_rl_prior_authority_mean'):.3f}, "
+                f"p_rho={_value(loss_dict, 'structured_joint_rl_prior_rho_mean'):.3f}, "
+                f"rho={_value(loss_dict, 'structured_joint_rl_rho_mean'):.3f}, "
+                f"|rho-.5|={_value(loss_dict, 'structured_joint_rl_rho_abs_from_half'):.3f}, "
+                f"near.5={_value(loss_dict, 'structured_joint_rl_rho_near_half_frac'):.3f}, "
+                f"act-mu={_value(loss_dict, 'structured_joint_rl_rho_action_minus_mean_abs'):.4f}, "
+                f"generic={_value(loss_dict, 'ppo_actor_weight'):.3f}, "
+                f"rho_ratio={_value(loss_dict, 'structured_joint_rl_ratio_mean'):.3f})\n"
+            )
         lines.append(
             f"{'rho adv sign pos/neg/zero:':>{pad}} "
             f"{_value(loss_dict, 'structured_joint_rl_adv_pos_frac'):.3f} / "

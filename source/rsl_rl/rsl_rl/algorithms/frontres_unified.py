@@ -1462,7 +1462,12 @@ class FrontRESUnified:
             metrics["structured_joint_rl_repairable_authority_mean"] = float(
                 repairable_authority.mean().detach().item()
             )
-        if loss_mode == "region_direct" and has_prior_inputs:
+        else:
+            prior_authority = torch.zeros(n, 1, device=self.device, dtype=obs_batch.dtype)
+            prior_target = torch.zeros(n, cols, device=self.device, dtype=obs_batch.dtype)
+            prior_dim_weight = torch.zeros_like(rho_weight)
+            metrics["structured_joint_rl_repairable_authority_mean"] = 1.0
+        if loss_mode == "region_direct":
             repairable_authority = (1.0 - prior_authority[:, :1]).clamp(0.0, 1.0)
             repairable_weight = (repairable_authority * (rho_weight > 1e-6).to(obs_batch.dtype)).clamp(0.0, 1.0)
             repairable_loss = zero
@@ -1556,21 +1561,38 @@ class FrontRESUnified:
             it = int(getattr(self, "current_learning_iteration", 0))
             interval = int(getattr(self, "frontres_restore_debug_print_interval", 10))
             if interval > 0 and it % interval == 0:
-                print(
-                    "[FrontRES reward live loss] "
-                    f"it={it} "
-                    f"adv={metrics['structured_joint_rl_adv_mean']:+.4f} "
-                    f"|adv|={metrics['structured_joint_rl_adv_abs_mean']:.4f} "
-                    f"weight={metrics['structured_joint_rl_weight_mean']:.3f} "
-                    f"prior_loss={metrics['structured_joint_rl_prior_loss']:.4f} "
-                    f"prior_auth={metrics['structured_joint_rl_prior_authority_mean']:.3f} "
-                    f"prior_rho={metrics['structured_joint_rl_prior_rho_mean']:.3f} "
-                    f"rho_mean={metrics['structured_joint_rl_rho_mean']:.3f} "
-                    f"rho_|.5|={metrics['structured_joint_rl_rho_abs_from_half']:.3f} "
-                    f"rho_act-mu={metrics['structured_joint_rl_rho_action_minus_mean_abs']:.4f} "
-                    f"rho_loss={metrics['structured_joint_rl_rho_loss']:.4f}",
-                    flush=True,
-                )
+                if loss_mode == "region_direct":
+                    print(
+                        "[FrontRES reward live loss] "
+                        f"it={it} mode=region_direct "
+                        f"rep={metrics['structured_joint_rl_repairable_loss']:+.4f} "
+                        f"bound={metrics['structured_joint_rl_boundary_loss']:.4f} "
+                        f"adv={metrics['structured_joint_rl_adv_mean']:+.4f} "
+                        f"|adv|={metrics['structured_joint_rl_adv_abs_mean']:.4f} "
+                        f"weight={metrics['structured_joint_rl_weight_mean']:.3f} "
+                        f"p_auth={metrics['structured_joint_rl_prior_authority_mean']:.3f} "
+                        f"r_auth={metrics['structured_joint_rl_repairable_authority_mean']:.3f} "
+                        f"p_rho={metrics['structured_joint_rl_prior_rho_mean']:.3f} "
+                        f"rho_mean={metrics['structured_joint_rl_rho_mean']:.3f} "
+                        f"rho_loss={metrics['structured_joint_rl_rho_loss']:.4f}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        "[FrontRES reward live loss] "
+                        f"it={it} mode=ppo_clipped "
+                        f"adv={metrics['structured_joint_rl_adv_mean']:+.4f} "
+                        f"|adv|={metrics['structured_joint_rl_adv_abs_mean']:.4f} "
+                        f"weight={metrics['structured_joint_rl_weight_mean']:.3f} "
+                        f"prior_loss={metrics['structured_joint_rl_prior_loss']:.4f} "
+                        f"prior_auth={metrics['structured_joint_rl_prior_authority_mean']:.3f} "
+                        f"prior_rho={metrics['structured_joint_rl_prior_rho_mean']:.3f} "
+                        f"rho_mean={metrics['structured_joint_rl_rho_mean']:.3f} "
+                        f"rho_|.5|={metrics['structured_joint_rl_rho_abs_from_half']:.3f} "
+                        f"rho_act-mu={metrics['structured_joint_rl_rho_action_minus_mean_abs']:.4f} "
+                        f"rho_loss={metrics['structured_joint_rl_rho_loss']:.4f}",
+                        flush=True,
+                    )
         return loss, metrics
 
     def _compute_state_alpha_loss(
