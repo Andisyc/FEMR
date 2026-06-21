@@ -40,7 +40,12 @@ class EvidenceRow:
     expected: str
 
 
-def _formal_rho_adv(rows: list[EvidenceRow], *, margin: float = 0.0) -> dict[str, torch.Tensor]:
+def _formal_rho_adv(
+    rows: list[EvidenceRow],
+    *,
+    margin: float = 0.0,
+    underwrite_weight: float = 1.0,
+) -> dict[str, torch.Tensor]:
     n = len(rows)
     device = torch.device("cpu")
     noisy = torch.tensor([row.noisy for row in rows], dtype=torch.float32, device=device)
@@ -93,7 +98,9 @@ def _formal_rho_adv(rows: list[EvidenceRow], *, margin: float = 0.0) -> dict[str
     # Candidate-vs-Projected only when Projected already improved over Noisy.
     accept_from_projected = (projected_gain > margin).to(formal_adv.dtype)
     underwrite_adv = torch.relu(missing_write_gain - margin) / evidence_scale
-    proposed_adv = (formal_adv + accept_from_projected * underwrite_adv).clamp(-1.0, 1.0)
+    proposed_adv = (formal_adv + float(underwrite_weight) * accept_from_projected * underwrite_adv).clamp(
+        -1.0, 1.0
+    )
     return {
         "noisy": noisy,
         "projected": projected,
@@ -265,6 +272,44 @@ def run_same_candidate_different_state_table() -> None:
     )
 
 
+def run_underwrite_weight_sweep() -> None:
+    rows = [
+        EvidenceRow("clear_good_state", 0.50, 0.56, 0.60, "accepted repair"),
+        EvidenceRow("clear_bad_state", 0.50, 0.44, 0.60, "rejected repair"),
+        EvidenceRow("low_write_good_state", 0.50, 0.505, 0.60, "accepted but under-written"),
+        EvidenceRow("low_write_bad_state", 0.50, 0.495, 0.60, "tiny harmful write"),
+    ]
+    weights = [0.0, 0.10, 0.25, 0.50, 0.75, 1.0]
+
+    print()
+    print("E. underwrite_weight sweep")
+    print("weight  clear_good  clear_bad  low_good  low_bad  live_like_mean")
+    print("-" * 76)
+    live_rows: list[EvidenceRow] = []
+    live_rows += [EvidenceRow("good_candidate_projected_tiny_pos", 0.50, 0.505, 0.60, "") for _ in range(25)]
+    live_rows += [EvidenceRow("good_candidate_projected_tiny_neg", 0.50, 0.495, 0.60, "") for _ in range(25)]
+    for weight in weights:
+        out = _formal_rho_adv(rows, underwrite_weight=weight)
+        live_out = _formal_rho_adv(live_rows, underwrite_weight=weight)
+        adv = out["proposed_adv"]
+        live_mean = live_out["proposed_adv"].mean().item()
+        print(
+            f"{weight:>6.2f} "
+            f"{adv[0].item():>11.3f} "
+            f"{adv[1].item():>10.3f} "
+            f"{adv[2].item():>9.3f} "
+            f"{adv[3].item():>8.3f} "
+            f"{live_mean:>15.3f}"
+        )
+    print()
+    print(
+        "Readout: weight=0 is current formal_adv.  A useful weight should strengthen low_write_good_state "
+        "without changing clear_bad_state or low_write_bad_state into positive signals.  Values around "
+        "0.25-0.50 are the first range to inspect because they lift the weak positive signal without "
+        "immediately saturating every accepted repair to +1."
+    )
+
+
 def _train_two_state_policy(repair_adv: float, *, steps: int = 80, lr: float = 5.0e-1) -> tuple[float, float]:
     features = torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32)
     # Row 0: repairable state.  Row 1: boundary state.
@@ -295,7 +340,7 @@ def run_conditional_policy_toy() -> None:
     strong_repair_rho, strong_boundary_rho = _train_two_state_policy(strong_repair_adv)
 
     print()
-    print("E. two-state conditional rho policy")
+    print("F. two-state conditional rho policy")
     print("signal             repair_adv  rho(repairable)  rho(boundary)")
     print("-" * 68)
     print(f"formal weak signal {weak_repair_adv:>10.3f} {weak_repair_rho:>16.3f} {weak_boundary_rho:>14.3f}")
@@ -312,6 +357,7 @@ def main() -> None:
     run_repairable_mixture_table()
     run_live_like_underwrite_table()
     run_same_candidate_different_state_table()
+    run_underwrite_weight_sweep()
     run_conditional_policy_toy()
 
 
