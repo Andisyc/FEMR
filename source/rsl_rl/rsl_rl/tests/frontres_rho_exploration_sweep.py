@@ -52,6 +52,7 @@ class SweepCase:
 class EvidenceCase:
     name: str
     expected: str
+    region: str
     pos_fraction: float
     neg_fraction: float
     prior_fraction: float = 0.0
@@ -214,6 +215,10 @@ def _make_minimal_evidence_batch(
     if n_prior > 0:
         prior_authority[:n_prior, 0] = 1.0
 
+    region = case.region.lower()
+    repairable_authority = torch.ones(batch_size, 1) if region == "repairable" else torch.zeros(batch_size, 1)
+    boundary_authority = torch.ones(batch_size, 1) if region in ("safe", "deep_broken") else torch.zeros(batch_size, 1)
+
     return {
         "obs": torch.ones(batch_size, 4),
         "actions": actions,
@@ -225,6 +230,8 @@ def _make_minimal_evidence_batch(
         "rho_weight": rho_weight,
         "prior_authority": prior_authority,
         "prior_target": torch.full((batch_size, 6), float(case.prior_target)),
+        "repairable_authority": repairable_authority,
+        "boundary_authority": boundary_authority,
     }
 
 
@@ -335,6 +342,65 @@ def _loss_once_direct_rho_mean(
         "rho_loss": float(rho_loss.detach().item()),
         "prior_loss": float(prior_loss.detach().item()),
         "rho_mean": float(rho_mean[active].detach().mean().item()),
+    }
+
+
+def _loss_once_region_authority_direct(
+    alg: SweepAlgorithm,
+    tensors: dict[str, torch.Tensor],
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """TEST ONLY: direct rho learning with region-based teacher authority.
+
+    repairable region: rollout evidence teaches rho.
+    safe/deep_broken boundary region: prior teaches rho low.
+
+    This is the code version of the concept:
+        repairable -> listen to rollout evidence
+        boundary   -> listen to prior
+    """
+
+    n = tensors["obs"].shape[0]
+    cols = int(getattr(alg.policy, "task_conf_dim", 6))
+    rho_adv = tensors["rho_adv"][:n, :cols].detach()
+    rho_weight = tensors["rho_weight"][:n, :cols].detach().clamp(min=0.0)
+    active = rho_weight > 1e-6
+    zero = alg.policy.action_mean.sum() * 0.0
+    if not bool(active.any().detach().item()):
+        return zero, {
+            "repairable_loss": 0.0,
+            "boundary_loss": 0.0,
+            "repairable_authority": 0.0,
+            "boundary_authority": 0.0,
+        }
+
+    rho_mean = torch.sigmoid(alg.policy.action_mean[:n, 6:6 + cols])
+    repairable_authority = tensors.get("repairable_authority", torch.ones(n, 1))[:n].detach().clamp(0.0, 1.0)
+    boundary_authority = tensors.get("boundary_authority", torch.zeros(n, 1))[:n].detach().clamp(0.0, 1.0)
+    if repairable_authority.ndim == 1:
+        repairable_authority = repairable_authority.view(-1, 1)
+    if boundary_authority.ndim == 1:
+        boundary_authority = boundary_authority.view(-1, 1)
+
+    repairable_weight = (repairable_authority[:, :1] * active.to(rho_mean.dtype)).clamp(0.0, 1.0)
+    boundary_weight = (boundary_authority[:, :1] * active.to(rho_mean.dtype)).clamp(0.0, 1.0)
+
+    repairable_loss = zero
+    if bool((repairable_weight > 1e-6).any().detach().item()):
+        repairable_loss = (-rho_adv * rho_mean * repairable_weight).sum()
+        repairable_loss = repairable_loss / repairable_weight.sum().clamp(min=1e-6)
+
+    prior_target = tensors["prior_target"][:n, :cols].detach().clamp(0.0, 1.0)
+    boundary_loss = zero
+    if bool((boundary_weight > 1e-6).any().detach().item()):
+        boundary_loss = ((rho_mean - prior_target).pow(2) * boundary_weight).sum()
+        boundary_loss = boundary_loss / boundary_weight.sum().clamp(min=1e-6)
+
+    loss = repairable_loss + boundary_loss
+    return loss, {
+        "repairable_loss": float(repairable_loss.detach().item()),
+        "boundary_loss": float(boundary_loss.detach().item()),
+        "repairable_authority": float(repairable_authority.mean().detach().item()),
+        "boundary_authority": float(boundary_authority.mean().detach().item()),
     }
 
 
@@ -648,7 +714,9 @@ def _run_clip_probe(
         if step == max_step:
             break
         optimizer.zero_grad()
-        if loss_mode == "direct":
+        if loss_mode == "region_direct":
+            loss, _ = _loss_once_region_authority_direct(alg, tensors)
+        elif loss_mode == "direct":
             loss, _ = _loss_once_direct_rho_mean(alg, tensors)
         elif loss_mode == "unclipped":
             loss, _ = _loss_once_unclipped_rho(alg, tensors)
@@ -712,36 +780,33 @@ def _run_minimal_evidence_probe(
 def run_rho_minimal_evidence_cases() -> None:
     cases = [
         EvidenceCase(
-            "positive_only",
-            expected="up",
+            "safe_positive",
+            expected="down",
+            region="safe",
             pos_fraction=1.0,
-            neg_fraction=0.0,
-        ),
-        EvidenceCase(
-            "negative_only",
-            expected="down",
-            pos_fraction=0.0,
-            neg_fraction=1.0,
-        ),
-        EvidenceCase(
-            "mixed_positive",
-            expected="up",
-            pos_fraction=0.66,
-            neg_fraction=0.32,
-        ),
-        EvidenceCase(
-            "prior_only_down",
-            expected="down",
-            pos_fraction=0.0,
             neg_fraction=0.0,
             prior_fraction=1.0,
             prior_target=0.0,
             prior_weight=1.0,
-            action_delta_raw=0.0,
         ),
         EvidenceCase(
-            "positive_with_prior",
+            "repairable_positive",
             expected="up",
+            region="repairable",
+            pos_fraction=1.0,
+            neg_fraction=0.0,
+        ),
+        EvidenceCase(
+            "repairable_negative",
+            expected="down",
+            region="repairable",
+            pos_fraction=0.0,
+            neg_fraction=1.0,
+        ),
+        EvidenceCase(
+            "deep_positive",
+            expected="down",
+            region="deep_broken",
             pos_fraction=1.0,
             neg_fraction=0.0,
             prior_fraction=1.0,
@@ -749,19 +814,20 @@ def run_rho_minimal_evidence_cases() -> None:
             prior_weight=1.0,
         ),
     ]
-    modes = ("direct", "unclipped", "clipped")
+    modes = ("region_direct", "direct", "clipped")
 
     print()
     print("=== FrontRES Rho Minimal Evidence Cases TEST ONLY ===")
-    print("Each case isolates one force: rollout evidence first, prior only when named.")
-    print("case                mode       expect rho0   rho200 delta    clip  r_min  r_max  result")
-    print("-" * 94)
+    print("Region authority: boundary regions listen to prior; repairable regions listen to rollout evidence.")
+    print("case                region       mode          expect rho0   rho200 delta    clip  r_min  r_max  result")
+    print("-" * 112)
     for case in cases:
         for mode in modes:
             result = _run_minimal_evidence_probe(case, loss_mode=mode)
             print(
                 f"{case.name:<19} "
-                f"{mode:<10} "
+                f"{case.region:<12} "
+                f"{mode:<13} "
                 f"{case.expected:<6} "
                 f"{result['rho0']:>5.3f} "
                 f"{result['rho1']:>7.3f} "
@@ -774,10 +840,10 @@ def run_rho_minimal_evidence_cases() -> None:
 
     print()
     print(
-        "Readout: direct tests whether the rho concept signal is learnable.  "
-        "unclipped tests the sampled-action log-prob layer.  clipped adds PPO's "
-        "safety layer.  A failure that appears only after adding a layer belongs "
-        "to that layer, not to the core repair-authority concept."
+        "Readout: region_direct is the proposed concept test: safe/deep_broken "
+        "must go down even with positive evidence, while repairable follows "
+        "rollout evidence.  direct ignores region authority.  clipped shows the "
+        "current PPO-style behavior for comparison."
     )
 
 
