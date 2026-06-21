@@ -941,6 +941,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_structured_joint_exec_floor = 0.0,
         frontres_structured_joint_rho_retention_weight = 0.0,
         frontres_structured_joint_directional_weight = 1.0,
+        frontres_structured_joint_underwrite_weight = 0.25,
         frontres_structured_joint_rho_center = 0.5,
         frontres_structured_joint_retention_prior_weight = 0.0,
         frontres_structured_joint_floor_penalty_weight = 5.0,

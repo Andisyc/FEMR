@@ -314,6 +314,10 @@ def apply_frontres_structured_rho_payload(
                 0.0,
                 float(runner.cfg.get("frontres_structured_joint_full_repair_bonus_weight", 1.0)),
             ),
+            underwrite_weight=max(
+                0.0,
+                float(runner.cfg.get("frontres_structured_joint_underwrite_weight", 0.0)),
+            ),
             joint_weight_floor=max(
                 0.0,
                 min(1.0, float(runner.cfg.get("frontres_structured_joint_weight_floor", 0.10))),
@@ -340,6 +344,9 @@ def apply_frontres_structured_rho_payload(
         runner._frontres_structured_joint_floor_violation_last = rho_carrier.floor_mean
         runner._frontres_structured_joint_full_bonus_last = rho_carrier.full_bonus_mean
         runner._frontres_structured_joint_rho_direction_last = rho_carrier.direction_mean
+        runner._frontres_structured_joint_rho_underwrite_last = rho_carrier.underwrite_mean
+        runner._frontres_structured_joint_rho_accept_last = rho_carrier.accept_mean
+        runner._frontres_structured_joint_rho_raw_direction_last = rho_carrier.raw_direction_mean
         runner._frontres_structured_joint_rho_centered_last = rho_carrier.centered_mean
         runner._frontres_structured_joint_rho_drive_last = rho_carrier.drive_mean
     else:
@@ -351,6 +358,9 @@ def apply_frontres_structured_rho_payload(
         runner._frontres_structured_joint_floor_violation_last = 0.0
         runner._frontres_structured_joint_full_bonus_last = 0.0
         runner._frontres_structured_joint_rho_direction_last = 0.0
+        runner._frontres_structured_joint_rho_underwrite_last = 0.0
+        runner._frontres_structured_joint_rho_accept_last = 0.0
+        runner._frontres_structured_joint_rho_raw_direction_last = 0.0
         runner._frontres_structured_joint_rho_centered_last = 0.0
         runner._frontres_structured_joint_rho_drive_last = 0.0
     return FrontRESStructuredRhoPayload(
@@ -568,6 +578,9 @@ def initialize_frontres_acceptance_payload(runner: Any) -> FrontRESAcceptancePay
     runner._frontres_structured_joint_floor_violation_last = 0.0
     runner._frontres_structured_joint_full_bonus_last = 0.0
     runner._frontres_structured_joint_rho_direction_last = 0.0
+    runner._frontres_structured_joint_rho_underwrite_last = 0.0
+    runner._frontres_structured_joint_rho_accept_last = 0.0
+    runner._frontres_structured_joint_rho_raw_direction_last = 0.0
     runner._frontres_structured_joint_rho_centered_last = 0.0
     runner._frontres_structured_joint_rho_drive_last = 0.0
     return FrontRESAcceptancePayload(

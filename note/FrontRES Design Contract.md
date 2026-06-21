@@ -283,6 +283,113 @@ Avoid using `sample_weight` as the main conceptual name when the value decides
 the direction of \(\rho\) learning.  `sample_weight` is acceptable only for a
 pure multiplicative confidence term.
 
+### 2026-06-21 Rho Underwrite Evidence Test Plan
+
+The region-direct loss above exposed a low-rho dead zone.  The policy can
+represent conditional repair authority, and the current rollout evidence can
+produce opposite signs for the same Candidate under different current states.
+However, the current rho advantage measures the already-written Projected
+repair:
+
+\[
+A_{\rho}^{\rm current}
+  =
+  \frac{P - N}{|C - N| + m},
+\]
+
+where \(N\) is the Noisy/GMT executable score, \(P\) is the current
+rho-projected FrontRES executable score, \(C\) is the Candidate/full-repair
+score, and \(m\) is the existing preference margin.  This formula is conditional
+because \(P\) changes with the current state.  Its failure is that, when the
+current \(\rho\) is already low, \(P\) stays close to \(N\), so the conditional
+signal becomes very small and can be cancelled by noise or mixed batches even
+when \(C\) shows that useful repair remains unwritten.
+
+The planned fix is not to let Candidate replace Projected.  Candidate should not
+decide the sign of the update, because a good Candidate can still be harmful in
+the current dynamic state.  Projected remains the no-regret judge:
+
+\[
+A_{\rm exec}
+  =
+  \frac{P - N}{|C - N| + m}.
+\]
+
+Candidate only adds a residual "underwritten repair" term after Projected has
+already shown that the current state accepts the repair:
+
+\[
+A_{\rm under}
+  =
+  \frac{\max(C - P - m, 0)}{|C - N| + m}.
+\]
+
+The experimental advantage is:
+
+\[
+A_{\rho}^{\rm underwrite}
+  =
+  A_{\rm exec}
+  +
+  w_{\rm under}
+  \mathbf{1}[P - N > m]
+  A_{\rm under}.
+\]
+
+This keeps the roles separate:
+
+- \(A_{\rm exec}\) preserves the conditional sign from the current-state rollout.
+- The indicator \(\mathbf{1}[P-N>m]\) is not a new classifier or prior; it is the
+  existing rollout margin used to prevent Candidate from overriding harmful
+  Projected evidence.
+- \(A_{\rm under}\) says how much of an already-accepted Candidate remains
+  unwritten.
+- \(w_{\rm under}\) only controls the volume of this residual positive evidence.
+  It is an experimental strength knob, not a new conceptual branch.  Setting
+  \(w_{\rm under}=0\) exactly recovers the current formula.
+
+The standalone test
+`source/rsl_rl/rsl_rl/tests/frontres_conditional_advantage_signal.py` currently
+supports an underwrite-weight sweep.  The observed first-pass range is:
+
+- \(w_{\rm under}=0.25\): conservative.  It lifts low-rho positive evidence
+  without saturating most accepted samples.
+- \(w_{\rm under}=0.50\): stronger.  It more aggressively escapes the low-rho
+  dead zone but may push accepted samples too quickly.
+- \(w_{\rm under}=1.00\): too aggressive for the first live test because it
+  saturates clear-good and low-write-good examples to \(+1\).
+
+The first formal-code short-run plan should therefore use
+`frontres_structured_joint_underwrite_weight = 0.25`.  A follow-up short run may
+try `0.50` only if rho remains collapsed near zero and the repairable-region
+advantage is still too weak.
+
+Formal code modification plan:
+
+- Add config field `frontres_structured_joint_underwrite_weight`, defaulting to
+  `0.0` in generic config classes and set to `0.25` only in the active FrontRES
+  experiment config.
+- In `build_structured_rho_carrier(...)`, replace the current scalar
+  `rho_direction` construction with the underwrite-augmented formula above.
+- Keep `region_direct` algorithm loss unchanged.  The change belongs to
+  rho-advantage construction, not to the optimizer route.
+- Add diagnostics for the short run: underwrite weight, underwrite term mean,
+  accept-from-projected fraction, and augmented rho advantage mean.  These must
+  appear beside the existing `rho region loss` diagnostics so the live path is
+  visible in the first resumed iteration.
+
+Short-run success criteria:
+
+- `rho_mean` should move away from the current very-low collapse without jumping
+  directly to full write authority.
+- `rho_adv_abs_mean` and the new underwrite diagnostics should increase on
+  repairable samples.
+- harmful/negative Projected samples must remain negative; Candidate must not
+  flip them into positive updates.
+- Performance should not be judged from one spike.  First confirm the live
+  diagnostic path and rho distribution, then compare FrontRES/GMT episode length
+  over a short window.
+
 ### Reward Compute Review Contract
 
 When reviewing or modifying Reward Compute, treat it as a causal converter, not

@@ -65,6 +65,8 @@ def initialize_frontres_reward_diagnostic_sums() -> dict[str, float | int]:
         "structured_joint_rho_adv", "structured_joint_rho_weight",
         "structured_joint_rho_retention", "structured_joint_floor_violation",
         "structured_joint_full_bonus", "structured_joint_rho_direction",
+        "structured_joint_rho_underwrite", "structured_joint_rho_accept",
+        "structured_joint_rho_raw_direction",
         "structured_joint_rho_centered", "structured_joint_rho_drive",
         "oracle_ub_gain", "oracle_ub_pass", "oracle_ub_projected_win",
         "oracle_ub_candidate_win", "oracle_ub_feasible_win",
@@ -120,6 +122,8 @@ _FRONTRES_REWARD_DIAG_MEAN_KEYS = (
     "structured_joint_rho_adv", "structured_joint_rho_weight",
     "structured_joint_rho_retention", "structured_joint_floor_violation",
     "structured_joint_full_bonus", "structured_joint_rho_direction",
+    "structured_joint_rho_underwrite", "structured_joint_rho_accept",
+    "structured_joint_rho_raw_direction",
     "structured_joint_rho_centered", "structured_joint_rho_drive",
     "actor_gate", "exec_gate", "cost_gate",
 )
@@ -356,6 +360,9 @@ def accumulate_frontres_reward_diagnostics(
             ("structured_joint_floor_violation", "_frontres_structured_joint_floor_violation_last"),
             ("structured_joint_full_bonus", "_frontres_structured_joint_full_bonus_last"),
             ("structured_joint_rho_direction", "_frontres_structured_joint_rho_direction_last"),
+            ("structured_joint_rho_underwrite", "_frontres_structured_joint_rho_underwrite_last"),
+            ("structured_joint_rho_accept", "_frontres_structured_joint_rho_accept_last"),
+            ("structured_joint_rho_raw_direction", "_frontres_structured_joint_rho_raw_direction_last"),
             ("structured_joint_rho_centered", "_frontres_structured_joint_rho_centered_last"),
             ("structured_joint_rho_drive", "_frontres_structured_joint_rho_drive_last"),
         ):

@@ -83,6 +83,7 @@ def _formal_rho_adv(
         retention_weight=0.0,
         floor_penalty_weight=0.0,
         full_bonus_weight=0.0,
+        underwrite_weight=0.0,
         joint_weight_floor=0.0,
         use_rho_update_weight=False,
         device=device,

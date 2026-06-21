@@ -130,6 +130,13 @@ def format_frontres_route_rho_diagnostics(
             f"{_value(locs, 'frontres_structured_joint_rho_drive_mean'):+.3f}\n"
         )
         lines.append(
+            f"{'rho underwrite raw/uw/acc:':>{pad}} "
+            f"{_value(locs, 'frontres_structured_joint_rho_raw_direction_mean'):+.3f} / "
+            f"{_value(locs, 'frontres_structured_joint_rho_underwrite_mean'):.3f} / "
+            f"{_value(locs, 'frontres_structured_joint_rho_accept_mean'):.3f} "
+            f"(w={float(cfg.get('frontres_structured_joint_underwrite_weight', 0.0)):.2f})\n"
+        )
+        lines.append(
             f"{'rho constrained adv:':>{pad}} "
             f"{structured_adv:+.4f} / "
             f"retp={_value(locs, 'frontres_structured_joint_rho_retention_mean'):+.4f}, "
@@ -305,6 +312,9 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
                 f"r_auth={_value(loss_dict, 'structured_joint_rl_repairable_authority_mean'):.3f}, "
                 f"p_rho={_value(loss_dict, 'structured_joint_rl_prior_rho_mean'):.3f}, "
                 f"rho={_value(loss_dict, 'structured_joint_rl_rho_mean'):.3f}, "
+                f"raw={_value(locs, 'frontres_structured_joint_rho_raw_direction_mean'):+.3f}, "
+                f"uw={_value(locs, 'frontres_structured_joint_rho_underwrite_mean'):.3f}, "
+                f"acc={_value(locs, 'frontres_structured_joint_rho_accept_mean'):.3f}, "
                 f"|rho-.5|={_value(loss_dict, 'structured_joint_rl_rho_abs_from_half'):.3f}, "
                 f"near.5={_value(loss_dict, 'structured_joint_rl_rho_near_half_frac'):.3f}, "
                 f"generic={_value(loss_dict, 'ppo_actor_weight'):.3f})\n"

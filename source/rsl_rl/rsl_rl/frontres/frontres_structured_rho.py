@@ -27,6 +27,9 @@ class FrontRESStructuredRhoCarrier:
     floor_mean: float
     full_bonus_mean: float
     direction_mean: float
+    underwrite_mean: float
+    accept_mean: float
+    raw_direction_mean: float
     centered_mean: float
     drive_mean: float
 
@@ -221,6 +224,7 @@ def build_structured_rho_carrier(
     retention_weight: float,
     floor_penalty_weight: float,
     full_bonus_weight: float,
+    underwrite_weight: float,
     joint_weight_floor: float,
     use_rho_update_weight: bool,
     device: torch.device,
@@ -231,7 +235,21 @@ def build_structured_rho_carrier(
     if n_exec <= 0:
         zero = torch.zeros(0, 6, device=device, dtype=rho_current.dtype)
         return FrontRESStructuredRhoCarrier(
-            rho_advantage, rho_validity_weight, zero, zero, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+            rho_advantage=rho_advantage,
+            rho_validity_weight=rho_validity_weight,
+            rho_advantage_exec=zero,
+            rho_validity_weight_exec=zero,
+            adv_mean=0.0,
+            weight_mean=0.0,
+            retention_mean=0.0,
+            floor_mean=0.0,
+            full_bonus_mean=0.0,
+            direction_mean=0.0,
+            underwrite_mean=0.0,
+            accept_mean=0.0,
+            raw_direction_mean=0.0,
+            centered_mean=0.0,
+            drive_mean=0.0,
         )
 
     n = min(int(n_exec), int(rho_current.shape[0]))
@@ -287,7 +305,19 @@ def build_structured_rho_carrier(
         rho_direction,
         torch.zeros_like(rho_direction),
     )
+    raw_rho_direction = rho_direction
+    underwrite_weight = max(0.0, float(underwrite_weight))
+    accept_from_projected = (rollout_gain > float(pref_margin)).to(rho.dtype)
+    underwrite = torch.relu(exec_candidate[:n].detach() - exec_frontres[:n].detach() - float(pref_margin))
+    underwrite_direction = (underwrite / evidence_scale).clamp(0.0, 1.0)
+    if underwrite_weight > 0.0:
+        rho_direction = (
+            rho_direction + underwrite_weight * accept_from_projected * underwrite_direction
+        ).clamp(-1.0, 1.0)
     rho_direction_dim = rho_direction.view(-1, 1).expand_as(rho).detach()
+    raw_direction_dim = raw_rho_direction.view(-1, 1).expand_as(rho).detach()
+    underwrite_dim = underwrite_direction.view(-1, 1).expand_as(rho).detach()
+    accept_dim = accept_from_projected.view(-1, 1).expand_as(rho).detach()
 
     # Formal rho advantage must match the debug contract: rollout evidence
     # owns PPO advantage; boundary priors are handled by a separate loss.
@@ -313,6 +343,9 @@ def build_structured_rho_carrier(
         floor_mean=_mean_active(floor_term, dim_active),
         full_bonus_mean=_mean_active(full_bonus, dim_active),
         direction_mean=_mean_active(rho_direction_dim, dim_active),
+        underwrite_mean=_mean_active(underwrite_dim, dim_active),
+        accept_mean=_mean_active(accept_dim, dim_active),
+        raw_direction_mean=_mean_active(raw_direction_dim, dim_active),
         centered_mean=_mean_active(rho_centered, dim_active),
         drive_mean=_mean_active(rho_drive, dim_active),
     )
