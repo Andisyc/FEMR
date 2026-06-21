@@ -204,6 +204,39 @@ def run_live_like_underwrite_table() -> None:
     )
 
 
+def run_same_candidate_different_state_table() -> None:
+    rows = [
+        EvidenceRow("clear_good_state", 0.50, 0.56, 0.60, "same Candidate, current state accepts repair"),
+        EvidenceRow("clear_bad_state", 0.50, 0.44, 0.60, "same Candidate, current state rejects repair"),
+        EvidenceRow("low_write_good_state", 0.50, 0.505, 0.60, "same Candidate, but rho writes too little"),
+        EvidenceRow("low_write_bad_state", 0.50, 0.495, 0.60, "same Candidate, tiny write looks harmful"),
+    ]
+    out = _formal_rho_adv(rows)
+
+    print()
+    print("D. same Candidate, different current-state execution")
+    print("name                  noisy  proj   cand   cand_gain proj_gain formal_adv cand_pressure expected")
+    print("-" * 124)
+    for i, row in enumerate(rows):
+        print(
+            f"{row.name:<21} "
+            f"{out['noisy'][i].item():>5.2f} "
+            f"{out['projected'][i].item():>5.3f} "
+            f"{out['candidate'][i].item():>5.2f} "
+            f"{out['candidate_gain'][i].item():>+9.3f} "
+            f"{out['projected_gain'][i].item():>+9.3f} "
+            f"{out['formal_adv'][i].item():>+10.3f} "
+            f"{out['candidate_pressure'][i].item():>+13.3f} "
+            f"{row.expected}"
+        )
+    print()
+    print(
+        "Readout: the first two rows test the real conditional question.  Candidate is identical, "
+        "but the current-state execution result changes sign.  The last two rows show the weak-rho "
+        "case: the conditional sign exists, but its magnitude is tiny because Projected barely moved."
+    )
+
+
 def _train_two_state_policy(repair_adv: float, *, steps: int = 80, lr: float = 5.0e-1) -> tuple[float, float]:
     features = torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32)
     # Row 0: repairable state.  Row 1: boundary state.
@@ -234,7 +267,7 @@ def run_conditional_policy_toy() -> None:
     strong_repair_rho, strong_boundary_rho = _train_two_state_policy(strong_repair_adv)
 
     print()
-    print("D. two-state conditional rho policy")
+    print("E. two-state conditional rho policy")
     print("signal             repair_adv  rho(repairable)  rho(boundary)")
     print("-" * 68)
     print(f"formal weak signal {weak_repair_adv:>10.3f} {weak_repair_rho:>16.3f} {weak_boundary_rho:>14.3f}")
@@ -250,6 +283,7 @@ def main() -> None:
     run_single_case_table()
     run_repairable_mixture_table()
     run_live_like_underwrite_table()
+    run_same_candidate_different_state_table()
     run_conditional_policy_toy()
 
 
