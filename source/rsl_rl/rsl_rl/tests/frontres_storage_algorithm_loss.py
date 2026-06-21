@@ -23,6 +23,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -65,6 +66,8 @@ class FakeAlgorithm:
         self.frontres_structured_joint_rl_normalize_advantage = False
         self.frontres_structured_joint_rl_loss_mode = "region_direct"
         self.frontres_structured_joint_prior_loss_weight = 1.0
+        self.frontres_structured_joint_repair_loss_kind = "bce_logit"
+        self.frontres_structured_joint_repair_loss_scale = 1.0
         self.frontres_reward_compute_live_debug = False
 
     def _structured_joint_rl_enabled(self) -> bool:
@@ -189,7 +192,13 @@ def run_storage_algorithm_loss_check() -> None:
 
     rho_mean = torch.sigmoid(expected["policy_mu"])
     repairable_weight = (1.0 - expected["prior_authority"]).expand(-1, 6)
-    rho_loss_expected = (-expected["rho_adv"] * rho_mean * repairable_weight).sum()
+    repair_target = (expected["rho_adv"] > 0.0).to(expected["policy_mu"].dtype)
+    repair_terms = F.binary_cross_entropy_with_logits(
+        expected["policy_mu"],
+        repair_target,
+        reduction="none",
+    )
+    rho_loss_expected = (repair_terms * expected["rho_adv"].abs() * repairable_weight).sum()
     rho_loss_expected = rho_loss_expected / repairable_weight.sum().clamp(min=1e-6)
     prior_weight = expected["prior_authority"].expand(-1, 6)
     prior_error = torch.sigmoid(expected["policy_mu"]).pow(2)
@@ -201,6 +210,8 @@ def run_storage_algorithm_loss_check() -> None:
     _assert_close("algorithm boundary_loss", torch.tensor(metrics["structured_joint_rl_boundary_loss"]), prior_loss_expected)
     _assert_close("algorithm prior_loss", torch.tensor(metrics["structured_joint_rl_prior_loss"]), prior_loss_expected)
     _assert_close("algorithm total_loss", loss.detach().cpu(), total_expected.cpu())
+    _assert_close("algorithm repair_bce flag", torch.tensor(metrics["structured_joint_rl_repair_loss_is_bce"]), torch.tensor(1.0))
+    _assert_close("algorithm repair scale", torch.tensor(metrics["structured_joint_rl_repair_loss_scale"]), torch.tensor(1.0))
 
     print("=== FrontRES Storage -> Algorithm Loss TEST ONLY ===")
     print(f"minibatch_order: {[NAMES[i] for i in order]}")
@@ -210,7 +221,8 @@ def run_storage_algorithm_loss_check() -> None:
         f"region_total={metrics['structured_joint_rl_rho_loss']:+.4f}, "
         f"repairable={metrics['structured_joint_rl_repairable_loss']:+.4f}, "
         f"boundary={metrics['structured_joint_rl_boundary_loss']:.4f}, "
-        f"total={loss.item():+.4f}"
+        f"total={loss.item():+.4f}, "
+        f"repair_bce={metrics['structured_joint_rl_repair_loss_is_bce']:.0f}"
     )
     print(
         "meaning: repairable samples follow rollout evidence directly; "

@@ -5,6 +5,7 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 
 from rsl_rl.modules import ActorCritic, FrontRESActorCritic, ResidualActorCritic
@@ -90,6 +91,8 @@ class FrontRESUnified:
         frontres_structured_joint_rho_retention_weight: float = 0.0,
         frontres_structured_joint_directional_weight: float = 1.0,
         frontres_structured_joint_underwrite_weight: float = 0.0,
+        frontres_structured_joint_repair_loss_kind: str = "current_rho_linear",
+        frontres_structured_joint_repair_loss_scale: float = 1.0,
         frontres_structured_joint_rho_center: float = 0.5,
         frontres_structured_joint_retention_prior_weight: float = 0.0,
         frontres_structured_joint_floor_penalty_weight: float = 5.0,
@@ -226,6 +229,20 @@ class FrontRESUnified:
         )
         self.frontres_structured_joint_underwrite_weight = max(
             0.0, float(frontres_structured_joint_underwrite_weight)
+        )
+        self.frontres_structured_joint_repair_loss_kind = str(
+            frontres_structured_joint_repair_loss_kind
+        ).lower()
+        if self.frontres_structured_joint_repair_loss_kind not in (
+            "current_rho_linear",
+            "bce_logit",
+        ):
+            raise ValueError(
+                "frontres_structured_joint_repair_loss_kind must be "
+                "'current_rho_linear' or 'bce_logit'"
+            )
+        self.frontres_structured_joint_repair_loss_scale = max(
+            0.0, float(frontres_structured_joint_repair_loss_scale)
         )
         self.frontres_structured_joint_rho_center = min(
             1.0, max(0.0, float(frontres_structured_joint_rho_center))
@@ -366,6 +383,8 @@ class FrontRESUnified:
                 f"floor=runner-adaptive U_floor, fallback={self.frontres_structured_joint_exec_floor}, "
                 f"dir_w={self.frontres_structured_joint_directional_weight}, "
                 f"under_w={self.frontres_structured_joint_underwrite_weight}, "
+                f"repair={self.frontres_structured_joint_repair_loss_kind}, "
+                f"rscale={self.frontres_structured_joint_repair_loss_scale}, "
                 f"rho_center={self.frontres_structured_joint_rho_center}, "
                 f"ret_prior_w={self.frontres_structured_joint_retention_prior_weight}, "
                 f"floor_w={self.frontres_structured_joint_floor_penalty_weight}, "
@@ -1329,6 +1348,21 @@ class FrontRESUnified:
             "structured_joint_rl_rho_loss": 0.0,
             "structured_joint_rl_repairable_loss": 0.0,
             "structured_joint_rl_boundary_loss": 0.0,
+            "structured_joint_rl_repair_loss_scale": float(
+                getattr(self, "frontres_structured_joint_repair_loss_scale", 1.0)
+            ),
+            "structured_joint_rl_repair_loss_is_bce": (
+                1.0
+                if str(
+                    getattr(
+                        self,
+                        "frontres_structured_joint_repair_loss_kind",
+                        "current_rho_linear",
+                    )
+                ).lower()
+                == "bce_logit"
+                else 0.0
+            ),
             "structured_joint_rl_repairable_authority_mean": 0.0,
             "structured_joint_rl_boundary_authority_mean": 0.0,
             "structured_joint_rl_prior_loss": 0.0,
@@ -1476,8 +1510,27 @@ class FrontRESUnified:
             repairable_authority = (1.0 - prior_authority[:, :1]).clamp(0.0, 1.0)
             repairable_weight = (repairable_authority * (rho_weight > 1e-6).to(obs_batch.dtype)).clamp(0.0, 1.0)
             repairable_loss = zero
+            repair_loss_kind = str(
+                getattr(self, "frontres_structured_joint_repair_loss_kind", "current_rho_linear")
+            ).lower()
+            repair_loss_scale = max(
+                0.0,
+                float(getattr(self, "frontres_structured_joint_repair_loss_scale", 1.0)),
+            )
             if bool((repairable_weight > 1e-6).any().detach().item()):
-                repairable_loss = (-rho_adv * rho_mean * repairable_weight).sum()
+                if repair_loss_kind == "bce_logit":
+                    repair_target = (rho_adv > 0.0).to(dtype=obs_batch.dtype)
+                    repair_terms = F.binary_cross_entropy_with_logits(
+                        rho_mean_raw,
+                        repair_target,
+                        reduction="none",
+                    )
+                    repairable_loss = (
+                        repair_terms * rho_adv.abs() * repairable_weight
+                    ).sum()
+                else:
+                    repair_loss_kind = "current_rho_linear"
+                    repairable_loss = (-rho_adv * rho_mean * repairable_weight).sum()
                 repairable_loss = repairable_loss / repairable_weight.sum().clamp(min=1e-6)
             boundary_loss = zero
             if bool((prior_dim_weight > 1e-6).any().detach().item()):
@@ -1490,11 +1543,13 @@ class FrontRESUnified:
                 metrics["structured_joint_rl_prior_rho_mean"] = float(
                     rho_mean[prior_dim_weight > 1e-6].mean().detach().item()
                 )
-            rho_loss = repairable_loss + prior_loss_weight * boundary_loss
+            rho_loss = repair_loss_scale * repairable_loss + prior_loss_weight * boundary_loss
             prior_loss = boundary_loss
             metrics["structured_joint_rl_repairable_loss"] = float(repairable_loss.detach().item())
             metrics["structured_joint_rl_boundary_loss"] = float(boundary_loss.detach().item())
             metrics["structured_joint_rl_prior_loss"] = metrics["structured_joint_rl_boundary_loss"]
+            metrics["structured_joint_rl_repair_loss_scale"] = repair_loss_scale
+            metrics["structured_joint_rl_repair_loss_is_bce"] = 1.0 if repair_loss_kind == "bce_logit" else 0.0
         elif (
             prior_loss_weight > 0.0
             and has_prior_inputs
@@ -1572,6 +1627,8 @@ class FrontRESUnified:
                         f"it={it} mode=region_direct "
                         f"rep={metrics['structured_joint_rl_repairable_loss']:+.4f} "
                         f"bound={metrics['structured_joint_rl_boundary_loss']:.4f} "
+                        f"repair_bce={metrics['structured_joint_rl_repair_loss_is_bce']:.0f} "
+                        f"rscale={metrics['structured_joint_rl_repair_loss_scale']:.3f} "
                         f"adv={metrics['structured_joint_rl_adv_mean']:+.4f} "
                         f"|adv|={metrics['structured_joint_rl_adv_abs_mean']:.4f} "
                         f"weight={metrics['structured_joint_rl_weight_mean']:.3f} "

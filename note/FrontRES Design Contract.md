@@ -388,7 +388,77 @@ Short-run success criteria:
   flip them into positive updates.
 - Performance should not be judged from one spike.  First confirm the live
   diagnostic path and rho distribution, then compare FrontRES/GMT episode length
-  over a short window.
+
+### 2026-06-21 Logit-Level Rho Repair Loss
+
+The underwrite evidence fix made the rho direction correct, but the low-rho
+recovery test exposed a second failure.  The formal evidence can say "increase
+rho" while the current region-direct loss barely moves rho, because the repair
+loss acts on the post-sigmoid value:
+
+\[
+L_{\rm repair}^{\rm old}
+  =
+  -A_{\rho}\rho.
+\]
+
+Since \(\rho=\sigma(z_{\rho})\), the gradient that reaches the policy logit is
+scaled by \(\rho(1-\rho)\).  When \(\rho\approx 0.04\), this keeps only about
+four percent of the signal.  The TEST ONLY probe showed this directly:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_rho_low_recovery_mechanism.py
+current_rho_linear: grad_abs=0.01104, rho 0.040 -> 0.048
+bce_logit:          grad_abs=0.27600, rho 0.040 -> 0.557
+```
+
+The conceptual role of rho does not change.  Rho is still the repair authority:
+it decides how much of the Clean-oriented proposal may be written under the
+current dynamics.  The change is only the engineering realization of that same
+role.  The repairable-region loss should train the rho logit as a signed gate:
+
+\[
+y_{\rho} = \mathbf{1}[A_{\rho} > 0],
+\]
+
+\[
+L_{\rm repair}^{\rm logit}
+  =
+  s_{\rm repair}
+  |A_{\rho}|
+  \operatorname{BCEWithLogits}(z_{\rho}, y_{\rho}).
+\]
+
+This preserves the existing rollout evidence:
+
+- positive \(A_{\rho}\) pushes the rho logit up;
+- negative \(A_{\rho}\) pushes the rho logit down;
+- \(|A_{\rho}|\) controls evidence strength;
+- boundary/safe/deep-broken priors remain a separate loss and should not be
+  folded back into \(A_{\rho}\).
+
+Formal code modification plan:
+
+- Keep `region_direct` as the algorithm route.
+- Add `frontres_structured_joint_repair_loss_kind` with generic default
+  `current_rho_linear` and active FrontRES value `bce_logit`.
+- Add `frontres_structured_joint_repair_loss_scale` with generic default `1.0`
+  and active FrontRES first-test value `1.0`.
+- In `FrontRESUnified`, switch only the repairable-region loss from
+  post-sigmoid linear rho loss to logit-level BCE when the config selects
+  `bce_logit`.
+- Keep the old post-sigmoid loss as an ablation mode, not as the active path.
+- Diagnostics must print the repair loss kind and scale beside `rho region loss`
+  so the first resumed iteration proves the live path.
+
+Short-run success criteria:
+
+- The log must show `repair=bce_logit` and `rscale=1.000`.
+- `rho_mean` should recover from the very-low collapse faster than the previous
+  post-sigmoid loss.
+- `rho_adv` should remain signed by rollout evidence; the loss change must not
+  create a new evidence source.
+- Harmful Projected samples must still push rho downward.
 
 ### Reward Compute Review Contract
 

@@ -13,8 +13,8 @@ This module does not start IsaacLab.  It builds the same formal structured-rho
 advantage used by training, then compares small loss variants on a raw rho logit.
 The goal is to make the low-rho failure inspectable:
 
-- current_rho_linear is the live region_direct repairable loss.
-- bce_logit is the proposed mature gate-style loss: BCEWithLogits weighted by
+- current_rho_linear is the old region_direct repairable-loss ablation.
+- bce_logit is the active mature gate-style loss: BCEWithLogits weighted by
   |rho_adv|.
 - raw_logit_linear is an intentionally aggressive reference, not a proposal.
 """

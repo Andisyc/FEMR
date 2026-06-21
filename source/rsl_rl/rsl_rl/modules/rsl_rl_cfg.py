@@ -394,6 +394,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Weight for centered directional Candidate-vs-Projected rho advantage."""
     frontres_structured_joint_underwrite_weight: float = 0.0
     """Extra weight for accepted Candidate-vs-Projected underwrite evidence in rho advantage."""
+    frontres_structured_joint_repair_loss_kind: str = "current_rho_linear"
+    """Repairable-region rho loss: 'current_rho_linear' keeps the old post-sigmoid loss; 'bce_logit' trains the rho logit."""
+    frontres_structured_joint_repair_loss_scale: float = 1.0
+    """Multiplier for the repairable-region rho loss before boundary-prior loss is added."""
     frontres_structured_joint_rho_center: float = 0.5
     """Reference rho value used to center sampled rho for directional PPO updates."""
     frontres_structured_joint_center_drive_deadzone: float = 0.10

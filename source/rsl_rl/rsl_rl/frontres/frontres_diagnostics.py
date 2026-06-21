@@ -304,6 +304,8 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
                 f"enabled={_value(loss_dict, 'structured_joint_rl_enabled'):.0f}, "
                 f"rep={_value(loss_dict, 'structured_joint_rl_repairable_loss'):+.4f}, "
                 f"bound={_value(loss_dict, 'structured_joint_rl_boundary_loss'):.4f}, "
+                f"repair_bce={_value(loss_dict, 'structured_joint_rl_repair_loss_is_bce'):.0f}, "
+                f"rscale={_value(loss_dict, 'structured_joint_rl_repair_loss_scale'):.3f}, "
                 f"adv={_value(loss_dict, 'structured_joint_rl_adv_mean'):+.4f}, "
                 f"|adv|={_value(loss_dict, 'structured_joint_rl_adv_abs_mean'):.4f}, "
                 f"w_act={_value(loss_dict, 'structured_joint_rl_weight_mean'):.3f}, "

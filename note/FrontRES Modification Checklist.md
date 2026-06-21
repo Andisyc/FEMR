@@ -4,6 +4,29 @@ Use this checklist after every nontrivial FrontRES change.  The goal is to keep
 concept, code path, diagnostics, and short-run evidence aligned.  Do not mark a
 change as ready for training until each relevant item has concrete evidence.
 
+## Active Change Record: 2026-06-21 Logit-Level Rho Repair Loss
+
+- [x] Design note updated:
+  `note/FrontRES Design Contract.md`, section
+  `2026-06-21 Logit-Level Rho Repair Loss`.
+- [x] Test reference updated:
+  `source/rsl_rl/rsl_rl/tests/frontres_rho_low_recovery_mechanism.py`;
+  `source/rsl_rl/rsl_rl/tests/frontres_storage_algorithm_loss.py`.
+- [x] Core concept: keep the existing rho advantage evidence, but apply
+  repairable-region rho learning to the rho logit with BCEWithLogits.
+- [x] Forbidden change: do not add a new evidence source, do not merge boundary
+  prior into `rho_adv`, and do not remove the old post-sigmoid loss ablation.
+- [x] Config surface verified for
+  `frontres_structured_joint_repair_loss_kind` and
+  `frontres_structured_joint_repair_loss_scale`.
+- [x] Algorithm path verified in `FrontRESUnified` region-direct loss.
+- [x] Diagnostics verified to print `repair_bce` and `rscale` in the same live
+  branch as `rho region loss`.
+- [ ] First short-run sentinel observed: startup prints `repair=bce_logit` and
+  log prints `repair_bce=1, rscale=1.000`.
+- [ ] First short-run behavior checked: rho should recover from near-zero more
+  quickly without making harmful Projected samples positive.
+
 ## 0. Design Delta
 
 - [ ] Write the intended concept in one sentence.
@@ -218,4 +241,3 @@ Decision:
 - Tune:
 - Add diagnostic:
 - Stop and rethink concept:
-

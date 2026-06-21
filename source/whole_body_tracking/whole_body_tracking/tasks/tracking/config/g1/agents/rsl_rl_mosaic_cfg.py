@@ -665,6 +665,8 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_structured_joint_rho_retention_weight = 0.0
     frontres_structured_joint_directional_weight = 1.0
     frontres_structured_joint_underwrite_weight = 0.25
+    frontres_structured_joint_repair_loss_kind = "bce_logit"
+    frontres_structured_joint_repair_loss_scale = 1.0
     frontres_structured_joint_rho_center = 0.5
     # Evidence strength comes from Candidate/Fallback/Projected utility.  The
     # sampled rho center term only tells PPO whether the sample is on the
@@ -943,6 +945,8 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_structured_joint_rho_retention_weight = 0.0,
         frontres_structured_joint_directional_weight = 1.0,
         frontres_structured_joint_underwrite_weight = 0.25,
+        frontres_structured_joint_repair_loss_kind = "bce_logit",
+        frontres_structured_joint_repair_loss_scale = 1.0,
         frontres_structured_joint_rho_center = 0.5,
         frontres_structured_joint_retention_prior_weight = 0.0,
         frontres_structured_joint_floor_penalty_weight = 5.0,

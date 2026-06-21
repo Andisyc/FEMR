@@ -3,16 +3,16 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""TEST ONLY: FrontRES structured-rho advantage learning check.
+"""TEST ONLY: legacy FrontRES structured-rho PPO-clipped advantage check.
 
 Run from the repository root with:
 
     python source/rsl_rl/rsl_rl/tests/frontres_advantage_learning.py
 
-This module does not start an environment.  It tests whether the formal
-structured-rho algorithm loss can move a learnable rho mean away from 0.5.
-The older storage/loss test only checked scalar values; this test checks the
-gradient direction over repeated optimizer steps.
+This module does not start an environment.  It explicitly exercises the legacy
+`ppo_clipped` structured-rho path.  The current active FrontRES path is
+`region_direct + bce_logit`, covered by frontres_rho_low_recovery_mechanism.py
+and frontres_storage_algorithm_loss.py.
 """
 
 from __future__ import annotations
@@ -85,6 +85,7 @@ class LearnableAlgorithm(torch.nn.Module):
         self.frontres_structured_joint_rl_weight = 1.0
         self.frontres_structured_joint_rl_adv_clip = 5.0
         self.frontres_structured_joint_rl_normalize_advantage = False
+        self.frontres_structured_joint_rl_loss_mode = "ppo_clipped"
         self.frontres_structured_joint_prior_loss_weight = float(prior_weight)
         self.frontres_reward_compute_live_debug = False
 
