@@ -86,7 +86,14 @@ def _formal_rho_adv(rows: list[EvidenceRow], *, margin: float = 0.0) -> dict[str
     candidate_gain = candidate - noisy
     projected_gain = projected - noisy
     missing_write_gain = candidate - projected
-    candidate_pressure = missing_write_gain / (candidate_gain.abs() + margin + 1.0e-6)
+    evidence_scale = candidate_gain.abs() + margin + 1.0e-6
+    candidate_pressure = missing_write_gain / evidence_scale
+    # Candidate should not override current-state execution evidence.  This
+    # test-only proposal keeps Projected-vs-Noisy as the sign source, and uses
+    # Candidate-vs-Projected only when Projected already improved over Noisy.
+    accept_from_projected = (projected_gain > margin).to(formal_adv.dtype)
+    underwrite_adv = torch.relu(missing_write_gain - margin) / evidence_scale
+    proposed_adv = (formal_adv + accept_from_projected * underwrite_adv).clamp(-1.0, 1.0)
     return {
         "noisy": noisy,
         "projected": projected,
@@ -95,6 +102,9 @@ def _formal_rho_adv(rows: list[EvidenceRow], *, margin: float = 0.0) -> dict[str
         "projected_gain": projected_gain,
         "missing_write_gain": missing_write_gain,
         "formal_adv": formal_adv,
+        "accept_from_projected": accept_from_projected,
+        "underwrite_adv": underwrite_adv.clamp(0.0, 1.0),
+        "proposed_adv": proposed_adv,
         "candidate_pressure": candidate_pressure.clamp(-1.0, 1.0),
     }
 
@@ -111,7 +121,7 @@ def run_single_case_table() -> None:
     print()
     print("=== FrontRES Conditional Advantage Signal TEST ONLY ===")
     print("A. single hand-checkable rows")
-    print("name                         noisy  proj   cand   cand_gain proj_gain formal_adv cand_pressure expected")
+    print("name                         noisy  proj   cand   cand_gain proj_gain formal_adv proposed_adv expected")
     print("-" * 122)
     for i, row in enumerate(rows):
         print(
@@ -122,13 +132,13 @@ def run_single_case_table() -> None:
             f"{out['candidate_gain'][i].item():>+9.3f} "
             f"{out['projected_gain'][i].item():>+9.3f} "
             f"{out['formal_adv'][i].item():>+10.3f} "
-            f"{out['candidate_pressure'][i].item():>+13.3f} "
+            f"{out['proposed_adv'][i].item():>+12.3f} "
             f"{row.expected}"
         )
     print()
     print(
-        "Readout: formal_adv is the current training signal.  candidate_pressure is not used by training; "
-        "it shows how much good Candidate evidence is left unwritten by the current Projected action."
+        "Readout: formal_adv is the current training signal.  proposed_adv is test-only.  It keeps the "
+        "Projected sign, but adds Candidate under-write pressure only when Projected already improved over Noisy."
     )
 
 
@@ -140,6 +150,7 @@ def run_repairable_mixture_table() -> None:
     rows += [EvidenceRow("D_flat", 0.50, 0.50, 0.50, "zero") for _ in range(5)]
     out = _formal_rho_adv(rows)
     adv = out["formal_adv"]
+    proposed = out["proposed_adv"]
     pressure = out["candidate_pressure"]
 
     print()
@@ -148,6 +159,7 @@ def run_repairable_mixture_table() -> None:
         f"candidate_gain_mean={out['candidate_gain'].mean().item():+.4f} "
         f"projected_gain_mean={out['projected_gain'].mean().item():+.4f} "
         f"formal_adv_mean={adv.mean().item():+.4f} "
+        f"proposed_adv_mean={proposed.mean().item():+.4f} "
         f"candidate_pressure_mean={pressure.mean().item():+.4f}"
     )
     print(
@@ -155,6 +167,12 @@ def run_repairable_mixture_table() -> None:
         f"{(adv > 1e-6).float().mean().item():.3f} / "
         f"{(adv < -1e-6).float().mean().item():.3f} / "
         f"{(adv.abs() <= 1e-6).float().mean().item():.3f}"
+    )
+    print(
+        f"proposed_adv sign pos/neg/zero: "
+        f"{(proposed > 1e-6).float().mean().item():.3f} / "
+        f"{(proposed < -1e-6).float().mean().item():.3f} / "
+        f"{(proposed.abs() <= 1e-6).float().mean().item():.3f}"
     )
     print(
         f"candidate_pressure sign pos/neg/zero: "
@@ -176,6 +194,7 @@ def run_live_like_underwrite_table() -> None:
     rows += [EvidenceRow("good_candidate_projected_tiny_neg", 0.50, 0.495, 0.60, "rho should rise") for _ in range(25)]
     out = _formal_rho_adv(rows)
     adv = out["formal_adv"]
+    proposed = out["proposed_adv"]
     pressure = out["candidate_pressure"]
 
     print()
@@ -184,6 +203,7 @@ def run_live_like_underwrite_table() -> None:
         f"candidate_gain_mean={out['candidate_gain'].mean().item():+.4f} "
         f"projected_gain_mean={out['projected_gain'].mean().item():+.4f} "
         f"formal_adv_mean={adv.mean().item():+.4f} "
+        f"proposed_adv_mean={proposed.mean().item():+.4f} "
         f"candidate_pressure_mean={pressure.mean().item():+.4f}"
     )
     print(
@@ -191,6 +211,12 @@ def run_live_like_underwrite_table() -> None:
         f"{(adv > 1e-6).float().mean().item():.3f} / "
         f"{(adv < -1e-6).float().mean().item():.3f} / "
         f"{(adv.abs() <= 1e-6).float().mean().item():.3f}"
+    )
+    print(
+        f"proposed_adv sign pos/neg/zero: "
+        f"{(proposed > 1e-6).float().mean().item():.3f} / "
+        f"{(proposed < -1e-6).float().mean().item():.3f} / "
+        f"{(proposed.abs() <= 1e-6).float().mean().item():.3f}"
     )
     print(
         f"candidate_pressure sign pos/neg/zero: "
@@ -215,8 +241,8 @@ def run_same_candidate_different_state_table() -> None:
 
     print()
     print("D. same Candidate, different current-state execution")
-    print("name                  noisy  proj   cand   cand_gain proj_gain formal_adv cand_pressure expected")
-    print("-" * 124)
+    print("name                  noisy  proj   cand   cand_gain proj_gain formal_adv proposed_adv accept underwrite expected")
+    print("-" * 140)
     for i, row in enumerate(rows):
         print(
             f"{row.name:<21} "
@@ -226,7 +252,9 @@ def run_same_candidate_different_state_table() -> None:
             f"{out['candidate_gain'][i].item():>+9.3f} "
             f"{out['projected_gain'][i].item():>+9.3f} "
             f"{out['formal_adv'][i].item():>+10.3f} "
-            f"{out['candidate_pressure'][i].item():>+13.3f} "
+            f"{out['proposed_adv'][i].item():>+12.3f} "
+            f"{out['accept_from_projected'][i].item():>6.1f} "
+            f"{out['underwrite_adv'][i].item():>10.3f} "
             f"{row.expected}"
         )
     print()
