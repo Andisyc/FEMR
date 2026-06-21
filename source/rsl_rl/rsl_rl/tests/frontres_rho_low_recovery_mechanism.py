@@ -14,7 +14,8 @@ advantage used by training, then compares small loss variants on a raw rho logit
 The goal is to make the low-rho failure inspectable:
 
 - current_rho_linear is the live region_direct repairable loss.
-- bce_logit keeps the same signed advantage but applies it before sigmoid.
+- bce_logit is the proposed mature gate-style loss: BCEWithLogits weighted by
+  |rho_adv|.
 - raw_logit_linear is an intentionally aggressive reference, not a proposal.
 """
 
@@ -121,6 +122,7 @@ def _loss(
     repairable_authority: torch.Tensor,
     prior_authority: torch.Tensor,
     prior_gt: torch.Tensor,
+    repair_loss_scale: float = 1.0,
     prior_loss_weight: float = 1.0,
 ) -> torch.Tensor:
     rho = torch.sigmoid(raw)
@@ -144,7 +146,7 @@ def _loss(
     boundary_error = (rho - prior_gt).pow(2)
     boundary_loss = (boundary_error * boundary_weight).sum()
     boundary_loss = boundary_loss / boundary_weight.sum().clamp(min=1.0e-6)
-    return repair_loss + float(prior_loss_weight) * boundary_loss
+    return float(repair_loss_scale) * repair_loss + float(prior_loss_weight) * boundary_loss
 
 
 def _run_optimizer(
@@ -154,6 +156,7 @@ def _run_optimizer(
     init_rho: float,
     steps: int = 80,
     lr: float = 0.20,
+    repair_loss_scale: float = 1.0,
 ) -> dict[str, float]:
     raw = torch.nn.Parameter(torch.full_like(data["adv"], _logit(init_rho)))
     first_loss = _loss(
@@ -163,6 +166,7 @@ def _run_optimizer(
         repairable_authority=data["repairable_authority"],
         prior_authority=data["prior_authority"],
         prior_gt=data["prior_gt"],
+        repair_loss_scale=repair_loss_scale,
     )
     first_loss.backward()
     grad0 = raw.grad.detach().clone()
@@ -176,6 +180,7 @@ def _run_optimizer(
             repairable_authority=data["repairable_authority"],
             prior_authority=data["prior_authority"],
             prior_gt=data["prior_gt"],
+            repair_loss_scale=repair_loss_scale,
         )
         optimizer.zero_grad()
         loss.backward()
@@ -190,6 +195,33 @@ def _run_optimizer(
     }
 
 
+def _optimize_raw(
+    kind: str,
+    data: dict[str, torch.Tensor],
+    *,
+    init_rho: float,
+    steps: int = 80,
+    lr: float = 0.20,
+    repair_loss_scale: float = 1.0,
+) -> torch.Tensor:
+    raw = torch.nn.Parameter(torch.full_like(data["adv"], _logit(init_rho)))
+    optimizer = torch.optim.SGD([raw], lr=lr)
+    for _ in range(steps):
+        loss = _loss(
+            kind,
+            raw,
+            adv=data["adv"],
+            repairable_authority=data["repairable_authority"],
+            prior_authority=data["prior_authority"],
+            prior_gt=data["prior_gt"],
+            repair_loss_scale=repair_loss_scale,
+        )
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    return raw.detach()
+
+
 def run_single_positive_case() -> None:
     cases = [
         EvidenceCase("low_rho_good_candidate", noisy=0.50, projected=0.505, candidate=0.60),
@@ -202,12 +234,13 @@ def run_single_positive_case() -> None:
         f"projected_gain={data['projected_gain'][0, 0].item():+.3f} "
         f"formal_adv={data['adv'][0, 0].item():+.3f}"
     )
-    print("loss_kind             init_rho  grad0      grad_abs  final_rho")
-    print("-" * 72)
+    print("loss_kind             scale init_rho  grad0      grad_abs  final_rho")
+    print("-" * 82)
     for kind in ("current_rho_linear", "bce_logit", "raw_logit_linear"):
         result = _run_optimizer(kind, data, init_rho=0.04, steps=80, lr=0.20)
         print(
             f"{kind:<21} "
+            f"{1.0:>5.2f} "
             f"{0.04:>8.3f} "
             f"{result['grad0_mean']:>+9.5f} "
             f"{result['grad0_abs']:>9.5f} "
@@ -246,6 +279,44 @@ def run_init_rho_sweep() -> None:
     )
 
 
+def run_bce_strength_sweep() -> None:
+    cases = [
+        EvidenceCase("low_rho_good_candidate", noisy=0.50, projected=0.505, candidate=0.60),
+    ]
+    data = _formal_advantage(cases, underwrite_weight=0.25)
+    print()
+    print("C. BCEWithLogits repair_loss_scale sweep")
+    print("scale  grad_abs  final_rho  note")
+    print("-" * 62)
+    for scale in (0.05, 0.10, 0.25, 0.50, 1.00, 2.00):
+        result = _run_optimizer(
+            "bce_logit",
+            data,
+            init_rho=0.04,
+            steps=80,
+            lr=0.20,
+            repair_loss_scale=scale,
+        )
+        if result["final_rho_mean"] < 0.15:
+            note = "weak"
+        elif result["final_rho_mean"] < 0.65:
+            note = "useful range"
+        else:
+            note = "aggressive"
+        print(
+            f"{scale:>5.2f} "
+            f"{result['grad0_abs']:>9.5f} "
+            f"{result['final_rho_mean']:>10.3f} "
+            f"{note}"
+        )
+    print()
+    print(
+        "Readout: this is the knob to inspect before touching formal training code. "
+        "It does not create new evidence; it only controls how strongly the existing "
+        "repair authority signal acts on the rho logit."
+    )
+
+
 def run_mixed_good_harmful_case() -> None:
     cases: list[EvidenceCase] = []
     for _ in range(8):
@@ -255,35 +326,33 @@ def run_mixed_good_harmful_case() -> None:
     data = _formal_advantage(cases, underwrite_weight=0.25)
     adv = data["adv"].view(-1)
     print()
-    print("C. mixed good/harmful evidence, separate raw parameters")
+    print("D. mixed good/harmful evidence, separate raw parameters")
     print(
         f"adv_mean={adv.mean().item():+.4f} "
         f"pos/neg={(adv > 1e-6).float().mean().item():.3f}/"
         f"{(adv < -1e-6).float().mean().item():.3f}"
     )
-    print("loss_kind             good_rho  harmful_rho  rho_gap")
-    print("-" * 62)
-    for kind in ("current_rho_linear", "bce_logit", "raw_logit_linear"):
-        result = _run_optimizer(kind, data, init_rho=0.04, steps=80, lr=0.20)
-        # Re-run once to recover per-sample outputs for readability.
-        raw = torch.nn.Parameter(torch.full_like(data["adv"], _logit(0.04)))
-        optimizer = torch.optim.SGD([raw], lr=0.20)
-        for _ in range(80):
-            loss = _loss(
-                kind,
-                raw,
-                adv=data["adv"],
-                repairable_authority=data["repairable_authority"],
-                prior_authority=data["prior_authority"],
-                prior_gt=data["prior_gt"],
-            )
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-        rho = torch.sigmoid(raw.detach()).view(-1)
+    print("loss_kind             scale good_rho  harmful_rho  rho_gap")
+    print("-" * 72)
+    for kind, scale in (
+        ("current_rho_linear", 1.0),
+        ("bce_logit", 1.0),
+        ("bce_logit", 4.0),
+        ("bce_logit", 8.0),
+        ("raw_logit_linear", 1.0),
+    ):
+        raw = _optimize_raw(
+            kind,
+            data,
+            init_rho=0.04,
+            steps=80,
+            lr=0.20,
+            repair_loss_scale=scale,
+        )
+        rho = torch.sigmoid(raw).view(-1)
         good = float(rho[:8].mean().item())
         harmful = float(rho[8:].mean().item())
-        print(f"{kind:<21} {good:>8.3f} {harmful:>12.3f} {good - harmful:>8.3f}")
+        print(f"{kind:<21} {scale:>5.1f} {good:>8.3f} {harmful:>12.3f} {good - harmful:>8.3f}")
     print()
     print(
         "Readout: this tells us whether the loss can separate 'write more' and 'write less' "
@@ -294,6 +363,7 @@ def run_mixed_good_harmful_case() -> None:
 def main() -> None:
     run_single_positive_case()
     run_init_rho_sweep()
+    run_bce_strength_sweep()
     run_mixed_good_harmful_case()
 
 
