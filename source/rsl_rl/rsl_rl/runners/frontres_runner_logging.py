@@ -572,7 +572,14 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                     log_string += f"""{'λ_supervised:':>{pad}} {_lam:.3f}\n"""
                 _paw = _loss_dict.get("ppo_actor_weight", None)
                 if _paw is not None:
-                    log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
+                    _raw_paw = _loss_dict.get("raw_ppo_actor_weight", None)
+                    if _raw_paw is not None and abs(float(_raw_paw) - float(_paw)) > 1e-6:
+                        log_string += (
+                            f"{'generic PPO weight:':>{pad}} {_paw:.3f} "
+                            f"(raw schedule={float(_raw_paw):.3f})\n"
+                        )
+                    else:
+                        log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
                 _apl = _loss_dict.get("acceptance_preference_loss", None)
                 if _apl is not None:
                     _legacy_pref_disabled = (
@@ -796,7 +803,14 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                     log_string += f"""{'λ_supervised:':>{pad}} {_lam:.3f}\n"""
                 _paw = _loss_dict.get("ppo_actor_weight", None)
                 if _paw is not None:
-                    log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
+                    _raw_paw = _loss_dict.get("raw_ppo_actor_weight", None)
+                    if _raw_paw is not None and abs(float(_raw_paw) - float(_paw)) > 1e-6:
+                        log_string += (
+                            f"{'generic PPO weight:':>{pad}} {_paw:.3f} "
+                            f"(raw schedule={float(_raw_paw):.3f})\n"
+                        )
+                    else:
+                        log_string += f"""{'PPO actor weight:':>{pad}} {_paw:.3f}\n"""
                 _apl = _loss_dict.get("acceptance_preference_loss", None)
                 if _apl is not None:
                     _legacy_pref_disabled = (

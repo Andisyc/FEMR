@@ -1374,6 +1374,13 @@ class FrontRESUnified:
             "structured_joint_rl_rho_near_half_frac": 0.0,
             "structured_joint_rl_rho_action_minus_mean_abs": 0.0,
             "structured_joint_rl_rho_action_minus_mean_rho_abs": 0.0,
+            "structured_joint_rl_rho_pos_adv_mean": 0.0,
+            "structured_joint_rl_rho_neg_adv_mean": 0.0,
+            "structured_joint_rl_adv_pos_abs_mean": 0.0,
+            "structured_joint_rl_adv_neg_abs_mean": 0.0,
+            "structured_joint_rl_rho_repairable_mean": 0.0,
+            "structured_joint_rl_rho_boundary_mean": 0.0,
+            "structured_joint_rl_repairable_pos_frac": 0.0,
             "structured_joint_rl_adv_pos_frac": 0.0,
             "structured_joint_rl_adv_neg_frac": 0.0,
             "structured_joint_rl_adv_near_zero_frac": 0.0,
@@ -1617,6 +1624,36 @@ class FrontRESUnified:
             metrics["structured_joint_rl_adv_near_zero_frac"] = float(
                 (active_adv_raw.abs() <= 1e-6).float().mean().detach().item()
             )
+            pos_adv_mask = rho_active & (rho_adv_raw > 1e-6)
+            neg_adv_mask = rho_active & (rho_adv_raw < -1e-6)
+            if bool(pos_adv_mask.any().detach().item()):
+                metrics["structured_joint_rl_rho_pos_adv_mean"] = float(
+                    rho_mean[pos_adv_mask].mean().detach().item()
+                )
+                metrics["structured_joint_rl_adv_pos_abs_mean"] = float(
+                    rho_adv_raw[pos_adv_mask].abs().mean().detach().item()
+                )
+            if bool(neg_adv_mask.any().detach().item()):
+                metrics["structured_joint_rl_rho_neg_adv_mean"] = float(
+                    rho_mean[neg_adv_mask].mean().detach().item()
+                )
+                metrics["structured_joint_rl_adv_neg_abs_mean"] = float(
+                    rho_adv_raw[neg_adv_mask].abs().mean().detach().item()
+                )
+            repairable_mask = repairable_weight > 1e-6 if loss_mode == "region_direct" else rho_active
+            if bool(repairable_mask.any().detach().item()):
+                metrics["structured_joint_rl_rho_repairable_mean"] = float(
+                    rho_mean[repairable_mask].mean().detach().item()
+                )
+                repairable_adv = rho_adv_raw[repairable_mask]
+                metrics["structured_joint_rl_repairable_pos_frac"] = float(
+                    (repairable_adv > 1e-6).float().mean().detach().item()
+                )
+            boundary_mask = prior_dim_weight > 1e-6
+            if bool(boundary_mask.any().detach().item()):
+                metrics["structured_joint_rl_rho_boundary_mean"] = float(
+                    rho_mean[boundary_mask].mean().detach().item()
+                )
         if bool(getattr(self, "frontres_reward_compute_live_debug", False)):
             it = int(getattr(self, "current_learning_iteration", 0))
             interval = int(getattr(self, "frontres_restore_debug_print_interval", 10))
