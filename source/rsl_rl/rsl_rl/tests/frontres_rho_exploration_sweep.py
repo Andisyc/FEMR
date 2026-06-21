@@ -48,6 +48,21 @@ class SweepCase:
     steps: int = 200
 
 
+@dataclass(frozen=True)
+class EvidenceCase:
+    name: str
+    expected: str
+    pos_fraction: float
+    neg_fraction: float
+    prior_fraction: float = 0.0
+    prior_target: float = 0.0
+    prior_weight: float = 0.0
+    action_delta_raw: float = 0.01
+    action_std: float = 0.01
+    lr: float = 6.5e-5
+    steps: int = 200
+
+
 class SweepPolicy(torch.nn.Module):
     """Minimal policy matching FrontRES rho's bounded-action/logit contract."""
 
@@ -158,6 +173,58 @@ def _make_live_like_batch(
         "rho_weight": rho_weight,
         "prior_authority": prior_authority,
         "prior_target": torch.zeros(batch_size, 6),
+    }
+
+
+def _make_minimal_evidence_batch(
+    case: EvidenceCase,
+    *,
+    batch_size: int,
+    init_rho: float,
+) -> dict[str, torch.Tensor]:
+    """Construct one clean conceptual case.
+
+    This avoids mixing all forces at once.  Each EvidenceCase says exactly how
+    much rollout evidence is positive, how much is negative, and whether a prior
+    is allowed to pull rho.
+    """
+
+    n_pos = int(round(batch_size * case.pos_fraction))
+    n_neg = int(round(batch_size * case.neg_fraction))
+    n_pos = max(0, min(batch_size, n_pos))
+    n_neg = max(0, min(batch_size - n_pos, n_neg))
+    n_zero = batch_size - n_pos - n_neg
+
+    init_raw = torch.logit(torch.tensor(float(init_rho)).clamp(1e-6, 1.0 - 1e-6))
+    sampled_rho = torch.sigmoid(init_raw + float(case.action_delta_raw))
+    mean_rho = torch.sigmoid(init_raw)
+
+    actions = torch.zeros(batch_size, 12)
+    actions[: n_pos + n_neg, 6:12] = sampled_rho
+    if n_zero > 0:
+        actions[n_pos + n_neg :, 6:12] = mean_rho
+
+    rho_adv = torch.zeros(batch_size, 6)
+    rho_adv[:n_pos, :] = 0.75
+    rho_adv[n_pos : n_pos + n_neg, :] = -0.75
+    rho_weight = torch.ones(batch_size, 6)
+
+    prior_authority = torch.zeros(batch_size, 1)
+    n_prior = int(round(batch_size * case.prior_fraction))
+    if n_prior > 0:
+        prior_authority[:n_prior, 0] = 1.0
+
+    return {
+        "obs": torch.ones(batch_size, 4),
+        "actions": actions,
+        "old_mu": torch.zeros(batch_size, 12),
+        "old_sigma": torch.full((batch_size, 12), float(case.action_std)),
+        "old_logp": torch.zeros(batch_size, 1),
+        "new_logp": torch.zeros(batch_size, 1),
+        "rho_adv": rho_adv,
+        "rho_weight": rho_weight,
+        "prior_authority": prior_authority,
+        "prior_target": torch.full((batch_size, 6), float(case.prior_target)),
     }
 
 
@@ -592,6 +659,128 @@ def _run_clip_probe(
     return rows
 
 
+def _run_minimal_evidence_probe(
+    case: EvidenceCase,
+    *,
+    loss_mode: str,
+    batch_size: int = 100,
+    init_rho: float = 0.45,
+) -> dict[str, float | str]:
+    torch.manual_seed(11)
+    alg = SweepAlgorithm(
+        batch_size=batch_size,
+        init_rho=init_rho,
+        prior_weight=case.prior_weight,
+        action_std=case.action_std,
+    )
+    tensors = _make_minimal_evidence_batch(case, batch_size=batch_size, init_rho=init_rho)
+    tensors["old_mu"] = alg.policy.action_mean.detach().clone()
+
+    optimizer = torch.optim.Adam(alg.parameters(), lr=case.lr)
+    rho0 = float(torch.sigmoid(alg.policy.action_mean[:, 6:12]).mean().detach().item())
+    for _ in range(case.steps):
+        optimizer.zero_grad()
+        if loss_mode == "direct":
+            loss, _ = _loss_once_direct_rho_mean(alg, tensors)
+        elif loss_mode == "unclipped":
+            loss, _ = _loss_once_unclipped_rho(alg, tensors)
+        else:
+            loss, _ = _loss_once(alg, tensors)
+        loss.backward()
+        optimizer.step()
+
+    rho1 = float(torch.sigmoid(alg.policy.action_mean[:, 6:12]).mean().detach().item())
+    clip = _compute_clip_diagnostics(alg, tensors)
+    delta = rho1 - rho0
+    if case.expected == "up":
+        ok = delta > 1e-5
+    elif case.expected == "down":
+        ok = delta < -1e-5
+    else:
+        ok = abs(delta) <= 1e-5
+    return {
+        "rho0": rho0,
+        "rho1": rho1,
+        "delta": delta,
+        "clip_frac": clip["clip_frac"],
+        "ratio_min": clip["ratio_min"],
+        "ratio_max": clip["ratio_max"],
+        "result": "PASS" if ok else "CHECK",
+    }
+
+
+def run_rho_minimal_evidence_cases() -> None:
+    cases = [
+        EvidenceCase(
+            "positive_only",
+            expected="up",
+            pos_fraction=1.0,
+            neg_fraction=0.0,
+        ),
+        EvidenceCase(
+            "negative_only",
+            expected="down",
+            pos_fraction=0.0,
+            neg_fraction=1.0,
+        ),
+        EvidenceCase(
+            "mixed_positive",
+            expected="up",
+            pos_fraction=0.66,
+            neg_fraction=0.32,
+        ),
+        EvidenceCase(
+            "prior_only_down",
+            expected="down",
+            pos_fraction=0.0,
+            neg_fraction=0.0,
+            prior_fraction=1.0,
+            prior_target=0.0,
+            prior_weight=1.0,
+            action_delta_raw=0.0,
+        ),
+        EvidenceCase(
+            "positive_with_prior",
+            expected="up",
+            pos_fraction=1.0,
+            neg_fraction=0.0,
+            prior_fraction=1.0,
+            prior_target=0.0,
+            prior_weight=1.0,
+        ),
+    ]
+    modes = ("direct", "unclipped", "clipped")
+
+    print()
+    print("=== FrontRES Rho Minimal Evidence Cases TEST ONLY ===")
+    print("Each case isolates one force: rollout evidence first, prior only when named.")
+    print("case                mode       expect rho0   rho200 delta    clip  r_min  r_max  result")
+    print("-" * 94)
+    for case in cases:
+        for mode in modes:
+            result = _run_minimal_evidence_probe(case, loss_mode=mode)
+            print(
+                f"{case.name:<19} "
+                f"{mode:<10} "
+                f"{case.expected:<6} "
+                f"{result['rho0']:>5.3f} "
+                f"{result['rho1']:>7.3f} "
+                f"{result['delta']:>+7.4f} "
+                f"{result['clip_frac']:>5.2f} "
+                f"{result['ratio_min']:>6.3f} "
+                f"{result['ratio_max']:>6.3f} "
+                f"{result['result']:<5}"
+            )
+
+    print()
+    print(
+        "Readout: direct tests whether the rho concept signal is learnable.  "
+        "unclipped tests the sampled-action log-prob layer.  clipped adds PPO's "
+        "safety layer.  A failure that appears only after adding a layer belongs "
+        "to that layer, not to the core repair-authority concept."
+    )
+
+
 def run_rho_clip_diagnostics() -> None:
     cases = [
         SweepCase(
@@ -721,12 +910,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="TEST ONLY FrontRES rho loss diagnostics.")
     parser.add_argument(
         "--section",
-        choices=("clip", "unclipped", "exploration", "update", "all"),
-        default="unclipped",
-        help="Which diagnostic section to run. Defaults to unclipped for quick iteration.",
+        choices=("minimal", "clip", "unclipped", "exploration", "update", "all"),
+        default="minimal",
+        help="Which diagnostic section to run. Defaults to minimal for quick iteration.",
     )
     args = parser.parse_args()
 
+    if args.section in ("minimal", "all"):
+        run_rho_minimal_evidence_cases()
     if args.section in ("exploration", "all"):
         run_rho_exploration_sweep()
     if args.section in ("update", "all"):
