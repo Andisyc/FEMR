@@ -173,6 +173,100 @@ the formal algorithm loss.  Do not treat the prior boundary mechanism as live
 training code until the algorithm update path explicitly consumes this loss and
 prints a live-path diagnostic.
 
+### 2026-06-21 Region-Authority Direct Rho Loss
+
+The prior-regularization contract above exposed a second problem: even when the
+prior is separated from rollout evidence, the PPO sample-log-clip route can
+still weaken or reverse the effective rho update in boundary cases.  The current
+debug harness therefore tested a smaller authority rule:
+
+```text
+safe / deep-broken boundary region:
+    prior teaches rho low
+
+repairable region:
+    rollout evidence teaches rho up or down
+```
+
+This is not a new data source and not a new sample classifier.  It is a clearer
+ownership rule for the existing signals:
+
+```text
+boundary_authority  = rho_prior_authority
+repairable_authority = 1 - rho_prior_authority
+```
+
+where `rho_prior_authority` is the continuous safe/broken authority already
+built from sample classification.  The rule stays continuous: samples near the
+boundary can be partially prior-taught and partially evidence-taught.
+
+The formal direct objective should match the tested `region_direct` mode:
+
+\[
+L_{\rho}^{\rm region}
+  =
+  \frac{
+    \sum_d \lambda_{\rm repair,d}(-A_{\rm rollout,d}\rho_d)
+  }{
+    \sum_d \lambda_{\rm repair,d}
+  }
+  +
+  \beta
+  \frac{
+    \sum_d \lambda_{\rm boundary,d}(\rho_d-\rho_{\rm prior,d})^2
+  }{
+    \sum_d \lambda_{\rm boundary,d}
+  } .
+\]
+
+The terms mean:
+
+```text
+repairable_loss:
+    if rollout evidence says sampled rho was good, increase rho_mean;
+    if rollout evidence says sampled rho was bad, decrease rho_mean.
+
+boundary_loss:
+    in safe/deep-broken states, pull rho_mean toward the conservative prior,
+    currently rho_prior = 0.
+```
+
+This intentionally bypasses PPO's sampled-action log-prob ratio for rho.  The
+old PPO-clipped structured-rho loss remains an ablation path, but it is no
+longer the preferred default for this experiment because it can make boundary
+prior and rollout evidence fight through a clipped surrogate.
+
+Required implementation constraints:
+
+```text
+config:
+    expose frontres_structured_joint_rl_loss_mode
+    allowed values: ppo_clipped, region_direct
+
+storage:
+    keep using acceptance_target[:, :6] as rho_advantage
+    keep using acceptance_mask[:, :6] as rho_loss_mask
+    keep using rho_prior_authority and rho_prior_target
+
+algorithm:
+    ppo_clipped mode keeps the old sampled-action PPO route
+    region_direct mode updates sigmoid(mu[:, 6:12]) directly
+    region_direct must not update the HSL proposal dimensions
+
+diagnostics:
+    print mode, repairable_authority_mean, boundary_authority_mean,
+    repairable_loss, boundary_loss, and total rho loss
+```
+
+The already-correct TEST ONLY reference is:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_rho_exploration_sweep.py
+    _loss_once_region_authority_direct(...)
+```
+
+Formal code changes must be checked against that function before training.
+
 The old `rho_weight` / `rho_validity_weight` concept should not be treated as
 sample confidence or sample importance.  The only clean role left for a mask is
 the Action-Cone loss mask:

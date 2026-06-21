@@ -83,6 +83,7 @@ class FrontRESUnified:
         frontres_structured_joint_rl_weight: float = 0.0,
         frontres_structured_joint_rl_adv_clip: float = 5.0,
         frontres_structured_joint_rl_normalize_advantage: bool = False,
+        frontres_structured_joint_rl_loss_mode: str = "ppo_clipped",
         frontres_structured_joint_rl_keep_legacy_bce: bool = False,
         frontres_structured_joint_rl_disable_generic_ppo: bool = True,
         frontres_structured_joint_exec_floor: float = 0.0,
@@ -202,6 +203,13 @@ class FrontRESUnified:
         self.frontres_structured_joint_rl_normalize_advantage = bool(
             frontres_structured_joint_rl_normalize_advantage
         )
+        self.frontres_structured_joint_rl_loss_mode = str(
+            frontres_structured_joint_rl_loss_mode
+        ).lower()
+        if self.frontres_structured_joint_rl_loss_mode not in ("ppo_clipped", "region_direct"):
+            raise ValueError(
+                "frontres_structured_joint_rl_loss_mode must be 'ppo_clipped' or 'region_direct'"
+            )
         self.frontres_structured_joint_rl_keep_legacy_bce = bool(
             frontres_structured_joint_rl_keep_legacy_bce
         )
@@ -357,6 +365,7 @@ class FrontRESUnified:
                 f"ret_prior_w={self.frontres_structured_joint_retention_prior_weight}, "
                 f"floor_w={self.frontres_structured_joint_floor_penalty_weight}, "
                 f"full_w={self.frontres_structured_joint_full_repair_bonus_weight}, "
+                f"loss_mode={self.frontres_structured_joint_rl_loss_mode}, "
                 f"normalize_adv={self.frontres_structured_joint_rl_normalize_advantage})"
             )
         print("  MOSAIC teacher/off-policy branches: disabled by construction")
@@ -1299,6 +1308,9 @@ class FrontRESUnified:
         zero = obs_batch[:original_batch_size].sum() * 0.0
         metrics = {
             "structured_joint_rl_enabled": 1.0 if self._structured_joint_rl_enabled() else 0.0,
+            "structured_joint_rl_mode_region_direct": (
+                1.0 if getattr(self, "frontres_structured_joint_rl_loss_mode", "ppo_clipped") == "region_direct" else 0.0
+            ),
             "structured_joint_rl_adv_mean": 0.0,
             "structured_joint_rl_adv_abs_mean": 0.0,
             "structured_joint_rl_adv_used_mean": 0.0,
@@ -1310,6 +1322,10 @@ class FrontRESUnified:
             "structured_joint_rl_rho_weight_all_mean": 0.0,
             "structured_joint_rl_rho_ratio_mean": 1.0,
             "structured_joint_rl_rho_loss": 0.0,
+            "structured_joint_rl_repairable_loss": 0.0,
+            "structured_joint_rl_boundary_loss": 0.0,
+            "structured_joint_rl_repairable_authority_mean": 0.0,
+            "structured_joint_rl_boundary_authority_mean": 0.0,
             "structured_joint_rl_prior_loss": 0.0,
             "structured_joint_rl_prior_authority_mean": 0.0,
             "structured_joint_rl_prior_target_mean": 0.0,
@@ -1412,20 +1428,21 @@ class FrontRESUnified:
             denom = weight.sum().clamp(min=1e-6)
             return (loss_terms * weight).sum() / denom, ratio
 
-        rho_log_ratio = new_rho_logp - old_rho_logp
-        rho_loss, rho_ratio = _clipped_loss(rho_adv, rho_weight, rho_log_ratio)
         rho_action = actions_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype)
         rho_action = rho_action.clamp(1e-6, 1.0 - 1e-6)
         rho_action_raw = torch.log(rho_action / (1.0 - rho_action))
         rho_mean_raw = mu_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype)
         rho_mean = torch.sigmoid(rho_mean_raw)
+        rho_log_ratio = new_rho_logp - old_rho_logp
+        rho_loss, rho_ratio = _clipped_loss(rho_adv, rho_weight, rho_log_ratio)
         prior_loss = zero
         prior_loss_weight = float(getattr(self, "frontres_structured_joint_prior_loss_weight", 0.0))
-        if (
-            prior_loss_weight > 0.0
-            and rho_prior_authority_batch is not None
-            and rho_prior_target_batch is not None
-        ):
+        loss_mode = str(getattr(self, "frontres_structured_joint_rl_loss_mode", "ppo_clipped")).lower()
+        prior_authority = None
+        prior_target = None
+        prior_dim_weight = None
+        has_prior_inputs = rho_prior_authority_batch is not None and rho_prior_target_batch is not None
+        if has_prior_inputs:
             prior_authority = rho_prior_authority_batch[:n].to(
                 device=self.device, dtype=obs_batch.dtype
             ).detach().clamp(0.0, 1.0)
@@ -1435,20 +1452,54 @@ class FrontRESUnified:
                 device=self.device, dtype=obs_batch.dtype
             ).detach().clamp(0.0, 1.0)
             prior_dim_weight = (prior_authority[:, :1] * (rho_weight > 1e-6).to(obs_batch.dtype)).clamp(0.0, 1.0)
+            metrics["structured_joint_rl_prior_authority_mean"] = float(
+                prior_authority.mean().detach().item()
+            )
+            metrics["structured_joint_rl_boundary_authority_mean"] = metrics[
+                "structured_joint_rl_prior_authority_mean"
+            ]
+            repairable_authority = (1.0 - prior_authority[:, :1]).clamp(0.0, 1.0)
+            metrics["structured_joint_rl_repairable_authority_mean"] = float(
+                repairable_authority.mean().detach().item()
+            )
+        if loss_mode == "region_direct" and has_prior_inputs:
+            repairable_authority = (1.0 - prior_authority[:, :1]).clamp(0.0, 1.0)
+            repairable_weight = (repairable_authority * (rho_weight > 1e-6).to(obs_batch.dtype)).clamp(0.0, 1.0)
+            repairable_loss = zero
+            if bool((repairable_weight > 1e-6).any().detach().item()):
+                repairable_loss = (-rho_adv * rho_mean * repairable_weight).sum()
+                repairable_loss = repairable_loss / repairable_weight.sum().clamp(min=1e-6)
+            boundary_loss = zero
             if bool((prior_dim_weight > 1e-6).any().detach().item()):
-                prior_error = (rho_mean - prior_target).pow(2)
-                prior_loss = (prior_error * prior_dim_weight).sum() / prior_dim_weight.sum().clamp(min=1e-6)
-                metrics["structured_joint_rl_prior_loss"] = float(prior_loss.detach().item())
-                metrics["structured_joint_rl_prior_authority_mean"] = float(
-                    prior_authority.mean().detach().item()
-                )
+                boundary_error = (rho_mean - prior_target).pow(2)
+                boundary_loss = (boundary_error * prior_dim_weight).sum()
+                boundary_loss = boundary_loss / prior_dim_weight.sum().clamp(min=1e-6)
                 metrics["structured_joint_rl_prior_target_mean"] = float(
                     prior_target[prior_dim_weight > 1e-6].mean().detach().item()
                 )
                 metrics["structured_joint_rl_prior_rho_mean"] = float(
                     rho_mean[prior_dim_weight > 1e-6].mean().detach().item()
                 )
-        loss = rho_loss + prior_loss_weight * prior_loss
+            rho_loss = repairable_loss + prior_loss_weight * boundary_loss
+            prior_loss = boundary_loss
+            metrics["structured_joint_rl_repairable_loss"] = float(repairable_loss.detach().item())
+            metrics["structured_joint_rl_boundary_loss"] = float(boundary_loss.detach().item())
+            metrics["structured_joint_rl_prior_loss"] = metrics["structured_joint_rl_boundary_loss"]
+        elif (
+            prior_loss_weight > 0.0
+            and has_prior_inputs
+        ):
+            if bool((prior_dim_weight > 1e-6).any().detach().item()):
+                prior_error = (rho_mean - prior_target).pow(2)
+                prior_loss = (prior_error * prior_dim_weight).sum() / prior_dim_weight.sum().clamp(min=1e-6)
+                metrics["structured_joint_rl_prior_loss"] = float(prior_loss.detach().item())
+                metrics["structured_joint_rl_prior_target_mean"] = float(
+                    prior_target[prior_dim_weight > 1e-6].mean().detach().item()
+                )
+                metrics["structured_joint_rl_prior_rho_mean"] = float(
+                    rho_mean[prior_dim_weight > 1e-6].mean().detach().item()
+                )
+        loss = rho_loss if loss_mode == "region_direct" else rho_loss + prior_loss_weight * prior_loss
 
         metrics["structured_joint_rl_adv_mean"] = float(
             (rho_adv_raw[rho_active]).mean().detach().item()

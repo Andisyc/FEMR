@@ -113,6 +113,7 @@ class SweepAlgorithm(torch.nn.Module):
         self.frontres_structured_joint_rl_weight = 1.0
         self.frontres_structured_joint_rl_adv_clip = 5.0
         self.frontres_structured_joint_rl_normalize_advantage = False
+        self.frontres_structured_joint_rl_loss_mode = "ppo_clipped"
         self.frontres_structured_joint_prior_loss_weight = float(prior_weight)
         self.frontres_reward_compute_live_debug = False
 
@@ -743,6 +744,8 @@ def _run_minimal_evidence_probe(
     )
     tensors = _make_minimal_evidence_batch(case, batch_size=batch_size, init_rho=init_rho)
     tensors["old_mu"] = alg.policy.action_mean.detach().clone()
+    if loss_mode == "formal_region":
+        alg.frontres_structured_joint_rl_loss_mode = "region_direct"
 
     optimizer = torch.optim.Adam(alg.parameters(), lr=case.lr)
     rho0 = float(torch.sigmoid(alg.policy.action_mean[:, 6:12]).mean().detach().item())
@@ -750,6 +753,8 @@ def _run_minimal_evidence_probe(
         optimizer.zero_grad()
         if loss_mode == "region_direct":
             loss, _ = _loss_once_region_authority_direct(alg, tensors)
+        elif loss_mode == "formal_region":
+            loss, _ = _loss_once(alg, tensors)
         elif loss_mode == "direct":
             loss, _ = _loss_once_direct_rho_mean(alg, tensors)
         elif loss_mode == "unclipped":
@@ -816,7 +821,7 @@ def run_rho_minimal_evidence_cases() -> None:
             prior_weight=1.0,
         ),
     ]
-    modes = ("region_direct", "direct", "clipped")
+    modes = ("region_direct", "formal_region", "direct", "clipped")
 
     print()
     print("=== FrontRES Rho Minimal Evidence Cases TEST ONLY ===")

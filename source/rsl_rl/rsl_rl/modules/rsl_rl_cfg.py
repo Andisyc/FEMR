@@ -374,6 +374,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Symmetric clip for raw structured-joint advantage before optional normalization."""
     frontres_structured_joint_rl_normalize_advantage: bool = False
     """Normalize structured-joint advantages over active samples in each minibatch."""
+    frontres_structured_joint_rl_loss_mode: str = "ppo_clipped"
+    """Structured rho update mode: 'ppo_clipped' keeps PPO ratio clipping; 'region_direct' matches the region-authority rho test."""
     frontres_structured_joint_use_sample_weight: bool = False
     """Use sample-selection weights for structured rho advantage learning."""
     frontres_structured_joint_use_actor_gate_weight: bool = False

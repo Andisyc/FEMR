@@ -932,6 +932,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_structured_joint_rl_weight = 1.0,
         frontres_structured_joint_rl_adv_clip = 5.0,
         frontres_structured_joint_rl_normalize_advantage = False,
+        frontres_structured_joint_rl_loss_mode = "region_direct",
         frontres_structured_joint_use_sample_weight = True,
         frontres_structured_joint_use_actor_gate_weight = True,  # legacy alias
         frontres_structured_joint_show_legacy_rho_diag = False,

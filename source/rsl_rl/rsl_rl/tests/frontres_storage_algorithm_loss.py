@@ -63,6 +63,7 @@ class FakeAlgorithm:
         self.frontres_structured_joint_rl_weight = 1.0
         self.frontres_structured_joint_rl_adv_clip = 5.0
         self.frontres_structured_joint_rl_normalize_advantage = False
+        self.frontres_structured_joint_rl_loss_mode = "region_direct"
         self.frontres_structured_joint_prior_loss_weight = 1.0
         self.frontres_reward_compute_live_debug = False
 
@@ -186,13 +187,18 @@ def run_storage_algorithm_loss_check() -> None:
         original_batch_size=len(NAMES),
     )
 
-    rho_loss_expected = -expected["rho_adv"].mean()
+    rho_mean = torch.sigmoid(expected["policy_mu"])
+    repairable_weight = (1.0 - expected["prior_authority"]).expand(-1, 6)
+    rho_loss_expected = (-expected["rho_adv"] * rho_mean * repairable_weight).sum()
+    rho_loss_expected = rho_loss_expected / repairable_weight.sum().clamp(min=1e-6)
     prior_weight = expected["prior_authority"].expand(-1, 6)
     prior_error = torch.sigmoid(expected["policy_mu"]).pow(2)
     prior_loss_expected = (prior_error * prior_weight).sum() / prior_weight.sum().clamp(min=1e-6)
     total_expected = rho_loss_expected + prior_loss_expected
 
     _assert_close("algorithm rho_loss", torch.tensor(metrics["structured_joint_rl_rho_loss"]), rho_loss_expected)
+    _assert_close("algorithm repairable_loss", torch.tensor(metrics["structured_joint_rl_repairable_loss"]), rho_loss_expected)
+    _assert_close("algorithm boundary_loss", torch.tensor(metrics["structured_joint_rl_boundary_loss"]), prior_loss_expected)
     _assert_close("algorithm prior_loss", torch.tensor(metrics["structured_joint_rl_prior_loss"]), prior_loss_expected)
     _assert_close("algorithm total_loss", loss.detach().cpu(), total_expected.cpu())
 
@@ -207,7 +213,8 @@ def run_storage_algorithm_loss_check() -> None:
     )
     print(
         "meaning: positive rho_adv lowers PPO loss; negative rho_adv raises it; "
-        "safe/deep_broken prior acts only through separate regularization."
+        "region_direct lets repairable samples follow rollout evidence while "
+        "safe/deep_broken samples follow the conservative rho prior."
     )
 
 
