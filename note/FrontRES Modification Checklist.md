@@ -59,6 +59,11 @@ change as ready for training until each relevant item has concrete evidence.
   backward stages, and at the exact OOM stage if an OOM occurs.  This is
   diagnostic-only and must be inspected before changing batch count, allocator
   settings, or loss structure again.
+- [x] Live runner pipeline section sentinel:
+  `on_policy_runner.py` prints compact `[FrontRES pipeline]` section lines when
+  `frontres_cuda_memory_debug=True`, covering rollout start, selected env steps,
+  reward compute, storage write, compute returns, algorithm update, and logging.
+  This separates runner/env/live-storage failures from algorithm-update failures.
 - [ ] First short-run sentinel observed:
   the next run should print `mini_batches=16`, include `[FrontRES CUDA mem]`
   compact sentinel lines, and either pass iteration 207/220 or report the OOM
@@ -267,8 +272,12 @@ the failure before changing any memory-related knob.
   if update-entry memory grows, search for active branches that retain tensors,
   graphs, cached observations, diagnostics, or storage references across
   iterations.  Do not change `num_mini_batches` first.
-- [ ] Stage 5, intervention:
-  only after stages 1-4 identify the cause, choose one intervention:
+- [ ] Stage 5, runner pipeline section:
+  inspect `[FrontRES pipeline]` lines.  The last printed section before failure
+  identifies whether the failure is in rollout preparation, `env.step`, reward
+  compute, storage write, `compute_returns`, `alg.update`, or logging.
+- [ ] Stage 6, intervention:
+  only after stages 1-5 identify the cause, choose one intervention:
   smaller per-mini-batch update, micro-batched critic/value backward, branch
   retirement, cache cleanup, allocator setting, or external GPU isolation.
 
@@ -282,6 +291,8 @@ Decision rules:
   likely allocator fragmentation or external process pressure.
 - Missing `[FrontRES CUDA mem]` lines:
   config route or algorithm constructor mismatch, not a memory conclusion.
+- Missing `[FrontRES pipeline]` lines while CUDA mem debug is on:
+  runner debug route mismatch, not a memory conclusion.
 
 Evidence to record:
 

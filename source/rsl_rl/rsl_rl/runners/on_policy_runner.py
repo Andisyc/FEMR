@@ -710,6 +710,39 @@ class OnPolicyRunner:
         if _is_frontres and critic_warmup_iters > 0:
             print(f"[Runner] Critic warmup (fixed DR scale, Actor may be held): {critic_warmup_iters} iters")
 
+        def _frontres_pipeline_section(label: str, *, rollout_step: int | None = None) -> None:
+            if not (
+                _is_frontres
+                and bool(getattr(self.alg, "frontres_cuda_memory_debug", False))
+            ):
+                return
+            step_text = "n/a" if rollout_step is None else str(rollout_step)
+            prefix = f"[FrontRES pipeline] it={getattr(self.alg, 'current_learning_iteration', self.current_learning_iteration)}"
+            if torch.cuda.is_available() and str(self.device).startswith("cuda"):
+                try:
+                    device = torch.device(self.device)
+                    torch.cuda.synchronize(device)
+                    free_bytes, total_bytes = torch.cuda.mem_get_info(device)
+                    allocated = torch.cuda.memory_allocated(device)
+                    reserved = torch.cuda.memory_reserved(device)
+
+                    def _gib(value: int) -> float:
+                        return float(value) / (1024.0 ** 3)
+
+                    print(
+                        f"{prefix} section={label} step={step_text} "
+                        f"alloc={_gib(allocated):.2f}GiB "
+                        f"reserved={_gib(reserved):.2f}GiB "
+                        f"free={_gib(free_bytes):.2f}GiB "
+                        f"total={_gib(total_bytes):.2f}GiB",
+                        flush=True,
+                    )
+                    return
+                except Exception as exc:
+                    print(f"{prefix} section={label} step={step_text} cuda_mem_unavailable={exc}", flush=True)
+                    return
+            print(f"{prefix} section={label} step={step_text}", flush=True)
+
         def _frontres_ppo_actor_weight_for_iter(iteration: int) -> float:
             return frontres_ppo_actor_weight_for_iter(
                 self,
@@ -783,6 +816,8 @@ class OnPolicyRunner:
         )
         for it in range(start_iter, tot_iter):
             start = time.time()
+            self.alg.current_learning_iteration = it
+            _frontres_pipeline_section("iteration_start")
             # Iteration controller：本轮的 actor 权重、DR scale、frontier/boundary 状态都在 rollout 前确定。
             _ppo_actor_weight_current = _frontres_ppo_actor_weight_for_iter(it)
             if _is_frontres and hasattr(self.alg, "ppo_actor_weight"):
@@ -842,7 +877,16 @@ class OnPolicyRunner:
 
             # Rollout 收集：先用当前 policy 跑 num_steps_per_env 步，写满 storage 后再 update。
             with torch.inference_mode(): # 关闭计算图的梯度追踪, 只进行推理
+                _frontres_pipeline_section("rollout_start")
+                _pipeline_rollout_interval = max(1, int(self.num_steps_per_env) // 4)
                 for _rollout_step in range(self.num_steps_per_env):
+                    _pipeline_step_sentinel = (
+                        _rollout_step == 0
+                        or _rollout_step == self.num_steps_per_env - 1
+                        or _rollout_step % _pipeline_rollout_interval == 0
+                    )
+                    if _pipeline_step_sentinel:
+                        _frontres_pipeline_section("step_prepare_before", rollout_step=_rollout_step)
 
                     # ------------------- Policy Rollout -------------------
 
@@ -869,10 +913,14 @@ class OnPolicyRunner:
                     _hsl_pos_snapshot = step_plan.hsl_pos_snapshot
                     _hsl_quat_snapshot = step_plan.hsl_quat_snapshot
 
+                    if _pipeline_step_sentinel:
+                        _frontres_pipeline_section("env_step_before", rollout_step=_rollout_step)
                     # Env step：真正推进仿真；从这里开始得到下一帧 obs、reward、done 和诊断 infos。
                     # NOTE: This is where the environment computes the *next* observation internally.
                     # The result is returned here and then used in the next loop iteration.
                     obs, rewards, dones, infos = self.env.step(env_actions.to(self.env.device))
+                    if _pipeline_step_sentinel:
+                        _frontres_pipeline_section("env_step_after", rollout_step=_rollout_step)
 
                     # Move to device
                     rewards, dones = rewards.to(self.device), dones.to(self.device)
@@ -935,6 +983,8 @@ class OnPolicyRunner:
 
                     # FrontRES reward/evidence window：四分支 rollout 转成 gap/gain 等HRL参数
                     if _is_frontres: 
+                        if _pipeline_step_sentinel:
+                            _frontres_pipeline_section("reward_compute_before", rollout_step=_rollout_step)
                         
                         # 确定四个分支在Env中的位置
                         _candidate_start = N_train
@@ -1022,6 +1072,8 @@ class OnPolicyRunner:
                         _frontres_prev_delta_q = frontres_reward.prev_delta_q
                         _frontres_term_count = frontres_reward.term_count
                         _frontres_step_count = frontres_reward.step_count
+                        if _pipeline_step_sentinel:
+                            _frontres_pipeline_section("reward_compute_after", rollout_step=_rollout_step)
                     
                     # ------------------- Reward Compute -------------------
 
@@ -1058,7 +1110,11 @@ class OnPolicyRunner:
                         ref_vel_estimator_obs = None
 
                     # Storage write：algorithm.process_env_step() 将当前 transition 写入 rollout buffer。
+                    if _pipeline_step_sentinel:
+                        _frontres_pipeline_section("storage_write_before", rollout_step=_rollout_step)
                     self.alg.process_env_step(rewards, dones, infos)  # stores FrontRES residual actions, not GMT robot actions
+                    if _pipeline_step_sentinel:
+                        _frontres_pipeline_section("storage_write_after", rollout_step=_rollout_step)
 
                     # Extract intrinsic rewards (only for logging)
                     intrinsic_rewards = self.alg.intrinsic_rewards if hasattr(self.alg, "rnd") and self.alg.rnd else None
@@ -1099,10 +1155,13 @@ class OnPolicyRunner:
                 stop = time.time()
                 collection_time = stop - start
                 start = stop
+                _frontres_pipeline_section("rollout_end")
 
                 # Return / advantage：rollout 收集完成后，用 critic 观测计算 GAE/returns。
                 if self.training_type in ["rl", "mosaic", "frontres"]:
+                    _frontres_pipeline_section("compute_returns_before")
                     self.alg.compute_returns(privileged_obs)
+                    _frontres_pipeline_section("compute_returns_after")
 
             # Algorithm update：唯一真正反向传播更新参数的位置；FrontRES 的 HSL/rho/alpha/PPO loss 都在 alg.update() 内汇合。
             # Pass current iteration to algorithm for logging (needed by MOSAIC)
@@ -1112,7 +1171,9 @@ class OnPolicyRunner:
             # Pass oracle_mix so MOSAIC scales surrogate by (1 - oracle_mix):
             # PPO contribution ∝ FrontRES causal share of the correction applied.
             self.alg.oracle_mix = getattr(self, '_oracle_mix', 0.0)
+            _frontres_pipeline_section("algorithm_update_before")
             loss_dict = self.alg.update() # 调用mosaic.py中的update()函数进行权重更新
+            _frontres_pipeline_section("algorithm_update_after")
 
             stop = time.time()
             learn_time = stop - start
@@ -1177,7 +1238,9 @@ class OnPolicyRunner:
             # Log / checkpoint：打印本轮训练状态，并按 save_interval 保存模型。
             if self.log_dir is not None and not self.disable_logs:
                 # Log information
+                _frontres_pipeline_section("log_before")
                 self.log(_frontres_log_locs)
+                _frontres_pipeline_section("log_after")
 
                 # Save model
                 if it % self.save_interval == 0:
