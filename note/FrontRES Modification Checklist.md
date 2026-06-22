@@ -42,19 +42,25 @@ change as ready for training until each relevant item has concrete evidence.
   `source/rsl_rl/rsl_rl/tests/frontres_region_direct_update_path.py` runs one
   CPU `FrontRESUnified.update()` through the active region-direct branch and
   verifies `generic=0`, `repair_bce=1`, storage clear, and returned diagnostics.
+- [x] Update memory pipeline test:
+  `source/rsl_rl/rsl_rl/tests/frontres_update_memory_pipeline.py` repeatedly
+  fills synthetic FrontRES storage and calls the formal `FrontRESUnified.update()`
+  path.  It is used to separate algorithm-update memory retention from
+  runner/environment/live-storage memory growth.
 - [x] CUDA cache fragmentation mitigation:
   `FrontRESUnified._update_ppo_supervised()` now releases unused CUDA cache at
   update entry and after storage clear, matching the OOM hint that reserved but
   unallocated memory was large.
 - [x] Evidence-first OOM diagnostic:
-  `frontres_cuda_memory_debug=True` prints CUDA allocated/reserved/peak/free
-  around update entry, value forward/backward, supervised actor forward/backward,
-  and rho forward/backward.  This is diagnostic-only and must be inspected before
-  changing batch count, allocator settings, or loss structure again.
+  `frontres_cuda_memory_debug=True` prints compact CUDA allocated/reserved/peak/free
+  sentinels at update entry, after the first mini-batch value/supervised/rho
+  backward stages, and at the exact OOM stage if an OOM occurs.  This is
+  diagnostic-only and must be inspected before changing batch count, allocator
+  settings, or loss structure again.
 - [ ] First short-run sentinel observed:
   the next run should print `mini_batches=16`, include `[FrontRES CUDA mem]`
-  lines, and either pass iteration 207/220 or report the OOM stage with memory
-  numbers.
+  compact sentinel lines, and either pass iteration 207/220 or report the OOM
+  stage with memory numbers.
 - [ ] First short-run behavior checked:
   after iteration 200, inspect active-dim `rho by adv +/−` separation over a
   small window.
@@ -234,6 +240,55 @@ Common failure this prevents:
 - Printing `locs` inside a formatter that only receives `loss_dict`.
 - Adding a diagnostic to one log branch while the live branch prints a duplicate
   old label.
+
+## 5A. OOM Debug Pipeline
+
+Use this when CUDA OOM appears during FrontRES training.  The goal is to classify
+the failure before changing any memory-related knob.
+
+- [ ] Stage 0, route sentinel:
+  confirm startup prints the intended `epochs`, `mini_batches`, objective, and
+  structured rho mode.
+- [ ] Stage 1, update-entry baseline:
+  compare `[FrontRES CUDA mem] label=update_entry` across iterations.  If
+  allocated/reserved memory rises monotonically at update entry, suspect
+  cross-iteration tensor retention.
+- [ ] Stage 2, first-mini-batch peak:
+  inspect only the first mini-batch sentinel lines:
+  `value_backward_after`, `actor_supervised_backward_after`, and
+  `rho_backward_after`.  These show which update stage creates the largest peak
+  without flooding the terminal.
+- [ ] Stage 3, exact failure location:
+  if OOM happens, use `oom_value_backward`, `oom_actor_supervised_backward`, or
+  `oom_rho_backward` as the decisive stage label.
+- [ ] Stage 4, branch audit:
+  if update-entry memory grows, search for active branches that retain tensors,
+  graphs, cached observations, diagnostics, or storage references across
+  iterations.  Do not change `num_mini_batches` first.
+- [ ] Stage 5, intervention:
+  only after stages 1-4 identify the cause, choose one intervention:
+  smaller per-mini-batch update, micro-batched critic/value backward, branch
+  retirement, cache cleanup, allocator setting, or external GPU isolation.
+
+Decision rules:
+
+- Stable update-entry memory plus OOM at one backward stage:
+  likely mini-batch peak memory in that stage.
+- Rising update-entry memory:
+  likely cross-iteration retention or an active branch keeping CUDA tensors.
+- Large reserved/free mismatch with modest allocated memory:
+  likely allocator fragmentation or external process pressure.
+- Missing `[FrontRES CUDA mem]` lines:
+  config route or algorithm constructor mismatch, not a memory conclusion.
+
+Evidence to record:
+
+- Startup sentinel:
+- Update-entry trend:
+- Peak stage:
+- OOM stage:
+- Decision:
+- Intervention:
 
 ## 6. Static Verification
 

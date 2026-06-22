@@ -404,6 +404,19 @@ class FrontRESUnified:
             and str(self.device).startswith("cuda")
         )
 
+    @staticmethod
+    def _cuda_memory_debug_should_print(label: str, update_idx: int | None) -> bool:
+        # Keep the live OOM sentinel useful without flooding every mini-batch.
+        if label == "update_entry" or label.startswith("oom_"):
+            return True
+        if update_idx != 0:
+            return False
+        return label in {
+            "value_backward_after",
+            "actor_supervised_backward_after",
+            "rho_backward_after",
+        }
+
     def _print_cuda_memory_debug(
         self,
         label: str,
@@ -412,6 +425,8 @@ class FrontRESUnified:
         batch_size: int | None = None,
     ) -> None:
         if not self._cuda_memory_debug_enabled():
+            return
+        if not self._cuda_memory_debug_should_print(label, update_idx):
             return
         try:
             device = torch.device(self.device)
