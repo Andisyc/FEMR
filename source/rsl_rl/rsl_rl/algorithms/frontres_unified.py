@@ -612,6 +612,169 @@ class FrontRESUnified:
                     or (structured_rho_active and structured_loss_mode != "region_direct")
                 )
             )
+            memory_safe_region_direct = (
+                structured_rho_active
+                and structured_loss_mode == "region_direct"
+                and disable_generic_ppo
+                and self._ppo_acceptance_only_mode()
+            )
+
+            self.optimizer.zero_grad(set_to_none=True)
+
+            if memory_safe_region_direct:
+                value_batch = self.policy.evaluate(
+                    critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
+                value_loss = self._compute_value_loss(
+                    target_values_batch,
+                    returns_batch,
+                    value_batch,
+                    frontres_mask_batch,
+                )
+                value_term = self.value_loss_coef * value_loss
+                if not torch.isfinite(value_term):
+                    self._warn_skip("non-finite value loss", value_term)
+                    self.optimizer.zero_grad(set_to_none=True)
+                    continue
+                value_term.backward()
+                value_loss_item = value_loss.item()
+                del value_batch, value_term
+
+                self.policy.update_distribution(obs_batch_augmented)
+                actions_log_prob_batch = torch.zeros(
+                    original_batch_size,
+                    device=self.device,
+                    dtype=obs_batch.dtype,
+                )
+                mu_batch = self.policy.action_mean[:original_batch_size]
+                sigma_batch = self.policy.action_std[:original_batch_size]
+                entropy_batch = self.policy.entropy[:original_batch_size]
+                if (
+                    self.frontres_training_objective != "supervised_restore"
+                    and self.frontres_training_objective != "basis_restore"
+                    and self.desired_kl is not None
+                    and self.schedule == "adaptive"
+                ):
+                    self._adapt_learning_rate(old_mu_batch, old_sigma_batch, mu_batch, sigma_batch)
+                supervised_loss, sup_cos_sim, sup_metrics = self._compute_supervised_loss(
+                    mu_batch,
+                    supervised_target_batch,
+                    original_batch_size,
+                    batch_indices=batch_indices,
+                    supervised_weight_batch=supervised_weight_batch,
+                    supervised_harm_weight_batch=supervised_harm_weight_batch,
+                )
+                acceptance_preference_loss, acceptance_preference_metrics = self._compute_acceptance_preference_loss(
+                    mu_batch,
+                    acceptance_target_batch,
+                    acceptance_mask_batch,
+                    original_batch_size,
+                )
+                state_alpha_loss, state_alpha_metrics = self._compute_state_alpha_loss(
+                    obs_batch_augmented,
+                    state_alpha_target_batch,
+                    state_alpha_mask_batch,
+                    original_batch_size,
+                )
+                legacy_preference_weight = 0.0
+                legacy_alpha_weight = float(getattr(self, "frontres_state_alpha_weight", 0.0))
+                non_acceptance_loss = (
+                    -self.entropy_coef * entropy_batch.mean()
+                    + self.lambda_supervised * supervised_loss
+                    + legacy_preference_weight * acceptance_preference_loss
+                    + legacy_alpha_weight * state_alpha_loss
+                )
+                if not torch.isfinite(non_acceptance_loss):
+                    self._warn_skip("non-finite non-acceptance loss", non_acceptance_loss)
+                    self.optimizer.zero_grad(set_to_none=True)
+                    continue
+                non_acceptance_loss.backward()
+                base_grads = {
+                    p: (p.grad.detach().clone() if p.grad is not None else None)
+                    for p in self.policy.parameters()
+                }
+                entropy_item = entropy_batch.mean().item()
+                supervised_loss_item = supervised_loss.item()
+                acceptance_preference_loss_item = acceptance_preference_loss.item()
+                state_alpha_loss_item = state_alpha_loss.item()
+                del (
+                    mu_batch,
+                    sigma_batch,
+                    entropy_batch,
+                    supervised_loss,
+                    acceptance_preference_loss,
+                    state_alpha_loss,
+                    non_acceptance_loss,
+                )
+
+                self.policy.update_distribution(obs_batch_augmented)
+                mu_batch = self.policy.action_mean[:original_batch_size]
+                sigma_batch = self.policy.action_std[:original_batch_size]
+                structured_joint_rl_loss, structured_joint_rl_metrics = self._compute_structured_joint_rl_loss(
+                    obs_batch_augmented,
+                    mu_batch,
+                    actions_batch,
+                    old_mu_batch,
+                    old_sigma_batch,
+                    actions_log_prob_batch,
+                    old_actions_log_prob_batch,
+                    acceptance_target_batch,
+                    acceptance_mask_batch,
+                    rho_prior_authority_batch,
+                    rho_prior_target_batch,
+                    original_batch_size,
+                )
+                acceptance_only_loss = self.frontres_structured_joint_rl_weight * structured_joint_rl_loss
+                if not torch.isfinite(acceptance_only_loss):
+                    self._warn_skip("non-finite acceptance loss", acceptance_only_loss)
+                    self.optimizer.zero_grad(set_to_none=True)
+                    continue
+                acceptance_only_loss.backward()
+                self._keep_ppo_grad_on_acceptance_head_only(base_grads)
+                grad_diag = self._compute_acceptance_grad_diagnostics(base_grads)
+                if grad_diag:
+                    for key, value in grad_diag.items():
+                        grad_diag_sums[key] = grad_diag_sums.get(key, 0.0) + float(value)
+                    grad_diag_count += 1
+
+                if self.is_multi_gpu:
+                    self.reduce_parameters()
+                if any(p.grad is not None and not torch.isfinite(p.grad).all()
+                       for p in self.policy.parameters() if p.requires_grad):
+                    self._warn_skip("NaN gradient detected")
+                    self.optimizer.zero_grad(set_to_none=True)
+                    continue
+
+                nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+                self.optimizer.step()
+
+                mean_value_loss += value_loss_item
+                mean_surrogate_loss += 0.0
+                mean_entropy += entropy_item
+                mean_supervised_loss += supervised_loss_item
+                mean_supervised_cos_sim += sup_cos_sim
+                for key, value in sup_metrics.items():
+                    mean_supervised_metrics[key] = mean_supervised_metrics.get(key, 0.0) + float(value)
+                mean_acceptance_preference_loss += acceptance_preference_loss_item
+                for key, value in acceptance_preference_metrics.items():
+                    mean_acceptance_preference_metrics[key] = (
+                        mean_acceptance_preference_metrics.get(key, 0.0) + float(value)
+                    )
+                mean_state_alpha_loss += state_alpha_loss_item
+                for key, value in state_alpha_metrics.items():
+                    mean_state_alpha_metrics[key] = mean_state_alpha_metrics.get(key, 0.0) + float(value)
+                mean_structured_joint_rl_loss += structured_joint_rl_loss.item()
+                for key, value in structured_joint_rl_metrics.items():
+                    mean_structured_joint_rl_metrics[key] = (
+                        mean_structured_joint_rl_metrics.get(key, 0.0) + float(value)
+                    )
+                del (
+                    mu_batch,
+                    sigma_batch,
+                    structured_joint_rl_loss,
+                    acceptance_only_loss,
+                    base_grads,
+                )
+                continue
 
             self.policy.update_distribution(obs_batch_augmented)
             if needs_actor_log_prob:
@@ -722,7 +885,6 @@ class FrontRESUnified:
                     + structured_weight * structured_joint_rl_loss
                 )
 
-            self.optimizer.zero_grad(set_to_none=True)
             if not torch.isfinite(loss):
                 self._warn_skip("non-finite loss", loss)
                 continue

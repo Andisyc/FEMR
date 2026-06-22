@@ -28,6 +28,16 @@ change as ready for training until each relevant item has concrete evidence.
   instead of `mu_batch.sum() * 0`, so `frontres_acceptance_preference_weight=0`
   and `frontres_structured_joint_rl_keep_legacy_bce=False` do not leave a tiny
   obsolete actor graph on the live path.
+- [x] Active update peak-memory fix:
+  in active `region_direct` mode, `FrontRESUnified` now uses a memory-safe update
+  route: critic value loss is backpropagated first, proposal supervised loss is
+  backpropagated next, then the actor is recomputed for rho acceptance loss.
+  This removes the previous live-path `retain_graph=True` peak while preserving
+  the rho-only acceptance gradient boundary.
+- [x] Update-path toy test:
+  `source/rsl_rl/rsl_rl/tests/frontres_region_direct_update_path.py` runs one
+  CPU `FrontRESUnified.update()` through the active region-direct branch and
+  verifies `generic=0`, `repair_bce=1`, storage clear, and returned diagnostics.
 - [x] CUDA cache fragmentation mitigation:
   `FrontRESUnified._update_ppo_supervised()` now releases unused CUDA cache at
   update entry and after storage clear, matching the OOM hint that reserved but
