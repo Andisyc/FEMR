@@ -46,7 +46,9 @@ change as ready for training until each relevant item has concrete evidence.
   `source/rsl_rl/rsl_rl/tests/frontres_update_memory_pipeline.py` repeatedly
   fills synthetic FrontRES storage and calls the formal `FrontRESUnified.update()`
   path.  It is used to separate algorithm-update memory retention from
-  runner/environment/live-storage memory growth.
+  runner/environment/live-storage memory growth.  It supports both `--policy tiny`
+  for isolated update logic and `--policy frontres` for the real
+  `FrontRESActorCritic` network with synthetic storage.
 - [x] CUDA cache fragmentation mitigation:
   `FrontRESUnified._update_ppo_supervised()` now releases unused CUDA cache at
   update entry and after storage clear, matching the OOM hint that reserved but

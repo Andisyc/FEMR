@@ -9,9 +9,13 @@ Run from the repository root with:
 
     python source/rsl_rl/rsl_rl/tests/frontres_update_memory_pipeline.py
 
-Optional CUDA stress run:
+Optional CUDA stress run with the tiny policy:
 
     python source/rsl_rl/rsl_rl/tests/frontres_update_memory_pipeline.py --device cuda:0 --live-size
+
+Formal FrontRES policy stress run:
+
+    python source/rsl_rl/rsl_rl/tests/frontres_update_memory_pipeline.py --device cuda:0 --live-size --policy frontres
 
 This is not an IsaacLab run.  It repeatedly fills a synthetic RolloutStorage and
 calls the formal FrontRESUnified.update() path.  The test answers two questions:
@@ -38,8 +42,15 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rsl_rl.algorithms.frontres_unified import FrontRESUnified
+from rsl_rl.modules import FrontRESActorCritic
 from rsl_rl.storage.rollout_storage import RolloutStorage
 from frontres_region_direct_update_path import TinyFrontRESPolicy
+
+
+ACTIVE_GMT_CANDIDATES = (
+    "/home/yuxuancheng/MOSAIC/model/model_27000.pt",
+    "/hdd1/cyx/MOSAIC/model/model_27000.pt",
+)
 
 
 def _gib(value: int) -> float:
@@ -144,7 +155,7 @@ def _fill_storage(
 
 def _make_algorithm(
     *,
-    policy: TinyFrontRESPolicy,
+    policy: torch.nn.Module,
     device: torch.device,
     num_learning_epochs: int,
     num_mini_batches: int,
@@ -177,6 +188,52 @@ def _make_algorithm(
     )
 
 
+def _find_gmt_checkpoint(explicit_path: str | None) -> str:
+    if explicit_path:
+        path = Path(explicit_path).expanduser()
+        if not path.exists():
+            raise FileNotFoundError(f"explicit --gmt-checkpoint does not exist: {path}")
+        return str(path)
+    for candidate in ACTIVE_GMT_CANDIDATES:
+        if Path(candidate).exists():
+            return candidate
+    raise FileNotFoundError(
+        "No GMT checkpoint found. Pass --gmt-checkpoint explicitly. "
+        f"Tried: {list(ACTIVE_GMT_CANDIDATES)}"
+    )
+
+
+def _make_policy(args: argparse.Namespace, device: torch.device) -> torch.nn.Module:
+    if args.policy == "tiny":
+        return TinyFrontRESPolicy(args.obs_dim, args.critic_obs_dim).to(device)
+
+    gmt_checkpoint = _find_gmt_checkpoint(args.gmt_checkpoint)
+    print(f"[test] Using real FrontRESActorCritic with GMT checkpoint: {gmt_checkpoint}")
+    policy = FrontRESActorCritic(
+        num_actor_obs=args.obs_dim,
+        num_critic_obs=args.critic_obs_dim,
+        num_actions=args.robot_action_dim,
+        residual_hidden_dims=[512, 256, 128],
+        residual_last_layer_gain=0.01,
+        critic_hidden_dims=[1024, 1024, 512, 256],
+        activation="elu",
+        init_noise_std=0.01,
+        noise_std_type="scalar",
+        num_task_corrections=6,
+        task_conf_dim=6,
+        max_delta_pos=0.3,
+        max_delta_rpy=0.4,
+        gmt_checkpoint_path=gmt_checkpoint,
+        init_critic_from_gmt=False,
+        q_ref_start_idx=232,
+        num_frontres_obs=0,
+        frontres_split_acceptance_head=False,
+        num_z_outputs=0,
+        max_delta_q=0.5,
+    )
+    return policy.to(device)
+
+
 def run_memory_pipeline(args: argparse.Namespace) -> None:
     torch.manual_seed(args.seed)
     device = torch.device(args.device)
@@ -194,7 +251,7 @@ def run_memory_pipeline(args: argparse.Namespace) -> None:
     total_samples = num_envs * num_transitions
     batch_size = total_samples // args.num_mini_batches
 
-    policy = TinyFrontRESPolicy(obs_dim, critic_obs_dim).to(device)
+    policy = _make_policy(args, device)
     alg = _make_algorithm(
         policy=policy,
         device=device,
@@ -213,10 +270,10 @@ def run_memory_pipeline(args: argparse.Namespace) -> None:
 
     print("=== FrontRES Update Memory Pipeline TEST ONLY ===")
     print(
-        f"device={device} updates={args.updates} total_samples={total_samples} "
+        f"policy={args.policy} device={device} updates={args.updates} total_samples={total_samples} "
         f"num_envs={num_envs} num_transitions={num_transitions} "
         f"epochs={args.num_learning_epochs} mini_batches={args.num_mini_batches} "
-        f"batch={batch_size}"
+        f"batch={batch_size} obs_dim={obs_dim} critic_obs_dim={critic_obs_dim}"
     )
     print("meaning: update_entry growth => likely algorithm-side retention; stable entry => look outside update path.")
 
@@ -270,13 +327,16 @@ def run_memory_pipeline(args: argparse.Namespace) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--policy", choices=("tiny", "frontres"), default="tiny")
+    parser.add_argument("--gmt-checkpoint", default=None)
     parser.add_argument("--updates", type=int, default=5)
     parser.add_argument("--num-envs", type=int, default=2048)
     parser.add_argument("--num-transitions", type=int, default=4)
-    parser.add_argument("--num-learning-epochs", type=int, default=2)
-    parser.add_argument("--num-mini-batches", type=int, default=4)
-    parser.add_argument("--obs-dim", type=int, default=8)
-    parser.add_argument("--critic-obs-dim", type=int, default=5)
+    parser.add_argument("--num-learning-epochs", type=int, default=5)
+    parser.add_argument("--num-mini-batches", type=int, default=16)
+    parser.add_argument("--obs-dim", type=int, default=800)
+    parser.add_argument("--critic-obs-dim", type=int, default=859)
+    parser.add_argument("--robot-action-dim", type=int, default=29)
     parser.add_argument("--seed", type=int, default=11)
     parser.add_argument("--drift-tolerance-gib", type=float, default=0.10)
     parser.add_argument("--cuda-memory-debug", action="store_true")
