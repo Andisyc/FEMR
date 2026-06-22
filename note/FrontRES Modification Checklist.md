@@ -17,8 +17,21 @@ change as ready for training until each relevant item has concrete evidence.
   backward and after skipped NaN-gradient updates.
 - [x] Active experiment memory fix:
   `G1FlatFrontRESUnifiedRunnerCfg.algorithm.num_mini_batches` is increased from
-  4 to 8, reducing per-minibatch activation memory without changing rollout
+  4 to 16, reducing per-minibatch activation memory without changing rollout
   sample count or the rho objective.
+- [x] Region-direct graph fix:
+  `FrontRESUnified` no longer builds PPO action-log-prob or per-dim rho-log-prob
+  graphs when `frontres_structured_joint_rl_loss_mode="region_direct"`, because
+  the active rho loss is a direct logit loss rather than a sample-log-ratio loss.
+- [x] Retired legacy-branch graph cleanup:
+  disabled legacy acceptance preference loss now returns a detached zero scalar
+  instead of `mu_batch.sum() * 0`, so `frontres_acceptance_preference_weight=0`
+  and `frontres_structured_joint_rl_keep_legacy_bce=False` do not leave a tiny
+  obsolete actor graph on the live path.
+- [x] CUDA cache fragmentation mitigation:
+  `FrontRESUnified._update_ppo_supervised()` now releases unused CUDA cache at
+  update entry and after storage clear, matching the OOM hint that reserved but
+  unallocated memory was large.
 - [ ] First short-run sentinel observed:
   the next run should pass iteration 200 without CUDA OOM and still print
   `rho region loss` with `repair_bce=1`.

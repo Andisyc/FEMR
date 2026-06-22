@@ -521,6 +521,8 @@ class FrontRESUnified:
             )
 
     def _update_ppo_supervised(self):
+        if torch.cuda.is_available() and str(self.device).startswith("cuda"):
+            torch.cuda.empty_cache()
         mean_value_loss = 0.0
         mean_surrogate_loss = 0.0
         mean_entropy = 0.0
@@ -589,8 +591,37 @@ class FrontRESUnified:
             else:
                 obs_batch_augmented = obs_batch
 
+            structured_rho_active = self._structured_joint_rl_enabled()
+            structured_loss_mode = str(
+                getattr(self, "frontres_structured_joint_rl_loss_mode", "ppo_clipped")
+            ).lower()
+            oracle_mix = float(getattr(self, "oracle_mix", 0.0))
+            raw_ppo_weight = float(getattr(self, "ppo_actor_weight", 1.0)) * (1.0 - oracle_mix)
+            disable_generic_ppo = (
+                structured_rho_active
+                and bool(getattr(self, "frontres_structured_joint_rl_disable_generic_ppo", True))
+            )
+            # In region-direct structured rho mode, the rho update is a direct
+            # logit loss.  It does not use PPO log-prob ratios, so building the
+            # log-prob graph only raises the update memory peak.
+            ppo_weight = 0.0 if disable_generic_ppo else raw_ppo_weight
+            needs_actor_log_prob = (
+                self.frontres_training_objective not in ("supervised_restore", "basis_restore")
+                and (
+                    ppo_weight > 0.0
+                    or (structured_rho_active and structured_loss_mode != "region_direct")
+                )
+            )
+
             self.policy.update_distribution(obs_batch_augmented)
-            actions_log_prob_batch = self._get_actor_log_prob(actions_batch)
+            if needs_actor_log_prob:
+                actions_log_prob_batch = self._get_actor_log_prob(actions_batch)
+            else:
+                actions_log_prob_batch = torch.zeros(
+                    original_batch_size,
+                    device=self.device,
+                    dtype=obs_batch.dtype,
+                )
             value_batch = self.policy.evaluate(
                 critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
             mu_batch = self.policy.action_mean[:original_batch_size]
@@ -646,28 +677,25 @@ class FrontRESUnified:
                 surrogate_loss = torch.zeros((), device=self.device)
                 ppo_weight = 0.0
             else:
-                surrogate_loss, value_loss = self._compute_ppo_losses(
-                    actions_log_prob_batch,
-                    old_actions_log_prob_batch,
-                    advantages_batch,
-                    target_values_batch,
-                    returns_batch,
-                    value_batch,
-                    frontres_mask_batch,
-                    frontres_actor_gate_batch,
-                )
-
-                oracle_mix = float(getattr(self, "oracle_mix", 0.0))
-                raw_ppo_weight = float(getattr(self, "ppo_actor_weight", 1.0)) * (1.0 - oracle_mix)
-                structured_rho_active = self._structured_joint_rl_enabled()
-                disable_generic_ppo = (
-                    structured_rho_active
-                    and bool(getattr(self, "frontres_structured_joint_rl_disable_generic_ppo", True))
-                )
-                # Structured rho RL is already a PPO-style acceptance update.
-                # Letting the old generic actor surrogate update the same head
-                # reintroduces mixed alpha/rho/task credit assignment.
-                ppo_weight = 0.0 if disable_generic_ppo else raw_ppo_weight
+                if ppo_weight > 0.0:
+                    surrogate_loss, value_loss = self._compute_ppo_losses(
+                        actions_log_prob_batch,
+                        old_actions_log_prob_batch,
+                        advantages_batch,
+                        target_values_batch,
+                        returns_batch,
+                        value_batch,
+                        frontres_mask_batch,
+                        frontres_actor_gate_batch,
+                    )
+                else:
+                    surrogate_loss = torch.zeros((), device=self.device)
+                    value_loss = self._compute_value_loss(
+                        target_values_batch,
+                        returns_batch,
+                        value_batch,
+                        frontres_mask_batch,
+                    )
                 if self.diagnose_gradient_conflict and ppo_weight > 0.0 and self.lambda_supervised > 0.0:
                     _gc, _ratio = self._compute_actor_grad_conflict(
                         surrogate_loss, supervised_loss)
@@ -813,6 +841,8 @@ class FrontRESUnified:
                 )
 
         self.storage.clear()
+        if torch.cuda.is_available() and str(self.device).startswith("cuda"):
+            torch.cuda.empty_cache()
         loss_dict = {
             "value_function": mean_value_loss,
             "surrogate": mean_surrogate_loss,
@@ -1106,6 +1136,30 @@ class FrontRESUnified:
             for param_group in self.optimizer.param_groups:
                 param_group["lr"] = self.learning_rate
 
+    def _compute_value_loss(
+        self,
+        target_values_batch,
+        returns_batch,
+        value_batch,
+        frontres_mask_batch,
+    ):
+        has_mask = frontres_mask_batch is not None
+        if self.use_clipped_value_loss:
+            value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(
+                -self.clip_param, self.clip_param)
+            value_losses = (value_batch - returns_batch).pow(2)
+            value_losses_clipped = (value_clipped - returns_batch).pow(2)
+            value_terms = torch.max(value_losses, value_losses_clipped)
+        else:
+            value_terms = (returns_batch - value_batch).pow(2)
+
+        if has_mask:
+            n = frontres_mask_batch.sum().clamp(min=1.0)
+            value_loss = (value_terms * frontres_mask_batch).sum() / n
+        else:
+            value_loss = value_terms.mean()
+        return value_loss
+
     def _compute_ppo_losses(
         self,
         actions_log_prob_batch,
@@ -1145,20 +1199,12 @@ class FrontRESUnified:
         else:
             surrogate_loss = surrogate_terms.mean()
 
-        if self.use_clipped_value_loss:
-            value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(
-                -self.clip_param, self.clip_param)
-            value_losses = (value_batch - returns_batch).pow(2)
-            value_losses_clipped = (value_clipped - returns_batch).pow(2)
-            value_terms = torch.max(value_losses, value_losses_clipped)
-        else:
-            value_terms = (returns_batch - value_batch).pow(2)
-
-        if has_mask:
-            n = frontres_mask_batch.sum().clamp(min=1.0)
-            value_loss = (value_terms * frontres_mask_batch).sum() / n
-        else:
-            value_loss = value_terms.mean()
+        value_loss = self._compute_value_loss(
+            target_values_batch,
+            returns_batch,
+            value_batch,
+            frontres_mask_batch,
+        )
         return surrogate_loss, value_loss
 
     def _compute_acceptance_preference_loss(
@@ -1168,7 +1214,7 @@ class FrontRESUnified:
         acceptance_mask_batch,
         original_batch_size,
     ):
-        zero = mu_batch[:original_batch_size].sum() * 0.0
+        zero = torch.zeros((), device=self.device, dtype=mu_batch.dtype)
         metrics = {
             "acceptance_preference_mask_frac": 0.0,
             "acceptance_preference_target_mean": 0.0,
@@ -1438,33 +1484,49 @@ class FrontRESUnified:
                     adv = (adv - adv_mean) / adv_std
             return adv
 
-        if hasattr(self.policy, "get_actions_log_prob_per_dim"):
-            new_rho_logp = self.policy.get_actions_log_prob_per_dim(actions_batch[:n], rho_dims)
-            new_rho_logp = new_rho_logp.to(device=self.device, dtype=obs_batch.dtype)
-        else:
-            new_rho_logp = actions_log_prob_batch[:n].view(-1, 1).to(
-                device=self.device, dtype=obs_batch.dtype
-            ).expand_as(rho_adv_raw)
-        if hasattr(self.policy, "get_actions_log_prob_per_dim_from_stats"):
-            old_rho_logp = self.policy.get_actions_log_prob_per_dim_from_stats(
-                actions_batch[:n],
-                old_mu_batch[:n],
-                old_sigma_batch[:n],
-                rho_dims,
+        loss_mode = str(getattr(self, "frontres_structured_joint_rl_loss_mode", "ppo_clipped")).lower()
+        if loss_mode == "region_direct":
+            cols = min(
+                rho_adv_raw.shape[-1],
+                rho_weight.shape[-1],
+                max(0, mu_batch.shape[-1] - 6),
             )
-            old_rho_logp = old_rho_logp.to(device=self.device, dtype=obs_batch.dtype)
+            new_rho_logp = None
+            old_rho_logp = None
         else:
-            old_rho_logp = old_actions_log_prob_batch[:n].view(-1, 1).to(
-                device=self.device, dtype=obs_batch.dtype
-            ).expand_as(rho_adv_raw)
-
-        cols = min(rho_adv_raw.shape[-1], rho_weight.shape[-1], new_rho_logp.shape[-1], old_rho_logp.shape[-1])
+            if hasattr(self.policy, "get_actions_log_prob_per_dim"):
+                new_rho_logp = self.policy.get_actions_log_prob_per_dim(actions_batch[:n], rho_dims)
+                new_rho_logp = new_rho_logp.to(device=self.device, dtype=obs_batch.dtype)
+            else:
+                new_rho_logp = actions_log_prob_batch[:n].view(-1, 1).to(
+                    device=self.device, dtype=obs_batch.dtype
+                ).expand_as(rho_adv_raw)
+            if hasattr(self.policy, "get_actions_log_prob_per_dim_from_stats"):
+                old_rho_logp = self.policy.get_actions_log_prob_per_dim_from_stats(
+                    actions_batch[:n],
+                    old_mu_batch[:n],
+                    old_sigma_batch[:n],
+                    rho_dims,
+                )
+                old_rho_logp = old_rho_logp.to(device=self.device, dtype=obs_batch.dtype)
+            else:
+                old_rho_logp = old_actions_log_prob_batch[:n].view(-1, 1).to(
+                    device=self.device, dtype=obs_batch.dtype
+                ).expand_as(rho_adv_raw)
+            cols = min(
+                rho_adv_raw.shape[-1],
+                rho_weight.shape[-1],
+                new_rho_logp.shape[-1],
+                old_rho_logp.shape[-1],
+            )
         if cols <= 0:
             return zero, metrics
         rho_adv_raw = rho_adv_raw[:, :cols]
         rho_weight = rho_weight[:, :cols]
-        new_rho_logp = new_rho_logp[:, :cols]
-        old_rho_logp = old_rho_logp[:, :cols]
+        if new_rho_logp is not None:
+            new_rho_logp = new_rho_logp[:, :cols]
+        if old_rho_logp is not None:
+            old_rho_logp = old_rho_logp[:, :cols]
         rho_active = rho_weight > 1e-6
         if not bool(rho_active.any().detach().item()):
             return zero, metrics
@@ -1489,11 +1551,14 @@ class FrontRESUnified:
         rho_action_raw = torch.log(rho_action / (1.0 - rho_action))
         rho_mean_raw = mu_batch[:n, 6:6 + cols].to(device=self.device, dtype=obs_batch.dtype)
         rho_mean = torch.sigmoid(rho_mean_raw)
-        rho_log_ratio = new_rho_logp - old_rho_logp
-        rho_loss, rho_ratio = _clipped_loss(rho_adv, rho_weight, rho_log_ratio)
+        if loss_mode == "region_direct":
+            rho_loss = zero
+            rho_ratio = torch.ones_like(rho_adv)
+        else:
+            rho_log_ratio = new_rho_logp - old_rho_logp
+            rho_loss, rho_ratio = _clipped_loss(rho_adv, rho_weight, rho_log_ratio)
         prior_loss = zero
         prior_loss_weight = float(getattr(self, "frontres_structured_joint_prior_loss_weight", 0.0))
-        loss_mode = str(getattr(self, "frontres_structured_joint_rl_loss_mode", "ppo_clipped")).lower()
         prior_authority = None
         prior_target = None
         prior_dim_weight = None

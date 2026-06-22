@@ -171,6 +171,22 @@ Dr. Cheng often reasons through these principles:
 - Use `rg` for search and `apply_patch` for manual edits.
 - Keep changes scoped, but complete the requested architecture.
 - Preserve old objectives such as `ppo_hrl`, `basis_restore`, and validation branches unless explicitly asked to remove them.
+- Do not preserve obsolete branches inside the live training path merely for
+  compatibility.  Once a new mechanism replaces an old branch conceptually,
+  the old branch must be one of three things: removed from the live path, guarded
+  behind an explicit config/ablation flag that defaults off for the active
+  experiment, or documented as still carrying a necessary causal role.
+- Treat unused live branches as technical debt, not harmless compatibility.
+  A branch that no longer owns a concept can still allocate tensors, retain
+  graphs, accumulate gradients, consume CUDA memory, alter optimizer behavior,
+  or confuse diagnostics.  Before finishing a refactor, search for old branch
+  names and verify that inactive branches do not build computation graphs,
+  write storage fields, enter losses, or print active-looking diagnostics.
+- When changing a loss/update path, perform a live-branch retirement audit:
+  identify replaced branches, state whether each branch is active, ablation-only,
+  or dead, and remove or hard-gate any branch that is dead.  Do not rely on
+  near-zero weights as the only safeguard if the branch still builds expensive
+  tensors or autograd graphs.
 - After Python edits, run `python -m py_compile` on touched files when practical.
 - Report whether the training command changes. If configs carry the behavior, say the command does not change.
 - When Dr. Cheng asks for a final code check before pushing or training, treat it as a logic-bug audit, not a formatting pass. Look for architecture breaks, silent training drift, inconsistent masks, stale config defaults, objective mismatches, and rollout/loss/storage contract errors before ordinary syntax issues.
