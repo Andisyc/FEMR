@@ -64,10 +64,23 @@ change as ready for training until each relevant item has concrete evidence.
   `frontres_cuda_memory_debug=True`, covering rollout start, selected env steps,
   reward compute, storage write, compute returns, algorithm update, and logging.
   This separates runner/env/live-storage failures from algorithm-update failures.
+- [x] Runner log-loc CUDA retention fix:
+  `on_policy_runner.py` no longer uses `locals().copy()` for FrontRES boundary
+  stats or logging.  Boundary control now consumes only materialized diagnostic
+  means, and logging/checkpoint probes receive sanitized values that detach small
+  tensors and drop large live CUDA tensors.  This prevents log dictionaries from
+  retaining rollout tensors or recursively chaining previous iteration locals.
+- [x] Global retention-pattern sweep:
+  searched `source` for `locals().copy()`, `locs=locals()`, `retain_graph=True`,
+  `self.*.append(...)`, and suspicious `self.* = tensor` patterns.  The remaining
+  `locs=locals()` in the reward connector call was replaced with an explicit
+  scalar-only dictionary, and `FrontRESUnified.update()` now clears policy
+  observation caches after storage clear.
 - [ ] First short-run sentinel observed:
   the next run should print `mini_batches=16`, include `[FrontRES CUDA mem]`
-  compact sentinel lines, and either pass iteration 207/220 or report the OOM
-  stage with memory numbers.
+  compact sentinel lines, and keep `[FrontRES pipeline]` `iteration_start` /
+  `log_after` allocated memory roughly flat instead of rising by ~0.1 GiB per
+  iteration.  If it still OOMs, report the OOM stage with memory numbers.
 - [ ] First short-run behavior checked:
   after iteration 200, inspect active-dim `rho by adv +/−` separation over a
   small window.

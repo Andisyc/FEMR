@@ -1155,6 +1155,9 @@ class FrontRESUnified:
                 )
 
         self.storage.clear()
+        for attr in ("_cached_observations", "_cached_full_policy_obs"):
+            if hasattr(self.policy, attr):
+                setattr(self.policy, attr, None)
         if torch.cuda.is_available() and str(self.device).startswith("cuda"):
             torch.cuda.empty_cache()
         loss_dict = {

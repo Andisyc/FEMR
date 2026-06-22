@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import time
 import torch
+from collections.abc import Mapping
 from collections import deque
 
 import rsl_rl
@@ -97,6 +98,92 @@ from isaaclab.utils.math import (
     quat_mul,
     quat_inv,
 )
+
+
+_FRONTRES_LOG_SKIP_KEYS = {
+    "self",
+    "obs",
+    "extras",
+    "obs_dict",
+    "privileged_obs",
+    "teacher_obs",
+    "ref_vel_estimator_obs",
+    "obs_raw_for_gmt",
+    "actions",
+    "env_actions",
+    "rewards",
+    "dones",
+    "infos",
+    "step_plan",
+    "frontres_truth",
+    "frontres_reward",
+    "rho_advantage",
+    "alpha_groundtruth",
+    "alpha_groundtruth_mask",
+    "_frontres_stats_locs",
+    "_frontres_log_locs",
+    "_frontres_diag_sums",
+    "_frontres_prev_delta_q",
+    "_hsl_pos_snapshot",
+    "_hsl_quat_snapshot",
+}
+
+
+def _frontres_safe_log_value(value):
+    """Detach log data so runner diagnostics do not retain rollout CUDA tensors."""
+    if isinstance(value, torch.Tensor):
+        detached = value.detach()
+        if detached.numel() == 0:
+            return []
+        if detached.numel() == 1:
+            return detached.item()
+        if detached.numel() <= 32:
+            return detached.cpu()
+        return None
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, deque):
+        safe_items = []
+        for item in value:
+            safe_item = _frontres_safe_log_value(item)
+            if safe_item is not None:
+                safe_items.append(safe_item)
+        return deque(safe_items, maxlen=value.maxlen)
+    if isinstance(value, Mapping):
+        safe_dict = {}
+        for key, item in value.items():
+            safe_item = _frontres_safe_log_value(item)
+            if safe_item is not None:
+                safe_dict[key] = safe_item
+        return safe_dict
+    if isinstance(value, (list, tuple)):
+        safe_items = []
+        for item in value:
+            safe_item = _frontres_safe_log_value(item)
+            if safe_item is not None:
+                safe_items.append(safe_item)
+        return safe_items
+    return None
+
+
+def _frontres_build_safe_log_locs(
+    local_vars: Mapping[str, object],
+    diagnostic_means: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Build the runner log dictionary without keeping live CUDA rollout state."""
+    safe_locs = {}
+    for key, value in local_vars.items():
+        if key in _FRONTRES_LOG_SKIP_KEYS:
+            continue
+        safe_value = _frontres_safe_log_value(value)
+        if safe_value is not None:
+            safe_locs[key] = safe_value
+    if diagnostic_means is not None:
+        for key, value in diagnostic_means.items():
+            safe_value = _frontres_safe_log_value(value)
+            if safe_value is not None:
+                safe_locs[key] = safe_value
+    return safe_locs
 
 
 def _quat_to_rotvec_wxyz(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
@@ -1054,9 +1141,20 @@ class OnPolicyRunner:
                             )
                         
                         # 计算∆_reward并累积日志诊断
+                        _frontres_reward_locs = {
+                            "N_train": N_train,
+                            "N_candidate": N_candidate,
+                            "N_base": N_base,
+                            "N_clean": N_clean,
+                            "_base_start": _base_start,
+                            "_base_end": _base_end,
+                            "_is_task_space_mode": _is_task_space_mode,
+                            "_lambda_reg": _lambda_reg,
+                            "_dr_done": _dr_done,
+                        }
                         frontres_reward = compute_frontres_reward(
                             self,
-                            locs=locals(),
+                            locs=_frontres_reward_locs,
                             reward_context=frontres_truth,
                             accept_payload=rho_advantage,
                             rewards=rewards,
@@ -1190,13 +1288,11 @@ class OnPolicyRunner:
             frontres_rdelta_mean = _frontres_diag_means["frontres_rdelta_mean"]
             frontres_positive_gain_frac_mean = _frontres_diag_means["frontres_positive_gain_frac_mean"]
             frontres_harm_rate_mean = _frontres_diag_means["frontres_harm_rate_mean"]
-            _frontres_stats_locs = locals().copy()
-            _frontres_stats_locs.update(_frontres_diag_means)
 
             # Store r_delta mean for next iteration's PI controller update.
             if frontres_rdelta_mean is not None:
                 self._last_r_delta_mean = frontres_rdelta_mean
-            _frontres_boundary_stats = frontres_boundary_stats(_frontres_stats_locs)
+            _frontres_boundary_stats = frontres_boundary_stats(_frontres_diag_means)
             if _frontres_boundary_stats is not None:
                 self._last_frontres_boundary_stats = _frontres_boundary_stats
 
@@ -1232,8 +1328,7 @@ class OnPolicyRunner:
             # Phase flags for diagnostics (exposed to log() via locals())
             _supervised_warmup_active = False  # runs before main loop, always False here
             _critic_warmup_active     = _critic_warmup
-            _frontres_log_locs = locals().copy()
-            _frontres_log_locs.update(_frontres_diag_means)
+            _frontres_log_locs = _frontres_build_safe_log_locs(locals(), _frontres_diag_means)
 
             # Log / checkpoint：打印本轮训练状态，并按 save_interval 保存模型。
             if self.log_dir is not None and not self.disable_logs:
@@ -1266,7 +1361,9 @@ class OnPolicyRunner:
             _final_checkpoint_path = os.path.join(self.log_dir, f"model_{self.current_learning_iteration}.pt")
             self.save(_final_checkpoint_path)
             self._record_frontres_checkpoint_probe(
-                _frontres_log_locs if "_frontres_log_locs" in locals() else locals(),
+                _frontres_log_locs
+                if "_frontres_log_locs" in locals()
+                else _frontres_build_safe_log_locs(locals()),
                 _final_checkpoint_path,
             )
 
