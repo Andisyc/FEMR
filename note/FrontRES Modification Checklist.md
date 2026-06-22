@@ -4,7 +4,29 @@ Use this checklist after every nontrivial FrontRES change.  The goal is to keep
 concept, code path, diagnostics, and short-run evidence aligned.  Do not mark a
 change as ready for training until each relevant item has concrete evidence.
 
-## Active Change Record: 2026-06-21 Logit-Level Rho Repair Loss
+## Active Change Record: 2026-06-22 Update Memory Safety
+
+- [x] Failure observed:
+  CUDA OOM during `FrontRESUnified._update_ppo_supervised()` around iteration 200,
+  while evaluating the critic inside `self.alg.update()`.
+- [x] Cause narrowed:
+  the active run uses a large FrontRES rollout and only 4 minibatches, while the
+  acceptance-only structured rho path performs split backward with retained graph.
+- [x] Algorithm memory fix:
+  `FrontRESUnified` now calls `optimizer.zero_grad(set_to_none=True)` before
+  backward and after skipped NaN-gradient updates.
+- [x] Active experiment memory fix:
+  `G1FlatFrontRESUnifiedRunnerCfg.algorithm.num_mini_batches` is increased from
+  4 to 8, reducing per-minibatch activation memory without changing rollout
+  sample count or the rho objective.
+- [ ] First short-run sentinel observed:
+  the next run should pass iteration 200 without CUDA OOM and still print
+  `rho region loss` with `repair_bce=1`.
+- [ ] First short-run behavior checked:
+  after iteration 200, inspect active-dim `rho by adv +/−` separation over a
+  small window.
+
+## Previous Change Record: 2026-06-21 Logit-Level Rho Repair Loss
 
 - [x] Design note updated:
   `note/FrontRES Design Contract.md`, section

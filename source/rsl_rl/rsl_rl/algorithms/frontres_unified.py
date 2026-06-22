@@ -694,7 +694,7 @@ class FrontRESUnified:
                     + structured_weight * structured_joint_rl_loss
                 )
 
-            self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none=True)
             if not torch.isfinite(loss):
                 self._warn_skip("non-finite loss", loss)
                 continue
@@ -736,7 +736,7 @@ class FrontRESUnified:
             if any(p.grad is not None and not torch.isfinite(p.grad).all()
                    for p in self.policy.parameters() if p.requires_grad):
                 self._warn_skip("NaN gradient detected")
-                self.optimizer.zero_grad()
+                self.optimizer.zero_grad(set_to_none=True)
                 continue
 
             nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)

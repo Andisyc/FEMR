@@ -916,7 +916,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
                                            # causing tanh saturation → random corrections
                                            # → anchor_ori terminations → σ explosion.
         num_learning_epochs  = 5,
-        num_mini_batches     = 4,
+        num_mini_batches     = 8,        # split the 288k-step FrontRES rollout into smaller update chunks to reduce CUDA peak memory
         learning_rate        = 1.0e-4,
         schedule             = "fixed",    # fixed: adaptive KL deadlocks with FrontRES 8-DoF output
         gamma                = 0.99,
