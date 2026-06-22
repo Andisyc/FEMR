@@ -383,6 +383,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Boundary-prior regularization weight for safe/deep-broken rho authority."""
     frontres_reward_compute_live_debug: bool = False
     """Print live formal Reward Compute payload/loss diagnostics during smoke tests."""
+    frontres_cuda_memory_debug: bool = False
+    """Print CUDA memory snapshots around FrontRES update stages for OOM diagnosis."""
     frontres_structured_joint_weight_floor: float = 0.10
     """Minimum structured-rho carrier weight for active executable samples."""
     frontres_oracle_upper_bound_diag_enabled: bool = True

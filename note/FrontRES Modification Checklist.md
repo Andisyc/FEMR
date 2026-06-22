@@ -10,8 +10,12 @@ change as ready for training until each relevant item has concrete evidence.
   CUDA OOM during `FrontRESUnified._update_ppo_supervised()` around iteration 200,
   while evaluating the critic inside `self.alg.update()`.
 - [x] Cause narrowed:
-  the active run uses a large FrontRES rollout and only 4 minibatches, while the
-  acceptance-only structured rho path performs split backward with retained graph.
+  the active run uses a large 288k-sample FrontRES rollout.  The original live
+  path compounded this with retained actor graphs; after that was fixed, the run
+  still OOMed at iteration 207 during `value_term.backward()`.  This proves the
+  previous retained-graph hypothesis was incomplete, but it does not yet prove
+  whether the remaining cause is mini-batch peak memory, cross-iteration tensor
+  retention, allocator fragmentation, or external GPU occupancy.
 - [x] Algorithm memory fix:
   `FrontRESUnified` now calls `optimizer.zero_grad(set_to_none=True)` before
   backward and after skipped NaN-gradient updates.
@@ -42,9 +46,15 @@ change as ready for training until each relevant item has concrete evidence.
   `FrontRESUnified._update_ppo_supervised()` now releases unused CUDA cache at
   update entry and after storage clear, matching the OOM hint that reserved but
   unallocated memory was large.
+- [x] Evidence-first OOM diagnostic:
+  `frontres_cuda_memory_debug=True` prints CUDA allocated/reserved/peak/free
+  around update entry, value forward/backward, supervised actor forward/backward,
+  and rho forward/backward.  This is diagnostic-only and must be inspected before
+  changing batch count, allocator settings, or loss structure again.
 - [ ] First short-run sentinel observed:
-  the next run should pass iteration 200 without CUDA OOM and still print
-  `rho region loss` with `repair_bce=1`.
+  the next run should print `mini_batches=16`, include `[FrontRES CUDA mem]`
+  lines, and either pass iteration 207/220 or report the OOM stage with memory
+  numbers.
 - [ ] First short-run behavior checked:
   after iteration 200, inspect active-dim `rho by adv +/−` separation over a
   small window.

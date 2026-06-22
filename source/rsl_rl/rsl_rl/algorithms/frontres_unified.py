@@ -99,6 +99,7 @@ class FrontRESUnified:
         frontres_structured_joint_full_repair_bonus_weight: float = 1.0,
         frontres_structured_joint_prior_loss_weight: float = 0.0,
         frontres_reward_compute_live_debug: bool = False,
+        frontres_cuda_memory_debug: bool = False,
         diagnose_gradient_conflict: bool = True,
         hybrid: bool = True,
         use_ppo: bool = True,
@@ -260,6 +261,7 @@ class FrontRESUnified:
             0.0, float(frontres_structured_joint_prior_loss_weight)
         )
         self.frontres_reward_compute_live_debug = bool(frontres_reward_compute_live_debug)
+        self.frontres_cuda_memory_debug = bool(frontres_cuda_memory_debug)
         self.diagnose_gradient_conflict = bool(diagnose_gradient_conflict)
         self.ppo_actor_weight = 1.0
         self._supervised_decay_triggered = False
@@ -395,6 +397,54 @@ class FrontRESUnified:
         print("  MOSAIC teacher/off-policy branches: disabled by construction")
         print("=" * 80)
 
+    def _cuda_memory_debug_enabled(self) -> bool:
+        return (
+            bool(getattr(self, "frontres_cuda_memory_debug", False))
+            and torch.cuda.is_available()
+            and str(self.device).startswith("cuda")
+        )
+
+    def _print_cuda_memory_debug(
+        self,
+        label: str,
+        *,
+        update_idx: int | None = None,
+        batch_size: int | None = None,
+    ) -> None:
+        if not self._cuda_memory_debug_enabled():
+            return
+        try:
+            device = torch.device(self.device)
+            torch.cuda.synchronize(device)
+            free_bytes, total_bytes = torch.cuda.mem_get_info(device)
+            allocated = torch.cuda.memory_allocated(device)
+            reserved = torch.cuda.memory_reserved(device)
+            max_allocated = torch.cuda.max_memory_allocated(device)
+            max_reserved = torch.cuda.max_memory_reserved(device)
+        except Exception as exc:
+            print(f"[FrontRES CUDA mem] label={label} unavailable: {exc}", flush=True)
+            return
+
+        def _gib(value: int) -> float:
+            return float(value) / (1024.0 ** 3)
+
+        it = int(getattr(self, "current_learning_iteration", 0))
+        idx_text = "n/a" if update_idx is None else str(update_idx)
+        batch_text = "n/a" if batch_size is None else str(batch_size)
+        print(
+            "[FrontRES CUDA mem] "
+            f"it={it} label={label} update_idx={idx_text} "
+            f"batch={batch_text} epochs={self.num_learning_epochs} "
+            f"mini_batches={self.num_mini_batches} "
+            f"alloc={_gib(allocated):.2f}GiB "
+            f"reserved={_gib(reserved):.2f}GiB "
+            f"max_alloc={_gib(max_allocated):.2f}GiB "
+            f"max_reserved={_gib(max_reserved):.2f}GiB "
+            f"free={_gib(free_bytes):.2f}GiB "
+            f"total={_gib(total_bytes):.2f}GiB",
+            flush=True,
+        )
+
     def init_storage(
         self,
         training_type,
@@ -523,6 +573,9 @@ class FrontRESUnified:
     def _update_ppo_supervised(self):
         if torch.cuda.is_available() and str(self.device).startswith("cuda"):
             torch.cuda.empty_cache()
+        if self._cuda_memory_debug_enabled():
+            torch.cuda.reset_peak_memory_stats(torch.device(self.device))
+            self._print_cuda_memory_debug("update_entry")
         mean_value_loss = 0.0
         mean_surrogate_loss = 0.0
         mean_entropy = 0.0
@@ -546,7 +599,7 @@ class FrontRESUnified:
         else:
             generator = self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
 
-        for batch in generator:
+        for update_idx, batch in enumerate(generator):
             (
                 obs_batch,
                 critic_obs_batch,
@@ -622,8 +675,18 @@ class FrontRESUnified:
             self.optimizer.zero_grad(set_to_none=True)
 
             if memory_safe_region_direct:
+                self._print_cuda_memory_debug(
+                    "value_forward_before",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
                 value_batch = self.policy.evaluate(
                     critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
+                self._print_cuda_memory_debug(
+                    "value_forward_after",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
                 value_loss = self._compute_value_loss(
                     target_values_batch,
                     returns_batch,
@@ -635,11 +698,39 @@ class FrontRESUnified:
                     self._warn_skip("non-finite value loss", value_term)
                     self.optimizer.zero_grad(set_to_none=True)
                     continue
-                value_term.backward()
+                self._print_cuda_memory_debug(
+                    "value_backward_before",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
+                try:
+                    value_term.backward()
+                except torch.cuda.OutOfMemoryError:
+                    self._print_cuda_memory_debug(
+                        "oom_value_backward",
+                        update_idx=update_idx,
+                        batch_size=original_batch_size,
+                    )
+                    raise
+                self._print_cuda_memory_debug(
+                    "value_backward_after",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
                 value_loss_item = value_loss.item()
                 del value_batch, value_term
 
+                self._print_cuda_memory_debug(
+                    "actor_supervised_forward_before",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
                 self.policy.update_distribution(obs_batch_augmented)
+                self._print_cuda_memory_debug(
+                    "actor_supervised_forward_after",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
                 actions_log_prob_batch = torch.zeros(
                     original_batch_size,
                     device=self.device,
@@ -687,7 +778,25 @@ class FrontRESUnified:
                     self._warn_skip("non-finite non-acceptance loss", non_acceptance_loss)
                     self.optimizer.zero_grad(set_to_none=True)
                     continue
-                non_acceptance_loss.backward()
+                self._print_cuda_memory_debug(
+                    "actor_supervised_backward_before",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
+                try:
+                    non_acceptance_loss.backward()
+                except torch.cuda.OutOfMemoryError:
+                    self._print_cuda_memory_debug(
+                        "oom_actor_supervised_backward",
+                        update_idx=update_idx,
+                        batch_size=original_batch_size,
+                    )
+                    raise
+                self._print_cuda_memory_debug(
+                    "actor_supervised_backward_after",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
                 base_grads = {
                     p: (p.grad.detach().clone() if p.grad is not None else None)
                     for p in self.policy.parameters()
@@ -706,7 +815,17 @@ class FrontRESUnified:
                     non_acceptance_loss,
                 )
 
+                self._print_cuda_memory_debug(
+                    "rho_forward_before",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
                 self.policy.update_distribution(obs_batch_augmented)
+                self._print_cuda_memory_debug(
+                    "rho_forward_after",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
                 mu_batch = self.policy.action_mean[:original_batch_size]
                 sigma_batch = self.policy.action_std[:original_batch_size]
                 structured_joint_rl_loss, structured_joint_rl_metrics = self._compute_structured_joint_rl_loss(
@@ -728,7 +847,25 @@ class FrontRESUnified:
                     self._warn_skip("non-finite acceptance loss", acceptance_only_loss)
                     self.optimizer.zero_grad(set_to_none=True)
                     continue
-                acceptance_only_loss.backward()
+                self._print_cuda_memory_debug(
+                    "rho_backward_before",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
+                try:
+                    acceptance_only_loss.backward()
+                except torch.cuda.OutOfMemoryError:
+                    self._print_cuda_memory_debug(
+                        "oom_rho_backward",
+                        update_idx=update_idx,
+                        batch_size=original_batch_size,
+                    )
+                    raise
+                self._print_cuda_memory_debug(
+                    "rho_backward_after",
+                    update_idx=update_idx,
+                    batch_size=original_batch_size,
+                )
                 self._keep_ppo_grad_on_acceptance_head_only(base_grads)
                 grad_diag = self._compute_acceptance_grad_diagnostics(base_grads)
                 if grad_diag:

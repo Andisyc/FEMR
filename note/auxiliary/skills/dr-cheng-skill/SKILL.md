@@ -263,6 +263,25 @@ Use this discipline when a bug report contradicts the expected code behavior,
 especially during expensive training runs or when Dr. Cheng is under experiment
 pressure.  Do not protect the prior hypothesis.  Converge on the contradiction.
 
+- Do not debug by guessing.  For every nontrivial bug, especially CUDA OOM,
+  training collapse, silent objective drift, or repeated runtime exceptions,
+  first write the hypothesis in a falsifiable form: what mechanism might be
+  wrong, what concrete evidence would confirm it, and what evidence would
+  reject it.  Only change code or config after checking that evidence.
+- Treat parameter changes as interventions, not diagnostics.  Do not repeatedly
+  tune knobs such as batch count, learning rate, clipping, masks, gates, cache
+  settings, or curriculum scale unless a measurement shows that knob is on the
+  failure chain.  If the suspected issue is memory, measure or log allocated,
+  reserved, peak, mini-batch size, active branch, and failure location before
+  changing memory-related settings.
+- For expensive bugs, add the smallest live-path diagnostic or local test that
+  can distinguish competing explanations before launching another long run.
+  A short run is valid only when it has a named sentinel and a pass/fail
+  criterion.  If no sentinel exists, create one first.
+- When a fix fails, do not stack another guess on top.  Re-open the hypothesis
+  table, mark the failed hypothesis as rejected or incomplete, and explain what
+  the new failure location proves.  Prefer narrowing the causal chain over
+  trying the next plausible knob.
 - Treat user-provided terminal evidence as a first-class observation.  If Dr.
   Cheng has already shown `git pull`, `grep`, `sed`, import paths, or new
   iteration output, stop repeating stale-code or old-process hypotheses unless

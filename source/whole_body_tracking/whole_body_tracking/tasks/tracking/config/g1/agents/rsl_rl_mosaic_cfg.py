@@ -953,6 +953,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_structured_joint_full_repair_bonus_weight = 1.0,
         frontres_structured_joint_prior_loss_weight = 1.0,
         frontres_reward_compute_live_debug = False,
+        frontres_cuda_memory_debug = True,
         frontres_oracle_upper_bound_diag_enabled = True,
         frontres_oracle_upper_bound_margin = 0.0,
         lambda_supervised             = 1.0,   # initial weight
