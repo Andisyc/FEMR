@@ -37,12 +37,12 @@ HYDRA_FULL_ERROR=1 "${LAUNCH[@]}" \
   --headless \
   --logger wandb \
   --log_project_name "${LOG_PROJECT_NAME}" \
+  --experiment_name g1_flat_frontres_stage2_authority \
   --run_name "${RUN_NAME}" \
   --max_iterations "${MAX_ITERS}" \
   --supervised_warmup_iterations 0 \
   --resume_student_checkpoint "${STAGE1_CHECKPOINT}" \
   --is_full_resume False \
-  experiment_name=g1_flat_frontres_stage2_authority \
   algorithm.frontres_training_objective=hsl_hybrid \
   algorithm.lambda_supervised=0.0 \
   algorithm.lambda_supervised_min=0.0 \

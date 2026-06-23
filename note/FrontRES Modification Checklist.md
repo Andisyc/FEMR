@@ -27,6 +27,9 @@ change as ready for training until each relevant item has concrete evidence.
   2 authority training does not keep applying the HSL proposal loss.
   Stage 2 launch also sets `--supervised_warmup_iterations 0`, because Stage 1
   warmup has already been completed before checkpoint transfer.
+  Launch scripts use CLI `--experiment_name ...`, not Hydra
+  `experiment_name=...`; `scripts/rsl_rl/cli_args.py` applies that field to the
+  runner config.
 - [x] Stage-2 critic warmup / actor takeover contract decided:
   Stage 2 is a new learning problem because the authority critic starts from
   scratch.  Reuse the old warmup/takeover idea with Stage-2-specific controls:

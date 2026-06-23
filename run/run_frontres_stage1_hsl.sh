@@ -30,9 +30,9 @@ HYDRA_FULL_ERROR=1 "${LAUNCH[@]}" \
   --headless \
   --logger wandb \
   --log_project_name "${LOG_PROJECT_NAME}" \
+  --experiment_name g1_flat_frontres_stage1_hsl \
   --run_name "${RUN_NAME}" \
   --max_iterations "${MAX_ITERS}" \
-  experiment_name=g1_flat_frontres_stage1_hsl \
   algorithm.frontres_training_objective=supervised_restore \
   algorithm.lambda_supervised=1.0 \
   algorithm.lambda_supervised_min=1.0 \

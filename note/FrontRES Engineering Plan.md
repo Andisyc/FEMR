@@ -77,10 +77,10 @@ Do not revive the old deprecated two-stage gym registrations in
 `source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/__init__.py`.
 Stage selection is done through explicit launch scripts plus Hydra overrides.
 
-Important CLI rule: use Hydra override `experiment_name=...` for experiment
-routing.  The current `train.py` CLI defines `--experiment_name`, but the
-config-update path does not apply that argparse field to `agent_cfg`.
-`--run_name` is applied and remains safe to use.
+Important CLI rule: use `--experiment_name ...`, not Hydra override
+`experiment_name=...`.  The Hydra root config is structured and rejects the
+plain override.  `scripts/rsl_rl/cli_args.py` now applies `--experiment_name`
+to `agent_cfg.experiment_name`.
 
 Stage 1 launch script:
 
@@ -94,6 +94,7 @@ proposal training run, not an authority/rho run.
 Active Stage 1 overrides:
 
 ```text
+--experiment_name g1_flat_frontres_stage1_hsl
 algorithm.frontres_training_objective=supervised_restore
 algorithm.frontres_authority_actor_critic_enabled=False
 policy.frontres_authority_actor_critic=False
@@ -180,6 +181,7 @@ Active Stage 2 overrides:
 --resume_student_checkpoint STAGE1_CHECKPOINT
 --is_full_resume False
 --supervised_warmup_iterations 0
+--experiment_name g1_flat_frontres_stage2_authority
 algorithm.frontres_training_objective=hsl_hybrid
 algorithm.lambda_supervised=0.0
 algorithm.lambda_supervised_min=0.0
