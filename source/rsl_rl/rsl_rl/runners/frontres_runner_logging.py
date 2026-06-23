@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import statistics
 import time
+from numbers import Real
 
 import torch
 
@@ -18,6 +19,19 @@ from rsl_rl.frontres.frontres_diagnostics import (
     format_frontres_preference_diagnostics,
     format_frontres_route_rho_diagnostics,
 )
+
+
+def _scalar_log_value(value):
+    """Return a TensorBoard-safe scalar, or None for text/containers."""
+
+    if isinstance(value, torch.Tensor):
+        detached = value.detach()
+        if detached.numel() != 1:
+            return None
+        return detached.item()
+    if isinstance(value, Real):
+        return float(value)
+    return None
 
 
 def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
@@ -157,18 +171,21 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
     }
     _stage1_dz_keys     = {"loss_dz", "dz_pred_abs", "dz_gt_abs", "dz_mae"}
     for key, value in locs["loss_dict"].items():
-        if key in _suppress_if_zero and value == 0.0:
+        scalar_value = _scalar_log_value(value)
+        if scalar_value is None:
+            continue
+        if key in _suppress_if_zero and scalar_value == 0.0:
             continue
         if self.training_type == "supervise" and key in _stage1_dz_keys:
-            self.writer.add_scalar(f"Stage1/DeltaZ/{key}", value, locs["it"])
+            self.writer.add_scalar(f"Stage1/DeltaZ/{key}", scalar_value, locs["it"])
         elif isinstance(self.alg.policy, FrontRESActorCritic) and key in _frontres_diag_keys:
-            self.writer.add_scalar(f"FrontRES/{key}", value, locs["it"])
+            self.writer.add_scalar(f"FrontRES/{key}", scalar_value, locs["it"])
         elif key in _to_frontres:
-            self.writer.add_scalar(f"FrontRES/{key}", value, locs["it"])
+            self.writer.add_scalar(f"FrontRES/{key}", scalar_value, locs["it"])
         elif key in _to_curriculum:
-            self.writer.add_scalar(f"Curriculum/{key}", value, locs["it"])
+            self.writer.add_scalar(f"Curriculum/{key}", scalar_value, locs["it"])
         else:
-            self.writer.add_scalar(f"Loss/{key}", value, locs["it"])
+            self.writer.add_scalar(f"Loss/{key}", scalar_value, locs["it"])
     self.writer.add_scalar("Loss/learning_rate", self.alg.learning_rate, locs["it"])
 
     # -- Policy (not meaningful during supervised learning)

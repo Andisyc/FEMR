@@ -1315,7 +1315,7 @@ class OnPolicyRunner:
                     ):
                         if _key in _authority_live:
                             loss_dict[f"authority_{_key}"] = float(_authority_live[_key])
-                    loss_dict["authority_temporal_mode"] = str(
+                    authority_temporal_mode = str(
                         self.cfg.get("frontres_perturbation_temporal_mode", "legacy")
                     )
                     loss_dict["authority_burst_min_steps"] = float(
