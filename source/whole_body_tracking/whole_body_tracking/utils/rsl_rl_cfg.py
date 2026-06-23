@@ -381,6 +381,18 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Extra retention bonus when the full Repair proposal is executable."""
     frontres_structured_joint_prior_loss_weight: float = 0.0
     """Boundary-prior regularization weight for safe/deep-broken rho authority."""
+    frontres_authority_actor_critic_enabled: bool = False
+    """Enable proposal-conditioned authority actor-critic and disable legacy generic rho PPO."""
+    frontres_authority_actor_loss_weight: float = 1.0
+    """Actor loss weight for the Stage-2 authority policy."""
+    frontres_authority_critic_loss_weight: float = 1.0
+    """Critic regression weight for K-step executable authority returns."""
+    frontres_authority_actor_warmup_iterations: int = 0
+    """Stage-2 iterations with authority actor loss disabled while the authority critic warms up."""
+    frontres_authority_actor_ramp_iterations: int = 0
+    """Stage-2 iterations used to linearly ramp authority actor loss after warmup."""
+    frontres_authority_return_horizon: int = 1
+    """K-step horizon used by the proposal-conditioned authority critic target."""
     frontres_reward_compute_live_debug: bool = False
     """Print live formal Reward Compute payload/loss diagnostics during smoke tests."""
     frontres_cuda_memory_debug: bool = False
@@ -504,6 +516,10 @@ class RslRlFrontResidualActorCriticCfg(RslRlPpoActorCriticCfg):
     """FrontRES observation subset dims. 0 = use full policy_obs (legacy). 320 = ref-only."""
     frontres_split_acceptance_head: bool = False
     """Optional ablation: use a separate acceptance MLP instead of the default two-head FrontRES actor."""
+    frontres_authority_actor_critic: bool = False
+    """Enable the Stage-2 authority actor and proposal-conditioned authority critic."""
+    frontres_authority_hidden_dims: list[int] | None = None
+    """Hidden dimensions for the authority actor/critic. None reuses residual_hidden_dims."""
 
     # Task-space correction mode: replaces Δq+Δz with [Δpos(3), Δrpy(3)]
     num_task_corrections: int = 0

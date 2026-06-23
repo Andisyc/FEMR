@@ -352,12 +352,21 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
             _is_actor_takeover = locs.get("_actor_takeover_active", False)
             _lam = getattr(self.alg, 'lambda_supervised', 0.0)
             _objective = getattr(self.alg, "frontres_training_objective", "")
+            _authority_active = bool(
+                locs.get("loss_dict", {}).get("authority_actor_critic_enabled", 0.0) > 0.5
+            )
             if f"{_objective}".lower() == "supervised_restore":
                 _phase = "SUPERVISED RESTORE"
                 _notes = "(PPO/HRL update disabled; fitting clean restoration target)"
             elif f"{_objective}".lower() == "basis_restore":
                 _phase = "BASIS RESTORE"
                 _notes = "(PPO/HRL update disabled; factorized repair coefficients)"
+            elif _authority_active and _lam > 0.15:
+                _phase = "AUTHORITY AC + HSL ANCHOR"
+                _notes = "(generic PPO disabled; rho trained by authority actor-critic)"
+            elif _authority_active:
+                _phase = "AUTHORITY AC FINE-TUNING"
+                _notes = "(generic PPO disabled; rho trained by authority actor-critic)"
             elif _is_warmup:
                 _phase = "SUPERVISED WARMUP"
                 _notes = "(GMT-only, FrontRES corrections disabled)"
@@ -631,7 +640,10 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                 log_string += format_frontres_optimization_diagnostics(_loss_dict, pad=pad)
                 log_string += f"""{'learning rate:':>{pad}} {getattr(self.alg, 'learning_rate', 0.0):.2e}\n"""
                 _objective_name = f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
-                if _objective_name == "hsl_hybrid":
+                _authority_active = bool(float(_loss_dict.get("authority_actor_critic_enabled", 0.0)) > 0.5)
+                if _objective_name == "hsl_hybrid" and _authority_active:
+                    _objective_desc = "HSL ΔSE proposal + authority actor-critic"
+                elif _objective_name == "hsl_hybrid":
                     _objective_desc = "HSL ΔSE proposal + PPO 6D acceptance"
                 elif _objective_name == "basis_restore":
                     _objective_desc = "basis supervised only"

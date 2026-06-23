@@ -120,6 +120,10 @@ def save_runner(self, path: str, infos=None):
             model_state_dict['acceptance_actor'] = self.alg.policy.acceptance_actor.state_dict()
         if getattr(self.alg.policy, "state_router_head", None) is not None:
             model_state_dict['state_router_head'] = self.alg.policy.state_router_head.state_dict()
+        if getattr(self.alg.policy, "authority_actor", None) is not None:
+            model_state_dict['authority_actor'] = self.alg.policy.authority_actor.state_dict()
+        if getattr(self.alg.policy, "authority_critic", None) is not None:
+            model_state_dict['authority_critic'] = self.alg.policy.authority_critic.state_dict()
         
         # Save noise std parameter
         if hasattr(self.alg.policy, 'std'):
@@ -266,6 +270,28 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
                 print("[Runner] Loaded FrontRES state_router_head from checkpoint.")
             else:
                 print("[Runner] No state_router_head weights found; initialized alpha head from scratch.")
+        if getattr(self.alg.policy, "authority_actor", None) is not None:
+            if "authority_actor" in loaded_dict["model_state_dict"]:
+                self.alg.policy.authority_actor.load_state_dict(
+                    loaded_dict["model_state_dict"]["authority_actor"],
+                    strict=True,
+                )
+                print("[Runner] Loaded FrontRES authority_actor from checkpoint.")
+            else:
+                print("[Runner] No authority_actor weights found; initialized authority actor from scratch.")
+        elif "authority_actor" in loaded_dict["model_state_dict"]:
+            print("[Runner] Ignoring authority_actor weights because authority actor-critic is disabled.")
+        if getattr(self.alg.policy, "authority_critic", None) is not None:
+            if "authority_critic" in loaded_dict["model_state_dict"]:
+                self.alg.policy.authority_critic.load_state_dict(
+                    loaded_dict["model_state_dict"]["authority_critic"],
+                    strict=True,
+                )
+                print("[Runner] Loaded FrontRES authority_critic from checkpoint.")
+            else:
+                print("[Runner] No authority_critic weights found; initialized authority critic from scratch.")
+        elif "authority_critic" in loaded_dict["model_state_dict"]:
+            print("[Runner] Ignoring authority_critic weights because authority actor-critic is disabled.")
 
         if load_critic:
             if "critic" in loaded_dict["model_state_dict"]:
@@ -538,4 +564,3 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
               f"{loaded_dict.get('dr_scale', 0.0):.4f})")
 
     return loaded_dict["infos"]
-

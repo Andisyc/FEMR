@@ -17,6 +17,7 @@ from typing import Any
 
 import torch
 
+from rsl_rl.frontres.frontres_authority_return import compute_frontres_authority_k_step_return
 from rsl_rl.frontres.frontres_reward_diagnostics import accumulate_frontres_reward_diagnostics
 from rsl_rl.frontres.frontres_reward_window import (
     FrontRESRewardContext,
@@ -36,6 +37,115 @@ class FrontRESPostStepResult:
     prev_delta_q: torch.Tensor | None
     term_count: int
     step_count: int
+
+
+def _frontres_authority_enabled(runner: Any) -> bool:
+    enabled_fn = getattr(runner.alg, "_authority_actor_critic_enabled", None)
+    if callable(enabled_fn):
+        return bool(enabled_fn())
+    return bool(getattr(runner.alg, "frontres_authority_actor_critic_enabled", False))
+
+
+def _write_frontres_authority_return(
+    runner: Any,
+    *,
+    r_delta: torch.Tensor,
+    n_train: int,
+) -> None:
+    """Store the one-step executable return used by the authority critic.
+
+    Step 7 wires the live path with K=1, which is the single-step case of the
+    K-step return helper.  Longer burst returns need a rollout-time buffer and
+    are intentionally left for the curriculum integration step.
+    """
+
+    if not _frontres_authority_enabled(runner):
+        return
+    transition = runner.alg.transition
+    if getattr(transition, "proposal_delta_se", None) is None:
+        return
+    num_envs = int(runner.env.num_envs)
+    n = max(0, min(int(n_train), num_envs, r_delta.numel()))
+    dtype = r_delta.dtype
+    authority_return = torch.zeros(num_envs, 1, device=runner.device, dtype=dtype)
+    existing_mask = getattr(transition, "authority_mask", None)
+    if existing_mask is not None:
+        authority_mask = existing_mask.to(device=runner.device, dtype=dtype).view(num_envs, 1).clone()
+    else:
+        authority_mask = torch.zeros(num_envs, 1, device=runner.device, dtype=dtype)
+        if n > 0:
+            authority_mask[:n, 0] = 1.0
+    if n > 0:
+        authority_return[:n, 0] = r_delta[:n].detach().view(-1)
+    transition.authority_return_k = authority_return
+    transition.authority_mask = authority_mask
+    stats = dict(getattr(runner, "_frontres_authority_live_last", {}))
+    stats.update(
+        {
+            "return_mean": float(authority_return[:n].mean().item()) if n > 0 else 0.0,
+            "return_mask": float(authority_mask[:n].mean().item()) if n > 0 else 0.0,
+        }
+    )
+    runner._frontres_authority_live_last = stats
+
+
+def finalize_frontres_authority_k_step_returns(
+    runner: Any,
+    *,
+    n_train: int,
+) -> None:
+    """Overwrite authority targets with event-level K-step executable returns.
+
+    The live transition initially stores the one-step executable delta as a
+    placeholder.  After the rollout is complete, future rewards inside the same
+    storage buffer are available, so this function materializes the event-level
+    K-step target at authority query frames.
+    """
+
+    if not _frontres_authority_enabled(runner):
+        return
+    storage = getattr(runner.alg, "storage", None)
+    if storage is None or not hasattr(storage, "authority_event_start"):
+        return
+    n = max(0, min(int(n_train), int(storage.num_envs)))
+    if n <= 0:
+        return
+
+    horizon = max(1, int(runner.cfg.get("frontres_authority_return_horizon", 1)))
+    gamma = float(getattr(runner.alg, "gamma", runner.cfg.get("gamma", 0.99)))
+    rewards = storage.rewards[:, :n, 0].detach()
+    dones = storage.dones[:, :n, 0].detach().to(dtype=torch.bool)
+    event_start = storage.authority_event_start[:, :n, 0].detach().to(dtype=torch.bool)
+    result = compute_frontres_authority_k_step_return(
+        rewards,
+        dones,
+        event_start,
+        horizon=horizon,
+        gamma=gamma,
+        bootstrap_values=None,
+    )
+    storage.authority_return_k.zero_()
+    storage.authority_mask.zero_()
+    storage.authority_return_k[:, :n, 0] = result.returns
+    storage.authority_mask[:, :n, 0] = result.valid_mask.to(dtype=storage.authority_mask.dtype)
+
+    event_count = float(result.valid_mask.sum().item())
+    active_count = float(storage.authority_event_active[:, :n, 0].sum().item())
+    duration = storage.authority_event_duration[:, :n, 0]
+    duration_mask = storage.authority_event_start[:, :n, 0] > 0.5
+    duration_mean = float(duration[duration_mask].mean().item()) if bool(duration_mask.any().item()) else 0.0
+    stats = dict(getattr(runner, "_frontres_authority_live_last", {}))
+    stats.update(
+        {
+            "return_k_horizon": float(horizon),
+            "event_count": event_count,
+            "event_active_frac": active_count / max(1.0, float(storage.num_transitions_per_env * n)),
+            "event_mask_frac": event_count / max(1.0, float(storage.num_transitions_per_env * n)),
+            "event_duration_mean": duration_mean,
+            "return_k_mean": float(result.returns[result.valid_mask].mean().item()) if event_count > 0.0 else 0.0,
+        }
+    )
+    runner._frontres_authority_live_last = stats
 
 
 def apply_frontres_post_step_reward_connector(
@@ -279,6 +389,7 @@ def apply_frontres_post_step_reward_connector(
 
     if r_delta is None:
         raise RuntimeError("FrontRES post-step connector failed to compose r_delta.")
+    _write_frontres_authority_return(runner, r_delta=r_delta, n_train=n_train)
 
     rewards_mod = rewards.clone()
     if rewards_mod.dim() == 2:

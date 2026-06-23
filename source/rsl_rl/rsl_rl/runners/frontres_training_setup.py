@@ -361,7 +361,11 @@ def maybe_print_frontres_perturbation_curriculum(runner: Any, *, is_frontres: bo
         f"adaptive={runner.cfg.get('frontres_adaptive_perturb_curriculum_enabled', True)}, "
         f"single_until={runner.cfg.get('frontres_curriculum_single_until', 0.30)}, "
         f"two_until={runner.cfg.get('frontres_curriculum_two_until', 0.70)}, "
-        f"full_prob={runner.cfg.get('frontres_curriculum_full_prob', 0.05)}",
+        f"full_prob={runner.cfg.get('frontres_curriculum_full_prob', 0.05)}, "
+        f"temporal={runner.cfg.get('frontres_perturbation_temporal_mode', 'legacy')}, "
+        f"burst={runner.cfg.get('frontres_perturbation_burst_min_steps', 1)}-"
+        f"{runner.cfg.get('frontres_perturbation_burst_max_steps', 1)}, "
+        f"K={runner.cfg.get('frontres_authority_return_horizon', 1)}",
         flush=True,
     )
 

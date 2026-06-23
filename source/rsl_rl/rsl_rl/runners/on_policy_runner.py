@@ -44,7 +44,10 @@ from rsl_rl.frontres.frontres_reward_diagnostics import (
     initialize_frontres_reward_diagnostic_sums,
     materialize_frontres_reward_diagnostic_means,
 )
-from rsl_rl.runners.frontres_post_step_connector import compute_frontres_reward
+from rsl_rl.runners.frontres_post_step_connector import (
+    compute_frontres_reward,
+    finalize_frontres_authority_k_step_returns,
+)
 from rsl_rl.runners.frontres_runner_logging import log_runner
 from rsl_rl.frontres.frontres_transition_payload import (
     write_alpha_groundtruth,
@@ -1109,7 +1112,19 @@ class OnPolicyRunner:
                             )
                         
                         rho_advantage = None
-                        if frontres_truth is not None:
+                        _authority_actor_critic_active = (
+                            hasattr(self.alg, "_authority_actor_critic_enabled")
+                            and self.alg._authority_actor_critic_enabled()
+                        )
+                        _structured_rho_active = (
+                            hasattr(self.alg, "_structured_joint_rl_enabled")
+                            and self.alg._structured_joint_rl_enabled()
+                        )
+                        if (
+                            frontres_truth is not None
+                            and _structured_rho_active
+                            and not _authority_actor_critic_active
+                        ):
 
                             # 双 Sigmoid 连续区域分数派生出的 rho 更新权重；它不是部署时的 gate。
                             write_rho_update_weight(
@@ -1258,6 +1273,8 @@ class OnPolicyRunner:
                 # Return / advantage：rollout 收集完成后，用 critic 观测计算 GAE/returns。
                 if self.training_type in ["rl", "mosaic", "frontres"]:
                     _frontres_pipeline_section("compute_returns_before")
+                    if _is_frontres:
+                        finalize_frontres_authority_k_step_returns(self, n_train=N_train)
                     self.alg.compute_returns(privileged_obs)
                     _frontres_pipeline_section("compute_returns_after")
 
@@ -1272,6 +1289,29 @@ class OnPolicyRunner:
             _frontres_pipeline_section("algorithm_update_before")
             loss_dict = self.alg.update() # 调用mosaic.py中的update()函数进行权重更新
             _frontres_pipeline_section("algorithm_update_after")
+            if _is_frontres:
+                _authority_live = getattr(self, "_frontres_authority_live_last", {})
+                if isinstance(_authority_live, Mapping):
+                    for _key in (
+                        "return_k_horizon",
+                        "event_count",
+                        "event_active_frac",
+                        "event_mask_frac",
+                        "event_duration_mean",
+                        "return_k_mean",
+                        "query_frac",
+                    ):
+                        if _key in _authority_live:
+                            loss_dict[f"authority_{_key}"] = float(_authority_live[_key])
+                    loss_dict["authority_temporal_mode"] = str(
+                        self.cfg.get("frontres_perturbation_temporal_mode", "legacy")
+                    )
+                    loss_dict["authority_burst_min_steps"] = float(
+                        self.cfg.get("frontres_perturbation_burst_min_steps", 1)
+                    )
+                    loss_dict["authority_burst_max_steps"] = float(
+                        self.cfg.get("frontres_perturbation_burst_max_steps", 1)
+                    )
 
             stop = time.time()
             learn_time = stop - start

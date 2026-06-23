@@ -1340,8 +1340,20 @@ class MultiMotionCommand(CommandTerm):
                 self.perturber._pitch_state[candidate_ids] = self.perturber._pitch_state[train_ids]
                 if hasattr(self.perturber, "_artifact_steps"):
                     self.perturber._artifact_steps[candidate_ids] = self.perturber._artifact_steps[train_ids]
+                    self.perturber._artifact_duration[candidate_ids] = self.perturber._artifact_duration[train_ids]
+                    self.perturber._artifact_start[candidate_ids] = self.perturber._artifact_start[train_ids]
                     self.perturber._artifact_xy[candidate_ids] = self.perturber._artifact_xy[train_ids]
                     self.perturber._artifact_yaw[candidate_ids] = self.perturber._artifact_yaw[train_ids]
+                if hasattr(self.perturber, "_iid_event_steps_remaining"):
+                    self.perturber._iid_event_steps_remaining[candidate_ids] = self.perturber._iid_event_steps_remaining[train_ids]
+                    self.perturber._iid_event_duration[candidate_ids] = self.perturber._iid_event_duration[train_ids]
+                    self.perturber._iid_event_step[candidate_ids] = self.perturber._iid_event_step[train_ids]
+                    self.perturber._iid_event_start[candidate_ids] = self.perturber._iid_event_start[train_ids]
+                    self.perturber._iid_event_active[candidate_ids] = self.perturber._iid_event_active[train_ids]
+                    self.perturber._iid_event_xy[candidate_ids] = self.perturber._iid_event_xy[train_ids]
+                    self.perturber._iid_event_z[candidate_ids] = self.perturber._iid_event_z[train_ids]
+                    self.perturber._iid_event_rp[candidate_ids] = self.perturber._iid_event_rp[train_ids]
+                    self.perturber._iid_event_yaw[candidate_ids] = self.perturber._iid_event_yaw[train_ids]
                 if self.perturber._joint_state is not None:
                     self.perturber._joint_state[candidate_ids] = self.perturber._joint_state[train_ids]
             self._cached_perturbed_pos[base_ids] = self._cached_perturbed_pos[train_ids]
@@ -1354,8 +1366,20 @@ class MultiMotionCommand(CommandTerm):
             self.perturber._pitch_state[base_ids] = self.perturber._pitch_state[train_ids]
             if hasattr(self.perturber, "_artifact_steps"):
                 self.perturber._artifact_steps[base_ids] = self.perturber._artifact_steps[train_ids]
+                self.perturber._artifact_duration[base_ids] = self.perturber._artifact_duration[train_ids]
+                self.perturber._artifact_start[base_ids] = self.perturber._artifact_start[train_ids]
                 self.perturber._artifact_xy[base_ids] = self.perturber._artifact_xy[train_ids]
                 self.perturber._artifact_yaw[base_ids] = self.perturber._artifact_yaw[train_ids]
+            if hasattr(self.perturber, "_iid_event_steps_remaining"):
+                self.perturber._iid_event_steps_remaining[base_ids] = self.perturber._iid_event_steps_remaining[train_ids]
+                self.perturber._iid_event_duration[base_ids] = self.perturber._iid_event_duration[train_ids]
+                self.perturber._iid_event_step[base_ids] = self.perturber._iid_event_step[train_ids]
+                self.perturber._iid_event_start[base_ids] = self.perturber._iid_event_start[train_ids]
+                self.perturber._iid_event_active[base_ids] = self.perturber._iid_event_active[train_ids]
+                self.perturber._iid_event_xy[base_ids] = self.perturber._iid_event_xy[train_ids]
+                self.perturber._iid_event_z[base_ids] = self.perturber._iid_event_z[train_ids]
+                self.perturber._iid_event_rp[base_ids] = self.perturber._iid_event_rp[train_ids]
+                self.perturber._iid_event_yaw[base_ids] = self.perturber._iid_event_yaw[train_ids]
             if self.perturber._joint_state is not None:
                 self.perturber._joint_state[base_ids] = self.perturber._joint_state[train_ids]
             if clean_ids is not None:
@@ -1371,8 +1395,20 @@ class MultiMotionCommand(CommandTerm):
                 self.perturber._pitch_state[clean_ids] = 0.0
                 if hasattr(self.perturber, "_artifact_steps"):
                     self.perturber._artifact_steps[clean_ids] = 0
+                    self.perturber._artifact_duration[clean_ids] = 0
+                    self.perturber._artifact_start[clean_ids] = False
                     self.perturber._artifact_xy[clean_ids] = 0.0
                     self.perturber._artifact_yaw[clean_ids] = 0.0
+                if hasattr(self.perturber, "_iid_event_steps_remaining"):
+                    self.perturber._iid_event_steps_remaining[clean_ids] = 0
+                    self.perturber._iid_event_duration[clean_ids] = 0
+                    self.perturber._iid_event_step[clean_ids] = 0
+                    self.perturber._iid_event_start[clean_ids] = False
+                    self.perturber._iid_event_active[clean_ids] = False
+                    self.perturber._iid_event_xy[clean_ids] = 0.0
+                    self.perturber._iid_event_z[clean_ids] = 0.0
+                    self.perturber._iid_event_rp[clean_ids] = 0.0
+                    self.perturber._iid_event_yaw[clean_ids] = 0.0
                 if self.perturber._joint_state is not None:
                     self.perturber._joint_state[clean_ids] = 0.0
 

@@ -653,13 +653,17 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_state_alpha_exec_floor = 0.0
     frontres_state_alpha_safe_exec_floor = 0.05
     frontres_state_alpha_temp = 0.08
-    # Structured Joint RL updates only rho.  The alpha SSL head is disabled
-    # above for the minimal repair-authority path.
-    frontres_structured_joint_rl_enabled = True
+    # Authority actor-critic is the active rho route.  The older structured-rho
+    # advantage branch is kept as an ablation path only and must stay disabled on
+    # the live experiment path.
+    frontres_authority_actor_critic_enabled = True
+    frontres_authority_actor_loss_weight = 1.0
+    frontres_authority_critic_loss_weight = 1.0
+    frontres_structured_joint_rl_enabled = False
     frontres_structured_joint_rl_disable_generic_ppo = True
     frontres_structured_joint_weight_floor = 0.10
-    frontres_structured_joint_use_sample_weight = True
-    frontres_structured_joint_use_actor_gate_weight = True  # legacy alias
+    frontres_structured_joint_use_sample_weight = False
+    frontres_structured_joint_use_actor_gate_weight = False  # legacy alias
     frontres_structured_joint_show_legacy_rho_diag = False
     frontres_structured_joint_exec_floor = 0.0
     frontres_structured_joint_rho_retention_weight = 0.0
@@ -675,7 +679,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_structured_joint_retention_prior_weight = 0.0
     frontres_structured_joint_floor_penalty_weight = 5.0
     frontres_structured_joint_full_repair_bonus_weight = 1.0
-    frontres_structured_joint_prior_loss_weight = 1.0
+    frontres_structured_joint_prior_loss_weight = 0.0
     frontres_reward_compute_live_debug = False
     # Legacy joint-utility shaping knobs.  Kept for checkpoint/config
     # compatibility; split alpha/rho advantage no longer consumes them.
@@ -807,6 +811,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_curriculum_two_late_prob = 0.40
     frontres_curriculum_three_prob = 0.10
     frontres_curriculum_full_prob = 0.05
+    # Authority learning uses perturbation events as the credit unit.  IID
+    # reference jumps are therefore held for a short burst so one Stage-2 rho
+    # decision owns a coherent corrupted-reference window.
+    frontres_perturbation_temporal_mode = "burst"
+    frontres_perturbation_burst_min_steps = 4
+    frontres_perturbation_burst_max_steps = 8
+    frontres_perturbation_persistent_refresh_steps = 16
+    frontres_authority_return_horizon = 8
 
     # ── Task-space correction ramp ────────────────────────────────────────────
     # Alpha must be 1.0 from the start so task-space corrections reach the
@@ -887,7 +899,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         noise_std_type         = "scalar",
         # ── Task-space SE(3) correction mode ─────────────────────────────────
         num_task_corrections   = 6,        # bounded correction proposal = [Δpos(3), Δrpy(3)]
-        task_conf_dim          = 6,        # per-axis rho: PPO dynamics-aware acceptance
+        task_conf_dim          = 6,        # per-axis rho: authority actor-critic execution authority
         max_delta_pos          = 0.3,      # tanh clip (metres)
         max_delta_rpy          = 0.4,      # tanh clip (rad); needed to repair RobotBridge rp eps up to 0.35
         # ── GMT (frozen) ─────────────────────────────────────────────────────
@@ -897,6 +909,8 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         q_ref_start_idx        = 232,      # q_ref offset in 800-dim policy obs
         num_frontres_obs       = 0,        # 0 = shared FEMR trunk sees full obs
         frontres_split_acceptance_head = False,  # default: one FrontRES network with proposal/acceptance heads
+        frontres_authority_actor_critic = True,  # Stage 2 learns proposal-conditioned execution authority
+        frontres_authority_hidden_dims = [512, 256, 128],
         # ── Δq / Δz unused in task-space mode ────────────────────────────────
         num_z_outputs          = 0,
         max_delta_q            = 0.5,
@@ -931,13 +945,18 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_acceptance_preference_balance_min = 0.5,
         frontres_acceptance_preference_balance_max = 3.0,
         frontres_state_alpha_weight      = 0.0,
-        frontres_structured_joint_rl_enabled = True,
-        frontres_structured_joint_rl_weight = 1.0,
+        frontres_authority_actor_critic_enabled = True,
+        frontres_authority_actor_loss_weight = 1.0,
+        frontres_authority_critic_loss_weight = 1.0,
+        frontres_authority_actor_warmup_iterations = 200,
+        frontres_authority_actor_ramp_iterations = 200,
+        frontres_structured_joint_rl_enabled = False,
+        frontres_structured_joint_rl_weight = 0.0,
         frontres_structured_joint_rl_adv_clip = 5.0,
         frontres_structured_joint_rl_normalize_advantage = False,
         frontres_structured_joint_rl_loss_mode = "region_direct",
-        frontres_structured_joint_use_sample_weight = True,
-        frontres_structured_joint_use_actor_gate_weight = True,  # legacy alias
+        frontres_structured_joint_use_sample_weight = False,
+        frontres_structured_joint_use_actor_gate_weight = False,  # legacy alias
         frontres_structured_joint_show_legacy_rho_diag = False,
         frontres_structured_joint_rl_keep_legacy_bce = False,
         frontres_structured_joint_rl_disable_generic_ppo = True,
@@ -951,9 +970,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_structured_joint_retention_prior_weight = 0.0,
         frontres_structured_joint_floor_penalty_weight = 5.0,
         frontres_structured_joint_full_repair_bonus_weight = 1.0,
-        frontres_structured_joint_prior_loss_weight = 1.0,
+        frontres_structured_joint_prior_loss_weight = 0.0,
         frontres_reward_compute_live_debug = False,
-        frontres_cuda_memory_debug = True,
+        frontres_cuda_memory_debug = False,
+        frontres_authority_return_horizon = 8,
         frontres_oracle_upper_bound_diag_enabled = True,
         frontres_oracle_upper_bound_margin = 0.0,
         lambda_supervised             = 1.0,   # initial weight
@@ -990,9 +1010,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_supervised_lr_warmup_iters = 50,
         frontres_supervised_lr_cosine_iters = 1550,
         frontres_restore_debug_print_interval = 0,
-        # HSL first, Critic second, Actor third, difficulty last.  PPO only
-        # controls the acceptance vector, but it still changes the corrected-reference
-        # distribution, so we keep a short frozen-actor phase and a slow ramp.
+        # HSL anchors the proposal; authority actor-critic owns rho.  Generic PPO
+        # is disabled in authority mode, so these old PPO schedule values remain
+        # raw-schedule diagnostics rather than the live rho objective.
         ppo_actor_warmup_iterations   = 200,
         ppo_actor_ramp_iterations     = 500,
         ppo_advantage_focal_power     = 0.0,

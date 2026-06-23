@@ -8,6 +8,20 @@
 from .frontres_action_cone import FrontRESActionCone
 from .frontres_alpha_rho_bridge import FrontRESAlphaRhoBridge
 from .frontres_alpha_router import FrontRESStateAlphaTargets, build_state_alpha_targets
+from .frontres_authority_space import (
+    FRONTRES_AUTHORITY_DIM_NAMES,
+    FRONTRES_AUTHORITY_MAX,
+    FRONTRES_AUTHORITY_MIN,
+    FRONTRES_TASK_SPACE_DIM,
+    FrontRESAuthorityStats,
+    apply_authority_active_mask,
+    apply_authority_to_delta_se,
+    authority_rho_stats,
+    bound_authority_rho,
+    raw_authority_to_rho,
+)
+from .frontres_authority_return import FrontRESAuthorityReturn, compute_frontres_authority_k_step_return
+from .frontres_authority_event import FrontRESAuthorityEvents, build_frontres_authority_events
 from .frontres_diagnostics import (
     format_frontres_floor_alpha_diagnostics,
     format_frontres_optimization_diagnostics,
@@ -124,9 +138,16 @@ __all__ = [
     "DRStrengthPlan",
     "ExecutableFloorState",
     "ExecutableFloorValues",
+    "FRONTRES_AUTHORITY_DIM_NAMES",
+    "FRONTRES_AUTHORITY_MAX",
+    "FRONTRES_AUTHORITY_MIN",
+    "FRONTRES_TASK_SPACE_DIM",
     "FrontRESAcceptancePayload",
     "FrontRESActionCone",
     "FrontRESAlphaRhoBridge",
+    "FrontRESAuthorityEvents",
+    "FrontRESAuthorityReturn",
+    "FrontRESAuthorityStats",
     "FrontRESDRIterationPlan",
     "FrontRESDRScaleEnvPlan",
     "FrontRESDRSetup",
@@ -152,7 +173,12 @@ __all__ = [
     "apply_frontres_dr_scale_env",
     "apply_frontres_family_env_masks",
     "apply_frontres_task_corrections",
+    "apply_authority_active_mask",
+    "apply_authority_to_delta_se",
+    "authority_rho_stats",
+    "bound_authority_rho",
     "build_and_write_frontres_acceptance_payload",
+    "build_frontres_authority_events",
     "build_frontres_non_tri_acceptance_target_payload",
     "build_frontres_reward_context",
     "build_frontres_reward_window",
@@ -163,6 +189,7 @@ __all__ = [
     "compose_frontres_reward_delta",
     "compute_frontres_training_truth",
     "compute_frontres_oracle_upper_bound",
+    "compute_frontres_authority_k_step_return",
     "compute_frontres_rollout_evidence",
     "frontres_boundary_stats",
     "frontres_curriculum_allowed_bases",
@@ -196,6 +223,7 @@ __all__ = [
     "resolve_frontres_mode_state",
     "resolve_runner_executable_floor",
     "rotvec_to_quat_wxyz",
+    "raw_authority_to_rho",
     "sample_per_env_dr_strength",
     "sample_perturbation_mix",
     "sample_scalar_dr_strength",

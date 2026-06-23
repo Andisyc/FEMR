@@ -84,6 +84,18 @@ class MotionPerturbationCfg:
     iid_std_rp: float = 0.05   # Roll/Pitch jump std (radians) — ~2.9°
     iid_std_ya: float = 0.05   # Yaw jump std (radians)
 
+    # -- IID temporal event mode
+    iid_temporal_mode: str = "legacy"
+    """IID temporal mode: ``legacy`` keeps independent per-frame jumps,
+    ``single`` samples one-frame events, ``burst`` holds one sampled event for a
+    short window, and ``persistent`` refreshes at a fixed interval."""
+    iid_burst_min_steps: int = 1
+    """Minimum duration for ``iid_temporal_mode='burst'``."""
+    iid_burst_max_steps: int = 1
+    """Maximum duration for ``iid_temporal_mode='burst'``."""
+    iid_persistent_refresh_steps: int = 16
+    """Refresh interval for ``iid_temporal_mode='persistent'``."""
+
     # -- Local root-frame artifact bursts
     local_root_artifact_prob: float = 0.0
     """Probability per env per step of starting a short root XY/Yaw artifact burst."""
@@ -130,8 +142,24 @@ class MotionPerturber:
         # frames, creating an executable discontinuity rather than a harmless
         # global reference-frame shift.
         self._artifact_steps = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self._artifact_duration = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self._artifact_start = torch.zeros(num_envs, dtype=torch.bool, device=device)
         self._artifact_xy = torch.zeros(num_envs, 2, device=device)
         self._artifact_yaw = torch.zeros(num_envs, device=device)
+
+        # Shared IID temporal event state for FrontRES authority learning.  When
+        # enabled, all IID jump channels are sampled at the same event boundary
+        # and held for the event duration, so one authority decision can own the
+        # corrupted-reference event.
+        self._iid_event_steps_remaining = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self._iid_event_duration = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self._iid_event_step = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self._iid_event_start = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        self._iid_event_active = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        self._iid_event_xy = torch.zeros(num_envs, 2, device=device)
+        self._iid_event_z = torch.zeros(num_envs, device=device)
+        self._iid_event_rp = torch.zeros(num_envs, 2, device=device)
+        self._iid_event_yaw = torch.zeros(num_envs, device=device)
 
         # Baseline env mask: these envs always receive zero perturbation.
         self._baseline_mask: torch.Tensor | None = None  # bool [num_envs]
@@ -161,8 +189,19 @@ class MotionPerturber:
         self._baseline_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._baseline_mask[env_ids] = True
         self._artifact_steps[env_ids] = 0
+        self._artifact_duration[env_ids] = 0
+        self._artifact_start[env_ids] = False
         self._artifact_xy[env_ids] = 0.0
         self._artifact_yaw[env_ids] = 0.0
+        self._iid_event_steps_remaining[env_ids] = 0
+        self._iid_event_duration[env_ids] = 0
+        self._iid_event_step[env_ids] = 0
+        self._iid_event_start[env_ids] = False
+        self._iid_event_active[env_ids] = False
+        self._iid_event_xy[env_ids] = 0.0
+        self._iid_event_z[env_ids] = 0.0
+        self._iid_event_rp[env_ids] = 0.0
+        self._iid_event_yaw[env_ids] = 0.0
 
     def set_family_env_masks(self, masks: dict[str, torch.Tensor] | None) -> None:
         """Restrict perturbation families per environment.
@@ -230,8 +269,19 @@ class MotionPerturber:
         self._roll_state[env_ids]  = 0.0
         self._pitch_state[env_ids] = 0.0
         self._artifact_steps[env_ids] = 0
+        self._artifact_duration[env_ids] = 0
+        self._artifact_start[env_ids] = False
         self._artifact_xy[env_ids] = 0.0
         self._artifact_yaw[env_ids] = 0.0
+        self._iid_event_steps_remaining[env_ids] = 0
+        self._iid_event_duration[env_ids] = 0
+        self._iid_event_step[env_ids] = 0
+        self._iid_event_start[env_ids] = False
+        self._iid_event_active[env_ids] = False
+        self._iid_event_xy[env_ids] = 0.0
+        self._iid_event_z[env_ids] = 0.0
+        self._iid_event_rp[env_ids] = 0.0
+        self._iid_event_yaw[env_ids] = 0.0
         if self._joint_state is not None:
             self._joint_state[env_ids] = 0.0
 
@@ -253,6 +303,7 @@ class MotionPerturber:
             Perturbed root position tensor of shape (num_envs, 3).
         """
         perturbed = root_pos_ref.clone()
+        self._begin_iid_temporal_step(root_pos_ref.shape[0])
 
         # X: foot-slip-style X offset
         if self.cfg.foot_slip_prob > 0.0:
@@ -347,9 +398,14 @@ class MotionPerturber:
         std: float,
         num_envs: int,
         env_mask: torch.Tensor | None = None,
+        *,
+        temporal_key: str | None = None,
     ) -> torch.Tensor:
         """Per-env IID step jump: each env gets a jump with probability `prob`.
         Magnitude = std × dr_scale × N(0,1).  Returns (num_envs,) tensor."""
+        mode = str(getattr(self.cfg, "iid_temporal_mode", "legacy")).lower()
+        if mode != "legacy" and temporal_key is not None:
+            return self._iid_temporal_value(temporal_key, num_envs, env_mask)
         scale = self._scale_vector(num_envs)
         if prob <= 0.0 or std <= 0.0 or float(scale.max().item()) <= 0.0:
             return torch.zeros(num_envs, device=self.device)
@@ -367,8 +423,8 @@ class MotionPerturber:
     def _apply_iid_xy(self, root_pos: torch.Tensor) -> torch.Tensor:
         """Superimpose IID XY jitter on root position.  Modifies in-place."""
         mask = self._family_mask("planar", root_pos.shape[0])
-        jx = self._iid_jump(self.cfg.iid_prob_xy, self.cfg.iid_std_xy, root_pos.shape[0], mask)
-        jy = self._iid_jump(self.cfg.iid_prob_xy, self.cfg.iid_std_xy, root_pos.shape[0], mask)
+        jx = self._iid_jump(self.cfg.iid_prob_xy, self.cfg.iid_std_xy, root_pos.shape[0], mask, temporal_key="xy_x")
+        jy = self._iid_jump(self.cfg.iid_prob_xy, self.cfg.iid_std_xy, root_pos.shape[0], mask, temporal_key="xy_y")
         root_pos[:, 0] += jx
         root_pos[:, 1] += jy
         return root_pos
@@ -376,7 +432,7 @@ class MotionPerturber:
     def _apply_iid_z(self, root_pos: torch.Tensor) -> torch.Tensor:
         """Superimpose IID Z jitter on root position.  Modifies in-place."""
         mask = self._family_mask("global_z", root_pos.shape[0])
-        jz = self._iid_jump(self.cfg.iid_prob_z, self.cfg.iid_std_z, root_pos.shape[0], mask)
+        jz = self._iid_jump(self.cfg.iid_prob_z, self.cfg.iid_std_z, root_pos.shape[0], mask, temporal_key="z")
         root_pos[:, 2] += jz
         return root_pos
 
@@ -384,9 +440,9 @@ class MotionPerturber:
         """Superimpose IID roll/pitch/yaw jitter on root quaternion."""
         rp_mask = self._family_mask("local_rp", root_quat.shape[0])
         yaw_mask = self._family_mask("yaw", root_quat.shape[0])
-        jr = self._iid_jump(self.cfg.iid_prob_rp, self.cfg.iid_std_rp, root_quat.shape[0], rp_mask)
-        jp = self._iid_jump(self.cfg.iid_prob_rp, self.cfg.iid_std_rp, root_quat.shape[0], rp_mask)
-        jy = self._iid_jump(self.cfg.iid_prob_ya, self.cfg.iid_std_ya, root_quat.shape[0], yaw_mask)
+        jr = self._iid_jump(self.cfg.iid_prob_rp, self.cfg.iid_std_rp, root_quat.shape[0], rp_mask, temporal_key="roll")
+        jp = self._iid_jump(self.cfg.iid_prob_rp, self.cfg.iid_std_rp, root_quat.shape[0], rp_mask, temporal_key="pitch")
+        jy = self._iid_jump(self.cfg.iid_prob_ya, self.cfg.iid_std_ya, root_quat.shape[0], yaw_mask, temporal_key="yaw")
         if jr.abs().max() == 0 and jp.abs().max() == 0 and jy.abs().max() == 0:
             return root_quat
         # Build jump quaternion: q_jump = q_yaw * q_pitch * q_roll
@@ -408,6 +464,186 @@ class MotionPerturber:
             tw * z2 + tx * y2 - ty * x2 + tz * w2,
         ], dim=-1)
 
+    def _begin_iid_temporal_step(self, num_envs: int) -> None:
+        mode = str(getattr(self.cfg, "iid_temporal_mode", "legacy")).lower()
+        if mode not in {"legacy", "single", "burst", "persistent"}:
+            mode = "legacy"
+        self._iid_event_start.zero_()
+        self._iid_event_active.zero_()
+        self._iid_event_step.zero_()
+        if mode == "legacy":
+            return
+
+        count = int(num_envs)
+        scale = self._scale_vector(count)
+        if float(scale.max().item()) <= 0.0:
+            self._iid_event_steps_remaining[:count] = 0
+            self._iid_zero_event_values(torch.arange(count, device=self.device))
+            return
+
+        planar = self._family_mask("planar", count)
+        global_z = self._family_mask("global_z", count)
+        local_rp = self._family_mask("local_rp", count)
+        yaw = self._family_mask("yaw", count)
+        active_family = planar | global_z | local_rp | yaw
+        if self._baseline_mask is not None:
+            active_family = active_family & ~self._baseline_mask[:count]
+
+        remaining = self._iid_event_steps_remaining[:count]
+        continuing = remaining > 0
+        if mode == "persistent":
+            refresh = max(1, int(getattr(self.cfg, "iid_persistent_refresh_steps", 16)))
+            can_start = active_family & ((~continuing) | remaining.le(0))
+            start_prob = torch.ones(count, device=self.device)
+            duration = torch.full((count,), refresh, device=self.device, dtype=torch.long)
+        else:
+            can_start = active_family & (~continuing)
+            max_prob = max(
+                float(getattr(self.cfg, "iid_prob_z", 0.0)) if global_z.any() else 0.0,
+                float(getattr(self.cfg, "iid_prob_xy", 0.0)) if planar.any() else 0.0,
+                float(getattr(self.cfg, "iid_prob_rp", 0.0)) if local_rp.any() else 0.0,
+                float(getattr(self.cfg, "iid_prob_ya", 0.0)) if yaw.any() else 0.0,
+            )
+            start_prob = torch.full((count,), max(0.0, min(1.0, max_prob)), device=self.device)
+            if mode == "single":
+                duration = torch.ones(count, device=self.device, dtype=torch.long)
+            else:
+                min_steps = max(1, int(getattr(self.cfg, "iid_burst_min_steps", 1)))
+                max_steps = max(min_steps, int(getattr(self.cfg, "iid_burst_max_steps", min_steps)))
+                duration = torch.randint(min_steps, max_steps + 1, (count,), device=self.device)
+
+        start = can_start & (torch.rand(count, device=self.device) < start_prob)
+        if start.any():
+            self._iid_event_steps_remaining[:count][start] = duration[start]
+            self._iid_event_duration[:count][start] = duration[start]
+            self._sample_iid_event_values(start, start_prob)
+
+        active = self._iid_event_steps_remaining[:count] > 0
+        inactive = ~active
+        if inactive.any():
+            inactive_ids = torch.arange(count, device=self.device)[inactive]
+            self._iid_zero_event_values(inactive_ids)
+            self._iid_event_duration[:count][inactive] = 0
+
+        self._iid_event_start[:count] = start & active
+        self._iid_event_active[:count] = active
+        self._iid_event_step[:count] = torch.where(
+            active,
+            (self._iid_event_duration[:count] - self._iid_event_steps_remaining[:count]).clamp(min=0),
+            torch.zeros_like(self._iid_event_step[:count]),
+        )
+        self._iid_event_steps_remaining[:count][active] -= 1
+
+    def _sample_iid_event_values(self, start: torch.Tensor, start_prob: torch.Tensor) -> None:
+        ids = torch.where(start)[0]
+        if ids.numel() == 0:
+            return
+        scale = self._scale_vector(self.num_envs)
+        start_full = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        start_full[: start.numel()] = start
+        start_prob_full = torch.ones(self.num_envs, device=self.device)
+        start_prob_full[: start_prob.numel()] = start_prob
+
+        def channel_mask(prob: float, family_mask: torch.Tensor) -> torch.Tensor:
+            prob = max(0.0, min(1.0, float(prob)))
+            denom = start_prob_full.clamp(min=1e-6)
+            conditional = (prob / denom).clamp(max=1.0)
+            return start_full & family_mask & (torch.rand(self.num_envs, device=self.device) < conditional)
+
+        planar = self._family_mask("planar", self.num_envs)
+        global_z = self._family_mask("global_z", self.num_envs)
+        local_rp = self._family_mask("local_rp", self.num_envs)
+        yaw = self._family_mask("yaw", self.num_envs)
+
+        self._iid_zero_event_values(ids)
+        z_mask = channel_mask(getattr(self.cfg, "iid_prob_z", 0.0), global_z)
+        xy_mask = channel_mask(getattr(self.cfg, "iid_prob_xy", 0.0), planar)
+        rp_mask = channel_mask(getattr(self.cfg, "iid_prob_rp", 0.0), local_rp)
+        yaw_mask = channel_mask(getattr(self.cfg, "iid_prob_ya", 0.0), yaw)
+        if z_mask.any():
+            self._iid_event_z[z_mask] = (
+                torch.randn(int(z_mask.sum().item()), device=self.device)
+                * float(getattr(self.cfg, "iid_std_z", 0.0))
+                * scale[z_mask]
+            )
+        if xy_mask.any():
+            self._iid_event_xy[xy_mask] = (
+                torch.randn(int(xy_mask.sum().item()), 2, device=self.device)
+                * float(getattr(self.cfg, "iid_std_xy", 0.0))
+                * scale[xy_mask].view(-1, 1)
+            )
+        if rp_mask.any():
+            self._iid_event_rp[rp_mask] = (
+                torch.randn(int(rp_mask.sum().item()), 2, device=self.device)
+                * float(getattr(self.cfg, "iid_std_rp", 0.0))
+                * scale[rp_mask].view(-1, 1)
+            )
+        if yaw_mask.any():
+            self._iid_event_yaw[yaw_mask] = (
+                torch.randn(int(yaw_mask.sum().item()), device=self.device)
+                * float(getattr(self.cfg, "iid_std_ya", 0.0))
+                * scale[yaw_mask]
+            )
+
+        has_value = (
+            self._iid_event_z.abs().gt(0.0)
+            | self._iid_event_xy.abs().sum(dim=-1).gt(0.0)
+            | self._iid_event_rp.abs().sum(dim=-1).gt(0.0)
+            | self._iid_event_yaw.abs().gt(0.0)
+        )
+        empty_start = start_full & (~has_value)
+        if empty_start.any():
+            self._iid_event_steps_remaining[empty_start] = 0
+            self._iid_event_duration[empty_start] = 0
+
+    def _iid_zero_event_values(self, env_ids: torch.Tensor) -> None:
+        if env_ids.numel() == 0:
+            return
+        self._iid_event_z[env_ids] = 0.0
+        self._iid_event_xy[env_ids] = 0.0
+        self._iid_event_rp[env_ids] = 0.0
+        self._iid_event_yaw[env_ids] = 0.0
+
+    def _iid_temporal_value(
+        self,
+        key: str,
+        num_envs: int,
+        env_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if key == "xy_x":
+            value = self._iid_event_xy[:num_envs, 0]
+        elif key == "xy_y":
+            value = self._iid_event_xy[:num_envs, 1]
+        elif key == "z":
+            value = self._iid_event_z[:num_envs]
+        elif key == "roll":
+            value = self._iid_event_rp[:num_envs, 0]
+        elif key == "pitch":
+            value = self._iid_event_rp[:num_envs, 1]
+        elif key == "yaw":
+            value = self._iid_event_yaw[:num_envs]
+        else:
+            value = torch.zeros(num_envs, device=self.device)
+        if env_mask is not None:
+            value = value * env_mask[:num_envs].to(self.device, dtype=value.dtype)
+        return value
+
+    def frontres_authority_event_state(self, num_envs: int | None = None) -> dict[str, torch.Tensor]:
+        """Expose the current perturbation event for runner-side authority learning."""
+        count = self.num_envs if num_envs is None else int(num_envs)
+        artifact_active = self._artifact_steps[:count] > 0
+        artifact_step = torch.where(
+            artifact_active,
+            (self._artifact_duration[:count] - self._artifact_steps[:count]).clamp(min=0),
+            torch.zeros_like(self._artifact_steps[:count]),
+        )
+        return {
+            "event_start": (self._iid_event_start[:count] | self._artifact_start[:count]).clone(),
+            "event_active": (self._iid_event_active[:count] | artifact_active).clone(),
+            "event_step": torch.maximum(self._iid_event_step[:count], artifact_step).clone(),
+            "event_duration": torch.maximum(self._iid_event_duration[:count], self._artifact_duration[:count]).clone(),
+        }
+
     def _update_local_root_artifact(
         self,
         root_pos_ref: torch.Tensor,
@@ -424,12 +660,14 @@ class MotionPerturber:
         prob = float(getattr(self.cfg, "local_root_artifact_prob", 0.0))
         xy_std = float(getattr(self.cfg, "local_root_artifact_xy_std", 0.0))
         yaw_std = float(getattr(self.cfg, "local_root_artifact_yaw_std", 0.0))
+        self._artifact_start.zero_()
         planar_mask = self._family_mask("planar", self.num_envs)
         yaw_mask = self._family_mask("yaw", self.num_envs)
         active_mask = planar_mask | yaw_mask
         scale = self._scale_vector(self.num_envs)
         if prob <= 0.0 or (xy_std <= 0.0 and yaw_std <= 0.0) or float(scale.max().item()) <= 0.0:
             self._artifact_steps.zero_()
+            self._artifact_duration.zero_()
             self._artifact_xy.zero_()
             self._artifact_yaw.zero_()
             return
@@ -440,10 +678,13 @@ class MotionPerturber:
         active = self._artifact_steps > 0
         self._artifact_steps[active] -= 1
         ended = self._artifact_steps <= 0
+        self._artifact_duration[ended] = 0
         self._artifact_xy[ended] = 0.0
         self._artifact_yaw[ended] = 0.0
         if self._baseline_mask is not None:
             self._artifact_steps[self._baseline_mask] = 0
+            self._artifact_duration[self._baseline_mask] = 0
+            self._artifact_start[self._baseline_mask] = False
             self._artifact_xy[self._baseline_mask] = 0.0
             self._artifact_yaw[self._baseline_mask] = 0.0
 
@@ -469,6 +710,8 @@ class MotionPerturber:
         num_start = int(start.sum().item())
         durations = torch.randint(min_steps, max_steps + 1, (num_start,), device=self.device)
         self._artifact_steps[start] = durations
+        self._artifact_duration[start] = durations
+        self._artifact_start[start] = True
         if xy_std > 0.0:
             xy_start = start & planar_mask
             if xy_start.any():

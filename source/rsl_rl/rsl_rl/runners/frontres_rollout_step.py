@@ -26,6 +26,241 @@ class FrontRESRolloutStepPlan:
     hsl_quat_snapshot: torch.Tensor | None
 
 
+def _frontres_authority_enabled(
+    runner: Any,
+    *,
+    is_frontres: bool,
+    is_task_space_mode: bool,
+) -> bool:
+    if not (is_frontres and is_task_space_mode):
+        return False
+    enabled_fn = getattr(runner.alg, "_authority_actor_critic_enabled", None)
+    if callable(enabled_fn):
+        return bool(enabled_fn())
+    return bool(getattr(runner.alg, "frontres_authority_actor_critic_enabled", False))
+
+
+def _frontres_authority_active_mask(runner: Any, *, device: torch.device, dtype: torch.dtype) -> torch.Tensor | None:
+    mask_fn = getattr(runner.alg, "_authority_active_task_dim_mask", None)
+    if callable(mask_fn):
+        return mask_fn(device=device, dtype=dtype)
+    active_dims = getattr(runner.alg, "frontres_active_task_dims", runner.cfg.get("frontres_active_task_dims", None))
+    if active_dims is None:
+        return None
+    dim_mask = torch.zeros(6, device=device, dtype=dtype)
+    for idx in active_dims:
+        idx = int(idx)
+        if 0 <= idx < 6:
+            dim_mask[idx] = 1.0
+        elif 6 <= idx < 12:
+            dim_mask[idx - 6] = 1.0
+    return dim_mask
+
+
+def _write_frontres_authority_transition_inputs(
+    runner: Any,
+    *,
+    proposal_delta_se: torch.Tensor,
+    authority_rho: torch.Tensor,
+    event_start: torch.Tensor,
+    event_active: torch.Tensor,
+    event_step: torch.Tensor,
+    event_duration: torch.Tensor,
+    n_train: int,
+) -> None:
+    num_envs = int(runner.env.num_envs)
+    n = max(0, min(int(n_train), num_envs, proposal_delta_se.shape[0], authority_rho.shape[0]))
+    proposal_field = torch.zeros(num_envs, 6, device=runner.device, dtype=proposal_delta_se.dtype)
+    rho_field = torch.zeros(num_envs, 6, device=runner.device, dtype=authority_rho.dtype)
+    mask_field = torch.zeros(num_envs, 1, device=runner.device, dtype=authority_rho.dtype)
+    event_start_field = torch.zeros(num_envs, 1, device=runner.device, dtype=authority_rho.dtype)
+    event_active_field = torch.zeros(num_envs, 1, device=runner.device, dtype=authority_rho.dtype)
+    event_step_field = torch.zeros(num_envs, 1, device=runner.device, dtype=authority_rho.dtype)
+    event_duration_field = torch.zeros(num_envs, 1, device=runner.device, dtype=authority_rho.dtype)
+    if n > 0:
+        proposal_field[:n] = proposal_delta_se[:n].detach()
+        rho_field[:n] = authority_rho[:n].detach()
+        event_start_f = event_start[:n].view(-1, 1).to(device=runner.device, dtype=authority_rho.dtype)
+        event_active_f = event_active[:n].view(-1, 1).to(device=runner.device, dtype=authority_rho.dtype)
+        event_step_f = event_step[:n].view(-1, 1).to(device=runner.device, dtype=authority_rho.dtype)
+        event_duration_f = event_duration[:n].view(-1, 1).to(device=runner.device, dtype=authority_rho.dtype)
+        mask_field[:n] = event_start_f
+        event_start_field[:n] = event_start_f
+        event_active_field[:n] = event_active_f
+        event_step_field[:n] = event_step_f
+        event_duration_field[:n] = event_duration_f
+    runner.alg.transition.proposal_delta_se = proposal_field
+    runner.alg.transition.authority_action = rho_field
+    runner.alg.transition.authority_rho = rho_field
+    runner.alg.transition.authority_log_prob = torch.zeros(num_envs, 1, device=runner.device, dtype=authority_rho.dtype)
+    runner.alg.transition.authority_mask = mask_field
+    runner.alg.transition.authority_event_start = event_start_field
+    runner.alg.transition.authority_event_active = event_active_field
+    runner.alg.transition.authority_event_step = event_step_field
+    runner.alg.transition.authority_event_duration = event_duration_field
+    runner._frontres_authority_live_last = {
+        "proposal_abs_mean": float(proposal_field[:n].abs().mean().item()) if n > 0 else 0.0,
+        "rho_mean": float(rho_field[:n].mean().item()) if n > 0 else 0.0,
+        "active_frac": float(event_active_field[:n].mean().item()) if n > 0 else 0.0,
+        "query_frac": float(event_start_field[:n].mean().item()) if n > 0 else 0.0,
+        "event_step_mean": float(event_step_field[:n].mean().item()) if n > 0 else 0.0,
+        "event_duration_mean": float(event_duration_field[:n].mean().item()) if n > 0 else 0.0,
+    }
+
+
+def _current_frontres_authority_event(
+    runner: Any,
+    *,
+    num_envs: int,
+    n_train: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Read the environment-side perturbation event state for authority learning.
+
+    When the environment does not expose temporal events, fall back to the old
+    one-frame behavior so non-burst experiments remain unchanged.
+    """
+
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    motion_command = None
+    if hasattr(env, "command_manager") and "motion" in env.command_manager._terms:
+        motion_command = env.command_manager._terms["motion"]
+    perturber = getattr(motion_command, "perturber", None)
+    if perturber is not None and hasattr(perturber, "frontres_authority_event_state"):
+        mode = str(getattr(getattr(perturber, "cfg", None), "iid_temporal_mode", "legacy")).lower()
+        if mode == "legacy":
+            event_start = torch.zeros(num_envs, device=device, dtype=torch.bool)
+            event_active = torch.zeros(num_envs, device=device, dtype=torch.bool)
+            event_start[:n_train] = True
+            event_active[:n_train] = True
+            event_step = torch.zeros(num_envs, device=device, dtype=dtype)
+            event_duration = torch.ones(num_envs, device=device, dtype=dtype)
+            return event_start, event_active, event_step, event_duration
+        state = perturber.frontres_authority_event_state(num_envs)
+        event_start = state["event_start"].to(device=device, dtype=torch.bool)
+        event_active = state["event_active"].to(device=device, dtype=torch.bool)
+        event_step = state["event_step"].to(device=device, dtype=dtype)
+        event_duration = state["event_duration"].to(device=device, dtype=dtype)
+        if event_start.numel() == num_envs:
+            return event_start, event_active, event_step, event_duration
+
+    event_start = torch.zeros(num_envs, device=device, dtype=torch.bool)
+    event_active = torch.zeros(num_envs, device=device, dtype=torch.bool)
+    event_start[:n_train] = True
+    event_active[:n_train] = True
+    event_step = torch.zeros(num_envs, device=device, dtype=dtype)
+    event_duration = torch.ones(num_envs, device=device, dtype=dtype)
+    return event_start, event_active, event_step, event_duration
+
+
+def _ensure_frontres_authority_event_cache(
+    runner: Any,
+    *,
+    num_envs: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    proposal = getattr(runner, "_frontres_authority_event_proposal", None)
+    rho = getattr(runner, "_frontres_authority_event_rho", None)
+    valid = getattr(runner, "_frontres_authority_event_valid", None)
+    if proposal is None or proposal.shape != (num_envs, 6) or proposal.device != device:
+        proposal = torch.zeros(num_envs, 6, device=device, dtype=dtype)
+    if rho is None or rho.shape != (num_envs, 6) or rho.device != device:
+        rho = torch.zeros(num_envs, 6, device=device, dtype=dtype)
+    if valid is None or valid.shape != (num_envs,) or valid.device != device:
+        valid = torch.zeros(num_envs, device=device, dtype=torch.bool)
+    runner._frontres_authority_event_proposal = proposal
+    runner._frontres_authority_event_rho = rho
+    runner._frontres_authority_event_valid = valid
+    return proposal, rho, valid
+
+
+def _apply_frontres_authority_rollout_action(
+    runner: Any,
+    *,
+    obs: torch.Tensor,
+    actions: torch.Tensor,
+    is_frontres: bool,
+    is_task_space_mode: bool,
+    n_train: int,
+    rollout_step: int,
+) -> torch.Tensor:
+    if not _frontres_authority_enabled(
+        runner,
+        is_frontres=is_frontres,
+        is_task_space_mode=is_task_space_mode,
+    ):
+        return actions
+    policy = runner.alg.policy
+    if actions.shape[-1] < 12 or int(getattr(policy, "task_conf_dim", 0)) != 6:
+        raise RuntimeError(
+            "FrontRES authority actor-critic requires 12D task action "
+            "[proposal_delta_se(6), authority_rho(6)]."
+        )
+    if getattr(policy, "authority_actor", None) is None:
+        raise RuntimeError("FrontRES authority actor-critic is enabled but policy.authority_actor is missing.")
+
+    num_envs = int(runner.env.num_envs)
+    proposal_delta_se = actions[:, :6].detach()
+    active_mask = _frontres_authority_active_mask(runner, device=actions.device, dtype=actions.dtype)
+    event_start, event_active, event_step, event_duration = _current_frontres_authority_event(
+        runner,
+        num_envs=num_envs,
+        n_train=n_train,
+        device=actions.device,
+        dtype=actions.dtype,
+    )
+    cached_proposal, cached_rho, cached_valid = _ensure_frontres_authority_event_cache(
+        runner,
+        num_envs=num_envs,
+        device=actions.device,
+        dtype=actions.dtype,
+    )
+    inactive = ~event_active
+    cached_valid[inactive] = False
+    cached_proposal[inactive] = 0.0
+    cached_rho[inactive] = 0.0
+    query = event_active & (event_start | (~cached_valid))
+    if query.any():
+        fresh_rho = policy.get_authority_rho(
+            obs,
+            proposal_delta_se,
+            active_task_dims=active_mask,
+            detach_proposal=True,
+        ).detach()
+        cached_proposal[query] = proposal_delta_se[query]
+        cached_rho[query] = fresh_rho[query]
+        cached_valid[query] = True
+    authority_rho = cached_rho.clone()
+    proposal_for_execution = cached_proposal.clone()
+    authority_actions = actions.clone()
+    authority_actions[:n_train, :6] = proposal_for_execution[:n_train]
+    authority_actions[:n_train, 6:12] = authority_rho[:n_train]
+    runner.alg.transition.actions = authority_actions.detach()
+    _write_frontres_authority_transition_inputs(
+        runner,
+        proposal_delta_se=proposal_for_execution,
+        authority_rho=authority_rho,
+        event_start=event_start,
+        event_active=event_active,
+        event_step=event_step,
+        event_duration=event_duration,
+        n_train=n_train,
+    )
+    if bool(runner.cfg.get("frontres_authority_live_debug", False)) and rollout_step == 0:
+        stats = getattr(runner, "_frontres_authority_live_last", {})
+        print(
+            "[FrontRES authority live] "
+            f"proposal_abs={stats.get('proposal_abs_mean', 0.0):.4f} "
+            f"rho={stats.get('rho_mean', 0.0):.4f} "
+            f"active={stats.get('active_frac', 0.0):.3f} "
+            f"query={stats.get('query_frac', 0.0):.3f} "
+            f"duration={stats.get('event_duration_mean', 0.0):.1f}"
+        )
+    return authority_actions
+
+
 def _motion_groups_for_runner(runner: Any) -> torch.Tensor | None:
     env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
     if not (hasattr(env, "command_manager") and "motion" in env.command_manager._terms):
@@ -277,6 +512,15 @@ def prepare_frontres_rollout_step(
         if is_task_space_mode:
             actions = runner._mask_frontres_task_actions(actions)
             _rewrite_task_space_log_prob(runner, actions)
+            actions = _apply_frontres_authority_rollout_action(
+                runner,
+                obs=obs,
+                actions=actions,
+                is_frontres=is_frontres,
+                is_task_space_mode=is_task_space_mode,
+                n_train=n_train,
+                rollout_step=rollout_step,
+            )
         _refresh_frontres_state_alpha_route(
             runner,
             obs=obs,
@@ -319,6 +563,15 @@ def prepare_frontres_rollout_step(
         if is_task_space_mode:
             actions = runner._mask_frontres_task_actions(actions)
             _rewrite_task_space_log_prob(runner, actions)
+            actions = _apply_frontres_authority_rollout_action(
+                runner,
+                obs=obs,
+                actions=actions,
+                is_frontres=is_frontres,
+                is_task_space_mode=is_task_space_mode,
+                n_train=n_train,
+                rollout_step=rollout_step,
+            )
         if is_frontres:
             _apply_frontres_baseline_transition_override(
                 runner,

@@ -102,6 +102,18 @@ def apply_frontres_dr_scale(
     # Local artifact magnitudes are multiplied by perturber._dr_scale at burst sampling time.
     motion_command.perturber.cfg.local_root_artifact_xy_std = pt("local_root_artifact_xy_std") if planar else 0.0
     motion_command.perturber.cfg.local_root_artifact_yaw_std = pt("local_root_artifact_yaw_std") if yaw else 0.0
+    motion_command.perturber.cfg.iid_temporal_mode = str(
+        runner.cfg.get("frontres_perturbation_temporal_mode", "legacy")
+    )
+    motion_command.perturber.cfg.iid_burst_min_steps = int(
+        runner.cfg.get("frontres_perturbation_burst_min_steps", 1)
+    )
+    motion_command.perturber.cfg.iid_burst_max_steps = int(
+        runner.cfg.get("frontres_perturbation_burst_max_steps", 1)
+    )
+    motion_command.perturber.cfg.iid_persistent_refresh_steps = int(
+        runner.cfg.get("frontres_perturbation_persistent_refresh_steps", 16)
+    )
     motion_command.perturber._dr_scale = float(scale)
     if hasattr(motion_command.perturber, "set_dr_scale_env"):
         motion_command.perturber.set_dr_scale_env(None)

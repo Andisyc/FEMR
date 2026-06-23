@@ -99,6 +99,12 @@ class FrontRESUnified:
         frontres_structured_joint_floor_penalty_weight: float = 5.0,
         frontres_structured_joint_full_repair_bonus_weight: float = 1.0,
         frontres_structured_joint_prior_loss_weight: float = 0.0,
+        frontres_authority_actor_critic_enabled: bool = False,
+        frontres_authority_actor_loss_weight: float = 1.0,
+        frontres_authority_critic_loss_weight: float = 1.0,
+        frontres_authority_actor_warmup_iterations: int = 0,
+        frontres_authority_actor_ramp_iterations: int = 0,
+        frontres_authority_return_horizon: int = 1,
         frontres_reward_compute_live_debug: bool = False,
         frontres_cuda_memory_debug: bool = False,
         diagnose_gradient_conflict: bool = True,
@@ -261,6 +267,21 @@ class FrontRESUnified:
         self.frontres_structured_joint_prior_loss_weight = max(
             0.0, float(frontres_structured_joint_prior_loss_weight)
         )
+        self.frontres_authority_actor_critic_enabled = bool(frontres_authority_actor_critic_enabled)
+        self.frontres_authority_actor_loss_weight = max(0.0, float(frontres_authority_actor_loss_weight))
+        self.frontres_authority_critic_loss_weight = max(0.0, float(frontres_authority_critic_loss_weight))
+        self.frontres_authority_actor_warmup_iterations = max(0, int(frontres_authority_actor_warmup_iterations))
+        self.frontres_authority_actor_ramp_iterations = max(0, int(frontres_authority_actor_ramp_iterations))
+        self.frontres_authority_return_horizon = max(1, int(frontres_authority_return_horizon))
+        if self.frontres_authority_actor_critic_enabled:
+            if self._structured_joint_rl_enabled():
+                raise ValueError(
+                    "FrontRES authority actor-critic and structured-joint rho loss must not be enabled together."
+                )
+            if getattr(self.policy, "authority_actor", None) is None:
+                raise ValueError("frontres_authority_actor_critic_enabled=True requires policy.authority_actor.")
+            if getattr(self.policy, "authority_critic", None) is None:
+                raise ValueError("frontres_authority_actor_critic_enabled=True requires policy.authority_critic.")
         self.frontres_reward_compute_live_debug = bool(frontres_reward_compute_live_debug)
         self.frontres_cuda_memory_debug = bool(frontres_cuda_memory_debug)
         self.diagnose_gradient_conflict = bool(diagnose_gradient_conflict)
@@ -329,6 +350,14 @@ class FrontRESUnified:
             has_state_router = state_router_head is not None
             if has_state_router:
                 params.extend(state_router_head.parameters())
+            authority_actor = getattr(policy, "authority_actor", None)
+            has_authority_actor = authority_actor is not None
+            if has_authority_actor:
+                params.extend(authority_actor.parameters())
+            authority_critic = getattr(policy, "authority_critic", None)
+            has_authority_critic = authority_critic is not None
+            if has_authority_critic:
+                params.extend(authority_critic.parameters())
             params.extend(policy.critic.parameters())
             has_trainable_std = False
             if hasattr(policy, "std") and getattr(policy.std, "requires_grad", False):
@@ -343,6 +372,10 @@ class FrontRESUnified:
                 actor_parts.append("acceptance_actor")
             if has_state_router:
                 actor_parts.append("state_router_head")
+            if has_authority_actor:
+                actor_parts.append("authority_actor")
+            if has_authority_critic:
+                actor_parts.append("authority_critic")
             actor_desc = " + ".join(actor_parts)
             print(f"[FrontRESUnified] Optimizer updates {actor_desc} + critic{suffix}")
             return params
@@ -353,7 +386,12 @@ class FrontRESUnified:
         print("=" * 80)
         print("  FrontRESUnified ▸ PPO + Supervised ΔSE3")
         print(f"  Objective={self.frontres_training_objective}")
-        if self.frontres_training_objective == "supervised_restore":
+        if self._authority_actor_critic_enabled():
+            print(
+                "  L = L_authority_actor_critic(rho | obs, detached ΔSE proposal) "
+                "+ λ_sup·L_HSL(proposal)"
+            )
+        elif self.frontres_training_objective == "supervised_restore":
             print("  L = L_supervised_restore  (PPO/HRL branch kept but disabled for updates)")
         elif self.frontres_training_objective == "basis_restore":
             print("  L = L_proposal + L_written + L_coeff  "
@@ -394,6 +432,15 @@ class FrontRESUnified:
                 f"full_w={self.frontres_structured_joint_full_repair_bonus_weight}, "
                 f"loss_mode={self.frontres_structured_joint_rl_loss_mode}, "
                 f"normalize_adv={self.frontres_structured_joint_rl_normalize_advantage})"
+            )
+        if self._authority_actor_critic_enabled():
+            print(
+                "  Authority Actor-Critic: "
+                f"actor_w={self.frontres_authority_actor_loss_weight}, "
+                f"critic_w={self.frontres_authority_critic_loss_weight}, "
+                f"actor_warmup={self.frontres_authority_actor_warmup_iterations}, "
+                f"actor_ramp={self.frontres_authority_actor_ramp_iterations}, "
+                "target=K-step executable return"
             )
         print("  MOSAIC teacher/off-policy branches: disabled by construction")
         print("=" * 80)
@@ -709,6 +756,8 @@ class FrontRESUnified:
         mean_state_alpha_metrics: dict[str, float] = {}
         mean_structured_joint_rl_loss = 0.0
         mean_structured_joint_rl_metrics: dict[str, float] = {}
+        mean_authority_loss = 0.0
+        mean_authority_metrics: dict[str, float] = {}
         grad_conflict_cos = 0.0
         grad_conflict_norm_ratio = 0.0
         grad_conflict_count = 0
@@ -751,7 +800,24 @@ class FrontRESUnified:
                 state_alpha_target_batch,
                 state_alpha_mask_batch,
             ) = batch[:28]
-            batch_indices = batch[28] if len(batch) > 28 else None
+            proposal_delta_se_batch = None
+            authority_action_batch = None
+            authority_log_prob_batch = None
+            authority_rho_batch = None
+            authority_return_k_batch = None
+            authority_mask_batch = None
+            if len(batch) >= 34:
+                (
+                    proposal_delta_se_batch,
+                    authority_action_batch,
+                    authority_log_prob_batch,
+                    authority_rho_batch,
+                    authority_return_k_batch,
+                    authority_mask_batch,
+                ) = batch[28:34]
+                batch_indices = batch[34] if len(batch) > 34 else None
+            else:
+                batch_indices = batch[28] if len(batch) > 28 else None
             original_batch_size = obs_batch.shape[0]
             if self.normalize_advantage_per_mini_batch:
                 with torch.no_grad():
@@ -771,9 +837,13 @@ class FrontRESUnified:
             ).lower()
             oracle_mix = float(getattr(self, "oracle_mix", 0.0))
             raw_ppo_weight = float(getattr(self, "ppo_actor_weight", 1.0)) * (1.0 - oracle_mix)
+            authority_active = self._authority_actor_critic_enabled()
             disable_generic_ppo = (
-                structured_rho_active
-                and bool(getattr(self, "frontres_structured_joint_rl_disable_generic_ppo", True))
+                authority_active
+                or (
+                    structured_rho_active
+                    and bool(getattr(self, "frontres_structured_joint_rl_disable_generic_ppo", True))
+                )
             )
             # In region-direct structured rho mode, the rho update is a direct
             # logit loss.  It does not use PPO log-prob ratios, so building the
@@ -1105,6 +1175,14 @@ class FrontRESUnified:
                 rho_prior_target_batch,
                 original_batch_size,
             )
+            authority_loss, authority_metrics = self._compute_authority_actor_critic_loss(
+                obs_batch_augmented,
+                proposal_delta_se_batch,
+                authority_action_batch,
+                authority_return_k_batch,
+                authority_mask_batch,
+                original_batch_size,
+            )
             self._maybe_dump_frontres_live_batch(
                 update_idx=update_idx,
                 obs_batch=obs_batch_augmented,
@@ -1169,6 +1247,7 @@ class FrontRESUnified:
                     + legacy_preference_weight * acceptance_preference_loss
                     + legacy_alpha_weight * state_alpha_loss
                     + structured_weight * structured_joint_rl_loss
+                    + authority_loss
                 )
 
             if not torch.isfinite(loss):
@@ -1238,6 +1317,9 @@ class FrontRESUnified:
                 mean_structured_joint_rl_metrics[key] = (
                     mean_structured_joint_rl_metrics.get(key, 0.0) + float(value)
                 )
+            mean_authority_loss += authority_loss.item()
+            for key, value in authority_metrics.items():
+                mean_authority_metrics[key] = mean_authority_metrics.get(key, 0.0) + float(value)
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
@@ -1259,6 +1341,10 @@ class FrontRESUnified:
         mean_structured_joint_rl_loss /= num_updates
         mean_structured_joint_rl_metrics = {
             key: value / num_updates for key, value in mean_structured_joint_rl_metrics.items()
+        }
+        mean_authority_loss /= num_updates
+        mean_authority_metrics = {
+            key: value / num_updates for key, value in mean_authority_metrics.items()
         }
         if grad_conflict_count > 0:
             grad_conflict_cos /= grad_conflict_count
@@ -1312,11 +1398,20 @@ class FrontRESUnified:
             "structured_joint_rl_loss": mean_structured_joint_rl_loss,
             "lambda_structured_joint_rl": self.frontres_structured_joint_rl_weight,
             "lambda_structured_joint_prior": self.frontres_structured_joint_prior_loss_weight,
+            "authority_loss": mean_authority_loss,
+            "lambda_authority_actor": self.frontres_authority_actor_loss_weight,
+            "lambda_authority_actor_effective": (
+                self.frontres_authority_actor_loss_weight * self._authority_actor_phase_weight()
+            ),
+            "lambda_authority_critic": self.frontres_authority_critic_loss_weight,
             "ppo_actor_weight": (
                 0.0
                 if (
-                    self._structured_joint_rl_enabled()
-                    and bool(getattr(self, "frontres_structured_joint_rl_disable_generic_ppo", True))
+                    self._authority_actor_critic_enabled()
+                    or (
+                        self._structured_joint_rl_enabled()
+                        and bool(getattr(self, "frontres_structured_joint_rl_disable_generic_ppo", True))
+                    )
                 )
                 else float(getattr(self, "ppo_actor_weight", 1.0))
             ),
@@ -1328,6 +1423,7 @@ class FrontRESUnified:
         loss_dict.update(mean_acceptance_preference_metrics)
         loss_dict.update(mean_state_alpha_metrics)
         loss_dict.update(mean_structured_joint_rl_metrics)
+        loss_dict.update(mean_authority_metrics)
         loss_dict.update({f"grad_{key}": value for key, value in mean_grad_diag.items()})
         if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
             loss_dict["ppo_actor_weight"] = 0.0
@@ -1367,6 +1463,186 @@ class FrontRESUnified:
             and float(getattr(self, "frontres_structured_joint_rl_weight", 0.0)) > 0.0
             and self._ppo_acceptance_only_mode()
         )
+
+    def _authority_actor_critic_enabled(self) -> bool:
+        return (
+            bool(getattr(self, "frontres_authority_actor_critic_enabled", False))
+            and (
+                float(getattr(self, "frontres_authority_actor_loss_weight", 0.0)) > 0.0
+                or float(getattr(self, "frontres_authority_critic_loss_weight", 0.0)) > 0.0
+            )
+        )
+
+    def _authority_active_task_dim_mask(self, *, device, dtype) -> torch.Tensor | None:
+        active_dims = getattr(self, "frontres_active_task_dims", None)
+        if active_dims is None:
+            return None
+        dim_mask = torch.zeros(6, device=device, dtype=dtype)
+        for idx in active_dims:
+            idx = int(idx)
+            if 0 <= idx < 6:
+                dim_mask[idx] = 1.0
+            elif 6 <= idx < 12:
+                dim_mask[idx - 6] = 1.0
+        return dim_mask
+
+    def _authority_actor_phase_weight(self) -> float:
+        """Return the Stage-2 authority actor takeover weight for the current iteration."""
+        if not self._authority_actor_critic_enabled():
+            return 0.0
+        iteration = max(0, int(getattr(self, "current_learning_iteration", 0)))
+        warmup_iters = max(0, int(getattr(self, "frontres_authority_actor_warmup_iterations", 0)))
+        ramp_iters = max(0, int(getattr(self, "frontres_authority_actor_ramp_iterations", 0)))
+        if iteration < warmup_iters:
+            return 0.0
+        if ramp_iters <= 0:
+            return 1.0
+        ramp_step = iteration - warmup_iters + 1
+        return min(1.0, max(0.0, float(ramp_step) / float(ramp_iters)))
+
+    def _compute_authority_actor_critic_loss(
+        self,
+        obs_batch,
+        proposal_delta_se_batch,
+        authority_action_batch,
+        authority_return_k_batch,
+        authority_mask_batch,
+        original_batch_size: int,
+    ):
+        zero = torch.zeros((), device=self.device)
+        metrics = {
+            "authority_actor_critic_enabled": 1.0 if self._authority_actor_critic_enabled() else 0.0,
+            "authority_actor_loss": 0.0,
+            "authority_critic_loss": 0.0,
+            "authority_total_loss": 0.0,
+            "authority_actor_phase_weight": 0.0,
+            "authority_actor_warmup_active": 0.0,
+            "authority_actor_ramp_active": 0.0,
+            "authority_active_frac": 0.0,
+            "authority_k_horizon": float(getattr(self, "frontres_authority_return_horizon", 1)),
+            "authority_return_mean": 0.0,
+            "authority_q_behavior_mean": 0.0,
+            "authority_q_actor_mean": 0.0,
+            "authority_rho_mean": 0.0,
+            "authority_rho_std": 0.0,
+            "authority_rho_min": 0.0,
+            "authority_rho_max": 0.0,
+            "authority_rho_near_zero_frac": 0.0,
+            "authority_rho_near_one_frac": 0.0,
+            "authority_proposal_abs_mean": 0.0,
+        }
+        if not self._authority_actor_critic_enabled():
+            return zero, metrics
+        if (
+            proposal_delta_se_batch is None
+            or authority_action_batch is None
+            or authority_return_k_batch is None
+            or authority_mask_batch is None
+        ):
+            return zero, metrics
+
+        n = int(original_batch_size)
+        obs = obs_batch[:n]
+        proposal = proposal_delta_se_batch[:n, :6].to(device=self.device, dtype=obs.dtype).detach()
+        behavior_rho = authority_action_batch[:n, :6].to(device=self.device, dtype=obs.dtype).detach()
+        target_return = authority_return_k_batch[:n, :1].to(device=self.device, dtype=obs.dtype).detach()
+        mask = authority_mask_batch[:n, :1].to(device=self.device, dtype=obs.dtype).detach()
+        mask = torch.nan_to_num(mask, nan=0.0, posinf=0.0, neginf=0.0).clamp(0.0, 1.0)
+        denom = mask.sum().clamp(min=1e-6)
+        if float(mask.sum().detach().item()) <= 1e-6:
+            return zero, metrics
+
+        behavior_rho = torch.nan_to_num(behavior_rho, nan=0.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
+        q_behavior = self.policy.evaluate_authority_q(obs, proposal, behavior_rho, detach_proposal=True)
+        critic_loss = (((q_behavior - target_return) ** 2) * mask).sum() / denom
+
+        active_task_dims = self._authority_active_task_dim_mask(device=self.device, dtype=obs.dtype)
+        actor_rho = self.policy.get_authority_rho(
+            obs,
+            proposal_delta_se=proposal,
+            active_task_dims=active_task_dims,
+            detach_proposal=True,
+        )
+        authority_critic = getattr(self.policy, "authority_critic", None)
+        critic_requires_grad = []
+        if authority_critic is not None:
+            for param in authority_critic.parameters():
+                critic_requires_grad.append(param.requires_grad)
+                param.requires_grad_(False)
+        try:
+            q_actor = self.policy.evaluate_authority_q(obs, proposal, actor_rho, detach_proposal=True)
+        finally:
+            if authority_critic is not None:
+                for param, requires_grad in zip(authority_critic.parameters(), critic_requires_grad):
+                    param.requires_grad_(requires_grad)
+        actor_loss = -(q_actor * mask).sum() / denom
+
+        critic_weight = float(getattr(self, "frontres_authority_critic_loss_weight", 1.0))
+        actor_phase_weight = self._authority_actor_phase_weight()
+        actor_weight = float(getattr(self, "frontres_authority_actor_loss_weight", 1.0)) * actor_phase_weight
+        total_loss = critic_weight * critic_loss + actor_weight * actor_loss
+
+        with torch.no_grad():
+            if active_task_dims is None:
+                active_dim_mask = torch.ones(1, actor_rho.shape[-1], device=actor_rho.device, dtype=actor_rho.dtype)
+            else:
+                active_dim_mask = active_task_dims.view(1, -1).to(device=actor_rho.device, dtype=actor_rho.dtype)
+            sample_dim_mask = mask * active_dim_mask
+            denom_dim = sample_dim_mask.sum().clamp(min=1e-6)
+            active_rho = actor_rho * sample_dim_mask
+            active_proposal_abs = proposal.abs() * sample_dim_mask
+            rho_mean = active_rho.sum() / denom_dim
+            rho_var = (((actor_rho - rho_mean) ** 2) * sample_dim_mask).sum() / denom_dim
+            has_dim = sample_dim_mask > 0.0
+            rho_for_min = torch.where(has_dim, actor_rho, torch.ones_like(actor_rho))
+            rho_for_max = torch.where(has_dim, actor_rho, torch.zeros_like(actor_rho))
+            sample_rho = (active_rho.sum(dim=-1, keepdim=True) / sample_dim_mask.sum(dim=-1, keepdim=True).clamp(min=1e-6))
+            active_sample_mask = mask > 0.0
+
+            def _bucket_mean(value: torch.Tensor, bucket: torch.Tensor) -> float:
+                bucket_mask = (bucket & active_sample_mask).to(dtype=value.dtype)
+                bucket_denom = bucket_mask.sum().clamp(min=1e-6)
+                return float((value * bucket_mask).sum().detach().item() / bucket_denom.detach().item())
+
+            metrics["authority_actor_loss"] = float(actor_loss.detach().item())
+            metrics["authority_critic_loss"] = float(critic_loss.detach().item())
+            metrics["authority_total_loss"] = float(total_loss.detach().item())
+            metrics["authority_actor_phase_weight"] = float(actor_phase_weight)
+            metrics["authority_actor_warmup_active"] = 1.0 if actor_phase_weight <= 0.0 else 0.0
+            metrics["authority_actor_ramp_active"] = 1.0 if 0.0 < actor_phase_weight < 1.0 else 0.0
+            metrics["authority_active_frac"] = float(mask.mean().detach().item())
+            metrics["authority_return_mean"] = float((target_return * mask).sum().detach().item() / denom.detach().item())
+            metrics["authority_q_behavior_mean"] = float((q_behavior * mask).sum().detach().item() / denom.detach().item())
+            metrics["authority_q_actor_mean"] = float((q_actor * mask).sum().detach().item() / denom.detach().item())
+            metrics["authority_rho_mean"] = float(rho_mean.detach().item())
+            metrics["authority_rho_std"] = float(torch.sqrt(rho_var.clamp(min=0.0)).detach().item())
+            metrics["authority_rho_min"] = float(rho_for_min.min().detach().item())
+            metrics["authority_rho_max"] = float(rho_for_max.max().detach().item())
+            metrics["authority_rho_near_zero_frac"] = float(
+                (((actor_rho <= 0.05).to(dtype=actor_rho.dtype) * sample_dim_mask).sum() / denom_dim).detach().item()
+            )
+            metrics["authority_rho_near_one_frac"] = float(
+                (((actor_rho >= 0.95).to(dtype=actor_rho.dtype) * sample_dim_mask).sum() / denom_dim).detach().item()
+            )
+            metrics["authority_proposal_abs_mean"] = float((active_proposal_abs.sum() / denom_dim).detach().item())
+            for idx, name in enumerate(("dx", "dy", "dz", "roll", "pitch", "yaw")):
+                dim_mask = sample_dim_mask[:, idx : idx + 1]
+                dim_denom = dim_mask.sum().clamp(min=1e-6)
+                metrics[f"authority_rho_{name}_mean"] = float(
+                    ((actor_rho[:, idx : idx + 1] * dim_mask).sum() / dim_denom).detach().item()
+                )
+            low_bucket = sample_rho <= 0.25
+            mid_bucket = (sample_rho > 0.25) & (sample_rho < 0.75)
+            high_bucket = sample_rho >= 0.75
+            proposal_sample_abs = (
+                active_proposal_abs.sum(dim=-1, keepdim=True)
+                / sample_dim_mask.sum(dim=-1, keepdim=True).clamp(min=1e-6)
+            )
+            for bucket_name, bucket in (("low", low_bucket), ("mid", mid_bucket), ("high", high_bucket)):
+                metrics[f"authority_return_{bucket_name}_rho_mean"] = _bucket_mean(target_return, bucket)
+                metrics[f"authority_q_actor_{bucket_name}_rho_mean"] = _bucket_mean(q_actor, bucket)
+                metrics[f"authority_proposal_abs_{bucket_name}_rho_mean"] = _bucket_mean(proposal_sample_abs, bucket)
+        return total_loss, metrics
 
     def _keep_rl_grad_on_acceptance_and_state_router_only(self, base_grads):
         """Deprecated compatibility alias.

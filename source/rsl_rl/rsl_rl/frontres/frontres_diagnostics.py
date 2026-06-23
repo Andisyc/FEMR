@@ -117,6 +117,8 @@ def format_frontres_route_rho_diagnostics(
 ) -> str:
     """Format live route, structured-rho, and optional legacy-rho diagnostics."""
     lines: list[str] = []
+    if bool(cfg.get("frontres_authority_actor_critic_enabled", False)):
+        return ""
 
     structured_adv = _first_value(
         locs,
@@ -298,6 +300,73 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
             f"tgt={_value(loss_dict, 'state_alpha_target_mean'):.3f}, "
             f"pred={_value(loss_dict, 'state_alpha_pred_mean'):.3f}, "
             f"acc={_value(loss_dict, 'state_alpha_acc'):.3f})\n"
+        )
+
+    authority_loss = loss_dict.get("authority_loss", None)
+    authority_active = _value(loss_dict, "authority_active_frac", 0.0)
+    authority_enabled = float(_value(loss_dict, "authority_actor_critic_enabled", 0.0)) > 0.5
+    if authority_loss is not None and authority_enabled:
+        lines.append(
+            f"{'authority AC loss:':>{pad}} {authority_loss:.4f} "
+            f"(actor={_value(loss_dict, 'authority_actor_loss'):+.4f}, "
+            f"critic={_value(loss_dict, 'authority_critic_loss'):.4f}, "
+            f"λa={_value(loss_dict, 'lambda_authority_actor'):.3f}, "
+            f"λa_eff={_value(loss_dict, 'lambda_authority_actor_effective'):.3f}, "
+            f"λq={_value(loss_dict, 'lambda_authority_critic'):.3f}, "
+            f"active={authority_active:.3f})\n"
+        )
+        lines.append(
+            f"{'authority takeover:':>{pad}} "
+            f"actor_phase={_value(loss_dict, 'authority_actor_phase_weight'):.3f}, "
+            f"warmup={_value(loss_dict, 'authority_actor_warmup_active'):.0f}, "
+            f"ramp={_value(loss_dict, 'authority_actor_ramp_active'):.0f}\n"
+        )
+        lines.append(
+            f"{'authority return/Q:':>{pad}} "
+            f"ret={_value(loss_dict, 'authority_return_mean'):+.4f}, "
+            f"Qbeh={_value(loss_dict, 'authority_q_behavior_mean'):+.4f}, "
+            f"Qact={_value(loss_dict, 'authority_q_actor_mean'):+.4f}\n"
+        )
+        lines.append(
+            f"{'authority rho μ/σ/min/max:':>{pad}} "
+            f"{_value(loss_dict, 'authority_rho_mean'):.3f} / "
+            f"{_value(loss_dict, 'authority_rho_std'):.3f} / "
+            f"{_value(loss_dict, 'authority_rho_min'):.3f} / "
+            f"{_value(loss_dict, 'authority_rho_max'):.3f} "
+            f"(near0={_value(loss_dict, 'authority_rho_near_zero_frac'):.3f}, "
+            f"near1={_value(loss_dict, 'authority_rho_near_one_frac'):.3f})\n"
+        )
+        lines.append(
+            f"{'authority rho dims:':>{pad}} "
+            f"dx={_value(loss_dict, 'authority_rho_dx_mean'):.3f}, "
+            f"dy={_value(loss_dict, 'authority_rho_dy_mean'):.3f}, "
+            f"dz={_value(loss_dict, 'authority_rho_dz_mean'):.3f}, "
+            f"r={_value(loss_dict, 'authority_rho_roll_mean'):.3f}, "
+            f"p={_value(loss_dict, 'authority_rho_pitch_mean'):.3f}, "
+            f"y={_value(loss_dict, 'authority_rho_yaw_mean'):.3f}\n"
+        )
+        lines.append(
+            f"{'authority buckets L/M/H:':>{pad}} "
+            f"ret={_value(loss_dict, 'authority_return_low_rho_mean'):+.3f}/"
+            f"{_value(loss_dict, 'authority_return_mid_rho_mean'):+.3f}/"
+            f"{_value(loss_dict, 'authority_return_high_rho_mean'):+.3f}, "
+            f"Q={_value(loss_dict, 'authority_q_actor_low_rho_mean'):+.3f}/"
+            f"{_value(loss_dict, 'authority_q_actor_mid_rho_mean'):+.3f}/"
+            f"{_value(loss_dict, 'authority_q_actor_high_rho_mean'):+.3f}, "
+            f"|Δ|={_value(loss_dict, 'authority_proposal_abs_low_rho_mean'):.3f}/"
+            f"{_value(loss_dict, 'authority_proposal_abs_mid_rho_mean'):.3f}/"
+            f"{_value(loss_dict, 'authority_proposal_abs_high_rho_mean'):.3f}\n"
+        )
+        lines.append(
+            f"{'authority temporal:':>{pad}} "
+            f"event-level, K={_value(loss_dict, 'authority_return_k_horizon', _value(loss_dict, 'authority_k_horizon')):.0f}, "
+            f"mode={loss_dict.get('authority_temporal_mode', 'single')}, "
+            f"events={_value(loss_dict, 'authority_event_count'):.0f}, "
+            f"active={_value(loss_dict, 'authority_event_active_frac'):.3f}, "
+            f"query={_value(loss_dict, 'authority_event_mask_frac'):.3f}, "
+            f"dur={_value(loss_dict, 'authority_event_duration_mean'):.1f}, "
+            f"generic PPO={_value(loss_dict, 'ppo_actor_weight'):.3f} "
+            f"(raw={_value(loss_dict, 'raw_ppo_actor_weight'):.3f})\n"
         )
 
     sjl = loss_dict.get("structured_joint_rl_loss", None)

@@ -59,6 +59,19 @@ class RolloutStorage:
             # continuation.  This is not an action dimension.
             self.state_alpha_target = None
             self.state_alpha_mask = None
+            # FrontRES Authority Actor-Critic fields.  These are separate from
+            # legacy acceptance/rho carriers: they store the proposal-conditioned
+            # authority action and its K-step executable return.
+            self.proposal_delta_se = None
+            self.authority_action = None
+            self.authority_log_prob = None
+            self.authority_rho = None
+            self.authority_return_k = None
+            self.authority_mask = None
+            self.authority_event_start = None
+            self.authority_event_active = None
+            self.authority_event_step = None
+            self.authority_event_duration = None
 
         def clear(self):
             self.__init__()
@@ -164,6 +177,16 @@ class RolloutStorage:
             self.rho_prior_target = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
             self.state_alpha_target = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
             self.state_alpha_mask = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            self.proposal_delta_se = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
+            self.authority_action = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
+            self.authority_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            self.authority_rho = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
+            self.authority_return_k = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            self.authority_mask = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            self.authority_event_start = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            self.authority_event_active = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            self.authority_event_step = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            self.authority_event_duration = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
 
         # For RNN networks
         self.saved_hidden_states_a = None
@@ -242,6 +265,26 @@ class RolloutStorage:
                 self.state_alpha_target[self.step].copy_(transition.state_alpha_target)
             if hasattr(transition, 'state_alpha_mask') and transition.state_alpha_mask is not None:
                 self.state_alpha_mask[self.step].copy_(transition.state_alpha_mask)
+            if hasattr(transition, 'proposal_delta_se') and transition.proposal_delta_se is not None:
+                self.proposal_delta_se[self.step].copy_(transition.proposal_delta_se)
+            if hasattr(transition, 'authority_action') and transition.authority_action is not None:
+                self.authority_action[self.step].copy_(transition.authority_action)
+            if hasattr(transition, 'authority_log_prob') and transition.authority_log_prob is not None:
+                self.authority_log_prob[self.step].copy_(transition.authority_log_prob.view(-1, 1))
+            if hasattr(transition, 'authority_rho') and transition.authority_rho is not None:
+                self.authority_rho[self.step].copy_(transition.authority_rho)
+            if hasattr(transition, 'authority_return_k') and transition.authority_return_k is not None:
+                self.authority_return_k[self.step].copy_(transition.authority_return_k.view(-1, 1))
+            if hasattr(transition, 'authority_mask') and transition.authority_mask is not None:
+                self.authority_mask[self.step].copy_(transition.authority_mask.view(-1, 1))
+            if hasattr(transition, 'authority_event_start') and transition.authority_event_start is not None:
+                self.authority_event_start[self.step].copy_(transition.authority_event_start.view(-1, 1))
+            if hasattr(transition, 'authority_event_active') and transition.authority_event_active is not None:
+                self.authority_event_active[self.step].copy_(transition.authority_event_active.view(-1, 1))
+            if hasattr(transition, 'authority_event_step') and transition.authority_event_step is not None:
+                self.authority_event_step[self.step].copy_(transition.authority_event_step.view(-1, 1))
+            if hasattr(transition, 'authority_event_duration') and transition.authority_event_duration is not None:
+                self.authority_event_duration[self.step].copy_(transition.authority_event_duration.view(-1, 1))
 
         # For RND
         if self.rnd_state_shape is not None:
@@ -373,6 +416,12 @@ class RolloutStorage:
             rho_prior_target = self.rho_prior_target.flatten(0, 1)
             state_alpha_target = self.state_alpha_target.flatten(0, 1)
             state_alpha_mask = self.state_alpha_mask.flatten(0, 1)
+            proposal_delta_se = self.proposal_delta_se.flatten(0, 1)
+            authority_action = self.authority_action.flatten(0, 1)
+            authority_log_prob = self.authority_log_prob.flatten(0, 1)
+            authority_rho = self.authority_rho.flatten(0, 1)
+            authority_return_k = self.authority_return_k.flatten(0, 1)
+            authority_mask = self.authority_mask.flatten(0, 1)
             # For velocity estimator
             if self.ref_vel_estimator_observations is not None:
                 ref_vel_estimator_observations = self.ref_vel_estimator_observations.flatten(0, 1)
@@ -428,6 +477,12 @@ class RolloutStorage:
                     rho_prior_target_batch = rho_prior_target[batch_idx]
                     state_alpha_target_batch = state_alpha_target[batch_idx]
                     state_alpha_mask_batch = state_alpha_mask[batch_idx]
+                    proposal_delta_se_batch = proposal_delta_se[batch_idx]
+                    authority_action_batch = authority_action[batch_idx]
+                    authority_log_prob_batch = authority_log_prob[batch_idx]
+                    authority_rho_batch = authority_rho[batch_idx]
+                    authority_return_k_batch = authority_return_k[batch_idx]
+                    authority_mask_batch = authority_mask[batch_idx]
                     # For velocity estimator
                     if ref_vel_estimator_observations is not None:
                         ref_vel_estimator_obs_batch = ref_vel_estimator_observations[batch_idx]
@@ -450,6 +505,12 @@ class RolloutStorage:
                     rho_prior_target_batch = None
                     state_alpha_target_batch = None
                     state_alpha_mask_batch = None
+                    proposal_delta_se_batch = None
+                    authority_action_batch = None
+                    authority_log_prob_batch = None
+                    authority_rho_batch = None
+                    authority_return_k_batch = None
+                    authority_mask_batch = None
 
                 # yield the mini-batch
                 if self.training_type == "frontres":
@@ -465,6 +526,9 @@ class RolloutStorage:
                         supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch,
                         rho_prior_authority_batch, rho_prior_target_batch,
                         state_alpha_target_batch, state_alpha_mask_batch,
+                        proposal_delta_se_batch, authority_action_batch,
+                        authority_log_prob_batch, authority_rho_batch,
+                        authority_return_k_batch, authority_mask_batch,
                     )
                     if getattr(self, "yield_batch_indices", False):
                         frontres_batch = frontres_batch + (batch_idx,)
@@ -576,6 +640,12 @@ class RolloutStorage:
                         rho_prior_target_batch = self.rho_prior_target[:, start:stop]
                         state_alpha_target_batch = self.state_alpha_target[:, start:stop]
                         state_alpha_mask_batch = self.state_alpha_mask[:, start:stop]
+                        proposal_delta_se_batch = self.proposal_delta_se[:, start:stop]
+                        authority_action_batch = self.authority_action[:, start:stop]
+                        authority_log_prob_batch = self.authority_log_prob[:, start:stop]
+                        authority_rho_batch = self.authority_rho[:, start:stop]
+                        authority_return_k_batch = self.authority_return_k[:, start:stop]
+                        authority_mask_batch = self.authority_mask[:, start:stop]
                     else:
                         ref_vel_estimator_obs_batch = None
                         frontres_mask_batch = None
@@ -589,11 +659,17 @@ class RolloutStorage:
                         rho_prior_target_batch = None
                         state_alpha_target_batch = None
                         state_alpha_mask_batch = None
+                        proposal_delta_se_batch = None
+                        authority_action_batch = None
+                        authority_log_prob_batch = None
+                        authority_rho_batch = None
+                        authority_return_k_batch = None
+                        authority_mask_batch = None
                     if self.training_type == "frontres":
                         yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                             hid_a_batch,
                             hid_c_batch,
-                        ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch, frontres_actor_gate_batch, supervised_weight_batch, supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch, rho_prior_authority_batch, rho_prior_target_batch, state_alpha_target_batch, state_alpha_mask_batch
+                        ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch, frontres_actor_gate_batch, supervised_weight_batch, supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch, rho_prior_authority_batch, rho_prior_target_batch, state_alpha_target_batch, state_alpha_mask_batch, proposal_delta_se_batch, authority_action_batch, authority_log_prob_batch, authority_rho_batch, authority_return_k_batch, authority_mask_batch
                     else:
                         yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                             hid_a_batch,

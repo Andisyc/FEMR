@@ -4,7 +4,249 @@ Use this checklist after every nontrivial FrontRES change.  The goal is to keep
 concept, code path, diagnostics, and short-run evidence aligned.  Do not mark a
 change as ready for training until each relevant item has concrete evidence.
 
-## Active Change Record: 2026-06-22 Update Memory Safety
+## Active Change Record: 2026-06-23 Authority Actor-Critic Refactor
+
+- [x] Design note updated:
+  `note/FrontRES Design Contract.md`, section
+  `2026-06-23 Authority Actor-Critic Contract`.
+- [x] Concept sentence:
+  FrontRES should be `Clean-oriented Delta SE proposal -> authority actor-critic
+  over rho -> K-step executable return -> burst perturbation curriculum -> frozen
+  GMT execution`; `rho` is an execution-authority action, not endpoint
+  acceptance label and not sampled-rho PPO advantage.  Rechecked after Step 9:
+  active config and diagnostics now name the objective as authority
+  actor-critic, not PPO acceptance.
+- [x] Stage-1 freeze contract decided:
+  Stage 1 `Delta SE_HSL` is trained by HSL and treated as a fixed/detached
+  proposal for Stage 2 authority.  Verify whether this is implemented by config
+  freeze, optimizer parameter groups, checkpoint resume mode, or a new explicit
+  Stage-2 training phase.  Launch contract added 2026-06-24:
+  `run/run_frontres_stage1_hsl.sh` trains proposal only, and
+  `run/run_frontres_stage2_authority.sh` transfers from the Stage 1 checkpoint
+  with `--is_full_resume False` plus `algorithm.lambda_supervised=0.0`, so Stage
+  2 authority training does not keep applying the HSL proposal loss.
+  Stage 2 launch also sets `--supervised_warmup_iterations 0`, because Stage 1
+  warmup has already been completed before checkpoint transfer.
+- [x] Stage-2 critic warmup / actor takeover contract decided:
+  Stage 2 is a new learning problem because the authority critic starts from
+  scratch.  Reuse the old warmup/takeover idea with Stage-2-specific controls:
+  `critic_warmup_iterations=200` keeps runner-side DR/curriculum conservative,
+  `algorithm.frontres_authority_actor_warmup_iterations=200` disables authority
+  actor loss while the critic warms up, and
+  `algorithm.frontres_authority_actor_ramp_iterations=200` ramps actor takeover
+  instead of switching it on abruptly.  Diagnostics must show
+  `authority_actor_phase_weight`, `authority_actor_warmup_active`, and
+  `authority_actor_ramp_active`.
+- [x] Module 1, policy architecture:
+  `source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py`.
+  Current code already has `frontres_split_acceptance_head`; audit and adapt it
+  so `acceptance_actor` explicitly receives `full/current state observation +
+  detached Delta SE_HSL`, while Stage 1 proposal gradients do not flow through
+  acceptance loss.  Audit result: this route already exists in
+  `_frontres_raw_task_output`; no production code change was needed for Step 1.
+- [x] Module 2, authority network surface:
+  `source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py`, or a new
+  `source/rsl_rl/rsl_rl/modules/frontres_authority.py`.
+  Add the Stage-2 authority critic `Q_phi(state/proposal/rho)`.  Keep it
+  separate from the existing PPO value critic, because the existing critic is
+  `V(obs)` for environment returns, while the new critic owns proposal/rho
+  executable value.  Implemented as optional network surface with checkpoint
+  save/load support; runner, storage, and algorithm integration remain pending.
+- [x] Module 3, authority action representation:
+  implement the fixed authority space from the design contract: 6D continuous
+  authority with `rho_i in [0, 1]` for each task-space correction dimension.
+  Do not silently mix scalar, grouped, discrete, and per-axis rho semantics.
+  Startup logs must print the active authority parameterization and active dim
+  mask.  The earlier grouped-discrete helper/test is now obsolete prototype
+  evidence, not the active mainline.  Implemented in
+  `source/rsl_rl/rsl_rl/frontres/frontres_authority_space.py` and verified by
+  `source/rsl_rl/rsl_rl/tests/frontres_authority_space.py`; startup route now
+  prints authority actor-critic when enabled.
+- [x] Module 4, config surface:
+  `source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/rsl_rl_mosaic_cfg.py`.
+  Add explicit authority actor-critic flags and turn the old structured-rho
+  advantage path off by default for the new experiment.  Preserve old modes as
+  ablations only.  Implemented in the generic policy cfg
+  `source/whole_body_tracking/whole_body_tracking/utils/rsl_rl_cfg.py`, generic
+  algorithm cfg `source/rsl_rl/rsl_rl/modules/rsl_rl_cfg.py`, and active G1
+  config.  Active G1 now builds authority actor/critic, enables
+  `frontres_authority_actor_critic_enabled`, and sets structured-rho enabled
+  false with zero weight.
+- [x] Module 5, rollout application:
+  `source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py`,
+  `source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py`, and
+  `source/rsl_rl/rsl_rl/frontres/task_space_correction.py`.
+  Ensure the executed correction is exactly `Delta SE_exec = rho * detached
+  Delta SE_HSL` for the sampled authority action.  Training and inference must
+  use the same authority space.  Implemented for training rollout by keeping
+  Stage-1 proposal in action columns `[:6]` and writing authority rho into
+  `[6:12]`, so existing task-space correction applies exactly one multiplication.
+  Post-Step-9 audit also fixed the inference helper path so
+  `get_task_correction_inference()` uses `authority_actor(full_obs, detached
+  proposal)` instead of the legacy residual coefficient head when authority
+  actor-critic is enabled.
+- [x] Module 6, K-step executable return:
+  create a small pure helper under `source/rsl_rl/rsl_rl/frontres/`, e.g.
+  `frontres_authority_return.py`.  It builds done-masked K-step executable
+  returns for event frames and supports optional detached bootstrap when a valid
+  bootstrap state exists.  This is still a pure helper and is not yet wired into
+  runner, storage, or algorithm.
+- [x] Module 7, storage contract:
+  `source/rsl_rl/rsl_rl/storage/rollout_storage.py`.
+  Prefer new authority-specific fields rather than reusing
+  `acceptance_target/mask`: `authority_action`, `authority_log_prob`,
+  `authority_rho`, `authority_return_k`, `authority_mask`, and
+  `proposal_delta_se`.  Implemented as explicit fields in `RolloutStorage`,
+  copied by `add_transitions`, yielded by feedforward and recurrent FrontRES
+  mini-batches, and parsed compatibly by `FrontRESUnified`.
+- [x] Module 8, algorithm loss:
+  `source/rsl_rl/rsl_rl/algorithms/frontres_unified.py`.
+  Add a dedicated authority actor-critic loss: critic regression to K-step
+  executable return and actor update over authority actions.  This path must not
+  use sampled-rho PPO advantage, underwrite bonus, boundary prior pull, or legacy
+  acceptance BCE.  Implemented as an explicit optional loss path that is mutually
+  exclusive with old structured-rho loss and consumes `proposal_delta_se`,
+  `authority_action`, `authority_return_k`, and `authority_mask`.
+- [x] Module 9, perturbation scheduler:
+  `source/rsl_rl/rsl_rl/frontres/frontres_dr_curriculum.py`,
+  `source/rsl_rl/rsl_rl/frontres/training_schedule.py`, and
+  `source/rsl_rl/rsl_rl/runners/frontres_training_setup.py`.
+  Add temporal perturbation modes: single-frame, burst, persistent.  Print mode,
+  burst duration, and clean/recovery tail duration in runner diagnostics.  Pure
+  authority event helper and toy test are complete.  Live burst integration is
+  implemented in `source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py`
+  and wired through `source/rsl_rl/rsl_rl/frontres/perturbation_runtime.py`.
+  The live event source covers both new IID temporal burst events and the
+  existing local-root artifact burst state, so authority queries are not limited
+  to one perturbation family;
+  the active G1 config sets `frontres_perturbation_temporal_mode="burst"` and
+  `frontres_authority_return_horizon=8`.  Persistent-mode live validation is
+  left as an ablation, not the active path.
+- [x] Module 10, runner integration:
+  `source/rsl_rl/rsl_rl/runners/on_policy_runner.py` and runner FrontRES helper
+  modules.  Verify the live path writes authority action/log-prob/proposal and
+  K-step target into storage, applies sampled authority to execution, and does
+  not let old rho-advantage branches overwrite authority fields.  Implemented
+  for the K=1 live-route case in
+  `source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py` and
+  `source/rsl_rl/rsl_rl/runners/frontres_post_step_connector.py`: Stage-1
+  proposal stays in action columns `[:6]`, Stage-2 authority rho is written to
+  columns `[6:12]`, transition authority fields are populated before storage
+  write, and `r_delta` is stored as a placeholder.  After rollout collection,
+  `finalize_frontres_authority_k_step_returns(...)` rewrites event-start frames
+  with K-step authority returns before `compute_returns()`.  Generic PPO
+  surrogate is disabled when authority actor-critic is active so old PPO does
+  not train the authority rho head.  Persistent-mode validation remains an
+  ablation.
+- [x] Module 11, diagnostics:
+  `source/rsl_rl/rsl_rl/frontres/frontres_diagnostics.py` and
+  `source/rsl_rl/rsl_rl/runners/frontres_runner_logging.py`.
+  Add live sentinels: authority level fractions, return by level, proposal
+  magnitude by level, authority critic loss, actor loss, critic prediction by
+  level, K-step horizon, perturbation temporal mode, and burst duration.
+  Remove or clearly mark old rho-advantage diagnostics when they are
+  ablation-only.  Step 9 implemented detached authority diagnostics in
+  `source/rsl_rl/rsl_rl/algorithms/frontres_unified.py` and a dedicated
+  authority actor-critic console block in
+  `source/rsl_rl/rsl_rl/frontres/frontres_diagnostics.py`.  The log now prints
+  authority actor/critic loss, return/Q, rho distribution, per-dimension rho,
+  low/mid/high rho buckets, temporal mode, K horizon, event count,
+  active/query fraction, mean burst duration, and generic PPO disablement.
+  `source/rsl_rl/rsl_rl/runners/frontres_runner_logging.py` also labels the
+  live objective as `HSL ΔSE proposal + authority actor-critic` when the
+  authority sentinel is active.
+  Post-Step-9 audit hides legacy route-rho diagnostics entirely in authority
+  mode and sets `frontres_cuda_memory_debug=False` in the active G1 config so
+  CUDA memory probes are opt-in rather than console spam.
+  Burst duration is now live because the runner path stores event metadata and
+  rewrites K-step authority returns after rollout collection.
+- [x] Test 1, architecture input test:
+  `source/rsl_rl/rsl_rl/tests/frontres_split_acceptance_architecture.py`
+  proves that split acceptance sees `full_obs + detached bounded Delta SE`
+  proposal features and that acceptance-only loss trains Stage 2 without
+  backpropagating into Stage 1.  Verified with
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_split_acceptance_architecture.py`.
+- [x] Test 1A, authority network surface test:
+  `source/rsl_rl/rsl_rl/tests/frontres_authority_network.py` proves that the
+  Stage-2 authority actor sees `full_obs + detached bounded Delta SE`, outputs
+  bounded 6D rho, applies active dim masks, and that `Q(state, proposal, rho)`
+  receives gradients in Stage 2 without leaking gradients into Stage 1.  It
+  also proves `authority_actor` and `authority_critic` survive FrontRES
+  checkpoint save/load.
+  Post-Step-9 audit added an inference-contract assertion: deterministic
+  task-space correction must use the authority actor rho, not the legacy
+  residual coefficient head.
+  Verified with
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_network.py`.
+- [x] Test 2, continuous authority parameterization test:
+  create/update a toy test proving raw Stage-2 authority output maps to bounded
+  6D continuous rho, active-task-dim masks zero forbidden dimensions, gradients
+  flow through the bounded rho mapping, and continuous rho diagnostics report
+  mean/std/min/max plus near-zero/near-one fractions.  Verified with
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_space.py`.
+  The previous grouped discrete authority test is replaced and retained only in
+  history as obsolete prototype evidence.
+- [x] Test 3, K-step return construction test:
+  create a pure test for executable reward sequences, done masks, horizon K, and
+  authority returns.  Verified with
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_return.py`;
+  the test covers event masks, done truncation, detached bootstrap, and blocked
+  bootstrap after done.
+- [x] Test 4, storage -> authority critic loss test:
+  create/update a formal storage minibatch test proving authority fields flow
+  into `FrontRESUnified`, critic loss fits K-step return, and actor update moves
+  probability toward higher-return authority levels.  Verified with
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_algorithm_loss.py`;
+  the test runs the formal `FrontRESUnified.update()` path and checks actor rho
+  increases, critic MSE decreases, and Stage-1 proposal weights remain unchanged.
+- [x] Test 4A, authority storage contract test:
+  `source/rsl_rl/rsl_rl/tests/frontres_authority_storage.py` proves that
+  `proposal_delta_se`, `authority_action`, `authority_log_prob`,
+  `authority_rho`, `authority_return_k`, and `authority_mask` survive
+  transition copy, feedforward mini-batch yield, recurrent mini-batch yield, and
+  default inactive zero initialization.  Verified with
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_storage.py`.
+- [x] Test 5, perturbation scheduler test:
+  create a toy test proving single-frame, burst, and persistent temporal modes
+  produce the intended perturbation masks and diagnostics.  Verified with
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_event.py`;
+  the test covers single, burst split, persistent segment hold, persistent
+  refresh, and inactive frames.
+- [x] Test 5A, runner authority integration test:
+  `source/rsl_rl/rsl_rl/tests/frontres_authority_runner_integration.py` proves
+  the live runner helper keeps Stage-1 proposal in `action[:6]`, replaces only
+  `action[6:12]` with Stage-2 authority rho, writes proposal/rho/mask into the
+  transition, reuses one authority query throughout a burst event, and rewrites
+  event-start frames with K-step authority returns.  Verified
+  with
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_runner_integration.py`.
+- [x] Test 5C, burst perturbation test:
+  `source/rsl_rl/rsl_rl/tests/frontres_burst_perturbation.py` proves IID burst
+  perturbations hold one sampled XY/Z/RP/Yaw event value for the configured
+  duration and reset cleanly on env reset.  Verified with
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_burst_perturbation.py`.
+- [x] Test 5B, authority diagnostics formatter test:
+  `source/rsl_rl/rsl_rl/tests/frontres_authority_diagnostics.py` proves the
+  Optimization / Update block prints authority actor-critic sentinels, hides old
+  structured-rho diagnostics when inactive, and does not depend on runner-local
+  variables such as `locs`.  Verified with
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_diagnostics.py`.
+- [ ] Test 6, live-path sentinel:
+  run a short resume only after Tests 1-3 pass.  The log must prove the active
+  path is authority actor-critic, not old structured-rho advantage.
+- [x] Live-branch retirement audit:
+  search old branch names after implementation:
+  `structured_joint`, `rho_advantage`, `underwrite`, `repair_bce`,
+  `frontres_acceptance_preference`, `state_alpha`, `Stable Frame`, and verify
+  each is active-new, ablation-only, or dead/hard-gated.  No zero-weight live
+  graph is acceptable.  Step 8 hard-gated the old structured-rho runner payload
+  behind `_structured_joint_rl_enabled()` and `not _authority_actor_critic_enabled()`,
+  changed active G1 config to `frontres_structured_joint_rl_enabled=False` and
+  weight `0.0`, and strengthened the authority algorithm test so generic PPO is
+  reported as disabled even when scheduled `ppo_actor_weight=1.0`.  Step 9 still
+  owns cleanup/renaming of old visible diagnostics.
+
+## Previous Change Record: 2026-06-22 Update Memory Safety
 
 - [x] Failure observed:
   CUDA OOM during `FrontRESUnified._update_ppo_supervised()` around iteration 200,

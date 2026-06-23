@@ -410,6 +410,18 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Extra retention bonus when the full Repair proposal is executable."""
     frontres_structured_joint_prior_loss_weight: float = 0.0
     """Boundary-prior regularization weight for safe/deep-broken rho authority."""
+    frontres_authority_actor_critic_enabled: bool = False
+    """Enable proposal-conditioned authority actor-critic and disable legacy generic rho PPO."""
+    frontres_authority_actor_loss_weight: float = 1.0
+    """Actor loss weight for the Stage-2 authority policy."""
+    frontres_authority_critic_loss_weight: float = 1.0
+    """Critic regression weight for K-step executable authority returns."""
+    frontres_authority_actor_warmup_iterations: int = 0
+    """Stage-2 iterations with authority actor loss disabled while the authority critic warms up."""
+    frontres_authority_actor_ramp_iterations: int = 0
+    """Stage-2 iterations used to linearly ramp authority actor loss after warmup."""
+    frontres_authority_return_horizon: int = 1
+    """K-step horizon used by the proposal-conditioned authority critic target."""
     frontres_reward_compute_live_debug: bool = False
     """Print live formal Reward Compute payload/loss diagnostics during smoke tests."""
     frontres_structured_joint_weight_floor: float = 0.10

@@ -237,6 +237,10 @@ class FrontRESActorCritic(nn.Module):
         # state plus a detached proposal.  The default hsl_hybrid path is a
         # single FrontRES network with shared trunk and two semantic heads.
         frontres_split_acceptance_head: bool = False,
+        # Optional Stage-2 authority actor-critic surface.  This is disabled by
+        # default until the runner/storage/algorithm route is integrated.
+        frontres_authority_actor_critic: bool = False,
+        frontres_authority_hidden_dims: list[int] | None = None,
         **kwargs,
     ):
         if kwargs:
@@ -266,6 +270,12 @@ class FrontRESActorCritic(nn.Module):
         # (reference-frame data). GMT always sees the full observation.
         self.num_frontres_obs = num_frontres_obs
         self.frontres_split_acceptance_head = bool(frontres_split_acceptance_head)
+        self.frontres_authority_actor_critic = bool(frontres_authority_actor_critic)
+        if self.frontres_authority_actor_critic and self.num_task_corrections != 6:
+            raise ValueError(
+                "frontres_authority_actor_critic requires 6D task-space corrections "
+                "[dx, dy, dz, droll, dpitch, dyaw]."
+            )
         self.q_ref_start_idx = q_ref_start_idx
         self.noise_std_type = noise_std_type
         self.max_delta_q = max_delta_q          # tanh clip for Δq (rad)
@@ -435,6 +445,8 @@ class FrontRESActorCritic(nn.Module):
         # path uses one shared network with proposal and acceptance heads.
         _frontres_input_dim = num_frontres_obs if num_frontres_obs > 0 else num_actor_obs
         self.acceptance_actor = None
+        self.authority_actor = None
+        self.authority_critic = None
         self.state_router_head = None
         if (
             self.num_task_corrections > 0
@@ -473,6 +485,34 @@ class FrontRESActorCritic(nn.Module):
                 f"proposal_input_dim={_frontres_input_dim}, "
                 f"acceptance_input_dim={_acceptance_input_dim} "
                 "(ablation: full current-state obs + detached proposal)"
+            )
+        if self.frontres_authority_actor_critic and self.num_task_corrections > 0:
+            _authority_hidden = (
+                list(frontres_authority_hidden_dims)
+                if frontres_authority_hidden_dims is not None
+                else list(residual_hidden_dims)
+            )
+            _authority_actor_input_dim = num_actor_obs + self.num_task_corrections
+            _authority_critic_input_dim = num_actor_obs + 2 * self.num_task_corrections
+            self.authority_actor = self._build_residual_actor(
+                input_dim=_authority_actor_input_dim,
+                output_dim=self.num_task_corrections,
+                hidden_dims=_authority_hidden,
+                activation=activation_fn,
+                last_layer_gain=residual_last_layer_gain,
+            )
+            self.authority_critic = self._build_residual_actor(
+                input_dim=_authority_critic_input_dim,
+                output_dim=1,
+                hidden_dims=_authority_hidden,
+                activation=activation_fn,
+                last_layer_gain=1.0,
+            )
+            print(
+                "[FrontEndResidualActorCritic] Authority actor-critic enabled: "
+                f"actor_input_dim={_authority_actor_input_dim}, "
+                f"critic_input_dim={_authority_critic_input_dim}, "
+                f"rho_dim={self.num_task_corrections}"
             )
         if self.num_task_corrections > 0:
             _router_hidden = list(residual_hidden_dims[:2]) if len(residual_hidden_dims) >= 2 else list(residual_hidden_dims)
@@ -647,6 +687,92 @@ class FrontRESActorCritic(nn.Module):
         acceptance_input = torch.cat([full_obs, proposal.detach()], dim=-1)
         raw_coeff = self.acceptance_actor(acceptance_input)
         return torch.cat([raw_pos, raw_rpy, raw_coeff], dim=-1)
+
+    def _frontres_bounded_proposal(self, raw: torch.Tensor) -> torch.Tensor:
+        """Return bounded Stage-1 Delta SE proposal from raw FrontRES output."""
+
+        raw_pos = raw[:, :3]
+        raw_rpy = raw[:, 3:6]
+        return torch.cat([
+            torch.tanh(raw_pos) * self.max_delta_pos,
+            torch.tanh(raw_rpy) * self.max_delta_rpy,
+        ], dim=-1)
+
+    def _frontres_authority_state_and_proposal(
+        self,
+        observations: torch.Tensor | dict[str, torch.Tensor],
+        proposal_delta_se: torch.Tensor | None = None,
+        *,
+        detach_proposal: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return full current-state obs and Stage-1 proposal for authority heads."""
+
+        policy_obs, _, _ = self._parse_observations(observations)
+        full_obs = getattr(self, "_cached_full_policy_obs", policy_obs)
+        if proposal_delta_se is None:
+            raw = self.residual_actor(policy_obs)
+            proposal_delta_se = self._frontres_bounded_proposal(raw)
+        if proposal_delta_se.shape[-1] != self.num_task_corrections:
+            raise ValueError(
+                f"proposal_delta_se must have last dimension {self.num_task_corrections}, "
+                f"got shape {tuple(proposal_delta_se.shape)}."
+            )
+        if detach_proposal:
+            proposal_delta_se = proposal_delta_se.detach()
+        return full_obs, proposal_delta_se
+
+    def get_authority_rho(
+        self,
+        observations: torch.Tensor | dict[str, torch.Tensor],
+        proposal_delta_se: torch.Tensor | None = None,
+        *,
+        active_task_dims: torch.Tensor | None = None,
+        detach_proposal: bool = True,
+    ) -> torch.Tensor:
+        """Return bounded continuous 6D authority rho from Stage-2 actor."""
+
+        if self.authority_actor is None:
+            raise RuntimeError("FrontRES authority_actor is not enabled on this policy.")
+        full_obs, proposal = self._frontres_authority_state_and_proposal(
+            observations,
+            proposal_delta_se,
+            detach_proposal=detach_proposal,
+        )
+        raw_rho = self.authority_actor(torch.cat([full_obs, proposal], dim=-1))
+        rho = torch.sigmoid(raw_rho)
+        if active_task_dims is not None:
+            mask = active_task_dims.to(device=rho.device, dtype=rho.dtype)
+            if mask.shape[-1] != self.num_task_corrections:
+                raise ValueError(
+                    f"active_task_dims must have last dimension {self.num_task_corrections}, "
+                    f"got shape {tuple(mask.shape)}."
+                )
+            rho = rho * mask
+        return rho
+
+    def evaluate_authority_q(
+        self,
+        observations: torch.Tensor | dict[str, torch.Tensor],
+        proposal_delta_se: torch.Tensor,
+        authority_rho: torch.Tensor,
+        *,
+        detach_proposal: bool = True,
+    ) -> torch.Tensor:
+        """Evaluate Q(state, detached proposal, rho) for the authority critic."""
+
+        if self.authority_critic is None:
+            raise RuntimeError("FrontRES authority_critic is not enabled on this policy.")
+        if authority_rho.shape[-1] != self.num_task_corrections:
+            raise ValueError(
+                f"authority_rho must have last dimension {self.num_task_corrections}, "
+                f"got shape {tuple(authority_rho.shape)}."
+            )
+        full_obs, proposal = self._frontres_authority_state_and_proposal(
+            observations,
+            proposal_delta_se,
+            detach_proposal=detach_proposal,
+        )
+        return self.authority_critic(torch.cat([full_obs, proposal, authority_rho], dim=-1))
 
     def get_state_router_logit(self, observations: torch.Tensor) -> torch.Tensor:
         """Return unnormalized alpha logit for the auxiliary instability head."""
@@ -1091,10 +1217,16 @@ class FrontRESActorCritic(nn.Module):
         raw = self._frontres_raw_task_output(policy_obs)
 
         if self.num_task_corrections > 0:
-            delta_pos = torch.tanh(raw[:, :3]) * self.max_delta_pos
-            delta_rpy = torch.tanh(raw[:, 3:6]) * self.max_delta_rpy
-            coeff = torch.sigmoid(raw[:, 6:6 + self.task_conf_dim])
-            frontres_out = torch.cat([delta_pos, delta_rpy, coeff], dim=-1)
+            proposal = self._frontres_bounded_proposal(raw)
+            if self.authority_actor is not None:
+                coeff = self.get_authority_rho(
+                    observations,
+                    proposal_delta_se=proposal,
+                    detach_proposal=True,
+                )
+            else:
+                coeff = torch.sigmoid(raw[:, 6:6 + self.task_conf_dim])
+            frontres_out = torch.cat([proposal, coeff], dim=-1)
             self.last_task_correction = frontres_out.detach()
             self.last_delta_z = None
             with torch.no_grad():
@@ -1118,11 +1250,16 @@ class FrontRESActorCritic(nn.Module):
             raise RuntimeError("get_task_correction_inference is only valid in task-space FrontRES mode")
         policy_obs, _, _ = self._parse_observations(observations)
         raw = self._frontres_raw_task_output(policy_obs) if self.num_task_corrections > 0 else self.residual_actor(policy_obs)
-        correction = torch.cat([
-            torch.tanh(raw[:, :3]) * self.max_delta_pos,
-            torch.tanh(raw[:, 3:6]) * self.max_delta_rpy,
-            torch.sigmoid(raw[:, 6:6 + self.task_conf_dim]),
-        ], dim=-1)
+        proposal = self._frontres_bounded_proposal(raw)
+        if self.authority_actor is not None:
+            coeff = self.get_authority_rho(
+                observations,
+                proposal_delta_se=proposal,
+                detach_proposal=True,
+            )
+        else:
+            coeff = torch.sigmoid(raw[:, 6:6 + self.task_conf_dim])
+        correction = torch.cat([proposal, coeff], dim=-1)
         self.last_task_correction = correction.detach()
         self.last_delta_z = None
         self.last_residual_actions = correction.detach()

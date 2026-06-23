@@ -1,525 +1,778 @@
-# MOSAIC Repository Brief
+# MOSAIC Repository Module Map
 
-This file is a compact map for future coding sessions.  Read this before
-modifying FrontRES/FEMR code so the assistant does not need to rediscover the
-whole repository from scratch.
-
-## One-Sentence Project Map
-
-MOSAIC is an IsaacLab + RSL-RL motion-tracking codebase.  The active research
-branch is FrontRES/FEMR: a trainable front-end residual refiner that edits the
-root-level reference frame before a frozen GMT tracker consumes it.
-
-The intended chain is:
+This document is the entry map for the MOSAIC repository.  It is not a history
+log and not a paper outline.  Its job is to help a human or LLM agent answer:
 
 ```text
-raw reference g_raw
-  -> FrontRES / FEMR proposal Delta SE(3) + acceptance rho
-  -> action-cone and dynamics-aware acceptance filtering
-  -> refined reference g_refin
-  -> frozen GMT policy
-  -> robot action
-  -> IsaacLab / RobotBridge rollout diagnostics
+Which module owns this concept?
+Which files should be changed?
+Which files should not be touched?
+Which tests should be written before a training run?
 ```
 
-## Core FrontRES Contract
+Read this before editing FrontRES, FEMR, MOSAIC training, perturbation
+curriculum, storage, diagnostics, or validation scripts.
 
-FrontRES is not a replacement tracker.  It should correct reference-frame
-artifacts while preserving GMT executability.
+## 0. Repository As A System
 
-Current task-space output is:
+MOSAIC has four large subsystems:
 
 ```text
-[dx, dy, dz, droll, dpitch, dyaw, rho_x, rho_y, rho_z, rho_r, rho_p, rho_yaw]
+scripts/
+  owns command-line entrypoints, data utilities, validation scripts
+
+source/whole_body_tracking/
+  owns IsaacLab task, robot/env config, MDP terms, motion command, perturbations
+
+source/rsl_rl/rsl_rl/
+  owns policy modules, algorithms, storage, runners, FrontRES helper logic
+
+note/
+  owns design contracts, architecture diagrams, modification checklists
 ```
 
-where the first six entries form the HSL/FrontRES repair proposal and
-`rho_*` are the HRL/PPO-owned per-axis dynamics-aware acceptance coefficients
-in the current `hsl_hybrid` design.
+The active research path is FrontRES:
 
-The current design contract is in:
+```text
+corrupted reference
+  -> Stage 1 Clean-oriented Delta SE proposal
+  -> Stage 2 authority actor-critic over rho
+  -> K-step executable return
+  -> burst perturbation curriculum
+  -> frozen GMT execution
+```
+
+The current method contract is:
 
 ```text
 note/FrontRES Design Contract.md
 ```
 
-Use that document as the source of truth for fragile FrontRES changes.  The
-most important invariant is:
+The current engineering checklist is:
 
 ```text
-HSL owns the Delta SE(3) repair proposal.
-HRL/PPO does not own repair direction.
-HRL/PPO only owns the 6D acceptance vector rho in hsl_hybrid.
+note/FrontRES Modification Checklist.md
 ```
 
-The runtime write should follow:
+## 1. Training Entrypoints
 
-\[
-\Delta g^{write}_t =
-\rho_t \odot \Delta g^{HSL}_t .
-\]
+### Owner
 
-Do not silently reinterpret `rho` as an uncertainty confidence score or as a
-new repair-direction generator.
+Training scripts own process startup only.  They should not own FrontRES method
+semantics.
 
-## Main Files
-
-### Training Entry
+### Files
 
 ```text
 scripts/rsl_rl/train.py
+scripts/rsl_rl/play.py
+scripts/rsl_rl/cli_args.py
+scripts/rsl_rl/collect_expert_trajectories.py
 ```
 
-This launches Isaac Sim/IsaacLab, registers tasks through Hydra, builds the
-environment, and uses:
+### Responsibilities
 
-```text
-whole_body_tracking.utils.my_on_policy_runner.MotionOnPolicyRunner
-```
+- launch IsaacLab / Isaac Sim;
+- parse CLI and Hydra configs;
+- instantiate task env and runner;
+- resume/load checkpoints;
+- run training or play.
 
-Important CLI overrides:
+### Forbidden Responsibilities
 
-```text
---task=FrontRES-Unified-Tracking-Flat-G1-v0
---num_envs=...
---motion ...
---headless
---device cuda:...
---supervised_warmup_iterations ...
---frontres_debug_training
---is_full_resume true|false
-```
+- do not define FrontRES reward, rho semantics, HSL target, authority critic, or
+  perturbation curriculum here;
+- do not patch config values in the entry script unless the CLI explicitly owns
+  that override.
 
-Common server command shape:
+### When To Edit
 
-```text
-CUDA_VISIBLE_DEVICES=3 HYDRA_FULL_ERROR=1 nohup bash /hdd1/cyx/IsaacLab_mosaic/isaaclab.sh -p /hdd1/cyx/MOSAIC/scripts/rsl_rl/train.py \
-    --task=FrontRES-Unified-Tracking-Flat-G1-v0 \
-    --num_envs=12000 \
-    --motion /hdd1/cyx/AMASS_G1NPZ_Final \
-    --logger tensorboard \
-    --headless \
-    --device cuda:0 \
-    >/hdd1/cyx/MOSAIC/train.txt 2>&1 &
-```
+Edit only when startup, resume, logging backend, CLI flags, or task registration
+is wrong.
 
-With `CUDA_VISIBLE_DEVICES=3`, Isaac/PyTorch see that physical GPU as
-`cuda:0`, so `--device cuda:0` is intentional.
+## 2. IsaacLab Task And Environment Layer
 
-### FrontRES Runner Config
+### Owner
 
-```text
-source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/rsl_rl_mosaic_cfg.py
-```
+`source/whole_body_tracking` owns the simulated task: robot config, command
+manager, observations, rewards, terminations, and perturbation source.
 
-Active class:
-
-```text
-G1FlatFrontRESUnifiedRunnerCfg
-```
-
-Important current defaults:
-
-```text
-max_iterations = 2000
-frontres_training_objective = "hsl_hybrid"
-frontres_specialist_mode = "rp"
-frontres_active_task_dims = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-num_task_corrections = 6
-task_conf_dim = 6
-max_delta_pos = 0.3
-max_delta_rpy = 0.4
-supervised_warmup_iterations = 200
-critic_warmup_iterations = 0
-ppo_actor_warmup_iterations = 200
-ppo_actor_ramp_iterations = 500
-lambda_supervised_min = 0.20
-```
-
-Current curriculum scale notes:
-
-```text
-frontres_supervised_dr_scale_start = 1.25
-frontres_supervised_dr_scale_end = 4.375
-frontres_supervised_dr_ramp_iters = 1400
-dr_min_scale = 1.25
-dr_max_scale = 4.50
-```
-
-For `rp`, MOSAIC base perturbation is approximately `0.08 rad`, so
-`dr_scale=4.375` corresponds to RobotBridge-like `epsilon=0.35`.
-
-### Task Registration
-
-```text
-source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/__init__.py
-```
-
-The active FrontRES task id is:
-
-```text
-FrontRES-Unified-Tracking-Flat-G1-v0
-```
-
-It maps to:
-
-```text
-env_cfg_entry_point: G1FlatFrontRESFinetuneEnvCfg
-rsl_rl_cfg_entry_point: G1FlatFrontRESUnifiedRunnerCfg
-```
-
-### G1 FrontRES Env Config
+### Files
 
 ```text
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/flat_env_cfg.py
+source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/rsl_rl_mosaic_cfg.py
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py
-```
-
-These define observations, reference-command layout, terminations, and the
-FrontRES finetune environment.  The important idea is that FrontRES sees
-anchor/reference error signals and GMT still acts on the refined reference.
-
-### Motion Command / Perturbation Logic
-
-```text
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/observations.py
+source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/rewards.py
+source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py
 ```
 
-Important responsibilities:
+### Responsibilities
 
-- maintain raw / perturbed / FrontRES-corrected anchor references;
-- synchronize FrontRES, noisy-GMT, and clean-GMT triplets;
-- expose supervised target and anchor-error observations;
-- reset FrontRES corrections and perturbation states on episode reset.
+- define the tracking task and G1 environment;
+- define observation layout seen by GMT / FrontRES;
+- maintain raw, perturbed, and FrontRES-corrected reference state;
+- apply reference perturbations;
+- expose environment reward and termination;
+- register task config and agent config.
 
-When debugging training labels, start with `observations.py` and `commands.py`.
+### FrontRES-Specific Responsibilities
 
-### FrontRES Policy Module
+- `rsl_rl_mosaic_cfg.py` owns experiment-level config values;
+- `commands.py` and `motion_perturbations.py` own reference perturbation state;
+- `observations.py` owns whether Stage 2 has enough state/history information;
+- `rewards.py` owns environment reward terms, but not FrontRES-specific
+  executable reward aggregation.
+
+### Forbidden Responsibilities
+
+- do not implement RSL-RL loss here;
+- do not store rollout minibatch fields here;
+- do not hide method-specific labels inside observations without documenting the
+  deployment availability of that signal.
+
+### FrontRES Authority Actor-Critic Impact
+
+The new design may require:
+
+- temporal perturbation events: start frame, burst duration, recovery tail;
+- event boundary or refresh interval signal;
+- observation fields sufficient for `rho = pi(s, Delta SE)` to be conditional.
+
+Those belong here or in the runner-facing perturbation helpers, not in the
+algorithm loss.
+
+## 3. Policy And Network Modules
+
+### Owner
+
+`source/rsl_rl/rsl_rl/modules` owns neural network parameterization.
+
+### Files
 
 ```text
 source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py
+source/rsl_rl/rsl_rl/modules/actor_critic.py
+source/rsl_rl/rsl_rl/modules/residual_actor_critic.py
+source/rsl_rl/rsl_rl/modules/supervise_learning.py
+source/rsl_rl/rsl_rl/modules/velocity_estimator.py
 ```
 
-Important class:
+### FrontRES Class
 
 ```text
 FrontRESActorCritic
 ```
 
-It loads a frozen GMT checkpoint and owns:
+### Responsibilities
 
-- trainable `residual_actor`;
-- trainable `critic`;
-- frozen `gmt_policy`;
-- GMT observation normalizer.
+- load frozen GMT policy and normalizer;
+- parameterize Stage 1 proposal network;
+- parameterize Stage 2 authority actor;
+- provide inference and training forward paths;
+- expose action distribution stats used by the algorithm.
 
-In task-space mode, the residual actor emits bounded:
+### Current Useful Structure
+
+`front_residual_actor_critic.py` already has:
 
 ```text
-[Delta pos(3), Delta rpy(3), rho(6)]
+frontres_split_acceptance_head
+acceptance_actor(full_obs, detached Delta SE proposal)
 ```
 
-The module does not write task-space corrections into the environment; the
-runner applies them to the motion command before GMT inference.
+This matches the new proposal-conditioned authority design.  The architecture
+test is:
 
-### FrontRES Algorithm
+```text
+source/rsl_rl/rsl_rl/tests/frontres_split_acceptance_architecture.py
+```
+
+### New Authority Actor-Critic Responsibilities
+
+The policy/module layer should own:
+
+```text
+Stage 1 proposal actor:
+  d_t = Delta SE_HSL
+
+Stage 2 authority actor:
+  rho_group ~ pi_rho(state/history, detached d_t)
+
+Stage 2 authority critic:
+  Q_phi(state/history, detached d_t, rho_group)
+```
+
+The authority space is fixed by the design contract:
+
+```text
+rho_planar in {0, 0.5, 1} -> dx, dy, yaw
+rho_z      in {0, 0.5, 1} -> dz
+rho_rpy    in {0, 0.5, 1} -> roll, pitch
+```
+
+### Forbidden Responsibilities
+
+- Stage 2 authority loss must not backpropagate into Stage 1 proposal unless a
+  later design explicitly enables joint fine-tuning;
+- do not let the ordinary PPO value critic silently become the authority critic;
+- do not mix scalar, grouped, and per-axis rho semantics in one live experiment.
+
+## 4. Algorithm Layer
+
+### Owner
+
+`source/rsl_rl/rsl_rl/algorithms` owns optimization and loss computation.
+
+### Files
 
 ```text
 source/rsl_rl/rsl_rl/algorithms/frontres_unified.py
+source/rsl_rl/rsl_rl/algorithms/ppo.py
+source/rsl_rl/rsl_rl/algorithms/mosaic.py
+source/rsl_rl/rsl_rl/algorithms/distillation.py
 ```
 
-Important class:
+### FrontRES Class
 
 ```text
 FrontRESUnified
 ```
 
-Objective modes:
+### Responsibilities
+
+- update policy parameters from rollout storage;
+- compute supervised HSL loss;
+- compute PPO/value losses where still active;
+- compute Stage-2 authority actor-critic losses;
+- enforce gradient boundaries;
+- return diagnostics used by runner logging.
+
+### New Authority Actor-Critic Contract
+
+The new active path should be:
 
 ```text
-supervised_restore
-basis_restore
-hsl_hybrid
-ppo_hrl and older RL-style modes
+HSL loss:
+  trains Stage 1 proposal only
+
+authority critic loss:
+  fits Q_phi(state, detached proposal, rho_group) to K-step executable return
+
+authority actor loss:
+  updates Stage 2 authority actor toward authority actions with higher predicted
+  executable value
 ```
 
-Current `hsl_hybrid` contract:
+### Old Paths To Retire Or Hard-Gate
 
-- supervised loss trains the Delta SE(3) proposal;
-- PPO surrogate/value loss is active;
-- PPO actor gradient is restricted to the six `rho` acceptance output rows;
-- critic/value function still exists and is trained;
-- `lambda_supervised` remains an anchor so PPO cannot freely rewrite direction.
-
-Important methods and concepts:
+These old paths must not remain active in the new authority actor-critic run:
 
 ```text
-_compute_supervised_loss(...)
-_compute_ppo_losses(...)
-_ppo_acceptance_only_mode()
-_keep_ppo_grad_on_acceptance_head_only(...)
+structured_joint sampled-rho advantage
+underwrite reward bonus
+boundary prior rho pull
+legacy acceptance BCE
+state alpha / Stable Frame route
+endpoint-only acceptance label
 ```
 
-If training suddenly degrades after PPO starts, inspect whether PPO is still
-restricted to `rho` and whether diagnostics describe the value actually written
-to GMT.
+They can remain as ablations only if guarded by explicit config flags that are
+off for the active experiment.
 
-### Runner: FrontRES Rollout, Warmup, Write Path, Diagnostics
+### Forbidden Responsibilities
 
-```text
-source/rsl_rl/rsl_rl/runners/on_policy_runner.py
-```
+- do not generate rollout evidence here;
+- do not infer perturbation events here;
+- do not keep zero-weight legacy tensor graphs alive.
 
-This is the densest file.  Do not edit without checking the design contract.
+## 5. Storage Layer
 
-Key regions:
+### Owner
 
-- mode detection and FrontRES setup near runner init;
-- joint supervised warmup before PPO loop;
-- triplet construction: FrontRES / noisy GMT / clean GMT;
-- perturbation curriculum and DR scale;
-- rollout-aware HSL label update;
-- task-space action mask;
-- runtime application of Delta SE(3);
-- dynamics-aware acceptance write path for `hsl_hybrid`;
-- console diagnostics and save-time probe.
+`source/rsl_rl/rsl_rl/storage` owns rollout tensors and minibatch tuple shape.
 
-Key methods to search:
-
-```text
-_maybe_update_frontres_hsl_rollout_target
-_frontres_project_task_target_to_action_cone
-_frontres_apply_per_mode_supervised_mask
-_frontres_exec_score
-_frontres_exec_score_for_modes
-_apply_frontres_task_corrections
-_maybe_print_frontres_restore_debug
-_record_frontres_checkpoint_probe
-```
-
-Current intended runtime write in `hsl_hybrid`:
-
-```text
-proposal = HSL Delta SE(3)
-rho = PPO 6D dynamics-aware acceptance
-written = rho * proposal
-```
-
-### Storage
+### File
 
 ```text
 source/rsl_rl/rsl_rl/storage/rollout_storage.py
 ```
 
-If adding a new training signal, check the storage tuple shape and minibatch
-unpacking in `frontres_unified.py`.  Many FrontRES bugs are contract mismatches:
-runner writes a field, algorithm expects a different field or shape.
+### Responsibilities
 
-## Validation / RobotBridge Scripts
+- store per-step observations, actions, rewards, dones, values;
+- store FrontRES-specific supervised and authority fields;
+- flatten rollout into minibatches;
+- preserve tuple compatibility with algorithm unpacking.
 
-Validation scripts live in:
+### New Authority Storage Fields
+
+Preferred explicit fields:
 
 ```text
-scripts/robustness_validation/
+proposal_delta_se
+authority_action
+authority_log_prob
+authority_level
+authority_return_k
+authority_mask
+authority_event_id
+authority_event_start
 ```
 
-Important files:
+If old fields such as `acceptance_target` / `acceptance_mask` are reused
+temporarily, the comments and tests must state their live meaning.  Do not let
+the same storage names mean "rho advantage" in one branch and "authority return"
+in another active branch.
+
+### Forbidden Responsibilities
+
+- storage must not compute rewards, labels, or K-step returns;
+- storage must not reorder the minibatch tuple in a way that silently breaks
+  older algorithm unpacking.
+
+## 6. Runner Layer
+
+### Owner
+
+`source/rsl_rl/rsl_rl/runners` owns the rollout loop and live integration:
+policy action, environment step, reward/evidence collection, storage write,
+logging, checkpointing.
+
+### Files
 
 ```text
-run_validation_mujoco.py
-run_validation_mujoco_batch.py
-results_io.py
-plot_results.py
-run_push2_main_figures.sh
-metrics.py
-push_controller.py
-ou_injector.py
+source/rsl_rl/rsl_rl/runners/on_policy_runner.py
+source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py
+source/rsl_rl/rsl_rl/runners/frontres_post_step_connector.py
+source/rsl_rl/rsl_rl/runners/frontres_training_setup.py
+source/rsl_rl/rsl_rl/runners/frontres_warmup.py
+source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py
+source/rsl_rl/rsl_rl/runners/frontres_runner_logging.py
+source/rsl_rl/rsl_rl/runners/frontres_runtime.py
 ```
 
-`run_validation_mujoco_batch.py` expects motion layout:
+### Responsibilities
+
+- orchestrate training phases;
+- call policy and env;
+- apply task-space corrections before GMT execution;
+- collect reward/evidence;
+- build storage transitions;
+- run update and logging;
+- save and resume checkpoints.
+
+### New Authority Actor-Critic Responsibilities
+
+Runner must connect:
 
 ```text
-motion_root/
-  Walking/*.npz
-  Turning/*.npz
-  Upper/*.npz
-  Lateral/*.npz
+event starts
+  -> Stage 1 proposal
+  -> Stage 2 grouped authority action
+  -> write Delta SE_exec = rho_group * Delta SE_HSL
+  -> collect executable rewards over K steps
+  -> write authority fields into storage
 ```
 
-It saves each motion independently:
+### Forbidden Responsibilities
+
+- runner should not contain the authority critic loss;
+- runner should not keep broad `locals()` dictionaries with CUDA tensors;
+- runner should not leave old structured-rho carrier overwriting new authority
+  fields.
+
+## 7. FrontRES Domain Helpers
+
+### Owner
+
+`source/rsl_rl/rsl_rl/frontres` owns FrontRES-specific pure or near-pure helper
+logic.  This folder should hold method concepts that are not runner orchestration
+and not algorithm optimization.
+
+### Files
 
 ```text
-output_dir/
-  run_meta.json
-  motions/<group>/<motion_stem>/
-    meta.json
-    results_raw.npz
-    summary.csv
-    status.json
-    videos/*.mp4
+frontres_action_cone.py
+frontres_alpha_rho_bridge.py
+frontres_alpha_router.py
+frontres_diagnostics.py
+frontres_dr_curriculum.py
+frontres_executability.py
+frontres_executable_floor.py
+frontres_metrics.py
+frontres_oracle.py
+frontres_reward_diagnostics.py
+frontres_reward_window.py
+frontres_rollout_evidence.py
+frontres_structured_rho.py
+frontres_transition_payload.py
+perturbation_runtime.py
+runtime_diagnostics.py
+task_space_correction.py
+temporal_reference_cache.py
+training_schedule.py
 ```
 
-Main push-2 validation script:
+### Responsibilities
+
+- action cone and dimension masks;
+- task-space correction application;
+- executable score components;
+- perturbation curriculum helpers;
+- reward/evidence summarization;
+- diagnostics formatting;
+- temporal reference cache.
+
+### New Helpers Needed
+
+For authority actor-critic, add small focused modules rather than expanding
+`on_policy_runner.py`:
 
 ```text
-scripts/robustness_validation/run_push2_main_figures.sh
+frontres_authority_space.py
+  grouped authority levels and group-to-dim mapping
+
+frontres_authority_return.py
+  K-step executable return with done masks and optional detached bootstrap
+
+frontres_authority_event.py
+  perturbation-event metadata: event id, event start, burst duration, refresh
+  interval
 ```
 
-It runs groups:
+### Old Helpers To Treat As Ablation
 
 ```text
-Lateral Upper Walking
+frontres_structured_rho.py
+frontres_alpha_rho_bridge.py
+frontres_alpha_router.py
 ```
 
-and then plots grouped `rp` results into:
+These may remain in the repository, but the active authority actor-critic path
+must not depend on them unless the design contract explicitly changes.
+
+## 8. Perturbation And Curriculum Layer
+
+### Owner
+
+Perturbation has two owners:
 
 ```text
-verify/figures_push2
+whole_body_tracking/mdp/motion_perturbations.py
+  owns environment-side perturbation state
+
+rsl_rl/frontres/frontres_dr_curriculum.py and runners/frontres_training_setup.py
+  own training-side curriculum schedule and diagnostics
 ```
 
-Plotting script:
+### New Event-Level Contract
+
+The authority actor-critic design uses perturbation events:
 
 ```text
+single-frame event:
+  one corrupted frame, one proposal, one authority action, one K-step return
+
+burst event:
+  corrupted segment of length L, one proposal/authority decision for the event
+
+persistent event:
+  long corruption with explicit authority refresh interval
+```
+
+The scheduler must own:
+
+```text
+perturbation start time
+burst duration
+clean/recovery tail duration
+authority query frame
+authority refresh interval
+temporal mode: single / burst / persistent
+```
+
+### Diagnostics Required
+
+```text
+temporal mode
+burst duration
+authority query frame
+refresh interval
+event count
+event-level authority coverage
+```
+
+## 9. Diagnostics Layer
+
+### Owner
+
+Diagnostics are split:
+
+```text
+source/rsl_rl/rsl_rl/frontres/frontres_diagnostics.py
+source/rsl_rl/rsl_rl/frontres/frontres_reward_diagnostics.py
+source/rsl_rl/rsl_rl/frontres/runtime_diagnostics.py
+source/rsl_rl/rsl_rl/runners/frontres_runner_logging.py
+```
+
+### Responsibilities
+
+- format live console output;
+- expose scalar metrics for TensorBoard / logging;
+- prove which live path is running;
+- distinguish method failure from logging failure.
+
+### New Authority Diagnostics
+
+Required live sentinels:
+
+```text
+authority_space = grouped(planar,z,rpy) levels={0,0.5,1}
+rho_level_frac by group and level
+return_by_level by group and level
+proposal_magnitude_by_level
+authority_critic_loss
+authority_actor_loss
+authority_q_pred_by_level
+K_step_horizon
+temporal_perturb_mode
+burst_duration
+event_count
+```
+
+### Forbidden Responsibilities
+
+- diagnostics must not build autograd graphs;
+- diagnostics must not receive `locals()` or large CUDA tensors;
+- diagnostics must not print old rho-advantage labels as if they were the new
+  authority actor-critic path.
+
+## 10. Tests
+
+### Owner
+
+Tests under `source/rsl_rl/rsl_rl/tests` are local method tests.  They should
+catch concept-code mismatch before a long IsaacLab run.
+
+### Existing Useful Tests
+
+```text
+frontres_split_acceptance_architecture.py
+frontres_region_direct_update_path.py
+frontres_storage_algorithm_loss.py
+frontres_update_memory_pipeline.py
+frontres_live_batch_replay.py
+```
+
+### New Test Ladder
+
+Build tests in this order:
+
+```text
+1. architecture gradient-boundary test
+2. grouped authority-level sampling and coverage test
+3. K-step executable return construction test with done masks
+4. storage -> authority critic loss test
+5. perturbation scheduler event-mode test
+6. live-path sentinel short run
+```
+
+Do not use long training runs to discover algebra bugs that can be tested
+locally.
+
+## 11. Validation Scripts
+
+### Owner
+
+`scripts/robustness_validation` owns post-training validation and paper figures.
+It should not own training labels or FrontRES method semantics.
+
+### Files
+
+```text
+scripts/robustness_validation/run_validation.py
+scripts/robustness_validation/run_validation_batch.py
+scripts/robustness_validation/run_validation_mujoco.py
+scripts/robustness_validation/run_validation_mujoco_batch.py
+scripts/robustness_validation/results_io.py
 scripts/robustness_validation/plot_results.py
+scripts/robustness_validation/metrics.py
+scripts/robustness_validation/ou_injector.py
+scripts/robustness_validation/push_controller.py
 ```
 
-Important plotting decisions already made:
+### Responsibilities
 
-- grouped paper figures should not include an Overall curve;
-- figure titles are removed because LaTeX subfigure captions provide titles;
-- Fig. 2 keeps the red zero-margin line but should not over-explain it in the
-  legend;
-- use `Reference frame noise epsilon` or `Reference frame noise ε`;
-- avoid `Post-Push`; use `Push` if needed.
+- run post-training robustness validation;
+- save per-motion results;
+- compute validation metrics;
+- generate figures.
 
-If RobotBridge code also needs updates, copy changed validation files from
-this repo into:
+### Forbidden Responsibilities
+
+- do not tune training reward here;
+- do not alter FrontRES authority semantics here;
+- do not compare MOSAIC and RobotBridge perturbation scales without explicit
+  conversion.
+
+## 12. Notes And Architecture Documents
+
+### Owner
+
+`note/` owns design continuity.
+
+### Current Intended Roles
 
 ```text
-/Users/chengyuxuan/ArtiIntComVis/RobotBridge/deploy/robustness_validation/
+MOSAIC Repository Brief.md
+  entry module map and ownership document
+
+FrontRES Design Contract.md
+  current method contract and research boundary
+
+FrontRES Modification Checklist.md
+  active engineering checklist for ongoing refactors
+
+FrontRES Paper Method Outline.md
+  paper-facing method material, not implementation truth
+
+architecture/
+  HTML/data visual maps
 ```
 
-Approved copy commands already exist for the main validation scripts.
+### Rule
 
-## Paper / Notes
-
-Main research notes:
+If these documents disagree, use this priority:
 
 ```text
-note/Front End Motion Refiner.md
-note/FrontRES Design Contract.md
+FrontRES Design Contract.md for current method concept
+FrontRES Modification Checklist.md for active implementation steps
+MOSAIC Repository Brief.md for module ownership
+Paper Method Outline only for writing
+older sections as history, not active truth
 ```
 
-Paper LaTeX is not in this repository root in normal MOSAIC work; the FrontRES
-paper folder has been:
+## 13. Current FrontRES Authority Refactor: Module Ownership
+
+The current refactor should land as follows:
 
 ```text
-/Users/chengyuxuan/ArtiIntComVis/FrontRES
+Policy/module:
+  front_residual_actor_critic.py
+  owns Stage 1 proposal actor, Stage 2 authority actor, Stage 2 authority critic
+
+FrontRES helpers:
+  frontres_authority_space.py
+  frontres_authority_return.py
+  frontres_authority_event.py
+
+Runner:
+  on_policy_runner.py
+  frontres_rollout_step.py
+  frontres_training_setup.py
+  owns event orchestration and storage write
+
+Storage:
+  rollout_storage.py
+  owns authority fields and minibatch tuple
+
+Algorithm:
+  frontres_unified.py
+  owns authority actor-critic update
+
+Diagnostics:
+  frontres_diagnostics.py
+  frontres_runner_logging.py
+  owns live proof that the new path is active
+
+Config:
+  rsl_rl_mosaic_cfg.py
+  owns flags and hyperparameters
 ```
 
-When writing paper text, use the `profleo` style if requested.  The paper
-method narrative currently emphasizes:
+Do not implement the refactor by adding another large block into
+`on_policy_runner.py`.  Add small modules with one owner each.
 
-- Reference Residual Refinement;
-- Perturbation-Aligned Repair Space;
-- Tracker-Aware Restoration Learning.
+## 14. Common Failure Patterns
 
-## Current Research Narrative
+### Concept-Code Drift
 
-The paper should sell the architecture, not just one trained network.
+The note says one thing, but live config or old branches run another path.
 
-The condensed story:
-
-1. Video-extracted motion artifacts mainly appear as root-frame reference
-   errors while many joint-angle estimates remain usable.
-2. A frozen robust tracker has a finite robustness budget; corrupted reference
-   frames consume that budget before external pushes or hardware noise appear.
-3. FrontRES edits the reference in front of GMT, rather than changing GMT.
-4. Perturbation family and repair space must be aligned.  High perturbation is
-   not merely larger low perturbation; it can change contact, phase, and
-   feasible repair directions.
-5. HSL gives stable geometric/rollout-aware repair direction.
-6. HRL/PPO should be restricted to physical filtering or temporal continuity
-   choices, not free repair direction.
-7. Demo-quality means approaching Clean behavior, not only avoiding falls.
-
-## Training Status Concepts
-
-Common console diagnostics:
+Check:
 
 ```text
-ep_len_FrontRES
-ep_len_GMT (baseline)
-DR scale
-survival rate
-supervised_cos_sim
-restore ratio
-mae/rmse all
-mae/rmse rpy
-valid target frac
-L_pos/L_rot
-L_mag/over/smooth
-rho pos/rpy mean/active
-write ratio/leakage
-|Delta pos|
-|Delta rpy|
-restore rp/res/bias
-grad cos PPO/Sup
-lambda_supervised
-PPO actor weight
-learning rate
+config -> runner -> storage -> algorithm -> runtime write -> diagnostics
 ```
 
-Interpretation reminders:
+### Storage Mismatch
 
-- If `ep_len_FrontRES` drops below GMT around the same DR scale repeatedly,
-  suspect the repair proposal, acceptance field, or action-cone feasibility, not
-  only the optimizer.
-- A high supervised cosine can coexist with bad rollout performance.
-- If `rho` starts generating direction-like behavior instead of accepting or
-  suppressing the HSL proposal, the design is broken.
-- If PPO can change Delta SE(3) direction, reward hacking is likely.
-- If `restore ratio` is high but rollout worsens, the geometry target may be
-  outside the dynamically feasible cone.
+Runner writes one field meaning; algorithm reads another meaning.
 
-## Modification Checklist
-
-Before editing FrontRES training logic:
-
-1. Read this file.
-2. Read `note/FrontRES Design Contract.md`.
-3. Identify which owner is being changed:
-   proposal, label, reward, rho acceptance, action cone, critic, storage, or
-   diagnostic.
-4. State the Design Delta in the response before nontrivial coding.
-
-After editing:
-
-1. Verify the path:
+Check:
 
 ```text
-config -> runner rollout construction -> storage fields -> algorithm update
--> runtime write -> diagnostics
+rollout_storage.py Transition fields
+add_transitions
+mini_batch_generator tuple
+frontres_unified.py unpacking
 ```
 
-2. Run `python -m py_compile` on touched Python files when practical.
-3. Say whether the training command changes.
-4. Say whether old branches/objectives were preserved.
+### Hidden Old Branch
 
-## Common Failure Modes
+An old branch has zero weight but still builds tensors or changes diagnostics.
 
-- `frontres_training_objective` says one thing but runner/algorithm branches
-  interpret it differently.
-- Storage tuple shape changes in runner but minibatch unpacking is not updated.
-- Debug config overrides formal config unexpectedly.
-- `frontres_active_task_dims` samples perturbations that the action cone cannot
-  repair.
-- PPO actor gradient leaks into Delta SE(3) proposal direction.
-- Runtime writes a different correction than diagnostics report.
-- Temporal continuity cache is not reset when envs reset.
-- Upward `dz` correction creates discontinuity and makes the robot float or
-  fall.
-- Mixed perturbations are introduced before single-family repairs are stable.
-- RobotBridge and MOSAIC perturbation scales are compared without conversion.
+Search:
+
+```text
+structured_joint
+rho_advantage
+underwrite
+repair_bce
+frontres_acceptance_preference
+state_alpha
+Stable Frame
+```
+
+### CUDA Tensor Retention
+
+A debug/log dictionary retains rollout tensors across iterations.
+
+Search:
+
+```text
+locals()
+locals().copy()
+dict(locals())
+retain_graph=True
+self.*append(...)
+self.* = *obs/actions/rewards/loss/rho/advantage*
+```
+
+### Diagnostics Lie
+
+A metric prints, but it belongs to an old branch or stale variable.
+
+Rule:
+
+```text
+If old visible behavior remains, search every emitter of that label before
+blaming resume, checkpoint, or server sync.
+```
+
+## 15. How To Use This Document
+
+When starting a new task:
+
+1. Identify the concept being touched.
+2. Find the module owner in this document.
+3. Check the design contract for current method semantics.
+4. Check the modification checklist for active step status.
+5. Write or update the smallest local test before long training.
+
+When asking another LLM agent to help, give it this document first, then the
+specific design contract section relevant to the task.

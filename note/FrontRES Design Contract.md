@@ -5,6 +5,549 @@ It is more specific than the Dr.Cheng skill.  Read this before implementing
 nontrivial changes to FrontRES training, rollout labels, PPO/HRL behavior, or
 diagnostics.
 
+## 2026-06-23 Authority Actor-Critic Contract
+
+This section supersedes the earlier `Proposal-Conditioned Acceptance Contract`
+as the current research direction.  The acceptance-only contract correctly
+identified that Stage 2 must see the Stage-1 proposal, but it compressed `rho`
+too far into binary acceptance.  The current design keeps the two-stage
+architecture while restoring `rho` as a learned execution-authority variable.
+
+The current FrontRES method should be:
+
+```text
+corrupted reference
+  -> Stage 1: Clean-oriented Delta SE proposal
+  -> Stage 2: authority actor-critic over rho
+  -> k-step executable return
+  -> burst perturbation curriculum
+  -> frozen GMT execution
+```
+
+### Core Variable
+
+The method does not generate a new dynamically admissible reference and does
+not search for a Stable Frame.  It makes one variable executable:
+
+\[
+\text{execution authority: how much of this Clean-oriented proposal should be
+written under the current motion state and short-horizon dynamics?}
+\]
+
+The key change from earlier endpoint acceptance is that `rho` is no longer
+treated as a label derived from full-write vs no-write alone.  `rho` is an
+action whose value is learned through an authority critic.
+
+### Design 1: Two-Stage Proposal-Conditioned Architecture
+
+Stage 1 owns direction:
+
+```text
+d_t = Delta SE_HSL = f_HSL(o_t)
+```
+
+It is trained by HSL/supervised restoration and provides the Clean-oriented
+repair proposal.
+
+Stage 2 owns execution authority:
+
+```text
+rho_t = pi_rho(s_t, d_t)
+Delta SE_exec,t = rho_t ⊙ d_t
+```
+
+Stage 2 must explicitly receive the detached Stage-1 proposal.  The authority
+of a repair is a relation between the current motion state and the proposed
+correction, not a property of the state alone.
+
+### Design 2: Authority Critic
+
+The previous PPO/advantage formulation tried to train `rho` from the sampled
+action's weak local advantage.  That failed because each rollout observes only
+one `rho` per state, and the policy-gradient signal is too indirect for a
+state/proposal-dependent execution authority.
+
+The current design introduces a Stage-2 critic:
+
+\[
+Q_\phi(s_t, d_t, \rho_t)
+\]
+
+It predicts the future executable value of applying authority `rho_t` to the
+proposal `d_t`.  The Stage-2 actor can then be trained to choose authorities
+that the critic predicts as better.
+
+The active authority space is continuous 6D authority:
+
+```text
+rho = [rho_dx, rho_dy, rho_dz, rho_droll, rho_dpitch, rho_dyaw]
+rho_i in [0, 1]
+
+Delta SE_exec = active_task_dims * rho * Delta SE_HSL
+```
+
+This replaces the previous grouped discrete proposal.  Grouped rho looked
+attractive because it reduced dimensionality, but simulation evidence showed
+that it couples unrelated correction dimensions.  For example, a grouped planar
+rho forces `dx`, `dy`, and `yaw` to be written together; when the policy wants to
+compensate one direction, it can be forced to write the other directions and
+produce persistent directional bias.  This means grouped rho removed a variable
+that the method actually needs.  The active design therefore keeps rho
+continuous and per-dimension, while Stage 1 still owns the correction direction.
+
+This does not turn Stage 2 into a new tracker.  Stage 2 cannot invent a new
+correction vector; it only scales the detached Stage-1 proposal per dimension.
+The action cone remains as a hard boundary on which dimensions may be active,
+not as the learning structure for rho.
+
+### Action Cone Boundary
+
+The Action Cone is no longer treated as the main rho design.  In the current
+root-perturbation setting, `x`, `y`, `z`, and `yaw` often all need repair, so a
+coarse cone such as planar/z/rpy does not provide the right learning structure.
+Its role is narrower:
+
+```text
+Action Cone owns:
+  hard safety constraints;
+  experiment/ablation masks;
+  forbidden dimensions such as unsafe upward dz if needed;
+  consistency between perturbation family and repairable dimensions.
+
+Action Cone must not own:
+  grouping rho for optimization;
+  deciding repair strength;
+  replacing the authority actor;
+  hiding per-dimension compensation conflicts.
+```
+
+If a dimension is allowed by the Action Cone, Stage 2 decides its continuous
+authority.  If a dimension is forbidden, its rho is masked to zero.  This keeps
+the concepts separated: the cone says what may be repaired; rho says how much of
+the Stage-1 proposal should be executed in each allowed dimension.
+
+### Design 3: K-Step Executable Return
+
+The critic must not learn only the immediate executable score.  Authority is
+valuable because it affects future GMT stability.
+
+The critic target should use a short-horizon return built from the existing
+executable reward:
+
+\[
+G_t^{(K)} =
+  \sum_{i=0}^{K-1}\gamma^i r^{exec}_{t+i}
+  + \gamma^K V(s_{t+K})
+\]
+
+This is not a new hand-designed reward.  It is the existing executable signal
+viewed at the correct temporal scale.  It solves the time-scale problem:
+single-step rewards are too short-sighted for dynamic executability, while full
+episode length is too sparse for early training.
+
+If the rollout horizon or episode boundary prevents bootstrapping, the bootstrap
+term is masked or detached to zero.  This is an episode-boundary rule, not a
+different method.
+
+### Design 4: Burst Perturbation Curriculum
+
+If every frame is perturbed and every frame independently samples a new `rho`,
+the K-step return for `rho_t` is mixed with new perturbations and new authority
+decisions at every future step.  This makes credit assignment unnecessarily
+hard and no longer matches the FrontRES problem: correcting a reference-artifact
+event before GMT execution.
+
+Stage-2 authority learning should therefore use a temporal perturbation
+curriculum:
+
+```text
+single-frame perturbation -> burst perturbation -> persistent perturbation
+```
+
+- Single-frame perturbations provide clean credit for one proposed correction
+  event.
+- Burst perturbations train one authority decision over a short corrupted-
+  reference event.
+- Persistent perturbations are closest to final evaluation and should come only
+  after the authority critic has learned the simpler cases.
+
+This curriculum is not an extra research object.  It defines when authority is
+queried and which future window is assigned to that authority decision.
+
+### Required Concept-Code Chain
+
+The implementation must preserve the following ownership:
+
+```text
+Stage 1 proposal network:
+  owns Delta SE direction and HSL target.
+
+Stage 2 authority actor:
+  owns rho action and sees state/history + detached proposal.
+
+Stage 2 authority critic:
+  owns Q(s, proposal, rho) and is trained by K-step executable return.
+
+Perturbation scheduler:
+  owns perturbation events, burst boundaries, and single-frame / burst /
+  persistent temporal structure.
+
+Storage:
+  stores state/proposal/rho/action-log-prob/reward or K-step target without
+  mixing them with legacy sampled-rho PPO advantage fields.
+```
+
+### Fixed Engineering Decisions
+
+The current contract fixes these choices so the implementation does not drift
+into another exploratory branch:
+
+- Authority representation is 6D continuous authority:
+  `rho_i in [0, 1]` for each task-space correction dimension.
+- Stage 2 is trained on-policy from the current rollout.  Replay/off-policy
+  authority learning is not part of the active method.
+- Authority decisions are event-level.  A perturbation event has one Stage-1
+  proposal, one 6D continuous authority action, and one K-step executable return.
+  Single-frame mode is an event of length 1.  Burst mode is an event of length
+  L.  Persistent mode should re-query authority only at explicit event
+  boundaries or fixed refresh intervals.
+- The critic target is K-step executable return with done masking and detached
+  bootstrap when a valid bootstrap state exists.
+- Exploration must cover the continuous rho range in every active dimension;
+  otherwise critic conclusions for that dimension are not valid.
+
+### Engineering Risk Register
+
+The concept is now coherent, but the implementation has several high-risk
+engineering points.  These must be checked before any long run.
+
+1. **Stage-1 / Stage-2 gradient boundary**
+
+   Stage 2 must see the Stage-1 proposal, but Stage-2 authority loss must not
+   backpropagate through the Stage-1 proposal path unless a later experiment
+   explicitly enables joint fine-tuning.  The default contract is:
+
+   ```text
+   HSL loss -> Stage-1 proposal parameters
+   authority actor-critic loss -> Stage-2 actor/critic parameters
+   ```
+
+   Test requirement: an acceptance/authority loss changes Stage-2 parameters and
+   does not create gradients on Stage-1 proposal parameters.
+
+2. **Authority action representation**
+
+   The active authority space is 6D continuous authority:
+
+   ```text
+   rho = [rho_dx, rho_dy, rho_dz, rho_droll, rho_dpitch, rho_dyaw]
+   rho_i in [0, 1]
+   Delta SE_exec = active_task_dims * rho * Delta SE_HSL
+   ```
+
+   The implementation must not silently mix scalar, grouped, discrete, and
+   per-dim semantics.  Startup logs must print the active continuous authority
+   parameterization and the active-task-dim mask.
+
+3. **Authority exploration coverage**
+
+   A critic cannot learn values for rho ranges that are never sampled.  The
+   training code must track per-dimension rho mean/std/min/max and near-zero /
+   near-one fractions, especially in the dimensions allowed by the Action Cone.
+
+   Required diagnostics:
+
+   ```text
+   rho_level_frac[0], rho_level_frac[0.5], rho_level_frac[1]
+   return_by_level
+   proposal_magnitude_by_level
+   ```
+
+   If any level has near-zero coverage, critic conclusions about that level are
+   not trustworthy.
+
+4. **K-step target ownership**
+
+   K-step return is not a new reward.  It is the existing executable reward
+   aggregated at the authority decision time scale.  The implementation must
+   record exactly which reward stream is used:
+
+   ```text
+   executable reward only
+   executable reward + survival/termination
+   full environment reward
+   ```
+
+   The default should avoid the full environment reward unless explicitly
+   justified, because unrelated tracking or teleoperation terms can corrupt the
+   authority critic.
+
+5. **Bootstrapping and episode boundary handling**
+
+   K-step return must handle termination correctly.  If an episode ends inside
+   the K-step window, future terms after termination must be masked.  If
+   bootstrapping is enabled, `V(s_{t+K})` or `Q` bootstrap must be detached and
+   must not leak gradients through stored rollout tensors.
+
+6. **Temporal perturbation scheduler**
+
+   Burst perturbation is an event-construction mechanism, not just another DR
+   scale.  The scheduler must explicitly own:
+
+   ```text
+   perturbation start time
+   burst duration
+   clean/recovery tail duration
+   transition from single-frame to burst to persistent
+   authority query frame
+   authority refresh interval for persistent perturbations
+   ```
+
+   The runner diagnostics must print the current temporal perturbation mode and
+   duration, otherwise a failed run cannot distinguish reward failure from data
+   organization failure.
+
+7. **Event-level authority credit assignment**
+
+   The active contract uses one authority decision per perturbation event:
+
+   ```text
+   event starts
+     -> Stage 1 proposes Delta SE for the corrupted reference event
+     -> Stage 2 produces continuous 6D rho once
+     -> the same authority is applied to the event segment
+     -> K-step return evaluates the event consequence
+   ```
+
+   Do not silently fall back to every-frame rho decisions.  If persistent
+   perturbation needs multiple decisions, those decisions must occur at explicit
+   event boundaries or configured refresh intervals and must be logged.
+
+8. **Storage contract**
+
+   Legacy storage fields named `acceptance_target` / `acceptance_mask` currently
+   carry sampled-rho PPO advantage in the old path.  The authority actor-critic
+   path should not reuse these names ambiguously unless the comments and
+   generator tuple are updated.
+
+   Preferred new fields, if tuple churn is acceptable:
+
+   ```text
+   authority_action
+   authority_log_prob
+   authority_rho
+   authority_return_k
+   authority_mask
+   proposal_delta_se
+   ```
+
+   If old fields are reused temporarily, every diagnostic and test must state
+   the live meaning.
+
+9. **Old branch retirement**
+
+   The following old branches can silently corrupt the new method if left live:
+
+   ```text
+   structured_joint sampled-rho advantage
+   underwrite reward bonus
+   boundary prior rho pull
+   legacy acceptance BCE
+   state alpha / Stable Frame route
+   endpoint-only acceptance label
+   ```
+
+   Each must be removed from the active path or hard-gated as an ablation before
+   a real run.
+
+10. **Critic overestimation and off-policy drift**
+
+    If replay/off-policy learning is introduced, the authority critic may
+    overestimate poorly covered authority levels.  Start with on-policy or
+    near-on-policy updates before adding replay.  If replay is used, add
+    diagnostics for behavior-policy coverage and stale-policy age.
+
+11. **Inference contract**
+
+    Training-time exploration can sample continuous authority, but inference
+    must use a deterministic rule:
+
+    ```text
+    actor mean / mode, bounded to [0, 1]
+    ```
+
+    The inference path must apply the same Stage-1 proposal and authority space
+    as training.  Do not leave inference on the old sigmoid-rho path while
+    training uses the new authority actor.
+
+12. **Minimal test ladder**
+
+    Before short-run training, build tests in this order:
+
+    ```text
+    architecture gradient-boundary test
+    authority-level sampling/coverage toy test
+    K-step return construction test with termination masks
+    storage -> authority critic loss test
+    perturbation scheduler single/burst/persistent mode test
+    live-path sentinel run
+    ```
+
+Do not return to endpoint-only acceptance, sampled-rho PPO advantage, Stable
+Frame alpha, or full ray-critic line search unless a later audit proves this
+actor-critic contract cannot represent the needed variable.
+
+## 2026-06-23 Proposal-Conditioned Acceptance Contract
+
+This section supersedes earlier interpretations that treated `rho` as a
+directly learnable optimal continuous repair fraction from endpoint rollout
+evidence.  That interpretation is too strong for the evidence currently
+available.
+
+The current FrontRES method should be compressed to:
+
+```text
+corrupted reference
+  -> Clean-oriented Delta SE proposal
+  -> proposal-conditioned dynamic acceptance
+  -> frozen GMT execution
+```
+
+### Method Boundary
+
+FrontRES does not solve full dynamic recovery-reference generation.  It does
+not search for a Stable Frame, does not train an alpha route toward an unknown
+recovery anchor, and does not learn a full value curve along the Noisy-Clean
+ray.
+
+The method closes one smaller variable:
+
+\[
+\text{dynamic acceptance: should this Clean-oriented proposal be executed by GMT
+under the current motion state?}
+\]
+
+This is a deliberate boundary choice.  The stronger problem, "what is the
+optimal continuous fraction along the repair ray?", requires either intermediate
+rho rollout evidence or a stronger dynamics model.  With only endpoint evidence,
+the reliable target is proposal acceptance, not optimal continuous line search.
+
+### Two-Stage Architecture
+
+Stage 1 is the proposal network:
+
+```text
+Delta SE_HSL = f_HSL(observation)
+```
+
+It is trained by supervised/HSL signals and then treated as a fixed
+Clean-oriented repair proposal during Stage 2.  Its role is direction: if the
+reference corruption were purely geometric, which task-space correction would
+move the reference toward Clean?
+
+Stage 2 is the acceptance network:
+
+```text
+a = g_accept(state/history, detached Delta SE_HSL)
+Delta SE_exec = a * Delta SE_HSL
+```
+
+The acceptance network must explicitly see the proposal it is judging.  The
+dynamic acceptability of a correction is not a property of the state alone and
+not a property of the proposal alone.  It is a relation between the current
+motion state and this particular proposed correction.
+
+### Meaning Of `a` / `rho`
+
+The live output may still be represented as a scalar or channel-wise value in
+\([0, 1]\), but its paper-facing meaning is no longer "the true optimal
+continuous repair fraction."  Under endpoint rollout supervision, its reliable
+meaning is:
+
+```text
+soft acceptance confidence / execution authority for this proposal
+```
+
+Thus:
+
+- values near 1 mean "accept this Clean-oriented proposal";
+- values near 0 mean "reject this proposal and fall back toward GMT baseline";
+- intermediate values are soft confidence or conservative interpolation, not a
+  claim that the true optimum lies at that exact fraction.
+
+This distinction prevents the method from over-claiming what the training
+evidence can identify.
+
+### Training Evidence
+
+The minimal Stage-2 evidence is endpoint counterfactual comparison:
+
+```text
+rho = 0 : no FrontRES write, GMT baseline
+rho = 1 : full Stage-1 proposal written before GMT
+```
+
+If full proposal outperforms baseline under the executable metric, the sample
+supports acceptance.  If full proposal underperforms baseline, the sample
+supports rejection.  If the difference is small or noisy, the sample should
+carry weak confidence rather than force a precise continuous target.
+
+This is not Preference Learning over an arbitrary set of rho values, and it is
+not Advantage Learning over a sampled rho action.  It is proposal-conditioned
+acceptance learning from endpoint counterfactual evidence.
+
+### Conditionality Requirement
+
+The acceptance problem is conditional, but the condition must be made explicit:
+
+```text
+condition = current motion state/history + proposed Delta SE
+```
+
+A valid Stage-2 input must contain enough information to distinguish cases
+where the same proposal is executable in one motion state and harmful in
+another.  At minimum, Stage 2 should receive the policy observation used by GMT
+or FrontRES plus the detached Stage-1 proposal.  Short history, velocity,
+angular velocity, phase/contact information, and recent anchor-error trend are
+candidate extensions only if a probe shows that the minimal input cannot predict
+endpoint acceptance.
+
+The required diagnostic is therefore not "does rho become continuous?"  The
+required diagnostic is:
+
+```text
+Can the proposed Stage-2 input predict whether full proposal beats no-write
+on held-out endpoint rollout samples?
+```
+
+If this probe fails, the issue is observation insufficiency or noisy labels, not
+merely loss tuning.
+
+### Why Not Stage 3 Ray Critic As The Main Method
+
+A ray critic would learn:
+
+\[
+J(s, \Delta SE, \rho)
+\]
+
+and select the best rho by one-dimensional search.  This is a valid future or
+appendix direction, but it solves a stronger problem than the current paper
+needs.  It also requires intermediate rho evidence or an additional learned
+value surface.
+
+For the main method, this is too strong for the current problem boundary.  The
+cleaner claim is:
+
+```text
+geometric repair direction and dynamic execution acceptance are different
+problems, so FrontRES separates proposal from acceptance.
+```
+
+This keeps the method proportional to the problem.  Do not introduce Stage 3,
+ray critic training, Stable Frame search, or continuous-rho optimality claims
+unless the research objective explicitly changes.
+
 ## 2026-06-19 Conditional HRL Repair-Authority Contract
 
 The current minimal FrontRES method should be described as conditional HRL over a
