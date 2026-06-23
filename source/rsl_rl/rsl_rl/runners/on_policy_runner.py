@@ -75,6 +75,7 @@ from rsl_rl.runners.frontres_training_setup import (
 from rsl_rl.runners.frontres_warmup import (
     resolve_frontres_warmup_iterations,
     run_frontres_joint_warmup,
+    should_exit_after_frontres_stage1_warmup,
 )
 from whole_body_tracking.utils.supervise import SuperviseTrainer
 from rsl_rl.modules.supervise_learning import SuperviseLearning
@@ -898,6 +899,17 @@ class OnPolicyRunner:
         )
 
         # ------------------- 预热Critic -------------------
+
+        if should_exit_after_frontres_stage1_warmup(
+            self.cfg,
+            is_frontres=_is_frontres,
+            warmup_iters=_warmup_iters,
+        ):
+            print(
+                "[Runner] Stage 1 HSL warmup-only run complete; exiting before PPO loop.",
+                flush=True,
+            )
+            return
 
         print(
             f"[Runner] Entering PPO loop: start_iter={start_iter}, "

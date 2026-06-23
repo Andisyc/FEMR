@@ -465,6 +465,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     if stage == "stage1_hsl":
         if getattr(args_cli, "experiment_name", None) is None:
             agent_cfg.experiment_name = "g1_flat_frontres_stage1_hsl"
+        _set_if_present(agent_cfg, "frontres_stage1_exit_after_warmup", True)
         _set_if_present(alg_cfg, "frontres_training_objective", "supervised_restore")
         _set_if_present(alg_cfg, "lambda_supervised", 1.0)
         _set_if_present(alg_cfg, "lambda_supervised_min", 1.0)
@@ -480,6 +481,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             agent_cfg.experiment_name = "g1_flat_frontres_stage2_authority"
         if getattr(args_cli, "is_full_resume", None) is None:
             agent_cfg.is_full_resume = False
+        _set_if_present(agent_cfg, "frontres_stage1_exit_after_warmup", False)
         agent_cfg.supervised_warmup_iterations = 0
         _set_if_present(alg_cfg, "frontres_training_objective", "hsl_hybrid")
         _set_if_present(alg_cfg, "lambda_supervised", 0.0)

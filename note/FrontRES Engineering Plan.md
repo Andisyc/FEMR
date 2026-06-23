@@ -89,7 +89,7 @@ run/run_frontres_stage1_hsl.sh
 ```
 
 Purpose: train only the Stage 1 Clean-oriented Delta SE proposal.  This is a
-proposal training run, not an authority/rho run.
+warmup-only proposal job, not an authority/rho run and not a PPO loop.
 
 Active Stage 1 overrides:
 
@@ -113,7 +113,14 @@ bash run/run_frontres_stage1_hsl.sh /path/to/motions 12000 800
 Expected Stage 1 checkpoint:
 
 ```text
-logs/rsl_rl/g1_flat_frontres_stage1_hsl/<run_name>/model_*.pt
+<stage1_log_dir>/model_warmup.pt
+```
+
+Stage 1 must stop immediately after this checkpoint is written.  The runner
+prints:
+
+```text
+[Runner] Stage 1 HSL warmup-only run complete; exiting before PPO loop.
 ```
 
 Stage 2 launch script:

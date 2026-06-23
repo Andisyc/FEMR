@@ -750,6 +750,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     supervised_warmup_iterations   = 200
     supervised_warmup_steps_per_iter = 8
     supervised_warmup_max_envs_per_step = 4096
+    # Stage 1 is a proposal-only job: save model_warmup.pt, then exit before
+    # PPO/authority rollout. scripts/rsl_rl/train.py enables this for
+    # --frontres_stage stage1_hsl and disables it for Stage 2.
+    frontres_stage1_exit_after_warmup = False
     supervised_warmup_dr_scale_start = 0.35  # curriculum start: easy enough for stable direction learning
     supervised_warmup_dr_scale      = 1.25   # curriculum end: expose rp beyond the easy GMT regime
     supervised_warmup_lr           = 1e-4

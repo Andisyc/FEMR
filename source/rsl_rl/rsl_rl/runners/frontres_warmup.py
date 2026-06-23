@@ -39,6 +39,21 @@ def resolve_frontres_warmup_iterations(
     return FrontRESWarmupDecision(iterations=warmup_iters)
 
 
+def should_exit_after_frontres_stage1_warmup(
+    cfg: dict[str, Any],
+    *,
+    is_frontres: bool,
+    warmup_iters: int,
+) -> bool:
+    """Return true when Stage 1 should stop after writing model_warmup.pt."""
+
+    return (
+        bool(is_frontres)
+        and int(warmup_iters) > 0
+        and bool(cfg.get("frontres_stage1_exit_after_warmup", False))
+    )
+
+
 def smoothstep_fraction(index: int, total: int) -> float:
     """Smooth 0..1 warmup progress used for DR scale interpolation."""
     if total > 1:

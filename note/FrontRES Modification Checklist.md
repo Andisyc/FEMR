@@ -17,19 +17,25 @@ change as ready for training until each relevant item has concrete evidence.
   active config and diagnostics now name the objective as authority
   actor-critic, not PPO acceptance.
 - [x] Stage-1 freeze contract decided:
-  Stage 1 `Delta SE_HSL` is trained by HSL and treated as a fixed/detached
-  proposal for Stage 2 authority.  Verify whether this is implemented by config
-  freeze, optimizer parameter groups, checkpoint resume mode, or a new explicit
-  Stage-2 training phase.  Launch contract added 2026-06-24:
-  `run/run_frontres_stage1_hsl.sh` trains proposal only, and
-  `run/run_frontres_stage2_authority.sh` transfers from the Stage 1 checkpoint
-  with `--is_full_resume False` plus `algorithm.lambda_supervised=0.0`, so Stage
-  2 authority training does not keep applying the HSL proposal loss.
+   Stage 1 `Delta SE_HSL` is trained by HSL and treated as a fixed/detached
+   proposal for Stage 2 authority.  Verify whether this is implemented by config
+   freeze, optimizer parameter groups, checkpoint resume mode, or a new explicit
+   Stage-2 training phase.  Launch contract added 2026-06-24:
+   `run/run_frontres_stage1_hsl.sh` trains proposal warmup only, saves
+   `model_warmup.pt`, then exits before the PPO loop; and
+   `run/run_frontres_stage2_authority.sh` transfers from the Stage 1 checkpoint
+   with `--is_full_resume False` plus `algorithm.lambda_supervised=0.0`, so Stage
+   2 authority training does not keep applying the HSL proposal loss.
   Stage 2 launch also sets `--supervised_warmup_iterations 0`, because Stage 1
   warmup has already been completed before checkpoint transfer.
-  Launch scripts use CLI `--frontres_stage ...`, not Hydra deep overrides such
-  as `algorithm.xxx` or `experiment_name=...`; `scripts/rsl_rl/train.py` applies
-  Stage presets after Hydra has loaded the typed runner config.
+   Launch scripts use CLI `--frontres_stage ...`, not Hydra deep overrides such
+   as `algorithm.xxx` or `experiment_name=...`; `scripts/rsl_rl/train.py` applies
+   Stage presets after Hydra has loaded the typed runner config.
+- [x] Stage-1 warmup-only exit verified:
+  `--frontres_stage stage1_hsl` sets `frontres_stage1_exit_after_warmup=True`;
+  `on_policy_runner.py` returns immediately after `run_frontres_joint_warmup`;
+  `source/rsl_rl/rsl_rl/tests/frontres_stage1_warmup_exit.py` checks this
+  without launching IsaacLab.
 - [x] Stage-2 critic warmup / actor takeover contract decided:
   Stage 2 is a new learning problem because the authority critic starts from
   scratch.  Reuse the old warmup/takeover idea with Stage-2-specific controls:
