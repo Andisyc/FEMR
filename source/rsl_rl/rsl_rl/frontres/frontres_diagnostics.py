@@ -292,7 +292,7 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
     """Format FrontRES optimization/update diagnostics."""
     lines: list[str] = []
     sal = loss_dict.get("state_alpha_loss", None)
-    if sal is not None:
+    if sal is not None and _value(loss_dict, "lambda_state_alpha", 0.0) > 0.0:
         lines.append(
             f"{'state alpha loss:':>{pad}} {sal:.4f} "
             f"(λ={_value(loss_dict, 'lambda_state_alpha'):.3f}, "
@@ -364,9 +364,7 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
             f"events={_value(loss_dict, 'authority_event_count'):.0f}, "
             f"active={_value(loss_dict, 'authority_event_active_frac'):.3f}, "
             f"query={_value(loss_dict, 'authority_event_mask_frac'):.3f}, "
-            f"dur={_value(loss_dict, 'authority_event_duration_mean'):.1f}, "
-            f"generic PPO={_value(loss_dict, 'ppo_actor_weight'):.3f} "
-            f"(raw={_value(loss_dict, 'raw_ppo_actor_weight'):.3f})\n"
+            f"dur={_value(loss_dict, 'authority_event_duration_mean'):.1f}\n"
         )
 
     sjl = loss_dict.get("structured_joint_rl_loss", None)

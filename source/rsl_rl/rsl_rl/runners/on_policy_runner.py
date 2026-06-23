@@ -1318,6 +1318,7 @@ class OnPolicyRunner:
                     authority_temporal_mode = str(
                         self.cfg.get("frontres_perturbation_temporal_mode", "legacy")
                     )
+                    loss_dict["authority_temporal_mode"] = authority_temporal_mode
                     loss_dict["authority_burst_min_steps"] = float(
                         self.cfg.get("frontres_perturbation_burst_min_steps", 1)
                     )

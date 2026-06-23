@@ -79,13 +79,16 @@ def test_authority_diagnostics_format() -> None:
         "authority buckets L/M/H:",
         "authority temporal:",
         "K=1",
-        "generic PPO=0.000",
     )
     for marker in required:
         if marker not in text:
             raise AssertionError(f"missing authority diagnostic marker: {marker}\n{text}")
     if "joint rl loss:" in text or "rho region loss:" in text:
         raise AssertionError(f"old structured-rho diagnostics should be hidden when lambda is zero:\n{text}")
+    if "generic PPO=" in text:
+        raise AssertionError(f"generic PPO diagnostics should be hidden in authority mode:\n{text}")
+    if "state alpha loss:" in text:
+        raise AssertionError(f"state-alpha diagnostics should be hidden when lambda is zero:\n{text}")
 
     disabled_text = format_frontres_optimization_diagnostics(
         {

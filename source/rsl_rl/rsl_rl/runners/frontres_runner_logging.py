@@ -493,11 +493,14 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
             if locs.get("frontres_survival_rate") is not None:
                 log_string += f"""{'survival rate:':>{pad}} {locs['frontres_survival_rate']:.3f}\n"""
 
-            _frontres_supervised_log = (
-                f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
-                in ("supervised_restore", "basis_restore", "hsl_hybrid")
-            )
             _loss_dict = locs.get("loss_dict", {})
+            _objective_name = f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
+            _authority_active = bool(float(_loss_dict.get("authority_actor_critic_enabled", 0.0)) > 0.5)
+            _supervised_lambda = float(_loss_dict.get("lambda_supervised", getattr(self.alg, "lambda_supervised", 0.0)))
+            _frontres_supervised_log = (
+                _objective_name in ("supervised_restore", "basis_restore", "hsl_hybrid")
+                and (not _authority_active or _supervised_lambda > 0.0)
+            )
 
             if _frontres_supervised_log:
                 log_string += f"""\n{'-' * 9} Supervised Restore {'-' * 9}\n"""
@@ -607,10 +610,10 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
 
                 log_string += f"""\n{'-' * 10} Optimization / Update {'-' * 10}\n"""
                 _lam = _loss_dict.get("lambda_supervised", None)
-                if _lam is not None:
+                if _lam is not None and (not _authority_active or float(_lam) > 0.0):
                     log_string += f"""{'λ_supervised:':>{pad}} {_lam:.3f}\n"""
                 _paw = _loss_dict.get("ppo_actor_weight", None)
-                if _paw is not None:
+                if _paw is not None and not _authority_active:
                     _raw_paw = _loss_dict.get("raw_ppo_actor_weight", None)
                     if _raw_paw is not None and abs(float(_raw_paw) - float(_paw)) > 1e-6:
                         log_string += (
@@ -622,7 +625,8 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                 _apl = _loss_dict.get("acceptance_preference_loss", None)
                 if _apl is not None:
                     _legacy_pref_disabled = (
-                        self._frontres_structured_joint_effective_enabled()
+                        _authority_active
+                        or self._frontres_structured_joint_effective_enabled()
                         and not bool(self.cfg.get("frontres_structured_joint_rl_keep_legacy_bce", False))
                         and float(_loss_dict.get("lambda_acceptance_preference", 0.0)) <= 0.0
                     )
@@ -841,10 +845,11 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                 _rd_ema = locs.get("_r_delta_ema", 0.0)
                 log_string += f"""{'r_delta EMA:':>{pad}} {_rd_ema:.4f}\n"""
                 _lam = _loss_dict.get("lambda_supervised", None)
-                if _lam is not None:
+                _authority_active = bool(float(_loss_dict.get("authority_actor_critic_enabled", 0.0)) > 0.5)
+                if _lam is not None and (not _authority_active or float(_lam) > 0.0):
                     log_string += f"""{'λ_supervised:':>{pad}} {_lam:.3f}\n"""
                 _paw = _loss_dict.get("ppo_actor_weight", None)
-                if _paw is not None:
+                if _paw is not None and not _authority_active:
                     _raw_paw = _loss_dict.get("raw_ppo_actor_weight", None)
                     if _raw_paw is not None and abs(float(_raw_paw) - float(_paw)) > 1e-6:
                         log_string += (
@@ -856,7 +861,8 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                 _apl = _loss_dict.get("acceptance_preference_loss", None)
                 if _apl is not None:
                     _legacy_pref_disabled = (
-                        self._frontres_structured_joint_effective_enabled()
+                        _authority_active
+                        or self._frontres_structured_joint_effective_enabled()
                         and not bool(self.cfg.get("frontres_structured_joint_rl_keep_legacy_bce", False))
                         and float(_loss_dict.get("lambda_acceptance_preference", 0.0)) <= 0.0
                     )
