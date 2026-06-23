@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 import math
+import os
 
 import torch
 import torch.nn as nn
@@ -460,6 +461,111 @@ class FrontRESUnified:
             flush=True,
         )
 
+    @staticmethod
+    def _frontres_env_int(name: str, default: int) -> int:
+        raw = os.environ.get(name, "")
+        if raw == "":
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            return default
+
+    def _maybe_dump_frontres_live_batch(
+        self,
+        *,
+        update_idx: int,
+        obs_batch,
+        mu_batch,
+        actions_batch,
+        old_mu_batch,
+        old_sigma_batch,
+        acceptance_target_batch,
+        acceptance_mask_batch,
+        rho_prior_authority_batch,
+        rho_prior_target_batch,
+        structured_metrics,
+        original_batch_size: int,
+    ) -> None:
+        """Optionally dump one formal live minibatch for offline rho replay tests."""
+        dump_path = os.environ.get("FRONTRES_LIVE_BATCH_DUMP", "")
+        if not dump_path:
+            return
+        if bool(getattr(self, "_frontres_live_batch_dump_done", False)):
+            return
+
+        current_it = int(getattr(self, "current_learning_iteration", 0))
+        target_it_raw = os.environ.get("FRONTRES_LIVE_BATCH_DUMP_IT", "")
+        if target_it_raw:
+            try:
+                if current_it != int(target_it_raw):
+                    return
+            except ValueError:
+                pass
+
+        target_update = self._frontres_env_int("FRONTRES_LIVE_BATCH_DUMP_UPDATE", 0)
+        if update_idx != target_update:
+            return
+
+        n = int(original_batch_size)
+        max_samples = self._frontres_env_int("FRONTRES_LIVE_BATCH_DUMP_MAX", 20000)
+        max_samples = max(1, min(max_samples, n))
+        sample_slice = slice(0, max_samples)
+        conf_dim = int(getattr(self.policy, "task_conf_dim", 1))
+        conf_dim = max(1, min(conf_dim, acceptance_target_batch.shape[-1]))
+        rho_cols = slice(6, 6 + conf_dim)
+
+        def _cpu(x):
+            if x is None:
+                return None
+            return x.detach().to("cpu")
+
+        payload = {
+            "kind": "frontres_live_batch_rho_replay",
+            "iteration": current_it,
+            "update_idx": int(update_idx),
+            "num_samples": int(max_samples),
+            "original_batch_size": int(n),
+            "obs": _cpu(obs_batch[:n][sample_slice]),
+            "rho_mean_raw": _cpu(mu_batch[:n, rho_cols][sample_slice]),
+            "rho_mean": _cpu(torch.sigmoid(mu_batch[:n, rho_cols])[sample_slice]),
+            "rho_action": _cpu(actions_batch[:n, rho_cols][sample_slice]),
+            "old_rho_mean_raw": _cpu(old_mu_batch[:n, rho_cols][sample_slice]),
+            "old_rho_sigma": _cpu(old_sigma_batch[:n, rho_cols][sample_slice]),
+            "rho_advantage": _cpu(acceptance_target_batch[:n, :conf_dim][sample_slice]),
+            "rho_weight": _cpu(acceptance_mask_batch[:n, :conf_dim][sample_slice]),
+            "rho_prior_authority": _cpu(rho_prior_authority_batch[:n][sample_slice])
+            if rho_prior_authority_batch is not None else None,
+            "rho_prior_target": _cpu(rho_prior_target_batch[:n, :conf_dim][sample_slice])
+            if rho_prior_target_batch is not None else None,
+            "config": {
+                "task_conf_dim": conf_dim,
+                "loss_mode": str(getattr(self, "frontres_structured_joint_rl_loss_mode", "")),
+                "repair_loss_kind": str(getattr(self, "frontres_structured_joint_repair_loss_kind", "")),
+                "repair_loss_scale": float(getattr(self, "frontres_structured_joint_repair_loss_scale", 1.0)),
+                "prior_loss_weight": float(getattr(self, "frontres_structured_joint_prior_loss_weight", 0.0)),
+                "adv_clip": float(getattr(self, "frontres_structured_joint_rl_adv_clip", 0.0)),
+                "normalize_advantage": bool(
+                    getattr(self, "frontres_structured_joint_rl_normalize_advantage", False)
+                ),
+            },
+            "live_metrics": {
+                key: float(value)
+                for key, value in structured_metrics.items()
+                if isinstance(value, (int, float))
+            },
+        }
+
+        os.makedirs(os.path.dirname(os.path.abspath(dump_path)), exist_ok=True)
+        torch.save(payload, dump_path)
+        self._frontres_live_batch_dump_done = True
+        print(
+            "[FrontRES live batch dump] "
+            f"path={dump_path} it={current_it} update_idx={update_idx} "
+            f"samples={max_samples}/{n} conf_dim={conf_dim}",
+            flush=True,
+        )
+
     def init_storage(
         self,
         training_type,
@@ -857,6 +963,20 @@ class FrontRESUnified:
                     rho_prior_target_batch,
                     original_batch_size,
                 )
+                self._maybe_dump_frontres_live_batch(
+                    update_idx=update_idx,
+                    obs_batch=obs_batch_augmented,
+                    mu_batch=mu_batch,
+                    actions_batch=actions_batch,
+                    old_mu_batch=old_mu_batch,
+                    old_sigma_batch=old_sigma_batch,
+                    acceptance_target_batch=acceptance_target_batch,
+                    acceptance_mask_batch=acceptance_mask_batch,
+                    rho_prior_authority_batch=rho_prior_authority_batch,
+                    rho_prior_target_batch=rho_prior_target_batch,
+                    structured_metrics=structured_joint_rl_metrics,
+                    original_batch_size=original_batch_size,
+                )
                 acceptance_only_loss = self.frontres_structured_joint_rl_weight * structured_joint_rl_loss
                 if not torch.isfinite(acceptance_only_loss):
                     self._warn_skip("non-finite acceptance loss", acceptance_only_loss)
@@ -984,6 +1104,20 @@ class FrontRESUnified:
                 rho_prior_authority_batch,
                 rho_prior_target_batch,
                 original_batch_size,
+            )
+            self._maybe_dump_frontres_live_batch(
+                update_idx=update_idx,
+                obs_batch=obs_batch_augmented,
+                mu_batch=mu_batch,
+                actions_batch=actions_batch,
+                old_mu_batch=old_mu_batch,
+                old_sigma_batch=old_sigma_batch,
+                acceptance_target_batch=acceptance_target_batch,
+                acceptance_mask_batch=acceptance_mask_batch,
+                rho_prior_authority_batch=rho_prior_authority_batch,
+                rho_prior_target_batch=rho_prior_target_batch,
+                structured_metrics=structured_joint_rl_metrics,
+                original_batch_size=original_batch_size,
             )
 
             if self.frontres_training_objective in ("supervised_restore", "basis_restore"):

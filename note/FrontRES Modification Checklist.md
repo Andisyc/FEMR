@@ -76,6 +76,12 @@ change as ready for training until each relevant item has concrete evidence.
   `locs=locals()` in the reward connector call was replaced with an explicit
   scalar-only dictionary, and `FrontRESUnified.update()` now clears policy
   observation caches after storage clear.
+- [x] Live-batch rho replay test added:
+  `source/rsl_rl/rsl_rl/tests/frontres_live_batch_replay.py` reads a real
+  minibatch dumped from `FrontRESUnified.update()` and trains a small
+  state-conditioned rho head offline.  Use it to decide whether true rollout
+  data can support `rho+ > rho-` before spending another long run on method
+  changes.
 - [ ] First short-run sentinel observed:
   the next run should print `mini_batches=16`, include `[FrontRES CUDA mem]`
   compact sentinel lines, and keep `[FrontRES pipeline]` `iteration_start` /
