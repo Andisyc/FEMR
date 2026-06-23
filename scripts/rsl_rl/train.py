@@ -53,6 +53,16 @@ parser.add_argument(
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
+    "--frontres_stage",
+    type=str,
+    choices=("stage1_hsl", "stage2_authority"),
+    default=None,
+    help=(
+        "Apply a FrontRES staged-training preset after Hydra config loading. "
+        "This avoids fragile Hydra deep overrides such as algorithm.xxx."
+    ),
+)
+parser.add_argument(
     "--supervised_warmup_iterations",
     type=int,
     default=None,
@@ -435,6 +445,71 @@ def _configure_frontres_motion_perturbations(env_cfg, agent_cfg) -> None:
     )
 
 
+def _set_if_present(obj, name: str, value) -> None:
+    if obj is not None and hasattr(obj, name):
+        setattr(obj, name, value)
+
+
+def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) -> None:
+    """Apply FrontRES Stage 1/2 presets through Python config objects, not Hydra overrides."""
+
+    stage = getattr(args_cli, "frontres_stage", None)
+    if stage is None:
+        return
+
+    alg_cfg = getattr(agent_cfg, "algorithm", None)
+    policy_cfg = getattr(agent_cfg, "policy", None)
+    if alg_cfg is None:
+        raise AttributeError("--frontres_stage requires an agent config with an algorithm section.")
+
+    if stage == "stage1_hsl":
+        if getattr(args_cli, "experiment_name", None) is None:
+            agent_cfg.experiment_name = "g1_flat_frontres_stage1_hsl"
+        _set_if_present(alg_cfg, "frontres_training_objective", "supervised_restore")
+        _set_if_present(alg_cfg, "lambda_supervised", 1.0)
+        _set_if_present(alg_cfg, "lambda_supervised_min", 1.0)
+        _set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)
+        _set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 0.0)
+        _set_if_present(policy_cfg, "frontres_authority_actor_critic", False)
+        _set_if_present(agent_cfg, "critic_warmup_iterations", 0)
+        _set_if_present(agent_cfg, "ppo_actor_warmup_iterations", 1_000_000)
+        _set_if_present(agent_cfg, "ppo_actor_ramp_iterations", 0)
+    elif stage == "stage2_authority":
+        if getattr(args_cli, "experiment_name", None) is None:
+            agent_cfg.experiment_name = "g1_flat_frontres_stage2_authority"
+        if getattr(args_cli, "is_full_resume", None) is None:
+            agent_cfg.is_full_resume = False
+        agent_cfg.supervised_warmup_iterations = 0
+        _set_if_present(alg_cfg, "frontres_training_objective", "hsl_hybrid")
+        _set_if_present(alg_cfg, "lambda_supervised", 0.0)
+        _set_if_present(alg_cfg, "lambda_supervised_min", 0.0)
+        _set_if_present(alg_cfg, "lambda_supervised_decay", 1.0)
+        _set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", True)
+        _set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 1.0)
+        _set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 1.0)
+        _set_if_present(alg_cfg, "frontres_authority_actor_warmup_iterations", 200)
+        _set_if_present(alg_cfg, "frontres_authority_actor_ramp_iterations", 200)
+        _set_if_present(alg_cfg, "frontres_authority_return_horizon", 8)
+        _set_if_present(policy_cfg, "frontres_authority_actor_critic", True)
+        _set_if_present(agent_cfg, "critic_warmup_iterations", 200)
+        _set_if_present(agent_cfg, "frontres_perturbation_temporal_mode", "burst")
+        _set_if_present(agent_cfg, "frontres_perturbation_burst_min_steps", 4)
+        _set_if_present(agent_cfg, "frontres_perturbation_burst_max_steps", 8)
+        _set_if_present(agent_cfg, "frontres_authority_return_horizon", 8)
+
+    print(f"[FrontRES Stage] Applied preset: {stage}", flush=True)
+    print(
+        "[FrontRES Stage] "
+        f"experiment={getattr(agent_cfg, 'experiment_name', 'n/a')}, "
+        f"objective={getattr(alg_cfg, 'frontres_training_objective', 'n/a')}, "
+        f"authority={getattr(alg_cfg, 'frontres_authority_actor_critic_enabled', 'n/a')}, "
+        f"supervised_warmup={getattr(agent_cfg, 'supervised_warmup_iterations', 'n/a')}, "
+        f"is_full_resume={getattr(agent_cfg, 'is_full_resume', 'n/a')}",
+        flush=True,
+    )
+
+
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point") # 
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     """Train with RSL-RL agent."""
@@ -452,6 +527,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         agent_cfg.is_full_resume = args_cli.is_full_resume
     if args_cli.frontres_debug_training:
         agent_cfg.frontres_debug_training = True
+    _apply_frontres_stage_preset(agent_cfg, args_cli)
 
     # set seeds (explicit rank offset for distributed to avoid identical sampling across ranks)
     # note: certain randomizations occur in the environment initialization so we set the seed here

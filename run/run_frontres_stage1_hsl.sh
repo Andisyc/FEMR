@@ -33,17 +33,4 @@ HYDRA_FULL_ERROR=1 "${LAUNCH[@]}" \
   --experiment_name g1_flat_frontres_stage1_hsl \
   --run_name "${RUN_NAME}" \
   --max_iterations "${MAX_ITERS}" \
-  algorithm.frontres_training_objective=supervised_restore \
-  algorithm.lambda_supervised=1.0 \
-  algorithm.lambda_supervised_min=1.0 \
-  algorithm.frontres_authority_actor_critic_enabled=False \
-  algorithm.frontres_authority_actor_loss_weight=0.0 \
-  algorithm.frontres_authority_critic_loss_weight=0.0 \
-  algorithm.frontres_structured_joint_rl_enabled=False \
-  algorithm.frontres_structured_joint_rl_weight=0.0 \
-  algorithm.frontres_acceptance_preference_weight=0.0 \
-  algorithm.frontres_state_alpha_weight=0.0 \
-  policy.frontres_authority_actor_critic=False \
-  critic_warmup_iterations=0 \
-  ppo_actor_warmup_iterations=1000000 \
-  ppo_actor_ramp_iterations=0
+  --frontres_stage stage1_hsl

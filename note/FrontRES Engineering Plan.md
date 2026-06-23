@@ -77,10 +77,10 @@ Do not revive the old deprecated two-stage gym registrations in
 `source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/__init__.py`.
 Stage selection is done through explicit launch scripts plus Hydra overrides.
 
-Important CLI rule: use `--experiment_name ...`, not Hydra override
-`experiment_name=...`.  The Hydra root config is structured and rejects the
-plain override.  `scripts/rsl_rl/cli_args.py` now applies `--experiment_name`
-to `agent_cfg.experiment_name`.
+Important CLI rule: use `--frontres_stage ...` instead of Hydra deep overrides.
+The Hydra root config is structured and rejects root-level overrides such as
+`algorithm.xxx` and `experiment_name=...`.  Stage presets are applied inside
+`scripts/rsl_rl/train.py` after Hydra has loaded the typed `agent_cfg`.
 
 Stage 1 launch script:
 
@@ -95,12 +95,7 @@ Active Stage 1 overrides:
 
 ```text
 --experiment_name g1_flat_frontres_stage1_hsl
-algorithm.frontres_training_objective=supervised_restore
-algorithm.frontres_authority_actor_critic_enabled=False
-policy.frontres_authority_actor_critic=False
-algorithm.frontres_structured_joint_rl_enabled=False
-algorithm.frontres_acceptance_preference_weight=0.0
-algorithm.frontres_state_alpha_weight=0.0
+--frontres_stage stage1_hsl
 ```
 
 Command shape:
@@ -180,24 +175,8 @@ Active Stage 2 overrides:
 ```text
 --resume_student_checkpoint STAGE1_CHECKPOINT
 --is_full_resume False
---supervised_warmup_iterations 0
 --experiment_name g1_flat_frontres_stage2_authority
-algorithm.frontres_training_objective=hsl_hybrid
-algorithm.lambda_supervised=0.0
-algorithm.lambda_supervised_min=0.0
-algorithm.lambda_supervised_decay=1.0
-algorithm.frontres_authority_actor_critic_enabled=True
-algorithm.frontres_authority_actor_warmup_iterations=200
-algorithm.frontres_authority_actor_ramp_iterations=200
-policy.frontres_authority_actor_critic=True
-algorithm.frontres_authority_return_horizon=8
-frontres_perturbation_temporal_mode=burst
-frontres_perturbation_burst_min_steps=4
-frontres_perturbation_burst_max_steps=8
-critic_warmup_iterations=200
-algorithm.frontres_structured_joint_rl_enabled=False
-algorithm.frontres_acceptance_preference_weight=0.0
-algorithm.frontres_state_alpha_weight=0.0
+--frontres_stage stage2_authority
 ```
 
 Command shape:
