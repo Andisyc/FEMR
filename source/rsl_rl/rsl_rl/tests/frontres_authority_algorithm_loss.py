@@ -203,6 +203,10 @@ def test_authority_update_moves_actor_and_critic() -> None:
         "authority_proposal_abs_mean",
         "authority_return_low_rho_mean",
         "authority_q_actor_low_rho_mean",
+        "authority_q_zero_mean",
+        "authority_q_one_mean",
+        "authority_q_one_minus_zero_mean",
+        "authority_q_actor_minus_zero_mean",
     ):
         if key not in metrics:
             raise AssertionError(f"missing Step-9 authority diagnostic metric: {key}")

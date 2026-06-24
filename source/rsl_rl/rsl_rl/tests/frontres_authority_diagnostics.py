@@ -40,6 +40,10 @@ def test_authority_diagnostics_format() -> None:
         "authority_return_mean": 0.12,
         "authority_q_behavior_mean": 0.10,
         "authority_q_actor_mean": 0.18,
+        "authority_q_zero_mean": 0.02,
+        "authority_q_one_mean": 0.31,
+        "authority_q_one_minus_zero_mean": 0.29,
+        "authority_q_actor_minus_zero_mean": 0.16,
         "authority_rho_mean": 0.41,
         "authority_rho_std": 0.09,
         "authority_rho_min": 0.02,
@@ -74,6 +78,7 @@ def test_authority_diagnostics_format() -> None:
         "authority takeover:",
         "actor_phase=0.500",
         "authority return/Q:",
+        "authority Q 0/act/1:",
         "authority rho",
         "authority rho dims:",
         "authority buckets L/M/H:",
@@ -89,6 +94,8 @@ def test_authority_diagnostics_format() -> None:
         raise AssertionError(f"generic PPO diagnostics should be hidden in authority mode:\n{text}")
     if "state alpha loss:" in text:
         raise AssertionError(f"state-alpha diagnostics should be hidden when lambda is zero:\n{text}")
+    if "accept pref full/noop/keep/ign:" in text:
+        raise AssertionError(f"legacy acceptance diagnostics should be hidden in authority mode:\n{text}")
 
     disabled_text = format_frontres_optimization_diagnostics(
         {

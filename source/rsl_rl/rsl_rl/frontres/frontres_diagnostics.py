@@ -239,8 +239,11 @@ def format_frontres_preference_diagnostics(
     structured_joint_live = _structured_joint_enabled(cfg) or bool(
         _value(loss_dict, "structured_joint_rl_enabled", 0.0) > 0.5
     ) or bool(_value(loss_dict, "lambda_structured_joint_rl", 0.0) > 0.0)
+    authority_live = bool(cfg.get("frontres_authority_actor_critic_enabled", False)) or bool(
+        _value(loss_dict, "authority_actor_critic_enabled", 0.0) > 0.5
+    )
 
-    if locs.get("frontres_accept_pref_mask_mean") is not None and not structured_joint_live:
+    if locs.get("frontres_accept_pref_mask_mean") is not None and not structured_joint_live and not authority_live:
         rho_space = _rho_space(cfg).lower()
         if structured_joint_live:
             pref_label = structured_label
@@ -326,6 +329,14 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
             f"ret={_value(loss_dict, 'authority_return_mean'):+.4f}, "
             f"Qbeh={_value(loss_dict, 'authority_q_behavior_mean'):+.4f}, "
             f"Qact={_value(loss_dict, 'authority_q_actor_mean'):+.4f}\n"
+        )
+        lines.append(
+            f"{'authority Q 0/act/1:':>{pad}} "
+            f"{_value(loss_dict, 'authority_q_zero_mean'):+.4f} / "
+            f"{_value(loss_dict, 'authority_q_actor_mean'):+.4f} / "
+            f"{_value(loss_dict, 'authority_q_one_mean'):+.4f} "
+            f"(1-0={_value(loss_dict, 'authority_q_one_minus_zero_mean'):+.4f}, "
+            f"act-0={_value(loss_dict, 'authority_q_actor_minus_zero_mean'):+.4f})\n"
         )
         lines.append(
             f"{'authority rho μ/σ/min/max:':>{pad}} "

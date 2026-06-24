@@ -505,7 +505,7 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
             if _frontres_supervised_log:
                 log_string += f"""\n{'-' * 9} Supervised Restore {'-' * 9}\n"""
                 _cs = _loss_dict.get("supervised_cos_sim", None)
-                if _cs is not None:
+                if _cs is not None and not _authority_active:
                     log_string += f"""{'supervised_cos_sim:':>{pad}} {_cs:.4f}\n"""
                 _sup_restore = _loss_dict.get("supervised_restore_ratio", None)
                 if _sup_restore is not None:
@@ -678,7 +678,7 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                 if len(locs.get("rewbuffer_gmt", [])) > 0:
                     log_string += f"""{'reward_GMT (baseline):':>{pad}} {statistics.mean(locs['rewbuffer_gmt']):.4f}\n"""
                 _cs = _loss_dict.get("supervised_cos_sim", None)
-                if _cs is not None:
+                if _cs is not None and not _authority_active:
                     log_string += f"""{'supervised_cos_sim:':>{pad}} {_cs:.4f}\n"""
                 if locs.get("frontres_delta_pos_abs_mean") is not None:
                     log_string += f"""{'|Δpos|:':>{pad}} {locs['frontres_delta_pos_abs_mean']:.4f} m\n"""
@@ -717,25 +717,27 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                                 f"{locs['frontres_over_cost_mean']:.4f} / "
                                 f"{locs['frontres_under_repair_cost_mean']:.4f}\n"
                             )
-                            log_string += f"""{'bonus/legacy S/R/B:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_effective_gain_bonus_mean']:+.4f} / "
-                                f"{locs['frontres_safe_cost_mean']:.4f} / "
-                                f"{locs['frontres_repair_cost_mean']:.4f} / "
-                                f"{locs['frontres_broken_cost_mean']:.4f}\n"
-                            )
+                            if not _authority_active:
+                                log_string += f"""{'bonus/legacy S/R/B:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_effective_gain_bonus_mean']:+.4f} / "
+                                    f"{locs['frontres_safe_cost_mean']:.4f} / "
+                                    f"{locs['frontres_repair_cost_mean']:.4f} / "
+                                    f"{locs['frontres_broken_cost_mean']:.4f}\n"
+                                )
                             log_string += f"""{'reward/constraint prog:':>{pad}} """
                             log_string += (
                                 f"{locs['frontres_reward_progress_mean']:.4f} / "
                                 f"{locs['frontres_constraint_progress_mean']:.4f}\n"
                             )
                         if locs.get("frontres_behavior_fit_mean") is not None:
-                            log_string += f"""{'exec legacy fit:':>{pad}} """
-                            log_string += (
-                                f"{locs['frontres_behavior_fit_mean']:+.3f} / "
-                                f"{locs['frontres_repair_fit_rate_mean']:+.3f} / "
-                                f"{locs['frontres_repair_fit_gain_mean']:+.4f}\n"
-                            )
+                            if not _authority_active:
+                                log_string += f"""{'exec legacy fit:':>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_behavior_fit_mean']:+.3f} / "
+                                    f"{locs['frontres_repair_fit_rate_mean']:+.3f} / "
+                                    f"{locs['frontres_repair_fit_gain_mean']:+.4f}\n"
+                                )
                             log_string += f"""{'restore rp/res/bias:':>{pad}} """
                             log_string += (
                                 f"{locs['frontres_restore_ratio_rp_mean']:+.3f} / "
@@ -826,7 +828,7 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                             f"{locs['frontres_exec_vertical_mean']:+.4f} / "
                             f"{locs['frontres_exec_task_mean']:+.4f}\n"
                         )
-                    if locs.get("frontres_window_mu_mean") is not None:
+                    if locs.get("frontres_window_mu_mean") is not None and not _authority_active:
                         log_string += f"""{'exec/cost gate:':>{pad}} """
                         log_string += (
                             f"{locs['frontres_exec_gate_mean']:.3f} / "
@@ -834,12 +836,12 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                         )
 
                 log_string += f"""\n{'-' * 10} Optimization / Update {'-' * 10}\n"""
-                if locs.get("frontres_window_mu_mean") is not None:
+                if locs.get("frontres_window_mu_mean") is not None and not _authority_active:
                     log_string += f"""{'mu (reward window):':>{pad}} {locs['frontres_window_mu_mean']:.3f}\n"""
                     if not self._frontres_structured_joint_effective_enabled():
                         log_string += f"""{'actor sample weight:':>{pad}} {locs['frontres_actor_gate_mean']:.3f}\n"""
                 _gc = _loss_dict.get("grad_cos_ppo_supervised", None)
-                if _gc is not None:
+                if _gc is not None and not _authority_active:
                     _gr = _loss_dict.get("grad_norm_ratio_ppo_to_supervised", 0.0)
                     log_string += f"""{'grad cos PPO/Sup:':>{pad}} {_gc:+.4f} (norm ratio={_gr:.3f})\n"""
                 _rd_ema = locs.get("_r_delta_ema", 0.0)
@@ -894,7 +896,7 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                         )
                 log_string += format_frontres_optimization_diagnostics(_loss_dict, pad=pad)
                 if locs.get("frontres_window_mu_mean") is not None:
-                    if not self._frontres_structured_joint_effective_enabled():
+                    if (not _authority_active) and not self._frontres_structured_joint_effective_enabled():
                         log_string += f"""{'actor/exec/cost:':>{pad}} """
                         log_string += (
                             f"{locs['frontres_actor_gate_mean']:.3f} / "

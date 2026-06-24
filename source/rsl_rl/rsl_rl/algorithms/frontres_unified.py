@@ -1523,6 +1523,10 @@ class FrontRESUnified:
             "authority_return_mean": 0.0,
             "authority_q_behavior_mean": 0.0,
             "authority_q_actor_mean": 0.0,
+            "authority_q_zero_mean": 0.0,
+            "authority_q_one_mean": 0.0,
+            "authority_q_one_minus_zero_mean": 0.0,
+            "authority_q_actor_minus_zero_mean": 0.0,
             "authority_rho_mean": 0.0,
             "authority_rho_std": 0.0,
             "authority_rho_min": 0.0,
@@ -1587,6 +1591,10 @@ class FrontRESUnified:
                 active_dim_mask = torch.ones(1, actor_rho.shape[-1], device=actor_rho.device, dtype=actor_rho.dtype)
             else:
                 active_dim_mask = active_task_dims.view(1, -1).to(device=actor_rho.device, dtype=actor_rho.dtype)
+            zero_rho = torch.zeros_like(actor_rho)
+            one_rho = torch.ones_like(actor_rho) * active_dim_mask
+            q_zero = self.policy.evaluate_authority_q(obs, proposal, zero_rho, detach_proposal=True)
+            q_one = self.policy.evaluate_authority_q(obs, proposal, one_rho, detach_proposal=True)
             sample_dim_mask = mask * active_dim_mask
             denom_dim = sample_dim_mask.sum().clamp(min=1e-6)
             active_rho = actor_rho * sample_dim_mask
@@ -1614,6 +1622,10 @@ class FrontRESUnified:
             metrics["authority_return_mean"] = float((target_return * mask).sum().detach().item() / denom.detach().item())
             metrics["authority_q_behavior_mean"] = float((q_behavior * mask).sum().detach().item() / denom.detach().item())
             metrics["authority_q_actor_mean"] = float((q_actor * mask).sum().detach().item() / denom.detach().item())
+            metrics["authority_q_zero_mean"] = float((q_zero * mask).sum().detach().item() / denom.detach().item())
+            metrics["authority_q_one_mean"] = float((q_one * mask).sum().detach().item() / denom.detach().item())
+            metrics["authority_q_one_minus_zero_mean"] = float(((q_one - q_zero) * mask).sum().detach().item() / denom.detach().item())
+            metrics["authority_q_actor_minus_zero_mean"] = float(((q_actor - q_zero) * mask).sum().detach().item() / denom.detach().item())
             metrics["authority_rho_mean"] = float(rho_mean.detach().item())
             metrics["authority_rho_std"] = float(torch.sqrt(rho_var.clamp(min=0.0)).detach().item())
             metrics["authority_rho_min"] = float(rho_for_min.min().detach().item())
