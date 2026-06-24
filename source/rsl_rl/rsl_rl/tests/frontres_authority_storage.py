@@ -41,6 +41,8 @@ def _authority_values(step: int, num_envs: int) -> dict[str, torch.Tensor]:
         "authority_log_prob": base + 0.20,
         "authority_rho": torch.sigmoid(base + dims * 0.01),
         "authority_return_k": base + 0.30,
+        "authority_return_zero_k": torch.zeros(num_envs, 1),
+        "authority_return_one_k": base + 0.40,
         "authority_mask": (base.remainder(2.0) == 0.0).float(),
     }
 
@@ -75,15 +77,17 @@ def test_feedforward_authority_storage_round_trip() -> None:
     storage.yield_batch_indices = True
 
     batch = next(storage.mini_batch_generator(num_mini_batches=1, num_epochs=1))
-    if len(batch) != 35:
-        raise AssertionError(f"FrontRES feedforward batch should have 35 entries, got {len(batch)}.")
-    batch_indices = batch[34]
+    if len(batch) != 37:
+        raise AssertionError(f"FrontRES feedforward batch should have 37 entries, got {len(batch)}.")
+    batch_indices = batch[36]
     names = (
         "proposal_delta_se",
         "authority_action",
         "authority_log_prob",
         "authority_rho",
         "authority_return_k",
+        "authority_return_zero_k",
+        "authority_return_one_k",
         "authority_mask",
     )
     for offset, name in enumerate(names):
@@ -115,14 +119,16 @@ def test_recurrent_authority_storage_round_trip() -> None:
         storage.add_transitions(transition)
 
     batch = next(storage.recurrent_mini_batch_generator(num_mini_batches=1, num_epochs=1))
-    if len(batch) != 34:
-        raise AssertionError(f"FrontRES recurrent batch should have 34 entries, got {len(batch)}.")
+    if len(batch) != 36:
+        raise AssertionError(f"FrontRES recurrent batch should have 36 entries, got {len(batch)}.")
     torch.testing.assert_close(batch[28], storage.proposal_delta_se)
     torch.testing.assert_close(batch[29], storage.authority_action)
     torch.testing.assert_close(batch[30], storage.authority_log_prob)
     torch.testing.assert_close(batch[31], storage.authority_rho)
     torch.testing.assert_close(batch[32], storage.authority_return_k)
-    torch.testing.assert_close(batch[33], storage.authority_mask)
+    torch.testing.assert_close(batch[33], storage.authority_return_zero_k)
+    torch.testing.assert_close(batch[34], storage.authority_return_one_k)
+    torch.testing.assert_close(batch[35], storage.authority_mask)
 
 
 def test_default_authority_storage_is_zero() -> None:
@@ -141,6 +147,8 @@ def test_default_authority_storage_is_zero() -> None:
         raise AssertionError("Default authority_mask should be zero when no authority event is stored.")
     if float(storage.authority_rho.abs().sum().item()) != 0.0:
         raise AssertionError("Default authority_rho should be zero when no authority event is stored.")
+    if float(storage.authority_return_one_k.abs().sum().item()) != 0.0:
+        raise AssertionError("Default authority_return_one_k should be zero when no endpoint target is stored.")
 
 
 def main() -> None:
@@ -148,7 +156,7 @@ def main() -> None:
     test_recurrent_authority_storage_round_trip()
     test_default_authority_storage_is_zero()
     print("=== FrontRES Authority Storage TEST ONLY ===")
-    print("checks=transition copy, feedforward tuple, recurrent tuple, default inactive zeros")
+    print("checks=transition copy, endpoint returns, feedforward tuple, recurrent tuple, default inactive zeros")
     print("result: PASS")
 
 

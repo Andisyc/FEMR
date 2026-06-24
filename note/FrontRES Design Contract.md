@@ -77,6 +77,58 @@ It predicts the future executable value of applying authority `rho_t` to the
 proposal `d_t`.  The Stage-2 actor can then be trained to choose authorities
 that the critic predicts as better.
 
+### Design 2A: Endpoint-Supervised Authority Critic
+
+The authority critic must not learn only the behavior rho that happened to be
+executed by the current actor.  FrontRES already constructs endpoint rollout
+evidence:
+
+```text
+rho = 0 endpoint:
+  Noisy/GMT baseline, meaning no FrontRES write.
+
+rho = 1 endpoint:
+  full Stage-1 proposal write, called Candidate/full-write rollout in code.
+```
+
+These endpoint rollouts are not just diagnostics.  They define the coordinate
+system of the authority critic.  The critic should therefore learn three
+compatible targets:
+
+\[
+Q_\phi(s_t, d_t, 0) \leftarrow G^{(K)}_{0,t},
+\]
+
+\[
+Q_\phi(s_t, d_t, 1) \leftarrow G^{(K)}_{1,t},
+\]
+
+\[
+Q_\phi(s_t, d_t, \rho_{\rm behavior}) \leftarrow G^{(K)}_{\rm behavior,t}.
+\]
+
+The active implementation uses Noisy-relative executable delta returns:
+
+```text
+G_0:
+  zero by construction, because rho=0 is the Noisy/GMT baseline.
+
+G_1:
+  Candidate/full-write executable gain over Noisy/GMT.
+
+G_behavior:
+  executed FrontRES executable delta return.
+```
+
+This keeps all critic targets in the same coordinate system: improvement over
+doing nothing.  It also prevents a silent failure where `Q(s, d, 0)` and
+`Q(s, d, 1)` are only diagnostic extrapolations with no supervised anchor.
+
+Terminology note: the code has both `Candidate` and `Clean` branches.  The
+`rho=1` endpoint should use the full Stage-1 proposal rollout, i.e. Candidate.
+The true Clean branch remains an oracle/upper-bound diagnostic unless the
+experiment explicitly makes Stage-1 proposal equal to Clean.
+
 The active authority space is continuous 6D authority:
 
 ```text

@@ -932,6 +932,92 @@ verified:
   frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/algorithms/frontres_unified.py source/rsl_rl/rsl_rl/tests/frontres_authority_algorithm_loss.py
 ```
 
+### Step 6A: Endpoint-Supervised Authority Critic
+
+Design role:
+
+```text
+completes Design 2 by anchoring the authority critic at rho=0 and rho=1
+```
+
+Why this step exists:
+
+The current authority critic learns only
+`Q(state, proposal, behavior_rho) -> executed K-step return`.  The rollout path
+already has Noisy/GMT and Candidate/full-write endpoint evidence, but those
+endpoints are not written as critic targets.  This lets `Q(..., 0)` and
+`Q(..., 1)` become ungrounded extrapolations even though the log prints them.
+
+Modules to modify:
+
+```text
+source/rsl_rl/rsl_rl/storage/rollout_storage.py
+source/rsl_rl/rsl_rl/runners/frontres_post_step_connector.py
+source/rsl_rl/rsl_rl/algorithms/frontres_unified.py
+source/rsl_rl/rsl_rl/frontres/frontres_diagnostics.py
+source/rsl_rl/rsl_rl/tests/frontres_authority_storage.py
+source/rsl_rl/rsl_rl/tests/frontres_authority_algorithm_loss.py
+source/rsl_rl/rsl_rl/tests/frontres_authority_endpoint_targets.py
+```
+
+Target contract:
+
+```text
+authority_return_zero_k:
+  K-step Noisy-relative endpoint return for rho=0.  In the current
+  delta-return coordinate this is zero.
+
+authority_return_one_k:
+  K-step Candidate/full-write executable gain over Noisy/GMT for rho=1.
+
+authority_return_k:
+  existing behavior-rho K-step executed FrontRES delta return.
+```
+
+Loss contract:
+
+```text
+Q(s, d, behavior_rho) -> authority_return_k
+Q(s, d, zeros)        -> authority_return_zero_k
+Q(s, d, ones)         -> authority_return_one_k
+```
+
+Actor loss still maximizes `Q(s, d, actor_rho)`.
+
+Must not:
+
+```text
+replace continuous 6D rho with binary acceptance
+use true Clean as rho=1 unless Candidate is unavailable or explicitly declared
+mix absolute environment reward with Noisy-relative executable delta targets
+let endpoint targets update Stage-1 proposal
+```
+
+Accept when:
+
+```text
+storage round-trip includes endpoint returns
+pure K-step endpoint target test matches hand-built Noisy/Candidate gains
+formal algorithm test shows q_zero fits zero and q_one fits full-write target
+diagnostics print endpoint target means and endpoint critic losses
+real-batch replay can load one dumped formal minibatch and verify that
+Q(..., 1) - Q(..., 0) learns the Candidate-vs-Noisy endpoint direction
+```
+
+Status:
+
+```text
+done: 2026-06-24
+verified:
+  frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_endpoint_targets.py
+  frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_storage.py
+  frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_runner_integration.py
+  frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_algorithm_loss.py
+  frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_diagnostics.py
+  frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_critic_replay.py
+  frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/storage/rollout_storage.py source/rsl_rl/rsl_rl/runners/frontres_post_step_connector.py source/rsl_rl/rsl_rl/algorithms/frontres_unified.py source/rsl_rl/rsl_rl/frontres/frontres_diagnostics.py source/rsl_rl/rsl_rl/tests/frontres_authority_storage.py source/rsl_rl/rsl_rl/tests/frontres_authority_runner_integration.py source/rsl_rl/rsl_rl/tests/frontres_authority_algorithm_loss.py source/rsl_rl/rsl_rl/tests/frontres_authority_endpoint_targets.py source/rsl_rl/rsl_rl/tests/frontres_authority_critic_replay.py
+```
+
 ### Step 7: Runner Integration
 
 Design role:

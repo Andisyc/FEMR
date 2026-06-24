@@ -533,8 +533,14 @@ class FrontRESUnified:
         rho_prior_target_batch,
         structured_metrics,
         original_batch_size: int,
+        proposal_delta_se_batch=None,
+        authority_action_batch=None,
+        authority_return_k_batch=None,
+        authority_return_zero_k_batch=None,
+        authority_return_one_k_batch=None,
+        authority_mask_batch=None,
     ) -> None:
-        """Optionally dump one formal live minibatch for offline rho replay tests."""
+        """Optionally dump one formal live minibatch for offline FrontRES replay tests."""
         dump_path = os.environ.get("FRONTRES_LIVE_BATCH_DUMP", "")
         if not dump_path:
             return
@@ -585,6 +591,18 @@ class FrontRESUnified:
             if rho_prior_authority_batch is not None else None,
             "rho_prior_target": _cpu(rho_prior_target_batch[:n, :conf_dim][sample_slice])
             if rho_prior_target_batch is not None else None,
+            "proposal_delta_se": _cpu(proposal_delta_se_batch[:n][sample_slice])
+            if proposal_delta_se_batch is not None else None,
+            "authority_action": _cpu(authority_action_batch[:n][sample_slice])
+            if authority_action_batch is not None else None,
+            "authority_return_k": _cpu(authority_return_k_batch[:n][sample_slice])
+            if authority_return_k_batch is not None else None,
+            "authority_return_zero_k": _cpu(authority_return_zero_k_batch[:n][sample_slice])
+            if authority_return_zero_k_batch is not None else None,
+            "authority_return_one_k": _cpu(authority_return_one_k_batch[:n][sample_slice])
+            if authority_return_one_k_batch is not None else None,
+            "authority_mask": _cpu(authority_mask_batch[:n][sample_slice])
+            if authority_mask_batch is not None else None,
             "config": {
                 "task_conf_dim": conf_dim,
                 "loss_mode": str(getattr(self, "frontres_structured_joint_rl_loss_mode", "")),
@@ -595,6 +613,8 @@ class FrontRESUnified:
                 "normalize_advantage": bool(
                     getattr(self, "frontres_structured_joint_rl_normalize_advantage", False)
                 ),
+                "authority_actor_critic_enabled": bool(self._authority_actor_critic_enabled()),
+                "authority_return_horizon": int(getattr(self, "frontres_authority_return_horizon", 1)),
             },
             "live_metrics": {
                 key: float(value)
@@ -805,8 +825,22 @@ class FrontRESUnified:
             authority_log_prob_batch = None
             authority_rho_batch = None
             authority_return_k_batch = None
+            authority_return_zero_k_batch = None
+            authority_return_one_k_batch = None
             authority_mask_batch = None
-            if len(batch) >= 34:
+            if len(batch) >= 36:
+                (
+                    proposal_delta_se_batch,
+                    authority_action_batch,
+                    authority_log_prob_batch,
+                    authority_rho_batch,
+                    authority_return_k_batch,
+                    authority_return_zero_k_batch,
+                    authority_return_one_k_batch,
+                    authority_mask_batch,
+                ) = batch[28:36]
+                batch_indices = batch[36] if len(batch) > 36 else None
+            elif len(batch) >= 34:
                 (
                     proposal_delta_se_batch,
                     authority_action_batch,
@@ -1046,6 +1080,12 @@ class FrontRESUnified:
                     rho_prior_target_batch=rho_prior_target_batch,
                     structured_metrics=structured_joint_rl_metrics,
                     original_batch_size=original_batch_size,
+                    proposal_delta_se_batch=proposal_delta_se_batch,
+                    authority_action_batch=authority_action_batch,
+                    authority_return_k_batch=authority_return_k_batch,
+                    authority_return_zero_k_batch=authority_return_zero_k_batch,
+                    authority_return_one_k_batch=authority_return_one_k_batch,
+                    authority_mask_batch=authority_mask_batch,
                 )
                 acceptance_only_loss = self.frontres_structured_joint_rl_weight * structured_joint_rl_loss
                 if not torch.isfinite(acceptance_only_loss):
@@ -1180,6 +1220,8 @@ class FrontRESUnified:
                 proposal_delta_se_batch,
                 authority_action_batch,
                 authority_return_k_batch,
+                authority_return_zero_k_batch,
+                authority_return_one_k_batch,
                 authority_mask_batch,
                 original_batch_size,
             )
@@ -1196,6 +1238,12 @@ class FrontRESUnified:
                 rho_prior_target_batch=rho_prior_target_batch,
                 structured_metrics=structured_joint_rl_metrics,
                 original_batch_size=original_batch_size,
+                proposal_delta_se_batch=proposal_delta_se_batch,
+                authority_action_batch=authority_action_batch,
+                authority_return_k_batch=authority_return_k_batch,
+                authority_return_zero_k_batch=authority_return_zero_k_batch,
+                authority_return_one_k_batch=authority_return_one_k_batch,
+                authority_mask_batch=authority_mask_batch,
             )
 
             if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
@@ -1506,6 +1554,8 @@ class FrontRESUnified:
         proposal_delta_se_batch,
         authority_action_batch,
         authority_return_k_batch,
+        authority_return_zero_k_batch,
+        authority_return_one_k_batch,
         authority_mask_batch,
         original_batch_size: int,
     ):
@@ -1514,6 +1564,9 @@ class FrontRESUnified:
             "authority_actor_critic_enabled": 1.0 if self._authority_actor_critic_enabled() else 0.0,
             "authority_actor_loss": 0.0,
             "authority_critic_loss": 0.0,
+            "authority_critic_behavior_loss": 0.0,
+            "authority_critic_zero_loss": 0.0,
+            "authority_critic_one_loss": 0.0,
             "authority_total_loss": 0.0,
             "authority_actor_phase_weight": 0.0,
             "authority_actor_warmup_active": 0.0,
@@ -1521,6 +1574,8 @@ class FrontRESUnified:
             "authority_active_frac": 0.0,
             "authority_k_horizon": float(getattr(self, "frontres_authority_return_horizon", 1)),
             "authority_return_mean": 0.0,
+            "authority_return_zero_mean": 0.0,
+            "authority_return_one_mean": 0.0,
             "authority_q_behavior_mean": 0.0,
             "authority_q_actor_mean": 0.0,
             "authority_q_zero_mean": 0.0,
@@ -1550,6 +1605,16 @@ class FrontRESUnified:
         proposal = proposal_delta_se_batch[:n, :6].to(device=self.device, dtype=obs.dtype).detach()
         behavior_rho = authority_action_batch[:n, :6].to(device=self.device, dtype=obs.dtype).detach()
         target_return = authority_return_k_batch[:n, :1].to(device=self.device, dtype=obs.dtype).detach()
+        target_zero = (
+            authority_return_zero_k_batch[:n, :1].to(device=self.device, dtype=obs.dtype).detach()
+            if authority_return_zero_k_batch is not None
+            else torch.zeros_like(target_return)
+        )
+        target_one = (
+            authority_return_one_k_batch[:n, :1].to(device=self.device, dtype=obs.dtype).detach()
+            if authority_return_one_k_batch is not None
+            else target_return
+        )
         mask = authority_mask_batch[:n, :1].to(device=self.device, dtype=obs.dtype).detach()
         mask = torch.nan_to_num(mask, nan=0.0, posinf=0.0, neginf=0.0).clamp(0.0, 1.0)
         denom = mask.sum().clamp(min=1e-6)
@@ -1558,9 +1623,20 @@ class FrontRESUnified:
 
         behavior_rho = torch.nan_to_num(behavior_rho, nan=0.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
         q_behavior = self.policy.evaluate_authority_q(obs, proposal, behavior_rho, detach_proposal=True)
-        critic_loss = (((q_behavior - target_return) ** 2) * mask).sum() / denom
-
         active_task_dims = self._authority_active_task_dim_mask(device=self.device, dtype=obs.dtype)
+        if active_task_dims is None:
+            active_dim_mask = torch.ones(1, behavior_rho.shape[-1], device=self.device, dtype=obs.dtype)
+        else:
+            active_dim_mask = active_task_dims.view(1, -1).to(device=self.device, dtype=obs.dtype)
+        zero_rho_fit = torch.zeros_like(behavior_rho)
+        one_rho_fit = torch.ones_like(behavior_rho) * active_dim_mask
+        q_zero_fit = self.policy.evaluate_authority_q(obs, proposal, zero_rho_fit, detach_proposal=True)
+        q_one_fit = self.policy.evaluate_authority_q(obs, proposal, one_rho_fit, detach_proposal=True)
+        behavior_loss = (((q_behavior - target_return) ** 2) * mask).sum() / denom
+        zero_loss = (((q_zero_fit - target_zero) ** 2) * mask).sum() / denom
+        one_loss = (((q_one_fit - target_one) ** 2) * mask).sum() / denom
+        critic_loss = (behavior_loss + zero_loss + one_loss) / 3.0
+
         actor_rho = self.policy.get_authority_rho(
             obs,
             proposal_delta_se=proposal,
@@ -1587,10 +1663,6 @@ class FrontRESUnified:
         total_loss = critic_weight * critic_loss + actor_weight * actor_loss
 
         with torch.no_grad():
-            if active_task_dims is None:
-                active_dim_mask = torch.ones(1, actor_rho.shape[-1], device=actor_rho.device, dtype=actor_rho.dtype)
-            else:
-                active_dim_mask = active_task_dims.view(1, -1).to(device=actor_rho.device, dtype=actor_rho.dtype)
             zero_rho = torch.zeros_like(actor_rho)
             one_rho = torch.ones_like(actor_rho) * active_dim_mask
             q_zero = self.policy.evaluate_authority_q(obs, proposal, zero_rho, detach_proposal=True)
@@ -1614,12 +1686,17 @@ class FrontRESUnified:
 
             metrics["authority_actor_loss"] = float(actor_loss.detach().item())
             metrics["authority_critic_loss"] = float(critic_loss.detach().item())
+            metrics["authority_critic_behavior_loss"] = float(behavior_loss.detach().item())
+            metrics["authority_critic_zero_loss"] = float(zero_loss.detach().item())
+            metrics["authority_critic_one_loss"] = float(one_loss.detach().item())
             metrics["authority_total_loss"] = float(total_loss.detach().item())
             metrics["authority_actor_phase_weight"] = float(actor_phase_weight)
             metrics["authority_actor_warmup_active"] = 1.0 if actor_phase_weight <= 0.0 else 0.0
             metrics["authority_actor_ramp_active"] = 1.0 if 0.0 < actor_phase_weight < 1.0 else 0.0
             metrics["authority_active_frac"] = float(mask.mean().detach().item())
             metrics["authority_return_mean"] = float((target_return * mask).sum().detach().item() / denom.detach().item())
+            metrics["authority_return_zero_mean"] = float((target_zero * mask).sum().detach().item() / denom.detach().item())
+            metrics["authority_return_one_mean"] = float((target_one * mask).sum().detach().item() / denom.detach().item())
             metrics["authority_q_behavior_mean"] = float((q_behavior * mask).sum().detach().item() / denom.detach().item())
             metrics["authority_q_actor_mean"] = float((q_actor * mask).sum().detach().item() / denom.detach().item())
             metrics["authority_q_zero_mean"] = float((q_zero * mask).sum().detach().item() / denom.detach().item())

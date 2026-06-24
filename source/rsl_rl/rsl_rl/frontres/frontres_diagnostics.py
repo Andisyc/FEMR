@@ -313,6 +313,9 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
             f"{'authority AC loss:':>{pad}} {authority_loss:.4f} "
             f"(actor={_value(loss_dict, 'authority_actor_loss'):+.4f}, "
             f"critic={_value(loss_dict, 'authority_critic_loss'):.4f}, "
+            f"beh/0/1={_value(loss_dict, 'authority_critic_behavior_loss'):.4f}/"
+            f"{_value(loss_dict, 'authority_critic_zero_loss'):.4f}/"
+            f"{_value(loss_dict, 'authority_critic_one_loss'):.4f}, "
             f"λa={_value(loss_dict, 'lambda_authority_actor'):.3f}, "
             f"λa_eff={_value(loss_dict, 'lambda_authority_actor_effective'):.3f}, "
             f"λq={_value(loss_dict, 'lambda_authority_critic'):.3f}, "
@@ -327,6 +330,8 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
         lines.append(
             f"{'authority return/Q:':>{pad}} "
             f"ret={_value(loss_dict, 'authority_return_mean'):+.4f}, "
+            f"ret0/1={_value(loss_dict, 'authority_return_zero_mean'):+.4f}/"
+            f"{_value(loss_dict, 'authority_return_one_mean'):+.4f}, "
             f"Qbeh={_value(loss_dict, 'authority_q_behavior_mean'):+.4f}, "
             f"Qact={_value(loss_dict, 'authority_q_actor_mean'):+.4f}\n"
         )

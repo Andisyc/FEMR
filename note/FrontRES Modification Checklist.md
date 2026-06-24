@@ -6,6 +6,27 @@ change as ready for training until each relevant item has concrete evidence.
 
 ## Active Change Record: 2026-06-23 Authority Actor-Critic Refactor
 
+- [x] Endpoint critic target delta added:
+  `Q(s, proposal, 0)` must be supervised by Noisy/GMT baseline delta return,
+  `Q(s, proposal, 1)` must be supervised by Candidate/full-write delta return,
+  and `Q(s, proposal, behavior_rho)` remains supervised by executed FrontRES
+  delta return.  This is not a new method branch; it completes the authority
+  critic coordinate system.
+- [x] Endpoint storage fields added:
+  `authority_return_zero_k` and `authority_return_one_k` survive transition
+  copy, feedforward minibatches, recurrent minibatches, and default inactive
+  zero initialization.
+- [x] Endpoint runner target construction checked:
+  `frontres_post_step_connector.py` writes per-step endpoint deltas from
+  Noisy/Candidate executable evidence and rewrites them with the same event
+  K-step/done-mask rule as `authority_return_k`.
+- [x] Endpoint algorithm loss checked:
+  `frontres_unified.py` trains `Q(..., behavior_rho)`, `Q(..., 0)`, and
+  `Q(..., 1)` in the critic loss, while the actor loss still optimizes only
+  `Q(..., actor_rho)`.
+- [x] Endpoint diagnostics checked:
+  logs expose endpoint return means and endpoint critic losses so `Q 0/act/1`
+  is no longer only an unanchored diagnostic.
 - [x] Design note updated:
   `note/FrontRES Design Contract.md`, section
   `2026-06-23 Authority Actor-Critic Contract`.
@@ -208,6 +229,17 @@ change as ready for training until each relevant item has concrete evidence.
   `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_algorithm_loss.py`;
   the test runs the formal `FrontRESUnified.update()` path and checks actor rho
   increases, critic MSE decreases, and Stage-1 proposal weights remain unchanged.
+- [x] Test 4B, authority critic replay self-check:
+  `source/rsl_rl/rsl_rl/tests/frontres_authority_critic_replay.py` can run
+  without IsaacLab on a synthetic batch and verifies the replay logic:
+  `Q(..., behavior_rho)`, `Q(..., 0)`, and `Q(..., 1)` all fit their targets,
+  and `Q(..., 1) - Q(..., 0)` recovers the endpoint direction.
+- [ ] Test 4C, real-batch authority critic replay:
+  dump one formal minibatch with `FRONTRES_LIVE_BATCH_DUMP=/tmp/frontres_live_batch.pt`
+  during Stage-2 training, then run
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_authority_critic_replay.py --dump /tmp/frontres_live_batch.pt`.
+  This checks whether the live Noisy/Candidate/behavior endpoint targets are
+  learnable before spending more GPU time on long runs.
 - [x] Test 4A, authority storage contract test:
   `source/rsl_rl/rsl_rl/tests/frontres_authority_storage.py` proves that
   `proposal_delta_se`, `authority_action`, `authority_log_prob`,

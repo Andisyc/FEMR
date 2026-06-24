@@ -179,9 +179,17 @@ def test_authority_return_uses_one_step_r_delta() -> None:
     runner.alg.transition.authority_mask = torch.zeros(runner.env.num_envs, 1)
 
     r_delta = torch.tensor([1.25, -0.50])
-    _write_frontres_authority_return(runner, r_delta=r_delta, n_train=2)
+    endpoint_one_delta = torch.tensor([0.75, 0.25])
+    _write_frontres_authority_return(
+        runner,
+        r_delta=r_delta,
+        endpoint_one_delta=endpoint_one_delta,
+        n_train=2,
+    )
 
     torch.testing.assert_close(runner.alg.transition.authority_return_k.view(-1), torch.tensor([1.25, -0.50, 0.0, 0.0]))
+    torch.testing.assert_close(runner.alg.transition.authority_return_zero_k.view(-1), torch.tensor([0.0, 0.0, 0.0, 0.0]))
+    torch.testing.assert_close(runner.alg.transition.authority_return_one_k.view(-1), torch.tensor([0.75, 0.25, 0.0, 0.0]))
     torch.testing.assert_close(runner.alg.transition.authority_mask.view(-1), torch.tensor([0.0, 0.0, 0.0, 0.0]))
 
 
@@ -257,6 +265,14 @@ def test_finalize_k_step_return_writes_only_event_start_frames() -> None:
             [4.0, 40.0],
         ]
     )
+    storage.authority_return_one_k[:, :, 0] = torch.tensor(
+        [
+            [0.5, 5.0],
+            [1.5, 6.0],
+            [2.5, 7.0],
+            [3.5, 8.0],
+        ]
+    )
     storage.dones.zero_()
     storage.authority_event_start.zero_()
     storage.authority_event_active.zero_()
@@ -268,8 +284,13 @@ def test_finalize_k_step_return_writes_only_event_start_frames() -> None:
 
     expected_env0 = 1.0 + 0.9 * 2.0 + 0.9 * 0.9 * 3.0
     expected_env1 = 20.0 + 0.9 * 30.0 + 0.9 * 0.9 * 40.0
+    expected_one_env0 = 0.5 + 0.9 * 1.5 + 0.9 * 0.9 * 2.5
+    expected_one_env1 = 6.0 + 0.9 * 7.0 + 0.9 * 0.9 * 8.0
     torch.testing.assert_close(storage.authority_return_k[0, 0, 0], torch.tensor(expected_env0))
     torch.testing.assert_close(storage.authority_return_k[1, 1, 0], torch.tensor(expected_env1))
+    torch.testing.assert_close(storage.authority_return_zero_k[:, :, 0], torch.zeros(4, 2))
+    torch.testing.assert_close(storage.authority_return_one_k[0, 0, 0], torch.tensor(expected_one_env0))
+    torch.testing.assert_close(storage.authority_return_one_k[1, 1, 0], torch.tensor(expected_one_env1))
     torch.testing.assert_close(storage.authority_mask[:, :, 0], torch.tensor([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0], [0.0, 0.0]]))
 
 
@@ -279,7 +300,7 @@ def main() -> None:
     test_burst_event_reuses_one_authority_query()
     test_finalize_k_step_return_writes_only_event_start_frames()
     print("=== FrontRES Authority Runner Integration TEST ONLY ===")
-    print("checks=runner action rewrite, burst authority reuse, K-step event return write")
+    print("checks=runner action rewrite, burst authority reuse, behavior/noisy/full-write K-step event return write")
     print("result: PASS")
 
 

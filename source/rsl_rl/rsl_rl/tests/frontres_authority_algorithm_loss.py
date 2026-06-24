@@ -108,6 +108,8 @@ def _build_storage(policy: TinyAuthorityPolicy, *, obs_dim: int, critic_obs_dim:
     behavior_rho[:3] = 1.0
     authority_return = torch.zeros(num_envs, 1)
     authority_return[:3] = 6.0
+    authority_return_zero = torch.zeros(num_envs, 1)
+    authority_return_one = torch.ones(num_envs, 1) * 6.0
 
     transition = RolloutStorage.Transition()
     transition.observations = obs
@@ -129,6 +131,8 @@ def _build_storage(policy: TinyAuthorityPolicy, *, obs_dim: int, critic_obs_dim:
     transition.authority_log_prob = torch.zeros(num_envs, 1)
     transition.authority_rho = behavior_rho
     transition.authority_return_k = authority_return
+    transition.authority_return_zero_k = authority_return_zero
+    transition.authority_return_one_k = authority_return_one
     transition.authority_mask = torch.ones(num_envs, 1)
     storage.add_transitions(transition)
     storage.returns.zero_()
@@ -146,11 +150,19 @@ def test_authority_update_moves_actor_and_critic() -> None:
     proposal = storage.proposal_delta_se.flatten(0, 1)
     behavior_rho = storage.authority_action.flatten(0, 1)
     target_return = storage.authority_return_k.flatten(0, 1)
+    target_zero = storage.authority_return_zero_k.flatten(0, 1)
+    target_one = storage.authority_return_one_k.flatten(0, 1)
 
     with torch.no_grad():
         initial_rho = policy.get_authority_rho(obs, proposal).mean().item()
         initial_q = policy.evaluate_authority_q(obs, proposal, behavior_rho)
         initial_mse = ((initial_q - target_return) ** 2).mean().item()
+        initial_q_zero = policy.evaluate_authority_q(obs, proposal, torch.zeros_like(behavior_rho))
+        initial_q_one = policy.evaluate_authority_q(obs, proposal, torch.ones_like(behavior_rho))
+        initial_endpoint_mse = (
+            ((initial_q_zero - target_zero) ** 2).mean()
+            + ((initial_q_one - target_one) ** 2).mean()
+        ).item()
         initial_proposal_weight = policy.residual_actor.weight.detach().clone()
 
     alg = FrontRESUnified(
@@ -178,12 +190,22 @@ def test_authority_update_moves_actor_and_critic() -> None:
         final_rho = policy.get_authority_rho(obs, proposal).mean().item()
         final_q = policy.evaluate_authority_q(obs, proposal, behavior_rho)
         final_mse = ((final_q - target_return) ** 2).mean().item()
+        final_q_zero = policy.evaluate_authority_q(obs, proposal, torch.zeros_like(behavior_rho))
+        final_q_one = policy.evaluate_authority_q(obs, proposal, torch.ones_like(behavior_rho))
+        final_endpoint_mse = (
+            ((final_q_zero - target_zero) ** 2).mean()
+            + ((final_q_one - target_one) ** 2).mean()
+        ).item()
         proposal_weight_delta = (policy.residual_actor.weight - initial_proposal_weight).abs().max().item()
 
     if final_rho <= initial_rho:
         raise AssertionError(f"authority actor did not increase rho: {initial_rho:.4f} -> {final_rho:.4f}")
     if final_mse >= initial_mse:
         raise AssertionError(f"authority critic MSE did not improve: {initial_mse:.4f} -> {final_mse:.4f}")
+    if final_endpoint_mse >= initial_endpoint_mse:
+        raise AssertionError(
+            f"authority endpoint critic MSE did not improve: {initial_endpoint_mse:.4f} -> {final_endpoint_mse:.4f}"
+        )
     if proposal_weight_delta > 0.0:
         raise AssertionError("authority loss changed the Stage-1 proposal actor.")
     if metrics["authority_active_frac"] <= 0.0:
@@ -207,6 +229,11 @@ def test_authority_update_moves_actor_and_critic() -> None:
         "authority_q_one_mean",
         "authority_q_one_minus_zero_mean",
         "authority_q_actor_minus_zero_mean",
+        "authority_return_zero_mean",
+        "authority_return_one_mean",
+        "authority_critic_behavior_loss",
+        "authority_critic_zero_loss",
+        "authority_critic_one_loss",
     ):
         if key not in metrics:
             raise AssertionError(f"missing Step-9 authority diagnostic metric: {key}")
@@ -217,9 +244,10 @@ def test_authority_update_moves_actor_and_critic() -> None:
     print(
         f"rho_mean: {initial_rho:.3f} -> {final_rho:.3f}; "
         f"critic_mse: {initial_mse:.3f} -> {final_mse:.3f}; "
+        f"endpoint_mse: {initial_endpoint_mse:.3f} -> {final_endpoint_mse:.3f}; "
         f"proposal_delta={proposal_weight_delta:.3e}"
     )
-    print("checks=formal update path, actor moves toward higher Q, critic fits K-step return, Stage-1 untouched, generic PPO disabled, Step-9 diagnostics present")
+    print("checks=formal update path, actor moves toward higher Q, critic fits behavior/noisy/full-write returns, Stage-1 untouched, generic PPO disabled, diagnostics present")
     print("result: PASS")
 
 
