@@ -223,6 +223,9 @@ def test_authority_update_moves_actor_and_critic() -> None:
         "authority_rho_near_zero_frac",
         "authority_rho_near_one_frac",
         "authority_proposal_abs_mean",
+        "authority_target_conflict_frac",
+        "authority_harmful_full_write_frac",
+        "authority_actor_reject_loss",
         "authority_return_low_rho_mean",
         "authority_q_actor_low_rho_mean",
         "authority_q_zero_mean",
@@ -319,6 +322,90 @@ def test_authority_actor_warmup_holds_actor_and_trains_critic() -> None:
     print("result: PASS")
 
 
+def test_authority_harmful_full_write_conflict_probe() -> None:
+    """Check that harmful near-full behavior can lower authority.
+
+    This reproduces the log-level failure mode we care about:
+
+    - endpoint rho=1 target is optimistic;
+    - behavior rho is already high but its realized K-step return is harmful;
+    - actor loss is still allowed to maximize Q(actor_rho).
+
+    This guards the bug where an optimistic rho=1 endpoint target made the
+    actor increase rho even when near-full behavior return was harmful.
+    """
+
+    torch.manual_seed(31)
+    obs_dim = 5
+    critic_obs_dim = 3
+    policy = TinyAuthorityPolicy(obs_dim, critic_obs_dim)
+    storage = _build_storage(policy, obs_dim=obs_dim, critic_obs_dim=critic_obs_dim)
+    obs = storage.observations.flatten(0, 1)
+    proposal = storage.proposal_delta_se.flatten(0, 1)
+    behavior_rho = storage.authority_action.flatten(0, 1)
+
+    # All valid behavior actions are near full-write and harmful, while the
+    # endpoint full-write target remains strongly positive.  This is the
+    # contradiction visible in the latest live log.
+    storage.authority_action[:] = 1.0
+    storage.authority_rho[:] = 1.0
+    storage.authority_return_k[:] = -2.0
+    storage.authority_return_zero_k[:] = 0.0
+    storage.authority_return_one_k[:] = 4.0
+    storage.authority_mask[:] = 1.0
+
+    # Start the actor already high enough that a correct harmful-rejection
+    # signal should push it downward, not upward.
+    with torch.no_grad():
+        policy.authority_actor.bias.fill_(torch.logit(torch.tensor(0.80)).item())
+        initial_rho = policy.get_authority_rho(obs, proposal).mean().item()
+
+    alg = FrontRESUnified(
+        policy=policy,
+        num_learning_epochs=1,
+        num_mini_batches=1,
+        learning_rate=5.0e-2,
+        value_loss_coef=0.0,
+        entropy_coef=0.0,
+        lambda_supervised=0.0,
+        frontres_training_objective="hsl_hybrid",
+        frontres_authority_actor_critic_enabled=True,
+        frontres_authority_actor_loss_weight=1.0,
+        frontres_authority_critic_loss_weight=1.0,
+        frontres_structured_joint_rl_enabled=False,
+        device="cpu",
+    )
+    alg.storage = storage
+    metrics = alg.update()
+
+    with torch.no_grad():
+        final_rho = policy.get_authority_rho(obs, proposal).mean().item()
+        q_zero = policy.evaluate_authority_q(obs, proposal, torch.zeros_like(behavior_rho)).mean().item()
+        q_one = policy.evaluate_authority_q(obs, proposal, torch.ones_like(behavior_rho)).mean().item()
+
+    print("=== FrontRES Authority Harmful Full-Write Conflict PROBE ONLY ===")
+    print(
+        f"rho_mean: {initial_rho:.3f} -> {final_rho:.3f}; "
+        f"target beh/0/1=-2.000/0.000/+4.000; "
+        f"Q0/Q1={q_zero:+.3f}/{q_one:+.3f}; "
+        f"loss actor/critic={metrics['authority_actor_loss']:+.3f}/{metrics['authority_critic_loss']:+.3f}"
+    )
+    if final_rho >= initial_rho:
+        raise AssertionError(
+            "harmful near-full behavior did not lower rho: "
+            f"{initial_rho:.4f} -> {final_rho:.4f}"
+        )
+    if metrics["authority_target_conflict_frac"] <= 0.0:
+        raise AssertionError("target conflict diagnostic did not fire.")
+    if metrics["authority_harmful_full_write_frac"] <= 0.0:
+        raise AssertionError("harmful full-write diagnostic did not fire.")
+    if metrics["authority_actor_reject_loss"] <= 0.0:
+        raise AssertionError("actor reject loss did not activate.")
+    print("diagnosis: harmful near-full behavior lowers rho despite optimistic endpoint-one target")
+    print("result: PASS")
+
+
 if __name__ == "__main__":
     test_authority_update_moves_actor_and_critic()
     test_authority_actor_warmup_holds_actor_and_trains_critic()
+    test_authority_harmful_full_write_conflict_probe()

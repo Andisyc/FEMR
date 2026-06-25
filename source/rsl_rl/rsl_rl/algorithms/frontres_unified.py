@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import Optional
+import importlib.util
 import math
 import os
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -11,6 +13,17 @@ import torch.optim as optim
 
 from rsl_rl.modules import ActorCritic, FrontRESActorCritic, ResidualActorCritic
 from rsl_rl.storage import RolloutStorage
+
+_AUTHORITY_TARGETS_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_authority_targets.py"
+_AUTHORITY_TARGETS_SPEC = importlib.util.spec_from_file_location(
+    "frontres_authority_targets_algorithm_module",
+    _AUTHORITY_TARGETS_PATH,
+)
+if _AUTHORITY_TARGETS_SPEC is None or _AUTHORITY_TARGETS_SPEC.loader is None:
+    raise RuntimeError(f"Could not load FrontRES authority target helper from {_AUTHORITY_TARGETS_PATH}.")
+_AUTHORITY_TARGETS_MODULE = importlib.util.module_from_spec(_AUTHORITY_TARGETS_SPEC)
+_AUTHORITY_TARGETS_SPEC.loader.exec_module(_AUTHORITY_TARGETS_MODULE)
+resolve_frontres_authority_targets = _AUTHORITY_TARGETS_MODULE.resolve_frontres_authority_targets
 
 
 class FrontRESUnified:
@@ -1582,6 +1595,9 @@ class FrontRESUnified:
             "authority_q_one_mean": 0.0,
             "authority_q_one_minus_zero_mean": 0.0,
             "authority_q_actor_minus_zero_mean": 0.0,
+            "authority_target_conflict_frac": 0.0,
+            "authority_harmful_full_write_frac": 0.0,
+            "authority_actor_reject_loss": 0.0,
             "authority_rho_mean": 0.0,
             "authority_rho_std": 0.0,
             "authority_rho_min": 0.0,
@@ -1622,6 +1638,18 @@ class FrontRESUnified:
             return zero, metrics
 
         behavior_rho = torch.nan_to_num(behavior_rho, nan=0.0, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
+        resolved_targets = resolve_frontres_authority_targets(
+            behavior_return=target_return,
+            zero_return=target_zero,
+            one_return=target_one,
+            behavior_rho=behavior_rho,
+            mask=mask,
+        )
+        target_return = resolved_targets.behavior_return
+        target_zero = resolved_targets.zero_return
+        target_one = resolved_targets.one_return
+        mask = resolved_targets.mask
+        denom = mask.sum().clamp(min=1e-6)
         q_behavior = self.policy.evaluate_authority_q(obs, proposal, behavior_rho, detach_proposal=True)
         active_task_dims = self._authority_active_task_dim_mask(device=self.device, dtype=obs.dtype)
         if active_task_dims is None:
@@ -1656,6 +1684,8 @@ class FrontRESUnified:
                 for param, requires_grad in zip(authority_critic.parameters(), critic_requires_grad):
                     param.requires_grad_(requires_grad)
         actor_loss = -(q_actor * mask).sum() / denom
+        reject_loss = ((actor_rho.pow(2).sum(dim=-1, keepdim=True) * resolved_targets.harmful_full_write_mask).sum() / denom)
+        actor_loss = actor_loss + reject_loss
 
         critic_weight = float(getattr(self, "frontres_authority_critic_loss_weight", 1.0))
         actor_phase_weight = self._authority_actor_phase_weight()
@@ -1703,6 +1733,13 @@ class FrontRESUnified:
             metrics["authority_q_one_mean"] = float((q_one * mask).sum().detach().item() / denom.detach().item())
             metrics["authority_q_one_minus_zero_mean"] = float(((q_one - q_zero) * mask).sum().detach().item() / denom.detach().item())
             metrics["authority_q_actor_minus_zero_mean"] = float(((q_actor - q_zero) * mask).sum().detach().item() / denom.detach().item())
+            metrics["authority_target_conflict_frac"] = float(
+                ((resolved_targets.conflict_mask * mask).sum() / denom).detach().item()
+            )
+            metrics["authority_harmful_full_write_frac"] = float(
+                ((resolved_targets.harmful_full_write_mask * mask).sum() / denom).detach().item()
+            )
+            metrics["authority_actor_reject_loss"] = float(reject_loss.detach().item())
             metrics["authority_rho_mean"] = float(rho_mean.detach().item())
             metrics["authority_rho_std"] = float(torch.sqrt(rho_var.clamp(min=0.0)).detach().item())
             metrics["authority_rho_min"] = float(rho_for_min.min().detach().item())

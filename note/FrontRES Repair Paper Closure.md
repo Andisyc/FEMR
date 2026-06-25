@@ -486,3 +486,180 @@ Boundary/Future:
 > tracker; HSL is not the novelty itself, but the natural minimal mechanism once
 > the problem is correctly separated from dynamic recovery.
 
+---
+
+## 16. Updated Direction: Recovery-Aware Repair, Not HSL-Only
+
+The later branch discussion revised the HSL-only closure.  HSL-only repair is
+clean, but likely too weak as the central contribution because it only solves a
+geometric reference-repair problem.  The stronger and more natural problem is
+the coupled regime:
+
+```text
+the robot is lightly destabilized, and the reference frame is still corrupted.
+```
+
+This is not full Recovery.  The method should not learn a new recovery policy
+or synthesize a new recovery reference.  It should repair corrupted references
+while respecting the frozen GMT tracker's ongoing recovery tendency.
+
+The updated paper problem is:
+
+> How can a front-end repair module correct corrupted references without
+> interrupting the frozen tracker when the robot is already lightly
+> destabilized?
+
+This shifts the method from HSL-only geometric repair to recovery-aware repair.
+
+## 17. New Component Boundary
+
+The cleanest current factorization is:
+
+```text
+HSL = dynamics-aware proposal generation
+HRL = rollout-based admissibility selection
+GMT = frozen execution policy
+```
+
+HSL no longer means "blindly predict the full Clean-Noisy residual."  HSL should
+produce a locally executable repair proposal:
+
+```text
+Delta r_HSL = conservative Clean-oriented repair proposal
+```
+
+It owns continuous repair magnitude.  This is the part that old HRL/rho tried
+to learn but could not learn reliably from endpoint rollout comparisons.
+
+HRL should no longer own continuous per-dimension rho strength.  It should own
+binary or near-binary admissibility:
+
+```text
+m_HRL = should this proposal be written under the current state?
+```
+
+The execution rule becomes:
+
+```text
+r_out = r_noisy + m_HRL * Delta r_HSL
+```
+
+or, for dimension/family-level decisions:
+
+```text
+r_out = r_noisy + m_HRL \odot Delta r_HSL
+```
+
+## 18. Why This Fixes The Old Preference / Advantage Problem
+
+The old continuous-rho formulation asked Noisy/Clean/Candidate endpoint
+rollouts to identify a continuous write strength.  This was not identifiable.
+Those rollouts can answer:
+
+```text
+Was applying this proposal better than doing nothing?
+```
+
+They cannot reliably answer:
+
+```text
+What exact continuous rho value should each dimension use?
+```
+
+The updated design matches evidence to variable:
+
+- HSL receives the continuous magnitude problem because it can be trained as a
+  supervised, locally constrained proposal.
+- HRL receives only the accept/reject problem because Noisy-vs-Candidate
+  rollout comparison can provide that label.
+
+This does not discard HRL.  It makes HRL responsible for the part that rollout
+evidence can actually support.
+
+## 19. What HSL Is And Is Not
+
+HSL is:
+
+```text
+a locally executable Clean-oriented proposal generator
+```
+
+It may use local dynamics priors such as smoothness, bounded magnitude, local
+GMT action consistency, or family-specific conservative targets.
+
+HSL is not:
+
+```text
+a recovery policy
+```
+
+It does not guarantee that the proposal will improve rollout.  It only prevents
+the proposal from being a crude geometric jump.  Long-horizon rollout success
+or failure is still handled by HRL.
+
+Short version:
+
+```text
+HSL makes the repair gentle.
+HRL decides whether the gentle repair is admissible.
+```
+
+## 20. HRL's Remaining Necessity
+
+HRL exists because HSL has failed corners.  Even a locally gentle proposal can
+be harmful when:
+
+- it is locally smooth but rollout-harmful;
+- it is geometrically correct but conflicts with GMT's current recovery trend;
+- the robot state is near the boundary where any reference correction increases
+  control burden;
+- the active perturbation family interacts with contact, phase, or velocity in
+  a way that local smoothness cannot predict.
+
+Therefore HRL's paper role is:
+
+```text
+reject proposal failures using rollout evidence
+```
+
+A suitable HRL label is based on Noisy-vs-Candidate comparison:
+
+```text
+Candidate better than Noisy -> accept
+Candidate worse than Noisy  -> reject
+margin region               -> ignore or low weight
+```
+
+Clean remains useful for proposal construction and upper-reference analysis,
+but the HRL decision should be tied to whether Candidate improves over the
+Noisy baseline.
+
+## 21. Updated Main Method Sentence
+
+The strongest current method sentence is:
+
+> FEMR separates reference repair into dynamics-aware proposal generation and
+> rollout-based admissibility selection.
+
+Expanded:
+
+> FEMR first converts a clean-oriented geometric correction into a locally
+> executable repair proposal, then learns a binary admissibility policy to
+> reject proposal failures under rollout evidence.
+
+This should replace the weaker HSL-only closing story if the implementation is
+updated accordingly.
+
+## 22. Implementation Contract For The Next Code Pass
+
+The next code pass should follow these constraints:
+
+1. HSL owns continuous repair magnitude.
+2. HRL owns accept/reject admissibility, not continuous rho strength.
+3. Noisy/Candidate rollout evidence should train binary admissibility labels.
+4. Old continuous-rho branches must be removed from the active path or hard
+   gated as explicit ablations.
+5. Diagnostics should report HSL proposal magnitude, HRL accept/reject rate,
+   Candidate-vs-Noisy margin, accepted-beneficial fraction, and
+   rejected-harmful fraction.
+
