@@ -344,6 +344,14 @@ def format_frontres_optimization_diagnostics(loss_dict: MetricMap, *, pad: int) 
             f"act-0={_value(loss_dict, 'authority_q_actor_minus_zero_mean'):+.4f})\n"
         )
         lines.append(
+            f"{'authority actor ready:':>{pad}} "
+            f"ready={_value(loss_dict, 'authority_actor_ready_frac'):.3f}, "
+            f"accept={_value(loss_dict, 'authority_actor_ready_accept_frac'):.3f}, "
+            f"reject={_value(loss_dict, 'authority_actor_ready_reject_frac'):.3f}, "
+            f"harmful={_value(loss_dict, 'authority_harmful_full_write_frac'):.3f}, "
+            f"conflict={_value(loss_dict, 'authority_target_conflict_frac'):.3f}\n"
+        )
+        lines.append(
             f"{'authority rho μ/σ/min/max:':>{pad}} "
             f"{_value(loss_dict, 'authority_rho_mean'):.3f} / "
             f"{_value(loss_dict, 'authority_rho_std'):.3f} / "

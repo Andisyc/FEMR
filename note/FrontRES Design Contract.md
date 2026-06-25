@@ -129,6 +129,34 @@ Terminology note: the code has both `Candidate` and `Clean` branches.  The
 The true Clean branch remains an oracle/upper-bound diagnostic unless the
 experiment explicitly makes Stage-1 proposal equal to Clean.
 
+### Design 2B: Critic-Ready Actor Update
+
+The authority actor should not be trained from a critic surface that has not
+yet learned the endpoint ordering.  Directly adding a hand-weighted reject
+penalty can suppress harmful full-write cases, but it turns authority learning
+into coefficient tuning and can collapse rho toward zero.  The active design
+therefore uses a structural actor-update condition:
+
+```text
+endpoint target order:
+  sign(G_1 - G_0)
+
+critic endpoint order:
+  sign(Q(s, d, 1) - Q(s, d, 0))
+
+actor update is active only when these two signs agree.
+```
+
+If the rollout evidence says full-write is better and the critic has learned
+that same ordering, the actor may increase authority.  If the rollout evidence
+says full-write is worse and the critic has learned that ordering, the actor may
+decrease authority.  If the two orderings disagree, only the critic is trained
+on the endpoint and behavior targets; the actor waits.
+
+This is not a new gate parameter.  It is the actor-critic training order made
+explicit: first learn the evaluator's local ordering, then let the actor follow
+that evaluator.  The old direct reject loss is not part of the active mechanism.
+
 The active authority space is continuous 6D authority:
 
 ```text

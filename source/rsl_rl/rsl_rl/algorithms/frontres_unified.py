@@ -1683,9 +1683,12 @@ class FrontRESUnified:
             if authority_critic is not None:
                 for param, requires_grad in zip(authority_critic.parameters(), critic_requires_grad):
                     param.requires_grad_(requires_grad)
-        actor_loss = -(q_actor * mask).sum() / denom
-        reject_loss = ((actor_rho.pow(2).sum(dim=-1, keepdim=True) * resolved_targets.harmful_full_write_mask).sum() / denom)
-        actor_loss = actor_loss + reject_loss
+        target_endpoint_delta = (target_one - target_zero).detach()
+        critic_endpoint_delta = (q_one_fit - q_zero_fit).detach()
+        actor_ready_mask = mask * (target_endpoint_delta * critic_endpoint_delta > 0.0).to(dtype=mask.dtype)
+        actor_denom = actor_ready_mask.sum().clamp(min=1e-6)
+        actor_loss = -(q_actor * actor_ready_mask).sum() / actor_denom
+        reject_loss = torch.zeros((), device=self.device, dtype=actor_loss.dtype)
 
         critic_weight = float(getattr(self, "frontres_authority_critic_loss_weight", 1.0))
         actor_phase_weight = self._authority_actor_phase_weight()
@@ -1733,6 +1736,13 @@ class FrontRESUnified:
             metrics["authority_q_one_mean"] = float((q_one * mask).sum().detach().item() / denom.detach().item())
             metrics["authority_q_one_minus_zero_mean"] = float(((q_one - q_zero) * mask).sum().detach().item() / denom.detach().item())
             metrics["authority_q_actor_minus_zero_mean"] = float(((q_actor - q_zero) * mask).sum().detach().item() / denom.detach().item())
+            target_endpoint_delta_metric = target_endpoint_delta
+            critic_endpoint_delta_metric = critic_endpoint_delta
+            ready_accept_mask = actor_ready_mask * (target_endpoint_delta_metric > 0.0).to(dtype=mask.dtype)
+            ready_reject_mask = actor_ready_mask * (target_endpoint_delta_metric < 0.0).to(dtype=mask.dtype)
+            metrics["authority_actor_ready_frac"] = float((actor_ready_mask.sum() / denom).detach().item())
+            metrics["authority_actor_ready_accept_frac"] = float((ready_accept_mask.sum() / denom).detach().item())
+            metrics["authority_actor_ready_reject_frac"] = float((ready_reject_mask.sum() / denom).detach().item())
             metrics["authority_target_conflict_frac"] = float(
                 ((resolved_targets.conflict_mask * mask).sum() / denom).detach().item()
             )
