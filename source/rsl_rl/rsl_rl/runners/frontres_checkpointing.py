@@ -15,6 +15,49 @@ import torch
 from rsl_rl.modules import FrontRESActorCritic, ResidualActorCritic
 
 
+def _numeric_module_keys(state_dict: dict, suffix: str) -> list[str]:
+    keys = [key for key in state_dict if key.endswith(suffix) and key.split(".", 1)[0].isdigit()]
+    return sorted(keys, key=lambda key: int(key.split(".", 1)[0]))
+
+
+def _load_split_proposal_from_two_head_residual(proposal_actor, residual_state: dict) -> bool:
+    """Load Stage-1 two-head residual weights into a Stage-2 proposal-only actor."""
+
+    if not residual_state:
+        return False
+    if not any(key.startswith("proposal_head.") for key in residual_state):
+        return False
+
+    target_state = proposal_actor.state_dict()
+    target_weight_keys = _numeric_module_keys(target_state, ".weight")
+    if not target_weight_keys:
+        return False
+
+    last_weight = target_weight_keys[-1]
+    last_bias = last_weight.replace(".weight", ".bias")
+    new_state = dict(target_state)
+    copied_any = False
+
+    for key, value in target_state.items():
+        if key == last_weight:
+            src = residual_state.get("proposal_head.weight")
+        elif key == last_bias:
+            src = residual_state.get("proposal_head.bias")
+        else:
+            src = residual_state.get(f"trunk.{key}")
+        if src is None:
+            continue
+        if src.shape != value.shape:
+            return False
+        new_state[key] = src.clone()
+        copied_any = True
+
+    if not copied_any:
+        return False
+    proposal_actor.load_state_dict(new_state, strict=True)
+    return True
+
+
 def record_frontres_checkpoint_probe(self, locs: dict, checkpoint_path: str) -> None:
     """Persist save-time FrontRES probe metrics and keep the best demo checkpoint.
 
@@ -237,14 +280,32 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
             residual_state = loaded_dict["model_state_dict"]["residual_actor"]
             try:
                 self.alg.policy.residual_actor.load_state_dict(residual_state, strict=True)
-            except RuntimeError:
-                migrated = False
-                if hasattr(self.alg.policy, "initialize_two_head_from_legacy_state"):
-                    migrated = self.alg.policy.initialize_two_head_from_legacy_state(residual_state)
-                if migrated:
-                    print("[Runner] Migrated legacy residual_actor weights into FrontRES two-head actor.")
+            except RuntimeError as exc:
+                checkpoint_is_two_head = any(
+                    key.startswith(("trunk.", "proposal_head.", "acceptance_head."))
+                    for key in residual_state
+                )
+                if checkpoint_is_two_head:
+                    migrated = _load_split_proposal_from_two_head_residual(
+                        self.alg.policy.residual_actor,
+                        residual_state,
+                    )
+                    if migrated:
+                        print("[Runner] Migrated Stage 1 two-head residual_actor into split Stage 2 proposal actor.")
+                    else:
+                        raise RuntimeError(
+                            "Checkpoint residual_actor is a FrontRESTwoHeadActor, but it cannot be "
+                            "mapped into the active Stage 2 proposal actor. Check "
+                            "frontres_split_acceptance_head, hidden dims, and task correction dims."
+                        ) from exc
                 else:
-                    raise
+                    migrated = False
+                    if hasattr(self.alg.policy, "initialize_two_head_from_legacy_state"):
+                        migrated = self.alg.policy.initialize_two_head_from_legacy_state(residual_state)
+                    if migrated:
+                        print("[Runner] Migrated legacy residual_actor weights into FrontRES two-head actor.")
+                    else:
+                        raise
         if getattr(self.alg.policy, "acceptance_actor", None) is not None:
             if "acceptance_actor" in loaded_dict["model_state_dict"]:
                 self.alg.policy.acceptance_actor.load_state_dict(loaded_dict["model_state_dict"]["acceptance_actor"])
