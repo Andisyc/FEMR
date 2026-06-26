@@ -65,7 +65,8 @@ def _active_hsl_acceptance_enabled(cfg: MetricMap, loss_dict: MetricMap | None =
     if loss_dict is None:
         return True
     return (
-        float(_value(loss_dict, "hsl_acceptance_loss_enabled", 0.0)) > 0.5
+        float(_value(loss_dict, "hsl_acceptance_path_enabled", 0.0)) > 0.5
+        or float(_value(loss_dict, "hsl_acceptance_loss_enabled", 0.0)) > 0.5
         or float(_value(loss_dict, "lambda_acceptance_preference", 0.0)) > 0.0
     )
 
@@ -327,9 +328,11 @@ def format_frontres_hsl_acceptance_diagnostics(
     lines: list[str] = []
     loss = loss_dict.get("acceptance_preference_loss", None)
     if loss is not None:
+        status = "active" if _value(loss_dict, "hsl_acceptance_mask_frac") > 0.0 else "active_zero_mask"
         lines.append(
             f"{'acceptance loss:':>{pad}} {loss:.4f} "
             f"(lambda={_value(loss_dict, 'lambda_acceptance_preference'):.3f}, "
+            f"status={status}, "
             f"mask={_value(loss_dict, 'hsl_acceptance_mask_frac'):.3f}, "
             f"gt={_value(loss_dict, 'hsl_acceptance_gt_mean'):.3f}, "
             f"prob={_value(loss_dict, 'hsl_acceptance_prob_mean'):.3f}, "

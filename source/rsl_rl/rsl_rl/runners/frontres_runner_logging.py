@@ -24,18 +24,10 @@ from rsl_rl.frontres.frontres_diagnostics import (
 
 def _active_hsl_acceptance_log_mode(self, locs: dict) -> bool:
     loss_dict = locs.get("loss_dict", {})
-    objective = f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
-    authority_active = float(loss_dict.get("authority_actor_critic_enabled", 0.0)) > 0.5
-    structured_active = (
-        float(loss_dict.get("structured_joint_rl_enabled", 0.0)) > 0.5
-        or float(loss_dict.get("lambda_structured_joint_rl", 0.0)) > 0.0
-    )
-    return (
-        objective == "hsl_hybrid"
-        and not authority_active
-        and not structured_active
-        and float(loss_dict.get("hsl_acceptance_loss_enabled", 0.0)) > 0.5
-    )
+    enabled = getattr(getattr(self, "alg", None), "_active_hsl_acceptance_loss_enabled", None)
+    if callable(enabled):
+        return bool(enabled())
+    return float(loss_dict.get("hsl_acceptance_path_enabled", 0.0)) > 0.5
 
 
 def _scalar_log_value(value):

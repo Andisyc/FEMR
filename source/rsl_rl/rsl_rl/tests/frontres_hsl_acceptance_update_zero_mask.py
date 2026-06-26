@@ -154,6 +154,8 @@ def main() -> None:
         raise AssertionError("storage was not cleared after update")
     if loss_dict["acceptance_preference_loss"] != 0.0:
         raise AssertionError("zero-mask acceptance batch should report zero acceptance loss")
+    if loss_dict["hsl_acceptance_path_enabled"] != 1.0:
+        raise AssertionError("zero-mask acceptance batch should still report the active HSL acceptance path")
     if loss_dict["hsl_acceptance_loss_enabled"] != 0.0:
         raise AssertionError("zero-mask acceptance batch should report HSL acceptance disabled for that batch")
     print("PASS: active Stage 2 update skips zero-mask acceptance loss without backward error.")

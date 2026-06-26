@@ -30,7 +30,8 @@ else
   LAUNCH=(python scripts/rsl_rl/train.py)
 fi
 
-HYDRA_FULL_ERROR=1 "${LAUNCH[@]}" \
+TRAIN_CMD=(
+  "${LAUNCH[@]}"
   --task=FrontRES-Unified-Tracking-Flat-G1-v0 \
   --num_envs="${NUM_ENVS}" \
   --motion "${MOTION_PATH}" \
@@ -44,3 +45,30 @@ HYDRA_FULL_ERROR=1 "${LAUNCH[@]}" \
   --resume_student_checkpoint "${STAGE1_CHECKPOINT}" \
   --is_full_resume False \
   --frontres_stage stage2_acceptance
+)
+
+if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
+  joined=" ${TRAIN_CMD[*]} "
+  for required in \
+    " scripts/rsl_rl/train.py " \
+    " --frontres_stage stage2_acceptance " \
+    " --resume_student_checkpoint ${STAGE1_CHECKPOINT} " \
+    " --is_full_resume False " \
+    " --experiment_name g1_flat_frontres_stage2_acceptance "
+  do
+    if [[ "${joined}" != *"${required}"* ]]; then
+      echo "Stage 2 startup preflight failed; missing command fragment:${required}" >&2
+      echo -n "Command: " >&2
+      printf '%q ' "${TRAIN_CMD[@]}" >&2
+      echo >&2
+      exit 3
+    fi
+  done
+  echo "[FrontRES Stage2 startup preflight] PASS"
+  echo -n "Command: "
+  printf '%q ' "${TRAIN_CMD[@]}"
+  echo
+  exit 0
+fi
+
+HYDRA_FULL_ERROR=1 "${TRAIN_CMD[@]}"

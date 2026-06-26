@@ -47,6 +47,25 @@ def test_active_hsl_payload_uses_algorithm_enable_gates() -> None:
     assert "not bool(structured_joint_requested)" in active_gate
 
 
+def test_runner_syncs_algorithm_config_before_rollout_gates() -> None:
+    text = _read(RUNNER)
+    init_block = _between(text, "self.alg: PPO | Distillation | MOSAIC | FrontRESUnified", "self._frontres_alpha_rho_bridge")
+    assert "self._sync_frontres_algorithm_state_to_runner_cfg()" in init_block
+    assert "self._validate_frontres_active_hsl_acceptance_path()" in init_block
+
+    sync_block = _between(text, "def _sync_frontres_algorithm_state_to_runner_cfg", "def _validate_frontres_active_hsl_acceptance_path")
+    assert '"frontres_training_objective"' in sync_block
+    assert '"frontres_structured_joint_rl_enabled"' in sync_block
+    assert '"frontres_structured_joint_rl_weight"' in sync_block
+    assert "self.cfg[key] = getattr(self.alg, key)" in sync_block
+    assert "self.alg_cfg[key] = getattr(self.alg, key)" in sync_block
+
+    validate_block = _between(text, "def _validate_frontres_active_hsl_acceptance_path", "def evaluate_frontres_dr_sweep")
+    assert "_active_hsl_acceptance_loss_enabled" in validate_block
+    assert "FrontRES active HSL acceptance path verified" in validate_block
+    assert "Invalid FEMR Stage 2 config" in validate_block
+
+
 def test_active_hsl_payload_does_not_allocate_or_write_structured_rho_prior_storage() -> None:
     text = _read(PAYLOAD)
     init_block = _between(text, "rho_prior_authority = None", "pref_inertial_penalty_rho_mean")
@@ -81,6 +100,7 @@ def test_authority_live_path_has_early_disable_guards() -> None:
 if __name__ == "__main__":
     test_runner_old_alpha_rho_branch_is_structured_only()
     test_active_hsl_payload_uses_algorithm_enable_gates()
+    test_runner_syncs_algorithm_config_before_rollout_gates()
     test_active_hsl_payload_does_not_allocate_or_write_structured_rho_prior_storage()
     test_authority_live_path_has_early_disable_guards()
     print("frontres_runner_hsl_acceptance_path: PASS")

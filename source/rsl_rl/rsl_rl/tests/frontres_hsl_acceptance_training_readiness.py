@@ -25,6 +25,7 @@ READINESS_TESTS = [
     "frontres_runner_hsl_acceptance_path.py",
     "frontres_hsl_acceptance_diagnostics.py",
     "frontres_stage_entrypoint_contract.py",
+    "frontres_stage2_startup_preflight.py",
     "frontres_stage2_two_head_checkpoint_migration.py",
     "frontres_hsl_acceptance_update_zero_mask.py",
     "frontres_hsl_acceptance_full_toy_chain.py",

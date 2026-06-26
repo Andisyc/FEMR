@@ -31,6 +31,7 @@ def test_active_hsl_console_uses_acceptance_language() -> None:
     loss = {
         "acceptance_preference_loss": 0.123,
         "lambda_acceptance_preference": 1.0,
+        "hsl_acceptance_path_enabled": 1.0,
         "hsl_acceptance_loss_enabled": 1.0,
         "hsl_acceptance_mask_frac": 0.75,
         "hsl_acceptance_gt_mean": 0.60,
@@ -67,6 +68,7 @@ def test_active_hsl_suppresses_old_route_and_preference_formatters() -> None:
         "frontres_structured_joint_rl_weight": 0.0,
     }
     loss = {
+        "hsl_acceptance_path_enabled": 1.0,
         "hsl_acceptance_loss_enabled": 1.0,
         "lambda_acceptance_preference": 1.0,
         "structured_joint_rl_enabled": 0.0,
@@ -88,6 +90,7 @@ def test_runner_logging_contains_step8_guards() -> None:
     assert "_active_hsl_acceptance_log_mode" in text
     assert "FrontRES/Acceptance/loss" in text
     assert "FrontRES/Acceptance/lambda" in text
+    assert "_active_hsl_acceptance_loss_enabled" in text
     assert 'key.startswith("acceptance_preference_")' in text
     assert "if not _active_hsl_acceptance_log:" in text
     assert "HSL ΔSE proposal + masked acceptance" in text

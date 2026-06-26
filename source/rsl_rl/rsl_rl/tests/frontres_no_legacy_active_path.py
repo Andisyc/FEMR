@@ -116,8 +116,8 @@ def test_active_logging_suppresses_legacy_names() -> None:
     text = LOGGING_PATH.read_text()
     required = [
         "def _active_hsl_acceptance_log_mode",
-        "and not authority_active",
-        "and not structured_active",
+        "_active_hsl_acceptance_loss_enabled",
+        "hsl_acceptance_path_enabled",
         "key.startswith(_legacy_active_log_prefixes)",
         "FrontRES/Acceptance/loss",
         "FrontRES/Acceptance/lambda",

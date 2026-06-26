@@ -2138,12 +2138,14 @@ class FrontRESUnified:
             "acceptance_preference_full_weight": 1.0,
             "acceptance_preference_noop_weight": 1.0,
             "acceptance_preference_effective_full_frac": 0.0,
+            "hsl_acceptance_path_enabled": 0.0,
             "hsl_acceptance_loss_enabled": 0.0,
             "hsl_acceptance_gt_mean": 0.0,
             "hsl_acceptance_mask_frac": 0.0,
             "hsl_acceptance_prob_mean": 0.0,
             "hsl_acceptance_abs_err": 0.0,
         }
+        metrics["hsl_acceptance_path_enabled"] = 1.0 if self._active_hsl_acceptance_loss_enabled() else 0.0
         if (
             self._structured_joint_rl_enabled()
             and not self.frontres_structured_joint_rl_keep_legacy_bce

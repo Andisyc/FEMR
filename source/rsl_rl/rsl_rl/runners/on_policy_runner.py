@@ -402,6 +402,8 @@ class OnPolicyRunner:
             device=self.device,
             **self.alg_cfg,
             multi_gpu_cfg=self.multi_gpu_cfg,)
+        self._sync_frontres_algorithm_state_to_runner_cfg()
+        self._validate_frontres_active_hsl_acceptance_path()
         self._frontres_alpha_rho_bridge = FrontRESAlphaRhoBridge()
         self._frontres_action_cone = FrontRESActionCone(self.cfg, self.alg)
         self._frontres_executability = FrontRESExecutabilityScorer(self.cfg, self.alg, self.device)
@@ -584,6 +586,54 @@ class OnPolicyRunner:
             bool(self.cfg.get("frontres_structured_joint_rl_enabled", False))
             and float(self.cfg.get("frontres_structured_joint_rl_weight", 0.0)) > 0.0
             and str(self.cfg.get("frontres_training_objective", "")).lower() == "hsl_hybrid"
+        )
+
+    def _sync_frontres_algorithm_state_to_runner_cfg(self) -> None:
+        """Keep runner-side rollout/log gates aligned with the algorithm config."""
+        if self.training_type != "frontres":
+            return
+        mirror_keys = (
+            "frontres_training_objective",
+            "frontres_acceptance_preference_weight",
+            "frontres_state_alpha_weight",
+            "frontres_structured_joint_rl_enabled",
+            "frontres_structured_joint_rl_weight",
+            "frontres_structured_joint_prior_loss_weight",
+            "frontres_authority_actor_critic_enabled",
+            "frontres_authority_actor_loss_weight",
+            "frontres_authority_critic_loss_weight",
+            "frontres_active_task_dims",
+        )
+        for key in mirror_keys:
+            if hasattr(self.alg, key):
+                self.cfg[key] = getattr(self.alg, key)
+                self.alg_cfg[key] = getattr(self.alg, key)
+
+    def _validate_frontres_active_hsl_acceptance_path(self) -> None:
+        """Fail before rollout if active Stage 2 would be masked by legacy branches."""
+        if self.training_type != "frontres":
+            return
+        active_enabled = getattr(self.alg, "_active_hsl_acceptance_loss_enabled", None)
+        if not callable(active_enabled) or not bool(active_enabled()):
+            return
+        if self._frontres_structured_joint_effective_enabled():
+            raise ValueError(
+                "Invalid FEMR Stage 2 config: active HSL acceptance is enabled, "
+                "but structured-joint rho is still effective."
+            )
+        if bool(getattr(self.alg, "_authority_actor_critic_enabled", lambda: False)()):
+            raise ValueError(
+                "Invalid FEMR Stage 2 config: active HSL acceptance is enabled, "
+                "but authority actor-critic is still effective."
+            )
+        print(
+            "[Runner] FrontRES active HSL acceptance path verified: "
+            f"objective={getattr(self.alg, 'frontres_training_objective', 'n/a')}, "
+            f"acceptance_weight={getattr(self.alg, 'frontres_acceptance_preference_weight', 'n/a')}, "
+            f"structured_joint={getattr(self.alg, 'frontres_structured_joint_rl_enabled', 'n/a')}/"
+            f"{getattr(self.alg, 'frontres_structured_joint_rl_weight', 'n/a')}, "
+            f"authority={getattr(self.alg, 'frontres_authority_actor_critic_enabled', 'n/a')}",
+            flush=True,
         )
 
     def evaluate_frontres_dr_sweep(
