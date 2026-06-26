@@ -43,6 +43,15 @@ def run_acceptance_label_check() -> None:
         positive_margin=0.01,
         negative_margin=0.01,
     )
+    margin_only = build_frontres_acceptance_labels(
+        margin=candidate - noisy,
+        positive_margin=0.01,
+        negative_margin=0.01,
+    )
+    if not torch.equal(labels.accept_gt, margin_only.accept_gt):
+        raise AssertionError("margin-only labels must match candidate-vs-noisy labels")
+    if not torch.equal(labels.accept_mask, margin_only.accept_mask):
+        raise AssertionError("margin-only masks must match candidate-vs-noisy masks")
 
     _assert_close("accept_gt", labels.accept_gt, [1.0, 0.0, 0.0, 1.0, 0.0])
     _assert_close("accept_mask", labels.accept_mask, [1.0, 1.0, 0.0, 1.0, 1.0])

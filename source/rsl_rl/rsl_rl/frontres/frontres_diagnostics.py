@@ -284,6 +284,12 @@ def format_frontres_preference_diagnostics(
             f"(mask={_value(locs, 'frontres_accept_pref_mask_mean'):.3f}, "
             f"margin={_value(locs, 'frontres_accept_pref_margin_mean'):+.4f})\n"
         )
+        lines.append(
+            f"{'accept mask raw/mode/dim:':>{pad}} "
+            f"{_value(locs, 'frontres_accept_pref_raw_mask_mean'):.3f} / "
+            f"{_value(locs, 'frontres_accept_pref_mode_mask_mean'):.3f} / "
+            f"{_value(locs, 'frontres_accept_pref_dim_mask_mean'):.3f}\n"
+        )
 
     if (
         bool(cfg.get("frontres_acceptance_direct_target_enabled", False))

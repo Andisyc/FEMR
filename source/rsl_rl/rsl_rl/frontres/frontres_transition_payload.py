@@ -30,6 +30,9 @@ class FrontRESAcceptancePayload:
     pref_noop_frac: torch.Tensor
     pref_keep_frac: torch.Tensor
     pref_ignore_frac: torch.Tensor
+    pref_raw_mask_frac: torch.Tensor
+    pref_mode_mask_frac: torch.Tensor
+    pref_dim_mask_frac: torch.Tensor
     pref_margin_mean: torch.Tensor
     pref_need_mean: torch.Tensor
     pref_admiss_mean: torch.Tensor
@@ -594,6 +597,9 @@ def initialize_frontres_acceptance_payload(runner: Any) -> FrontRESAcceptancePay
         pref_noop_frac=zero,
         pref_keep_frac=zero,
         pref_ignore_frac=torch.tensor(1.0, device=runner.device),
+        pref_raw_mask_frac=zero,
+        pref_mode_mask_frac=zero,
+        pref_dim_mask_frac=zero,
         pref_margin_mean=zero,
         pref_need_mean=zero,
         pref_admiss_mean=zero,
@@ -655,6 +661,9 @@ def summarize_frontres_acceptance_payload(
     pref_noop_frac = zero
     pref_keep_frac = zero
     pref_ignore_frac = torch.tensor(1.0, device=runner.device)
+    pref_raw_mask_frac = zero
+    pref_mode_mask_frac = zero
+    pref_dim_mask_frac = zero
     pref_margin_mean = zero
     pref_need_mean = zero
     pref_admiss_mean = zero
@@ -683,6 +692,7 @@ def summarize_frontres_acceptance_payload(
             admiss_sample = (admissibility.view(-1, 1) * mask_exec).sum(dim=-1) / mask_sum
             pref_admiss_mean = admiss_sample[active_pref].mean()
     pref_ignore_frac = (~active_pref).float().mean()
+    pref_dim_mask_frac = active_pref.float().mean()
 
     best = torch.maximum(torch.maximum(j_one, j_rho), j_zero)
     second = torch.minimum(
@@ -710,6 +720,9 @@ def summarize_frontres_acceptance_payload(
         pref_noop_frac=pref_noop_frac,
         pref_keep_frac=pref_keep_frac,
         pref_ignore_frac=pref_ignore_frac,
+        pref_raw_mask_frac=pref_raw_mask_frac,
+        pref_mode_mask_frac=pref_mode_mask_frac,
+        pref_dim_mask_frac=pref_dim_mask_frac,
         pref_margin_mean=pref_margin_mean,
         pref_need_mean=pref_need_mean,
         pref_admiss_mean=pref_admiss_mean,
@@ -770,6 +783,11 @@ def _write_active_hsl_acceptance_payload(
     a temporary mirror for legacy loss consumers until Step 6.
     """
 
+    def _sample_mask_frac(mask: torch.Tensor) -> torch.Tensor:
+        if mask.numel() == 0 or mask.shape[0] == 0:
+            return torch.tensor(0.0, device=runner.device, dtype=mask.dtype)
+        return (mask.sum(dim=-1) > 0).to(mask.dtype).mean()
+
     labels = build_frontres_acceptance_labels(
         margin=ctx.candidate_gain[:n_exec].detach(),
         positive_margin=pref_margin,
@@ -777,6 +795,9 @@ def _write_active_hsl_acceptance_payload(
     )
     target_exec, mask_exec = expand_acceptance_labels_to_task_dims(labels, task_dim=6)
     structured_rho_loss_mask = torch.ones_like(mask_exec)
+    raw_mask_exec = mask_exec.clone()
+    raw_mask_frac = _sample_mask_frac(raw_mask_exec)
+    mode_mask_frac = raw_mask_frac
 
     if bool(runner.cfg.get("frontres_per_mode_acceptance_preference_mask", True)):
         mode_dim_mask = runner._frontres_action_cone.mode_dim_mask(
@@ -784,6 +805,7 @@ def _write_active_hsl_acceptance_payload(
         )
         mask_exec = mask_exec * mode_dim_mask
         structured_rho_loss_mask = structured_rho_loss_mask * mode_dim_mask
+        mode_mask_frac = _sample_mask_frac(mask_exec)
 
     active_dims_cfg = runner.cfg.get("frontres_active_task_dims", None)
     if active_dims_cfg is not None:
@@ -796,6 +818,7 @@ def _write_active_hsl_acceptance_payload(
                 dim_mask[idx - 6] = 1.0
         mask_exec = mask_exec * dim_mask.view(1, -1)
         structured_rho_loss_mask = structured_rho_loss_mask * dim_mask.view(1, -1)
+    dim_mask_frac = _sample_mask_frac(mask_exec)
 
     accept_target[:n_exec] = target_exec.detach()
     accept_mask[:n_exec] = mask_exec.detach()
@@ -873,6 +896,9 @@ def _write_active_hsl_acceptance_payload(
         rho_regret_down_rp_mean=torch.relu(-labels.margin).mean(),
         rho_regret_down_z_mean=torch.relu(-labels.margin).mean(),
     )
+    accept_payload.pref_raw_mask_frac = raw_mask_frac
+    accept_payload.pref_mode_mask_frac = mode_mask_frac
+    accept_payload.pref_dim_mask_frac = dim_mask_frac
     return accept_payload, accept_payload.accept_target, accept_payload.accept_mask
 
 

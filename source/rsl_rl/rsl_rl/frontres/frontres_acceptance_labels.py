@@ -34,7 +34,7 @@ class FrontRESAcceptanceLabels:
 
 def build_frontres_acceptance_labels(
     *,
-    candidate_score: torch.Tensor,
+    candidate_score: torch.Tensor | None = None,
     noisy_score: torch.Tensor | None = None,
     margin: torch.Tensor | None = None,
     positive_margin: float = 0.0,
@@ -52,6 +52,8 @@ def build_frontres_acceptance_labels(
     """
 
     if margin is None:
+        if candidate_score is None:
+            raise ValueError("candidate_score is required when margin is not provided.")
         if noisy_score is None:
             noisy_score = torch.zeros_like(candidate_score)
         margin = candidate_score - noisy_score

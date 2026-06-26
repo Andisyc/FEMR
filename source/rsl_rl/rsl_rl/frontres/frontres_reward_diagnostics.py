@@ -42,6 +42,7 @@ def initialize_frontres_reward_diagnostic_sums() -> dict[str, float | int]:
         "oracle_clean_gap", "oracle_trust", "repair_gain", "candidate_gain",
         "projection_gain", "underwrite", "accept_pref_mask", "accept_pref_full",
         "accept_pref_noop", "accept_pref_keep", "accept_pref_ignore",
+        "accept_pref_raw_mask", "accept_pref_mode_mask", "accept_pref_dim_mask",
         "accept_pref_margin", "accept_pref_need", "accept_pref_admiss",
         "accept_pref_target", "inertial_pref_penalty_rho",
         "inertial_pref_penalty_one", "positive_gain_frac", "repair_ratio",
@@ -99,7 +100,8 @@ _FRONTRES_REWARD_DIAG_MEAN_KEYS = (
     "oracle_ub_projected_win", "oracle_ub_candidate_win",
     "oracle_ub_feasible_win", "oracle_ub_noisy_win", "accept_pref_mask",
     "accept_pref_full", "accept_pref_noop", "accept_pref_keep",
-    "accept_pref_ignore", "accept_pref_margin", "accept_pref_need",
+    "accept_pref_ignore", "accept_pref_raw_mask", "accept_pref_mode_mask",
+    "accept_pref_dim_mask", "accept_pref_margin", "accept_pref_need",
     "accept_pref_admiss", "accept_pref_target", "inertial_pref_penalty_rho",
     "inertial_pref_penalty_one", "positive_gain_frac", "repair_ratio",
     "exec_signal", "weighted_exec_signal", "train_reward",
@@ -250,6 +252,9 @@ def accumulate_frontres_reward_diagnostics(
         sums["accept_pref_noop"] += _item(locs.get("_pref_noop_frac", 0.0))
         sums["accept_pref_keep"] += _item(locs.get("_pref_keep_frac", 0.0))
         sums["accept_pref_ignore"] += _item(locs.get("_pref_ignore_frac", 0.0))
+        sums["accept_pref_raw_mask"] += _item(locs.get("_pref_raw_mask_frac", 0.0))
+        sums["accept_pref_mode_mask"] += _item(locs.get("_pref_mode_mask_frac", 0.0))
+        sums["accept_pref_dim_mask"] += _item(locs.get("_pref_dim_mask_frac", 0.0))
         sums["accept_pref_margin"] += _item(locs.get("_pref_margin_mean", 0.0))
         sums["accept_pref_need"] += _item(locs.get("_pref_need_mean", 0.0))
         sums["accept_pref_admiss"] += _item(locs.get("_pref_admiss_mean", 0.0))

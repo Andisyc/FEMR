@@ -20,6 +20,7 @@ READINESS_TESTS = [
     "frontres_config_hsl_acceptance.py",
     "frontres_hsl_acceptance_policy.py",
     "frontres_acceptance_label_from_rollout.py",
+    "frontres_active_acceptance_payload_mask.py",
     "frontres_acceptance_storage_contract.py",
     "frontres_hsl_acceptance_algorithm_loss.py",
     "frontres_runner_hsl_acceptance_path.py",
