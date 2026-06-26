@@ -55,7 +55,7 @@ parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
     "--frontres_stage",
     type=str,
-    choices=("stage1_hsl", "stage2_authority"),
+    choices=("stage1_hsl", "stage2_acceptance"),
     default=None,
     help=(
         "Apply a FrontRES staged-training preset after Hydra config loading. "
@@ -476,29 +476,34 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(agent_cfg, "critic_warmup_iterations", 0)
         _set_if_present(agent_cfg, "ppo_actor_warmup_iterations", 1_000_000)
         _set_if_present(agent_cfg, "ppo_actor_ramp_iterations", 0)
-    elif stage == "stage2_authority":
+    elif stage == "stage2_acceptance":
         if getattr(args_cli, "experiment_name", None) is None:
-            agent_cfg.experiment_name = "g1_flat_frontres_stage2_authority"
+            agent_cfg.experiment_name = "g1_flat_frontres_stage2_acceptance"
         if getattr(args_cli, "is_full_resume", None) is None:
             agent_cfg.is_full_resume = False
         _set_if_present(agent_cfg, "frontres_stage1_exit_after_warmup", False)
         agent_cfg.supervised_warmup_iterations = 0
         _set_if_present(alg_cfg, "frontres_training_objective", "hsl_hybrid")
-        _set_if_present(alg_cfg, "lambda_supervised", 0.0)
-        _set_if_present(alg_cfg, "lambda_supervised_min", 0.0)
+        _set_if_present(alg_cfg, "lambda_supervised", 0.20)
+        _set_if_present(alg_cfg, "lambda_supervised_min", 0.20)
         _set_if_present(alg_cfg, "lambda_supervised_decay", 1.0)
-        _set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", True)
-        _set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 1.0)
-        _set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 1.0)
-        _set_if_present(alg_cfg, "frontres_authority_actor_warmup_iterations", 200)
-        _set_if_present(alg_cfg, "frontres_authority_actor_ramp_iterations", 200)
-        _set_if_present(alg_cfg, "frontres_authority_return_horizon", 8)
-        _set_if_present(policy_cfg, "frontres_authority_actor_critic", True)
-        _set_if_present(agent_cfg, "critic_warmup_iterations", 200)
-        _set_if_present(agent_cfg, "frontres_perturbation_temporal_mode", "burst")
-        _set_if_present(agent_cfg, "frontres_perturbation_burst_min_steps", 4)
-        _set_if_present(agent_cfg, "frontres_perturbation_burst_max_steps", 8)
-        _set_if_present(agent_cfg, "frontres_authority_return_horizon", 8)
+        _set_if_present(alg_cfg, "frontres_acceptance_preference_weight", 1.0)
+        _set_if_present(alg_cfg, "frontres_state_alpha_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)
+        _set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_structured_joint_enabled", False)
+        _set_if_present(alg_cfg, "frontres_structured_joint_rl_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_structured_joint_prior_weight", 0.0)
+        _set_if_present(policy_cfg, "frontres_split_acceptance_head", True)
+        _set_if_present(policy_cfg, "frontres_authority_actor_critic", False)
+        _set_if_present(policy_cfg, "frontres_state_router_enabled", False)
+        _set_if_present(agent_cfg, "critic_warmup_iterations", 0)
+        _set_if_present(agent_cfg, "ppo_actor_warmup_iterations", 0)
+        _set_if_present(agent_cfg, "ppo_actor_ramp_iterations", 0)
+        _set_if_present(agent_cfg, "frontres_perturbation_temporal_mode", "single")
+        _set_if_present(agent_cfg, "frontres_perturbation_burst_min_steps", 1)
+        _set_if_present(agent_cfg, "frontres_perturbation_burst_max_steps", 1)
 
     print(f"[FrontRES Stage] Applied preset: {stage}", flush=True)
     print(

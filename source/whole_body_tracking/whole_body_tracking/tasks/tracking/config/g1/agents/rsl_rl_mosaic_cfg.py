@@ -653,12 +653,11 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_state_alpha_exec_floor = 0.0
     frontres_state_alpha_safe_exec_floor = 0.05
     frontres_state_alpha_temp = 0.08
-    # Authority actor-critic is the active rho route.  The older structured-rho
-    # advantage branch is kept as an ablation path only and must stay disabled on
-    # the live experiment path.
-    frontres_authority_actor_critic_enabled = True
-    frontres_authority_actor_loss_weight = 1.0
-    frontres_authority_critic_loss_weight = 1.0
+    # FEMR active route: HSL proposal + HRL/acceptance.  Authority actor-critic
+    # is retired from the live path and kept only as an explicit ablation.
+    frontres_authority_actor_critic_enabled = False
+    frontres_authority_actor_loss_weight = 0.0
+    frontres_authority_critic_loss_weight = 0.0
     frontres_structured_joint_rl_enabled = False
     frontres_structured_joint_rl_disable_generic_ppo = True
     frontres_structured_joint_weight_floor = 0.10
@@ -818,11 +817,11 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Authority learning uses perturbation events as the credit unit.  IID
     # reference jumps are therefore held for a short burst so one Stage-2 rho
     # decision owns a coherent corrupted-reference window.
-    frontres_perturbation_temporal_mode = "burst"
+    frontres_perturbation_temporal_mode = "single"
     frontres_perturbation_burst_min_steps = 4
     frontres_perturbation_burst_max_steps = 8
     frontres_perturbation_persistent_refresh_steps = 16
-    frontres_authority_return_horizon = 8
+    frontres_authority_return_horizon = 1
 
     # ── Task-space correction ramp ────────────────────────────────────────────
     # Alpha must be 1.0 from the start so task-space corrections reach the
@@ -912,8 +911,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         # ── Observation layout ───────────────────────────────────────────────
         q_ref_start_idx        = 232,      # q_ref offset in 800-dim policy obs
         num_frontres_obs       = 0,        # 0 = shared FEMR trunk sees full obs
-        frontres_split_acceptance_head = False,  # default: one FrontRES network with proposal/acceptance heads
-        frontres_authority_actor_critic = True,  # Stage 2 learns proposal-conditioned execution authority
+        frontres_split_acceptance_head = True,   # active FEMR: Stage 2 sees full obs + detached Stage-1 proposal
+        frontres_authority_actor_critic = False,  # retired mainline; authority critic is ablation-only
+        frontres_state_router_enabled = False,    # retired alpha/stable router is ablation-only
         frontres_authority_hidden_dims = [512, 256, 128],
         # ── Δq / Δz unused in task-space mode ────────────────────────────────
         num_z_outputs          = 0,
@@ -943,17 +943,17 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         max_grad_norm        = 0.5,
 
         # ── Supervised auxiliary loss (λ_sup schedule) ────────────────────────
-        frontres_training_objective  = "hsl_hybrid",
-        frontres_acceptance_preference_weight = 0.0,
+        frontres_training_objective  = "hsl_hybrid",  # active FEMR HSL proposal + acceptance mode
+        frontres_acceptance_preference_weight = 1.0,
         frontres_acceptance_preference_focal_gamma = 1.0,
         frontres_acceptance_preference_balance_min = 0.5,
         frontres_acceptance_preference_balance_max = 3.0,
         frontres_state_alpha_weight      = 0.0,
-        frontres_authority_actor_critic_enabled = True,
-        frontres_authority_actor_loss_weight = 1.0,
-        frontres_authority_critic_loss_weight = 1.0,
-        frontres_authority_actor_warmup_iterations = 200,
-        frontres_authority_actor_ramp_iterations = 200,
+        frontres_authority_actor_critic_enabled = False,
+        frontres_authority_actor_loss_weight = 0.0,
+        frontres_authority_critic_loss_weight = 0.0,
+        frontres_authority_actor_warmup_iterations = 0,
+        frontres_authority_actor_ramp_iterations = 0,
         frontres_structured_joint_rl_enabled = False,
         frontres_structured_joint_rl_weight = 0.0,
         frontres_structured_joint_rl_adv_clip = 5.0,
@@ -977,7 +977,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_structured_joint_prior_loss_weight = 0.0,
         frontres_reward_compute_live_debug = False,
         frontres_cuda_memory_debug = False,
-        frontres_authority_return_horizon = 8,
+        frontres_authority_return_horizon = 1,
         frontres_oracle_upper_bound_diag_enabled = True,
         frontres_oracle_upper_bound_margin = 0.0,
         lambda_supervised             = 1.0,   # initial weight
@@ -1014,9 +1014,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_supervised_lr_warmup_iters = 50,
         frontres_supervised_lr_cosine_iters = 1550,
         frontres_restore_debug_print_interval = 0,
-        # HSL anchors the proposal; authority actor-critic owns rho.  Generic PPO
-        # is disabled in authority mode, so these old PPO schedule values remain
-        # raw-schedule diagnostics rather than the live rho objective.
+        # HSL anchors the proposal; acceptance training owns admissibility.
+        # Old PPO/rho schedule values remain ablation-only until the live
+        # acceptance loss is fully isolated in Step 6.
         ppo_actor_warmup_iterations   = 200,
         ppo_actor_ramp_iterations     = 500,
         ppo_advantage_focal_power     = 0.0,

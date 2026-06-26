@@ -233,13 +233,14 @@ class FrontRESActorCritic(nn.Module):
         # first num_frontres_obs dims of policy_obs (reference-frame data only).
         # GMT continues to receive the full policy_obs. 0 = legacy (full obs for both).
         num_frontres_obs: int = 0,
-        # Optional ablation: use a separate acceptance MLP fed by full current
-        # state plus a detached proposal.  The default hsl_hybrid path is a
-        # single FrontRES network with shared trunk and two semantic heads.
+        # Active FEMR uses a separate acceptance MLP fed by full current state
+        # plus a detached Stage-1 proposal.  The shared two-head actor remains an
+        # ablation surface.
         frontres_split_acceptance_head: bool = False,
-        # Optional Stage-2 authority actor-critic surface.  This is disabled by
-        # default until the runner/storage/algorithm route is integrated.
+        # Retired authority actor-critic surface.  Keep it ablation-only and off
+        # the active HSL+acceptance path.
         frontres_authority_actor_critic: bool = False,
+        frontres_state_router_enabled: bool = False,
         frontres_authority_hidden_dims: list[int] | None = None,
         **kwargs,
     ):
@@ -271,6 +272,7 @@ class FrontRESActorCritic(nn.Module):
         self.num_frontres_obs = num_frontres_obs
         self.frontres_split_acceptance_head = bool(frontres_split_acceptance_head)
         self.frontres_authority_actor_critic = bool(frontres_authority_actor_critic)
+        self.frontres_state_router_enabled = bool(frontres_state_router_enabled)
         if self.frontres_authority_actor_critic and self.num_task_corrections != 6:
             raise ValueError(
                 "frontres_authority_actor_critic requires 6D task-space corrections "
@@ -462,9 +464,17 @@ class FrontRESActorCritic(nn.Module):
                 last_layer_gain=residual_last_layer_gain,
             )
         else:
+            # In active split-acceptance FEMR, Stage 1 owns only the 6D proposal.
+            # Stage 2 acceptance logits come from acceptance_actor below, so do
+            # not build unused rho/coeff output columns into the proposal actor.
+            _residual_output_dim = (
+                self.num_task_corrections
+                if self.num_task_corrections > 0 and self.frontres_split_acceptance_head
+                else self.total_output_dim
+            )
             self.residual_actor = self._build_residual_actor(
                 input_dim=_frontres_input_dim,
-                output_dim=self.total_output_dim,
+                output_dim=_residual_output_dim,
                 hidden_dims=residual_hidden_dims,
                 activation=activation_fn,
                 last_layer_gain=residual_last_layer_gain)
@@ -514,7 +524,7 @@ class FrontRESActorCritic(nn.Module):
                 f"critic_input_dim={_authority_critic_input_dim}, "
                 f"rho_dim={self.num_task_corrections}"
             )
-        if self.num_task_corrections > 0:
+        if self.frontres_state_router_enabled and self.num_task_corrections > 0:
             _router_hidden = list(residual_hidden_dims[:2]) if len(residual_hidden_dims) >= 2 else list(residual_hidden_dims)
             if not _router_hidden:
                 _router_hidden = [128, 64]
@@ -529,7 +539,9 @@ class FrontRESActorCritic(nn.Module):
                 f"input_dim={_frontres_input_dim}, hidden_dims={_router_hidden}, init_alpha≈0.047"
             )
         if num_task_corrections > 0:
-            if self.task_conf_dim == 1:
+            if self.frontres_split_acceptance_head:
+                coeff_desc = f"acceptance logits({self.task_conf_dim}) from split Stage-2 head"
+            elif self.task_conf_dim == 1:
                 coeff_desc = "legacy scalar rho(1)"
             elif self.task_conf_dim == 2:
                 coeff_desc = "legacy c_pos(1)+c_rpy(1)"
@@ -663,11 +675,10 @@ class FrontRESActorCritic(nn.Module):
     def _frontres_raw_task_output(self, policy_obs: torch.Tensor) -> torch.Tensor:
         """Return raw [proposal, acceptance] logits for task-space FrontRES.
 
-        The default hsl_hybrid path uses residual_actor as one FrontRES network
-        with a shared trunk and two semantic heads.  If the optional split-MLP
-        ablation is enabled, residual_actor keeps ownership of the HSL proposal
-        direction while acceptance_actor sees the full current-state observation
-        and a detached proposal.
+        The active HSL+acceptance path uses residual_actor for the Stage-1
+        proposal and acceptance_actor for Stage-2 admissibility.  The acceptance
+        actor sees the full current-state observation and a detached proposal.
+        The older shared two-head actor remains an ablation path.
         """
         raw = self.residual_actor(policy_obs)
         if (

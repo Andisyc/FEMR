@@ -45,12 +45,19 @@ class RolloutStorage:
             # Optional harmful-repair weight for HSL.  This keeps the explicit harmful
             # no-op penalty separate from the ordinary supervised sample weight.
             self.supervised_harm_weight = None
-            # FrontRES acceptance carrier.  In the active structured-rho branch,
-            # columns [:6] carry detached per-axis rho advantages and weights.
-            # Legacy preference/BCE labels may reuse this storage only when the
-            # structured carrier is disabled.
-            self.acceptance_target = None
+            # Active FEMR acceptance contract.  Stage 1 stores the proposal in
+            # proposal_delta_se; Stage 2 stores the sampled acceptance action,
+            # policy logit/prob, rollout-built GT label, label mask, and
+            # Candidate-vs-Noisy executable margin.
+            self.acceptance_action = None
+            self.acceptance_logit = None
+            self.acceptance_prob = None
+            self.acceptance_gt = None
             self.acceptance_mask = None
+            self.acceptance_margin = None
+            # Legacy alias kept until Step 6 removes old structured-rho/BCE
+            # consumers from the active FEMR path.
+            self.acceptance_target = None
             # Boundary prior for rho authority.  This is separate from rollout
             # rho advantage so the prior can act as a regularizer, not as PPO evidence.
             self.rho_prior_authority = None
@@ -173,8 +180,13 @@ class RolloutStorage:
             self.supervised_target = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
             self.supervised_weight = torch.ones(num_transitions_per_env, num_envs, 1, device=self.device)
             self.supervised_harm_weight = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
-            self.acceptance_target = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
+            self.acceptance_action = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
+            self.acceptance_logit = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
+            self.acceptance_prob = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
+            self.acceptance_gt = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
             self.acceptance_mask = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
+            self.acceptance_margin = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            self.acceptance_target = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
             self.rho_prior_authority = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
             self.rho_prior_target = torch.zeros(num_transitions_per_env, num_envs, 6, device=self.device)
             self.state_alpha_target = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
@@ -257,10 +269,30 @@ class RolloutStorage:
                 self.supervised_weight[self.step].copy_(transition.supervised_weight)
             if hasattr(transition, 'supervised_harm_weight') and transition.supervised_harm_weight is not None:
                 self.supervised_harm_weight[self.step].copy_(transition.supervised_harm_weight)
-            if hasattr(transition, 'acceptance_target') and transition.acceptance_target is not None:
-                self.acceptance_target[self.step].copy_(transition.acceptance_target)
+            if hasattr(transition, 'acceptance_action') and transition.acceptance_action is not None:
+                self.acceptance_action[self.step].copy_(transition.acceptance_action)
+            elif transition.actions is not None and transition.actions.shape[-1] >= 12:
+                self.acceptance_action[self.step].copy_(transition.actions[:, 6:12].detach().clamp(0.0, 1.0))
+            if hasattr(transition, 'acceptance_logit') and transition.acceptance_logit is not None:
+                self.acceptance_logit[self.step].copy_(transition.acceptance_logit)
+            elif transition.action_mean is not None and transition.action_mean.shape[-1] >= 12:
+                self.acceptance_logit[self.step].copy_(transition.action_mean[:, 6:12].detach())
+            if hasattr(transition, 'acceptance_prob') and transition.acceptance_prob is not None:
+                self.acceptance_prob[self.step].copy_(transition.acceptance_prob)
+            else:
+                self.acceptance_prob[self.step].copy_(torch.sigmoid(self.acceptance_logit[self.step]))
+            if hasattr(transition, 'acceptance_gt') and transition.acceptance_gt is not None:
+                self.acceptance_gt[self.step].copy_(transition.acceptance_gt)
+            elif hasattr(transition, 'acceptance_target') and transition.acceptance_target is not None:
+                self.acceptance_gt[self.step].copy_(transition.acceptance_target)
             if hasattr(transition, 'acceptance_mask') and transition.acceptance_mask is not None:
                 self.acceptance_mask[self.step].copy_(transition.acceptance_mask)
+            if hasattr(transition, 'acceptance_margin') and transition.acceptance_margin is not None:
+                self.acceptance_margin[self.step].copy_(transition.acceptance_margin.view(-1, 1))
+            if hasattr(transition, 'acceptance_target') and transition.acceptance_target is not None:
+                self.acceptance_target[self.step].copy_(transition.acceptance_target)
+            elif hasattr(transition, 'acceptance_gt') and transition.acceptance_gt is not None:
+                self.acceptance_target[self.step].copy_(transition.acceptance_gt)
             if hasattr(transition, 'rho_prior_authority') and transition.rho_prior_authority is not None:
                 self.rho_prior_authority[self.step].copy_(transition.rho_prior_authority)
             if hasattr(transition, 'rho_prior_target') and transition.rho_prior_target is not None:
@@ -271,6 +303,8 @@ class RolloutStorage:
                 self.state_alpha_mask[self.step].copy_(transition.state_alpha_mask)
             if hasattr(transition, 'proposal_delta_se') and transition.proposal_delta_se is not None:
                 self.proposal_delta_se[self.step].copy_(transition.proposal_delta_se)
+            elif transition.actions is not None and transition.actions.shape[-1] >= 6:
+                self.proposal_delta_se[self.step].copy_(transition.actions[:, :6].detach())
             if hasattr(transition, 'authority_action') and transition.authority_action is not None:
                 self.authority_action[self.step].copy_(transition.authority_action)
             if hasattr(transition, 'authority_log_prob') and transition.authority_log_prob is not None:
@@ -418,8 +452,13 @@ class RolloutStorage:
             supervised_target = self.supervised_target.flatten(0, 1)
             supervised_weight = self.supervised_weight.flatten(0, 1)
             supervised_harm_weight = self.supervised_harm_weight.flatten(0, 1)
-            acceptance_target = self.acceptance_target.flatten(0, 1)
+            acceptance_action = self.acceptance_action.flatten(0, 1)
+            acceptance_logit = self.acceptance_logit.flatten(0, 1)
+            acceptance_prob = self.acceptance_prob.flatten(0, 1)
+            acceptance_gt = self.acceptance_gt.flatten(0, 1)
             acceptance_mask = self.acceptance_mask.flatten(0, 1)
+            acceptance_margin = self.acceptance_margin.flatten(0, 1)
+            acceptance_target = self.acceptance_target.flatten(0, 1)
             rho_prior_authority = self.rho_prior_authority.flatten(0, 1)
             rho_prior_target = self.rho_prior_target.flatten(0, 1)
             state_alpha_target = self.state_alpha_target.flatten(0, 1)
@@ -481,8 +520,13 @@ class RolloutStorage:
                     supervised_target_batch = supervised_target[batch_idx]
                     supervised_weight_batch = supervised_weight[batch_idx]
                     supervised_harm_weight_batch = supervised_harm_weight[batch_idx]
-                    acceptance_target_batch = acceptance_target[batch_idx]
+                    acceptance_action_batch = acceptance_action[batch_idx]
+                    acceptance_logit_batch = acceptance_logit[batch_idx]
+                    acceptance_prob_batch = acceptance_prob[batch_idx]
+                    acceptance_gt_batch = acceptance_gt[batch_idx]
                     acceptance_mask_batch = acceptance_mask[batch_idx]
+                    acceptance_margin_batch = acceptance_margin[batch_idx]
+                    acceptance_target_batch = acceptance_target[batch_idx]
                     rho_prior_authority_batch = rho_prior_authority[batch_idx]
                     rho_prior_target_batch = rho_prior_target[batch_idx]
                     state_alpha_target_batch = state_alpha_target[batch_idx]
@@ -511,8 +555,13 @@ class RolloutStorage:
                     supervised_target_batch = None
                     supervised_weight_batch = None
                     supervised_harm_weight_batch = None
-                    acceptance_target_batch = None
+                    acceptance_action_batch = None
+                    acceptance_logit_batch = None
+                    acceptance_prob_batch = None
+                    acceptance_gt_batch = None
                     acceptance_mask_batch = None
+                    acceptance_margin_batch = None
+                    acceptance_target_batch = None
                     rho_prior_authority_batch = None
                     rho_prior_target_batch = None
                     state_alpha_target_batch = None
@@ -544,6 +593,9 @@ class RolloutStorage:
                          authority_log_prob_batch, authority_rho_batch,
                          authority_return_k_batch, authority_return_zero_k_batch,
                          authority_return_one_k_batch, authority_mask_batch,
+                         acceptance_action_batch, acceptance_logit_batch,
+                         acceptance_prob_batch, acceptance_gt_batch,
+                         acceptance_margin_batch,
                      )
                     if getattr(self, "yield_batch_indices", False):
                         frontres_batch = frontres_batch + (batch_idx,)
@@ -649,8 +701,13 @@ class RolloutStorage:
                         supervised_target_batch = self.supervised_target[:, start:stop]
                         supervised_weight_batch = self.supervised_weight[:, start:stop]
                         supervised_harm_weight_batch = self.supervised_harm_weight[:, start:stop]
-                        acceptance_target_batch = self.acceptance_target[:, start:stop]
+                        acceptance_action_batch = self.acceptance_action[:, start:stop]
+                        acceptance_logit_batch = self.acceptance_logit[:, start:stop]
+                        acceptance_prob_batch = self.acceptance_prob[:, start:stop]
+                        acceptance_gt_batch = self.acceptance_gt[:, start:stop]
                         acceptance_mask_batch = self.acceptance_mask[:, start:stop]
+                        acceptance_margin_batch = self.acceptance_margin[:, start:stop]
+                        acceptance_target_batch = self.acceptance_target[:, start:stop]
                         rho_prior_authority_batch = self.rho_prior_authority[:, start:stop]
                         rho_prior_target_batch = self.rho_prior_target[:, start:stop]
                         state_alpha_target_batch = self.state_alpha_target[:, start:stop]
@@ -670,8 +727,13 @@ class RolloutStorage:
                         supervised_target_batch = None
                         supervised_weight_batch = None
                         supervised_harm_weight_batch = None
-                        acceptance_target_batch = None
+                        acceptance_action_batch = None
+                        acceptance_logit_batch = None
+                        acceptance_prob_batch = None
+                        acceptance_gt_batch = None
                         acceptance_mask_batch = None
+                        acceptance_margin_batch = None
+                        acceptance_target_batch = None
                         rho_prior_authority_batch = None
                         rho_prior_target_batch = None
                         state_alpha_target_batch = None
@@ -688,7 +750,7 @@ class RolloutStorage:
                         yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                             hid_a_batch,
                             hid_c_batch,
-                        ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch, frontres_actor_gate_batch, supervised_weight_batch, supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch, rho_prior_authority_batch, rho_prior_target_batch, state_alpha_target_batch, state_alpha_mask_batch, proposal_delta_se_batch, authority_action_batch, authority_log_prob_batch, authority_rho_batch, authority_return_k_batch, authority_return_zero_k_batch, authority_return_one_k_batch, authority_mask_batch
+                        ), masks_batch, rnd_state_batch, teacher_obs_batch, teacher_mu_batch, teacher_sigma_batch, ref_vel_estimator_obs_batch, None, frontres_mask_batch, supervised_target_batch, frontres_actor_gate_batch, supervised_weight_batch, supervised_harm_weight_batch, acceptance_target_batch, acceptance_mask_batch, rho_prior_authority_batch, rho_prior_target_batch, state_alpha_target_batch, state_alpha_mask_batch, proposal_delta_se_batch, authority_action_batch, authority_log_prob_batch, authority_rho_batch, authority_return_k_batch, authority_return_zero_k_batch, authority_return_one_k_batch, authority_mask_batch, acceptance_action_batch, acceptance_logit_batch, acceptance_prob_batch, acceptance_gt_batch, acceptance_margin_batch
                     else:
                         yield obs_batch, privileged_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                             hid_a_batch,

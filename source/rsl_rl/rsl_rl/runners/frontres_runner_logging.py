@@ -15,10 +15,27 @@ import torch
 from rsl_rl.modules import FrontRESActorCritic
 from rsl_rl.frontres.frontres_diagnostics import (
     format_frontres_floor_alpha_diagnostics,
+    format_frontres_hsl_acceptance_diagnostics,
     format_frontres_optimization_diagnostics,
     format_frontres_preference_diagnostics,
     format_frontres_route_rho_diagnostics,
 )
+
+
+def _active_hsl_acceptance_log_mode(self, locs: dict) -> bool:
+    loss_dict = locs.get("loss_dict", {})
+    objective = f"{getattr(self.alg, 'frontres_training_objective', '')}".lower()
+    authority_active = float(loss_dict.get("authority_actor_critic_enabled", 0.0)) > 0.5
+    structured_active = (
+        float(loss_dict.get("structured_joint_rl_enabled", 0.0)) > 0.5
+        or float(loss_dict.get("lambda_structured_joint_rl", 0.0)) > 0.0
+    )
+    return (
+        objective == "hsl_hybrid"
+        and not authority_active
+        and not structured_active
+        and float(loss_dict.get("hsl_acceptance_loss_enabled", 0.0)) > 0.5
+    )
 
 
 def _scalar_log_value(value):
@@ -116,6 +133,11 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
         "frontres_accept_pos_mean",
         "frontres_accept_rpy_mean",
         "frontres_accept_active_frac",
+        "hsl_acceptance_loss_enabled",
+        "hsl_acceptance_gt_mean",
+        "hsl_acceptance_mask_frac",
+        "hsl_acceptance_prob_mean",
+        "hsl_acceptance_abs_err",
         "frontres_write_ratio",
         "frontres_proposal_ratio",
         "frontres_axis_leakage",
@@ -170,10 +192,38 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
         "grad_norm_ratio_ppo_to_supervised",
     }
     _stage1_dz_keys     = {"loss_dz", "dz_pred_abs", "dz_gt_abs", "dz_mae"}
+    _active_hsl_acceptance_log = _active_hsl_acceptance_log_mode(self, locs)
+    _legacy_active_log_prefixes = ("structured_joint", "authority_", "state_alpha")
+    _legacy_active_log_keys = {
+        "lambda_structured_joint_rl",
+        "lambda_structured_joint_prior",
+        "lambda_authority_actor",
+        "lambda_authority_actor_effective",
+        "lambda_authority_critic",
+        "lambda_state_alpha",
+        "state_alpha_loss",
+    }
     for key, value in locs["loss_dict"].items():
+        if _active_hsl_acceptance_log and (
+            key.startswith(_legacy_active_log_prefixes) or key in _legacy_active_log_keys
+        ):
+            continue
         scalar_value = _scalar_log_value(value)
         if scalar_value is None:
             continue
+        if _active_hsl_acceptance_log:
+            if key == "acceptance_preference_loss":
+                self.writer.add_scalar("FrontRES/Acceptance/loss", scalar_value, locs["it"])
+                continue
+            if key == "lambda_acceptance_preference":
+                self.writer.add_scalar("FrontRES/Acceptance/lambda", scalar_value, locs["it"])
+                continue
+            if key.startswith("hsl_acceptance_"):
+                clean_key = key.removeprefix("hsl_acceptance_")
+                self.writer.add_scalar(f"FrontRES/Acceptance/{clean_key}", scalar_value, locs["it"])
+                continue
+            if key.startswith("acceptance_preference_"):
+                continue
         if key in _suppress_if_zero and scalar_value == 0.0:
             continue
         if self.training_type == "supervise" and key in _stage1_dz_keys:
@@ -203,7 +253,7 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
         if locs.get("frontres_baseline_mean") is not None:
             self.writer.add_scalar("FrontRES/baseline_per_step",
                                    locs["frontres_baseline_mean"], locs["it"])
-        for _name in (
+        _reward_component_names = (
             "r_exec", "r_geom", "r_rescue", "intervention_cost",
             "clean_bound_cost", "clean_bound_side_cost", "over_cost", "under_repair_cost",
             "reward_frontres", "reward_clean", "reward_candidate", "reward_oracle",
@@ -213,8 +263,6 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
             "oracle_ub_gain", "oracle_ub_pass",
             "oracle_ub_projected_win", "oracle_ub_candidate_win",
             "oracle_ub_feasible_win", "oracle_ub_noisy_win",
-            "accept_pref_mask", "accept_pref_full", "accept_pref_noop",
-            "accept_pref_keep", "accept_pref_ignore", "accept_pref_margin",
             "positive_gain_frac", "repair_ratio",
             "exec_signal", "weighted_exec_signal", "train_reward",
             "effective_gain_bonus", "safe_cost", "repair_cost", "broken_cost",
@@ -227,18 +275,33 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
             "candidate_floor_margin", "candidate_floor_pass",
             "exec_floor_value", "exec_floor_safe", "exec_floor_adaptive",
             "exec_floor_safe_count", "exec_floor_broken_count",
-            "stable_route_frac",
-            "stable_endpoint_frac", "tri_weight_repair", "tri_weight_noisy", "tri_weight_stable",
-            "structured_joint_rho_adv", "structured_joint_rho_weight",
-            "structured_joint_rho_retention",
-            "structured_joint_floor_violation", "structured_joint_full_bonus",
-            "rho_regret_up_planar", "rho_regret_up_rp", "rho_regret_up_z",
-            "rho_regret_down_planar", "rho_regret_down_rp", "rho_regret_down_z",
-            "actor_gate", "exec_gate", "cost_gate",
             "r_z", "r_xy", "r_rp", "r_yaw",
             "dr_z_abs", "dr_xy_abs", "dr_rp_abs", "dr_yaw_abs",
             "corr_z_abs", "corr_xy_abs", "corr_rp_abs", "corr_yaw_abs",
-        ):
+        )
+        if not _active_hsl_acceptance_log:
+            _reward_component_names += (
+                "stable_route_frac", "stable_endpoint_frac",
+                "tri_weight_repair", "tri_weight_noisy", "tri_weight_stable",
+                "structured_joint_rho_adv", "structured_joint_rho_weight",
+                "structured_joint_rho_retention",
+                "structured_joint_floor_violation", "structured_joint_full_bonus",
+                "rho_regret_up_planar", "rho_regret_up_rp", "rho_regret_up_z",
+                "rho_regret_down_planar", "rho_regret_down_rp", "rho_regret_down_z",
+                "actor_gate", "exec_gate", "cost_gate",
+            )
+        else:
+            for _name, _tag in (
+                ("accept_pref_mask", "mask_frac"),
+                ("accept_pref_full", "accept_frac"),
+                ("accept_pref_noop", "reject_frac"),
+                ("accept_pref_ignore", "ignore_frac"),
+                ("accept_pref_margin", "margin"),
+            ):
+                _value = locs.get(f"frontres_{_name}_mean")
+                if _value is not None:
+                    self.writer.add_scalar(f"FrontRES/Acceptance/{_tag}", _value, locs["it"])
+        for _name in _reward_component_names:
             _value = locs.get(f"frontres_{_name}_mean")
             if _value is not None:
                 self.writer.add_scalar(f"FrontRES/RewardComponents/{_name}",
@@ -384,6 +447,9 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
             elif _authority_active:
                 _phase = "AUTHORITY AC FINE-TUNING"
                 _notes = "(generic PPO disabled; rho trained by authority actor-critic)"
+            elif _objective == "hsl_hybrid" and float(locs.get("loss_dict", {}).get("hsl_acceptance_loss_enabled", 0.0)) > 0.5:
+                _phase = "HSL ACCEPTANCE"
+                _notes = "(generic PPO disabled; proposal anchored by HSL, acceptance trained by rollout labels)"
             elif _is_warmup:
                 _phase = "SUPERVISED WARMUP"
                 _notes = "(GMT-only, FrontRES corrections disabled)"
@@ -585,6 +651,7 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                             f"(under={locs['frontres_underwrite_mean']:+.4f})\n"
                         )
                     log_string += format_frontres_floor_alpha_diagnostics(locs, _loss_dict, pad=pad)
+                    log_string += format_frontres_hsl_acceptance_diagnostics(locs, _loss_dict, self.cfg, pad=pad)
                     log_string += format_frontres_route_rho_diagnostics(locs, self.cfg, pad=pad)
                     log_string += format_frontres_preference_diagnostics(
                         locs,
@@ -625,7 +692,8 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                 _apl = _loss_dict.get("acceptance_preference_loss", None)
                 if _apl is not None:
                     _legacy_pref_disabled = (
-                        _authority_active
+                        _active_hsl_acceptance_log
+                        or _authority_active
                         or self._frontres_structured_joint_effective_enabled()
                         and not bool(self.cfg.get("frontres_structured_joint_rl_keep_legacy_bce", False))
                         and float(_loss_dict.get("lambda_acceptance_preference", 0.0)) <= 0.0
@@ -665,7 +733,7 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                 if _objective_name == "hsl_hybrid" and _authority_active:
                     _objective_desc = "HSL ΔSE proposal + authority actor-critic"
                 elif _objective_name == "hsl_hybrid":
-                    _objective_desc = "HSL ΔSE proposal + PPO 6D acceptance"
+                    _objective_desc = "HSL ΔSE proposal + masked acceptance"
                 elif _objective_name == "basis_restore":
                     _objective_desc = "basis supervised only"
                 else:
@@ -863,7 +931,8 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                 _apl = _loss_dict.get("acceptance_preference_loss", None)
                 if _apl is not None:
                     _legacy_pref_disabled = (
-                        _authority_active
+                        _active_hsl_acceptance_log
+                        or _authority_active
                         or self._frontres_structured_joint_effective_enabled()
                         and not bool(self.cfg.get("frontres_structured_joint_rl_keep_legacy_bce", False))
                         and float(_loss_dict.get("lambda_acceptance_preference", 0.0)) <= 0.0

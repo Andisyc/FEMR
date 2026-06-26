@@ -841,7 +841,31 @@ class FrontRESUnified:
             authority_return_zero_k_batch = None
             authority_return_one_k_batch = None
             authority_mask_batch = None
-            if len(batch) >= 36:
+            acceptance_action_batch = None
+            acceptance_logit_batch = None
+            acceptance_prob_batch = None
+            acceptance_gt_batch = None
+            acceptance_margin_batch = None
+            if len(batch) >= 41:
+                (
+                    proposal_delta_se_batch,
+                    authority_action_batch,
+                    authority_log_prob_batch,
+                    authority_rho_batch,
+                    authority_return_k_batch,
+                    authority_return_zero_k_batch,
+                    authority_return_one_k_batch,
+                    authority_mask_batch,
+                ) = batch[28:36]
+                (
+                    acceptance_action_batch,
+                    acceptance_logit_batch,
+                    acceptance_prob_batch,
+                    acceptance_gt_batch,
+                    acceptance_margin_batch,
+                ) = batch[36:41]
+                batch_indices = batch[41] if len(batch) > 41 else None
+            elif len(batch) >= 36:
                 (
                     proposal_delta_se_batch,
                     authority_action_batch,
@@ -865,6 +889,8 @@ class FrontRESUnified:
                 batch_indices = batch[34] if len(batch) > 34 else None
             else:
                 batch_indices = batch[28] if len(batch) > 28 else None
+            if acceptance_gt_batch is not None:
+                acceptance_target_batch = acceptance_gt_batch
             original_batch_size = obs_batch.shape[0]
             if self.normalize_advantage_per_mini_batch:
                 with torch.no_grad():
@@ -885,8 +911,10 @@ class FrontRESUnified:
             oracle_mix = float(getattr(self, "oracle_mix", 0.0))
             raw_ppo_weight = float(getattr(self, "ppo_actor_weight", 1.0)) * (1.0 - oracle_mix)
             authority_active = self._authority_actor_critic_enabled()
+            hsl_acceptance_active = self._active_hsl_acceptance_loss_enabled()
             disable_generic_ppo = (
                 authority_active
+                or hsl_acceptance_active
                 or (
                     structured_rho_active
                     and bool(getattr(self, "frontres_structured_joint_rl_disable_generic_ppo", True))
@@ -1469,6 +1497,7 @@ class FrontRESUnified:
                 0.0
                 if (
                     self._authority_actor_critic_enabled()
+                    or self._active_hsl_acceptance_loss_enabled()
                     or (
                         self._structured_joint_rl_enabled()
                         and bool(getattr(self, "frontres_structured_joint_rl_disable_generic_ppo", True))
@@ -1489,6 +1518,16 @@ class FrontRESUnified:
         if self.frontres_training_objective in ("supervised_restore", "basis_restore"):
             loss_dict["ppo_actor_weight"] = 0.0
         return loss_dict
+
+    def _active_hsl_acceptance_loss_enabled(self) -> bool:
+        """Return True when FEMR active path trains acceptance by rollout labels."""
+        return (
+            str(self.frontres_training_objective).lower() == "hsl_hybrid"
+            and float(getattr(self, "frontres_acceptance_preference_weight", 0.0)) > 0.0
+            and self._ppo_acceptance_only_mode()
+            and not self._structured_joint_rl_enabled()
+            and not self._authority_actor_critic_enabled()
+        )
 
     def _ppo_selected_action_dims(self):
         """Return the action dimensions that PPO is allowed to update."""
@@ -2090,6 +2129,11 @@ class FrontRESUnified:
             "acceptance_preference_full_weight": 1.0,
             "acceptance_preference_noop_weight": 1.0,
             "acceptance_preference_effective_full_frac": 0.0,
+            "hsl_acceptance_loss_enabled": 0.0,
+            "hsl_acceptance_gt_mean": 0.0,
+            "hsl_acceptance_mask_frac": 0.0,
+            "hsl_acceptance_prob_mean": 0.0,
+            "hsl_acceptance_abs_err": 0.0,
         }
         if (
             self._structured_joint_rl_enabled()
@@ -2101,6 +2145,7 @@ class FrontRESUnified:
             or acceptance_target_batch is None
             or acceptance_mask_batch is None
             or not self._ppo_acceptance_only_mode()
+            or self._authority_actor_critic_enabled()
         ):
             return zero, metrics
 
@@ -2141,12 +2186,12 @@ class FrontRESUnified:
         denom_raw = mask.sum()
         if float(denom_raw.detach().item()) <= 1e-6:
             return zero, metrics
-        rho_clamped = rho.clamp(1e-4, 1.0 - 1e-4)
-        loss_terms = nn.functional.binary_cross_entropy(
-            rho_clamped,
+        loss_terms = nn.functional.binary_cross_entropy_with_logits(
+            logits,
             target,
             reduction="none",
         )
+        rho_clamped = rho.clamp(1e-4, 1.0 - 1e-4)
         # Targets may be soft after rollout-calibrated acceptance projection.
         # Treat target mass as "accept" weight and (1-target) as "no-op" mass
         # instead of hard-thresholding every element for class balancing.
@@ -2184,9 +2229,12 @@ class FrontRESUnified:
         err_per_sample = ((rho.detach() - target).abs() * mask).sum(dim=-1) / mask.sum(dim=-1).clamp(min=1e-6)
 
         metrics["acceptance_preference_mask_frac"] = float(sample_active.mean().detach().item())
+        metrics["hsl_acceptance_loss_enabled"] = 1.0
+        metrics["hsl_acceptance_mask_frac"] = metrics["acceptance_preference_mask_frac"]
         metrics["acceptance_preference_target_mean"] = float(
             (target_per_sample * sample_active).sum().detach().item() / float(sample_denom.detach().item())
         )
+        metrics["hsl_acceptance_gt_mean"] = metrics["acceptance_preference_target_mean"]
         metrics["acceptance_preference_full_frac"] = float(
             ((target_per_sample > 0.5).to(rho.dtype) * sample_active).sum().detach().item()
             / float(sample_denom.detach().item())
@@ -2198,9 +2246,11 @@ class FrontRESUnified:
         metrics["acceptance_preference_rho_mean"] = float(
             (rho_per_sample * sample_active).sum().detach().item() / float(sample_denom.detach().item())
         )
+        metrics["hsl_acceptance_prob_mean"] = metrics["acceptance_preference_rho_mean"]
         metrics["acceptance_preference_abs_err"] = float(
             (err_per_sample * sample_active).sum().detach().item() / float(sample_denom.detach().item())
         )
+        metrics["hsl_acceptance_abs_err"] = metrics["acceptance_preference_abs_err"]
         effective_full_mass = (weighted_mask.detach() * full_indicator).sum()
         effective_noop_mass = (weighted_mask.detach() * noop_indicator).sum()
         effective_total = (effective_full_mass + effective_noop_mass).clamp(min=1e-6)

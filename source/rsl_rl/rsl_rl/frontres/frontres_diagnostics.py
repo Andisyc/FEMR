@@ -49,6 +49,27 @@ def _structured_joint_enabled(cfg: MetricMap) -> bool:
     )
 
 
+def _authority_actor_critic_enabled(cfg: MetricMap, loss_dict: MetricMap | None = None) -> bool:
+    if bool(cfg.get("frontres_authority_actor_critic_enabled", False)):
+        return True
+    if loss_dict is not None and float(_value(loss_dict, "authority_actor_critic_enabled", 0.0)) > 0.5:
+        return True
+    return False
+
+
+def _active_hsl_acceptance_enabled(cfg: MetricMap, loss_dict: MetricMap | None = None) -> bool:
+    if str(cfg.get("frontres_training_objective", "")).lower() != "hsl_hybrid":
+        return False
+    if _structured_joint_enabled(cfg) or _authority_actor_critic_enabled(cfg, loss_dict):
+        return False
+    if loss_dict is None:
+        return True
+    return (
+        float(_value(loss_dict, "hsl_acceptance_loss_enabled", 0.0)) > 0.5
+        or float(_value(loss_dict, "lambda_acceptance_preference", 0.0)) > 0.0
+    )
+
+
 def _show_legacy_rho_diag(cfg: MetricMap) -> bool:
     return (not _structured_joint_enabled(cfg)) or bool(
         cfg.get("frontres_structured_joint_show_legacy_rho_diag", False)
@@ -117,7 +138,7 @@ def format_frontres_route_rho_diagnostics(
 ) -> str:
     """Format live route, structured-rho, and optional legacy-rho diagnostics."""
     lines: list[str] = []
-    if bool(cfg.get("frontres_authority_actor_critic_enabled", False)):
+    if _authority_actor_critic_enabled(cfg) or _active_hsl_acceptance_enabled(cfg):
         return ""
 
     structured_adv = _first_value(
@@ -239,9 +260,9 @@ def format_frontres_preference_diagnostics(
     structured_joint_live = _structured_joint_enabled(cfg) or bool(
         _value(loss_dict, "structured_joint_rl_enabled", 0.0) > 0.5
     ) or bool(_value(loss_dict, "lambda_structured_joint_rl", 0.0) > 0.0)
-    authority_live = bool(cfg.get("frontres_authority_actor_critic_enabled", False)) or bool(
-        _value(loss_dict, "authority_actor_critic_enabled", 0.0) > 0.5
-    )
+    authority_live = _authority_actor_critic_enabled(cfg, loss_dict)
+    if _active_hsl_acceptance_enabled(cfg, loss_dict):
+        return ""
 
     if locs.get("frontres_accept_pref_mask_mean") is not None and not structured_joint_live and not authority_live:
         rho_space = _rho_space(cfg).lower()
@@ -286,6 +307,58 @@ def format_frontres_preference_diagnostics(
             f"{'inert pref pen rho/cand:':>{pad}} "
             f"{_value(locs, 'frontres_inertial_pref_penalty_rho_mean'):.3f} / "
             f"{_value(locs, 'frontres_inertial_pref_penalty_one_mean'):.3f}\n"
+        )
+
+    return "".join(lines)
+
+
+def format_frontres_hsl_acceptance_diagnostics(
+    locs: MetricMap,
+    loss_dict: MetricMap,
+    cfg: MetricMap,
+    *,
+    pad: int,
+) -> str:
+    """Format active FEMR HSL proposal + acceptance diagnostics."""
+
+    if not _active_hsl_acceptance_enabled(cfg, loss_dict):
+        return ""
+
+    lines: list[str] = []
+    loss = loss_dict.get("acceptance_preference_loss", None)
+    if loss is not None:
+        lines.append(
+            f"{'acceptance loss:':>{pad}} {loss:.4f} "
+            f"(lambda={_value(loss_dict, 'lambda_acceptance_preference'):.3f}, "
+            f"mask={_value(loss_dict, 'hsl_acceptance_mask_frac'):.3f}, "
+            f"gt={_value(loss_dict, 'hsl_acceptance_gt_mean'):.3f}, "
+            f"prob={_value(loss_dict, 'hsl_acceptance_prob_mean'):.3f}, "
+            f"err={_value(loss_dict, 'hsl_acceptance_abs_err'):.3f})\n"
+        )
+
+    if locs.get("frontres_accept_pref_mask_mean") is not None:
+        lines.append(
+            f"{'accept labels a/r/i:':>{pad}} "
+            f"{_value(locs, 'frontres_accept_pref_full_mean'):.3f} / "
+            f"{_value(locs, 'frontres_accept_pref_noop_mean'):.3f} / "
+            f"{_value(locs, 'frontres_accept_pref_ignore_mean'):.3f} "
+            f"(mask={_value(locs, 'frontres_accept_pref_mask_mean'):.3f}, "
+            f"margin={_value(locs, 'frontres_accept_pref_margin_mean'):+.4f})\n"
+        )
+
+    if loss_dict.get("frontres_accept_pos_mean", None) is not None:
+        lines.append(
+            f"{'accept prob pos/rpy:':>{pad}} "
+            f"{_value(loss_dict, 'frontres_accept_pos_mean'):.3f} / "
+            f"{_value(loss_dict, 'frontres_accept_rpy_mean'):.3f} "
+            f"(active={_value(loss_dict, 'frontres_accept_active_frac'):.3f})\n"
+        )
+
+    if loss_dict.get("frontres_proposal_ratio", None) is not None:
+        lines.append(
+            f"{'proposal ratio/leakage:':>{pad}} "
+            f"{_value(loss_dict, 'frontres_proposal_ratio'):.3f} / "
+            f"{_value(loss_dict, 'frontres_axis_leakage'):.3f}\n"
         )
 
     return "".join(lines)

@@ -301,8 +301,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Number of PPO iterations used to linearly ramp actor surrogate from 0 to 1."""
     ppo_advantage_focal_power: float = 0.0
     """Optional |advantage| focal exponent for actor surrogate. 0.0 gives standard PPO."""
-    frontres_training_objective: str = "ppo_hrl"
-    """FrontRES update objective: 'ppo_hrl' keeps PPO+supervised, 'supervised_restore' uses only supervised restoration."""
+    frontres_training_objective: str = "hsl_hybrid"
+    """FrontRES update objective. Active FEMR uses 'hsl_hybrid' as HSL proposal plus acceptance training until the code path is renamed."""
     frontres_acceptance_preference_weight: float = 0.0
     """Weight for rollout-preference supervision on hsl_hybrid acceptance coefficients."""
     frontres_acceptance_preference_focal_gamma: float = 0.0
@@ -313,10 +313,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Upper clamp for minibatch class-balancing weights in acceptance preference loss."""
     frontres_state_alpha_weight: float = 0.0
     """Weight for auxiliary State Router alpha BCE from Noisy/GMT rollout labels."""
-    frontres_state_alpha_enabled: bool = True
-    """Enable the auxiliary state-router alpha branch and its target construction."""
-    frontres_state_alpha_route_enabled: bool = True
-    """Allow live state alpha to route references when the rho space supports it."""
+    frontres_state_alpha_enabled: bool = False
+    """Ablation-only auxiliary state-router alpha branch; disabled in active FEMR HSL+acceptance."""
+    frontres_state_alpha_route_enabled: bool = False
+    """Ablation-only live state-alpha routing; disabled in active FEMR HSL+acceptance."""
     frontres_state_alpha_route_threshold: float = 0.70
     """Threshold for hard state-alpha diagnostics or optional route switching."""
     frontres_state_alpha_route_min_iteration: int = 0
@@ -383,10 +383,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Boundary-prior regularization weight for safe/deep-broken rho authority."""
     frontres_authority_actor_critic_enabled: bool = False
     """Enable proposal-conditioned authority actor-critic and disable legacy generic rho PPO."""
-    frontres_authority_actor_loss_weight: float = 1.0
-    """Actor loss weight for the Stage-2 authority policy."""
-    frontres_authority_critic_loss_weight: float = 1.0
-    """Critic regression weight for K-step executable authority returns."""
+    frontres_authority_actor_loss_weight: float = 0.0
+    """Ablation-only actor loss weight for retired authority actor-critic."""
+    frontres_authority_critic_loss_weight: float = 0.0
+    """Ablation-only critic loss weight for retired authority actor-critic."""
     frontres_authority_actor_warmup_iterations: int = 0
     """Stage-2 iterations with authority actor loss disabled while the authority critic warms up."""
     frontres_authority_actor_ramp_iterations: int = 0
@@ -515,9 +515,11 @@ class RslRlFrontResidualActorCriticCfg(RslRlPpoActorCriticCfg):
     num_frontres_obs: int = 0
     """FrontRES observation subset dims. 0 = use full policy_obs (legacy). 320 = ref-only."""
     frontres_split_acceptance_head: bool = False
-    """Optional ablation: use a separate acceptance MLP instead of the default two-head FrontRES actor."""
+    """Use separate Stage-1 proposal and Stage-2 acceptance MLPs. Active FEMR enables this."""
     frontres_authority_actor_critic: bool = False
-    """Enable the Stage-2 authority actor and proposal-conditioned authority critic."""
+    """Ablation-only retired authority actor and proposal-conditioned authority critic."""
+    frontres_state_router_enabled: bool = False
+    """Ablation-only Stable/alpha state router; disabled in active FEMR HSL+acceptance."""
     frontres_authority_hidden_dims: list[int] | None = None
     """Hidden dimensions for the authority actor/critic. None reuses residual_hidden_dims."""
 

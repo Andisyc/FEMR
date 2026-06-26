@@ -1,8 +1,93 @@
 # FrontRES Modification Checklist
 
-Use this checklist after every nontrivial FrontRES change.  The goal is to keep
-concept, code path, diagnostics, and short-run evidence aligned.  Do not mark a
-change as ready for training until each relevant item has concrete evidence.
+Use this checklist after every nontrivial FrontRES/FEMR change.  The goal is to
+keep concept, code path, diagnostics, and short-run evidence aligned.  Do not
+mark a change as ready for training until each relevant item has concrete
+evidence.
+
+## Active Change Record: 2026-06-25 FEMR HSL+HRL Acceptance Refactor
+
+- [x] Step 1 design contract rewrite started:
+  `note/FrontRES Design Contract.md` now declares HSL+HRL acceptance as the
+  active FEMR method and marks Authority Actor-Critic as retired mainline.
+- [x] Step 1 engineering plan rewritten:
+  `note/FrontRES Engineering Plan.md` now lists the multi-step cleanup from
+  config through diagnostics and tests.
+- [x] Step 1 sentinel test added:
+  `source/rsl_rl/rsl_rl/tests/frontres_design_contract_sentinel.py` checks that
+  note files identify HSL+HRL acceptance as active and authority actor-critic as
+  non-active.
+- [x] Step 2 config cleanup:
+  active config disables authority critic, structured rho, alpha-rho legacy, and
+  enables HSL+acceptance mode through `frontres_training_objective="hsl_hybrid"`
+  plus positive `frontres_acceptance_preference_weight`.  Generic cfg defaults
+  also keep authority actor-critic and state-alpha disabled.  Verified by
+  `source/rsl_rl/rsl_rl/tests/frontres_config_hsl_acceptance.py`.
+- [x] Step 3 policy surface cleanup:
+  active policy config enables split acceptance, disables authority actor-critic,
+  and disables state-router alpha.  In split mode the Stage-1 residual actor now
+  outputs only the 6D proposal; Stage-2 `acceptance_actor` receives full obs plus
+  detached bounded proposal.  Verified by
+  `source/rsl_rl/rsl_rl/tests/frontres_hsl_acceptance_policy.py`.
+- [x] Step 4 rollout evidence and label construction:
+  Added `frontres_acceptance_labels.py`, which builds `accept_gt`, `accept_mask`,
+  and Candidate-vs-Noisy margin from rollout evidence.  Active HSL+acceptance
+  writes these labels through the existing `acceptance_target/mask` fields until
+  Step 5 renames the storage contract.  Verified by
+  `source/rsl_rl/rsl_rl/tests/frontres_acceptance_label_from_rollout.py`.
+- [x] Step 5 storage contract:
+  storage now carries proposal_delta_se plus explicit acceptance_action,
+  acceptance_logit, acceptance_prob, acceptance_gt, acceptance_mask, and
+  acceptance_margin.  The old acceptance_target remains a temporary mirror until
+  Step 6 removes legacy loss consumers.  Verified by
+  `source/rsl_rl/rsl_rl/tests/frontres_acceptance_storage_contract.py`; old
+  authority storage and storage->algorithm tests still pass.
+- [x] Step 6 algorithm loss:
+  active FEMR loss now disables generic PPO actor surrogate in hsl_hybrid mode
+  and trains Stage-2 acceptance with masked BCEWithLogits on explicit
+  `acceptance_gt/mask`.  Structured-rho and authority actor-critic remain
+  inactive for the active path.  Verified by
+  `source/rsl_rl/rsl_rl/tests/frontres_hsl_acceptance_algorithm_loss.py`;
+  storage and legacy structured-rho regression tests still pass.
+- [x] Step 7 runner cleanup:
+  active FEMR runner path now keeps old alpha-rho writes behind the
+  `_structured_rho_active and not authority_active` guard, authority rollout and
+  post-step returns still early-return when authority actor-critic is disabled,
+  and active HSL acceptance payload no longer allocates or writes legacy
+  `rho_prior_authority/rho_prior_target` storage.  Verified by
+  `source/rsl_rl/rsl_rl/tests/frontres_runner_hsl_acceptance_path.py`.
+- [x] Step 8 diagnostics cleanup:
+  active HSL+acceptance logs now use proposal/acceptance language, emit
+  `FrontRES/Acceptance/*` TensorBoard scalars, and suppress authority,
+  structured-rho, state-alpha, and legacy acceptance-preference console lines in
+  the active FEMR path.  Verified by
+  `source/rsl_rl/rsl_rl/tests/frontres_hsl_acceptance_diagnostics.py`; Step 5
+  storage and Step 6 algorithm-loss tests still pass under the MOSAIC
+  `frontres` Python environment.
+- [x] Step 9 entrypoint cleanup:
+  active Stage 1 launches HSL proposal training through `run/run_frontres_stage1_hsl.sh`,
+  active Stage 2 launches masked acceptance training through
+  `run/run_frontres_stage2_acceptance.sh`, and the old authority Stage 2 script
+  has been moved to `run/legacy/` as an ablation-only entrypoint.  Verified by
+  `source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py`.
+- [x] Step 10 full toy chain:
+  `source/rsl_rl/rsl_rl/tests/frontres_hsl_acceptance_full_toy_chain.py` proves
+  mock obs -> HSL proposal + acceptance logits -> Candidate-vs-Noisy label ->
+  explicit acceptance storage -> masked BCE loss -> active acceptance diagnostics.
+- [x] Step 11 legacy active-path audit:
+  old authority/rho/alpha branches are hard-gated out of active HSL+acceptance:
+  algorithm helper excludes structured-rho and authority, runner writes legacy
+  rho/alpha payload only under explicit structured-rho activation, active
+  payload skips rho-prior storage, authority rollout returns early when disabled,
+  and active logging suppresses old authority/rho/alpha names.  Verified by
+  `source/rsl_rl/rsl_rl/tests/frontres_no_legacy_active_path.py` plus the Step
+  10 full toy chain.
+- [x] Step 12 training readiness suite:
+  `source/rsl_rl/rsl_rl/tests/frontres_hsl_acceptance_training_readiness.py` runs
+  the Step 1-11 contract tests as one pre-training sentinel.  Passing this suite
+  means the active FEMR HSL+acceptance path is ready for a short live smoke run.
+
+## Historical Checklist Records
 
 ## Active Change Record: 2026-06-23 Authority Actor-Critic Refactor
 

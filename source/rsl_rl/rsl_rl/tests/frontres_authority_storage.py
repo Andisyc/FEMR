@@ -77,9 +77,9 @@ def test_feedforward_authority_storage_round_trip() -> None:
     storage.yield_batch_indices = True
 
     batch = next(storage.mini_batch_generator(num_mini_batches=1, num_epochs=1))
-    if len(batch) != 37:
-        raise AssertionError(f"FrontRES feedforward batch should have 37 entries, got {len(batch)}.")
-    batch_indices = batch[36]
+    if len(batch) != 42:
+        raise AssertionError(f"FrontRES feedforward batch should have 42 entries, got {len(batch)}.")
+    batch_indices = batch[41]
     names = (
         "proposal_delta_se",
         "authority_action",
@@ -119,8 +119,8 @@ def test_recurrent_authority_storage_round_trip() -> None:
         storage.add_transitions(transition)
 
     batch = next(storage.recurrent_mini_batch_generator(num_mini_batches=1, num_epochs=1))
-    if len(batch) != 36:
-        raise AssertionError(f"FrontRES recurrent batch should have 36 entries, got {len(batch)}.")
+    if len(batch) != 41:
+        raise AssertionError(f"FrontRES recurrent batch should have 41 entries, got {len(batch)}.")
     torch.testing.assert_close(batch[28], storage.proposal_delta_se)
     torch.testing.assert_close(batch[29], storage.authority_action)
     torch.testing.assert_close(batch[30], storage.authority_log_prob)

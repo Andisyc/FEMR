@@ -5,7 +5,158 @@ It is more specific than the Dr.Cheng skill.  Read this before implementing
 nontrivial changes to FrontRES training, rollout labels, PPO/HRL behavior, or
 diagnostics.
 
-## 2026-06-23 Authority Actor-Critic Contract
+## 2026-06-25 FEMR HSL+HRL Acceptance Contract
+
+This section is the active FEMR method contract.  It supersedes the previous
+Authority Actor-Critic contract for the main training path.  Authority
+actor-critic code may remain temporarily as ablation/history during cleanup, but
+it must not define the active FEMR method.
+
+### Research Discipline: Method Boundary And First-Order Approximation
+
+FEMR should be concept-driven, but evidence must decide which part of the
+concept becomes active training machinery.  The recent authority-learning
+failures exposed that problem boundary and method boundary are different:
+
+```text
+problem boundary:
+  which failure belongs to the current paper?
+
+method boundary:
+  how complex is the method allowed to become while solving that failure?
+```
+
+The current method should use the highest expressive variable that the evidence
+can identify, not the most expressive variable the concept can imagine.  A
+variable is ready for the live method only if the current experiment can observe
+it, optimize it, diagnose it, and debug it locally.
+
+For FEMR, continuous state-conditioned authority is conceptually attractive, but
+preference learning, advantage learning, and authority actor-critic learning did
+not provide stable evidence for exact continuous write strength.  Therefore the
+active first-order approximation is:
+
+```text
+HSL owns continuous proposal magnitude.
+HRL owns admissibility, not full continuous rho authority.
+```
+
+This is not giving up on HRL.  It narrows HRL to the part that rollout evidence
+can support reliably.
+
+### Active Method
+
+The active FEMR pipeline is:
+
+```text
+corrupted reference
+  -> Stage 1: HSL Clean-oriented Delta SE proposal
+  -> Stage 2: HRL / acceptance decision over the proposal
+  -> frozen GMT execution
+```
+
+Stage 1 learns the continuous task-space repair proposal:
+
+```text
+d_t = Delta SE_HSL(o_t)
+```
+
+Stage 2 receives the current observation plus the detached Stage-1 proposal and
+predicts whether the proposal should be applied:
+
+```text
+m_t = pi_accept(o_t, detach(d_t))
+Delta SE_exec,t = m_t * d_t
+```
+
+The default active method treats `m_t` as binary or near-binary admissibility.
+If a later experiment uses a soft probability, it must still be trained as
+acceptance confidence, not as a full continuous authority controller.
+
+### Evidence And Labels
+
+The Stage-2 label is built from rollout comparison, not from a hand-written
+state-risk proxy:
+
+```text
+Candidate better than Noisy by margin -> accept_gt = 1
+Candidate worse than Noisy by margin  -> accept_gt = 0
+small margin                          -> accept_mask = 0 or low weight
+```
+
+Here:
+
+```text
+Noisy/GMT:
+  baseline, no FEMR write
+
+Candidate/GMT:
+  full Stage-1 proposal write
+
+FrontRES/GMT:
+  actual accepted output
+```
+
+Clean remains useful for Stage-1 proposal construction and oracle/upper-bound
+analysis.  It should not replace Noisy-vs-Candidate evidence for Stage-2
+admissibility.
+
+### Active Ownership
+
+```text
+Stage 1 / HSL:
+  owns continuous Delta SE proposal magnitude and direction.
+
+Stage 2 / HRL acceptance:
+  owns whether this proposal should be written under current rollout evidence.
+
+GMT:
+  remains frozen and executes the repaired or unrepaired reference.
+
+Action Cone:
+  owns hard safety and active-dimension masks only.
+```
+
+### Forbidden Active-Path Behavior
+
+The active FEMR path must not:
+
+- train an authority critic `Q(s, d, rho)`;
+- optimize actor rho by maximizing a learned local Q surface;
+- use continuous structured-rho advantage as the main objective;
+- let alpha/rho legacy branches silently write active storage fields;
+- print authority critic diagnostics as if they are active;
+- build disabled legacy loss graphs with CUDA tensors merely because their
+  weights are zero.
+
+Any old authority actor-critic, structured rho, alpha-rho, or PPO-rho code must
+be one of:
+
+```text
+removed from active path;
+hard-gated as explicit ablation with default off;
+test-only historical evidence.
+```
+
+### Required Diagnostics
+
+A short run should be able to prove the active method with these diagnostics:
+
+```text
+proposal magnitude
+acceptance probability / rate
+accept_gt rate
+accept_mask rate
+Candidate-Noisy margin
+accepted-beneficial fraction
+accepted-harmful fraction
+rejected-harmful fraction
+authority actor-critic disabled sentinel
+```
+
+If the log cannot prove these facts, FEMR is not ready for expensive training.
+
+## 2026-06-23 Authority Actor-Critic Contract (RETIRED MAINLINE)
 
 This section supersedes the earlier `Proposal-Conditioned Acceptance Contract`
 as the current research direction.  The acceptance-only contract correctly

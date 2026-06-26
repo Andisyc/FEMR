@@ -6,6 +6,11 @@
 """FrontRES domain helpers for runner, algorithm, and diagnostics code."""
 
 from .frontres_action_cone import FrontRESActionCone
+from .frontres_acceptance_labels import (
+    FrontRESAcceptanceLabels,
+    build_frontres_acceptance_labels,
+    expand_acceptance_labels_to_task_dims,
+)
 from .frontres_alpha_rho_bridge import FrontRESAlphaRhoBridge
 from .frontres_alpha_router import FrontRESStateAlphaTargets, build_state_alpha_targets
 from .frontres_authority_space import (
@@ -142,6 +147,7 @@ __all__ = [
     "FRONTRES_AUTHORITY_MAX",
     "FRONTRES_AUTHORITY_MIN",
     "FRONTRES_TASK_SPACE_DIM",
+    "FrontRESAcceptanceLabels",
     "FrontRESAcceptancePayload",
     "FrontRESActionCone",
     "FrontRESAlphaRhoBridge",
@@ -177,6 +183,7 @@ __all__ = [
     "apply_authority_to_delta_se",
     "authority_rho_stats",
     "bound_authority_rho",
+    "build_frontres_acceptance_labels",
     "build_and_write_frontres_acceptance_payload",
     "build_frontres_authority_events",
     "build_frontres_non_tri_acceptance_target_payload",
@@ -188,6 +195,7 @@ __all__ = [
     "choose_perturbation_choices",
     "compose_frontres_reward_delta",
     "compute_frontres_training_truth",
+    "expand_acceptance_labels_to_task_dims",
     "compute_frontres_oracle_upper_bound",
     "compute_frontres_authority_k_step_return",
     "compute_frontres_rollout_evidence",
