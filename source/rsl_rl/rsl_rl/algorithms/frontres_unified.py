@@ -970,7 +970,8 @@ class FrontRESUnified:
                     batch_size=original_batch_size,
                 )
                 try:
-                    value_term.backward()
+                    if value_term.requires_grad:
+                        value_term.backward()
                 except torch.cuda.OutOfMemoryError:
                     self._print_cuda_memory_debug(
                         "oom_value_backward",
@@ -1050,7 +1051,8 @@ class FrontRESUnified:
                     batch_size=original_batch_size,
                 )
                 try:
-                    non_acceptance_loss.backward()
+                    if non_acceptance_loss.requires_grad:
+                        non_acceptance_loss.backward()
                 except torch.cuda.OutOfMemoryError:
                     self._print_cuda_memory_debug(
                         "oom_actor_supervised_backward",
@@ -1139,7 +1141,8 @@ class FrontRESUnified:
                     batch_size=original_batch_size,
                 )
                 try:
-                    acceptance_only_loss.backward()
+                    if acceptance_only_loss.requires_grad:
+                        acceptance_only_loss.backward()
                 except torch.cuda.OutOfMemoryError:
                     self._print_cuda_memory_debug(
                         "oom_rho_backward",
@@ -1360,18 +1363,24 @@ class FrontRESUnified:
                     + structured_weight * structured_joint_rl_loss
                 )
                 non_ppo_loss = loss - acceptance_only_loss
-                non_ppo_loss.backward(retain_graph=True)
+                if non_ppo_loss.requires_grad:
+                    non_ppo_loss.backward(retain_graph=True)
                 base_grads = {
                     p: (p.grad.detach().clone() if p.grad is not None else None)
                     for p in self.policy.parameters()
                 }
-                acceptance_only_loss.backward()
-                self._keep_ppo_grad_on_acceptance_head_only(base_grads)
-                grad_diag = self._compute_acceptance_grad_diagnostics(base_grads)
-                if grad_diag:
-                    for key, value in grad_diag.items():
-                        grad_diag_sums[key] = grad_diag_sums.get(key, 0.0) + float(value)
-                    grad_diag_count += 1
+                if acceptance_only_loss.requires_grad:
+                    acceptance_only_loss.backward()
+                    self._keep_ppo_grad_on_acceptance_head_only(base_grads)
+                    grad_diag = self._compute_acceptance_grad_diagnostics(base_grads)
+                    if grad_diag:
+                        for key, value in grad_diag.items():
+                            grad_diag_sums[key] = grad_diag_sums.get(key, 0.0) + float(value)
+                        grad_diag_count += 1
+                else:
+                    for p in self.policy.parameters():
+                        base = base_grads.get(p)
+                        p.grad = None if base is None else base.clone()
             else:
                 loss.backward()
             if self.is_multi_gpu:

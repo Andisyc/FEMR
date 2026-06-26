@@ -136,5 +136,37 @@ def run_hsl_acceptance_algorithm_loss_check() -> None:
     print("result: PASS")
 
 
+def run_zero_mask_acceptance_loss_skip_check() -> None:
+    device = torch.device("cpu")
+    alg = FakeAlgorithm(device)
+    n = 4
+    mu = torch.zeros(n, 12, device=device, requires_grad=True)
+    acceptance_gt = torch.ones(n, 6, device=device)
+    acceptance_mask = torch.zeros(n, 6, device=device)
+
+    loss, metrics = FrontRESUnified._compute_acceptance_preference_loss(
+        alg,
+        mu,
+        acceptance_gt,
+        acceptance_mask,
+        original_batch_size=n,
+    )
+    if loss.requires_grad:
+        raise AssertionError("zero-mask acceptance loss should be a skippable constant")
+    if metrics["hsl_acceptance_loss_enabled"] != 0.0:
+        raise AssertionError("zero-mask acceptance loss should not report enabled")
+
+    base_loss = mu[:, :6].square().mean()
+    base_loss.backward(retain_graph=True)
+    base_grad = mu.grad.detach().clone()
+    if loss.requires_grad:
+        loss.backward()
+    else:
+        mu.grad = base_grad.clone()
+    torch.testing.assert_close(mu.grad, base_grad)
+    print("zero-mask acceptance loss: skippable without backward")
+
+
 if __name__ == "__main__":
     run_hsl_acceptance_algorithm_loss_check()
+    run_zero_mask_acceptance_loss_skip_check()
