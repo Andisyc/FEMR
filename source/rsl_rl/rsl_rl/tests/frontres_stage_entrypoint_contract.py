@@ -25,6 +25,11 @@ def main() -> None:
 
     assert 'choices=("stage1_hsl", "stage2_acceptance")' in train
     assert 'elif stage == "stage2_acceptance":' in train
+    assert 'FEMR_LOG_ROOT' in train
+    assert 'os.path.dirname(__file__)' in train
+    assert 'candidate_base_paths' not in train
+    assert '"/workspace/"' not in train
+    assert '"/hdd1/cyx/MOSAIC/"' not in train
     assert 'stage2_authority' not in _between(
         train,
         '''parser.add_argument(

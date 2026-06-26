@@ -16,8 +16,8 @@ import traceback
 
 os.environ.setdefault("WANDB_SILENT", "true")
 # Redirect wandb local run files to HDD to avoid filling /home
-os.environ.setdefault("WANDB_DIR", "/hdd0/yuxuancheng/MOSAIC")
-os.environ.setdefault("WANDB_CACHE_DIR", "/hdd0/yuxuancheng/MOSAIC/.wandb_cache")
+os.environ.setdefault("WANDB_DIR", "/hdd0/yuxuancheng/FEMR")
+os.environ.setdefault("WANDB_CACHE_DIR", "/hdd0/yuxuancheng/FEMR/.wandb_cache")
 
 WORLD_SIZE = int(os.environ.get("WORLD_SIZE", "1"))
 RANK = int(os.environ.get("RANK", "0"))
@@ -566,29 +566,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # specify directory for logging experiments
     # log_root_path 根据 experiment_name 自动派生，避免不同训练阶段的 checkpoint 混入同一目录。
-    # experiment_name 由各 RunnerCfg 定义（如 "g1_flat_frontres_finetune"、"g1_flat_supervised"）
+    # 默认绑定当前 FEMR checkout；FEMR_LOG_ROOT 可显式覆盖到服务器磁盘路径。
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+    base_path = os.path.abspath(os.environ.get("FEMR_LOG_ROOT", repo_root))
 
-    # 两台服务器上的 MOSAIC 根目录（不含实验子目录）
-    candidate_base_paths = [
-        "/workspace/",
-        "/hdd0/yuxuancheng/MOSAIC/",
-        "/hdd1/cyx/MOSAIC/",
-        "/ssd1/cyx/MOSAIC/"
-    ]
+    if not os.path.isdir(base_path):
+        raise FileNotFoundError(f"FEMR log root does not exist: {base_path}")
 
-    # 自动选择第一个真实存在的路径
-    base_path = None
-    for path in candidate_base_paths:
-        if os.path.exists(path):
-            base_path = path
-            break
-
-    if base_path is None:
-        raise FileNotFoundError("No feasible MOSAIC file ")
-
-    # 拼接实验名称
     log_root_path = os.path.join(base_path, agent_cfg.experiment_name)
-    # log_root_path = f"/hdd0/yuxuancheng/MOSAIC/{agent_cfg.experiment_name}"
     print(f"[INFO] Logging experiment in directory: {log_root_path}")
 
     # specify directory for logging runs: {time-stamp}_{run_name}
