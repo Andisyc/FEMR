@@ -27,9 +27,15 @@ def main() -> None:
     assert 'elif stage == "stage2_acceptance":' in train
     assert 'FEMR_LOG_ROOT' in train
     assert 'os.path.dirname(__file__)' in train
+    assert 'def _prefer_local_femr_sources()' in train
+    assert '_prefer_local_femr_sources()' in train
+    assert '"source/rsl_rl"' in train
+    assert '"source/whole_body_tracking"' in train
     assert 'candidate_base_paths' not in train
     assert '"/workspace/"' not in train
     assert '"/hdd1/cyx/MOSAIC/"' not in train
+    assert train.index("_prefer_local_femr_sources()") < train.index("from isaaclab.app import AppLauncher")
+    assert train.index("_prefer_local_femr_sources()") < train.index("from whole_body_tracking.utils.my_on_policy_runner")
     assert 'stage2_authority' not in _between(
         train,
         '''parser.add_argument(

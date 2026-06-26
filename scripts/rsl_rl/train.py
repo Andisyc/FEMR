@@ -19,6 +19,21 @@ os.environ.setdefault("WANDB_SILENT", "true")
 os.environ.setdefault("WANDB_DIR", "/hdd0/yuxuancheng/FEMR")
 os.environ.setdefault("WANDB_CACHE_DIR", "/hdd0/yuxuancheng/FEMR/.wandb_cache")
 
+
+def _prefer_local_femr_sources() -> None:
+    """Make this FEMR checkout win over any installed or MOSAIC source tree."""
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+    for rel_path in ("source/whole_body_tracking", "source/rsl_rl"):
+        source_path = os.path.join(repo_root, rel_path)
+        if os.path.isdir(source_path):
+            if source_path in sys.path:
+                sys.path.remove(source_path)
+            sys.path.insert(0, source_path)
+
+
+_prefer_local_femr_sources()
+
 WORLD_SIZE = int(os.environ.get("WORLD_SIZE", "1"))
 RANK = int(os.environ.get("RANK", "0"))
 LOCAL_RANK = int(os.environ.get("LOCAL_RANK", "0"))
