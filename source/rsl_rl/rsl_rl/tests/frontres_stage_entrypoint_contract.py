@@ -55,6 +55,9 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)',
         '_set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 0.0)',
         '_set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 0.0)',
+        '_set_if_present(alg_cfg, "frontres_structured_joint_rl_enabled", False)',
+        '_set_if_present(alg_cfg, "frontres_structured_joint_rl_weight", 0.0)',
+        '_set_if_present(alg_cfg, "frontres_structured_joint_prior_loss_weight", 0.0)',
         '_set_if_present(policy_cfg, "frontres_authority_actor_critic", False)',
         '_set_if_present(policy_cfg, "frontres_state_router_enabled", False)',
     ]
@@ -64,6 +67,10 @@ def main() -> None:
         'frontres_authority_actor_critic_enabled", True',
         'frontres_authority_actor_loss_weight", 1.0',
         'frontres_authority_critic_loss_weight", 1.0',
+        'frontres_structured_joint_enabled"',
+        'frontres_structured_joint_prior_weight"',
+        'frontres_structured_joint_rl_enabled", True',
+        'frontres_structured_joint_rl_weight", 1.0',
         'frontres_authority_return_horizon", 8',
         'frontres_perturbation_temporal_mode", "burst"',
     ]

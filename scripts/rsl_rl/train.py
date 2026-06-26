@@ -507,9 +507,9 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)
         _set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 0.0)
         _set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_structured_joint_enabled", False)
+        _set_if_present(alg_cfg, "frontres_structured_joint_rl_enabled", False)
         _set_if_present(alg_cfg, "frontres_structured_joint_rl_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_structured_joint_prior_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_structured_joint_prior_loss_weight", 0.0)
         _set_if_present(policy_cfg, "frontres_split_acceptance_head", True)
         _set_if_present(policy_cfg, "frontres_authority_actor_critic", False)
         _set_if_present(policy_cfg, "frontres_state_router_enabled", False)
@@ -526,6 +526,8 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         f"experiment={getattr(agent_cfg, 'experiment_name', 'n/a')}, "
         f"objective={getattr(alg_cfg, 'frontres_training_objective', 'n/a')}, "
         f"authority={getattr(alg_cfg, 'frontres_authority_actor_critic_enabled', 'n/a')}, "
+        f"structured_joint={getattr(alg_cfg, 'frontres_structured_joint_rl_enabled', 'n/a')}/"
+        f"{getattr(alg_cfg, 'frontres_structured_joint_rl_weight', 'n/a')}, "
         f"supervised_warmup={getattr(agent_cfg, 'supervised_warmup_iterations', 'n/a')}, "
         f"is_full_resume={getattr(agent_cfg, 'is_full_resume', 'n/a')}",
         flush=True,
