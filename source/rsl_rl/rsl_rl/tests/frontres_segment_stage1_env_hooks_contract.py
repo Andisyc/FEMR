@@ -270,6 +270,9 @@ def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
         _write_fake_amass(root / "KIT" / "359" / "motion_a.npz")
         env = FakeGymEnv(root)
         adapter = FrontRESStage1EnvAdapter(env, amass_root=str(root), trace=True)
+        loaded_paths = adapter.frontres_loaded_motion_paths()
+        print(f"[stage1_hooks trace] loaded_motion_paths={loaded_paths}")
+        assert loaded_paths == [str(root / "KIT" / "359" / "motion_a.npz")]
         env_ids = torch.tensor([0], dtype=torch.long)
 
         prepare = adapter.prepare_frontres_clean_segment(segment=_segment(), env_ids=env_ids)

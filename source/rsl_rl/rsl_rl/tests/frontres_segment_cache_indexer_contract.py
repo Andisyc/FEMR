@@ -19,6 +19,7 @@ sys.modules[spec.name] = indexer
 spec.loader.exec_module(indexer)
 
 build_amass_segment_index = indexer.build_amass_segment_index
+build_amass_segment_index_from_paths = indexer.build_amass_segment_index_from_paths
 read_amass_motion_info = indexer.read_amass_motion_info
 read_amass_segment_index = indexer.read_amass_segment_index
 write_amass_segment_index = indexer.write_amass_segment_index
@@ -111,6 +112,33 @@ def test_indexer_respects_max_segments() -> None:
         assert [segment.start_frame for segment in segments] == [0, 1, 2]
 
 
+def test_indexer_can_follow_loaded_motion_paths_instead_of_disk_order() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        motion_a = root / "AAA" / "motion_a.npz"
+        motion_b = root / "ZZZ" / "motion_b.npz"
+        _write_fake_amass_npz(motion_a, frames=8)
+        _write_fake_amass_npz(motion_b, frames=7)
+
+        segments, summary = build_amass_segment_index_from_paths(
+            root,
+            [motion_b],
+            horizon_k=2,
+            frame_stride=2,
+            max_segments=2,
+        )
+        print(
+            "[cache_indexer trace] loaded_paths_override "
+            f"loaded={[str(motion_b.relative_to(root))]} "
+            f"indexed={[segment.motion_rel_path for segment in segments]} "
+            f"starts={[segment.start_frame for segment in segments]}"
+        )
+        assert summary.motion_count == 1
+        assert summary.segment_count == 2
+        assert [segment.motion_rel_path for segment in segments] == ["ZZZ/motion_b.npz", "ZZZ/motion_b.npz"]
+        assert [segment.start_frame for segment in segments] == [0, 2]
+
+
 def test_indexer_rejects_bad_motion_shape() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "AMASS_G1NPZ_Final"
@@ -138,5 +166,6 @@ def test_indexer_rejects_bad_motion_shape() -> None:
 if __name__ == "__main__":
     test_indexer_builds_semantic_segments_and_writes_jsonl()
     test_indexer_respects_max_segments()
+    test_indexer_can_follow_loaded_motion_paths_instead_of_disk_order()
     test_indexer_rejects_bad_motion_shape()
     print("PASS: FrontRES AMASS indexer builds segment index from motion paths and frame counts.")

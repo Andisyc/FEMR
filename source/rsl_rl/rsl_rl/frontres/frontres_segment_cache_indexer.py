@@ -129,15 +129,35 @@ def build_amass_segment_index(
     max_motions: int | None = None,
     max_segments: int | None = None,
 ) -> tuple[list[FrontRESSegmentIndex], FrontRESAMASSIndexSummary]:
+    return build_amass_segment_index_from_paths(
+        amass_root,
+        discover_amass_npz_files(amass_root, max_motions=max_motions),
+        horizon_k=horizon_k,
+        frame_stride=frame_stride,
+        max_segments=max_segments,
+    )
+
+
+def build_amass_segment_index_from_paths(
+    amass_root: str | Path,
+    motion_paths: Iterable[str | Path],
+    *,
+    horizon_k: int,
+    frame_stride: int = 1,
+    max_segments: int | None = None,
+) -> tuple[list[FrontRESSegmentIndex], FrontRESAMASSIndexSummary]:
     if horizon_k <= 0:
         raise ValueError(f"horizon_k must be positive, got {horizon_k}")
     if frame_stride <= 0:
         raise ValueError(f"frame_stride must be positive, got {frame_stride}")
     root = Path(amass_root).resolve()
+    paths = [Path(path).expanduser().resolve() for path in motion_paths]
+    if not paths:
+        raise ValueError("motion_paths must contain at least one loaded AMASS motion")
     segments: list[FrontRESSegmentIndex] = []
     skipped_short = 0
     motion_count = 0
-    for path in discover_amass_npz_files(root, max_motions=max_motions):
+    for path in paths:
         info = read_amass_motion_info(root, path)
         motion_count += 1
         if info.num_frames <= horizon_k:

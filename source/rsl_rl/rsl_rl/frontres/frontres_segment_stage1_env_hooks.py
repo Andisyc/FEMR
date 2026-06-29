@@ -58,6 +58,9 @@ class FrontRESStage1EnvAdapter:
     def scene(self) -> Any:
         return self.base_env.scene
 
+    def frontres_loaded_motion_paths(self) -> list[str]:
+        return [str(path) for path in getattr(self.command.motion_dir_loader, "motion_paths", [])]
+
     def prepare_frontres_clean_segment(self, *, segment: FrontRESSegmentIndex, env_ids: torch.Tensor) -> dict[str, torch.Tensor]:
         segment.validate()
         ids = self._normalize_env_ids(env_ids)

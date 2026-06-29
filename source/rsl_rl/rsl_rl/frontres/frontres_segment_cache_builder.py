@@ -24,6 +24,7 @@ try:
     from rsl_rl.frontres.frontres_segment_cache_extractor import extract_robot_rollout_state
     from rsl_rl.frontres.frontres_segment_cache_indexer import (
         build_amass_segment_index,
+        build_amass_segment_index_from_paths,
         write_amass_segment_index,
     )
     from rsl_rl.frontres.frontres_segment_cache_io import (
@@ -47,6 +48,7 @@ except ModuleNotFoundError:
     _schema = _load_same_dir("frontres_segment_cache_schema")
     extract_robot_rollout_state = _extractor.extract_robot_rollout_state
     build_amass_segment_index = _indexer.build_amass_segment_index
+    build_amass_segment_index_from_paths = _indexer.build_amass_segment_index_from_paths
     write_amass_segment_index = _indexer.write_amass_segment_index
     FrontRESCleanStateEntry = _cache_io.FrontRESCleanStateEntry
     write_cache_metadata = _cache_io.write_cache_metadata
@@ -118,12 +120,31 @@ class FrontRESStage1CacheBuildResult:
 def build_stage1_segment_cache(env: Any, cfg: FrontRESStage1CacheBuilderConfig) -> FrontRESStage1CacheBuildResult:
     cfg.validate()
     cache_dir = Path(cfg.cache_dir)
-    segments, index_summary = build_amass_segment_index(
-        cfg.amass_root,
-        horizon_k=int(cfg.horizon_k),
-        frame_stride=int(cfg.frame_stride),
-        max_motions=cfg.max_motions,
-        max_segments=cfg.max_segments,
+    loaded_motion_paths = _frontres_loaded_motion_paths(env)
+    if loaded_motion_paths:
+        segments, index_summary = build_amass_segment_index_from_paths(
+            cfg.amass_root,
+            loaded_motion_paths,
+            horizon_k=int(cfg.horizon_k),
+            frame_stride=int(cfg.frame_stride),
+            max_segments=cfg.max_segments,
+        )
+    else:
+        segments, index_summary = build_amass_segment_index(
+            cfg.amass_root,
+            horizon_k=int(cfg.horizon_k),
+            frame_stride=int(cfg.frame_stride),
+            max_motions=cfg.max_motions,
+            max_segments=cfg.max_segments,
+        )
+    print(
+        "[FrontRES Stage1 Segment Cache] index_source "
+        f"loaded_motion_count={len(loaded_motion_paths)} "
+        f"indexed_motion_count={index_summary.motion_count} "
+        f"segment_count={len(segments)} "
+        f"first_loaded_motion={str(loaded_motion_paths[0]) if loaded_motion_paths else 'disk_scan'} "
+        f"first_segment_motion={segments[0].motion_rel_path if segments else 'none'}",
+        flush=True,
     )
     env_ids = torch.tensor([int(cfg.env_id)], dtype=torch.long)
     clean_entries = []
@@ -216,3 +237,21 @@ def _success_tensor(result: Any, env_ids: torch.Tensor) -> torch.Tensor:
             if name in result:
                 return result[name].to(device=env_ids.device).bool().flatten()
     raise TypeError(f"unsupported clean prepare hook result type: {type(result)!r}")
+
+
+def _frontres_loaded_motion_paths(env: Any) -> list[str]:
+    for owner in (env, getattr(env, "unwrapped", None), getattr(env, "base_env", None)):
+        if owner is None:
+            continue
+        for name in ("frontres_loaded_motion_paths", "get_frontres_loaded_motion_paths"):
+            fn = getattr(owner, name, None)
+            if callable(fn):
+                paths = [str(path) for path in fn()]
+                if paths:
+                    return paths
+        command = getattr(owner, "command", None)
+        loader = getattr(command, "motion_dir_loader", None)
+        paths = list(getattr(loader, "motion_paths", []) or [])
+        if paths:
+            return [str(path) for path in paths]
+    return []

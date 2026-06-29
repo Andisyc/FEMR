@@ -72,9 +72,10 @@ class FakeScene:
 
 
 class FakeStage1Env:
-    def __init__(self) -> None:
+    def __init__(self, loaded_motion_paths: list[str] | None = None) -> None:
         self.scene = FakeScene()
         self.unwrapped = self
+        self.loaded_motion_paths = list(loaded_motion_paths or [])
         self.prepare_calls: list[tuple[int, int, list[int]]] = []
         self.reset_calls: list[list[int]] = []
         self.perturb_calls: list[tuple[int, int, float, list[int]]] = []
@@ -83,6 +84,9 @@ class FakeStage1Env:
     @property
     def data(self) -> FakeRobotData:
         return self.scene.robot.data
+
+    def frontres_loaded_motion_paths(self) -> list[str]:
+        return list(self.loaded_motion_paths)
 
     def prepare_frontres_clean_segment(self, *, segment, env_ids: torch.Tensor):
         ids = env_ids.detach().cpu().tolist()
@@ -276,6 +280,44 @@ def test_stage1_builder_orchestrates_cache_pipeline() -> None:
             assert item.noisy_baseline_score.requires_grad is False
 
 
+def test_stage1_builder_uses_loaded_motion_paths_before_disk_scan() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        amass_root = tmp_path / "AMASS_G1NPZ_Final"
+        cache_dir = tmp_path / "frontres_stage1_cache"
+        motion_a = amass_root / "AAA" / "motion_a.npz"
+        motion_b = amass_root / "ZZZ" / "motion_b.npz"
+        _write_fake_motion(motion_a, frames=6)
+        _write_fake_motion(motion_b, frames=7)
+
+        env = FakeStage1Env(loaded_motion_paths=[str(motion_b)])
+        cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(cache_dir),
+            horizon_k=2,
+            frame_stride=2,
+            max_motions=1,
+            max_segments=2,
+            strengths=(0.0,),
+            variants_per_strength=1,
+            base_seed=123,
+            env_id=0,
+        )
+
+        result = build_stage1_segment_cache(env, cfg)
+        clean_entries = cache_io.read_clean_state_shard(result.clean_shard_path)
+        print(
+            "[cache_builder trace] loaded_motion_paths_override "
+            f"loaded={motion_b.relative_to(amass_root)} "
+            f"clean_paths={[entry.segment.motion_rel_path for entry in clean_entries]} "
+            f"prepare_calls={env.prepare_calls}"
+        )
+        assert result.segment_count == 2
+        assert [entry.segment.motion_rel_path for entry in clean_entries] == ["ZZZ/motion_b.npz", "ZZZ/motion_b.npz"]
+        assert env.prepare_calls == [(0, 0, [0]), (1, 2, [0])]
+
+
 if __name__ == "__main__":
     test_stage1_builder_orchestrates_cache_pipeline()
+    test_stage1_builder_uses_loaded_motion_paths_before_disk_scan()
     print("PASS: FrontRES Stage 1 cache builder orchestrates index, clean, perturbation, noisy, and IO.")
