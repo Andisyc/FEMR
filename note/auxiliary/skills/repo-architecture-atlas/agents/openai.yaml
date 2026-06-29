@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Architecture Atlas"
+  short_description: "Map method design to modules and code."
+  default_prompt: "Create or update a repository architecture atlas that links method design, module ownership, and concrete code locations."

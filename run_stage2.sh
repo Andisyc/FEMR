@@ -9,6 +9,7 @@ LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage2_hsl_warmup.txt}"
 LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FEMR_STAGE2_HSL_WARMUP}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
+RUN_FOREGROUND="${RUN_FOREGROUND:-0}"
 
 cd "$(dirname "$0")"
 
@@ -23,16 +24,30 @@ else
   LAUNCH=(python scripts/rsl_rl/train.py)
 fi
 
-"${LAUNCH[@]}" \
-  --task=FrontRES-Unified-Tracking-Flat-G1-v0 \
-  --num_envs="${NUM_ENVS}" \
-  --motion "${MOTION_PATH}" \
-  --headless \
-  --logger tensorboard \
-  --log_project_name "${LOG_PROJECT_NAME}" \
-  --experiment_name g1_flat_frontres_stage2_hsl \
-  --run_name "${RUN_NAME}" \
-  --max_iterations "${MAX_ITERS}" \
-  --supervised_warmup_iterations "${SUPERVISED_WARMUP_ITERS}" \
-  --frontres_stage stage2_hsl_warmup \
-  >"${LOG_PATH}" 2>&1
+mkdir -p "$(dirname "${LOG_PATH}")"
+
+CMD=(
+  "${LAUNCH[@]}"
+  --task=FrontRES-Unified-Tracking-Flat-G1-v0
+  --num_envs="${NUM_ENVS}"
+  --motion "${MOTION_PATH}"
+  --headless
+  --logger tensorboard
+  --log_project_name "${LOG_PROJECT_NAME}"
+  --experiment_name g1_flat_frontres_stage2_hsl
+  --run_name "${RUN_NAME}"
+  --max_iterations "${MAX_ITERS}"
+  --supervised_warmup_iterations "${SUPERVISED_WARMUP_ITERS}"
+  --frontres_stage stage2_hsl_warmup
+)
+
+if [[ "${RUN_FOREGROUND}" == "1" ]]; then
+  echo "[FrontRES Stage2] running in foreground; log=${LOG_PATH}"
+  "${CMD[@]}" >"${LOG_PATH}" 2>&1
+else
+  nohup "${CMD[@]}" >"${LOG_PATH}" 2>&1 &
+  PID="$!"
+  echo "[FrontRES Stage2] submitted pid=${PID}"
+  echo "[FrontRES Stage2] log=${LOG_PATH}"
+  echo "[FrontRES Stage2] follow: tail -f ${LOG_PATH}"
+fi

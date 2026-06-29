@@ -71,6 +71,8 @@ scripts/rsl_rl/train.py
 scripts/rsl_rl/play.py
 scripts/rsl_rl/cli_args.py
 scripts/rsl_rl/collect_expert_trajectories.py
+scripts/rsl_rl/check_frontres_stage1_segment_cache_completion.py
+check_stage1_completion.sh
 ```
 
 ### Responsibilities
@@ -80,6 +82,10 @@ scripts/rsl_rl/collect_expert_trajectories.py
 - instantiate task env and runner;
 - resume/load checkpoints;
 - run training or play.
+- check Stage 1 Segment Replay cache completion against the original AMASS
+  motion index without launching IsaacLab.
+- expose root-level convenience wrappers for common Stage 1/2/3 and cache
+  completion commands.
 
 ### Forbidden Responsibilities
 
