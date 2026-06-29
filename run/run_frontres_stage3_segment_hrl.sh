@@ -2,17 +2,17 @@
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
-  echo "Usage: bash run/run_frontres_stage3_segment_hrl.sh STAGE1_CHECKPOINT MOTION_PATH [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE]"
+  echo "Usage: bash run/run_frontres_stage3_segment_hrl.sh HSL_CHECKPOINT MOTION_PATH [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE]"
   echo
-  echo "Stage 3 loads a Stage 1 Delta SE proposal checkpoint and trains Segment Replay HRL."
+  echo "Stage 3 loads an HSL Delta SE proposal checkpoint and trains Segment Replay HRL."
   echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop."
   echo "Example:"
-  echo "  bash run/run_frontres_stage3_segment_hrl.sh /path/to/stage1/model.pt /path/to/motions 12000 2000 4 train"
-  echo "  bash run/run_frontres_stage3_segment_hrl.sh /path/to/stage1/model.pt /path/to/motions 1 1 1 update_loop"
+  echo "  bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
+  echo "  bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 1 1 1 update_loop"
   exit 1
 fi
 
-STAGE1_CHECKPOINT="$1"
+HSL_CHECKPOINT="$1"
 MOTION_PATH="$2"
 NUM_ENVS="${3:-12000}"
 MAX_ITERS="${4:-2000}"
@@ -25,8 +25,8 @@ CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
 CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py}"
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
-if [[ ! -f "${STAGE1_CHECKPOINT}" ]]; then
-  echo "Stage 1 checkpoint not found: ${STAGE1_CHECKPOINT}" >&2
+if [[ ! -f "${HSL_CHECKPOINT}" ]]; then
+  echo "HSL checkpoint not found: ${HSL_CHECKPOINT}" >&2
   exit 2
 fi
 
@@ -72,7 +72,7 @@ TRAIN_CMD=(
   --experiment_name g1_flat_frontres_stage3_segment_hrl
   --run_name "${RUN_NAME}"
   --max_iterations "${MAX_ITERS}"
-  --resume_student_checkpoint "${STAGE1_CHECKPOINT}"
+  --resume_student_checkpoint "${HSL_CHECKPOINT}"
   --is_full_resume False
   --frontres_stage stage3_segment_hrl
   --frontres_segment_cache_dir "${CACHE_DIR}"
@@ -94,7 +94,7 @@ if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   for required in \
     " scripts/rsl_rl/train.py " \
     " --frontres_stage stage3_segment_hrl " \
-    " --resume_student_checkpoint ${STAGE1_CHECKPOINT} " \
+    " --resume_student_checkpoint ${HSL_CHECKPOINT} " \
     " --is_full_resume False " \
     " --frontres_segment_cache_dir ${CACHE_DIR} " \
     " --frontres_segment_live_update_steps ${UPDATE_STEPS} " \

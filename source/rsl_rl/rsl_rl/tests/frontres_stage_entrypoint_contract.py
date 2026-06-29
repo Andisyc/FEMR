@@ -30,6 +30,9 @@ def main() -> None:
     stage1 = _read("run/run_frontres_stage1_hsl.sh")
     stage2 = _read("run/run_frontres_stage2_acceptance.sh")
     stage3 = _read("run/run_frontres_stage3_segment_hrl.sh")
+    root_stage1 = _read("run_stage1.sh")
+    root_stage2 = _read("run_stage2.sh")
+    root_stage3 = _read("run_stage3.sh")
 
     assert 'choices=("stage1_segment_cache", "stage1_hsl", "stage2_hsl_warmup", "stage2_acceptance", "stage3_segment_hrl")' in train
     assert '"--frontres_segment_cache_dir"' in train
@@ -373,8 +376,23 @@ def main() -> None:
     assert '--is_full_resume False' in stage2
     assert 'g1_flat_frontres_stage2_acceptance' in stage2
     assert 'stage2_authority' not in stage2
+    assert 'bash run/run_frontres_stage1_segment_cache.sh' in root_stage1
+    assert 'MAX_MOTIONS="${MAX_MOTIONS:-all}"' in root_stage1
+    assert 'MAX_SEGMENTS="${MAX_SEGMENTS:-all}"' in root_stage1
+    assert 'train_stage1_segment_cache.txt' in root_stage1
+    assert '--frontres_stage stage2_hsl_warmup' in root_stage2
+    assert 'g1_flat_frontres_stage2_hsl' in root_stage2
+    assert 'SUPERVISED_WARMUP_ITERS="${SUPERVISED_WARMUP_ITERS:-${MAX_ITERS}}"' in root_stage2
+    assert 'stage2_acceptance' not in root_stage2
+    assert 'acceptance' not in root_stage2.lower()
+    assert 'STAGE2_CHECKPOINT="$1"' in root_stage3
+    assert 'bash run/run_frontres_stage3_segment_hrl.sh' in root_stage3
+    assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in root_stage3
+    assert 'train_stage3_segment_hrl.txt' in root_stage3
+    assert 'stage2_acceptance' not in root_stage3
+    assert 'acceptance' not in root_stage3.lower()
     assert '--frontres_stage stage3_segment_hrl' in stage3
-    assert '--resume_student_checkpoint "${STAGE1_CHECKPOINT}"' in stage3
+    assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' in stage3
     assert '--is_full_resume False' in stage3
     assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in stage3
     assert '--frontres_segment_cache_dir "${CACHE_DIR}"' in stage3
@@ -386,6 +404,7 @@ def main() -> None:
     assert '[FrontRES Stage3 contract preflight] PASS' in stage3
     assert 'g1_flat_frontres_stage3_segment_hrl' in stage3
     assert 'stage2_acceptance' not in stage3
+    assert 'Stage 3 loads an HSL Delta SE proposal checkpoint' in stage3
     assert '"/hdd1/cyx/MOSAIC/"' not in stage3
     assert not (ROOT / 'run/run_frontres_stage2_authority.sh').exists()
     legacy = ROOT / 'run/legacy/run_frontres_stage2_authority.sh'
