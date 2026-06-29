@@ -303,6 +303,42 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Optional |advantage| focal exponent for actor surrogate. 0.0 gives standard PPO."""
     frontres_training_objective: str = "hsl_hybrid"
     """FrontRES update objective. Active FEMR uses 'hsl_hybrid' as HSL proposal plus acceptance training until the code path is renamed."""
+    frontres_segment_replay_enabled: bool = False
+    """Enable the explicit Segment Replay HRL route. Contract-only until runner/PPO integration is wired."""
+    frontres_segment_live_runner_enabled: bool = False
+    """Allow OnPolicyRunner to enter the live Segment Replay route. Keep false until live rollout/PPO wiring lands."""
+    frontres_segment_live_sentinel_only: bool = False
+    """Allow only the live Segment Replay startup sentinel, while keeping PPO/update training disabled."""
+    frontres_segment_live_probe_only: bool = False
+    """Run a short live Segment Replay rollout probe without storage writes or PPO updates."""
+    frontres_segment_live_storage_write_only: bool = False
+    """Run a short live Segment Replay rollout probe and write independent storage, without PPO updates."""
+    frontres_segment_live_single_update_only: bool = False
+    """Run live Segment Replay storage and exactly one PPO optimizer step, then exit."""
+    frontres_segment_live_update_loop_only: bool = False
+    """Run a short live Segment Replay PPO update loop, then exit before normal training."""
+    frontres_segment_live_train_enabled: bool = False
+    """Enable the dedicated live Segment Replay training loop instead of the legacy runner.learn path."""
+    frontres_segment_live_update_steps: int = 4
+    """Number of live Segment Replay PPO update steps for the Step 18 update-loop sentinel."""
+    frontres_segment_live_fail_on_invalid_update: bool = True
+    """Fail Stage 3 live training when an iteration produces no update or too few valid PPO samples."""
+    frontres_segment_live_min_valid_count: int = 1
+    """Minimum valid PPO samples required per Stage 3 live training iteration."""
+    frontres_segment_live_fail_on_nonfinite: bool = True
+    """Fail Stage 3 live training when reward/loss/KL diagnostics become NaN or Inf."""
+    frontres_hsl_init_enabled: bool = False
+    """Initialize Stage 3 repair actor from Stage 1 HSL weights when loading checkpoints."""
+    frontres_segment_k: int = 4
+    """K-step horizon for Segment Replay HRL rollout scoring."""
+    frontres_segment_sampler_global_frac: float = 0.4
+    """Sampling fraction for global segment coverage."""
+    frontres_segment_sampler_replay_frac: float = 0.5
+    """Sampling fraction for prioritized segment replay."""
+    frontres_segment_sampler_review_frac: float = 0.1
+    """Sampling fraction for solved-segment review."""
+    frontres_segment_reset_mode: str = "auto"
+    """Segment reset mode: 'auto', 'direct', or 'preroll'."""
     frontres_acceptance_preference_weight: float = 0.0
     """Weight for rollout-preference supervision on hsl_hybrid acceptance coefficients."""
     frontres_acceptance_preference_focal_gamma: float = 0.0

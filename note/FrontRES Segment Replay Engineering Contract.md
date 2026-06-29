@@ -1,0 +1,1125 @@
+# FrontRES Segment Replay Engineering Contract
+Date: 2026-06-27
+
+This note is Step 3 after `FrontRES External Code Reuse Map.md`.
+It defines the FEMR module contract before code implementation.
+
+The core method is:
+
+```text
+motion segment
+ -> dynamic reset
+ -> noisy baseline
+ -> HRL Delta SE(3) repair
+ -> K-step rollout
+ -> executable gain over Noisy
+ -> PPO update
+ -> prioritized segment replay update
+```
+
+HSL is initialization.  It is not the final training target.  The old
+acceptance head remains an ablation path and must not run silently in Segment
+Replay HRL.
+
+## 1. Live Stage Contract
+
+Add a new explicit stage:
+
+```text
+frontres_stage = stage3_segment_hrl
+frontres_training_objective = segment_replay_hrl
+```
+
+Required stage defaults:
+
+- `frontres_segment_replay_enabled=True`;
+- `frontres_acceptance_preference_weight=0.0`;
+- `frontres_split_acceptance_head=False` unless an ablation explicitly enables
+  the old path;
+- `frontres_authority_actor_critic_enabled=False` for the first implementation;
+- `frontres_hsl_init_enabled=True`;
+- `frontres_segment_k` set by config;
+- `frontres_segment_sampler_global_frac`;
+- `frontres_segment_sampler_replay_frac`;
+- `frontres_segment_sampler_review_frac`;
+- `frontres_segment_reset_mode=auto`.
+
+Required live-path sentinel:
+
+```text
+FrontRES Segment HRL active: stage=stage3_segment_hrl objective=segment_replay_hrl k=...
+```
+
+Stop if:
+
+- `stage2_acceptance` logging appears during `stage3_segment_hrl`;
+- acceptance target/mask storage is written as the main HRL signal;
+- the policy output is interpreted as acceptance instead of 6D repair.
+
+## 2. Module Layout
+
+New modules should live under:
+
+```text
+source/rsl_rl/rsl_rl/frontres/
+```
+
+Required modules:
+
+- `frontres_segment_dataset.py`;
+- `frontres_segment_sampler.py`;
+- `frontres_segment_reset.py`;
+- `frontres_segment_reward.py`;
+- `frontres_hrl_action.py`;
+- `frontres_segment_diagnostics.py`.
+
+Optional module:
+
+- `frontres_segment_storage.py`.
+
+Runner connector should be thin and may live under:
+
+```text
+source/rsl_rl/rsl_rl/runners/frontres_segment_replay.py
+```
+
+Do not place dataset, sampler, reset, reward, or priority logic inside
+`on_policy_runner.py`.
+
+## 3. Shared Data Objects
+
+### `FrontRESSegmentState`
+
+Owner:
+
+- `frontres_segment_dataset.py`.
+
+Meaning:
+
+- one batched dynamic state that can reset the simulator.
+
+Fields:
+
+- `root_pos`: tensor `[B, 3]`;
+- `root_quat`: tensor `[B, 4]`, wxyz convention;
+- `root_lin_vel`: tensor `[B, 3]`;
+- `root_ang_vel`: tensor `[B, 3]`;
+- `dof_pos`: tensor `[B, D]`;
+- `dof_vel`: tensor `[B, D]`;
+- `key_body_pos`: optional tensor `[B, K, 3]`;
+- `key_body_quat`: optional tensor `[B, K, 4]`;
+- `device`: torch device.
+
+Invariant:
+
+- pose and velocity are both required.
+
+Stop if:
+
+- reset can be built from `root_pos`, `root_quat`, and `dof_pos` only.
+
+### `FrontRESSegmentSpec`
+
+Owner:
+
+- `frontres_segment_dataset.py`.
+
+Meaning:
+
+- one replayable training item.
+
+Fields:
+
+- `segment_id`: int;
+- `motion_id`: int or string;
+- `start_frame`: int or `start_time`: float;
+- `phase`: float in `[0, 1]`;
+- `horizon_k`: int;
+- `perturbation_family`: string;
+- `perturbation_strength`: float or tensor;
+- `reset_mode_hint`: `direct`, `preroll`, or `auto`;
+- `valid_for_training`: bool.
+
+Invariant:
+
+- `segment_id` is stable across sampler, reward, diagnostics, and checkpoint.
+
+### `FrontRESSegmentBatch`
+
+Owner:
+
+- `frontres_segment_dataset.py`.
+
+Fields:
+
+- `segment_ids`: tensor `[B]`;
+- `specs`: list or structured metadata;
+- `clean_state`: `FrontRESSegmentState`;
+- `reference_window`: tensor or adapter object for GMT reference;
+- `phase`: tensor `[B]`;
+- `horizon_k`: int or tensor `[B]`;
+- `perturbation_family`: list or encoded tensor;
+- `perturbation_strength`: tensor.
+
+Invariant:
+
+- batch object contains enough data for reset without going back to global
+  runner state.
+
+## 4. `frontres_segment_dataset.py`
+
+Primary class:
+
+```text
+FrontRESSegmentDataset
+```
+
+Constructor inputs:
+
+- `motion_source`;
+- `dt`;
+- `default_horizon_k`;
+- `device`;
+- `cache_policy`;
+- optional `motion_normalizer`;
+- optional `reference_builder`.
+
+Required methods:
+
+- `num_segments() -> int`;
+- `sample_global(batch_size, generator=None) -> FrontRESSegmentBatch`;
+- `get_segments(segment_ids) -> FrontRESSegmentBatch`;
+- `build_clean_cache() -> None`;
+- `validate_batch(batch) -> FrontRESSegmentValidation`;
+- `state_dict() -> dict`;
+- `load_state_dict(state) -> None`.
+
+Optional methods:
+
+- `write_noisy_baseline(segment_ids, evidence) -> None`;
+- `read_noisy_baseline(segment_ids) -> evidence | None`;
+- `update_validity(segment_ids, flags) -> None`.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_dataset_contract.py
+```
+
+Test cases:
+
+- tiny fake motion with two clips and nonzero velocities;
+- global sampling returns stable `segment_id`;
+- `get_segments()` returns same state for same id;
+- dynamic state includes root and dof velocities;
+- reference window length covers `horizon_k`;
+- invalid segment is excluded from global sampling.
+
+Pass condition:
+
+- dataset can be tested without IsaacLab and without GMT.
+
+## 5. `frontres_segment_reset.py`
+
+Primary class:
+
+```text
+FrontRESSegmentResetAdapter
+```
+
+Data objects:
+
+- `FrontRESSegmentResetRequest`;
+- `FrontRESSegmentResetResult`.
+
+Required methods:
+
+- `build_request(batch, mode="auto") -> FrontRESSegmentResetRequest`;
+- `apply(env, request) -> FrontRESSegmentResetResult`;
+- `validate_after_reset(obs, infos, request) -> FrontRESSegmentResetResult`;
+- `needs_preroll(batch) -> tensor[bool]`.
+
+`FrontRESSegmentResetRequest` fields:
+
+- `segment_ids`;
+- `root_pos`;
+- `root_quat`;
+- `root_lin_vel`;
+- `root_ang_vel`;
+- `dof_pos`;
+- `dof_vel`;
+- `reference_window`;
+- `mode`;
+- `preroll_steps`;
+- `valid_mask`.
+
+`FrontRESSegmentResetResult` fields:
+
+- `success_mask`;
+- `direct_reset_mask`;
+- `preroll_mask`;
+- `invalid_static_reset_mask`;
+- `fall_at_reset_mask`;
+- `contact_mismatch_mask`;
+- `velocity_mismatch`;
+- `diagnostics`.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_reset_contract.py
+```
+
+Test cases:
+
+- fake env receives velocity fields;
+- dynamic segment rejects static-pose-only request;
+- `auto` mode chooses pre-roll for flagged unstable phases;
+- partial batch failure returns masks, not an exception;
+- diagnostics expose direct/pre-roll/failure counts.
+
+Pass condition:
+
+- reset adapter can be tested with a fake env before IsaacLab integration.
+
+## 6. `frontres_segment_sampler.py`
+
+Primary class:
+
+```text
+FrontRESSegmentSampler
+```
+
+Data objects:
+
+- `FrontRESSegmentSample`;
+- `FrontRESSegmentRolloutEvidence`;
+- `FrontRESSegmentSamplerStats`.
+
+Constructor inputs:
+
+- `num_segments`;
+- `global_frac`;
+- `replay_frac`;
+- `review_frac`;
+- `priority_mode`;
+- `staleness_weight`;
+- `min_replay_score`;
+- `max_hopeless_replay_frac`;
+- `seed`.
+
+Required methods:
+
+- `sample(batch_size) -> FrontRESSegmentSample`;
+- `update(evidence: FrontRESSegmentRolloutEvidence) -> None`;
+- `mark_invalid(segment_ids, reason) -> None`;
+- `stats() -> FrontRESSegmentSamplerStats`;
+- `state_dict() -> dict`;
+- `load_state_dict(state) -> None`.
+
+`FrontRESSegmentSample` fields:
+
+- `segment_ids`;
+- `source`: global, replay, or review;
+- `priority`;
+- `staleness`;
+- `valid_mask`.
+
+`FrontRESSegmentRolloutEvidence` fields:
+
+- `segment_ids`;
+- `reset_success`;
+- `score_noisy`;
+- `score_repaired`;
+- `score_clean`;
+- `gain_over_noisy`;
+- `fall_repaired`;
+- `contact_consistency`;
+- `action_norm`;
+- `valid_reward`;
+- `horizon_k`;
+
+Priority rule:
+
+- high priority means useful learning signal;
+- high priority does not mean simply hard.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py
+```
+
+Test cases:
+
+- unseen segments are sampled before replay dominates;
+- useful unsolved segments receive higher replay probability;
+- solved segments move to review instead of disappearing;
+- hopeless segments are capped;
+- stale segments re-enter sampling;
+- `state_dict()` restores sampling state.
+
+Pass condition:
+
+- sampler can be tested as a pure Python module.
+
+## 7. `frontres_segment_reward.py`
+
+Primary class:
+
+```text
+FrontRESSegmentReward
+```
+
+Data objects:
+
+- `FrontRESSegmentScoreWindow`;
+- `FrontRESSegmentRewardResult`.
+
+Constructor inputs:
+
+- executable scorer or score function;
+- reward weights;
+- fall penalty;
+- contact weight;
+- valid score bounds;
+- `use_full_env_reward=False`.
+
+Required methods:
+
+- `score_window(rollout, role) -> FrontRESSegmentScoreWindow`;
+- `compute(noisy, repaired, clean, reset_result=None) -> FrontRESSegmentRewardResult`;
+- `priority_evidence(result) -> FrontRESSegmentRolloutEvidence`.
+
+`FrontRESSegmentRewardResult` fields:
+
+- `reward`;
+- `score_noisy`;
+- `score_repaired`;
+- `score_clean`;
+- `gain_over_noisy`;
+- `clean_gap`;
+- `fall_flag`;
+- `contact_consistency`;
+- `valid_mask`;
+- `solved_mask`;
+- `hopeless_mask`;
+- `diagnostics`.
+
+Reward rule:
+
+- main reward is improvement over Noisy;
+- Clean is diagnostic and normalization reference;
+- full environment reward is not the main signal.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_reward_contract.py
+```
+
+Test cases:
+
+- repaired better than Noisy gives positive reward;
+- repaired worse than Noisy gives negative reward;
+- Noisy already good becomes low learning value;
+- both Noisy and repaired fail becomes hopeless;
+- invalid reset masks reward out;
+- full env reward is ignored unless explicitly enabled.
+
+Pass condition:
+
+- reward can be tested from synthetic score tensors.
+
+## 8. `frontres_hrl_action.py`
+
+Primary class:
+
+```text
+FrontRESHRLActionProjector
+```
+
+Data objects:
+
+- `FrontRESRepairAction`;
+- `FrontRESHRLActionStats`.
+
+Constructor inputs:
+
+- `FrontRESActionCone`;
+- active task dims;
+- action scale;
+- upward `dz` rule;
+- optional HSL initialization mode.
+
+Required methods:
+
+- `project(raw_action, mode_groups=None) -> FrontRESRepairAction`;
+- `apply_to_reference(command, repair_action) -> command`;
+- `mask_for_segment(batch) -> tensor`;
+- `stats(repair_action) -> FrontRESHRLActionStats`.
+
+`FrontRESRepairAction` fields:
+
+- `delta_se`: tensor `[B, 6]`;
+- `active_mask`: tensor `[B, 6]`;
+- `projected_delta_se`: tensor `[B, 6]`;
+- `action_norm`: tensor `[B]`;
+- `per_dim_norm`: tensor `[6]`.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_hrl_action_contract.py
+```
+
+Test cases:
+
+- active dimension mask is respected;
+- per-mode mask is respected;
+- upward `dz` is constrained;
+- output remains 6D Delta SE(3);
+- no acceptance probability/logit is produced;
+- HSL actor weights can initialize the 6D repair actor without an acceptance
+  actor.
+
+Pass condition:
+
+- action projector can be tested without env rollout.
+
+## 9. `frontres_segment_diagnostics.py`
+
+Primary functions:
+
+- `summarize_segment_batch(sample, reward_result, reset_result, action_stats)`;
+- `format_segment_replay_log(summary) -> str`;
+- `segment_summary_to_scalars(summary) -> dict[str, float]`.
+
+Required diagnostics:
+
+- `segment/global_frac`;
+- `segment/replay_frac`;
+- `segment/review_frac`;
+- `segment/replay_pool_size`;
+- `segment/priority_mean`;
+- `segment/priority_p90`;
+- `segment/solved_frac`;
+- `segment/active_frac`;
+- `segment/hopeless_frac`;
+- `segment/reset_success_frac`;
+- `segment/preroll_frac`;
+- `segment/k`;
+- `segment/score_noisy`;
+- `segment/score_repaired`;
+- `segment/score_clean`;
+- `segment/gain_over_noisy`;
+- `segment/fall_frac`;
+- `segment/contact_consistency`;
+- `segment/action_norm`;
+- `segment/action_norm_dx`;
+- `segment/action_norm_dy`;
+- `segment/action_norm_dz`;
+- `segment/action_norm_droll`;
+- `segment/action_norm_dpitch`;
+- `segment/action_norm_dyaw`.
+
+Forbidden primary diagnostics:
+
+- `acceptance_gt`;
+- `acceptance_mask`;
+- `acceptance_margin`;
+- `acceptance_prob`.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_diagnostics_contract.py
+```
+
+Test cases:
+
+- fake batch produces all required scalar keys;
+- old acceptance keys are absent;
+- partial invalid batch still logs reset and valid-mask statistics;
+- log string includes stage, objective, K, sampler mix, and gain.
+
+Pass condition:
+
+- one log line can prove Segment Replay HRL is active.
+
+## 10. Optional `frontres_segment_storage.py`
+
+Create this only if current `RolloutStorage` cannot hold the tuple cleanly.
+
+Primary class:
+
+```text
+FrontRESSegmentRolloutStorage
+```
+
+Required fields:
+
+- observations;
+- privileged observations if used;
+- `segment_ids`;
+- `segment_source`;
+- 6D repair actions;
+- log-probs;
+- values;
+- rewards;
+- returns;
+- advantages;
+- valid masks;
+- reset masks;
+- priority evidence.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py
+```
+
+Stop if:
+
+- the old acceptance storage tuple is expanded before this storage decision is
+  made.
+
+Step 12 implementation result:
+- chose an independent Stage 3 storage instead of extending legacy
+  `RolloutStorage`;
+- reason: legacy `RolloutStorage` already carries supervised, acceptance, rho,
+  state-alpha, and authority fields, so adding Segment HRL there would risk
+  reintroducing old acceptance paths;
+- `source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py` defines
+  `FrontRESSegmentRolloutStorage`;
+- storage fields are observations, optional privileged observations,
+  `segment_ids`, `segment_source`, 6D repair actions, log-probs, values,
+  rewards, returns, advantages, valid masks, reset masks, action masks, and
+  detached priority evidence;
+- segment returns default to K-step reward and advantages default to
+  `return - value`;
+- connector writes are accepted only when policy log-prob, value, and
+  observations are present; missing PPO fields fail fast;
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py` verifies
+  6D action shape, invalid-mask removal, PPO batch conversion, state round-trip,
+  overflow rejection, and connector payload validation;
+- this is still a fake storage contract and does not enable live Stage 3
+  training.
+
+## 11. Thin Runner Connector
+
+Candidate file:
+
+```text
+source/rsl_rl/rsl_rl/runners/frontres_segment_replay.py
+```
+
+Primary class:
+
+```text
+FrontRESSegmentReplayConnector
+```
+
+Responsibilities:
+
+- request segment ids from sampler;
+- fetch segment batch from dataset;
+- call reset adapter;
+- get HRL repair action from policy;
+- run K-step rollout;
+- call segment reward;
+- write PPO transition or segment storage;
+- update sampler priority;
+- emit diagnostics.
+
+Non-responsibilities:
+
+- no priority formula;
+- no reward formula;
+- no reset-state construction;
+- no action-cone math;
+- no acceptance label construction.
+
+Required live-path test:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_replay_toy_chain.py
+```
+
+Test case:
+
+- fake dataset;
+- fake sampler;
+- fake reset adapter;
+- fake policy action;
+- fake K-step rollout;
+- fake reward;
+- verify call order and written transition fields.
+
+Pass condition:
+
+- toy chain proves the new path is connected without IsaacLab.
+
+Step 13 implementation result:
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_replay.py` accepts policy
+  outputs that are either a raw 6D tensor or a dict/object containing `action`,
+  `observations`, `log_prob`, `value`, optional `mean`, and optional `sigma`;
+- connector writes both `raw_action` and `policy_output` into the transition
+  payload, so `FrontRESSegmentRolloutStorage` can build a PPO tuple without
+  touching legacy `RolloutStorage`;
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_runner_lifecycle_contract.py`
+  verifies the fake lifecycle:
+  segment sampling -> reset -> policy action/log-prob/value -> K-step rollout
+  -> Noisy-relative reward -> sampler update -> segment storage write -> PPO
+  batch -> optimizer step;
+- the old tensor-only connector toy test remains valid;
+- this remains a fake runner lifecycle and does not enable live Stage 3
+  training.
+
+Step 14 live runner sentinel:
+
+- `frontres_segment_live_sentinel_only` is an explicit startup-proof flag, not a
+  training flag;
+- default Stage 3 keeps `frontres_segment_live_runner_enabled=False`;
+- passing `--frontres_segment_live_sentinel_only` sets both
+  `frontres_segment_live_runner_enabled=True` and
+  `frontres_segment_live_sentinel_only=True`;
+- `FrontRESSegmentRunnerBoundary.assert_live_runner_ready()` allows only this
+  sentinel case through;
+- `on_policy_runner.py` prints `[FrontRES Segment Live Sentinel] ...` with
+  objective, K, reset mode, independent storage, 6D Delta SE(3) action, and
+  `training_update=disabled`;
+- `FrontRESUnified.update()` still raises if the sentinel reaches training,
+  proving this step does not enable PPO/live learning.
+
+Step 14 stop condition:
+
+- the real Stage 3 startup boundary has a visible one-line proof;
+- non-sentinel live runner still fails fast;
+- update/training remains disabled until the actual live rollout/PPO connector
+  is implemented.
+
+Step 15 live rollout probe:
+
+- `frontres_segment_live_probe_only` is an explicit live rollout probe flag, not
+  a training flag;
+- passing `--frontres_segment_live_probe_only` sets
+  `frontres_segment_live_runner_enabled=True` and
+  `frontres_segment_live_probe_only=True`;
+- sentinel and probe flags are mutually exclusive;
+- `train.py` forces `max_iterations=0`, constructs the real env and runner,
+  loads the requested checkpoint if provided, then calls
+  `runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)` and
+  exits before `runner.learn()`;
+- `run_frontres_segment_live_probe()` reuses the normal runner observation
+  split, normalizers, FrontRES pair layout, `prepare_frontres_rollout_step()`,
+  and `env.step()` for K steps;
+- the probe prints `[FrontRES Segment Live Probe] ...` with obs shape, 6D action
+  shape, env-action shape, valid fraction, K, reward mean, done fraction,
+  `storage_write=False`, and `ppo_update=False`;
+- it does not call `alg.process_env_step()`, does not write Segment Replay
+  storage, and does not call `alg.update()`.
+
+Step 15 stop condition:
+
+- the real env can execute K live probe steps through the Stage 3 runner path;
+- the log proves policy action and env action shapes;
+- storage and PPO remain disabled until Step 16/17.
+
+Step 16 live storage write:
+
+- `frontres_segment_live_storage_write_only` is an explicit live storage probe
+  flag, not a training flag;
+- passing `--frontres_segment_live_storage_write_only` sets
+  `frontres_segment_live_runner_enabled=True` and
+  `frontres_segment_live_storage_write_only=True`;
+- sentinel, probe, and storage-write flags are mutually exclusive;
+- `train.py` forces `max_iterations=0`, constructs the real env and runner,
+  loads the requested checkpoint if provided, then reuses
+  `runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)` and exits
+  before `runner.learn()`;
+- the first live policy step supplies the PPO tuple:
+  observation, privileged observation, 6D Delta SE(3) action, log-prob, value,
+  optional mean/sigma, and segment ids;
+- the following K-step live rollout accumulates the segment reward and done
+  mask;
+- the runner writes one `FrontRESSegmentTransition` into independent
+  `FrontRESSegmentRolloutStorage`;
+- the probe prints storage evidence:
+  `storage_write=True`, `storage_size`, `storage_valid_frac`, and
+  `storage_reward_mean`;
+- it still does not call `alg.process_env_step()` and does not call
+  `alg.update()`.
+
+Step 16 stop condition:
+
+- live env produces a valid 6D PPO tuple;
+- independent Segment Replay storage accepts the live transition;
+- PPO/update remains disabled until Step 17.
+
+Step 17 live single-batch PPO update:
+
+- `frontres_segment_live_single_update_only` is an explicit update sentinel,
+  not the full Stage 3 training loop;
+- passing `--frontres_segment_live_single_update_only` sets
+  `frontres_segment_live_runner_enabled=True` and
+  `frontres_segment_live_single_update_only=True`;
+- sentinel, probe, storage-write, and single-update flags are mutually
+  exclusive;
+- `train.py` forces `max_iterations=0`, constructs the real env and runner,
+  loads the requested checkpoint if provided, then reuses
+  `runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)` and exits
+  before `runner.learn()`;
+- the runner first follows the Step 16 path: live K-step rollout, first-step
+  6D Delta SE(3) PPO tuple, independent `FrontRESSegmentRolloutStorage`;
+- after storage write, the runner builds one
+  `FrontRESSegmentPPOBatch`, re-evaluates the stored actions under the current
+  FrontRES policy, computes `compute_frontres_segment_ppo_loss`, and performs
+  exactly one optimizer step when `valid_count > 0`;
+- critic evaluation uses the stored privileged observations when available,
+  not the actor observation by default;
+- `FrontRESUnified.update()` remains guarded for this mode; entering the full
+  update loop is an error;
+- the probe prints update evidence:
+  `single_update=True`, `ppo_update`, `ppo_valid_count`, `ppo_total_loss`,
+  `ppo_actor_loss`, `ppo_value_loss`, `ppo_approx_kl`, and `ppo_clip_frac`.
+
+Step 17 stop condition:
+
+- live storage can become a PPO batch;
+- the current policy can re-evaluate stored 6D actions with gradients enabled;
+- one optimizer step can run from the live segment batch;
+- the command still exits before the expensive training loop.
+
+Step 18 live short PPO update loop:
+
+- `frontres_segment_live_update_loop_only` is an explicit short-loop sentinel,
+  not the full Stage 3 training loop;
+- `frontres_segment_live_update_steps` controls the number of live segment PPO
+  updates and defaults to 4;
+- passing `--frontres_segment_live_update_loop_only` sets
+  `frontres_segment_live_runner_enabled=True`,
+  `frontres_segment_live_update_loop_only=True`, and
+  `frontres_segment_live_update_steps=N`;
+- sentinel, probe, storage-write, single-update, and update-loop flags are
+  mutually exclusive;
+- `train.py` forces `max_iterations=0`, constructs the real env and runner,
+  loads the requested checkpoint if provided, runs
+  `runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)`,
+  and exits before `runner.learn()`;
+- each loop iteration reuses the Step 17 path:
+  live K-step segment rollout, independent segment storage, PPO batch,
+  policy re-evaluation, one masked PPO optimizer step when `valid_count > 0`;
+- the first loop iteration may randomize episode length; later iterations
+  continue from the live env state instead of resetting through the training
+  lifecycle;
+- the loop prints per-segment Step 17 evidence plus one summary line:
+  `[FrontRES Segment Live Update Loop]`, `update_steps`, `update_count`,
+  `ppo_valid_count`, mean rewards/losses/KL/clip fraction, and
+  `runner_learn=False`;
+- `FrontRESUnified.update()` remains guarded for this mode; entering the full
+  update loop is an error.
+
+Step 18 stop condition:
+
+- consecutive live segment batches can update the same policy without entering
+  the normal runner training loop;
+- update statistics are scalar-detached and printed once at the loop boundary;
+- the command remains short enough to use as a server-side live smoke test.
+
+Step 19 dedicated live training loop:
+
+- `frontres_segment_live_train_enabled` is the explicit Stage 3 live training
+  flag;
+- when `--frontres_stage stage3_segment_hrl` is used without a sentinel flag,
+  the Stage 3 preset sets `frontres_segment_live_train_enabled=True`;
+- `train.py` constructs the real env and runner, loads the requested checkpoint
+  if provided, then calls
+  `runner.learn_frontres_segment_live(num_learning_iterations=max_iterations)`;
+- this path still does not call the legacy `runner.learn()` and still does not
+  call `FrontRESUnified.update()`;
+- each training iteration reuses the Step 18 loop:
+  `frontres_segment_live_update_steps` live segment PPO updates, scalar
+  diagnostics, and detached storage;
+- the runner prints `[FrontRES Segment Live Train]` with iteration, update
+  count, valid sample count, reward mean, loss mean, and `runner_learn=True`;
+- checkpoint saving uses the runner checkpoint helpers at the Segment Replay
+  iteration boundary.
+
+Step 19 stop condition:
+
+- Stage 3 has a normal training entrypoint that can run for
+  `max_iterations > 0`;
+- the live path is still isolated from the legacy FrontRES update path;
+- a server-side short command can prove the first real training iteration by
+  observing `[FrontRES Segment Live Train] ... runner_learn=True`.
+
+Step 19 pseudo-parameter contract:
+
+- before server-side live smoke tests, the Stage 3 train loop must pass a fake
+  parameter test without IsaacLab;
+- the train loop is owned by
+  `runners/frontres_segment_live_training.py`, not embedded directly in
+  `on_policy_runner.py`;
+- the fake runner supplies:
+  `frontres_segment_live_train_enabled=True`, fake update summaries, fake
+  checkpoint functions, and fake log paths;
+- the test verifies:
+  first iteration uses `init_at_random_ep_len=True`, later iterations use
+  `False`, `runner_learn=True` reaches the update loop, checkpoints are named
+  `model_{iteration}.pt`, and checkpoint probes receive the scalar summary;
+- incomplete update summaries must fail before a real server run.
+
+Required pseudo test:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py
+```
+
+Step 20 live training diagnostics and fail-fast contract:
+
+- live Stage 3 training must not silently continue when the update loop returns
+  an unusable summary;
+- each live training iteration requires scalar diagnostics for:
+  update steps, update count, valid PPO sample count, reward mean, storage valid
+  fraction, total loss, actor loss, value loss, approximate KL, and clip
+  fraction;
+- `frontres_segment_live_fail_on_invalid_update=True` by default, so
+  `update_count=0` fails before checkpointing;
+- `frontres_segment_live_min_valid_count=1` by default, so a live iteration with
+  no valid PPO samples fails before the next iteration;
+- `frontres_segment_live_fail_on_nonfinite=True` by default, so NaN/Inf reward,
+  loss, KL, or clip diagnostics fail immediately;
+- the guards can be disabled explicitly for diagnosis, but the default server
+  run should fail early rather than waste a long training job;
+- the fake runner contract covers missing summary keys, non-finite diagnostics,
+  zero update count, too few valid PPO samples, and disabled guards.
+
+Step 20 stop condition:
+
+- local pseudo-parameter tests catch bad live update summaries without IsaacLab;
+- Stage 3 live train prints enough scalar evidence to judge whether the update
+  path is actually doing PPO work;
+- a server-side live run should now be used only after these local contracts
+  pass.
+
+Step 21 short training resumability contract:
+
+- run a short server-side Stage 3 live train after Step 20 passes;
+- confirm a checkpoint is saved into the FEMR run directory, not an old MOSAIC
+  path or missing fallback path;
+- resume from that checkpoint and confirm the resumed path still calls
+  `runner.learn_frontres_segment_live(...)`;
+- the resumed run must not fall back to legacy `runner.learn(...)`;
+- checkpoint diagnostics must print the saved checkpoint path, loaded checkpoint
+  path, resumed iteration, and `runner_learn=True`.
+
+Step 21 stop condition:
+
+- Stage 3 can save a live training checkpoint;
+- Stage 3 can resume from that checkpoint;
+- both cold-start and resume paths stay on `learn_frontres_segment_live`.
+
+Step 21 implementation result:
+
+- `frontres_segment_live_training.py` now prints a live checkpoint sentinel
+  when Stage 3 saves a checkpoint: saved path, whether it is inside `log_dir`,
+  iteration, and `runner_learn=True`;
+- `frontres_checkpointing.py` records `_frontres_last_loaded_checkpoint_path`
+  during `runner.load(...)`, so a resumed Stage 3 live run can print the loaded
+  checkpoint path before training continues;
+- `frontres_segment_live_training.py` prints a resume sentinel when a loaded
+  checkpoint path is present: loaded path, resumed iteration,
+  `runner_learn=True`, and `legacy_runner_learn=False`;
+- `frontres_segment_live_resume_pseudo_contract.py` constructs a fake
+  cold-start short train, resumes from the saved checkpoint path, and verifies
+  the resumed runner advances from iteration 1 to 2 without calling legacy
+  `runner.learn(...)`;
+- the contract is included in both `frontres_segment_stage3_pseudo_suite.py`
+  and `frontres_segment_all_contract_suite.py`.
+
+Step 22 sampler strategy integration contract:
+
+- only start after the live loop can run and resume stably;
+- replace the temporary live path behavior of mostly current-env continuous
+  probing with the Segment Replay sampler contract;
+- connect global sampling, replay sampling, review sampling, and priority
+  updates to the live Stage 3 loop;
+- keep the sampler owner in `frontres_segment_sampler.py` and the live runner
+  connector thin;
+- print sampler boundary facts: sampled source counts, replay pool size,
+  priority mean, solved fraction, hopeless fraction, and stale review count.
+
+Step 22 stop condition:
+
+- live Stage 3 batches are selected by the sampler, not by implicit continuous
+  env progression only;
+- rollout evidence updates sampler priority after each live update loop;
+- sampler state can be saved and resumed with the Stage 3 checkpoint;
+- the live loop remains stable after sampler integration.
+
+Step 22 implementation result:
+
+- `frontres_segment_live_sampler.py` owns the live sampler connector:
+  initializes `FrontRESSegmentSampler`, samples `segment_ids/source` before
+  each live probe, converts the detached live summary into sampler evidence,
+  updates priority, and prints `[FrontRES Segment Sampler]`;
+- `frontres_segment_live_update_loop.py` now calls the sampler connector for
+  each update step and aggregates sampler diagnostics into the update-loop
+  summary: source counts, replay pool size, priority mean, solved fraction,
+  hopeless fraction, and stale review count;
+- `frontres_segment_live_probe.py` writes sampled `segment_ids` and
+  `segment_source` into independent Segment Replay storage instead of always
+  using `arange(batch_size)`;
+- `frontres_checkpointing.py` saves and restores
+  `frontres_segment_sampler_state_dict` in the real runner checkpoint path;
+- `frontres_segment_live_sampler_contract.py` verifies four local boundaries:
+  live summary to sampler evidence, live update loop to priority update,
+  sampled ids/source to storage, and checkpoint save/load of sampler state;
+- `frontres_segment_stage3_pseudo_suite.py` and
+  `frontres_segment_all_contract_suite.py` include the Step 22 contract.
+
+Step 22 limitation:
+
+- this step connects sampler strategy and priority persistence to the live
+  Stage 3 loop, but it does not yet perform true motion-segment dynamic reset
+  from an offline segment dataset.  The current live probe still executes on
+  the current environment state; the sampled segment id now owns storage,
+  priority, and checkpoint identity.  True dataset/reset-driven segment
+  execution remains the next live-boundary integration.
+
+## 12. Algorithm Contract
+
+First implementation should reuse PPO only after segment reward and action tuple
+are stable.
+
+Required algorithm behavior:
+
+- actor action is 6D Delta SE(3);
+- value predicts segment return;
+- return is K-step repair reward;
+- invalid reset/reward samples are masked out;
+- HSL initialization may initialize actor weights;
+- acceptance loss is off;
+- old acceptance tensors are not required.
+
+Required gradient boundary:
+
+- reward evidence is detached;
+- sampler priority update is detached;
+- diagnostics receive scalars or detached CPU tensors;
+- HSL initialization does not keep Stage 1 graph alive.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py
+```
+
+Test cases:
+
+- fake rollout batch updates actor on valid segment samples;
+- invalid samples produce zero actor contribution;
+- old acceptance loss is not called;
+- PPO log-prob/value/advantage fields match 6D action shape.
+
+Step 10 implementation result:
+- `source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py` defines the pure
+  Segment HRL PPO tuple and loss;
+- tuple fields are `observations`, 6D `actions`, `old_log_probs`,
+  `old_values`, `returns`, `advantages`, and sample-level `valid_mask`;
+- `segment_ids` and `[B, 6] action_mask` are optional metadata, not the main
+  loss signal;
+- invalid samples are removed from actor/value/entropy loss, not merely
+  down-weighted after the loss is built;
+- the module has no dependency on old acceptance labels, masks, logits, or
+  probability heads;
+- this is still a fake-batch algorithm contract and does not enable live
+  Stage 3 training.
+
+## 13. Checkpoint Contract
+
+Checkpoint behavior for `stage3_segment_hrl`:
+
+- load Stage 1 HSL residual actor into 6D repair actor when requested;
+- do not require `acceptance_actor`;
+- reset optimizer unless config explicitly resumes optimizer;
+- load normalizers normally;
+- save sampler state if replay priority is persistent;
+- save dataset cache metadata if cache ids must be reproducible.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_checkpoint_contract.py
+```
+
+Stop if:
+
+- Stage 3 load fails because a Stage 2 acceptance actor is missing.
+
+Step 11 implementation result:
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_checkpointing.py` defines the
+  Stage 3 checkpoint contract;
+- Stage 1 HSL residual actor can initialize the 6D Stage 3 repair actor;
+- Stage 1 two-head checkpoints map `trunk.*` and `proposal_head.*` into the
+  6D repair actor and ignore `acceptance_head.*`;
+- Stage 3 does not require `acceptance_actor`;
+- optimizer state is reset by default and loaded only when explicitly requested;
+- observation normalizers are restored when present;
+- sampler state and dataset cache metadata are included in the Stage 3 payload
+  when the runner exposes them;
+- this remains a fake checkpoint contract and does not enable live Stage 3
+  training.
+
+## 14. Implementation Ladder
+
+Implement in this order:
+
+1. pure data objects and dataset toy test;
+2. pure sampler and priority toy test;
+3. action projector toy test;
+4. reward toy test;
+5. reset adapter fake-env test;
+6. diagnostics toy test;
+7. thin runner toy chain;
+8. stage entrypoint contract;
+9. algorithm contract;
+10. checkpoint contract;
+11. short live-path sentinel only after all above pass.
+
+Do not start live training before steps 1-10 pass.
+
+## 15. Stage 3 Stop Conditions
+
+Stop and report mismatch if:
+
+- static reset is used for dynamic phases;
+- velocity fields are absent from segment state;
+- sampler cannot explain replay choice;
+- reward is absolute full env reward instead of Noisy-relative gain;
+- Clean is used as direct supervised HRL target;
+- HRL action is reduced to a scalar strength;
+- HRL action is acceptance over HSL proposal;
+- old acceptance diagnostics are the main Stage 3 diagnostics;
+- runner owns dataset/sampler/reward internals;
+- segment id is not stable across dataset, sampler, reward, diagnostics, and
+  checkpoint;
+- tests require IsaacLab for pure modules;
+- stage flag can accidentally run old `stage2_acceptance`.
+
+## 16. Step 3 Result
+
+Step 3 turns the method into an implementation contract:
+
+- new stage: `stage3_segment_hrl`;
+- new objective: `segment_replay_hrl`;
+- new module boundary under `rsl_rl.frontres`;
+- toy-test-first implementation order;
+- explicit separation from old acceptance training;
+- exact stop conditions before any expensive run.
+
+Next step:
+
+- Step 4: implement `frontres_segment_dataset.py` and
+  `frontres_segment_sampler.py` as pure modules with toy tests.

@@ -27,6 +27,16 @@ from rsl_rl.runners.frontres_dr_sweep_eval import evaluate_frontres_dr_sweep as 
 from rsl_rl.frontres.frontres_metrics import frontres_boundary_stats
 from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
 from rsl_rl.runners.frontres_hsl_rollout_target import build_frontres_hsl_rollout_target
+from rsl_rl.runners.frontres_segment_runner_boundary import FrontRESSegmentRunnerBoundary
+from rsl_rl.runners.frontres_segment_live_probe import (
+    run_frontres_segment_live_probe as run_frontres_segment_live_probe_helper,
+    run_frontres_segment_single_update,
+)
+from rsl_rl.runners.frontres_segment_live_update_loop import (
+    run_frontres_segment_live_update_loop as run_frontres_segment_live_update_loop_helper,
+)
+from rsl_rl.runners.frontres_segment_live_sampler import initialize_frontres_segment_live_sampler
+from rsl_rl.runners.frontres_segment_live_training import run_frontres_segment_live_training_loop
 from rsl_rl.frontres.task_space_correction import (
     apply_frontres_task_corrections,
     mask_frontres_task_actions,
@@ -282,6 +292,18 @@ class OnPolicyRunner:
         else:
             raise ValueError(f"Training type not found for algorithm {self.alg_cfg['class_name']}.")
         self._apply_frontres_specialist_mode()
+        self._frontres_segment_replay_boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(self.cfg)
+        if self.training_type == "frontres":
+            self._frontres_segment_replay_boundary.assert_live_runner_ready()
+            frontres_segment_sentinel_log = self._frontres_segment_replay_boundary.sentinel_log()
+            if frontres_segment_sentinel_log is not None:
+                print(frontres_segment_sentinel_log, flush=True)
+            frontres_segment_probe_log = self._frontres_segment_replay_boundary.probe_log()
+            if frontres_segment_probe_log is not None:
+                print(frontres_segment_probe_log, flush=True)
+            frontres_segment_train_log = self._frontres_segment_replay_boundary.train_log()
+            if frontres_segment_train_log is not None:
+                print(frontres_segment_train_log, flush=True)
 
         # resolve dimensions of observations 观测量维度
         obs, extras = self.env.get_observations()
@@ -407,6 +429,9 @@ class OnPolicyRunner:
         self._frontres_alpha_rho_bridge = FrontRESAlphaRhoBridge()
         self._frontres_action_cone = FrontRESActionCone(self.cfg, self.alg)
         self._frontres_executability = FrontRESExecutabilityScorer(self.cfg, self.alg, self.device)
+        self._frontres_segment_sampler = None
+        if self.training_type == "frontres":
+            initialize_frontres_segment_live_sampler(self)
 
         # store training configuration
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
@@ -651,6 +676,35 @@ class OnPolicyRunner:
             output_path=output_path,
             init_at_random_ep_len=init_at_random_ep_len,
         )
+
+    def run_frontres_segment_live_probe(self, init_at_random_ep_len: bool = True) -> dict[str, object]:
+        return run_frontres_segment_live_probe_helper(self, init_at_random_ep_len=init_at_random_ep_len)
+
+    def run_frontres_segment_live_update_loop(
+        self,
+        init_at_random_ep_len: bool = True,
+        *,
+        runner_learn: bool = False,
+    ) -> dict[str, float | int]:
+        return run_frontres_segment_live_update_loop_helper(
+            self,
+            init_at_random_ep_len=init_at_random_ep_len,
+            runner_learn=runner_learn,
+        )
+
+    def learn_frontres_segment_live(
+        self,
+        num_learning_iterations: int,
+        init_at_random_ep_len: bool = True,
+    ) -> None:
+        run_frontres_segment_live_training_loop(
+            self,
+            num_learning_iterations=num_learning_iterations,
+            init_at_random_ep_len=init_at_random_ep_len,
+        )
+
+    def _run_frontres_segment_single_update(self, storage_batch) -> object:
+        return run_frontres_segment_single_update(self, storage_batch)
 
     def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False):  # noqa: C901
 

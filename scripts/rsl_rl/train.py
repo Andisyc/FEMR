@@ -70,12 +70,90 @@ parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
     "--frontres_stage",
     type=str,
-    choices=("stage1_hsl", "stage2_acceptance"),
+    choices=("stage1_segment_cache", "stage1_hsl", "stage2_hsl_warmup", "stage2_acceptance", "stage3_segment_hrl"),
     default=None,
     help=(
         "Apply a FrontRES staged-training preset after Hydra config loading. "
         "This avoids fragile Hydra deep overrides such as algorithm.xxx."
     ),
+)
+parser.add_argument(
+    "--frontres_segment_cache_dir",
+    type=str,
+    default=None,
+    help="For Stage 1 only: directory where clean/noisy segment cache artifacts will be written.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_k",
+    type=int,
+    default=4,
+    help="For Stage 1 only: segment rollout horizon used when building clean/noisy caches.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_frame_stride",
+    type=int,
+    default=1,
+    help="For Stage 1 only: frame stride used when indexing motion segments.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_max_motions",
+    type=int,
+    default=1,
+    help="For Stage 1 only: maximum motions used by the live cache sentinel/builder.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_max_segments",
+    type=int,
+    default=1,
+    help="For Stage 1 only: maximum segments written by the live cache sentinel/builder.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_variants_per_strength",
+    type=int,
+    default=1,
+    help="For Stage 1 only: noisy variants generated for each perturbation strength.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_perturbation_strengths",
+    type=str,
+    default="0.0,0.25,0.5,0.75,1.0",
+    help="For Stage 1 only: comma-separated perturbation curriculum strengths for noisy caches.",
+)
+parser.add_argument(
+    "--frontres_segment_live_sentinel_only",
+    action="store_true",
+    default=False,
+    help="For Stage 3 only: enter the minimal live Segment Replay sentinel path without enabling PPO training.",
+)
+parser.add_argument(
+    "--frontres_segment_live_probe_only",
+    action="store_true",
+    default=False,
+    help="For Stage 3 only: run a short live Segment Replay rollout probe without storage writes or PPO training.",
+)
+parser.add_argument(
+    "--frontres_segment_live_storage_write_only",
+    action="store_true",
+    default=False,
+    help="For Stage 3 only: run a live Segment Replay probe and write independent storage without PPO training.",
+)
+parser.add_argument(
+    "--frontres_segment_live_single_update_only",
+    action="store_true",
+    default=False,
+    help="For Stage 3 only: run live Segment Replay storage and exactly one PPO optimizer step, then exit.",
+)
+parser.add_argument(
+    "--frontres_segment_live_update_loop_only",
+    action="store_true",
+    default=False,
+    help="For Stage 3 only: run a short live Segment Replay PPO update loop, then exit before normal training.",
+)
+parser.add_argument(
+    "--frontres_segment_live_update_steps",
+    type=int,
+    default=4,
+    help="Number of live Segment Replay PPO update steps for --frontres_segment_live_update_loop_only.",
 )
 parser.add_argument(
     "--supervised_warmup_iterations",
@@ -466,9 +544,22 @@ def _set_if_present(obj, name: str, value) -> None:
 
 
 def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) -> None:
-    """Apply FrontRES Stage 1/2 presets through Python config objects, not Hydra overrides."""
+    """Apply FrontRES staged-training presets through Python config objects, not Hydra overrides."""
 
     stage = getattr(args_cli, "frontres_stage", None)
+    live_sentinel_arg = bool(getattr(args_cli, "frontres_segment_live_sentinel_only", False))
+    live_probe_arg = bool(getattr(args_cli, "frontres_segment_live_probe_only", False))
+    live_storage_arg = bool(getattr(args_cli, "frontres_segment_live_storage_write_only", False))
+    live_single_update_arg = bool(getattr(args_cli, "frontres_segment_live_single_update_only", False))
+    live_update_loop_arg = bool(getattr(args_cli, "frontres_segment_live_update_loop_only", False))
+    if (
+        live_sentinel_arg
+        or live_probe_arg
+        or live_storage_arg
+        or live_single_update_arg
+        or live_update_loop_arg
+    ) and stage != "stage3_segment_hrl":
+        raise ValueError("Stage 3 live sentinel/probe/storage/update flags require --frontres_stage stage3_segment_hrl.")
     if stage is None:
         return
 
@@ -477,9 +568,17 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     if alg_cfg is None:
         raise AttributeError("--frontres_stage requires an agent config with an algorithm section.")
 
-    if stage == "stage1_hsl":
+    if stage == "stage1_segment_cache":
         if getattr(args_cli, "experiment_name", None) is None:
-            agent_cfg.experiment_name = "g1_flat_frontres_stage1_hsl"
+            agent_cfg.experiment_name = "g1_flat_frontres_stage1_segment_cache"
+        agent_cfg.max_iterations = 0
+        _set_if_present(agent_cfg, "frontres_stage1_exit_after_warmup", False)
+        _set_if_present(alg_cfg, "frontres_segment_replay_enabled", True)
+        _set_if_present(alg_cfg, "frontres_segment_k", max(1, int(getattr(args_cli, "frontres_segment_cache_k", 4))))
+        _set_if_present(alg_cfg, "frontres_segment_live_runner_enabled", False)
+    elif stage in ("stage1_hsl", "stage2_hsl_warmup"):
+        if getattr(args_cli, "experiment_name", None) is None:
+            agent_cfg.experiment_name = "g1_flat_frontres_stage2_hsl"
         _set_if_present(agent_cfg, "frontres_stage1_exit_after_warmup", True)
         _set_if_present(alg_cfg, "frontres_training_objective", "supervised_restore")
         _set_if_present(alg_cfg, "lambda_supervised", 1.0)
@@ -519,17 +618,204 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(agent_cfg, "frontres_perturbation_temporal_mode", "single")
         _set_if_present(agent_cfg, "frontres_perturbation_burst_min_steps", 1)
         _set_if_present(agent_cfg, "frontres_perturbation_burst_max_steps", 1)
+    elif stage == "stage3_segment_hrl":
+        if getattr(args_cli, "experiment_name", None) is None:
+            agent_cfg.experiment_name = "g1_flat_frontres_stage3_segment_hrl"
+        if getattr(args_cli, "is_full_resume", None) is None:
+            agent_cfg.is_full_resume = False
+        _set_if_present(agent_cfg, "frontres_stage1_exit_after_warmup", False)
+        agent_cfg.supervised_warmup_iterations = 0
+        live_sentinel_only = live_sentinel_arg
+        live_probe_only = live_probe_arg
+        live_storage_only = live_storage_arg
+        live_single_update_only = live_single_update_arg
+        live_update_loop_only = live_update_loop_arg
+        live_update_steps = max(1, int(getattr(args_cli, "frontres_segment_live_update_steps", 4)))
+        live_train_enabled = not (
+            live_sentinel_only
+            or live_probe_only
+            or live_storage_only
+            or live_single_update_only
+            or live_update_loop_only
+        )
+        if sum((live_sentinel_only, live_probe_only, live_storage_only, live_single_update_only, live_update_loop_only)) > 1:
+            raise ValueError(
+                "Use only one of --frontres_segment_live_sentinel_only, "
+                "--frontres_segment_live_probe_only, --frontres_segment_live_storage_write_only, "
+                "--frontres_segment_live_single_update_only, or --frontres_segment_live_update_loop_only."
+            )
+        if live_sentinel_only or live_probe_only or live_storage_only or live_single_update_only or live_update_loop_only:
+            agent_cfg.max_iterations = 0
+        _set_if_present(alg_cfg, "frontres_training_objective", "segment_replay_hrl")
+        _set_if_present(alg_cfg, "frontres_segment_replay_enabled", True)
+        _set_if_present(
+            alg_cfg,
+            "frontres_segment_live_runner_enabled",
+            (
+                live_sentinel_only
+                or live_probe_only
+                or live_storage_only
+                or live_single_update_only
+                or live_update_loop_only
+                or live_train_enabled
+            ),
+        )
+        _set_if_present(alg_cfg, "frontres_segment_live_sentinel_only", live_sentinel_only)
+        _set_if_present(alg_cfg, "frontres_segment_live_probe_only", live_probe_only)
+        _set_if_present(alg_cfg, "frontres_segment_live_storage_write_only", live_storage_only)
+        _set_if_present(alg_cfg, "frontres_segment_live_single_update_only", live_single_update_only)
+        _set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", live_update_loop_only)
+        _set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)
+        _set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)
+        _set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)
+        _set_if_present(alg_cfg, "frontres_segment_k", 4)
+        _set_if_present(alg_cfg, "frontres_segment_sampler_global_frac", 0.4)
+        _set_if_present(alg_cfg, "frontres_segment_sampler_replay_frac", 0.5)
+        _set_if_present(alg_cfg, "frontres_segment_sampler_review_frac", 0.1)
+        _set_if_present(alg_cfg, "frontres_segment_reset_mode", "auto")
+        _set_if_present(alg_cfg, "frontres_acceptance_preference_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_state_alpha_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)
+        _set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_structured_joint_rl_enabled", False)
+        _set_if_present(alg_cfg, "frontres_structured_joint_rl_weight", 0.0)
+        _set_if_present(alg_cfg, "frontres_structured_joint_prior_loss_weight", 0.0)
+        _set_if_present(policy_cfg, "frontres_split_acceptance_head", False)
+        _set_if_present(policy_cfg, "frontres_authority_actor_critic", False)
+        _set_if_present(policy_cfg, "frontres_state_router_enabled", False)
+        _set_if_present(agent_cfg, "critic_warmup_iterations", 0)
+        _set_if_present(agent_cfg, "ppo_actor_warmup_iterations", 0)
+        _set_if_present(agent_cfg, "ppo_actor_ramp_iterations", 0)
 
     print(f"[FrontRES Stage] Applied preset: {stage}", flush=True)
     print(
         "[FrontRES Stage] "
         f"experiment={getattr(agent_cfg, 'experiment_name', 'n/a')}, "
         f"objective={getattr(alg_cfg, 'frontres_training_objective', 'n/a')}, "
+        f"segment_replay={getattr(alg_cfg, 'frontres_segment_replay_enabled', 'n/a')}, "
+        f"segment_live={getattr(alg_cfg, 'frontres_segment_live_runner_enabled', 'n/a')}, "
+        f"segment_sentinel={getattr(alg_cfg, 'frontres_segment_live_sentinel_only', 'n/a')}, "
+        f"segment_probe={getattr(alg_cfg, 'frontres_segment_live_probe_only', 'n/a')}, "
+        f"segment_storage={getattr(alg_cfg, 'frontres_segment_live_storage_write_only', 'n/a')}, "
+        f"segment_single_update={getattr(alg_cfg, 'frontres_segment_live_single_update_only', 'n/a')}, "
+        f"segment_update_loop={getattr(alg_cfg, 'frontres_segment_live_update_loop_only', 'n/a')}, "
+        f"segment_train={getattr(alg_cfg, 'frontres_segment_live_train_enabled', 'n/a')}, "
+        f"segment_update_steps={getattr(alg_cfg, 'frontres_segment_live_update_steps', 'n/a')}, "
+        f"segment_k={getattr(alg_cfg, 'frontres_segment_k', 'n/a')}, "
         f"authority={getattr(alg_cfg, 'frontres_authority_actor_critic_enabled', 'n/a')}, "
         f"structured_joint={getattr(alg_cfg, 'frontres_structured_joint_rl_enabled', 'n/a')}/"
         f"{getattr(alg_cfg, 'frontres_structured_joint_rl_weight', 'n/a')}, "
+        f"max_iterations={getattr(agent_cfg, 'max_iterations', 'n/a')}, "
         f"supervised_warmup={getattr(agent_cfg, 'supervised_warmup_iterations', 'n/a')}, "
         f"is_full_resume={getattr(agent_cfg, 'is_full_resume', 'n/a')}",
+        flush=True,
+    )
+
+
+def _parse_frontres_segment_cache_strengths(value: str) -> list[float]:
+    strengths: list[float] = []
+    for item in str(value).split(","):
+        item = item.strip()
+        if not item:
+            continue
+        strengths.append(float(item))
+    if not strengths:
+        raise ValueError("--frontres_segment_cache_perturbation_strengths must contain at least one value.")
+    if any(strength < 0.0 for strength in strengths):
+        raise ValueError("--frontres_segment_cache_perturbation_strengths must be non-negative.")
+    return strengths
+
+
+def _frontres_stage1_segment_cache_dir(args_cli, log_dir: str) -> str:
+    cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None)
+    if cache_dir:
+        return os.path.abspath(str(cache_dir))
+    return "/hdd1/cyx/AMASS_G1Segment"
+
+
+def _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli) -> None:
+    motion_cfg = getattr(getattr(env_cfg, "commands", None), "motion", None)
+    if motion_cfg is None:
+        return
+    max_motions = max(1, int(getattr(args_cli, "frontres_segment_cache_max_motions", 1)))
+    if hasattr(motion_cfg, "motion_dataset_shard_across_gpus"):
+        motion_cfg.motion_dataset_shard_across_gpus = False
+    if hasattr(motion_cfg, "motion_dataset_load_cap"):
+        motion_cfg.motion_dataset_load_cap = max_motions
+    if hasattr(motion_cfg, "motion_dataset_log_shard_info"):
+        motion_cfg.motion_dataset_log_shard_info = True
+    if hasattr(motion_cfg, "resample_motions_every_s"):
+        motion_cfg.resample_motions_every_s = 1.0e9
+    zero_ranges = {name: (0.0, 0.0) for name in ("x", "y", "z", "roll", "pitch", "yaw")}
+    if hasattr(motion_cfg, "pose_range"):
+        motion_cfg.pose_range = dict(zero_ranges)
+    if hasattr(motion_cfg, "velocity_range"):
+        motion_cfg.velocity_range = dict(zero_ranges)
+    if hasattr(motion_cfg, "joint_position_range"):
+        motion_cfg.joint_position_range = (0.0, 0.0)
+
+
+def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
+    cache_dir = _frontres_stage1_segment_cache_dir(args_cli, log_dir)
+    segment_k = max(1, int(getattr(args_cli, "frontres_segment_cache_k", 4)))
+    frame_stride = max(1, int(getattr(args_cli, "frontres_segment_cache_frame_stride", 1)))
+    max_motions = max(1, int(getattr(args_cli, "frontres_segment_cache_max_motions", 1)))
+    max_segments = max(1, int(getattr(args_cli, "frontres_segment_cache_max_segments", 1)))
+    variants_per_strength = max(1, int(getattr(args_cli, "frontres_segment_cache_variants_per_strength", 1)))
+    strengths = _parse_frontres_segment_cache_strengths(
+        getattr(args_cli, "frontres_segment_cache_perturbation_strengths", "0.0,0.25,0.5,0.75,1.0")
+    )
+    print(
+        "[FrontRES Stage1 Segment Cache] live_sentinel "
+        f"stage={getattr(args_cli, 'frontres_stage', None)} "
+        f"motion={getattr(args_cli, 'motion', None)} "
+        f"cache_dir={cache_dir} "
+        f"segment_k={segment_k} "
+        f"frame_stride={frame_stride} "
+        f"max_motions={max_motions} "
+        f"max_segments={max_segments} "
+        f"variants_per_strength={variants_per_strength} "
+        f"perturbation_strengths={strengths}",
+        flush=True,
+    )
+    from rsl_rl.frontres.frontres_segment_cache_builder import (
+        FrontRESStage1CacheBuilderConfig,
+        build_stage1_segment_cache,
+    )
+    from rsl_rl.frontres.frontres_segment_stage1_env_hooks import FrontRESStage1EnvAdapter
+
+    adapter = FrontRESStage1EnvAdapter(
+        env,
+        amass_root=str(getattr(args_cli, "motion", "")),
+        trace=True,
+        baseline_rollout_steps=segment_k,
+    )
+    result = build_stage1_segment_cache(
+        adapter,
+        FrontRESStage1CacheBuilderConfig(
+            amass_root=str(getattr(args_cli, "motion", "")),
+            cache_dir=cache_dir,
+            horizon_k=segment_k,
+            frame_stride=frame_stride,
+            max_motions=max_motions,
+            max_segments=max_segments,
+            strengths=tuple(float(item) for item in strengths),
+            variants_per_strength=variants_per_strength,
+            base_seed=int(getattr(args_cli, "seed", 0) or 0),
+            env_id=0,
+        ),
+    )
+    print(
+        "[FrontRES Stage1 Segment Cache] result "
+        f"segment_count={result.segment_count} "
+        f"clean_count={result.clean_count} "
+        f"noisy_count={result.noisy_count} "
+        f"strength_counts={result.strength_counts} "
+        f"segment_index_path={result.segment_index_path} "
+        f"clean_shard_path={result.clean_shard_path} "
+        f"noisy_shard_paths={result.noisy_shard_paths} "
+        f"metadata_path={result.metadata_path}",
         flush=True,
     )
 
@@ -578,6 +864,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # load in motion sequence
     env_cfg.commands.motion.motion = args_cli.motion
+    if args_cli.frontres_stage == "stage1_segment_cache":
+        _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli)
     _configure_frontres_motion_perturbations(env_cfg, agent_cfg)
     _sanitize_env_cfg_for_training(env_cfg)
 
@@ -617,6 +905,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
+
+    if args_cli.frontres_stage == "stage1_segment_cache":
+        _run_frontres_stage1_segment_cache(env, args_cli, log_dir)
+        env.close()
+        return
 
     # wrap around environment for rsl-rl
     env = RslRlVecEnvWrapper(env)
@@ -662,6 +955,28 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             dr_scales=dr_scales,
             num_iterations_per_scale=args_cli.frontres_eval_iterations_per_scale,
             output_path=output_path,
+            init_at_random_ep_len=True,
+        )
+        env.close()
+        return
+
+    if args_cli.frontres_segment_live_update_loop_only:
+        runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)
+        env.close()
+        return
+
+    if (
+        args_cli.frontres_segment_live_probe_only
+        or args_cli.frontres_segment_live_storage_write_only
+        or args_cli.frontres_segment_live_single_update_only
+    ):
+        runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)
+        env.close()
+        return
+
+    if bool(getattr(getattr(agent_cfg, "algorithm", None), "frontres_segment_live_train_enabled", False)):
+        runner.learn_frontres_segment_live(
+            num_learning_iterations=agent_cfg.max_iterations,
             init_at_random_ep_len=True,
         )
         env.close()

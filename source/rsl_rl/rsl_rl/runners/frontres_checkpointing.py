@@ -218,6 +218,9 @@ def save_runner(self, path: str, infos=None):
         saved_dict["frontres_exec_floor_source_last"] = self._frontres_exec_floor_source_last
     if hasattr(self, '_frontres_warmup_complete'):
         saved_dict["frontres_warmup_complete"] = bool(self._frontres_warmup_complete)
+    segment_sampler = getattr(self, "_frontres_segment_sampler", None)
+    if segment_sampler is not None and hasattr(segment_sampler, "state_dict"):
+        saved_dict["frontres_segment_sampler_state_dict"] = segment_sampler.state_dict()
     
     # -- Save RND model if used
     if hasattr(self.alg, "rnd") and self.alg.rnd:
@@ -242,6 +245,15 @@ def save_runner(self, path: str, infos=None):
 
 def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool = True):
     loaded_dict = torch.load(path, weights_only=False)
+    self._frontres_last_loaded_checkpoint_path = os.path.abspath(path)
+    segment_sampler = getattr(self, "_frontres_segment_sampler", None)
+    if (
+        segment_sampler is not None
+        and "frontres_segment_sampler_state_dict" in loaded_dict
+        and hasattr(segment_sampler, "load_state_dict")
+    ):
+        segment_sampler.load_state_dict(loaded_dict["frontres_segment_sampler_state_dict"])
+        print("[Runner] Loaded FrontRES Segment sampler state from checkpoint.")
     self._frontres_warmup_complete = bool(loaded_dict.get("frontres_warmup_complete", False))
     if self._frontres_warmup_complete:
         print("[Runner] Checkpoint marks FrontRES supervised warmup as complete.")

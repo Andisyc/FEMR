@@ -101,7 +101,9 @@ def test_runner_and_payload_guards_are_present() -> None:
         "transition.rho_prior_authority = rho_prior_authority",
         "def _frontres_authority_enabled",
         "if not _frontres_authority_enabled",
-        'choices=("stage1_hsl", "stage2_acceptance")',
+        'choices=("stage1_segment_cache", "stage1_hsl", "stage2_hsl_warmup", "stage2_acceptance", "stage3_segment_hrl")',
+        'if stage == "stage1_segment_cache":',
+        'elif stage in ("stage1_hsl", "stage2_hsl_warmup"):',
         'elif stage == "stage2_acceptance":',
     ]
     combined = "\n".join([runner_text, payload_text, rollout_text, train_text])

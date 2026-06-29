@@ -1,5 +1,20 @@
 # FrontRES Engineering Plan
 
+Status update, 2026-06-27:
+
+The acceptance-only HSL+HRL engineering plan below is no longer the preferred
+next research direction.  The current concept is recorded in
+`note/FrontRES Segment Replay HRL Method Design.md`:
+
+- slice long motions into dynamic segments;
+- use HSL as initialization, not as the final proposal to accept/reject;
+- train HRL to output full 6D Delta SE repair with segment-level PPO;
+- coordinate global coverage and repeated rollout through prioritized segment
+  replay.
+
+The older acceptance plan remains useful as historical implementation context
+until a new engineering plan replaces it.
+
 This document is the engineering plan for turning the active FEMR design
 contract into code.  It is not a history log.  When Dr. Cheng says "write the
 code modification plan into ./note", update this file unless the request is

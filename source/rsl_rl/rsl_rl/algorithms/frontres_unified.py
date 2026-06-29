@@ -89,6 +89,24 @@ class FrontRESUnified:
         ppo_advantage_focal_power: float = 0.0,
         frontres_active_task_dims: list[int] | None = None,
         frontres_training_objective: str = "ppo_hrl",
+        frontres_segment_replay_enabled: bool = False,
+        frontres_segment_live_runner_enabled: bool = False,
+        frontres_segment_live_sentinel_only: bool = False,
+        frontres_segment_live_probe_only: bool = False,
+        frontres_segment_live_storage_write_only: bool = False,
+        frontres_segment_live_single_update_only: bool = False,
+        frontres_segment_live_update_loop_only: bool = False,
+        frontres_segment_live_train_enabled: bool = False,
+        frontres_segment_live_update_steps: int = 4,
+        frontres_segment_live_fail_on_invalid_update: bool = True,
+        frontres_segment_live_min_valid_count: int = 1,
+        frontres_segment_live_fail_on_nonfinite: bool = True,
+        frontres_hsl_init_enabled: bool = False,
+        frontres_segment_k: int = 4,
+        frontres_segment_sampler_global_frac: float = 0.4,
+        frontres_segment_sampler_replay_frac: float = 0.5,
+        frontres_segment_sampler_review_frac: float = 0.1,
+        frontres_segment_reset_mode: str = "auto",
         frontres_acceptance_preference_weight: float = 0.0,
         frontres_acceptance_preference_focal_gamma: float = 0.0,
         frontres_acceptance_preference_balance_min: float = 1.0,
@@ -213,6 +231,75 @@ class FrontRESUnified:
         self.ppo_advantage_focal_power = float(ppo_advantage_focal_power)
         self.frontres_active_task_dims = frontres_active_task_dims
         self.frontres_training_objective = str(frontres_training_objective).lower()
+        self.frontres_segment_replay_enabled = bool(frontres_segment_replay_enabled)
+        self.frontres_segment_live_runner_enabled = bool(frontres_segment_live_runner_enabled)
+        self.frontres_segment_live_sentinel_only = bool(frontres_segment_live_sentinel_only)
+        self.frontres_segment_live_probe_only = bool(frontres_segment_live_probe_only)
+        self.frontres_segment_live_storage_write_only = bool(frontres_segment_live_storage_write_only)
+        self.frontres_segment_live_single_update_only = bool(frontres_segment_live_single_update_only)
+        self.frontres_segment_live_update_loop_only = bool(frontres_segment_live_update_loop_only)
+        self.frontres_segment_live_train_enabled = bool(frontres_segment_live_train_enabled)
+        self.frontres_segment_live_update_steps = max(1, int(frontres_segment_live_update_steps))
+        self.frontres_segment_live_fail_on_invalid_update = bool(frontres_segment_live_fail_on_invalid_update)
+        self.frontres_segment_live_min_valid_count = max(0, int(frontres_segment_live_min_valid_count))
+        self.frontres_segment_live_fail_on_nonfinite = bool(frontres_segment_live_fail_on_nonfinite)
+        self.frontres_hsl_init_enabled = bool(frontres_hsl_init_enabled)
+        self.frontres_segment_k = max(1, int(frontres_segment_k))
+        self.frontres_segment_sampler_global_frac = max(0.0, float(frontres_segment_sampler_global_frac))
+        self.frontres_segment_sampler_replay_frac = max(0.0, float(frontres_segment_sampler_replay_frac))
+        self.frontres_segment_sampler_review_frac = max(0.0, float(frontres_segment_sampler_review_frac))
+        self.frontres_segment_reset_mode = str(frontres_segment_reset_mode).lower()
+        if self.frontres_segment_reset_mode not in ("auto", "direct", "preroll"):
+            raise ValueError("frontres_segment_reset_mode must be 'auto', 'direct', or 'preroll'")
+        if self.frontres_training_objective == "segment_replay_hrl":
+            if not self.frontres_segment_replay_enabled:
+                raise ValueError("segment_replay_hrl requires frontres_segment_replay_enabled=True")
+            if not self.frontres_segment_live_runner_enabled:
+                raise NotImplementedError(
+                    "segment_replay_hrl is recognized, but live runner integration is disabled. "
+                    "Use Step 4-7 toy contract tests until the live Stage 3 connector is integrated."
+                )
+            if self.frontres_segment_live_sentinel_only:
+                print(
+                    "[FrontRESUnified] Segment Replay HRL live sentinel initialized; "
+                    "PPO/update training remains disabled.",
+                    flush=True,
+                )
+            elif self.frontres_segment_live_probe_only:
+                print(
+                    "[FrontRESUnified] Segment Replay HRL live probe initialized; "
+                    "storage/write and PPO/update training remain disabled.",
+                    flush=True,
+                )
+            elif self.frontres_segment_live_storage_write_only:
+                print(
+                    "[FrontRESUnified] Segment Replay HRL live storage probe initialized; "
+                    "PPO/update training remains disabled.",
+                    flush=True,
+                )
+            elif self.frontres_segment_live_single_update_only:
+                print(
+                    "[FrontRESUnified] Segment Replay HRL live single-update probe initialized; "
+                    "runner will execute exactly one PPO optimizer step and exit.",
+                    flush=True,
+                )
+            elif self.frontres_segment_live_update_loop_only:
+                print(
+                    "[FrontRESUnified] Segment Replay HRL live update-loop probe initialized; "
+                    f"runner will execute {self.frontres_segment_live_update_steps} PPO optimizer steps and exit.",
+                    flush=True,
+                )
+            elif self.frontres_segment_live_train_enabled:
+                print(
+                    "[FrontRESUnified] Segment Replay HRL live training initialized; "
+                    f"runner will execute {self.frontres_segment_live_update_steps} PPO optimizer steps per iteration.",
+                    flush=True,
+                )
+            else:
+                raise NotImplementedError(
+                    "segment_replay_hrl is recognized, but runner/PPO integration is not wired yet. "
+                    "Use Step 4-7 toy contract tests until the live Stage 3 connector is integrated."
+                )
         self.frontres_acceptance_preference_weight = float(frontres_acceptance_preference_weight)
         self.frontres_acceptance_preference_focal_gamma = max(
             0.0, float(frontres_acceptance_preference_focal_gamma)
@@ -409,6 +496,8 @@ class FrontRESUnified:
         elif self.frontres_training_objective == "basis_restore":
             print("  L = L_proposal + L_written + L_coeff  "
                   "(factorized per-axis repair coefficients; PPO/HRL branch kept but disabled)")
+        elif self.frontres_training_objective == "segment_replay_hrl":
+            print("  L = Segment Replay HRL  (dedicated runner loop; legacy update disabled)")
         elif self.frontres_training_objective == "hsl_hybrid":
             print("  L = L_PPO(6D acceptance) + λ_sup·L_HSL(proposal)  "
                   "(PPO log-prob is restricted to acceptance; ΔSE proposal is supervised)")
@@ -718,6 +807,21 @@ class FrontRESUnified:
             normalize_advantage=not self.normalize_advantage_per_mini_batch)
 
     def update(self):
+        if (
+            self.frontres_training_objective == "segment_replay_hrl"
+            and (
+                self.frontres_segment_live_sentinel_only
+                or self.frontres_segment_live_probe_only
+                or self.frontres_segment_live_storage_write_only
+                or self.frontres_segment_live_single_update_only
+                or self.frontres_segment_live_update_loop_only
+                or self.frontres_segment_live_train_enabled
+            )
+        ):
+            raise NotImplementedError(
+                "Stage 3 Segment Replay live mode reached FrontRESUnified.update; "
+                "use the dedicated Segment Replay runner loop instead of the legacy full update path."
+            )
         self._update_supervised_learning_rate()
         loss_dict = self._update_ppo_supervised()
         if (
