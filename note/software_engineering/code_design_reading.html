@@ -7,16 +7,22 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #f7f6f2;
-      --panel: #ffffff;
-      --ink: #1d2430;
-      --muted: #667085;
-      --line: #d9ded7;
-      --accent: #2f6f63;
-      --accent-soft: #e4f0ec;
-      --warn: #8a5a13;
-      --warn-soft: #fbefd8;
-      --code: #f2f4f7;
+      --bg: #f5f7f8;
+      --paper: #ffffff;
+      --ink: #182230;
+      --muted: #5f6b7a;
+      --soft: #eef2f5;
+      --line: #d8e0e7;
+      --green: #25736b;
+      --green-soft: #e4f2ef;
+      --blue: #315f9c;
+      --blue-soft: #e8eff9;
+      --amber: #8a5d16;
+      --amber-soft: #fbf0d8;
+      --red: #9a3f3f;
+      --red-soft: #f8e7e7;
+      --code: #eef1f4;
+      --shadow: 0 18px 50px rgba(24, 34, 48, 0.08);
     }
 
     * {
@@ -35,124 +41,260 @@
         "PingFang SC",
         "Microsoft YaHei",
         sans-serif;
-      line-height: 1.65;
+      line-height: 1.6;
+    }
+
+    a {
+      color: var(--blue);
+      font-weight: 700;
+      text-decoration: none;
+      border-bottom: 1px solid rgba(49, 95, 156, 0.35);
+    }
+
+    a:hover {
+      border-bottom-color: currentColor;
     }
 
     main {
-      width: min(1080px, calc(100vw - 32px));
+      width: min(1160px, calc(100vw - 32px));
       margin: 0 auto;
-      padding: 42px 0 64px;
+      padding: 32px 0 64px;
     }
 
     header {
-      padding: 30px 0 24px;
-      border-bottom: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+      gap: 24px;
+      align-items: stretch;
+      min-height: 360px;
+    }
+
+    section {
+      margin-top: 30px;
     }
 
     h1,
     h2,
-    h3 {
+    h3,
+    p {
       margin: 0;
-      line-height: 1.2;
-      letter-spacing: 0;
     }
 
     h1 {
-      font-size: clamp(30px, 4vw, 46px);
-      font-weight: 780;
+      font-size: 42px;
+      line-height: 1.12;
+      letter-spacing: 0;
     }
 
     h2 {
-      margin-top: 42px;
       font-size: 24px;
-      font-weight: 720;
+      line-height: 1.25;
+      letter-spacing: 0;
     }
 
     h3 {
       font-size: 17px;
-      font-weight: 700;
+      line-height: 1.35;
+      letter-spacing: 0;
     }
 
-    p {
-      margin: 10px 0 0;
-    }
-
-    a {
-      color: var(--accent);
-      font-weight: 650;
-      text-decoration: none;
-    }
-
-    a:hover {
-      text-decoration: underline;
-    }
-
-    .subtitle {
-      max-width: 820px;
-      margin-top: 16px;
-      color: var(--muted);
-      font-size: 17px;
-    }
-
-    .summary {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 14px;
-      margin-top: 24px;
-    }
-
-    .summary-card,
+    .hero,
+    .panel,
     .book,
-    .note-box,
-    .route {
-      background: var(--panel);
+    .route-step,
+    .check {
+      background: var(--paper);
       border: 1px solid var(--line);
       border-radius: 8px;
     }
 
-    .summary-card {
-      padding: 16px 18px;
+    .hero {
+      padding: 34px;
+      box-shadow: var(--shadow);
     }
 
-    .summary-card strong {
-      display: block;
-      font-size: 15px;
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      color: var(--green);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0;
     }
 
-    .summary-card span {
+    .eyebrow::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--green);
+    }
+
+    .lead {
+      max-width: 760px;
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .hero-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 26px;
+    }
+
+    .hero-fact {
+      min-height: 104px;
+      padding: 16px;
+      background: var(--soft);
+      border-radius: 8px;
+    }
+
+    .hero-fact strong {
       display: block;
-      margin-top: 6px;
+      font-size: 14px;
+    }
+
+    .hero-fact span {
+      display: block;
+      margin-top: 8px;
       color: var(--muted);
       font-size: 14px;
     }
 
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .side-panel {
+      display: flex;
+      flex-direction: column;
       gap: 14px;
-      margin-top: 16px;
     }
 
-    .book {
+    .decision {
+      flex: 1;
+      padding: 20px;
+      background: var(--green-soft);
+      border: 1px solid #badbd4;
+      border-radius: 8px;
+    }
+
+    .decision strong {
+      display: block;
+      color: var(--green);
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .decision p {
+      font-size: 20px;
+      line-height: 1.42;
+      font-weight: 760;
+    }
+
+    .warning {
+      padding: 18px 20px;
+      background: var(--amber-soft);
+      border: 1px solid #ead3a4;
+      border-radius: 8px;
+      color: var(--amber);
+    }
+
+    .warning strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: end;
+      margin-bottom: 14px;
+    }
+
+    .section-head p {
+      max-width: 650px;
+      color: var(--muted);
+    }
+
+    .route-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .route-step {
+      position: relative;
+      min-height: 150px;
       padding: 18px;
     }
 
-    .book-meta {
-      display: flex;
+    .route-step .num {
+      display: inline-flex;
       align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      margin-bottom: 12px;
+      border-radius: 999px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .route-step p {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .book-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .book {
+      display: flex;
+      flex-direction: column;
+      min-height: 230px;
+      padding: 18px;
+    }
+
+    .book-top {
+      display: flex;
+      align-items: flex-start;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
 
     .tag {
       flex: 0 0 auto;
-      padding: 3px 8px;
+      padding: 4px 8px;
       border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent);
+      background: var(--green-soft);
+      color: var(--green);
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .tag.blue {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .tag.amber {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .tag.red {
+      background: var(--red-soft);
+      color: var(--red);
     }
 
     .book p {
@@ -160,18 +302,42 @@
       font-size: 15px;
     }
 
-    .route {
-      margin-top: 16px;
-      padding: 18px 20px;
+    .book footer {
+      margin-top: auto;
+      padding-top: 14px;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 700;
     }
 
-    ol {
-      margin: 0;
-      padding-left: 24px;
+    .matrix {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
     }
 
-    li {
-      margin: 8px 0;
+    .matrix th,
+    .matrix td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .matrix th {
+      background: var(--soft);
+      font-size: 14px;
+    }
+
+    .matrix tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .matrix td {
+      color: var(--muted);
     }
 
     code {
@@ -182,59 +348,73 @@
       font-size: 0.92em;
     }
 
-    .note-box {
-      margin-top: 16px;
-      padding: 18px 20px;
-      background: var(--warn-soft);
-      border-color: #ead3a4;
-      color: var(--warn);
-    }
-
-    .checklist {
+    .check-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px 24px;
-      margin-top: 16px;
-      padding: 18px 20px;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
+      gap: 12px;
     }
 
-    .checklist div::before {
-      content: "";
-      display: inline-block;
-      width: 7px;
-      height: 7px;
-      margin-right: 9px;
-      border-radius: 50%;
-      background: var(--accent);
-      vertical-align: middle;
+    .check {
+      padding: 16px 18px;
     }
 
-    footer {
-      margin-top: 46px;
+    .check strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .check p {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .footer {
+      margin-top: 42px;
       padding-top: 18px;
       border-top: 1px solid var(--line);
       color: var(--muted);
       font-size: 14px;
     }
 
-    @media (max-width: 760px) {
-      main {
-        width: min(100vw - 24px, 1080px);
-        padding-top: 22px;
-      }
-
-      .summary,
-      .grid,
-      .checklist {
+    @media (max-width: 940px) {
+      header,
+      .hero-strip,
+      .route-grid,
+      .book-grid {
         grid-template-columns: 1fr;
       }
 
-      .book-meta {
+      h1 {
+        font-size: 34px;
+      }
+
+      .section-head {
         align-items: flex-start;
         flex-direction: column;
+      }
+    }
+
+    @media (max-width: 680px) {
+      main {
+        width: min(100vw - 24px, 1160px);
+        padding-top: 18px;
+      }
+
+      .hero {
+        padding: 22px;
+      }
+
+      .book-top {
+        flex-direction: column;
+      }
+
+      .check-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .matrix {
+        display: block;
+        overflow-x: auto;
       }
     }
   </style>
@@ -242,204 +422,273 @@
 <body>
   <main>
     <header>
-      <h1>代码设计与实现规范阅读路线</h1>
-      <p class="subtitle">
-        这份笔记接在《软件设计哲学》之后。目标不是记住更多术语，而是建立一套判断方式：
-        功能应该放在哪个模块，接口应该怎么设计，参数如何流动，测试如何快速定位问题。
-      </p>
-      <section class="summary" aria-label="学习目标摘要">
-        <div class="summary-card">
-          <strong>核心问题</strong>
-          <span>如何降低复杂度，而不是把代码拆得更碎。</span>
-        </div>
-        <div class="summary-card">
-          <strong>工程目标</strong>
-          <span>模块输入输出清楚，关键参数路径可追踪。</span>
-        </div>
-        <div class="summary-card">
-          <strong>阅读方式</strong>
-          <span>先读重构和实现规范，再读模式和架构。</span>
+      <section class="hero" aria-labelledby="page-title">
+        <div class="eyebrow">软件工程阅读路线</div>
+        <h1 id="page-title">读代码设计书，不是为了背模式，而是为了少走弯路。</h1>
+        <p class="lead">
+          这份路线接在《软件设计哲学》之后。目标是形成一个稳定判断：
+          功能放在哪个模块，接口怎么收窄，参数怎么追踪，测试怎么定位问题。
+        </p>
+        <div class="hero-strip" aria-label="核心目标">
+          <div class="hero-fact">
+            <strong>第一目标</strong>
+            <span>降低复杂度，而不是把代码切成更多碎片。</span>
+          </div>
+          <div class="hero-fact">
+            <strong>第二目标</strong>
+            <span>模块输入输出清楚，关键参数路径能逐层 probe。</span>
+          </div>
+          <div class="hero-fact">
+            <strong>第三目标</strong>
+            <span>先学重构和实现规范，再学模式和架构。</span>
+          </div>
         </div>
       </section>
+
+      <aside class="side-panel" aria-label="阅读判断">
+        <div class="decision">
+          <strong>当前最重要的判断</strong>
+          <p>模块要深。接口要小。内部可以复杂，但参数路径不能断。</p>
+        </div>
+        <div class="warning">
+          <strong>不要机械学 Clean Code</strong>
+          <p>
+            “函数越短越好”不是铁律。对 FEMR 这种训练链路，过度拆分会让
+            `reference_window`、mask、reward、grad 这些参数更难追踪。
+          </p>
+        </div>
+      </aside>
     </header>
 
-    <section>
-      <h2>第一梯队：直接提升代码设计</h2>
-      <div class="grid">
+    <section aria-labelledby="route-title">
+      <div class="section-head">
+        <h2 id="route-title">建议阅读顺序</h2>
+        <p>按“先能安全改代码，再理解模式，再组织模块”的顺序读。</p>
+      </div>
+      <div class="route-grid">
+        <article class="route-step">
+          <span class="num">1</span>
+          <h3>Refactoring</h3>
+          <p>学习怎么在行为不变的前提下，把坏结构一步步改好。</p>
+        </article>
+        <article class="route-step">
+          <span class="num">2</span>
+          <h3>Code Complete</h3>
+          <p>补实现规范。命名、函数、条件、调试、测试都按问题查。</p>
+        </article>
+        <article class="route-step">
+          <span class="num">3</span>
+          <h3>Design Patterns</h3>
+          <p>建立策略、适配器、工厂、观察者、中介这些模式的直觉。</p>
+        </article>
+        <article class="route-step">
+          <span class="num">4</span>
+          <h3>Legacy + Architecture</h3>
+          <p>学习在已有复杂仓库里插入机制，并把模块边界和测试边界对齐。</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="books-title">
+      <div class="section-head">
+        <h2 id="books-title">第一梯队：立刻改善代码</h2>
+        <p>这三本最直接。它们解决的是每天写代码都会遇到的问题。</p>
+      </div>
+      <div class="book-grid">
         <article class="book">
-          <div class="book-meta">
+          <div class="book-top">
             <h3><a href="https://martinfowler.com/books/refactoring.html">Refactoring: Improving the Design of Existing Code</a></h3>
             <span class="tag">最优先</span>
           </div>
           <p>
-            重点是已经写出来的代码怎么一步步改好，同时保持行为不变。它适合现在这种复杂仓库：
-            先建立测试边界，再把坏结构慢慢拆开。
+            重点不是“写漂亮代码”，而是已经写坏的代码怎么安全变好。
+            它适合 FEMR 这种已有仓库：先建立测试边界，再逐步移动责任。
           </p>
+          <footer>读它时看：如何拆出 seam，如何保持行为不变。</footer>
         </article>
 
         <article class="book">
-          <div class="book-meta">
+          <div class="book-top">
             <h3><a href="https://www.oreilly.com/library/view/code-complete-2nd/0735619670/">Code Complete, 2nd Edition</a></h3>
-            <span class="tag">实现规范</span>
+            <span class="tag blue">实现规范</span>
           </div>
           <p>
-            更像实现手册。命名、函数、变量、条件、循环、调试、测试、代码布局都讲。
-            不需要通读，适合当工具书查。
+            更像实现手册。命名、变量、函数、条件、循环、调试、测试、布局都讲。
+            不需要通读，遇到具体问题时查。
           </p>
+          <footer>读它时看：怎么让代码更容易检查。</footer>
         </article>
 
         <article class="book">
-          <div class="book-meta">
+          <div class="book-top">
             <h3><a href="https://pragprog.com/titles/tpp20/the-pragmatic-programmer-20th-anniversary-edition/">The Pragmatic Programmer</a></h3>
-            <span class="tag">工程习惯</span>
+            <span class="tag amber">工程习惯</span>
           </div>
           <p>
-            它讲程序员日常判断：不要重复知识，避免偶然编程，快速反馈，自动化，测试，工具使用。
-            它不深，但很实用。
+            讲日常判断：不要重复知识，不要偶然编程，快速反馈，自动化，工具使用。
+            它不深，但能纠正很多低效习惯。
           </p>
+          <footer>读它时看：如何减少心理省力、实际费力。</footer>
         </article>
       </div>
     </section>
 
-    <section>
-      <h2>第二梯队：理解模式和模块边界</h2>
-      <div class="grid">
+    <section aria-labelledby="patterns-title">
+      <div class="section-head">
+        <h2 id="patterns-title">第二梯队：理解模块边界</h2>
+        <p>这些书帮助判断“这个责任属于谁”。不要为了套模式而套模式。</p>
+      </div>
+      <div class="book-grid">
         <article class="book">
-          <div class="book-meta">
+          <div class="book-top">
             <h3><a href="https://www.oreilly.com/library/view/head-first-design/9781492077992/">Head First Design Patterns, 2nd Edition</a></h3>
-            <span class="tag">设计模式</span>
+            <span class="tag">模式直觉</span>
           </div>
           <p>
-            如果想理解观察者模式、中介模式、工厂模式、策略模式、适配器模式，先读这本。
-            它比 GoF 原书容易读，适合建立直觉。
+            适合先读。它把策略、适配器、工厂、观察者、中介讲得比较直观。
+            读完后再看 FEMR 的 runner、env hook、sampler 会更容易。
           </p>
+          <footer>读它时看：模式解决的是哪种变化。</footer>
         </article>
 
         <article class="book">
-          <div class="book-meta">
-            <h3><a href="https://martinfowler.com/books/eaa.html">Patterns of Enterprise Application Architecture</a></h3>
-            <span class="tag">架构模式</span>
-          </div>
-          <p>
-            更工程化。讲分层、领域逻辑、数据访问、事务、服务层、数据映射。
-            对 cache、sampler、runner、env hook 这类模块关系有启发。
-          </p>
-        </article>
-
-        <article class="book">
-          <div class="book-meta">
+          <div class="book-top">
             <h3><a href="https://www.cosmicpython.com/book/preface.html">Architecture Patterns with Python</a></h3>
-            <span class="tag">Python 架构</span>
+            <span class="tag blue">Python 架构</span>
           </div>
           <p>
-            直接讲 Python 项目怎么拆：Repository、Service Layer、Unit of Work、Message Bus、
-            Dependency Injection。还有免费在线版。
+            直接讲 Python 项目怎么拆：Repository、Service Layer、Unit of Work、
+            Message Bus、Dependency Injection。在线版可读。
           </p>
+          <footer>读它时看：业务对象和外部框架怎么隔离。</footer>
+        </article>
+
+        <article class="book">
+          <div class="book-top">
+            <h3><a href="https://martinfowler.com/books/eaa.html">Patterns of Enterprise Application Architecture</a></h3>
+            <span class="tag amber">架构模式</span>
+          </div>
+          <p>
+            更工程化。讲分层、服务层、数据映射、事务脚本。对 cache、sampler、
+            runner、env hook 的责任划分有启发。
+          </p>
+          <footer>读它时看：模块如何协作而不互相污染。</footer>
         </article>
       </div>
     </section>
 
-    <section>
-      <h2>第三梯队：维护已有复杂代码</h2>
-      <div class="grid">
+    <section aria-labelledby="legacy-title">
+      <div class="section-head">
+        <h2 id="legacy-title">第三梯队：维护复杂仓库</h2>
+        <p>FEMR 更像“在已有系统中插入机制”，不是从零写一个干净项目。</p>
+      </div>
+      <div class="book-grid">
         <article class="book">
-          <div class="book-meta">
+          <div class="book-top">
             <h3><a href="https://www.oreilly.com/library/view/working-effectively-with/0131177052/">Working Effectively with Legacy Code</a></h3>
-            <span class="tag">复杂仓库</span>
+            <span class="tag red">复杂仓库</span>
           </div>
           <p>
-            适合不是从零写漂亮代码，而是在已有系统里插入新机制的场景。
-            核心思想是先制造测试缝隙，再安全修改。
+            核心是先制造测试缝隙，再安全修改。它非常适合训练代码、runner、
+            checkpoint、env hook 这种互相缠住的路径。
           </p>
+          <footer>读它时看：先保护，再重构。</footer>
         </article>
 
         <article class="book">
-          <div class="book-meta">
+          <div class="book-top">
             <h3><a href="https://www.pearson.com/en-us/subject-catalog/p/clean-code-a-handbook-of-agile-software-craftsmanship/P200000009556">Clean Code</a></h3>
-            <span class="tag">批判阅读</span>
+            <span class="tag amber">批判阅读</span>
           </div>
           <p>
             命名、函数职责、重复代码处理有价值。但它和《软件设计哲学》有冲突。
-            尤其是“函数越短越好”，不能机械接受。
+            不要机械接受“短函数”。
           </p>
-        </article>
-      </div>
-
-      <div class="note-box">
-        更适合当前工作方式的判断是：模块要深，接口要小，内部可以复杂，但外部必须稳定。
-        不要为了短函数把一个完整参数处理链拆散到难以追踪。
-      </div>
-    </section>
-
-    <section>
-      <h2>第四梯队：Python 和实现规范</h2>
-      <div class="grid">
-        <article class="book">
-          <div class="book-meta">
-            <h3><a href="https://peps.python.org/pep-0008/">PEP 8</a></h3>
-            <span class="tag">官方规范</span>
-          </div>
-          <p>
-            Python 官方风格规范。重点看命名、import、注释、空行、行宽、public/internal interface。
-          </p>
+          <footer>读它时看：哪些建议会破坏参数追踪。</footer>
         </article>
 
         <article class="book">
-          <div class="book-meta">
-            <h3><a href="https://google.github.io/styleguide/pyguide.html">Google Python Style Guide</a></h3>
-            <span class="tag">团队规范</span>
-          </div>
-          <p>
-            比 PEP 8 更工程化。适合团队代码，尤其是类型标注、异常、测试、导入、注释规范。
-          </p>
-        </article>
-
-        <article class="book">
-          <div class="book-meta">
+          <div class="book-top">
             <h3><a href="https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/">Fluent Python, 2nd Edition</a></h3>
-            <span class="tag">语言进阶</span>
+            <span class="tag blue">语言进阶</span>
           </div>
           <p>
-            用来把 Python 写得更地道。不建议太早读，它偏语言能力，不直接解决架构问题。
+            用来把 Python 写得更地道。它偏语言能力，不直接解决架构问题。
+            建议在模块设计稳定后再读。
           </p>
+          <footer>读它时看：如何写更清楚的 Python。</footer>
         </article>
       </div>
     </section>
 
-    <section>
-      <h2>建议阅读顺序</h2>
-      <div class="route">
-        <ol>
-          <li>先读 <strong>Refactoring</strong>，建立“改代码不破坏行为”的方法。</li>
-          <li>再用 <strong>Code Complete</strong> 补实现规范，按问题查，不必通读。</li>
-          <li>读 <strong>Head First Design Patterns</strong>，建立常见模式直觉。</li>
-          <li>读 <strong>Working Effectively with Legacy Code</strong>，学习在复杂仓库里安全插入新机制。</li>
-          <li>读 <strong>Architecture Patterns with Python</strong>，把模块边界和测试边界对应起来。</li>
-          <li>最后读 <strong>Patterns of Enterprise Application Architecture</strong>，理解更大的工程组织方式。</li>
-          <li>日常参考 <strong>PEP 8</strong> 和 <strong>Google Python Style Guide</strong>。</li>
-          <li>有余力再读 <strong>Fluent Python</strong>。</li>
-        </ol>
+    <section aria-labelledby="standards-title">
+      <div class="section-head">
+        <h2 id="standards-title">规范怎么用</h2>
+        <p>规范不是目的。规范是为了让别人和未来的自己更快定位问题。</p>
+      </div>
+      <table class="matrix" aria-label="代码规范使用方式">
+        <thead>
+          <tr>
+            <th>材料</th>
+            <th>什么时候看</th>
+            <th>在 FEMR 中对应什么</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://peps.python.org/pep-0008/">PEP 8</a></td>
+            <td>命名、import、空行、public/internal interface 不确定时。</td>
+            <td>让模块边界更清楚，避免 helper 和 public API 混在一起。</td>
+          </tr>
+          <tr>
+            <td><a href="https://google.github.io/styleguide/pyguide.html">Google Python Style Guide</a></td>
+            <td>团队代码、类型标注、异常、测试命名不确定时。</td>
+            <td>让 contract test、fake env、probe 输出有统一形态。</td>
+          </tr>
+          <tr>
+            <td><code>runtime-probing-debug</code></td>
+            <td>形状、mask、reward、grad、checkpoint 出问题时。</td>
+            <td>沿一个参数在模块内部逐层 print/assert，而不是只测能否启动。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section aria-labelledby="questions-title">
+      <div class="section-head">
+        <h2 id="questions-title">读书时要一直问的问题</h2>
+        <p>这些问题比记住术语更重要。</p>
+      </div>
+      <div class="check-grid">
+        <article class="check">
+          <strong>这个功能属于哪个模块？</strong>
+          <p>数据对象、采样、reset、reward、storage、loss、runner 调度要分清。</p>
+        </article>
+        <article class="check">
+          <strong>输入输出能单独测试吗？</strong>
+          <p>不能单独测试，就很难知道参数从哪一步开始错。</p>
+        </article>
+        <article class="check">
+          <strong>关键参数在哪些位置被处理？</strong>
+          <p>例如 `reference_window`、`valid_mask`、`reward`、`requires_grad`。</p>
+        </article>
+        <article class="check">
+          <strong>接口是否稳定？</strong>
+          <p>外部接口要小，内部实现可以复杂，但不能让调用方知道太多细节。</p>
+        </article>
+        <article class="check">
+          <strong>这个抽象减少复杂度了吗？</strong>
+          <p>如果只是增加名字，没有缩短参数追踪范围，它就不是好抽象。</p>
+        </article>
+        <article class="check">
+          <strong>测试是在测行为吗？</strong>
+          <p>只证明能运行不够。要证明语义正确，最好有 probe 和 assert。</p>
+        </article>
       </div>
     </section>
 
-    <section>
-      <h2>读这些书时要回答的问题</h2>
-      <div class="checklist">
-        <div>这个功能属于哪个模块？</div>
-        <div>这个模块的输入输出能不能单独测试？</div>
-        <div>关键参数在哪几个步骤被处理？</div>
-        <div>如果参数错了，我能不能逐层 probe？</div>
-        <div>接口是否稳定，内部是否可以替换？</div>
-        <div>这个抽象减少复杂度，还是只是增加名字？</div>
-        <div>测试是在检查行为，还是只检查能不能运行？</div>
-        <div>现在的拆分是否符合仓库已有设计模式？</div>
-      </div>
-    </section>
-
-    <footer>
-      <p>
-        写作日期：2026-06-29。定位：个人工程学习路线，不是 FEMR 训练契约。
-      </p>
+    <footer class="footer">
+      写作日期：2026-06-29。定位：个人工程学习路线，不是 FEMR 训练契约。
     </footer>
   </main>
 </body>
