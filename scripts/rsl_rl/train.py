@@ -97,15 +97,15 @@ parser.add_argument(
 )
 parser.add_argument(
     "--frontres_segment_cache_max_motions",
-    type=int,
-    default=1,
-    help="For Stage 1 only: maximum motions used by the live cache sentinel/builder.",
+    type=str,
+    default="1",
+    help="For Stage 1 only: maximum motions used by the live cache sentinel/builder; use all or auto to scan all.",
 )
 parser.add_argument(
     "--frontres_segment_cache_max_segments",
-    type=int,
-    default=1,
-    help="For Stage 1 only: maximum segments written by the live cache sentinel/builder.",
+    type=str,
+    default="1",
+    help="For Stage 1 only: maximum segments written by the live cache sentinel/builder; use all or auto to scan all.",
 )
 parser.add_argument(
     "--frontres_segment_cache_variants_per_strength",
@@ -825,6 +825,20 @@ def _parse_frontres_segment_cache_active_dims(value: str) -> tuple[int, ...] | N
     return unique_dims
 
 
+def _parse_frontres_segment_cache_limit(value, *, name: str) -> int | None:
+    raw = str(value).strip().lower()
+    if raw in {"", "all", "auto", "full", "none"}:
+        return None
+    limit = int(raw)
+    if limit <= 0:
+        return None
+    return limit
+
+
+def _frontres_segment_cache_limit_label(value: int | None) -> str:
+    return "all" if value is None else str(int(value))
+
+
 def _frontres_stage1_segment_cache_dir(args_cli, log_dir: str) -> str:
     cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None)
     if cache_dir:
@@ -837,7 +851,10 @@ def _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli) -> None:
     if motion_cfg is None:
         print("[FrontRES Stage1 Segment Cache] stage1_cfg_probe motion_cfg=missing", flush=True)
         return
-    max_motions = max(1, int(getattr(args_cli, "frontres_segment_cache_max_motions", 1)))
+    max_motions = _parse_frontres_segment_cache_limit(
+        getattr(args_cli, "frontres_segment_cache_max_motions", 1),
+        name="frontres_segment_cache_max_motions",
+    )
     applied = {}
     if hasattr(motion_cfg, "motion_dataset_shard_across_gpus"):
         motion_cfg.motion_dataset_shard_across_gpus = False
@@ -860,7 +877,7 @@ def _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli) -> None:
         motion_cfg.joint_position_range = (0.0, 0.0)
     print(
         "[FrontRES Stage1 Segment Cache] stage1_cfg_probe "
-        f"requested_max_motions={max_motions} "
+        f"requested_max_motions={_frontres_segment_cache_limit_label(max_motions)} "
         f"has_load_cap={hasattr(motion_cfg, 'motion_dataset_load_cap')} "
         f"has_shard_flag={hasattr(motion_cfg, 'motion_dataset_shard_across_gpus')} "
         f"applied={applied}",
@@ -868,12 +885,12 @@ def _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli) -> None:
     )
 
 
-def _frontres_stage1_motion_loader_probe(adapter, *, requested_max_motions: int) -> None:
+def _frontres_stage1_motion_loader_probe(adapter, *, requested_max_motions: int | None) -> None:
     probe_fn = getattr(adapter, "frontres_motion_loader_probe", None)
     if not callable(probe_fn):
         print(
             "[FrontRES Stage1 Segment Cache] motion_loader_probe unavailable "
-            f"requested_max_motions={requested_max_motions}",
+            f"requested_max_motions={_frontres_segment_cache_limit_label(requested_max_motions)}",
             flush=True,
         )
         return
@@ -881,16 +898,20 @@ def _frontres_stage1_motion_loader_probe(adapter, *, requested_max_motions: int)
     print(
         "[FrontRES Stage1 Segment Cache] motion_loader_probe "
         + " ".join(f"{key}={value}" for key, value in probe.items())
-        + f" requested_max_motions={requested_max_motions}",
+        + f" requested_max_motions={_frontres_segment_cache_limit_label(requested_max_motions)}",
         flush=True,
     )
     loaded_count = int(probe.get("loaded_motion_count") or 0)
     all_count = int(probe.get("all_motion_count") or probe.get("shard_total_motions") or 0)
-    expected_count = min(int(requested_max_motions), all_count) if all_count > 0 else int(requested_max_motions)
-    if int(requested_max_motions) > 1 and all_count > loaded_count and loaded_count < expected_count:
+    if requested_max_motions is None:
+        expected_count = all_count
+    else:
+        expected_count = min(int(requested_max_motions), all_count) if all_count > 0 else int(requested_max_motions)
+    if expected_count > 1 and all_count > loaded_count and loaded_count < expected_count:
         raise RuntimeError(
             "Stage 1 requested multiple motions but the live motion loader loaded too few: "
-            f"requested_max_motions={requested_max_motions}, loaded_motion_count={loaded_count}, "
+            f"requested_max_motions={_frontres_segment_cache_limit_label(requested_max_motions)}, "
+            f"loaded_motion_count={loaded_count}, "
             f"all_motion_count={all_count}, cfg_motion_dataset_load_cap={probe.get('cfg_motion_dataset_load_cap')}. "
             "Check motion_dataset_load_cap propagation before generating the cache."
         )
@@ -900,8 +921,14 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
     cache_dir = _frontres_stage1_segment_cache_dir(args_cli, log_dir)
     segment_k = max(1, int(getattr(args_cli, "frontres_segment_cache_k", 4)))
     frame_stride = max(1, int(getattr(args_cli, "frontres_segment_cache_frame_stride", 1)))
-    max_motions = max(1, int(getattr(args_cli, "frontres_segment_cache_max_motions", 1)))
-    max_segments = max(1, int(getattr(args_cli, "frontres_segment_cache_max_segments", 1)))
+    max_motions = _parse_frontres_segment_cache_limit(
+        getattr(args_cli, "frontres_segment_cache_max_motions", 1),
+        name="frontres_segment_cache_max_motions",
+    )
+    max_segments = _parse_frontres_segment_cache_limit(
+        getattr(args_cli, "frontres_segment_cache_max_segments", 1),
+        name="frontres_segment_cache_max_segments",
+    )
     variants_per_strength = max(1, int(getattr(args_cli, "frontres_segment_cache_variants_per_strength", 1)))
     perturbation_mode = str(getattr(args_cli, "frontres_segment_cache_perturbation_mode", "hrl_curriculum_bank"))
     strengths = _parse_frontres_segment_cache_strengths(
@@ -934,8 +961,8 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
         f"cache_dir={cache_dir} "
         f"segment_k={segment_k} "
         f"frame_stride={frame_stride} "
-        f"max_motions={max_motions} "
-        f"max_segments={max_segments} "
+        f"max_motions={_frontres_segment_cache_limit_label(max_motions)} "
+        f"max_segments={_frontres_segment_cache_limit_label(max_segments)} "
         f"variants_per_strength={variants_per_strength} "
         f"perturbation_mode={perturbation_mode} "
         f"legacy_perturbation_strengths={strengths} "

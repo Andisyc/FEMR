@@ -93,7 +93,15 @@ def main() -> None:
         assert needle in stage1_cache_block, needle
     assert "def _configure_frontres_stage1_segment_cache_env_cfg" in train
     assert "def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str)" in train
-    assert "def _frontres_stage1_motion_loader_probe(adapter, *, requested_max_motions: int) -> None:" in train
+    assert "def _parse_frontres_segment_cache_limit(value, *, name: str) -> int | None:" in train
+    assert 'raw in {"", "all", "auto", "full", "none"}' in train
+    assert "return None" in _between(
+        train,
+        "def _parse_frontres_segment_cache_limit(value, *, name: str) -> int | None:",
+        "def _frontres_segment_cache_limit_label(value: int | None) -> str:",
+    )
+    assert "def _frontres_stage1_motion_loader_probe(adapter, *, requested_max_motions: int | None) -> None:" in train
+    assert "requested_max_motions={_frontres_segment_cache_limit_label(requested_max_motions)}" in train
     assert "[FrontRES Stage1 Segment Cache] stage1_cfg_probe" in train
     assert "[FrontRES Stage1 Segment Cache] motion_loader_probe" in train
     assert "requested multiple motions but the live motion loader loaded too few" in train
@@ -299,6 +307,10 @@ def main() -> None:
     )
 
     assert '--frontres_stage stage1_segment_cache' in stage1_cache
+    assert 'MAX_MOTIONS="${MAX_MOTIONS:-all}"' in stage1_cache
+    assert 'MAX_SEGMENTS="${MAX_SEGMENTS:-all}"' in stage1_cache
+    assert 'MAX_MOTIONS/MAX_SEGMENTS accept positive integers or all/auto.' in stage1_cache
+    assert "999999" not in stage1_cache
     assert '--frontres_segment_cache_k "${SEGMENT_K}"' in stage1_cache
     assert '--frontres_segment_cache_frame_stride "${FRAME_STRIDE}"' in stage1_cache
     assert '--frontres_segment_cache_max_motions "${MAX_MOTIONS}"' in stage1_cache

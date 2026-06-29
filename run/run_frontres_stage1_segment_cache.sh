@@ -6,8 +6,9 @@ if [[ $# -lt 1 ]]; then
   echo
   echo "Stage 1 builds the Segment Replay cache: motion segments, Clean states, and stepped Noisy baselines."
   echo "After a successful build, the script validates the written cache by default."
+  echo "MAX_MOTIONS/MAX_SEGMENTS accept positive integers or all/auto."
   echo "Example:"
-  echo "  bash run/run_frontres_stage1_segment_cache.sh /path/to/motions 12000 4 /hdd1/cyx/AMASS_G1Segment"
+  echo "  MAX_MOTIONS=all MAX_SEGMENTS=all bash run/run_frontres_stage1_segment_cache.sh /path/to/motions 12000 4 /hdd1/cyx/AMASS_G1Segment"
   exit 1
 fi
 
@@ -31,8 +32,8 @@ CURRICULUM_TEMPORAL_MODE="${CURRICULUM_TEMPORAL_MODE:-single}"
 CURRICULUM_BURST_MIN_STEPS="${CURRICULUM_BURST_MIN_STEPS:-4}"
 CURRICULUM_BURST_MAX_STEPS="${CURRICULUM_BURST_MAX_STEPS:-8}"
 FRAME_STRIDE="${FRAME_STRIDE:-1}"
-MAX_MOTIONS="${MAX_MOTIONS:-1}"
-MAX_SEGMENTS="${MAX_SEGMENTS:-1}"
+MAX_MOTIONS="${MAX_MOTIONS:-all}"
+MAX_SEGMENTS="${MAX_SEGMENTS:-all}"
 VARIANTS_PER_STRENGTH="${VARIANTS_PER_STRENGTH:-1}"
 VALIDATE_AFTER_BUILD="${VALIDATE_AFTER_BUILD:-1}"
 VALIDATION_PYTHON_BIN="${VALIDATION_PYTHON_BIN:-python}"
