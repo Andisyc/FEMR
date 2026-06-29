@@ -259,6 +259,39 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
     return segment_storage
 
 
+def _select_segment_transition_actions(
+    runner: Any,
+    *,
+    actions: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if actions.ndim != 2:
+        raise ValueError(f"live segment transition actions must be rank-2, got {tuple(actions.shape)}")
+    if actions.shape[-1] == 6:
+        return actions, runner.alg.transition.actions_log_prob.detach().clone().reshape(-1)
+    if actions.shape[-1] < 6:
+        raise ValueError(f"live segment transition actions must expose at least 6 Delta SE dims, got {tuple(actions.shape)}")
+
+    segment_actions = actions[:, :6]
+    if hasattr(runner.alg.policy, "get_actions_log_prob_selected"):
+        log_probs = runner.alg.policy.get_actions_log_prob_selected(actions, list(range(6))).detach().clone().reshape(-1)
+    else:
+        action_mean = getattr(runner.alg.transition, "action_mean", None)
+        action_sigma = getattr(runner.alg.transition, "action_sigma", None)
+        if action_mean is None or action_sigma is None:
+            raise ValueError("12D live segment actions require action_mean/action_sigma to rebuild 6D log_prob.")
+        dist = torch.distributions.Normal(action_mean[:, :6], action_sigma[:, :6])
+        log_probs = dist.log_prob(segment_actions).sum(dim=-1).detach().clone().reshape(-1)
+    print(
+        "[FrontRES Segment Live Probe Trace] "
+        f"raw_action_shape={tuple(actions.shape)} "
+        f"segment_action_shape={tuple(segment_actions.shape)} "
+        f"log_prob_shape={tuple(log_probs.shape)} "
+        "semantic=storage_uses_first_6_delta_se_dims",
+        flush=True,
+    )
+    return segment_actions, log_probs
+
+
 def _current_reset_success_mask(runner: Any, *, batch_size: int, device: torch.device | str) -> torch.Tensor:
     result = getattr(runner, "_frontres_segment_live_current_reset_result", None)
     if result is None:
@@ -393,15 +426,16 @@ def _run_live_rollout_capture(
             if rollout_step == 0 and actions is not None:
                 transition_obs = runner.alg.transition.observations.detach().clone()
                 transition_privileged_obs = runner.alg.transition.privileged_observations.detach().clone()
-                transition_actions = actions.detach().clone()
-                transition_log_probs = runner.alg.transition.actions_log_prob.detach().clone().reshape(-1)
+                selected_actions, selected_log_probs = _select_segment_transition_actions(runner, actions=actions)
+                transition_actions = selected_actions.detach().clone()
+                transition_log_probs = selected_log_probs.detach().clone().reshape(-1)
                 transition_values = runner.alg.transition.values.detach().clone().reshape(-1)
                 action_mean = getattr(runner.alg.transition, "action_mean", None)
                 action_sigma = getattr(runner.alg.transition, "action_sigma", None)
-                if action_mean is not None and tuple(action_mean.shape) == tuple(transition_actions.shape):
-                    transition_means = action_mean.detach().clone()
-                if action_sigma is not None and tuple(action_sigma.shape) == tuple(transition_actions.shape):
-                    transition_sigmas = action_sigma.detach().clone()
+                if action_mean is not None and action_mean.ndim == 2 and action_mean.shape[-1] >= 6:
+                    transition_means = action_mean[:, :6].detach().clone()
+                if action_sigma is not None and action_sigma.ndim == 2 and action_sigma.shape[-1] >= 6:
+                    transition_sigmas = action_sigma[:, :6].detach().clone()
 
             obs, rewards, dones, infos = runner.env.step(env_actions.to(runner.env.device))
             rewards = rewards.to(runner.device)

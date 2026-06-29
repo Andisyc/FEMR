@@ -212,6 +212,34 @@ def test_build_live_segment_storage_rejects_non_6d_actions() -> None:
         raise AssertionError("non-6D live probe actions must be rejected before storage write")
 
 
+def test_live_probe_selects_6d_delta_se_from_12d_rollout_action() -> None:
+    raw_actions = torch.arange(24, dtype=torch.float32).reshape(2, 12) * 0.1
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(
+            transition=SimpleNamespace(
+                actions_log_prob=torch.tensor([-9.0, -8.0]),
+                action_mean=raw_actions + 1.0,
+                action_sigma=torch.ones_like(raw_actions) * 0.5,
+            ),
+            policy=SimpleNamespace(
+                get_actions_log_prob_selected=lambda actions, selected_dims: actions[:, selected_dims].sum(dim=-1) * -0.1
+            ),
+        )
+    )
+
+    segment_actions, log_probs = live_probe._select_segment_transition_actions(runner, actions=raw_actions)
+
+    _probe_tensor("raw_actions", raw_actions, "12D rollout action from legacy HSL+acceptance policy")
+    _probe_tensor("segment_actions", segment_actions, "selected 6D Delta SE action for Segment Replay storage")
+    _probe_tensor("selected_log_probs", log_probs, "log_prob recomputed on selected Delta SE dims")
+    _probe_tensor("transition_mean_6d", runner.alg.transition.action_mean[:, :6], "old mean sliced to same 6D action space")
+    _probe_tensor("transition_sigma_6d", runner.alg.transition.action_sigma[:, :6], "old sigma sliced to same 6D action space")
+
+    assert segment_actions.shape == (2, 6)
+    torch.testing.assert_close(segment_actions, raw_actions[:, :6])
+    torch.testing.assert_close(log_probs, raw_actions[:, :6].sum(dim=-1) * -0.1)
+
+
 def test_build_live_segment_storage_masks_failed_reset_samples() -> None:
     runner = SimpleNamespace(
         device=torch.device("cpu"),
@@ -379,6 +407,7 @@ def test_live_probe_applies_current_segment_batch_reset_before_rollout() -> None
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_rejects_non_6d_actions()
+    test_live_probe_selects_6d_delta_se_from_12d_rollout_action()
     test_build_live_segment_storage_masks_failed_reset_samples()
     test_live_probe_applies_current_segment_batch_reset_before_rollout()
     print("frontres_segment_live_probe_contract: ok")
