@@ -737,16 +737,22 @@ def _frontres_stage1_segment_cache_dir(args_cli, log_dir: str) -> str:
 def _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli) -> None:
     motion_cfg = getattr(getattr(env_cfg, "commands", None), "motion", None)
     if motion_cfg is None:
+        print("[FrontRES Stage1 Segment Cache] stage1_cfg_probe motion_cfg=missing", flush=True)
         return
     max_motions = max(1, int(getattr(args_cli, "frontres_segment_cache_max_motions", 1)))
+    applied = {}
     if hasattr(motion_cfg, "motion_dataset_shard_across_gpus"):
         motion_cfg.motion_dataset_shard_across_gpus = False
+        applied["motion_dataset_shard_across_gpus"] = motion_cfg.motion_dataset_shard_across_gpus
     if hasattr(motion_cfg, "motion_dataset_load_cap"):
         motion_cfg.motion_dataset_load_cap = max_motions
+        applied["motion_dataset_load_cap"] = motion_cfg.motion_dataset_load_cap
     if hasattr(motion_cfg, "motion_dataset_log_shard_info"):
         motion_cfg.motion_dataset_log_shard_info = True
+        applied["motion_dataset_log_shard_info"] = motion_cfg.motion_dataset_log_shard_info
     if hasattr(motion_cfg, "resample_motions_every_s"):
         motion_cfg.resample_motions_every_s = 1.0e9
+        applied["resample_motions_every_s"] = motion_cfg.resample_motions_every_s
     zero_ranges = {name: (0.0, 0.0) for name in ("x", "y", "z", "roll", "pitch", "yaw")}
     if hasattr(motion_cfg, "pose_range"):
         motion_cfg.pose_range = dict(zero_ranges)
@@ -754,6 +760,42 @@ def _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli) -> None:
         motion_cfg.velocity_range = dict(zero_ranges)
     if hasattr(motion_cfg, "joint_position_range"):
         motion_cfg.joint_position_range = (0.0, 0.0)
+    print(
+        "[FrontRES Stage1 Segment Cache] stage1_cfg_probe "
+        f"requested_max_motions={max_motions} "
+        f"has_load_cap={hasattr(motion_cfg, 'motion_dataset_load_cap')} "
+        f"has_shard_flag={hasattr(motion_cfg, 'motion_dataset_shard_across_gpus')} "
+        f"applied={applied}",
+        flush=True,
+    )
+
+
+def _frontres_stage1_motion_loader_probe(adapter, *, requested_max_motions: int) -> None:
+    probe_fn = getattr(adapter, "frontres_motion_loader_probe", None)
+    if not callable(probe_fn):
+        print(
+            "[FrontRES Stage1 Segment Cache] motion_loader_probe unavailable "
+            f"requested_max_motions={requested_max_motions}",
+            flush=True,
+        )
+        return
+    probe = probe_fn()
+    print(
+        "[FrontRES Stage1 Segment Cache] motion_loader_probe "
+        + " ".join(f"{key}={value}" for key, value in probe.items())
+        + f" requested_max_motions={requested_max_motions}",
+        flush=True,
+    )
+    loaded_count = int(probe.get("loaded_motion_count") or 0)
+    all_count = int(probe.get("all_motion_count") or probe.get("shard_total_motions") or 0)
+    expected_count = min(int(requested_max_motions), all_count) if all_count > 0 else int(requested_max_motions)
+    if int(requested_max_motions) > 1 and all_count > loaded_count and loaded_count < expected_count:
+        raise RuntimeError(
+            "Stage 1 requested multiple motions but the live motion loader loaded too few: "
+            f"requested_max_motions={requested_max_motions}, loaded_motion_count={loaded_count}, "
+            f"all_motion_count={all_count}, cfg_motion_dataset_load_cap={probe.get('cfg_motion_dataset_load_cap')}. "
+            "Check motion_dataset_load_cap propagation before generating the cache."
+        )
 
 
 def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
@@ -791,6 +833,7 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
         trace=True,
         baseline_rollout_steps=segment_k,
     )
+    _frontres_stage1_motion_loader_probe(adapter, requested_max_motions=max_motions)
     result = build_stage1_segment_cache(
         adapter,
         FrontRESStage1CacheBuilderConfig(
@@ -818,6 +861,26 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
         f"metadata_path={result.metadata_path}",
         flush=True,
     )
+
+
+def _exit_frontres_stage1_segment_cache(env) -> None:
+    close_ok = False
+    close_error = None
+    try:
+        env.close()
+        close_ok = True
+    except Exception as exc:
+        close_error = repr(exc)
+    print(
+        "[FrontRES Stage1 Segment Cache] auto_exit "
+        f"env_close_ok={close_ok} "
+        f"env_close_error={close_error} "
+        "force_process_exit=True",
+        flush=True,
+    )
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point") # 
@@ -908,8 +971,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     if args_cli.frontres_stage == "stage1_segment_cache":
         _run_frontres_stage1_segment_cache(env, args_cli, log_dir)
-        env.close()
-        return
+        _exit_frontres_stage1_segment_cache(env)
 
     # wrap around environment for rsl-rl
     env = RslRlVecEnvWrapper(env)

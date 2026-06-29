@@ -5,6 +5,7 @@ from pathlib import Path
 import importlib.util
 import sys
 import tempfile
+import types
 
 import numpy as np
 import torch
@@ -93,6 +94,11 @@ class FakeRobot:
 class FakeMotionLoader:
     def __init__(self, root: Path) -> None:
         self.motion_paths = [str(root / "KIT" / "359" / "motion_a.npz")]
+        self.motion_paths_all = list(self.motion_paths)
+        self.shard_info = {
+            "selected_motions": len(self.motion_paths),
+            "total_motions": len(self.motion_paths_all),
+        }
         self.motion_lengths = torch.tensor([8], dtype=torch.long)
         self.motion_fps = torch.tensor([30.0], dtype=torch.float32)
 
@@ -137,6 +143,10 @@ class FakeCommand:
         self.device = torch.device("cpu")
         self.num_envs = 1
         self.robot = robot
+        self.cfg = types.SimpleNamespace(
+            motion_dataset_load_cap=1,
+            motion_dataset_shard_across_gpus=False,
+        )
         self.motion_dir_loader = FakeMotionLoader(root)
         self.motion_lengths = self.motion_dir_loader.motion_lengths
         self.env_motion_indices = torch.zeros(1, dtype=torch.long)
@@ -278,8 +288,13 @@ def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
         env = FakeGymEnv(root)
         adapter = FrontRESStage1EnvAdapter(env, amass_root=str(root), trace=True)
         loaded_paths = adapter.frontres_loaded_motion_paths()
-        print(f"[stage1_hooks trace] loaded_motion_paths={loaded_paths}")
+        loader_probe = adapter.frontres_motion_loader_probe()
+        print(f"[stage1_hooks trace] loaded_motion_paths={loaded_paths} loader_probe={loader_probe}")
         assert loaded_paths == [str(root / "KIT" / "359" / "motion_a.npz")]
+        assert loader_probe["loaded_motion_count"] == 1
+        assert loader_probe["all_motion_count"] == 1
+        assert loader_probe["cfg_motion_dataset_load_cap"] == 1
+        assert loader_probe["cfg_motion_dataset_shard_across_gpus"] is False
         env_ids = torch.tensor([0], dtype=torch.long)
 
         prepare = adapter.prepare_frontres_clean_segment(segment=_segment(), env_ids=env_ids)

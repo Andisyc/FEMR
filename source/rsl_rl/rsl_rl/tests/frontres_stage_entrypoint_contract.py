@@ -80,9 +80,17 @@ def main() -> None:
         assert needle in stage1_cache_block, needle
     assert "def _configure_frontres_stage1_segment_cache_env_cfg" in train
     assert "def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str)" in train
+    assert "def _frontres_stage1_motion_loader_probe(adapter, *, requested_max_motions: int) -> None:" in train
+    assert "[FrontRES Stage1 Segment Cache] stage1_cfg_probe" in train
+    assert "[FrontRES Stage1 Segment Cache] motion_loader_probe" in train
+    assert "requested multiple motions but the live motion loader loaded too few" in train
+    assert "def _exit_frontres_stage1_segment_cache(env) -> None:" in train
+    assert "[FrontRES Stage1 Segment Cache] auto_exit" in train
+    assert "os._exit(0)" in train
     assert 'return "/hdd1/cyx/AMASS_G1Segment"' in train
     assert "[FrontRES Stage1 Segment Cache] live_sentinel" in train
     assert "FrontRESStage1EnvAdapter" in train
+    assert "_frontres_stage1_motion_loader_probe(adapter, requested_max_motions=max_motions)" in train
     assert "build_stage1_segment_cache" in train
     assert "Stage 1 Segment Cache entrypoint is recognized" not in train
     assert "NotImplementedError" not in _between(
@@ -92,8 +100,16 @@ def main() -> None:
     )
     assert 'if args_cli.frontres_stage == "stage1_segment_cache":' in train
     assert train.index("_configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli)") < train.index("gym.make(")
-    assert train.index("gym.make(") < train.index("_run_frontres_stage1_segment_cache(env, args_cli, log_dir)")
-    assert train.index("_run_frontres_stage1_segment_cache(env, args_cli, log_dir)") < train.index("RslRlVecEnvWrapper(env)")
+    stage1_runtime_block = _between(
+        train,
+        'if args_cli.frontres_stage == "stage1_segment_cache":',
+        "# wrap around environment for rsl-rl",
+    )
+    assert "_run_frontres_stage1_segment_cache(env, args_cli, log_dir)" in stage1_runtime_block
+    assert "_exit_frontres_stage1_segment_cache(env)" in stage1_runtime_block
+    assert stage1_runtime_block.index("_run_frontres_stage1_segment_cache(env, args_cli, log_dir)") < stage1_runtime_block.index(
+        "_exit_frontres_stage1_segment_cache(env)"
+    )
 
     stage2_block = _between(train, 'elif stage == "stage2_acceptance":', '    print(f"[FrontRES Stage]')
     required = [

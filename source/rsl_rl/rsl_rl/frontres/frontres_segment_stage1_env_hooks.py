@@ -61,6 +61,22 @@ class FrontRESStage1EnvAdapter:
     def frontres_loaded_motion_paths(self) -> list[str]:
         return [str(path) for path in getattr(self.command.motion_dir_loader, "motion_paths", [])]
 
+    def frontres_motion_loader_probe(self) -> dict[str, Any]:
+        loader = getattr(self.command, "motion_dir_loader", None)
+        cfg = getattr(self.command, "cfg", None)
+        loaded_paths = list(getattr(loader, "motion_paths", []) or [])
+        all_paths = list(getattr(loader, "motion_paths_all", []) or [])
+        shard_info = dict(getattr(loader, "shard_info", {}) or {})
+        return {
+            "loaded_motion_count": len(loaded_paths),
+            "all_motion_count": len(all_paths),
+            "cfg_motion_dataset_load_cap": getattr(cfg, "motion_dataset_load_cap", None),
+            "cfg_motion_dataset_shard_across_gpus": getattr(cfg, "motion_dataset_shard_across_gpus", None),
+            "shard_selected_motions": shard_info.get("selected_motions"),
+            "shard_total_motions": shard_info.get("total_motions"),
+            "first_loaded_motion": str(loaded_paths[0]) if loaded_paths else "none",
+        }
+
     def ensure_frontres_env_reset(self) -> dict[str, bool]:
         if bool(getattr(self, "_frontres_env_reset_done", False)):
             return {"reset_called": False, "already_reset": True}

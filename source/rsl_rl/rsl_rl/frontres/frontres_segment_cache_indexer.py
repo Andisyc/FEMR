@@ -154,7 +154,7 @@ def build_amass_segment_index_from_paths(
     paths = [Path(path).expanduser().resolve() for path in motion_paths]
     if not paths:
         raise ValueError("motion_paths must contain at least one loaded AMASS motion")
-    segments: list[FrontRESSegmentIndex] = []
+    segments_by_motion: list[list[FrontRESSegmentIndex]] = []
     skipped_short = 0
     motion_count = 0
     for path in paths:
@@ -163,9 +163,10 @@ def build_amass_segment_index_from_paths(
         if info.num_frames <= horizon_k:
             skipped_short += 1
             continue
+        motion_segments: list[FrontRESSegmentIndex] = []
         for start_frame in range(0, info.num_frames - horizon_k, frame_stride):
             segment = FrontRESSegmentIndex(
-                segment_id=len(segments),
+                segment_id=0,
                 motion_rel_path=info.rel_path,
                 motion_num_frames=info.num_frames,
                 fps=info.fps,
@@ -173,17 +174,14 @@ def build_amass_segment_index_from_paths(
                 horizon_k=int(horizon_k),
             )
             segment.validate()
-            segments.append(segment)
-            if max_segments is not None and len(segments) >= int(max_segments):
-                summary = FrontRESAMASSIndexSummary(
-                    amass_root=str(root),
-                    motion_count=motion_count,
-                    segment_count=len(segments),
-                    horizon_k=int(horizon_k),
-                    frame_stride=int(frame_stride),
-                    skipped_short_motions=skipped_short,
-                )
-                return segments, summary
+            motion_segments.append(segment)
+        if motion_segments:
+            segments_by_motion.append(motion_segments)
+    if max_segments is None:
+        selected = [segment for motion_segments in segments_by_motion for segment in motion_segments]
+    else:
+        selected = _select_segments_round_robin(segments_by_motion, max_segments=int(max_segments))
+    segments = _renumber_segments(selected)
     if not segments:
         raise ValueError(f"no valid segments built from {root} with horizon_k={horizon_k}")
     summary = FrontRESAMASSIndexSummary(
@@ -195,6 +193,43 @@ def build_amass_segment_index_from_paths(
         skipped_short_motions=skipped_short,
     )
     return segments, summary
+
+
+def _select_segments_round_robin(
+    segments_by_motion: list[list[FrontRESSegmentIndex]], *, max_segments: int
+) -> list[FrontRESSegmentIndex]:
+    if max_segments <= 0:
+        return []
+    selected: list[FrontRESSegmentIndex] = []
+    cursor = 0
+    while len(selected) < max_segments:
+        added = False
+        for motion_segments in segments_by_motion:
+            if cursor < len(motion_segments):
+                selected.append(motion_segments[cursor])
+                added = True
+                if len(selected) >= max_segments:
+                    break
+        if not added:
+            break
+        cursor += 1
+    return selected
+
+
+def _renumber_segments(segments: Iterable[FrontRESSegmentIndex]) -> list[FrontRESSegmentIndex]:
+    result: list[FrontRESSegmentIndex] = []
+    for idx, segment in enumerate(segments):
+        updated = FrontRESSegmentIndex(
+            segment_id=int(idx),
+            motion_rel_path=segment.motion_rel_path,
+            motion_num_frames=segment.motion_num_frames,
+            fps=segment.fps,
+            start_frame=segment.start_frame,
+            horizon_k=segment.horizon_k,
+        )
+        updated.validate()
+        result.append(updated)
+    return result
 
 
 def write_amass_segment_index(

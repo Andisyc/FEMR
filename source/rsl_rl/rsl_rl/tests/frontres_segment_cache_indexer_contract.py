@@ -112,6 +112,49 @@ def test_indexer_respects_max_segments() -> None:
         assert [segment.start_frame for segment in segments] == [0, 1, 2]
 
 
+def test_indexer_balances_max_segments_across_loaded_motions() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        motion_a = root / "AAA" / "motion_a.npz"
+        motion_b = root / "BBB" / "motion_b.npz"
+        motion_c = root / "CCC" / "motion_c.npz"
+        _write_fake_amass_npz(motion_a, frames=20)
+        _write_fake_amass_npz(motion_b, frames=20)
+        _write_fake_amass_npz(motion_c, frames=20)
+
+        segments, summary = build_amass_segment_index_from_paths(
+            root,
+            [motion_a, motion_b, motion_c],
+            horizon_k=2,
+            frame_stride=1,
+            max_segments=6,
+        )
+        motion_paths = [segment.motion_rel_path for segment in segments]
+        starts_by_motion: dict[str, list[int]] = {}
+        for segment in segments:
+            starts_by_motion.setdefault(segment.motion_rel_path, []).append(segment.start_frame)
+        print(
+            "[cache_indexer trace] balanced_max_segments "
+            f"motion_count={summary.motion_count} motion_paths={motion_paths} starts={starts_by_motion}"
+        )
+        assert summary.motion_count == 3
+        assert summary.segment_count == 6
+        assert motion_paths == [
+            "AAA/motion_a.npz",
+            "BBB/motion_b.npz",
+            "CCC/motion_c.npz",
+            "AAA/motion_a.npz",
+            "BBB/motion_b.npz",
+            "CCC/motion_c.npz",
+        ]
+        assert starts_by_motion == {
+            "AAA/motion_a.npz": [0, 1],
+            "BBB/motion_b.npz": [0, 1],
+            "CCC/motion_c.npz": [0, 1],
+        }
+        assert [segment.segment_id for segment in segments] == list(range(6))
+
+
 def test_indexer_can_follow_loaded_motion_paths_instead_of_disk_order() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "AMASS_G1NPZ_Final"
@@ -166,6 +209,7 @@ def test_indexer_rejects_bad_motion_shape() -> None:
 if __name__ == "__main__":
     test_indexer_builds_semantic_segments_and_writes_jsonl()
     test_indexer_respects_max_segments()
+    test_indexer_balances_max_segments_across_loaded_motions()
     test_indexer_can_follow_loaded_motion_paths_instead_of_disk_order()
     test_indexer_rejects_bad_motion_shape()
     print("PASS: FrontRES AMASS indexer builds segment index from motion paths and frame counts.")
