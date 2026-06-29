@@ -365,6 +365,7 @@ def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
                 max_segments=1,
                 strengths=(0.0, 0.5),
                 variants_per_strength=1,
+                perturbation_curriculum_mode="discrete_bank",
                 base_seed=123,
                 env_id=0,
             ),

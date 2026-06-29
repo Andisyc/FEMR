@@ -16,6 +16,7 @@ spec.loader.exec_module(perturb)
 
 FrontRESSegmentIndex = perturb.FrontRESSegmentIndex
 FrontRESPerturbationCurriculumConfig = perturb.FrontRESPerturbationCurriculumConfig
+FrontRESBankDescriptorConfig = perturb.FrontRESBankDescriptorConfig
 
 
 def _segments() -> list[FrontRESSegmentIndex]:
@@ -55,6 +56,7 @@ def test_curriculum_descriptor_is_reproducible_and_unique() -> None:
         f"ids={probe['perturbation_ids']} "
         f"segment_ids={probe['segment_ids']} "
         f"strengths={probe['strengths']} "
+        f"levels={probe['levels']} "
         f"first_seed={probe['first_seed']} "
         f"first_params={probe['first_params']}"
     )
@@ -63,6 +65,20 @@ def test_curriculum_descriptor_is_reproducible_and_unique() -> None:
     assert probe["perturbation_ids"] == list(range(8))
     assert probe["segment_ids"] == [7, 7, 7, 7, 8, 8, 8, 8]
     assert probe["strengths"] == [0.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.5, 0.5]
+    assert probe["levels"] == [
+        "level_00",
+        "level_00",
+        "level_01",
+        "level_01",
+        "level_00",
+        "level_00",
+        "level_01",
+        "level_01",
+    ]
+    assert probe["first_params"]["curriculum_mode"] == "discrete_bank"
+    assert probe["first_params"]["level_index"] == 0
+    assert probe["first_params"]["level_name"] == "level_00"
+    assert probe["first_params"]["variant_index"] == 0
     assert [perturb.descriptor_signature(item) for item in descriptors_a] == [
         perturb.descriptor_signature(item) for item in descriptors_b
     ]
@@ -85,6 +101,123 @@ def test_curriculum_seed_changes_nonzero_descriptor_params() -> None:
     assert desc_a.params != desc_b.params
 
 
+class _Bank:
+    def __init__(self, records):
+        self.records = tuple(records)
+
+    def validate(self) -> None:
+        assert self.records
+        for record in self.records:
+            record.validate()
+
+
+class _BankRecord:
+    def __init__(
+        self,
+        *,
+        bank_id: int,
+        family_group: tuple[str, ...],
+        mix_class: str,
+        mix_class_index: int,
+        frontier_scale: float,
+        dr_factor: float,
+        actual_dr_scale: float,
+        role: str,
+        seq_idx: int,
+        env_slot: int,
+    ):
+        self.bank_id = bank_id
+        self.family_group = family_group
+        self.mix_class = mix_class
+        self.mix_class_index = mix_class_index
+        self.frontier_scale = frontier_scale
+        self.dr_factor = dr_factor
+        self.actual_dr_scale = actual_dr_scale
+        self.role = role
+        self.seq_idx = seq_idx
+        self.env_slot = env_slot
+
+    def validate(self) -> None:
+        assert self.bank_id >= 0
+        assert self.family_group
+        assert self.mix_class in {"easy", "frontier", "hard"}
+        assert self.mix_class_index in {0, 1, 2}
+        assert self.frontier_scale >= 0.0
+        assert self.dr_factor >= 0.0
+        assert self.actual_dr_scale >= 0.0
+        assert self.role in {"train", "boundary_diagnostic"}
+
+
+def test_hrl_curriculum_bank_records_are_written_into_descriptor_params() -> None:
+    bank = _Bank(
+        [
+            _BankRecord(
+                bank_id=0,
+                family_group=("planar", "yaw"),
+                mix_class="frontier",
+                mix_class_index=1,
+                frontier_scale=2.0,
+                dr_factor=1.0,
+                actual_dr_scale=2.0,
+                role="train",
+                seq_idx=17,
+                env_slot=0,
+            ),
+            _BankRecord(
+                bank_id=1,
+                family_group=("local_rp",),
+                mix_class="hard",
+                mix_class_index=2,
+                frontier_scale=2.0,
+                dr_factor=1.08,
+                actual_dr_scale=2.16,
+                role="boundary_diagnostic",
+                seq_idx=17,
+                env_slot=1,
+            ),
+        ]
+    )
+    cfg = FrontRESBankDescriptorConfig(
+        variants_per_record=2,
+        base_seed=555,
+        duration=4,
+        temporal_mode="single",
+        burst_min_steps=4,
+        burst_max_steps=8,
+    )
+    descriptors = perturb.build_perturbation_descriptors_from_curriculum_bank(_segments()[:1], bank, cfg)
+    probe = perturb.descriptor_probe(descriptors)
+    print(
+        "[cache_perturbation trace] hrl_bank "
+        f"count={probe['count']} "
+        f"families={probe['families']} "
+        f"family_groups={probe['family_groups']} "
+        f"mix_classes={probe['mix_classes']} "
+        f"actual_dr_scales={probe['actual_dr_scales']} "
+        f"roles={probe['roles']} "
+        f"first_params={probe['first_params']}"
+    )
+    assert probe["count"] == 4
+    assert probe["segment_ids"] == [7, 7, 7, 7]
+    assert probe["families"] == ["planar+yaw", "planar+yaw", "local_rp", "local_rp"]
+    assert probe["family_groups"] == [
+        ("planar", "yaw"),
+        ("planar", "yaw"),
+        ("local_rp",),
+        ("local_rp",),
+    ]
+    assert probe["mix_classes"] == ["frontier", "frontier", "hard", "hard"]
+    assert probe["actual_dr_scales"] == [2.0, 2.0, 2.16, 2.16]
+    assert probe["roles"] == ["train", "train", "boundary_diagnostic", "boundary_diagnostic"]
+    assert probe["first_params"]["curriculum_mode"] == "hrl_curriculum_bank"
+    assert probe["first_params"]["frontier_scale"] == 2.0
+    assert probe["first_params"]["dr_factor"] == 1.0
+    assert probe["first_params"]["temporal_mode"] == "single"
+    assert probe["first_params"]["burst_min_steps"] == 4
+    assert probe["first_params"]["burst_max_steps"] == 8
+    assert len({perturb.descriptor_signature(item) for item in descriptors}) == 4
+
+
 def test_curriculum_rejects_invalid_strengths() -> None:
     try:
         perturb.parse_strengths("0.0,-0.5")
@@ -98,5 +231,6 @@ def test_curriculum_rejects_invalid_strengths() -> None:
 if __name__ == "__main__":
     test_curriculum_descriptor_is_reproducible_and_unique()
     test_curriculum_seed_changes_nonzero_descriptor_params()
+    test_hrl_curriculum_bank_records_are_written_into_descriptor_params()
     test_curriculum_rejects_invalid_strengths()
     print("PASS: FrontRES perturbation curriculum descriptors are reproducible and indexed.")

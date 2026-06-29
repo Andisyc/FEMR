@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>代码设计与实现规范阅读路线</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f6f2;
+      --panel: #ffffff;
+      --ink: #1d2430;
+      --muted: #667085;
+      --line: #d9ded7;
+      --accent: #2f6f63;
+      --accent-soft: #e4f0ec;
+      --warn: #8a5a13;
+      --warn-soft: #fbefd8;
+      --code: #f2f4f7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        "Noto Sans CJK SC",
+        "PingFang SC",
+        "Microsoft YaHei",
+        sans-serif;
+      line-height: 1.65;
+    }
+
+    main {
+      width: min(1080px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 42px 0 64px;
+    }
+
+    header {
+      padding: 30px 0 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: clamp(30px, 4vw, 46px);
+      font-weight: 780;
+    }
+
+    h2 {
+      margin-top: 42px;
+      font-size: 24px;
+      font-weight: 720;
+    }
+
+    h3 {
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    p {
+      margin: 10px 0 0;
+    }
+
+    a {
+      color: var(--accent);
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .subtitle {
+      max-width: 820px;
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 24px;
+    }
+
+    .summary-card,
+    .book,
+    .note-box,
+    .route {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .summary-card {
+      padding: 16px 18px;
+    }
+
+    .summary-card strong {
+      display: block;
+      font-size: 15px;
+    }
+
+    .summary-card span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .book {
+      padding: 18px;
+    }
+
+    .book-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .tag {
+      flex: 0 0 auto;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .book p {
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .route {
+      margin-top: 16px;
+      padding: 18px 20px;
+    }
+
+    ol {
+      margin: 0;
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 8px 0;
+    }
+
+    code {
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: var(--code);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .note-box {
+      margin-top: 16px;
+      padding: 18px 20px;
+      background: var(--warn-soft);
+      border-color: #ead3a4;
+      color: var(--warn);
+    }
+
+    .checklist {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 24px;
+      margin-top: 16px;
+      padding: 18px 20px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .checklist div::before {
+      content: "";
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-right: 9px;
+      border-radius: 50%;
+      background: var(--accent);
+      vertical-align: middle;
+    }
+
+    footer {
+      margin-top: 46px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 760px) {
+      main {
+        width: min(100vw - 24px, 1080px);
+        padding-top: 22px;
+      }
+
+      .summary,
+      .grid,
+      .checklist {
+        grid-template-columns: 1fr;
+      }
+
+      .book-meta {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>代码设计与实现规范阅读路线</h1>
+      <p class="subtitle">
+        这份笔记接在《软件设计哲学》之后。目标不是记住更多术语，而是建立一套判断方式：
+        功能应该放在哪个模块，接口应该怎么设计，参数如何流动，测试如何快速定位问题。
+      </p>
+      <section class="summary" aria-label="学习目标摘要">
+        <div class="summary-card">
+          <strong>核心问题</strong>
+          <span>如何降低复杂度，而不是把代码拆得更碎。</span>
+        </div>
+        <div class="summary-card">
+          <strong>工程目标</strong>
+          <span>模块输入输出清楚，关键参数路径可追踪。</span>
+        </div>
+        <div class="summary-card">
+          <strong>阅读方式</strong>
+          <span>先读重构和实现规范，再读模式和架构。</span>
+        </div>
+      </section>
+    </header>
+
+    <section>
+      <h2>第一梯队：直接提升代码设计</h2>
+      <div class="grid">
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://martinfowler.com/books/refactoring.html">Refactoring: Improving the Design of Existing Code</a></h3>
+            <span class="tag">最优先</span>
+          </div>
+          <p>
+            重点是已经写出来的代码怎么一步步改好，同时保持行为不变。它适合现在这种复杂仓库：
+            先建立测试边界，再把坏结构慢慢拆开。
+          </p>
+        </article>
+
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://www.oreilly.com/library/view/code-complete-2nd/0735619670/">Code Complete, 2nd Edition</a></h3>
+            <span class="tag">实现规范</span>
+          </div>
+          <p>
+            更像实现手册。命名、函数、变量、条件、循环、调试、测试、代码布局都讲。
+            不需要通读，适合当工具书查。
+          </p>
+        </article>
+
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://pragprog.com/titles/tpp20/the-pragmatic-programmer-20th-anniversary-edition/">The Pragmatic Programmer</a></h3>
+            <span class="tag">工程习惯</span>
+          </div>
+          <p>
+            它讲程序员日常判断：不要重复知识，避免偶然编程，快速反馈，自动化，测试，工具使用。
+            它不深，但很实用。
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>第二梯队：理解模式和模块边界</h2>
+      <div class="grid">
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://www.oreilly.com/library/view/head-first-design/9781492077992/">Head First Design Patterns, 2nd Edition</a></h3>
+            <span class="tag">设计模式</span>
+          </div>
+          <p>
+            如果想理解观察者模式、中介模式、工厂模式、策略模式、适配器模式，先读这本。
+            它比 GoF 原书容易读，适合建立直觉。
+          </p>
+        </article>
+
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://martinfowler.com/books/eaa.html">Patterns of Enterprise Application Architecture</a></h3>
+            <span class="tag">架构模式</span>
+          </div>
+          <p>
+            更工程化。讲分层、领域逻辑、数据访问、事务、服务层、数据映射。
+            对 cache、sampler、runner、env hook 这类模块关系有启发。
+          </p>
+        </article>
+
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://www.cosmicpython.com/book/preface.html">Architecture Patterns with Python</a></h3>
+            <span class="tag">Python 架构</span>
+          </div>
+          <p>
+            直接讲 Python 项目怎么拆：Repository、Service Layer、Unit of Work、Message Bus、
+            Dependency Injection。还有免费在线版。
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>第三梯队：维护已有复杂代码</h2>
+      <div class="grid">
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://www.oreilly.com/library/view/working-effectively-with/0131177052/">Working Effectively with Legacy Code</a></h3>
+            <span class="tag">复杂仓库</span>
+          </div>
+          <p>
+            适合不是从零写漂亮代码，而是在已有系统里插入新机制的场景。
+            核心思想是先制造测试缝隙，再安全修改。
+          </p>
+        </article>
+
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://www.pearson.com/en-us/subject-catalog/p/clean-code-a-handbook-of-agile-software-craftsmanship/P200000009556">Clean Code</a></h3>
+            <span class="tag">批判阅读</span>
+          </div>
+          <p>
+            命名、函数职责、重复代码处理有价值。但它和《软件设计哲学》有冲突。
+            尤其是“函数越短越好”，不能机械接受。
+          </p>
+        </article>
+      </div>
+
+      <div class="note-box">
+        更适合当前工作方式的判断是：模块要深，接口要小，内部可以复杂，但外部必须稳定。
+        不要为了短函数把一个完整参数处理链拆散到难以追踪。
+      </div>
+    </section>
+
+    <section>
+      <h2>第四梯队：Python 和实现规范</h2>
+      <div class="grid">
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://peps.python.org/pep-0008/">PEP 8</a></h3>
+            <span class="tag">官方规范</span>
+          </div>
+          <p>
+            Python 官方风格规范。重点看命名、import、注释、空行、行宽、public/internal interface。
+          </p>
+        </article>
+
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://google.github.io/styleguide/pyguide.html">Google Python Style Guide</a></h3>
+            <span class="tag">团队规范</span>
+          </div>
+          <p>
+            比 PEP 8 更工程化。适合团队代码，尤其是类型标注、异常、测试、导入、注释规范。
+          </p>
+        </article>
+
+        <article class="book">
+          <div class="book-meta">
+            <h3><a href="https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/">Fluent Python, 2nd Edition</a></h3>
+            <span class="tag">语言进阶</span>
+          </div>
+          <p>
+            用来把 Python 写得更地道。不建议太早读，它偏语言能力，不直接解决架构问题。
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>建议阅读顺序</h2>
+      <div class="route">
+        <ol>
+          <li>先读 <strong>Refactoring</strong>，建立“改代码不破坏行为”的方法。</li>
+          <li>再用 <strong>Code Complete</strong> 补实现规范，按问题查，不必通读。</li>
+          <li>读 <strong>Head First Design Patterns</strong>，建立常见模式直觉。</li>
+          <li>读 <strong>Working Effectively with Legacy Code</strong>，学习在复杂仓库里安全插入新机制。</li>
+          <li>读 <strong>Architecture Patterns with Python</strong>，把模块边界和测试边界对应起来。</li>
+          <li>最后读 <strong>Patterns of Enterprise Application Architecture</strong>，理解更大的工程组织方式。</li>
+          <li>日常参考 <strong>PEP 8</strong> 和 <strong>Google Python Style Guide</strong>。</li>
+          <li>有余力再读 <strong>Fluent Python</strong>。</li>
+        </ol>
+      </div>
+    </section>
+
+    <section>
+      <h2>读这些书时要回答的问题</h2>
+      <div class="checklist">
+        <div>这个功能属于哪个模块？</div>
+        <div>这个模块的输入输出能不能单独测试？</div>
+        <div>关键参数在哪几个步骤被处理？</div>
+        <div>如果参数错了，我能不能逐层 probe？</div>
+        <div>接口是否稳定，内部是否可以替换？</div>
+        <div>这个抽象减少复杂度，还是只是增加名字？</div>
+        <div>测试是在检查行为，还是只检查能不能运行？</div>
+        <div>现在的拆分是否符合仓库已有设计模式？</div>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        写作日期：2026-06-29。定位：个人工程学习路线，不是 FEMR 训练契约。
+      </p>
+    </footer>
+  </main>
+</body>
+</html>

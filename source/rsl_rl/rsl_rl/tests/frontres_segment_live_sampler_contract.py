@@ -65,6 +65,11 @@ def _install_import_stubs() -> None:
         ROOT / "rsl_rl" / "frontres" / "frontres_segment_storage.py",
     )
     frontres_pkg.frontres_segment_storage = storage_module
+    reset_module = _load(
+        "rsl_rl.frontres.frontres_segment_reset",
+        ROOT / "rsl_rl" / "frontres" / "frontres_segment_reset.py",
+    )
+    frontres_pkg.frontres_segment_reset = reset_module
 
     class _FakeFrontRESActorCritic:
         pass
@@ -107,6 +112,18 @@ checkpointing_module = _load(
     "frontres_checkpointing",
     ROOT / "rsl_rl" / "runners" / "frontres_checkpointing.py",
 )
+schema_module = _load(
+    "frontres_segment_cache_schema_for_live_sampler_contract",
+    ROOT / "rsl_rl" / "frontres" / "frontres_segment_cache_schema.py",
+)
+indexer_module = _load(
+    "frontres_segment_cache_indexer_for_live_sampler_contract",
+    ROOT / "rsl_rl" / "frontres" / "frontres_segment_cache_indexer.py",
+)
+cache_io_module = _load(
+    "frontres_segment_cache_io_for_live_sampler_contract",
+    ROOT / "rsl_rl" / "frontres" / "frontres_segment_cache_io.py",
+)
 
 FrontRESSegmentSampler = sampler_module.FrontRESSegmentSampler
 initialize_frontres_segment_live_sampler = live_sampler_module.initialize_frontres_segment_live_sampler
@@ -116,6 +133,12 @@ FrontRESSegmentLiveRolloutCapture = live_probe_module.FrontRESSegmentLiveRollout
 build_live_segment_storage = live_probe_module.build_live_segment_storage
 save_runner = checkpointing_module.save_runner
 load_runner = checkpointing_module.load_runner
+FrontRESSegmentIndex = schema_module.FrontRESSegmentIndex
+FrontRESRobotRolloutState = schema_module.FrontRESRobotRolloutState
+FrontRESPerturbationDescriptor = schema_module.FrontRESPerturbationDescriptor
+FrontRESNoisyVariant = schema_module.FrontRESNoisyVariant
+FrontRESAMASSIndexSummary = indexer_module.FrontRESAMASSIndexSummary
+FrontRESCleanStateEntry = cache_io_module.FrontRESCleanStateEntry
 
 
 class FakeBoundary:
@@ -131,7 +154,7 @@ class FakeEnv:
 
 
 class FakeRunner:
-    def __init__(self, summaries: list[dict] | None = None) -> None:
+    def __init__(self, summaries: list[dict] | None = None, cache_dir: str = "") -> None:
         self._frontres_segment_replay_boundary = FakeBoundary()
         self.env = FakeEnv()
         self.device = "cpu"
@@ -143,18 +166,27 @@ class FakeRunner:
             frontres_segment_sampler_review_frac=0.1,
             frontres_segment_live_update_steps=3,
             frontres_segment_k=4,
+            frontres_segment_cache_dir=cache_dir,
+            frontres_segment_include_boundary_diagnostic=False,
         )
         self.summaries = summaries or []
         self.probe_init_flags: list[bool] = []
+        self.probe_batch_roles: list[tuple[str, ...] | None] = []
+        self.probe_batch_ids: list[list[int] | None] = []
 
     def run_frontres_segment_live_probe(self, *, init_at_random_ep_len: bool) -> dict:
         self.probe_init_flags.append(init_at_random_ep_len)
+        batch = getattr(self, "_frontres_segment_live_current_batch", None)
+        self.probe_batch_roles.append(None if batch is None else tuple(batch.perturbation_role))
+        self.probe_batch_ids.append(None if batch is None else batch.segment_ids.detach().cpu().tolist())
         index = min(len(self.probe_init_flags) - 1, len(self.summaries) - 1)
         summary = dict(self.summaries[index])
         print(
             "[probe step22] fake_live_probe: "
             f"call={len(self.probe_init_flags)} "
             f"init_at_random_ep_len={init_at_random_ep_len} "
+            f"batch_ids={self.probe_batch_ids[-1]} "
+            f"batch_roles={self.probe_batch_roles[-1]} "
             f"reward_mean={summary['reward_mean']} "
             f"storage_reward_mean={summary['storage_reward_mean']} "
             f"ppo_valid_count={summary['ppo_valid_count']}",
@@ -180,6 +212,143 @@ def _summary(reward: float, valid_count: int = 2) -> dict:
     }
 
 
+def _summary_per_sample(
+    rewards: list[float],
+    storage_valid: list[bool],
+    done_any: list[bool],
+) -> dict:
+    assert len(rewards) == len(storage_valid) == len(done_any)
+    valid_count = sum(1 for item in storage_valid if item)
+    return {
+        "ppo_update": valid_count > 0,
+        "ppo_valid_count": valid_count,
+        "reward_mean": float(sum(rewards) / max(1, len(rewards))),
+        "reward_per_sample": list(rewards),
+        "done_frac": float(sum(1 for item in done_any if item) / max(1, len(done_any))),
+        "done_any_per_sample": list(done_any),
+        "storage_size": len(rewards),
+        "storage_valid_frac": float(valid_count / max(1, len(storage_valid))),
+        "storage_reward_mean": float(sum(rewards) / max(1, len(rewards))),
+        "storage_reward_per_sample": list(rewards),
+        "storage_valid_mask_per_sample": list(storage_valid),
+        "ppo_total_loss": 0.5,
+        "ppo_actor_loss": 0.1,
+        "ppo_value_loss": 0.2,
+        "ppo_approx_kl": 0.01,
+        "ppo_clip_frac": 0.0,
+    }
+
+
+def _cache_segment() -> FrontRESSegmentIndex:
+    return FrontRESSegmentIndex(
+        segment_id=0,
+        motion_rel_path="KIT/359/motion_a.npz",
+        motion_num_frames=8,
+        fps=30.0,
+        start_frame=2,
+        horizon_k=4,
+    )
+
+
+def _cache_state(offset: float) -> FrontRESRobotRolloutState:
+    batch = 1
+    dofs = 29
+    bodies = 30
+    return FrontRESRobotRolloutState(
+        root_pos=torch.full((batch, 3), offset),
+        root_quat=torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float32),
+        root_lin_vel=torch.full((batch, 3), offset + 0.1),
+        root_ang_vel=torch.full((batch, 3), offset + 0.2),
+        joint_pos=torch.arange(dofs, dtype=torch.float32).view(batch, dofs) + offset,
+        joint_vel=torch.arange(dofs, dtype=torch.float32).view(batch, dofs) * 0.01 + offset,
+        body_pos_w=torch.full((batch, bodies, 3), offset + 1.0),
+        body_quat_w=torch.zeros(batch, bodies, 4).index_fill(2, torch.tensor([0]), 1.0),
+        body_lin_vel_w=torch.full((batch, bodies, 3), offset + 0.3),
+        body_ang_vel_w=torch.full((batch, bodies, 3), offset + 0.4),
+        contact_state=torch.ones(batch, 4),
+        action_history=torch.zeros(batch, 2, dofs),
+    )
+
+
+def _cache_descriptor(perturbation_id: int, strength: float, role: str) -> FrontRESPerturbationDescriptor:
+    return FrontRESPerturbationDescriptor(
+        perturbation_id=perturbation_id,
+        segment_id=0,
+        strength=strength,
+        seed=900 + perturbation_id,
+        family="hrl_curriculum_bank",
+        start_step=0,
+        duration=4,
+        target="torso_link",
+        frame="world",
+        params={
+            "curriculum_mode": "hrl_curriculum_bank",
+            "family_group": ("planar", "yaw"),
+            "mix_class": "hard" if role == "boundary_diagnostic" else "frontier",
+            "mix_class_index": 2 if role == "boundary_diagnostic" else 1,
+            "frontier_scale": 2.0,
+            "dr_factor": 1.08 if role == "boundary_diagnostic" else 1.0,
+            "actual_dr_scale": strength,
+            "perturbation_role": role,
+            "temporal_mode": "single",
+            "burst_min_steps": 4,
+            "burst_max_steps": 8,
+        },
+    )
+
+
+def _write_stage1_cache(cache_dir: Path) -> None:
+    segment = _cache_segment()
+    summary = FrontRESAMASSIndexSummary(
+        amass_root="/tmp/fake_amass",
+        motion_count=1,
+        segment_count=1,
+        horizon_k=4,
+        frame_stride=1,
+        skipped_short_motions=0,
+    )
+    indexer_module.write_amass_segment_index(cache_dir, [segment], summary)
+    cache_io_module.write_clean_state_shard(
+        cache_dir,
+        [FrontRESCleanStateEntry(segment=segment, clean_state=_cache_state(0.0))],
+        shard_id=0,
+    )
+    for perturbation_id, strength, role in (
+        (0, 1.5, "train"),
+        (1, 2.16, "boundary_diagnostic"),
+    ):
+        cache_io_module.write_noisy_variant_shard(
+            cache_dir,
+            [
+                FrontRESNoisyVariant(
+                    segment=segment,
+                    descriptor=_cache_descriptor(perturbation_id, strength, role),
+                    noisy_state=_cache_state(strength),
+                    noisy_baseline_score=torch.tensor([0.4 + strength], dtype=torch.float32),
+                    noisy_fall=torch.tensor([1.0 if role == "boundary_diagnostic" else 0.0], dtype=torch.float32),
+                    noisy_rollout_len=torch.tensor([4.0], dtype=torch.float32),
+                )
+            ],
+            strength=strength,
+            shard_id=0,
+        )
+    cache_io_module.write_cache_metadata(
+        cache_dir,
+        {
+            "stage": "stage1_segment_cache",
+            "segment_count": 1,
+            "clean_count": 1,
+            "noisy_count": 2,
+            "horizon_k": 4,
+            "frame_stride": 1,
+            "strengths": [1.5, 2.16],
+            "perturbation_curriculum_mode": "hrl_curriculum_bank",
+            "clean_shard_id": 0,
+            "noisy_shard_id": 0,
+        },
+    )
+
+
 def test_live_summary_becomes_sampler_evidence() -> None:
     sampler = FrontRESSegmentSampler(4, seed=1)
     sample = sampler.sample(2)
@@ -196,6 +365,50 @@ def test_live_summary_becomes_sampler_evidence() -> None:
     assert evidence.valid_reward.tolist() == [True, True]
     assert torch.all(evidence.gain_over_noisy > 0.0)
     assert evidence.horizon_k.tolist() == [4, 4]
+
+
+def test_live_sampler_evidence_carries_partial_reset_failure() -> None:
+    sampler = FrontRESSegmentSampler(4, seed=2)
+    sample = sampler.sample(2)
+    reset_result = SimpleNamespace(success_mask=torch.tensor([True, False]))
+    evidence = build_live_sampler_evidence(sample, _summary(0.4), horizon_k=4, reset_result=reset_result)
+    print(
+        "[probe step12] sampler_reset_evidence: "
+        f"ids={evidence.segment_ids.tolist()} "
+        f"reset_success={evidence.reset_success.tolist()} "
+        f"valid_reward={evidence.valid_reward.tolist()} "
+        f"gain={evidence.gain_over_noisy.tolist()}",
+        flush=True,
+    )
+    assert evidence.reset_success.tolist() == [True, False]
+    assert evidence.valid_reward.tolist() == [True, False]
+    torch.testing.assert_close(evidence.gain_over_noisy, torch.full((2,), 0.4))
+
+
+def test_live_sampler_evidence_preserves_per_sample_rollout_facts() -> None:
+    sampler = FrontRESSegmentSampler(4, seed=12)
+    sample = sampler.sample(2)
+    reset_result = SimpleNamespace(success_mask=torch.tensor([True, False]))
+    summary = _summary_per_sample(
+        rewards=[0.8, -0.2],
+        storage_valid=[True, False],
+        done_any=[False, True],
+    )
+    evidence = build_live_sampler_evidence(sample, summary, horizon_k=4, reset_result=reset_result)
+    print(
+        "[probe step14] per_sample_evidence: "
+        f"ids={evidence.segment_ids.tolist()} "
+        f"reward={summary['storage_reward_per_sample']} "
+        f"reset_success={evidence.reset_success.tolist()} "
+        f"valid_reward={evidence.valid_reward.tolist()} "
+        f"fall={evidence.fall_repaired.tolist()} "
+        f"gain={evidence.gain_over_noisy.tolist()}",
+        flush=True,
+    )
+    assert evidence.reset_success.tolist() == [True, False]
+    assert evidence.valid_reward.tolist() == [True, False]
+    assert evidence.fall_repaired.tolist() == [False, True]
+    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.8, -0.2]))
 
 
 def test_live_update_loop_samples_and_updates_priority() -> None:
@@ -219,6 +432,50 @@ def test_live_update_loop_samples_and_updates_priority() -> None:
     assert result["sampler_global_count"] + result["sampler_replay_count"] + result["sampler_review_count"] == 6
     assert stats.seen_count > 0
     assert stats.priority_mean > 0.0
+
+
+def test_live_sampler_initializes_dataset_from_stage1_cache_dir() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp) / "AMASS_G1Segment"
+        _write_stage1_cache(cache_dir)
+        runner = FakeRunner(cache_dir=str(cache_dir))
+        initialize_frontres_segment_live_sampler(runner)
+        metadata = runner._frontres_segment_dataset.cache_metadata()
+        print(
+            "[probe step23] cache_dataset_sampler: "
+            f"cache_dir={cache_dir} "
+            f"dataset_segments={runner._frontres_segment_dataset.num_segments()} "
+            f"sampler_segments={runner._frontres_segment_sampler.num_segments} "
+            f"metadata={metadata}",
+            flush=True,
+        )
+        assert runner._frontres_segment_dataset.num_segments() == 1
+        assert runner._frontres_segment_sampler.num_segments == 1
+        assert metadata["loaded_motion_count"] == 1
+        assert metadata["skipped_boundary_diagnostic_count"] == 1
+        assert metadata["role_counts"] == {"train": 1, "boundary_diagnostic": 1}
+
+
+def test_live_sampler_builds_current_batch_before_probe() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp) / "AMASS_G1Segment"
+        _write_stage1_cache(cache_dir)
+        runner = FakeRunner([_summary(0.3)], cache_dir=str(cache_dir))
+        initialize_frontres_segment_live_sampler(runner)
+        result = run_frontres_segment_live_update_loop(runner, init_at_random_ep_len=True, runner_learn=True)
+        print(
+            "[probe step24] current_batch: "
+            f"probe_batch_ids={runner.probe_batch_ids} "
+            f"probe_batch_roles={runner.probe_batch_roles} "
+            f"sampler_update_count={result['sampler_update_count']}",
+            flush=True,
+        )
+        assert runner.probe_batch_ids == [[0, 0], [0, 0], [0, 0]]
+        assert runner.probe_batch_roles == [("train", "train"), ("train", "train"), ("train", "train")]
+        assert result["sampler_update_count"] == 3
+        assert getattr(runner, "_frontres_segment_live_current_batch", None) is None
+        assert getattr(runner, "_frontres_segment_live_current_reset_request", None) is None
+        assert getattr(runner, "_frontres_segment_live_current_reset_result", None) is None
 
 
 def test_live_storage_uses_sampled_segment_ids_and_sources() -> None:
@@ -312,7 +569,11 @@ def test_runner_checkpoint_saves_and_restores_sampler_state() -> None:
 
 def main() -> None:
     test_live_summary_becomes_sampler_evidence()
+    test_live_sampler_evidence_carries_partial_reset_failure()
+    test_live_sampler_evidence_preserves_per_sample_rollout_facts()
     test_live_update_loop_samples_and_updates_priority()
+    test_live_sampler_initializes_dataset_from_stage1_cache_dir()
+    test_live_sampler_builds_current_batch_before_probe()
     test_live_storage_uses_sampled_segment_ids_and_sources()
     test_runner_checkpoint_saves_and_restores_sampler_state()
     print("frontres_segment_live_sampler_contract: ok")

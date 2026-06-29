@@ -1,0 +1,7 @@
+interface:
+  display_name: "Human Readable HTML"
+  short_description: "Readable HTML research pages"
+  brand_color: "#2F6F63"
+  default_prompt: "Use $human-readable-html to create a polished HTML page for this research or engineering note."
+policy:
+  allow_implicit_invocation: true

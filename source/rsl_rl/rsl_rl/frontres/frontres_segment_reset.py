@@ -143,6 +143,7 @@ class FrontRESSegmentResetAdapter:
         fall = self._bool_field(mapping, ("fall_at_reset_mask", "fall_at_reset", "fall"), count, device, False)
         contact = self._bool_field(mapping, ("contact_mismatch_mask", "contact_mismatch"), count, device, False)
         velocity = self._float_field(mapping, ("velocity_mismatch",), count, device, 0.0)
+        reference_applied = self._bool_field(mapping, ("reference_window_applied",), count, device, False)
         invalid_static = self._static_reset_mask(request)
         success = success & (~fall) & (~contact) & (velocity <= self.velocity_mismatch_tolerance) & (~invalid_static)
         direct = torch.tensor([name == "direct" for name in request.mode], dtype=torch.bool, device=device)
@@ -155,6 +156,7 @@ class FrontRESSegmentResetAdapter:
             "fall_at_reset_frac": float(fall.float().mean().item()) if count else 0.0,
             "contact_mismatch_frac": float(contact.float().mean().item()) if count else 0.0,
             "velocity_mismatch_mean": float(velocity.float().mean().item()) if count else 0.0,
+            "reference_window_applied_frac": float(reference_applied.float().mean().item()) if count else 0.0,
         }
         return FrontRESSegmentResetResult(
             success_mask=success,
@@ -226,3 +228,236 @@ class FrontRESSegmentResetAdapter:
             if name in mapping:
                 return mapping[name].to(device=device).float().flatten()
         return torch.full((count,), default, dtype=torch.float32, device=device)
+
+
+class FrontRESSegmentLiveResetHook:
+    def __init__(self, env: Any, *, robot_name: str = "robot", trace: bool = True) -> None:
+        self.env = env
+        self.base_env = _unwrap_env(env)
+        self.robot_name = str(robot_name)
+        self.trace = bool(trace)
+        self.robot = _resolve_robot(self.base_env, self.robot_name)
+
+    def __call__(self, request: FrontRESSegmentResetRequest) -> dict[str, torch.Tensor]:
+        count = int(request.segment_ids.numel())
+        device = _robot_device(self.robot, request.root_pos.device)
+        env_ids = torch.arange(count, dtype=torch.long, device=device)
+        num_envs = int(getattr(self.base_env, "num_envs", count) or count)
+        if count > num_envs:
+            raise ValueError(f"reset request has {count} rows but env exposes only {num_envs} envs")
+
+        root_before = _optional_index(getattr(getattr(self.robot, "data", None), "root_pos_w", None), env_ids)
+        root_state = torch.cat(
+            [
+                request.root_pos.to(device),
+                request.root_quat.to(device),
+                request.root_lin_vel.to(device),
+                request.root_ang_vel.to(device),
+            ],
+            dim=-1,
+        )
+        self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
+        self.robot.write_joint_state_to_sim(request.dof_pos.to(device), request.dof_vel.to(device), env_ids=env_ids)
+        _reset_motion_command_state(self.base_env, env_ids)
+        reference_applied = _apply_motion_reference_window(self.base_env, env_ids, request.reference_window)
+        _reset_episode_length(self.env, env_ids)
+        _reset_episode_length(self.base_env, env_ids)
+
+        root_after = _optional_index(getattr(getattr(self.robot, "data", None), "root_pos_w", None), env_ids)
+        root_lin_after = _optional_index(getattr(getattr(self.robot, "data", None), "root_lin_vel_w", None), env_ids)
+        dof_vel_after = _optional_index(getattr(getattr(self.robot, "data", None), "joint_vel", None), env_ids)
+        velocity_mismatch = torch.zeros(count, dtype=torch.float32, device=device)
+        if root_lin_after is not None:
+            velocity_mismatch = torch.maximum(
+                velocity_mismatch,
+                torch.linalg.vector_norm(root_lin_after.float() - request.root_lin_vel.to(device).float(), dim=-1),
+            )
+        if dof_vel_after is not None:
+            velocity_mismatch = torch.maximum(
+                velocity_mismatch,
+                torch.linalg.vector_norm(dof_vel_after.float() - request.dof_vel.to(device).float(), dim=-1),
+            )
+        success = torch.ones(count, dtype=torch.bool, device=device)
+        if self.trace:
+            print(
+                "[FrontRES Segment Live Reset Hook] "
+                f"count={count} "
+                f"env_ids={env_ids.detach().cpu().tolist()} "
+                f"segment_ids={request.segment_ids.detach().cpu().tolist()} "
+                f"mode={tuple(request.mode)} "
+                f"root_before={_trace_tensor(root_before)} "
+                f"root_after={_trace_tensor(root_after)} "
+                f"dof_pos={_trace_tensor(request.dof_pos)} "
+                f"dof_vel={_trace_tensor(request.dof_vel)} "
+                f"reference_window={_trace_tensor(request.reference_window if isinstance(request.reference_window, torch.Tensor) else None)} "
+                f"reference_applied={reference_applied.detach().cpu().tolist()} "
+                f"velocity_mismatch_mean={float(velocity_mismatch.float().mean().detach().cpu().item()):.6f}",
+                flush=True,
+            )
+        return {
+            "reset_success": success.to(request.segment_ids.device),
+            "velocity_mismatch": velocity_mismatch.to(request.segment_ids.device),
+            "reference_window_applied": reference_applied.to(request.segment_ids.device),
+        }
+
+
+def ensure_frontres_segment_live_reset_hook(
+    env: Any,
+    *,
+    robot_name: str = "robot",
+    trace: bool = True,
+) -> FrontRESSegmentLiveResetHook:
+    existing = getattr(env, "_frontres_segment_live_reset_hook", None)
+    if isinstance(existing, FrontRESSegmentLiveResetHook):
+        return existing
+    hook = FrontRESSegmentLiveResetHook(env, robot_name=robot_name, trace=trace)
+    setattr(env, "_frontres_segment_live_reset_hook", hook)
+    setattr(env, "apply_frontres_segment_reset", hook)
+    return hook
+
+
+def _unwrap_env(env: Any) -> Any:
+    current = env
+    for _ in range(8):
+        unwrapped = getattr(current, "unwrapped", None)
+        if unwrapped is None or unwrapped is current:
+            return current
+        current = unwrapped
+    return current
+
+
+def _resolve_robot(base_env: Any, robot_name: str) -> Any:
+    scene = getattr(base_env, "scene", None)
+    if scene is None:
+        raise AttributeError("Segment live reset requires env.unwrapped.scene")
+    try:
+        return scene[robot_name]
+    except (KeyError, TypeError):
+        pass
+    if hasattr(scene, robot_name):
+        return getattr(scene, robot_name)
+    raise AttributeError(f"could not resolve robot {robot_name!r} from env scene")
+
+
+def _robot_device(robot: Any, fallback: torch.device) -> torch.device:
+    data = getattr(robot, "data", None)
+    root = getattr(data, "root_pos_w", None)
+    if isinstance(root, torch.Tensor):
+        return root.device
+    return torch.device(fallback)
+
+
+def _optional_index(tensor: Any, env_ids: torch.Tensor) -> torch.Tensor | None:
+    if not isinstance(tensor, torch.Tensor):
+        return None
+    return tensor.index_select(0, env_ids.to(tensor.device)).detach().clone()
+
+
+def _reset_motion_command_state(base_env: Any, env_ids: torch.Tensor) -> None:
+    command = _motion_command(base_env)
+    if command is None:
+        return
+    _zero_indexed(command, "_frontres_pos_correction", env_ids)
+    quat = getattr(command, "_frontres_quat_correction", None)
+    if isinstance(quat, torch.Tensor):
+        ids = env_ids.to(quat.device)
+        quat[ids] = 0.0
+        quat[ids, 0] = 1.0
+    perturber = getattr(command, "perturber", None)
+    reset_envs = getattr(perturber, "reset_envs", None)
+    if callable(reset_envs):
+        reset_envs(env_ids)
+
+
+def _motion_command(base_env: Any) -> Any | None:
+    manager = getattr(base_env, "command_manager", None)
+    if manager is None or not hasattr(manager, "get_term"):
+        return None
+    try:
+        return manager.get_term("motion")
+    except Exception:
+        return None
+
+
+def _apply_motion_reference_window(
+    base_env: Any,
+    env_ids: torch.Tensor,
+    reference_window: Any,
+) -> torch.Tensor:
+    if not isinstance(reference_window, torch.Tensor):
+        return torch.zeros(int(env_ids.numel()), dtype=torch.bool, device=env_ids.device)
+    if reference_window.ndim < 2 or int(reference_window.shape[0]) != int(env_ids.numel()):
+        raise ValueError(
+            "reference_window must be a tensor with first dimension matching reset env count, "
+            f"got {tuple(reference_window.shape)} for {int(env_ids.numel())} envs"
+        )
+    command = _motion_command(base_env)
+    if command is None:
+        return torch.zeros(int(env_ids.numel()), dtype=torch.bool, device=env_ids.device)
+    for name in ("set_frontres_reference_window", "apply_frontres_reference_window", "set_segment_reference_window"):
+        method = getattr(command, name, None)
+        if callable(method):
+            return _call_reference_window_hook(method, reference_window, env_ids)
+    stored = getattr(command, "_frontres_reference_window", None)
+    if isinstance(stored, torch.Tensor):
+        ids = env_ids.to(stored.device)
+        stored[ids].copy_(reference_window.to(stored.device))
+        return torch.ones(int(env_ids.numel()), dtype=torch.bool, device=env_ids.device)
+    return torch.zeros(int(env_ids.numel()), dtype=torch.bool, device=env_ids.device)
+
+
+def _call_reference_window_hook(method: Any, reference_window: torch.Tensor, env_ids: torch.Tensor) -> torch.Tensor:
+    try:
+        result = method(reference_window=reference_window, env_ids=env_ids)
+    except TypeError:
+        try:
+            result = method(reference_window, env_ids=env_ids)
+        except TypeError:
+            result = method(reference_window, env_ids)
+    return _coerce_reference_applied(result, env_ids)
+
+
+def _coerce_reference_applied(result: Any, env_ids: torch.Tensor) -> torch.Tensor:
+    count = int(env_ids.numel())
+    if result is None:
+        return torch.ones(count, dtype=torch.bool, device=env_ids.device)
+    if isinstance(result, torch.Tensor):
+        applied = result.to(device=env_ids.device).bool().reshape(-1)
+        if int(applied.numel()) != count:
+            raise ValueError(f"reference hook result must have {count} rows, got {int(applied.numel())}")
+        return applied.detach()
+    if isinstance(result, (list, tuple)):
+        if len(result) != count:
+            raise ValueError(f"reference hook result must have {count} rows, got {len(result)}")
+        return torch.tensor(result, dtype=torch.bool, device=env_ids.device)
+    return torch.full((count,), bool(result), dtype=torch.bool, device=env_ids.device)
+
+
+def _zero_indexed(owner: Any, name: str, env_ids: torch.Tensor) -> None:
+    value = getattr(owner, name, None)
+    if isinstance(value, torch.Tensor):
+        value[env_ids.to(value.device)] = 0.0
+
+
+def _reset_episode_length(env: Any, env_ids: torch.Tensor) -> None:
+    value = getattr(env, "episode_length_buf", None)
+    if isinstance(value, torch.Tensor):
+        value[env_ids.to(value.device)] = 0
+
+
+def _trace_tensor(value: torch.Tensor | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    tensor = value.detach()
+    if tensor.numel() == 0:
+        return {"shape": tuple(tensor.shape), "numel": 0}
+    numeric = tensor.float()
+    return {
+        "shape": tuple(tensor.shape),
+        "device": str(tensor.device),
+        "finite": bool(torch.isfinite(numeric).all().item()),
+        "min": float(numeric.min().item()),
+        "max": float(numeric.max().item()),
+        "mean": float(numeric.mean().item()),
+        "requires_grad": bool(tensor.requires_grad),
+    }

@@ -1212,6 +1212,7 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_pair_candidate_ids: torch.Tensor | None = None
         self._frontres_pair_base_ids: torch.Tensor | None = None
         self._frontres_pair_clean_ids: torch.Tensor | None = None
+        self._init_frontres_reference_window_buffers()
 
         # Per-step perturbation cache: computed once in _update_command() so that all
         # properties (anchor_pos_w, anchor_quat_w, anchor_dr_delta_*) share the SAME
@@ -1467,6 +1468,100 @@ class MultiMotionCommand(CommandTerm):
             paired.append(env_ids[clean_mask] - clean_ids[0] + base_ids[0])
         return torch.unique(torch.cat(paired), sorted=False)
 
+    def _init_frontres_reference_window_buffers(self) -> None:
+        self._frontres_reference_window: torch.Tensor | None = None
+        self._frontres_reference_window_active = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self._frontres_reference_window_cursor = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+
+    def set_frontres_reference_window(self, reference_window: torch.Tensor, *, env_ids: torch.Tensor) -> torch.Tensor:
+        """Override GMT command future joint reference for Segment Replay env rows."""
+        if not isinstance(reference_window, torch.Tensor):
+            raise TypeError("reference_window must be a torch.Tensor")
+        if reference_window.ndim != 3:
+            raise ValueError(f"reference_window must have shape [B, W, F], got {tuple(reference_window.shape)}")
+        env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
+        if int(reference_window.shape[0]) != int(env_ids.numel()):
+            raise ValueError(
+                "reference_window first dimension must match env_ids, "
+                f"got {int(reference_window.shape[0])} and {int(env_ids.numel())}"
+            )
+        dof = int(self.motion_dir_loader.joint_pos.shape[-1])
+        feature_dim = int(reference_window.shape[-1])
+        if feature_dim not in (dof, 2 * dof):
+            raise ValueError(f"reference_window feature dim must be {dof} or {2 * dof}, got {feature_dim}")
+        value = reference_window.to(device=self.device, dtype=torch.float32).detach()
+        if (
+            self._frontres_reference_window is None
+            or tuple(self._frontres_reference_window.shape[1:]) != tuple(value.shape[1:])
+        ):
+            self._frontres_reference_window = torch.zeros(
+                self.num_envs,
+                int(value.shape[1]),
+                int(value.shape[2]),
+                dtype=value.dtype,
+                device=self.device,
+            )
+        self._frontres_reference_window[env_ids] = value
+        self._frontres_reference_window_active[env_ids] = True
+        self._frontres_reference_window_cursor[env_ids] = 0
+        return torch.ones(int(env_ids.numel()), dtype=torch.bool, device=self.device)
+
+    def clear_frontres_reference_window(self, env_ids: torch.Tensor | None = None) -> None:
+        if env_ids is None:
+            self._frontres_reference_window_active[:] = False
+            self._frontres_reference_window_cursor[:] = 0
+            return
+        ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
+        if int(ids.numel()) == 0:
+            return
+        self._frontres_reference_window_active[ids] = False
+        self._frontres_reference_window_cursor[ids] = 0
+
+    def _advance_frontres_reference_window(self) -> None:
+        active = self._frontres_reference_window_active
+        if not bool(active.any()):
+            return
+        self._frontres_reference_window_cursor[active] += 1
+        if self._frontres_reference_window is None:
+            self.clear_frontres_reference_window(torch.nonzero(active, as_tuple=False).flatten())
+            return
+        window_len = int(self._frontres_reference_window.shape[1])
+        expired = active & (self._frontres_reference_window_cursor >= window_len)
+        if bool(expired.any()):
+            self.clear_frontres_reference_window(torch.nonzero(expired, as_tuple=False).flatten())
+
+    def _frontres_reference_window_for(self, getter: str, horizon: int) -> tuple[torch.Tensor, torch.Tensor] | None:
+        if self._frontres_reference_window is None or not bool(self._frontres_reference_window_active.any()):
+            return None
+        if getter not in {"joint_pos", "joint_vel"}:
+            return None
+        dof = int(self.motion_dir_loader.joint_pos.shape[-1])
+        feature_dim = int(self._frontres_reference_window.shape[-1])
+        if getter == "joint_vel" and feature_dim != 2 * dof:
+            return None
+        env_ids = torch.nonzero(self._frontres_reference_window_active, as_tuple=False).flatten()
+        if int(env_ids.numel()) == 0:
+            return None
+        cursor = self._frontres_reference_window_cursor[env_ids].unsqueeze(1)
+        offsets = torch.arange(int(horizon), device=self.device, dtype=torch.long).view(1, -1)
+        window_len = int(self._frontres_reference_window.shape[1])
+        frame_ids = torch.clamp(cursor + offsets, max=max(window_len - 1, 0))
+        rows = self._frontres_reference_window[env_ids.unsqueeze(1), frame_ids]
+        if getter == "joint_pos":
+            rows = rows[..., :dof]
+        else:
+            rows = rows[..., dof : 2 * dof]
+        return env_ids, rows
+
+    def _apply_frontres_reference_window(self, getter: str, gathered: torch.Tensor, horizon: int) -> torch.Tensor:
+        override = self._frontres_reference_window_for(getter, horizon)
+        if override is None:
+            return gathered
+        env_ids, rows = override
+        output = gathered.clone()
+        output[env_ids] = rows.to(output.device, dtype=output.dtype)
+        return output
+
     # ------------- properties (gathered across envs/motions) -------------
     def _gather_future_by_motion(self, getter: str, horizon: int) -> torch.Tensor:
         if horizon <= 0:
@@ -1482,7 +1577,8 @@ class MultiMotionCommand(CommandTerm):
         flat_frames = frame_indices.reshape(-1)
         gathered = self.motion_dir_loader.gather(getter, flat_motion, flat_frames, out_device=self.device)
         new_shape = (self.num_envs, horizon) + gathered.shape[1:]
-        return gathered.view(new_shape)
+        gathered = gathered.view(new_shape)
+        return self._apply_frontres_reference_window(getter, gathered, horizon)
 
     @property
     def command(self) -> torch.Tensor:
@@ -2116,6 +2212,7 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_pos_correction[env_ids] = 0.0
         self._frontres_quat_correction[env_ids] = 0.0
         self._frontres_quat_correction[env_ids, 0] = 1.0
+        self.clear_frontres_reference_window(env_ids)
         self.perturber.reset_envs(env_ids)
 
     def _update_metrics(self):
@@ -2182,6 +2279,7 @@ class MultiMotionCommand(CommandTerm):
     def _update_command(self):
         self._global_sim_step += 1
         self.time_steps += 1
+        self._advance_frontres_reference_window()
 
         # ── Cache perturbation samples once per step ──────────────────────────
         # All properties using MotionPerturber must read from this cache to

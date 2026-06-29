@@ -331,6 +331,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Initialize Stage 3 repair actor from Stage 1 HSL weights when loading checkpoints."""
     frontres_segment_k: int = 4
     """K-step horizon for Segment Replay HRL rollout scoring."""
+    frontres_segment_cache_dir: str = ""
+    """Optional Stage 1 Segment cache directory used to initialize the Stage 3 Segment Replay dataset."""
+    frontres_segment_include_boundary_diagnostic: bool = False
+    """Include boundary-diagnostic cache samples in the Stage 3 dataset as invalid diagnostics instead of skipping them."""
     frontres_segment_sampler_global_frac: float = 0.4
     """Sampling fraction for global segment coverage."""
     frontres_segment_sampler_replay_frac: float = 0.5

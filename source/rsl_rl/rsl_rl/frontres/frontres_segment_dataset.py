@@ -1,9 +1,31 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib.util
+from pathlib import Path
+import sys
 from typing import Any, Callable, Iterable, Sequence
 
 import torch
+
+
+def _load_same_dir(module_name: str):
+    path = Path(__file__).with_name(f"{module_name}.py")
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ModuleNotFoundError(module_name)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+try:
+    from rsl_rl.frontres.frontres_segment_cache_io import read_cache_metadata, read_noisy_variant_shard
+except ModuleNotFoundError:
+    _cache_io = _load_same_dir("frontres_segment_cache_io")
+    read_cache_metadata = _cache_io.read_cache_metadata
+    read_noisy_variant_shard = _cache_io.read_noisy_variant_shard
 
 
 @dataclass(frozen=True)
@@ -53,6 +75,7 @@ class FrontRESSegmentSpec:
     horizon_k: int = 1
     perturbation_family: str = "none"
     perturbation_strength: float = 0.0
+    perturbation_role: str = "train"
     reset_mode_hint: str = "auto"
     valid_for_training: bool = True
 
@@ -63,6 +86,8 @@ class FrontRESSegmentSpec:
             raise ValueError(f"phase must be in [0, 1], got {self.phase}")
         if int(self.horizon_k) <= 0:
             raise ValueError(f"horizon_k must be positive, got {self.horizon_k}")
+        if self.perturbation_role not in {"train", "boundary_diagnostic"}:
+            raise ValueError(f"unsupported perturbation_role: {self.perturbation_role}")
         if self.reset_mode_hint not in {"direct", "preroll", "auto"}:
             raise ValueError(f"unsupported reset_mode_hint: {self.reset_mode_hint}")
 
@@ -77,6 +102,7 @@ class FrontRESSegmentBatch:
     horizon_k: torch.Tensor
     perturbation_family: tuple[str, ...]
     perturbation_strength: torch.Tensor
+    perturbation_role: tuple[str, ...] = ()
 
     @property
     def batch_size(self) -> int:
@@ -94,6 +120,8 @@ class FrontRESSegmentBatch:
         _require_shape("perturbation_strength", self.perturbation_strength, (batch,))
         if len(self.perturbation_family) != batch:
             raise ValueError("perturbation_family count must match segment_ids")
+        if self.perturbation_role and len(self.perturbation_role) != batch:
+            raise ValueError("perturbation_role count must match segment_ids")
         if isinstance(self.reference_window, torch.Tensor) and self.reference_window.shape[0] != batch:
             raise ValueError("reference_window first dimension must match batch")
 
@@ -106,6 +134,28 @@ class FrontRESSegmentValidation:
     @property
     def all_valid(self) -> bool:
         return bool(torch.all(self.valid_mask).item())
+
+
+@dataclass(frozen=True)
+class FrontRESStage1CacheDatasetLoadSummary:
+    cache_dir: str
+    perturbation_curriculum_mode: str
+    metadata_noisy_count: int
+    loaded_motion_count: int
+    skipped_boundary_diagnostic_count: int
+    included_boundary_diagnostic_count: int
+    role_counts: dict[str, int]
+
+    def probe(self) -> dict[str, Any]:
+        return {
+            "cache_dir": self.cache_dir,
+            "perturbation_curriculum_mode": self.perturbation_curriculum_mode,
+            "metadata_noisy_count": self.metadata_noisy_count,
+            "loaded_motion_count": self.loaded_motion_count,
+            "skipped_boundary_diagnostic_count": self.skipped_boundary_diagnostic_count,
+            "included_boundary_diagnostic_count": self.included_boundary_diagnostic_count,
+            "role_counts": dict(self.role_counts),
+        }
 
 
 class FrontRESSegmentDataset:
@@ -143,6 +193,7 @@ class FrontRESSegmentDataset:
         self._spec_by_id = {spec.segment_id: spec for spec in self._specs}
         self._invalid_reasons: dict[int, str] = {}
         self._noisy_baseline: dict[int, Any] = {}
+        self._cache_metadata: dict[str, Any] | None = None
         if cache_policy == "eager":
             self.build_clean_cache()
 
@@ -178,6 +229,7 @@ class FrontRESSegmentDataset:
             horizon_k=horizon_k,
             perturbation_family=tuple(spec.perturbation_family for spec in specs),
             perturbation_strength=perturbation_strength,
+            perturbation_role=tuple(spec.perturbation_role for spec in specs),
         )
         batch.validate()
         return batch
@@ -228,6 +280,7 @@ class FrontRESSegmentDataset:
                 horizon_k=spec.horizon_k,
                 perturbation_family=spec.perturbation_family,
                 perturbation_strength=spec.perturbation_strength,
+                perturbation_role=spec.perturbation_role,
                 reset_mode_hint=spec.reset_mode_hint,
                 valid_for_training=bool(flag),
             )
@@ -244,11 +297,14 @@ class FrontRESSegmentDataset:
             "default_horizon_k": self.default_horizon_k,
             "invalid_reasons": dict(self._invalid_reasons),
             "noisy_baseline": dict(self._noisy_baseline),
+            "cache_metadata": self.cache_metadata(),
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
         self._invalid_reasons = {int(k): str(v) for k, v in state.get("invalid_reasons", {}).items()}
         self._noisy_baseline = {int(k): v for k, v in state.get("noisy_baseline", {}).items()}
+        if "cache_metadata" in state:
+            self.load_cache_metadata(state["cache_metadata"])
         restored_specs: list[FrontRESSegmentSpec] = []
         for spec in self._specs:
             restored_specs.append(
@@ -261,12 +317,19 @@ class FrontRESSegmentDataset:
                     horizon_k=spec.horizon_k,
                     perturbation_family=spec.perturbation_family,
                     perturbation_strength=spec.perturbation_strength,
+                    perturbation_role=spec.perturbation_role,
                     reset_mode_hint=spec.reset_mode_hint,
                     valid_for_training=spec.segment_id not in self._invalid_reasons,
                 )
             )
         self._specs = restored_specs
         self._spec_by_id = {spec.segment_id: spec for spec in self._specs}
+
+    def cache_metadata(self) -> dict[str, Any] | None:
+        return None if self._cache_metadata is None else dict(self._cache_metadata)
+
+    def load_cache_metadata(self, metadata: dict[str, Any] | None) -> None:
+        self._cache_metadata = None if metadata is None else dict(metadata)
 
     def _prepare_motion(self, motion: dict[str, Any]) -> dict[str, torch.Tensor | Any]:
         tensors: dict[str, torch.Tensor | Any] = {}
@@ -300,8 +363,14 @@ class FrontRESSegmentDataset:
                         horizon_k=self.default_horizon_k,
                         perturbation_family=str(motion.get("perturbation_family", "none")),
                         perturbation_strength=float(motion.get("perturbation_strength", 0.0)),
+                        perturbation_role=str(motion.get("perturbation_role", "train")),
                         reset_mode_hint=str(motion.get("reset_mode_hint", "auto")),
-                        valid_for_training=True,
+                        valid_for_training=bool(
+                            motion.get(
+                                "valid_for_training",
+                                str(motion.get("perturbation_role", "train")) == "train",
+                            )
+                        ),
                     )
                 )
                 next_id += 1
@@ -351,6 +420,10 @@ class FrontRESSegmentDataset:
                 windows.append(self.reference_builder(motion, frame, int(spec.horizon_k)))
             elif "reference" in motion:
                 windows.append(motion["reference"][frame : frame + int(spec.horizon_k) + 1])
+            elif "dof_pos" in motion and "dof_vel" in motion:
+                joint_pos = motion["dof_pos"][frame : frame + int(spec.horizon_k) + 1]
+                joint_vel = motion["dof_vel"][frame : frame + int(spec.horizon_k) + 1]
+                windows.append(torch.cat([joint_pos, joint_vel], dim=-1))
             else:
                 windows.append(motion["root_pos"][frame : frame + int(spec.horizon_k) + 1])
         return torch.stack(windows, dim=0)
@@ -369,3 +442,129 @@ class FrontRESSegmentDataset:
 def _require_shape(name: str, tensor: torch.Tensor, shape: tuple[int, ...]) -> None:
     if tuple(tensor.shape) != tuple(shape):
         raise ValueError(f"{name} must have shape {shape}, got {tuple(tensor.shape)}")
+
+
+def build_stage1_cache_motion_source(
+    cache_dir: str | Path,
+    *,
+    include_boundary_diagnostic: bool = False,
+) -> tuple[list[dict[str, Any]], FrontRESStage1CacheDatasetLoadSummary]:
+    root = Path(cache_dir)
+    metadata = read_cache_metadata(root)
+    noisy_shard_id = int(metadata.get("noisy_shard_id", 0))
+    strengths = [float(item) for item in metadata.get("strengths", [])]
+    motion_source: list[dict[str, Any]] = []
+    role_counts: dict[str, int] = {}
+    skipped_boundary = 0
+    included_boundary = 0
+    for strength in strengths:
+        noisy_path = (
+            root
+            / "manifests"
+            / "noisy_variants"
+            / _strength_dir(float(strength))
+            / f"shard_{noisy_shard_id:06d}.pt"
+        )
+        for variant in read_noisy_variant_shard(noisy_path):
+            params = dict(variant.descriptor.params)
+            role = str(params.get("perturbation_role", "train"))
+            role_counts[role] = role_counts.get(role, 0) + 1
+            if role == "boundary_diagnostic" and not include_boundary_diagnostic:
+                skipped_boundary += 1
+                continue
+            if role == "boundary_diagnostic":
+                included_boundary += 1
+            motion_source.append(_motion_from_noisy_variant(variant, role=role))
+    summary = FrontRESStage1CacheDatasetLoadSummary(
+        cache_dir=str(root),
+        perturbation_curriculum_mode=str(metadata.get("perturbation_curriculum_mode", "")),
+        metadata_noisy_count=int(metadata.get("noisy_count", 0)),
+        loaded_motion_count=len(motion_source),
+        skipped_boundary_diagnostic_count=skipped_boundary,
+        included_boundary_diagnostic_count=included_boundary,
+        role_counts=role_counts,
+    )
+    return motion_source, summary
+
+
+def load_stage1_cache_dataset(
+    cache_dir: str | Path,
+    *,
+    device: str | torch.device = "cpu",
+    include_boundary_diagnostic: bool = False,
+) -> FrontRESSegmentDataset:
+    motion_source, summary = build_stage1_cache_motion_source(
+        cache_dir,
+        include_boundary_diagnostic=include_boundary_diagnostic,
+    )
+    if not motion_source:
+        raise ValueError(f"Stage 1 cache produced no trainable segment motions: {cache_dir}")
+    horizon_k = int(motion_source[0]["horizon_k"])
+    fps = float(motion_source[0]["fps"])
+    dataset = FrontRESSegmentDataset(
+        motion_source=motion_source,
+        dt=1.0 / fps,
+        default_horizon_k=horizon_k,
+        device=device,
+    )
+    dataset.load_cache_metadata(summary.probe())
+    print(
+        "[FrontRES Segment Dataset] cache_load "
+        f"mode={summary.perturbation_curriculum_mode} "
+        f"metadata_noisy_count={summary.metadata_noisy_count} "
+        f"loaded_motion_count={summary.loaded_motion_count} "
+        f"skipped_boundary_diagnostic_count={summary.skipped_boundary_diagnostic_count} "
+        f"included_boundary_diagnostic_count={summary.included_boundary_diagnostic_count} "
+        f"role_counts={summary.role_counts}",
+        flush=True,
+    )
+    return dataset
+
+
+def _motion_from_noisy_variant(variant: Any, *, role: str) -> dict[str, Any]:
+    segment = variant.segment
+    descriptor = variant.descriptor
+    state = variant.noisy_state
+    horizon_k = int(segment.horizon_k)
+    frames = horizon_k + 1
+    valid_for_training = role == "train"
+    motion_id = f"{int(segment.segment_id)}:{int(descriptor.perturbation_id)}"
+    return {
+        "motion_id": motion_id,
+        "source_segment_id": int(segment.segment_id),
+        "source_perturbation_id": int(descriptor.perturbation_id),
+        "fps": float(segment.fps),
+        "horizon_k": horizon_k,
+        "root_pos": _repeat_first_env(state.root_pos, frames),
+        "root_quat": _repeat_first_env(state.root_quat, frames),
+        "root_lin_vel": _repeat_first_env(state.root_lin_vel, frames),
+        "root_ang_vel": _repeat_first_env(state.root_ang_vel, frames),
+        "dof_pos": _repeat_first_env(state.joint_pos, frames),
+        "dof_vel": _repeat_first_env(state.joint_vel, frames),
+        "key_body_pos": _repeat_first_env(state.body_pos_w, frames),
+        "key_body_quat": _repeat_first_env(state.body_quat_w, frames),
+        "reference": torch.cat(
+            [_repeat_first_env(state.joint_pos, frames), _repeat_first_env(state.joint_vel, frames)],
+            dim=-1,
+        ),
+        "perturbation_family": str(descriptor.family),
+        "perturbation_strength": float(descriptor.strength),
+        "perturbation_role": role,
+        "valid_for_training": valid_for_training,
+        "reset_mode_hint": "direct",
+        "noisy_baseline_score": variant.noisy_baseline_score.detach().cpu(),
+        "noisy_fall": variant.noisy_fall.detach().cpu(),
+        "descriptor_params": dict(descriptor.params),
+    }
+
+
+def _repeat_first_env(tensor: torch.Tensor, frames: int) -> torch.Tensor:
+    value = tensor.detach().cpu()
+    if value.shape[0] != 1:
+        value = value[:1]
+    return value[0].unsqueeze(0).repeat((int(frames),) + (1,) * (value.ndim - 1)).contiguous()
+
+
+def _strength_dir(strength: float) -> str:
+    text = f"{float(strength):.6f}".rstrip("0").rstrip(".")
+    return "strength_" + text.replace("-", "neg_").replace(".", "p")

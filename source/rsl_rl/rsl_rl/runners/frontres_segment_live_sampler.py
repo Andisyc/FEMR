@@ -19,9 +19,21 @@ _SAMPLER_MODULE = importlib.util.module_from_spec(_SAMPLER_SPEC)
 sys.modules[_SAMPLER_SPEC.name] = _SAMPLER_MODULE
 _SAMPLER_SPEC.loader.exec_module(_SAMPLER_MODULE)
 
+_DATASET_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_dataset.py"
+_DATASET_SPEC = importlib.util.spec_from_file_location(
+    "frontres_segment_dataset_live_module",
+    _DATASET_PATH,
+)
+if _DATASET_SPEC is None or _DATASET_SPEC.loader is None:
+    raise RuntimeError(f"Could not load FrontRES Segment dataset from {_DATASET_PATH}.")
+_DATASET_MODULE = importlib.util.module_from_spec(_DATASET_SPEC)
+sys.modules[_DATASET_SPEC.name] = _DATASET_MODULE
+_DATASET_SPEC.loader.exec_module(_DATASET_MODULE)
+
 FrontRESSegmentRolloutEvidence = _SAMPLER_MODULE.FrontRESSegmentRolloutEvidence
 FrontRESSegmentSample = _SAMPLER_MODULE.FrontRESSegmentSample
 FrontRESSegmentSampler = _SAMPLER_MODULE.FrontRESSegmentSampler
+load_stage1_cache_dataset = _DATASET_MODULE.load_stage1_cache_dataset
 
 
 def initialize_frontres_segment_live_sampler(runner: Any) -> None:
@@ -30,6 +42,7 @@ def initialize_frontres_segment_live_sampler(runner: Any) -> None:
         return
     if getattr(runner, "_frontres_segment_sampler", None) is not None:
         return
+    _ensure_stage1_cache_dataset(runner)
     num_segments = _resolve_num_segments(runner)
     runner._frontres_segment_sampler = FrontRESSegmentSampler(
         num_segments=num_segments,
@@ -49,6 +62,32 @@ def initialize_frontres_segment_live_sampler(runner: Any) -> None:
     )
 
 
+def _ensure_stage1_cache_dataset(runner: Any) -> None:
+    if getattr(runner, "_frontres_segment_dataset", None) is not None:
+        return
+    alg = getattr(runner, "alg", None)
+    cache_dir = str(getattr(alg, "frontres_segment_cache_dir", "") or "")
+    if not cache_dir:
+        print("[FrontRES Segment Dataset] cache_load skipped reason=no_cache_dir", flush=True)
+        return
+    include_boundary = bool(getattr(alg, "frontres_segment_include_boundary_diagnostic", False))
+    dataset = load_stage1_cache_dataset(
+        cache_dir,
+        device=getattr(runner, "device", "cpu"),
+        include_boundary_diagnostic=include_boundary,
+    )
+    runner._frontres_segment_dataset = dataset
+    metadata = dataset.cache_metadata() if hasattr(dataset, "cache_metadata") else None
+    print(
+        "[FrontRES Segment Dataset Ready] "
+        f"cache_dir={cache_dir} "
+        f"num_segments={dataset.num_segments()} "
+        f"include_boundary_diagnostic={include_boundary} "
+        f"metadata={metadata}",
+        flush=True,
+    )
+
+
 def run_frontres_segment_sampler_step(
     runner: Any,
     *,
@@ -61,13 +100,25 @@ def run_frontres_segment_sampler_step(
 
     sample = sampler.sample(_resolve_live_batch_size(runner))
     _print_sample_probe(update_step, sample)
+    batch = _build_current_segment_batch(runner, sample, update_step=update_step)
     runner._frontres_segment_live_current_sample = sample
+    runner._frontres_segment_live_current_batch = batch
+    reset_result = None
     try:
         summary = runner.run_frontres_segment_live_probe(init_at_random_ep_len=init_at_random_ep_len)
+        reset_result = getattr(runner, "_frontres_segment_live_current_reset_result", None)
     finally:
         runner._frontres_segment_live_current_sample = None
+        runner._frontres_segment_live_current_batch = None
+        runner._frontres_segment_live_current_reset_request = None
+        runner._frontres_segment_live_current_reset_result = None
 
-    evidence = build_live_sampler_evidence(sample, summary, horizon_k=int(getattr(runner.alg, "frontres_segment_k", 1)))
+    evidence = build_live_sampler_evidence(
+        sample,
+        summary,
+        horizon_k=int(getattr(runner.alg, "frontres_segment_k", 1)),
+        reset_result=reset_result,
+    )
     sampler.update(evidence)
     sampler_summary = summarize_sampler_step(sampler, sample)
     summary.update(sampler_summary)
@@ -75,34 +126,95 @@ def run_frontres_segment_sampler_step(
     return summary
 
 
+def _build_current_segment_batch(runner: Any, sample: FrontRESSegmentSample, *, update_step: int) -> Any | None:
+    dataset = getattr(runner, "_frontres_segment_dataset", None)
+    if dataset is None or not hasattr(dataset, "get_segments"):
+        print("[FrontRES Segment Batch] skipped reason=no_dataset", flush=True)
+        return None
+    batch = dataset.get_segments(sample.segment_ids)
+    validation = dataset.validate_batch(batch) if hasattr(dataset, "validate_batch") else None
+    valid_count = (
+        int(validation.valid_mask.bool().sum().detach().cpu().item())
+        if validation is not None and hasattr(validation, "valid_mask")
+        else int(sample.segment_ids.numel())
+    )
+    roles = tuple(getattr(batch, "perturbation_role", ()))
+    strength = getattr(batch, "perturbation_strength", None)
+    strength_list = strength.detach().cpu().tolist() if isinstance(strength, torch.Tensor) else []
+    print(
+        "[FrontRES Segment Batch] "
+        f"update_step={update_step} "
+        f"segment_ids={sample.segment_ids.detach().cpu().tolist()} "
+        f"valid_count={valid_count} "
+        f"roles={roles} "
+        f"strength={strength_list}",
+        flush=True,
+    )
+    return batch
+
+
 def build_live_sampler_evidence(
     sample: FrontRESSegmentSample,
     summary: dict[str, object],
     *,
     horizon_k: int,
+    reset_result: Any | None = None,
 ) -> FrontRESSegmentRolloutEvidence:
     ids = sample.segment_ids.detach().clone().long()
     n = int(ids.numel())
     device = ids.device
-    reward_mean = _summary_float(summary, "storage_reward_mean", _summary_float(summary, "reward_mean", 0.0))
-    gain_scalar = max(-1.0, min(1.0, reward_mean))
-    score_repaired_scalar = max(0.0, min(1.0, 0.5 + 0.5 * gain_scalar))
-    score_noisy_scalar = max(0.0, min(1.0, score_repaired_scalar - gain_scalar))
-    valid = bool(_summary_int(summary, "ppo_valid_count", 0) > 0 and _summary_float(summary, "storage_valid_frac", 0.0) > 0.0)
-    fall = bool(_summary_float(summary, "done_frac", 0.0) >= 0.5)
+    reset_success = _reset_success_for_sample(reset_result, n=n, device=device)
+    reward = _summary_vector(
+        summary,
+        keys=("storage_reward_per_sample", "reward_per_sample"),
+        n=n,
+        device=device,
+        default=_summary_float(summary, "storage_reward_mean", _summary_float(summary, "reward_mean", 0.0)),
+    ).float()
+    rollout_valid = _summary_bool_vector(
+        summary,
+        keys=("storage_valid_mask_per_sample",),
+        n=n,
+        device=device,
+        default=bool(_summary_int(summary, "ppo_valid_count", 0) > 0 and _summary_float(summary, "storage_valid_frac", 0.0) > 0.0),
+    )
+    fall = _summary_bool_vector(
+        summary,
+        keys=("done_any_per_sample",),
+        n=n,
+        device=device,
+        default=bool(_summary_float(summary, "done_frac", 0.0) >= 0.5),
+    )
+    gain = reward.clamp(-1.0, 1.0)
+    score_repaired = (0.5 + 0.5 * gain).clamp(0.0, 1.0)
+    score_noisy = (score_repaired - gain).clamp(0.0, 1.0)
+    valid_reward = rollout_valid & reset_success
+    _print_evidence_probe(ids, reward, reset_success, rollout_valid, valid_reward, fall, gain)
     return FrontRESSegmentRolloutEvidence(
         segment_ids=ids,
-        reset_success=torch.ones(n, dtype=torch.bool, device=device),
-        score_noisy=torch.full((n,), score_noisy_scalar, dtype=torch.float32, device=device),
-        score_repaired=torch.full((n,), score_repaired_scalar, dtype=torch.float32, device=device),
+        reset_success=reset_success,
+        score_noisy=score_noisy,
+        score_repaired=score_repaired,
         score_clean=torch.ones(n, dtype=torch.float32, device=device),
-        gain_over_noisy=torch.full((n,), gain_scalar, dtype=torch.float32, device=device),
-        fall_repaired=torch.full((n,), fall, dtype=torch.bool, device=device),
+        gain_over_noisy=gain,
+        fall_repaired=fall,
         contact_consistency=torch.ones(n, dtype=torch.float32, device=device),
         action_norm=torch.ones(n, dtype=torch.float32, device=device),
-        valid_reward=torch.full((n,), valid, dtype=torch.bool, device=device),
+        valid_reward=valid_reward,
         horizon_k=torch.full((n,), max(1, int(horizon_k)), dtype=torch.long, device=device),
     )
+
+
+def _reset_success_for_sample(reset_result: Any | None, *, n: int, device: torch.device) -> torch.Tensor:
+    if reset_result is None:
+        return torch.ones(n, dtype=torch.bool, device=device)
+    success = getattr(reset_result, "success_mask", None)
+    if success is None:
+        return torch.ones(n, dtype=torch.bool, device=device)
+    success = success.to(device=device).bool().reshape(-1)
+    if int(success.numel()) != n:
+        raise ValueError(f"reset_success must have {n} rows, got {int(success.numel())}")
+    return success.detach()
 
 
 def summarize_sampler_step(sampler: FrontRESSegmentSampler, sample: FrontRESSegmentSample) -> dict[str, object]:
@@ -151,6 +263,93 @@ def _summary_int(summary: dict[str, object], key: str, default: int) -> int:
         return int(summary.get(key, default))
     except (TypeError, ValueError):
         return int(default)
+
+
+def _summary_vector(
+    summary: dict[str, object],
+    *,
+    keys: tuple[str, ...],
+    n: int,
+    device: torch.device,
+    default: float,
+) -> torch.Tensor:
+    for key in keys:
+        if key not in summary:
+            continue
+        value = summary.get(key)
+        tensor = _as_float_tensor(value, device=device)
+        if tensor is None or int(tensor.numel()) == 0:
+            continue
+        if int(tensor.numel()) != n:
+            raise ValueError(f"{key} must have {n} rows, got {int(tensor.numel())}")
+        return tensor.reshape(-1).detach()
+    return torch.full((n,), float(default), dtype=torch.float32, device=device)
+
+
+def _summary_bool_vector(
+    summary: dict[str, object],
+    *,
+    keys: tuple[str, ...],
+    n: int,
+    device: torch.device,
+    default: bool,
+) -> torch.Tensor:
+    for key in keys:
+        if key not in summary:
+            continue
+        value = summary.get(key)
+        tensor = _as_bool_tensor(value, device=device)
+        if tensor is None or int(tensor.numel()) == 0:
+            continue
+        if int(tensor.numel()) != n:
+            raise ValueError(f"{key} must have {n} rows, got {int(tensor.numel())}")
+        return tensor.reshape(-1).detach()
+    return torch.full((n,), bool(default), dtype=torch.bool, device=device)
+
+
+def _as_float_tensor(value: object, *, device: torch.device) -> torch.Tensor | None:
+    if value is None:
+        return None
+    if isinstance(value, torch.Tensor):
+        return value.to(device=device, dtype=torch.float32).reshape(-1)
+    if isinstance(value, (list, tuple)):
+        return torch.tensor(value, dtype=torch.float32, device=device).reshape(-1)
+    return None
+
+
+def _as_bool_tensor(value: object, *, device: torch.device) -> torch.Tensor | None:
+    if value is None:
+        return None
+    if isinstance(value, torch.Tensor):
+        return value.to(device=device).bool().reshape(-1)
+    if isinstance(value, (list, tuple)):
+        return torch.tensor(value, dtype=torch.bool, device=device).reshape(-1)
+    return None
+
+
+def _print_evidence_probe(
+    ids: torch.Tensor,
+    reward: torch.Tensor,
+    reset_success: torch.Tensor,
+    rollout_valid: torch.Tensor,
+    valid_reward: torch.Tensor,
+    fall: torch.Tensor,
+    gain: torch.Tensor,
+) -> None:
+    print(
+        "[probe step14] evidence_path: "
+        f"count={int(ids.numel())} "
+        f"id_min={int(ids.min().detach().cpu().item()) if ids.numel() else -1} "
+        f"id_max={int(ids.max().detach().cpu().item()) if ids.numel() else -1} "
+        f"reward_min={float(reward.min().detach().cpu().item()) if reward.numel() else 0.0:.6f} "
+        f"reward_max={float(reward.max().detach().cpu().item()) if reward.numel() else 0.0:.6f} "
+        f"reset_valid={int(reset_success.bool().sum().detach().cpu().item())} "
+        f"rollout_valid={int(rollout_valid.bool().sum().detach().cpu().item())} "
+        f"valid_reward={int(valid_reward.bool().sum().detach().cpu().item())} "
+        f"fall_count={int(fall.bool().sum().detach().cpu().item())} "
+        f"gain_mean={float(gain.mean().detach().cpu().item()) if gain.numel() else 0.0:.6f}",
+        flush=True,
+    )
 
 
 def _print_sample_probe(update_step: int, sample: FrontRESSegmentSample) -> None:

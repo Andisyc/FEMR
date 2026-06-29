@@ -194,6 +194,7 @@ def test_stage1_builder_orchestrates_cache_pipeline() -> None:
             max_segments=2,
             strengths=(0.0, 0.5),
             variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
             base_seed=123,
             env_id=0,
         )
@@ -266,6 +267,11 @@ def test_stage1_builder_orchestrates_cache_pipeline() -> None:
         assert metadata["stage"] == "stage1_segment_cache"
         assert metadata["segment_count"] == 2
         assert metadata["noisy_count"] == 4
+        assert metadata["perturbation_curriculum_mode"] == "discrete_bank"
+        assert metadata["perturbation_levels"] == [
+            {"level_index": 0, "level_name": "level_00", "strength": 0.0},
+            {"level_index": 1, "level_name": "level_01", "strength": 0.5},
+        ]
         assert [entry.segment_id for entry in clean_entries] == [0, 1]
         torch.testing.assert_close(clean_entries[0].clean_state.root_pos, torch.tensor([[0.0, 0.0, 2.0]]))
         torch.testing.assert_close(clean_entries[1].clean_state.root_pos, torch.tensor([[1.0, 2.0, 2.0]]))
@@ -300,6 +306,7 @@ def test_stage1_builder_uses_loaded_motion_paths_before_disk_scan() -> None:
             max_segments=2,
             strengths=(0.0,),
             variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
             base_seed=123,
             env_id=0,
         )
@@ -314,10 +321,85 @@ def test_stage1_builder_uses_loaded_motion_paths_before_disk_scan() -> None:
         )
         assert result.segment_count == 2
         assert [entry.segment.motion_rel_path for entry in clean_entries] == ["ZZZ/motion_b.npz", "ZZZ/motion_b.npz"]
-        assert env.prepare_calls == [(0, 0, [0]), (1, 2, [0])]
+        assert env.prepare_calls == [(0, 0, [0]), (1, 4, [0])]
+
+
+def test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        amass_root = tmp_path / "AMASS_G1NPZ_Final"
+        cache_dir = tmp_path / "frontres_stage1_cache"
+        _write_fake_motion(amass_root / "KIT" / "359" / "motion_a.npz", frames=5)
+
+        env = FakeStage1Env()
+        cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(cache_dir),
+            horizon_k=2,
+            frame_stride=2,
+            max_motions=1,
+            max_segments=1,
+            strengths=(0.0, 0.5),
+            variants_per_strength=1,
+            curriculum_bank_size=16,
+            curriculum_active_dims=(0, 1, 3, 4, 5),
+            base_seed=321,
+            env_id=0,
+        )
+
+        result = build_stage1_segment_cache(env, cfg)
+        metadata = json.loads(Path(result.metadata_path).read_text())
+        all_noisy = []
+        for path in result.noisy_shard_paths.values():
+            all_noisy.extend(cache_io.read_noisy_variant_shard(path))
+        params = [dict(item.descriptor.params) for item in all_noisy]
+        print(
+            "[cache_builder trace] hrl_curriculum_bank "
+            f"mode={metadata['perturbation_curriculum_mode']} "
+            f"segment_count={result.segment_count} "
+            f"noisy_count={result.noisy_count} "
+            f"strength_counts={result.strength_counts} "
+            f"bank_record_count={metadata['curriculum_bank_record_count']} "
+            f"allowed_bases={metadata['curriculum_allowed_bases']} "
+            f"mix_classes={[item['mix_class'] for item in params]} "
+            f"roles={[item['perturbation_role'] for item in params]} "
+            f"family_groups={[item['family_group'] for item in params]} "
+            f"actual_dr_scales={[item['actual_dr_scale'] for item in params]}"
+        )
+        assert result.segment_count == 1
+        assert result.noisy_count == 16
+        assert metadata["perturbation_curriculum_mode"] == "hrl_curriculum_bank"
+        assert metadata["legacy_strengths"] == [0.0, 0.5]
+        assert metadata["curriculum_bank_record_count"] == 16
+        assert metadata["curriculum_allowed_bases"] == ["planar", "yaw", "local_rp"]
+        assert set(metadata["strengths"]).issubset({1.5, 2.0, 2.16})
+        assert len(metadata["perturbation_levels"]) == 16
+        assert len(all_noisy) == 16
+        assert {item["curriculum_mode"] for item in params} == {"hrl_curriculum_bank"}
+        assert {tuple(item["family_group"]) for item in params}.issubset(
+            {
+                ("planar", "yaw"),
+                ("planar", "local_rp"),
+                ("yaw", "local_rp"),
+                ("planar",),
+                ("yaw",),
+                ("local_rp",),
+            }
+        )
+        assert {item["mix_class"] for item in params}.issubset({"easy", "frontier", "hard"})
+        assert "hard" in {item["mix_class"] for item in params}
+        for item in params:
+            if item["mix_class"] == "hard":
+                assert item["perturbation_role"] == "boundary_diagnostic"
+            else:
+                assert item["perturbation_role"] == "train"
+            assert item["temporal_mode"] == "single"
+            assert item["burst_min_steps"] == 4
+            assert item["burst_max_steps"] == 8
 
 
 if __name__ == "__main__":
     test_stage1_builder_orchestrates_cache_pipeline()
     test_stage1_builder_uses_loaded_motion_paths_before_disk_scan()
+    test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank()
     print("PASS: FrontRES Stage 1 cache builder orchestrates index, clean, perturbation, noisy, and IO.")

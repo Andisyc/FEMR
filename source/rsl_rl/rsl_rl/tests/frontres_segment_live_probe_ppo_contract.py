@@ -51,6 +51,11 @@ def _install_import_stubs():
         ROOT / "rsl_rl" / "frontres" / "frontres_segment_storage.py",
     )
     frontres_pkg.frontres_segment_storage = storage_module
+    reset_module = _load(
+        "rsl_rl.frontres.frontres_segment_reset",
+        ROOT / "rsl_rl" / "frontres" / "frontres_segment_reset.py",
+    )
+    frontres_pkg.frontres_segment_reset = reset_module
 
     training_schedule = types.ModuleType("rsl_rl.frontres.training_schedule")
     training_schedule.resolve_frontres_mode_state = lambda *_args, **_kwargs: None

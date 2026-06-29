@@ -109,7 +109,7 @@ def test_indexer_respects_max_segments() -> None:
         )
         assert len(segments) == 3
         assert summary.segment_count == 3
-        assert [segment.start_frame for segment in segments] == [0, 1, 2]
+        assert [segment.start_frame for segment in segments] == [0, 2, 5]
 
 
 def test_indexer_balances_max_segments_across_loaded_motions() -> None:
@@ -148,9 +148,9 @@ def test_indexer_balances_max_segments_across_loaded_motions() -> None:
             "CCC/motion_c.npz",
         ]
         assert starts_by_motion == {
-            "AAA/motion_a.npz": [0, 1],
-            "BBB/motion_b.npz": [0, 1],
-            "CCC/motion_c.npz": [0, 1],
+            "AAA/motion_a.npz": [0, 17],
+            "BBB/motion_b.npz": [0, 17],
+            "CCC/motion_c.npz": [0, 17],
         }
         assert [segment.segment_id for segment in segments] == list(range(6))
 
@@ -179,7 +179,7 @@ def test_indexer_can_follow_loaded_motion_paths_instead_of_disk_order() -> None:
         assert summary.motion_count == 1
         assert summary.segment_count == 2
         assert [segment.motion_rel_path for segment in segments] == ["ZZZ/motion_b.npz", "ZZZ/motion_b.npz"]
-        assert [segment.start_frame for segment in segments] == [0, 2]
+        assert [segment.start_frame for segment in segments] == [0, 4]
 
 
 def test_indexer_rejects_bad_motion_shape() -> None:

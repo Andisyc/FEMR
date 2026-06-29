@@ -8,10 +8,10 @@ evidence.
 ## Active Change Record: 2026-06-25 FEMR HSL+HRL Acceptance Refactor
 
 - [x] Step 1 design contract rewrite started:
-  `note/FrontRES Design Contract.md` now declares HSL+HRL acceptance as the
+`note/frontres_core/contracts/design_contract.md` now declares HSL+HRL acceptance as the
   active FEMR method and marks Authority Actor-Critic as retired mainline.
 - [x] Step 1 engineering plan rewritten:
-  `note/FrontRES Engineering Plan.md` now lists the multi-step cleanup from
+`note/frontres_core/plans/engineering_plan.md` now lists the multi-step cleanup from
   config through diagnostics and tests.
 - [x] Step 1 sentinel test added:
   `source/rsl_rl/rsl_rl/tests/frontres_design_contract_sentinel.py` checks that
@@ -113,7 +113,7 @@ evidence.
   logs expose endpoint return means and endpoint critic losses so `Q 0/act/1`
   is no longer only an unanchored diagnostic.
 - [x] Design note updated:
-  `note/FrontRES Design Contract.md`, section
+`note/frontres_core/contracts/design_contract.md`, section
   `2026-06-23 Authority Actor-Critic Contract`.
 - [x] Concept sentence:
   FrontRES should be `Clean-oriented Delta SE proposal -> authority actor-critic
@@ -462,7 +462,7 @@ evidence.
 ## Previous Change Record: 2026-06-21 Logit-Level Rho Repair Loss
 
 - [x] Design note updated:
-  `note/FrontRES Design Contract.md`, section
+`note/frontres_core/contracts/design_contract.md`, section
   `2026-06-21 Logit-Level Rho Repair Loss`.
 - [x] Test reference updated:
   `source/rsl_rl/rsl_rl/tests/frontres_rho_low_recovery_mechanism.py`;
@@ -491,7 +491,7 @@ evidence.
 - [ ] State whether this is a formal change, an ablation, or a diagnostic-only
   change.
 - [ ] If the change affects a method idea, update
-  `note/FrontRES Design Contract.md` before code is edited.
+`note/frontres_core/contracts/design_contract.md` before code is edited.
 
 Evidence to record:
 

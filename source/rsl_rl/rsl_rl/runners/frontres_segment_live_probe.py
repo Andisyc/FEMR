@@ -16,6 +16,11 @@ from rsl_rl.frontres.frontres_segment_storage import (
     FrontRESSegmentRolloutStorage,
     FrontRESSegmentTransition,
 )
+from rsl_rl.frontres.frontres_segment_reset import (
+    FrontRESSegmentResetAdapter,
+    FrontRESSegmentResetResult,
+    ensure_frontres_segment_live_reset_hook,
+)
 from rsl_rl.frontres.training_schedule import resolve_frontres_mode_state
 from rsl_rl.modules import FrontRESActorCritic
 from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout
@@ -82,23 +87,29 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
             runner.env.episode_length_buf, high=int(runner.env.max_episode_length)
         )
 
+    reset_result = _apply_current_segment_reset(runner)
     observations = _read_live_observations(runner)
     runner.eval_mode()
     capture = _run_live_rollout_capture(runner, observations)
     summary = _initial_live_probe_summary(capture, storage_write=storage_write, single_update=single_update)
+    _update_reset_summary(summary, reset_result)
 
     if storage_write:
         segment_storage = build_live_segment_storage(runner, capture)
         storage_stats = segment_storage.stats()
+        storage_batch = segment_storage.full_batch()
         summary.update(
             {
                 "storage_size": storage_stats.size,
                 "storage_valid_frac": storage_stats.valid_frac,
                 "storage_reward_mean": storage_stats.reward_mean,
+                "storage_reward_per_sample": _float_list(storage_batch.returns),
+                "storage_valid_mask_per_sample": _bool_list(storage_batch.valid_mask),
+                "storage_segment_ids": _long_list(storage_batch.segment_ids),
             }
         )
         if single_update:
-            ppo_result = run_frontres_segment_single_update(runner, segment_storage.full_batch())
+            ppo_result = run_frontres_segment_single_update(runner, storage_batch)
             summary.update(
                 {
                     "ppo_update": bool(ppo_result.should_step),
@@ -112,6 +123,85 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
             )
     _print_live_probe_summary(runner, capture, summary)
     return summary
+
+
+def _apply_current_segment_reset(runner: Any) -> FrontRESSegmentResetResult | None:
+    batch = getattr(runner, "_frontres_segment_live_current_batch", None)
+    if batch is None:
+        return None
+    adapter = getattr(runner, "_frontres_segment_reset_adapter", None)
+    if adapter is None:
+        adapter = FrontRESSegmentResetAdapter(
+            default_preroll_steps=int(getattr(runner.alg, "frontres_segment_preroll_steps", 0)),
+            velocity_mismatch_tolerance=float(getattr(runner.alg, "frontres_segment_reset_velocity_tolerance", 1e-3)),
+        )
+        runner._frontres_segment_reset_adapter = adapter
+    reset_mode = str(
+        getattr(
+            runner.alg,
+            "frontres_segment_reset_mode",
+            getattr(runner._frontres_segment_replay_boundary, "reset_mode", "auto"),
+        )
+    ).lower()
+    request = adapter.build_request(batch, mode=reset_mode)
+    if not _env_has_segment_reset_hook(runner.env):
+        ensure_frontres_segment_live_reset_hook(
+            runner.env,
+            robot_name=str(getattr(runner.alg, "frontres_segment_reset_robot_name", "robot")),
+            trace=bool(getattr(runner.alg, "frontres_segment_reset_trace", True)),
+        )
+    result = adapter.apply(runner.env, request)
+    runner._frontres_segment_live_current_reset_request = request
+    runner._frontres_segment_live_current_reset_result = result
+    print(
+        "[FrontRES Segment Reset] "
+        f"batch_size={int(request.segment_ids.numel())} "
+        f"segment_ids={request.segment_ids.detach().cpu().tolist()} "
+        f"mode={tuple(request.mode)} "
+        f"valid_count={int(request.valid_mask.detach().bool().sum().cpu().item())} "
+        f"success_frac={float(result.success_mask.float().mean().detach().cpu().item()):.4f} "
+        f"direct_frac={float(result.direct_reset_mask.float().mean().detach().cpu().item()):.4f} "
+        f"preroll_frac={float(result.preroll_mask.float().mean().detach().cpu().item()):.4f} "
+        f"velocity_mismatch_mean={float(result.velocity_mismatch.float().mean().detach().cpu().item()):.6f}",
+        flush=True,
+    )
+    return result
+
+
+def _env_has_segment_reset_hook(env: Any) -> bool:
+    return any(hasattr(env, name) for name in ("apply_frontres_segment_reset", "reset_to_segment", "set_segment_state"))
+
+
+def _update_reset_summary(summary: dict[str, object], result: FrontRESSegmentResetResult | None) -> None:
+    if result is None:
+        summary.update(
+            {
+                "segment_reset": False,
+                "segment_reset_success_frac": 0.0,
+                "segment_reset_direct_frac": 0.0,
+                "segment_reset_preroll_frac": 0.0,
+                "segment_reset_invalid_static_frac": 0.0,
+                "segment_reset_fall_frac": 0.0,
+                "segment_reset_contact_mismatch_frac": 0.0,
+                "segment_reset_velocity_mismatch_mean": 0.0,
+                "segment_reference_window_applied_frac": 0.0,
+            }
+        )
+        return
+    diagnostics = result.diagnostics
+    summary.update(
+        {
+            "segment_reset": True,
+            "segment_reset_success_frac": float(diagnostics.get("reset_success_frac", 0.0)),
+            "segment_reset_direct_frac": float(diagnostics.get("direct_frac", 0.0)),
+            "segment_reset_preroll_frac": float(diagnostics.get("preroll_frac", 0.0)),
+            "segment_reset_invalid_static_frac": float(diagnostics.get("invalid_static_frac", 0.0)),
+            "segment_reset_fall_frac": float(diagnostics.get("fall_at_reset_frac", 0.0)),
+            "segment_reset_contact_mismatch_frac": float(diagnostics.get("contact_mismatch_frac", 0.0)),
+            "segment_reset_velocity_mismatch_mean": float(diagnostics.get("velocity_mismatch_mean", 0.0)),
+            "segment_reference_window_applied_frac": float(diagnostics.get("reference_window_applied_frac", 0.0)),
+        }
+    )
 
 
 def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutCapture) -> FrontRESSegmentRolloutStorage:
@@ -140,6 +230,8 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
         segment_source = tuple(str(item) for item in sample_source)
     else:
         segment_source = ("live_storage_probe",) * batch_size
+    reset_mask = _current_reset_success_mask(runner, batch_size=batch_size, device=runner.device)
+    valid_mask = (~capture.done_any.reshape(-1).bool().to(device=runner.device)) & reset_mask
     segment_storage = FrontRESSegmentRolloutStorage(
         capacity=batch_size,
         obs_shape=capture.transition_obs.shape[1:],
@@ -155,8 +247,8 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
             old_log_probs=capture.transition_log_probs,
             values=capture.transition_values,
             rewards=capture.reward_accum.reshape(-1) / float(capture.rollout_k),
-            valid_mask=~capture.done_any.reshape(-1).bool(),
-            reset_mask=torch.ones(batch_size, device=runner.device, dtype=torch.bool),
+            valid_mask=valid_mask,
+            reset_mask=reset_mask,
             segment_ids=segment_ids,
             segment_source=segment_source,
             old_means=capture.transition_means,
@@ -165,6 +257,21 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
         )
     )
     return segment_storage
+
+
+def _current_reset_success_mask(runner: Any, *, batch_size: int, device: torch.device | str) -> torch.Tensor:
+    result = getattr(runner, "_frontres_segment_live_current_reset_result", None)
+    if result is None:
+        return torch.ones(batch_size, device=device, dtype=torch.bool)
+    success_mask = getattr(result, "success_mask", None)
+    if success_mask is None:
+        return torch.ones(batch_size, device=device, dtype=torch.bool)
+    success_mask = success_mask.to(device=device).bool().reshape(-1)
+    if int(success_mask.numel()) != batch_size:
+        raise ValueError(
+            f"segment reset success mask must have {batch_size} rows, got {int(success_mask.numel())}"
+        )
+    return success_mask.detach()
 
 
 def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> object:
@@ -358,10 +465,15 @@ def _initial_live_probe_summary(
         "reward_mean": capture.reward_mean,
         "done_frac": capture.done_frac,
         "valid_mask_frac": 1.0 - capture.done_frac,
+        "reward_per_sample": _rollout_reward_per_sample(capture),
+        "done_any_per_sample": _rollout_done_per_sample(capture),
         "storage_write": storage_write,
         "storage_size": 0,
         "storage_valid_frac": 0.0,
         "storage_reward_mean": 0.0,
+        "storage_reward_per_sample": [],
+        "storage_valid_mask_per_sample": [],
+        "storage_segment_ids": [],
         "single_update": single_update,
         "ppo_update": False,
         "ppo_valid_count": 0,
@@ -371,6 +483,31 @@ def _initial_live_probe_summary(
         "ppo_approx_kl": 0.0,
         "ppo_clip_frac": 0.0,
     }
+
+
+def _rollout_reward_per_sample(capture: FrontRESSegmentLiveRolloutCapture) -> list[float]:
+    if capture.reward_accum is None:
+        return []
+    reward = capture.reward_accum.reshape(-1).detach().float() / float(max(1, int(capture.rollout_k)))
+    return _float_list(reward)
+
+
+def _rollout_done_per_sample(capture: FrontRESSegmentLiveRolloutCapture) -> list[bool]:
+    if capture.done_any is None:
+        return []
+    return _bool_list(capture.done_any.reshape(-1))
+
+
+def _float_list(value: torch.Tensor) -> list[float]:
+    return [float(item) for item in value.detach().reshape(-1).cpu().tolist()]
+
+
+def _bool_list(value: torch.Tensor) -> list[bool]:
+    return [bool(item) for item in value.detach().bool().reshape(-1).cpu().tolist()]
+
+
+def _long_list(value: torch.Tensor) -> list[int]:
+    return [int(item) for item in value.detach().long().reshape(-1).cpu().tolist()]
 
 
 def _print_live_probe_summary(
@@ -384,6 +521,12 @@ def _print_live_probe_summary(
         f"objective={getattr(runner.alg, 'frontres_training_objective', 'n/a')} "
         "segment_id=live_env_current "
         f"reset_mode={runner._frontres_segment_replay_boundary.reset_mode} "
+        f"segment_reset={bool(summary['segment_reset'])} "
+        f"segment_reset_success_frac={float(summary['segment_reset_success_frac']):.4f} "
+        f"segment_reset_direct_frac={float(summary['segment_reset_direct_frac']):.4f} "
+        f"segment_reset_preroll_frac={float(summary['segment_reset_preroll_frac']):.4f} "
+        f"segment_reset_velocity_mismatch_mean={float(summary['segment_reset_velocity_mismatch_mean']):.6f} "
+        f"segment_reference_window_applied_frac={float(summary['segment_reference_window_applied_frac']):.4f} "
         f"obs_shape={capture.last_obs_shape} "
         f"action_shape={capture.action_shape} "
         f"action_6d={action_6d} "

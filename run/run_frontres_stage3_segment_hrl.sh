@@ -21,6 +21,7 @@ MODE="${6:-train}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FEMR_STAGE3_SEGMENT_HRL}"
+CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
 CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py}"
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
@@ -74,6 +75,7 @@ TRAIN_CMD=(
   --resume_student_checkpoint "${STAGE1_CHECKPOINT}"
   --is_full_resume False
   --frontres_stage stage3_segment_hrl
+  --frontres_segment_cache_dir "${CACHE_DIR}"
   --frontres_segment_live_update_steps "${UPDATE_STEPS}"
 )
 
@@ -94,6 +96,7 @@ if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
     " --frontres_stage stage3_segment_hrl " \
     " --resume_student_checkpoint ${STAGE1_CHECKPOINT} " \
     " --is_full_resume False " \
+    " --frontres_segment_cache_dir ${CACHE_DIR} " \
     " --frontres_segment_live_update_steps ${UPDATE_STEPS} " \
     " --experiment_name g1_flat_frontres_stage3_segment_hrl "
   do

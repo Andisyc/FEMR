@@ -66,7 +66,17 @@ def _descriptor(segment_id: int, perturbation_id: int, strength: float) -> Front
         duration=2,
         target="torso_link",
         frame="world",
-        params={"axis": [1.0, 0.0, 0.0], "magnitude": strength},
+        params={
+            "curriculum_mode": "discrete_bank",
+            "family": "external_push",
+            "level_index": 1,
+            "level_name": "level_01",
+            "level_strength": strength,
+            "variant_index": 0,
+            "axis": [1.0, 0.0, 0.0],
+            "signed_magnitude": strength,
+            "frame": "world",
+        },
     )
 
 
@@ -158,6 +168,9 @@ def test_cache_io_round_trips_clean_and_noisy_shards() -> None:
         for before, after in zip(noisy_variants, loaded_noisy):
             assert before.descriptor.seed == after.descriptor.seed
             assert before.descriptor.params == after.descriptor.params
+            assert after.descriptor.params["curriculum_mode"] == "discrete_bank"
+            assert after.descriptor.params["level_index"] == 1
+            assert after.descriptor.params["level_name"] == "level_01"
             torch.testing.assert_close(before.noisy_state.root_lin_vel, after.noisy_state.root_lin_vel)
             torch.testing.assert_close(before.noisy_baseline_score, after.noisy_baseline_score)
             assert after.noisy_state.root_pos.requires_grad is False

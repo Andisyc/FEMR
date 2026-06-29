@@ -4,7 +4,7 @@ Status update, 2026-06-27:
 
 The acceptance-only HSL+HRL engineering plan below is no longer the preferred
 next research direction.  The current concept is recorded in
-`note/FrontRES Segment Replay HRL Method Design.md`:
+`note/frontres_segment_replay/plans/hrl_method_design.md`:
 
 - slice long motions into dynamic segments;
 - use HSL as initialization, not as the final proposal to accept/reject;

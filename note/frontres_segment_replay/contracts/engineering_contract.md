@@ -1,7 +1,7 @@
 # FrontRES Segment Replay Engineering Contract
 Date: 2026-06-27
 
-This note is Step 3 after `FrontRES External Code Reuse Map.md`.
+This note is Step 3 after `note/frontres_segment_replay/references/external_code_reuse_map.md`.
 It defines the FEMR module contract before code implementation.
 
 The core method is:
@@ -987,6 +987,129 @@ Step 22 limitation:
   the current environment state; the sampled segment id now owns storage,
   priority, and checkpoint identity.  True dataset/reset-driven segment
   execution remains the next live-boundary integration.
+
+Step 14 per-sample rollout evidence:
+
+- scope: convert live rollout evidence from batch-level scalar summaries into
+  per-sample evidence before sampler priority update;
+- non-scope: no PPO loss change, no reference-window command injection, no
+  training-command change;
+- core parameter path:
+  `segment_id -> reset_success/done_any/reward -> per_sample_evidence ->
+  sampler priority`;
+- `frontres_segment_live_probe.py` now exports detached list payloads for
+  `reward_per_sample`, `done_any_per_sample`,
+  `storage_reward_per_sample`, `storage_valid_mask_per_sample`, and
+  `storage_segment_ids`;
+- `frontres_segment_live_sampler.py` now builds
+  `FrontRESSegmentRolloutEvidence` from those per-sample payloads before
+  falling back to scalar means;
+- failed reset and invalid rollout rows are masked at `valid_reward`, so they
+  do not create useful replay priority;
+- `[probe step14] evidence_path` prints compact boundary facts: sample count,
+  segment id range, reward min/max, reset-valid count, rollout-valid count,
+  valid-reward count, fall count, and gain mean;
+- `frontres_segment_live_sampler_contract.py` includes a semantic two-sample
+  test where one segment has positive valid reward and the other has negative
+  done/reset-failed evidence, proving the batch mean is not copied to both
+  segments.
+
+Step 14 stop condition:
+
+- two segment rows can carry different reward, fall, reset, and valid masks;
+- sampler evidence preserves those row-level facts;
+- pseudo and all-contract suites explicitly check `[probe step14]`.
+
+Step 15 reference-window reset hook:
+
+- scope: carry the sampled `reference_window` from the segment batch into the
+  reset request and through a command-owned optional reference hook;
+- non-scope: no PPO loss change, no sampler priority formula change, no real
+  motion-loader time-step rewrite, and no training-command change;
+- core parameter path:
+  `segment_id -> batch.reference_window -> reset_request.reference_window ->
+  env command reference hook -> reset diagnostics`;
+- `frontres_segment_reset.py` now calls a command hook when available:
+  `set_frontres_reference_window`, `apply_frontres_reference_window`, or
+  `set_segment_reference_window`;
+- if the command has no hook, dynamic state reset still works and
+  `reference_window_applied_frac=0.0` exposes the missing boundary instead of
+  silently pretending the reference was aligned;
+- if the command hook exists, it receives the full batched tensor
+  `[B, K+1, ...]` and the reset `env_ids`;
+- `frontres_segment_live_probe.py` prints
+  `segment_reference_window_applied_frac` in the live reset summary;
+- `frontres_segment_live_reset_hook_contract.py` verifies a semantic fake
+  command where two segment rows carry different reference-window values and
+  both are written to the command hook.
+
+Step 15 stop condition:
+
+- `request.reference_window` and command-stored reference window match exactly
+  in the fake contract;
+- reset diagnostics expose `reference_window_applied_frac`;
+- pseudo and all-contract suites explicitly check `[probe step15]`.
+
+Step 16 MotionCommand reference consumer:
+
+- scope: make the real `MultiMotionCommand` consume the Stage 3 segment
+  `reference_window` after the reset hook passes it into the command;
+- non-scope: no PPO loss change, no sampler priority change, no runner training
+  loop change, and no server launch command change;
+- core parameter path:
+  `dataset.reference_window -> reset_request.reference_window ->
+  MultiMotionCommand.set_frontres_reference_window -> command joint_pos/joint_vel
+  gather override -> cursor advance -> clear/expire`;
+- `frontres_segment_dataset.py` now builds the default `reference_window` from
+  joint command payload `[joint_pos, joint_vel]`, not root position;
+- `MultiMotionCommand` owns the override buffer, active mask, and per-env cursor;
+- `command` remains the consumer boundary: `_gather_future_by_motion("joint_pos")`
+  and `_gather_future_by_motion("joint_vel")` apply active overrides before GMT
+  sees the flattened command tensor;
+- `_update_command()` advances the cursor by one frame; `_resample_command()`
+  clears active overrides for reset envs; exhausted windows expire automatically;
+- `frontres_segment_motion_command_reference_contract.py` traces the same tensor
+  through dataset payload construction, command first read, cursor advance,
+  partial clear, and expiration.
+
+Step 16 stop condition:
+
+- contract prints `[probe step16] dataset.reference_window`,
+  `[probe step16] command.first_read`, `[probe step16] command.after_advance`,
+  `[probe step16] command.after_partial_clear`, and
+  `[probe step16] reference_window_lifecycle`;
+- contract ends with `frontres_segment_motion_command_reference_contract: ok`;
+- pseudo and all-contract suites include the Step 16 command-consumer contract.
+
+Step 17 local runner closed loop:
+
+- scope: verify the local runner interface path after Step 16, using one segment,
+  one env, and a two-step rollout;
+- non-scope: no IsaacLab server launch, no PPO update, no training-performance
+  claim, and no sampler formula change;
+- core parameter path:
+  `sampler.sample -> dataset.get_segments -> batch.reference_window ->
+  reset request -> command reference hook -> K-step live probe -> segment storage
+  -> rollout evidence -> sampler.update`;
+- `frontres_segment_live_closed_loop_contract.py` uses the real
+  `run_frontres_segment_sampler_step()` and the real
+  `run_frontres_segment_live_probe()` with a semantic fake env;
+- the fake env returns `reference_window_applied=True`, two rollout rewards, and
+  no done flag, so storage writes one valid segment reward and evidence updates
+  sampler priority.
+
+Step 17 stop condition:
+
+- contract prints `[probe step17] sampled.segment_ids`,
+  `[probe step17] batch.reference_window`,
+  `[probe step17] command.reference_window`,
+  `[probe step17] sampler.seen`, `[probe step17] sampler.invalid`,
+  `[probe step17] sampler.priority`, and
+  `[probe step17] closed_loop_summary`;
+- the closed-loop summary proves `reference_applied_frac=1.0`,
+  `storage_segment_ids=[0]`, `storage_reward=[2.0]`,
+  `storage_valid=[True]`, and positive sampler priority;
+- pseudo and all-contract suites include the Step 17 local closed-loop contract.
 
 ## 12. Algorithm Contract
 

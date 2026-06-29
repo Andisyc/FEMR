@@ -114,10 +114,83 @@ parser.add_argument(
     help="For Stage 1 only: noisy variants generated for each perturbation strength.",
 )
 parser.add_argument(
+    "--frontres_segment_cache_perturbation_mode",
+    type=str,
+    choices=("hrl_curriculum_bank", "discrete_bank"),
+    default="hrl_curriculum_bank",
+    help="For Stage 1 only: perturbation descriptor source used for noisy caches.",
+)
+parser.add_argument(
     "--frontres_segment_cache_perturbation_strengths",
     type=str,
     default="0.0,0.25,0.5,0.75,1.0",
-    help="For Stage 1 only: comma-separated perturbation curriculum strengths for noisy caches.",
+    help="For Stage 1 only: comma-separated strengths used by discrete_bank or recorded as legacy metadata.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_bank_size",
+    type=int,
+    default=16,
+    help="For Stage 1 only: number of HRL curriculum bank records sampled for noisy caches.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_frontier_scale",
+    type=float,
+    default=2.0,
+    help="For Stage 1 only: HRL curriculum frontier scale used when building noisy cache levels.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_dr_min",
+    type=float,
+    default=1.25,
+    help="For Stage 1 only: minimum DR scale clamp for HRL curriculum cache levels.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_dr_max",
+    type=float,
+    default=4.5,
+    help="For Stage 1 only: maximum DR scale clamp for HRL curriculum cache levels.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_progress",
+    type=float,
+    default=0.8,
+    help="For Stage 1 only: curriculum progress used to choose single/mixed perturbation families.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_seq_idx",
+    type=int,
+    default=17,
+    help="For Stage 1 only: deterministic curriculum sequence index used for cache bank sampling.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_active_dims",
+    type=str,
+    default="0,1,2,3,4,5",
+    help="For Stage 1 only: comma-separated active Delta SE dims allowed to generate perturbation families.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_include_hard_as_train",
+    action="store_true",
+    default=False,
+    help="For Stage 1 only: store hard HRL curriculum samples as trainable instead of boundary diagnostics.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_temporal_mode",
+    type=str,
+    default="single",
+    help="For Stage 1 only: temporal descriptor mode stored with HRL curriculum bank perturbations.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_burst_min_steps",
+    type=int,
+    default=4,
+    help="For Stage 1 only: minimum burst length metadata for HRL curriculum bank perturbations.",
+)
+parser.add_argument(
+    "--frontres_segment_cache_curriculum_burst_max_steps",
+    type=int,
+    default=8,
+    help="For Stage 1 only: maximum burst length metadata for HRL curriculum bank perturbations.",
 )
 parser.add_argument(
     "--frontres_segment_live_sentinel_only",
@@ -669,6 +742,9 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)
         _set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)
         _set_if_present(alg_cfg, "frontres_segment_k", 4)
+        segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"
+        _set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))
+        _set_if_present(alg_cfg, "frontres_segment_include_boundary_diagnostic", False)
         _set_if_present(alg_cfg, "frontres_segment_sampler_global_frac", 0.4)
         _set_if_present(alg_cfg, "frontres_segment_sampler_replay_frac", 0.5)
         _set_if_present(alg_cfg, "frontres_segment_sampler_review_frac", 0.1)
@@ -725,6 +801,28 @@ def _parse_frontres_segment_cache_strengths(value: str) -> list[float]:
     if any(strength < 0.0 for strength in strengths):
         raise ValueError("--frontres_segment_cache_perturbation_strengths must be non-negative.")
     return strengths
+
+
+def _parse_frontres_segment_cache_active_dims(value: str) -> tuple[int, ...] | None:
+    raw = str(value).strip()
+    if raw.lower() in {"", "none", "all"}:
+        return None
+    dims: list[int] = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        dim = int(item)
+        if dim < 0 or dim > 5:
+            raise ValueError(
+                "--frontres_segment_cache_curriculum_active_dims must contain Delta SE dims in [0, 5], "
+                f"got {dim}"
+            )
+        dims.append(dim)
+    if not dims:
+        return None
+    unique_dims = tuple(sorted(set(dims)))
+    return unique_dims
 
 
 def _frontres_stage1_segment_cache_dir(args_cli, log_dir: str) -> str:
@@ -805,8 +903,29 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
     max_motions = max(1, int(getattr(args_cli, "frontres_segment_cache_max_motions", 1)))
     max_segments = max(1, int(getattr(args_cli, "frontres_segment_cache_max_segments", 1)))
     variants_per_strength = max(1, int(getattr(args_cli, "frontres_segment_cache_variants_per_strength", 1)))
+    perturbation_mode = str(getattr(args_cli, "frontres_segment_cache_perturbation_mode", "hrl_curriculum_bank"))
     strengths = _parse_frontres_segment_cache_strengths(
         getattr(args_cli, "frontres_segment_cache_perturbation_strengths", "0.0,0.25,0.5,0.75,1.0")
+    )
+    curriculum_active_dims = _parse_frontres_segment_cache_active_dims(
+        getattr(args_cli, "frontres_segment_cache_curriculum_active_dims", "0,1,2,3,4,5")
+    )
+    curriculum_bank_size = max(1, int(getattr(args_cli, "frontres_segment_cache_curriculum_bank_size", 16)))
+    curriculum_frontier_scale = float(getattr(args_cli, "frontres_segment_cache_curriculum_frontier_scale", 2.0))
+    curriculum_dr_min = float(getattr(args_cli, "frontres_segment_cache_curriculum_dr_min", 1.25))
+    curriculum_dr_max = float(getattr(args_cli, "frontres_segment_cache_curriculum_dr_max", 4.5))
+    curriculum_progress = float(getattr(args_cli, "frontres_segment_cache_curriculum_progress", 0.8))
+    curriculum_seq_idx = int(getattr(args_cli, "frontres_segment_cache_curriculum_seq_idx", 17))
+    curriculum_include_hard_as_train = bool(
+        getattr(args_cli, "frontres_segment_cache_curriculum_include_hard_as_train", False)
+    )
+    curriculum_temporal_mode = str(getattr(args_cli, "frontres_segment_cache_curriculum_temporal_mode", "single"))
+    curriculum_burst_min_steps = max(
+        1, int(getattr(args_cli, "frontres_segment_cache_curriculum_burst_min_steps", 4))
+    )
+    curriculum_burst_max_steps = max(
+        curriculum_burst_min_steps,
+        int(getattr(args_cli, "frontres_segment_cache_curriculum_burst_max_steps", 8)),
     )
     print(
         "[FrontRES Stage1 Segment Cache] live_sentinel "
@@ -818,7 +937,19 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
         f"max_motions={max_motions} "
         f"max_segments={max_segments} "
         f"variants_per_strength={variants_per_strength} "
-        f"perturbation_strengths={strengths}",
+        f"perturbation_mode={perturbation_mode} "
+        f"legacy_perturbation_strengths={strengths} "
+        f"curriculum_bank_size={curriculum_bank_size} "
+        f"curriculum_frontier_scale={curriculum_frontier_scale} "
+        f"curriculum_dr_min={curriculum_dr_min} "
+        f"curriculum_dr_max={curriculum_dr_max} "
+        f"curriculum_progress={curriculum_progress} "
+        f"curriculum_seq_idx={curriculum_seq_idx} "
+        f"curriculum_active_dims={curriculum_active_dims} "
+        f"curriculum_include_hard_as_train={curriculum_include_hard_as_train} "
+        f"curriculum_temporal_mode={curriculum_temporal_mode} "
+        f"curriculum_burst_min_steps={curriculum_burst_min_steps} "
+        f"curriculum_burst_max_steps={curriculum_burst_max_steps}",
         flush=True,
     )
     from rsl_rl.frontres.frontres_segment_cache_builder import (
@@ -845,6 +976,18 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
             max_segments=max_segments,
             strengths=tuple(float(item) for item in strengths),
             variants_per_strength=variants_per_strength,
+            perturbation_curriculum_mode=perturbation_mode,
+            curriculum_bank_size=curriculum_bank_size,
+            curriculum_frontier_scale=curriculum_frontier_scale,
+            curriculum_dr_min=curriculum_dr_min,
+            curriculum_dr_max=curriculum_dr_max,
+            curriculum_progress=curriculum_progress,
+            curriculum_seq_idx=curriculum_seq_idx,
+            curriculum_active_dims=curriculum_active_dims,
+            curriculum_include_hard_as_train=curriculum_include_hard_as_train,
+            curriculum_temporal_mode=curriculum_temporal_mode,
+            curriculum_burst_min_steps=curriculum_burst_min_steps,
+            curriculum_burst_max_steps=curriculum_burst_max_steps,
             base_seed=int(getattr(args_cli, "seed", 0) or 0),
             env_id=0,
         ),

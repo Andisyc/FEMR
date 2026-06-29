@@ -1,6 +1,6 @@
-# MOSAIC Repository Module Map
+# FEMR Repository Architecture Map
 
-This document is the entry map for the MOSAIC repository.  It is not a history
+This document is the first-level entry map for the FEMR repository. It is not a history
 log and not a paper outline.  Its job is to help a human or LLM agent answer:
 
 ```text
@@ -31,27 +31,30 @@ note/
   owns design contracts, architecture diagrams, modification checklists
 ```
 
-The active research path is FrontRES:
+The active research path for this repository is currently FrontRES Segment
+Replay HRL:
 
 ```text
-corrupted reference
-  -> Stage 1 Clean-oriented Delta SE proposal
-  -> Stage 2 authority actor-critic over rho
-  -> K-step executable return
-  -> burst perturbation curriculum
-  -> frozen GMT execution
+motion sequence
+  -> Stage 1 segment cache: Clean state + discrete Noisy perturbation bank
+  -> Stage 2 HSL initialization for 6D Delta SE(3) repair
+  -> Stage 3 sampler selects segment ids
+  -> dynamic reset to cached segment state
+  -> HRL 6D Delta SE(3) repair rollout
+  -> per-sample rollout evidence
+  -> sampler priority update + PPO update
 ```
 
 The current method contract is:
 
 ```text
-note/FrontRES Design Contract.md
+note/frontres_core/contracts/design_contract.md
 ```
 
 The current engineering checklist is:
 
 ```text
-note/FrontRES Modification Checklist.md
+note/frontres_core/checklists/modification_checklist.md
 ```
 
 ## 1. Training Entrypoints
@@ -353,6 +356,10 @@ source/rsl_rl/rsl_rl/runners/frontres_warmup.py
 source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py
 source/rsl_rl/rsl_rl/runners/frontres_runner_logging.py
 source/rsl_rl/rsl_rl/runners/frontres_runtime.py
+source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py
+source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py
+source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py
+source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py
 ```
 
 ### Responsibilities
@@ -364,6 +371,30 @@ source/rsl_rl/rsl_rl/runners/frontres_runtime.py
 - build storage transitions;
 - run update and logging;
 - save and resume checkpoints.
+
+### Segment Replay Runner Responsibilities
+
+The Stage 3 runner helper modules should stay thin:
+
+```text
+frontres_segment_live_probe.py
+  owns live K-step rollout capture, per-sample reward/done payloads, and
+  independent Segment Replay storage writes
+
+frontres_segment_live_sampler.py
+  owns live sampler initialization, sampled segment batch construction, and
+  conversion from per-sample rollout payloads to sampler evidence
+
+frontres_segment_live_update_loop.py
+  owns short repeated live update orchestration and summary aggregation
+
+frontres_segment_live_training.py
+  owns the normal Stage 3 training loop, checkpoint cadence, resume sentinel,
+  and fail-fast diagnostics
+```
+
+The runner should not compute priority formulas, cache schemas, or algorithm
+losses.
 
 ### New Authority Actor-Critic Responsibilities
 
@@ -410,6 +441,14 @@ frontres_reward_window.py
 frontres_rollout_evidence.py
 frontres_structured_rho.py
 frontres_transition_payload.py
+frontres_segment_cache_builder.py
+frontres_segment_cache_indexer.py
+frontres_segment_cache_io.py
+frontres_segment_cache_schema.py
+frontres_segment_dataset.py
+frontres_segment_reset.py
+frontres_segment_sampler.py
+frontres_segment_storage.py
 perturbation_runtime.py
 runtime_diagnostics.py
 task_space_correction.py
@@ -426,6 +465,51 @@ training_schedule.py
 - reward/evidence summarization;
 - diagnostics formatting;
 - temporal reference cache.
+
+### Segment Replay Helper Responsibilities
+
+```text
+frontres_segment_cache_*.py
+  own Stage 1 disk cache schemas, AMASS segment indexing, Clean/Noisy rollout
+  state IO, and cache builder orchestration
+
+frontres_segment_dataset.py
+  owns loading cached segments into semantic batches; for Stage 3 reference
+  alignment its default `reference_window` payload is command-shaped
+  `[joint_pos, joint_vel]`
+
+frontres_segment_reset.py
+  owns reset requests/results, real env dynamic reset hooks, and the optional
+  command-facing reference-window hook boundary
+
+frontres_segment_sampler.py
+  owns PLR-style segment sampling, priority, solved/hopeless flags, and state
+  dict persistence
+
+frontres_segment_storage.py
+  owns independent Stage 3 PPO tuple storage for 6D Delta SE(3) repair
+```
+
+Per-sample rollout evidence belongs at the boundary between
+`frontres_segment_live_probe.py` and `frontres_segment_live_sampler.py`: probe
+captures detached row-level reward/done/valid facts; sampler converts them into
+`FrontRESSegmentRolloutEvidence`.
+
+Segment reference alignment belongs at the boundary between
+`frontres_segment_reset.py` and the environment motion command: reset receives
+`request.reference_window` and calls a command-owned hook when available.  The
+motion command, not the runner, should own any real time-step or reference
+loader mutation needed to make GMT consume that window.  The real consumer is
+`MultiMotionCommand`: it stores a per-env override window, applies active rows
+inside `_gather_future_by_motion("joint_pos"/"joint_vel")`, advances the cursor
+in `_update_command()`, and clears overrides in `_resample_command()`.
+
+The local Segment Replay runner loop is split across runner helpers:
+`frontres_segment_live_sampler.py` samples segment ids and builds the current
+batch, `frontres_segment_live_probe.py` owns reset + K-step rollout + storage
+write, and sampler evidence is converted back into PLR priority after the probe
+summary is available.  This keeps runner orchestration as a connector instead of
+moving sampling, reset, reward, storage, and priority logic into one file.
 
 ### New Helpers Needed
 
@@ -628,17 +712,20 @@ scripts/robustness_validation/push_controller.py
 ### Current Intended Roles
 
 ```text
-MOSAIC Repository Brief.md
-  entry module map and ownership document
+00_repository_architecture_map.md
+  first-level entry module map and ownership document
 
-FrontRES Design Contract.md
+frontres_core/contracts/design_contract.md
   current method contract and research boundary
 
-FrontRES Modification Checklist.md
+frontres_core/checklists/modification_checklist.md
   active engineering checklist for ongoing refactors
 
-FrontRES Paper Method Outline.md
+frontres_core/paper/method_outline.md
   paper-facing method material, not implementation truth
+
+frontres_segment_replay/
+  Segment Replay contracts, plans, intake notes, and code references
 
 architecture/
   HTML/data visual maps
@@ -649,10 +736,10 @@ architecture/
 If these documents disagree, use this priority:
 
 ```text
-FrontRES Design Contract.md for current method concept
-FrontRES Modification Checklist.md for active implementation steps
-MOSAIC Repository Brief.md for module ownership
-Paper Method Outline only for writing
+frontres_core/contracts/design_contract.md for current method concept
+frontres_core/checklists/modification_checklist.md for active implementation steps
+00_repository_architecture_map.md for module ownership
+frontres_core/paper/method_outline.md only for writing
 older sections as history, not active truth
 ```
 

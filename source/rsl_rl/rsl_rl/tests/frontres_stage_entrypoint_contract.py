@@ -26,6 +26,7 @@ def _between(text: str, start: str, end: str) -> str:
 def main() -> None:
     train = _read("scripts/rsl_rl/train.py")
     stage1_cache = _read("run/run_frontres_stage1_segment_cache.sh")
+    stage1_cache_validator = _read("run/validate_frontres_stage1_segment_cache.sh")
     stage1 = _read("run/run_frontres_stage1_hsl.sh")
     stage2 = _read("run/run_frontres_stage2_acceptance.sh")
     stage3 = _read("run/run_frontres_stage3_segment_hrl.sh")
@@ -37,7 +38,19 @@ def main() -> None:
     assert '"--frontres_segment_cache_max_motions"' in train
     assert '"--frontres_segment_cache_max_segments"' in train
     assert '"--frontres_segment_cache_variants_per_strength"' in train
+    assert '"--frontres_segment_cache_perturbation_mode"' in train
     assert '"--frontres_segment_cache_perturbation_strengths"' in train
+    assert '"--frontres_segment_cache_curriculum_bank_size"' in train
+    assert '"--frontres_segment_cache_curriculum_frontier_scale"' in train
+    assert '"--frontres_segment_cache_curriculum_dr_min"' in train
+    assert '"--frontres_segment_cache_curriculum_dr_max"' in train
+    assert '"--frontres_segment_cache_curriculum_progress"' in train
+    assert '"--frontres_segment_cache_curriculum_seq_idx"' in train
+    assert '"--frontres_segment_cache_curriculum_active_dims"' in train
+    assert '"--frontres_segment_cache_curriculum_include_hard_as_train"' in train
+    assert '"--frontres_segment_cache_curriculum_temporal_mode"' in train
+    assert '"--frontres_segment_cache_curriculum_burst_min_steps"' in train
+    assert '"--frontres_segment_cache_curriculum_burst_max_steps"' in train
     assert '"--frontres_segment_live_sentinel_only"' in train
     assert '"--frontres_segment_live_probe_only"' in train
     assert '"--frontres_segment_live_storage_write_only"' in train
@@ -92,6 +105,25 @@ def main() -> None:
     assert "FrontRESStage1EnvAdapter" in train
     assert "_frontres_stage1_motion_loader_probe(adapter, requested_max_motions=max_motions)" in train
     assert "build_stage1_segment_cache" in train
+    assert "def _parse_frontres_segment_cache_active_dims(value: str) -> tuple[int, ...] | None:" in train
+    assert 'choices=("hrl_curriculum_bank", "discrete_bank")' in train
+    assert 'perturbation_mode={perturbation_mode}' in train
+    assert 'legacy_perturbation_strengths={strengths}' in train
+    assert 'curriculum_bank_size={curriculum_bank_size}' in train
+    assert 'curriculum_frontier_scale={curriculum_frontier_scale}' in train
+    assert 'curriculum_active_dims={curriculum_active_dims}' in train
+    assert "perturbation_curriculum_mode=perturbation_mode" in train
+    assert "curriculum_bank_size=curriculum_bank_size" in train
+    assert "curriculum_frontier_scale=curriculum_frontier_scale" in train
+    assert "curriculum_dr_min=curriculum_dr_min" in train
+    assert "curriculum_dr_max=curriculum_dr_max" in train
+    assert "curriculum_progress=curriculum_progress" in train
+    assert "curriculum_seq_idx=curriculum_seq_idx" in train
+    assert "curriculum_active_dims=curriculum_active_dims" in train
+    assert "curriculum_include_hard_as_train=curriculum_include_hard_as_train" in train
+    assert "curriculum_temporal_mode=curriculum_temporal_mode" in train
+    assert "curriculum_burst_min_steps=curriculum_burst_min_steps" in train
+    assert "curriculum_burst_max_steps=curriculum_burst_max_steps" in train
     assert "Stage 1 Segment Cache entrypoint is recognized" not in train
     assert "NotImplementedError" not in _between(
         train,
@@ -171,6 +203,9 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)',
         '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)',
         '_set_if_present(alg_cfg, "frontres_segment_k", 4)',
+        'segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"',
+        '_set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))',
+        '_set_if_present(alg_cfg, "frontres_segment_include_boundary_diagnostic", False)',
         '_set_if_present(alg_cfg, "frontres_segment_sampler_global_frac", 0.4)',
         '_set_if_present(alg_cfg, "frontres_segment_sampler_replay_frac", 0.5)',
         '_set_if_present(alg_cfg, "frontres_segment_sampler_review_frac", 0.1)',
@@ -212,6 +247,8 @@ def main() -> None:
         assert "frontres_segment_live_fail_on_nonfinite: bool = True" in cfg_text
         assert "frontres_hsl_init_enabled: bool = False" in cfg_text
         assert "frontres_segment_k: int = 4" in cfg_text
+        assert 'frontres_segment_cache_dir: str = ""' in cfg_text
+        assert "frontres_segment_include_boundary_diagnostic: bool = False" in cfg_text
         assert "frontres_segment_sampler_global_frac: float = 0.4" in cfg_text
         assert "frontres_segment_sampler_replay_frac: float = 0.5" in cfg_text
         assert "frontres_segment_sampler_review_frac: float = 0.1" in cfg_text
@@ -267,10 +304,56 @@ def main() -> None:
     assert '--frontres_segment_cache_max_motions "${MAX_MOTIONS}"' in stage1_cache
     assert '--frontres_segment_cache_max_segments "${MAX_SEGMENTS}"' in stage1_cache
     assert '--frontres_segment_cache_variants_per_strength "${VARIANTS_PER_STRENGTH}"' in stage1_cache
+    assert '--frontres_segment_cache_perturbation_mode "${PERTURBATION_MODE}"' in stage1_cache
     assert '--frontres_segment_cache_perturbation_strengths "${PERTURBATION_STRENGTHS}"' in stage1_cache
+    assert 'PERTURBATION_MODE="${PERTURBATION_MODE:-hrl_curriculum_bank}"' in stage1_cache
+    assert 'CURRICULUM_BANK_SIZE="${CURRICULUM_BANK_SIZE:-16}"' in stage1_cache
+    assert 'CURRICULUM_FRONTIER_SCALE="${CURRICULUM_FRONTIER_SCALE:-2.0}"' in stage1_cache
+    assert 'CURRICULUM_DR_MIN="${CURRICULUM_DR_MIN:-1.25}"' in stage1_cache
+    assert 'CURRICULUM_DR_MAX="${CURRICULUM_DR_MAX:-4.5}"' in stage1_cache
+    assert 'CURRICULUM_PROGRESS="${CURRICULUM_PROGRESS:-0.8}"' in stage1_cache
+    assert 'CURRICULUM_SEQ_IDX="${CURRICULUM_SEQ_IDX:-17}"' in stage1_cache
+    assert 'CURRICULUM_ACTIVE_DIMS="${CURRICULUM_ACTIVE_DIMS:-0,1,2,3,4,5}"' in stage1_cache
+    assert 'CURRICULUM_TEMPORAL_MODE="${CURRICULUM_TEMPORAL_MODE:-single}"' in stage1_cache
+    assert 'CURRICULUM_BURST_MIN_STEPS="${CURRICULUM_BURST_MIN_STEPS:-4}"' in stage1_cache
+    assert 'CURRICULUM_BURST_MAX_STEPS="${CURRICULUM_BURST_MAX_STEPS:-8}"' in stage1_cache
+    assert 'VALIDATE_AFTER_BUILD="${VALIDATE_AFTER_BUILD:-1}"' in stage1_cache
+    assert 'VALIDATION_EXPECT_MODE="${VALIDATION_EXPECT_MODE:-${PERTURBATION_MODE}}"' in stage1_cache
+    assert 'VALIDATION_REQUIRE_BOUNDARY_DIAGNOSTIC="${VALIDATION_REQUIRE_BOUNDARY_DIAGNOSTIC:-auto}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_bank_size "${CURRICULUM_BANK_SIZE}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_frontier_scale "${CURRICULUM_FRONTIER_SCALE}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_dr_min "${CURRICULUM_DR_MIN}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_dr_max "${CURRICULUM_DR_MAX}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_progress "${CURRICULUM_PROGRESS}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_seq_idx "${CURRICULUM_SEQ_IDX}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_active_dims "${CURRICULUM_ACTIVE_DIMS}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_temporal_mode "${CURRICULUM_TEMPORAL_MODE}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_burst_min_steps "${CURRICULUM_BURST_MIN_STEPS}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_burst_max_steps "${CURRICULUM_BURST_MAX_STEPS}"' in stage1_cache
+    assert 'CMD+=(--frontres_segment_cache_curriculum_include_hard_as_train)' in stage1_cache
     assert 'CACHE_DIR="${4:-/hdd1/cyx/AMASS_G1Segment}"' in stage1_cache
     assert 'g1_flat_frontres_stage1_segment_cache' in stage1_cache
     assert 'Stage 1 builds the Segment Replay cache' in stage1_cache
+    assert 'After a successful build, the script validates the written cache by default.' in stage1_cache
+    assert 'if [[ "${VALIDATE_AFTER_BUILD}" == "1" ]]; then' in stage1_cache
+    assert 'VALIDATE_CMD=(' in stage1_cache
+    assert 'source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_validator.py' in stage1_cache
+    assert '--expect-mode "${VALIDATION_EXPECT_MODE}"' in stage1_cache
+    assert '--min-segments "${VALIDATION_MIN_SEGMENTS}"' in stage1_cache
+    assert '--min-noisy "${VALIDATION_MIN_NOISY}"' in stage1_cache
+    assert '[[ "${VALIDATION_REQUIRE_BOUNDARY_DIAGNOSTIC}" == "auto" ]]' in stage1_cache
+    assert '[[ "${PERTURBATION_MODE}" == "hrl_curriculum_bank" ]]' in stage1_cache
+    assert '[[ "${CURRICULUM_INCLUDE_HARD_AS_TRAIN:-0}" != "1" ]]' in stage1_cache
+    assert 'VALIDATE_CMD+=(--require-boundary-diagnostic)' in stage1_cache
+    assert 'CACHE_DIR="${1:-/hdd1/cyx/AMASS_G1Segment}"' in stage1_cache_validator
+    assert 'EXPECT_MODE="${EXPECT_MODE:-hrl_curriculum_bank}"' in stage1_cache_validator
+    assert 'MIN_SEGMENTS="${MIN_SEGMENTS:-1}"' in stage1_cache_validator
+    assert 'MIN_NOISY="${MIN_NOISY:-1}"' in stage1_cache_validator
+    assert 'source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_validator.py' in stage1_cache_validator
+    assert '--expect-mode "${EXPECT_MODE}"' in stage1_cache_validator
+    assert '--min-segments "${MIN_SEGMENTS}"' in stage1_cache_validator
+    assert '--min-noisy "${MIN_NOISY}"' in stage1_cache_validator
+    assert 'CMD+=(--require-boundary-diagnostic)' in stage1_cache_validator
     assert '--frontres_stage stage1_hsl' in stage1
     assert 'authority' not in stage1.lower()
     assert '--frontres_stage stage2_acceptance' in stage2
@@ -281,7 +364,10 @@ def main() -> None:
     assert '--frontres_stage stage3_segment_hrl' in stage3
     assert '--resume_student_checkpoint "${STAGE1_CHECKPOINT}"' in stage3
     assert '--is_full_resume False' in stage3
+    assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in stage3
+    assert '--frontres_segment_cache_dir "${CACHE_DIR}"' in stage3
     assert '--frontres_segment_live_update_steps "${UPDATE_STEPS}"' in stage3
+    assert '" --frontres_segment_cache_dir ${CACHE_DIR} "' in stage3
     assert '--frontres_segment_live_update_loop_only' in stage3
     assert 'FRONTRES_STAGE3_RUN_CONTRACTS' in stage3
     assert 'frontres_segment_all_contract_suite.py' in stage3

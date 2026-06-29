@@ -200,11 +200,16 @@ def _select_segments_round_robin(
 ) -> list[FrontRESSegmentIndex]:
     if max_segments <= 0:
         return []
+    quotas = _round_robin_motion_quotas(segments_by_motion, max_segments=max_segments)
+    sampled_by_motion = [
+        _select_segments_uniformly(motion_segments, count=quota)
+        for motion_segments, quota in zip(segments_by_motion, quotas, strict=False)
+    ]
     selected: list[FrontRESSegmentIndex] = []
     cursor = 0
     while len(selected) < max_segments:
         added = False
-        for motion_segments in segments_by_motion:
+        for motion_segments in sampled_by_motion:
             if cursor < len(motion_segments):
                 selected.append(motion_segments[cursor])
                 added = True
@@ -214,6 +219,39 @@ def _select_segments_round_robin(
             break
         cursor += 1
     return selected
+
+
+def _round_robin_motion_quotas(segments_by_motion: list[list[FrontRESSegmentIndex]], *, max_segments: int) -> list[int]:
+    quotas = [0 for _ in segments_by_motion]
+    if max_segments <= 0:
+        return quotas
+    selected = 0
+    while selected < max_segments:
+        added = False
+        for idx, motion_segments in enumerate(segments_by_motion):
+            if quotas[idx] < len(motion_segments):
+                quotas[idx] += 1
+                selected += 1
+                added = True
+                if selected >= max_segments:
+                    break
+        if not added:
+            break
+    return quotas
+
+
+def _select_segments_uniformly(
+    motion_segments: list[FrontRESSegmentIndex], *, count: int
+) -> list[FrontRESSegmentIndex]:
+    if count <= 0:
+        return []
+    if count >= len(motion_segments):
+        return list(motion_segments)
+    if count == 1:
+        return [motion_segments[0]]
+    last = len(motion_segments) - 1
+    indices = [round(i * last / (count - 1)) for i in range(count)]
+    return [motion_segments[int(index)] for index in indices]
 
 
 def _renumber_segments(segments: Iterable[FrontRESSegmentIndex]) -> list[FrontRESSegmentIndex]:

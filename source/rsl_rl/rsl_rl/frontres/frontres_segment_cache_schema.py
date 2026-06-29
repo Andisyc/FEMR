@@ -148,6 +148,45 @@ class FrontRESPerturbationDescriptor:
             raise ValueError("target must be non-empty")
         if self.frame not in {"world", "local", "joint"}:
             raise ValueError(f"frame must be world, local, or joint, got {self.frame}")
+        if "level_index" in self.params and int(self.params["level_index"]) < 0:
+            raise ValueError(f"level_index must be non-negative, got {self.params['level_index']}")
+        if "level_name" in self.params and not str(self.params["level_name"]):
+            raise ValueError("level_name must be non-empty when provided")
+        if "curriculum_mode" in self.params and str(self.params["curriculum_mode"]) not in {
+            "discrete_bank",
+            "hrl_curriculum_bank",
+        }:
+            raise ValueError(f"unsupported curriculum_mode: {self.params['curriculum_mode']}")
+        if "family_group" in self.params and not tuple(self.params["family_group"]):
+            raise ValueError("family_group must be non-empty when provided")
+        if "mix_class" in self.params and str(self.params["mix_class"]) not in {"easy", "frontier", "hard", "fixed"}:
+            raise ValueError(f"unsupported mix_class: {self.params['mix_class']}")
+        if "mix_class_index" in self.params and int(self.params["mix_class_index"]) not in {-1, 0, 1, 2}:
+            raise ValueError(f"unsupported mix_class_index: {self.params['mix_class_index']}")
+        if "frontier_scale" in self.params and float(self.params["frontier_scale"]) < 0.0:
+            raise ValueError(f"frontier_scale must be non-negative, got {self.params['frontier_scale']}")
+        if "dr_factor" in self.params and float(self.params["dr_factor"]) < 0.0:
+            raise ValueError(f"dr_factor must be non-negative, got {self.params['dr_factor']}")
+        if "actual_dr_scale" in self.params and float(self.params["actual_dr_scale"]) < 0.0:
+            raise ValueError(f"actual_dr_scale must be non-negative, got {self.params['actual_dr_scale']}")
+        if "perturbation_role" in self.params and str(self.params["perturbation_role"]) not in {
+            "train",
+            "boundary_diagnostic",
+        }:
+            raise ValueError(f"unsupported perturbation_role: {self.params['perturbation_role']}")
+        if "burst_min_steps" in self.params and int(self.params["burst_min_steps"]) <= 0:
+            raise ValueError(f"burst_min_steps must be positive, got {self.params['burst_min_steps']}")
+        if "burst_max_steps" in self.params and int(self.params["burst_max_steps"]) <= 0:
+            raise ValueError(f"burst_max_steps must be positive, got {self.params['burst_max_steps']}")
+        if (
+            "burst_min_steps" in self.params
+            and "burst_max_steps" in self.params
+            and int(self.params["burst_max_steps"]) < int(self.params["burst_min_steps"])
+        ):
+            raise ValueError(
+                "burst_max_steps must be >= burst_min_steps, "
+                f"got {self.params['burst_max_steps']} < {self.params['burst_min_steps']}"
+            )
 
 
 @dataclass(frozen=True)

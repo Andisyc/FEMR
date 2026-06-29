@@ -53,12 +53,20 @@ def _install_live_probe_import_stubs():
     algorithms_pkg.frontres_segment_ppo = ppo_module
 
     training_schedule = types.ModuleType("rsl_rl.frontres.training_schedule")
-    training_schedule.resolve_frontres_mode_state = lambda *_args, **_kwargs: None
+    training_schedule.resolve_frontres_mode_state = lambda *_args, **_kwargs: SimpleNamespace(
+        is_frontres=True,
+        is_task_space_mode=True,
+    )
     sys.modules[training_schedule.__name__] = training_schedule
     frontres_pkg.training_schedule = training_schedule
 
     training_setup = types.ModuleType("rsl_rl.runners.frontres_training_setup")
-    training_setup.configure_frontres_pair_layout = lambda *_args, **_kwargs: None
+    training_setup.configure_frontres_pair_layout = lambda *_args, **_kwargs: SimpleNamespace(
+        n_train=1,
+        n_candidate=0,
+        n_base=0,
+        n_clean=0,
+    )
     sys.modules[training_setup.__name__] = training_setup
     runners_pkg.frontres_training_setup = training_setup
 
@@ -67,6 +75,11 @@ def _install_live_probe_import_stubs():
         ROOT / "rsl_rl" / "frontres" / "frontres_segment_storage.py",
     )
     frontres_pkg.frontres_segment_storage = storage_module
+    reset_module = _load(
+        "rsl_rl.frontres.frontres_segment_reset",
+        ROOT / "rsl_rl" / "frontres" / "frontres_segment_reset.py",
+    )
+    frontres_pkg.frontres_segment_reset = reset_module
 
     modules_pkg = types.ModuleType("rsl_rl.modules")
     modules_pkg.FrontRESActorCritic = object
@@ -74,7 +87,19 @@ def _install_live_probe_import_stubs():
     rsl_rl_pkg.modules = modules_pkg
 
     rollout_step = types.ModuleType("rsl_rl.runners.frontres_rollout_step")
-    rollout_step.prepare_frontres_rollout_step = lambda *_args, **_kwargs: None
+
+    def _prepare_frontres_rollout_step(runner, **kwargs):
+        batch = int(kwargs["obs"].shape[0])
+        actions = torch.zeros(batch, 6)
+        runner.alg.transition.observations = kwargs["obs"].detach().clone()
+        runner.alg.transition.privileged_observations = kwargs["privileged_obs"].detach().clone()
+        runner.alg.transition.actions_log_prob = torch.zeros(batch)
+        runner.alg.transition.values = torch.zeros(batch)
+        runner.alg.transition.action_mean = actions.detach().clone()
+        runner.alg.transition.action_sigma = torch.ones_like(actions)
+        return SimpleNamespace(actions=actions, env_actions=torch.zeros(batch, 12))
+
+    rollout_step.prepare_frontres_rollout_step = _prepare_frontres_rollout_step
     sys.modules[rollout_step.__name__] = rollout_step
     runners_pkg.frontres_rollout_step = rollout_step
 
@@ -89,6 +114,7 @@ def _install_live_probe_import_stubs():
 live_probe = _install_live_probe_import_stubs()
 FrontRESSegmentLiveRolloutCapture = live_probe.FrontRESSegmentLiveRolloutCapture
 build_live_segment_storage = live_probe.build_live_segment_storage
+run_frontres_segment_live_probe = live_probe.run_frontres_segment_live_probe
 
 
 def _probe_tensor(name: str, tensor: torch.Tensor, semantic: str) -> None:
@@ -186,7 +212,173 @@ def test_build_live_segment_storage_rejects_non_6d_actions() -> None:
         raise AssertionError("non-6D live probe actions must be rejected before storage write")
 
 
+def test_build_live_segment_storage_masks_failed_reset_samples() -> None:
+    runner = SimpleNamespace(
+        device=torch.device("cpu"),
+        _frontres_segment_live_current_reset_result=SimpleNamespace(
+            success_mask=torch.tensor([True, False]),
+        ),
+    )
+    capture = _capture()
+    capture = FrontRESSegmentLiveRolloutCapture(
+        rollout_k=capture.rollout_k,
+        reward_mean=capture.reward_mean,
+        done_frac=0.0,
+        last_obs_shape=capture.last_obs_shape,
+        action_shape=capture.action_shape,
+        env_action_shape=capture.env_action_shape,
+        transition_obs=capture.transition_obs,
+        transition_privileged_obs=capture.transition_privileged_obs,
+        transition_actions=capture.transition_actions,
+        transition_log_probs=capture.transition_log_probs,
+        transition_values=capture.transition_values,
+        transition_means=capture.transition_means,
+        transition_sigmas=capture.transition_sigmas,
+        reward_accum=capture.reward_accum,
+        done_any=torch.tensor([False, False]),
+    )
+
+    storage = build_live_segment_storage(runner, capture)
+    batch = storage.full_batch()
+    stats = storage.stats()
+
+    _probe_tensor(
+        "reset_result.success_mask",
+        runner._frontres_segment_live_current_reset_result.success_mask,
+        "reset hook success per sampled segment",
+    )
+    _probe_tensor("capture.done_any", capture.done_any, "rollout done mask before storage validity")
+    _probe_tensor("storage.reset_mask", storage.reset_mask[: storage.step], "reset success stored beside PPO tuple")
+    _probe_tensor("storage.valid_mask", storage.valid_mask[: storage.step], "valid means reset succeeded and rollout survived")
+    _probe_tensor("batch.valid_mask", batch.valid_mask, "PPO-valid rows after failed reset masking")
+    print(
+        "[probe step12] storage_reset_mask: "
+        f"reset_success={runner._frontres_segment_live_current_reset_result.success_mask.tolist()} "
+        f"done_any={capture.done_any.tolist()} "
+        f"storage_reset={storage.reset_mask[: storage.step].tolist()} "
+        f"storage_valid={storage.valid_mask[: storage.step].tolist()} "
+        f"reset_success_frac={stats.reset_success_frac:.6f} "
+        f"valid_frac={stats.valid_frac:.6f}",
+        flush=True,
+    )
+
+    assert storage.reset_mask[: storage.step].tolist() == [True, False]
+    assert storage.valid_mask[: storage.step].tolist() == [True, False]
+    assert batch.valid_mask.tolist() == [True, False]
+    assert stats.reset_success_frac == 0.5
+    assert stats.valid_frac == 0.5
+
+
+class _FakeLiveEnv:
+    def __init__(self) -> None:
+        self.device = torch.device("cpu")
+        self.episode_length_buf = torch.zeros(2, dtype=torch.long)
+        self.max_episode_length = 16
+        self.events: list[str] = []
+
+    def apply_frontres_segment_reset(self, request):
+        self.events.append("reset")
+        self.last_reset_request = request
+        return {
+            "success_mask": torch.ones(2, dtype=torch.bool),
+            "velocity_mismatch": torch.zeros(2),
+        }
+
+    def get_observations(self):
+        self.events.append("get_obs")
+        obs = torch.ones(2, 4)
+        return obs, {"observations": {}}
+
+    def step(self, actions):
+        self.events.append("step")
+        obs = torch.ones(2, 4) * 2.0
+        rewards = torch.tensor([1.0, 0.5])
+        dones = torch.tensor([False, False])
+        return obs, rewards, dones, {"observations": {}}
+
+
+def _reset_batch() -> SimpleNamespace:
+    return SimpleNamespace(
+        segment_ids=torch.tensor([7, 9], dtype=torch.long),
+        clean_state=SimpleNamespace(
+            root_pos=torch.zeros(2, 3),
+            root_quat=torch.tensor([[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]),
+            root_lin_vel=torch.ones(2, 3) * 0.1,
+            root_ang_vel=torch.ones(2, 3) * 0.2,
+            dof_pos=torch.zeros(2, 29),
+            dof_vel=torch.ones(2, 29) * 0.01,
+        ),
+        reference_window=torch.zeros(2, 4, 6),
+        phase=torch.tensor([0.1, 0.2]),
+        specs=(),
+    )
+
+
+def test_live_probe_applies_current_segment_batch_reset_before_rollout() -> None:
+    env = _FakeLiveEnv()
+    runner = SimpleNamespace(
+        env=env,
+        device=torch.device("cpu"),
+        policy_obs_type=None,
+        privileged_obs_type=None,
+        teacher_obs_type=None,
+        ref_vel_estimator_obs_type=None,
+        current_learning_iteration=0,
+        _frontres_segment_replay_boundary=SimpleNamespace(
+            live_probe_only=True,
+            live_storage_write_only=False,
+            live_single_update_only=False,
+            live_update_loop_only=False,
+            live_train_enabled=False,
+            segment_k=1,
+            reset_mode="direct",
+        ),
+        _frontres_segment_live_current_batch=_reset_batch(),
+        alg=SimpleNamespace(
+            frontres_training_objective="segment_replay_hrl",
+            frontres_segment_k=1,
+            frontres_segment_reset_mode="direct",
+            frontres_segment_preroll_steps=0,
+            transition=SimpleNamespace(),
+        ),
+        eval_mode=lambda: None,
+        _apply_obs_normalizer=lambda obs: obs,
+        privileged_obs_normalizer=lambda obs: obs,
+        teacher_obs_normalizer=lambda obs: obs,
+    )
+
+    summary = run_frontres_segment_live_probe(runner, init_at_random_ep_len=False)
+    request = runner._frontres_segment_live_current_reset_request
+    result = runner._frontres_segment_live_current_reset_result
+
+    _probe_tensor("batch.segment_ids", runner._frontres_segment_live_current_batch.segment_ids, "sampled ids before reset request")
+    _probe_tensor("request.segment_ids", request.segment_ids, "same ids inside reset request")
+    _probe_tensor("request.valid_mask", request.valid_mask, "reset request validity before env hook")
+    _probe_tensor("result.success_mask", result.success_mask, "env reset result after adapter validation")
+    print(
+        "[probe step11] live_reset_summary: "
+        f"events={env.events} "
+        f"segment_reset={summary['segment_reset']} "
+        f"success_frac={summary['segment_reset_success_frac']} "
+        f"direct_frac={summary['segment_reset_direct_frac']} "
+        f"reward_mean={summary['reward_mean']}",
+        flush=True,
+    )
+
+    assert env.events == ["reset", "get_obs", "step"]
+    assert request.segment_ids.tolist() == [7, 9]
+    assert tuple(request.mode) == ("direct", "direct")
+    assert request.valid_mask.tolist() == [True, True]
+    assert result.success_mask.tolist() == [True, True]
+    assert summary["segment_reset"] is True
+    assert summary["segment_reset_success_frac"] == 1.0
+    assert summary["segment_reset_direct_frac"] == 1.0
+    assert summary["done_frac"] == 0.0
+
+
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_rejects_non_6d_actions()
+    test_build_live_segment_storage_masks_failed_reset_samples()
+    test_live_probe_applies_current_segment_batch_reset_before_rollout()
     print("frontres_segment_live_probe_contract: ok")
