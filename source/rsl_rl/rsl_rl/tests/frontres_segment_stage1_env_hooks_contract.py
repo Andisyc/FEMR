@@ -196,8 +196,15 @@ class FakeGymEnv:
     def __init__(self, root: Path) -> None:
         self.unwrapped = FakeBaseEnv(root)
         self.step_actions: list[torch.Tensor] = []
+        self.reset_count = 0
+
+    def reset(self):
+        self.reset_count += 1
+        return None, {}
 
     def step(self, actions: torch.Tensor):
+        if self.reset_count <= 0:
+            raise RuntimeError("Cannot call env.step() before calling env.reset()")
         self.step_actions.append(actions.detach().clone())
         rewards = torch.full((1,), 0.75, dtype=torch.float32)
         dones = torch.zeros(1, dtype=torch.bool)
@@ -317,10 +324,12 @@ def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
             "[stage1_hooks trace] baseline "
             f"actions={len(env.step_actions)} "
             f"action_shape={tuple(env.step_actions[0].shape)} "
+            f"reset_count={env.reset_count} "
             f"score={baseline['score'].tolist()} "
             f"fall={baseline['fall'].tolist()} "
             f"rollout_len={baseline['rollout_len'].tolist()}"
         )
+        assert env.reset_count == 1
         assert len(env.step_actions) == 2
         assert tuple(env.step_actions[0].shape) == (1, 29)
         torch.testing.assert_close(baseline["score"], torch.tensor([0.75]))
@@ -353,6 +362,7 @@ def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
             f"segment_count={result.segment_count} "
             f"clean_count={result.clean_count} "
             f"noisy_count={result.noisy_count} "
+            f"reset_count={connected_env.reset_count} "
             f"clean_ids={[entry.segment_id for entry in clean_entries]} "
             f"zero_ids={[(item.segment_id, item.perturbation_id) for item in noisy_zero]} "
             f"half_ids={[(item.segment_id, item.perturbation_id) for item in noisy_half]} "
@@ -361,6 +371,7 @@ def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
         assert result.segment_count == 1
         assert result.clean_count == 1
         assert result.noisy_count == 2
+        assert connected_env.reset_count == 1
         assert [entry.segment_id for entry in clean_entries] == [0]
         assert [(item.segment_id, item.perturbation_id) for item in noisy_zero] == [(0, 0)]
         assert [(item.segment_id, item.perturbation_id) for item in noisy_half] == [(0, 1)]

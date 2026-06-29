@@ -61,6 +61,19 @@ class FrontRESStage1EnvAdapter:
     def frontres_loaded_motion_paths(self) -> list[str]:
         return [str(path) for path in getattr(self.command.motion_dir_loader, "motion_paths", [])]
 
+    def ensure_frontres_env_reset(self) -> dict[str, bool]:
+        if bool(getattr(self, "_frontres_env_reset_done", False)):
+            return {"reset_called": False, "already_reset": True}
+        reset_fn = getattr(self.env, "reset", None)
+        if not callable(reset_fn):
+            self._frontres_env_reset_done = True
+            self._trace("env_reset", reset_called=False, already_reset=False)
+            return {"reset_called": False, "already_reset": False}
+        result = reset_fn()
+        self._frontres_env_reset_done = True
+        self._trace("env_reset", reset_called=True, already_reset=False, result_type=type(result).__name__)
+        return {"reset_called": True, "already_reset": False}
+
     def prepare_frontres_clean_segment(self, *, segment: FrontRESSegmentIndex, env_ids: torch.Tensor) -> dict[str, torch.Tensor]:
         segment.validate()
         ids = self._normalize_env_ids(env_ids)
@@ -149,6 +162,7 @@ class FrontRESStage1EnvAdapter:
     def rollout_frontres_noisy_baseline(
         self, *, segment: FrontRESSegmentIndex, descriptor: FrontRESPerturbationDescriptor, env_ids: torch.Tensor
     ) -> dict[str, torch.Tensor]:
+        self.ensure_frontres_env_reset()
         ids = self._normalize_env_ids(env_ids)
         steps = self._baseline_steps(descriptor)
         fall = torch.zeros(ids.numel(), dtype=torch.float32, device=ids.device)

@@ -147,6 +147,7 @@ def build_stage1_segment_cache(env: Any, cfg: FrontRESStage1CacheBuilderConfig) 
         flush=True,
     )
     env_ids = torch.tensor([int(cfg.env_id)], dtype=torch.long)
+    _ensure_frontres_env_reset(env)
     clean_entries = []
     clean_by_segment: dict[int, Any] = {}
     for segment in segments:
@@ -255,3 +256,13 @@ def _frontres_loaded_motion_paths(env: Any) -> list[str]:
         if paths:
             return [str(path) for path in paths]
     return []
+
+
+def _ensure_frontres_env_reset(env: Any) -> None:
+    for owner in (env, getattr(env, "unwrapped", None), getattr(env, "base_env", None)):
+        if owner is None:
+            continue
+        fn = getattr(owner, "ensure_frontres_env_reset", None)
+        if callable(fn):
+            fn()
+            return
