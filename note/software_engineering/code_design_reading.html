@@ -7,22 +7,23 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #f5f7f8;
-      --paper: #ffffff;
-      --ink: #182230;
-      --muted: #5f6b7a;
-      --soft: #eef2f5;
-      --line: #d8e0e7;
-      --green: #25736b;
-      --green-soft: #e4f2ef;
-      --blue: #315f9c;
-      --blue-soft: #e8eff9;
-      --amber: #8a5d16;
-      --amber-soft: #fbf0d8;
-      --red: #9a3f3f;
-      --red-soft: #f8e7e7;
-      --code: #eef1f4;
-      --shadow: 0 18px 50px rgba(24, 34, 48, 0.08);
+      --paper: #fbfaf4;
+      --panel: #fffdf6;
+      --ink: #1f2933;
+      --muted: #5d6976;
+      --line: #2f3440;
+      --soft-line: #d9d2c3;
+      --green: #2f7c6f;
+      --green-soft: #e2f1ec;
+      --blue: #476fa8;
+      --blue-soft: #e7edf8;
+      --amber: #a66c1d;
+      --amber-soft: #faedd2;
+      --red: #a04c4c;
+      --red-soft: #f6dddd;
+      --purple: #6d5aa6;
+      --purple-soft: #ece6f5;
+      --shadow: 7px 7px 0 rgba(31, 41, 51, 0.12);
     }
 
     * {
@@ -31,8 +32,12 @@
 
     body {
       margin: 0;
-      background: var(--bg);
       color: var(--ink);
+      background:
+        linear-gradient(rgba(31, 41, 51, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(31, 41, 51, 0.035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 24px 24px;
       font-family:
         -apple-system,
         BlinkMacSystemFont,
@@ -41,14 +46,14 @@
         "PingFang SC",
         "Microsoft YaHei",
         sans-serif;
-      line-height: 1.6;
+      line-height: 1.58;
     }
 
     a {
-      color: var(--blue);
-      font-weight: 700;
+      color: inherit;
+      font-weight: 800;
       text-decoration: none;
-      border-bottom: 1px solid rgba(49, 95, 156, 0.35);
+      border-bottom: 2px solid rgba(71, 111, 168, 0.45);
     }
 
     a:hover {
@@ -56,21 +61,14 @@
     }
 
     main {
-      width: min(1160px, calc(100vw - 32px));
+      width: min(1180px, calc(100vw - 32px));
       margin: 0 auto;
-      padding: 32px 0 64px;
+      padding: 28px 0 70px;
     }
 
-    header {
-      display: grid;
-      grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
-      gap: 24px;
-      align-items: stretch;
-      min-height: 360px;
-    }
-
+    header,
     section {
-      margin-top: 30px;
+      margin-top: 24px;
     }
 
     h1,
@@ -78,58 +76,89 @@
     h3,
     p {
       margin: 0;
+      letter-spacing: 0;
     }
 
     h1 {
       font-size: 42px;
-      line-height: 1.12;
-      letter-spacing: 0;
+      line-height: 1.14;
     }
 
     h2 {
-      font-size: 24px;
+      font-size: 25px;
       line-height: 1.25;
-      letter-spacing: 0;
     }
 
     h3 {
       font-size: 17px;
       line-height: 1.35;
-      letter-spacing: 0;
     }
 
-    .hero,
-    .panel,
+    code {
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: #eef1f4;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .comic-board {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .rough-card,
+    .speech,
     .book,
-    .route-step,
-    .check {
-      background: var(--paper);
-      border: 1px solid var(--line);
-      border-radius: 8px;
+    .route-node,
+    .rule,
+    .matrix,
+    .question {
+      position: relative;
+      background: var(--panel);
+      border: 2px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .rough-card > *,
+    .speech > *,
+    .book > *,
+    .route-node > *,
+    .rule > *,
+    .question > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .rough-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
     }
 
     .hero {
+      min-height: 420px;
       padding: 34px;
-      box-shadow: var(--shadow);
     }
 
-    .eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
+    .kicker {
+      display: inline-block;
       margin-bottom: 16px;
+      padding: 6px 12px;
       color: var(--green);
-      font-size: 13px;
-      font-weight: 800;
-      letter-spacing: 0;
-    }
-
-    .eyebrow::before {
-      content: "";
-      width: 9px;
-      height: 9px;
+      background: var(--green-soft);
+      border: 2px solid var(--green);
       border-radius: 999px;
-      background: var(--green);
+      font-size: 13px;
+      font-weight: 900;
+      transform: rotate(-1.2deg);
     }
 
     .lead {
@@ -139,127 +168,142 @@
       font-size: 18px;
     }
 
-    .hero-strip {
+    .comic-strip {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
-      margin-top: 26px;
+      margin-top: 28px;
     }
 
-    .hero-fact {
-      min-height: 104px;
+    .mini-panel {
+      min-height: 110px;
       padding: 16px;
-      background: var(--soft);
-      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 2px dashed rgba(31, 41, 51, 0.35);
+      border-radius: 12px;
     }
 
-    .hero-fact strong {
+    .mini-panel strong {
       display: block;
-      font-size: 14px;
+      margin-bottom: 8px;
+      font-size: 15px;
     }
 
-    .hero-fact span {
-      display: block;
-      margin-top: 8px;
+    .mini-panel span {
       color: var(--muted);
       font-size: 14px;
     }
 
-    .side-panel {
-      display: flex;
-      flex-direction: column;
+    .bubble-stack {
+      display: grid;
       gap: 14px;
     }
 
-    .decision {
-      flex: 1;
-      padding: 20px;
-      background: var(--green-soft);
-      border: 1px solid #badbd4;
-      border-radius: 8px;
+    .speech {
+      min-height: 160px;
+      padding: 22px;
     }
 
-    .decision strong {
+    .speech::after {
+      content: "";
+      position: absolute;
+      left: 34px;
+      bottom: -18px;
+      width: 38px;
+      height: 38px;
+      background: inherit;
+      border-right: 2px solid var(--line);
+      border-bottom: 2px solid var(--line);
+      transform: rotate(45deg);
+      z-index: 0;
+    }
+
+    .speech strong {
       display: block;
+      margin-bottom: 10px;
       color: var(--green);
       font-size: 14px;
-      margin-bottom: 8px;
     }
 
-    .decision p {
-      font-size: 20px;
-      line-height: 1.42;
-      font-weight: 760;
+    .speech p {
+      font-size: 21px;
+      line-height: 1.38;
+      font-weight: 850;
     }
 
-    .warning {
-      padding: 18px 20px;
+    .speech.warn {
       background: var(--amber-soft);
-      border: 1px solid #ead3a4;
-      border-radius: 8px;
+    }
+
+    .speech.warn strong {
       color: var(--amber);
     }
 
-    .warning strong {
-      display: block;
-      margin-bottom: 6px;
-    }
-
-    .section-head {
+    .section-title {
       display: flex;
+      align-items: end;
       justify-content: space-between;
       gap: 20px;
-      align-items: end;
-      margin-bottom: 14px;
+      margin-bottom: 16px;
     }
 
-    .section-head p {
-      max-width: 650px;
+    .section-title p {
+      max-width: 680px;
       color: var(--muted);
     }
 
-    .route-grid {
+    .route-map {
+      position: relative;
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
+      gap: 18px;
+      padding: 8px 0 12px;
     }
 
-    .route-step {
-      position: relative;
-      min-height: 150px;
+    .route-node {
+      min-height: 166px;
       padding: 18px;
     }
 
-    .route-step .num {
+    .route-node .num {
       display: inline-flex;
+      width: 34px;
+      height: 34px;
       align-items: center;
       justify-content: center;
-      width: 28px;
-      height: 28px;
       margin-bottom: 12px;
+      color: #fff;
+      background: var(--blue);
+      border: 2px solid var(--line);
       border-radius: 999px;
-      background: var(--blue-soft);
-      color: var(--blue);
-      font-weight: 800;
-      font-size: 13px;
+      font-size: 14px;
+      font-weight: 900;
     }
 
-    .route-step p {
+    .route-node p {
       margin-top: 8px;
       color: var(--muted);
       font-size: 14px;
+    }
+
+    .arrow {
+      align-self: center;
+      justify-self: center;
+      width: 74px;
+      height: 22px;
+      margin: -4px auto 0;
     }
 
     .book-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 14px;
+      gap: 16px;
     }
 
     .book {
       display: flex;
       flex-direction: column;
-      min-height: 230px;
+      min-height: 248px;
       padding: 18px;
     }
 
@@ -268,18 +312,20 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
     }
 
     .tag {
       flex: 0 0 auto;
-      padding: 4px 8px;
+      padding: 4px 9px;
+      border: 2px solid currentColor;
       border-radius: 999px;
       background: var(--green-soft);
       color: var(--green);
       font-size: 12px;
-      font-weight: 800;
+      font-weight: 900;
       white-space: nowrap;
+      transform: rotate(1deg);
     }
 
     .tag.blue {
@@ -297,6 +343,11 @@
       color: var(--red);
     }
 
+    .tag.purple {
+      background: var(--purple-soft);
+      color: var(--purple);
+    }
+
     .book p {
       color: var(--muted);
       font-size: 15px;
@@ -307,28 +358,27 @@
       padding-top: 14px;
       color: var(--ink);
       font-size: 14px;
-      font-weight: 700;
+      font-weight: 800;
     }
 
     .matrix {
       width: 100%;
-      border-collapse: collapse;
-      overflow: hidden;
-      background: var(--paper);
-      border: 1px solid var(--line);
-      border-radius: 8px;
+      border-collapse: separate;
+      border-spacing: 0;
+      background: var(--panel);
+      box-shadow: var(--shadow);
     }
 
     .matrix th,
     .matrix td {
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--line);
+      padding: 15px 16px;
+      border-bottom: 2px solid rgba(31, 41, 51, 0.14);
       text-align: left;
       vertical-align: top;
     }
 
     .matrix th {
-      background: var(--soft);
+      background: var(--blue-soft);
       font-size: 14px;
     }
 
@@ -340,47 +390,41 @@
       color: var(--muted);
     }
 
-    code {
-      padding: 2px 6px;
-      border-radius: 5px;
-      background: var(--code);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 0.92em;
-    }
-
-    .check-grid {
+    .question-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
     }
 
-    .check {
-      padding: 16px 18px;
+    .question {
+      min-height: 138px;
+      padding: 17px;
     }
 
-    .check strong {
+    .question strong {
       display: block;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
     }
 
-    .check p {
+    .question p {
       color: var(--muted);
       font-size: 14px;
     }
 
     .footer {
       margin-top: 42px;
-      padding-top: 18px;
-      border-top: 1px solid var(--line);
+      padding: 18px 0 0;
+      border-top: 2px dashed var(--soft-line);
       color: var(--muted);
       font-size: 14px;
     }
 
-    @media (max-width: 940px) {
-      header,
-      .hero-strip,
-      .route-grid,
-      .book-grid {
+    @media (max-width: 980px) {
+      .comic-board,
+      .comic-strip,
+      .route-map,
+      .book-grid,
+      .question-grid {
         grid-template-columns: 1fr;
       }
 
@@ -388,7 +432,7 @@
         font-size: 34px;
       }
 
-      .section-head {
+      .section-title {
         align-items: flex-start;
         flex-direction: column;
       }
@@ -396,20 +440,20 @@
 
     @media (max-width: 680px) {
       main {
-        width: min(100vw - 24px, 1160px);
+        width: min(100vw - 22px, 1180px);
         padding-top: 18px;
       }
 
-      .hero {
-        padding: 22px;
+      .hero,
+      .speech,
+      .book,
+      .route-node,
+      .question {
+        padding: 18px;
       }
 
       .book-top {
         flex-direction: column;
-      }
-
-      .check-grid {
-        grid-template-columns: 1fr;
       }
 
       .matrix {
@@ -421,105 +465,102 @@
 </head>
 <body>
   <main>
-    <header>
-      <section class="hero" aria-labelledby="page-title">
-        <div class="eyebrow">软件工程阅读路线</div>
+    <header class="comic-board">
+      <section class="rough-card hero" data-rough="green" aria-labelledby="page-title">
+        <div class="kicker">Rough Atlas Reading Note</div>
         <h1 id="page-title">读代码设计书，不是为了背模式，而是为了少走弯路。</h1>
         <p class="lead">
           这份路线接在《软件设计哲学》之后。目标是形成一个稳定判断：
           功能放在哪个模块，接口怎么收窄，参数怎么追踪，测试怎么定位问题。
         </p>
-        <div class="hero-strip" aria-label="核心目标">
-          <div class="hero-fact">
-            <strong>第一目标</strong>
-            <span>降低复杂度，而不是把代码切成更多碎片。</span>
+        <div class="comic-strip" aria-label="核心目标">
+          <div class="mini-panel">
+            <strong>先降复杂度</strong>
+            <span>不要把代码切成更多碎片。</span>
           </div>
-          <div class="hero-fact">
-            <strong>第二目标</strong>
-            <span>模块输入输出清楚，关键参数路径能逐层 probe。</span>
+          <div class="mini-panel">
+            <strong>再稳接口</strong>
+            <span>模块输入输出要能单独测试。</span>
           </div>
-          <div class="hero-fact">
-            <strong>第三目标</strong>
-            <span>先学重构和实现规范，再学模式和架构。</span>
+          <div class="mini-panel">
+            <strong>最后看模式</strong>
+            <span>模式是解释变化，不是装饰术语。</span>
           </div>
         </div>
       </section>
 
-      <aside class="side-panel" aria-label="阅读判断">
-        <div class="decision">
+      <aside class="bubble-stack" aria-label="核心判断">
+        <div class="speech" data-rough="green">
           <strong>当前最重要的判断</strong>
           <p>模块要深。接口要小。内部可以复杂，但参数路径不能断。</p>
         </div>
-        <div class="warning">
+        <div class="speech warn" data-rough="amber">
           <strong>不要机械学 Clean Code</strong>
-          <p>
-            “函数越短越好”不是铁律。对 FEMR 这种训练链路，过度拆分会让
-            `reference_window`、mask、reward、grad 这些参数更难追踪。
-          </p>
+          <p>短函数不是铁律。过度拆分会让 `reference_window`、mask、reward、grad 更难追踪。</p>
         </div>
       </aside>
     </header>
 
     <section aria-labelledby="route-title">
-      <div class="section-head">
-        <h2 id="route-title">建议阅读顺序</h2>
-        <p>按“先能安全改代码，再理解模式，再组织模块”的顺序读。</p>
+      <div class="section-title">
+        <h2 id="route-title">阅读路线：先能改，再理解，再组织</h2>
+        <p>这条路线对应实际写代码的顺序：先保护行为，再改善实现，最后讨论架构。</p>
       </div>
-      <div class="route-grid">
-        <article class="route-step">
+      <div class="route-map">
+        <article class="route-node" data-rough="blue">
           <span class="num">1</span>
           <h3>Refactoring</h3>
           <p>学习怎么在行为不变的前提下，把坏结构一步步改好。</p>
         </article>
-        <article class="route-step">
+        <article class="route-node" data-rough="green">
           <span class="num">2</span>
           <h3>Code Complete</h3>
           <p>补实现规范。命名、函数、条件、调试、测试都按问题查。</p>
         </article>
-        <article class="route-step">
+        <article class="route-node" data-rough="amber">
           <span class="num">3</span>
           <h3>Design Patterns</h3>
           <p>建立策略、适配器、工厂、观察者、中介这些模式的直觉。</p>
         </article>
-        <article class="route-step">
+        <article class="route-node" data-rough="purple">
           <span class="num">4</span>
           <h3>Legacy + Architecture</h3>
-          <p>学习在已有复杂仓库里插入机制，并把模块边界和测试边界对齐。</p>
+          <p>在复杂仓库里插入机制，并把模块边界和测试边界对齐。</p>
         </article>
       </div>
     </section>
 
-    <section aria-labelledby="books-title">
-      <div class="section-head">
-        <h2 id="books-title">第一梯队：立刻改善代码</h2>
+    <section aria-labelledby="first-title">
+      <div class="section-title">
+        <h2 id="first-title">第一梯队：立刻改善代码</h2>
         <p>这三本最直接。它们解决的是每天写代码都会遇到的问题。</p>
       </div>
       <div class="book-grid">
-        <article class="book">
+        <article class="book" data-rough="blue">
           <div class="book-top">
             <h3><a href="https://martinfowler.com/books/refactoring.html">Refactoring: Improving the Design of Existing Code</a></h3>
-            <span class="tag">最优先</span>
+            <span class="tag blue">最优先</span>
           </div>
           <p>
             重点不是“写漂亮代码”，而是已经写坏的代码怎么安全变好。
             它适合 FEMR 这种已有仓库：先建立测试边界，再逐步移动责任。
           </p>
-          <footer>读它时看：如何拆出 seam，如何保持行为不变。</footer>
+          <footer>看什么：如何拆出 seam，如何保持行为不变。</footer>
         </article>
 
-        <article class="book">
+        <article class="book" data-rough="green">
           <div class="book-top">
             <h3><a href="https://www.oreilly.com/library/view/code-complete-2nd/0735619670/">Code Complete, 2nd Edition</a></h3>
-            <span class="tag blue">实现规范</span>
+            <span class="tag">实现规范</span>
           </div>
           <p>
             更像实现手册。命名、变量、函数、条件、循环、调试、测试、布局都讲。
             不需要通读，遇到具体问题时查。
           </p>
-          <footer>读它时看：怎么让代码更容易检查。</footer>
+          <footer>看什么：怎么让代码更容易检查。</footer>
         </article>
 
-        <article class="book">
+        <article class="book" data-rough="amber">
           <div class="book-top">
             <h3><a href="https://pragprog.com/titles/tpp20/the-pragmatic-programmer-20th-anniversary-edition/">The Pragmatic Programmer</a></h3>
             <span class="tag amber">工程习惯</span>
@@ -528,18 +569,18 @@
             讲日常判断：不要重复知识，不要偶然编程，快速反馈，自动化，工具使用。
             它不深，但能纠正很多低效习惯。
           </p>
-          <footer>读它时看：如何减少心理省力、实际费力。</footer>
+          <footer>看什么：如何减少心理省力、实际费力。</footer>
         </article>
       </div>
     </section>
 
-    <section aria-labelledby="patterns-title">
-      <div class="section-head">
-        <h2 id="patterns-title">第二梯队：理解模块边界</h2>
+    <section aria-labelledby="pattern-title">
+      <div class="section-title">
+        <h2 id="pattern-title">第二梯队：理解模块边界</h2>
         <p>这些书帮助判断“这个责任属于谁”。不要为了套模式而套模式。</p>
       </div>
       <div class="book-grid">
-        <article class="book">
+        <article class="book" data-rough="green">
           <div class="book-top">
             <h3><a href="https://www.oreilly.com/library/view/head-first-design/9781492077992/">Head First Design Patterns, 2nd Edition</a></h3>
             <span class="tag">模式直觉</span>
@@ -548,10 +589,10 @@
             适合先读。它把策略、适配器、工厂、观察者、中介讲得比较直观。
             读完后再看 FEMR 的 runner、env hook、sampler 会更容易。
           </p>
-          <footer>读它时看：模式解决的是哪种变化。</footer>
+          <footer>看什么：模式解决的是哪种变化。</footer>
         </article>
 
-        <article class="book">
+        <article class="book" data-rough="blue">
           <div class="book-top">
             <h3><a href="https://www.cosmicpython.com/book/preface.html">Architecture Patterns with Python</a></h3>
             <span class="tag blue">Python 架构</span>
@@ -560,10 +601,10 @@
             直接讲 Python 项目怎么拆：Repository、Service Layer、Unit of Work、
             Message Bus、Dependency Injection。在线版可读。
           </p>
-          <footer>读它时看：业务对象和外部框架怎么隔离。</footer>
+          <footer>看什么：业务对象和外部框架怎么隔离。</footer>
         </article>
 
-        <article class="book">
+        <article class="book" data-rough="amber">
           <div class="book-top">
             <h3><a href="https://martinfowler.com/books/eaa.html">Patterns of Enterprise Application Architecture</a></h3>
             <span class="tag amber">架构模式</span>
@@ -572,18 +613,18 @@
             更工程化。讲分层、服务层、数据映射、事务脚本。对 cache、sampler、
             runner、env hook 的责任划分有启发。
           </p>
-          <footer>读它时看：模块如何协作而不互相污染。</footer>
+          <footer>看什么：模块如何协作而不互相污染。</footer>
         </article>
       </div>
     </section>
 
     <section aria-labelledby="legacy-title">
-      <div class="section-head">
+      <div class="section-title">
         <h2 id="legacy-title">第三梯队：维护复杂仓库</h2>
         <p>FEMR 更像“在已有系统中插入机制”，不是从零写一个干净项目。</p>
       </div>
       <div class="book-grid">
-        <article class="book">
+        <article class="book" data-rough="red">
           <div class="book-top">
             <h3><a href="https://www.oreilly.com/library/view/working-effectively-with/0131177052/">Working Effectively with Legacy Code</a></h3>
             <span class="tag red">复杂仓库</span>
@@ -592,10 +633,10 @@
             核心是先制造测试缝隙，再安全修改。它非常适合训练代码、runner、
             checkpoint、env hook 这种互相缠住的路径。
           </p>
-          <footer>读它时看：先保护，再重构。</footer>
+          <footer>看什么：先保护，再重构。</footer>
         </article>
 
-        <article class="book">
+        <article class="book" data-rough="amber">
           <div class="book-top">
             <h3><a href="https://www.pearson.com/en-us/subject-catalog/p/clean-code-a-handbook-of-agile-software-craftsmanship/P200000009556">Clean Code</a></h3>
             <span class="tag amber">批判阅读</span>
@@ -604,26 +645,26 @@
             命名、函数职责、重复代码处理有价值。但它和《软件设计哲学》有冲突。
             不要机械接受“短函数”。
           </p>
-          <footer>读它时看：哪些建议会破坏参数追踪。</footer>
+          <footer>看什么：哪些建议会破坏参数追踪。</footer>
         </article>
 
-        <article class="book">
+        <article class="book" data-rough="purple">
           <div class="book-top">
             <h3><a href="https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/">Fluent Python, 2nd Edition</a></h3>
-            <span class="tag blue">语言进阶</span>
+            <span class="tag purple">语言进阶</span>
           </div>
           <p>
             用来把 Python 写得更地道。它偏语言能力，不直接解决架构问题。
             建议在模块设计稳定后再读。
           </p>
-          <footer>读它时看：如何写更清楚的 Python。</footer>
+          <footer>看什么：如何写更清楚的 Python。</footer>
         </article>
       </div>
     </section>
 
-    <section aria-labelledby="standards-title">
-      <div class="section-head">
-        <h2 id="standards-title">规范怎么用</h2>
+    <section aria-labelledby="standard-title">
+      <div class="section-title">
+        <h2 id="standard-title">规范怎么用</h2>
         <p>规范不是目的。规范是为了让别人和未来的自己更快定位问题。</p>
       </div>
       <table class="matrix" aria-label="代码规范使用方式">
@@ -654,33 +695,33 @@
       </table>
     </section>
 
-    <section aria-labelledby="questions-title">
-      <div class="section-head">
-        <h2 id="questions-title">读书时要一直问的问题</h2>
+    <section aria-labelledby="question-title">
+      <div class="section-title">
+        <h2 id="question-title">读书时要一直问的问题</h2>
         <p>这些问题比记住术语更重要。</p>
       </div>
-      <div class="check-grid">
-        <article class="check">
+      <div class="question-grid">
+        <article class="question" data-rough="blue">
           <strong>这个功能属于哪个模块？</strong>
           <p>数据对象、采样、reset、reward、storage、loss、runner 调度要分清。</p>
         </article>
-        <article class="check">
+        <article class="question" data-rough="green">
           <strong>输入输出能单独测试吗？</strong>
           <p>不能单独测试，就很难知道参数从哪一步开始错。</p>
         </article>
-        <article class="check">
+        <article class="question" data-rough="amber">
           <strong>关键参数在哪些位置被处理？</strong>
           <p>例如 `reference_window`、`valid_mask`、`reward`、`requires_grad`。</p>
         </article>
-        <article class="check">
+        <article class="question" data-rough="purple">
           <strong>接口是否稳定？</strong>
           <p>外部接口要小，内部实现可以复杂，但不能让调用方知道太多细节。</p>
         </article>
-        <article class="check">
+        <article class="question" data-rough="red">
           <strong>这个抽象减少复杂度了吗？</strong>
           <p>如果只是增加名字，没有缩短参数追踪范围，它就不是好抽象。</p>
         </article>
-        <article class="check">
+        <article class="question" data-rough="green">
           <strong>测试是在测行为吗？</strong>
           <p>只证明能运行不够。要证明语义正确，最好有 probe 和 assert。</p>
         </article>
@@ -689,7 +730,101 @@
 
     <footer class="footer">
       写作日期：2026-06-29。定位：个人工程学习路线，不是 FEMR 训练契约。
+      视觉规则：复用 FEMR/MOSAIC Architecture Atlas 的 rough/comic 语法；本页为 standalone note，不迁移为 data.json viewer。
     </footer>
   </main>
+
+  <script type="module">
+    const roughModule = "../architecture/auxiliary/atlas_app/node_modules/roughjs/bundled/rough.esm.js";
+    const palette = {
+      green: { stroke: "#2f7c6f", fill: "rgba(47, 124, 111, 0.12)" },
+      blue: { stroke: "#476fa8", fill: "rgba(71, 111, 168, 0.12)" },
+      amber: { stroke: "#a66c1d", fill: "rgba(166, 108, 29, 0.13)" },
+      red: { stroke: "#a04c4c", fill: "rgba(160, 76, 76, 0.11)" },
+      purple: { stroke: "#6d5aa6", fill: "rgba(109, 90, 166, 0.11)" },
+    };
+
+    function makeSvg(width, height) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("class", "rough-svg");
+      svg.setAttribute("viewBox", `0 0 ${Math.max(1, width)} ${Math.max(1, height)}`);
+      svg.setAttribute("aria-hidden", "true");
+      return svg;
+    }
+
+    function fallbackRoughCards() {
+      document.querySelectorAll("[data-rough]").forEach((el) => {
+        el.style.outline = "2px solid rgba(31, 41, 51, 0.22)";
+        el.style.outlineOffset = "-7px";
+      });
+    }
+
+    function drawRoughCards(rough) {
+      document.querySelectorAll("[data-rough]").forEach((el, index) => {
+        const rect = el.getBoundingClientRect();
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        if (!width || !height) return;
+        const svg = makeSvg(width, height);
+        const rc = rough.svg(svg);
+        const key = el.getAttribute("data-rough") || "blue";
+        const color = palette[key] || palette.blue;
+        svg.appendChild(rc.rectangle(6, 6, width - 12, height - 12, {
+          stroke: color.stroke,
+          strokeWidth: index % 2 ? 2.1 : 2.5,
+          roughness: 1.45 + (index % 3) * 0.18,
+          bowing: 1.1,
+          fill: color.fill,
+          fillStyle: index % 2 ? "solid" : "hachure",
+          hachureGap: 9,
+        }));
+        el.prepend(svg);
+      });
+    }
+
+    function drawRouteArrows(rough) {
+      const route = document.querySelector(".route-map");
+      if (!route || window.matchMedia("(max-width: 980px)").matches) return;
+      const cards = Array.from(route.querySelectorAll(".route-node"));
+      const routeRect = route.getBoundingClientRect();
+      const svg = makeSvg(Math.round(routeRect.width), Math.round(routeRect.height));
+      svg.style.zIndex = "0";
+      route.prepend(svg);
+      const rc = rough.svg(svg);
+      cards.slice(0, -1).forEach((card, index) => {
+        const a = card.getBoundingClientRect();
+        const b = cards[index + 1].getBoundingClientRect();
+        const x1 = a.right - routeRect.left + 8;
+        const y1 = a.top - routeRect.top + a.height / 2;
+        const x2 = b.left - routeRect.left - 8;
+        const y2 = b.top - routeRect.top + b.height / 2;
+        svg.appendChild(rc.line(x1, y1, x2, y2, {
+          stroke: "#5d6976",
+          strokeWidth: 2,
+          roughness: 1.8,
+        }));
+        svg.appendChild(rc.line(x2 - 12, y2 - 7, x2, y2, {
+          stroke: "#5d6976",
+          strokeWidth: 2,
+          roughness: 1.4,
+        }));
+        svg.appendChild(rc.line(x2 - 12, y2 + 7, x2, y2, {
+          stroke: "#5d6976",
+          strokeWidth: 2,
+          roughness: 1.4,
+        }));
+      });
+    }
+
+    import(roughModule)
+      .then((module) => {
+        const rough = module.default;
+        drawRoughCards(rough);
+        drawRouteArrows(rough);
+      })
+      .catch(() => {
+        fallbackRoughCards();
+      });
+  </script>
 </body>
 </html>
