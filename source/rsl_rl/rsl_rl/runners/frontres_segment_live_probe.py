@@ -16,8 +16,9 @@ from rsl_rl.frontres.frontres_segment_storage import (
     FrontRESSegmentRolloutStorage,
     FrontRESSegmentTransition,
 )
-from rsl_rl.frontres.training_schedule import configure_frontres_pair_layout, resolve_frontres_mode_state
+from rsl_rl.frontres.training_schedule import resolve_frontres_mode_state
 from rsl_rl.modules import FrontRESActorCritic
+from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout
 from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
 
 

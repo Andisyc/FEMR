@@ -308,6 +308,8 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert "compute_frontres_segment_ppo_loss" not in runner
     assert "FrontRESSegmentPPOConfig" not in runner
     assert "storage_write={bool(summary['storage_write'])}" in live_probe
+    assert "from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout" in live_probe
+    assert "from rsl_rl.frontres.training_schedule import configure_frontres_pair_layout" not in live_probe
     assert "FrontRESSegmentRolloutStorage" in live_probe
     assert "FrontRESSegmentTransition" in live_probe
     assert "compute_frontres_segment_ppo_loss" in live_probe

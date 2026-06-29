@@ -53,10 +53,14 @@ def _install_live_probe_import_stubs():
     algorithms_pkg.frontres_segment_ppo = ppo_module
 
     training_schedule = types.ModuleType("rsl_rl.frontres.training_schedule")
-    training_schedule.configure_frontres_pair_layout = lambda *_args, **_kwargs: None
     training_schedule.resolve_frontres_mode_state = lambda *_args, **_kwargs: None
     sys.modules[training_schedule.__name__] = training_schedule
     frontres_pkg.training_schedule = training_schedule
+
+    training_setup = types.ModuleType("rsl_rl.runners.frontres_training_setup")
+    training_setup.configure_frontres_pair_layout = lambda *_args, **_kwargs: None
+    sys.modules[training_setup.__name__] = training_setup
+    runners_pkg.frontres_training_setup = training_setup
 
     storage_module = _load(
         "rsl_rl.frontres.frontres_segment_storage",
