@@ -66,6 +66,17 @@ class FrontRESSegmentLivePolicyAdapter:
             )
         self.alg.policy.act(observations)
         value_obs = self.privileged_observations if self.privileged_observations is not None else observations
+        if actions.ndim != 2 or actions.shape[-1] != 6:
+            raise ValueError(f"Segment PPO policy evaluation requires 6D Delta SE actions, got {tuple(actions.shape)}")
+        log_prob = _evaluate_segment_delta_se_log_prob(self.alg.policy, actions, alg=self.alg)
+        action_mean = getattr(self.alg.policy, "action_mean", None)
+        action_std = getattr(self.alg.policy, "action_std", None)
+        mean_6d = None
+        std_6d = None
+        if action_mean is not None and action_mean.ndim == 2 and action_mean.shape[-1] >= 6:
+            mean_6d = action_mean[:, :6]
+        if action_std is not None and action_std.ndim == 2 and action_std.shape[-1] >= 6:
+            std_6d = action_std[:, :6]
         entropy = getattr(self.alg.policy, "entropy", None)
         if callable(entropy):
             entropy = entropy()
@@ -73,11 +84,55 @@ class FrontRESSegmentLivePolicyAdapter:
             entropy = entropy.reshape(-1)
             if entropy.numel() == 1 and actions.shape[0] != 1:
                 entropy = entropy.expand(actions.shape[0])
+        print(
+            "[FrontRES Segment PPO Eval Trace] "
+            f"batch_action_shape={tuple(actions.shape)} "
+            f"policy_action_mean_shape={tuple(action_mean.shape) if action_mean is not None else None} "
+            f"eval_mean_shape={tuple(mean_6d.shape) if mean_6d is not None else None} "
+            f"log_prob_shape={tuple(log_prob.shape)} "
+            "semantic=ppo_eval_uses_6d_delta_se",
+            flush=True,
+        )
         return {
-            "log_prob": self.alg._get_actor_log_prob(actions).reshape(-1),
+            "log_prob": log_prob,
             "value": self.alg.policy.evaluate(value_obs).reshape(-1),
             "entropy": entropy if isinstance(entropy, torch.Tensor) else None,
+            "mean": mean_6d,
+            "sigma": std_6d,
         }
+
+
+def _evaluate_segment_delta_se_log_prob(policy: Any, actions: torch.Tensor, *, alg: Any | None = None) -> torch.Tensor:
+    distribution = getattr(policy, "distribution", None)
+    if (
+        distribution is not None
+        and hasattr(distribution, "mean")
+        and distribution.mean.ndim == 2
+        and distribution.mean.shape[-1] >= 6
+    ):
+        mean = distribution.mean[:, :6]
+        std = distribution.stddev[:, :6]
+        if int(getattr(policy, "num_task_corrections", 0)) > 0:
+            max_delta_pos = float(getattr(policy, "max_delta_pos", 1.0))
+            max_delta_rpy = float(getattr(policy, "max_delta_rpy", 1.0))
+            max_d = torch.cat(
+                [
+                    torch.full((3,), max_delta_pos, device=actions.device, dtype=actions.dtype),
+                    torch.full((3,), max_delta_rpy, device=actions.device, dtype=actions.dtype),
+                ],
+                dim=-1,
+            )
+            normalized = (actions / max_d).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+            raw = torch.atanh(normalized)
+            log_prob = torch.distributions.Normal(mean, std).log_prob(raw).sum(dim=-1)
+            log_j = (torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)).sum(dim=-1)
+            return log_prob - log_j
+        return torch.distributions.Normal(mean, std).log_prob(actions).sum(dim=-1)
+    if alg is not None and hasattr(alg, "_get_actor_log_prob"):
+        return alg._get_actor_log_prob(actions).reshape(-1)
+    if hasattr(policy, "get_actions_log_prob"):
+        return policy.get_actions_log_prob(actions).reshape(-1)
+    raise TypeError("policy must expose distribution or get_actions_log_prob for Segment PPO evaluation")
 
 
 def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = True) -> dict[str, object]:
