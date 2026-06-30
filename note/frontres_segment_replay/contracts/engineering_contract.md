@@ -3097,3 +3097,247 @@ kind=noisy shard_path=.../AAA/motion_a/noisy_variants/strength_0/shard_000000.pt
 --frontres_segment_cache_perturbation_mode discrete_bank
 --frontres_segment_cache_perturbation_strengths 0.0
 ```
+
+## 35. Stage 3 Logging Contract
+
+Date: 2026-06-30
+
+Formal Stage 3 training must use summary logs by default.  Debug probes can
+print row-level values only when the batch is tiny or an explicit verbose flag
+is enabled.
+
+### Problem
+
+The tiny-run probes were left active during full Stage 3.  With
+`num_envs=12000`, printing `segment_ids`, `sources`, `motion_ids`, or
+`start_frames` as full Python lists makes the log unusable.
+
+### Scope
+
+This contract applies to Stage 3 Segment Replay live training logs:
+
+```text
+sample -> batch -> reset -> rollout -> storage -> PPO -> sampler update
+```
+
+### Non-Scope
+
+- Do not change sampling, reset, rollout, storage, PPO, or checkpoint behavior.
+- Do not remove diagnostics that prove the live path is running.
+- Do not add a new logging framework.
+
+### Core Parameter Path
+
+This is a live sentinel path.  Logs should expose compact facts:
+
+```text
+count
+id_min / id_max
+source_counts
+valid_count
+reward_mean
+done_frac
+storage_valid_frac
+ppo_valid_count
+ppo_loss / KL / clip
+checkpoint_path
+```
+
+No full per-sample lists in formal training logs.
+
+### Required Summary Format
+
+Sampler sample logs:
+
+```text
+[probe step22] sample update_step=... count=... id_min=... id_max=...
+source_counts={'global': ..., 'replay': ..., 'review': ...}
+priority_mean=... staleness_mean=... valid_count=...
+```
+
+Batch logs:
+
+```text
+[FrontRES Segment Batch] update_step=... count=... id_min=... id_max=...
+valid_count=... role_counts=... strength_min=... strength_max=...
+```
+
+Index reset logs:
+
+```text
+[FrontRES Segment Reset] mode=index_only count=...
+unique_motion_count=... start_min=... start_max=...
+horizon_min=... horizon_max=... success_frac=...
+```
+
+PPO and rollout logs can keep one-line summaries.  Shape traces such as
+`PPO Eval Trace` and `Live Probe Trace` should print once by default, or every
+time only in verbose debug mode.
+
+### Verbose Rule
+
+Full lists are allowed only when:
+
+```text
+batch_size <= 16
+or frontres_segment_verbose_probe=True
+```
+
+Examples of verbose-only values:
+
+```text
+segment_ids=[...]
+sources=[...]
+motion_ids=[...]
+start_frames=[...]
+```
+
+### Stop Condition
+
+Formal Stage 3 logs must not contain:
+
+```text
+sources=['global',
+segment_ids=[0, 1, 2,
+motion_ids=['
+```
+
+unless the run is explicitly verbose or tiny.
+
+The log must still contain:
+
+```text
+[FrontRES Segment Live Probe]
+[FrontRES Segment Sampler]
+[FrontRES Segment Live Update Loop]
+[FrontRES Segment Live Train]
+[FrontRES Segment Live Checkpoint]
+```
+
+These lines are the formal training sentinels and should stay visible.
+
+### Step 2 Result: Sampler Summary Logs
+
+Step 2 changed only `frontres_segment_live_sampler.py` and its contract test.
+It did not change sampling, dataset loading, reset, rollout, PPO, or
+checkpoint behavior.
+
+Implemented:
+
+- sampler sample probe now prints `count`, `id_min`, `id_max`,
+  `source_counts`, `priority_mean`, `staleness_mean`, and `valid_count`;
+- batch probe now prints `count`, `id_min`, `id_max`, `valid_count`,
+  `role_counts`, `strength_count`, `strength_min`, and `strength_max`;
+- full `segment_ids`, `sources`, `roles`, and `strength` lists are printed only
+  for tiny batches or when `frontres_segment_verbose_probe=True`.
+
+Verified with a 12000-row fake sample:
+
+```text
+[probe step22] large_log_summary:
+contains_count=True
+contains_sources_list=False
+contains_segment_ids_list=False
+contains_source_counts=True
+contains_role_counts=True
+```
+
+### Step 3 Result: Reset Summary Logs
+
+Step 3 changed only `frontres_segment_live_probe.py` reset printing and its
+contract test.  It did not change reset behavior, rollout, storage, PPO, or
+sampler behavior.
+
+Implemented:
+
+- normal segment reset logs now print `count`, `id_min`, `id_max`,
+  `mode_counts`, `valid_count`, and reset fractions;
+- index-only reset logs now print `count`, `id_min`, `id_max`,
+  `motion_count`, `unique_motion_count`, `first_motion`, `start_min/max`,
+  `horizon_min/max`, and `success_frac`;
+- full `segment_ids`, `motion_ids`, `start_frames`, and `horizon_k` lists are
+  printed only for tiny batches or when `frontres_segment_verbose_probe=True`.
+
+Verified with a 12000-row fake index reset:
+
+```text
+[probe step3] reset_log_summary:
+contains_count=True
+contains_motion_summary=True
+contains_start_range=True
+contains_horizon_range=True
+contains_segment_ids_list=False
+contains_motion_ids_list=False
+contains_start_frames_list=False
+contains_horizon_k_list=False
+```
+
+### Step 4 Result: Shape Trace Rate Limit
+
+Step 4 changed only the shape-trace print frequency in
+`frontres_segment_live_probe.py` and its contract test.  It did not change
+action selection, PPO evaluation, storage, rollout, reset, or sampler behavior.
+
+Implemented:
+
+- `[FrontRES Segment Live Probe Trace]` prints once per runner/alg lifecycle by
+  default;
+- `[FrontRES Segment PPO Eval Trace]` prints once per alg lifecycle by default;
+- both traces still print every call when `frontres_segment_verbose_probe=True`.
+
+Verified with repeated fake calls:
+
+```text
+[probe step4] live_probe_trace_rate: trace_count=1 verbose=False
+[probe step4] ppo_eval_trace_rate: trace_count=1 verbose=False
+```
+
+### Step 5 Result: Live Update Loop Log Rate Limit
+
+Step 5 changed only `[FrontRES Segment Live Update Loop]` summary print
+frequency and its contract test.  It did not change sampler, reset, rollout,
+storage, PPO, checkpoint, or training guard behavior.
+
+Implemented:
+
+- default live update-loop summaries print for the first 3 calls;
+- after that they print every
+  `frontres_segment_live_log_interval` calls, default `10`;
+- `frontres_segment_verbose_probe=True` keeps printing every call.
+
+Verified with repeated fake update-loop calls:
+
+```text
+[probe step5] update_loop_log_rate: default_count=4 call_count=12
+[probe step5] update_loop_log_verbose_rate: verbose_count=4 verbose=True
+```
+
+### Step 6 Result: Per-Step Detail Log Rate Limit
+
+Step 6 changed only per-step detail log frequency.  It did not change segment
+sampling, batch construction, reset behavior, rollout, storage, PPO, sampler
+priority, checkpoint, or training guard behavior.
+
+Implemented:
+
+- `[probe step22] sample`, `[FrontRES Segment Batch]`,
+  `[probe step14] evidence_path`, `[FrontRES Segment Sampler]`,
+  `[FrontRES Segment Reset]`, and `[FrontRES Segment Live Probe]` share one
+  detail-log gate;
+- default detail logs print for the first 3 sampler steps;
+- after that they print every `frontres_segment_live_log_interval` sampler
+  steps, default `10`;
+- `frontres_segment_verbose_probe=True` keeps detail logs on every step.
+
+Verified with repeated fake sampler/live-probe calls:
+
+```text
+[probe step6] live_detail_log_rate:
+sample_count=4 batch_count=4 evidence_count=4 sampler_count=4 call_count=12
+
+[probe step6] live_detail_log_verbose_rate:
+sample_count=4 sampler_count=4 verbose=True
+
+[probe step6] live_probe_detail_gate:
+reset_count=0 live_probe_count=0 success_count=2
+```

@@ -35,6 +35,8 @@ FrontRESSegmentSample = _SAMPLER_MODULE.FrontRESSegmentSample
 FrontRESSegmentSampler = _SAMPLER_MODULE.FrontRESSegmentSampler
 load_stage1_cache_dataset = _DATASET_MODULE.load_stage1_cache_dataset
 
+_VERBOSE_PROBE_BATCH_LIMIT = 16
+
 
 def initialize_frontres_segment_live_sampler(runner: Any) -> None:
     boundary = getattr(runner, "_frontres_segment_replay_boundary", None)
@@ -130,10 +132,14 @@ def run_frontres_segment_sampler_step(
         return runner.run_frontres_segment_live_probe(init_at_random_ep_len=init_at_random_ep_len)
 
     sample = sampler.sample(_resolve_live_batch_size(runner))
-    _print_sample_probe(update_step, sample)
-    batch = _build_current_segment_batch(runner, sample, update_step=update_step)
+    detail_log = _live_detail_log_enabled(runner)
+    verbose_probe = _verbose_probe_enabled(runner, sample)
+    if detail_log:
+        _print_sample_probe(update_step, sample, verbose=verbose_probe)
+    batch = _build_current_segment_batch(runner, sample, update_step=update_step, print_probe=detail_log)
     runner._frontres_segment_live_current_sample = sample
     runner._frontres_segment_live_current_batch = batch
+    runner._frontres_segment_live_detail_log_enabled = detail_log
     reset_result = None
     try:
         summary = runner.run_frontres_segment_live_probe(init_at_random_ep_len=init_at_random_ep_len)
@@ -143,24 +149,34 @@ def run_frontres_segment_sampler_step(
         runner._frontres_segment_live_current_batch = None
         runner._frontres_segment_live_current_reset_request = None
         runner._frontres_segment_live_current_reset_result = None
+        runner._frontres_segment_live_detail_log_enabled = True
 
     evidence = build_live_sampler_evidence(
         sample,
         summary,
         horizon_k=int(getattr(runner.alg, "frontres_segment_k", 1)),
         reset_result=reset_result,
+        print_probe=detail_log,
     )
     sampler.update(evidence)
     sampler_summary = summarize_sampler_step(sampler, sample)
     summary.update(sampler_summary)
-    _print_sampler_summary(update_step, sampler_summary)
+    if detail_log:
+        _print_sampler_summary(update_step, sampler_summary)
     return summary
 
 
-def _build_current_segment_batch(runner: Any, sample: FrontRESSegmentSample, *, update_step: int) -> Any | None:
+def _build_current_segment_batch(
+    runner: Any,
+    sample: FrontRESSegmentSample,
+    *,
+    update_step: int,
+    print_probe: bool = True,
+) -> Any | None:
     dataset = getattr(runner, "_frontres_segment_dataset", None)
     if dataset is None or not hasattr(dataset, "get_segments"):
-        print("[FrontRES Segment Batch] skipped reason=no_dataset", flush=True)
+        if print_probe:
+            print("[FrontRES Segment Batch] skipped reason=no_dataset", flush=True)
         return None
     batch = dataset.get_segments(sample.segment_ids)
     validation = dataset.validate_batch(batch) if hasattr(dataset, "validate_batch") else None
@@ -171,16 +187,18 @@ def _build_current_segment_batch(runner: Any, sample: FrontRESSegmentSample, *, 
     )
     roles = tuple(getattr(batch, "perturbation_role", ()))
     strength = getattr(batch, "perturbation_strength", None)
-    strength_list = strength.detach().cpu().tolist() if isinstance(strength, torch.Tensor) else []
-    print(
-        "[FrontRES Segment Batch] "
-        f"update_step={update_step} "
-        f"segment_ids={sample.segment_ids.detach().cpu().tolist()} "
-        f"valid_count={valid_count} "
-        f"roles={roles} "
-        f"strength={strength_list}",
-        flush=True,
-    )
+    verbose_probe = _verbose_probe_enabled(runner, sample)
+    if print_probe:
+        print(
+            "[FrontRES Segment Batch] "
+            f"update_step={update_step} "
+            f"{_id_summary(sample.segment_ids)} "
+            f"valid_count={valid_count} "
+            f"role_counts={_count_summary(roles)} "
+            f"{_tensor_value_summary('strength', strength)}"
+            f"{_verbose_batch_suffix(sample, roles=roles, strength=strength, verbose=verbose_probe)}",
+            flush=True,
+        )
     return batch
 
 
@@ -190,6 +208,7 @@ def build_live_sampler_evidence(
     *,
     horizon_k: int,
     reset_result: Any | None = None,
+    print_probe: bool = True,
 ) -> FrontRESSegmentRolloutEvidence:
     ids = sample.segment_ids.detach().clone().long()
     n = int(ids.numel())
@@ -220,7 +239,8 @@ def build_live_sampler_evidence(
     score_repaired = (0.5 + 0.5 * gain).clamp(0.0, 1.0)
     score_noisy = (score_repaired - gain).clamp(0.0, 1.0)
     valid_reward = rollout_valid & reset_success
-    _print_evidence_probe(ids, reward, reset_success, rollout_valid, valid_reward, fall, gain)
+    if print_probe:
+        _print_evidence_probe(ids, reward, reset_success, rollout_valid, valid_reward, fall, gain)
     return FrontRESSegmentRolloutEvidence(
         segment_ids=ids,
         reset_success=reset_success,
@@ -383,15 +403,84 @@ def _print_evidence_probe(
     )
 
 
-def _print_sample_probe(update_step: int, sample: FrontRESSegmentSample) -> None:
+def _verbose_probe_enabled(runner: Any, sample: FrontRESSegmentSample | None = None) -> bool:
+    alg = getattr(runner, "alg", None)
+    if bool(getattr(alg, "frontres_segment_verbose_probe", False)):
+        return True
+    if sample is None:
+        return False
+    return int(sample.segment_ids.numel()) <= _VERBOSE_PROBE_BATCH_LIMIT
+
+
+def _live_detail_log_enabled(runner: Any) -> bool:
+    alg = getattr(runner, "alg", None)
+    if bool(getattr(alg, "frontres_segment_verbose_probe", False)):
+        return True
+    count = int(getattr(runner, "_frontres_segment_live_detail_log_count", 0)) + 1
+    runner._frontres_segment_live_detail_log_count = count
+    warmup = max(0, int(getattr(alg, "frontres_segment_live_log_warmup", 3)))
+    interval = max(1, int(getattr(alg, "frontres_segment_live_log_interval", 10)))
+    return count <= warmup or count % interval == 0
+
+
+def _id_summary(ids: torch.Tensor) -> str:
+    ids = ids.detach().long().reshape(-1).cpu()
+    count = int(ids.numel())
+    if count == 0:
+        return "count=0 id_min=-1 id_max=-1"
+    return f"count={count} id_min={int(ids.min().item())} id_max={int(ids.max().item())}"
+
+
+def _count_summary(items: tuple[str, ...] | list[str]) -> dict[str, int]:
+    return dict(Counter(str(item) for item in items))
+
+
+def _tensor_value_summary(name: str, value: object) -> str:
+    if not isinstance(value, torch.Tensor):
+        return f"{name}_count=0 {name}_min=0.000000 {name}_max=0.000000"
+    tensor = value.detach().float().reshape(-1).cpu()
+    if int(tensor.numel()) == 0:
+        return f"{name}_count=0 {name}_min=0.000000 {name}_max=0.000000"
+    return (
+        f"{name}_count={int(tensor.numel())} "
+        f"{name}_min={float(tensor.min().item()):.6f} "
+        f"{name}_max={float(tensor.max().item()):.6f}"
+    )
+
+
+def _verbose_sample_suffix(sample: FrontRESSegmentSample, *, verbose: bool) -> str:
+    if not verbose:
+        return ""
+    return f" segment_ids={sample.segment_ids.detach().cpu().tolist()} sources={list(sample.source)}"
+
+
+def _verbose_batch_suffix(
+    sample: FrontRESSegmentSample,
+    *,
+    roles: tuple[str, ...],
+    strength: object,
+    verbose: bool,
+) -> str:
+    if not verbose:
+        return ""
+    strength_list = strength.detach().cpu().tolist() if isinstance(strength, torch.Tensor) else []
+    return (
+        f" segment_ids={sample.segment_ids.detach().cpu().tolist()}"
+        f" roles={roles}"
+        f" strength={strength_list}"
+    )
+
+
+def _print_sample_probe(update_step: int, sample: FrontRESSegmentSample, *, verbose: bool = False) -> None:
     print(
         "[probe step22] sample: "
         f"update_step={update_step} "
-        f"segment_ids={sample.segment_ids.detach().cpu().tolist()} "
-        f"sources={list(sample.source)} "
+        f"{_id_summary(sample.segment_ids)} "
+        f"source_counts={_count_summary(list(sample.source))} "
         f"priority_mean={float(sample.priority.float().mean().detach().cpu()):.6f} "
         f"staleness_mean={float(sample.staleness.float().mean().detach().cpu()):.6f} "
-        f"valid_count={int(sample.valid_mask.bool().sum().detach().cpu().item())}",
+        f"valid_count={int(sample.valid_mask.bool().sum().detach().cpu().item())}"
+        f"{_verbose_sample_suffix(sample, verbose=verbose)}",
         flush=True,
     )
 

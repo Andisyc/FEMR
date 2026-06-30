@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 import sys
 import tempfile
 import types
@@ -134,8 +136,10 @@ stage1_hooks_contract = _load(
 )
 
 FrontRESSegmentSampler = sampler_module.FrontRESSegmentSampler
+FrontRESSegmentSample = sampler_module.FrontRESSegmentSample
 initialize_frontres_segment_live_sampler = live_sampler_module.initialize_frontres_segment_live_sampler
 build_live_sampler_evidence = live_sampler_module.build_live_sampler_evidence
+run_frontres_segment_sampler_step = live_sampler_module.run_frontres_segment_sampler_step
 run_frontres_segment_live_update_loop = live_update_loop_module.run_frontres_segment_live_update_loop
 FrontRESSegmentLiveRolloutCapture = live_probe_module.FrontRESSegmentLiveRolloutCapture
 build_live_segment_storage = live_probe_module.build_live_segment_storage
@@ -446,6 +450,59 @@ def test_live_sampler_evidence_preserves_per_sample_rollout_facts() -> None:
     torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.8, -0.2]))
 
 
+def test_large_sampler_probe_uses_summary_not_full_lists() -> None:
+    count = 12000
+    ids = torch.arange(count, dtype=torch.long)
+    sample = FrontRESSegmentSample(
+        segment_ids=ids,
+        source=tuple("global" if i % 3 == 0 else "replay" if i % 3 == 1 else "review" for i in range(count)),
+        priority=torch.linspace(0.0, 1.0, count),
+        staleness=torch.ones(count),
+        valid_mask=torch.ones(count, dtype=torch.bool),
+    )
+
+    class _Dataset:
+        def get_segments(self, segment_ids):
+            return SimpleNamespace(
+                segment_ids=segment_ids,
+                perturbation_role=tuple("train" if int(i) % 2 == 0 else "review" for i in segment_ids.tolist()),
+                perturbation_strength=torch.linspace(0.0, 2.0, int(segment_ids.numel())),
+            )
+
+        def validate_batch(self, batch):
+            return SimpleNamespace(valid_mask=torch.ones_like(batch.segment_ids, dtype=torch.bool))
+
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(frontres_segment_verbose_probe=False),
+        _frontres_segment_dataset=_Dataset(),
+    )
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        live_sampler_module._print_sample_probe(0, sample, verbose=False)
+        live_sampler_module._build_current_segment_batch(runner, sample, update_step=0)
+    output = stream.getvalue()
+    contains_sources_list = "sources=['global'" in output
+    contains_segment_ids_list = "segment_ids=[0, 1, 2" in output
+    contains_source_counts = "source_counts=" in output
+    contains_role_counts = "role_counts=" in output
+    print(
+        "[probe step22] large_log_summary: "
+        f"contains_count={'count=12000' in output} "
+        f"contains_sources_list={contains_sources_list} "
+        f"contains_segment_ids_list={contains_segment_ids_list} "
+        f"contains_source_counts={contains_source_counts} "
+        f"contains_role_counts={contains_role_counts}",
+        flush=True,
+    )
+    assert "count=12000" in output
+    assert "source_counts=" in output
+    assert "role_counts=" in output
+    assert "strength_count=12000" in output
+    assert "sources=['global'" not in output
+    assert "segment_ids=[0, 1, 2" not in output
+    assert "strength=[0.0" not in output
+
+
 def test_live_update_loop_samples_and_updates_priority() -> None:
     runner = FakeRunner([_summary(0.4), _summary(0.2), _summary(0.1)])
     initialize_frontres_segment_live_sampler(runner)
@@ -467,6 +524,57 @@ def test_live_update_loop_samples_and_updates_priority() -> None:
     assert result["sampler_global_count"] + result["sampler_replay_count"] + result["sampler_review_count"] == 6
     assert stats.seen_count > 0
     assert stats.priority_mean > 0.0
+
+
+def test_live_detail_logs_are_rate_limited_by_default_and_verbose() -> None:
+    runner = FakeRunner([_summary(0.1) for _ in range(12)])
+    initialize_frontres_segment_live_sampler(runner)
+
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        for update_step in range(12):
+            run_frontres_segment_sampler_step(runner, init_at_random_ep_len=False, update_step=update_step)
+    output = stream.getvalue()
+    sample_count = output.count("[probe step22] sample:")
+    batch_count = output.count("[FrontRES Segment Batch]")
+    evidence_count = output.count("[probe step14] evidence_path:")
+    sampler_count = output.count("[FrontRES Segment Sampler]")
+    print(
+        "[probe step6] live_detail_log_rate: "
+        f"sample_count={sample_count} "
+        f"batch_count={batch_count} "
+        f"evidence_count={evidence_count} "
+        f"sampler_count={sampler_count} "
+        f"call_count={runner._frontres_segment_live_detail_log_count}",
+        flush=True,
+    )
+
+    assert sample_count == 4
+    assert batch_count == 4
+    assert evidence_count == 4
+    assert sampler_count == 4
+    assert runner._frontres_segment_live_detail_log_count == 12
+
+    verbose_runner = FakeRunner([_summary(0.1) for _ in range(4)])
+    verbose_runner.alg.frontres_segment_verbose_probe = True
+    initialize_frontres_segment_live_sampler(verbose_runner)
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        for update_step in range(4):
+            run_frontres_segment_sampler_step(verbose_runner, init_at_random_ep_len=False, update_step=update_step)
+    verbose_output = stream.getvalue()
+    verbose_sample_count = verbose_output.count("[probe step22] sample:")
+    verbose_sampler_count = verbose_output.count("[FrontRES Segment Sampler]")
+    print(
+        "[probe step6] live_detail_log_verbose_rate: "
+        f"sample_count={verbose_sample_count} "
+        f"sampler_count={verbose_sampler_count} "
+        f"verbose={verbose_runner.alg.frontres_segment_verbose_probe}",
+        flush=True,
+    )
+
+    assert verbose_sample_count == 4
+    assert verbose_sampler_count == 4
 
 
 def test_live_sampler_initializes_dataset_from_stage1_cache_dir() -> None:
@@ -660,7 +768,9 @@ def main() -> None:
     test_live_summary_becomes_sampler_evidence()
     test_live_sampler_evidence_carries_partial_reset_failure()
     test_live_sampler_evidence_preserves_per_sample_rollout_facts()
+    test_large_sampler_probe_uses_summary_not_full_lists()
     test_live_update_loop_samples_and_updates_priority()
+    test_live_detail_logs_are_rate_limited_by_default_and_verbose()
     test_live_sampler_initializes_dataset_from_stage1_cache_dir()
     test_live_sampler_installs_index_reset_hook_for_index_only_dataset()
     test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset()

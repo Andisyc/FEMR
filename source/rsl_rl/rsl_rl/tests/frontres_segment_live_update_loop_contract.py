@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import contextlib
+import io
 import importlib.util
 import sys
 from pathlib import Path
@@ -190,8 +192,59 @@ def test_live_update_loop_requires_enabled_boundary() -> None:
         raise AssertionError("update loop must reject disabled live runner boundary")
 
 
+def test_live_update_loop_summary_print_rate_default_and_verbose() -> None:
+    summaries = [
+        _summary(
+            ppo_update=True,
+            ppo_valid_count=1,
+            reward_mean=1.0,
+            storage_valid_frac=1.0,
+            ppo_total_loss=1.0,
+            ppo_actor_loss=1.0,
+            ppo_value_loss=1.0,
+            ppo_approx_kl=0.0,
+            ppo_clip_frac=0.0,
+        )
+        for _ in range(12)
+    ]
+    runner = FakeRunner(summaries, boundary=FakeBoundary(live_update_steps=1))
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        for _ in range(12):
+            run_frontres_segment_live_update_loop(runner, init_at_random_ep_len=False)
+    output = buffer.getvalue()
+    default_count = output.count("[FrontRES Segment Live Update Loop]")
+    print(
+        "[probe step5] update_loop_log_rate: "
+        f"default_count={default_count} "
+        f"call_count={runner._frontres_segment_live_update_loop_summary_count}",
+        flush=True,
+    )
+
+    assert default_count == 4
+    assert runner._frontres_segment_live_update_loop_summary_count == 12
+
+    verbose_runner = FakeRunner(summaries[:4], boundary=FakeBoundary(live_update_steps=1))
+    verbose_runner.alg.frontres_segment_verbose_probe = True
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        for _ in range(4):
+            run_frontres_segment_live_update_loop(verbose_runner, init_at_random_ep_len=False)
+    verbose_count = buffer.getvalue().count("[FrontRES Segment Live Update Loop]")
+    print(
+        "[probe step5] update_loop_log_verbose_rate: "
+        f"verbose_count={verbose_count} "
+        f"verbose={verbose_runner.alg.frontres_segment_verbose_probe}",
+        flush=True,
+    )
+
+    assert verbose_count == 4
+
+
 if __name__ == "__main__":
     test_live_update_loop_aggregates_probe_metrics_and_init_flag()
     test_live_update_loop_uses_algorithm_update_steps_override()
     test_live_update_loop_requires_enabled_boundary()
+    test_live_update_loop_summary_print_rate_default_and_verbose()
     print("frontres_segment_live_update_loop_contract: ok")

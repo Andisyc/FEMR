@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -28,6 +28,9 @@ from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layou
 from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
 
 
+_VERBOSE_PROBE_BATCH_LIMIT = 16
+
+
 @dataclass
 class FrontRESSegmentLiveObservations:
     obs: torch.Tensor
@@ -53,6 +56,85 @@ class FrontRESSegmentLiveRolloutCapture:
     transition_sigmas: torch.Tensor | None
     reward_accum: torch.Tensor | None
     done_any: torch.Tensor | None
+
+
+def _verbose_probe_enabled(runner: Any, items: Any) -> bool:
+    if bool(getattr(getattr(runner, "alg", object()), "frontres_segment_verbose_probe", False)):
+        return True
+    if isinstance(items, torch.Tensor):
+        count = int(items.numel())
+    else:
+        try:
+            count = len(items)
+        except TypeError:
+            count = int(items)
+    return count <= _VERBOSE_PROBE_BATCH_LIMIT
+
+
+def _id_summary(segment_ids: torch.Tensor) -> str:
+    ids = segment_ids.detach().long().reshape(-1).cpu()
+    count = int(ids.numel())
+    if count == 0:
+        return "count=0 id_min=None id_max=None"
+    return f"count={count} id_min={int(ids.min().item())} id_max={int(ids.max().item())}"
+
+
+def _tensor_range_summary(name: str, value: torch.Tensor) -> str:
+    data = value.detach().long().reshape(-1).cpu()
+    count = int(data.numel())
+    if count == 0:
+        return f"{name}_count=0 {name}_min=None {name}_max=None"
+    return f"{name}_count={count} {name}_min={int(data.min().item())} {name}_max={int(data.max().item())}"
+
+
+def _count_summary(values: tuple[Any, ...]) -> dict[str, int]:
+    return dict(Counter(str(item) for item in values))
+
+
+def _motion_summary(motion_ids: tuple[str, ...]) -> str:
+    if not motion_ids:
+        return "motion_count=0 unique_motion_count=0 first_motion=None"
+    return (
+        f"motion_count={len(motion_ids)} "
+        f"unique_motion_count={len(set(motion_ids))} "
+        f"first_motion={motion_ids[0]}"
+    )
+
+
+def _verbose_reset_suffix(request: Any, *, verbose: bool) -> str:
+    if not verbose:
+        return ""
+    return (
+        f" segment_ids={request.segment_ids.detach().cpu().tolist()}"
+        f" mode={tuple(request.mode)}"
+    )
+
+
+def _verbose_index_reset_suffix(request: Any, *, verbose: bool) -> str:
+    if not verbose:
+        return ""
+    return (
+        f" segment_ids={request.segment_ids.detach().cpu().tolist()}"
+        f" motion_ids={list(request.motion_ids)}"
+        f" start_frames={request.start_frames.detach().cpu().tolist()}"
+        f" horizon_k={request.horizon_k.detach().cpu().tolist()}"
+    )
+
+
+def _should_print_once_or_verbose(owner: Any, flag_name: str) -> bool:
+    if bool(getattr(owner, "frontres_segment_verbose_probe", False)):
+        return True
+    if bool(getattr(owner, flag_name, False)):
+        return False
+    setattr(owner, flag_name, True)
+    return True
+
+
+def _live_detail_log_enabled(runner: Any) -> bool:
+    alg = getattr(runner, "alg", None)
+    if bool(getattr(alg, "frontres_segment_verbose_probe", False)):
+        return True
+    return bool(getattr(runner, "_frontres_segment_live_detail_log_enabled", True))
 
 
 class FrontRESSegmentLivePolicyAdapter:
@@ -85,15 +167,16 @@ class FrontRESSegmentLivePolicyAdapter:
             entropy = entropy.reshape(-1)
             if entropy.numel() == 1 and actions.shape[0] != 1:
                 entropy = entropy.expand(actions.shape[0])
-        print(
-            "[FrontRES Segment PPO Eval Trace] "
-            f"batch_action_shape={tuple(actions.shape)} "
-            f"policy_action_mean_shape={tuple(action_mean.shape) if action_mean is not None else None} "
-            f"eval_mean_shape={tuple(mean_6d.shape) if mean_6d is not None else None} "
-            f"log_prob_shape={tuple(log_prob.shape)} "
-            "semantic=ppo_eval_uses_6d_delta_se",
-            flush=True,
-        )
+        if _should_print_once_or_verbose(self.alg, "_frontres_segment_ppo_eval_trace_printed"):
+            print(
+                "[FrontRES Segment PPO Eval Trace] "
+                f"batch_action_shape={tuple(actions.shape)} "
+                f"policy_action_mean_shape={tuple(action_mean.shape) if action_mean is not None else None} "
+                f"eval_mean_shape={tuple(mean_6d.shape) if mean_6d is not None else None} "
+                f"log_prob_shape={tuple(log_prob.shape)} "
+                "semantic=ppo_eval_uses_6d_delta_se",
+                flush=True,
+            )
         return {
             "log_prob": log_prob,
             "value": self.alg.policy.evaluate(value_obs).reshape(-1),
@@ -211,18 +294,20 @@ def _apply_current_segment_reset(runner: Any) -> FrontRESSegmentResetResult | No
     result = adapter.apply(runner.env, request)
     runner._frontres_segment_live_current_reset_request = request
     runner._frontres_segment_live_current_reset_result = result
-    print(
-        "[FrontRES Segment Reset] "
-        f"batch_size={int(request.segment_ids.numel())} "
-        f"segment_ids={request.segment_ids.detach().cpu().tolist()} "
-        f"mode={tuple(request.mode)} "
-        f"valid_count={int(request.valid_mask.detach().bool().sum().cpu().item())} "
-        f"success_frac={float(result.success_mask.float().mean().detach().cpu().item()):.4f} "
-        f"direct_frac={float(result.direct_reset_mask.float().mean().detach().cpu().item()):.4f} "
-        f"preroll_frac={float(result.preroll_mask.float().mean().detach().cpu().item()):.4f} "
-        f"velocity_mismatch_mean={float(result.velocity_mismatch.float().mean().detach().cpu().item()):.6f}",
-        flush=True,
-    )
+    verbose = _verbose_probe_enabled(runner, request.segment_ids)
+    if _live_detail_log_enabled(runner):
+        print(
+            "[FrontRES Segment Reset] "
+            f"{_id_summary(request.segment_ids)} "
+            f"mode_counts={_count_summary(tuple(request.mode))} "
+            f"valid_count={int(request.valid_mask.detach().bool().sum().cpu().item())} "
+            f"success_frac={float(result.success_mask.float().mean().detach().cpu().item()):.4f} "
+            f"direct_frac={float(result.direct_reset_mask.float().mean().detach().cpu().item()):.4f} "
+            f"preroll_frac={float(result.preroll_mask.float().mean().detach().cpu().item()):.4f} "
+            f"velocity_mismatch_mean={float(result.velocity_mismatch.float().mean().detach().cpu().item()):.6f}"
+            f"{_verbose_reset_suffix(request, verbose=verbose)}",
+            flush=True,
+        )
     return result
 
 
@@ -259,14 +344,17 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
         runner._frontres_segment_live_current_reset_request = None
         runner._frontres_segment_live_current_reset_result = None
         runner._frontres_segment_live_current_reset_skip_reason = "index_only_segment_index"
-        print(
-            "[FrontRES Segment Reset] "
-            "skip_reason=index_only_segment_index "
-            f"segment_ids={batch.segment_ids.detach().cpu().tolist()} "
-            f"motion_ids={list(motion_ids)} "
-            f"start_frames={start_frames.detach().cpu().tolist()}",
-            flush=True,
-        )
+        verbose = _verbose_probe_enabled(runner, batch.segment_ids)
+        if _live_detail_log_enabled(runner):
+            print(
+                "[FrontRES Segment Reset] "
+                "skip_reason=index_only_segment_index "
+                f"{_id_summary(batch.segment_ids)} "
+                f"{_motion_summary(motion_ids)} "
+                f"{_tensor_range_summary('start', start_frames)}"
+                f"{_verbose_index_reset_suffix(request, verbose=verbose)}",
+                flush=True,
+            )
         return None
 
     raw_result = hook(request)
@@ -274,16 +362,19 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
     runner._frontres_segment_live_current_reset_request = request
     runner._frontres_segment_live_current_reset_result = result
     runner._frontres_segment_live_current_reset_skip_reason = ""
-    print(
-        "[FrontRES Segment Reset] "
-        "mode=index_only "
-        f"segment_ids={request.segment_ids.detach().cpu().tolist()} "
-        f"motion_ids={list(motion_ids)} "
-        f"start_frames={request.start_frames.detach().cpu().tolist()} "
-        f"horizon_k={request.horizon_k.detach().cpu().tolist()} "
-        f"success_frac={float(result.success_mask.float().mean().detach().cpu().item()):.4f}",
-        flush=True,
-    )
+    verbose = _verbose_probe_enabled(runner, request.segment_ids)
+    if _live_detail_log_enabled(runner):
+        print(
+            "[FrontRES Segment Reset] "
+            "mode=index_only "
+            f"{_id_summary(request.segment_ids)} "
+            f"{_motion_summary(motion_ids)} "
+            f"{_tensor_range_summary('start', request.start_frames)} "
+            f"{_tensor_range_summary('horizon', request.horizon_k)} "
+            f"success_frac={float(result.success_mask.float().mean().detach().cpu().item()):.4f}"
+            f"{_verbose_index_reset_suffix(request, verbose=verbose)}",
+            flush=True,
+        )
     return result
 
 
@@ -456,14 +547,15 @@ def _select_segment_transition_actions(
             raise ValueError("12D live segment actions require action_mean/action_sigma to rebuild 6D log_prob.")
         dist = torch.distributions.Normal(action_mean[:, :6], action_sigma[:, :6])
         log_probs = dist.log_prob(segment_actions).sum(dim=-1).detach().clone().reshape(-1)
-    print(
-        "[FrontRES Segment Live Probe Trace] "
-        f"raw_action_shape={tuple(actions.shape)} "
-        f"segment_action_shape={tuple(segment_actions.shape)} "
-        f"log_prob_shape={tuple(log_probs.shape)} "
-        "semantic=storage_uses_first_6_delta_se_dims",
-        flush=True,
-    )
+    if _should_print_once_or_verbose(runner.alg, "_frontres_segment_live_probe_trace_printed"):
+        print(
+            "[FrontRES Segment Live Probe Trace] "
+            f"raw_action_shape={tuple(actions.shape)} "
+            f"segment_action_shape={tuple(segment_actions.shape)} "
+            f"log_prob_shape={tuple(log_probs.shape)} "
+            "semantic=storage_uses_first_6_delta_se_dims",
+            flush=True,
+        )
     return segment_actions, log_probs
 
 
@@ -724,6 +816,8 @@ def _print_live_probe_summary(
     capture: FrontRESSegmentLiveRolloutCapture,
     summary: dict[str, object],
 ) -> None:
+    if not _live_detail_log_enabled(runner):
+        return
     action_6d = bool(capture.action_shape is not None and len(capture.action_shape) >= 2 and capture.action_shape[-1] == 6)
     print(
         "[FrontRES Segment Live Probe] "

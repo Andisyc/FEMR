@@ -18,6 +18,17 @@ _LIVE_SAMPLER_SPEC.loader.exec_module(_LIVE_SAMPLER_MODULE)
 run_frontres_segment_sampler_step = _LIVE_SAMPLER_MODULE.run_frontres_segment_sampler_step
 
 
+def _should_print_update_loop_summary(runner: Any) -> bool:
+    alg = getattr(runner, "alg", None)
+    if bool(getattr(alg, "frontres_segment_verbose_probe", False)):
+        return True
+    count = int(getattr(runner, "_frontres_segment_live_update_loop_summary_count", 0)) + 1
+    runner._frontres_segment_live_update_loop_summary_count = count
+    warmup = max(0, int(getattr(alg, "frontres_segment_live_log_warmup", 3)))
+    interval = max(1, int(getattr(alg, "frontres_segment_live_log_interval", 10)))
+    return count <= warmup or count % interval == 0
+
+
 def run_frontres_segment_live_update_loop(
     runner: Any,
     init_at_random_ep_len: bool = True,
@@ -61,31 +72,32 @@ def run_frontres_segment_live_update_loop(
     sampler_solved_frac = float(metrics[-1].get("sampler_solved_frac", 0.0))
     sampler_hopeless_frac = float(metrics[-1].get("sampler_hopeless_frac", 0.0))
     sampler_stale_review_count = int(metrics[-1].get("sampler_stale_review_count", 0))
-    print(
-        "[FrontRES Segment Live Update Loop] "
-        f"objective={getattr(runner.alg, 'frontres_training_objective', 'n/a')} "
-        f"update_steps={update_steps} "
-        f"update_count={update_count} "
-        f"ppo_valid_count={valid_count} "
-        f"reward_mean={reward_mean:.6f} "
-        f"storage_valid_frac={storage_valid_frac:.4f} "
-        f"ppo_total_loss_mean={total_loss_mean:.6f} "
-        f"ppo_actor_loss_mean={actor_loss_mean:.6f} "
-        f"ppo_value_loss_mean={value_loss_mean:.6f} "
-        f"ppo_approx_kl_mean={approx_kl_mean:.6f} "
-        f"ppo_clip_frac_mean={clip_frac_mean:.6f} "
-        f"sampler_update_count={sampler_update_count} "
-        f"sampler_global_count={sampler_global_count} "
-        f"sampler_replay_count={sampler_replay_count} "
-        f"sampler_review_count={sampler_review_count} "
-        f"sampler_replay_pool_size={sampler_replay_pool_size} "
-        f"sampler_priority_mean={sampler_priority_mean:.6f} "
-        f"sampler_solved_frac={sampler_solved_frac:.4f} "
-        f"sampler_hopeless_frac={sampler_hopeless_frac:.4f} "
-        f"sampler_stale_review_count={sampler_stale_review_count} "
-        f"runner_learn={runner_learn}",
-        flush=True,
-    )
+    if _should_print_update_loop_summary(runner):
+        print(
+            "[FrontRES Segment Live Update Loop] "
+            f"objective={getattr(runner.alg, 'frontres_training_objective', 'n/a')} "
+            f"update_steps={update_steps} "
+            f"update_count={update_count} "
+            f"ppo_valid_count={valid_count} "
+            f"reward_mean={reward_mean:.6f} "
+            f"storage_valid_frac={storage_valid_frac:.4f} "
+            f"ppo_total_loss_mean={total_loss_mean:.6f} "
+            f"ppo_actor_loss_mean={actor_loss_mean:.6f} "
+            f"ppo_value_loss_mean={value_loss_mean:.6f} "
+            f"ppo_approx_kl_mean={approx_kl_mean:.6f} "
+            f"ppo_clip_frac_mean={clip_frac_mean:.6f} "
+            f"sampler_update_count={sampler_update_count} "
+            f"sampler_global_count={sampler_global_count} "
+            f"sampler_replay_count={sampler_replay_count} "
+            f"sampler_review_count={sampler_review_count} "
+            f"sampler_replay_pool_size={sampler_replay_pool_size} "
+            f"sampler_priority_mean={sampler_priority_mean:.6f} "
+            f"sampler_solved_frac={sampler_solved_frac:.4f} "
+            f"sampler_hopeless_frac={sampler_hopeless_frac:.4f} "
+            f"sampler_stale_review_count={sampler_stale_review_count} "
+            f"runner_learn={runner_learn}",
+            flush=True,
+        )
     return {
         "update_steps": update_steps,
         "update_count": update_count,

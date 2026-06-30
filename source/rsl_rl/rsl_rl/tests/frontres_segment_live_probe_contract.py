@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import contextlib
+import io
 import importlib.util
 import sys
 import types
@@ -240,6 +242,111 @@ def test_live_probe_selects_6d_delta_se_from_12d_rollout_action() -> None:
     torch.testing.assert_close(log_probs, raw_actions[:, :6].sum(dim=-1) * -0.1)
 
 
+def test_live_probe_trace_prints_once_without_verbose() -> None:
+    raw_actions = torch.arange(24, dtype=torch.float32).reshape(2, 12) * 0.1
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(
+            frontres_segment_verbose_probe=False,
+            transition=SimpleNamespace(actions_log_prob=torch.zeros(2)),
+            policy=SimpleNamespace(
+                get_actions_log_prob_selected=lambda actions, selected_dims: actions[:, selected_dims].sum(dim=-1)
+            ),
+        )
+    )
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        live_probe._select_segment_transition_actions(runner, actions=raw_actions)
+        live_probe._select_segment_transition_actions(runner, actions=raw_actions)
+    output = buffer.getvalue()
+    trace_count = output.count("[FrontRES Segment Live Probe Trace]")
+    print(
+        "[probe step4] live_probe_trace_rate: "
+        f"trace_count={trace_count} "
+        f"verbose={runner.alg.frontres_segment_verbose_probe}",
+        flush=True,
+    )
+
+    assert trace_count == 1
+
+    verbose_runner = SimpleNamespace(
+        alg=SimpleNamespace(
+            frontres_segment_verbose_probe=True,
+            transition=SimpleNamespace(actions_log_prob=torch.zeros(2)),
+            policy=runner.alg.policy,
+        )
+    )
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        live_probe._select_segment_transition_actions(verbose_runner, actions=raw_actions)
+        live_probe._select_segment_transition_actions(verbose_runner, actions=raw_actions)
+    verbose_trace_count = buffer.getvalue().count("[FrontRES Segment Live Probe Trace]")
+    print(
+        "[probe step4] live_probe_trace_verbose_rate: "
+        f"trace_count={verbose_trace_count} "
+        f"verbose={verbose_runner.alg.frontres_segment_verbose_probe}",
+        flush=True,
+    )
+    assert verbose_trace_count == 2
+
+
+class _FakePPOEvalPolicy:
+    def __init__(self) -> None:
+        self.distribution = torch.distributions.Normal(torch.zeros(2, 6), torch.ones(2, 6))
+        self.action_mean = None
+        self.action_std = None
+
+    def act(self, observations: torch.Tensor) -> None:
+        self.action_mean = torch.zeros(observations.shape[0], 6)
+        self.action_std = torch.ones(observations.shape[0], 6)
+
+    def evaluate(self, observations: torch.Tensor) -> torch.Tensor:
+        return torch.zeros(observations.shape[0], 1)
+
+
+def test_ppo_eval_trace_prints_once_without_verbose() -> None:
+    alg = SimpleNamespace(
+        frontres_segment_verbose_probe=False,
+        policy=_FakePPOEvalPolicy(),
+    )
+    adapter = live_probe.FrontRESSegmentLivePolicyAdapter(alg, privileged_observations=None)
+    observations = torch.zeros(2, 4)
+    actions = torch.zeros(2, 6)
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        adapter.evaluate_segment_actions(observations, actions)
+        adapter.evaluate_segment_actions(observations, actions)
+    output = buffer.getvalue()
+    trace_count = output.count("[FrontRES Segment PPO Eval Trace]")
+    print(
+        "[probe step4] ppo_eval_trace_rate: "
+        f"trace_count={trace_count} "
+        f"verbose={alg.frontres_segment_verbose_probe}",
+        flush=True,
+    )
+
+    assert trace_count == 1
+
+    verbose_alg = SimpleNamespace(
+        frontres_segment_verbose_probe=True,
+        policy=_FakePPOEvalPolicy(),
+    )
+    verbose_adapter = live_probe.FrontRESSegmentLivePolicyAdapter(verbose_alg, privileged_observations=None)
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        verbose_adapter.evaluate_segment_actions(observations, actions)
+        verbose_adapter.evaluate_segment_actions(observations, actions)
+    verbose_trace_count = buffer.getvalue().count("[FrontRES Segment PPO Eval Trace]")
+    print(
+        "[probe step4] ppo_eval_trace_verbose_rate: "
+        f"trace_count={verbose_trace_count} "
+        f"verbose={verbose_alg.frontres_segment_verbose_probe}",
+        flush=True,
+    )
+    assert verbose_trace_count == 2
+
+
 def test_build_live_segment_storage_masks_failed_reset_samples() -> None:
     runner = SimpleNamespace(
         device=torch.device("cpu"),
@@ -368,6 +475,71 @@ def _index_only_reset_batch() -> SimpleNamespace:
     )
     batch.perturbation_family = ("index_only", "index_only")
     return batch
+
+
+def _large_index_only_reset_batch(count: int = 12000) -> SimpleNamespace:
+    specs = tuple(
+        SimpleNamespace(
+            motion_id=f"Corpus/Subj{idx % 4}/motion_{idx % 4}.npz",
+            start_frame=idx,
+            horizon_k=4 + (idx % 2),
+            perturbation_family="index_only",
+        )
+        for idx in range(count)
+    )
+    return SimpleNamespace(
+        segment_ids=torch.arange(count, dtype=torch.long),
+        specs=specs,
+        perturbation_family=("index_only",) * count,
+    )
+
+
+def test_large_index_reset_probe_uses_summary_not_full_lists() -> None:
+    env = _FakeIndexResetLiveEnv()
+    runner = SimpleNamespace(
+        env=env,
+        alg=SimpleNamespace(frontres_segment_verbose_probe=False),
+    )
+    batch = _large_index_only_reset_batch()
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        result = live_probe._apply_index_only_segment_reset(runner, batch)
+    output = buffer.getvalue()
+
+    has_count = "count=12000" in output
+    has_motion_summary = "unique_motion_count=4" in output
+    has_start_range = "start_min=0" in output and "start_max=11999" in output
+    has_horizon_range = "horizon_min=4" in output and "horizon_max=5" in output
+    has_segment_list = "segment_ids=[0, 1, 2" in output
+    has_motion_list = "motion_ids=['Corpus" in output
+    has_start_list = "start_frames=[0, 1, 2" in output
+    has_horizon_list = "horizon_k=[4, 5" in output
+    print(
+        "[probe step3] reset_log_summary: "
+        f"contains_count={has_count} "
+        f"contains_motion_summary={has_motion_summary} "
+        f"contains_start_range={has_start_range} "
+        f"contains_horizon_range={has_horizon_range} "
+        f"contains_segment_ids_list={has_segment_list} "
+        f"contains_motion_ids_list={has_motion_list} "
+        f"contains_start_frames_list={has_start_list} "
+        f"contains_horizon_k_list={has_horizon_list}",
+        flush=True,
+    )
+
+    assert result is not None
+    assert env.events == ["index_reset"]
+    assert runner._frontres_segment_live_current_reset_request.segment_ids.numel() == 12000
+    assert result.success_mask.numel() == 12000
+    assert has_count
+    assert has_motion_summary
+    assert has_start_range
+    assert has_horizon_range
+    assert not has_segment_list
+    assert not has_motion_list
+    assert not has_start_list
+    assert not has_horizon_list
 
 
 def test_live_probe_applies_current_segment_batch_reset_before_rollout() -> None:
@@ -554,12 +726,77 @@ def test_live_probe_applies_index_reset_for_index_only_segments_when_env_support
     assert summary["reward_mean"] == 0.75
 
 
+def test_live_probe_detail_gate_suppresses_reset_and_summary_logs() -> None:
+    env = _FakeIndexResetLiveEnv()
+    runner = SimpleNamespace(
+        env=env,
+        device=torch.device("cpu"),
+        alg=SimpleNamespace(
+            frontres_training_objective="segment_replay_hrl",
+            frontres_segment_verbose_probe=False,
+        ),
+        _frontres_segment_replay_boundary=SimpleNamespace(reset_mode="direct"),
+        _frontres_segment_live_detail_log_enabled=False,
+    )
+    batch = _index_only_reset_batch()
+
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        result = live_probe._apply_index_only_segment_reset(runner, batch)
+        live_probe._print_live_probe_summary(
+            runner,
+            _capture(),
+            {
+                "segment_reset": True,
+                "segment_reset_success_frac": 1.0,
+                "segment_reset_direct_frac": 0.0,
+                "segment_reset_preroll_frac": 0.0,
+                "segment_reset_velocity_mismatch_mean": 0.0,
+                "segment_reference_window_applied_frac": 0.0,
+                "valid_mask_frac": 1.0,
+                "reward_mean": 0.5,
+                "done_frac": 0.0,
+                "storage_write": False,
+                "storage_size": 0,
+                "storage_valid_frac": 0.0,
+                "storage_reward_mean": 0.0,
+                "single_update": False,
+                "ppo_update": False,
+                "ppo_valid_count": 0,
+                "ppo_total_loss": 0.0,
+                "ppo_actor_loss": 0.0,
+                "ppo_value_loss": 0.0,
+                "ppo_approx_kl": 0.0,
+                "ppo_clip_frac": 0.0,
+            },
+        )
+    output = stream.getvalue()
+    reset_count = output.count("[FrontRES Segment Reset]")
+    live_probe_count = output.count("[FrontRES Segment Live Probe]")
+    print(
+        "[probe step6] live_probe_detail_gate: "
+        f"reset_count={reset_count} "
+        f"live_probe_count={live_probe_count} "
+        f"success_count={int(result.success_mask.sum().item())}",
+        flush=True,
+    )
+
+    assert result is not None
+    assert int(result.success_mask.sum().item()) == 2
+    assert reset_count == 0
+    assert live_probe_count == 0
+
+
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_rejects_non_6d_actions()
     test_live_probe_selects_6d_delta_se_from_12d_rollout_action()
+    test_live_probe_trace_prints_once_without_verbose()
+    test_ppo_eval_trace_prints_once_without_verbose()
     test_build_live_segment_storage_masks_failed_reset_samples()
+    test_large_index_reset_probe_uses_summary_not_full_lists()
     test_live_probe_applies_current_segment_batch_reset_before_rollout()
     test_live_probe_skips_dynamic_reset_for_index_only_segments()
     test_live_probe_applies_index_reset_for_index_only_segments_when_env_supports_it()
+    test_live_probe_detail_gate_suppresses_reset_and_summary_logs()
     print("frontres_segment_live_probe_contract: ok")
