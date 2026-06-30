@@ -25,8 +25,13 @@ def _load_same_dir(module_name: str):
 try:
     from rsl_rl.frontres.frontres_segment_cache_extractor import extract_robot_rollout_state
     from rsl_rl.frontres.frontres_segment_cache_indexer import (
+        FrontRESAMASSIndexSummary,
+        append_amass_segment_index,
         build_amass_segment_index,
         build_amass_segment_index_from_paths,
+        discover_amass_npz_files,
+        iter_amass_segment_index_chunks_from_paths,
+        read_amass_segment_index,
         write_amass_segment_index,
     )
     from rsl_rl.frontres.frontres_segment_cache_io import (
@@ -68,8 +73,13 @@ except ModuleNotFoundError:
     _perturbation = _load_same_dir("frontres_segment_cache_perturbation")
     _schema = _load_same_dir("frontres_segment_cache_schema")
     extract_robot_rollout_state = _extractor.extract_robot_rollout_state
+    FrontRESAMASSIndexSummary = _indexer.FrontRESAMASSIndexSummary
+    append_amass_segment_index = _indexer.append_amass_segment_index
     build_amass_segment_index = _indexer.build_amass_segment_index
     build_amass_segment_index_from_paths = _indexer.build_amass_segment_index_from_paths
+    discover_amass_npz_files = _indexer.discover_amass_npz_files
+    iter_amass_segment_index_chunks_from_paths = _indexer.iter_amass_segment_index_chunks_from_paths
+    read_amass_segment_index = _indexer.read_amass_segment_index
     write_amass_segment_index = _indexer.write_amass_segment_index
     FrontRESCleanStateEntry = _cache_io.FrontRESCleanStateEntry
     append_stage1_cache_progress = _cache_io.append_stage1_cache_progress
@@ -229,6 +239,14 @@ def build_stage1_segment_cache(env: Any, cfg: FrontRESStage1CacheBuilderConfig) 
         },
     )
     loaded_motion_paths = _frontres_loaded_motion_paths(env)
+    if cfg.max_segments is None:
+        return _build_stage1_segment_cache_streaming(
+            env,
+            cfg,
+            cache_dir=cache_dir,
+            previous_status=previous_status,
+            loaded_motion_paths=loaded_motion_paths,
+        )
     if loaded_motion_paths:
         segments, index_summary = build_amass_segment_index_from_paths(
             cfg.amass_root,
@@ -674,9 +692,452 @@ def build_stage1_segment_cache(env: Any, cfg: FrontRESStage1CacheBuilderConfig) 
     )
 
 
+def _build_stage1_segment_cache_streaming(
+    env: Any,
+    cfg: FrontRESStage1CacheBuilderConfig,
+    *,
+    cache_dir: Path,
+    previous_status: dict[str, Any],
+    loaded_motion_paths: list[str],
+) -> FrontRESStage1CacheBuildResult:
+    existing_signature = _existing_stage1_build_signature(cache_dir, previous_status)
+    if existing_signature is not None:
+        print(
+            "[FrontRES Stage1 Resume Probe] "
+            "signature_match=unknown resume_enabled=False streaming_resume=False",
+            flush=True,
+        )
+        raise ValueError("Stage 1 streaming resume is not enabled until Step 5")
+
+    motion_paths = (
+        [Path(path).expanduser().resolve() for path in loaded_motion_paths]
+        if loaded_motion_paths
+        else discover_amass_npz_files(cfg.amass_root, max_motions=cfg.max_motions)
+    )
+    env_ids = torch.tensor([int(cfg.env_id)], dtype=torch.long)
+    _ensure_frontres_env_reset(env)
+
+    perturbation_metadata: dict[str, Any] | None = None
+    clean_records: list[dict[str, Any]] = []
+    noisy_records_by_strength: dict[float, list[dict[str, Any]]] = {}
+    strength_counts: dict[float, int] = {}
+    clean_buffer: list[FrontRESCleanStateEntry] = []
+    noisy_buffers_by_strength: dict[float, list[Any]] = {}
+    clean_shard_id = int(cfg.clean_shard_id)
+    noisy_shard_ids_by_strength: dict[float, int] = {}
+    clean_written = 0
+    noisy_written = 0
+    descriptor_count = 0
+    next_perturbation_id = 0
+    segment_count = 0
+    motion_count = 0
+    skipped_short = 0
+    last_clean_manifest_path: Path | None = None
+    noisy_shard_paths: dict[float, str] = {}
+    indexed_segment_keys = _load_existing_segment_index_keys(cache_dir)
+    clean_record_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+    noisy_records_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+    def flush_clean_buffer() -> str | None:
+        nonlocal clean_shard_id, last_clean_manifest_path
+        if not clean_buffer:
+            return None
+        shard_path, records = write_clean_state_chunked_shard_atomic(
+            cache_dir,
+            clean_buffer,
+            shard_id=clean_shard_id,
+        )
+        clean_records.extend(records)
+        last_clean_manifest_path = write_clean_state_manifest_records(
+            cache_dir,
+            clean_records,
+            shard_id=int(cfg.clean_shard_id),
+        )
+        print(
+            "[FrontRES Stage1 Shard Commit] "
+            f"kind=clean shard_path={shard_path} manifest_path={last_clean_manifest_path} "
+            f"row_count={len(records)} committed_total={len(clean_records)}",
+            flush=True,
+        )
+        clean_buffer.clear()
+        clean_shard_id += 1
+        return str(shard_path)
+
+    def flush_noisy_buffer(strength: float) -> str | None:
+        buffer = noisy_buffers_by_strength.setdefault(float(strength), [])
+        if not buffer:
+            return None
+        shard_id = noisy_shard_ids_by_strength.get(float(strength), int(cfg.noisy_shard_id))
+        shard_path, records = write_noisy_variant_chunked_shard_atomic(
+            cache_dir,
+            buffer,
+            strength=float(strength),
+            shard_id=shard_id,
+        )
+        strength_records = noisy_records_by_strength.setdefault(float(strength), [])
+        strength_records.extend(records)
+        manifest_path = write_noisy_variant_manifest_records(
+            cache_dir,
+            strength_records,
+            strength=float(strength),
+            shard_id=int(cfg.noisy_shard_id),
+        )
+        noisy_shard_paths[float(strength)] = str(manifest_path)
+        print(
+            "[FrontRES Stage1 Shard Commit] "
+            f"kind=noisy strength={float(strength)} shard_path={shard_path} manifest_path={manifest_path} "
+            f"row_count={len(records)} committed_total={len(strength_records)}",
+            flush=True,
+        )
+        buffer.clear()
+        noisy_shard_ids_by_strength[float(strength)] = shard_id + 1
+        return str(shard_path)
+
+    for chunk in iter_amass_segment_index_chunks_from_paths(
+        cfg.amass_root,
+        motion_paths,
+        horizon_k=int(cfg.horizon_k),
+        frame_stride=int(cfg.frame_stride),
+        chunk_size=int(cfg.cache_chunk_size),
+    ):
+        chunk_segments = list(chunk.segments)
+        if not chunk_segments:
+            continue
+        new_index_segments = [segment for segment in chunk_segments if clean_resume_key(segment) not in indexed_segment_keys]
+        if new_index_segments:
+            append_amass_segment_index(cache_dir, new_index_segments)
+            indexed_segment_keys.update(clean_resume_key(segment) for segment in new_index_segments)
+        chunk_probe = chunk.probe()
+        segment_count = int(chunk.segment_count)
+        motion_count = int(chunk.motion_count)
+        skipped_short = int(chunk.skipped_short_motions)
+        print(
+            "[FrontRES Stage1 Index Chunk] "
+            f"chunk_id={chunk_probe['chunk_id']} "
+            f"motion_count={chunk_probe['motion_count']} "
+            f"segment_count={chunk_probe['chunk_segment_count']} "
+            f"segment_id_min={chunk_probe['segment_id_min']} "
+            f"segment_id_max={chunk_probe['segment_id_max']}",
+            flush=True,
+        )
+        append_stage1_cache_progress(
+            cache_dir,
+            {
+                "event": "index_chunk",
+                "chunk_id": int(chunk.chunk_id),
+                "segment_count": int(chunk.segment_count),
+                "chunk_segment_count": len(chunk_segments),
+                "segment_id_min": int(chunk_segments[0].segment_id),
+                "segment_id_max": int(chunk_segments[-1].segment_id),
+                "new_index_count": len(new_index_segments),
+                "segment_index_path": str(cache_dir / "segment_index.jsonl"),
+            },
+        )
+        descriptors, chunk_metadata = build_stage1_perturbation_plan(
+            chunk_segments,
+            cfg,
+            start_perturbation_id=next_perturbation_id,
+        )
+        if perturbation_metadata is None:
+            perturbation_metadata = chunk_metadata
+            noisy_records_by_strength = {float(strength): [] for strength in perturbation_metadata["strengths"]}
+            strength_counts = {float(strength): 0 for strength in perturbation_metadata["strengths"]}
+            noisy_buffers_by_strength = {float(strength): [] for strength in perturbation_metadata["strengths"]}
+            noisy_shard_ids_by_strength = {
+                float(strength): int(cfg.noisy_shard_id) for strength in perturbation_metadata["strengths"]
+            }
+        descriptor_count += len(descriptors)
+        next_perturbation_id += len(descriptors)
+        descriptor_trace = descriptor_probe(descriptors)
+        resume_scan = scan_stage1_cache_resume_state(cache_dir)
+        expected_clean_keys = {clean_resume_key(segment) for segment in chunk_segments}
+        segment_by_id = {int(segment.segment_id): segment for segment in chunk_segments}
+        expected_noisy_keys = {
+            noisy_resume_key(segment_by_id[int(descriptor.segment_id)], descriptor)
+            for descriptor in descriptors
+            if int(descriptor.segment_id) in segment_by_id
+        }
+        chunk_clean_records = _load_committed_clean_records_by_key(
+            cache_dir,
+            expected_clean_keys=expected_clean_keys,
+            completed_clean_keys=resume_scan.completed_clean_keys,
+        )
+        chunk_noisy_records = _load_committed_noisy_records_by_key(
+            cache_dir,
+            expected_noisy_keys=expected_noisy_keys,
+            completed_noisy_keys=resume_scan.completed_noisy_keys,
+        )
+        for key, record in chunk_clean_records.items():
+            if key not in clean_record_by_key:
+                clean_record_by_key[key] = record
+                clean_records.append(record)
+        for key, record in chunk_noisy_records.items():
+            if key not in noisy_records_by_key:
+                noisy_records_by_key[key] = record
+                strength = float(record["descriptor"]["strength"])
+                noisy_records_by_strength.setdefault(strength, []).append(record)
+        clean_written = len(clean_records)
+        noisy_written = sum(len(records) for records in noisy_records_by_strength.values())
+        strength_counts = {
+            float(strength): len(noisy_records_by_strength.get(float(strength), []))
+            for strength in (perturbation_metadata or chunk_metadata)["strengths"]
+        }
+        clean_shard_id = max(
+            clean_shard_id,
+            _next_shard_id_from_records(clean_records, default=int(cfg.clean_shard_id)),
+        )
+        for strength, records in noisy_records_by_strength.items():
+            noisy_shard_ids_by_strength[float(strength)] = max(
+                noisy_shard_ids_by_strength.get(float(strength), int(cfg.noisy_shard_id)),
+                _next_shard_id_from_records(records, default=int(cfg.noisy_shard_id)),
+            )
+        completed_clean_keys = set(clean_record_by_key)
+        completed_noisy_keys = set(noisy_records_by_key)
+        pending_clean_count = len(expected_clean_keys - completed_clean_keys)
+        pending_noisy_count = len(expected_noisy_keys - completed_noisy_keys)
+        print(
+            "[FrontRES Stage1 Chunk Resume Probe] "
+            f"chunk_id={int(chunk.chunk_id)} "
+            f"completed_clean={len(completed_clean_keys)} "
+            f"completed_noisy={len(completed_noisy_keys)} "
+            f"pending_clean={pending_clean_count} "
+            f"pending_noisy={pending_noisy_count} "
+            f"corrupt_count={len(resume_scan.corrupt_records)}",
+            flush=True,
+        )
+        write_stage1_cache_status(
+            cache_dir,
+            {
+                "stage": "stage1_segment_cache",
+                "status": "index_chunk",
+                "segment_count": segment_count,
+                "chunk_id": int(chunk.chunk_id),
+                "chunk_segment_count": len(chunk_segments),
+                "descriptor_count": descriptor_count,
+                "clean_written": clean_written,
+                "noisy_written": noisy_written,
+                "cache_dir": str(cache_dir),
+                "segment_index_path": str(cache_dir / "segment_index.jsonl"),
+            },
+        )
+        print(
+            "[FrontRES Stage1 Segment Cache] perturbation_chunk "
+            f"chunk_id={int(chunk.chunk_id)} "
+            f"mode={chunk_metadata['perturbation_curriculum_mode']} "
+            f"descriptor_count={descriptor_trace['count']} "
+            f"strengths={descriptor_trace['strengths'][:8]}",
+            flush=True,
+        )
+
+        descriptors_by_segment: dict[int, list[Any]] = {}
+        for descriptor in descriptors:
+            descriptors_by_segment.setdefault(int(descriptor.segment_id), []).append(descriptor)
+
+        for segment in chunk_segments:
+            segment_clean_key = clean_resume_key(segment)
+            segment_descriptors = descriptors_by_segment.get(int(segment.segment_id), [])
+            pending_descriptors = [
+                descriptor
+                for descriptor in segment_descriptors
+                if noisy_resume_key(segment, descriptor) not in completed_noisy_keys
+            ]
+            if segment_clean_key in completed_clean_keys:
+                clean_state = read_clean_state_record(cache_dir, clean_record_by_key[segment_clean_key]).clean_state
+                clean_reused = True
+            else:
+                prepare_clean_segment(env, segment=segment, env_ids=env_ids)
+                clean_state = extract_robot_rollout_state(env, env_ids=env_ids, robot_name=cfg.robot_name)
+                entry = FrontRESCleanStateEntry(segment=segment, clean_state=clean_state)
+                entry.validate()
+                clean_buffer.append(entry)
+                clean_written += 1
+                clean_shard_path = None
+                if len(clean_buffer) >= int(cfg.cache_chunk_size):
+                    clean_shard_path = flush_clean_buffer()
+                clean_reused = False
+                append_stage1_cache_progress(
+                    cache_dir,
+                    {
+                        "event": "clean_done",
+                        "segment_id": int(segment.segment_id),
+                        "clean_written": clean_written,
+                        "segment_count": segment_count,
+                        "flushed_shard_path": clean_shard_path,
+                        "buffer_count": len(clean_buffer),
+                    },
+                )
+                del entry
+
+            if clean_reused and not pending_descriptors:
+                append_stage1_cache_progress(
+                    cache_dir,
+                    {
+                        "event": "resume_skip_segment",
+                        "segment_id": int(segment.segment_id),
+                        "clean_reused": True,
+                        "pending_noisy": 0,
+                    },
+                )
+                del clean_state
+                continue
+            if clean_reused:
+                append_stage1_cache_progress(
+                    cache_dir,
+                    {
+                        "event": "resume_reuse_clean",
+                        "segment_id": int(segment.segment_id),
+                        "pending_noisy": len(pending_descriptors),
+                    },
+                )
+
+            for descriptor in pending_descriptors:
+                capture = capture_noisy_variant(
+                    env,
+                    segment=segment,
+                    clean_state=clean_state,
+                    descriptor=descriptor,
+                    env_ids=env_ids,
+                    robot_name=cfg.robot_name,
+                )
+                strength = float(descriptor.strength)
+                noisy_buffers_by_strength.setdefault(strength, []).append(capture.variant)
+                strength_counts[strength] = strength_counts.get(strength, 0) + 1
+                noisy_written += 1
+                noisy_shard_path = None
+                if len(noisy_buffers_by_strength[strength]) >= int(cfg.cache_chunk_size):
+                    noisy_shard_path = flush_noisy_buffer(strength)
+                append_stage1_cache_progress(
+                    cache_dir,
+                    {
+                        "event": "noisy_done",
+                        "segment_id": int(descriptor.segment_id),
+                        "perturbation_id": int(descriptor.perturbation_id),
+                        "strength": strength,
+                        "noisy_written": noisy_written,
+                        "descriptor_count": descriptor_count,
+                        "flushed_shard_path": noisy_shard_path,
+                        "buffer_count": len(noisy_buffers_by_strength[strength]),
+                    },
+                )
+                del capture
+            del clean_state
+
+        flush_clean_buffer()
+        for strength in list(noisy_buffers_by_strength):
+            flush_noisy_buffer(float(strength))
+
+    if perturbation_metadata is None:
+        raise ValueError(f"no valid segments built from {cfg.amass_root} with horizon_k={cfg.horizon_k}")
+
+    clean_shard_path = write_clean_state_manifest_records(
+        cache_dir,
+        clean_records,
+        shard_id=int(cfg.clean_shard_id),
+    )
+    noisy_shard_paths = {}
+    for strength, records in noisy_records_by_strength.items():
+        noisy_path = write_noisy_variant_manifest_records(
+            cache_dir,
+            records,
+            strength=float(strength),
+            shard_id=int(cfg.noisy_shard_id),
+        )
+        noisy_shard_paths[float(strength)] = str(noisy_path)
+    index_summary = FrontRESAMASSIndexSummary(
+        amass_root=str(Path(cfg.amass_root).resolve()),
+        motion_count=motion_count,
+        segment_count=segment_count,
+        horizon_k=int(cfg.horizon_k),
+        frame_stride=int(cfg.frame_stride),
+        skipped_short_motions=skipped_short,
+    )
+    build_signature = _stage1_build_signature(
+        cfg,
+        loaded_motion_paths=loaded_motion_paths,
+        index_summary=index_summary,
+        perturbation_metadata=perturbation_metadata,
+    )
+    metadata_path = write_cache_metadata(
+        cache_dir,
+        {
+            "stage": "stage1_segment_cache",
+            "amass_root": str(Path(cfg.amass_root).resolve()),
+            "segment_count": segment_count,
+            "clean_count": clean_written,
+            "noisy_count": noisy_written,
+            "horizon_k": int(cfg.horizon_k),
+            "frame_stride": int(cfg.frame_stride),
+            **perturbation_metadata,
+            "variants_per_strength": int(cfg.variants_per_strength),
+            "base_seed": int(cfg.base_seed),
+            "clean_shard_id": int(cfg.clean_shard_id),
+            "noisy_shard_id": int(cfg.noisy_shard_id),
+            "cache_storage_backend": "torch_chunked_shard",
+            "cache_chunk_size": int(cfg.cache_chunk_size),
+            "build_signature": build_signature,
+            "indexing_mode": "streaming_chunk",
+        },
+    )
+    validation = validate_stage1_cache_artifacts(cache_dir)
+    validation_probe = validation.probe()
+    print(
+        "[FrontRES Stage1 Segment Cache] cache_readback "
+        f"stage={validation_probe['metadata_stage']} "
+        f"mode={validation_probe['perturbation_curriculum_mode']} "
+        f"segment_count={validation_probe['segment_count']} "
+        f"clean_count={validation_probe['clean_count']} "
+        f"noisy_count={validation_probe['noisy_count']} "
+        f"strength_counts={validation_probe['strength_counts']} "
+        f"train_count={validation_probe['train_count']} "
+        f"boundary_diagnostic_count={validation_probe['boundary_diagnostic_count']} "
+        f"clean_shard_path={validation_probe['clean_shard_path']}",
+        flush=True,
+    )
+    write_stage1_cache_status(
+        cache_dir,
+        {
+            "stage": "stage1_segment_cache",
+            "status": "complete",
+            "segment_count": segment_count,
+            "clean_written": clean_written,
+            "noisy_written": noisy_written,
+            "descriptor_count": descriptor_count,
+            "segment_index_path": str(cache_dir / "segment_index.jsonl"),
+            "clean_shard_path": str(clean_shard_path),
+            "noisy_shard_paths": noisy_shard_paths,
+            "metadata_path": str(metadata_path),
+            "build_signature": build_signature,
+            "indexing_mode": "streaming_chunk",
+        },
+    )
+    append_stage1_cache_progress(
+        cache_dir,
+        {
+            "event": "complete",
+            "segment_count": segment_count,
+            "clean_written": clean_written,
+            "noisy_written": noisy_written,
+            "metadata_path": str(metadata_path),
+        },
+    )
+    return FrontRESStage1CacheBuildResult(
+        cache_dir=str(cache_dir),
+        segment_count=segment_count,
+        clean_count=clean_written,
+        noisy_count=noisy_written,
+        strength_counts={float(strength): int(count) for strength, count in strength_counts.items()},
+        segment_index_path=str(cache_dir / "segment_index.jsonl"),
+        clean_shard_path=str(clean_shard_path),
+        noisy_shard_paths=noisy_shard_paths,
+        metadata_path=str(metadata_path),
+    )
+
+
 def build_stage1_perturbation_plan(
     segments: list[FrontRESSegmentIndex],
     cfg: FrontRESStage1CacheBuilderConfig,
+    *,
+    start_perturbation_id: int = 0,
 ) -> tuple[list[Any], dict[str, Any]]:
     if cfg.perturbation_curriculum_mode == "discrete_bank":
         perturb_cfg = FrontRESPerturbationCurriculumConfig(
@@ -685,7 +1146,11 @@ def build_stage1_perturbation_plan(
             base_seed=int(cfg.base_seed),
             duration=int(cfg.horizon_k),
         )
-        descriptors = build_perturbation_descriptors(segments, perturb_cfg)
+        descriptors = build_perturbation_descriptors(
+            segments,
+            perturb_cfg,
+            start_perturbation_id=int(start_perturbation_id),
+        )
         metadata = {
             "strengths": [float(item) for item in cfg.strengths],
             "legacy_strengths": [float(item) for item in cfg.strengths],
@@ -732,6 +1197,7 @@ def build_stage1_perturbation_plan(
             burst_min_steps=int(cfg.curriculum_burst_min_steps),
             burst_max_steps=int(cfg.curriculum_burst_max_steps),
         ),
+        start_perturbation_id=int(start_perturbation_id),
     )
     levels = [
         {
@@ -789,6 +1255,16 @@ def _load_committed_clean_records_by_key(
             if key in usable_keys:
                 result[key] = record
     return result
+
+
+def _load_existing_segment_index_keys(cache_dir: Path) -> set[tuple[Any, ...]]:
+    index_path = cache_dir / "segment_index.jsonl"
+    if not index_path.is_file():
+        return set()
+    try:
+        return {clean_resume_key(segment) for segment in read_amass_segment_index(index_path)}
+    except Exception:
+        return set()
 
 
 def _load_committed_noisy_records_by_key(
@@ -864,11 +1340,12 @@ def _stage1_build_signature(
     index_summary: Any,
     perturbation_metadata: dict[str, Any],
 ) -> dict[str, Any]:
+    loaded_motion_summary = _stage1_loaded_motion_path_summary(loaded_motion_paths)
     payload = {
         "schema": "frontres_stage1_cache_build_signature_v1",
         "amass_root": str(Path(cfg.amass_root).resolve()),
         "motion_source": "loaded_motion_paths" if loaded_motion_paths else "disk_scan",
-        "loaded_motion_paths": [str(Path(path).resolve()) for path in loaded_motion_paths],
+        **loaded_motion_summary,
         "horizon_k": int(cfg.horizon_k),
         "frame_stride": int(cfg.frame_stride),
         "variants_per_strength": int(cfg.variants_per_strength),
@@ -883,6 +1360,17 @@ def _stage1_build_signature(
     }
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return {"hash": hashlib.sha256(text.encode("utf-8")).hexdigest(), "payload": payload}
+
+
+def _stage1_loaded_motion_path_summary(loaded_motion_paths: list[str]) -> dict[str, Any]:
+    resolved_paths = [str(Path(path).resolve()) for path in loaded_motion_paths]
+    path_text = json.dumps(resolved_paths, separators=(",", ":"), ensure_ascii=True)
+    return {
+        "loaded_motion_count": len(resolved_paths),
+        "first_loaded_motion": resolved_paths[0] if resolved_paths else None,
+        "last_loaded_motion": resolved_paths[-1] if resolved_paths else None,
+        "loaded_motion_paths_hash": hashlib.sha256(path_text.encode("utf-8")).hexdigest(),
+    }
 
 
 def prepare_clean_segment(env: Any, *, segment: FrontRESSegmentIndex, env_ids: torch.Tensor) -> torch.Tensor:

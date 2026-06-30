@@ -20,6 +20,8 @@ spec.loader.exec_module(indexer)
 
 build_amass_segment_index = indexer.build_amass_segment_index
 build_amass_segment_index_from_paths = indexer.build_amass_segment_index_from_paths
+append_amass_segment_index = indexer.append_amass_segment_index
+iter_amass_segment_index_chunks_from_paths = indexer.iter_amass_segment_index_chunks_from_paths
 read_amass_motion_info = indexer.read_amass_motion_info
 read_amass_segment_index = indexer.read_amass_segment_index
 write_amass_segment_index = indexer.write_amass_segment_index
@@ -182,6 +184,130 @@ def test_indexer_can_follow_loaded_motion_paths_instead_of_disk_order() -> None:
         assert [segment.start_frame for segment in segments] == [0, 4]
 
 
+def test_streaming_indexer_yields_first_chunk_before_later_motion_is_read() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        good = root / "AAA" / "good_motion.npz"
+        bad = root / "BBB" / "bad_motion.npz"
+        _write_fake_amass_npz(good, frames=8)
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(
+            bad,
+            fps=np.array([30], dtype=np.int64),
+            joint_pos=np.zeros((5, 29), dtype=np.float32),
+            joint_vel=np.zeros((4, 29), dtype=np.float32),
+            body_pos_w=np.zeros((5, 30, 3), dtype=np.float32),
+            body_quat_w=np.zeros((5, 30, 4), dtype=np.float32),
+            body_lin_vel_w=np.zeros((5, 30, 3), dtype=np.float32),
+            body_ang_vel_w=np.zeros((5, 30, 3), dtype=np.float32),
+        )
+
+        chunks = iter_amass_segment_index_chunks_from_paths(
+            root,
+            [good, bad],
+            horizon_k=2,
+            frame_stride=1,
+            chunk_size=2,
+        )
+        first = next(chunks)
+        first_probe = first.probe()
+        print(f"[cache_indexer trace] streaming_first_chunk {first_probe}")
+        assert first_probe["chunk_id"] == 0
+        assert first_probe["chunk_segment_count"] == 2
+        assert first_probe["motion_count"] == 1
+        assert first_probe["segment_id_min"] == 0
+        assert first_probe["segment_id_max"] == 1
+        assert [segment.start_frame for segment in first.segments] == [0, 1]
+
+        try:
+            list(chunks)
+        except ValueError as exc:
+            print(f"[cache_indexer trace] streaming_late_reject={exc}")
+            assert "joint_vel shape" in str(exc)
+            return
+        raise AssertionError("streaming iterator should reject the later bad motion only after first chunk")
+
+
+def test_streaming_indexer_respects_chunk_size_and_stable_segment_ids() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        motion_a = root / "AAA" / "motion_a.npz"
+        motion_b = root / "BBB" / "motion_b.npz"
+        _write_fake_amass_npz(motion_a, frames=6)
+        _write_fake_amass_npz(motion_b, frames=5)
+
+        chunks = list(
+            iter_amass_segment_index_chunks_from_paths(
+                root,
+                [motion_a, motion_b],
+                horizon_k=2,
+                frame_stride=1,
+                chunk_size=3,
+            )
+        )
+        probes = [chunk.probe() for chunk in chunks]
+        segments = [segment for chunk in chunks for segment in chunk.segments]
+        print(f"[cache_indexer trace] streaming_chunks {probes}")
+        assert [probe["chunk_segment_count"] for probe in probes] == [3, 3, 1]
+        assert [segment.segment_id for segment in segments] == list(range(7))
+        assert [segment.motion_rel_path for segment in segments] == [
+            "AAA/motion_a.npz",
+            "AAA/motion_a.npz",
+            "AAA/motion_a.npz",
+            "AAA/motion_a.npz",
+            "BBB/motion_b.npz",
+            "BBB/motion_b.npz",
+            "BBB/motion_b.npz",
+        ]
+
+
+def test_append_segment_index_makes_each_chunk_visible_on_disk() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        motion_a = root / "AAA" / "motion_a.npz"
+        motion_b = root / "BBB" / "motion_b.npz"
+        _write_fake_amass_npz(motion_a, frames=5)
+        _write_fake_amass_npz(motion_b, frames=5)
+
+        chunks = list(
+            iter_amass_segment_index_chunks_from_paths(
+                root,
+                [motion_a, motion_b],
+                horizon_k=2,
+                frame_stride=1,
+                chunk_size=2,
+            )
+        )
+        out_dir = Path(tmp) / "cache_index"
+        segment_path = append_amass_segment_index(out_dir, chunks[0].segments)
+        first_loaded = read_amass_segment_index(segment_path)
+        append_amass_segment_index(out_dir, chunks[1].segments)
+        final_loaded = read_amass_segment_index(segment_path)
+        print(
+            "[cache_indexer trace] append_index "
+            f"path_exists={segment_path.is_file()} "
+            f"first_ids={[segment.segment_id for segment in first_loaded]} "
+            f"final_ids={[segment.segment_id for segment in final_loaded]}"
+        )
+        assert segment_path.is_file()
+        assert [segment.segment_id for segment in first_loaded] == [0, 1]
+        assert [segment.segment_id for segment in final_loaded] == [0, 1, 2, 3]
+        assert [segment.motion_rel_path for segment in final_loaded] == [
+            "AAA/motion_a.npz",
+            "AAA/motion_a.npz",
+            "AAA/motion_a.npz",
+            "BBB/motion_b.npz",
+        ]
+
+        try:
+            append_amass_segment_index(out_dir, [])
+        except ValueError as exc:
+            print(f"[cache_indexer trace] append_empty_reject={exc}")
+            assert "non-empty" in str(exc)
+            return
+        raise AssertionError("empty segment append should be rejected")
+
+
 def test_indexer_rejects_bad_motion_shape() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "AMASS_G1NPZ_Final"
@@ -211,5 +337,8 @@ if __name__ == "__main__":
     test_indexer_respects_max_segments()
     test_indexer_balances_max_segments_across_loaded_motions()
     test_indexer_can_follow_loaded_motion_paths_instead_of_disk_order()
+    test_streaming_indexer_yields_first_chunk_before_later_motion_is_read()
+    test_streaming_indexer_respects_chunk_size_and_stable_segment_ids()
+    test_append_segment_index_makes_each_chunk_visible_on_disk()
     test_indexer_rejects_bad_motion_shape()
     print("PASS: FrontRES AMASS indexer builds segment index from motion paths and frame counts.")

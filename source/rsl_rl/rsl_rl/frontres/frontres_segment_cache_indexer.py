@@ -74,6 +74,31 @@ class FrontRESAMASSIndexSummary:
         }
 
 
+@dataclass(frozen=True)
+class FrontRESAMASSSegmentIndexChunk:
+    chunk_id: int
+    segments: tuple[FrontRESSegmentIndex, ...]
+    motion_count: int
+    segment_count: int
+    skipped_short_motions: int
+
+    @property
+    def chunk_segment_count(self) -> int:
+        return len(self.segments)
+
+    def probe(self) -> dict[str, Any]:
+        segment_ids = [int(segment.segment_id) for segment in self.segments]
+        return {
+            "chunk_id": int(self.chunk_id),
+            "chunk_segment_count": int(self.chunk_segment_count),
+            "motion_count": int(self.motion_count),
+            "segment_count": int(self.segment_count),
+            "skipped_short_motions": int(self.skipped_short_motions),
+            "segment_id_min": min(segment_ids) if segment_ids else None,
+            "segment_id_max": max(segment_ids) if segment_ids else None,
+        }
+
+
 def discover_amass_npz_files(amass_root: str | Path, *, max_motions: int | None = None) -> list[Path]:
     root = Path(amass_root)
     if not root.is_dir():
@@ -136,6 +161,83 @@ def build_amass_segment_index(
         frame_stride=frame_stride,
         max_segments=max_segments,
     )
+
+
+def iter_amass_segment_index_chunks_from_paths(
+    amass_root: str | Path,
+    motion_paths: Iterable[str | Path],
+    *,
+    horizon_k: int,
+    frame_stride: int = 1,
+    chunk_size: int = 128,
+    max_segments: int | None = None,
+) -> Iterable[FrontRESAMASSSegmentIndexChunk]:
+    if horizon_k <= 0:
+        raise ValueError(f"horizon_k must be positive, got {horizon_k}")
+    if frame_stride <= 0:
+        raise ValueError(f"frame_stride must be positive, got {frame_stride}")
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+    if max_segments is not None and int(max_segments) <= 0:
+        raise ValueError(f"max_segments must be positive when provided, got {max_segments}")
+    root = Path(amass_root).resolve()
+    chunk: list[FrontRESSegmentIndex] = []
+    chunk_id = 0
+    motion_count = 0
+    skipped_short = 0
+    segment_id = 0
+    saw_path = False
+    for motion_path in motion_paths:
+        saw_path = True
+        info = read_amass_motion_info(root, Path(motion_path).expanduser().resolve())
+        motion_count += 1
+        if info.num_frames <= horizon_k:
+            skipped_short += 1
+            continue
+        for start_frame in range(0, info.num_frames - horizon_k, frame_stride):
+            if max_segments is not None and segment_id >= int(max_segments):
+                if chunk:
+                    yield FrontRESAMASSSegmentIndexChunk(
+                        chunk_id=int(chunk_id),
+                        segments=tuple(chunk),
+                        motion_count=int(motion_count),
+                        segment_count=int(segment_id),
+                        skipped_short_motions=int(skipped_short),
+                    )
+                return
+            segment = FrontRESSegmentIndex(
+                segment_id=int(segment_id),
+                motion_rel_path=info.rel_path,
+                motion_num_frames=info.num_frames,
+                fps=info.fps,
+                start_frame=start_frame,
+                horizon_k=int(horizon_k),
+            )
+            segment.validate()
+            chunk.append(segment)
+            segment_id += 1
+            if len(chunk) >= int(chunk_size):
+                yield FrontRESAMASSSegmentIndexChunk(
+                    chunk_id=int(chunk_id),
+                    segments=tuple(chunk),
+                    motion_count=int(motion_count),
+                    segment_count=int(segment_id),
+                    skipped_short_motions=int(skipped_short),
+                )
+                chunk.clear()
+                chunk_id += 1
+    if not saw_path:
+        raise ValueError("motion_paths must contain at least one loaded AMASS motion")
+    if chunk:
+        yield FrontRESAMASSSegmentIndexChunk(
+            chunk_id=int(chunk_id),
+            segments=tuple(chunk),
+            motion_count=int(motion_count),
+            segment_count=int(segment_id),
+            skipped_short_motions=int(skipped_short),
+        )
+    elif segment_id == 0:
+        raise ValueError(f"no valid segments built from {root} with horizon_k={horizon_k}")
 
 
 def build_amass_segment_index_from_paths(
@@ -290,6 +392,23 @@ def write_amass_segment_index(
     }
     with metadata_path.open("w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, sort_keys=True)
+
+
+def append_amass_segment_index(
+    output_dir: str | Path,
+    segments: Iterable[FrontRESSegmentIndex],
+) -> Path:
+    path = Path(output_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    segment_path = path / "segment_index.jsonl"
+    segment_list = list(segments)
+    if not segment_list:
+        raise ValueError("segments must be non-empty when appending segment_index")
+    with segment_path.open("a", encoding="utf-8") as f:
+        for segment in segment_list:
+            segment.validate()
+            f.write(json.dumps(segment_to_record(segment), sort_keys=True) + "\n")
+    return segment_path
 
 
 def read_amass_segment_index(index_path: str | Path) -> list[FrontRESSegmentIndex]:

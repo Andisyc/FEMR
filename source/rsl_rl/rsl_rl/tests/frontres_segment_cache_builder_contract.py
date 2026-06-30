@@ -188,6 +188,26 @@ def _write_fake_motion(path: Path, frames: int = 5) -> None:
     )
 
 
+def _write_bad_motion_shape(path: Path) -> None:
+    dofs = 29
+    bodies = 30
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        path,
+        fps=np.array([30], dtype=np.int64),
+        joint_pos=np.zeros((5, dofs), dtype=np.float32),
+        joint_vel=np.zeros((4, dofs), dtype=np.float32),
+        body_pos_w=np.zeros((5, bodies, 3), dtype=np.float32),
+        body_quat_w=np.zeros((5, bodies, 4), dtype=np.float32),
+        body_lin_vel_w=np.zeros((5, bodies, 3), dtype=np.float32),
+        body_ang_vel_w=np.zeros((5, bodies, 3), dtype=np.float32),
+    )
+
+
+def _read_segment_index_records(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def test_stage1_builder_orchestrates_cache_pipeline() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -338,6 +358,186 @@ def test_stage1_builder_orchestrates_cache_pipeline() -> None:
             assert probe["noisy_state.root_pos_shape"] == (1, 3)
             assert probe["noisy_state.body_pos_shape"] == (1, 30, 3)
             assert item.noisy_baseline_score.requires_grad is False
+
+
+def test_stage1_builder_streaming_path_completes_without_eager_max_segments() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        amass_root = tmp_path / "AMASS_G1NPZ_Final"
+        cache_dir = tmp_path / "frontres_stage1_cache"
+        motion_a = amass_root / "AAA" / "motion_a.npz"
+        motion_b = amass_root / "BBB" / "motion_b.npz"
+        _write_fake_motion(motion_a, frames=5)
+        _write_fake_motion(motion_b, frames=5)
+
+        env = FakeStage1Env(loaded_motion_paths=[str(motion_a), str(motion_b)])
+        cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(cache_dir),
+            horizon_k=2,
+            frame_stride=2,
+            max_segments=None,
+            strengths=(0.0,),
+            variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
+            base_seed=123,
+            env_id=0,
+            cache_chunk_size=2,
+        )
+
+        result = build_stage1_segment_cache(env, cfg)
+        status = json.loads((cache_dir / "build_status.json").read_text())
+        progress = [json.loads(line) for line in (cache_dir / "progress.jsonl").read_text().splitlines()]
+        segment_records = _read_segment_index_records(cache_dir / "segment_index.jsonl")
+        scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
+        print(
+            "[cache_builder streaming trace] complete "
+            f"result={result.probe()} "
+            f"status={status} "
+            f"index_ids={[item['segment_id'] for item in segment_records]} "
+            f"events={[item['event'] for item in progress]} "
+            f"resume_probe={scan.probe()} "
+            f"prepare_calls={env.prepare_calls}"
+        )
+
+        assert result.segment_count == 4
+        assert result.clean_count == 4
+        assert result.noisy_count == 4
+        assert result.strength_counts == {0.0: 4}
+        assert status["indexing_mode"] == "streaming_chunk"
+        assert [item["segment_id"] for item in segment_records] == [0, 1, 2, 3]
+        assert [item["event"] for item in progress].count("index_chunk") == 2
+        assert [item["event"] for item in progress].count("clean_done") == 4
+        assert [item["event"] for item in progress].count("noisy_done") == 4
+        assert (cache_dir / "shards" / "clean_states" / "shard_000000.pt").exists()
+        assert (cache_dir / "shards" / "clean_states" / "shard_000001.pt").exists()
+        assert (cache_dir / "shards" / "noisy_variants" / "strength_0" / "shard_000000.pt").exists()
+        assert (cache_dir / "shards" / "noisy_variants" / "strength_0" / "shard_000001.pt").exists()
+        assert scan.probe()["completed_clean"] == 4
+        assert scan.probe()["completed_noisy"] == 4
+        assert env.prepare_calls == [(0, 0, [0]), (1, 2, [0]), (2, 0, [0]), (3, 2, [0])]
+
+
+def test_stage1_builder_streaming_commits_first_chunk_before_later_motion_failure() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        amass_root = tmp_path / "AMASS_G1NPZ_Final"
+        cache_dir = tmp_path / "frontres_stage1_cache"
+        good = amass_root / "AAA" / "good_motion.npz"
+        bad = amass_root / "BBB" / "bad_motion.npz"
+        _write_fake_motion(good, frames=5)
+        _write_bad_motion_shape(bad)
+
+        env = FakeStage1Env(loaded_motion_paths=[str(good), str(bad)])
+        cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(cache_dir),
+            horizon_k=2,
+            frame_stride=2,
+            max_segments=None,
+            strengths=(0.0,),
+            variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
+            base_seed=123,
+            env_id=0,
+            cache_chunk_size=2,
+        )
+
+        try:
+            build_stage1_segment_cache(env, cfg)
+        except ValueError as exc:
+            assert "joint_vel shape" in str(exc)
+        else:
+            raise AssertionError("expected later bad motion to fail after first chunk")
+
+        progress = [json.loads(line) for line in (cache_dir / "progress.jsonl").read_text().splitlines()]
+        segment_records = _read_segment_index_records(cache_dir / "segment_index.jsonl")
+        scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
+        print(
+            "[cache_builder streaming trace] partial_commit "
+            f"index_ids={[item['segment_id'] for item in segment_records]} "
+            f"events={[item['event'] for item in progress]} "
+            f"resume_probe={scan.probe()} "
+            f"prepare_calls={env.prepare_calls} "
+            f"baseline_calls={env.baseline_calls}"
+        )
+        assert [item["segment_id"] for item in segment_records] == [0, 1]
+        assert any(item["event"] == "index_chunk" for item in progress)
+        assert [item["event"] for item in progress].count("clean_done") == 2
+        assert [item["event"] for item in progress].count("noisy_done") == 2
+        assert not any(item["event"] == "complete" for item in progress)
+        assert (cache_dir / "shards" / "clean_states" / "shard_000000.pt").exists()
+        assert (cache_dir / "shards" / "noisy_variants" / "strength_0" / "shard_000000.pt").exists()
+        assert scan.probe()["completed_clean"] == 2
+        assert scan.probe()["completed_noisy"] == 2
+        assert env.prepare_calls == [(0, 0, [0]), (1, 2, [0])]
+        assert [call[0] for call in env.baseline_calls] == [0, 1]
+
+
+def test_stage1_builder_streaming_resume_skips_committed_chunk() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        amass_root = tmp_path / "AMASS_G1NPZ_Final"
+        cache_dir = tmp_path / "frontres_stage1_cache"
+        good = amass_root / "AAA" / "good_motion.npz"
+        bad = amass_root / "BBB" / "bad_motion.npz"
+        _write_fake_motion(good, frames=5)
+        _write_bad_motion_shape(bad)
+
+        cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(cache_dir),
+            horizon_k=2,
+            frame_stride=2,
+            max_segments=None,
+            strengths=(0.0,),
+            variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
+            base_seed=123,
+            env_id=0,
+            cache_chunk_size=2,
+        )
+
+        first_env = FakeStage1Env(loaded_motion_paths=[str(good), str(bad)])
+        try:
+            build_stage1_segment_cache(first_env, cfg)
+        except ValueError as exc:
+            assert "joint_vel shape" in str(exc)
+        else:
+            raise AssertionError("expected first run to fail on later bad motion")
+
+        _write_fake_motion(bad, frames=5)
+        resume_env = FakeStage1Env(loaded_motion_paths=[str(good), str(bad)])
+        result = build_stage1_segment_cache(resume_env, cfg)
+        progress = [json.loads(line) for line in (cache_dir / "progress.jsonl").read_text().splitlines()]
+        segment_records = _read_segment_index_records(cache_dir / "segment_index.jsonl")
+        scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
+        clean_entries = cache_io.read_clean_state_shard(result.clean_shard_path)
+        noisy_zero = cache_io.read_noisy_variant_shard(result.noisy_shard_paths[0.0])
+        resume_events = [item for item in progress if item["event"] in {"resume_skip_segment", "resume_reuse_clean"}]
+        print(
+            "[cache_builder streaming resume trace] "
+            f"result={result.probe()} "
+            f"index_ids={[item['segment_id'] for item in segment_records]} "
+            f"resume_probe={scan.probe()} "
+            f"resume_prepare_calls={resume_env.prepare_calls} "
+            f"resume_baseline_calls={resume_env.baseline_calls} "
+            f"clean_ids={[entry.segment_id for entry in clean_entries]} "
+            f"noisy_ids={[(item.segment_id, item.perturbation_id) for item in noisy_zero]} "
+            f"resume_events={resume_events}"
+        )
+
+        assert result.segment_count == 4
+        assert result.clean_count == 4
+        assert result.noisy_count == 4
+        assert [item["segment_id"] for item in segment_records] == [0, 1, 2, 3]
+        assert scan.probe()["completed_clean"] == 4
+        assert scan.probe()["completed_noisy"] == 4
+        assert resume_env.prepare_calls == [(2, 0, [0]), (3, 2, [0])]
+        assert [call[0] for call in resume_env.baseline_calls] == [2, 3]
+        assert [entry.segment_id for entry in clean_entries] == [0, 1, 2, 3]
+        assert [(item.segment_id, item.perturbation_id) for item in noisy_zero] == [(0, 0), (1, 1), (2, 2), (3, 3)]
+        assert [item for item in resume_events if item["event"] == "resume_skip_segment"]
 
 
 def test_stage1_builder_uses_loaded_motion_paths_before_disk_scan() -> None:
@@ -599,6 +799,75 @@ def test_stage1_builder_rejects_resume_signature_mismatch_before_env_work() -> N
         assert (cache_dir / "segment_index.jsonl").read_text() == original_index_text
 
 
+def test_stage1_build_signature_summarizes_loaded_motion_paths() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        amass_root = tmp_path / "AMASS_G1NPZ_Final"
+        motion_a = amass_root / "AAA" / "motion_a.npz"
+        motion_b = amass_root / "BBB" / "motion_b.npz"
+        cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(tmp_path / "frontres_stage1_cache"),
+            horizon_k=2,
+            frame_stride=1,
+            max_motions=2,
+            max_segments=2,
+            strengths=(0.0,),
+            variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
+            base_seed=123,
+            env_id=0,
+        )
+        index_summary = builder.FrontRESAMASSIndexSummary(
+            amass_root=str(amass_root),
+            motion_count=2,
+            segment_count=2,
+            horizon_k=2,
+            frame_stride=1,
+            skipped_short_motions=0,
+        )
+        perturbation_metadata = {
+            "perturbation_curriculum_mode": "discrete_bank",
+            "perturbation_levels": [{"level_index": 0, "level_name": "level_00", "strength": 0.0}],
+        }
+
+        signature = builder._stage1_build_signature(
+            cfg,
+            loaded_motion_paths=[str(motion_a), str(motion_b)],
+            index_summary=index_summary,
+            perturbation_metadata=perturbation_metadata,
+        )
+        same_signature = builder._stage1_build_signature(
+            cfg,
+            loaded_motion_paths=[str(motion_a), str(motion_b)],
+            index_summary=index_summary,
+            perturbation_metadata=perturbation_metadata,
+        )
+        changed_signature = builder._stage1_build_signature(
+            cfg,
+            loaded_motion_paths=[str(motion_b), str(motion_a)],
+            index_summary=index_summary,
+            perturbation_metadata=perturbation_metadata,
+        )
+        payload = signature["payload"]
+        print(
+            "[cache_builder signature summary trace] "
+            f"loaded_motion_count={payload['loaded_motion_count']} "
+            f"first_loaded_motion={Path(payload['first_loaded_motion']).name} "
+            f"last_loaded_motion={Path(payload['last_loaded_motion']).name} "
+            f"path_hash={payload['loaded_motion_paths_hash'][:12]} "
+            f"same_hash={same_signature['hash'] == signature['hash']} "
+            f"changed_hash={changed_signature['hash'] != signature['hash']}"
+        )
+        assert "loaded_motion_paths" not in payload
+        assert payload["loaded_motion_count"] == 2
+        assert payload["first_loaded_motion"] == str(motion_a.resolve())
+        assert payload["last_loaded_motion"] == str(motion_b.resolve())
+        assert payload["loaded_motion_paths_hash"]
+        assert same_signature["hash"] == signature["hash"]
+        assert changed_signature["hash"] != signature["hash"]
+
+
 def test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -675,9 +944,13 @@ def test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank() -> 
 
 if __name__ == "__main__":
     test_stage1_builder_orchestrates_cache_pipeline()
+    test_stage1_builder_streaming_path_completes_without_eager_max_segments()
+    test_stage1_builder_streaming_commits_first_chunk_before_later_motion_failure()
+    test_stage1_builder_streaming_resume_skips_committed_chunk()
     test_stage1_builder_uses_loaded_motion_paths_before_disk_scan()
     test_stage1_builder_resume_skips_committed_segments_and_preserves_manifest()
     test_stage1_builder_resume_after_crash_uses_flush_committed_manifest()
     test_stage1_builder_rejects_resume_signature_mismatch_before_env_work()
+    test_stage1_build_signature_summarizes_loaded_motion_paths()
     test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank()
     print("PASS: FrontRES Stage 1 cache builder orchestrates index, clean, perturbation, noisy, and IO.")

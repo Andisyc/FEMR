@@ -2314,3 +2314,676 @@ Step 7 is not fully complete until the server run shows:
 - `[FrontRES Stage1 Segment Cache] auto_exit`;
 - validator PASS;
 - committed shard and manifest files under the disposable cache directory.
+
+## 27. Stage 1 Full-AMASS Streaming Builder Plan
+
+Date: 2026-06-30
+
+The full Stage 1 run must not build the entire AMASS segment index before the
+first shard is written.  The current eager path is:
+
+```text
+loaded_motion_paths
+-> read every motion metadata
+-> materialize all segment records
+-> build all perturbation descriptors
+-> write segment_index
+-> start Clean/Noisy capture
+```
+
+This is the wrong ownership boundary for full AMASS.  It delays all disk
+commits until after the largest indexing step and makes the run look frozen.
+
+The mature design is a streaming builder:
+
+```text
+loaded_motion_paths
+-> one motion or bounded motion batch
+-> bounded segment chunk
+-> append segment_index rows
+-> build perturbation descriptors for this chunk
+-> resume-skip committed Clean/Noisy rows
+-> capture Clean/Noisy
+-> atomic shard commit + manifest commit
+-> next chunk
+```
+
+### Scope
+
+- Stage 1 cache generation only.
+- Keep the existing torch shard + manifest backend.
+- Keep the existing Clean/Noisy capture hooks.
+- Keep resume source of truth as committed manifest rows.
+- Add bounded streaming around index, perturbation plan, resume planning, and
+  shard flush.
+
+### Non-Scope
+
+- Do not add HDF5, Zarr, LMDB, WebDataset, or a new dependency.
+- Do not redesign Stage 2 or Stage 3 training.
+- Do not change the perturbation curriculum semantics.
+- Do not make Stage 1 load AMASS segment data into memory beyond the current
+  chunk.
+
+### Core Parameter Path
+
+```text
+motion_path
+-> motion metadata
+-> segment_id / motion_rel_path / start_frame
+-> perturbation descriptor
+-> clean_resume_key / noisy_resume_key
+-> clean/noisy shard row
+-> manifest row
+-> resume scan
+```
+
+This is a core parameter path.  Each step must expose compact probe facts:
+
+```text
+chunk_id
+motion_count
+segment_id_min / segment_id_max
+segment_count
+descriptor_count
+completed_clean
+completed_noisy
+pending_clean
+pending_noisy
+clean_buffer_count
+noisy_buffer_count
+committed_shard_count
+```
+
+### Required Live Probes
+
+Before each chunk capture:
+
+```text
+[FrontRES Stage1 Index Chunk]
+chunk_id=...
+motion_count=...
+segment_count=...
+segment_id_min=...
+segment_id_max=...
+descriptor_count=...
+```
+
+Before env work for that chunk:
+
+```text
+[FrontRES Stage1 Chunk Resume Probe]
+chunk_id=...
+completed_clean=...
+completed_noisy=...
+pending_clean=...
+pending_noisy=...
+corrupt_count=...
+```
+
+After each shard commit, keep the existing:
+
+```text
+[FrontRES Stage1 Shard Commit]
+```
+
+### Step Plan
+
+Step 1: record this contract and confirm the current eager boundary.
+
+- Files: this note only.
+- Test class: secondary contract path.
+- Command: `git diff --check -- note/frontres_segment_replay/contracts/engineering_contract.md`.
+- Stop condition: note names the wrong eager boundary and the streaming target.
+
+Step 2: add a pure streaming index iterator.
+
+- Owner module: `frontres_segment_cache_indexer.py`.
+- Add `iter_amass_segment_index_chunks_from_paths(...)`.
+- It reads one motion at a time and yields bounded segment chunks.
+- It must keep stable global `segment_id`.
+- Test: fake AMASS motions, chunk size 2, max segments 5.
+- Stop condition: first chunk is available without materializing later chunks.
+
+Step 3: add append-only segment index writes.
+
+- Owner module: `frontres_segment_cache_indexer.py`.
+- Add append function for `segment_index.jsonl`.
+- Keep existing `read_amass_segment_index`.
+- Test: append two chunks, read combined index, assert ids and order.
+- Stop condition: segment index appears on disk after the first chunk.
+
+Step 4: connect builder chunk loop without changing env hooks.
+
+- Owner module: `frontres_segment_cache_builder.py`.
+- Replace the full-run eager loop with:
+  index chunk -> perturbation chunk -> resume chunk -> capture chunk -> flush.
+- Keep the old small eager path only if needed by existing tests.
+- Test: fake env with 5 segments and `cache_chunk_size=2`.
+- Stop condition: fake builder commits a shard before all source motions are
+  exhausted.
+
+Step 5: make resume chunk-local.
+
+- Owner module: `frontres_segment_cache_builder.py`.
+- For each chunk, compute only that chunk's expected Clean/Noisy keys.
+- Reuse existing manifest scan and record loaders.
+- Test: crash after first chunk, rerun, assert only remaining chunks are
+  captured.
+- Stop condition: rerun skips committed chunk rows and continues.
+
+Step 6: shrink build signature metadata for full AMASS.
+
+- Owner module: `frontres_segment_cache_builder.py`.
+- Do not store all loaded motion paths in full metadata.
+- Store count, first path, last path, and a path-list hash.
+- Test: same path list gives same hash; changed path list fails resume.
+- Stop condition: resume guard stays strict without huge metadata.
+
+Step 7: server tiny streaming sentinel.
+
+- Command shape:
+
+```text
+MAX_MOTIONS=3 MAX_SEGMENTS=all CACHE_CHUNK_SIZE=4 bash run_stage1.sh ...
+```
+
+- Required log facts:
+  `[FrontRES Stage1 Index Chunk]`, `[FrontRES Stage1 Chunk Resume Probe]`,
+  `[FrontRES Stage1 Shard Commit]`, validator PASS.
+- Stop condition: shard files appear before all chunks finish.
+
+Step 8: full Stage 1 run.
+
+- Command: `bash run_stage1.sh` with full defaults.
+- Monitor:
+
+```text
+tail -f /hdd1/cyx/FEMR/train_stage1_segment_cache_full.txt
+tail -n 20 /hdd1/cyx/AMASS_G1Segment/progress.jsonl
+find /hdd1/cyx/AMASS_G1Segment -name 'shard_*.pt' | wc -l
+```
+
+- Stop condition: chunk logs advance and shard count increases during the run.
+
+### Current Full-Run Rule
+
+Do not run `MAX_MOTIONS=all MAX_SEGMENTS=all` on the current eager builder.
+It can stall before the first useful cache artifact.  Run only sentinel-sized
+Stage 1 commands until Step 7 passes.
+
+## 28. Step 2 Result: Streaming Index Iterator
+
+Date: 2026-06-30
+
+Step 2 added only the pure indexer iterator.  It did not touch the Stage 1
+builder, cache writer, resume planner, IsaacLab hooks, or run scripts.
+
+### Implemented
+
+`frontres_segment_cache_indexer.py` now owns:
+
+- `FrontRESAMASSSegmentIndexChunk`;
+- `iter_amass_segment_index_chunks_from_paths(...)`.
+
+The iterator reads motion metadata one motion at a time and yields bounded
+segment chunks with stable global `segment_id`.
+
+### Verified Core Path
+
+The contract test now checks:
+
+```text
+good motion
+-> first chunk emitted
+-> later bad motion is not read until iteration continues
+```
+
+Observed probe:
+
+```text
+[cache_indexer trace] streaming_first_chunk
+{'chunk_id': 0, 'chunk_segment_count': 2, 'motion_count': 1,
+ 'segment_count': 2, 'segment_id_min': 0, 'segment_id_max': 1}
+
+[cache_indexer trace] streaming_late_reject=BBB/bad_motion.npz:
+joint_vel shape (4, 29) must match joint_pos (5, 29)
+```
+
+The test also checks chunk sizes and stable ids:
+
+```text
+chunk_segment_count=[3, 3, 1]
+segment_ids=[0, 1, 2, 3, 4, 5, 6]
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_indexer.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_indexer_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_indexer_contract.py
+```
+
+Both passed.
+
+### Remaining Gap
+
+The Stage 1 builder still calls the old eager index path.  Step 3 should add
+append-only `segment_index.jsonl` writes before Step 4 connects the builder
+chunk loop.
+
+## 29. Step 3 Result: Append-Only Segment Index Writes
+
+Date: 2026-06-30
+
+Step 3 added only the index-file append primitive.  It did not connect the
+Stage 1 builder, resume planner, cache writer, IsaacLab hooks, or run scripts.
+
+### Implemented
+
+`frontres_segment_cache_indexer.py` now owns:
+
+- `append_amass_segment_index(...)`.
+
+The function appends validated `FrontRESSegmentIndex` rows to
+`segment_index.jsonl` using the existing JSONL record format.  It rejects empty
+append calls, because an empty append would create misleading progress.
+
+### Verified Core Path
+
+The contract test now checks:
+
+```text
+streaming chunk 0
+-> append segment_index rows
+-> immediately read segment_index.jsonl
+-> segment ids [0, 1] are visible
+
+streaming chunk 1
+-> append segment_index rows
+-> read segment_index.jsonl
+-> segment ids [0, 1, 2, 3] are visible in order
+```
+
+Observed probe:
+
+```text
+[cache_indexer trace] append_index
+path_exists=True first_ids=[0, 1] final_ids=[0, 1, 2, 3]
+
+[cache_indexer trace] append_empty_reject=
+segments must be non-empty when appending segment_index
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_indexer.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_indexer_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_indexer_contract.py
+```
+
+Both passed.
+
+### Remaining Gap
+
+The append primitive is not used by the Stage 1 builder yet.  Step 4 should
+connect the builder chunk loop:
+
+```text
+streaming index chunk
+-> append segment_index rows
+-> build perturbation descriptors for that chunk
+-> resume-skip committed rows
+-> capture Clean/Noisy
+-> flush shard
+```
+
+## 30. Step 4 Result: Builder Streaming Chunk Loop
+
+Date: 2026-06-30
+
+Step 4 connected a streaming chunk loop to the Stage 1 builder for full runs.
+It did not implement streaming resume, signature metadata compression, or the
+server live sentinel.
+
+### Implemented
+
+`frontres_segment_cache_builder.py` now routes:
+
+```text
+max_segments is None
+-> streaming index chunks
+-> append segment_index.jsonl
+-> build perturbation descriptors for the chunk
+-> capture Clean/Noisy for the chunk
+-> flush shard + manifest
+-> next chunk
+```
+
+Runs with `max_segments` still use the old eager path.  This preserves the old
+balanced max-segment sampling behavior.
+
+The streaming path prints:
+
+```text
+[FrontRES Stage1 Index Chunk]
+[FrontRES Stage1 Chunk Resume Probe]
+[FrontRES Stage1 Shard Commit]
+```
+
+### Verified Core Path
+
+The complete fake run checks:
+
+```text
+two loaded motions
+-> chunk 0 writes segment ids [0, 1]
+-> chunk 1 writes segment ids [2, 3]
+-> final cache has 4 Clean and 4 Noisy rows
+```
+
+Observed probe:
+
+```text
+[cache_builder streaming trace] complete
+index_ids=[0, 1, 2, 3]
+events=['started', 'index_chunk', ..., 'index_chunk', ..., 'complete']
+resume_probe={'completed_clean': 4, 'completed_noisy': 4, ...}
+```
+
+The partial fake run checks the actual failure case:
+
+```text
+good motion first
+-> first chunk committed
+-> later bad motion raises shape error
+-> first chunk remains readable from disk
+```
+
+Observed probe:
+
+```text
+[cache_builder streaming trace] partial_commit
+index_ids=[0, 1]
+events=['started', 'index_chunk', 'clean_done', 'noisy_done', ...]
+resume_probe={'completed_clean': 2, 'completed_noisy': 2, ...}
+```
+
+This proves Stage 1 no longer needs to finish full AMASS indexing before the
+first useful cache artifact appears.
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+```
+
+Both passed.
+
+### Deliberate Non-Scope
+
+Streaming resume is still disabled when an existing Stage 1 signature is
+present.  Step 5 must make resume chunk-local before formal full Stage 1 is
+safe after interruption.
+
+## 31. Step 5 Result: Streaming Chunk-Local Resume
+
+Step 5 fixes interrupted Stage 1 streaming cache generation.
+
+### Scope
+
+Only the Stage 1 streaming builder changed:
+
+```text
+existing segment_index.jsonl
+-> existing clean/noisy manifests
+-> chunk resume scan
+-> skip committed chunk rows
+-> append only missing chunk rows
+```
+
+No live IsaacLab path, Stage 2, or Stage 3 behavior changed.
+
+### Core Parameter Path
+
+The traced parameters are:
+
+```text
+segment key
+perturbation key
+manifest record path
+next clean/noisy shard id
+```
+
+The important bug found during Step 5 was simple: after loading committed
+manifest records, the streaming branch still wrote new shards from
+`shard_000000.pt`. That could overwrite old committed payloads. The fix refreshes
+the next clean/noisy shard id after each chunk resume scan.
+
+### Verified Runtime Facts
+
+The resume pseudo-test now proves:
+
+```text
+first run commits segment ids [0, 1]
+second run skips segment ids [0, 1]
+second run only prepares segment ids [2, 3]
+segment_index.jsonl remains [0, 1, 2, 3]
+Clean rows become [0, 1, 2, 3]
+Noisy rows become [(0, 0), (1, 1), (2, 2), (3, 3)]
+```
+
+Observed probe:
+
+```text
+[cache_builder streaming resume trace]
+index_ids=[0, 1, 2, 3]
+resume_probe={'completed_clean': 4, 'completed_noisy': 4, ...}
+resume_prepare_calls=[(2, 0, [0]), (3, 2, [0])]
+resume_events=[resume_skip_segment for segment_id 0 and 1]
+```
+
+The shard overwrite boundary is also checked:
+
+```text
+old chunk -> shard_000000.pt
+resumed chunk -> shard_000001.pt
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+```
+
+Both passed.
+
+### Remaining Boundary
+
+This step validates interrupted streaming resume before final metadata exists.
+Complete-cache rerun/signature policy is still a separate boundary and should
+be handled as a small follow-up, not mixed into the chunk-local resume fix.
+
+## 32. Step 6 Result: Compact Build Signature Metadata
+
+Step 6 shrinks the Stage 1 build signature payload for full-AMASS runs.
+
+### Scope
+
+Only the build signature metadata changed:
+
+```text
+loaded_motion_paths
+-> loaded_motion_count
+-> first_loaded_motion
+-> last_loaded_motion
+-> loaded_motion_paths_hash
+-> build_signature.hash
+```
+
+The full path list is no longer stored inside `build_signature.payload`.
+
+### Non-Scope
+
+This step does not change:
+
+- streaming chunk generation;
+- Clean/Noisy capture;
+- shard or manifest format;
+- resume scan;
+- live IsaacLab behavior;
+- Stage 2 or Stage 3.
+
+### Test Class
+
+Secondary contract path.  This routes metadata scalars and a stable hash, not a
+tensor or rollout parameter.
+
+### Verified Facts
+
+The builder contract now checks:
+
+```text
+same loaded motion path order -> same build_signature.hash
+changed loaded motion path order -> different build_signature.hash
+payload has no loaded_motion_paths list
+payload keeps count, first path, last path, and path-list hash
+```
+
+Observed probe:
+
+```text
+[cache_builder signature summary trace]
+loaded_motion_count=2
+first_loaded_motion=motion_a.npz
+last_loaded_motion=motion_b.npz
+same_hash=True
+changed_hash=True
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+```
+
+Both passed.
+
+### Remaining Boundary
+
+Complete-cache rerun policy is still separate.  This step only prevents full
+AMASS metadata from containing thousands of loaded motion paths while keeping
+the resume guard strict.
+
+## 33. Step 7 Local Result: Tiny Streaming Sentinel Preflight
+
+Step 7 is a live sentinel path.  Local execution can only verify the command
+contract; the actual IsaacLab cache build must run on the server.
+
+### Scope
+
+Verify the tiny streaming Stage 1 command:
+
+```text
+MAX_MOTIONS=3
+MAX_SEGMENTS=all
+CACHE_CHUNK_SIZE=4
+```
+
+`MAX_SEGMENTS` must be `all` here because the current builder routes
+`max_segments is None` to the streaming path.  A numeric `MAX_SEGMENTS=20`
+would test the small eager path, not the streaming builder.
+
+### Non-Scope
+
+This step does not change builder logic, cache IO, Stage 2, Stage 3, or live
+IsaacLab behavior.
+
+### Test Class
+
+Live sentinel path.  Local evidence only proves startup routing.  Server
+evidence must prove real chunk logs and shard files.
+
+### Local Evidence
+
+Fresh local preflight command:
+
+```text
+FRONTRES_STAGE1_PREFLIGHT_ONLY=1 \
+RUN_FOREGROUND=1 \
+LOG_PATH=/private/tmp/femr_stage1_step7_streaming_preflight.txt \
+MAX_MOTIONS=3 \
+MAX_SEGMENTS=all \
+CACHE_CHUNK_SIZE=4 \
+VARIANTS_PER_STRENGTH=1 \
+VALIDATION_MIN_SEGMENTS=1 \
+VALIDATION_MIN_NOISY=1 \
+bash run_stage1.sh \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  1 \
+  4 \
+  /hdd1/cyx/AMASS_G1Segment_streaming_sentinel
+```
+
+Observed facts:
+
+```text
+[FrontRES Stage1 startup preflight] PASS
+--frontres_segment_cache_max_motions 3
+--frontres_segment_cache_max_segments all
+--frontres_segment_cache_chunk_size 4
+--frontres_segment_cache_dir /hdd1/cyx/AMASS_G1Segment_streaming_sentinel
+[FrontRES Stage1 validator preflight] enabled
+```
+
+The entrypoint contract also passed:
+
+```text
+PASS: FrontRES Stage 1/2 live presets and Stage 3 Segment Replay contract are explicit.
+```
+
+### Server Stop Condition
+
+Run the same command without `FRONTRES_STAGE1_PREFLIGHT_ONLY=1` on the server.
+Step 7 is complete only when the server log shows:
+
+- `[FrontRES Stage1 Index Chunk]`;
+- `[FrontRES Stage1 Chunk Resume Probe]`;
+- `[FrontRES Stage1 Shard Commit]`;
+- `[FrontRES Stage1 Segment Cache] cache_readback`;
+- validator PASS;
+- shard files appear under `/hdd1/cyx/AMASS_G1Segment_streaming_sentinel`
+  before all chunks finish.
