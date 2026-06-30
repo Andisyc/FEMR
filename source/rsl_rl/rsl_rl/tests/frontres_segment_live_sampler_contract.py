@@ -764,6 +764,36 @@ def test_runner_checkpoint_saves_and_restores_sampler_state() -> None:
         assert resumed.current_learning_iteration == 3
 
 
+def test_runner_checkpoint_save_does_not_require_logger_type() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = str(Path(tmp) / "model_no_logger_type.pt")
+        policy = torch.nn.Linear(1, 1)
+        runner = SimpleNamespace(
+            alg=SimpleNamespace(policy=policy, optimizer=torch.optim.Adam(policy.parameters(), lr=1e-3)),
+            current_learning_iteration=5,
+            cfg={"is_full_resume": True},
+            alg_cfg={"learning_rate": 1e-3},
+            policy_cfg={"init_noise_std": 1.0, "noise_std_type": "scalar"},
+            empirical_normalization=False,
+            training_type="frontres",
+            device="cpu",
+            _frontres_segment_sampler=FrontRESSegmentSampler(2, seed=5),
+        )
+
+        save_runner(runner, path)
+        saved = torch.load(path, weights_only=False)
+        print(
+            "[probe checkpoint_logger_type] "
+            f"has_logger_type={hasattr(runner, 'logger_type')} "
+            f"saved_iter={saved['iter']} "
+            f"has_sampler_state={'frontres_segment_sampler_state_dict' in saved}",
+            flush=True,
+        )
+        assert not hasattr(runner, "logger_type")
+        assert saved["iter"] == 5
+        assert "frontres_segment_sampler_state_dict" in saved
+
+
 def main() -> None:
     test_live_summary_becomes_sampler_evidence()
     test_live_sampler_evidence_carries_partial_reset_failure()
@@ -777,6 +807,7 @@ def main() -> None:
     test_live_sampler_builds_current_batch_before_probe()
     test_live_storage_uses_sampled_segment_ids_and_sources()
     test_runner_checkpoint_saves_and_restores_sampler_state()
+    test_runner_checkpoint_save_does_not_require_logger_type()
     print("frontres_segment_live_sampler_contract: ok")
 
 

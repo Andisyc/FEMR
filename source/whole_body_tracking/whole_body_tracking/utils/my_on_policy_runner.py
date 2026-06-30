@@ -15,7 +15,7 @@ class MyOnPolicyRunner(OnPolicyRunner):
     def save(self, path: str, infos=None):
         """Save the model and training information."""
         super().save(path, infos)
-        if self.logger_type in ["wandb"]:
+        if str(getattr(self, "logger_type", "") or "").lower() in ["wandb"]:
             if isinstance(self.alg.policy, FrontRESActorCritic):
                 # FrontRES is a composite policy (FrontRES + frozen GMT) and cannot be
                 # exported as a single ONNX graph. The .pt checkpoint is sufficient.
@@ -35,7 +35,7 @@ class MotionOnPolicyRunner(OnPolicyRunner):
     def save(self, path: str, infos=None):
         """Save the model and training information."""
         super().save(path, infos)
-        if self.logger_type in ["wandb"]:
+        if str(getattr(self, "logger_type", "") or "").lower() in ["wandb"]:
             if isinstance(self.alg.policy, FrontRESActorCritic):
                 # FrontRES is a composite policy (FrontRES + frozen GMT) and cannot be
                 # exported as a single ONNX graph. The .pt checkpoint is sufficient.

@@ -240,7 +240,8 @@ def save_runner(self, path: str, infos=None):
     torch.save(saved_dict, path)
 
     # upload model to external logging service
-    if self.logger_type in ["neptune", "wandb"] and not self.disable_logs:
+    logger_type = str(getattr(self, "logger_type", getattr(self, "cfg", {}).get("logger", "")) or "").lower()
+    if logger_type in ["neptune", "wandb"] and not bool(getattr(self, "disable_logs", False)):
         self.writer.save_model(path, self.current_learning_iteration)
 
 def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool = True):
