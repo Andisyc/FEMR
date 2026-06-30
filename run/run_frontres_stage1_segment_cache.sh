@@ -19,6 +19,7 @@ NUM_ENVS="${2:-12000}"
 SEGMENT_K="${3:-4}"
 CACHE_DIR="${4:-/hdd1/cyx/AMASS_G1Segment}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
+DEVICE="${DEVICE:-cuda:0}"
 LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FrontRES_STAGE1_SEGMENT_CACHE}"
 PERTURBATION_MODE="${PERTURBATION_MODE:-hrl_curriculum_bank}"
@@ -58,6 +59,7 @@ CMD=(
   --num_envs="${NUM_ENVS}"
   --motion "${MOTION_PATH}"
   --headless
+  --device "${DEVICE}"
   --logger wandb
   --log_project_name "${LOG_PROJECT_NAME}"
   --experiment_name g1_flat_frontres_stage1_segment_cache

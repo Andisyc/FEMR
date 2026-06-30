@@ -2987,3 +2987,113 @@ Step 7 is complete only when the server log shows:
 - validator PASS;
 - shard files appear under `/hdd1/cyx/AMASS_G1Segment_streaming_sentinel`
   before all chunks finish.
+
+## 34. Stage 1 Cache Layout Correction
+
+Date: 2026-06-30
+
+The previous streaming implementation used the correct manifest reader
+contract but the wrong payload layout.  It wrote chunk payloads under:
+
+```text
+shards/clean_states/...
+shards/noisy_variants/...
+```
+
+This did not preserve the original AMASS relative directory structure and made
+the generated cache harder to inspect against the source dataset.
+
+### Correct Contract
+
+Payload shards live under the original AMASS relative motion path without the
+`.npz` suffix:
+
+```text
+AMASS_G1Segment/
+  BioMotionLab_NTroje/
+    rub001/
+      amass_g1_0004_motorcycle_poses/
+        clean_states/shard_000000.pt
+        noisy_variants/strength_0/shard_000000.pt
+```
+
+The Stage 3 reader still uses manifest records:
+
+```text
+manifests/clean_states/shard_000000.pt
+manifests/noisy_variants/strength_x/shard_000000.pt
+```
+
+Each manifest row points to the AMASS-mirrored payload path.  This keeps Stage 3
+loading unchanged while making Stage 1 output match the source motion tree.
+
+### Safety Rule
+
+One payload shard must not mix multiple `motion_rel_path` values.  The builder
+flushes the current clean/noisy buffer before writing records from a new motion.
+The IO writer rejects mixed-motion shard payloads.
+
+### Tiny Command Correction
+
+The previous sentinel command was too large because it used several motions,
+small frame stride, and the HRL curriculum bank.  The root `run_stage1.sh`
+default is now intentionally tiny:
+
+```text
+MAX_MOTIONS=1
+MAX_SEGMENTS=all
+FRAME_STRIDE=100000
+CACHE_CHUNK_SIZE=1
+PERTURBATION_MODE=discrete_bank
+PERTURBATION_STRENGTHS=0.0
+CURRICULUM_BANK_SIZE=1
+```
+
+Formal full generation must be explicit:
+
+```text
+STAGE1_FULL=1 bash run_stage1.sh ...
+```
+
+### Verified Facts
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+FRONTRES_STAGE1_PREFLIGHT_ONLY=1 RUN_FOREGROUND=1 \
+LOG_PATH=/private/tmp/femr_stage1_tiny_preflight.txt \
+bash run_stage1.sh /hdd1/cyx/AMASS_G1NPZ_Final 1 4 \
+  /hdd1/cyx/AMASS_G1Segment_sentinel
+```
+
+Observed facts:
+
+```text
+[cache_io trace] mirror_paths
+clean=KIT/359/motion_a/clean_states/shard_000000.pt exists=True
+noisy=KIT/359/motion_a/noisy_variants/strength_0p5/shard_000000.pt exists=True
+
+[FrontRES Stage1 Shard Commit]
+kind=clean shard_path=.../AAA/motion_a/clean_states/shard_000000.pt
+
+[FrontRES Stage1 Shard Commit]
+kind=noisy shard_path=.../AAA/motion_a/noisy_variants/strength_0/shard_000000.pt
+
+[FrontRES Stage1 startup preflight] PASS
+--frontres_segment_cache_frame_stride 100000
+--frontres_segment_cache_max_motions 1
+--frontres_segment_cache_max_segments all
+--frontres_segment_cache_chunk_size 1
+--frontres_segment_cache_perturbation_mode discrete_bank
+--frontres_segment_cache_perturbation_strengths 0.0
+```

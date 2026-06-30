@@ -28,7 +28,7 @@ FrontRESSegmentIndex = cache_io.FrontRESSegmentIndex
 def _segment(segment_id: int, start_frame: int) -> FrontRESSegmentIndex:
     return FrontRESSegmentIndex(
         segment_id=segment_id,
-        motion_rel_path=f"KIT/359/motion_{segment_id}.npz",
+        motion_rel_path="KIT/359/motion_a.npz",
         motion_num_frames=20,
         fps=30.0,
         start_frame=start_frame,
@@ -123,11 +123,13 @@ def test_cache_io_round_trips_clean_and_noisy_shards() -> None:
             f"noisy_ids={[(variant.segment_id, variant.perturbation_id) for variant in noisy_variants]}"
         )
         clean_payload_path = (
-            cache_dir / "shards" / "clean_states" / "shard_000000.pt"
+            cache_dir / "KIT" / "359" / "motion_a" / "clean_states" / "shard_000000.pt"
         )
         noisy_payload_path = (
             cache_dir
-            / "shards"
+            / "KIT"
+            / "359"
+            / "motion_a"
             / "noisy_variants"
             / "strength_0p5"
             / "shard_000000.pt"
@@ -241,7 +243,9 @@ def test_stage1_resume_scan_uses_manifest_commits_not_tmp_or_progress() -> None:
         cache_dir = Path(tmp) / "frontres_segment_cache"
         tmp_clean_path = (
             cache_dir
-            / "shards"
+            / "KIT"
+            / "359"
+            / "motion_a"
             / "clean_states"
             / "shard_000099.pt.tmp"
         )
@@ -301,7 +305,7 @@ def test_stage1_resume_scan_uses_manifest_commits_not_tmp_or_progress() -> None:
         assert not noisy_shard_path.with_suffix(noisy_shard_path.suffix + ".tmp").exists()
 
         broken_records = [dict(clean_records[0])]
-        broken_records[0]["path"] = "shards/clean_states/missing_shard.pt"
+        broken_records[0]["path"] = "KIT/359/motion_a/clean_states/missing_shard.pt"
         cache_io.write_clean_state_manifest_records(cache_dir, broken_records, shard_id=1)
         corrupt_scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
         print(f"[cache_io resume trace] corrupt={corrupt_scan.probe()}")

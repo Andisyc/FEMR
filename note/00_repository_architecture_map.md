@@ -482,6 +482,11 @@ frontres_segment_cache_*.py
   temporary shard writes, atomic commit boundaries, manifest-backed completed
   key scans, build-signature checks, and rerun skip decisions.  Progress logs
   are observability only and must not be the resume source of truth.
+  Payload shards must live under the original AMASS relative motion directory
+  without the `.npz` suffix, for example
+  `BioMotionLab_NTroje/rub001/motion_name/clean_states/shard_000000.pt`.
+  The `manifests/` directory remains the Stage 3 reader contract: records point
+  to those AMASS-mirrored payload paths.
 
 frontres_segment_dataset.py
   owns loading cached segments into semantic batches; Stage 1 cache loading is

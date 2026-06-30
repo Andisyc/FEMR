@@ -500,6 +500,8 @@ def build_stage1_segment_cache(env: Any, cfg: FrontRESStage1CacheBuilderConfig) 
             clean_state = extract_robot_rollout_state(env, env_ids=env_ids, robot_name=cfg.robot_name)
             entry = FrontRESCleanStateEntry(segment=segment, clean_state=clean_state)
             entry.validate()
+            if clean_buffer and clean_buffer[-1].segment.motion_rel_path != entry.segment.motion_rel_path:
+                flush_clean_buffer()
             clean_buffer.append(entry)
             clean_written += 1
             completed_clean_keys.add(segment_clean_key)
@@ -566,7 +568,11 @@ def build_stage1_segment_cache(env: Any, cfg: FrontRESStage1CacheBuilderConfig) 
                 robot_name=cfg.robot_name,
             )
             strength = float(descriptor.strength)
-            noisy_buffers_by_strength.setdefault(strength, []).append(capture.variant)
+            noisy_buffer = noisy_buffers_by_strength.setdefault(strength, [])
+            if noisy_buffer and noisy_buffer[-1].segment.motion_rel_path != capture.variant.segment.motion_rel_path:
+                flush_noisy_buffer(strength)
+                noisy_buffer = noisy_buffers_by_strength.setdefault(strength, [])
+            noisy_buffer.append(capture.variant)
             strength_counts[strength] = strength_counts.get(strength, 0) + 1
             noisy_written += 1
             noisy_shard_path = None
@@ -949,6 +955,8 @@ def _build_stage1_segment_cache_streaming(
                 clean_state = extract_robot_rollout_state(env, env_ids=env_ids, robot_name=cfg.robot_name)
                 entry = FrontRESCleanStateEntry(segment=segment, clean_state=clean_state)
                 entry.validate()
+                if clean_buffer and clean_buffer[-1].segment.motion_rel_path != entry.segment.motion_rel_path:
+                    flush_clean_buffer()
                 clean_buffer.append(entry)
                 clean_written += 1
                 clean_shard_path = None
@@ -1000,7 +1008,11 @@ def _build_stage1_segment_cache_streaming(
                     robot_name=cfg.robot_name,
                 )
                 strength = float(descriptor.strength)
-                noisy_buffers_by_strength.setdefault(strength, []).append(capture.variant)
+                noisy_buffer = noisy_buffers_by_strength.setdefault(strength, [])
+                if noisy_buffer and noisy_buffer[-1].segment.motion_rel_path != capture.variant.segment.motion_rel_path:
+                    flush_noisy_buffer(strength)
+                    noisy_buffer = noisy_buffers_by_strength.setdefault(strength, [])
+                noisy_buffer.append(capture.variant)
                 strength_counts[strength] = strength_counts.get(strength, 0) + 1
                 noisy_written += 1
                 noisy_shard_path = None

@@ -169,7 +169,11 @@ def write_clean_state_chunked_shard(
     entry_list = list(entries)
     for entry in entry_list:
         entry.validate()
-    shard_path = _clean_chunked_shard_path(cache_dir, shard_id)
+    shard_path = _clean_chunked_shard_path(
+        cache_dir,
+        shard_id,
+        segment=_single_motion_segment(entry_list, kind="clean"),
+    )
     shard_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
@@ -198,7 +202,11 @@ def write_clean_state_chunked_shard_atomic(
     entry_list = list(entries)
     for entry in entry_list:
         entry.validate()
-    shard_path = _clean_chunked_shard_path(cache_dir, shard_id)
+    shard_path = _clean_chunked_shard_path(
+        cache_dir,
+        shard_id,
+        segment=_single_motion_segment(entry_list, kind="clean"),
+    )
     payload = {
         "format": "frontres_clean_state_chunked_shard_v1",
         "entries": [clean_entry_to_record(entry) for entry in entry_list],
@@ -350,7 +358,12 @@ def write_noisy_variant_chunked_shard(
     variant_list = list(variants)
     for variant in variant_list:
         variant.validate()
-    shard_path = _noisy_chunked_shard_path(cache_dir, strength=strength, shard_id=shard_id)
+    shard_path = _noisy_chunked_shard_path(
+        cache_dir,
+        strength=strength,
+        shard_id=shard_id,
+        segment=_single_motion_segment(variant_list, kind="noisy"),
+    )
     shard_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
@@ -382,7 +395,12 @@ def write_noisy_variant_chunked_shard_atomic(
     variant_list = list(variants)
     for variant in variant_list:
         variant.validate()
-    shard_path = _noisy_chunked_shard_path(cache_dir, strength=strength, shard_id=shard_id)
+    shard_path = _noisy_chunked_shard_path(
+        cache_dir,
+        strength=strength,
+        shard_id=shard_id,
+        segment=_single_motion_segment(variant_list, kind="noisy"),
+    )
     payload = {
         "format": "frontres_noisy_variant_chunked_shard_v1",
         "strength": float(strength),
@@ -574,7 +592,7 @@ def noisy_resume_key(
 def scan_stage1_cache_resume_state(cache_dir: str | Path) -> FrontRESStage1CacheResumeScan:
     root = Path(cache_dir)
     ignored_tmp_paths = tuple(
-        sorted(_relative_posix(path, root) for path in root.glob("shards/**/*.tmp") if path.is_file())
+        sorted(_relative_posix(path, root) for path in root.glob("**/*.tmp") if path.is_file())
     )
     completed_clean: set[tuple[Any, ...]] = set()
     completed_noisy: set[tuple[Any, ...]] = set()
@@ -929,12 +947,25 @@ def _noisy_manifest_path(cache_dir: str | Path, *, strength: float, shard_id: in
     return Path(cache_dir) / "manifests" / "noisy_variants" / _strength_dir(strength) / f"shard_{int(shard_id):06d}.pt"
 
 
-def _clean_chunked_shard_path(cache_dir: str | Path, shard_id: int) -> Path:
-    return Path(cache_dir) / "shards" / "clean_states" / f"shard_{int(shard_id):06d}.pt"
+def _clean_chunked_shard_path(
+    cache_dir: str | Path,
+    shard_id: int,
+    *,
+    segment: FrontRESSegmentIndex | None = None,
+) -> Path:
+    base = _motion_cache_dir(cache_dir, segment) if segment is not None else Path(cache_dir) / "shards"
+    return base / "clean_states" / f"shard_{int(shard_id):06d}.pt"
 
 
-def _noisy_chunked_shard_path(cache_dir: str | Path, *, strength: float, shard_id: int) -> Path:
-    return Path(cache_dir) / "shards" / "noisy_variants" / _strength_dir(strength) / f"shard_{int(shard_id):06d}.pt"
+def _noisy_chunked_shard_path(
+    cache_dir: str | Path,
+    *,
+    strength: float,
+    shard_id: int,
+    segment: FrontRESSegmentIndex | None = None,
+) -> Path:
+    base = _motion_cache_dir(cache_dir, segment) if segment is not None else Path(cache_dir) / "shards"
+    return base / "noisy_variants" / _strength_dir(strength) / f"shard_{int(shard_id):06d}.pt"
 
 
 def _clean_segment_path(cache_dir: str | Path, segment: FrontRESSegmentIndex) -> Path:
@@ -952,13 +983,26 @@ def _noisy_variant_path(cache_dir: str | Path, variant: FrontRESNoisyVariant) ->
 
 def _segment_dir(cache_dir: str | Path, segment: FrontRESSegmentIndex) -> Path:
     segment.validate()
-    motion_rel = _safe_motion_rel_path(segment.motion_rel_path)
-    motion_dir = motion_rel.with_suffix("")
     return (
-        Path(cache_dir)
-        / motion_dir
+        _motion_cache_dir(cache_dir, segment)
         / f"segment_{int(segment.segment_id):08d}_start_{int(segment.start_frame):08d}_k_{int(segment.horizon_k):04d}"
     )
+
+
+def _motion_cache_dir(cache_dir: str | Path, segment: FrontRESSegmentIndex) -> Path:
+    segment.validate()
+    return Path(cache_dir) / _safe_motion_rel_path(segment.motion_rel_path).with_suffix("")
+
+
+def _single_motion_segment(items: list[Any], *, kind: str) -> FrontRESSegmentIndex | None:
+    if not items:
+        return None
+    first_segment = items[0].segment
+    first_motion = first_segment.motion_rel_path
+    for item in items[1:]:
+        if item.segment.motion_rel_path != first_motion:
+            raise ValueError(f"{kind} chunked shard cannot mix motions: {first_motion!r} and {item.segment.motion_rel_path!r}")
+    return first_segment
 
 
 def _safe_motion_rel_path(motion_rel_path: str) -> Path:

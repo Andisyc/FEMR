@@ -252,10 +252,12 @@ def test_stage1_builder_orchestrates_cache_pipeline() -> None:
         assert set(result.noisy_shard_paths) == {0.0, 0.5}
         assert all(Path(path).exists() for path in result.noisy_shard_paths.values())
         assert Path(result.clean_shard_path).relative_to(cache_dir).as_posix() == "manifests/clean_states/shard_000000.pt"
-        assert (cache_dir / "shards" / "clean_states" / "shard_000000.pt").exists()
+        assert (cache_dir / "KIT" / "359" / "motion_a" / "clean_states" / "shard_000000.pt").exists()
         assert (
             cache_dir
-            / "shards"
+            / "KIT"
+            / "359"
+            / "motion_a"
             / "noisy_variants"
             / "strength_0p5"
             / "shard_000000.pt"
@@ -298,11 +300,11 @@ def test_stage1_builder_orchestrates_cache_pipeline() -> None:
         assert all(path.exists() for path in clean_flush_paths)
         assert all(path.exists() for path in noisy_flush_paths)
         assert {path.relative_to(cache_dir).as_posix() for path in clean_flush_paths} == {
-            "shards/clean_states/shard_000000.pt"
+            "KIT/359/motion_a/clean_states/shard_000000.pt"
         }
         assert {path.relative_to(cache_dir).as_posix() for path in noisy_flush_paths} == {
-            "shards/noisy_variants/strength_0/shard_000000.pt",
-            "shards/noisy_variants/strength_0p5/shard_000000.pt",
+            "KIT/359/motion_a/noisy_variants/strength_0/shard_000000.pt",
+            "KIT/359/motion_a/noisy_variants/strength_0p5/shard_000000.pt",
         }
         assert Path(status["clean_shard_path"]).relative_to(cache_dir).as_posix() == "manifests/clean_states/shard_000000.pt"
         assert Path(status["metadata_path"]).exists()
@@ -409,10 +411,10 @@ def test_stage1_builder_streaming_path_completes_without_eager_max_segments() ->
         assert [item["event"] for item in progress].count("index_chunk") == 2
         assert [item["event"] for item in progress].count("clean_done") == 4
         assert [item["event"] for item in progress].count("noisy_done") == 4
-        assert (cache_dir / "shards" / "clean_states" / "shard_000000.pt").exists()
-        assert (cache_dir / "shards" / "clean_states" / "shard_000001.pt").exists()
-        assert (cache_dir / "shards" / "noisy_variants" / "strength_0" / "shard_000000.pt").exists()
-        assert (cache_dir / "shards" / "noisy_variants" / "strength_0" / "shard_000001.pt").exists()
+        assert (cache_dir / "AAA" / "motion_a" / "clean_states" / "shard_000000.pt").exists()
+        assert (cache_dir / "BBB" / "motion_b" / "clean_states" / "shard_000001.pt").exists()
+        assert (cache_dir / "AAA" / "motion_a" / "noisy_variants" / "strength_0" / "shard_000000.pt").exists()
+        assert (cache_dir / "BBB" / "motion_b" / "noisy_variants" / "strength_0" / "shard_000001.pt").exists()
         assert scan.probe()["completed_clean"] == 4
         assert scan.probe()["completed_noisy"] == 4
         assert env.prepare_calls == [(0, 0, [0]), (1, 2, [0]), (2, 0, [0]), (3, 2, [0])]
@@ -466,8 +468,8 @@ def test_stage1_builder_streaming_commits_first_chunk_before_later_motion_failur
         assert [item["event"] for item in progress].count("clean_done") == 2
         assert [item["event"] for item in progress].count("noisy_done") == 2
         assert not any(item["event"] == "complete" for item in progress)
-        assert (cache_dir / "shards" / "clean_states" / "shard_000000.pt").exists()
-        assert (cache_dir / "shards" / "noisy_variants" / "strength_0" / "shard_000000.pt").exists()
+        assert (cache_dir / "AAA" / "good_motion" / "clean_states" / "shard_000000.pt").exists()
+        assert (cache_dir / "AAA" / "good_motion" / "noisy_variants" / "strength_0" / "shard_000000.pt").exists()
         assert scan.probe()["completed_clean"] == 2
         assert scan.probe()["completed_noisy"] == 2
         assert env.prepare_calls == [(0, 0, [0]), (1, 2, [0])]
