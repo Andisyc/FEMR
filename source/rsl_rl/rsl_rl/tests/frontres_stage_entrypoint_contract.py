@@ -391,9 +391,15 @@ def main() -> None:
     assert 'g1_flat_frontres_stage2_acceptance' in stage2
     assert 'stage2_authority' not in stage2
     assert 'bash run/run_frontres_stage1_segment_cache.sh' in root_stage1
+    assert 'NUM_ENVS="${2:-1}"' in root_stage1
     assert 'MAX_MOTIONS="${MAX_MOTIONS:-all}"' in root_stage1
     assert 'MAX_SEGMENTS="${MAX_SEGMENTS:-all}"' in root_stage1
-    assert 'train_stage1_segment_cache.txt' in root_stage1
+    assert 'CACHE_CHUNK_SIZE="${CACHE_CHUNK_SIZE:-128}"' in root_stage1
+    assert 'VARIANTS_PER_STRENGTH="${VARIANTS_PER_STRENGTH:-1}"' in root_stage1
+    assert 'VALIDATION_MIN_SEGMENTS="${VALIDATION_MIN_SEGMENTS:-1}"' in root_stage1
+    assert 'VALIDATION_MIN_NOISY="${VALIDATION_MIN_NOISY:-1}"' in root_stage1
+    assert 'train_stage1_segment_cache_full.txt' in root_stage1
+    assert 'cache_chunk_size=${CACHE_CHUNK_SIZE}' in root_stage1
     assert '--frontres_stage stage2_hsl_warmup' in root_stage2
     assert 'g1_flat_frontres_stage2_hsl' in root_stage2
     assert 'SUPERVISED_WARMUP_ITERS="${SUPERVISED_WARMUP_ITERS:-${MAX_ITERS}}"' in root_stage2
