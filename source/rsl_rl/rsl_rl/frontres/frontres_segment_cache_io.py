@@ -89,6 +89,26 @@ class FrontRESSegmentShardLRU:
         }
 
 
+@dataclass(frozen=True)
+class FrontRESStage1CacheResumeScan:
+    completed_clean_keys: frozenset[tuple[Any, ...]]
+    completed_noisy_keys: frozenset[tuple[Any, ...]]
+    ignored_tmp_paths: tuple[str, ...]
+    corrupt_records: tuple[dict[str, Any], ...]
+    clean_manifest_count: int
+    noisy_manifest_count: int
+
+    def probe(self) -> dict[str, Any]:
+        return {
+            "completed_clean": len(self.completed_clean_keys),
+            "completed_noisy": len(self.completed_noisy_keys),
+            "ignored_tmp": len(self.ignored_tmp_paths),
+            "corrupt_count": len(self.corrupt_records),
+            "clean_manifest_count": int(self.clean_manifest_count),
+            "noisy_manifest_count": int(self.noisy_manifest_count),
+        }
+
+
 def write_cache_metadata(cache_dir: str | Path, metadata: dict[str, Any]) -> Path:
     path = Path(cache_dir)
     path.mkdir(parents=True, exist_ok=True)
@@ -169,6 +189,32 @@ def write_clean_state_chunked_shard(
     return shard_path, manifest_records
 
 
+def write_clean_state_chunked_shard_atomic(
+    cache_dir: str | Path,
+    entries: Iterable[FrontRESCleanStateEntry],
+    *,
+    shard_id: int = 0,
+) -> tuple[Path, list[dict[str, Any]]]:
+    entry_list = list(entries)
+    for entry in entry_list:
+        entry.validate()
+    shard_path = _clean_chunked_shard_path(cache_dir, shard_id)
+    payload = {
+        "format": "frontres_clean_state_chunked_shard_v1",
+        "entries": [clean_entry_to_record(entry) for entry in entry_list],
+    }
+    _torch_save_atomic(payload, shard_path)
+    manifest_records = [
+        {
+            "path": _relative_posix(shard_path, cache_dir),
+            "row": row,
+            "segment": segment_to_record(entry.segment),
+        }
+        for row, entry in enumerate(entry_list)
+    ]
+    return shard_path, manifest_records
+
+
 def clean_state_manifest_record(cache_dir: str | Path, entry: FrontRESCleanStateEntry) -> dict[str, Any]:
     entry.validate()
     entry_path = _clean_segment_path(cache_dir, entry.segment)
@@ -188,8 +234,7 @@ def write_clean_state_manifest_records(
 ) -> Path:
     record_list = list(records)
     manifest_path = _clean_manifest_path(cache_dir, shard_id)
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
+    _torch_save_atomic(
         {
             "format": "frontres_clean_state_tree_manifest_v1",
             "entries": record_list,
@@ -249,6 +294,38 @@ def read_clean_state_shard(path: str | Path) -> list[FrontRESCleanStateEntry]:
     return entries
 
 
+def read_clean_state_manifest_records(path: str | Path) -> tuple[Path, list[dict[str, Any]]]:
+    manifest_path = Path(path)
+    payload = torch.load(manifest_path, map_location="cpu", weights_only=False)
+    if payload.get("format") != "frontres_clean_state_tree_manifest_v1":
+        raise ValueError(f"unsupported clean state manifest format: {payload.get('format')}")
+    base_dir = manifest_path.parent.parent.parent
+    return base_dir, list(payload["entries"])
+
+
+def read_clean_state_record(
+    cache_dir: str | Path,
+    record: dict[str, Any],
+    *,
+    shard_cache: FrontRESSegmentShardLRU | None = None,
+) -> FrontRESCleanStateEntry:
+    payload_path = Path(cache_dir) / str(record["path"])
+    payload = shard_cache.load(payload_path) if shard_cache is not None else torch.load(
+        payload_path,
+        map_location="cpu",
+        weights_only=False,
+    )
+    fmt = payload.get("format")
+    if fmt == "frontres_clean_state_file_v1":
+        entry = clean_entry_from_record(payload["entry"])
+    elif fmt == "frontres_clean_state_chunked_shard_v1":
+        entry = clean_entry_from_record(payload["entries"][int(record["row"])])
+    else:
+        raise ValueError(f"unsupported clean state payload format: {fmt}")
+    entry.validate()
+    return entry
+
+
 def write_noisy_variant_file(cache_dir: str | Path, variant: FrontRESNoisyVariant) -> Path:
     variant.validate()
     variant_path = _noisy_variant_path(cache_dir, variant)
@@ -295,6 +372,35 @@ def write_noisy_variant_chunked_shard(
     return shard_path, manifest_records
 
 
+def write_noisy_variant_chunked_shard_atomic(
+    cache_dir: str | Path,
+    variants: Iterable[FrontRESNoisyVariant],
+    *,
+    strength: float,
+    shard_id: int = 0,
+) -> tuple[Path, list[dict[str, Any]]]:
+    variant_list = list(variants)
+    for variant in variant_list:
+        variant.validate()
+    shard_path = _noisy_chunked_shard_path(cache_dir, strength=strength, shard_id=shard_id)
+    payload = {
+        "format": "frontres_noisy_variant_chunked_shard_v1",
+        "strength": float(strength),
+        "variants": [noisy_variant_to_record(variant) for variant in variant_list],
+    }
+    _torch_save_atomic(payload, shard_path)
+    manifest_records = [
+        {
+            "path": _relative_posix(shard_path, cache_dir),
+            "row": row,
+            "segment": segment_to_record(variant.segment),
+            "descriptor": perturbation_to_record(variant.descriptor),
+        }
+        for row, variant in enumerate(variant_list)
+    ]
+    return shard_path, manifest_records
+
+
 def noisy_variant_manifest_record(cache_dir: str | Path, variant: FrontRESNoisyVariant) -> dict[str, Any]:
     variant.validate()
     variant_path = _noisy_variant_path(cache_dir, variant)
@@ -316,8 +422,7 @@ def write_noisy_variant_manifest_records(
 ) -> Path:
     record_list = list(records)
     manifest_path = _noisy_manifest_path(cache_dir, strength=strength, shard_id=shard_id)
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
+    _torch_save_atomic(
         {
             "format": "frontres_noisy_variant_tree_manifest_v1",
             "strength": float(strength),
@@ -433,6 +538,120 @@ def read_noisy_variants_from_records(
     return variants
 
 
+def clean_resume_key(segment_or_record: FrontRESSegmentIndex | dict[str, Any]) -> tuple[Any, ...]:
+    record = _segment_record(segment_or_record)
+    return (
+        str(record["motion_rel_path"]),
+        int(record["start_frame"]),
+        int(record["horizon_k"]),
+    )
+
+
+def noisy_resume_key(
+    segment_or_record: FrontRESSegmentIndex | dict[str, Any],
+    descriptor: FrontRESPerturbationDescriptor | dict[str, Any] | None = None,
+) -> tuple[Any, ...]:
+    if descriptor is None:
+        if not isinstance(segment_or_record, dict) or "descriptor" not in segment_or_record:
+            raise ValueError("descriptor is required unless a noisy manifest record is provided")
+        descriptor_record = dict(segment_or_record["descriptor"])
+    else:
+        descriptor_record = _descriptor_record(descriptor)
+    return (
+        *clean_resume_key(segment_or_record),
+        int(descriptor_record["perturbation_id"]),
+        float(descriptor_record["strength"]),
+        int(descriptor_record["seed"]),
+        str(descriptor_record["family"]),
+        int(descriptor_record["start_step"]),
+        int(descriptor_record["duration"]),
+        str(descriptor_record["target"]),
+        str(descriptor_record["frame"]),
+        json.dumps(dict(descriptor_record.get("params", {})), sort_keys=True, default=str),
+    )
+
+
+def scan_stage1_cache_resume_state(cache_dir: str | Path) -> FrontRESStage1CacheResumeScan:
+    root = Path(cache_dir)
+    ignored_tmp_paths = tuple(
+        sorted(_relative_posix(path, root) for path in root.glob("shards/**/*.tmp") if path.is_file())
+    )
+    completed_clean: set[tuple[Any, ...]] = set()
+    completed_noisy: set[tuple[Any, ...]] = set()
+    corrupt_records: list[dict[str, Any]] = []
+    clean_manifest_count = 0
+    noisy_manifest_count = 0
+
+    for manifest_path in sorted((root / "manifests" / "clean_states").glob("*.pt")):
+        clean_manifest_count += 1
+        try:
+            payload = torch.load(manifest_path, map_location="cpu", weights_only=False)
+            if payload.get("format") != "frontres_clean_state_tree_manifest_v1":
+                raise ValueError(f"unsupported clean manifest format: {payload.get('format')}")
+            for row_idx, record in enumerate(payload.get("entries", [])):
+                row_state = _resume_record_state(root, record, kind="clean")
+                if row_state == "complete":
+                    try:
+                        completed_clean.add(clean_resume_key(record))
+                    except Exception as exc:
+                        corrupt_records.append(
+                            _corrupt_record("clean", manifest_path, row_idx, record, f"bad_key:{exc}")
+                        )
+                elif row_state == "tmp":
+                    continue
+                else:
+                    corrupt_records.append(
+                        _corrupt_record("clean", manifest_path, row_idx, record, row_state)
+                    )
+        except Exception as exc:
+            corrupt_records.append(
+                {
+                    "kind": "clean_manifest",
+                    "manifest_path": _relative_posix(manifest_path, root),
+                    "error": str(exc),
+                }
+            )
+
+    for manifest_path in sorted((root / "manifests" / "noisy_variants").glob("**/*.pt")):
+        noisy_manifest_count += 1
+        try:
+            payload = torch.load(manifest_path, map_location="cpu", weights_only=False)
+            if payload.get("format") != "frontres_noisy_variant_tree_manifest_v1":
+                raise ValueError(f"unsupported noisy manifest format: {payload.get('format')}")
+            for row_idx, record in enumerate(payload.get("variants", [])):
+                row_state = _resume_record_state(root, record, kind="noisy")
+                if row_state == "complete":
+                    try:
+                        completed_noisy.add(noisy_resume_key(record))
+                    except Exception as exc:
+                        corrupt_records.append(
+                            _corrupt_record("noisy", manifest_path, row_idx, record, f"bad_key:{exc}")
+                        )
+                elif row_state == "tmp":
+                    continue
+                else:
+                    corrupt_records.append(
+                        _corrupt_record("noisy", manifest_path, row_idx, record, row_state)
+                    )
+        except Exception as exc:
+            corrupt_records.append(
+                {
+                    "kind": "noisy_manifest",
+                    "manifest_path": _relative_posix(manifest_path, root),
+                    "error": str(exc),
+                }
+            )
+
+    return FrontRESStage1CacheResumeScan(
+        completed_clean_keys=frozenset(completed_clean),
+        completed_noisy_keys=frozenset(completed_noisy),
+        ignored_tmp_paths=ignored_tmp_paths,
+        corrupt_records=tuple(corrupt_records),
+        clean_manifest_count=clean_manifest_count,
+        noisy_manifest_count=noisy_manifest_count,
+    )
+
+
 def clean_entry_to_record(entry: FrontRESCleanStateEntry) -> dict[str, Any]:
     entry.validate()
     return {
@@ -531,6 +750,132 @@ def perturbation_from_record(record: dict[str, Any]) -> FrontRESPerturbationDesc
     )
     descriptor.validate()
     return descriptor
+
+
+def _segment_record(segment_or_record: FrontRESSegmentIndex | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(segment_or_record, FrontRESSegmentIndex):
+        return segment_to_record(segment_or_record)
+    if all(hasattr(segment_or_record, name) for name in ("motion_rel_path", "start_frame", "horizon_k")):
+        segment_or_record.validate()
+        return {
+            "segment_id": int(segment_or_record.segment_id),
+            "motion_rel_path": str(segment_or_record.motion_rel_path),
+            "motion_num_frames": int(segment_or_record.motion_num_frames),
+            "fps": float(segment_or_record.fps),
+            "start_frame": int(segment_or_record.start_frame),
+            "horizon_k": int(segment_or_record.horizon_k),
+        }
+    record = dict(segment_or_record)
+    if "segment" in record:
+        record = dict(record["segment"])
+    for name in ("motion_rel_path", "start_frame", "horizon_k"):
+        if name not in record:
+            raise ValueError(f"segment resume key record missing {name!r}")
+    return record
+
+
+def _descriptor_record(descriptor: FrontRESPerturbationDescriptor | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(descriptor, FrontRESPerturbationDescriptor):
+        return perturbation_to_record(descriptor)
+    if all(
+        hasattr(descriptor, name)
+        for name in ("perturbation_id", "segment_id", "strength", "seed", "family", "start_step", "duration")
+    ):
+        descriptor.validate()
+        return {
+            "perturbation_id": int(descriptor.perturbation_id),
+            "segment_id": int(descriptor.segment_id),
+            "strength": float(descriptor.strength),
+            "seed": int(descriptor.seed),
+            "family": str(descriptor.family),
+            "start_step": int(descriptor.start_step),
+            "duration": int(descriptor.duration),
+            "target": str(descriptor.target),
+            "frame": str(descriptor.frame),
+            "params": dict(descriptor.params),
+        }
+    record = dict(descriptor)
+    for name in (
+        "perturbation_id",
+        "strength",
+        "seed",
+        "family",
+        "start_step",
+        "duration",
+        "target",
+        "frame",
+    ):
+        if name not in record:
+            raise ValueError(f"noisy resume key record missing {name!r}")
+    return record
+
+
+def _resume_record_state(cache_dir: Path, record: dict[str, Any], *, kind: str) -> str:
+    raw_path = str(record.get("path", ""))
+    if not raw_path:
+        return "missing_path"
+    if raw_path.endswith(".tmp"):
+        return "tmp"
+    payload_path = cache_dir / raw_path
+    if not payload_path.is_file():
+        return "missing_shard"
+    try:
+        payload = torch.load(payload_path, map_location="cpu", weights_only=False)
+        row = int(record.get("row", 0))
+        if kind == "clean":
+            return _clean_payload_row_state(payload, row)
+        if kind == "noisy":
+            return _noisy_payload_row_state(payload, row)
+        return "unknown_kind"
+    except Exception as exc:
+        return f"unreadable:{exc}"
+
+
+def _clean_payload_row_state(payload: dict[str, Any], row: int) -> str:
+    fmt = payload.get("format")
+    if fmt == "frontres_clean_state_file_v1":
+        clean_entry_from_record(payload["entry"])
+        return "complete"
+    if fmt != "frontres_clean_state_chunked_shard_v1":
+        return f"bad_format:{fmt}"
+    entries = list(payload.get("entries", []))
+    if row < 0 or row >= len(entries):
+        return "row_out_of_range"
+    clean_entry_from_record(entries[row])
+    return "complete"
+
+
+def _noisy_payload_row_state(payload: dict[str, Any], row: int) -> str:
+    fmt = payload.get("format")
+    if fmt == "frontres_noisy_variant_file_v1":
+        noisy_variant_from_record(payload["variant"])
+        return "complete"
+    if fmt != "frontres_noisy_variant_chunked_shard_v1":
+        return f"bad_format:{fmt}"
+    variants = list(payload.get("variants", []))
+    if row < 0 or row >= len(variants):
+        return "row_out_of_range"
+    noisy_variant_from_record(variants[row])
+    return "complete"
+
+
+def _corrupt_record(kind: str, manifest_path: Path, row_idx: int, record: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "manifest_path": str(manifest_path),
+        "row_idx": int(row_idx),
+        "path": str(record.get("path", "")),
+        "reason": str(reason),
+    }
+
+
+def _torch_save_atomic(payload: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    if tmp_path.exists():
+        tmp_path.unlink()
+    torch.save(payload, tmp_path)
+    tmp_path.replace(path)
 
 
 def rollout_state_to_record(state: FrontRESRobotRolloutState) -> dict[str, torch.Tensor | None]:

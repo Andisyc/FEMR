@@ -478,7 +478,10 @@ training_schedule.py
 frontres_segment_cache_*.py
   own Stage 1 disk cache schemas, AMASS segment indexing, Clean/Noisy rollout
   state IO, chunked shard storage, lightweight manifest indexes, and cache
-  builder orchestration
+  builder orchestration.  They also own resumable Stage 1 cache semantics:
+  temporary shard writes, atomic commit boundaries, manifest-backed completed
+  key scans, build-signature checks, and rerun skip decisions.  Progress logs
+  are observability only and must not be the resume source of truth.
 
 frontres_segment_dataset.py
   owns loading cached segments into semantic batches; Stage 1 cache loading is

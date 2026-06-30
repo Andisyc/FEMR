@@ -1632,3 +1632,685 @@ Step 8 is complete only when the server log proves:
 
 Local command contract tests only prove startup wiring.  They do not replace
 the server tiny update-loop run.
+
+## 20. Stage 1 Resumable Cache Contract
+
+Date: 2026-06-30
+
+This section defines the required design before a formal full-AMASS Stage 1
+cache run.  The current Stage 1 code already has chunked payload writes,
+`build_status.json`, and `progress.jsonl`.  That is not enough for true
+checkpoint resume.  A resumable cache must treat each committed shard plus its
+manifest record as the smallest recoverable unit.
+
+### Problem
+
+Stage 1 may run for a long time and may be interrupted by job timeout, server
+restart, manual stop, or IsaacLab failure.  Restarting from zero wastes rollout
+time.  Reusing a partially written cache without validation is also unsafe.
+
+The current safe contract should be:
+
+- a finished shard is committed atomically;
+- a manifest row is the source of truth for resume;
+- `progress.jsonl` is only an observability log;
+- incomplete temp shards must be ignored;
+- already committed Clean/Noisy records must be skipped on rerun;
+- incomplete or corrupt records must be regenerated;
+- Stage 3 must only consume a complete cache unless an explicit partial-cache
+  mode is added later.
+
+### Non-Scope
+
+This contract does not require:
+
+- HDF5, Zarr, mmap, or row-level random write;
+- distributed writers;
+- parallel IsaacLab workers;
+- Stage 3 training from a partial cache;
+- changing Segment Replay reward, sampler, or PPO semantics;
+- using `progress.jsonl` as the canonical resume ledger.
+
+### Mature Design Adaptation
+
+The adapted pattern is the standard dataset-build pattern used by mature data
+pipelines:
+
+- write output to a temporary file first;
+- validate the file before it becomes visible as a committed artifact;
+- atomically rename temporary output to final output;
+- record committed rows in a manifest or index;
+- on rerun, scan committed manifest/shard pairs and rebuild only missing work;
+- optionally compare a build signature so stale caches are not reused under a
+  different configuration.
+
+For FEMR, the unit is not a whole dataset.  The unit is:
+
+```text
+Clean: segment_key -> clean shard row -> clean manifest row
+Noisy: segment_key + perturbation_key -> noisy shard row -> noisy manifest row
+```
+
+### Core Parameter Path
+
+Clean resume path:
+
+```text
+FrontRESSegmentIndex
+-> segment_key = (motion_rel_path, start_frame, end_frame)
+-> clean capture
+-> temp clean shard
+-> shard validation
+-> atomic rename to final clean shard
+-> clean manifest row {path, row, segment}
+-> resume scan completed_clean_keys
+-> builder skips completed clean segment on rerun
+```
+
+Noisy resume path:
+
+```text
+FrontRESPerturbationDescriptor
+-> noisy_key = (segment_key, perturbation_id, strength, seed, family_group, role)
+-> noisy capture
+-> temp noisy shard
+-> shard validation
+-> atomic rename to final noisy shard
+-> noisy manifest row {path, row, segment, perturbation}
+-> resume scan completed_noisy_keys
+-> builder skips completed noisy variant on rerun
+```
+
+Build signature path:
+
+```text
+amass_root + horizon_k + frame_stride + loaded_motion_paths
++ perturbation curriculum config + cache schema version
+-> build_signature
+-> cache resume allowed only when signature matches
+```
+
+### File Responsibility Map
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py`
+
+- owns atomic shard write helpers;
+- owns manifest read/write helpers;
+- owns committed Clean/Noisy key extraction;
+- must ignore `.tmp` files during resume scans;
+- must expose a compact probe with committed row counts and shard counts.
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py`
+
+- owns builder-level resume policy;
+- scans existing committed records before rollout;
+- computes pending Clean/Noisy work;
+- skips completed work;
+- writes resume probes before the expensive env loop starts;
+- must not trust progress logs as completion evidence.
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_validator.py`
+
+- owns complete/partial/corrupt classification;
+- verifies manifest rows point to existing final shards;
+- verifies row indexes are readable;
+- verifies expected Clean/Noisy counts after a complete build.
+
+`scripts/rsl_rl/check_frontres_stage1_segment_cache_completion.py`
+
+- owns server-side completion check against the expected AMASS segment set;
+- should report missing, extra, partial, and corrupt counts separately.
+
+`scripts/rsl_rl/train.py` and `run_stage1.sh`
+
+- own user-facing resume/force-rebuild flags only;
+- must pass explicit config into the builder;
+- must not implement manifest parsing or skip logic.
+
+### Invariants
+
+- `progress.jsonl` never decides whether a segment is complete.
+- A final shard path without a manifest row is not resumable.
+- A manifest row whose shard is missing or unreadable is corrupt, not complete.
+- Temporary shard files are ignored by resume and may be cleaned later.
+- Rerunning Stage 1 with the same signature should not overwrite committed
+  shard rows.
+- Rerunning Stage 1 with a different signature must fail fast unless
+  `force_rebuild=True`.
+- Resume scan must print:
+  `completed_clean`, `completed_noisy`, `pending_clean`, `pending_noisy`,
+  `ignored_tmp`, and `corrupt_count`.
+- A partial cache may become complete after rerun.
+- A corrupt cache must be regenerated for the corrupt rows or rejected; it must
+  not silently train Stage 3.
+- Stage 3 default loading still requires `metadata.json` with complete status.
+
+### Runtime Probes
+
+Before the first env rollout, Stage 1 must print a resume probe:
+
+```text
+[FrontRES Stage1 Resume Probe]
+signature_match=True
+completed_clean=...
+completed_noisy=...
+pending_clean=...
+pending_noisy=...
+ignored_tmp=...
+corrupt_count=...
+resume_enabled=True
+force_rebuild=False
+```
+
+After each shard commit, Stage 1 must print or log a compact commit event:
+
+```text
+[FrontRES Stage1 Shard Commit]
+kind=clean/noisy
+shard_path=...
+row_count=...
+manifest_path=...
+committed_total=...
+```
+
+These probes are live sentinels.  They prove the real IsaacLab path reaches the
+resume boundary.  They do not prove training quality.
+
+### Tests Required Before Code Is Considered Complete
+
+Local semantic tests:
+
+1. temp shard exists but no manifest row -> resume scan reports zero completed;
+2. final shard exists with manifest row -> resume scan reports completed key;
+3. manifest row points to missing shard -> corrupt_count increases;
+4. partial cache with two completed segments -> builder rerun only requests
+   the remaining segments;
+5. changed build signature -> resume fails unless force rebuild is set.
+
+Server sentinel tests:
+
+1. run Stage 1 tiny cache with small `CACHE_CHUNK_SIZE`;
+2. interrupt after at least one shard commit;
+3. rerun the same command;
+4. confirm log shows completed keys and fewer pending keys;
+5. confirm final validator passes.
+
+### Stop Conditions Before Formal Full Stage 1
+
+Do not recommend full Stage 1 cache generation until:
+
+- resume scan is implemented and covered by a semantic local test;
+- shard commit uses a temp path plus final commit boundary;
+- committed manifest rows are written during generation, not only at the end;
+- rerun skips already committed Clean and Noisy records;
+- corrupt/missing shard rows are not treated as complete;
+- a server tiny run proves interruption and rerun behavior.
+
+### Next Step
+
+Step 2 should implement cache IO resume primitives first.  It should not touch
+IsaacLab runner logic.  The owner module is
+`frontres_segment_cache_io.py`, and the test target is a semantic fake cache
+with temp, committed, missing, and corrupt shard cases.
+
+## 21. Step 2 Result: Cache IO Resume Primitives
+
+Date: 2026-06-30
+
+Step 2 implemented only the IO-layer primitives.  It did not connect resume to
+the Stage 1 builder or live IsaacLab path.
+
+### Implemented
+
+`frontres_segment_cache_io.py` now owns:
+
+- `FrontRESStage1CacheResumeScan`;
+- `clean_resume_key(...)`;
+- `noisy_resume_key(...)`;
+- `scan_stage1_cache_resume_state(...)`;
+- `write_clean_state_chunked_shard_atomic(...)`;
+- `write_noisy_variant_chunked_shard_atomic(...)`.
+
+### Verified Core Path
+
+The semantic contract test checks:
+
+```text
+tmp shard + progress log only
+-> completed_clean=0
+-> completed_noisy=0
+-> ignored_tmp=1
+
+final shard + manifest rows
+-> completed_clean=2
+-> completed_noisy=2
+-> corrupt_count=0
+
+manifest row pointing to missing shard
+-> corrupt_count=1
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+```
+
+Observed probe:
+
+```text
+[cache_io resume trace] tmp_only={'completed_clean': 0, 'completed_noisy': 0,
+'ignored_tmp': 1, 'corrupt_count': 0, ...}
+[cache_io resume trace] committed ... probe={'completed_clean': 2,
+'completed_noisy': 2, 'ignored_tmp': 1, 'corrupt_count': 0, ...}
+[cache_io resume trace] corrupt={'completed_clean': 2, 'completed_noisy': 2,
+'ignored_tmp': 1, 'corrupt_count': 1, ...}
+PASS: FrontRES Segment cache IO round-trips clean states and noisy variants.
+```
+
+### Remaining Gap
+
+Stage 1 builder still does not call the resume scanner and still does not skip
+completed work.  That belongs to Step 3.
+
+## 22. Step 3 Result: Builder Resume Planner
+
+Date: 2026-06-30
+
+Step 3 connected the IO-layer resume scan to the Stage 1 builder.  It still
+does not implement the final live IsaacLab interruption sentinel.
+
+### Implemented
+
+`frontres_segment_cache_builder.py` now:
+
+- calls `scan_stage1_cache_resume_state(cache_dir)` after indexing and
+  perturbation-plan construction;
+- builds expected Clean keys from planned segments;
+- builds expected Noisy keys from planned descriptors;
+- loads committed Clean/Noisy manifest rows that match the current plan;
+- starts new payload shard ids after the committed shard ids;
+- reuses cached Clean state when Clean is already committed;
+- skips a whole segment when Clean and all planned Noisy variants are already
+  committed;
+- writes a `[FrontRES Stage1 Resume Probe]` before the expensive env loop.
+
+### Verified Core Path
+
+The builder contract test performs:
+
+```text
+run 1: max_segments=1
+-> completed_clean=1
+-> completed_noisy=2
+
+run 2: same cache dir, max_segments=2
+-> resume scan sees completed_clean=1 and completed_noisy=2
+-> builder only prepares segment 1
+-> builder only captures Noisy variants for segment 1
+-> final manifest contains segment 0 and segment 1
+```
+
+Observed probe:
+
+```text
+[FrontRES Stage1 Resume Probe] ... completed_clean=1 completed_noisy=2
+pending_clean=1 pending_noisy=2 ...
+[cache_builder resume trace] prepare_calls=[(1, 2, [0])]
+perturb_calls=[(1, 2, 0.0, [0]), (1, 3, 0.5, [0])]
+clean_ids=[0, 1]
+zero_ids=[(0, 0), (1, 2)]
+half_ids=[(0, 1), (1, 3)]
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+```
+
+All passed.
+
+### Remaining Gap
+
+Committed payload shards are resumable, and final manifests preserve old plus
+new rows after rerun.  However, the builder still writes the canonical manifest
+at the end of the run.  The next step should make shard commits immediately
+visible through manifest records during generation, so an interruption after a
+flush can be resumed without waiting for final metadata.
+
+## 23. Step 4 Result: Flush-Visible Manifest Commit
+
+Date: 2026-06-30
+
+Step 4 made each Stage 1 shard flush immediately visible to resume scan.  It
+still does not prove a live IsaacLab interruption; that remains a server
+sentinel step.
+
+### Implemented
+
+`frontres_segment_cache_io.py` now writes Clean and Noisy manifest payloads via
+the same temp-file plus atomic-replace primitive used by payload shards.
+
+`frontres_segment_cache_builder.py` now commits the canonical manifest after
+each buffer flush:
+
+```text
+buffer
+-> atomic payload shard
+-> append records in memory
+-> atomic manifest rewrite
+-> [FrontRES Stage1 Shard Commit]
+```
+
+The manifest remains the resume source of truth.  `progress.jsonl` remains only
+observability.
+
+### Verified Core Path
+
+The builder contract now simulates:
+
+```text
+run 1:
+  segment 0 Clean + Noisy flush
+  crash before segment 1 prepare
+
+resume scan after crash:
+  completed_clean=1
+  completed_noisy=2
+  corrupt_count=0
+
+run 2:
+  resume scan sees segment 0 committed
+  builder prepares only segment 1
+  final manifest contains segment 0 and segment 1
+```
+
+Observed probe:
+
+```text
+[cache_builder crash_resume trace] after_crash
+probe={'completed_clean': 1, 'completed_noisy': 2, 'ignored_tmp': 0,
+'corrupt_count': 0, 'clean_manifest_count': 1, 'noisy_manifest_count': 2}
+
+[cache_builder crash_resume trace] after_rerun
+probe={'completed_clean': 2, 'completed_noisy': 4, ...}
+prepare_calls=[(1, 2, [0])]
+baseline_calls=[(1, 2, [0]), (1, 3, [0])]
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+```
+
+All passed.
+
+### Remaining Gap
+
+The local fake env proves the commit/resume contract.  The next required proof
+is a server-side live Stage 1 sentinel:
+
+```text
+small CACHE_CHUNK_SIZE
+-> observe [FrontRES Stage1 Shard Commit]
+-> interrupt after at least one commit
+-> rerun same command
+-> observe completed_clean/completed_noisy > 0 before rollout
+-> final validator passes
+```
+
+## 24. Step 5 Result: Build Signature Guard
+
+Date: 2026-06-30
+
+Step 5 added the smallest resume-safety guard: a cache can only resume when
+the current Stage 1 build signature matches the signature stored by the cache.
+
+### Implemented
+
+`frontres_segment_cache_builder.py` now computes:
+
+```text
+amass_root
++ motion source
++ loaded motion paths when present
++ horizon_k
++ frame_stride
++ perturbation curriculum mode and levels
++ variants_per_strength
++ base_seed
++ curriculum active dims
+-> stable JSON
+-> sha256 build_signature.hash
+```
+
+The builder stores `build_signature` in:
+
+- `build_status.json` after indexing;
+- final `metadata.json`;
+- final complete status.
+
+Before resume scan, the builder compares the current signature with the
+previous `metadata.json` signature, or with the previous `build_status.json`
+signature when the cache was interrupted before final metadata.
+
+### Verified Core Path
+
+The builder contract now checks:
+
+```text
+run 1:
+  horizon_k=2
+  complete one segment
+
+run 2:
+  same cache_dir
+  horizon_k=3
+  signature mismatch
+  fail before env prepare
+```
+
+Observed probe:
+
+```text
+[FrontRES Stage1 Resume Probe] signature_match=False
+existing_hash=...
+current_hash=...
+resume_enabled=False
+force_rebuild=False
+
+[cache_builder signature trace]
+status=signature_mismatch
+prepare_calls=[]
+```
+
+The test also verifies that `segment_index.jsonl` is not rewritten on mismatch.
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+```
+
+All passed.
+
+### Deliberate Non-Scope
+
+No `force_rebuild` implementation was added in this step.  That should only be
+added when we decide the exact destructive behavior, because it may delete or
+quarantine existing cache files.
+
+## 25. Step 6 Result: CLI And Run-Script Knob Audit
+
+Date: 2026-06-30
+
+Step 6 checked whether the Stage 1/Stage 3 runtime knobs already exist before
+adding more code.  They do exist, so no implementation change was needed.
+
+### Verified Path
+
+Stage 1 chunking path:
+
+```text
+CACHE_CHUNK_SIZE
+-> run/run_frontres_stage1_segment_cache.sh
+-> --frontres_segment_cache_chunk_size
+-> scripts/rsl_rl/train.py
+-> FrontRESStage1CacheBuilderConfig.cache_chunk_size
+-> live sentinel prints cache_chunk_size
+```
+
+Stage 3 lazy shard cache path:
+
+```text
+SHARD_CACHE_SIZE
+-> run/run_frontres_stage3_segment_hrl.sh
+-> --frontres_segment_shard_cache_size
+-> scripts/rsl_rl/train.py
+-> alg_cfg.frontres_segment_shard_cache_size
+-> FrontRESSegmentDataset lazy shard cache
+```
+
+### Test Class
+
+This is a secondary contract path.  It routes simple scalar config values, not
+a tensor parameter transformed across formulas or masks.  Semantic asserts and
+the existing sampler probe are sufficient.
+
+### Evidence
+
+Fresh local commands:
+
+```text
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py
+```
+
+Observed facts:
+
+```text
+PASS: FrontRES Stage 1/2 live presets and Stage 3 Segment Replay contract are explicit.
+[probe step23] shard_cache_size: alg_value=1 metadata=... 'shard_cache': {'max_shards': 1, ...}
+frontres_segment_live_sampler_contract: ok
+```
+
+### Stop Condition
+
+The run scripts, train entrypoint, algorithm config, and lazy dataset path all
+expose the required knobs.  Step 6 is complete without new code.
+
+## 26. Step 7 Local Result: Stage 1 Sentinel Preflight
+
+Date: 2026-06-30
+
+Step 7 is a live sentinel path, so local execution can only verify the startup
+contract.  It cannot replace the server IsaacLab run.
+
+### Test Class
+
+Live sentinel path.  The required live facts are the Stage 1 cache log, shard
+files, manifest files, and validator result produced on the server.
+
+### Local Evidence
+
+Fresh local preflight commands:
+
+```text
+FRONTRES_STAGE1_PREFLIGHT_ONLY=1 \
+MAX_MOTIONS=1 \
+MAX_SEGMENTS=4 \
+CACHE_CHUNK_SIZE=2 \
+VARIANTS_PER_STRENGTH=1 \
+VALIDATION_MIN_SEGMENTS=1 \
+VALIDATION_MIN_NOISY=1 \
+bash run/run_frontres_stage1_segment_cache.sh \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  1 \
+  4 \
+  /hdd1/cyx/AMASS_G1Segment_sentinel
+
+FRONTRES_STAGE1_PREFLIGHT_ONLY=1 \
+RUN_FOREGROUND=1 \
+LOG_PATH=/private/tmp/femr_stage1_step7_preflight.txt \
+MAX_MOTIONS=1 \
+MAX_SEGMENTS=4 \
+CACHE_CHUNK_SIZE=2 \
+VARIANTS_PER_STRENGTH=1 \
+VALIDATION_MIN_SEGMENTS=1 \
+VALIDATION_MIN_NOISY=1 \
+bash run_stage1.sh \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  1 \
+  4 \
+  /hdd1/cyx/AMASS_G1Segment_sentinel
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py
+```
+
+Observed facts:
+
+```text
+[FrontRES Stage1 startup preflight] PASS
+--frontres_stage stage1_segment_cache
+--frontres_segment_cache_max_motions 1
+--frontres_segment_cache_max_segments 4
+--frontres_segment_cache_chunk_size 2
+--frontres_segment_cache_dir /hdd1/cyx/AMASS_G1Segment_sentinel
+[FrontRES Stage1 validator preflight] enabled cache_dir=/hdd1/cyx/AMASS_G1Segment_sentinel expect_mode=hrl_curriculum_bank min_segments=1 min_noisy=1
+PASS: FrontRES Stage 1/2 live presets and Stage 3 Segment Replay contract are explicit.
+```
+
+### Server Stop Condition
+
+Step 7 is not fully complete until the server run shows:
+
+- `[FrontRES Stage1 Resume Probe]`;
+- `[FrontRES Stage1 Shard Commit]`;
+- `[FrontRES Stage1 Segment Cache] cache_readback`;
+- `[FrontRES Stage1 Segment Cache] auto_exit`;
+- validator PASS;
+- committed shard and manifest files under the disposable cache directory.

@@ -236,8 +236,81 @@ def test_shard_lru_limits_resident_payloads() -> None:
         assert probes[4]["load_count"] == 4
 
 
+def test_stage1_resume_scan_uses_manifest_commits_not_tmp_or_progress() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp) / "frontres_segment_cache"
+        tmp_clean_path = (
+            cache_dir
+            / "shards"
+            / "clean_states"
+            / "shard_000099.pt.tmp"
+        )
+        tmp_clean_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save({"format": "frontres_clean_state_chunked_shard_v1", "entries": []}, tmp_clean_path)
+        cache_io.append_stage1_cache_progress(cache_dir, {"event": "clean_done", "segment_id": 99})
+
+        tmp_scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
+        print(f"[cache_io resume trace] tmp_only={tmp_scan.probe()}")
+        assert tmp_scan.probe()["completed_clean"] == 0
+        assert tmp_scan.probe()["ignored_tmp"] == 1
+
+        clean_entries = [
+            FrontRESCleanStateEntry(segment=_segment(7, 3), clean_state=_state(0.0)),
+            FrontRESCleanStateEntry(segment=_segment(8, 4), clean_state=_state(1.0)),
+        ]
+        clean_shard_path, clean_records = cache_io.write_clean_state_chunked_shard_atomic(
+            cache_dir,
+            clean_entries,
+            shard_id=0,
+        )
+        clean_manifest_path = cache_io.write_clean_state_manifest_records(cache_dir, clean_records, shard_id=0)
+        noisy_variants = [
+            _variant(7, 3, 0.5, 0.5),
+            _variant(8, 4, 0.5, 1.5),
+        ]
+        noisy_shard_path, noisy_records = cache_io.write_noisy_variant_chunked_shard_atomic(
+            cache_dir,
+            noisy_variants,
+            strength=0.5,
+            shard_id=0,
+        )
+        noisy_manifest_path = cache_io.write_noisy_variant_manifest_records(
+            cache_dir,
+            noisy_records,
+            strength=0.5,
+            shard_id=0,
+        )
+
+        committed_scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
+        print(
+            "[cache_io resume trace] committed "
+            f"clean_shard={clean_shard_path.relative_to(cache_dir)} "
+            f"clean_manifest={clean_manifest_path.relative_to(cache_dir)} "
+            f"noisy_shard={noisy_shard_path.relative_to(cache_dir)} "
+            f"noisy_manifest={noisy_manifest_path.relative_to(cache_dir)} "
+            f"probe={committed_scan.probe()}"
+        )
+        assert committed_scan.probe()["completed_clean"] == 2
+        assert committed_scan.probe()["completed_noisy"] == 2
+        assert committed_scan.probe()["corrupt_count"] == 0
+        assert cache_io.clean_resume_key(_segment(7, 3)) in committed_scan.completed_clean_keys
+        assert cache_io.noisy_resume_key(noisy_variants[0].segment, noisy_variants[0].descriptor) in (
+            committed_scan.completed_noisy_keys
+        )
+        assert not clean_shard_path.with_suffix(clean_shard_path.suffix + ".tmp").exists()
+        assert not noisy_shard_path.with_suffix(noisy_shard_path.suffix + ".tmp").exists()
+
+        broken_records = [dict(clean_records[0])]
+        broken_records[0]["path"] = "shards/clean_states/missing_shard.pt"
+        cache_io.write_clean_state_manifest_records(cache_dir, broken_records, shard_id=1)
+        corrupt_scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
+        print(f"[cache_io resume trace] corrupt={corrupt_scan.probe()}")
+        assert corrupt_scan.probe()["corrupt_count"] == 1
+
+
 if __name__ == "__main__":
     test_cache_io_round_trips_clean_and_noisy_shards()
     test_cache_io_rejects_id_drift_before_write()
     test_shard_lru_limits_resident_payloads()
+    test_stage1_resume_scan_uses_manifest_commits_not_tmp_or_progress()
     print("PASS: FrontRES Segment cache IO round-trips clean states and noisy variants.")

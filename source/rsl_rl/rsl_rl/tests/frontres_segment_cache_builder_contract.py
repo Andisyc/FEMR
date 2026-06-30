@@ -161,6 +161,17 @@ class FakeStage1Env:
         return {"score": score, "fall": fall, "rollout_len": rollout_len}
 
 
+class FakeStage1CrashOnPrepareEnv(FakeStage1Env):
+    def __init__(self, *, crash_at_segment_id: int) -> None:
+        super().__init__()
+        self.crash_at_segment_id = int(crash_at_segment_id)
+
+    def prepare_frontres_clean_segment(self, *, segment, env_ids: torch.Tensor):
+        if int(segment.segment_id) >= self.crash_at_segment_id:
+            raise RuntimeError(f"intentional crash before segment {int(segment.segment_id)}")
+        return super().prepare_frontres_clean_segment(segment=segment, env_ids=env_ids)
+
+
 def _write_fake_motion(path: Path, frames: int = 5) -> None:
     dofs = 29
     bodies = 30
@@ -367,6 +378,227 @@ def test_stage1_builder_uses_loaded_motion_paths_before_disk_scan() -> None:
         assert env.prepare_calls == [(0, 0, [0]), (1, 4, [0])]
 
 
+def test_stage1_builder_resume_skips_committed_segments_and_preserves_manifest() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        amass_root = tmp_path / "AMASS_G1NPZ_Final"
+        cache_dir = tmp_path / "frontres_stage1_cache"
+        _write_fake_motion(amass_root / "KIT" / "359" / "motion_a.npz", frames=5)
+
+        first_env = FakeStage1Env()
+        first_cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(cache_dir),
+            horizon_k=2,
+            frame_stride=2,
+            max_motions=1,
+            max_segments=1,
+            strengths=(0.0, 0.5),
+            variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
+            base_seed=123,
+            env_id=0,
+            cache_chunk_size=1,
+        )
+        first = build_stage1_segment_cache(first_env, first_cfg)
+        first_scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
+        assert first.clean_count == 1
+        assert first.noisy_count == 2
+        assert first_scan.probe()["completed_clean"] == 1
+        assert first_scan.probe()["completed_noisy"] == 2
+
+        second_env = FakeStage1Env()
+        second_cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(cache_dir),
+            horizon_k=2,
+            frame_stride=2,
+            max_motions=1,
+            max_segments=2,
+            strengths=(0.0, 0.5),
+            variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
+            base_seed=123,
+            env_id=0,
+            cache_chunk_size=1,
+        )
+        second = build_stage1_segment_cache(second_env, second_cfg)
+        clean_entries = cache_io.read_clean_state_shard(second.clean_shard_path)
+        noisy_zero = cache_io.read_noisy_variant_shard(second.noisy_shard_paths[0.0])
+        noisy_half = cache_io.read_noisy_variant_shard(second.noisy_shard_paths[0.5])
+        second_scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
+        progress = [json.loads(line) for line in (cache_dir / "progress.jsonl").read_text().splitlines()]
+        resume_events = [item for item in progress if item["event"] in {"resume_scan", "resume_skip_segment"}]
+
+        print(
+            "[cache_builder resume trace] "
+            f"first_probe={first_scan.probe()} "
+            f"second_probe={second_scan.probe()} "
+            f"prepare_calls={second_env.prepare_calls} "
+            f"reset_calls={second_env.reset_calls} "
+            f"perturb_calls={second_env.perturb_calls} "
+            f"baseline_calls={second_env.baseline_calls} "
+            f"clean_ids={[entry.segment_id for entry in clean_entries]} "
+            f"zero_ids={[(item.segment_id, item.perturbation_id) for item in noisy_zero]} "
+            f"half_ids={[(item.segment_id, item.perturbation_id) for item in noisy_half]} "
+            f"resume_events={resume_events[-3:]}"
+        )
+
+        assert second.segment_count == 2
+        assert second.clean_count == 2
+        assert second.noisy_count == 4
+        assert second.strength_counts == {0.0: 2, 0.5: 2}
+        assert second_env.prepare_calls == [(1, 2, [0])]
+        assert len(second_env.reset_calls) == 2
+        assert [call[0] for call in second_env.perturb_calls] == [1, 1]
+        assert [call[0] for call in second_env.baseline_calls] == [1, 1]
+        assert [entry.segment_id for entry in clean_entries] == [0, 1]
+        assert [(item.segment_id, item.perturbation_id) for item in noisy_zero] == [(0, 0), (1, 2)]
+        assert [(item.segment_id, item.perturbation_id) for item in noisy_half] == [(0, 1), (1, 3)]
+        assert second_scan.probe()["completed_clean"] == 2
+        assert second_scan.probe()["completed_noisy"] == 4
+        assert second_scan.probe()["corrupt_count"] == 0
+        assert any(item["event"] == "resume_skip_segment" and item["segment_id"] == 0 for item in progress)
+
+
+def test_stage1_builder_resume_after_crash_uses_flush_committed_manifest() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        amass_root = tmp_path / "AMASS_G1NPZ_Final"
+        cache_dir = tmp_path / "frontres_stage1_cache"
+        _write_fake_motion(amass_root / "KIT" / "359" / "motion_a.npz", frames=5)
+
+        crash_env = FakeStage1CrashOnPrepareEnv(crash_at_segment_id=1)
+        crash_cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(cache_dir),
+            horizon_k=2,
+            frame_stride=2,
+            max_motions=1,
+            max_segments=2,
+            strengths=(0.0, 0.5),
+            variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
+            base_seed=123,
+            env_id=0,
+            cache_chunk_size=1,
+        )
+
+        try:
+            build_stage1_segment_cache(crash_env, crash_cfg)
+        except RuntimeError as exc:
+            assert "intentional crash before segment 1" in str(exc)
+        else:
+            raise AssertionError("expected fake crash before segment 1")
+
+        crash_scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
+        print(
+            "[cache_builder crash_resume trace] after_crash "
+            f"probe={crash_scan.probe()} "
+            f"prepare_calls={crash_env.prepare_calls} "
+            f"baseline_calls={crash_env.baseline_calls}"
+        )
+        assert crash_scan.probe()["completed_clean"] == 1
+        assert crash_scan.probe()["completed_noisy"] == 2
+        assert crash_scan.probe()["corrupt_count"] == 0
+        assert crash_scan.probe()["clean_manifest_count"] == 1
+        assert crash_scan.probe()["noisy_manifest_count"] == 2
+
+        resume_env = FakeStage1Env()
+        resumed = build_stage1_segment_cache(resume_env, crash_cfg)
+        resumed_scan = cache_io.scan_stage1_cache_resume_state(cache_dir)
+        clean_entries = cache_io.read_clean_state_shard(resumed.clean_shard_path)
+        noisy_zero = cache_io.read_noisy_variant_shard(resumed.noisy_shard_paths[0.0])
+        noisy_half = cache_io.read_noisy_variant_shard(resumed.noisy_shard_paths[0.5])
+        progress = [json.loads(line) for line in (cache_dir / "progress.jsonl").read_text().splitlines()]
+
+        print(
+            "[cache_builder crash_resume trace] after_rerun "
+            f"probe={resumed_scan.probe()} "
+            f"prepare_calls={resume_env.prepare_calls} "
+            f"reset_calls={resume_env.reset_calls} "
+            f"baseline_calls={resume_env.baseline_calls} "
+            f"clean_ids={[entry.segment_id for entry in clean_entries]} "
+            f"zero_ids={[(item.segment_id, item.perturbation_id) for item in noisy_zero]} "
+            f"half_ids={[(item.segment_id, item.perturbation_id) for item in noisy_half]}"
+        )
+        assert resumed.clean_count == 2
+        assert resumed.noisy_count == 4
+        assert resumed_scan.probe()["completed_clean"] == 2
+        assert resumed_scan.probe()["completed_noisy"] == 4
+        assert resume_env.prepare_calls == [(1, 2, [0])]
+        assert len(resume_env.reset_calls) == 2
+        assert [call[0] for call in resume_env.baseline_calls] == [1, 1]
+        assert [entry.segment_id for entry in clean_entries] == [0, 1]
+        assert [(item.segment_id, item.perturbation_id) for item in noisy_zero] == [(0, 0), (1, 2)]
+        assert [(item.segment_id, item.perturbation_id) for item in noisy_half] == [(0, 1), (1, 3)]
+        assert any(item["event"] == "resume_skip_segment" and item["segment_id"] == 0 for item in progress)
+
+
+def test_stage1_builder_rejects_resume_signature_mismatch_before_env_work() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        amass_root = tmp_path / "AMASS_G1NPZ_Final"
+        cache_dir = tmp_path / "frontres_stage1_cache"
+        _write_fake_motion(amass_root / "KIT" / "359" / "motion_a.npz", frames=6)
+
+        first_cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(cache_dir),
+            horizon_k=2,
+            frame_stride=2,
+            max_motions=1,
+            max_segments=1,
+            strengths=(0.0, 0.5),
+            variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
+            base_seed=123,
+            env_id=0,
+            cache_chunk_size=1,
+        )
+        build_stage1_segment_cache(FakeStage1Env(), first_cfg)
+        original_index_text = (cache_dir / "segment_index.jsonl").read_text()
+
+        mismatch_env = FakeStage1Env()
+        mismatch_cfg = FrontRESStage1CacheBuilderConfig(
+            amass_root=str(amass_root),
+            cache_dir=str(cache_dir),
+            horizon_k=3,
+            frame_stride=2,
+            max_motions=1,
+            max_segments=1,
+            strengths=(0.0, 0.5),
+            variants_per_strength=1,
+            perturbation_curriculum_mode="discrete_bank",
+            base_seed=123,
+            env_id=0,
+            cache_chunk_size=1,
+        )
+
+        try:
+            build_stage1_segment_cache(mismatch_env, mismatch_cfg)
+        except ValueError as exc:
+            assert "signature mismatch" in str(exc)
+        else:
+            raise AssertionError("expected signature mismatch")
+
+        progress = [json.loads(line) for line in (cache_dir / "progress.jsonl").read_text().splitlines()]
+        status = json.loads((cache_dir / "build_status.json").read_text())
+        print(
+            "[cache_builder signature trace] "
+            f"status={status['status']} "
+            f"existing_hash={status['build_signature']['hash']} "
+            f"current_hash={status['current_build_signature']['hash']} "
+            f"prepare_calls={mismatch_env.prepare_calls} "
+            f"events={[item['event'] for item in progress[-3:]]}"
+        )
+        assert mismatch_env.prepare_calls == []
+        assert any(item["event"] == "resume_signature_mismatch" for item in progress)
+        assert status["status"] == "signature_mismatch"
+        assert status["build_signature"]["hash"] != status["current_build_signature"]["hash"]
+        assert (cache_dir / "segment_index.jsonl").read_text() == original_index_text
+
+
 def test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -444,5 +676,8 @@ def test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank() -> 
 if __name__ == "__main__":
     test_stage1_builder_orchestrates_cache_pipeline()
     test_stage1_builder_uses_loaded_motion_paths_before_disk_scan()
+    test_stage1_builder_resume_skips_committed_segments_and_preserves_manifest()
+    test_stage1_builder_resume_after_crash_uses_flush_committed_manifest()
+    test_stage1_builder_rejects_resume_signature_mismatch_before_env_work()
     test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank()
     print("PASS: FrontRES Stage 1 cache builder orchestrates index, clean, perturbation, noisy, and IO.")
