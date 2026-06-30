@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter, deque
 from dataclasses import dataclass
+import math
 from types import SimpleNamespace
 from typing import Any
 
@@ -29,6 +30,36 @@ from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
 
 
 _VERBOSE_PROBE_BATCH_LIMIT = 16
+
+
+def _fmt_num(value: Any) -> str:
+    value = float(value)
+    if not math.isfinite(value):
+        return str(value)
+    abs_value = abs(value)
+    if abs_value != 0.0 and (abs_value >= 10000.0 or abs_value < 0.001):
+        return f"{value:.3e}"
+    return f"{value:.6f}"
+
+
+def _fmt_pct(value: Any) -> str:
+    return f"{100.0 * float(value):.1f}%"
+
+
+def _probe_status(summary: dict[str, object]) -> str:
+    total_loss = float(summary.get("ppo_total_loss", 0.0))
+    actor_loss = float(summary.get("ppo_actor_loss", 0.0))
+    approx_kl = float(summary.get("ppo_approx_kl", 0.0))
+    clip_frac = float(summary.get("ppo_clip_frac", 0.0))
+    if not all(math.isfinite(v) for v in (total_loss, actor_loss, approx_kl, clip_frac)):
+        return "BAD_NONFINITE"
+    if abs(actor_loss) >= 1000.0 or abs(total_loss) >= 1000.0:
+        return "BAD_LOSS_EXPLOSION"
+    if clip_frac >= 0.3:
+        return "WARN_HIGH_CLIP"
+    if approx_kl < -0.001:
+        return "WARN_NEG_KL"
+    return "OK"
 
 
 @dataclass
@@ -825,30 +856,31 @@ def _print_live_probe_summary(
         "segment_id=live_env_current "
         f"reset_mode={runner._frontres_segment_replay_boundary.reset_mode} "
         f"segment_reset={bool(summary['segment_reset'])} "
-        f"segment_reset_success_frac={float(summary['segment_reset_success_frac']):.4f} "
-        f"segment_reset_direct_frac={float(summary['segment_reset_direct_frac']):.4f} "
-        f"segment_reset_preroll_frac={float(summary['segment_reset_preroll_frac']):.4f} "
-        f"segment_reset_velocity_mismatch_mean={float(summary['segment_reset_velocity_mismatch_mean']):.6f} "
-        f"segment_reference_window_applied_frac={float(summary['segment_reference_window_applied_frac']):.4f} "
+        f"reset_ok={_fmt_pct(summary['segment_reset_success_frac'])} "
+        f"direct={_fmt_pct(summary['segment_reset_direct_frac'])} "
+        f"preroll={_fmt_pct(summary['segment_reset_preroll_frac'])} "
+        f"vel_mismatch={_fmt_num(summary['segment_reset_velocity_mismatch_mean'])} "
+        f"ref_window={_fmt_pct(summary['segment_reference_window_applied_frac'])} "
         f"obs_shape={capture.last_obs_shape} "
         f"action_shape={capture.action_shape} "
         f"action_6d={action_6d} "
         f"env_action_shape={capture.env_action_shape} "
-        f"valid_mask_frac={float(summary['valid_mask_frac']):.4f} "
+        f"mask_valid={_fmt_pct(summary['valid_mask_frac'])} "
         f"rollout_k={capture.rollout_k} "
-        f"reward_mean={float(summary['reward_mean']):.6f} "
-        f"done_frac={float(summary['done_frac']):.6f} "
+        f"reward={_fmt_num(summary['reward_mean'])} "
+        f"done={_fmt_pct(summary['done_frac'])} "
         f"storage_write={bool(summary['storage_write'])} "
         f"storage_size={int(summary['storage_size'])} "
-        f"storage_valid_frac={float(summary['storage_valid_frac']):.4f} "
-        f"storage_reward_mean={float(summary['storage_reward_mean']):.6f} "
+        f"storage_valid_frac={_fmt_pct(summary['storage_valid_frac'])} "
+        f"storage_reward={_fmt_num(summary['storage_reward_mean'])} "
         f"single_update={bool(summary['single_update'])} "
         f"ppo_update={bool(summary['ppo_update'])} "
-        f"ppo_valid_count={int(summary['ppo_valid_count'])} "
-        f"ppo_total_loss={float(summary['ppo_total_loss']):.6f} "
-        f"ppo_actor_loss={float(summary['ppo_actor_loss']):.6f} "
-        f"ppo_value_loss={float(summary['ppo_value_loss']):.6f} "
-        f"ppo_approx_kl={float(summary['ppo_approx_kl']):.6f} "
-        f"ppo_clip_frac={float(summary['ppo_clip_frac']):.6f}",
+        f"ppo_valid={int(summary['ppo_valid_count'])} "
+        f"loss_total={_fmt_num(summary['ppo_total_loss'])} "
+        f"actor={_fmt_num(summary['ppo_actor_loss'])} "
+        f"value={_fmt_num(summary['ppo_value_loss'])} "
+        f"kl={_fmt_num(summary['ppo_approx_kl'])} "
+        f"clip={_fmt_pct(summary['ppo_clip_frac'])} "
+        f"status={_probe_status(summary)}",
         flush=True,
     )

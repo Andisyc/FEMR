@@ -30,6 +30,67 @@ _FINITE_SUMMARY_KEYS = (
 )
 
 
+def _fmt_num(value: Any) -> str:
+    value = float(value)
+    if not math.isfinite(value):
+        return str(value)
+    abs_value = abs(value)
+    if abs_value != 0.0 and (abs_value >= 10000.0 or abs_value < 0.001):
+        return f"{value:.3e}"
+    return f"{value:.6f}"
+
+
+def _fmt_pct(value: Any) -> str:
+    return f"{100.0 * float(value):.1f}%"
+
+
+def _live_train_status(summary: Mapping[str, Any]) -> str:
+    total_loss = float(summary["ppo_total_loss_mean"])
+    actor_loss = float(summary["ppo_actor_loss_mean"])
+    approx_kl = float(summary["ppo_approx_kl_mean"])
+    clip_frac = float(summary["ppo_clip_frac_mean"])
+    if not all(math.isfinite(v) for v in (total_loss, actor_loss, approx_kl, clip_frac)):
+        return "BAD_NONFINITE"
+    if abs(actor_loss) >= 1000.0 or abs(total_loss) >= 1000.0:
+        return "BAD_LOSS_EXPLOSION"
+    if clip_frac >= 0.3:
+        return "WARN_HIGH_CLIP"
+    if approx_kl < -0.001:
+        return "WARN_NEG_KL"
+    return "OK"
+
+
+def _print_live_train_summary(
+    runner: Any,
+    *,
+    num_learning_iterations: int,
+    summary: Mapping[str, Any],
+) -> None:
+    print(
+        "\n".join(
+            (
+                "[FrontRES Segment Live Train]",
+                "  progress: "
+                f"iter={runner.current_learning_iteration}/{num_learning_iterations} "
+                f"updates={int(summary['update_count'])}/{int(summary['update_steps'])} "
+                "runner_learn=True",
+                "  data: "
+                f"valid={int(summary['ppo_valid_count'])} "
+                f"valid_frac={_fmt_pct(summary['storage_valid_frac'])} "
+                f"reward={_fmt_num(summary['reward_mean'])}",
+                "  ppo: "
+                f"loss_total={_fmt_num(summary['ppo_total_loss_mean'])} "
+                f"actor={_fmt_num(summary['ppo_actor_loss_mean'])} "
+                f"value={_fmt_num(summary['ppo_value_loss_mean'])} "
+                f"kl={_fmt_num(summary['ppo_approx_kl_mean'])} "
+                f"clip={_fmt_pct(summary['ppo_clip_frac_mean'])} "
+                f"status={_live_train_status(summary)}",
+            )
+        ),
+        flush=True,
+    )
+
+
 def _validate_live_update_summary(summary: Mapping[str, Any]) -> None:
     missing = [key for key in _REQUIRED_SUMMARY_KEYS if key not in summary]
     if missing:
@@ -141,23 +202,7 @@ def run_frontres_segment_live_training_loop(
             fail_on_nonfinite=fail_on_nonfinite,
         )
         runner.current_learning_iteration += 1
-        print(
-            "[FrontRES Segment Live Train] "
-            f"iteration={runner.current_learning_iteration} "
-            f"num_learning_iterations={num_learning_iterations} "
-            f"update_steps={int(summary['update_steps'])} "
-            f"update_count={int(summary['update_count'])} "
-            f"ppo_valid_count={int(summary['ppo_valid_count'])} "
-            f"reward_mean={float(summary['reward_mean']):.6f} "
-            f"storage_valid_frac={float(summary['storage_valid_frac']):.4f} "
-            f"ppo_total_loss_mean={float(summary['ppo_total_loss_mean']):.6f} "
-            f"ppo_actor_loss_mean={float(summary['ppo_actor_loss_mean']):.6f} "
-            f"ppo_value_loss_mean={float(summary['ppo_value_loss_mean']):.6f} "
-            f"ppo_approx_kl_mean={float(summary['ppo_approx_kl_mean']):.6f} "
-            f"ppo_clip_frac_mean={float(summary['ppo_clip_frac_mean']):.6f} "
-            "runner_learn=True",
-            flush=True,
-        )
+        _print_live_train_summary(runner, num_learning_iterations=num_learning_iterations, summary=summary)
         if (
             runner.log_dir is not None
             and not runner.disable_logs

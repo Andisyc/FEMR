@@ -14,6 +14,7 @@ class FrontRESSegmentPPOConfig:
     entropy_coef: float = 0.0
     use_clipped_value_loss: bool = True
     normalize_advantages: bool = False
+    max_log_ratio: float = 20.0
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,17 @@ def compute_frontres_segment_ppo_loss(
     policy_eval = _evaluate_policy(policy, batch)
     _validate_policy_eval(policy_eval, batch)
 
-    valid = batch.valid_mask.bool()
+    finite = (
+        torch.isfinite(policy_eval.log_prob)
+        & torch.isfinite(policy_eval.value)
+        & torch.isfinite(batch.old_log_probs)
+        & torch.isfinite(batch.old_values)
+        & torch.isfinite(batch.returns)
+        & torch.isfinite(batch.advantages)
+    )
+    if policy_eval.entropy is not None:
+        finite = finite & torch.isfinite(policy_eval.entropy)
+    valid = batch.valid_mask.bool() & finite
     valid_count = int(valid.sum().item())
     valid_frac = float(valid.float().mean().item()) if valid.numel() else 0.0
     if valid_count == 0:
@@ -104,7 +115,8 @@ def compute_frontres_segment_ppo_loss(
     if cfg.normalize_advantages and advantages.numel() > 1:
         advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
 
-    ratio = torch.exp(log_prob - old_log_prob)
+    log_ratio = (log_prob - old_log_prob).clamp(-abs(float(cfg.max_log_ratio)), abs(float(cfg.max_log_ratio)))
+    ratio = torch.exp(log_ratio)
     surrogate = ratio * advantages
     clipped_ratio = torch.clamp(ratio, 1.0 - cfg.clip_param, 1.0 + cfg.clip_param)
     clipped_surrogate = clipped_ratio * advantages

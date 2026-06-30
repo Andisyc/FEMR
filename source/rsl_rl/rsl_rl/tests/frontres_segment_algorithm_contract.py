@@ -87,6 +87,59 @@ def test_invalid_samples_do_not_contribute_to_loss() -> None:
     torch.testing.assert_close(clean_invalid.total_loss, extreme_invalid.total_loss)
 
 
+def test_nonfinite_valid_rows_are_masked_before_loss() -> None:
+    policy = FakeSegmentPolicy()
+    batch = _batch()
+    batch = FrontRESSegmentPPOBatch(
+        observations=batch.observations,
+        actions=batch.actions,
+        old_log_probs=torch.tensor([0.0, float("nan")]),
+        old_values=batch.old_values,
+        returns=batch.returns,
+        advantages=batch.advantages,
+        valid_mask=torch.tensor([True, True]),
+        segment_ids=batch.segment_ids,
+        action_mask=batch.action_mask,
+    )
+    result = compute_frontres_segment_ppo_loss(policy, batch)
+    print(
+        "[probe nonfinite_mask] "
+        f"valid_count={result.valid_count} "
+        f"total_loss_finite={torch.isfinite(result.total_loss).item()}",
+        flush=True,
+    )
+    assert result.valid_count == 1
+    assert torch.isfinite(result.total_loss)
+
+
+def test_extreme_log_ratio_does_not_overflow_loss() -> None:
+    policy = FakeSegmentPolicy()
+    batch = _batch(invalid_action=1.0, invalid_advantage=1.0)
+    batch = FrontRESSegmentPPOBatch(
+        observations=batch.observations[:1],
+        actions=torch.zeros(1, 6),
+        old_log_probs=torch.tensor([-1000.0]),
+        old_values=torch.zeros(1),
+        returns=torch.zeros(1),
+        advantages=torch.tensor([-1.0]),
+        valid_mask=torch.tensor([True]),
+        segment_ids=torch.tensor([7]),
+        action_mask=torch.ones(1, 6),
+    )
+    result = compute_frontres_segment_ppo_loss(policy, batch)
+    print(
+        "[probe log_ratio_clamp] "
+        f"valid_count={result.valid_count} "
+        f"ratio_mean={result.ratio_mean:.6e} "
+        f"actor_loss_finite={torch.isfinite(result.actor_loss).item()} "
+        f"total_loss_finite={torch.isfinite(result.total_loss).item()}",
+        flush=True,
+    )
+    assert result.valid_count == 1
+    assert torch.isfinite(result.actor_loss)
+    assert torch.isfinite(result.total_loss)
+
+
 def test_ppo_tuple_requires_6d_action_and_vector_fields() -> None:
     policy = FakeSegmentPolicy()
     bad_action = _batch()
@@ -148,6 +201,8 @@ def test_all_invalid_batch_has_zero_loss_and_no_step() -> None:
 def main() -> None:
     test_fake_batch_updates_actor_on_valid_segments()
     test_invalid_samples_do_not_contribute_to_loss()
+    test_nonfinite_valid_rows_are_masked_before_loss()
+    test_extreme_log_ratio_does_not_overflow_loss()
     test_ppo_tuple_requires_6d_action_and_vector_fields()
     test_all_invalid_batch_has_zero_loss_and_no_step()
     print("result: PASS")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 from pathlib import Path
 import sys
 from typing import Any
@@ -16,6 +17,32 @@ _LIVE_SAMPLER_MODULE = importlib.util.module_from_spec(_LIVE_SAMPLER_SPEC)
 sys.modules[_LIVE_SAMPLER_SPEC.name] = _LIVE_SAMPLER_MODULE
 _LIVE_SAMPLER_SPEC.loader.exec_module(_LIVE_SAMPLER_MODULE)
 run_frontres_segment_sampler_step = _LIVE_SAMPLER_MODULE.run_frontres_segment_sampler_step
+
+
+def _fmt_num(value: Any) -> str:
+    value = float(value)
+    if not math.isfinite(value):
+        return str(value)
+    abs_value = abs(value)
+    if abs_value != 0.0 and (abs_value >= 10000.0 or abs_value < 0.001):
+        return f"{value:.3e}"
+    return f"{value:.6f}"
+
+
+def _fmt_pct(value: Any) -> str:
+    return f"{100.0 * float(value):.1f}%"
+
+
+def _loop_status(total_loss: float, actor_loss: float, approx_kl: float, clip_frac: float) -> str:
+    if not all(math.isfinite(v) for v in (total_loss, actor_loss, approx_kl, clip_frac)):
+        return "BAD_NONFINITE"
+    if abs(actor_loss) >= 1000.0 or abs(total_loss) >= 1000.0:
+        return "BAD_LOSS_EXPLOSION"
+    if clip_frac >= 0.3:
+        return "WARN_HIGH_CLIP"
+    if approx_kl < -0.001:
+        return "WARN_NEG_KL"
+    return "OK"
 
 
 def _should_print_update_loop_summary(runner: Any) -> bool:
@@ -76,25 +103,22 @@ def run_frontres_segment_live_update_loop(
         print(
             "[FrontRES Segment Live Update Loop] "
             f"objective={getattr(runner.alg, 'frontres_training_objective', 'n/a')} "
-            f"update_steps={update_steps} "
-            f"update_count={update_count} "
-            f"ppo_valid_count={valid_count} "
-            f"reward_mean={reward_mean:.6f} "
-            f"storage_valid_frac={storage_valid_frac:.4f} "
-            f"ppo_total_loss_mean={total_loss_mean:.6f} "
-            f"ppo_actor_loss_mean={actor_loss_mean:.6f} "
-            f"ppo_value_loss_mean={value_loss_mean:.6f} "
-            f"ppo_approx_kl_mean={approx_kl_mean:.6f} "
-            f"ppo_clip_frac_mean={clip_frac_mean:.6f} "
-            f"sampler_update_count={sampler_update_count} "
-            f"sampler_global_count={sampler_global_count} "
-            f"sampler_replay_count={sampler_replay_count} "
-            f"sampler_review_count={sampler_review_count} "
-            f"sampler_replay_pool_size={sampler_replay_pool_size} "
-            f"sampler_priority_mean={sampler_priority_mean:.6f} "
-            f"sampler_solved_frac={sampler_solved_frac:.4f} "
-            f"sampler_hopeless_frac={sampler_hopeless_frac:.4f} "
-            f"sampler_stale_review_count={sampler_stale_review_count} "
+            f"updates={update_count}/{update_steps} "
+            f"valid={valid_count} "
+            f"reward={_fmt_num(reward_mean)} "
+            f"valid_frac={_fmt_pct(storage_valid_frac)} "
+            f"loss_total={_fmt_num(total_loss_mean)} "
+            f"actor={_fmt_num(actor_loss_mean)} "
+            f"value={_fmt_num(value_loss_mean)} "
+            f"kl={_fmt_num(approx_kl_mean)} "
+            f"clip={_fmt_pct(clip_frac_mean)} "
+            f"sampler=global:{sampler_global_count},replay:{sampler_replay_count},review:{sampler_review_count} "
+            f"pool={sampler_replay_pool_size} "
+            f"priority={_fmt_num(sampler_priority_mean)} "
+            f"solved={_fmt_pct(sampler_solved_frac)} "
+            f"hopeless={_fmt_pct(sampler_hopeless_frac)} "
+            f"stale_review={sampler_stale_review_count} "
+            f"status={_loop_status(total_loss_mean, actor_loss_mean, approx_kl_mean, clip_frac_mean)} "
             f"runner_learn={runner_learn}",
             flush=True,
         )

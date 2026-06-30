@@ -37,6 +37,19 @@ from rsl_rl.frontres.training_schedule import (
 )
 
 
+def _frontres_layout_log_enabled(runner: Any, key: tuple[Any, ...]) -> bool:
+    if bool(getattr(getattr(runner, "alg", None), "frontres_segment_verbose_probe", False)):
+        return True
+    seen = getattr(runner, "_frontres_pair_layout_log_seen", None)
+    if seen is None:
+        seen = set()
+        runner._frontres_pair_layout_log_seen = seen
+    if key in seen:
+        return False
+    seen.add(key)
+    return True
+
+
 def apply_frontres_debug_training_overrides(runner: Any, *, is_frontres: bool) -> None:
     """Apply shortened FrontRES debug-training schedules in-place."""
 
@@ -153,48 +166,53 @@ def configure_frontres_pair_layout(runner: Any, *, is_frontres: bool) -> FrontRE
         n_candidate = n_pair
         n_base = n_pair
         n_clean = runner.env.num_envs - n_train - n_candidate - n_base
-        print(
-            f"[Runner] FrontRES B1 quartet reward: "
-            f"{n_train} projected envs + {n_candidate} candidate envs + "
-            f"{n_base} noisy-GMT envs + {n_clean} clean-GMT envs",
-            flush=True,
-        )
+        if _frontres_layout_log_enabled(runner, ("quartet_reward", n_train, n_candidate, n_base, n_clean)):
+            print(
+                "[Runner] FrontRES B1 layout "
+                f"mode=quartet projected={n_train} candidate={n_candidate} "
+                f"noisy_gmt={n_base} clean_gmt={n_clean}",
+                flush=True,
+            )
     else:
         n_candidate = 0
         n_base = n_pair
         n_clean = runner.env.num_envs - n_train - n_base
-        print(
-            f"[Runner] FrontRES B1 triplet reward: "
-            f"{n_train} FrontRES envs + {n_base} noisy-GMT envs + {n_clean} clean-GMT envs",
-            flush=True,
-        )
+        if _frontres_layout_log_enabled(runner, ("triplet_reward", n_train, n_base, n_clean)):
+            print(
+                "[Runner] FrontRES B1 layout "
+                f"mode=triplet frontres={n_train} noisy_gmt={n_base} clean_gmt={n_clean}",
+                flush=True,
+            )
 
     env_pair = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
     if hasattr(env_pair, "command_manager") and "motion" in env_pair.command_manager._terms:
         motion_command = env_pair.command_manager._terms["motion"]
         if use_quartet_reward and hasattr(motion_command, "set_frontres_quartet_baseline"):
             motion_command.set_frontres_quartet_baseline(n_train, n_candidate, n_base, n_clean)
-            print(
-                "[Runner] FrontRES B1 quartet baseline enabled: "
-                "projected/candidate/noisy-GMT/clean-GMT share motion/frame; clean-GMT has zero perturbation",
-                flush=True,
-            )
+            if _frontres_layout_log_enabled(runner, ("quartet_baseline", n_train, n_candidate, n_base, n_clean)):
+                print(
+                    "[Runner] FrontRES B1 baseline "
+                    "mode=quartet shared_motion_frame=True clean_zero_perturb=True",
+                    flush=True,
+                )
         elif hasattr(motion_command, "set_frontres_triplet_baseline"):
             motion_command.set_frontres_triplet_baseline(n_train, n_base, n_clean)
             n_candidate = 0
             use_quartet_reward = False
-            print(
-                "[Runner] FrontRES B1 triplet baseline enabled: "
-                "FrontRES/noisy-GMT/clean-GMT share motion/frame; clean-GMT has zero perturbation",
-                flush=True,
-            )
+            if _frontres_layout_log_enabled(runner, ("triplet_baseline", n_train, n_base, n_clean)):
+                print(
+                    "[Runner] FrontRES B1 baseline "
+                    "mode=triplet shared_motion_frame=True clean_zero_perturb=True",
+                    flush=True,
+                )
         elif hasattr(motion_command, "set_frontres_paired_baseline"):
             motion_command.set_frontres_paired_baseline(n_train)
-            print(
-                "[Runner] FrontRES B1 paired baseline enabled (legacy two-way fallback): "
-                "env i and env i+N_train share motion/frame/perturbation",
-                flush=True,
-            )
+            if _frontres_layout_log_enabled(runner, ("paired_baseline", n_train)):
+                print(
+                    "[Runner] FrontRES B1 baseline "
+                    "mode=paired_legacy shared_motion_frame=True",
+                    flush=True,
+                )
 
     cur_reward_sum_gmt = torch.zeros(
         n_candidate + n_base + n_clean,

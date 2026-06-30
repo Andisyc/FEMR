@@ -6,6 +6,8 @@ are caught before the first real server run.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import importlib.util
 import sys
 from pathlib import Path
@@ -309,6 +311,41 @@ def test_pseudo_live_training_can_disable_fail_fast_guards() -> None:
     assert runner.update_calls == [(True, True)]
 
 
+def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
+    runner = FakeRunner(fail_on_nonfinite=True)
+
+    def large_loss_update_loop(*, init_at_random_ep_len: bool, runner_learn: bool) -> dict:
+        runner.update_calls.append((init_at_random_ep_len, runner_learn))
+        return _full_summary(
+            ppo_total_loss_mean=1.5157918219343223e23,
+            ppo_actor_loss_mean=1.5157918219343223e23,
+            ppo_value_loss_mean=0.00114,
+            ppo_approx_kl_mean=-0.004483,
+            ppo_clip_frac_mean=0.376726,
+        )
+
+    runner.run_frontres_segment_live_update_loop = large_loss_update_loop
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        run_frontres_segment_live_training_loop(
+            runner,
+            num_learning_iterations=1,
+            init_at_random_ep_len=False,
+        )
+    output = buffer.getvalue()
+    print(f"[probe readable_log] live_train_block={output.strip().splitlines()[:4]}", flush=True)
+
+    assert "[FrontRES Segment Live Train]" in output
+    assert "  progress: iter=1/1 updates=4/4 runner_learn=True" in output
+    assert "  data: valid=8 valid_frac=100.0% reward=0.250000" in output
+    assert "  ppo: loss_total=1.516e+23" in output
+    assert "loss_total=1.516e+23" in output
+    assert "actor=1.516e+23" in output
+    assert "clip=37.7%" in output
+    assert "status=BAD_LOSS_EXPLOSION" in output
+    assert "151579182193432229576704.000000" not in output
+
+
 def main() -> None:
     test_pseudo_live_training_runs_two_iterations_and_saves_checkpoints()
     test_pseudo_live_training_zero_iterations_does_not_touch_update_loop()
@@ -318,6 +355,7 @@ def main() -> None:
     test_pseudo_live_training_rejects_zero_update_count()
     test_pseudo_live_training_rejects_too_few_valid_samples()
     test_pseudo_live_training_can_disable_fail_fast_guards()
+    test_pseudo_live_training_log_formats_large_loss_readably()
     print("result: PASS")
 
 

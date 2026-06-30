@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 import importlib.util
+import math
 from pathlib import Path
 import sys
 from typing import Any
@@ -36,6 +37,20 @@ FrontRESSegmentSampler = _SAMPLER_MODULE.FrontRESSegmentSampler
 load_stage1_cache_dataset = _DATASET_MODULE.load_stage1_cache_dataset
 
 _VERBOSE_PROBE_BATCH_LIMIT = 16
+
+
+def _fmt_num(value: Any) -> str:
+    value = float(value)
+    if not math.isfinite(value):
+        return str(value)
+    abs_value = abs(value)
+    if abs_value != 0.0 and (abs_value >= 10000.0 or abs_value < 0.001):
+        return f"{value:.3e}"
+    return f"{value:.6f}"
+
+
+def _fmt_pct(value: Any) -> str:
+    return f"{100.0 * float(value):.1f}%"
 
 
 def initialize_frontres_segment_live_sampler(runner: Any) -> None:
@@ -477,8 +492,8 @@ def _print_sample_probe(update_step: int, sample: FrontRESSegmentSample, *, verb
         f"update_step={update_step} "
         f"{_id_summary(sample.segment_ids)} "
         f"source_counts={_count_summary(list(sample.source))} "
-        f"priority_mean={float(sample.priority.float().mean().detach().cpu()):.6f} "
-        f"staleness_mean={float(sample.staleness.float().mean().detach().cpu()):.6f} "
+        f"priority={_fmt_num(sample.priority.float().mean().detach().cpu())} "
+        f"staleness={_fmt_num(sample.staleness.float().mean().detach().cpu())} "
         f"valid_count={int(sample.valid_mask.bool().sum().detach().cpu().item())}"
         f"{_verbose_sample_suffix(sample, verbose=verbose)}",
         flush=True,
@@ -489,14 +504,14 @@ def _print_sampler_summary(update_step: int, summary: dict[str, object]) -> None
     print(
         "[FrontRES Segment Sampler] "
         f"update_step={update_step} "
-        f"global={int(summary['sampler_source_global_count'])} "
-        f"replay={int(summary['sampler_source_replay_count'])} "
-        f"review={int(summary['sampler_source_review_count'])} "
-        f"replay_pool_size={int(summary['sampler_replay_pool_size'])} "
-        f"review_pool_size={int(summary['sampler_review_pool_size'])} "
-        f"priority_mean={float(summary['sampler_priority_mean']):.6f} "
-        f"solved_frac={float(summary['sampler_solved_frac']):.4f} "
-        f"hopeless_frac={float(summary['sampler_hopeless_frac']):.4f} "
-        f"stale_review_count={int(summary['sampler_stale_review_count'])}",
+        f"src=global:{int(summary['sampler_source_global_count'])},"
+        f"replay:{int(summary['sampler_source_replay_count'])},"
+        f"review:{int(summary['sampler_source_review_count'])} "
+        f"pool=replay:{int(summary['sampler_replay_pool_size'])},"
+        f"review:{int(summary['sampler_review_pool_size'])} "
+        f"priority={_fmt_num(summary['sampler_priority_mean'])} "
+        f"solved={_fmt_pct(summary['sampler_solved_frac'])} "
+        f"hopeless={_fmt_pct(summary['sampler_hopeless_frac'])} "
+        f"stale_review={int(summary['sampler_stale_review_count'])}",
         flush=True,
     )

@@ -242,9 +242,41 @@ def test_live_update_loop_summary_print_rate_default_and_verbose() -> None:
     assert verbose_count == 4
 
 
+def test_live_update_loop_log_formats_large_loss_readably() -> None:
+    runner = FakeRunner(
+        [
+            _summary(
+                ppo_update=True,
+                ppo_valid_count=12000,
+                reward_mean=0.015,
+                storage_valid_frac=0.967,
+                ppo_total_loss=1.5157918219343223e23,
+                ppo_actor_loss=1.5157918219343223e23,
+                ppo_value_loss=0.00114,
+                ppo_approx_kl=-0.004483,
+                ppo_clip_frac=0.376726,
+            )
+        ],
+        boundary=FakeBoundary(live_update_steps=1),
+    )
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        run_frontres_segment_live_update_loop(runner, init_at_random_ep_len=False, runner_learn=True)
+    output = buffer.getvalue()
+    print(f"[probe readable_log] update_loop_line={output.strip()}", flush=True)
+
+    assert "loss_total=1.516e+23" in output
+    assert "actor=1.516e+23" in output
+    assert "clip=37.7%" in output
+    assert "status=BAD_LOSS_EXPLOSION" in output
+    assert "151579182193432229576704.000000" not in output
+
+
 if __name__ == "__main__":
     test_live_update_loop_aggregates_probe_metrics_and_init_flag()
     test_live_update_loop_uses_algorithm_update_steps_override()
     test_live_update_loop_requires_enabled_boundary()
     test_live_update_loop_summary_print_rate_default_and_verbose()
+    test_live_update_loop_log_formats_large_loss_readably()
     print("frontres_segment_live_update_loop_contract: ok")
