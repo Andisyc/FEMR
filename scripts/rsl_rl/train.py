@@ -114,6 +114,12 @@ parser.add_argument(
     help="For Stage 1 only: noisy variants generated for each perturbation strength.",
 )
 parser.add_argument(
+    "--frontres_segment_cache_chunk_size",
+    type=int,
+    default=128,
+    help="For Stage 1 only: number of clean/noisy records per payload shard flush.",
+)
+parser.add_argument(
     "--frontres_segment_cache_perturbation_mode",
     type=str,
     choices=("hrl_curriculum_bank", "discrete_bank"),
@@ -227,6 +233,12 @@ parser.add_argument(
     type=int,
     default=4,
     help="Number of live Segment Replay PPO update steps for --frontres_segment_live_update_loop_only.",
+)
+parser.add_argument(
+    "--frontres_segment_shard_cache_size",
+    type=int,
+    default=8,
+    help="For Stage 3 only: maximum number of Stage 1 payload shards held by the lazy dataset LRU.",
 )
 parser.add_argument(
     "--supervised_warmup_iterations",
@@ -743,7 +755,9 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)
         _set_if_present(alg_cfg, "frontres_segment_k", 4)
         segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"
+        shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))
         _set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))
+        _set_if_present(alg_cfg, "frontres_segment_shard_cache_size", shard_cache_size)
         _set_if_present(alg_cfg, "frontres_segment_include_boundary_diagnostic", False)
         _set_if_present(alg_cfg, "frontres_segment_sampler_global_frac", 0.4)
         _set_if_present(alg_cfg, "frontres_segment_sampler_replay_frac", 0.5)
@@ -779,6 +793,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         f"segment_train={getattr(alg_cfg, 'frontres_segment_live_train_enabled', 'n/a')}, "
         f"segment_update_steps={getattr(alg_cfg, 'frontres_segment_live_update_steps', 'n/a')}, "
         f"segment_k={getattr(alg_cfg, 'frontres_segment_k', 'n/a')}, "
+        f"segment_shard_cache_size={getattr(alg_cfg, 'frontres_segment_shard_cache_size', 'n/a')}, "
         f"authority={getattr(alg_cfg, 'frontres_authority_actor_critic_enabled', 'n/a')}, "
         f"structured_joint={getattr(alg_cfg, 'frontres_structured_joint_rl_enabled', 'n/a')}/"
         f"{getattr(alg_cfg, 'frontres_structured_joint_rl_weight', 'n/a')}, "
@@ -930,6 +945,7 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
         name="frontres_segment_cache_max_segments",
     )
     variants_per_strength = max(1, int(getattr(args_cli, "frontres_segment_cache_variants_per_strength", 1)))
+    cache_chunk_size = max(1, int(getattr(args_cli, "frontres_segment_cache_chunk_size", 128)))
     perturbation_mode = str(getattr(args_cli, "frontres_segment_cache_perturbation_mode", "hrl_curriculum_bank"))
     strengths = _parse_frontres_segment_cache_strengths(
         getattr(args_cli, "frontres_segment_cache_perturbation_strengths", "0.0,0.25,0.5,0.75,1.0")
@@ -964,6 +980,7 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
         f"max_motions={_frontres_segment_cache_limit_label(max_motions)} "
         f"max_segments={_frontres_segment_cache_limit_label(max_segments)} "
         f"variants_per_strength={variants_per_strength} "
+        f"cache_chunk_size={cache_chunk_size} "
         f"perturbation_mode={perturbation_mode} "
         f"legacy_perturbation_strengths={strengths} "
         f"curriculum_bank_size={curriculum_bank_size} "
@@ -1003,6 +1020,7 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
             max_segments=max_segments,
             strengths=tuple(float(item) for item in strengths),
             variants_per_strength=variants_per_strength,
+            cache_chunk_size=cache_chunk_size,
             perturbation_curriculum_mode=perturbation_mode,
             curriculum_bank_size=curriculum_bank_size,
             curriculum_frontier_scale=curriculum_frontier_scale,

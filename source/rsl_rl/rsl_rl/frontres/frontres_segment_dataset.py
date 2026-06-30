@@ -21,10 +21,19 @@ def _load_same_dir(module_name: str):
 
 
 try:
-    from rsl_rl.frontres.frontres_segment_cache_io import read_cache_metadata, read_noisy_variant_shard
+    from rsl_rl.frontres.frontres_segment_cache_io import (
+        FrontRESSegmentShardLRU,
+        read_cache_metadata,
+        read_noisy_variant_manifest_records,
+        read_noisy_variant_record,
+        read_noisy_variant_shard,
+    )
 except ModuleNotFoundError:
     _cache_io = _load_same_dir("frontres_segment_cache_io")
+    FrontRESSegmentShardLRU = _cache_io.FrontRESSegmentShardLRU
     read_cache_metadata = _cache_io.read_cache_metadata
+    read_noisy_variant_manifest_records = _cache_io.read_noisy_variant_manifest_records
+    read_noisy_variant_record = _cache_io.read_noisy_variant_record
     read_noisy_variant_shard = _cache_io.read_noisy_variant_shard
 
 
@@ -203,7 +212,11 @@ class FrontRESSegmentDataset:
     def sample_global(self, batch_size: int, generator: torch.Generator | None = None) -> FrontRESSegmentBatch:
         if batch_size <= 0:
             raise ValueError(f"batch_size must be positive, got {batch_size}")
-        valid_ids = [spec.segment_id for spec in self._specs if spec.valid_for_training]
+        valid_ids = [
+            spec.segment_id
+            for spec in self._specs
+            if spec.valid_for_training and spec.segment_id not in self._invalid_reasons
+        ]
         if not valid_ids:
             raise RuntimeError("no valid FrontRES segments are available")
         pool = torch.tensor(valid_ids, dtype=torch.long, device=self.device)
@@ -439,6 +452,201 @@ class FrontRESSegmentDataset:
         return ids
 
 
+@dataclass(frozen=True)
+class FrontRESStage1CacheRecord:
+    segment_id: int
+    manifest_record: dict[str, Any]
+    role: str
+    valid_for_training: bool
+    horizon_k: int
+    fps: float
+    perturbation_family: str
+    perturbation_strength: float
+    source_segment_id: int
+    source_perturbation_id: int
+
+
+class FrontRESStage1LazyCacheDataset:
+    def __init__(
+        self,
+        *,
+        cache_dir: str | Path,
+        records: Sequence[FrontRESStage1CacheRecord],
+        summary: FrontRESStage1CacheDatasetLoadSummary,
+        device: str | torch.device = "cpu",
+        shard_cache_size: int = 8,
+    ) -> None:
+        if not records:
+            raise ValueError(f"Stage 1 cache produced no trainable segment motions: {cache_dir}")
+        self.cache_dir = Path(cache_dir)
+        self.device = torch.device(device)
+        self._records = tuple(records)
+        self._specs = tuple(self._spec_from_record(record) for record in self._records)
+        self._spec_by_id = {spec.segment_id: spec for spec in self._specs}
+        self._record_by_id = {record.segment_id: record for record in self._records}
+        self._invalid_reasons: dict[int, str] = {}
+        self._noisy_baseline: dict[int, Any] = {}
+        self._cache_metadata = summary.probe()
+        self._shard_cache = FrontRESSegmentShardLRU(max_shards=shard_cache_size)
+
+    def num_segments(self) -> int:
+        return len(self._records)
+
+    def sample_global(self, batch_size: int, generator: torch.Generator | None = None) -> FrontRESSegmentBatch:
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+        valid_ids = [
+            spec.segment_id
+            for spec in self._specs
+            if spec.valid_for_training and spec.segment_id not in self._invalid_reasons
+        ]
+        if not valid_ids:
+            raise RuntimeError("no valid FrontRES segments are available")
+        pool = torch.tensor(valid_ids, dtype=torch.long, device=self.device)
+        idx = torch.randint(0, pool.numel(), (batch_size,), generator=generator, device=self.device)
+        return self.get_segments(pool[idx])
+
+    def get_segments(self, segment_ids: Iterable[int] | torch.Tensor) -> FrontRESSegmentBatch:
+        ids = self._ids_tensor(segment_ids)
+        specs = tuple(self._spec_by_id[int(segment_id)] for segment_id in ids.tolist())
+        variants = [
+            read_noisy_variant_record(
+                self.cache_dir,
+                self._record_by_id[int(segment_id)].manifest_record,
+                shard_cache=self._shard_cache,
+            )
+            for segment_id in ids.tolist()
+        ]
+        motions = [_motion_from_noisy_variant(variant, role=spec.perturbation_role) for variant, spec in zip(variants, specs)]
+        clean_state = self._state_from_motions(motions)
+        reference_window = self._reference_from_motions(motions)
+        phase = torch.tensor([float(spec.phase) for spec in specs], dtype=torch.float32, device=self.device)
+        horizon_k = torch.tensor([int(spec.horizon_k) for spec in specs], dtype=torch.long, device=self.device)
+        perturbation_strength = torch.tensor(
+            [float(spec.perturbation_strength) for spec in specs], dtype=torch.float32, device=self.device
+        )
+        batch = FrontRESSegmentBatch(
+            segment_ids=ids,
+            specs=specs,
+            clean_state=clean_state,
+            reference_window=reference_window,
+            phase=phase,
+            horizon_k=horizon_k,
+            perturbation_family=tuple(spec.perturbation_family for spec in specs),
+            perturbation_strength=perturbation_strength,
+            perturbation_role=tuple(spec.perturbation_role for spec in specs),
+        )
+        batch.validate()
+        return batch
+
+    def validate_batch(self, batch: FrontRESSegmentBatch) -> FrontRESSegmentValidation:
+        reasons: list[str] = []
+        valid = torch.ones(batch.batch_size, dtype=torch.bool, device=batch.segment_ids.device)
+        for i, spec in enumerate(batch.specs):
+            reason = self._invalid_reasons.get(spec.segment_id, "")
+            if reason or not spec.valid_for_training:
+                valid[i] = False
+                reasons.append(reason or "marked invalid")
+            else:
+                reasons.append("")
+        try:
+            batch.validate()
+        except ValueError as exc:
+            valid[:] = False
+            reasons = [str(exc)] * batch.batch_size
+        return FrontRESSegmentValidation(valid_mask=valid, reasons=tuple(reasons))
+
+    def write_noisy_baseline(self, segment_ids: Iterable[int] | torch.Tensor, evidence: Any) -> None:
+        for segment_id in self._ids_tensor(segment_ids).tolist():
+            self._noisy_baseline[int(segment_id)] = evidence
+
+    def read_noisy_baseline(self, segment_ids: Iterable[int] | torch.Tensor) -> dict[int, Any]:
+        result: dict[int, Any] = {}
+        for segment_id in self._ids_tensor(segment_ids).tolist():
+            if int(segment_id) in self._noisy_baseline:
+                result[int(segment_id)] = self._noisy_baseline[int(segment_id)]
+        return result
+
+    def update_validity(self, segment_ids: Iterable[int] | torch.Tensor, flags: Iterable[bool], reason: str = "invalid") -> None:
+        for segment_id, flag in zip(self._ids_tensor(segment_ids).tolist(), flags):
+            if flag:
+                self._invalid_reasons.pop(int(segment_id), None)
+            else:
+                self._invalid_reasons[int(segment_id)] = reason
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "invalid_reasons": dict(self._invalid_reasons),
+            "noisy_baseline": dict(self._noisy_baseline),
+            "cache_metadata": self.cache_metadata(),
+        }
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        self._invalid_reasons = {int(k): str(v) for k, v in state.get("invalid_reasons", {}).items()}
+        self._noisy_baseline = {int(k): v for k, v in state.get("noisy_baseline", {}).items()}
+        if "cache_metadata" in state:
+            self.load_cache_metadata(state["cache_metadata"])
+
+    def cache_metadata(self) -> dict[str, Any] | None:
+        metadata = None if self._cache_metadata is None else dict(self._cache_metadata)
+        if metadata is not None:
+            metadata["shard_cache"] = self._shard_cache.probe()
+        return metadata
+
+    def load_cache_metadata(self, metadata: dict[str, Any] | None) -> None:
+        self._cache_metadata = None if metadata is None else dict(metadata)
+
+    def _ids_tensor(self, segment_ids: Iterable[int] | torch.Tensor) -> torch.Tensor:
+        if isinstance(segment_ids, torch.Tensor):
+            ids = segment_ids.to(device=self.device, dtype=torch.long).flatten()
+        else:
+            ids = torch.tensor(list(segment_ids), dtype=torch.long, device=self.device)
+        for segment_id in ids.tolist():
+            if int(segment_id) not in self._record_by_id:
+                raise KeyError(f"unknown segment_id: {segment_id}")
+        return ids
+
+    def _spec_from_record(self, record: FrontRESStage1CacheRecord) -> FrontRESSegmentSpec:
+        return FrontRESSegmentSpec(
+            segment_id=int(record.segment_id),
+            motion_id=f"{int(record.source_segment_id)}:{int(record.source_perturbation_id)}",
+            start_frame=0,
+            start_time=0.0,
+            phase=0.0,
+            horizon_k=int(record.horizon_k),
+            perturbation_family=str(record.perturbation_family),
+            perturbation_strength=float(record.perturbation_strength),
+            perturbation_role=str(record.role),
+            reset_mode_hint="direct",
+            valid_for_training=bool(record.valid_for_training),
+        )
+
+    def _state_from_motions(self, motions: Sequence[dict[str, Any]]) -> FrontRESSegmentState:
+        rows = {name: [] for name in ("root_pos", "root_quat", "root_lin_vel", "root_ang_vel", "dof_pos", "dof_vel")}
+        key_body_pos: list[torch.Tensor] = []
+        key_body_quat: list[torch.Tensor] = []
+        for motion in motions:
+            for name in rows:
+                rows[name].append(motion[name][0].to(self.device))
+            if "key_body_pos" in motion:
+                key_body_pos.append(motion["key_body_pos"][0].to(self.device))
+            if "key_body_quat" in motion:
+                key_body_quat.append(motion["key_body_quat"][0].to(self.device))
+        return FrontRESSegmentState(
+            root_pos=torch.stack(rows["root_pos"], dim=0),
+            root_quat=torch.stack(rows["root_quat"], dim=0),
+            root_lin_vel=torch.stack(rows["root_lin_vel"], dim=0),
+            root_ang_vel=torch.stack(rows["root_ang_vel"], dim=0),
+            dof_pos=torch.stack(rows["dof_pos"], dim=0),
+            dof_vel=torch.stack(rows["dof_vel"], dim=0),
+            key_body_pos=torch.stack(key_body_pos, dim=0) if key_body_pos else None,
+            key_body_quat=torch.stack(key_body_quat, dim=0) if key_body_quat else None,
+        )
+
+    def _reference_from_motions(self, motions: Sequence[dict[str, Any]]) -> torch.Tensor:
+        return torch.stack([motion["reference"].to(self.device) for motion in motions], dim=0)
+
+
 def _require_shape(name: str, tensor: torch.Tensor, shape: tuple[int, ...]) -> None:
     if tuple(tensor.shape) != tuple(shape):
         raise ValueError(f"{name} must have shape {shape}, got {tuple(tensor.shape)}")
@@ -487,12 +695,99 @@ def build_stage1_cache_motion_source(
     return motion_source, summary
 
 
+def build_stage1_cache_lazy_records(
+    cache_dir: str | Path,
+    *,
+    include_boundary_diagnostic: bool = False,
+) -> tuple[list[FrontRESStage1CacheRecord], FrontRESStage1CacheDatasetLoadSummary]:
+    root = Path(cache_dir)
+    metadata = read_cache_metadata(root)
+    noisy_shard_id = int(metadata.get("noisy_shard_id", 0))
+    strengths = [float(item) for item in metadata.get("strengths", [])]
+    records: list[FrontRESStage1CacheRecord] = []
+    role_counts: dict[str, int] = {}
+    skipped_boundary = 0
+    included_boundary = 0
+    next_id = 0
+    for strength in strengths:
+        noisy_path = (
+            root
+            / "manifests"
+            / "noisy_variants"
+            / _strength_dir(float(strength))
+            / f"shard_{noisy_shard_id:06d}.pt"
+        )
+        _, manifest_records = read_noisy_variant_manifest_records(noisy_path)
+        for manifest_record in manifest_records:
+            descriptor = manifest_record["descriptor"]
+            segment = manifest_record["segment"]
+            params = dict(descriptor.get("params", {}))
+            role = str(params.get("perturbation_role", "train"))
+            role_counts[role] = role_counts.get(role, 0) + 1
+            if role == "boundary_diagnostic" and not include_boundary_diagnostic:
+                skipped_boundary += 1
+                continue
+            if role == "boundary_diagnostic":
+                included_boundary += 1
+            records.append(
+                FrontRESStage1CacheRecord(
+                    segment_id=next_id,
+                    manifest_record=dict(manifest_record),
+                    role=role,
+                    valid_for_training=role == "train",
+                    horizon_k=int(segment["horizon_k"]),
+                    fps=float(segment["fps"]),
+                    perturbation_family=str(descriptor["family"]),
+                    perturbation_strength=float(descriptor["strength"]),
+                    source_segment_id=int(segment["segment_id"]),
+                    source_perturbation_id=int(descriptor["perturbation_id"]),
+                )
+            )
+            next_id += 1
+    summary = FrontRESStage1CacheDatasetLoadSummary(
+        cache_dir=str(root),
+        perturbation_curriculum_mode=str(metadata.get("perturbation_curriculum_mode", "")),
+        metadata_noisy_count=int(metadata.get("noisy_count", 0)),
+        loaded_motion_count=len(records),
+        skipped_boundary_diagnostic_count=skipped_boundary,
+        included_boundary_diagnostic_count=included_boundary,
+        role_counts=role_counts,
+    )
+    return records, summary
+
+
 def load_stage1_cache_dataset(
     cache_dir: str | Path,
     *,
     device: str | torch.device = "cpu",
     include_boundary_diagnostic: bool = False,
-) -> FrontRESSegmentDataset:
+    lazy: bool = True,
+    shard_cache_size: int = 8,
+) -> FrontRESSegmentDataset | FrontRESStage1LazyCacheDataset:
+    if lazy:
+        records, summary = build_stage1_cache_lazy_records(
+            cache_dir,
+            include_boundary_diagnostic=include_boundary_diagnostic,
+        )
+        dataset = FrontRESStage1LazyCacheDataset(
+            cache_dir=cache_dir,
+            records=records,
+            summary=summary,
+            device=device,
+            shard_cache_size=shard_cache_size,
+        )
+        print(
+            "[FrontRES Segment Dataset] cache_load "
+            f"mode={summary.perturbation_curriculum_mode} "
+            f"metadata_noisy_count={summary.metadata_noisy_count} "
+            f"loaded_motion_count={summary.loaded_motion_count} "
+            f"skipped_boundary_diagnostic_count={summary.skipped_boundary_diagnostic_count} "
+            f"included_boundary_diagnostic_count={summary.included_boundary_diagnostic_count} "
+            f"role_counts={summary.role_counts} "
+            f"lazy=True shard_cache_size={shard_cache_size}",
+            flush=True,
+        )
+        return dataset
     motion_source, summary = build_stage1_cache_motion_source(
         cache_dir,
         include_boundary_diagnostic=include_boundary_diagnostic,

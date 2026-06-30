@@ -5,6 +5,9 @@ if [[ $# -lt 1 ]]; then
   echo "Usage: bash run_stage3.sh STAGE2_CHECKPOINT [MOTION_PATH] [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE]"
   echo
   echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop."
+  echo "CACHE_DIR selects the Stage 1 Segment Replay cache used by Stage 3."
+  echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
+  echo "Set FRONTRES_STAGE_PREFLIGHT_ONLY=1 to print and validate the startup command without launching IsaacLab."
   exit 1
 fi
 
@@ -15,6 +18,7 @@ MAX_ITERS="${4:-2000}"
 UPDATE_STEPS="${5:-4}"
 MODE="${6:-train}"
 CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
+SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
 LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage3_segment_hrl.txt}"
 RUN_FOREGROUND="${RUN_FOREGROUND:-0}"
 
@@ -24,8 +28,8 @@ export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 export FEMR_LOG_ROOT="${FEMR_LOG_ROOT:-/hdd1/cyx/FEMR}"
 export WANDB_DIR="${WANDB_DIR:-/hdd1/cyx/FEMR}"
 export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-/hdd1/cyx/FEMR/.wandb_cache}"
-
-mkdir -p "$(dirname "${LOG_PATH}")"
+export CACHE_DIR
+export SHARD_CACHE_SIZE
 
 CMD=(
   bash run/run_frontres_stage3_segment_hrl.sh
@@ -36,6 +40,14 @@ CMD=(
   "${UPDATE_STEPS}"
   "${MODE}"
 )
+
+if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
+  echo "[FrontRES Stage3] preflight only"
+  "${CMD[@]}"
+  exit 0
+fi
+
+mkdir -p "$(dirname "${LOG_PATH}")"
 
 if [[ "${RUN_FOREGROUND}" == "1" ]]; then
   echo "[FrontRES Stage3] running in foreground; log=${LOG_PATH}"

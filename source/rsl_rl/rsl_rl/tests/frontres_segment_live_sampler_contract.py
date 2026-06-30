@@ -154,7 +154,12 @@ class FakeEnv:
 
 
 class FakeRunner:
-    def __init__(self, summaries: list[dict] | None = None, cache_dir: str = "") -> None:
+    def __init__(
+        self,
+        summaries: list[dict] | None = None,
+        cache_dir: str = "",
+        shard_cache_size: int = 8,
+    ) -> None:
         self._frontres_segment_replay_boundary = FakeBoundary()
         self.env = FakeEnv()
         self.device = "cpu"
@@ -167,6 +172,7 @@ class FakeRunner:
             frontres_segment_live_update_steps=3,
             frontres_segment_k=4,
             frontres_segment_cache_dir=cache_dir,
+            frontres_segment_shard_cache_size=shard_cache_size,
             frontres_segment_include_boundary_diagnostic=False,
         )
         self.summaries = summaries or []
@@ -456,6 +462,22 @@ def test_live_sampler_initializes_dataset_from_stage1_cache_dir() -> None:
         assert metadata["role_counts"] == {"train": 1, "boundary_diagnostic": 1}
 
 
+def test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp) / "AMASS_G1Segment"
+        _write_stage1_cache(cache_dir)
+        runner = FakeRunner(cache_dir=str(cache_dir), shard_cache_size=1)
+        initialize_frontres_segment_live_sampler(runner)
+        metadata = runner._frontres_segment_dataset.cache_metadata()
+        print(
+            "[probe step23] shard_cache_size: "
+            f"alg_value={runner.alg.frontres_segment_shard_cache_size} "
+            f"metadata={metadata}",
+            flush=True,
+        )
+        assert metadata["shard_cache"]["max_shards"] == 1
+
+
 def test_live_sampler_builds_current_batch_before_probe() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cache_dir = Path(tmp) / "AMASS_G1Segment"
@@ -573,6 +595,7 @@ def main() -> None:
     test_live_sampler_evidence_preserves_per_sample_rollout_facts()
     test_live_update_loop_samples_and_updates_priority()
     test_live_sampler_initializes_dataset_from_stage1_cache_dir()
+    test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset()
     test_live_sampler_builds_current_batch_before_probe()
     test_live_storage_uses_sampled_segment_ids_and_sources()
     test_runner_checkpoint_saves_and_restores_sampler_state()

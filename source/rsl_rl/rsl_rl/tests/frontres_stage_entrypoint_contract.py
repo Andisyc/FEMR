@@ -41,6 +41,7 @@ def main() -> None:
     assert '"--frontres_segment_cache_max_motions"' in train
     assert '"--frontres_segment_cache_max_segments"' in train
     assert '"--frontres_segment_cache_variants_per_strength"' in train
+    assert '"--frontres_segment_cache_chunk_size"' in train
     assert '"--frontres_segment_cache_perturbation_mode"' in train
     assert '"--frontres_segment_cache_perturbation_strengths"' in train
     assert '"--frontres_segment_cache_curriculum_bank_size"' in train
@@ -60,6 +61,7 @@ def main() -> None:
     assert '"--frontres_segment_live_single_update_only"' in train
     assert '"--frontres_segment_live_update_loop_only"' in train
     assert '"--frontres_segment_live_update_steps"' in train
+    assert '"--frontres_segment_shard_cache_size"' in train
     assert "Stage 3 live sentinel/probe/storage/update flags require --frontres_stage stage3_segment_hrl" in train
     assert 'if stage == "stage1_segment_cache":' in train
     assert 'elif stage in ("stage1_hsl", "stage2_hsl_warmup"):' in train
@@ -123,6 +125,7 @@ def main() -> None:
     assert 'curriculum_bank_size={curriculum_bank_size}' in train
     assert 'curriculum_frontier_scale={curriculum_frontier_scale}' in train
     assert 'curriculum_active_dims={curriculum_active_dims}' in train
+    assert 'cache_chunk_size={cache_chunk_size}' in train
     assert "perturbation_curriculum_mode=perturbation_mode" in train
     assert "curriculum_bank_size=curriculum_bank_size" in train
     assert "curriculum_frontier_scale=curriculum_frontier_scale" in train
@@ -135,6 +138,7 @@ def main() -> None:
     assert "curriculum_temporal_mode=curriculum_temporal_mode" in train
     assert "curriculum_burst_min_steps=curriculum_burst_min_steps" in train
     assert "curriculum_burst_max_steps=curriculum_burst_max_steps" in train
+    assert "cache_chunk_size=cache_chunk_size" in train
     assert "Stage 1 Segment Cache entrypoint is recognized" not in train
     assert "NotImplementedError" not in _between(
         train,
@@ -215,7 +219,9 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)',
         '_set_if_present(alg_cfg, "frontres_segment_k", 4)',
         'segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"',
+        'shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))',
         '_set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))',
+        '_set_if_present(alg_cfg, "frontres_segment_shard_cache_size", shard_cache_size)',
         '_set_if_present(alg_cfg, "frontres_segment_include_boundary_diagnostic", False)',
         '_set_if_present(alg_cfg, "frontres_segment_sampler_global_frac", 0.4)',
         '_set_if_present(alg_cfg, "frontres_segment_sampler_replay_frac", 0.5)',
@@ -259,6 +265,7 @@ def main() -> None:
         assert "frontres_hsl_init_enabled: bool = False" in cfg_text
         assert "frontres_segment_k: int = 4" in cfg_text
         assert 'frontres_segment_cache_dir: str = ""' in cfg_text
+        assert "frontres_segment_shard_cache_size: int = 8" in cfg_text
         assert "frontres_segment_include_boundary_diagnostic: bool = False" in cfg_text
         assert "frontres_segment_sampler_global_frac: float = 0.4" in cfg_text
         assert "frontres_segment_sampler_replay_frac: float = 0.5" in cfg_text
@@ -274,6 +281,7 @@ def main() -> None:
     assert "frontres_segment_live_update_loop_only" in algorithm_impl
     assert "frontres_segment_live_train_enabled" in algorithm_impl
     assert "frontres_segment_live_update_steps" in algorithm_impl
+    assert "frontres_segment_shard_cache_size" in algorithm_impl
     assert "frontres_segment_live_fail_on_invalid_update" in algorithm_impl
     assert "frontres_segment_live_min_valid_count" in algorithm_impl
     assert "frontres_segment_live_fail_on_nonfinite" in algorithm_impl
@@ -312,13 +320,19 @@ def main() -> None:
     assert '--frontres_stage stage1_segment_cache' in stage1_cache
     assert 'MAX_MOTIONS="${MAX_MOTIONS:-all}"' in stage1_cache
     assert 'MAX_SEGMENTS="${MAX_SEGMENTS:-all}"' in stage1_cache
+    assert 'CACHE_CHUNK_SIZE="${CACHE_CHUNK_SIZE:-128}"' in stage1_cache
     assert 'MAX_MOTIONS/MAX_SEGMENTS accept positive integers or all/auto.' in stage1_cache
+    assert 'CACHE_CHUNK_SIZE controls how many cache records are written per payload shard.' in stage1_cache
+    assert 'FRONTRES_STAGE1_PREFLIGHT_ONLY' in stage1_cache
+    assert '[FrontRES Stage1 startup preflight] PASS' in stage1_cache
+    assert 'Stage 1 startup preflight failed; missing cmd fragment' in stage1_cache
     assert "999999" not in stage1_cache
     assert '--frontres_segment_cache_k "${SEGMENT_K}"' in stage1_cache
     assert '--frontres_segment_cache_frame_stride "${FRAME_STRIDE}"' in stage1_cache
     assert '--frontres_segment_cache_max_motions "${MAX_MOTIONS}"' in stage1_cache
     assert '--frontres_segment_cache_max_segments "${MAX_SEGMENTS}"' in stage1_cache
     assert '--frontres_segment_cache_variants_per_strength "${VARIANTS_PER_STRENGTH}"' in stage1_cache
+    assert '--frontres_segment_cache_chunk_size "${CACHE_CHUNK_SIZE}"' in stage1_cache
     assert '--frontres_segment_cache_perturbation_mode "${PERTURBATION_MODE}"' in stage1_cache
     assert '--frontres_segment_cache_perturbation_strengths "${PERTURBATION_STRENGTHS}"' in stage1_cache
     assert 'PERTURBATION_MODE="${PERTURBATION_MODE:-hrl_curriculum_bank}"' in stage1_cache
@@ -388,6 +402,11 @@ def main() -> None:
     assert 'STAGE2_CHECKPOINT="$1"' in root_stage3
     assert 'bash run/run_frontres_stage3_segment_hrl.sh' in root_stage3
     assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in root_stage3
+    assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in root_stage3
+    assert 'export CACHE_DIR' in root_stage3
+    assert 'export SHARD_CACHE_SIZE' in root_stage3
+    assert 'FRONTRES_STAGE_PREFLIGHT_ONLY=1' in root_stage3
+    assert '[FrontRES Stage3] preflight only' in root_stage3
     assert 'train_stage3_segment_hrl.txt' in root_stage3
     assert 'stage2_acceptance' not in root_stage3
     assert 'acceptance' not in root_stage3.lower()
@@ -395,9 +414,13 @@ def main() -> None:
     assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' in stage3
     assert '--is_full_resume False' in stage3
     assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in stage3
+    assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in stage3
+    assert 'SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size.' in stage3
     assert '--frontres_segment_cache_dir "${CACHE_DIR}"' in stage3
+    assert '--frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"' in stage3
     assert '--frontres_segment_live_update_steps "${UPDATE_STEPS}"' in stage3
     assert '" --frontres_segment_cache_dir ${CACHE_DIR} "' in stage3
+    assert '" --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} "' in stage3
     assert '--frontres_segment_live_update_loop_only' in stage3
     assert 'FRONTRES_STAGE3_RUN_CONTRACTS' in stage3
     assert 'frontres_segment_all_contract_suite.py' in stage3

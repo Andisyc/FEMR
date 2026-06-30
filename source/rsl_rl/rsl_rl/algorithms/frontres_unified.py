@@ -103,6 +103,7 @@ class FrontRESUnified:
         frontres_segment_live_fail_on_nonfinite: bool = True,
         frontres_hsl_init_enabled: bool = False,
         frontres_segment_k: int = 4,
+        frontres_segment_shard_cache_size: int = 8,
         frontres_segment_sampler_global_frac: float = 0.4,
         frontres_segment_sampler_replay_frac: float = 0.5,
         frontres_segment_sampler_review_frac: float = 0.1,
@@ -245,6 +246,7 @@ class FrontRESUnified:
         self.frontres_segment_live_fail_on_nonfinite = bool(frontres_segment_live_fail_on_nonfinite)
         self.frontres_hsl_init_enabled = bool(frontres_hsl_init_enabled)
         self.frontres_segment_k = max(1, int(frontres_segment_k))
+        self.frontres_segment_shard_cache_size = max(1, int(frontres_segment_shard_cache_size))
         self.frontres_segment_sampler_global_frac = max(0.0, float(frontres_segment_sampler_global_frac))
         self.frontres_segment_sampler_replay_frac = max(0.0, float(frontres_segment_sampler_replay_frac))
         self.frontres_segment_sampler_review_frac = max(0.0, float(frontres_segment_sampler_review_frac))

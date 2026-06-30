@@ -477,12 +477,15 @@ training_schedule.py
 ```text
 frontres_segment_cache_*.py
   own Stage 1 disk cache schemas, AMASS segment indexing, Clean/Noisy rollout
-  state IO, and cache builder orchestration
+  state IO, chunked shard storage, lightweight manifest indexes, and cache
+  builder orchestration
 
 frontres_segment_dataset.py
-  owns loading cached segments into semantic batches; for Stage 3 reference
-  alignment its default `reference_window` payload is command-shaped
-  `[joint_pos, joint_vel]`
+  owns loading cached segments into semantic batches; Stage 1 cache loading is
+  lazy by default: it reads manifest indexes at startup, loads noisy chunked
+  shards on demand, and keeps a small LRU shard cache for Stage 3 sampling; for
+  Stage 3 reference alignment its default `reference_window` payload is
+  command-shaped `[joint_pos, joint_vel]`
 
 frontres_segment_reset.py
   owns reset requests/results, real env dynamic reset hooks, and the optional

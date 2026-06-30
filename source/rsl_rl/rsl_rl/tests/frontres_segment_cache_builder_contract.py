@@ -197,6 +197,7 @@ def test_stage1_builder_orchestrates_cache_pipeline() -> None:
             perturbation_curriculum_mode="discrete_bank",
             base_seed=123,
             env_id=0,
+            cache_chunk_size=2,
         )
 
         result = build_stage1_segment_cache(env, cfg)
@@ -220,19 +221,61 @@ def test_stage1_builder_orchestrates_cache_pipeline() -> None:
         assert set(result.noisy_shard_paths) == {0.0, 0.5}
         assert all(Path(path).exists() for path in result.noisy_shard_paths.values())
         assert Path(result.clean_shard_path).relative_to(cache_dir).as_posix() == "manifests/clean_states/shard_000000.pt"
-        assert (
-            cache_dir / "KIT" / "359" / "motion_a" / "segment_00000000_start_00000000_k_0002" / "clean.pt"
-        ).exists()
+        assert (cache_dir / "shards" / "clean_states" / "shard_000000.pt").exists()
         assert (
             cache_dir
-            / "KIT"
-            / "359"
-            / "motion_a"
-            / "segment_00000000_start_00000000_k_0002"
+            / "shards"
             / "noisy_variants"
             / "strength_0p5"
-            / "perturbation_00000001.pt"
+            / "shard_000000.pt"
         ).exists()
+        status = json.loads((cache_dir / "build_status.json").read_text())
+        progress = [json.loads(line) for line in (cache_dir / "progress.jsonl").read_text().splitlines()]
+        progress_events = [item["event"] for item in progress]
+        complete_index = progress_events.index("complete")
+        clean_flush_events = [
+            (index, item)
+            for index, item in enumerate(progress)
+            if item["event"] == "clean_done" and item.get("flushed_shard_path")
+        ]
+        noisy_flush_events = [
+            (index, item)
+            for index, item in enumerate(progress)
+            if item["event"] == "noisy_done" and item.get("flushed_shard_path")
+        ]
+        clean_flush_paths = [Path(item["flushed_shard_path"]) for _, item in clean_flush_events]
+        noisy_flush_paths = [Path(item["flushed_shard_path"]) for _, item in noisy_flush_events]
+        print(
+            "[cache_builder trace] progress "
+            f"status={status} "
+            f"events={progress_events} "
+            f"clean_flush_paths={[path.relative_to(cache_dir).as_posix() for path in clean_flush_paths]} "
+            f"noisy_flush_paths={[path.relative_to(cache_dir).as_posix() for path in noisy_flush_paths]} "
+            f"complete_index={complete_index}"
+        )
+        assert status["status"] == "complete"
+        assert status["clean_written"] == 2
+        assert status["noisy_written"] == 4
+        assert progress_events[0] == "started"
+        assert "indexed" in progress_events
+        assert progress_events.count("clean_done") == 2
+        assert progress_events.count("noisy_done") == 4
+        assert clean_flush_events
+        assert noisy_flush_events
+        assert all(index < complete_index for index, _ in clean_flush_events)
+        assert all(index < complete_index for index, _ in noisy_flush_events)
+        assert all(path.exists() for path in clean_flush_paths)
+        assert all(path.exists() for path in noisy_flush_paths)
+        assert {path.relative_to(cache_dir).as_posix() for path in clean_flush_paths} == {
+            "shards/clean_states/shard_000000.pt"
+        }
+        assert {path.relative_to(cache_dir).as_posix() for path in noisy_flush_paths} == {
+            "shards/noisy_variants/strength_0/shard_000000.pt",
+            "shards/noisy_variants/strength_0p5/shard_000000.pt",
+        }
+        assert Path(status["clean_shard_path"]).relative_to(cache_dir).as_posix() == "manifests/clean_states/shard_000000.pt"
+        assert Path(status["metadata_path"]).exists()
+        assert progress_events[-1] == "complete"
 
         print(
             "[cache_builder trace] hooks "

@@ -7,8 +7,10 @@ if [[ $# -lt 1 ]]; then
   echo "Stage 1 builds the Segment Replay cache: motion segments, Clean states, and stepped Noisy baselines."
   echo "After a successful build, the script validates the written cache by default."
   echo "MAX_MOTIONS/MAX_SEGMENTS accept positive integers or all/auto."
+  echo "CACHE_CHUNK_SIZE controls how many cache records are written per payload shard."
+  echo "Set FRONTRES_STAGE1_PREFLIGHT_ONLY=1 to print and validate the startup command without launching IsaacLab."
   echo "Example:"
-  echo "  MAX_MOTIONS=all MAX_SEGMENTS=all bash run/run_frontres_stage1_segment_cache.sh /path/to/motions 12000 4 /hdd1/cyx/AMASS_G1Segment"
+  echo "  MAX_MOTIONS=all MAX_SEGMENTS=all CACHE_CHUNK_SIZE=128 bash run/run_frontres_stage1_segment_cache.sh /path/to/motions 12000 4 /hdd1/cyx/AMASS_G1Segment"
   exit 1
 fi
 
@@ -35,6 +37,7 @@ FRAME_STRIDE="${FRAME_STRIDE:-1}"
 MAX_MOTIONS="${MAX_MOTIONS:-all}"
 MAX_SEGMENTS="${MAX_SEGMENTS:-all}"
 VARIANTS_PER_STRENGTH="${VARIANTS_PER_STRENGTH:-1}"
+CACHE_CHUNK_SIZE="${CACHE_CHUNK_SIZE:-128}"
 VALIDATE_AFTER_BUILD="${VALIDATE_AFTER_BUILD:-1}"
 VALIDATION_PYTHON_BIN="${VALIDATION_PYTHON_BIN:-python}"
 VALIDATION_EXPECT_MODE="${VALIDATION_EXPECT_MODE:-${PERTURBATION_MODE}}"
@@ -66,6 +69,7 @@ CMD=(
   --frontres_segment_cache_max_motions "${MAX_MOTIONS}"
   --frontres_segment_cache_max_segments "${MAX_SEGMENTS}"
   --frontres_segment_cache_variants_per_strength "${VARIANTS_PER_STRENGTH}"
+  --frontres_segment_cache_chunk_size "${CACHE_CHUNK_SIZE}"
   --frontres_segment_cache_perturbation_mode "${PERTURBATION_MODE}"
   --frontres_segment_cache_perturbation_strengths "${PERTURBATION_STRENGTHS}"
   --frontres_segment_cache_curriculum_bank_size "${CURRICULUM_BANK_SIZE}"
@@ -86,6 +90,42 @@ fi
 
 if [[ -n "${CACHE_DIR}" ]]; then
   CMD+=(--frontres_segment_cache_dir "${CACHE_DIR}")
+fi
+
+if [[ "${FRONTRES_STAGE1_PREFLIGHT_ONLY:-0}" == "1" ]]; then
+  joined=" ${CMD[*]} "
+  for required in \
+    " scripts/rsl_rl/train.py " \
+    " --frontres_stage stage1_segment_cache " \
+    " --max_iterations 0 " \
+    " --frontres_segment_cache_dir ${CACHE_DIR} " \
+    " --frontres_segment_cache_k ${SEGMENT_K} " \
+    " --frontres_segment_cache_frame_stride ${FRAME_STRIDE} " \
+    " --frontres_segment_cache_max_motions ${MAX_MOTIONS} " \
+    " --frontres_segment_cache_max_segments ${MAX_SEGMENTS} " \
+    " --frontres_segment_cache_chunk_size ${CACHE_CHUNK_SIZE} " \
+    " --frontres_segment_cache_perturbation_mode ${PERTURBATION_MODE} " \
+    " --frontres_segment_cache_curriculum_bank_size ${CURRICULUM_BANK_SIZE} " \
+    " --experiment_name g1_flat_frontres_stage1_segment_cache "
+  do
+    if [[ "${joined}" != *"${required}"* ]]; then
+      echo "Stage 1 startup preflight failed; missing cmd fragment:${required}" >&2
+      echo -n "Command: " >&2
+      printf '%q ' "${CMD[@]}" >&2
+      echo >&2
+      exit 4
+    fi
+  done
+  echo "[FrontRES Stage1 startup preflight] PASS"
+  echo -n "Command: "
+  printf '%q ' "${CMD[@]}"
+  echo
+  if [[ "${VALIDATE_AFTER_BUILD}" == "1" ]]; then
+    echo "[FrontRES Stage1 validator preflight] enabled cache_dir=${CACHE_DIR} expect_mode=${VALIDATION_EXPECT_MODE} min_segments=${VALIDATION_MIN_SEGMENTS} min_noisy=${VALIDATION_MIN_NOISY}"
+  else
+    echo "[FrontRES Stage1 validator preflight] disabled"
+  fi
+  exit 0
 fi
 
 "${CMD[@]}"

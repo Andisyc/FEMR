@@ -1246,3 +1246,389 @@ Next step:
 
 - Step 4: implement `frontres_segment_dataset.py` and
   `frontres_segment_sampler.py` as pure modules with toy tests.
+
+## 17. Stage 1/3 Cache IO Optimization Contract
+
+Date: 2026-06-30
+
+This section records the current Stage 1/3 cache IO contract after the Segment
+Replay implementation reached the offline-cache path.  It is an engineering
+contract, not a paper-method description.
+
+### Problem
+
+Stage 1 can generate a large cache.  Keeping all Clean/Noisy rollout states in
+memory until the end is wrong.  Stage 3 should also not eagerly expand the whole
+cache into memory before training.
+
+The correct immediate contract is:
+
+- Stage 1 writes payload shards during generation;
+- Stage 1 writes final manifest and metadata only after generation completes;
+- Stage 3 loads manifest records first and reads shard rows lazily;
+- Stage 3 bounds repeated shard reads with an LRU cache;
+- live server tests must still prove the IsaacLab path reaches these boundaries.
+
+### Scope
+
+This contract covers:
+
+- Stage 1 Clean/Noisy cache payload writing;
+- Stage 1 status/progress observability;
+- Stage 3 lazy cache loading;
+- Stage 3 Segment Replay sampler use of cached segments;
+- local contract tests and live sentinel evidence required before formal runs.
+
+### Non-Scope
+
+This contract does not claim:
+
+- HDF5, Zarr, mmap, or true partial-row storage;
+- server-side IsaacLab verification;
+- training quality improvement;
+- final Stage 3 performance tuning;
+- removal of all legacy/eager compatibility paths.
+
+### Core Parameter Path
+
+```text
+cache_chunk_size
+  -> clean_buffer / noisy_buffer
+  -> write_*_chunked_shard(...)
+  -> shards/.../*.pt payload file
+  -> manifest record {path, row, segment, descriptor}
+  -> metadata cache_storage_backend=torch_chunked_shard
+
+frontres_segment_cache_dir
+  -> load_stage1_cache_dataset(lazy=True)
+  -> build_stage1_cache_lazy_records(...)
+  -> segment_id -> manifest_record
+  -> read_noisy_variant_record(cache_dir, record, shard_cache)
+  -> FrontRESSegmentBatch
+  -> sampler / storage / PPO update
+
+shard_cache_size
+  -> FrontRESSegmentShardLRU(max_shards=...)
+  -> resident shard bound
+  -> load_count / hit_count probe
+```
+
+### File Responsibility Map
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py`
+
+- owns Stage 1 orchestration;
+- owns `cache_chunk_size`;
+- owns Clean/Noisy buffer flushing policy;
+- owns status/progress event emission;
+- must not own Stage 3 lazy dataset semantics.
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py`
+
+- owns on-disk cache format;
+- owns chunked payload shard writers;
+- owns manifest record writers/readers;
+- owns `FrontRESSegmentShardLRU`;
+- must preserve backward compatibility with legacy per-file shard manifests
+  until old caches are intentionally dropped.
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py`
+
+- owns eager `FrontRESSegmentDataset`;
+- owns lazy `FrontRESStage1LazyCacheDataset`;
+- owns `segment_id -> manifest record -> shard row -> batch` conversion;
+- owns runtime invalidity filtering in `sample_global`;
+- must not silently eager-load all Noisy payloads in the Stage 3 default path.
+
+`source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py`
+
+- owns Stage 3 runner-side dataset loading and sampler connection;
+- must call `load_stage1_cache_dataset(..., lazy=True)` by default;
+- must print cache-load facts including lazy mode and shard-cache probe.
+
+`scripts/rsl_rl/train.py`
+
+- owns CLI/config routing only;
+- should expose `cache_chunk_size` and `shard_cache_size` as explicit knobs;
+- must not define cache format or lazy-read behavior.
+
+`run/run_frontres_stage1_segment_cache.sh`
+
+- owns user-facing Stage 1 command defaults;
+- should pass `CACHE_CHUNK_SIZE` after the CLI flag exists.
+
+`run/run_frontres_stage3_segment_hrl.sh`
+
+- owns user-facing Stage 3 command defaults;
+- should pass `SHARD_CACHE_SIZE` after the CLI flag exists.
+
+### Invariants
+
+- Stage 1 payload shards may appear before the build is complete.
+- Stage 1 manifest and metadata are complete-build artifacts.
+- A partial Stage 1 cache must not be treated as a valid Stage 3 training
+  dataset unless a future explicit partial-cache mode is designed.
+- `progress.jsonl` is runtime observability, not the canonical manifest.
+- `metadata.json` is the completion boundary for normal Stage 3 cache loading.
+- Stage 3 default cache loading must be lazy.
+- Lazy dataset initialization must not load Noisy payload shards.
+- `update_validity(..., False)` must remove a segment from future global
+  sampling in both eager and lazy datasets.
+- Boundary diagnostic samples may be present on disk, but are excluded from
+  trainable Stage 3 dataset loading unless explicitly requested.
+- Contract tests prove local semantics; only server logs prove IsaacLab live
+  lifecycle.
+
+### Current Evidence
+
+Local contract evidence already exists for:
+
+- chunked Stage 1 payload paths under `shards/...`;
+- `build_status.json` and `progress.jsonl`;
+- lazy records pointing to `{path, row}`;
+- lazy LRU probe with `load_count` and `hit_count`;
+- lazy runtime invalidity exclusion from `sample_global`;
+- Stage 3 sampler fake path loading the lazy dataset.
+
+Current evidence does not yet prove:
+
+- live IsaacLab Stage 1 writes shard files while the process is running;
+- live IsaacLab Stage 3 reads a large cache without memory pressure;
+- final throughput is acceptable for a full AMASS cache.
+
+### Known Gaps
+
+- `cache_chunk_size` currently has a code default but no CLI/run-script knob.
+- `shard_cache_size` currently has a code default but no CLI/run-script knob.
+- `torch_chunked_shard` still loads a full shard file per cache miss.
+- Lazy `get_segments()` currently loops records row-by-row instead of grouping
+  sampled rows by shard path.
+- The eager compatibility function remains available and must not be used as
+  the Stage 3 production path.
+
+### Required Next Steps
+
+1. Expose `cache_chunk_size` through CLI and Stage 1 run script.
+2. Expose `shard_cache_size` through CLI/config and Stage 3 run script.
+3. Strengthen the Stage 1 contract test so chunk flush visibility is asserted
+   at the writer boundary, not only after the full build.
+4. Strengthen the Stage 3 lazy-read contract so `segment_id`, `path`, `row`,
+   LRU probes, and batch semantics are checked together.
+5. Run a server-side Stage 1 live sentinel and inspect shard files while the
+   process is still running.
+6. Run a server-side Stage 3 tiny update loop and inspect lazy cache logs plus
+   PPO valid-count logs.
+
+### Stop Conditions Before Formal Full Stage 1
+
+Do not recommend full Stage 1 cache generation until:
+
+- CLI prints the effective `cache_chunk_size`;
+- Stage 1 progress logs include non-empty `flushed_shard_path`;
+- shard files are visible during a live server run before process exit;
+- validator passes after completion.
+
+### Stop Conditions Before Formal Stage 3
+
+Do not recommend full Stage 3 training until:
+
+- CLI prints the effective `shard_cache_size`;
+- Stage 3 logs show `lazy=True`;
+- shard-cache probe starts with `load_count=0`;
+- a tiny update loop reaches `ppo_update=True` and `ppo_valid_count > 0`;
+- sampler evidence updates priority from per-sample rollout evidence.
+
+## 18. Step 7 Server Stage 1 Sentinel Contract
+
+Date: 2026-06-30
+
+Step 7 is a live sentinel step.  It does not prove full-cache throughput.  It
+only proves that the real IsaacLab Stage 1 path reaches the streaming cache
+boundaries and exits cleanly.
+
+### Scope
+
+- use the repository Stage 1 wrapper instead of hand-written command fragments;
+- run one or a few motions with a small segment count;
+- write to a disposable sentinel cache directory;
+- require validator after completion;
+- inspect live progress and shard files before recommending a formal run.
+
+### Non-Scope
+
+- no formal full AMASS cache generation;
+- no Stage 2 or Stage 3 training;
+- no claim about final throughput;
+- no acceptance/old Stage 2 path.
+
+### Command
+
+From `/hdd1/cyx/FEMR` on the server:
+
+```text
+CUDA_VISIBLE_DEVICES=0 \
+RUN_FOREGROUND=1 \
+LOG_PATH=/hdd1/cyx/FEMR/train_stage1_segment_cache_sentinel.txt \
+MAX_MOTIONS=1 \
+MAX_SEGMENTS=4 \
+CACHE_CHUNK_SIZE=2 \
+VARIANTS_PER_STRENGTH=1 \
+VALIDATION_MIN_SEGMENTS=1 \
+VALIDATION_MIN_NOISY=1 \
+bash run_stage1.sh \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  1 \
+  4 \
+  /hdd1/cyx/AMASS_G1Segment_sentinel
+```
+
+Before launching IsaacLab, the command can be checked without side effects:
+
+```text
+FRONTRES_STAGE1_PREFLIGHT_ONLY=1 \
+MAX_MOTIONS=1 \
+MAX_SEGMENTS=4 \
+CACHE_CHUNK_SIZE=2 \
+bash run/run_frontres_stage1_segment_cache.sh \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  1 \
+  4 \
+  /hdd1/cyx/AMASS_G1Segment_sentinel
+```
+
+Expected preflight log:
+
+```text
+[FrontRES Stage1 startup preflight] PASS
+```
+
+### Required Runtime Probes
+
+The Stage 1 sentinel log must include:
+
+- `[FrontRES Stage1 Segment Cache] live_sentinel`;
+- `cache_chunk_size=2`;
+- `[FrontRES Stage1 Segment Cache] stage1_cfg_probe`;
+- `[FrontRES Stage1 Segment Cache] motion_loader_probe`;
+- `[FrontRES Stage1 Segment Cache] index_source`;
+- `[FrontRES Stage1 Segment Cache] perturbation_plan`;
+- `[FrontRES Stage1 Segment Cache] cache_readback`;
+- `[FrontRES Stage1 Segment Cache] auto_exit`;
+- validator `PASS`.
+
+The disposable cache directory must include:
+
+- `build_status.json`;
+- `progress.jsonl`;
+- `metadata.json`;
+- `segment_index.jsonl`;
+- `shards/clean_states/shard_000000.pt`;
+- at least one `shards/noisy_variants/*/shard_000000.pt`;
+- `manifests/clean_states/shard_000000.pt`;
+- at least one `manifests/noisy_variants/*/shard_000000.pt`.
+
+### Stop Condition
+
+Step 7 is complete only when the server log and cache directory show the
+runtime probes above.  Local contract tests only prove the command contract;
+they do not replace the server sentinel.
+
+## 19. Step 8 Server Stage 3 Tiny Update-Loop Contract
+
+Date: 2026-06-30
+
+Step 8 is a live sentinel step for Stage 3.  It uses a tiny Stage 1 cache and
+an HSL checkpoint only to prove the real Stage 3 update-loop path reaches lazy
+cache loading, sampler batching, rollout evidence, and PPO update.
+
+### Scope
+
+- use the repository Stage 3 wrapper;
+- load a real HSL checkpoint;
+- use the disposable Stage 1 sentinel cache;
+- run `MODE=update_loop`;
+- keep `NUM_ENVS`, `MAX_ITERS`, and `UPDATE_STEPS` tiny;
+- inspect Stage 3 logs for lazy cache and PPO-valid evidence.
+
+### Non-Scope
+
+- no formal Stage 3 training;
+- no reward-quality conclusion;
+- no full AMASS cache;
+- no old acceptance training path.
+
+### Command
+
+From `/hdd1/cyx/FEMR` on the server:
+
+```text
+CUDA_VISIBLE_DEVICES=0 \
+RUN_FOREGROUND=1 \
+LOG_PATH=/hdd1/cyx/FEMR/train_stage3_segment_hrl_tiny_update_loop.txt \
+CACHE_DIR=/hdd1/cyx/AMASS_G1Segment_sentinel \
+SHARD_CACHE_SIZE=2 \
+bash run_stage3.sh \
+  /hdd1/cyx/FEMR/model/model_warmup.pt \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  8 \
+  1 \
+  3 \
+  update_loop
+```
+
+Before launching IsaacLab, the command can be checked without side effects:
+
+```text
+FRONTRES_STAGE_PREFLIGHT_ONLY=1 \
+CACHE_DIR=/hdd1/cyx/AMASS_G1Segment_sentinel \
+SHARD_CACHE_SIZE=2 \
+bash run_stage3.sh \
+  /hdd1/cyx/FEMR/model/model_warmup.pt \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  8 \
+  1 \
+  3 \
+  update_loop
+```
+
+Expected preflight log:
+
+```text
+[FrontRES Stage3 startup preflight] PASS mode=update_loop
+```
+
+### Required Runtime Probes
+
+The Stage 3 tiny update-loop log must include:
+
+- `stage=stage3_segment_hrl`;
+- `objective=segment_replay_hrl`;
+- `segment_cache_dir=/hdd1/cyx/AMASS_G1Segment_sentinel`;
+- `segment_shard_cache_size=2`;
+- `[FrontRES Segment Dataset] cache_load`;
+- `lazy=True shard_cache_size=2`;
+- `[FrontRES Segment Dataset Ready]`;
+- `shard_cache`;
+- `[FrontRES Segment Sampler Ready]`;
+- `[probe step22] sample`;
+- `[FrontRES Segment Batch]`;
+- `[FrontRES Segment Live Probe]`;
+- `ppo_update=True`;
+- `ppo_valid_count=` with a value greater than zero;
+- `[probe step14] evidence_path`;
+- `[FrontRES Segment Sampler]`;
+- `[FrontRES Segment Live Update Loop]`;
+- `runner_learn=False`.
+
+### Stop Condition
+
+Step 8 is complete only when the server log proves:
+
+- Stage 3 uses the sentinel cache path;
+- lazy cache loading is active;
+- the sampler supplies a batch from cache;
+- at least one PPO-valid sample is produced;
+- the update loop exits through the sentinel path rather than normal training.
+
+Local command contract tests only prove startup wiring.  They do not replace
+the server tiny update-loop run.

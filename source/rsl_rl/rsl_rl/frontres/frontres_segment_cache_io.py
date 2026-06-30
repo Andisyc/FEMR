@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 import importlib.util
 import json
@@ -55,6 +56,39 @@ class FrontRESCleanStateEntry:
         return result
 
 
+class FrontRESSegmentShardLRU:
+    def __init__(self, *, max_shards: int = 8, map_location: str | torch.device = "cpu") -> None:
+        if int(max_shards) <= 0:
+            raise ValueError(f"max_shards must be positive, got {max_shards}")
+        self.max_shards = int(max_shards)
+        self.map_location = map_location
+        self._payloads: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self.load_count = 0
+        self.hit_count = 0
+
+    def load(self, path: str | Path) -> dict[str, Any]:
+        key = str(Path(path))
+        if key in self._payloads:
+            payload = self._payloads.pop(key)
+            self._payloads[key] = payload
+            self.hit_count += 1
+            return payload
+        payload = torch.load(Path(path), map_location=self.map_location, weights_only=False)
+        self._payloads[key] = payload
+        self.load_count += 1
+        while len(self._payloads) > self.max_shards:
+            self._payloads.popitem(last=False)
+        return payload
+
+    def probe(self) -> dict[str, int]:
+        return {
+            "max_shards": int(self.max_shards),
+            "resident_shards": len(self._payloads),
+            "load_count": int(self.load_count),
+            "hit_count": int(self.hit_count),
+        }
+
+
 def write_cache_metadata(cache_dir: str | Path, metadata: dict[str, Any]) -> Path:
     path = Path(cache_dir)
     path.mkdir(parents=True, exist_ok=True)
@@ -63,6 +97,24 @@ def write_cache_metadata(cache_dir: str | Path, metadata: dict[str, Any]) -> Pat
     with metadata_path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
     return metadata_path
+
+
+def write_stage1_cache_status(cache_dir: str | Path, status: dict[str, Any]) -> Path:
+    path = Path(cache_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    status_path = path / "build_status.json"
+    with status_path.open("w", encoding="utf-8") as f:
+        json.dump(status, f, indent=2, sort_keys=True)
+    return status_path
+
+
+def append_stage1_cache_progress(cache_dir: str | Path, event: dict[str, Any]) -> Path:
+    path = Path(cache_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    progress_path = path / "progress.jsonl"
+    with progress_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(event, sort_keys=True) + "\n")
+    return progress_path
 
 
 def read_cache_metadata(cache_dir: str | Path) -> dict[str, Any]:
@@ -74,7 +126,80 @@ def read_cache_metadata(cache_dir: str | Path) -> dict[str, Any]:
     return payload
 
 
-def write_clean_state_shard(
+def write_clean_state_entry_file(cache_dir: str | Path, entry: FrontRESCleanStateEntry) -> Path:
+    entry.validate()
+    entry_path = _clean_segment_path(cache_dir, entry.segment)
+    entry_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "format": "frontres_clean_state_file_v1",
+            "entry": clean_entry_to_record(entry),
+        },
+        entry_path,
+    )
+    return entry_path
+
+
+def write_clean_state_chunked_shard(
+    cache_dir: str | Path,
+    entries: Iterable[FrontRESCleanStateEntry],
+    *,
+    shard_id: int = 0,
+) -> tuple[Path, list[dict[str, Any]]]:
+    entry_list = list(entries)
+    for entry in entry_list:
+        entry.validate()
+    shard_path = _clean_chunked_shard_path(cache_dir, shard_id)
+    shard_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "format": "frontres_clean_state_chunked_shard_v1",
+            "entries": [clean_entry_to_record(entry) for entry in entry_list],
+        },
+        shard_path,
+    )
+    manifest_records = [
+        {
+            "path": _relative_posix(shard_path, cache_dir),
+            "row": row,
+            "segment": segment_to_record(entry.segment),
+        }
+        for row, entry in enumerate(entry_list)
+    ]
+    return shard_path, manifest_records
+
+
+def clean_state_manifest_record(cache_dir: str | Path, entry: FrontRESCleanStateEntry) -> dict[str, Any]:
+    entry.validate()
+    entry_path = _clean_segment_path(cache_dir, entry.segment)
+    if not entry_path.is_file():
+        raise FileNotFoundError(f"clean state payload missing before manifest record: {entry_path}")
+    return {
+        "path": _relative_posix(entry_path, cache_dir),
+        "segment": segment_to_record(entry.segment),
+    }
+
+
+def write_clean_state_manifest_records(
+    cache_dir: str | Path,
+    records: Iterable[dict[str, Any]],
+    *,
+    shard_id: int = 0,
+) -> Path:
+    record_list = list(records)
+    manifest_path = _clean_manifest_path(cache_dir, shard_id)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "format": "frontres_clean_state_tree_manifest_v1",
+            "entries": record_list,
+        },
+        manifest_path,
+    )
+    return manifest_path
+
+
+def write_clean_state_manifest(
     cache_dir: str | Path,
     entries: Iterable[FrontRESCleanStateEntry],
     *,
@@ -85,31 +210,21 @@ def write_clean_state_shard(
         entry.validate()
     manifest_path = _clean_manifest_path(cache_dir, shard_id)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    records = []
+    records = [clean_state_manifest_record(cache_dir, entry) for entry in entry_list]
+    return write_clean_state_manifest_records(cache_dir, records, shard_id=shard_id)
+
+
+def write_clean_state_shard(
+    cache_dir: str | Path,
+    entries: Iterable[FrontRESCleanStateEntry],
+    *,
+    shard_id: int = 0,
+) -> Path:
+    entry_list = list(entries)
     for entry in entry_list:
-        entry_path = _clean_segment_path(cache_dir, entry.segment)
-        entry_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            {
-                "format": "frontres_clean_state_file_v1",
-                "entry": clean_entry_to_record(entry),
-            },
-            entry_path,
-        )
-        records.append(
-            {
-                "path": _relative_posix(entry_path, cache_dir),
-                "segment": segment_to_record(entry.segment),
-            }
-        )
-    torch.save(
-        {
-            "format": "frontres_clean_state_tree_manifest_v1",
-            "entries": records,
-        },
-        manifest_path,
-    )
-    return manifest_path
+        entry.validate()
+    _, records = write_clean_state_chunked_shard(cache_dir, entry_list, shard_id=shard_id)
+    return write_clean_state_manifest_records(cache_dir, records, shard_id=shard_id)
 
 
 def read_clean_state_shard(path: str | Path) -> list[FrontRESCleanStateEntry]:
@@ -122,13 +237,111 @@ def read_clean_state_shard(path: str | Path) -> list[FrontRESCleanStateEntry]:
         for item in payload["entries"]:
             entry_payload = torch.load(base_dir / item["path"], map_location="cpu", weights_only=False)
             if entry_payload.get("format") != "frontres_clean_state_file_v1":
-                raise ValueError(f"unsupported clean state file format: {entry_payload.get('format')}")
-            entries.append(clean_entry_from_record(entry_payload["entry"]))
+                if entry_payload.get("format") != "frontres_clean_state_chunked_shard_v1":
+                    raise ValueError(f"unsupported clean state file format: {entry_payload.get('format')}")
+                entries.append(clean_entry_from_record(entry_payload["entries"][int(item["row"])]))
+            else:
+                entries.append(clean_entry_from_record(entry_payload["entry"]))
     else:
         raise ValueError(f"unsupported clean state shard format: {payload.get('format')}")
     for entry in entries:
         entry.validate()
     return entries
+
+
+def write_noisy_variant_file(cache_dir: str | Path, variant: FrontRESNoisyVariant) -> Path:
+    variant.validate()
+    variant_path = _noisy_variant_path(cache_dir, variant)
+    variant_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "format": "frontres_noisy_variant_file_v1",
+            "variant": noisy_variant_to_record(variant),
+        },
+        variant_path,
+    )
+    return variant_path
+
+
+def write_noisy_variant_chunked_shard(
+    cache_dir: str | Path,
+    variants: Iterable[FrontRESNoisyVariant],
+    *,
+    strength: float,
+    shard_id: int = 0,
+) -> tuple[Path, list[dict[str, Any]]]:
+    variant_list = list(variants)
+    for variant in variant_list:
+        variant.validate()
+    shard_path = _noisy_chunked_shard_path(cache_dir, strength=strength, shard_id=shard_id)
+    shard_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "format": "frontres_noisy_variant_chunked_shard_v1",
+            "strength": float(strength),
+            "variants": [noisy_variant_to_record(variant) for variant in variant_list],
+        },
+        shard_path,
+    )
+    manifest_records = [
+        {
+            "path": _relative_posix(shard_path, cache_dir),
+            "row": row,
+            "segment": segment_to_record(variant.segment),
+            "descriptor": perturbation_to_record(variant.descriptor),
+        }
+        for row, variant in enumerate(variant_list)
+    ]
+    return shard_path, manifest_records
+
+
+def noisy_variant_manifest_record(cache_dir: str | Path, variant: FrontRESNoisyVariant) -> dict[str, Any]:
+    variant.validate()
+    variant_path = _noisy_variant_path(cache_dir, variant)
+    if not variant_path.is_file():
+        raise FileNotFoundError(f"noisy variant payload missing before manifest record: {variant_path}")
+    return {
+        "path": _relative_posix(variant_path, cache_dir),
+        "segment": segment_to_record(variant.segment),
+        "descriptor": perturbation_to_record(variant.descriptor),
+    }
+
+
+def write_noisy_variant_manifest_records(
+    cache_dir: str | Path,
+    records: Iterable[dict[str, Any]],
+    *,
+    strength: float,
+    shard_id: int = 0,
+) -> Path:
+    record_list = list(records)
+    manifest_path = _noisy_manifest_path(cache_dir, strength=strength, shard_id=shard_id)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "format": "frontres_noisy_variant_tree_manifest_v1",
+            "strength": float(strength),
+            "variants": record_list,
+        },
+        manifest_path,
+    )
+    return manifest_path
+
+
+def write_noisy_variant_manifest(
+    cache_dir: str | Path,
+    variants: Iterable[FrontRESNoisyVariant],
+    *,
+    strength: float,
+    shard_id: int = 0,
+) -> Path:
+    variant_list = list(variants)
+    for variant in variant_list:
+        variant.validate()
+    manifest_path = _noisy_manifest_path(cache_dir, strength=strength, shard_id=shard_id)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    records = [noisy_variant_manifest_record(cache_dir, variant) for variant in variant_list]
+    return write_noisy_variant_manifest_records(cache_dir, records, strength=strength, shard_id=shard_id)
 
 
 def write_noisy_variant_shard(
@@ -141,35 +354,13 @@ def write_noisy_variant_shard(
     variant_list = list(variants)
     for variant in variant_list:
         variant.validate()
-    manifest_path = _noisy_manifest_path(cache_dir, strength=strength, shard_id=shard_id)
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    records = []
-    for variant in variant_list:
-        variant_path = _noisy_variant_path(cache_dir, variant)
-        variant_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            {
-                "format": "frontres_noisy_variant_file_v1",
-                "variant": noisy_variant_to_record(variant),
-            },
-            variant_path,
-        )
-        records.append(
-            {
-                "path": _relative_posix(variant_path, cache_dir),
-                "segment": segment_to_record(variant.segment),
-                "descriptor": perturbation_to_record(variant.descriptor),
-            }
-        )
-    torch.save(
-        {
-            "format": "frontres_noisy_variant_tree_manifest_v1",
-            "strength": float(strength),
-            "variants": records,
-        },
-        manifest_path,
+    _, records = write_noisy_variant_chunked_shard(
+        cache_dir,
+        variant_list,
+        strength=strength,
+        shard_id=shard_id,
     )
-    return manifest_path
+    return write_noisy_variant_manifest_records(cache_dir, records, strength=strength, shard_id=shard_id)
 
 
 def read_noisy_variant_shard(path: str | Path) -> list[FrontRESNoisyVariant]:
@@ -182,12 +373,63 @@ def read_noisy_variant_shard(path: str | Path) -> list[FrontRESNoisyVariant]:
         for item in payload["variants"]:
             variant_payload = torch.load(base_dir / item["path"], map_location="cpu", weights_only=False)
             if variant_payload.get("format") != "frontres_noisy_variant_file_v1":
-                raise ValueError(f"unsupported noisy variant file format: {variant_payload.get('format')}")
-            variants.append(noisy_variant_from_record(variant_payload["variant"]))
+                if variant_payload.get("format") != "frontres_noisy_variant_chunked_shard_v1":
+                    raise ValueError(f"unsupported noisy variant file format: {variant_payload.get('format')}")
+                variants.append(noisy_variant_from_record(variant_payload["variants"][int(item["row"])]))
+            else:
+                variants.append(noisy_variant_from_record(variant_payload["variant"]))
     else:
         raise ValueError(f"unsupported noisy variant shard format: {payload.get('format')}")
     for variant in variants:
         variant.validate()
+    return variants
+
+
+def read_noisy_variant_manifest_records(path: str | Path) -> tuple[Path, list[dict[str, Any]]]:
+    manifest_path = Path(path)
+    payload = torch.load(manifest_path, map_location="cpu", weights_only=False)
+    if payload.get("format") != "frontres_noisy_variant_tree_manifest_v1":
+        raise ValueError(f"unsupported noisy variant manifest format: {payload.get('format')}")
+    base_dir = manifest_path.parent.parent.parent.parent
+    return base_dir, list(payload["variants"])
+
+
+def read_noisy_variant_record(
+    cache_dir: str | Path,
+    record: dict[str, Any],
+    *,
+    shard_cache: FrontRESSegmentShardLRU | None = None,
+) -> FrontRESNoisyVariant:
+    payload_path = Path(cache_dir) / str(record["path"])
+    payload = shard_cache.load(payload_path) if shard_cache is not None else torch.load(
+        payload_path,
+        map_location="cpu",
+        weights_only=False,
+    )
+    fmt = payload.get("format")
+    if fmt == "frontres_noisy_variant_file_v1":
+        variant = noisy_variant_from_record(payload["variant"])
+    elif fmt == "frontres_noisy_variant_chunked_shard_v1":
+        variant = noisy_variant_from_record(payload["variants"][int(record["row"])])
+    else:
+        raise ValueError(f"unsupported noisy variant payload format: {fmt}")
+    variant.validate()
+    return variant
+
+
+def read_noisy_variants_from_records(
+    cache_dir: str | Path,
+    records: Iterable[dict[str, Any]],
+    *,
+    shard_cache: FrontRESSegmentShardLRU | None = None,
+) -> list[FrontRESNoisyVariant]:
+    grouped: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
+    for record in records:
+        grouped.setdefault(str(record["path"]), []).append(record)
+    variants: list[FrontRESNoisyVariant] = []
+    for _, group in grouped.items():
+        for record in group:
+            variants.append(read_noisy_variant_record(cache_dir, record, shard_cache=shard_cache))
     return variants
 
 
@@ -340,6 +582,14 @@ def _clean_manifest_path(cache_dir: str | Path, shard_id: int) -> Path:
 
 def _noisy_manifest_path(cache_dir: str | Path, *, strength: float, shard_id: int) -> Path:
     return Path(cache_dir) / "manifests" / "noisy_variants" / _strength_dir(strength) / f"shard_{int(shard_id):06d}.pt"
+
+
+def _clean_chunked_shard_path(cache_dir: str | Path, shard_id: int) -> Path:
+    return Path(cache_dir) / "shards" / "clean_states" / f"shard_{int(shard_id):06d}.pt"
+
+
+def _noisy_chunked_shard_path(cache_dir: str | Path, *, strength: float, shard_id: int) -> Path:
+    return Path(cache_dir) / "shards" / "noisy_variants" / _strength_dir(strength) / f"shard_{int(shard_id):06d}.pt"
 
 
 def _clean_segment_path(cache_dir: str | Path, segment: FrontRESSegmentIndex) -> Path:

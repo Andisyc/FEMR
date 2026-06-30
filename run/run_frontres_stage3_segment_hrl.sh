@@ -6,8 +6,9 @@ if [[ $# -lt 2 ]]; then
   echo
   echo "Stage 3 loads an HSL Delta SE proposal checkpoint and trains Segment Replay HRL."
   echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop."
+  echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "Example:"
-  echo "  bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
+  echo "  SHARD_CACHE_SIZE=8 bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
   echo "  bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 1 1 1 update_loop"
   exit 1
 fi
@@ -22,6 +23,7 @@ NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FEMR_STAGE3_SEGMENT_HRL}"
 CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
+SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
 CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py}"
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
@@ -76,6 +78,7 @@ TRAIN_CMD=(
   --is_full_resume False
   --frontres_stage stage3_segment_hrl
   --frontres_segment_cache_dir "${CACHE_DIR}"
+  --frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"
   --frontres_segment_live_update_steps "${UPDATE_STEPS}"
 )
 
@@ -97,6 +100,7 @@ if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
     " --resume_student_checkpoint ${HSL_CHECKPOINT} " \
     " --is_full_resume False " \
     " --frontres_segment_cache_dir ${CACHE_DIR} " \
+    " --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} " \
     " --frontres_segment_live_update_steps ${UPDATE_STEPS} " \
     " --experiment_name g1_flat_frontres_stage3_segment_hrl "
   do

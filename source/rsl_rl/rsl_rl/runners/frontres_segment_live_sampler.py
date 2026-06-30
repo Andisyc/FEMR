@@ -71,10 +71,12 @@ def _ensure_stage1_cache_dataset(runner: Any) -> None:
         print("[FrontRES Segment Dataset] cache_load skipped reason=no_cache_dir", flush=True)
         return
     include_boundary = bool(getattr(alg, "frontres_segment_include_boundary_diagnostic", False))
+    shard_cache_size = max(1, int(getattr(alg, "frontres_segment_shard_cache_size", 8)))
     dataset = load_stage1_cache_dataset(
         cache_dir,
         device=getattr(runner, "device", "cpu"),
         include_boundary_diagnostic=include_boundary,
+        shard_cache_size=shard_cache_size,
     )
     runner._frontres_segment_dataset = dataset
     metadata = dataset.cache_metadata() if hasattr(dataset, "cache_metadata") else None
@@ -83,6 +85,7 @@ def _ensure_stage1_cache_dataset(runner: Any) -> None:
         f"cache_dir={cache_dir} "
         f"num_segments={dataset.num_segments()} "
         f"include_boundary_diagnostic={include_boundary} "
+        f"shard_cache_size={shard_cache_size} "
         f"metadata={metadata}",
         flush=True,
     )

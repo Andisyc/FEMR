@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import importlib.util
+import json
 import sys
 import tempfile
 
@@ -108,6 +109,8 @@ def test_cache_io_round_trips_clean_and_noisy_shards() -> None:
             cache_dir,
             {"stage": "stage1_segment_cache", "segment_count": 2, "noisy_variant_count": 2},
         )
+        status_path = cache_io.write_stage1_cache_status(cache_dir, {"status": "started", "clean_written": 0})
+        progress_path = cache_io.append_stage1_cache_progress(cache_dir, {"event": "clean_done", "segment_id": 7})
         clean_path = cache_io.write_clean_state_shard(cache_dir, clean_entries, shard_id=0)
         noisy_path = cache_io.write_noisy_variant_shard(cache_dir, noisy_variants, strength=0.5, shard_id=0)
 
@@ -120,17 +123,14 @@ def test_cache_io_round_trips_clean_and_noisy_shards() -> None:
             f"noisy_ids={[(variant.segment_id, variant.perturbation_id) for variant in noisy_variants]}"
         )
         clean_payload_path = (
-            cache_dir / "KIT" / "359" / "motion_7" / "segment_00000007_start_00000003_k_0004" / "clean.pt"
+            cache_dir / "shards" / "clean_states" / "shard_000000.pt"
         )
         noisy_payload_path = (
             cache_dir
-            / "KIT"
-            / "359"
-            / "motion_7"
-            / "segment_00000007_start_00000007_k_0004"
+            / "shards"
             / "noisy_variants"
             / "strength_0p5"
-            / "perturbation_00000003.pt"
+            / "shard_000000.pt"
         )
         print(
             "[cache_io trace] mirror_paths "
@@ -153,6 +153,9 @@ def test_cache_io_round_trips_clean_and_noisy_shards() -> None:
 
         assert metadata["format"] == "frontres_segment_cache_v1"
         assert metadata["segment_count"] == 2
+        assert json.loads(status_path.read_text())["status"] == "started"
+        progress_events = [json.loads(line)["event"] for line in progress_path.read_text().splitlines()]
+        assert progress_events == ["clean_done"]
         assert clean_payload_path.exists()
         assert noisy_payload_path.exists()
         assert clean_path.relative_to(cache_dir).as_posix() == "manifests/clean_states/shard_000000.pt"
@@ -197,7 +200,44 @@ def test_cache_io_rejects_id_drift_before_write() -> None:
         raise AssertionError("writer should reject noisy variant id drift")
 
 
+def test_shard_lru_limits_resident_payloads() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp) / "frontres_segment_cache"
+        payload_paths = []
+        for shard_id in range(3):
+            shard_path, _ = cache_io.write_noisy_variant_chunked_shard(
+                cache_dir,
+                [_variant(shard_id, shard_id, 0.5, float(shard_id))],
+                strength=0.5,
+                shard_id=shard_id,
+            )
+            payload_paths.append(shard_path)
+
+        lru = cache_io.FrontRESSegmentShardLRU(max_shards=2)
+        access_order = [0, 1, 0, 2, 1]
+        probes = []
+        for shard_id in access_order:
+            payload = lru.load(payload_paths[shard_id])
+            probes.append(lru.probe())
+            assert payload["format"] == "frontres_noisy_variant_chunked_shard_v1"
+            assert len(payload["variants"]) == 1
+
+        print(
+            "[cache_io trace] shard_lru "
+            f"access_order={access_order} "
+            f"payload_paths={[path.relative_to(cache_dir).as_posix() for path in payload_paths]} "
+            f"probes={probes}"
+        )
+        assert max(item["resident_shards"] for item in probes) <= 2
+        assert probes[0]["load_count"] == 1
+        assert probes[1]["load_count"] == 2
+        assert probes[2]["hit_count"] == 1
+        assert probes[3]["load_count"] == 3
+        assert probes[4]["load_count"] == 4
+
+
 if __name__ == "__main__":
     test_cache_io_round_trips_clean_and_noisy_shards()
     test_cache_io_rejects_id_drift_before_write()
+    test_shard_lru_limits_resident_payloads()
     print("PASS: FrontRES Segment cache IO round-trips clean states and noisy variants.")
