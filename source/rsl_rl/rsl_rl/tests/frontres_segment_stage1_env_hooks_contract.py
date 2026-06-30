@@ -312,6 +312,28 @@ def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
         torch.testing.assert_close(env.unwrapped.robot.data.root_pos_w, torch.tensor([[3.0, 0.0, 1.0]]))
         assert env.unwrapped.command.perturber.reset_calls == [[0]]
 
+        index_reset = adapter.apply_frontres_segment_index_reset(
+            types.SimpleNamespace(
+                segment_ids=torch.tensor([5], dtype=torch.long),
+                motion_ids=("KIT/359/motion_a.npz",),
+                start_frames=torch.tensor([4], dtype=torch.long),
+                horizon_k=torch.tensor([2], dtype=torch.long),
+            )
+        )
+        print(
+            "[stage1_hooks trace] index_reset "
+            f"success={index_reset['reset_success'].tolist()} "
+            f"motion_idx={env.unwrapped.command.env_motion_indices.tolist()} "
+            f"time_steps={env.unwrapped.command.time_steps.tolist()} "
+            f"root_pos={env.unwrapped.robot.data.root_pos_w.tolist()} "
+            f"joint_head={env.unwrapped.robot.data.joint_pos[:, :3].tolist()}"
+        )
+        assert index_reset["reset_success"].tolist() == [True]
+        assert env.unwrapped.command.env_motion_indices.tolist() == [0]
+        assert env.unwrapped.command.time_steps.tolist() == [4]
+        torch.testing.assert_close(env.unwrapped.robot.data.root_pos_w, torch.tensor([[4.0, 0.0, 1.0]]))
+        torch.testing.assert_close(env.unwrapped.robot.data.joint_pos[:, :3], torch.tensor([[4.0, 5.0, 6.0]]))
+
         reset = adapter.set_frontres_rollout_state(clean_state=_clean_state(), env_ids=env_ids)
         print(
             "[stage1_hooks trace] after_reset "

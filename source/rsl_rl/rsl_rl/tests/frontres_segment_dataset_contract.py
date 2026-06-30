@@ -172,7 +172,7 @@ def _write_stage1_cache(cache_dir: Path) -> None:
 def _write_stage1_multirow_cache(cache_dir: Path) -> None:
     segments = [
         _cache_segment(segment_id=0, motion_rel_path="KIT/359/motion_a.npz", start_frame=2),
-        _cache_segment(segment_id=1, motion_rel_path="KIT/359/motion_b.npz", start_frame=3),
+        _cache_segment(segment_id=1, motion_rel_path="KIT/359/motion_a.npz", start_frame=3),
     ]
     summary = indexer.FrontRESAMASSIndexSummary(
         amass_root="/tmp/fake_amass",
@@ -367,6 +367,51 @@ def test_dataset_loads_stage1_cache_and_excludes_boundary_diagnostics_by_default
         assert dataset.cache_metadata()["skipped_boundary_diagnostic_count"] == 1
 
 
+def test_dataset_loads_stage1_index_only_candidate_pool() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp) / "AMASS_G1SegmentIndex"
+        segments = [
+            _cache_segment(segment_id=0, motion_rel_path="KIT/359/motion_a.npz", start_frame=2),
+            _cache_segment(segment_id=1, motion_rel_path="KIT/359/motion_b.npz", start_frame=3),
+        ]
+        summary = indexer.FrontRESAMASSIndexSummary(
+            amass_root="/tmp/fake_amass",
+            motion_count=2,
+            segment_count=2,
+            horizon_k=4,
+            frame_stride=1,
+            skipped_short_motions=0,
+        )
+        indexer.write_amass_segment_index(cache_dir, segments, summary)
+
+        dataset = load_stage1_cache_dataset(cache_dir, device="cpu")
+        batch = dataset.get_segments([1, 0])
+        validation = dataset.validate_batch(batch)
+        metadata = dataset.cache_metadata()
+        print(
+            "[dataset index-only trace] "
+            f"num_segments={dataset.num_segments()} "
+            f"ids={batch.segment_ids.tolist()} "
+            f"motion_ids={[spec.motion_id for spec in batch.specs]} "
+            f"start_frames={[spec.start_frame for spec in batch.specs]} "
+            f"state_shape={tuple(batch.clean_state.dof_pos.shape)} "
+            f"reference_shape={tuple(batch.reference_window.shape)} "
+            f"families={batch.perturbation_family} "
+            f"metadata_index_only={metadata.get('index_only')}"
+        )
+        assert dataset.num_segments() == 2
+        assert batch.segment_ids.tolist() == [1, 0]
+        assert [spec.motion_id for spec in batch.specs] == ["KIT/359/motion_b.npz", "KIT/359/motion_a.npz"]
+        assert [spec.start_frame for spec in batch.specs] == [3, 2]
+        assert batch.perturbation_family == ("index_only", "index_only")
+        assert batch.perturbation_strength.tolist() == [0.0, 0.0]
+        assert tuple(batch.clean_state.dof_pos.shape) == (2, 29)
+        assert tuple(batch.reference_window.shape) == (2, 5, 58)
+        assert validation.all_valid
+        assert metadata["format"] == "frontres_segment_cache_index_v1"
+        assert metadata["index_only"] is True
+
+
 def test_dataset_lazy_cache_uses_lru_shard_reads() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cache_dir = Path(tmp) / "AMASS_G1Segment"
@@ -379,7 +424,7 @@ def test_dataset_lazy_cache_uses_lru_shard_reads() -> None:
             f"record_rows={[record.manifest_record.get('row') for record in records]}"
         )
         assert summary.loaded_motion_count == 1
-        assert records[0].manifest_record["path"].startswith("shards/noisy_variants/")
+        assert records[0].manifest_record["path"].endswith("noisy_variants/strength_1p5/shard_000000.pt")
 
         dataset = load_stage1_cache_dataset(cache_dir, device="cpu", lazy=True, shard_cache_size=1)
         before = dataset.cache_metadata()["shard_cache"]
@@ -544,6 +589,7 @@ def main() -> None:
     test_dataset_global_sampling_excludes_invalid_segments()
     test_dataset_state_dict_restores_invalidity_and_baseline()
     test_dataset_loads_stage1_cache_and_excludes_boundary_diagnostics_by_default()
+    test_dataset_loads_stage1_index_only_candidate_pool()
     test_dataset_lazy_cache_uses_lru_shard_reads()
     test_dataset_lazy_read_maps_segment_id_to_manifest_row_and_batch_values()
     test_dataset_lazy_cache_lru_bounds_multishard_reads()

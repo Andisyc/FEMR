@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib.util
+import json
 from pathlib import Path
 import sys
 from typing import Any, Callable, Iterable, Sequence
@@ -20,6 +21,11 @@ def _load_same_dir(module_name: str):
     return module
 
 
+def _read_stage1_metadata_raw(cache_dir: str | Path) -> dict[str, Any]:
+    with (Path(cache_dir) / "metadata.json").open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 try:
     from rsl_rl.frontres.frontres_segment_cache_io import (
         FrontRESSegmentShardLRU,
@@ -35,6 +41,12 @@ except ModuleNotFoundError:
     read_noisy_variant_manifest_records = _cache_io.read_noisy_variant_manifest_records
     read_noisy_variant_record = _cache_io.read_noisy_variant_record
     read_noisy_variant_shard = _cache_io.read_noisy_variant_shard
+
+try:
+    from rsl_rl.frontres.frontres_segment_cache_indexer import read_amass_segment_index
+except ModuleNotFoundError:
+    _cache_indexer = _load_same_dir("frontres_segment_cache_indexer")
+    read_amass_segment_index = _cache_indexer.read_amass_segment_index
 
 
 @dataclass(frozen=True)
@@ -647,6 +659,63 @@ class FrontRESStage1LazyCacheDataset:
         return torch.stack([motion["reference"].to(self.device) for motion in motions], dim=0)
 
 
+class FrontRESStage1IndexDataset(FrontRESSegmentDataset):
+    def __init__(
+        self,
+        *,
+        cache_dir: str | Path,
+        metadata: dict[str, Any],
+        device: str | torch.device = "cpu",
+        dof_dim: int = 29,
+    ) -> None:
+        self.cache_dir = Path(cache_dir)
+        self.device = torch.device(device)
+        self.dof_dim = int(dof_dim)
+        self._segments = tuple(read_amass_segment_index(self.cache_dir / "segment_index.jsonl"))
+        self._specs = [self._spec_from_segment(segment) for segment in self._segments]
+        self._spec_by_id = {spec.segment_id: spec for spec in self._specs}
+        self._invalid_reasons: dict[int, str] = {}
+        self._noisy_baseline: dict[int, Any] = {}
+        self._cache_metadata = {
+            **dict(metadata),
+            "index_only": True,
+            "loaded_motion_count": len(self._segments),
+        }
+
+    def _spec_from_segment(self, segment: Any) -> FrontRESSegmentSpec:
+        denom = max(1, int(segment.motion_num_frames) - 1)
+        return FrontRESSegmentSpec(
+            segment_id=int(segment.segment_id),
+            motion_id=str(segment.motion_rel_path),
+            start_frame=int(segment.start_frame),
+            start_time=float(segment.start_frame) / float(segment.fps),
+            phase=float(segment.start_frame) / float(denom),
+            horizon_k=int(segment.horizon_k),
+            perturbation_family="index_only",
+            perturbation_strength=0.0,
+            perturbation_role="train",
+            reset_mode_hint="auto",
+            valid_for_training=True,
+        )
+
+    def _state_for_specs(self, specs: Sequence[FrontRESSegmentSpec]) -> FrontRESSegmentState:
+        batch_size = len(specs)
+        root_quat = torch.zeros((batch_size, 4), dtype=torch.float32, device=self.device)
+        root_quat[:, 0] = 1.0
+        return FrontRESSegmentState(
+            root_pos=torch.zeros((batch_size, 3), dtype=torch.float32, device=self.device),
+            root_quat=root_quat,
+            root_lin_vel=torch.zeros((batch_size, 3), dtype=torch.float32, device=self.device),
+            root_ang_vel=torch.zeros((batch_size, 3), dtype=torch.float32, device=self.device),
+            dof_pos=torch.zeros((batch_size, self.dof_dim), dtype=torch.float32, device=self.device),
+            dof_vel=torch.zeros((batch_size, self.dof_dim), dtype=torch.float32, device=self.device),
+        )
+
+    def _reference_for_specs(self, specs: Sequence[FrontRESSegmentSpec]) -> torch.Tensor:
+        frames = max(int(spec.horizon_k) for spec in specs) + 1
+        return torch.zeros((len(specs), frames, self.dof_dim * 2), dtype=torch.float32, device=self.device)
+
+
 def _require_shape(name: str, tensor: torch.Tensor, shape: tuple[int, ...]) -> None:
     if tuple(tensor.shape) != tuple(shape):
         raise ValueError(f"{name} must have shape {shape}, got {tuple(tensor.shape)}")
@@ -763,7 +832,19 @@ def load_stage1_cache_dataset(
     include_boundary_diagnostic: bool = False,
     lazy: bool = True,
     shard_cache_size: int = 8,
-) -> FrontRESSegmentDataset | FrontRESStage1LazyCacheDataset:
+) -> FrontRESSegmentDataset | FrontRESStage1LazyCacheDataset | FrontRESStage1IndexDataset:
+    metadata = _read_stage1_metadata_raw(cache_dir)
+    if metadata.get("format") == "frontres_segment_cache_index_v1":
+        dataset = FrontRESStage1IndexDataset(cache_dir=cache_dir, metadata=metadata, device=device)
+        print(
+            "[FrontRES Segment Dataset] cache_load "
+            "mode=index_only "
+            f"loaded_motion_count={dataset.num_segments()} "
+            "metadata_noisy_count=0 "
+            "lazy=False index_only=True",
+            flush=True,
+        )
+        return dataset
     if lazy:
         records, summary = build_stage1_cache_lazy_records(
             cache_dir,

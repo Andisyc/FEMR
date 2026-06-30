@@ -43,6 +43,7 @@ def initialize_frontres_segment_live_sampler(runner: Any) -> None:
     if getattr(runner, "_frontres_segment_sampler", None) is not None:
         return
     _ensure_stage1_cache_dataset(runner)
+    _ensure_stage1_index_reset_hook(runner)
     num_segments = _resolve_num_segments(runner)
     runner._frontres_segment_sampler = FrontRESSegmentSampler(
         num_segments=num_segments,
@@ -58,6 +59,33 @@ def initialize_frontres_segment_live_sampler(runner: Any) -> None:
         f"global_frac={runner._frontres_segment_sampler.global_frac:.3f} "
         f"replay_frac={runner._frontres_segment_sampler.replay_frac:.3f} "
         f"review_frac={runner._frontres_segment_sampler.review_frac:.3f}",
+        flush=True,
+    )
+
+
+def _ensure_stage1_index_reset_hook(runner: Any) -> None:
+    dataset = getattr(runner, "_frontres_segment_dataset", None)
+    metadata = dataset.cache_metadata() if dataset is not None and hasattr(dataset, "cache_metadata") else None
+    if not isinstance(metadata, dict) or not bool(metadata.get("index_only", False)):
+        return
+    amass_root = str(metadata.get("amass_root", "") or "")
+    if not amass_root:
+        raise ValueError("index-only Stage 1 dataset metadata is missing amass_root")
+    from rsl_rl.frontres.frontres_segment_stage1_env_hooks import ensure_frontres_segment_index_reset_hook
+
+    adapter = ensure_frontres_segment_index_reset_hook(
+        runner.env,
+        amass_root=amass_root,
+        robot_name=str(getattr(runner.alg, "frontres_segment_reset_robot_name", "robot")),
+        trace=bool(getattr(runner.alg, "frontres_segment_reset_trace", True)),
+    )
+    probe = adapter.frontres_motion_loader_probe()
+    print(
+        "[FrontRES Segment Index Reset Hook Ready] "
+        f"amass_root={amass_root} "
+        f"loaded_motion_count={probe.get('loaded_motion_count')} "
+        f"all_motion_count={probe.get('all_motion_count')} "
+        f"first_loaded_motion={probe.get('first_loaded_motion')}",
         flush=True,
     )
 

@@ -325,6 +325,16 @@ class _FakeLiveEnv:
         return obs, rewards, dones, {"observations": {}}
 
 
+class _FakeIndexResetLiveEnv(_FakeLiveEnv):
+    def apply_frontres_segment_index_reset(self, request):
+        self.events.append("index_reset")
+        self.last_index_reset_request = request
+        return {
+            "success_mask": torch.ones(int(request.segment_ids.numel()), dtype=torch.bool),
+            "velocity_mismatch": torch.zeros(int(request.segment_ids.numel())),
+        }
+
+
 def _reset_batch() -> SimpleNamespace:
     return SimpleNamespace(
         segment_ids=torch.tensor([7, 9], dtype=torch.long),
@@ -340,6 +350,24 @@ def _reset_batch() -> SimpleNamespace:
         phase=torch.tensor([0.1, 0.2]),
         specs=(),
     )
+
+
+def _index_only_reset_batch() -> SimpleNamespace:
+    batch = _reset_batch()
+    batch.specs = (
+        SimpleNamespace(
+            motion_id="KIT/359/motion_a.npz",
+            start_frame=12,
+            perturbation_family="index_only",
+        ),
+        SimpleNamespace(
+            motion_id="KIT/359/motion_b.npz",
+            start_frame=24,
+            perturbation_family="index_only",
+        ),
+    )
+    batch.perturbation_family = ("index_only", "index_only")
+    return batch
 
 
 def test_live_probe_applies_current_segment_batch_reset_before_rollout() -> None:
@@ -404,10 +432,134 @@ def test_live_probe_applies_current_segment_batch_reset_before_rollout() -> None
     assert summary["done_frac"] == 0.0
 
 
+def test_live_probe_skips_dynamic_reset_for_index_only_segments() -> None:
+    env = _FakeLiveEnv()
+    runner = SimpleNamespace(
+        env=env,
+        device=torch.device("cpu"),
+        policy_obs_type=None,
+        privileged_obs_type=None,
+        teacher_obs_type=None,
+        ref_vel_estimator_obs_type=None,
+        current_learning_iteration=0,
+        _frontres_segment_replay_boundary=SimpleNamespace(
+            live_probe_only=True,
+            live_storage_write_only=False,
+            live_single_update_only=False,
+            live_update_loop_only=False,
+            live_train_enabled=False,
+            segment_k=1,
+            reset_mode="direct",
+        ),
+        _frontres_segment_live_current_batch=_index_only_reset_batch(),
+        alg=SimpleNamespace(
+            frontres_training_objective="segment_replay_hrl",
+            frontres_segment_k=1,
+            frontres_segment_reset_mode="direct",
+            frontres_segment_preroll_steps=0,
+            transition=SimpleNamespace(),
+        ),
+        eval_mode=lambda: None,
+        _apply_obs_normalizer=lambda obs: obs,
+        privileged_obs_normalizer=lambda obs: obs,
+        teacher_obs_normalizer=lambda obs: obs,
+    )
+
+    summary = run_frontres_segment_live_probe(runner, init_at_random_ep_len=False)
+    batch = runner._frontres_segment_live_current_batch
+
+    _probe_tensor("index_only.segment_ids", batch.segment_ids, "sampled ids from Stage 1 index-only candidate pool")
+    print(
+        "[probe step4] index_only_reset_skip: "
+        f"events={env.events} "
+        f"families={batch.perturbation_family} "
+        f"motion_ids={[spec.motion_id for spec in batch.specs]} "
+        f"start_frames={[spec.start_frame for spec in batch.specs]} "
+        f"skip_reason={runner._frontres_segment_live_current_reset_skip_reason} "
+        f"segment_reset={summary['segment_reset']} "
+        f"reward_mean={summary['reward_mean']}",
+        flush=True,
+    )
+
+    assert env.events == ["get_obs", "step"]
+    assert runner._frontres_segment_live_current_reset_request is None
+    assert runner._frontres_segment_live_current_reset_result is None
+    assert runner._frontres_segment_live_current_reset_skip_reason == "index_only_segment_index"
+    assert summary["segment_reset"] is False
+    assert summary["reward_mean"] == 0.75
+
+
+def test_live_probe_applies_index_reset_for_index_only_segments_when_env_supports_it() -> None:
+    env = _FakeIndexResetLiveEnv()
+    runner = SimpleNamespace(
+        env=env,
+        device=torch.device("cpu"),
+        policy_obs_type=None,
+        privileged_obs_type=None,
+        teacher_obs_type=None,
+        ref_vel_estimator_obs_type=None,
+        current_learning_iteration=0,
+        _frontres_segment_replay_boundary=SimpleNamespace(
+            live_probe_only=True,
+            live_storage_write_only=False,
+            live_single_update_only=False,
+            live_update_loop_only=False,
+            live_train_enabled=False,
+            segment_k=1,
+            reset_mode="direct",
+        ),
+        _frontres_segment_live_current_batch=_index_only_reset_batch(),
+        alg=SimpleNamespace(
+            frontres_training_objective="segment_replay_hrl",
+            frontres_segment_k=1,
+            frontres_segment_reset_mode="direct",
+            frontres_segment_preroll_steps=0,
+            transition=SimpleNamespace(),
+        ),
+        eval_mode=lambda: None,
+        _apply_obs_normalizer=lambda obs: obs,
+        privileged_obs_normalizer=lambda obs: obs,
+        teacher_obs_normalizer=lambda obs: obs,
+    )
+
+    summary = run_frontres_segment_live_probe(runner, init_at_random_ep_len=False)
+    request = runner._frontres_segment_live_current_reset_request
+    result = runner._frontres_segment_live_current_reset_result
+
+    _probe_tensor("index_request.segment_ids", request.segment_ids, "ids passed from index-only batch into env index reset")
+    _probe_tensor("index_request.start_frames", request.start_frames, "motion frame chosen by Stage 1 segment index")
+    _probe_tensor("index_request.horizon_k", request.horizon_k, "segment rollout horizon for live probing")
+    _probe_tensor("index_result.success_mask", result.success_mask, "env index reset success used by storage validity")
+    print(
+        "[probe step5] index_only_reset_apply: "
+        f"events={env.events} "
+        f"motion_ids={list(request.motion_ids)} "
+        f"start_frames={request.start_frames.tolist()} "
+        f"horizon_k={request.horizon_k.tolist()} "
+        f"segment_reset={summary['segment_reset']} "
+        f"success_frac={summary['segment_reset_success_frac']} "
+        f"reward_mean={summary['reward_mean']}",
+        flush=True,
+    )
+
+    assert env.events == ["index_reset", "get_obs", "step"]
+    assert request.segment_ids.tolist() == [7, 9]
+    assert list(request.motion_ids) == ["KIT/359/motion_a.npz", "KIT/359/motion_b.npz"]
+    assert request.start_frames.tolist() == [12, 24]
+    assert request.horizon_k.tolist() == [1, 1]
+    assert result.success_mask.tolist() == [True, True]
+    assert runner._frontres_segment_live_current_reset_skip_reason == ""
+    assert summary["segment_reset"] is True
+    assert summary["segment_reset_success_frac"] == 1.0
+    assert summary["reward_mean"] == 0.75
+
+
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_rejects_non_6d_actions()
     test_live_probe_selects_6d_delta_se_from_12d_rollout_action()
     test_build_live_segment_storage_masks_failed_reset_samples()
     test_live_probe_applies_current_segment_batch_reset_before_rollout()
+    test_live_probe_skips_dynamic_reset_for_index_only_segments()
+    test_live_probe_applies_index_reset_for_index_only_segments_when_env_supports_it()
     print("frontres_segment_live_probe_contract: ok")

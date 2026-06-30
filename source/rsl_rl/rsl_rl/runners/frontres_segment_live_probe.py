@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 import torch
@@ -184,6 +185,8 @@ def _apply_current_segment_reset(runner: Any) -> FrontRESSegmentResetResult | No
     batch = getattr(runner, "_frontres_segment_live_current_batch", None)
     if batch is None:
         return None
+    if _is_index_only_segment_batch(batch):
+        return _apply_index_only_segment_reset(runner, batch)
     adapter = getattr(runner, "_frontres_segment_reset_adapter", None)
     if adapter is None:
         adapter = FrontRESSegmentResetAdapter(
@@ -221,6 +224,123 @@ def _apply_current_segment_reset(runner: Any) -> FrontRESSegmentResetResult | No
         flush=True,
     )
     return result
+
+
+def _is_index_only_segment_batch(batch: Any) -> bool:
+    families = tuple(getattr(batch, "perturbation_family", ()) or ())
+    if families:
+        return all(str(family) == "index_only" for family in families)
+    specs = tuple(getattr(batch, "specs", ()) or ())
+    return bool(specs) and all(str(getattr(spec, "perturbation_family", "")) == "index_only" for spec in specs)
+
+
+def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentResetResult | None:
+    specs = tuple(getattr(batch, "specs", ()) or ())
+    motion_ids = tuple(str(getattr(spec, "motion_id", "")) for spec in specs)
+    start_frames = torch.tensor(
+        [int(getattr(spec, "start_frame", 0) or 0) for spec in specs],
+        dtype=torch.long,
+        device=batch.segment_ids.device,
+    )
+    horizon_k = torch.tensor(
+        [int(getattr(spec, "horizon_k", 1) or 1) for spec in specs],
+        dtype=torch.long,
+        device=batch.segment_ids.device,
+    )
+    request = SimpleNamespace(
+        segment_ids=batch.segment_ids,
+        motion_ids=motion_ids,
+        start_frames=start_frames,
+        horizon_k=horizon_k,
+        valid_mask=torch.ones_like(batch.segment_ids, dtype=torch.bool),
+    )
+    hook = _index_segment_reset_hook(runner.env)
+    if hook is None:
+        runner._frontres_segment_live_current_reset_request = None
+        runner._frontres_segment_live_current_reset_result = None
+        runner._frontres_segment_live_current_reset_skip_reason = "index_only_segment_index"
+        print(
+            "[FrontRES Segment Reset] "
+            "skip_reason=index_only_segment_index "
+            f"segment_ids={batch.segment_ids.detach().cpu().tolist()} "
+            f"motion_ids={list(motion_ids)} "
+            f"start_frames={start_frames.detach().cpu().tolist()}",
+            flush=True,
+        )
+        return None
+
+    raw_result = hook(request)
+    result = _index_reset_result_from_mapping(raw_result, request)
+    runner._frontres_segment_live_current_reset_request = request
+    runner._frontres_segment_live_current_reset_result = result
+    runner._frontres_segment_live_current_reset_skip_reason = ""
+    print(
+        "[FrontRES Segment Reset] "
+        "mode=index_only "
+        f"segment_ids={request.segment_ids.detach().cpu().tolist()} "
+        f"motion_ids={list(motion_ids)} "
+        f"start_frames={request.start_frames.detach().cpu().tolist()} "
+        f"horizon_k={request.horizon_k.detach().cpu().tolist()} "
+        f"success_frac={float(result.success_mask.float().mean().detach().cpu().item()):.4f}",
+        flush=True,
+    )
+    return result
+
+
+def _index_segment_reset_hook(env: Any) -> Any | None:
+    for name in ("apply_frontres_segment_index_reset", "reset_to_frontres_segment_index", "set_frontres_segment_index"):
+        if hasattr(env, name):
+            return getattr(env, name)
+    return None
+
+
+def _index_reset_result_from_mapping(mapping: Any, request: Any) -> FrontRESSegmentResetResult:
+    if isinstance(mapping, FrontRESSegmentResetResult):
+        return mapping
+    if mapping is None:
+        mapping = {}
+    count = int(request.segment_ids.numel())
+    device = request.segment_ids.device
+    success = _mapping_bool(mapping, ("success_mask", "reset_success", "valid_mask"), count, device, True)
+    fall = _mapping_bool(mapping, ("fall_at_reset_mask", "fall_at_reset", "fall"), count, device, False)
+    contact = _mapping_bool(mapping, ("contact_mismatch_mask", "contact_mismatch"), count, device, False)
+    velocity = _mapping_float(mapping, ("velocity_mismatch",), count, device, 0.0)
+    success = success & (~fall) & (~contact)
+    zero = torch.zeros(count, dtype=torch.bool, device=device)
+    diagnostics = {
+        "reset_success_frac": float(success.float().mean().item()) if count else 0.0,
+        "direct_frac": 0.0,
+        "preroll_frac": 0.0,
+        "invalid_static_frac": 0.0,
+        "fall_at_reset_frac": float(fall.float().mean().item()) if count else 0.0,
+        "contact_mismatch_frac": float(contact.float().mean().item()) if count else 0.0,
+        "velocity_mismatch_mean": float(velocity.float().mean().item()) if count else 0.0,
+        "reference_window_applied_frac": 0.0,
+    }
+    return FrontRESSegmentResetResult(
+        success_mask=success,
+        direct_reset_mask=zero,
+        preroll_mask=zero,
+        invalid_static_reset_mask=zero,
+        fall_at_reset_mask=fall,
+        contact_mismatch_mask=contact,
+        velocity_mismatch=velocity,
+        diagnostics=diagnostics,
+    )
+
+
+def _mapping_bool(mapping: dict[str, Any], names: tuple[str, ...], count: int, device: torch.device, default: bool) -> torch.Tensor:
+    for name in names:
+        if name in mapping:
+            return mapping[name].to(device=device).bool().flatten()
+    return torch.full((count,), default, dtype=torch.bool, device=device)
+
+
+def _mapping_float(mapping: dict[str, Any], names: tuple[str, ...], count: int, device: torch.device, default: float) -> torch.Tensor:
+    for name in names:
+        if name in mapping:
+            return mapping[name].to(device=device).float().flatten()
+    return torch.full((count,), default, dtype=torch.float32, device=device)
 
 
 def _env_has_segment_reset_hook(env: Any) -> bool:

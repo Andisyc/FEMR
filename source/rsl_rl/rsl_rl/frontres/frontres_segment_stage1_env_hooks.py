@@ -112,6 +112,51 @@ class FrontRESStage1EnvAdapter:
         )
         return {"success": torch.ones(ids.numel(), dtype=torch.bool, device=ids.device)}
 
+    def apply_frontres_segment_index_reset(self, request: Any) -> dict[str, torch.Tensor]:
+        segment_ids = getattr(request, "segment_ids")
+        count = int(segment_ids.numel())
+        ids = self._normalize_env_ids(range(count))
+        num_envs = int(getattr(self.base_env, "num_envs", getattr(self.command, "num_envs", count)) or count)
+        if count > num_envs:
+            raise ValueError(f"index reset request has {count} rows but env exposes only {num_envs} envs")
+        motion_ids = tuple(str(item) for item in getattr(request, "motion_ids"))
+        start_frames = getattr(request, "start_frames").to(device=ids.device, dtype=torch.long).flatten()
+        if len(motion_ids) != count or int(start_frames.numel()) != count:
+            raise ValueError("motion_ids and start_frames must match segment_ids count")
+        motion_indices = torch.tensor(
+            [self._motion_index_for_key(motion_id) for motion_id in motion_ids],
+            dtype=torch.long,
+            device=ids.device,
+        )
+        frame_indices = torch.tensor(
+            [
+                self._frame_index_for_values(int(frame.item()), int(motion_index.item()))
+                for frame, motion_index in zip(start_frames, motion_indices, strict=True)
+            ],
+            dtype=torch.long,
+            device=ids.device,
+        )
+        self.command.env_motion_indices[ids] = motion_indices
+        self.command.time_steps[ids] = frame_indices
+        if hasattr(self.command, "motion_end_buf"):
+            self.command.motion_end_buf[ids] = False
+        self._reset_frontres_command_state(ids)
+        self._write_command_reference_to_robot(ids)
+        success = torch.ones(count, dtype=torch.bool, device=segment_ids.device)
+        velocity = torch.zeros(count, dtype=torch.float32, device=segment_ids.device)
+        self._trace(
+            "index_reset",
+            segment_ids=segment_ids,
+            motion_ids=list(motion_ids),
+            motion_indices=motion_indices,
+            start_frames=start_frames,
+            frame_indices=frame_indices,
+            env_ids=ids.detach().cpu().tolist(),
+            root_pos=self.robot.data.root_pos_w.index_select(0, ids),
+            joint_pos=self.robot.data.joint_pos.index_select(0, ids),
+        )
+        return {"reset_success": success, "velocity_mismatch": velocity}
+
     def set_frontres_rollout_state(
         self, *, clean_state: FrontRESRobotRolloutState, env_ids: torch.Tensor
     ) -> dict[str, torch.Tensor]:
@@ -243,7 +288,9 @@ class FrontRESStage1EnvAdapter:
         return mapping
 
     def _motion_index_for_segment(self, segment: FrontRESSegmentIndex) -> int:
-        key = str(segment.motion_rel_path)
+        return self._motion_index_for_key(str(segment.motion_rel_path))
+
+    def _motion_index_for_key(self, key: str) -> int:
         if key in self.motion_path_to_index:
             return self.motion_path_to_index[key]
         suffix_hits = [
@@ -254,11 +301,14 @@ class FrontRESStage1EnvAdapter:
         raise KeyError(f"segment motion path {key!r} is not loaded by the motion command")
 
     def _frame_index_for_segment(self, segment: FrontRESSegmentIndex, motion_index: int) -> int:
+        return self._frame_index_for_values(int(segment.start_frame), motion_index)
+
+    def _frame_index_for_values(self, start_frame: int, motion_index: int) -> int:
         motion_lengths = getattr(self.command, "motion_lengths", None)
         if motion_lengths is None:
-            return int(segment.start_frame)
+            return int(start_frame)
         max_frame = int(motion_lengths[int(motion_index)].item()) - 1
-        return min(max(int(segment.start_frame), 0), max(max_frame, 0))
+        return min(max(int(start_frame), 0), max(max_frame, 0))
 
     def _write_command_reference_to_robot(self, env_ids: torch.Tensor) -> None:
         body_pos = self.command._gather_by_motion_for_envs("body_pos_w", env_ids)
@@ -361,3 +411,23 @@ class FrontRESStage1EnvAdapter:
                 }
             return {"shape": tuple(t.shape), "device": str(t.device), "min": int(t.min().item()), "max": int(t.max().item())}
         return value
+
+
+def ensure_frontres_segment_index_reset_hook(
+    env: Any,
+    *,
+    amass_root: str,
+    robot_name: str = "robot",
+    trace: bool = True,
+) -> FrontRESStage1EnvAdapter:
+    existing = getattr(env, "_frontres_segment_index_reset_adapter", None)
+    if isinstance(existing, FrontRESStage1EnvAdapter):
+        return existing
+    adapter = FrontRESStage1EnvAdapter(env, amass_root=amass_root, robot_name=robot_name, trace=trace)
+    setattr(env, "_frontres_segment_index_reset_adapter", adapter)
+    setattr(env, "apply_frontres_segment_index_reset", adapter.apply_frontres_segment_index_reset)
+    base_env = getattr(adapter, "base_env", None)
+    if base_env is not None and base_env is not env:
+        setattr(base_env, "_frontres_segment_index_reset_adapter", adapter)
+        setattr(base_env, "apply_frontres_segment_index_reset", adapter.apply_frontres_segment_index_reset)
+    return adapter

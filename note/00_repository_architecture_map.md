@@ -499,6 +499,12 @@ frontres_segment_reset.py
   owns reset requests/results, real env dynamic reset hooks, and the optional
   command-facing reference-window hook boundary
 
+frontres_segment_stage1_env_hooks.py
+  owns the shared IsaacLab motion-command adapter used by Stage 1 full cache
+  capture and Stage 3 index-only reset; it maps sampled motion ids and start
+  frames into command env-motion indices/time steps before the live K-step
+  Segment Replay rollout.
+
 frontres_segment_sampler.py
   owns PLR-style segment sampling, priority, solved/hopeless flags, and state
   dict persistence

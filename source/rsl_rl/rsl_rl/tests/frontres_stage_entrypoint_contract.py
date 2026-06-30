@@ -390,6 +390,14 @@ def main() -> None:
     assert '--is_full_resume False' in stage2
     assert 'g1_flat_frontres_stage2_acceptance' in stage2
     assert 'stage2_authority' not in stage2
+    assert 'STAGE1_BUILD_ROLLOUT_CACHE="${STAGE1_BUILD_ROLLOUT_CACHE:-0}"' in root_stage1
+    assert 'if [[ "${STAGE1_BUILD_ROLLOUT_CACHE}" != "1" ]]; then' in root_stage1
+    assert 'STAGE1_MODE="index"' in root_stage1
+    assert '"${PYTHON_BIN}" scripts/rsl_rl/build_frontres_stage1_segment_index.py' in root_stage1
+    assert '--segment-k "${SEGMENT_K}"' in root_stage1
+    assert '--frame-stride "${FRAME_STRIDE}"' in root_stage1
+    assert '--max-motions "${MAX_MOTIONS}"' in root_stage1
+    assert '--max-segments "${MAX_SEGMENTS}"' in root_stage1
     assert 'bash run/run_frontres_stage1_segment_cache.sh' in root_stage1
     assert 'NUM_ENVS="${2:-1}"' in root_stage1
     assert 'MAX_MOTIONS="${MAX_MOTIONS:-all}"' in root_stage1
@@ -398,7 +406,8 @@ def main() -> None:
     assert 'VARIANTS_PER_STRENGTH="${VARIANTS_PER_STRENGTH:-1}"' in root_stage1
     assert 'VALIDATION_MIN_SEGMENTS="${VALIDATION_MIN_SEGMENTS:-1}"' in root_stage1
     assert 'VALIDATION_MIN_NOISY="${VALIDATION_MIN_NOISY:-1}"' in root_stage1
-    assert 'train_stage1_segment_cache_full.txt' in root_stage1
+    assert 'train_stage1_segment_cache_${STAGE1_MODE}.txt' in root_stage1
+    assert 'build_rollout_cache=${STAGE1_BUILD_ROLLOUT_CACHE}' in root_stage1
     assert 'cache_chunk_size=${CACHE_CHUNK_SIZE}' in root_stage1
     assert '--frontres_stage stage2_hsl_warmup' in root_stage2
     assert 'g1_flat_frontres_stage2_hsl' in root_stage2

@@ -124,6 +124,14 @@ cache_io_module = _load(
     "frontres_segment_cache_io_for_live_sampler_contract",
     ROOT / "rsl_rl" / "frontres" / "frontres_segment_cache_io.py",
 )
+stage1_env_hooks_module = _load(
+    "rsl_rl.frontres.frontres_segment_stage1_env_hooks",
+    ROOT / "rsl_rl" / "frontres" / "frontres_segment_stage1_env_hooks.py",
+)
+stage1_hooks_contract = _load(
+    "frontres_segment_stage1_env_hooks_contract_for_live_sampler",
+    ROOT / "rsl_rl" / "tests" / "frontres_segment_stage1_env_hooks_contract.py",
+)
 
 FrontRESSegmentSampler = sampler_module.FrontRESSegmentSampler
 initialize_frontres_segment_live_sampler = live_sampler_module.initialize_frontres_segment_live_sampler
@@ -159,9 +167,10 @@ class FakeRunner:
         summaries: list[dict] | None = None,
         cache_dir: str = "",
         shard_cache_size: int = 8,
+        env: object | None = None,
     ) -> None:
         self._frontres_segment_replay_boundary = FakeBoundary()
-        self.env = FakeEnv()
+        self.env = env if env is not None else FakeEnv()
         self.device = "cpu"
         self.seed = 7
         self.alg = SimpleNamespace(
@@ -355,6 +364,26 @@ def _write_stage1_cache(cache_dir: Path) -> None:
     )
 
 
+def _write_stage1_index_cache(cache_dir: Path, amass_root: Path) -> None:
+    segment = FrontRESSegmentIndex(
+        segment_id=0,
+        motion_rel_path="KIT/359/motion_a.npz",
+        motion_num_frames=8,
+        fps=30.0,
+        start_frame=3,
+        horizon_k=4,
+    )
+    summary = FrontRESAMASSIndexSummary(
+        amass_root=str(amass_root),
+        motion_count=1,
+        segment_count=1,
+        horizon_k=4,
+        frame_stride=1,
+        skipped_short_motions=0,
+    )
+    indexer_module.write_amass_segment_index(cache_dir, [segment], summary)
+
+
 def test_live_summary_becomes_sampler_evidence() -> None:
     sampler = FrontRESSegmentSampler(4, seed=1)
     sample = sampler.sample(2)
@@ -460,6 +489,44 @@ def test_live_sampler_initializes_dataset_from_stage1_cache_dir() -> None:
         assert metadata["loaded_motion_count"] == 1
         assert metadata["skipped_boundary_diagnostic_count"] == 1
         assert metadata["role_counts"] == {"train": 1, "boundary_diagnostic": 1}
+
+
+def test_live_sampler_installs_index_reset_hook_for_index_only_dataset() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        amass_root = Path(tmp) / "AMASS_G1NPZ_Final"
+        cache_dir = Path(tmp) / "AMASS_G1Segment"
+        stage1_hooks_contract._write_fake_amass(amass_root / "KIT" / "359" / "motion_a.npz")
+        _write_stage1_index_cache(cache_dir, amass_root)
+        env = stage1_hooks_contract.FakeGymEnv(amass_root)
+        runner = FakeRunner(cache_dir=str(cache_dir), env=env)
+        initialize_frontres_segment_live_sampler(runner)
+        hook = getattr(runner.env, "apply_frontres_segment_index_reset", None)
+        assert callable(hook)
+
+        batch = runner._frontres_segment_dataset.get_segments([0])
+        request = SimpleNamespace(
+            segment_ids=batch.segment_ids,
+            motion_ids=tuple(spec.motion_id for spec in batch.specs),
+            start_frames=torch.tensor([int(spec.start_frame) for spec in batch.specs], dtype=torch.long),
+            horizon_k=batch.horizon_k,
+            valid_mask=torch.ones_like(batch.segment_ids, dtype=torch.bool),
+        )
+        result = hook(request)
+        print(
+            "[probe step7] index_reset_hook_install: "
+            f"metadata={runner._frontres_segment_dataset.cache_metadata()} "
+            f"motion_ids={list(request.motion_ids)} "
+            f"start_frames={request.start_frames.tolist()} "
+            f"success={result['reset_success'].tolist()} "
+            f"command_motion={env.unwrapped.command.env_motion_indices.tolist()} "
+            f"command_time={env.unwrapped.command.time_steps.tolist()} "
+            f"root_pos={env.unwrapped.robot.data.root_pos_w.tolist()}",
+            flush=True,
+        )
+        assert result["reset_success"].tolist() == [True]
+        assert env.unwrapped.command.env_motion_indices.tolist() == [0]
+        assert env.unwrapped.command.time_steps.tolist() == [3]
+        torch.testing.assert_close(env.unwrapped.robot.data.root_pos_w, torch.tensor([[3.0, 0.0, 1.0]]))
 
 
 def test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset() -> None:
@@ -595,6 +662,7 @@ def main() -> None:
     test_live_sampler_evidence_preserves_per_sample_rollout_facts()
     test_live_update_loop_samples_and_updates_priority()
     test_live_sampler_initializes_dataset_from_stage1_cache_dir()
+    test_live_sampler_installs_index_reset_hook_for_index_only_dataset()
     test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset()
     test_live_sampler_builds_current_batch_before_probe()
     test_live_storage_uses_sampled_segment_ids_and_sources()
