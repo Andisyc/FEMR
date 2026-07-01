@@ -281,6 +281,23 @@ def _descriptor() -> FrontRESPerturbationDescriptor:
     )
 
 
+def test_stage1_hook_trace_summarizes_large_sequences() -> None:
+    adapter = FrontRESStage1EnvAdapter(FakeGymEnv(Path("/tmp/fake_amass")), amass_root="/tmp/fake_amass", trace=False)
+    int_summary = adapter._format_trace_value(list(range(12)))
+    str_summary = adapter._format_trace_value([f"motion_{idx}" for idx in range(12)])
+    print(
+        "[stage1_hooks trace] large_sequence_summary "
+        f"int_summary={int_summary} "
+        f"str_summary={str_summary}",
+        flush=True,
+    )
+    assert int_summary == {"count": 12, "first": [0, 1, 2, 3], "last": [8, 9, 10, 11], "min": 0, "max": 11}
+    assert str_summary["count"] == 12
+    assert str_summary["first"] == ["motion_0", "motion_1", "motion_2", "motion_3"]
+    assert str_summary["last"] == ["motion_8", "motion_9", "motion_10", "motion_11"]
+    assert str_summary["unique_count"] == 12
+
+
 def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "AMASS_G1NPZ_Final"
@@ -417,5 +434,6 @@ def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
 
 
 if __name__ == "__main__":
+    test_stage1_hook_trace_summarizes_large_sequences()
     test_stage1_env_adapter_hooks_trace_real_boundary_contract()
     print("PASS: FrontRES Stage 1 env adapter hooks trace motion, clean reset, perturbation, and baseline rollout.")

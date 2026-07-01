@@ -129,10 +129,26 @@ def test_reset_clears_burst_event_state() -> None:
     torch.testing.assert_close(state["event_duration"].float(), torch.zeros(2))
 
 
+def test_reset_accepts_state_created_under_inference_mode() -> None:
+    perturber = _make_perturber()
+    with torch.inference_mode():
+        perturber._roll_state = torch.ones(2)
+    perturber.reset_envs(torch.tensor([0, 1], dtype=torch.long))
+    print(
+        "[probe inference_reset] "
+        f"roll_state={perturber._roll_state.tolist()} "
+        f"is_inference={perturber._roll_state.is_inference()}",
+        flush=True,
+    )
+    torch.testing.assert_close(perturber._roll_state, torch.zeros(2))
+    assert not perturber._roll_state.is_inference()
+
+
 def main() -> None:
     test_burst_iid_xy_is_held_for_event_duration()
     test_local_root_artifact_is_exposed_as_authority_event()
     test_reset_clears_burst_event_state()
+    test_reset_accepts_state_created_under_inference_mode()
     print("=== FrontRES Burst Perturbation TEST ONLY ===")
     print("checks=held IID burst values, local artifact event exposure, event metadata, reset clear")
     print("result: PASS")

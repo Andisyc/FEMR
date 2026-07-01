@@ -263,6 +263,7 @@ class MotionPerturber:
         """Zero OU states for terminated or resampled environments."""
         if env_ids.numel() == 0:
             return
+        self._ensure_mutable_state_tensors()
         self._z_state[env_ids]     = 0.0
         self._x_state[env_ids]     = 0.0
         self._y_state[env_ids]     = 0.0
@@ -284,6 +285,34 @@ class MotionPerturber:
         self._iid_event_yaw[env_ids] = 0.0
         if self._joint_state is not None:
             self._joint_state[env_ids] = 0.0
+
+    def _ensure_mutable_state_tensors(self) -> None:
+        self._z_state = self._mutable_tensor(self._z_state)
+        self._x_state = self._mutable_tensor(self._x_state)
+        self._y_state = self._mutable_tensor(self._y_state)
+        self._roll_state = self._mutable_tensor(self._roll_state)
+        self._pitch_state = self._mutable_tensor(self._pitch_state)
+        self._artifact_steps = self._mutable_tensor(self._artifact_steps)
+        self._artifact_duration = self._mutable_tensor(self._artifact_duration)
+        self._artifact_start = self._mutable_tensor(self._artifact_start)
+        self._artifact_xy = self._mutable_tensor(self._artifact_xy)
+        self._artifact_yaw = self._mutable_tensor(self._artifact_yaw)
+        self._iid_event_steps_remaining = self._mutable_tensor(self._iid_event_steps_remaining)
+        self._iid_event_duration = self._mutable_tensor(self._iid_event_duration)
+        self._iid_event_step = self._mutable_tensor(self._iid_event_step)
+        self._iid_event_start = self._mutable_tensor(self._iid_event_start)
+        self._iid_event_active = self._mutable_tensor(self._iid_event_active)
+        self._iid_event_xy = self._mutable_tensor(self._iid_event_xy)
+        self._iid_event_z = self._mutable_tensor(self._iid_event_z)
+        self._iid_event_rp = self._mutable_tensor(self._iid_event_rp)
+        self._iid_event_yaw = self._mutable_tensor(self._iid_event_yaw)
+        if self._joint_state is not None:
+            self._joint_state = self._mutable_tensor(self._joint_state)
+
+    @staticmethod
+    def _mutable_tensor(tensor: torch.Tensor) -> torch.Tensor:
+        is_inference = getattr(tensor, "is_inference", None)
+        return tensor.clone() if callable(is_inference) and bool(is_inference()) else tensor
 
     def apply_perturbations(
         self,

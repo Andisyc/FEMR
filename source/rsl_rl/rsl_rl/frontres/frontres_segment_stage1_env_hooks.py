@@ -43,6 +43,7 @@ class FrontRESStage1EnvAdapter:
     robot_name: str = "robot"
     trace: bool = True
     baseline_rollout_steps: int | None = None
+    trace_preview_count: int = 4
 
     def __post_init__(self) -> None:
         self.base_env = getattr(self.env, "unwrapped", self.env)
@@ -147,7 +148,7 @@ class FrontRESStage1EnvAdapter:
         self._trace(
             "index_reset",
             segment_ids=segment_ids,
-            motion_ids=list(motion_ids),
+            motion_ids=motion_ids,
             motion_indices=motion_indices,
             start_frames=start_frames,
             frame_indices=frame_indices,
@@ -410,7 +411,23 @@ class FrontRESStage1EnvAdapter:
                     "requires_grad": bool(t.requires_grad),
                 }
             return {"shape": tuple(t.shape), "device": str(t.device), "min": int(t.min().item()), "max": int(t.max().item())}
+        if isinstance(value, (list, tuple)):
+            return self._format_sequence_trace(value)
         return value
+
+    def _format_sequence_trace(self, value: list[Any] | tuple[Any, ...]) -> Any:
+        count = len(value)
+        if count <= self.trace_preview_count:
+            return list(value)
+        preview = list(value[: self.trace_preview_count])
+        tail = list(value[-self.trace_preview_count :])
+        result = {"count": count, "first": preview}
+        if all(isinstance(item, int) for item in value):
+            result.update({"last": tail, "min": min(value), "max": max(value)})
+        else:
+            result["last"] = tail
+            result["unique_count"] = len(set(value))
+        return result
 
 
 def ensure_frontres_segment_index_reset_hook(
