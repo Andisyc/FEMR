@@ -333,9 +333,16 @@ def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
             init_at_random_ep_len=False,
         )
     output = buffer.getvalue()
-    print(f"[probe readable_log] live_train_block={output.strip().splitlines()[:4]}", flush=True)
+    lines = output.splitlines()
+    header_idx = lines.index("[FrontRES Segment Live Train]")
+    print(f"[probe readable_log] live_train_block={lines[max(0, header_idx - 3):header_idx + 5]}", flush=True)
 
     assert "[FrontRES Segment Live Train]" in output
+    assert lines[header_idx - 2] == "-" * 80
+    assert lines[header_idx - 1] == ""
+    assert lines[header_idx + 1].startswith("  progress:")
+    assert lines[header_idx + 4] == ""
+    assert lines[header_idx + 5] == "-" * 80
     assert "  progress: iter=1/1 updates=4/4 runner_learn=True" in output
     assert "  data: valid=8 valid_frac=100.0% reward=0.250000" in output
     assert "  ppo: loss_total=1.516e+23" in output

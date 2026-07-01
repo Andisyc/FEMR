@@ -29,7 +29,7 @@ _FINITE_SUMMARY_KEYS = (
     "ppo_clip_frac_mean",
 )
 
-_LOG_SEPARATOR = "  " + "-" * 72
+_LOG_SEPARATOR = "-" * 80
 
 
 def _fmt_num(value: Any) -> str:
@@ -71,8 +71,10 @@ def _print_live_train_summary(
     print(
         "\n".join(
             (
-                "[FrontRES Segment Live Train]",
+                "",
                 _LOG_SEPARATOR,
+                "",
+                "[FrontRES Segment Live Train]",
                 "  progress: "
                 f"iter={runner.current_learning_iteration}/{num_learning_iterations} "
                 f"updates={int(summary['update_count'])}/{int(summary['update_steps'])} "
@@ -88,7 +90,9 @@ def _print_live_train_summary(
                 f"kl={_fmt_num(summary['ppo_approx_kl_mean'])} "
                 f"clip={_fmt_pct(summary['ppo_clip_frac_mean'])} "
                 f"status={_live_train_status(summary)}",
+                "",
                 _LOG_SEPARATOR,
+                "",
             )
         ),
         flush=True,

@@ -794,6 +794,37 @@ def test_runner_checkpoint_save_does_not_require_logger_type() -> None:
         assert "frontres_segment_sampler_state_dict" in saved
 
 
+def test_runner_checkpoint_save_skips_missing_external_writer() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = str(Path(tmp) / "model_no_writer.pt")
+        policy = torch.nn.Linear(1, 1)
+        runner = SimpleNamespace(
+            alg=SimpleNamespace(policy=policy, optimizer=torch.optim.Adam(policy.parameters(), lr=1e-3)),
+            current_learning_iteration=6,
+            cfg={"logger": "wandb", "is_full_resume": True},
+            alg_cfg={"learning_rate": 1e-3},
+            policy_cfg={"init_noise_std": 1.0, "noise_std_type": "scalar"},
+            empirical_normalization=False,
+            training_type="frontres",
+            disable_logs=False,
+            writer=None,
+            device="cpu",
+            _frontres_segment_sampler=FrontRESSegmentSampler(2, seed=6),
+        )
+
+        save_runner(runner, path)
+        saved = torch.load(path, weights_only=False)
+        print(
+            "[probe checkpoint_writer] "
+            f"cfg_logger={runner.cfg['logger']} "
+            f"writer_is_none={runner.writer is None} "
+            f"saved_iter={saved['iter']}",
+            flush=True,
+        )
+        assert runner.writer is None
+        assert saved["iter"] == 6
+
+
 def main() -> None:
     test_live_summary_becomes_sampler_evidence()
     test_live_sampler_evidence_carries_partial_reset_failure()
@@ -808,6 +839,7 @@ def main() -> None:
     test_live_storage_uses_sampled_segment_ids_and_sources()
     test_runner_checkpoint_saves_and_restores_sampler_state()
     test_runner_checkpoint_save_does_not_require_logger_type()
+    test_runner_checkpoint_save_skips_missing_external_writer()
     print("frontres_segment_live_sampler_contract: ok")
 
 

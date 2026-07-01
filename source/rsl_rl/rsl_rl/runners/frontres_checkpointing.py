@@ -241,8 +241,9 @@ def save_runner(self, path: str, infos=None):
 
     # upload model to external logging service
     logger_type = str(getattr(self, "logger_type", getattr(self, "cfg", {}).get("logger", "")) or "").lower()
-    if logger_type in ["neptune", "wandb"] and not bool(getattr(self, "disable_logs", False)):
-        self.writer.save_model(path, self.current_learning_iteration)
+    writer = getattr(self, "writer", None)
+    if logger_type in ["neptune", "wandb"] and writer is not None and not bool(getattr(self, "disable_logs", False)):
+        writer.save_model(path, self.current_learning_iteration)
 
 def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool = True):
     loaded_dict = torch.load(path, weights_only=False)
