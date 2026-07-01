@@ -165,6 +165,12 @@ class FakeEnv:
     num_envs = 2
 
 
+class FakeTraceAdapter:
+    def __init__(self) -> None:
+        self.trace = True
+        self.trace_values: list[bool] = []
+
+
 class FakeRunner:
     def __init__(
         self,
@@ -195,6 +201,9 @@ class FakeRunner:
 
     def run_frontres_segment_live_probe(self, *, init_at_random_ep_len: bool) -> dict:
         self.probe_init_flags.append(init_at_random_ep_len)
+        adapter = getattr(self.env, "_frontres_segment_index_reset_adapter", None)
+        if adapter is not None and hasattr(adapter, "trace_values"):
+            adapter.trace_values.append(bool(adapter.trace))
         batch = getattr(self, "_frontres_segment_live_current_batch", None)
         self.probe_batch_roles.append(None if batch is None else tuple(batch.perturbation_role))
         self.probe_batch_ids.append(None if batch is None else batch.segment_ids.detach().cpu().tolist())
@@ -666,6 +675,38 @@ def test_live_detail_logs_are_rate_limited_by_default_and_verbose() -> None:
     assert verbose_sampler_count == 4
 
 
+def test_stage1_hook_trace_follows_live_detail_log_gate() -> None:
+    env = FakeEnv()
+    env._frontres_segment_index_reset_adapter = FakeTraceAdapter()
+    runner = FakeRunner([_summary(0.1) for _ in range(12)], env=env)
+    initialize_frontres_segment_live_sampler(runner)
+
+    for update_step in range(12):
+        run_frontres_segment_sampler_step(runner, init_at_random_ep_len=False, update_step=update_step)
+
+    print(
+        "[probe trace_gate] "
+        f"trace_values={env._frontres_segment_index_reset_adapter.trace_values} "
+        f"final_trace={env._frontres_segment_index_reset_adapter.trace}",
+        flush=True,
+    )
+    assert env._frontres_segment_index_reset_adapter.trace_values == [
+        True,
+        True,
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        True,
+        False,
+        False,
+    ]
+    assert env._frontres_segment_index_reset_adapter.trace is True
+
+
 def test_live_sampler_initializes_dataset_from_stage1_cache_dir() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cache_dir = Path(tmp) / "AMASS_G1Segment"
@@ -1014,6 +1055,7 @@ def main() -> None:
     test_live_update_loop_samples_and_updates_priority()
     test_live_sampler_summary_exposes_update_probe_boundary()
     test_live_detail_logs_are_rate_limited_by_default_and_verbose()
+    test_stage1_hook_trace_follows_live_detail_log_gate()
     test_live_sampler_initializes_dataset_from_stage1_cache_dir()
     test_live_sampler_installs_index_reset_hook_for_index_only_dataset()
     test_live_sampler_filters_index_dataset_to_loaded_motions_before_sampling()

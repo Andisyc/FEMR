@@ -191,11 +191,17 @@ def run_frontres_segment_sampler_step(
     runner._frontres_segment_live_current_sample = sample
     runner._frontres_segment_live_current_batch = batch
     runner._frontres_segment_live_detail_log_enabled = detail_log
+    adapter = getattr(getattr(runner, "env", None), "_frontres_segment_index_reset_adapter", None)
+    old_adapter_trace = getattr(adapter, "trace", None)
+    if adapter is not None and old_adapter_trace is not None:
+        adapter.trace = bool(detail_log)
     reset_result = None
     try:
         summary = runner.run_frontres_segment_live_probe(init_at_random_ep_len=init_at_random_ep_len)
         reset_result = getattr(runner, "_frontres_segment_live_current_reset_result", None)
     finally:
+        if adapter is not None and old_adapter_trace is not None:
+            adapter.trace = old_adapter_trace
         runner._frontres_segment_live_current_sample = None
         runner._frontres_segment_live_current_batch = None
         runner._frontres_segment_live_current_reset_request = None
