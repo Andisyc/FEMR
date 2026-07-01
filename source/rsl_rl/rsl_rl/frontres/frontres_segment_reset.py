@@ -256,12 +256,13 @@ class FrontRESSegmentLiveResetHook:
             ],
             dim=-1,
         )
-        self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
-        self.robot.write_joint_state_to_sim(request.dof_pos.to(device), request.dof_vel.to(device), env_ids=env_ids)
-        _reset_motion_command_state(self.base_env, env_ids)
-        reference_applied = _apply_motion_reference_window(self.base_env, env_ids, request.reference_window)
-        _reset_episode_length(self.env, env_ids)
-        _reset_episode_length(self.base_env, env_ids)
+        with torch.inference_mode():
+            self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
+            self.robot.write_joint_state_to_sim(request.dof_pos.to(device), request.dof_vel.to(device), env_ids=env_ids)
+            _reset_motion_command_state(self.base_env, env_ids)
+            reference_applied = _apply_motion_reference_window(self.base_env, env_ids, request.reference_window)
+            _reset_episode_length(self.env, env_ids)
+            _reset_episode_length(self.base_env, env_ids)
 
         root_after = _optional_index(getattr(getattr(self.robot, "data", None), "root_pos_w", None), env_ids)
         root_lin_after = _optional_index(getattr(getattr(self.robot, "data", None), "root_lin_vel_w", None), env_ids)
@@ -357,16 +358,17 @@ def _reset_motion_command_state(base_env: Any, env_ids: torch.Tensor) -> None:
     command = _motion_command(base_env)
     if command is None:
         return
-    _zero_indexed(command, "_frontres_pos_correction", env_ids)
-    quat = getattr(command, "_frontres_quat_correction", None)
-    if isinstance(quat, torch.Tensor):
-        ids = env_ids.to(quat.device)
-        quat[ids] = 0.0
-        quat[ids, 0] = 1.0
-    perturber = getattr(command, "perturber", None)
-    reset_envs = getattr(perturber, "reset_envs", None)
-    if callable(reset_envs):
-        reset_envs(env_ids)
+    with torch.inference_mode():
+        _zero_indexed(command, "_frontres_pos_correction", env_ids)
+        quat = getattr(command, "_frontres_quat_correction", None)
+        if isinstance(quat, torch.Tensor):
+            ids = env_ids.to(quat.device)
+            quat[ids] = 0.0
+            quat[ids, 0] = 1.0
+        perturber = getattr(command, "perturber", None)
+        reset_envs = getattr(perturber, "reset_envs", None)
+        if callable(reset_envs):
+            reset_envs(env_ids)
 
 
 def _motion_command(base_env: Any) -> Any | None:
@@ -436,13 +438,15 @@ def _coerce_reference_applied(result: Any, env_ids: torch.Tensor) -> torch.Tenso
 def _zero_indexed(owner: Any, name: str, env_ids: torch.Tensor) -> None:
     value = getattr(owner, name, None)
     if isinstance(value, torch.Tensor):
-        value[env_ids.to(value.device)] = 0.0
+        with torch.inference_mode():
+            value[env_ids.to(value.device)] = 0.0
 
 
 def _reset_episode_length(env: Any, env_ids: torch.Tensor) -> None:
     value = getattr(env, "episode_length_buf", None)
     if isinstance(value, torch.Tensor):
-        value[env_ids.to(value.device)] = 0
+        with torch.inference_mode():
+            value[env_ids.to(value.device)] = 0
 
 
 def _trace_tensor(value: torch.Tensor | None) -> dict[str, Any] | None:

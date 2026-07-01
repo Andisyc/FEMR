@@ -96,12 +96,13 @@ class FrontRESStage1EnvAdapter:
         ids = self._normalize_env_ids(env_ids)
         motion_index = self._motion_index_for_segment(segment)
         frame_index = self._frame_index_for_segment(segment, motion_index)
-        self.command.env_motion_indices[ids] = int(motion_index)
-        self.command.time_steps[ids] = int(frame_index)
-        if hasattr(self.command, "motion_end_buf"):
-            self.command.motion_end_buf[ids] = False
-        self._reset_frontres_command_state(ids)
-        self._write_command_reference_to_robot(ids)
+        with torch.inference_mode():
+            self.command.env_motion_indices[ids] = int(motion_index)
+            self.command.time_steps[ids] = int(frame_index)
+            if hasattr(self.command, "motion_end_buf"):
+                self.command.motion_end_buf[ids] = False
+            self._reset_frontres_command_state(ids)
+            self._write_command_reference_to_robot(ids)
         self._trace(
             "prepare_clean",
             segment_id=int(segment.segment_id),
@@ -137,12 +138,13 @@ class FrontRESStage1EnvAdapter:
             dtype=torch.long,
             device=ids.device,
         )
-        self.command.env_motion_indices[ids] = motion_indices
-        self.command.time_steps[ids] = frame_indices
-        if hasattr(self.command, "motion_end_buf"):
-            self.command.motion_end_buf[ids] = False
-        self._reset_frontres_command_state(ids)
-        self._write_command_reference_to_robot(ids)
+        with torch.inference_mode():
+            self.command.env_motion_indices[ids] = motion_indices
+            self.command.time_steps[ids] = frame_indices
+            if hasattr(self.command, "motion_end_buf"):
+                self.command.motion_end_buf[ids] = False
+            self._reset_frontres_command_state(ids)
+            self._write_command_reference_to_robot(ids)
         success = torch.ones(count, dtype=torch.bool, device=segment_ids.device)
         velocity = torch.zeros(count, dtype=torch.float32, device=segment_ids.device)
         self._trace(
@@ -174,12 +176,13 @@ class FrontRESStage1EnvAdapter:
             ],
             dim=-1,
         )
-        self.robot.write_root_state_to_sim(root_state, env_ids=ids)
-        self.robot.write_joint_state_to_sim(
-            clean_state.joint_pos.to(ids.device),
-            clean_state.joint_vel.to(ids.device),
-            env_ids=ids,
-        )
+        with torch.inference_mode():
+            self.robot.write_root_state_to_sim(root_state, env_ids=ids)
+            self.robot.write_joint_state_to_sim(
+                clean_state.joint_pos.to(ids.device),
+                clean_state.joint_vel.to(ids.device),
+                env_ids=ids,
+            )
         self._trace(
             "reset_clean_state",
             env_ids=ids.detach().cpu().tolist(),
@@ -208,7 +211,8 @@ class FrontRESStage1EnvAdapter:
         root_pos = root_pos + delta.to(root_pos.device, root_pos.dtype)
         root_lin_vel = root_lin_vel + 0.1 * delta.to(root_lin_vel.device, root_lin_vel.dtype)
         root_state = torch.cat([root_pos, root_quat, root_lin_vel, root_ang_vel], dim=-1)
-        self.robot.write_root_state_to_sim(root_state, env_ids=ids)
+        with torch.inference_mode():
+            self.robot.write_root_state_to_sim(root_state, env_ids=ids)
         self._trace(
             "apply_perturbation",
             segment_id=int(descriptor.segment_id),
@@ -320,17 +324,19 @@ class FrontRESStage1EnvAdapter:
         joint_vel = self.command._gather_by_motion_for_envs("joint_vel", env_ids)
         root_pos = body_pos[:, 0] + self.base_env.scene.env_origins[env_ids]
         root_state = torch.cat([root_pos, body_quat[:, 0], body_lin[:, 0], body_ang[:, 0]], dim=-1)
-        self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
-        self.robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+        with torch.inference_mode():
+            self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
+            self.robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
 
     def _reset_frontres_command_state(self, env_ids: torch.Tensor) -> None:
-        if hasattr(self.command, "_frontres_pos_correction"):
-            self.command._frontres_pos_correction[env_ids] = 0.0
-        if hasattr(self.command, "_frontres_quat_correction"):
-            self.command._frontres_quat_correction[env_ids] = 0.0
-            self.command._frontres_quat_correction[env_ids, 0] = 1.0
-        if hasattr(self.command, "perturber") and hasattr(self.command.perturber, "reset_envs"):
-            self.command.perturber.reset_envs(env_ids)
+        with torch.inference_mode():
+            if hasattr(self.command, "_frontres_pos_correction"):
+                self.command._frontres_pos_correction[env_ids] = 0.0
+            if hasattr(self.command, "_frontres_quat_correction"):
+                self.command._frontres_quat_correction[env_ids] = 0.0
+                self.command._frontres_quat_correction[env_ids, 0] = 1.0
+            if hasattr(self.command, "perturber") and hasattr(self.command.perturber, "reset_envs"):
+                self.command.perturber.reset_envs(env_ids)
 
     def _baseline_steps(self, descriptor: FrontRESPerturbationDescriptor) -> int:
         if self.baseline_rollout_steps is not None:

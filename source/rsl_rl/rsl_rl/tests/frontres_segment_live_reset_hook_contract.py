@@ -117,6 +117,27 @@ class FakeVecWrapper:
         self.episode_length_buf = torch.tensor([7, 8], dtype=torch.long)
 
 
+def _make_live_reset_fake_state_inference(env: FakeVecWrapper) -> None:
+    base = env.unwrapped
+    robot_data = base.robot.data
+    command = base.command
+    with torch.inference_mode():
+        for name in (
+            "root_pos_w",
+            "root_quat_w",
+            "root_lin_vel_w",
+            "root_ang_vel_w",
+            "joint_pos",
+            "joint_vel",
+        ):
+            setattr(robot_data, name, getattr(robot_data, name).clone())
+        command._frontres_pos_correction = command._frontres_pos_correction.clone()
+        command._frontres_quat_correction = command._frontres_quat_correction.clone()
+        command.reference_window = command.reference_window.clone()
+        env.episode_length_buf = env.episode_length_buf.clone()
+        base.episode_length_buf = base.episode_length_buf.clone()
+
+
 def _request() -> object:
     return FrontRESSegmentResetRequest(
         segment_ids=torch.tensor([11, 13], dtype=torch.long),
@@ -218,6 +239,36 @@ def test_live_reset_hook_writes_dynamic_state_through_wrapper() -> None:
     assert result.diagnostics["reference_window_applied_frac"] == 1.0
 
 
+def test_live_reset_hook_writes_inference_tensors_under_inference_mode() -> None:
+    env = FakeVecWrapper()
+    _make_live_reset_fake_state_inference(env)
+    request = _request()
+    ensure_frontres_segment_live_reset_hook(env, trace=False)
+    result = FrontRESSegmentResetAdapter().apply(env, request)
+    robot = env.unwrapped.robot
+    command = env.unwrapped.command
+    print(
+        "[probe step13] live_reset_inference_tensor_boundary: "
+        f"success={result.success_mask.tolist()} "
+        f"root_pos={robot.data.root_pos_w.tolist()} "
+        f"joint_vel={robot.data.joint_vel.tolist()} "
+        f"quat_correction={command._frontres_quat_correction.tolist()} "
+        f"reference_applied_frac={result.diagnostics.get('reference_window_applied_frac')}",
+        flush=True,
+    )
+    assert result.success_mask.tolist() == [True, True]
+    torch.testing.assert_close(robot.data.root_pos_w, request.root_pos)
+    torch.testing.assert_close(robot.data.joint_vel, request.dof_vel)
+    torch.testing.assert_close(
+        command._frontres_quat_correction,
+        torch.tensor([[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]),
+    )
+    torch.testing.assert_close(command.reference_window, request.reference_window)
+    assert env.episode_length_buf.tolist() == [0, 0]
+    assert env.unwrapped.episode_length_buf.tolist() == [0, 0]
+
+
 if __name__ == "__main__":
     test_live_reset_hook_writes_dynamic_state_through_wrapper()
+    test_live_reset_hook_writes_inference_tensors_under_inference_mode()
     print("frontres_segment_live_reset_hook_contract: ok")

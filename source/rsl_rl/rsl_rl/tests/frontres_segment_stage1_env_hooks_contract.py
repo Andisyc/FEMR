@@ -221,6 +221,30 @@ class FakeGymEnv:
         return None, rewards, dones, {}
 
 
+def _make_stage1_fake_state_inference(env: FakeGymEnv) -> None:
+    robot_data = env.unwrapped.robot.data
+    command = env.unwrapped.command
+    with torch.inference_mode():
+        for name in (
+            "root_pos_w",
+            "root_quat_w",
+            "root_lin_vel_w",
+            "root_ang_vel_w",
+            "joint_pos",
+            "joint_vel",
+            "body_pos_w",
+            "body_quat_w",
+            "body_lin_vel_w",
+            "body_ang_vel_w",
+        ):
+            setattr(robot_data, name, getattr(robot_data, name).clone())
+        command.env_motion_indices = command.env_motion_indices.clone()
+        command.time_steps = command.time_steps.clone()
+        command.motion_end_buf = command.motion_end_buf.clone()
+        command._frontres_pos_correction = command._frontres_pos_correction.clone()
+        command._frontres_quat_correction = command._frontres_quat_correction.clone()
+
+
 def _write_fake_amass(path: Path, frames: int = 8) -> None:
     dofs = 29
     bodies = 30
@@ -433,7 +457,49 @@ def test_stage1_env_adapter_hooks_trace_real_boundary_contract() -> None:
         assert connected_env.step_actions and tuple(connected_env.step_actions[0].shape) == (1, 29)
 
 
+def test_stage1_env_adapter_writes_inference_tensors_under_inference_mode() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        _write_fake_amass(root / "KIT" / "359" / "motion_a.npz")
+        env = FakeGymEnv(root)
+        _make_stage1_fake_state_inference(env)
+        adapter = FrontRESStage1EnvAdapter(env, amass_root=str(root), trace=False)
+        env_ids = torch.tensor([0], dtype=torch.long)
+
+        prepare = adapter.prepare_frontres_clean_segment(segment=_segment(), env_ids=env_ids)
+        index_reset = adapter.apply_frontres_segment_index_reset(
+            types.SimpleNamespace(
+                segment_ids=torch.tensor([5], dtype=torch.long),
+                motion_ids=("KIT/359/motion_a.npz",),
+                start_frames=torch.tensor([4], dtype=torch.long),
+                horizon_k=torch.tensor([2], dtype=torch.long),
+            )
+        )
+        reset = adapter.set_frontres_rollout_state(clean_state=_clean_state(), env_ids=env_ids)
+        perturb = adapter.apply_frontres_segment_perturbation(descriptor=_descriptor(), env_ids=env_ids)
+        print(
+            "[stage1_hooks trace] inference_tensor_write_boundary "
+            f"prepare={prepare['success'].tolist()} "
+            f"index={index_reset['reset_success'].tolist()} "
+            f"reset={reset['success'].tolist()} "
+            f"perturb={perturb['success'].tolist()} "
+            f"root_pos={env.unwrapped.robot.data.root_pos_w.tolist()} "
+            f"quat_corr={env.unwrapped.command._frontres_quat_correction.tolist()}",
+            flush=True,
+        )
+        assert prepare["success"].tolist() == [True]
+        assert index_reset["reset_success"].tolist() == [True]
+        assert reset["success"].tolist() == [True]
+        assert perturb["success"].tolist() == [True]
+        torch.testing.assert_close(env.unwrapped.robot.data.root_pos_w, torch.tensor([[9.5, 8.0, 1.5]]))
+        torch.testing.assert_close(
+            env.unwrapped.command._frontres_quat_correction,
+            torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        )
+
+
 if __name__ == "__main__":
     test_stage1_hook_trace_summarizes_large_sequences()
     test_stage1_env_adapter_hooks_trace_real_boundary_contract()
+    test_stage1_env_adapter_writes_inference_tensors_under_inference_mode()
     print("PASS: FrontRES Stage 1 env adapter hooks trace motion, clean reset, perturbation, and baseline rollout.")
