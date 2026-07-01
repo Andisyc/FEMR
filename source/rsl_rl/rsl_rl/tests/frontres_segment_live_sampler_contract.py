@@ -526,6 +526,27 @@ def test_live_update_loop_samples_and_updates_priority() -> None:
     assert stats.priority_mean > 0.0
 
 
+def test_live_sampler_summary_exposes_update_probe_boundary() -> None:
+    runner = FakeRunner([_summary_per_sample([0.8, -0.2], [True, True], [False, True])])
+    initialize_frontres_segment_live_sampler(runner)
+    result = run_frontres_segment_sampler_step(runner, init_at_random_ep_len=False, update_step=0)
+    print(
+        "[probe step22] sampler_update_boundary: "
+        f"useful_mean={result['sampler_update_useful_mean']:.6f} "
+        f"useful_max={result['sampler_update_useful_max']:.6f} "
+        f"priority_before={result['sampler_update_priority_before_mean']:.6f} "
+        f"priority_after={result['sampler_update_priority_after_mean']:.6f} "
+        f"gain_pos_frac={result['sampler_update_gain_pos_frac']:.6f} "
+        f"replay_candidates={result['sampler_update_replay_candidate_count']}",
+        flush=True,
+    )
+    assert result["sampler_update_valid_count"] == 2
+    assert result["sampler_update_fall_count"] == 1
+    assert result["sampler_update_useful_max"] > 0.0
+    assert result["sampler_update_priority_after_mean"] > result["sampler_update_priority_before_mean"]
+    assert result["sampler_update_hopeless_count"] == 1
+
+
 def test_live_detail_logs_are_rate_limited_by_default_and_verbose() -> None:
     runner = FakeRunner([_summary(0.1) for _ in range(12)])
     initialize_frontres_segment_live_sampler(runner)
@@ -921,6 +942,7 @@ def main() -> None:
     test_live_sampler_evidence_preserves_per_sample_rollout_facts()
     test_large_sampler_probe_uses_summary_not_full_lists()
     test_live_update_loop_samples_and_updates_priority()
+    test_live_sampler_summary_exposes_update_probe_boundary()
     test_live_detail_logs_are_rate_limited_by_default_and_verbose()
     test_live_sampler_initializes_dataset_from_stage1_cache_dir()
     test_live_sampler_installs_index_reset_hook_for_index_only_dataset()

@@ -66,6 +66,37 @@ def test_sampler_replays_useful_unsolved_segments() -> None:
     assert 2 not in sample.segment_ids.tolist()
 
 
+def test_sampler_reports_effective_source_after_fallback() -> None:
+    sampler = FrontRESSegmentSampler(4, global_frac=0.0, replay_frac=1.0, review_frac=0.0, seed=17)
+    sample = sampler.sample(4)
+    assert sample.source == ("global", "global", "global", "global")
+
+    sampler = FrontRESSegmentSampler(4, global_frac=0.0, replay_frac=0.0, review_frac=1.0, seed=19)
+    sample = sampler.sample(4)
+    assert sample.source == ("global", "global", "global", "global")
+
+
+def test_sampler_update_probe_exposes_priority_boundary() -> None:
+    sampler = FrontRESSegmentSampler(4, global_frac=0.0, replay_frac=1.0, review_frac=0.0, seed=23)
+    probe = sampler.update_with_probe(
+        _evidence([0, 1, 2, 3], gain=[0.5, -0.1, 0.0, 0.2], repaired=[0.6, 0.2, 0.3, 0.7], noisy=[0.2, 0.3, 0.3, 0.4], fall=[False, True, False, False])
+    )
+    print(
+        "[probe sampler_update] "
+        f"valid={probe.valid_count} fall={probe.fall_count} "
+        f"useful_mean={probe.useful_mean:.6f} useful_max={probe.useful_max:.6f} "
+        f"priority_before={probe.priority_before_mean:.6f} priority_after={probe.priority_after_mean:.6f} "
+        f"replay_candidates={probe.replay_candidate_count} hopeless={probe.hopeless_count}",
+        flush=True,
+    )
+    assert probe.valid_count == 4
+    assert probe.fall_count == 1
+    assert probe.useful_max > 0.0
+    assert probe.priority_after_mean > probe.priority_before_mean
+    assert probe.replay_candidate_count > 0
+    assert probe.hopeless_count == 1
+
+
 def test_sampler_review_and_staleness_keep_coverage() -> None:
     sampler = FrontRESSegmentSampler(3, global_frac=0.0, replay_frac=0.0, review_frac=1.0, seed=11)
     sampler.update(_evidence([0, 1], gain=[0.01, 0.4], repaired=[0.95, 0.5], noisy=[0.94, 0.1]))
@@ -96,6 +127,8 @@ def test_sampler_invalid_and_state_dict_restore() -> None:
 def main() -> None:
     test_sampler_global_sampling_visits_unseen_segments()
     test_sampler_replays_useful_unsolved_segments()
+    test_sampler_reports_effective_source_after_fallback()
+    test_sampler_update_probe_exposes_priority_boundary()
     test_sampler_review_and_staleness_keep_coverage()
     test_sampler_invalid_and_state_dict_restore()
     print("result: PASS")

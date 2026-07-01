@@ -209,8 +209,23 @@ def run_frontres_segment_sampler_step(
         reset_result=reset_result,
         print_probe=detail_log,
     )
-    sampler.update(evidence)
+    update_probe = sampler.update_with_probe(evidence)
     sampler_summary = summarize_sampler_step(sampler, sample)
+    sampler_summary.update(
+        {
+            "sampler_update_valid_count": update_probe.valid_count,
+            "sampler_update_fall_count": update_probe.fall_count,
+            "sampler_update_gain_mean": update_probe.gain_mean,
+            "sampler_update_gain_pos_frac": update_probe.gain_pos_frac,
+            "sampler_update_useful_mean": update_probe.useful_mean,
+            "sampler_update_useful_max": update_probe.useful_max,
+            "sampler_update_priority_before_mean": update_probe.priority_before_mean,
+            "sampler_update_priority_after_mean": update_probe.priority_after_mean,
+            "sampler_update_priority_after_max": update_probe.priority_after_max,
+            "sampler_update_replay_candidate_count": update_probe.replay_candidate_count,
+            "sampler_update_hopeless_count": update_probe.hopeless_count,
+        }
+    )
     summary.update(sampler_summary)
     if detail_log:
         _print_sampler_summary(update_step, sampler_summary)
@@ -590,6 +605,25 @@ def _print_sampler_summary(update_step: int, summary: dict[str, object]) -> None
                             f"review:{int(summary['sampler_review_pool_size'])}"
                         ),
                         "priority": _fmt_num(summary["sampler_priority_mean"]),
+                        "useful": (
+                            f"mean:{_fmt_num(summary.get('sampler_update_useful_mean', 0.0))},"
+                            f"max:{_fmt_num(summary.get('sampler_update_useful_max', 0.0))}"
+                        ),
+                        "priority_flow": (
+                            f"before:{_fmt_num(summary.get('sampler_update_priority_before_mean', 0.0))},"
+                            f"after:{_fmt_num(summary.get('sampler_update_priority_after_mean', 0.0))},"
+                            f"max:{_fmt_num(summary.get('sampler_update_priority_after_max', 0.0))}"
+                        ),
+                        "gain": (
+                            f"mean:{_fmt_num(summary.get('sampler_update_gain_mean', 0.0))},"
+                            f"pos:{_fmt_pct(summary.get('sampler_update_gain_pos_frac', 0.0))}"
+                        ),
+                        "update": (
+                            f"valid:{int(summary.get('sampler_update_valid_count', 0))},"
+                            f"fall:{int(summary.get('sampler_update_fall_count', 0))},"
+                            f"hopeless:{int(summary.get('sampler_update_hopeless_count', 0))},"
+                            f"replay_candidates:{int(summary.get('sampler_update_replay_candidate_count', 0))}"
+                        ),
                         "solved": _fmt_pct(summary["sampler_solved_frac"]),
                         "hopeless": _fmt_pct(summary["sampler_hopeless_frac"]),
                         "stale_review": int(summary["sampler_stale_review_count"]),

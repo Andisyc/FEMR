@@ -42,6 +42,22 @@ class FrontRESSegmentSamplerStats:
     hopeless_frac: float
 
 
+@dataclass(frozen=True)
+class FrontRESSegmentSamplerUpdateProbe:
+    count: int
+    valid_count: int
+    fall_count: int
+    gain_mean: float
+    gain_pos_frac: float
+    useful_mean: float
+    useful_max: float
+    priority_before_mean: float
+    priority_after_mean: float
+    priority_after_max: float
+    replay_candidate_count: int
+    hopeless_count: int
+
+
 class FrontRESSegmentSampler:
     """Prioritized sampler where each level is a motion segment."""
 
@@ -99,9 +115,9 @@ class FrontRESSegmentSampler:
         sources: list[str] = []
         for _ in range(batch_size):
             source = self._choose_source()
-            segment_id = self._sample_one(source, valid_ids)
+            segment_id, effective_source = self._sample_one(source, valid_ids)
             ids.append(segment_id)
-            sources.append(source)
+            sources.append(effective_source)
             self.seen[segment_id] = True
 
         segment_ids = torch.tensor(ids, dtype=torch.long, device=self.device)
@@ -116,6 +132,9 @@ class FrontRESSegmentSampler:
         )
 
     def update(self, evidence: FrontRESSegmentRolloutEvidence) -> None:
+        self.update_with_probe(evidence)
+
+    def update_with_probe(self, evidence: FrontRESSegmentRolloutEvidence) -> FrontRESSegmentSamplerUpdateProbe:
         ids = evidence.segment_ids.to(device=self.device, dtype=torch.long).flatten()
         self._validate_ids(ids)
         useful = self._learning_value(evidence)
@@ -131,6 +150,22 @@ class FrontRESSegmentSampler:
         self.solved[ids] = valid & (repaired >= 0.9) & (gain.abs() < self.min_replay_score)
         self.hopeless[ids] = (~valid) | (fall & (gain <= 0.0)) | ((noisy < 0.2) & (repaired < 0.2) & (gain <= 0.0))
         self.priority[ids] = torch.where(self.solved[ids] | self.hopeless[ids], self.priority[ids] * 0.25, self.priority[ids])
+        priority_after = self.priority[ids]
+        replay_candidates = (~self.invalid[ids]) & (~self.solved[ids]) & (~self.hopeless[ids]) & (priority_after >= self.min_replay_score)
+        return FrontRESSegmentSamplerUpdateProbe(
+            count=int(ids.numel()),
+            valid_count=int(valid.sum().item()),
+            fall_count=int(fall.sum().item()),
+            gain_mean=float(gain.mean().item()) if gain.numel() > 0 else 0.0,
+            gain_pos_frac=float((gain > 0.0).float().mean().item()) if gain.numel() > 0 else 0.0,
+            useful_mean=float(useful.mean().item()) if useful.numel() > 0 else 0.0,
+            useful_max=float(useful.max().item()) if useful.numel() > 0 else 0.0,
+            priority_before_mean=float(current.mean().item()) if current.numel() > 0 else 0.0,
+            priority_after_mean=float(priority_after.mean().item()) if priority_after.numel() > 0 else 0.0,
+            priority_after_max=float(priority_after.max().item()) if priority_after.numel() > 0 else 0.0,
+            replay_candidate_count=int(replay_candidates.sum().item()),
+            hopeless_count=int(self.hopeless[ids].sum().item()),
+        )
 
     def mark_invalid(self, segment_ids: Iterable[int] | torch.Tensor, reason: str) -> None:
         ids = self._ids_tensor(segment_ids)
@@ -184,23 +219,25 @@ class FrontRESSegmentSampler:
             return "replay"
         return "review"
 
-    def _sample_one(self, source: str, valid_ids: torch.Tensor) -> int:
+    def _sample_one(self, source: str, valid_ids: torch.Tensor) -> tuple[int, str]:
         if source == "replay":
             pool = self._replay_ids()
             if pool.numel() > 0:
                 weights = self._sample_weights(pool)
-                return int(pool[torch.multinomial(weights, 1, generator=self.generator).item()].item())
+                segment_id = int(pool[torch.multinomial(weights, 1, generator=self.generator).item()].item())
+                return segment_id, "replay"
             source = "global"
         if source == "review":
             pool = torch.nonzero((~self.invalid) & self.solved, as_tuple=False).flatten()
             if pool.numel() > 0:
                 weights = self._sample_weights(pool)
-                return int(pool[torch.multinomial(weights, 1, generator=self.generator).item()].item())
+                segment_id = int(pool[torch.multinomial(weights, 1, generator=self.generator).item()].item())
+                return segment_id, "review"
             source = "global"
         unseen = valid_ids[~self.seen[valid_ids]]
         pool = unseen if unseen.numel() > 0 else valid_ids
         index = torch.randint(0, pool.numel(), (1,), generator=self.generator, device=self.device)
-        return int(pool[index].item())
+        return int(pool[index].item()), source
 
     def _sample_weights(self, ids: torch.Tensor) -> torch.Tensor:
         weights = self.priority[ids].clamp_min(0.0) + self.staleness_weight * self.staleness[ids].clamp_min(0.0)
