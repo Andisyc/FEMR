@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib.util
+import math
 from pathlib import Path
 import sys
 from typing import Any, Iterable
@@ -395,10 +396,10 @@ class FrontRESStage1EnvAdapter:
     def _trace(self, label: str, **items: Any) -> None:
         if not self.trace:
             return
-        parts = [f"[frontres_stage1_hook trace] {label}"]
+        lines = ["", "-" * 80, "", f"[frontres_stage1_hook trace] {label}"]
         for key, value in items.items():
-            parts.append(f"{key}={self._format_trace_value(value)}")
-        print(" ".join(parts), flush=True)
+            lines.append(f"  {key}: {self._format_trace_value(value)}")
+        print("\n".join(lines), flush=True)
 
     def _format_trace_value(self, value: Any) -> Any:
         if isinstance(value, torch.Tensor):
@@ -426,11 +427,16 @@ class FrontRESStage1EnvAdapter:
         if count <= self.trace_preview_count:
             return list(value)
         first = value[0] if count else None
-        result = {"count": count, "first": first}
+        last = value[-1] if count else None
+        result = {"count": count, "first": first, "last": last}
         if all(isinstance(item, int) for item in value):
             result.update({"min": min(value), "max": max(value)})
-        else:
+        elif all(isinstance(item, str) for item in value):
             result["unique_count"] = len(set(value))
+        elif all(isinstance(item, float) and math.isfinite(item) for item in value):
+            result.update({"min": min(value), "max": max(value)})
+        else:
+            result["type"] = type(first).__name__
         return result
 
 

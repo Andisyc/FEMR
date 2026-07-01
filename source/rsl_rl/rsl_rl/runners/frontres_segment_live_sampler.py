@@ -44,6 +44,10 @@ def _log_block(*lines: str) -> str:
     return "\n".join(("", _LOG_SEPARATOR, "", *lines))
 
 
+def _kv_lines(prefix: str, values: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(f"  {prefix}.{key}: {value}" for key, value in values.items())
+
+
 def _fmt_num(value: Any) -> str:
     value = float(value)
     if not math.isfinite(value):
@@ -151,15 +155,19 @@ def _ensure_stage1_cache_dataset(runner: Any) -> None:
     runner._frontres_segment_dataset = dataset
     metadata = dataset.cache_metadata() if hasattr(dataset, "cache_metadata") else None
     print(
-        _log_block(
-            "[FrontRES Segment Dataset Ready]",
-            "  cache: "
-            f"cache_dir={cache_dir} "
-            f"num_segments={dataset.num_segments()} "
-            f"include_boundary_diagnostic={include_boundary} "
-            f"shard_cache_size={shard_cache_size}",
-            f"  metadata: {metadata}",
-        ),
+            _log_block(
+                "[FrontRES Segment Dataset Ready]",
+                *_kv_lines(
+                    "cache",
+                    {
+                        "cache_dir": cache_dir,
+                        "num_segments": dataset.num_segments(),
+                        "include_boundary_diagnostic": include_boundary,
+                        "shard_cache_size": shard_cache_size,
+                    },
+                ),
+                f"  metadata: {metadata}",
+            ),
         flush=True,
     )
 
@@ -226,12 +234,16 @@ def _build_current_segment_batch(
             print(
                 _log_block(
                     "[FrontRES Segment Batch]",
-                    "  skipped: "
-                    "reason=no_dataset "
-                    f"cache_dir={cache_dir or '<empty>'} "
-                    f"has_dataset={dataset is not None} "
-                    f"dataset_has_get_segments={hasattr(dataset, 'get_segments')} "
-                    f"sampler_segments={sampler_segments}",
+                    *_kv_lines(
+                        "skipped",
+                        {
+                            "reason": "no_dataset",
+                            "cache_dir": cache_dir or "<empty>",
+                            "has_dataset": dataset is not None,
+                            "dataset_has_get_segments": hasattr(dataset, "get_segments"),
+                            "sampler_segments": sampler_segments,
+                        },
+                    ),
                 ),
                 flush=True,
             )
@@ -250,13 +262,17 @@ def _build_current_segment_batch(
         print(
             _log_block(
                 "[FrontRES Segment Batch]",
-                "  batch: "
-                f"update_step={update_step} "
-                f"{_id_summary(sample.segment_ids)} "
-                f"valid_count={valid_count} "
-                f"role_counts={_count_summary(roles)} "
-                f"{_tensor_value_summary('strength', strength)}"
-                f"{_verbose_batch_suffix(sample, roles=roles, strength=strength, verbose=verbose_probe)}",
+                *_kv_lines(
+                    "batch",
+                    {
+                        "update_step": update_step,
+                        "ids": _id_summary(sample.segment_ids),
+                        "valid_count": valid_count,
+                        "role_counts": _count_summary(roles),
+                        "strength": _tensor_value_summary("strength", strength),
+                    },
+                ),
+                *_verbose_batch_lines(sample, roles=roles, strength=strength, verbose=verbose_probe),
             ),
             flush=True,
         )
@@ -509,61 +525,76 @@ def _tensor_value_summary(name: str, value: object) -> str:
     )
 
 
-def _verbose_sample_suffix(sample: FrontRESSegmentSample, *, verbose: bool) -> str:
+def _verbose_sample_lines(sample: FrontRESSegmentSample, *, verbose: bool) -> tuple[str, ...]:
     if not verbose:
-        return ""
-    return f" segment_ids={sample.segment_ids.detach().cpu().tolist()} sources={list(sample.source)}"
+        return ()
+    return (
+        f"  sample.segment_ids: {sample.segment_ids.detach().cpu().tolist()}",
+        f"  sample.sources: {list(sample.source)}",
+    )
 
 
-def _verbose_batch_suffix(
+def _verbose_batch_lines(
     sample: FrontRESSegmentSample,
     *,
     roles: tuple[str, ...],
     strength: object,
     verbose: bool,
-) -> str:
+) -> tuple[str, ...]:
     if not verbose:
-        return ""
+        return ()
     strength_list = strength.detach().cpu().tolist() if isinstance(strength, torch.Tensor) else []
     return (
-        f" segment_ids={sample.segment_ids.detach().cpu().tolist()}"
-        f" roles={roles}"
-        f" strength={strength_list}"
+        f"  batch.segment_ids: {sample.segment_ids.detach().cpu().tolist()}",
+        f"  batch.roles: {roles}",
+        f"  batch.strength: {strength_list}",
     )
 
 
 def _print_sample_probe(update_step: int, sample: FrontRESSegmentSample, *, verbose: bool = False) -> None:
     print(
-        _log_block(
-            "[FrontRES Segment Sample]",
-            "  sample: "
-            f"update_step={update_step} "
-            f"{_id_summary(sample.segment_ids)} "
-            f"source_counts={_count_summary(list(sample.source))} "
-            f"priority={_fmt_num(sample.priority.float().mean().detach().cpu())} "
-            f"staleness={_fmt_num(sample.staleness.float().mean().detach().cpu())} "
-            f"valid_count={int(sample.valid_mask.bool().sum().detach().cpu().item())}"
-            f"{_verbose_sample_suffix(sample, verbose=verbose)}",
-        ),
+            _log_block(
+                "[FrontRES Segment Sample]",
+                *_kv_lines(
+                    "sample",
+                    {
+                        "update_step": update_step,
+                        "ids": _id_summary(sample.segment_ids),
+                        "source_counts": _count_summary(list(sample.source)),
+                        "priority": _fmt_num(sample.priority.float().mean().detach().cpu()),
+                        "staleness": _fmt_num(sample.staleness.float().mean().detach().cpu()),
+                        "valid_count": int(sample.valid_mask.bool().sum().detach().cpu().item()),
+                    },
+                ),
+                *_verbose_sample_lines(sample, verbose=verbose),
+            ),
         flush=True,
     )
 
 
 def _print_sampler_summary(update_step: int, summary: dict[str, object]) -> None:
     print(
-        _log_block(
-            "[FrontRES Segment Sampler]",
-            "  sampler: "
-            f"update_step={update_step} "
-            f"src=global:{int(summary['sampler_source_global_count'])},"
-            f"replay:{int(summary['sampler_source_replay_count'])},"
-            f"review:{int(summary['sampler_source_review_count'])} "
-            f"pool=replay:{int(summary['sampler_replay_pool_size'])},"
-            f"review:{int(summary['sampler_review_pool_size'])} "
-            f"priority={_fmt_num(summary['sampler_priority_mean'])} "
-            f"solved={_fmt_pct(summary['sampler_solved_frac'])} "
-            f"hopeless={_fmt_pct(summary['sampler_hopeless_frac'])} "
-            f"stale_review={int(summary['sampler_stale_review_count'])}",
-        ),
+            _log_block(
+                "[FrontRES Segment Sampler]",
+                *_kv_lines(
+                    "sampler",
+                    {
+                        "update_step": update_step,
+                        "src": (
+                            f"global:{int(summary['sampler_source_global_count'])},"
+                            f"replay:{int(summary['sampler_source_replay_count'])},"
+                            f"review:{int(summary['sampler_source_review_count'])}"
+                        ),
+                        "pool": (
+                            f"replay:{int(summary['sampler_replay_pool_size'])},"
+                            f"review:{int(summary['sampler_review_pool_size'])}"
+                        ),
+                        "priority": _fmt_num(summary["sampler_priority_mean"]),
+                        "solved": _fmt_pct(summary["sampler_solved_frac"]),
+                        "hopeless": _fmt_pct(summary["sampler_hopeless_frac"]),
+                        "stale_review": int(summary["sampler_stale_review_count"]),
+                    },
+                ),
+            ),
         flush=True,
     )

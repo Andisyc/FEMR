@@ -889,18 +889,25 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "[probe step6] readable_metric_blocks: "
         f"live_probe={'[FrontRES Segment Live Probe]' in output} "
         f"ppo_probe={'[FrontRES Segment PPO Probe]' in output} "
-        f"route={'  route:' in output} "
-        f"reset={'  reset:' in output} "
-        f"log_ratio={'  log_ratio:' in output}",
+        f"route={'  route.objective:' in output} "
+        f"reset={'  reset.enabled:' in output} "
+        f"log_ratio={'  log_ratio.mean:' in output}",
         flush=True,
     )
     assert "[FrontRES Segment Live Probe]" in output
     assert "[FrontRES Segment PPO Probe]" in output
-    for label in ("  route:", "  reset:", "  rollout:", "  storage:", "  ppo:", "  log_ratio:"):
+    for label in (
+        "  route.objective:",
+        "  reset.enabled:",
+        "  rollout.obs:",
+        "  storage.write:",
+        "  ppo.valid:",
+        "  log_ratio.mean:",
+    ):
         assert label in output
-    assert "reason=applied" in output
-    assert "policy_dim=6" in output
-    assert "segment_delta_se_6d=True" in output
+    assert "reset.reason: applied" in output
+    assert "rollout.policy_dim: 6" in output
+    assert "rollout.segment_delta_se_6d: True" in output
     assert output.startswith("\n" + live_probe._LOG_SEPARATOR + "\n")
     assert f"\n{live_probe._LOG_SEPARATOR}\n\n[FrontRES Segment PPO Probe]" in output
     assert not output.rstrip().endswith(live_probe._LOG_SEPARATOR)
@@ -947,15 +954,15 @@ def test_live_probe_summary_reports_raw_policy_and_segment_delta_dims() -> None:
     output = stream.getvalue()
     print(
         "[probe bug3] action_dim_summary: "
-        f"policy_dim_12={'policy_dim=12' in output} "
-        f"segment_6d={'segment_delta_se_6d=True' in output} "
-        f"reset_reason={'reason=no_current_segment_batch' in output}",
+        f"policy_dim_12={'rollout.policy_dim: 12' in output} "
+        f"segment_6d={'rollout.segment_delta_se_6d: True' in output} "
+        f"reset_reason={'reset.reason: no_current_segment_batch' in output}",
         flush=True,
     )
-    assert "policy_dim=12" in output
-    assert "segment_action=(2, 6)" in output
-    assert "segment_delta_se_6d=True" in output
-    assert "reason=no_current_segment_batch" in output
+    assert "rollout.policy_dim: 12" in output
+    assert "rollout.segment_action: (2, 6)" in output
+    assert "rollout.segment_delta_se_6d: True" in output
+    assert "reset.reason: no_current_segment_batch" in output
 
 
 if __name__ == "__main__":

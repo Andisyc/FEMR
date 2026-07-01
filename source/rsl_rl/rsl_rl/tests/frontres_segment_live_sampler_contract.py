@@ -483,8 +483,8 @@ def test_large_sampler_probe_uses_summary_not_full_lists() -> None:
     output = stream.getvalue()
     contains_sources_list = "sources=['global'" in output
     contains_segment_ids_list = "segment_ids=[0, 1, 2" in output
-    contains_source_counts = "source_counts=" in output
-    contains_role_counts = "role_counts=" in output
+    contains_source_counts = "source_counts" in output
+    contains_role_counts = "role_counts" in output
     print(
         "[probe step22] large_log_summary: "
         f"contains_count={'count=12000' in output} "
@@ -495,8 +495,8 @@ def test_large_sampler_probe_uses_summary_not_full_lists() -> None:
         flush=True,
     )
     assert "count=12000" in output
-    assert "source_counts=" in output
-    assert "role_counts=" in output
+    assert "sample.source_counts:" in output
+    assert "batch.role_counts:" in output
     assert "strength_count=12000" in output
     assert "sources=['global'" not in output
     assert "segment_ids=[0, 1, 2" not in output
@@ -789,16 +789,16 @@ def test_missing_dataset_probe_reports_cache_and_sampler_state() -> None:
     print(
         "[probe bug4] missing_dataset_probe: "
         f"batch_is_none={batch is None} "
-        f"has_cache_dir={'cache_dir=/tmp/missing_stage1_index' in output} "
-        f"has_sampler_segments={'sampler_segments=3' in output}",
+        f"has_cache_dir={'skipped.cache_dir: /tmp/missing_stage1_index' in output} "
+        f"has_sampler_segments={'skipped.sampler_segments: 3' in output}",
         flush=True,
     )
     assert batch is None
-    assert "reason=no_dataset" in output
-    assert "cache_dir=/tmp/missing_stage1_index" in output
-    assert "has_dataset=False" in output
-    assert "dataset_has_get_segments=False" in output
-    assert "sampler_segments=3" in output
+    assert "skipped.reason: no_dataset" in output
+    assert "skipped.cache_dir: /tmp/missing_stage1_index" in output
+    assert "skipped.has_dataset: False" in output
+    assert "skipped.dataset_has_get_segments: False" in output
+    assert "skipped.sampler_segments: 3" in output
 
 
 def test_runner_checkpoint_saves_and_restores_sampler_state() -> None:

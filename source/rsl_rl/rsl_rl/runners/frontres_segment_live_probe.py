@@ -33,6 +33,14 @@ _VERBOSE_PROBE_BATCH_LIMIT = 16
 _LOG_SEPARATOR = "-" * 80
 
 
+def _log_block(*lines: str) -> str:
+    return "\n".join(("", _LOG_SEPARATOR, "", *lines))
+
+
+def _kv_lines(prefix: str, values: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(f"  {prefix}.{key}: {value}" for key, value in values.items())
+
+
 def _fmt_num(value: Any) -> str:
     value = float(value)
     if not math.isfinite(value):
@@ -140,23 +148,44 @@ def _motion_summary(motion_ids: tuple[str, ...]) -> str:
     )
 
 
-def _verbose_reset_suffix(request: Any, *, verbose: bool) -> str:
+def _sequence_summary(values: Any, *, limit: int = _VERBOSE_PROBE_BATCH_LIMIT) -> Any:
+    try:
+        count = len(values)
+    except TypeError:
+        return values
+    if count <= limit:
+        return list(values)
+    first = values[0] if count else None
+    last = values[-1] if count else None
+    result = {"count": count, "first": first, "last": last}
+    if all(isinstance(item, int) for item in values):
+        result.update({"min": min(values), "max": max(values)})
+    else:
+        result["unique_count"] = len(set(values))
+    return result
+
+
+def _verbose_reset_lines(request: Any, *, verbose: bool) -> tuple[str, ...]:
     if not verbose:
-        return ""
+        return ()
+    segment_ids = request.segment_ids.detach().long().reshape(-1).cpu().tolist()
     return (
-        f" segment_ids={request.segment_ids.detach().cpu().tolist()}"
-        f" mode={tuple(request.mode)}"
+        f"  reset.segment_ids: {_sequence_summary(segment_ids)}",
+        f"  reset.mode: {_sequence_summary(tuple(request.mode))}",
     )
 
 
-def _verbose_index_reset_suffix(request: Any, *, verbose: bool) -> str:
+def _verbose_index_reset_lines(request: Any, *, verbose: bool) -> tuple[str, ...]:
     if not verbose:
-        return ""
+        return ()
+    segment_ids = request.segment_ids.detach().long().reshape(-1).cpu().tolist()
+    start_frames = request.start_frames.detach().long().reshape(-1).cpu().tolist()
+    horizon_k = request.horizon_k.detach().long().reshape(-1).cpu().tolist()
     return (
-        f" segment_ids={request.segment_ids.detach().cpu().tolist()}"
-        f" motion_ids={list(request.motion_ids)}"
-        f" start_frames={request.start_frames.detach().cpu().tolist()}"
-        f" horizon_k={request.horizon_k.detach().cpu().tolist()}"
+        f"  reset.segment_ids: {_sequence_summary(segment_ids)}",
+        f"  reset.motion_ids: {_sequence_summary(tuple(request.motion_ids))}",
+        f"  reset.start_frames: {_sequence_summary(start_frames)}",
+        f"  reset.horizon_k: {_sequence_summary(horizon_k)}",
     )
 
 
@@ -358,15 +387,22 @@ def _apply_current_segment_reset(runner: Any) -> FrontRESSegmentResetResult | No
     verbose = _verbose_probe_enabled(runner, request.segment_ids)
     if _live_detail_log_enabled(runner):
         print(
-            "[FrontRES Segment Reset] "
-            f"{_id_summary(request.segment_ids)} "
-            f"mode_counts={_count_summary(tuple(request.mode))} "
-            f"valid_count={int(request.valid_mask.detach().bool().sum().cpu().item())} "
-            f"success_frac={float(result.success_mask.float().mean().detach().cpu().item()):.4f} "
-            f"direct_frac={float(result.direct_reset_mask.float().mean().detach().cpu().item()):.4f} "
-            f"preroll_frac={float(result.preroll_mask.float().mean().detach().cpu().item()):.4f} "
-            f"velocity_mismatch_mean={float(result.velocity_mismatch.float().mean().detach().cpu().item()):.6f}"
-            f"{_verbose_reset_suffix(request, verbose=verbose)}",
+            _log_block(
+                "[FrontRES Segment Reset]",
+                *_kv_lines(
+                    "reset",
+                    {
+                        "ids": _id_summary(request.segment_ids),
+                        "mode_counts": _count_summary(tuple(request.mode)),
+                        "valid_count": int(request.valid_mask.detach().bool().sum().cpu().item()),
+                        "success_frac": f"{float(result.success_mask.float().mean().detach().cpu().item()):.4f}",
+                        "direct_frac": f"{float(result.direct_reset_mask.float().mean().detach().cpu().item()):.4f}",
+                        "preroll_frac": f"{float(result.preroll_mask.float().mean().detach().cpu().item()):.4f}",
+                        "velocity_mismatch_mean": f"{float(result.velocity_mismatch.float().mean().detach().cpu().item()):.6f}",
+                    },
+                ),
+                *_verbose_reset_lines(request, verbose=verbose),
+            ),
             flush=True,
         )
     return result
@@ -408,12 +444,19 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
         verbose = _verbose_probe_enabled(runner, batch.segment_ids)
         if _live_detail_log_enabled(runner):
             print(
-                "[FrontRES Segment Reset] "
-                "skip_reason=index_only_segment_index "
-                f"{_id_summary(batch.segment_ids)} "
-                f"{_motion_summary(motion_ids)} "
-                f"{_tensor_range_summary('start', start_frames)}"
-                f"{_verbose_index_reset_suffix(request, verbose=verbose)}",
+                _log_block(
+                    "[FrontRES Segment Reset]",
+                    *_kv_lines(
+                        "reset",
+                        {
+                            "skip_reason": "index_only_segment_index",
+                            "ids": _id_summary(batch.segment_ids),
+                            "motion": _motion_summary(motion_ids),
+                            "start": _tensor_range_summary("start", start_frames),
+                        },
+                    ),
+                    *_verbose_index_reset_lines(request, verbose=verbose),
+                ),
                 flush=True,
             )
         return None
@@ -426,14 +469,21 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
     verbose = _verbose_probe_enabled(runner, request.segment_ids)
     if _live_detail_log_enabled(runner):
         print(
-            "[FrontRES Segment Reset] "
-            "mode=index_only "
-            f"{_id_summary(request.segment_ids)} "
-            f"{_motion_summary(motion_ids)} "
-            f"{_tensor_range_summary('start', request.start_frames)} "
-            f"{_tensor_range_summary('horizon', request.horizon_k)} "
-            f"success_frac={float(result.success_mask.float().mean().detach().cpu().item()):.4f}"
-            f"{_verbose_index_reset_suffix(request, verbose=verbose)}",
+            _log_block(
+                "[FrontRES Segment Reset]",
+                *_kv_lines(
+                    "reset",
+                    {
+                        "mode": "index_only",
+                        "ids": _id_summary(request.segment_ids),
+                        "motion": _motion_summary(motion_ids),
+                        "start": _tensor_range_summary("start", request.start_frames),
+                        "horizon": _tensor_range_summary("horizon", request.horizon_k),
+                        "success_frac": f"{float(result.success_mask.float().mean().detach().cpu().item()):.4f}",
+                    },
+                ),
+                *_verbose_index_reset_lines(request, verbose=verbose),
+            ),
             flush=True,
         )
     return result
@@ -908,78 +958,104 @@ def _print_live_probe_summary(
     )
     segment_delta_se_6d = bool(_shape_last_dim(segment_action_shape) == 6)
     print(
-        "\n".join(
-            (
-                "",
-                _LOG_SEPARATOR,
-                "",
-                "[FrontRES Segment Live Probe]",
-                "  route: "
-                f"objective={getattr(runner.alg, 'frontres_training_objective', 'n/a')} "
-                "segment_id=live_env_current "
-                f"reset_mode={runner._frontres_segment_replay_boundary.reset_mode}",
-                "  reset: "
-                f"enabled={bool(summary['segment_reset'])} "
-                f"reason={summary.get('segment_reset_skip_reason', '') or 'applied'} "
-                f"ok={_fmt_pct(summary['segment_reset_success_frac'])} "
-                f"direct={_fmt_pct(summary['segment_reset_direct_frac'])} "
-                f"preroll={_fmt_pct(summary['segment_reset_preroll_frac'])} "
-                f"vel_mismatch={_fmt_num(summary['segment_reset_velocity_mismatch_mean'])} "
-                f"ref_window={_fmt_pct(summary['segment_reference_window_applied_frac'])}",
-                "  rollout: "
-                f"obs={capture.last_obs_shape} "
-                f"policy_action={capture.action_shape} "
-                f"policy_dim={_shape_last_dim(capture.action_shape)} "
-                f"segment_action={segment_action_shape} "
-                f"segment_delta_se_6d={segment_delta_se_6d} "
-                f"env_action={capture.env_action_shape} "
-                f"env_dim={_shape_last_dim(capture.env_action_shape)} "
-                f"k={capture.rollout_k} "
-                f"reward={_fmt_num(summary['reward_mean'])} "
-                f"done={_fmt_pct(summary['done_frac'])}",
-                "  storage: "
-                f"write={bool(summary['storage_write'])} "
-                f"size={int(summary['storage_size'])} "
-                f"mask_valid={_fmt_pct(summary['valid_mask_frac'])} "
-                f"valid_frac={_fmt_pct(summary['storage_valid_frac'])} "
-                f"reward={_fmt_num(summary['storage_reward_mean'])}",
-                "  ppo: "
-                f"single_update={bool(summary['single_update'])} "
-                f"update={bool(summary['ppo_update'])} "
-                f"valid={int(summary['ppo_valid_count'])} "
-                f"loss_total={_fmt_num(summary['ppo_total_loss'])} "
-                f"actor={_fmt_num(summary['ppo_actor_loss'])} "
-                f"value={_fmt_num(summary['ppo_value_loss'])} "
-                f"kl={_fmt_num(summary['ppo_approx_kl'])} "
-                f"clip={_fmt_pct(summary['ppo_clip_frac'])} "
-                f"status={_probe_status(summary)}",
-            )
+        _log_block(
+            "[FrontRES Segment Live Probe]",
+            *_kv_lines(
+                "route",
+                {
+                    "objective": getattr(runner.alg, "frontres_training_objective", "n/a"),
+                    "segment_id": "live_env_current",
+                    "reset_mode": runner._frontres_segment_replay_boundary.reset_mode,
+                },
+            ),
+            *_kv_lines(
+                "reset",
+                {
+                    "enabled": bool(summary["segment_reset"]),
+                    "reason": summary.get("segment_reset_skip_reason", "") or "applied",
+                    "ok": _fmt_pct(summary["segment_reset_success_frac"]),
+                    "direct": _fmt_pct(summary["segment_reset_direct_frac"]),
+                    "preroll": _fmt_pct(summary["segment_reset_preroll_frac"]),
+                    "vel_mismatch": _fmt_num(summary["segment_reset_velocity_mismatch_mean"]),
+                    "ref_window": _fmt_pct(summary["segment_reference_window_applied_frac"]),
+                },
+            ),
+            *_kv_lines(
+                "rollout",
+                {
+                    "obs": capture.last_obs_shape,
+                    "policy_action": capture.action_shape,
+                    "policy_dim": _shape_last_dim(capture.action_shape),
+                    "segment_action": segment_action_shape,
+                    "segment_delta_se_6d": segment_delta_se_6d,
+                    "env_action": capture.env_action_shape,
+                    "env_dim": _shape_last_dim(capture.env_action_shape),
+                    "k": capture.rollout_k,
+                    "reward": _fmt_num(summary["reward_mean"]),
+                    "done": _fmt_pct(summary["done_frac"]),
+                },
+            ),
+            *_kv_lines(
+                "storage",
+                {
+                    "write": bool(summary["storage_write"]),
+                    "size": int(summary["storage_size"]),
+                    "mask_valid": _fmt_pct(summary["valid_mask_frac"]),
+                    "valid_frac": _fmt_pct(summary["storage_valid_frac"]),
+                    "reward": _fmt_num(summary["storage_reward_mean"]),
+                },
+            ),
+            *_kv_lines(
+                "ppo",
+                {
+                    "single_update": bool(summary["single_update"]),
+                    "update": bool(summary["ppo_update"]),
+                    "valid": int(summary["ppo_valid_count"]),
+                    "loss_total": _fmt_num(summary["ppo_total_loss"]),
+                    "actor": _fmt_num(summary["ppo_actor_loss"]),
+                    "value": _fmt_num(summary["ppo_value_loss"]),
+                    "kl": _fmt_num(summary["ppo_approx_kl"]),
+                    "clip": _fmt_pct(summary["ppo_clip_frac"]),
+                    "status": _probe_status(summary),
+                },
+            ),
         ),
         flush=True,
     )
     if bool(summary.get("ppo_update", False)):
         print(
-            "\n".join(
-                (
-                    "",
-                    _LOG_SEPARATOR,
-                    "",
-                    "[FrontRES Segment PPO Probe]",
-                    "  log_prob: "
-                    f"old={_fmt_num(summary.get('ppo_old_log_prob_mean', 0.0))} "
-                    f"new={_fmt_num(summary.get('ppo_new_log_prob_mean', 0.0))}",
-                    "  log_ratio: "
-                    f"mean={_fmt_num(summary.get('ppo_raw_log_ratio_mean', 0.0))} "
-                    f"min={_fmt_num(summary.get('ppo_raw_log_ratio_min', 0.0))} "
-                    f"max={_fmt_num(summary.get('ppo_raw_log_ratio_max', 0.0))}",
-                    "  ratio: "
-                    f"mean={_fmt_num(summary.get('ppo_ratio_mean', 0.0))} "
-                    f"max={_fmt_num(summary.get('ppo_ratio_max', 0.0))}",
-                    "  advantage: "
-                    f"mean={_fmt_num(summary.get('ppo_advantage_mean', 0.0))} "
-                    f"min={_fmt_num(summary.get('ppo_advantage_min', 0.0))} "
-                    f"max={_fmt_num(summary.get('ppo_advantage_max', 0.0))}",
-                )
+            _log_block(
+                "[FrontRES Segment PPO Probe]",
+                *_kv_lines(
+                    "log_prob",
+                    {
+                        "old": _fmt_num(summary.get("ppo_old_log_prob_mean", 0.0)),
+                        "new": _fmt_num(summary.get("ppo_new_log_prob_mean", 0.0)),
+                    },
+                ),
+                *_kv_lines(
+                    "log_ratio",
+                    {
+                        "mean": _fmt_num(summary.get("ppo_raw_log_ratio_mean", 0.0)),
+                        "min": _fmt_num(summary.get("ppo_raw_log_ratio_min", 0.0)),
+                        "max": _fmt_num(summary.get("ppo_raw_log_ratio_max", 0.0)),
+                    },
+                ),
+                *_kv_lines(
+                    "ratio",
+                    {
+                        "mean": _fmt_num(summary.get("ppo_ratio_mean", 0.0)),
+                        "max": _fmt_num(summary.get("ppo_ratio_max", 0.0)),
+                    },
+                ),
+                *_kv_lines(
+                    "advantage",
+                    {
+                        "mean": _fmt_num(summary.get("ppo_advantage_mean", 0.0)),
+                        "min": _fmt_num(summary.get("ppo_advantage_min", 0.0)),
+                        "max": _fmt_num(summary.get("ppo_advantage_max", 0.0)),
+                    },
+                ),
             ),
             flush=True,
         )

@@ -315,9 +315,10 @@ def test_stage1_hook_trace_summarizes_large_sequences() -> None:
         f"str_summary={str_summary}",
         flush=True,
     )
-    assert int_summary == {"count": 12, "first": 0, "min": 0, "max": 11}
+    assert int_summary == {"count": 12, "first": 0, "last": 11, "min": 0, "max": 11}
     assert str_summary["count"] == 12
     assert str_summary["first"] == "motion_0"
+    assert str_summary["last"] == "motion_11"
     assert str_summary["unique_count"] == 12
 
 
