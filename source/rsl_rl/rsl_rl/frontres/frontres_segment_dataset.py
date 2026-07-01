@@ -10,6 +10,13 @@ from typing import Any, Callable, Iterable, Sequence
 import torch
 
 
+_LOG_SEPARATOR = "-" * 80
+
+
+def _log_block(*lines: str) -> str:
+    return "\n".join(("", _LOG_SEPARATOR, "", *lines))
+
+
 def _load_same_dir(module_name: str):
     path = Path(__file__).with_name(f"{module_name}.py")
     spec = importlib.util.spec_from_file_location(module_name, path)
@@ -837,11 +844,14 @@ def load_stage1_cache_dataset(
     if metadata.get("format") == "frontres_segment_cache_index_v1":
         dataset = FrontRESStage1IndexDataset(cache_dir=cache_dir, metadata=metadata, device=device)
         print(
-            "[FrontRES Segment Dataset] cache_load "
-            "mode=index_only "
-            f"loaded_motion_count={dataset.num_segments()} "
-            "metadata_noisy_count=0 "
-            "lazy=False index_only=True",
+            _log_block(
+                "[FrontRES Segment Dataset]",
+                "  cache_load: "
+                "mode=index_only "
+                f"loaded_motion_count={dataset.num_segments()} "
+                "metadata_noisy_count=0 "
+                "lazy=False index_only=True",
+            ),
             flush=True,
         )
         return dataset
@@ -858,14 +868,17 @@ def load_stage1_cache_dataset(
             shard_cache_size=shard_cache_size,
         )
         print(
-            "[FrontRES Segment Dataset] cache_load "
-            f"mode={summary.perturbation_curriculum_mode} "
-            f"metadata_noisy_count={summary.metadata_noisy_count} "
-            f"loaded_motion_count={summary.loaded_motion_count} "
-            f"skipped_boundary_diagnostic_count={summary.skipped_boundary_diagnostic_count} "
-            f"included_boundary_diagnostic_count={summary.included_boundary_diagnostic_count} "
-            f"role_counts={summary.role_counts} "
-            f"lazy=True shard_cache_size={shard_cache_size}",
+            _log_block(
+                "[FrontRES Segment Dataset]",
+                "  cache_load: "
+                f"mode={summary.perturbation_curriculum_mode} "
+                f"metadata_noisy_count={summary.metadata_noisy_count} "
+                f"loaded_motion_count={summary.loaded_motion_count} "
+                f"skipped_boundary_diagnostic_count={summary.skipped_boundary_diagnostic_count} "
+                f"included_boundary_diagnostic_count={summary.included_boundary_diagnostic_count} "
+                f"role_counts={summary.role_counts} "
+                f"lazy=True shard_cache_size={shard_cache_size}",
+            ),
             flush=True,
         )
         return dataset
@@ -885,13 +898,16 @@ def load_stage1_cache_dataset(
     )
     dataset.load_cache_metadata(summary.probe())
     print(
-        "[FrontRES Segment Dataset] cache_load "
-        f"mode={summary.perturbation_curriculum_mode} "
-        f"metadata_noisy_count={summary.metadata_noisy_count} "
-        f"loaded_motion_count={summary.loaded_motion_count} "
-        f"skipped_boundary_diagnostic_count={summary.skipped_boundary_diagnostic_count} "
-        f"included_boundary_diagnostic_count={summary.included_boundary_diagnostic_count} "
-        f"role_counts={summary.role_counts}",
+        _log_block(
+            "[FrontRES Segment Dataset]",
+            "  cache_load: "
+            f"mode={summary.perturbation_curriculum_mode} "
+            f"metadata_noisy_count={summary.metadata_noisy_count} "
+            f"loaded_motion_count={summary.loaded_motion_count} "
+            f"skipped_boundary_diagnostic_count={summary.skipped_boundary_diagnostic_count} "
+            f"included_boundary_diagnostic_count={summary.included_boundary_diagnostic_count} "
+            f"role_counts={summary.role_counts}",
+        ),
         flush=True,
     )
     return dataset

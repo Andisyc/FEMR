@@ -281,7 +281,11 @@ def main() -> None:
     assert "frontres_segment_live_update_loop_only" in algorithm_impl
     assert "frontres_segment_live_train_enabled" in algorithm_impl
     assert "frontres_segment_live_update_steps" in algorithm_impl
+    assert "frontres_segment_cache_dir: str = \"\"" in algorithm_impl
+    assert "self.frontres_segment_cache_dir = str(frontres_segment_cache_dir or \"\")" in algorithm_impl
     assert "frontres_segment_shard_cache_size" in algorithm_impl
+    assert "frontres_segment_include_boundary_diagnostic: bool = False" in algorithm_impl
+    assert "self.frontres_segment_include_boundary_diagnostic = bool(frontres_segment_include_boundary_diagnostic)" in algorithm_impl
     assert "frontres_segment_live_fail_on_invalid_update" in algorithm_impl
     assert "frontres_segment_live_min_valid_count" in algorithm_impl
     assert "frontres_segment_live_fail_on_nonfinite" in algorithm_impl

@@ -535,7 +535,7 @@ def test_live_detail_logs_are_rate_limited_by_default_and_verbose() -> None:
         for update_step in range(12):
             run_frontres_segment_sampler_step(runner, init_at_random_ep_len=False, update_step=update_step)
     output = stream.getvalue()
-    sample_count = output.count("[probe step22] sample:")
+    sample_count = output.count("[FrontRES Segment Sample]")
     batch_count = output.count("[FrontRES Segment Batch]")
     evidence_count = output.count("[probe step14] evidence_path:")
     sampler_count = output.count("[FrontRES Segment Sampler]")
@@ -563,7 +563,7 @@ def test_live_detail_logs_are_rate_limited_by_default_and_verbose() -> None:
         for update_step in range(4):
             run_frontres_segment_sampler_step(verbose_runner, init_at_random_ep_len=False, update_step=update_step)
     verbose_output = stream.getvalue()
-    verbose_sample_count = verbose_output.count("[probe step22] sample:")
+    verbose_sample_count = verbose_output.count("[FrontRES Segment Sample]")
     verbose_sampler_count = verbose_output.count("[FrontRES Segment Sampler]")
     print(
         "[probe step6] live_detail_log_verbose_rate: "
@@ -711,6 +711,29 @@ def test_live_storage_uses_sampled_segment_ids_and_sources() -> None:
     assert tuple(state["segment_source"]) == tuple(sample.source)
 
 
+def test_missing_dataset_probe_reports_cache_and_sampler_state() -> None:
+    runner = FakeRunner(cache_dir="/tmp/missing_stage1_index")
+    runner._frontres_segment_sampler = FrontRESSegmentSampler(3, seed=8)
+    sample = runner._frontres_segment_sampler.sample(2)
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        batch = live_sampler_module._build_current_segment_batch(runner, sample, update_step=0)
+    output = stream.getvalue()
+    print(
+        "[probe bug4] missing_dataset_probe: "
+        f"batch_is_none={batch is None} "
+        f"has_cache_dir={'cache_dir=/tmp/missing_stage1_index' in output} "
+        f"has_sampler_segments={'sampler_segments=3' in output}",
+        flush=True,
+    )
+    assert batch is None
+    assert "reason=no_dataset" in output
+    assert "cache_dir=/tmp/missing_stage1_index" in output
+    assert "has_dataset=False" in output
+    assert "dataset_has_get_segments=False" in output
+    assert "sampler_segments=3" in output
+
+
 def test_runner_checkpoint_saves_and_restores_sampler_state() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = str(Path(tmp) / "model_3.pt")
@@ -837,6 +860,7 @@ def main() -> None:
     test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset()
     test_live_sampler_builds_current_batch_before_probe()
     test_live_storage_uses_sampled_segment_ids_and_sources()
+    test_missing_dataset_probe_reports_cache_and_sampler_state()
     test_runner_checkpoint_saves_and_restores_sampler_state()
     test_runner_checkpoint_save_does_not_require_logger_type()
     test_runner_checkpoint_save_skips_missing_external_writer()

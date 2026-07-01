@@ -307,7 +307,8 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert "FrontRESSegmentTransition" not in runner
     assert "compute_frontres_segment_ppo_loss" not in runner
     assert "FrontRESSegmentPPOConfig" not in runner
-    assert "storage_write={bool(summary['storage_write'])}" in live_probe
+    assert '"  storage: "' in live_probe
+    assert "write={bool(summary['storage_write'])}" in live_probe
     assert "from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout" in live_probe
     assert "from rsl_rl.frontres.training_schedule import configure_frontres_pair_layout" not in live_probe
     assert "FrontRESSegmentRolloutStorage" in live_probe
@@ -317,9 +318,9 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert "build_live_segment_storage" in live_probe
     assert "run_frontres_segment_single_update" in live_probe
     assert "_run_live_rollout_capture" in live_probe
-    assert "storage_size=" in live_probe
-    assert "storage_valid_frac=" in live_probe
-    assert "ppo_update={bool(summary['ppo_update'])}" in live_probe
+    assert "size={int(summary['storage_size'])}" in live_probe
+    assert "valid_frac={_fmt_pct(summary['storage_valid_frac'])}" in live_probe
+    assert "update={bool(summary['ppo_update'])}" in live_probe
     assert "FrontRES Segment Live Update Loop" in live_update_loop
     assert "runner_learn={runner_learn}" in live_update_loop
     assert "FrontRES Segment Live Train" in live_training

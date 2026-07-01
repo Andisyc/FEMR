@@ -787,6 +787,125 @@ def test_live_probe_detail_gate_suppresses_reset_and_summary_logs() -> None:
     assert live_probe_count == 0
 
 
+def test_live_probe_summary_uses_readable_metric_blocks() -> None:
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(
+            frontres_training_objective="segment_replay_hrl",
+            frontres_segment_verbose_probe=True,
+        ),
+        _frontres_segment_replay_boundary=SimpleNamespace(reset_mode="direct"),
+        _frontres_segment_live_detail_log_enabled=True,
+    )
+    summary = {
+        "segment_reset": True,
+        "segment_reset_skip_reason": "",
+        "segment_reset_success_frac": 1.0,
+        "segment_reset_direct_frac": 0.5,
+        "segment_reset_preroll_frac": 0.5,
+        "segment_reset_velocity_mismatch_mean": 0.0,
+        "segment_reference_window_applied_frac": 0.0,
+        "valid_mask_frac": 1.0,
+        "reward_mean": 0.5,
+        "done_frac": 0.0,
+        "storage_write": True,
+        "storage_size": 2,
+        "storage_valid_frac": 1.0,
+        "storage_reward_mean": 0.5,
+        "single_update": True,
+        "ppo_update": True,
+        "ppo_valid_count": 2,
+        "ppo_total_loss": 1.0,
+        "ppo_actor_loss": 0.5,
+        "ppo_value_loss": 0.25,
+        "ppo_approx_kl": -0.01,
+        "ppo_clip_frac": 0.2,
+        "ppo_old_log_prob_mean": -2.0,
+        "ppo_new_log_prob_mean": -1.0,
+        "ppo_raw_log_ratio_mean": 1.0,
+        "ppo_raw_log_ratio_min": -0.5,
+        "ppo_raw_log_ratio_max": 2.0,
+        "ppo_ratio_mean": 3.0,
+        "ppo_ratio_max": 7.0,
+        "ppo_advantage_mean": 0.1,
+        "ppo_advantage_min": -0.2,
+        "ppo_advantage_max": 0.4,
+    }
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        live_probe._print_live_probe_summary(runner, _capture(), summary)
+    output = stream.getvalue()
+    print(
+        "[probe step6] readable_metric_blocks: "
+        f"live_probe={'[FrontRES Segment Live Probe]' in output} "
+        f"ppo_probe={'[FrontRES Segment PPO Probe]' in output} "
+        f"route={'  route:' in output} "
+        f"reset={'  reset:' in output} "
+        f"log_ratio={'  log_ratio:' in output}",
+        flush=True,
+    )
+    assert "[FrontRES Segment Live Probe]" in output
+    assert "[FrontRES Segment PPO Probe]" in output
+    for label in ("  route:", "  reset:", "  rollout:", "  storage:", "  ppo:", "  log_ratio:"):
+        assert label in output
+    assert "reason=applied" in output
+    assert "policy_dim=6" in output
+    assert "segment_delta_se_6d=True" in output
+    assert output.startswith("\n" + live_probe._LOG_SEPARATOR + "\n")
+    assert not output.rstrip().endswith(live_probe._LOG_SEPARATOR)
+
+
+def test_live_probe_summary_reports_raw_policy_and_segment_delta_dims() -> None:
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(
+            frontres_training_objective="segment_replay_hrl",
+            frontres_segment_verbose_probe=True,
+        ),
+        _frontres_segment_replay_boundary=SimpleNamespace(reset_mode="auto"),
+        _frontres_segment_live_detail_log_enabled=True,
+    )
+    capture = _capture()
+    capture.action_shape = (2, 12)
+    summary = {
+        "segment_reset": False,
+        "segment_reset_skip_reason": "no_current_segment_batch",
+        "segment_reset_success_frac": 0.0,
+        "segment_reset_direct_frac": 0.0,
+        "segment_reset_preroll_frac": 0.0,
+        "segment_reset_velocity_mismatch_mean": 0.0,
+        "segment_reference_window_applied_frac": 0.0,
+        "valid_mask_frac": 1.0,
+        "reward_mean": 0.5,
+        "done_frac": 0.0,
+        "storage_write": True,
+        "storage_size": 2,
+        "storage_valid_frac": 1.0,
+        "storage_reward_mean": 0.5,
+        "single_update": True,
+        "ppo_update": False,
+        "ppo_valid_count": 0,
+        "ppo_total_loss": 0.0,
+        "ppo_actor_loss": 0.0,
+        "ppo_value_loss": 0.0,
+        "ppo_approx_kl": 0.0,
+        "ppo_clip_frac": 0.0,
+    }
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        live_probe._print_live_probe_summary(runner, capture, summary)
+    output = stream.getvalue()
+    print(
+        "[probe bug3] action_dim_summary: "
+        f"policy_dim_12={'policy_dim=12' in output} "
+        f"segment_6d={'segment_delta_se_6d=True' in output} "
+        f"reset_reason={'reason=no_current_segment_batch' in output}",
+        flush=True,
+    )
+    assert "policy_dim=12" in output
+    assert "segment_action=(2, 6)" in output
+    assert "segment_delta_se_6d=True" in output
+    assert "reason=no_current_segment_batch" in output
+
+
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_rejects_non_6d_actions()
@@ -799,4 +918,6 @@ if __name__ == "__main__":
     test_live_probe_skips_dynamic_reset_for_index_only_segments()
     test_live_probe_applies_index_reset_for_index_only_segments_when_env_supports_it()
     test_live_probe_detail_gate_suppresses_reset_and_summary_logs()
+    test_live_probe_summary_uses_readable_metric_blocks()
+    test_live_probe_summary_reports_raw_policy_and_segment_delta_dims()
     print("frontres_segment_live_probe_contract: ok")

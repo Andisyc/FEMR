@@ -30,6 +30,7 @@ from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
 
 
 _VERBOSE_PROBE_BATCH_LIMIT = 16
+_LOG_SEPARATOR = "-" * 80
 
 
 def _fmt_num(value: Any) -> str:
@@ -44,6 +45,12 @@ def _fmt_num(value: Any) -> str:
 
 def _fmt_pct(value: Any) -> str:
     return f"{100.0 * float(value):.1f}%"
+
+
+def _shape_last_dim(shape: tuple[int, ...] | None) -> int | None:
+    if shape is None or len(shape) == 0:
+        return None
+    return int(shape[-1])
 
 
 def _probe_status(summary: dict[str, object]) -> str:
@@ -258,11 +265,12 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
         )
 
     reset_result = _apply_current_segment_reset(runner)
+    reset_skip_reason = str(getattr(runner, "_frontres_segment_live_current_reset_skip_reason", "") or "")
     observations = _read_live_observations(runner)
     runner.eval_mode()
     capture = _run_live_rollout_capture(runner, observations)
     summary = _initial_live_probe_summary(capture, storage_write=storage_write, single_update=single_update)
-    _update_reset_summary(summary, reset_result)
+    _update_reset_summary(summary, reset_result, skip_reason=reset_skip_reason)
 
     if storage_write:
         segment_storage = build_live_segment_storage(runner, capture)
@@ -308,6 +316,7 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
 def _apply_current_segment_reset(runner: Any) -> FrontRESSegmentResetResult | None:
     batch = getattr(runner, "_frontres_segment_live_current_batch", None)
     if batch is None:
+        runner._frontres_segment_live_current_reset_skip_reason = "no_current_segment_batch"
         return None
     if _is_index_only_segment_batch(batch):
         return _apply_index_only_segment_reset(runner, batch)
@@ -335,6 +344,7 @@ def _apply_current_segment_reset(runner: Any) -> FrontRESSegmentResetResult | No
     result = adapter.apply(runner.env, request)
     runner._frontres_segment_live_current_reset_request = request
     runner._frontres_segment_live_current_reset_result = result
+    runner._frontres_segment_live_current_reset_skip_reason = ""
     verbose = _verbose_probe_enabled(runner, request.segment_ids)
     if _live_detail_log_enabled(runner):
         print(
@@ -479,11 +489,17 @@ def _env_has_segment_reset_hook(env: Any) -> bool:
     return any(hasattr(env, name) for name in ("apply_frontres_segment_reset", "reset_to_segment", "set_segment_state"))
 
 
-def _update_reset_summary(summary: dict[str, object], result: FrontRESSegmentResetResult | None) -> None:
+def _update_reset_summary(
+    summary: dict[str, object],
+    result: FrontRESSegmentResetResult | None,
+    *,
+    skip_reason: str = "",
+) -> None:
     if result is None:
         summary.update(
             {
                 "segment_reset": False,
+                "segment_reset_skip_reason": skip_reason or "not_requested",
                 "segment_reset_success_frac": 0.0,
                 "segment_reset_direct_frac": 0.0,
                 "segment_reset_preroll_frac": 0.0,
@@ -499,6 +515,7 @@ def _update_reset_summary(summary: dict[str, object], result: FrontRESSegmentRes
     summary.update(
         {
             "segment_reset": True,
+            "segment_reset_skip_reason": "",
             "segment_reset_success_frac": float(diagnostics.get("reset_success_frac", 0.0)),
             "segment_reset_direct_frac": float(diagnostics.get("direct_frac", 0.0)),
             "segment_reset_preroll_frac": float(diagnostics.get("preroll_frac", 0.0)),
@@ -859,56 +876,81 @@ def _print_live_probe_summary(
 ) -> None:
     if not _live_detail_log_enabled(runner):
         return
-    action_6d = bool(capture.action_shape is not None and len(capture.action_shape) >= 2 and capture.action_shape[-1] == 6)
+    segment_action_shape = (
+        tuple(capture.transition_actions.shape) if capture.transition_actions is not None else None
+    )
+    segment_delta_se_6d = bool(_shape_last_dim(segment_action_shape) == 6)
     print(
-        "[FrontRES Segment Live Probe] "
-        f"objective={getattr(runner.alg, 'frontres_training_objective', 'n/a')} "
-        "segment_id=live_env_current "
-        f"reset_mode={runner._frontres_segment_replay_boundary.reset_mode} "
-        f"segment_reset={bool(summary['segment_reset'])} "
-        f"reset_ok={_fmt_pct(summary['segment_reset_success_frac'])} "
-        f"direct={_fmt_pct(summary['segment_reset_direct_frac'])} "
-        f"preroll={_fmt_pct(summary['segment_reset_preroll_frac'])} "
-        f"vel_mismatch={_fmt_num(summary['segment_reset_velocity_mismatch_mean'])} "
-        f"ref_window={_fmt_pct(summary['segment_reference_window_applied_frac'])} "
-        f"obs_shape={capture.last_obs_shape} "
-        f"action_shape={capture.action_shape} "
-        f"action_6d={action_6d} "
-        f"env_action_shape={capture.env_action_shape} "
-        f"mask_valid={_fmt_pct(summary['valid_mask_frac'])} "
-        f"rollout_k={capture.rollout_k} "
-        f"reward={_fmt_num(summary['reward_mean'])} "
-        f"done={_fmt_pct(summary['done_frac'])} "
-        f"storage_write={bool(summary['storage_write'])} "
-        f"storage_size={int(summary['storage_size'])} "
-        f"storage_valid_frac={_fmt_pct(summary['storage_valid_frac'])} "
-        f"storage_reward={_fmt_num(summary['storage_reward_mean'])} "
-        f"single_update={bool(summary['single_update'])} "
-        f"ppo_update={bool(summary['ppo_update'])} "
-        f"ppo_valid={int(summary['ppo_valid_count'])} "
-        f"loss_total={_fmt_num(summary['ppo_total_loss'])} "
-        f"actor={_fmt_num(summary['ppo_actor_loss'])} "
-        f"value={_fmt_num(summary['ppo_value_loss'])} "
-        f"kl={_fmt_num(summary['ppo_approx_kl'])} "
-        f"clip={_fmt_pct(summary['ppo_clip_frac'])} "
-        f"status={_probe_status(summary)}",
+        "\n".join(
+            (
+                "",
+                _LOG_SEPARATOR,
+                "",
+                "[FrontRES Segment Live Probe]",
+                "  route: "
+                f"objective={getattr(runner.alg, 'frontres_training_objective', 'n/a')} "
+                "segment_id=live_env_current "
+                f"reset_mode={runner._frontres_segment_replay_boundary.reset_mode}",
+                "  reset: "
+                f"enabled={bool(summary['segment_reset'])} "
+                f"reason={summary.get('segment_reset_skip_reason', '') or 'applied'} "
+                f"ok={_fmt_pct(summary['segment_reset_success_frac'])} "
+                f"direct={_fmt_pct(summary['segment_reset_direct_frac'])} "
+                f"preroll={_fmt_pct(summary['segment_reset_preroll_frac'])} "
+                f"vel_mismatch={_fmt_num(summary['segment_reset_velocity_mismatch_mean'])} "
+                f"ref_window={_fmt_pct(summary['segment_reference_window_applied_frac'])}",
+                "  rollout: "
+                f"obs={capture.last_obs_shape} "
+                f"policy_action={capture.action_shape} "
+                f"policy_dim={_shape_last_dim(capture.action_shape)} "
+                f"segment_action={segment_action_shape} "
+                f"segment_delta_se_6d={segment_delta_se_6d} "
+                f"env_action={capture.env_action_shape} "
+                f"env_dim={_shape_last_dim(capture.env_action_shape)} "
+                f"k={capture.rollout_k} "
+                f"reward={_fmt_num(summary['reward_mean'])} "
+                f"done={_fmt_pct(summary['done_frac'])}",
+                "  storage: "
+                f"write={bool(summary['storage_write'])} "
+                f"size={int(summary['storage_size'])} "
+                f"mask_valid={_fmt_pct(summary['valid_mask_frac'])} "
+                f"valid_frac={_fmt_pct(summary['storage_valid_frac'])} "
+                f"reward={_fmt_num(summary['storage_reward_mean'])}",
+                "  ppo: "
+                f"single_update={bool(summary['single_update'])} "
+                f"update={bool(summary['ppo_update'])} "
+                f"valid={int(summary['ppo_valid_count'])} "
+                f"loss_total={_fmt_num(summary['ppo_total_loss'])} "
+                f"actor={_fmt_num(summary['ppo_actor_loss'])} "
+                f"value={_fmt_num(summary['ppo_value_loss'])} "
+                f"kl={_fmt_num(summary['ppo_approx_kl'])} "
+                f"clip={_fmt_pct(summary['ppo_clip_frac'])} "
+                f"status={_probe_status(summary)}",
+            )
+        ),
         flush=True,
     )
     if bool(summary.get("ppo_update", False)):
         print(
-            "[FrontRES Segment PPO Probe] "
-            f"logp(old,new)={_fmt_num(summary.get('ppo_old_log_prob_mean', 0.0))},"
-            f"{_fmt_num(summary.get('ppo_new_log_prob_mean', 0.0))} "
-            f"raw_log_ratio(mean,min,max)="
-            f"{_fmt_num(summary.get('ppo_raw_log_ratio_mean', 0.0))},"
-            f"{_fmt_num(summary.get('ppo_raw_log_ratio_min', 0.0))},"
-            f"{_fmt_num(summary.get('ppo_raw_log_ratio_max', 0.0))} "
-            f"ratio(mean,max)="
-            f"{_fmt_num(summary.get('ppo_ratio_mean', 0.0))},"
-            f"{_fmt_num(summary.get('ppo_ratio_max', 0.0))} "
-            f"adv(mean,min,max)="
-            f"{_fmt_num(summary.get('ppo_advantage_mean', 0.0))},"
-            f"{_fmt_num(summary.get('ppo_advantage_min', 0.0))},"
-            f"{_fmt_num(summary.get('ppo_advantage_max', 0.0))}",
+            "\n".join(
+                (
+                    "",
+                    "[FrontRES Segment PPO Probe]",
+                    "  log_prob: "
+                    f"old={_fmt_num(summary.get('ppo_old_log_prob_mean', 0.0))} "
+                    f"new={_fmt_num(summary.get('ppo_new_log_prob_mean', 0.0))}",
+                    "  log_ratio: "
+                    f"mean={_fmt_num(summary.get('ppo_raw_log_ratio_mean', 0.0))} "
+                    f"min={_fmt_num(summary.get('ppo_raw_log_ratio_min', 0.0))} "
+                    f"max={_fmt_num(summary.get('ppo_raw_log_ratio_max', 0.0))}",
+                    "  ratio: "
+                    f"mean={_fmt_num(summary.get('ppo_ratio_mean', 0.0))} "
+                    f"max={_fmt_num(summary.get('ppo_ratio_max', 0.0))}",
+                    "  advantage: "
+                    f"mean={_fmt_num(summary.get('ppo_advantage_mean', 0.0))} "
+                    f"min={_fmt_num(summary.get('ppo_advantage_min', 0.0))} "
+                    f"max={_fmt_num(summary.get('ppo_advantage_max', 0.0))}",
+                )
+            ),
             flush=True,
         )

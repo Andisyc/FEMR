@@ -37,6 +37,11 @@ FrontRESSegmentSampler = _SAMPLER_MODULE.FrontRESSegmentSampler
 load_stage1_cache_dataset = _DATASET_MODULE.load_stage1_cache_dataset
 
 _VERBOSE_PROBE_BATCH_LIMIT = 16
+_LOG_SEPARATOR = "-" * 80
+
+
+def _log_block(*lines: str) -> str:
+    return "\n".join(("", _LOG_SEPARATOR, "", *lines))
 
 
 def _fmt_num(value: Any) -> str:
@@ -71,11 +76,14 @@ def initialize_frontres_segment_live_sampler(runner: Any) -> None:
         device=getattr(runner, "device", "cpu"),
     )
     print(
-        "[FrontRES Segment Sampler Ready] "
-        f"num_segments={num_segments} "
-        f"global_frac={runner._frontres_segment_sampler.global_frac:.3f} "
-        f"replay_frac={runner._frontres_segment_sampler.replay_frac:.3f} "
-        f"review_frac={runner._frontres_segment_sampler.review_frac:.3f}",
+        _log_block(
+            "[FrontRES Segment Sampler Ready]",
+            "  config: "
+            f"num_segments={num_segments} "
+            f"global_frac={runner._frontres_segment_sampler.global_frac:.3f} "
+            f"replay_frac={runner._frontres_segment_sampler.replay_frac:.3f} "
+            f"review_frac={runner._frontres_segment_sampler.review_frac:.3f}",
+        ),
         flush=True,
     )
 
@@ -98,11 +106,14 @@ def _ensure_stage1_index_reset_hook(runner: Any) -> None:
     )
     probe = adapter.frontres_motion_loader_probe()
     print(
-        "[FrontRES Segment Index Reset Hook Ready] "
-        f"amass_root={amass_root} "
-        f"loaded_motion_count={probe.get('loaded_motion_count')} "
-        f"all_motion_count={probe.get('all_motion_count')} "
-        f"first_loaded_motion={probe.get('first_loaded_motion')}",
+        _log_block(
+            "[FrontRES Segment Index Reset Hook Ready]",
+            "  loader: "
+            f"amass_root={amass_root} "
+            f"loaded_motion_count={probe.get('loaded_motion_count')} "
+            f"all_motion_count={probe.get('all_motion_count')} "
+            f"first_loaded_motion={probe.get('first_loaded_motion')}",
+        ),
         flush=True,
     )
 
@@ -113,7 +124,13 @@ def _ensure_stage1_cache_dataset(runner: Any) -> None:
     alg = getattr(runner, "alg", None)
     cache_dir = str(getattr(alg, "frontres_segment_cache_dir", "") or "")
     if not cache_dir:
-        print("[FrontRES Segment Dataset] cache_load skipped reason=no_cache_dir", flush=True)
+        print(
+            _log_block(
+                "[FrontRES Segment Dataset]",
+                "  cache_load: skipped reason=no_cache_dir",
+            ),
+            flush=True,
+        )
         return
     include_boundary = bool(getattr(alg, "frontres_segment_include_boundary_diagnostic", False))
     shard_cache_size = max(1, int(getattr(alg, "frontres_segment_shard_cache_size", 8)))
@@ -126,12 +143,15 @@ def _ensure_stage1_cache_dataset(runner: Any) -> None:
     runner._frontres_segment_dataset = dataset
     metadata = dataset.cache_metadata() if hasattr(dataset, "cache_metadata") else None
     print(
-        "[FrontRES Segment Dataset Ready] "
-        f"cache_dir={cache_dir} "
-        f"num_segments={dataset.num_segments()} "
-        f"include_boundary_diagnostic={include_boundary} "
-        f"shard_cache_size={shard_cache_size} "
-        f"metadata={metadata}",
+        _log_block(
+            "[FrontRES Segment Dataset Ready]",
+            "  cache: "
+            f"cache_dir={cache_dir} "
+            f"num_segments={dataset.num_segments()} "
+            f"include_boundary_diagnostic={include_boundary} "
+            f"shard_cache_size={shard_cache_size}",
+            f"  metadata: {metadata}",
+        ),
         flush=True,
     )
 
@@ -191,7 +211,22 @@ def _build_current_segment_batch(
     dataset = getattr(runner, "_frontres_segment_dataset", None)
     if dataset is None or not hasattr(dataset, "get_segments"):
         if print_probe:
-            print("[FrontRES Segment Batch] skipped reason=no_dataset", flush=True)
+            alg = getattr(runner, "alg", None)
+            cache_dir = str(getattr(alg, "frontres_segment_cache_dir", "") or "")
+            sampler = getattr(runner, "_frontres_segment_sampler", None)
+            sampler_segments = getattr(sampler, "num_segments", "n/a")
+            print(
+                _log_block(
+                    "[FrontRES Segment Batch]",
+                    "  skipped: "
+                    "reason=no_dataset "
+                    f"cache_dir={cache_dir or '<empty>'} "
+                    f"has_dataset={dataset is not None} "
+                    f"dataset_has_get_segments={hasattr(dataset, 'get_segments')} "
+                    f"sampler_segments={sampler_segments}",
+                ),
+                flush=True,
+            )
         return None
     batch = dataset.get_segments(sample.segment_ids)
     validation = dataset.validate_batch(batch) if hasattr(dataset, "validate_batch") else None
@@ -205,13 +240,16 @@ def _build_current_segment_batch(
     verbose_probe = _verbose_probe_enabled(runner, sample)
     if print_probe:
         print(
-            "[FrontRES Segment Batch] "
-            f"update_step={update_step} "
-            f"{_id_summary(sample.segment_ids)} "
-            f"valid_count={valid_count} "
-            f"role_counts={_count_summary(roles)} "
-            f"{_tensor_value_summary('strength', strength)}"
-            f"{_verbose_batch_suffix(sample, roles=roles, strength=strength, verbose=verbose_probe)}",
+            _log_block(
+                "[FrontRES Segment Batch]",
+                "  batch: "
+                f"update_step={update_step} "
+                f"{_id_summary(sample.segment_ids)} "
+                f"valid_count={valid_count} "
+                f"role_counts={_count_summary(roles)} "
+                f"{_tensor_value_summary('strength', strength)}"
+                f"{_verbose_batch_suffix(sample, roles=roles, strength=strength, verbose=verbose_probe)}",
+            ),
             flush=True,
         )
     return batch
@@ -488,30 +526,36 @@ def _verbose_batch_suffix(
 
 def _print_sample_probe(update_step: int, sample: FrontRESSegmentSample, *, verbose: bool = False) -> None:
     print(
-        "[probe step22] sample: "
-        f"update_step={update_step} "
-        f"{_id_summary(sample.segment_ids)} "
-        f"source_counts={_count_summary(list(sample.source))} "
-        f"priority={_fmt_num(sample.priority.float().mean().detach().cpu())} "
-        f"staleness={_fmt_num(sample.staleness.float().mean().detach().cpu())} "
-        f"valid_count={int(sample.valid_mask.bool().sum().detach().cpu().item())}"
-        f"{_verbose_sample_suffix(sample, verbose=verbose)}",
+        _log_block(
+            "[FrontRES Segment Sample]",
+            "  sample: "
+            f"update_step={update_step} "
+            f"{_id_summary(sample.segment_ids)} "
+            f"source_counts={_count_summary(list(sample.source))} "
+            f"priority={_fmt_num(sample.priority.float().mean().detach().cpu())} "
+            f"staleness={_fmt_num(sample.staleness.float().mean().detach().cpu())} "
+            f"valid_count={int(sample.valid_mask.bool().sum().detach().cpu().item())}"
+            f"{_verbose_sample_suffix(sample, verbose=verbose)}",
+        ),
         flush=True,
     )
 
 
 def _print_sampler_summary(update_step: int, summary: dict[str, object]) -> None:
     print(
-        "[FrontRES Segment Sampler] "
-        f"update_step={update_step} "
-        f"src=global:{int(summary['sampler_source_global_count'])},"
-        f"replay:{int(summary['sampler_source_replay_count'])},"
-        f"review:{int(summary['sampler_source_review_count'])} "
-        f"pool=replay:{int(summary['sampler_replay_pool_size'])},"
-        f"review:{int(summary['sampler_review_pool_size'])} "
-        f"priority={_fmt_num(summary['sampler_priority_mean'])} "
-        f"solved={_fmt_pct(summary['sampler_solved_frac'])} "
-        f"hopeless={_fmt_pct(summary['sampler_hopeless_frac'])} "
-        f"stale_review={int(summary['sampler_stale_review_count'])}",
+        _log_block(
+            "[FrontRES Segment Sampler]",
+            "  sampler: "
+            f"update_step={update_step} "
+            f"src=global:{int(summary['sampler_source_global_count'])},"
+            f"replay:{int(summary['sampler_source_replay_count'])},"
+            f"review:{int(summary['sampler_source_review_count'])} "
+            f"pool=replay:{int(summary['sampler_replay_pool_size'])},"
+            f"review:{int(summary['sampler_review_pool_size'])} "
+            f"priority={_fmt_num(summary['sampler_priority_mean'])} "
+            f"solved={_fmt_pct(summary['sampler_solved_frac'])} "
+            f"hopeless={_fmt_pct(summary['sampler_hopeless_frac'])} "
+            f"stale_review={int(summary['sampler_stale_review_count'])}",
+        ),
         flush=True,
     )

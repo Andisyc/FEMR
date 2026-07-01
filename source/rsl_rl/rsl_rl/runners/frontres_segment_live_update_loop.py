@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
+_LOG_SEPARATOR = "-" * 80
 _LIVE_SAMPLER_PATH = Path(__file__).resolve().with_name("frontres_segment_live_sampler.py")
 _LIVE_SAMPLER_SPEC = importlib.util.spec_from_file_location(
     "frontres_segment_live_sampler_update_loop_module",
@@ -101,25 +102,41 @@ def run_frontres_segment_live_update_loop(
     sampler_stale_review_count = int(metrics[-1].get("sampler_stale_review_count", 0))
     if _should_print_update_loop_summary(runner):
         print(
-            "[FrontRES Segment Live Update Loop] "
-            f"objective={getattr(runner.alg, 'frontres_training_objective', 'n/a')} "
-            f"updates={update_count}/{update_steps} "
-            f"valid={valid_count} "
-            f"reward={_fmt_num(reward_mean)} "
-            f"valid_frac={_fmt_pct(storage_valid_frac)} "
-            f"loss_total={_fmt_num(total_loss_mean)} "
-            f"actor={_fmt_num(actor_loss_mean)} "
-            f"value={_fmt_num(value_loss_mean)} "
-            f"kl={_fmt_num(approx_kl_mean)} "
-            f"clip={_fmt_pct(clip_frac_mean)} "
-            f"sampler=global:{sampler_global_count},replay:{sampler_replay_count},review:{sampler_review_count} "
-            f"pool={sampler_replay_pool_size} "
-            f"priority={_fmt_num(sampler_priority_mean)} "
-            f"solved={_fmt_pct(sampler_solved_frac)} "
-            f"hopeless={_fmt_pct(sampler_hopeless_frac)} "
-            f"stale_review={sampler_stale_review_count} "
-            f"status={_loop_status(total_loss_mean, actor_loss_mean, approx_kl_mean, clip_frac_mean)} "
-            f"runner_learn={runner_learn}",
+            "\n".join(
+                (
+                    "",
+                    _LOG_SEPARATOR,
+                    "",
+                    "[FrontRES Segment Live Update Loop]",
+                    "  route: "
+                    f"objective={getattr(runner.alg, 'frontres_training_objective', 'n/a')} "
+                    f"runner_learn={runner_learn}",
+                    "  update: "
+                    f"updates={update_count}/{update_steps} "
+                    f"valid={valid_count} "
+                    f"valid_frac={_fmt_pct(storage_valid_frac)} "
+                    f"reward={_fmt_num(reward_mean)}",
+                    "  ppo: "
+                    f"loss_total={_fmt_num(total_loss_mean)} "
+                    f"actor={_fmt_num(actor_loss_mean)} "
+                    f"value={_fmt_num(value_loss_mean)} "
+                    f"kl={_fmt_num(approx_kl_mean)} "
+                    f"clip={_fmt_pct(clip_frac_mean)} "
+                    f"status={_loop_status(total_loss_mean, actor_loss_mean, approx_kl_mean, clip_frac_mean)}",
+                    "  sampler: "
+                    f"global={sampler_global_count} "
+                    f"replay={sampler_replay_count} "
+                    f"review={sampler_review_count} "
+                    f"pool={sampler_replay_pool_size} "
+                    f"priority={_fmt_num(sampler_priority_mean)} "
+                    f"solved={_fmt_pct(sampler_solved_frac)} "
+                    f"hopeless={_fmt_pct(sampler_hopeless_frac)} "
+                    f"stale_review={sampler_stale_review_count}",
+                    "",
+                    _LOG_SEPARATOR,
+                    "",
+                )
+            ),
             flush=True,
         )
     return {
