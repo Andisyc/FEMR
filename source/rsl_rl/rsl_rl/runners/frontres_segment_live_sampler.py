@@ -303,36 +303,72 @@ def build_live_sampler_evidence(
     print_probe: bool = True,
 ) -> FrontRESSegmentRolloutEvidence:
     ids = sample.segment_ids.detach().clone().long()
+    row_count = _summary_int(summary, "evidence_row_count", int(ids.numel()))
+    if 0 < row_count < int(ids.numel()):
+        ids = ids[:row_count]
     n = int(ids.numel())
     device = ids.device
     reset_success = _reset_success_for_sample(reset_result, n=n, device=device)
     reward = _summary_vector(
         summary,
-        keys=("storage_reward_per_sample", "reward_per_sample"),
+        keys=("evidence_reward_per_sample", "storage_reward_per_sample", "reward_per_sample"),
         n=n,
         device=device,
         default=_summary_float(summary, "storage_reward_mean", _summary_float(summary, "reward_mean", 0.0)),
     ).float()
     rollout_valid = _summary_bool_vector(
         summary,
-        keys=("storage_valid_mask_per_sample",),
+        keys=("evidence_valid_mask_per_sample", "storage_valid_mask_per_sample"),
         n=n,
         device=device,
         default=bool(_summary_int(summary, "ppo_valid_count", 0) > 0 and _summary_float(summary, "storage_valid_frac", 0.0) > 0.0),
     )
     fall = _summary_bool_vector(
         summary,
-        keys=("done_any_per_sample",),
+        keys=("evidence_done_any_per_sample", "done_any_per_sample"),
         n=n,
         device=device,
         default=bool(_summary_float(summary, "done_frac", 0.0) >= 0.5),
     )
-    gain = reward.clamp(-1.0, 1.0)
-    score_repaired = (0.5 + 0.5 * gain).clamp(0.0, 1.0)
-    score_noisy = (score_repaired - gain).clamp(0.0, 1.0)
+    score_noisy = _summary_vector(
+        summary,
+        keys=("score_noisy_per_sample", "noisy_score_per_sample", "baseline_score_per_sample"),
+        n=n,
+        device=device,
+        default=float("nan"),
+    ).float()
+    score_repaired = _summary_vector(
+        summary,
+        keys=("score_repaired_per_sample", "repaired_score_per_sample"),
+        n=n,
+        device=device,
+        default=float("nan"),
+    ).float()
+    has_real_scores = torch.isfinite(score_noisy).all() and torch.isfinite(score_repaired).all()
+    if has_real_scores:
+        score_noisy = score_noisy.clamp(0.0, 1.0)
+        score_repaired = score_repaired.clamp(0.0, 1.0)
+        gain = score_repaired - score_noisy
+        score_source = str(summary.get("score_source", "summary_scores"))
+    else:
+        gain = reward.clamp(-1.0, 1.0)
+        score_repaired = (0.5 + 0.5 * gain).clamp(0.0, 1.0)
+        score_noisy = (score_repaired - gain).clamp(0.0, 1.0)
+        score_source = "synthetic_reward"
     valid_reward = rollout_valid & reset_success
     if print_probe:
-        _print_evidence_probe(ids, reward, reset_success, rollout_valid, valid_reward, fall, gain)
+        _print_evidence_probe(
+            ids,
+            reward,
+            reset_success,
+            rollout_valid,
+            valid_reward,
+            fall,
+            gain,
+            score_noisy=score_noisy,
+            score_repaired=score_repaired,
+            score_source=score_source,
+        )
     return FrontRESSegmentRolloutEvidence(
         segment_ids=ids,
         reset_success=reset_success,
@@ -355,8 +391,10 @@ def _reset_success_for_sample(reset_result: Any | None, *, n: int, device: torch
     if success is None:
         return torch.ones(n, dtype=torch.bool, device=device)
     success = success.to(device=device).bool().reshape(-1)
-    if int(success.numel()) != n:
-        raise ValueError(f"reset_success must have {n} rows, got {int(success.numel())}")
+    if int(success.numel()) < n:
+        raise ValueError(f"reset_success must have at least {n} rows, got {int(success.numel())}")
+    if int(success.numel()) > n:
+        success = success[:n]
     return success.detach()
 
 
@@ -478,19 +516,38 @@ def _print_evidence_probe(
     valid_reward: torch.Tensor,
     fall: torch.Tensor,
     gain: torch.Tensor,
+    *,
+    score_noisy: torch.Tensor,
+    score_repaired: torch.Tensor,
+    score_source: str,
 ) -> None:
     print(
-        "[probe step14] evidence_path: "
-        f"count={int(ids.numel())} "
-        f"id_min={int(ids.min().detach().cpu().item()) if ids.numel() else -1} "
-        f"id_max={int(ids.max().detach().cpu().item()) if ids.numel() else -1} "
-        f"reward_min={float(reward.min().detach().cpu().item()) if reward.numel() else 0.0:.6f} "
-        f"reward_max={float(reward.max().detach().cpu().item()) if reward.numel() else 0.0:.6f} "
-        f"reset_valid={int(reset_success.bool().sum().detach().cpu().item())} "
-        f"rollout_valid={int(rollout_valid.bool().sum().detach().cpu().item())} "
-        f"valid_reward={int(valid_reward.bool().sum().detach().cpu().item())} "
-        f"fall_count={int(fall.bool().sum().detach().cpu().item())} "
-        f"gain_mean={float(gain.mean().detach().cpu().item()) if gain.numel() else 0.0:.6f}",
+        _log_block(
+            "[FrontRES Segment Evidence]",
+            *_kv_lines(
+                "evidence",
+                {
+                    "ids": _id_summary(ids),
+                    "source": score_source,
+                    "reset_valid": int(reset_success.bool().sum().detach().cpu().item()),
+                    "rollout_valid": int(rollout_valid.bool().sum().detach().cpu().item()),
+                    "valid_reward": int(valid_reward.bool().sum().detach().cpu().item()),
+                    "fall_count": int(fall.bool().sum().detach().cpu().item()),
+                },
+            ),
+            *_kv_lines(
+                "score",
+                {
+                    "reward_min": _fmt_num(float(reward.min().detach().cpu().item()) if reward.numel() else 0.0),
+                    "reward_max": _fmt_num(float(reward.max().detach().cpu().item()) if reward.numel() else 0.0),
+                    "noisy": _fmt_num(float(score_noisy.mean().detach().cpu().item()) if score_noisy.numel() else 0.0),
+                    "repaired": _fmt_num(
+                        float(score_repaired.mean().detach().cpu().item()) if score_repaired.numel() else 0.0
+                    ),
+                    "gain": _fmt_num(float(gain.mean().detach().cpu().item()) if gain.numel() else 0.0),
+                },
+            ),
+        ),
         flush=True,
     )
 

@@ -55,6 +55,12 @@ def _fmt_pct(value: Any) -> str:
     return f"{100.0 * float(value):.1f}%"
 
 
+def _mean_sequence(value: Any, default: float = 0.0) -> float:
+    if not isinstance(value, (list, tuple)) or len(value) == 0:
+        return float(default)
+    return float(sum(float(item) for item in value) / len(value))
+
+
 def _shape_last_dim(shape: tuple[int, ...] | None) -> int | None:
     if shape is None or len(shape) == 0:
         return None
@@ -103,6 +109,10 @@ class FrontRESSegmentLiveRolloutCapture:
     reward_accum: torch.Tensor | None
     done_any: torch.Tensor | None
     actor_update_mask: torch.Tensor | None = None
+    n_train: int = 0
+    n_candidate: int = 0
+    n_base: int = 0
+    n_clean: int = 0
 
 
 def _verbose_probe_enabled(runner: Any, items: Any) -> bool:
@@ -866,6 +876,10 @@ def _run_live_rollout_capture(
         reward_accum=reward_accum,
         done_any=done_any,
         actor_update_mask=actor_update_mask,
+        n_train=int(pair_layout.n_train),
+        n_candidate=int(pair_layout.n_candidate),
+        n_base=int(pair_layout.n_base),
+        n_clean=int(pair_layout.n_clean),
     )
 
 
@@ -897,7 +911,8 @@ def _initial_live_probe_summary(
     storage_write: bool,
     single_update: bool,
 ) -> dict[str, object]:
-    return {
+    score_summary = _paired_score_summary(capture)
+    summary = {
         "reward_mean": capture.reward_mean,
         "done_frac": capture.done_frac,
         "valid_mask_frac": 1.0 - capture.done_frac,
@@ -918,6 +933,37 @@ def _initial_live_probe_summary(
         "ppo_value_loss": 0.0,
         "ppo_approx_kl": 0.0,
         "ppo_clip_frac": 0.0,
+    }
+    summary.update(score_summary)
+    return summary
+
+
+def _paired_score_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[str, object]:
+    if capture.reward_accum is None or capture.done_any is None:
+        return {}
+    n_train = max(0, int(capture.n_train))
+    n_candidate = max(0, int(capture.n_candidate))
+    n_base = max(0, int(capture.n_base))
+    n_clean = max(0, int(capture.n_clean))
+    n = min(n_train, n_base)
+    if n <= 0:
+        return {}
+    reward = capture.reward_accum.reshape(-1).detach().float() / float(max(1, int(capture.rollout_k)))
+    done = capture.done_any.reshape(-1).detach().bool()
+    base_start = n_train + n_candidate
+    clean_start = base_start + n_base
+    if int(reward.numel()) < base_start + n:
+        return {}
+    clean = reward[clean_start : clean_start + n] if n_clean >= n and int(reward.numel()) >= clean_start + n else torch.ones(n, device=reward.device)
+    return {
+        "evidence_row_count": n,
+        "evidence_reward_per_sample": _float_list(reward[:n]),
+        "evidence_done_any_per_sample": _bool_list(done[:n]),
+        "evidence_valid_mask_per_sample": _bool_list(~done[:n]),
+        "score_repaired_per_sample": _float_list(reward[:n]),
+        "score_noisy_per_sample": _float_list(reward[base_start : base_start + n]),
+        "score_clean_per_sample": _float_list(clean),
+        "score_source": "b1_paired_env_rewards",
     }
 
 
@@ -957,6 +1003,8 @@ def _print_live_probe_summary(
         tuple(capture.transition_actions.shape) if capture.transition_actions is not None else None
     )
     segment_delta_se_6d = bool(_shape_last_dim(segment_action_shape) == 6)
+    score_noisy = _mean_sequence(summary.get("score_noisy_per_sample", ()))
+    score_repaired = _mean_sequence(summary.get("score_repaired_per_sample", ()))
     print(
         _log_block(
             "[FrontRES Segment Live Probe]",
@@ -993,6 +1041,17 @@ def _print_live_probe_summary(
                     "k": capture.rollout_k,
                     "reward": _fmt_num(summary["reward_mean"]),
                     "done": _fmt_pct(summary["done_frac"]),
+                },
+            ),
+            *_kv_lines(
+                "score",
+                {
+                    "source": summary.get("score_source", "synthetic_or_unavailable"),
+                    "rows": int(summary.get("evidence_row_count", 0) or 0),
+                    "noisy": _fmt_num(score_noisy),
+                    "repaired": _fmt_num(score_repaired),
+                    "gain": _fmt_num(score_repaired - score_noisy),
+                    "valid": _fmt_pct(_mean_sequence(summary.get("evidence_valid_mask_per_sample", ()))),
                 },
             ),
             *_kv_lines(

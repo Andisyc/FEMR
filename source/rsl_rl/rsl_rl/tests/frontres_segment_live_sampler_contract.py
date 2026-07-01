@@ -450,6 +450,74 @@ def test_live_sampler_evidence_preserves_per_sample_rollout_facts() -> None:
     torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.8, -0.2]))
 
 
+def test_live_sampler_evidence_prefers_real_noisy_repaired_scores() -> None:
+    sampler = FrontRESSegmentSampler(4, seed=13)
+    sample = sampler.sample(2)
+    summary = _summary_per_sample(
+        rewards=[0.9, 0.9],
+        storage_valid=[True, True],
+        done_any=[False, False],
+    )
+    summary.update(
+        {
+            "score_noisy_per_sample": [0.2, 0.6],
+            "score_repaired_per_sample": [0.7, 0.4],
+            "score_clean_per_sample": [1.0, 1.0],
+        }
+    )
+    evidence = build_live_sampler_evidence(sample, summary, horizon_k=4)
+    print(
+        "[probe evidence-real-score] "
+        f"noisy={evidence.score_noisy.tolist()} "
+        f"repaired={evidence.score_repaired.tolist()} "
+        f"gain={evidence.gain_over_noisy.tolist()}",
+        flush=True,
+    )
+    torch.testing.assert_close(evidence.score_noisy, torch.tensor([0.2, 0.6]))
+    torch.testing.assert_close(evidence.score_repaired, torch.tensor([0.7, 0.4]))
+    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.5, -0.2]))
+
+
+def test_live_sampler_evidence_uses_actor_owned_paired_rows_only() -> None:
+    sample = FrontRESSegmentSample(
+        segment_ids=torch.tensor([10, 11, 12, 13]),
+        source=("global", "global", "global", "global"),
+        priority=torch.zeros(4),
+        staleness=torch.zeros(4),
+        valid_mask=torch.ones(4, dtype=torch.bool),
+    )
+    summary = {
+        "evidence_row_count": 2,
+        "evidence_reward_per_sample": [0.7, 0.9],
+        "evidence_valid_mask_per_sample": [True, False],
+        "evidence_done_any_per_sample": [False, True],
+        "score_noisy_per_sample": [0.2, 0.5],
+        "score_repaired_per_sample": [0.7, 0.9],
+        "score_clean_per_sample": [1.0, 1.0],
+        "score_source": "b1_paired_env_rewards",
+    }
+    reset_result = SimpleNamespace(success_mask=torch.tensor([True, True, True, True]))
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        evidence = build_live_sampler_evidence(sample, summary, horizon_k=4, reset_result=reset_result)
+    output = stream.getvalue()
+    print(
+        "[probe step2] evidence_actor_rows: "
+        f"ids={evidence.segment_ids.tolist()} "
+        f"valid={evidence.valid_reward.tolist()} "
+        f"gain={evidence.gain_over_noisy.tolist()} "
+        f"source_logged={'evidence.source: b1_paired_env_rewards' in output}",
+        flush=True,
+    )
+    assert evidence.segment_ids.tolist() == [10, 11]
+    assert evidence.valid_reward.tolist() == [True, False]
+    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.5, 0.4]))
+    assert "[FrontRES Segment Evidence]" in output
+    assert "evidence.ids: count=2 id_min=10 id_max=11" in output
+    assert "evidence.source: b1_paired_env_rewards" in output
+    assert "score.gain: 0.450000" in output
+
+
 def test_large_sampler_probe_uses_summary_not_full_lists() -> None:
     count = 12000
     ids = torch.arange(count, dtype=torch.long)
@@ -558,7 +626,7 @@ def test_live_detail_logs_are_rate_limited_by_default_and_verbose() -> None:
     output = stream.getvalue()
     sample_count = output.count("[FrontRES Segment Sample]")
     batch_count = output.count("[FrontRES Segment Batch]")
-    evidence_count = output.count("[probe step14] evidence_path:")
+    evidence_count = output.count("[FrontRES Segment Evidence]")
     sampler_count = output.count("[FrontRES Segment Sampler]")
     print(
         "[probe step6] live_detail_log_rate: "
@@ -940,6 +1008,8 @@ def main() -> None:
     test_live_summary_becomes_sampler_evidence()
     test_live_sampler_evidence_carries_partial_reset_failure()
     test_live_sampler_evidence_preserves_per_sample_rollout_facts()
+    test_live_sampler_evidence_prefers_real_noisy_repaired_scores()
+    test_live_sampler_evidence_uses_actor_owned_paired_rows_only()
     test_large_sampler_probe_uses_summary_not_full_lists()
     test_live_update_loop_samples_and_updates_priority()
     test_live_sampler_summary_exposes_update_probe_boundary()

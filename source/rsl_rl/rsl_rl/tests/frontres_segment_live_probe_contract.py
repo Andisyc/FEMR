@@ -159,6 +159,7 @@ def _capture(actions: torch.Tensor | None = None) -> FrontRESSegmentLiveRolloutC
         transition_sigmas=torch.full_like(transition_actions, 0.2),
         reward_accum=torch.tensor([2.0, 4.0]),
         done_any=torch.tensor([False, True]),
+        n_train=2,
     )
 
 
@@ -880,6 +881,11 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "ppo_advantage_mean": 0.1,
         "ppo_advantage_min": -0.2,
         "ppo_advantage_max": 0.4,
+        "evidence_row_count": 2,
+        "score_source": "b1_paired_env_rewards",
+        "score_noisy_per_sample": [0.2, 0.3],
+        "score_repaired_per_sample": [0.7, 0.6],
+        "evidence_valid_mask_per_sample": [True, False],
     }
     stream = io.StringIO()
     with contextlib.redirect_stdout(stream):
@@ -900,6 +906,7 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "  route.objective:",
         "  reset.enabled:",
         "  rollout.obs:",
+        "  score.source:",
         "  storage.write:",
         "  ppo.valid:",
         "  log_ratio.mean:",
@@ -908,6 +915,8 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
     assert "reset.reason: applied" in output
     assert "rollout.policy_dim: 6" in output
     assert "rollout.segment_delta_se_6d: True" in output
+    assert "score.source: b1_paired_env_rewards" in output
+    assert "score.rows: 2" in output
     assert output.startswith("\n" + live_probe._LOG_SEPARATOR + "\n")
     assert f"\n{live_probe._LOG_SEPARATOR}\n\n[FrontRES Segment PPO Probe]" in output
     assert not output.rstrip().endswith(live_probe._LOG_SEPARATOR)
@@ -965,6 +974,45 @@ def test_live_probe_summary_reports_raw_policy_and_segment_delta_dims() -> None:
     assert "reset.reason: no_current_segment_batch" in output
 
 
+def test_live_probe_summary_extracts_b1_noisy_repaired_scores() -> None:
+    capture = FrontRESSegmentLiveRolloutCapture(
+        rollout_k=2,
+        reward_mean=0.0,
+        done_frac=0.0,
+        last_obs_shape=(8, 4),
+        action_shape=(8, 6),
+        env_action_shape=(8, 12),
+        transition_obs=torch.zeros(8, 4),
+        transition_privileged_obs=torch.zeros(8, 3),
+        transition_actions=torch.zeros(8, 6),
+        transition_log_probs=torch.zeros(8),
+        transition_values=torch.zeros(8),
+        transition_means=torch.zeros(8, 6),
+        transition_sigmas=torch.ones(8, 6),
+        reward_accum=torch.tensor([1.4, 1.8, 0.0, 0.0, 0.4, 1.0, 2.0, 2.0]),
+        done_any=torch.tensor([False, True, False, False, False, False, False, False]),
+        n_train=2,
+        n_candidate=2,
+        n_base=2,
+        n_clean=2,
+    )
+    summary = live_probe._initial_live_probe_summary(capture, storage_write=True, single_update=False)
+    print(
+        "[probe step2] b1_score_summary: "
+        f"rows={summary['evidence_row_count']} "
+        f"repaired={summary['score_repaired_per_sample']} "
+        f"noisy={summary['score_noisy_per_sample']} "
+        f"clean={summary['score_clean_per_sample']} "
+        f"valid={summary['evidence_valid_mask_per_sample']}",
+        flush=True,
+    )
+    assert summary["evidence_row_count"] == 2
+    torch.testing.assert_close(torch.tensor(summary["score_repaired_per_sample"]), torch.tensor([0.7, 0.9]))
+    torch.testing.assert_close(torch.tensor(summary["score_noisy_per_sample"]), torch.tensor([0.2, 0.5]))
+    torch.testing.assert_close(torch.tensor(summary["score_clean_per_sample"]), torch.tensor([1.0, 1.0]))
+    assert summary["evidence_valid_mask_per_sample"] == [True, False]
+
+
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_masks_non_actor_rows()
@@ -980,4 +1028,5 @@ if __name__ == "__main__":
     test_live_probe_detail_gate_suppresses_reset_and_summary_logs()
     test_live_probe_summary_uses_readable_metric_blocks()
     test_live_probe_summary_reports_raw_policy_and_segment_delta_dims()
+    test_live_probe_summary_extracts_b1_noisy_repaired_scores()
     print("frontres_segment_live_probe_contract: ok")
