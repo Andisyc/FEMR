@@ -94,6 +94,7 @@ class FrontRESSegmentLiveRolloutCapture:
     transition_sigmas: torch.Tensor | None
     reward_accum: torch.Tensor | None
     done_any: torch.Tensor | None
+    actor_update_mask: torch.Tensor | None = None
 
 
 def _verbose_probe_enabled(runner: Any, items: Any) -> bool:
@@ -232,29 +233,38 @@ def _evaluate_segment_delta_se_log_prob(policy: Any, actions: torch.Tensor, *, a
         and distribution.mean.ndim == 2
         and distribution.mean.shape[-1] >= 6
     ):
-        mean = distribution.mean[:, :6]
-        std = distribution.stddev[:, :6]
-        if int(getattr(policy, "num_task_corrections", 0)) > 0:
-            max_delta_pos = float(getattr(policy, "max_delta_pos", 1.0))
-            max_delta_rpy = float(getattr(policy, "max_delta_rpy", 1.0))
-            max_d = torch.cat(
-                [
-                    torch.full((3,), max_delta_pos, device=actions.device, dtype=actions.dtype),
-                    torch.full((3,), max_delta_rpy, device=actions.device, dtype=actions.dtype),
-                ],
-                dim=-1,
-            )
-            normalized = (actions / max_d).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
-            raw = torch.atanh(normalized)
-            log_prob = torch.distributions.Normal(mean, std).log_prob(raw).sum(dim=-1)
-            log_j = (torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)).sum(dim=-1)
-            return log_prob - log_j
-        return torch.distributions.Normal(mean, std).log_prob(actions).sum(dim=-1)
+        return _evaluate_segment_delta_se_log_prob_from_stats(policy, actions, distribution.mean, distribution.stddev)
     if alg is not None and hasattr(alg, "_get_actor_log_prob"):
         return alg._get_actor_log_prob(actions).reshape(-1)
     if hasattr(policy, "get_actions_log_prob"):
         return policy.get_actions_log_prob(actions).reshape(-1)
     raise TypeError("policy must expose distribution or get_actions_log_prob for Segment PPO evaluation")
+
+
+def _evaluate_segment_delta_se_log_prob_from_stats(
+    policy: Any,
+    actions: torch.Tensor,
+    mean: torch.Tensor,
+    std: torch.Tensor,
+) -> torch.Tensor:
+    mean_6d = mean[:, :6].to(device=actions.device, dtype=actions.dtype)
+    std_6d = std[:, :6].to(device=actions.device, dtype=actions.dtype)
+    if int(getattr(policy, "num_task_corrections", 0)) > 0:
+        max_delta_pos = float(getattr(policy, "max_delta_pos", 1.0))
+        max_delta_rpy = float(getattr(policy, "max_delta_rpy", 1.0))
+        max_d = torch.cat(
+            [
+                torch.full((3,), max_delta_pos, device=actions.device, dtype=actions.dtype),
+                torch.full((3,), max_delta_rpy, device=actions.device, dtype=actions.dtype),
+            ],
+            dim=-1,
+        )
+        normalized = (actions / max_d).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+        raw = torch.atanh(normalized)
+        log_prob = torch.distributions.Normal(mean_6d, std_6d).log_prob(raw).sum(dim=-1)
+        log_j = (torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)).sum(dim=-1)
+        return log_prob - log_j
+    return torch.distributions.Normal(mean_6d, std_6d).log_prob(actions).sum(dim=-1)
 
 
 def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = True) -> dict[str, object]:
@@ -555,7 +565,16 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
     else:
         segment_source = ("live_storage_probe",) * batch_size
     reset_mask = _current_reset_success_mask(runner, batch_size=batch_size, device=runner.device)
-    valid_mask = (~capture.done_any.reshape(-1).bool().to(device=runner.device)) & reset_mask
+    rollout_valid_mask = ~capture.done_any.reshape(-1).bool().to(device=runner.device)
+    if capture.actor_update_mask is not None:
+        actor_update_mask = capture.actor_update_mask.reshape(-1).bool().to(device=runner.device)
+        if int(actor_update_mask.numel()) != batch_size:
+            raise ValueError(
+                f"actor_update_mask must have {batch_size} rows, got {int(actor_update_mask.numel())}"
+            )
+    else:
+        actor_update_mask = torch.ones(batch_size, device=runner.device, dtype=torch.bool)
+    valid_mask = rollout_valid_mask & reset_mask & actor_update_mask
     segment_storage = FrontRESSegmentRolloutStorage(
         capacity=batch_size,
         obs_shape=capture.transition_obs.shape[1:],
@@ -596,15 +615,19 @@ def _select_segment_transition_actions(
         raise ValueError(f"live segment transition actions must expose at least 6 Delta SE dims, got {tuple(actions.shape)}")
 
     segment_actions = actions[:, :6]
-    if hasattr(runner.alg.policy, "get_actions_log_prob_selected"):
+    action_mean = getattr(runner.alg.transition, "action_mean", None)
+    action_sigma = getattr(runner.alg.transition, "action_sigma", None)
+    if action_mean is not None and action_sigma is not None:
+        log_probs = _evaluate_segment_delta_se_log_prob_from_stats(
+            runner.alg.policy,
+            segment_actions,
+            action_mean,
+            action_sigma,
+        ).detach().clone().reshape(-1)
+    elif hasattr(runner.alg.policy, "get_actions_log_prob_selected"):
         log_probs = runner.alg.policy.get_actions_log_prob_selected(actions, list(range(6))).detach().clone().reshape(-1)
     else:
-        action_mean = getattr(runner.alg.transition, "action_mean", None)
-        action_sigma = getattr(runner.alg.transition, "action_sigma", None)
-        if action_mean is None or action_sigma is None:
-            raise ValueError("12D live segment actions require action_mean/action_sigma to rebuild 6D log_prob.")
-        dist = torch.distributions.Normal(action_mean[:, :6], action_sigma[:, :6])
-        log_probs = dist.log_prob(segment_actions).sum(dim=-1).detach().clone().reshape(-1)
+        raise ValueError("12D live segment actions require action_mean/action_sigma to rebuild 6D log_prob.")
     if _should_print_once_or_verbose(runner.alg, "_frontres_segment_live_probe_trace_printed"):
         print(
             "[FrontRES Segment Live Probe Trace] "
@@ -710,6 +733,7 @@ def _run_live_rollout_capture(
     done_sum = 0.0
     reward_accum = None
     done_any = None
+    actor_update_mask = None
     transition_obs = None
     transition_privileged_obs = None
     transition_actions = None
@@ -761,6 +785,8 @@ def _run_live_rollout_capture(
                     transition_means = action_mean[:, :6].detach().clone()
                 if action_sigma is not None and action_sigma.ndim == 2 and action_sigma.shape[-1] >= 6:
                     transition_sigmas = action_sigma[:, :6].detach().clone()
+                actor_update_mask = torch.zeros(actions.shape[0], device=runner.device, dtype=torch.bool)
+                actor_update_mask[: max(0, min(int(pair_layout.n_train), actions.shape[0]))] = True
 
             obs, rewards, dones, infos = runner.env.step(env_actions.to(runner.env.device))
             rewards = rewards.to(runner.device)
@@ -789,6 +815,7 @@ def _run_live_rollout_capture(
         transition_sigmas=transition_sigmas,
         reward_accum=reward_accum,
         done_any=done_any,
+        actor_update_mask=actor_update_mask,
     )
 
 
@@ -934,6 +961,8 @@ def _print_live_probe_summary(
         print(
             "\n".join(
                 (
+                    "",
+                    _LOG_SEPARATOR,
                     "",
                     "[FrontRES Segment PPO Probe]",
                     "  log_prob: "

@@ -425,13 +425,11 @@ class FrontRESStage1EnvAdapter:
         count = len(value)
         if count <= self.trace_preview_count:
             return list(value)
-        preview = list(value[: self.trace_preview_count])
-        tail = list(value[-self.trace_preview_count :])
-        result = {"count": count, "first": preview}
+        first = value[0] if count else None
+        result = {"count": count, "first": first}
         if all(isinstance(item, int) for item in value):
-            result.update({"last": tail, "min": min(value), "max": max(value)})
+            result.update({"min": min(value), "max": max(value)})
         else:
-            result["last"] = tail
             result["unique_count"] = len(set(value))
         return result
 

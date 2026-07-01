@@ -177,6 +177,41 @@ class FakeLegacy12DFrontRESPolicy(torch.nn.Module):
         return self.critic(observations).squeeze(-1)
 
 
+def test_6d_old_and_new_log_prob_use_same_delta_se_transform() -> None:
+    policy = FakeLegacy12DFrontRESPolicy()
+    alg = SimpleNamespace(policy=policy, use_estimate_ref_vel=False)
+    adapter = FrontRESSegmentLivePolicyAdapter(alg, privileged_observations=None)
+    observations = torch.tensor([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
+    raw_actions = torch.tensor(
+        [
+            [0.05, 0.00, 0.00, 0.02, 0.00, 0.00, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50],
+            [0.00, -0.05, 0.00, 0.00, -0.02, 0.00, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50],
+        ]
+    )
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(
+            transition=SimpleNamespace(
+                actions_log_prob=torch.zeros(2),
+                action_mean=torch.zeros(2, 12),
+                action_sigma=torch.ones(2, 12) * 0.5,
+            ),
+            policy=policy,
+        )
+    )
+    segment_actions, old_log_prob = live_probe._select_segment_transition_actions(runner, actions=raw_actions)
+    policy.act(observations)
+    new_log_prob = adapter.evaluate_segment_actions(observations, segment_actions)["log_prob"]
+    raw_log_ratio = new_log_prob.detach() - old_log_prob
+
+    _probe_tensor("segment_actions", segment_actions, "6D Delta SE actions shared by old and new log_prob")
+    _probe_tensor("old_log_prob", old_log_prob, "old log_prob rebuilt from rollout stats")
+    _probe_tensor("new_log_prob", new_log_prob, "new log_prob evaluated by live PPO adapter")
+    _probe_tensor("raw_log_ratio", raw_log_ratio, "should stay near zero when policy stats match")
+
+    torch.testing.assert_close(old_log_prob, new_log_prob.detach())
+    torch.testing.assert_close(raw_log_ratio, torch.zeros_like(raw_log_ratio), atol=1e-6, rtol=1e-6)
+
+
 def _capture(invalid_action: float, invalid_reward_accum: float) -> FrontRESSegmentLiveRolloutCapture:
     transition_actions = torch.tensor(
         [
@@ -302,6 +337,7 @@ def test_live_probe_adapter_evaluates_6d_actions_against_12d_policy_distribution
 
 
 if __name__ == "__main__":
+    test_6d_old_and_new_log_prob_use_same_delta_se_transform()
     test_live_probe_storage_batch_masks_invalid_segment_before_ppo_loss()
     test_live_probe_storage_batch_backpropagates_only_valid_segment()
     test_live_probe_adapter_evaluates_6d_actions_against_12d_policy_distribution()

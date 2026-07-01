@@ -202,6 +202,40 @@ def test_build_live_segment_storage_preserves_first_step_tuple_trace() -> None:
     assert batch.action_mask.bool().all().item()
 
 
+def test_build_live_segment_storage_masks_non_actor_rows() -> None:
+    runner = SimpleNamespace(device=torch.device("cpu"))
+    capture = _capture()
+    capture = FrontRESSegmentLiveRolloutCapture(
+        rollout_k=capture.rollout_k,
+        reward_mean=capture.reward_mean,
+        done_frac=0.0,
+        last_obs_shape=capture.last_obs_shape,
+        action_shape=capture.action_shape,
+        env_action_shape=capture.env_action_shape,
+        transition_obs=capture.transition_obs,
+        transition_privileged_obs=capture.transition_privileged_obs,
+        transition_actions=capture.transition_actions,
+        transition_log_probs=capture.transition_log_probs,
+        transition_values=capture.transition_values,
+        transition_means=capture.transition_means,
+        transition_sigmas=capture.transition_sigmas,
+        reward_accum=capture.reward_accum,
+        done_any=torch.tensor([False, False]),
+        actor_update_mask=torch.tensor([True, False]),
+    )
+
+    storage = build_live_segment_storage(runner, capture)
+    batch = storage.full_batch()
+
+    _probe_tensor("capture.actor_update_mask", capture.actor_update_mask, "only actor-owned quartet rows may update PPO")
+    _probe_tensor("capture.done_any", capture.done_any, "rollout survived mask before actor ownership")
+    _probe_tensor("storage.valid_mask", storage.valid_mask[: storage.step], "PPO-valid rows after actor ownership masking")
+    _probe_tensor("batch.valid_mask", batch.valid_mask, "full_batch valid mask consumed by PPO")
+
+    assert storage.valid_mask[: storage.step].tolist() == [True, False]
+    assert batch.valid_mask.tolist() == [True, False]
+
+
 def test_build_live_segment_storage_rejects_non_6d_actions() -> None:
     runner = SimpleNamespace(device=torch.device("cpu"))
     capture = _capture(actions=torch.zeros(2, 5))
@@ -215,31 +249,48 @@ def test_build_live_segment_storage_rejects_non_6d_actions() -> None:
 
 
 def test_live_probe_selects_6d_delta_se_from_12d_rollout_action() -> None:
-    raw_actions = torch.arange(24, dtype=torch.float32).reshape(2, 12) * 0.1
+    raw_actions = torch.tensor(
+        [
+            [0.10, -0.05, 0.00, 0.03, -0.02, 0.01, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50],
+            [-0.08, 0.02, 0.04, -0.01, 0.02, -0.03, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50],
+        ],
+        dtype=torch.float32,
+    )
+    action_mean = torch.zeros_like(raw_actions)
+    action_sigma = torch.ones_like(raw_actions) * 0.5
     runner = SimpleNamespace(
         alg=SimpleNamespace(
             transition=SimpleNamespace(
                 actions_log_prob=torch.tensor([-9.0, -8.0]),
-                action_mean=raw_actions + 1.0,
-                action_sigma=torch.ones_like(raw_actions) * 0.5,
+                action_mean=action_mean,
+                action_sigma=action_sigma,
             ),
             policy=SimpleNamespace(
-                get_actions_log_prob_selected=lambda actions, selected_dims: actions[:, selected_dims].sum(dim=-1) * -0.1
+                num_task_corrections=6,
+                max_delta_pos=0.3,
+                max_delta_rpy=0.3,
             ),
         )
     )
 
     segment_actions, log_probs = live_probe._select_segment_transition_actions(runner, actions=raw_actions)
+    expected_log_probs = live_probe._evaluate_segment_delta_se_log_prob_from_stats(
+        runner.alg.policy,
+        raw_actions[:, :6],
+        action_mean,
+        action_sigma,
+    )
 
     _probe_tensor("raw_actions", raw_actions, "12D rollout action from legacy HSL+acceptance policy")
     _probe_tensor("segment_actions", segment_actions, "selected 6D Delta SE action for Segment Replay storage")
-    _probe_tensor("selected_log_probs", log_probs, "log_prob recomputed on selected Delta SE dims")
+    _probe_tensor("selected_log_probs", log_probs, "old 6D log_prob rebuilt from rollout mean/sigma with Delta-SE transform")
+    _probe_tensor("expected_log_probs", expected_log_probs, "same formula used by PPO eval for new 6D log_prob")
     _probe_tensor("transition_mean_6d", runner.alg.transition.action_mean[:, :6], "old mean sliced to same 6D action space")
     _probe_tensor("transition_sigma_6d", runner.alg.transition.action_sigma[:, :6], "old sigma sliced to same 6D action space")
 
     assert segment_actions.shape == (2, 6)
     torch.testing.assert_close(segment_actions, raw_actions[:, :6])
-    torch.testing.assert_close(log_probs, raw_actions[:, :6].sum(dim=-1) * -0.1)
+    torch.testing.assert_close(log_probs, expected_log_probs)
 
 
 def test_live_probe_trace_prints_once_without_verbose() -> None:
@@ -851,6 +902,7 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
     assert "policy_dim=6" in output
     assert "segment_delta_se_6d=True" in output
     assert output.startswith("\n" + live_probe._LOG_SEPARATOR + "\n")
+    assert f"\n{live_probe._LOG_SEPARATOR}\n\n[FrontRES Segment PPO Probe]" in output
     assert not output.rstrip().endswith(live_probe._LOG_SEPARATOR)
 
 
@@ -908,6 +960,7 @@ def test_live_probe_summary_reports_raw_policy_and_segment_delta_dims() -> None:
 
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
+    test_build_live_segment_storage_masks_non_actor_rows()
     test_build_live_segment_storage_rejects_non_6d_actions()
     test_live_probe_selects_6d_delta_se_from_12d_rollout_action()
     test_live_probe_trace_prints_once_without_verbose()
