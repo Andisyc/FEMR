@@ -128,9 +128,14 @@ def test_extreme_log_ratio_does_not_overflow_loss() -> None:
     )
     result = compute_frontres_segment_ppo_loss(policy, batch)
     print(
-        "[probe log_ratio_clamp] "
+        "[probe log_ratio_layer] "
         f"valid_count={result.valid_count} "
+        f"old_logp_mean={result.old_log_prob_mean:.6f} "
+        f"new_logp_mean={result.new_log_prob_mean:.6f} "
+        f"raw_log_ratio_max={result.raw_log_ratio_max:.6f} "
         f"ratio_mean={result.ratio_mean:.6e} "
+        f"ratio_max={result.ratio_max:.6e} "
+        f"advantage_min={result.advantage_min:.6f} "
         f"actor_loss_finite={torch.isfinite(result.actor_loss).item()} "
         f"total_loss_finite={torch.isfinite(result.total_loss).item()}",
         flush=True,
@@ -138,6 +143,9 @@ def test_extreme_log_ratio_does_not_overflow_loss() -> None:
     assert result.valid_count == 1
     assert torch.isfinite(result.actor_loss)
     assert torch.isfinite(result.total_loss)
+    assert result.raw_log_ratio_max >= 999.0
+    assert result.ratio_mean > 1e8
+    assert result.clip_frac == 1.0
 
 
 def test_ppo_tuple_requires_6d_action_and_vector_fields() -> None:

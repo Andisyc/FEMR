@@ -289,6 +289,16 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     "ppo_valid_count": int(ppo_result.valid_count),
                     "ppo_approx_kl": float(ppo_result.approx_kl),
                     "ppo_clip_frac": float(ppo_result.clip_frac),
+                    "ppo_ratio_mean": float(ppo_result.ratio_mean),
+                    "ppo_ratio_max": float(ppo_result.ratio_max),
+                    "ppo_old_log_prob_mean": float(ppo_result.old_log_prob_mean),
+                    "ppo_new_log_prob_mean": float(ppo_result.new_log_prob_mean),
+                    "ppo_raw_log_ratio_mean": float(ppo_result.raw_log_ratio_mean),
+                    "ppo_raw_log_ratio_min": float(ppo_result.raw_log_ratio_min),
+                    "ppo_raw_log_ratio_max": float(ppo_result.raw_log_ratio_max),
+                    "ppo_advantage_mean": float(ppo_result.advantage_mean),
+                    "ppo_advantage_min": float(ppo_result.advantage_min),
+                    "ppo_advantage_max": float(ppo_result.advantage_max),
                 }
             )
     _print_live_probe_summary(runner, capture, summary)
@@ -884,3 +894,21 @@ def _print_live_probe_summary(
         f"status={_probe_status(summary)}",
         flush=True,
     )
+    if bool(summary.get("ppo_update", False)):
+        print(
+            "[FrontRES Segment PPO Probe] "
+            f"logp(old,new)={_fmt_num(summary.get('ppo_old_log_prob_mean', 0.0))},"
+            f"{_fmt_num(summary.get('ppo_new_log_prob_mean', 0.0))} "
+            f"raw_log_ratio(mean,min,max)="
+            f"{_fmt_num(summary.get('ppo_raw_log_ratio_mean', 0.0))},"
+            f"{_fmt_num(summary.get('ppo_raw_log_ratio_min', 0.0))},"
+            f"{_fmt_num(summary.get('ppo_raw_log_ratio_max', 0.0))} "
+            f"ratio(mean,max)="
+            f"{_fmt_num(summary.get('ppo_ratio_mean', 0.0))},"
+            f"{_fmt_num(summary.get('ppo_ratio_max', 0.0))} "
+            f"adv(mean,min,max)="
+            f"{_fmt_num(summary.get('ppo_advantage_mean', 0.0))},"
+            f"{_fmt_num(summary.get('ppo_advantage_min', 0.0))},"
+            f"{_fmt_num(summary.get('ppo_advantage_max', 0.0))}",
+            flush=True,
+        )

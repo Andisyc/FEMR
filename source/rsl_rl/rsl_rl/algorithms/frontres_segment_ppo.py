@@ -50,6 +50,15 @@ class FrontRESSegmentPPOResult:
     clip_frac: float
     approx_kl: float
     ratio_mean: float
+    ratio_max: float = 0.0
+    old_log_prob_mean: float = 0.0
+    new_log_prob_mean: float = 0.0
+    raw_log_ratio_mean: float = 0.0
+    raw_log_ratio_min: float = 0.0
+    raw_log_ratio_max: float = 0.0
+    advantage_mean: float = 0.0
+    advantage_min: float = 0.0
+    advantage_max: float = 0.0
 
     @property
     def should_step(self) -> bool:
@@ -65,6 +74,15 @@ class FrontRESSegmentPPOResult:
             "segment/ppo_clip_frac": self.clip_frac,
             "segment/ppo_approx_kl": self.approx_kl,
             "segment/ppo_ratio_mean": self.ratio_mean,
+            "segment/ppo_ratio_max": self.ratio_max,
+            "segment/ppo_old_log_prob_mean": self.old_log_prob_mean,
+            "segment/ppo_new_log_prob_mean": self.new_log_prob_mean,
+            "segment/ppo_raw_log_ratio_mean": self.raw_log_ratio_mean,
+            "segment/ppo_raw_log_ratio_min": self.raw_log_ratio_min,
+            "segment/ppo_raw_log_ratio_max": self.raw_log_ratio_max,
+            "segment/ppo_advantage_mean": self.advantage_mean,
+            "segment/ppo_advantage_min": self.advantage_min,
+            "segment/ppo_advantage_max": self.advantage_max,
         }
 
 
@@ -115,7 +133,8 @@ def compute_frontres_segment_ppo_loss(
     if cfg.normalize_advantages and advantages.numel() > 1:
         advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
 
-    log_ratio = (log_prob - old_log_prob).clamp(-abs(float(cfg.max_log_ratio)), abs(float(cfg.max_log_ratio)))
+    raw_log_ratio = log_prob - old_log_prob
+    log_ratio = raw_log_ratio.clamp(-abs(float(cfg.max_log_ratio)), abs(float(cfg.max_log_ratio)))
     ratio = torch.exp(log_ratio)
     surrogate = ratio * advantages
     clipped_ratio = torch.clamp(ratio, 1.0 - cfg.clip_param, 1.0 + cfg.clip_param)
@@ -134,6 +153,15 @@ def compute_frontres_segment_ppo_loss(
         clip_frac = ((ratio - 1.0).abs() > cfg.clip_param).float().mean().item()
         approx_kl = (old_log_prob - log_prob).mean().item()
         ratio_mean = ratio.mean().item()
+        ratio_max = ratio.max().item()
+        old_log_prob_mean = old_log_prob.mean().item()
+        new_log_prob_mean = log_prob.mean().item()
+        raw_log_ratio_mean = raw_log_ratio.mean().item()
+        raw_log_ratio_min = raw_log_ratio.min().item()
+        raw_log_ratio_max = raw_log_ratio.max().item()
+        advantage_mean = advantages.mean().item()
+        advantage_min = advantages.min().item()
+        advantage_max = advantages.max().item()
 
     return FrontRESSegmentPPOResult(
         total_loss=total_loss,
@@ -145,6 +173,15 @@ def compute_frontres_segment_ppo_loss(
         clip_frac=float(clip_frac),
         approx_kl=float(approx_kl),
         ratio_mean=float(ratio_mean),
+        ratio_max=float(ratio_max),
+        old_log_prob_mean=float(old_log_prob_mean),
+        new_log_prob_mean=float(new_log_prob_mean),
+        raw_log_ratio_mean=float(raw_log_ratio_mean),
+        raw_log_ratio_min=float(raw_log_ratio_min),
+        raw_log_ratio_max=float(raw_log_ratio_max),
+        advantage_mean=float(advantage_mean),
+        advantage_min=float(advantage_min),
+        advantage_max=float(advantage_max),
     )
 
 
