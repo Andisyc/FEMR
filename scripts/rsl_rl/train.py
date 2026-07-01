@@ -900,6 +900,30 @@ def _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli) -> None:
     )
 
 
+def _configure_frontres_stage3_segment_hrl_env_cfg(env_cfg) -> None:
+    motion_cfg = getattr(getattr(env_cfg, "commands", None), "motion", None)
+    if motion_cfg is None:
+        print("[FrontRES Stage3 Segment HRL] motion_loader_cfg motion_cfg=missing", flush=True)
+        return
+    applied = {}
+    if hasattr(motion_cfg, "motion_dataset_shard_across_gpus"):
+        motion_cfg.motion_dataset_shard_across_gpus = False
+        applied["motion_dataset_shard_across_gpus"] = motion_cfg.motion_dataset_shard_across_gpus
+    if hasattr(motion_cfg, "motion_dataset_load_cap"):
+        motion_cfg.motion_dataset_load_cap = None
+        applied["motion_dataset_load_cap"] = motion_cfg.motion_dataset_load_cap
+    if hasattr(motion_cfg, "motion_dataset_log_shard_info"):
+        motion_cfg.motion_dataset_log_shard_info = True
+        applied["motion_dataset_log_shard_info"] = motion_cfg.motion_dataset_log_shard_info
+    print(
+        "[FrontRES Stage3 Segment HRL] motion_loader_cfg "
+        f"has_load_cap={hasattr(motion_cfg, 'motion_dataset_load_cap')} "
+        f"has_shard_flag={hasattr(motion_cfg, 'motion_dataset_shard_across_gpus')} "
+        f"applied={applied}",
+        flush=True,
+    )
+
+
 def _frontres_stage1_motion_loader_probe(adapter, *, requested_max_motions: int | None) -> None:
     probe_fn = getattr(adapter, "frontres_motion_loader_probe", None)
     if not callable(probe_fn):
@@ -1117,6 +1141,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env_cfg.commands.motion.motion = args_cli.motion
     if args_cli.frontres_stage == "stage1_segment_cache":
         _configure_frontres_stage1_segment_cache_env_cfg(env_cfg, args_cli)
+    elif args_cli.frontres_stage == "stage3_segment_hrl":
+        _configure_frontres_stage3_segment_hrl_env_cfg(env_cfg)
     _configure_frontres_motion_perturbations(env_cfg, agent_cfg)
     _sanitize_env_cfg_for_training(env_cfg)
 

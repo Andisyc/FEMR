@@ -105,6 +105,12 @@ def _ensure_stage1_index_reset_hook(runner: Any) -> None:
         trace=bool(getattr(runner.alg, "frontres_segment_reset_trace", True)),
     )
     probe = adapter.frontres_motion_loader_probe()
+    filter_probe = None
+    if hasattr(dataset, "filter_to_loaded_motion_paths"):
+        filter_probe = dataset.filter_to_loaded_motion_paths(
+            adapter.frontres_loaded_motion_paths(),
+            amass_root=amass_root,
+        )
     print(
         _log_block(
             "[FrontRES Segment Index Reset Hook Ready]",
@@ -113,6 +119,8 @@ def _ensure_stage1_index_reset_hook(runner: Any) -> None:
             f"loaded_motion_count={probe.get('loaded_motion_count')} "
             f"all_motion_count={probe.get('all_motion_count')} "
             f"first_loaded_motion={probe.get('first_loaded_motion')}",
+            "  index_filter: "
+            f"{filter_probe if filter_probe is not None else 'not_applied'}",
         ),
         flush=True,
     )

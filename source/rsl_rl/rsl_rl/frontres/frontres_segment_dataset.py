@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import importlib.util
 import json
 from pathlib import Path
@@ -688,6 +688,61 @@ class FrontRESStage1IndexDataset(FrontRESSegmentDataset):
             "index_only": True,
             "loaded_motion_count": len(self._segments),
         }
+
+    def filter_to_loaded_motion_paths(self, loaded_motion_paths: Iterable[str | Path], *, amass_root: str | Path) -> dict[str, Any]:
+        loaded_motion_paths = tuple(loaded_motion_paths)
+        before_segments = len(self._segments)
+        before_motions = {str(segment.motion_rel_path) for segment in self._segments}
+        keys = self._motion_keys_for_loaded_paths(loaded_motion_paths, amass_root=amass_root)
+        if before_motions.issubset(keys):
+            probe = {
+                "filtered": False,
+                "source_segments": before_segments,
+                "kept_segments": before_segments,
+                "source_motions": len(before_motions),
+                "kept_motions": len(before_motions),
+                "missing_motions": 0,
+            }
+            self._cache_metadata.update({"loaded_motion_count": before_segments, "index_filter": probe})
+            return probe
+        kept = [segment for segment in self._segments if str(segment.motion_rel_path) in keys]
+        if not kept:
+            raise ValueError(
+                "index-only Stage 1 cache has no segments matching loaded motion paths: "
+                f"cache_motions={len(before_motions)} loaded_motion_count={len(loaded_motion_paths)}"
+            )
+        self._segments = tuple(replace(segment, segment_id=index) for index, segment in enumerate(kept))
+        self._specs = [self._spec_from_segment(segment) for segment in self._segments]
+        self._spec_by_id = {spec.segment_id: spec for spec in self._specs}
+        kept_motions = {str(segment.motion_rel_path) for segment in self._segments}
+        probe = {
+            "filtered": True,
+            "source_segments": before_segments,
+            "kept_segments": len(self._segments),
+            "source_motions": len(before_motions),
+            "kept_motions": len(kept_motions),
+            "missing_motions": len(before_motions) - len(kept_motions),
+        }
+        self._cache_metadata.update({"loaded_motion_count": len(self._segments), "index_filter": probe})
+        return probe
+
+    @staticmethod
+    def _motion_keys_for_loaded_paths(loaded_motion_paths: Iterable[str | Path], *, amass_root: str | Path) -> set[str]:
+        root = Path(amass_root).expanduser().resolve()
+        keys: set[str] = set()
+        for value in loaded_motion_paths:
+            raw = str(value)
+            if not raw:
+                continue
+            path = Path(raw).expanduser()
+            keys.add(raw)
+            keys.add(path.as_posix())
+            keys.add(path.name)
+            try:
+                keys.add(path.resolve().relative_to(root).as_posix())
+            except ValueError:
+                pass
+        return keys
 
     def _spec_from_segment(self, segment: Any) -> FrontRESSegmentSpec:
         denom = max(1, int(segment.motion_num_frames) - 1)

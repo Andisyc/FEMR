@@ -12,16 +12,16 @@ TRAIN_PATH = ROOT / "scripts" / "rsl_rl" / "train.py"
 
 def _load_stage_preset():
     tree = ast.parse(TRAIN_PATH.read_text())
-    wanted = {"_set_if_present", "_apply_frontres_stage_preset"}
+    wanted = {"_set_if_present", "_apply_frontres_stage_preset", "_configure_frontres_stage3_segment_hrl_env_cfg"}
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
     module = ast.Module(body=nodes, type_ignores=[])
     ast.fix_missing_locations(module)
     namespace = {"RslRlOnPolicyRunnerCfg": object}
     exec(compile(module, str(TRAIN_PATH), "exec"), namespace)
-    return namespace["_apply_frontres_stage_preset"]
+    return namespace["_apply_frontres_stage_preset"], namespace["_configure_frontres_stage3_segment_hrl_env_cfg"]
 
 
-_apply_frontres_stage_preset = _load_stage_preset()
+_apply_frontres_stage_preset, _configure_frontres_stage3_segment_hrl_env_cfg = _load_stage_preset()
 
 
 def _alg_cfg() -> SimpleNamespace:
@@ -187,6 +187,28 @@ def test_live_sentinel_flags_require_stage3() -> None:
         raise AssertionError("Live sentinel flags must require Stage 3")
 
 
+def test_stage3_motion_loader_cfg_aligns_with_index_cache() -> None:
+    motion_cfg = SimpleNamespace(
+        motion_dataset_shard_across_gpus=True,
+        motion_dataset_load_cap=512,
+        motion_dataset_log_shard_info=False,
+    )
+    env_cfg = SimpleNamespace(commands=SimpleNamespace(motion=motion_cfg))
+
+    _configure_frontres_stage3_segment_hrl_env_cfg(env_cfg)
+    print(
+        "[probe bug-index-reset] stage3_motion_loader_cfg: "
+        f"load_cap={motion_cfg.motion_dataset_load_cap} "
+        f"shard={motion_cfg.motion_dataset_shard_across_gpus} "
+        f"log_shard={motion_cfg.motion_dataset_log_shard_info}",
+        flush=True,
+    )
+
+    assert motion_cfg.motion_dataset_load_cap is None
+    assert motion_cfg.motion_dataset_shard_across_gpus is False
+    assert motion_cfg.motion_dataset_log_shard_info is True
+
+
 def test_train_dispatch_orders_stage3_live_path_before_legacy_learn() -> None:
     train = TRAIN_PATH.read_text()
     live_train = "runner.learn_frontres_segment_live("
@@ -211,5 +233,6 @@ if __name__ == "__main__":
     test_stage3_sentinel_zeroes_iterations_and_disables_live_train()
     test_stage3_rejects_multiple_live_sentinel_modes()
     test_live_sentinel_flags_require_stage3()
+    test_stage3_motion_loader_cfg_aligns_with_index_cache()
     test_train_dispatch_orders_stage3_live_path_before_legacy_learn()
     print("frontres_segment_stage3_entrypoint_pseudo_contract: ok")

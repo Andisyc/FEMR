@@ -637,6 +637,73 @@ def test_live_sampler_installs_index_reset_hook_for_index_only_dataset() -> None
         torch.testing.assert_close(env.unwrapped.robot.data.root_pos_w, torch.tensor([[3.0, 0.0, 1.0]]))
 
 
+def test_live_sampler_filters_index_dataset_to_loaded_motions_before_sampling() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        amass_root = Path(tmp) / "AMASS_G1NPZ_Final"
+        cache_dir = Path(tmp) / "AMASS_G1Segment"
+        stage1_hooks_contract._write_fake_amass(amass_root / "KIT" / "359" / "motion_a.npz")
+        stage1_hooks_contract._write_fake_amass(amass_root / "KIT" / "1346" / "motion_b.npz")
+        segments = [
+            FrontRESSegmentIndex(
+                segment_id=0,
+                motion_rel_path="KIT/359/motion_a.npz",
+                motion_num_frames=8,
+                fps=30.0,
+                start_frame=2,
+                horizon_k=4,
+            ),
+            FrontRESSegmentIndex(
+                segment_id=1,
+                motion_rel_path="KIT/1346/motion_b.npz",
+                motion_num_frames=8,
+                fps=30.0,
+                start_frame=3,
+                horizon_k=4,
+            ),
+        ]
+        indexer_module.write_amass_segment_index(
+            cache_dir,
+            segments,
+            FrontRESAMASSIndexSummary(
+                amass_root=str(amass_root),
+                motion_count=2,
+                segment_count=2,
+                horizon_k=4,
+                frame_stride=1,
+                skipped_short_motions=0,
+            ),
+        )
+        env = stage1_hooks_contract.FakeGymEnv(amass_root)
+        env.unwrapped.command.motion_dir_loader.motion_paths = [
+            str(amass_root / "KIT" / "359" / "motion_a.npz"),
+        ]
+        env.unwrapped.command.motion_dir_loader.motion_paths_all = [
+            str(amass_root / "KIT" / "359" / "motion_a.npz"),
+            str(amass_root / "KIT" / "1346" / "motion_b.npz"),
+        ]
+        env.unwrapped.command.motion_dir_loader.shard_info = {"selected_motions": 1, "total_motions": 2}
+        runner = FakeRunner(cache_dir=str(cache_dir), env=env)
+
+        initialize_frontres_segment_live_sampler(runner)
+        metadata = runner._frontres_segment_dataset.cache_metadata()
+        batch = runner._frontres_segment_dataset.get_segments([0])
+        print(
+            "[probe bug-index-reset] filter_loaded_motions: "
+            f"dataset_segments={runner._frontres_segment_dataset.num_segments()} "
+            f"sampler_segments={runner._frontres_segment_sampler.num_segments} "
+            f"index_filter={metadata.get('index_filter')} "
+            f"motion_ids={[spec.motion_id for spec in batch.specs]}",
+            flush=True,
+        )
+
+        assert runner._frontres_segment_dataset.num_segments() == 1
+        assert runner._frontres_segment_sampler.num_segments == 1
+        assert metadata["index_filter"]["filtered"] is True
+        assert metadata["index_filter"]["source_segments"] == 2
+        assert metadata["index_filter"]["kept_segments"] == 1
+        assert [spec.motion_id for spec in batch.specs] == ["KIT/359/motion_a.npz"]
+
+
 def test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cache_dir = Path(tmp) / "AMASS_G1Segment"
@@ -857,6 +924,7 @@ def main() -> None:
     test_live_detail_logs_are_rate_limited_by_default_and_verbose()
     test_live_sampler_initializes_dataset_from_stage1_cache_dir()
     test_live_sampler_installs_index_reset_hook_for_index_only_dataset()
+    test_live_sampler_filters_index_dataset_to_loaded_motions_before_sampling()
     test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset()
     test_live_sampler_builds_current_batch_before_probe()
     test_live_storage_uses_sampled_segment_ids_and_sources()

@@ -412,6 +412,53 @@ def test_dataset_loads_stage1_index_only_candidate_pool() -> None:
         assert metadata["index_only"] is True
 
 
+def test_index_only_dataset_filters_to_loaded_motion_paths_and_remaps_ids() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        cache_dir = Path(tmp) / "AMASS_G1SegmentIndex"
+        segments = [
+            _cache_segment(segment_id=0, motion_rel_path="KIT/359/motion_a.npz", start_frame=2),
+            _cache_segment(segment_id=1, motion_rel_path="KIT/1346/motion_b.npz", start_frame=3),
+            _cache_segment(segment_id=2, motion_rel_path="KIT/1346/motion_b.npz", start_frame=2),
+        ]
+        summary = indexer.FrontRESAMASSIndexSummary(
+            amass_root=str(root),
+            motion_count=2,
+            segment_count=3,
+            horizon_k=4,
+            frame_stride=1,
+            skipped_short_motions=0,
+        )
+        indexer.write_amass_segment_index(cache_dir, segments, summary)
+
+        dataset = load_stage1_cache_dataset(cache_dir, device="cpu")
+        probe = dataset.filter_to_loaded_motion_paths(
+            [root / "KIT" / "1346" / "motion_b.npz"],
+            amass_root=root,
+        )
+        batch = dataset.get_segments([0, 1])
+        metadata = dataset.cache_metadata()
+        print(
+            "[dataset index-only trace] filter_loaded "
+            f"probe={probe} "
+            f"num_segments={dataset.num_segments()} "
+            f"batch_ids={batch.segment_ids.tolist()} "
+            f"motion_ids={[spec.motion_id for spec in batch.specs]} "
+            f"metadata_filter={metadata.get('index_filter')}"
+        )
+
+        assert probe["filtered"] is True
+        assert probe["source_segments"] == 3
+        assert probe["kept_segments"] == 2
+        assert probe["missing_motions"] == 1
+        assert dataset.num_segments() == 2
+        assert batch.segment_ids.tolist() == [0, 1]
+        assert [spec.motion_id for spec in batch.specs] == [
+            "KIT/1346/motion_b.npz",
+            "KIT/1346/motion_b.npz",
+        ]
+
+
 def test_dataset_lazy_cache_uses_lru_shard_reads() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cache_dir = Path(tmp) / "AMASS_G1Segment"
@@ -590,6 +637,7 @@ def main() -> None:
     test_dataset_state_dict_restores_invalidity_and_baseline()
     test_dataset_loads_stage1_cache_and_excludes_boundary_diagnostics_by_default()
     test_dataset_loads_stage1_index_only_candidate_pool()
+    test_index_only_dataset_filters_to_loaded_motion_paths_and_remaps_ids()
     test_dataset_lazy_cache_uses_lru_shard_reads()
     test_dataset_lazy_read_maps_segment_id_to_manifest_row_and_batch_values()
     test_dataset_lazy_cache_lru_bounds_multishard_reads()
