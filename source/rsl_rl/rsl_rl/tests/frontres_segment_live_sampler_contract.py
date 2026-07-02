@@ -487,6 +487,37 @@ def test_live_sampler_evidence_prefers_real_noisy_repaired_scores() -> None:
     torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.5, -0.2]))
 
 
+def test_live_sampler_evidence_prefers_explicit_gain_when_scores_are_raw_rewards() -> None:
+    sampler = FrontRESSegmentSampler(4, seed=15)
+    sample = sampler.sample(2)
+    summary = _summary_per_sample(
+        rewards=[-0.08, -0.02],
+        storage_valid=[True, True],
+        done_any=[False, False],
+    )
+    summary.update(
+        {
+            "score_noisy_per_sample": [-0.10, -0.07],
+            "score_repaired_per_sample": [-0.08, -0.02],
+            "gain_over_noisy_per_sample": [0.02, 0.05],
+            "score_source": "b1_paired_env_rewards",
+        }
+    )
+    evidence = build_live_sampler_evidence(sample, summary, horizon_k=4)
+    update = sampler.update_with_probe(evidence)
+    print(
+        "[probe step2] evidence-explicit-gain: "
+        f"noisy={evidence.score_noisy.tolist()} "
+        f"repaired={evidence.score_repaired.tolist()} "
+        f"gain={evidence.gain_over_noisy.tolist()} "
+        f"gain_mean={update.gain_mean:.6f}",
+        flush=True,
+    )
+    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.02, 0.05]))
+    assert update.gain_mean > 0.0
+    assert update.gain_pos_frac == 1.0
+
+
 def test_live_sampler_evidence_uses_actor_owned_paired_rows_only() -> None:
     sample = FrontRESSegmentSample(
         segment_ids=torch.tensor([10, 11, 12, 13]),
@@ -1050,6 +1081,7 @@ def main() -> None:
     test_live_sampler_evidence_carries_partial_reset_failure()
     test_live_sampler_evidence_preserves_per_sample_rollout_facts()
     test_live_sampler_evidence_prefers_real_noisy_repaired_scores()
+    test_live_sampler_evidence_prefers_explicit_gain_when_scores_are_raw_rewards()
     test_live_sampler_evidence_uses_actor_owned_paired_rows_only()
     test_large_sampler_probe_uses_summary_not_full_lists()
     test_live_update_loop_samples_and_updates_priority()

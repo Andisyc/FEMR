@@ -982,13 +982,16 @@ def _paired_score_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[st
     if int(reward.numel()) < base_start + n:
         return {}
     clean = reward[clean_start : clean_start + n] if n_clean >= n and int(reward.numel()) >= clean_start + n else torch.ones(n, device=reward.device)
+    noisy = reward[base_start : base_start + n]
+    repaired = reward[:n]
     return {
         "evidence_row_count": n,
-        "evidence_reward_per_sample": _float_list(reward[:n]),
+        "evidence_reward_per_sample": _float_list(repaired),
         "evidence_done_any_per_sample": _bool_list(done[:n]),
         "evidence_valid_mask_per_sample": _bool_list(~done[:n]),
-        "score_repaired_per_sample": _float_list(reward[:n]),
-        "score_noisy_per_sample": _float_list(reward[base_start : base_start + n]),
+        "score_repaired_per_sample": _float_list(repaired),
+        "score_noisy_per_sample": _float_list(noisy),
+        "gain_over_noisy_per_sample": _float_list(repaired - noisy),
         "score_clean_per_sample": _float_list(clean),
         "score_source": "b1_paired_env_rewards",
     }

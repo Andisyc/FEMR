@@ -350,11 +350,18 @@ def build_live_sampler_evidence(
         device=device,
         default=float("nan"),
     ).float()
+    explicit_gain = _summary_vector(
+        summary,
+        keys=("gain_over_noisy_per_sample", "score_gain_per_sample"),
+        n=n,
+        device=device,
+        default=float("nan"),
+    ).float()
     has_real_scores = torch.isfinite(score_noisy).all() and torch.isfinite(score_repaired).all()
     if has_real_scores:
+        gain = explicit_gain if torch.isfinite(explicit_gain).all() else score_repaired - score_noisy
         score_noisy = score_noisy.clamp(0.0, 1.0)
         score_repaired = score_repaired.clamp(0.0, 1.0)
-        gain = score_repaired - score_noisy
         score_source = str(summary.get("score_source", "summary_scores"))
     else:
         gain = reward.clamp(-1.0, 1.0)

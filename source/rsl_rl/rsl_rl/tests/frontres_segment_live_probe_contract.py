@@ -1058,8 +1058,46 @@ def test_live_probe_summary_extracts_b1_noisy_repaired_scores() -> None:
     assert summary["evidence_row_count"] == 2
     torch.testing.assert_close(torch.tensor(summary["score_repaired_per_sample"]), torch.tensor([0.7, 0.9]))
     torch.testing.assert_close(torch.tensor(summary["score_noisy_per_sample"]), torch.tensor([0.2, 0.5]))
+    torch.testing.assert_close(torch.tensor(summary["gain_over_noisy_per_sample"]), torch.tensor([0.5, 0.4]))
     torch.testing.assert_close(torch.tensor(summary["score_clean_per_sample"]), torch.tensor([1.0, 1.0]))
     assert summary["evidence_valid_mask_per_sample"] == [True, False]
+
+
+def test_live_probe_summary_preserves_b1_gain_when_env_rewards_are_negative() -> None:
+    capture = FrontRESSegmentLiveRolloutCapture(
+        rollout_k=1,
+        reward_mean=0.0,
+        done_frac=0.0,
+        last_obs_shape=(8, 4),
+        action_shape=(8, 6),
+        env_action_shape=(8, 12),
+        transition_obs=torch.zeros(8, 4),
+        transition_privileged_obs=torch.zeros(8, 3),
+        transition_actions=torch.zeros(8, 6),
+        transition_log_probs=torch.zeros(8),
+        transition_values=torch.zeros(8),
+        transition_means=torch.zeros(8, 6),
+        transition_sigmas=torch.ones(8, 6),
+        reward_accum=torch.tensor([-0.08, -0.02, 0.0, 0.0, -0.10, -0.07, 0.0, 0.0]),
+        done_any=torch.tensor([False, False, False, False, False, False, False, False]),
+        n_train=2,
+        n_candidate=2,
+        n_base=2,
+        n_clean=2,
+    )
+    summary = live_probe._initial_live_probe_summary(capture, storage_write=True, single_update=False)
+    print(
+        "[probe step1] b1_negative_reward_gain_summary: "
+        f"repaired={summary['score_repaired_per_sample']} "
+        f"noisy={summary['score_noisy_per_sample']} "
+        f"gain={summary['gain_over_noisy_per_sample']} "
+        f"gain_mean={summary['score_gain_mean']}",
+        flush=True,
+    )
+    torch.testing.assert_close(torch.tensor(summary["score_repaired_per_sample"]), torch.tensor([-0.08, -0.02]))
+    torch.testing.assert_close(torch.tensor(summary["score_noisy_per_sample"]), torch.tensor([-0.10, -0.07]))
+    torch.testing.assert_close(torch.tensor(summary["gain_over_noisy_per_sample"]), torch.tensor([0.02, 0.05]))
+    assert abs(float(summary["score_gain_mean"]) - 0.035) < 1e-6
 
 
 if __name__ == "__main__":
@@ -1079,4 +1117,5 @@ if __name__ == "__main__":
     test_live_probe_summary_uses_readable_metric_blocks()
     test_live_probe_summary_reports_raw_policy_and_segment_delta_dims()
     test_live_probe_summary_extracts_b1_noisy_repaired_scores()
+    test_live_probe_summary_preserves_b1_gain_when_env_rewards_are_negative()
     print("frontres_segment_live_probe_contract: ok")
