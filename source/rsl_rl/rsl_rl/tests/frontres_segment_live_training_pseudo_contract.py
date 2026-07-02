@@ -90,6 +90,16 @@ def _full_summary(**overrides) -> dict:
         "update_count": 4,
         "ppo_valid_count": 8,
         "reward_mean": 0.25,
+        "train_reward_mean": 0.25,
+        "env_reward_mean": -0.50,
+        "score_gain_mean": 0.75,
+        "sampler_update_gain_mean": 0.30,
+        "sampler_update_gain_pos_frac": 0.60,
+        "sampler_update_useful_mean": 0.40,
+        "sampler_update_replay_candidate_count": 5,
+        "sampler_priority_mean": 0.07,
+        "sampler_replay_pool_size": 11,
+        "sampler_hopeless_frac": 0.20,
         "storage_valid_frac": 1.0,
         "ppo_total_loss_mean": 0.5,
         "ppo_actor_loss_mean": 0.1,
@@ -345,10 +355,11 @@ def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
     assert lines[header_idx - 2] == "-" * 80
     assert lines[header_idx - 1] == ""
     assert lines[header_idx + 1].startswith("  progress:")
-    assert lines[header_idx + 4] == ""
-    assert lines[header_idx + 5] == "-" * 80
+    assert lines[header_idx + 5] == ""
+    assert lines[header_idx + 6] != "-" * 80
     assert "  progress: iter=1/1 updates=4/4 runner_learn=True" in output
-    assert "  data: valid=8 valid_frac=100.0% reward=0.250000" in output
+    assert "  data: valid=8 valid_frac=100.0% train_reward=0.250000 env_reward=-0.500000 gain=0.750000" in output
+    assert "  sampler: gain=0.300000 gain_pos=60.0% useful=0.400000 replay_candidates=5 priority=0.070000 pool=11 hopeless=20.0%" in output
     assert "  ppo: loss_total=1.516e+23" in output
     assert "loss_total=1.516e+23" in output
     assert "actor=1.516e+23" in output

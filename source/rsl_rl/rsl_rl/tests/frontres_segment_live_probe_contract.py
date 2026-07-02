@@ -160,6 +160,8 @@ def _capture(actions: torch.Tensor | None = None) -> FrontRESSegmentLiveRolloutC
         reward_accum=torch.tensor([2.0, 4.0]),
         done_any=torch.tensor([False, True]),
         n_train=2,
+        n_base=0,
+        n_clean=0,
     )
 
 
@@ -201,6 +203,43 @@ def test_build_live_segment_storage_preserves_first_step_tuple_trace() -> None:
     torch.testing.assert_close(batch.old_sigmas, capture.transition_sigmas)
     assert batch.action_mask.shape == (2, 6)
     assert batch.action_mask.bool().all().item()
+
+
+def test_build_live_segment_storage_uses_b1_paired_gain_when_available() -> None:
+    runner = SimpleNamespace(device=torch.device("cpu"))
+    capture = _capture()
+    actions = torch.cat([capture.transition_actions, torch.zeros(4, 6)], dim=0)
+    capture = FrontRESSegmentLiveRolloutCapture(
+        rollout_k=capture.rollout_k,
+        reward_mean=capture.reward_mean,
+        done_frac=0.0,
+        last_obs_shape=capture.last_obs_shape,
+        action_shape=tuple(actions.shape),
+        env_action_shape=capture.env_action_shape,
+        transition_obs=torch.zeros(6, 4),
+        transition_privileged_obs=torch.zeros(6, 3),
+        transition_actions=actions,
+        transition_log_probs=torch.zeros(6),
+        transition_values=torch.zeros(6),
+        transition_means=actions,
+        transition_sigmas=torch.ones_like(actions),
+        reward_accum=torch.tensor([0.2, 0.8, 0.1, 0.6, 1.0, 1.0]),
+        done_any=torch.tensor([False, False, False, False, False, False]),
+        actor_update_mask=torch.tensor([True, True, False, False, False, False]),
+        n_train=2,
+        n_candidate=0,
+        n_base=2,
+        n_clean=2,
+    )
+
+    storage = build_live_segment_storage(runner, capture)
+    batch = storage.full_batch()
+
+    _probe_tensor("capture.reward_accum", capture.reward_accum, "B1 quartet raw scores: repaired, noisy, clean")
+    _probe_tensor("batch.returns", batch.returns, "PPO should learn repaired-minus-noisy gain when paired scores exist")
+    torch.testing.assert_close(batch.returns[:2], torch.tensor([0.05, 0.10]))
+    torch.testing.assert_close(batch.advantages[:2], torch.tensor([0.05, 0.10]))
+    assert batch.valid_mask.tolist() == [True, True, False, False, False, False]
 
 
 def test_build_live_segment_storage_masks_non_actor_rows() -> None:
@@ -858,6 +897,9 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "segment_reference_window_applied_frac": 0.0,
         "valid_mask_frac": 1.0,
         "reward_mean": 0.5,
+        "env_reward_mean": 0.5,
+        "train_reward_mean": 0.4,
+        "score_gain_mean": 0.4,
         "done_frac": 0.0,
         "storage_write": True,
         "storage_size": 2,
@@ -906,17 +948,24 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "  route.objective:",
         "  reset.enabled:",
         "  rollout.obs:",
+        "  rollout.env_reward:",
         "  score.source:",
+        "  score.gain:",
         "  storage.write:",
+        "  storage.train_reward:",
         "  ppo.valid:",
         "  log_ratio.mean:",
     ):
         assert label in output
     assert "reset.reason: applied" in output
     assert "rollout.policy_dim: 6" in output
+    assert "rollout.env_reward: 0.500000" in output
     assert "rollout.segment_delta_se_6d: True" in output
     assert "score.source: b1_paired_env_rewards" in output
+    assert "score.gain: 0.400000" in output
     assert "score.rows: 2" in output
+    assert "storage.train_reward: 0.400000" in output
+    assert "storage.all_reward: 0.500000" in output
     assert output.startswith("\n" + live_probe._LOG_SEPARATOR + "\n")
     assert f"\n{live_probe._LOG_SEPARATOR}\n\n[FrontRES Segment PPO Probe]" in output
     assert not output.rstrip().endswith(live_probe._LOG_SEPARATOR)
@@ -1015,6 +1064,7 @@ def test_live_probe_summary_extracts_b1_noisy_repaired_scores() -> None:
 
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
+    test_build_live_segment_storage_uses_b1_paired_gain_when_available()
     test_build_live_segment_storage_masks_non_actor_rows()
     test_build_live_segment_storage_rejects_non_6d_actions()
     test_live_probe_selects_6d_delta_se_from_12d_rollout_action()

@@ -73,11 +73,29 @@ def _summary(
     ppo_value_loss: float,
     ppo_approx_kl: float,
     ppo_clip_frac: float,
+    env_reward_mean: float | None = None,
+    train_reward_mean: float | None = None,
+    score_gain_mean: float = 0.0,
+    sampler_update_gain_mean: float = 0.0,
+    sampler_update_gain_pos_frac: float = 0.0,
+    sampler_update_useful_mean: float = 0.0,
+    sampler_update_replay_candidate_count: int = 0,
+    sampler_update_priority_before_mean: float = 0.0,
+    sampler_update_priority_after_mean: float = 0.0,
 ) -> dict:
     return {
         "ppo_update": ppo_update,
         "ppo_valid_count": ppo_valid_count,
         "reward_mean": reward_mean,
+        "env_reward_mean": reward_mean if env_reward_mean is None else env_reward_mean,
+        "train_reward_mean": reward_mean if train_reward_mean is None else train_reward_mean,
+        "score_gain_mean": score_gain_mean,
+        "sampler_update_gain_mean": sampler_update_gain_mean,
+        "sampler_update_gain_pos_frac": sampler_update_gain_pos_frac,
+        "sampler_update_useful_mean": sampler_update_useful_mean,
+        "sampler_update_replay_candidate_count": sampler_update_replay_candidate_count,
+        "sampler_update_priority_before_mean": sampler_update_priority_before_mean,
+        "sampler_update_priority_after_mean": sampler_update_priority_after_mean,
         "storage_valid_frac": storage_valid_frac,
         "ppo_total_loss": ppo_total_loss,
         "ppo_actor_loss": ppo_actor_loss,
@@ -273,10 +291,134 @@ def test_live_update_loop_log_formats_large_loss_readably() -> None:
     assert "151579182193432229576704.000000" not in output
 
 
+def test_live_update_loop_reports_train_env_and_gain_rewards_separately() -> None:
+    runner = FakeRunner(
+        [
+            _summary(
+                ppo_update=True,
+                ppo_valid_count=2,
+                reward_mean=-0.5,
+                env_reward_mean=-0.5,
+                train_reward_mean=0.25,
+                score_gain_mean=0.10,
+                storage_valid_frac=1.0,
+                ppo_total_loss=1.0,
+                ppo_actor_loss=1.0,
+                ppo_value_loss=1.0,
+                ppo_approx_kl=0.0,
+                ppo_clip_frac=0.0,
+            ),
+            _summary(
+                ppo_update=True,
+                ppo_valid_count=2,
+                reward_mean=-0.25,
+                env_reward_mean=-0.25,
+                train_reward_mean=0.75,
+                score_gain_mean=0.30,
+                storage_valid_frac=1.0,
+                ppo_total_loss=1.0,
+                ppo_actor_loss=1.0,
+                ppo_value_loss=1.0,
+                ppo_approx_kl=0.0,
+                ppo_clip_frac=0.0,
+            ),
+        ],
+        boundary=FakeBoundary(live_update_steps=2),
+    )
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        result = run_frontres_segment_live_update_loop(runner, init_at_random_ep_len=False)
+    output = buffer.getvalue()
+    print(
+        "[probe step3] update_loop_reward_semantics: "
+        f"reward_mean={result['reward_mean']} "
+        f"env_reward_mean={result['env_reward_mean']} "
+        f"score_gain_mean={result['score_gain_mean']}",
+        flush=True,
+    )
+
+    assert result["reward_mean"] == 0.5
+    assert result["train_reward_mean"] == 0.5
+    assert result["env_reward_mean"] == -0.375
+    assert abs(result["score_gain_mean"] - 0.20) < 1e-8
+    assert "train_reward=0.500000" in output
+    assert "env_reward=-0.375000" in output
+    assert "gain=0.200000" in output
+
+
+def test_live_update_loop_reports_sampler_evidence_update_metrics() -> None:
+    runner = FakeRunner(
+        [
+            _summary(
+                ppo_update=True,
+                ppo_valid_count=2,
+                reward_mean=0.1,
+                storage_valid_frac=1.0,
+                ppo_total_loss=1.0,
+                ppo_actor_loss=1.0,
+                ppo_value_loss=1.0,
+                ppo_approx_kl=0.0,
+                ppo_clip_frac=0.0,
+                sampler_update_gain_mean=0.20,
+                sampler_update_gain_pos_frac=0.50,
+                sampler_update_useful_mean=0.30,
+                sampler_update_replay_candidate_count=3,
+                sampler_update_priority_before_mean=0.01,
+                sampler_update_priority_after_mean=0.04,
+            ),
+            _summary(
+                ppo_update=True,
+                ppo_valid_count=2,
+                reward_mean=0.1,
+                storage_valid_frac=1.0,
+                ppo_total_loss=1.0,
+                ppo_actor_loss=1.0,
+                ppo_value_loss=1.0,
+                ppo_approx_kl=0.0,
+                ppo_clip_frac=0.0,
+                sampler_update_gain_mean=0.40,
+                sampler_update_gain_pos_frac=1.00,
+                sampler_update_useful_mean=0.50,
+                sampler_update_replay_candidate_count=5,
+                sampler_update_priority_before_mean=0.02,
+                sampler_update_priority_after_mean=0.08,
+            ),
+        ],
+        boundary=FakeBoundary(live_update_steps=2),
+    )
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        result = run_frontres_segment_live_update_loop(runner, init_at_random_ep_len=False)
+    output = buffer.getvalue()
+    print(
+        "[probe step4] update_loop_sampler_update_metrics: "
+        f"gain={result['sampler_update_gain_mean']} "
+        f"gain_pos={result['sampler_update_gain_pos_frac']} "
+        f"replay_candidates={result['sampler_update_replay_candidate_count']} "
+        f"priority_after={result['sampler_update_priority_after_mean']}",
+        flush=True,
+    )
+
+    assert abs(result["sampler_update_gain_mean"] - 0.30) < 1e-8
+    assert abs(result["sampler_update_gain_pos_frac"] - 0.75) < 1e-8
+    assert abs(result["sampler_update_useful_mean"] - 0.40) < 1e-8
+    assert result["sampler_update_replay_candidate_count"] == 8
+    assert abs(result["sampler_update_priority_before_mean"] - 0.015) < 1e-8
+    assert abs(result["sampler_update_priority_after_mean"] - 0.06) < 1e-8
+    assert "sampler_update:" in output
+    assert "gain=0.300000" in output
+    assert "gain_pos=75.0%" in output
+    assert "replay_candidates=8" in output
+
+
 if __name__ == "__main__":
     test_live_update_loop_aggregates_probe_metrics_and_init_flag()
     test_live_update_loop_uses_algorithm_update_steps_override()
     test_live_update_loop_requires_enabled_boundary()
     test_live_update_loop_summary_print_rate_default_and_verbose()
     test_live_update_loop_log_formats_large_loss_readably()
+    test_live_update_loop_reports_train_env_and_gain_rewards_separately()
+    test_live_update_loop_reports_sampler_evidence_update_metrics()
     print("frontres_segment_live_update_loop_contract: ok")

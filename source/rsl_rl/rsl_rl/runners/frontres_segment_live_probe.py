@@ -325,11 +325,13 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
         segment_storage = build_live_segment_storage(runner, capture)
         storage_stats = segment_storage.stats()
         storage_batch = segment_storage.full_batch()
+        train_reward_mean = _valid_reward_mean(storage_batch.returns, storage_batch.valid_mask)
         summary.update(
             {
                 "storage_size": storage_stats.size,
                 "storage_valid_frac": storage_stats.valid_frac,
                 "storage_reward_mean": storage_stats.reward_mean,
+                "train_reward_mean": train_reward_mean,
                 "storage_reward_per_sample": _float_list(storage_batch.returns),
                 "storage_valid_mask_per_sample": _bool_list(storage_batch.valid_mask),
                 "storage_segment_ids": _long_list(storage_batch.segment_ids),
@@ -635,6 +637,7 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
     else:
         actor_update_mask = torch.ones(batch_size, device=runner.device, dtype=torch.bool)
     valid_mask = rollout_valid_mask & reset_mask & actor_update_mask
+    rewards = _segment_storage_rewards(capture, batch_size=batch_size, device=runner.device)
     segment_storage = FrontRESSegmentRolloutStorage(
         capacity=batch_size,
         obs_shape=capture.transition_obs.shape[1:],
@@ -649,7 +652,7 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
             actions=capture.transition_actions,
             old_log_probs=capture.transition_log_probs,
             values=capture.transition_values,
-            rewards=capture.reward_accum.reshape(-1) / float(capture.rollout_k),
+            rewards=rewards,
             valid_mask=valid_mask,
             reset_mask=reset_mask,
             segment_ids=segment_ids,
@@ -660,6 +663,25 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
         )
     )
     return segment_storage
+
+
+def _segment_storage_rewards(
+    capture: FrontRESSegmentLiveRolloutCapture,
+    *,
+    batch_size: int,
+    device: torch.device,
+) -> torch.Tensor:
+    reward = capture.reward_accum.reshape(-1).to(device=device).float() / float(max(1, int(capture.rollout_k)))
+    n_train = max(0, int(capture.n_train))
+    n_candidate = max(0, int(capture.n_candidate))
+    n_base = max(0, int(capture.n_base))
+    base_start = n_train + n_candidate
+    if n_train > 0 and n_base >= n_train and int(reward.numel()) >= base_start + n_train and batch_size == int(reward.numel()):
+        reward = reward.clone()
+        reward[:n_train] = reward[:n_train] - reward[base_start : base_start + n_train]
+    if int(reward.numel()) != batch_size:
+        raise ValueError(f"segment rewards must have {batch_size} rows, got {int(reward.numel())}")
+    return reward
 
 
 def _select_segment_transition_actions(
@@ -912,8 +934,13 @@ def _initial_live_probe_summary(
     single_update: bool,
 ) -> dict[str, object]:
     score_summary = _paired_score_summary(capture)
+    score_noisy = _mean_sequence(score_summary.get("score_noisy_per_sample", ()))
+    score_repaired = _mean_sequence(score_summary.get("score_repaired_per_sample", ()))
     summary = {
         "reward_mean": capture.reward_mean,
+        "env_reward_mean": capture.reward_mean,
+        "train_reward_mean": capture.reward_mean,
+        "score_gain_mean": score_repaired - score_noisy,
         "done_frac": capture.done_frac,
         "valid_mask_frac": 1.0 - capture.done_frac,
         "reward_per_sample": _rollout_reward_per_sample(capture),
@@ -980,6 +1007,16 @@ def _rollout_done_per_sample(capture: FrontRESSegmentLiveRolloutCapture) -> list
     return _bool_list(capture.done_any.reshape(-1))
 
 
+def _valid_reward_mean(rewards: torch.Tensor, valid_mask: torch.Tensor) -> float:
+    valid = valid_mask.detach().bool().reshape(-1)
+    reward = rewards.detach().float().reshape(-1)
+    if int(valid.numel()) != int(reward.numel()):
+        raise ValueError(f"valid_mask must have {int(reward.numel())} rows, got {int(valid.numel())}")
+    if not bool(valid.any().item()):
+        return 0.0
+    return float(reward[valid].mean().cpu().item())
+
+
 def _float_list(value: torch.Tensor) -> list[float]:
     return [float(item) for item in value.detach().reshape(-1).cpu().tolist()]
 
@@ -1039,7 +1076,7 @@ def _print_live_probe_summary(
                     "env_action": capture.env_action_shape,
                     "env_dim": _shape_last_dim(capture.env_action_shape),
                     "k": capture.rollout_k,
-                    "reward": _fmt_num(summary["reward_mean"]),
+                    "env_reward": _fmt_num(summary.get("env_reward_mean", summary["reward_mean"])),
                     "done": _fmt_pct(summary["done_frac"]),
                 },
             ),
@@ -1050,7 +1087,7 @@ def _print_live_probe_summary(
                     "rows": int(summary.get("evidence_row_count", 0) or 0),
                     "noisy": _fmt_num(score_noisy),
                     "repaired": _fmt_num(score_repaired),
-                    "gain": _fmt_num(score_repaired - score_noisy),
+                    "gain": _fmt_num(summary.get("score_gain_mean", score_repaired - score_noisy)),
                     "valid": _fmt_pct(_mean_sequence(summary.get("evidence_valid_mask_per_sample", ()))),
                 },
             ),
@@ -1061,7 +1098,8 @@ def _print_live_probe_summary(
                     "size": int(summary["storage_size"]),
                     "mask_valid": _fmt_pct(summary["valid_mask_frac"]),
                     "valid_frac": _fmt_pct(summary["storage_valid_frac"]),
-                    "reward": _fmt_num(summary["storage_reward_mean"]),
+                    "train_reward": _fmt_num(summary.get("train_reward_mean", summary["storage_reward_mean"])),
+                    "all_reward": _fmt_num(summary["storage_reward_mean"]),
                 },
             ),
             *_kv_lines(

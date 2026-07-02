@@ -84,7 +84,9 @@ def run_frontres_segment_live_update_loop(
         )
     update_count = sum(1 for item in metrics if bool(item["ppo_update"]))
     valid_count = sum(int(item["ppo_valid_count"]) for item in metrics)
-    reward_mean = sum(float(item["reward_mean"]) for item in metrics) / float(update_steps)
+    env_reward_mean = sum(float(item.get("env_reward_mean", item["reward_mean"])) for item in metrics) / float(update_steps)
+    train_reward_mean = sum(float(item.get("train_reward_mean", item["reward_mean"])) for item in metrics) / float(update_steps)
+    score_gain_mean = sum(float(item.get("score_gain_mean", 0.0)) for item in metrics) / float(update_steps)
     storage_valid_frac = sum(float(item["storage_valid_frac"]) for item in metrics) / float(update_steps)
     total_loss_mean = sum(float(item["ppo_total_loss"]) for item in metrics) / float(update_steps)
     actor_loss_mean = sum(float(item["ppo_actor_loss"]) for item in metrics) / float(update_steps)
@@ -100,6 +102,16 @@ def run_frontres_segment_live_update_loop(
     sampler_solved_frac = float(metrics[-1].get("sampler_solved_frac", 0.0))
     sampler_hopeless_frac = float(metrics[-1].get("sampler_hopeless_frac", 0.0))
     sampler_stale_review_count = int(metrics[-1].get("sampler_stale_review_count", 0))
+    sampler_update_gain_mean = sum(float(item.get("sampler_update_gain_mean", 0.0)) for item in metrics) / float(update_steps)
+    sampler_update_gain_pos_frac = sum(float(item.get("sampler_update_gain_pos_frac", 0.0)) for item in metrics) / float(update_steps)
+    sampler_update_useful_mean = sum(float(item.get("sampler_update_useful_mean", 0.0)) for item in metrics) / float(update_steps)
+    sampler_update_replay_candidate_count = sum(int(item.get("sampler_update_replay_candidate_count", 0)) for item in metrics)
+    sampler_update_priority_before_mean = sum(
+        float(item.get("sampler_update_priority_before_mean", 0.0)) for item in metrics
+    ) / float(update_steps)
+    sampler_update_priority_after_mean = sum(
+        float(item.get("sampler_update_priority_after_mean", 0.0)) for item in metrics
+    ) / float(update_steps)
     if _should_print_update_loop_summary(runner):
         print(
             "\n".join(
@@ -115,7 +127,9 @@ def run_frontres_segment_live_update_loop(
                     f"updates={update_count}/{update_steps} "
                     f"valid={valid_count} "
                     f"valid_frac={_fmt_pct(storage_valid_frac)} "
-                    f"reward={_fmt_num(reward_mean)}",
+                    f"train_reward={_fmt_num(train_reward_mean)} "
+                    f"env_reward={_fmt_num(env_reward_mean)} "
+                    f"gain={_fmt_num(score_gain_mean)}",
                     "  ppo: "
                     f"loss_total={_fmt_num(total_loss_mean)} "
                     f"actor={_fmt_num(actor_loss_mean)} "
@@ -132,6 +146,13 @@ def run_frontres_segment_live_update_loop(
                     f"solved={_fmt_pct(sampler_solved_frac)} "
                     f"hopeless={_fmt_pct(sampler_hopeless_frac)} "
                     f"stale_review={sampler_stale_review_count}",
+                    "  sampler_update: "
+                    f"gain={_fmt_num(sampler_update_gain_mean)} "
+                    f"gain_pos={_fmt_pct(sampler_update_gain_pos_frac)} "
+                    f"useful={_fmt_num(sampler_update_useful_mean)} "
+                    f"replay_candidates={sampler_update_replay_candidate_count} "
+                    f"priority_before={_fmt_num(sampler_update_priority_before_mean)} "
+                    f"priority_after={_fmt_num(sampler_update_priority_after_mean)}",
                     "",
                     _LOG_SEPARATOR,
                     "",
@@ -143,7 +164,10 @@ def run_frontres_segment_live_update_loop(
         "update_steps": update_steps,
         "update_count": update_count,
         "ppo_valid_count": valid_count,
-        "reward_mean": reward_mean,
+        "reward_mean": train_reward_mean,
+        "train_reward_mean": train_reward_mean,
+        "env_reward_mean": env_reward_mean,
+        "score_gain_mean": score_gain_mean,
         "storage_valid_frac": storage_valid_frac,
         "ppo_total_loss_mean": total_loss_mean,
         "ppo_actor_loss_mean": actor_loss_mean,
@@ -159,4 +183,10 @@ def run_frontres_segment_live_update_loop(
         "sampler_solved_frac": sampler_solved_frac,
         "sampler_hopeless_frac": sampler_hopeless_frac,
         "sampler_stale_review_count": sampler_stale_review_count,
+        "sampler_update_gain_mean": sampler_update_gain_mean,
+        "sampler_update_gain_pos_frac": sampler_update_gain_pos_frac,
+        "sampler_update_useful_mean": sampler_update_useful_mean,
+        "sampler_update_replay_candidate_count": sampler_update_replay_candidate_count,
+        "sampler_update_priority_before_mean": sampler_update_priority_before_mean,
+        "sampler_update_priority_after_mean": sampler_update_priority_after_mean,
     }

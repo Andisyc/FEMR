@@ -82,7 +82,17 @@ def _print_live_train_summary(
                 "  data: "
                 f"valid={int(summary['ppo_valid_count'])} "
                 f"valid_frac={_fmt_pct(summary['storage_valid_frac'])} "
-                f"reward={_fmt_num(summary['reward_mean'])}",
+                f"train_reward={_fmt_num(summary.get('train_reward_mean', summary['reward_mean']))} "
+                f"env_reward={_fmt_num(summary.get('env_reward_mean', summary['reward_mean']))} "
+                f"gain={_fmt_num(summary.get('score_gain_mean', 0.0))}",
+                "  sampler: "
+                f"gain={_fmt_num(summary.get('sampler_update_gain_mean', 0.0))} "
+                f"gain_pos={_fmt_pct(summary.get('sampler_update_gain_pos_frac', 0.0))} "
+                f"useful={_fmt_num(summary.get('sampler_update_useful_mean', 0.0))} "
+                f"replay_candidates={int(summary.get('sampler_update_replay_candidate_count', 0))} "
+                f"priority={_fmt_num(summary.get('sampler_priority_mean', 0.0))} "
+                f"pool={int(summary.get('sampler_replay_pool_size', 0))} "
+                f"hopeless={_fmt_pct(summary.get('sampler_hopeless_frac', 0.0))}",
                 "  ppo: "
                 f"loss_total={_fmt_num(summary['ppo_total_loss_mean'])} "
                 f"actor={_fmt_num(summary['ppo_actor_loss_mean'])} "
@@ -90,8 +100,6 @@ def _print_live_train_summary(
                 f"kl={_fmt_num(summary['ppo_approx_kl_mean'])} "
                 f"clip={_fmt_pct(summary['ppo_clip_frac_mean'])} "
                 f"status={_live_train_status(summary)}",
-                "",
-                _LOG_SEPARATOR,
                 "",
             )
         ),
