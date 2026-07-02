@@ -151,13 +151,62 @@ def _path_inside_log_dir(path: str, log_dir: str | None) -> bool:
 
 def _print_checkpoint_save_probe(runner: Any, checkpoint_path: str) -> None:
     print(
-        "[FrontRES Segment Live Checkpoint] "
-        f"saved_checkpoint_path={checkpoint_path} "
-        f"in_log_dir={_path_inside_log_dir(checkpoint_path, runner.log_dir)} "
-        f"iteration={int(getattr(runner, 'current_learning_iteration', 0))} "
-        "runner_learn=True",
+        "\n".join(
+            (
+                "",
+                _LOG_SEPARATOR,
+                "",
+                "[FrontRES Segment Live Checkpoint]",
+                "  save.status: OK",
+                f"  save.path: {checkpoint_path}",
+                f"  save.in_log_dir: {_path_inside_log_dir(checkpoint_path, runner.log_dir)}",
+                f"  save.iteration: {int(getattr(runner, 'current_learning_iteration', 0))}",
+                "  route.runner_learn: True",
+                "",
+            )
+        ),
         flush=True,
     )
+
+
+def _print_checkpoint_save_failure(runner: Any, checkpoint_path: str, exc: BaseException) -> None:
+    print(
+        "\n".join(
+            (
+                "",
+                _LOG_SEPARATOR,
+                "",
+                "[FrontRES Segment Live Checkpoint]",
+                "  save.status: FAILED",
+                f"  save.path: {checkpoint_path}",
+                f"  save.in_log_dir: {_path_inside_log_dir(checkpoint_path, runner.log_dir)}",
+                f"  save.iteration: {int(getattr(runner, 'current_learning_iteration', 0))}",
+                f"  error.type: {type(exc).__name__}",
+                f"  error.message: {str(exc)[:240]}",
+                "",
+            )
+        ),
+        flush=True,
+    )
+
+
+def _save_live_checkpoint(
+    runner: Any,
+    *,
+    checkpoint_path: str,
+    summary: Mapping[str, Any],
+    required: bool,
+) -> bool:
+    try:
+        runner.save(checkpoint_path)
+    except (OSError, RuntimeError) as exc:
+        _print_checkpoint_save_failure(runner, checkpoint_path, exc)
+        if required:
+            raise
+        return False
+    _print_checkpoint_save_probe(runner, checkpoint_path)
+    runner._record_frontres_checkpoint_probe(dict(summary), checkpoint_path)
+    return True
 
 
 def _print_resume_probe(runner: Any) -> None:
@@ -218,13 +267,10 @@ def run_frontres_segment_live_training_loop(
             and runner.current_learning_iteration % runner.save_interval == 0
         ):
             checkpoint_path = os.path.join(runner.log_dir, f"model_{runner.current_learning_iteration}.pt")
-            runner.save(checkpoint_path)
-            _print_checkpoint_save_probe(runner, checkpoint_path)
-            last_checkpoint_probe_path = checkpoint_path
-            runner._record_frontres_checkpoint_probe(dict(summary), checkpoint_path)
+            if _save_live_checkpoint(runner, checkpoint_path=checkpoint_path, summary=summary, required=False):
+                last_checkpoint_probe_path = checkpoint_path
 
     if runner.log_dir is not None and not runner.disable_logs:
         final_checkpoint_path = os.path.join(runner.log_dir, f"model_{runner.current_learning_iteration}.pt")
-        runner.save(final_checkpoint_path)
         if final_checkpoint_path != last_checkpoint_probe_path:
-            _print_checkpoint_save_probe(runner, final_checkpoint_path)
+            _save_live_checkpoint(runner, checkpoint_path=final_checkpoint_path, summary=summary, required=True)

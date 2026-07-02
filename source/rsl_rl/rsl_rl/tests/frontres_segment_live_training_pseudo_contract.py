@@ -110,6 +110,7 @@ class FakeRunner:
         fail_on_invalid_update: bool = True,
         min_valid_count: int = 1,
         fail_on_nonfinite: bool = True,
+        fail_save_paths: set[str] | None = None,
     ):
         self._frontres_segment_replay_boundary = FakeBoundary(live_train_enabled=live_train_enabled)
         self.alg = FakeAlg(
@@ -124,6 +125,7 @@ class FakeRunner:
         self.update_calls: list[tuple[bool, bool]] = []
         self.saved_paths: list[str] = []
         self.probe_records: list[tuple[dict, str]] = []
+        self.fail_save_paths = fail_save_paths or set()
 
     def run_frontres_segment_live_update_loop(self, *, init_at_random_ep_len: bool, runner_learn: bool) -> dict:
         self.update_calls.append((init_at_random_ep_len, runner_learn))
@@ -140,6 +142,8 @@ class FakeRunner:
         return summary
 
     def save(self, path: str) -> None:
+        if path in self.fail_save_paths:
+            raise RuntimeError(f"synthetic checkpoint write failure: {path}")
         self.saved_paths.append(path)
 
     def _record_frontres_checkpoint_probe(self, locs: dict, checkpoint_path: str) -> None:
@@ -353,6 +357,32 @@ def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
     assert "151579182193432229576704.000000" not in output
 
 
+def test_pseudo_live_training_continues_after_periodic_checkpoint_failure() -> None:
+    runner = FakeRunner(fail_save_paths={"/tmp/frontres-pseudo/model_1.pt"})
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        run_frontres_segment_live_training_loop(
+            runner,
+            num_learning_iterations=2,
+            init_at_random_ep_len=False,
+        )
+    output = buffer.getvalue()
+    print(
+        "[probe checkpoint_failure] "
+        f"saved_paths={runner.saved_paths} "
+        f"probe_record_count={len(runner.probe_records)} "
+        f"has_failed={'save.status: FAILED' in output}",
+        flush=True,
+    )
+    assert runner.current_learning_iteration == 2
+    assert runner.saved_paths == ["/tmp/frontres-pseudo/model_2.pt"]
+    assert len(runner.probe_records) == 1
+    assert "save.status: FAILED" in output
+    assert "synthetic checkpoint write failure" in output
+    assert "save.path: /tmp/frontres-pseudo/model_1.pt" in output
+    assert "save.status: OK" in output
+
+
 def main() -> None:
     test_pseudo_live_training_runs_two_iterations_and_saves_checkpoints()
     test_pseudo_live_training_zero_iterations_does_not_touch_update_loop()
@@ -363,6 +393,7 @@ def main() -> None:
     test_pseudo_live_training_rejects_too_few_valid_samples()
     test_pseudo_live_training_can_disable_fail_fast_guards()
     test_pseudo_live_training_log_formats_large_loss_readably()
+    test_pseudo_live_training_continues_after_periodic_checkpoint_failure()
     print("result: PASS")
 
 
