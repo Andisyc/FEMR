@@ -27,6 +27,7 @@ CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
 SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
 PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
 PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
+STAGE3_IS_FULL_RESUME="${STAGE3_IS_FULL_RESUME:-False}"
 CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py}"
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
@@ -85,7 +86,7 @@ TRAIN_CMD=(
   --run_name "${RUN_NAME}"
   --max_iterations "${MAX_ITERS}"
   --resume_student_checkpoint "${HSL_CHECKPOINT}"
-  --is_full_resume False
+  --is_full_resume "${STAGE3_IS_FULL_RESUME}"
   --frontres_stage stage3_segment_hrl
   --frontres_segment_cache_dir "${CACHE_DIR}"
   --frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"
@@ -115,7 +116,7 @@ if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
     " scripts/rsl_rl/train.py " \
     " --frontres_stage stage3_segment_hrl " \
     " --resume_student_checkpoint ${HSL_CHECKPOINT} " \
-    " --is_full_resume False " \
+    " --is_full_resume ${STAGE3_IS_FULL_RESUME} " \
     " --frontres_segment_cache_dir ${CACHE_DIR} " \
     " --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} " \
     " --frontres_segment_live_update_steps ${UPDATE_STEPS} " \
