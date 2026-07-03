@@ -15,21 +15,22 @@ import torch
 from rsl_rl.modules import FrontRESActorCritic, ResidualActorCritic
 
 
-def _optimizer_state_debug(state_dict: dict | None) -> str:
-    if not isinstance(state_dict, dict):
-        return "missing"
-    groups = state_dict.get("param_groups", []) or []
-    state = state_dict.get("state", {}) or {}
-    lrs = []
-    param_counts = []
-    for group in groups:
-        if isinstance(group, dict):
-            lrs.append(group.get("lr"))
-            param_counts.append(len(group.get("params", []) or []))
-    return (
-        f"groups={len(groups)} state_entries={len(state)} "
-        f"group_param_counts={param_counts} group_lrs={lrs}"
-    )
+# Full-resume diagnostic helper; uncomment with the probe prints below when needed.
+# def _optimizer_state_debug(state_dict: dict | None) -> str:
+#     if not isinstance(state_dict, dict):
+#         return "missing"
+#     groups = state_dict.get("param_groups", []) or []
+#     state = state_dict.get("state", {}) or {}
+#     lrs = []
+#     param_counts = []
+#     for group in groups:
+#         if isinstance(group, dict):
+#             lrs.append(group.get("lr"))
+#             param_counts.append(len(group.get("params", []) or []))
+#     return (
+#         f"groups={len(groups)} state_entries={len(state)} "
+#         f"group_param_counts={param_counts} group_lrs={lrs}"
+#     )
 
 
 def _numeric_module_keys(state_dict: dict, suffix: str) -> list[str]:
@@ -253,14 +254,15 @@ def save_runner(self, path: str, infos=None):
             if not isinstance(self.teacher_obs_normalizer, torch.nn.Identity):
                 saved_dict["teacher_obs_norm_state_dict"] = self.teacher_obs_normalizer.state_dict()
 
-    print(
-        "[FrontRES Checkpoint Save Probe] "
-        f"path={path} iter={self.current_learning_iteration} "
-        f"optimizer={_optimizer_state_debug(saved_dict.get('optimizer_state_dict'))} "
-        f"sampler_state={'frontres_segment_sampler_state_dict' in saved_dict} "
-        f"dr_scale={saved_dict.get('dr_scale', 'n/a')}",
-        flush=True,
-    )
+    # Full-resume diagnostic probe; uncomment when checking checkpoint payloads.
+    # print(
+    #     "[FrontRES Checkpoint Save Probe] "
+    #     f"path={path} iter={self.current_learning_iteration} "
+    #     f"optimizer={_optimizer_state_debug(saved_dict.get('optimizer_state_dict'))} "
+    #     f"sampler_state={'frontres_segment_sampler_state_dict' in saved_dict} "
+    #     f"dr_scale={saved_dict.get('dr_scale', 'n/a')}",
+    #     flush=True,
+    # )
 
     # save model
     torch.save(saved_dict, path)
@@ -296,15 +298,16 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     if not is_full_resume:
         load_optimizer = False   # 权重迁移模式：强制跳过优化器，从零初始化 Adam
         load_critic = self._frontres_warmup_complete
-    print(
-        "[FrontRES Resume Probe] "
-        f"path={os.path.abspath(path)} checkpoint_iter={loaded_dict.get('iter', 'n/a')} "
-        f"is_full_resume={is_full_resume} "
-        f"checkpoint_optimizer={_optimizer_state_debug(loaded_dict.get('optimizer_state_dict'))} "
-        f"sampler_state={'frontres_segment_sampler_state_dict' in loaded_dict} "
-        f"frontres_warmup_complete={self._frontres_warmup_complete}",
-        flush=True,
-    )
+    # Full-resume diagnostic probe; uncomment when checking checkpoint reloads.
+    # print(
+    #     "[FrontRES Resume Probe] "
+    #     f"path={os.path.abspath(path)} checkpoint_iter={loaded_dict.get('iter', 'n/a')} "
+    #     f"is_full_resume={is_full_resume} "
+    #     f"checkpoint_optimizer={_optimizer_state_debug(loaded_dict.get('optimizer_state_dict'))} "
+    #     f"sampler_state={'frontres_segment_sampler_state_dict' in loaded_dict} "
+    #     f"frontres_warmup_complete={self._frontres_warmup_complete}",
+    #     flush=True,
+    # )
     print(f"[Runner] is_full_resume={is_full_resume} → "
           f"load_optimizer={load_optimizer}, load_critic={load_critic}, "
           f"reset_noise_std={not is_full_resume}")
@@ -513,11 +516,12 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
                 # -- algorithm optimizer
                 self.alg.optimizer.load_state_dict(loaded_dict["optimizer_state_dict"])
                 print("[Runner] Loaded optimizer state from checkpoint.")
-                print(
-                    "[FrontRES Resume Probe] "
-                    f"optimizer_loaded=True runtime_optimizer={_optimizer_state_debug(self.alg.optimizer.state_dict())}",
-                    flush=True,
-                )
+                # Full-resume diagnostic probe; uncomment when checking optimizer state.
+                # print(
+                #     "[FrontRES Resume Probe] "
+                #     f"optimizer_loaded=True runtime_optimizer={_optimizer_state_debug(self.alg.optimizer.state_dict())}",
+                #     flush=True,
+                # )
                 # ── 学习率同步 ─────────────────────────────────────────────────────
                 # PPO.update() 每次 epoch 都用 self.alg.learning_rate 覆盖
                 # optimizer.param_groups["lr"]。load_state_dict 已将 param_groups["lr"]
@@ -546,11 +550,12 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
                 print(f"[Runner] WARNING: Could not load optimizer state: {e}")
                 print("[Runner] Optimizer will be initialized from scratch (learning rate, momentum, etc. reset)")
                 print("[Runner] This is expected when transitioning between training stages with different frozen parameters.")
-                print(
-                    "[FrontRES Resume Probe] "
-                    f"optimizer_loaded=False runtime_optimizer={_optimizer_state_debug(self.alg.optimizer.state_dict())}",
-                    flush=True,
-                )
+                # Full-resume diagnostic probe; uncomment when checking optimizer state.
+                # print(
+                #     "[FrontRES Resume Probe] "
+                #     f"optimizer_loaded=False runtime_optimizer={_optimizer_state_debug(self.alg.optimizer.state_dict())}",
+                #     flush=True,
+                # )
 
             # -- RND optimizer if used
             if hasattr(self.alg, "rnd") and self.alg.rnd:
@@ -562,12 +567,13 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         else:
             self.current_learning_iteration = 0
             print("[Runner] Stage1→Stage2 cold-start: current_learning_iteration reset to 0.")
-        print(
-            "[FrontRES Resume Probe] "
-            f"iteration_after_load={self.current_learning_iteration} checkpoint_iter={loaded_dict.get('iter', 'n/a')} "
-            f"is_full_resume={is_full_resume}",
-            flush=True,
-        )
+        # Full-resume diagnostic probe; uncomment when checking resume iteration.
+        # print(
+        #     "[FrontRES Resume Probe] "
+        #     f"iteration_after_load={self.current_learning_iteration} checkpoint_iter={loaded_dict.get('iter', 'n/a')} "
+        #     f"is_full_resume={is_full_resume}",
+        #     flush=True,
+        # )
 
     # ── 噪声 std 控制 ──────────────────────────────────────────────────────────
     # is_full_resume=True:  保留 checkpoint 中已自然适应的 std（断点续训）
