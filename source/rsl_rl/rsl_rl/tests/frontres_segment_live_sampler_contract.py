@@ -865,6 +865,70 @@ def test_live_sampler_filters_index_dataset_to_loaded_motions_before_sampling() 
         assert [spec.motion_id for spec in batch.specs] == ["KIT/359/motion_a.npz"]
 
 
+def test_stage3_index_only_perturbation_plan_uses_dr_curriculum() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        amass_root = Path(tmp) / "AMASS_G1NPZ_Final"
+        cache_dir = Path(tmp) / "AMASS_G1Segment"
+        stage1_hooks_contract._write_fake_amass(amass_root / "KIT" / "359" / "motion_a.npz")
+        _write_stage1_index_cache(cache_dir, amass_root)
+        env = stage1_hooks_contract.FakeGymEnv(amass_root)
+        runner = FakeRunner(cache_dir=str(cache_dir), env=env)
+        runner.current_learning_iteration = 2
+        runner._dr_scale = 2.0
+        runner.cfg = {
+            "frontres_active_task_dims": [0, 1, 5],
+            "frontres_adaptive_perturb_curriculum_enabled": False,
+            "dr_scale_init": 2.0,
+            "dr_min_scale": 1.0,
+            "dr_max_scale": 4.0,
+            "max_iterations": 10,
+        }
+        initialize_frontres_segment_live_sampler(runner)
+        batch = runner._frontres_segment_dataset.get_segments([0])
+        assert tuple(batch.perturbation_family) == ("index_only",)
+        assert batch.perturbation_strength.tolist() == [0.0]
+
+        plan = live_sampler_module._build_stage3_index_perturbation_plan(runner, batch, update_step=3)
+        assert plan is not None
+        print(
+            "[probe step1] stage3_index_perturbation_source: "
+            f"source=frontres_dr_curriculum "
+            f"batch_family={tuple(batch.perturbation_family)} "
+            f"plan_family={plan.perturbation_family} "
+            f"strength={plan.perturbation_strength.tolist()} "
+            f"active_modes={plan.active_modes} "
+            f"mix_mode={plan.mix_mode}",
+            flush=True,
+        )
+        assert set(plan.perturbation_family).issubset({"planar", "yaw", "planar+yaw"})
+        assert torch.all(plan.perturbation_strength > 0.0)
+        assert tuple(batch.perturbation_family) == ("index_only",)
+
+        sample = FrontRESSegmentSample(
+            segment_ids=torch.tensor([0]),
+            source=("global",),
+            priority=torch.zeros(1),
+            staleness=torch.zeros(1),
+            valid_mask=torch.ones(1, dtype=torch.bool),
+        )
+        stream = io.StringIO()
+        with contextlib.redirect_stdout(stream):
+            current_batch = live_sampler_module._build_current_segment_batch(runner, sample, update_step=3)
+        output = stream.getvalue()
+        print(
+            "[probe step2] stage3_index_batch_dynamic_strength: "
+            f"family={getattr(current_batch, 'stage3_index_perturbation_family')} "
+            f"strength={current_batch.perturbation_strength.tolist()} "
+            f"nonzero_logged={'batch.strength_nonzero_frac: 100.0%' in output} "
+            f"index_family={tuple(current_batch.perturbation_family)}",
+            flush=True,
+        )
+        assert tuple(current_batch.perturbation_family) == ("index_only",)
+        assert getattr(current_batch, "stage3_index_perturbation_family") == plan.perturbation_family
+        assert torch.all(current_batch.perturbation_strength > 0.0)
+        assert "batch.strength_nonzero_frac: 100.0%" in output
+
+
 def test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cache_dir = Path(tmp) / "AMASS_G1Segment"
@@ -1091,6 +1155,7 @@ def main() -> None:
     test_live_sampler_initializes_dataset_from_stage1_cache_dir()
     test_live_sampler_installs_index_reset_hook_for_index_only_dataset()
     test_live_sampler_filters_index_dataset_to_loaded_motions_before_sampling()
+    test_stage3_index_only_perturbation_plan_uses_dr_curriculum()
     test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset()
     test_live_sampler_builds_current_batch_before_probe()
     test_live_storage_uses_sampled_segment_ids_and_sources()

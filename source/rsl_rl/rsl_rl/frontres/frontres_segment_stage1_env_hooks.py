@@ -145,6 +145,7 @@ class FrontRESStage1EnvAdapter:
             if hasattr(self.command, "motion_end_buf"):
                 self.command.motion_end_buf[ids] = False
             self._reset_frontres_command_state(ids)
+            perturbation_state = self._apply_index_reset_perturbation_request(request, ids)
             self._write_command_reference_to_robot(ids)
         success = torch.ones(count, dtype=torch.bool, device=segment_ids.device)
         velocity = torch.zeros(count, dtype=torch.float32, device=segment_ids.device)
@@ -158,6 +159,8 @@ class FrontRESStage1EnvAdapter:
             env_ids=ids.detach().cpu().tolist(),
             root_pos=self.robot.data.root_pos_w.index_select(0, ids),
             joint_pos=self.robot.data.joint_pos.index_select(0, ids),
+            perturbation_strength=perturbation_state.get("strength"),
+            perturbation_family=perturbation_state.get("family"),
         )
         return {"reset_success": success, "velocity_mismatch": velocity}
 
@@ -338,6 +341,47 @@ class FrontRESStage1EnvAdapter:
                 self.command._frontres_quat_correction[env_ids, 0] = 1.0
             if hasattr(self.command, "perturber") and hasattr(self.command.perturber, "reset_envs"):
                 self.command.perturber.reset_envs(env_ids)
+
+    def _apply_index_reset_perturbation_request(self, request: Any, env_ids: torch.Tensor) -> dict[str, Any]:
+        perturber = getattr(self.command, "perturber", None)
+        strength_value = getattr(request, "perturbation_strength", None)
+        if perturber is None or strength_value is None:
+            return {}
+        num_envs = int(getattr(self.command, "num_envs", getattr(self.base_env, "num_envs", env_ids.numel())))
+        strengths = torch.as_tensor(strength_value, device=env_ids.device, dtype=torch.float32).flatten()
+        if int(strengths.numel()) != int(env_ids.numel()):
+            raise ValueError(
+                f"perturbation_strength has {int(strengths.numel())} rows but reset has {int(env_ids.numel())}"
+            )
+        scale = torch.zeros(num_envs, dtype=torch.float32, device=env_ids.device)
+        scale[env_ids] = strengths.clamp(min=0.0)
+        set_scale = getattr(perturber, "set_dr_scale_env", None)
+        if callable(set_scale):
+            set_scale(scale)
+
+        families = tuple(str(item) for item in (getattr(request, "perturbation_family", ()) or ()))
+        if families and len(families) != int(env_ids.numel()):
+            raise ValueError(f"perturbation_family has {len(families)} rows but reset has {int(env_ids.numel())}")
+        masks = self._family_masks_from_request(families, env_ids, num_envs)
+        set_masks = getattr(perturber, "set_family_env_masks", None)
+        if callable(set_masks):
+            set_masks(masks)
+        return {"strength": scale, "family": families, "family_masks": masks}
+
+    @staticmethod
+    def _family_masks_from_request(
+        families: tuple[str, ...], env_ids: torch.Tensor, num_envs: int
+    ) -> dict[str, torch.Tensor] | None:
+        if not families:
+            return None
+        names = ("planar", "yaw", "global_z", "local_rp")
+        masks = {name: torch.zeros(num_envs, dtype=torch.bool, device=env_ids.device) for name in names}
+        for row, family in enumerate(families):
+            parts = {part.strip() for part in str(family).split("+") if part.strip()}
+            for name in names:
+                if name in parts:
+                    masks[name][env_ids[row]] = True
+        return masks
 
     def _baseline_steps(self, descriptor: FrontRESPerturbationDescriptor) -> int:
         if self.baseline_rollout_steps is not None:

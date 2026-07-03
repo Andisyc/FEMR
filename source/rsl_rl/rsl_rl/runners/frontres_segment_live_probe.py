@@ -166,6 +166,13 @@ def _tensor_range_summary(name: str, value: torch.Tensor) -> str:
     return f"{name}_count={count} {name}_min={int(data.min().item())} {name}_max={int(data.max().item())}"
 
 
+def _tensor_nonzero_frac(value: torch.Tensor) -> float:
+    data = value.detach().reshape(-1)
+    if int(data.numel()) <= 0:
+        return 0.0
+    return float((data != 0).float().mean().cpu().item())
+
+
 def _count_summary(values: tuple[Any, ...]) -> dict[str, int]:
     return dict(Counter(str(item) for item in values))
 
@@ -213,11 +220,15 @@ def _verbose_index_reset_lines(request: Any, *, verbose: bool) -> tuple[str, ...
     segment_ids = request.segment_ids.detach().long().reshape(-1).cpu().tolist()
     start_frames = request.start_frames.detach().long().reshape(-1).cpu().tolist()
     horizon_k = request.horizon_k.detach().long().reshape(-1).cpu().tolist()
+    strength = getattr(request, "perturbation_strength", None)
+    strength_values = strength.detach().float().reshape(-1).cpu().tolist() if isinstance(strength, torch.Tensor) else ()
     return (
         f"  reset.segment_ids: {_sequence_summary(segment_ids)}",
         f"  reset.motion_ids: {_sequence_summary(tuple(request.motion_ids))}",
         f"  reset.start_frames: {_sequence_summary(start_frames)}",
         f"  reset.horizon_k: {_sequence_summary(horizon_k)}",
+        f"  reset.perturbation_family: {_sequence_summary(tuple(getattr(request, 'perturbation_family', ())))}",
+        f"  reset.perturbation_strength: {_sequence_summary(strength_values)}",
     )
 
 
@@ -463,11 +474,26 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
         dtype=torch.long,
         device=batch.segment_ids.device,
     )
+    perturbation_family = tuple(
+        getattr(batch, "stage3_index_perturbation_family", ())
+        or getattr(batch, "perturbation_family", ())
+        or ()
+    )
+    perturbation_strength = getattr(
+        batch,
+        "stage3_index_perturbation_strength",
+        getattr(batch, "perturbation_strength", None),
+    )
+    if not isinstance(perturbation_strength, torch.Tensor):
+        perturbation_strength = torch.zeros_like(batch.segment_ids, dtype=torch.float32)
+    perturbation_strength = perturbation_strength.to(device=batch.segment_ids.device, dtype=torch.float32).reshape(-1)
     request = SimpleNamespace(
         segment_ids=batch.segment_ids,
         motion_ids=motion_ids,
         start_frames=start_frames,
         horizon_k=horizon_k,
+        perturbation_family=perturbation_family,
+        perturbation_strength=perturbation_strength,
         valid_mask=torch.ones_like(batch.segment_ids, dtype=torch.bool),
     )
     hook = _index_segment_reset_hook(runner.env)
@@ -487,6 +513,8 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
                             "ids": _id_summary(batch.segment_ids),
                             "motion": _motion_summary(motion_ids),
                             "start": _tensor_range_summary("start", start_frames),
+                            "perturbation_family_counts": _count_summary(perturbation_family),
+                            "request_strength_nonzero_frac": _fmt_pct(_tensor_nonzero_frac(perturbation_strength)),
                         },
                     ),
                     *_verbose_index_reset_lines(request, verbose=verbose),
@@ -513,6 +541,8 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
                         "motion": _motion_summary(motion_ids),
                         "start": _tensor_range_summary("start", request.start_frames),
                         "horizon": _tensor_range_summary("horizon", request.horizon_k),
+                        "perturbation_family_counts": _count_summary(request.perturbation_family),
+                        "request_strength_nonzero_frac": _fmt_pct(_tensor_nonzero_frac(request.perturbation_strength)),
                         "success_frac": f"{float(result.success_mask.float().mean().detach().cpu().item()):.4f}",
                     },
                 ),

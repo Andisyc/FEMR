@@ -5,6 +5,7 @@ import importlib.util
 import math
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from typing import Any
 
 import torch
@@ -31,10 +32,23 @@ _DATASET_MODULE = importlib.util.module_from_spec(_DATASET_SPEC)
 sys.modules[_DATASET_SPEC.name] = _DATASET_MODULE
 _DATASET_SPEC.loader.exec_module(_DATASET_MODULE)
 
+_CURRICULUM_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_dr_curriculum.py"
+_CURRICULUM_SPEC = importlib.util.spec_from_file_location(
+    "frontres_dr_curriculum_live_sampler_module",
+    _CURRICULUM_PATH,
+)
+if _CURRICULUM_SPEC is None or _CURRICULUM_SPEC.loader is None:
+    raise RuntimeError(f"Could not load FrontRES DR curriculum from {_CURRICULUM_PATH}.")
+_CURRICULUM_MODULE = importlib.util.module_from_spec(_CURRICULUM_SPEC)
+sys.modules[_CURRICULUM_SPEC.name] = _CURRICULUM_MODULE
+_CURRICULUM_SPEC.loader.exec_module(_CURRICULUM_MODULE)
+
 FrontRESSegmentRolloutEvidence = _SAMPLER_MODULE.FrontRESSegmentRolloutEvidence
 FrontRESSegmentSample = _SAMPLER_MODULE.FrontRESSegmentSample
 FrontRESSegmentSampler = _SAMPLER_MODULE.FrontRESSegmentSampler
 load_stage1_cache_dataset = _DATASET_MODULE.load_stage1_cache_dataset
+sample_per_env_dr_strength = _CURRICULUM_MODULE.sample_per_env_dr_strength
+sample_perturbation_mix = _CURRICULUM_MODULE.sample_perturbation_mix
 
 _VERBOSE_PROBE_BATCH_LIMIT = 16
 _LOG_SEPARATOR = "-" * 80
@@ -238,6 +252,104 @@ def run_frontres_segment_sampler_step(
     return summary
 
 
+def _cfg_get(owner: Any, key: str, default: Any) -> Any:
+    if owner is None:
+        return default
+    if isinstance(owner, dict):
+        return owner.get(key, default)
+    return getattr(owner, key, default)
+
+
+def _runner_cfg_get(runner: Any, key: str, default: Any) -> Any:
+    for owner in (
+        getattr(runner, "alg", None),
+        getattr(runner, "cfg", None),
+        getattr(runner, "alg_cfg", None),
+    ):
+        value = _cfg_get(owner, key, None)
+        if value is not None:
+            return value
+    return default
+
+
+def _stage3_index_frontier_scale(runner: Any) -> float:
+    value = getattr(runner, "_dr_scale", None)
+    if value is not None:
+        return float(value)
+    return float(_runner_cfg_get(runner, "frontres_dr_scale", _runner_cfg_get(runner, "dr_scale_init", 1.0)))
+
+
+def _stage3_index_progress(runner: Any, update_step: int) -> float:
+    current_iter = int(getattr(runner, "current_learning_iteration", 0) or 0)
+    max_iter = max(1, int(_runner_cfg_get(runner, "max_iterations", 1)))
+    return max(0.0, min(1.0, (current_iter + int(update_step)) / float(max_iter)))
+
+
+def _index_only_segment_batch(batch: Any) -> bool:
+    families = tuple(getattr(batch, "perturbation_family", ()) or ())
+    if families:
+        return all(str(family) == "index_only" for family in families)
+    specs = tuple(getattr(batch, "specs", ()) or ())
+    return bool(specs) and all(str(getattr(spec, "perturbation_family", "")) == "index_only" for spec in specs)
+
+
+def _build_stage3_index_perturbation_plan(runner: Any, batch: Any, *, update_step: int) -> Any | None:
+    if not _index_only_segment_batch(batch):
+        return None
+    n = int(getattr(batch, "batch_size", int(batch.segment_ids.numel())))
+    active_dims = _runner_cfg_get(runner, "frontres_active_task_dims", None)
+    cfg = getattr(runner, "cfg", None) or getattr(runner, "alg_cfg", None) or {}
+    seq_idx = int(getattr(runner, "current_learning_iteration", 0) or 0) * 100000 + int(update_step)
+    progress = _stage3_index_progress(runner, update_step)
+    mix_plan = sample_perturbation_mix(cfg, active_dims, progress, seq_idx, n, is_frontres=True)
+    frontier_scale = _stage3_index_frontier_scale(runner)
+    dr_min = float(_runner_cfg_get(runner, "dr_min_scale", 0.0))
+    dr_max = float(_runner_cfg_get(runner, "dr_max_scale", max(4.0, frontier_scale)))
+    strength_plan = sample_per_env_dr_strength(
+        cfg,
+        frontier_scale,
+        True,
+        seq_idx,
+        n_train=n,
+        n_candidate=0,
+        n_base=0,
+        num_envs=n,
+        dr_min=dr_min,
+        dr_max=dr_max,
+    )
+    if strength_plan.scale_vector is None:
+        strengths = [float(strength_plan.effective_scale)] * n
+    else:
+        strengths = [float(v) for v in strength_plan.scale_vector[:n]]
+    return SimpleNamespace(
+        perturbation_family=tuple("+".join(group) for group in mix_plan.groups[:n]),
+        perturbation_strength=torch.tensor(strengths, dtype=batch.perturbation_strength.dtype, device=batch.segment_ids.device),
+        active_modes=tuple(mix_plan.active_modes),
+        complexity=str(mix_plan.complexity),
+        mix_mode=str(strength_plan.mix_mode),
+        mix_diag=dict(strength_plan.diag),
+        progress=float(progress),
+        seq_idx=int(seq_idx),
+    )
+
+
+def _attach_stage3_index_perturbation_plan(batch: Any, plan: Any | None) -> Any:
+    if plan is None:
+        return batch
+    object.__setattr__(batch, "perturbation_strength", plan.perturbation_strength)
+    object.__setattr__(batch, "stage3_index_perturbation_family", plan.perturbation_family)
+    object.__setattr__(batch, "stage3_index_perturbation_strength", plan.perturbation_strength)
+    object.__setattr__(batch, "stage3_index_perturbation_plan", plan)
+    return batch
+
+
+def _tensor_nonzero_frac(value: object) -> float:
+    if not isinstance(value, torch.Tensor) or int(value.numel()) <= 0:
+        return 0.0
+    data = value.detach().reshape(-1)
+    return float((data != 0).float().mean().cpu().item())
+
+
 def _build_current_segment_batch(
     runner: Any,
     sample: FrontRESSegmentSample,
@@ -276,8 +388,11 @@ def _build_current_segment_batch(
         if validation is not None and hasattr(validation, "valid_mask")
         else int(sample.segment_ids.numel())
     )
+    dynamic_plan = _build_stage3_index_perturbation_plan(runner, batch, update_step=update_step)
+    batch = _attach_stage3_index_perturbation_plan(batch, dynamic_plan)
     roles = tuple(getattr(batch, "perturbation_role", ()))
     strength = getattr(batch, "perturbation_strength", None)
+    dynamic_family = tuple(getattr(batch, "stage3_index_perturbation_family", ()) or ())
     verbose_probe = _verbose_probe_enabled(runner, sample)
     if print_probe:
         print(
@@ -291,6 +406,8 @@ def _build_current_segment_batch(
                         "valid_count": valid_count,
                         "role_counts": _count_summary(roles),
                         "strength": _tensor_value_summary("strength", strength),
+                        "strength_nonzero_frac": _fmt_pct(_tensor_nonzero_frac(strength)),
+                        "dynamic_family_counts": _count_summary(dynamic_family),
                     },
                 ),
                 *_verbose_batch_lines(sample, roles=roles, strength=strength, verbose=verbose_probe),

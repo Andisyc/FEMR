@@ -817,6 +817,41 @@ def test_live_probe_applies_index_reset_for_index_only_segments_when_env_support
     assert summary["reward_mean"] == 0.75
 
 
+def test_index_reset_request_carries_stage3_dynamic_perturbation() -> None:
+    env = _FakeIndexResetLiveEnv()
+    batch = _index_only_reset_batch()
+    batch.stage3_index_perturbation_family = ("planar+yaw", "yaw")
+    batch.stage3_index_perturbation_strength = torch.tensor([2.0, 1.5])
+    runner = SimpleNamespace(
+        env=env,
+        alg=SimpleNamespace(frontres_segment_verbose_probe=True),
+        _frontres_segment_replay_boundary=SimpleNamespace(reset_mode="direct"),
+        _frontres_segment_live_detail_log_enabled=True,
+    )
+
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        result = live_probe._apply_index_only_segment_reset(runner, batch)
+    output = stream.getvalue()
+    request = runner._frontres_segment_live_current_reset_request
+
+    _probe_tensor("index_request.perturbation_strength", request.perturbation_strength, "dynamic Stage 3 strength attached before env hook")
+    print(
+        "[probe step3] index_request_dynamic_perturbation: "
+        f"family={request.perturbation_family} "
+        f"strength={request.perturbation_strength.tolist()} "
+        f"nonzero_logged={'reset.request_strength_nonzero_frac: 100.0%' in output} "
+        f"success={result.success_mask.tolist()}",
+        flush=True,
+    )
+
+    assert env.events == ["index_reset"]
+    assert request.perturbation_family == ("planar+yaw", "yaw")
+    torch.testing.assert_close(request.perturbation_strength, torch.tensor([2.0, 1.5]))
+    assert "reset.request_strength_nonzero_frac: 100.0%" in output
+    assert result.success_mask.tolist() == [True, True]
+
+
 def test_live_probe_detail_gate_suppresses_reset_and_summary_logs() -> None:
     env = _FakeIndexResetLiveEnv()
     runner = SimpleNamespace(
@@ -1113,6 +1148,7 @@ if __name__ == "__main__":
     test_live_probe_applies_current_segment_batch_reset_before_rollout()
     test_live_probe_skips_dynamic_reset_for_index_only_segments()
     test_live_probe_applies_index_reset_for_index_only_segments_when_env_supports_it()
+    test_index_reset_request_carries_stage3_dynamic_perturbation()
     test_live_probe_detail_gate_suppresses_reset_and_summary_logs()
     test_live_probe_summary_uses_readable_metric_blocks()
     test_live_probe_summary_reports_raw_policy_and_segment_delta_dims()
