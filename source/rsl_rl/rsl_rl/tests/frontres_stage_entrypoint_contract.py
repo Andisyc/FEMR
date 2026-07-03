@@ -257,8 +257,11 @@ def main() -> None:
         assert "frontres_segment_live_storage_write_only: bool = False" in cfg_text
         assert "frontres_segment_live_single_update_only: bool = False" in cfg_text
         assert "frontres_segment_live_update_loop_only: bool = False" in cfg_text
+        assert "frontres_segment_offline_eval_only: bool = False" in cfg_text
         assert "frontres_segment_live_train_enabled: bool = False" in cfg_text
         assert "frontres_segment_live_update_steps: int = 4" in cfg_text
+        assert "frontres_segment_periodic_eval_enabled: bool = False" in cfg_text
+        assert "frontres_segment_periodic_eval_interval: int = 100" in cfg_text
         assert "frontres_segment_live_fail_on_invalid_update: bool = True" in cfg_text
         assert "frontres_segment_live_min_valid_count: int = 1" in cfg_text
         assert "frontres_segment_live_fail_on_nonfinite: bool = True" in cfg_text
