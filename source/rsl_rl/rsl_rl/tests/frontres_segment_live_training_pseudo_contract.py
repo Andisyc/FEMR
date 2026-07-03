@@ -29,6 +29,10 @@ live_training_module = _load(
     "frontres_segment_live_training",
     ROOT / "rsl_rl" / "runners" / "frontres_segment_live_training.py",
 )
+diagnostics_module = _load(
+    "frontres_segment_diagnostics",
+    ROOT / "rsl_rl" / "frontres" / "frontres_segment_diagnostics.py",
+)
 
 run_frontres_segment_live_training_loop = live_training_module.run_frontres_segment_live_training_loop
 live_training_module._apply_current_segment_reset = lambda runner: None
@@ -38,6 +42,7 @@ live_training_module._run_live_rollout_capture = lambda runner, observations, *,
 )
 offline_eval_summary = live_training_module._offline_eval_summary
 format_offline_eval_log = live_training_module._format_offline_eval_log
+motion_quality_summary_to_scalars = diagnostics_module.motion_quality_summary_to_scalars
 
 
 def _probe_summary(name: str, summary: dict) -> None:
@@ -201,9 +206,20 @@ class FakeRunner:
         capture.survival_steps = __import__("torch").tensor([float(rollout_steps), 3.0, float(rollout_steps)])
         capture.rollout_k = int(rollout_steps)
         capture.reward_accum = __import__("torch").tensor([10.0, 11.0, 2.0, 3.0])
+        clean = __import__("torch").zeros(2, int(rollout_steps), 1, 3)
+        repaired = clean.clone()
+        noisy = clean.clone()
+        repaired[:, :, :, 0] = 0.1
+        noisy[:, :, :, 0] = 0.4
+        repaired[:, 1:, :, 1] = 0.05
+        noisy[:, 1:, :, 1] = 0.2
+        capture.motion_clean_body_pos = clean
+        capture.motion_repaired_body_pos = repaired
+        capture.motion_noisy_body_pos = noisy
         capture.n_train = 2
         capture.n_candidate = 0
         capture.n_base = 2
+        capture.n_clean = 2
         return capture
 
 
@@ -510,6 +526,35 @@ def test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline() ->
     assert "noisy=0.500000" in log
     assert "repaired=2.100000" in log
     assert "gain=1.600000" in log
+    assert "mpjpe_repaired=" in log
+    assert "mpjpe_noisy=" in log
+    assert "vel_err=" in log
+    assert "acc_err=" in log
+    assert "delta_se_norm=" in log
+
+
+def test_pseudo_offline_eval_capture_exposes_motion_quality_tensors() -> None:
+    runner = FakeRunner()
+    capture = runner.fake_eval_capture(rollout_steps=5)
+    scalars = motion_quality_summary_to_scalars(
+        clean_positions=capture.motion_clean_body_pos,
+        repaired_positions=capture.motion_repaired_body_pos,
+        noisy_positions=capture.motion_noisy_body_pos,
+    )
+    print(
+        "[probe offline_eval_motion_quality] "
+        f"clean_shape={tuple(capture.motion_clean_body_pos.shape)} "
+        f"repaired_mpjpe={scalars['segment/motion_mpjpe_repaired_clean']} "
+        f"noisy_mpjpe={scalars['segment/motion_mpjpe_noisy_clean']} "
+        f"vel={scalars['segment/motion_vel_error_repaired_clean']} "
+        f"acc={scalars['segment/motion_acc_error_repaired_clean']}",
+        flush=True,
+    )
+    assert tuple(capture.motion_clean_body_pos.shape) == (2, 5, 1, 3)
+    assert scalars["segment/motion_mpjpe_repaired_clean"] > 0.0
+    assert scalars["segment/motion_mpjpe_noisy_clean"] > scalars["segment/motion_mpjpe_repaired_clean"]
+    assert scalars["segment/motion_vel_error_repaired_clean"] > 0.0
+    assert scalars["segment/motion_acc_error_repaired_clean"] > 0.0
 
 
 def main() -> None:
@@ -526,6 +571,7 @@ def main() -> None:
     test_pseudo_live_training_runs_periodic_eval_only_on_interval()
     test_pseudo_live_training_periodic_eval_requires_hook()
     test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline()
+    test_pseudo_offline_eval_capture_exposes_motion_quality_tensors()
     print("result: PASS")
 
 

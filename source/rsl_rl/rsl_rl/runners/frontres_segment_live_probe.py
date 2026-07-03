@@ -132,6 +132,9 @@ class FrontRESSegmentLiveRolloutCapture:
     n_base: int = 0
     n_clean: int = 0
     survival_steps: torch.Tensor | None = None
+    motion_clean_body_pos: torch.Tensor | None = None
+    motion_repaired_body_pos: torch.Tensor | None = None
+    motion_noisy_body_pos: torch.Tensor | None = None
 
 
 def _verbose_probe_enabled(runner: Any, items: Any) -> bool:
@@ -854,6 +857,9 @@ def _run_live_rollout_capture(
     transition_sigmas = None
     action_shape = None
     env_action_shape = None
+    clean_body_frames = []
+    repaired_body_frames = []
+    noisy_body_frames = []
     obs = observations.obs
     privileged_obs = observations.privileged_obs
     teacher_obs = observations.teacher_obs
@@ -910,6 +916,11 @@ def _run_live_rollout_capture(
                 survival_steps = torch.zeros_like(rewards.detach(), dtype=torch.float32)
             survival_steps = survival_steps + (~done_any).float()
             done_any = done_any | dones.detach().bool()
+            clean_body, repaired_body, noisy_body = _capture_motion_quality_frame(runner, pair_layout)
+            if clean_body is not None and repaired_body is not None and noisy_body is not None:
+                clean_body_frames.append(clean_body)
+                repaired_body_frames.append(repaired_body)
+                noisy_body_frames.append(noisy_body)
 
             obs, privileged_obs, teacher_obs, ref_vel_estimator_obs = _read_step_observations(runner, obs, infos)
             last_obs_shape = tuple(obs.shape)
@@ -936,7 +947,57 @@ def _run_live_rollout_capture(
         n_base=int(pair_layout.n_base),
         n_clean=int(pair_layout.n_clean),
         survival_steps=survival_steps,
+        motion_clean_body_pos=_stack_motion_quality_frames(clean_body_frames),
+        motion_repaired_body_pos=_stack_motion_quality_frames(repaired_body_frames),
+        motion_noisy_body_pos=_stack_motion_quality_frames(noisy_body_frames),
     )
+
+
+def _capture_motion_quality_frame(
+    runner: Any,
+    pair_layout: Any,
+) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+    command = _motion_command_for_runner(runner)
+    if command is None:
+        return None, None, None
+    clean_ref = getattr(command, "body_pos_relative_w", None)
+    robot_pos = getattr(command, "robot_body_pos_w", None)
+    if not isinstance(clean_ref, torch.Tensor) or not isinstance(robot_pos, torch.Tensor):
+        return None, None, None
+    n_train = max(0, int(pair_layout.n_train))
+    n_candidate = max(0, int(pair_layout.n_candidate))
+    n_base = max(0, int(pair_layout.n_base))
+    n_clean = max(0, int(pair_layout.n_clean))
+    n = min(n_train, n_base, n_clean)
+    base_start = n_train + n_candidate
+    clean_start = base_start + n_base
+    if n <= 0 or int(robot_pos.shape[0]) < base_start + n or int(clean_ref.shape[0]) < clean_start + n:
+        return None, None, None
+    return (
+        clean_ref[clean_start : clean_start + n].detach().clone(),
+        robot_pos[:n].detach().clone(),
+        robot_pos[base_start : base_start + n].detach().clone(),
+    )
+
+
+def _motion_command_for_runner(runner: Any) -> Any | None:
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    manager = getattr(env, "command_manager", None)
+    if manager is None:
+        return None
+    if hasattr(manager, "get_term"):
+        try:
+            return manager.get_term("motion")
+        except Exception:
+            return None
+    terms = getattr(manager, "_terms", {})
+    return terms.get("motion") if isinstance(terms, dict) else None
+
+
+def _stack_motion_quality_frames(frames: list[torch.Tensor]) -> torch.Tensor | None:
+    if not frames:
+        return None
+    return torch.stack(frames, dim=1)
 
 
 def _read_step_observations(runner: Any, obs: torch.Tensor, infos: dict[str, Any]) -> tuple[Any, Any, Any, Any]:

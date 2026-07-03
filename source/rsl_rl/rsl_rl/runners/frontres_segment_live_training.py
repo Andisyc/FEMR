@@ -163,6 +163,14 @@ def _format_offline_eval_log(summary: Mapping[str, Any]) -> str:
                 f"repaired={float(summary.get('score_repaired', 0.0)):.6f} "
                 f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f}"
             ),
+            (
+                "  motion: "
+                f"mpjpe_repaired={float(summary.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
+                f"mpjpe_noisy={float(summary.get('segment/motion_mpjpe_noisy_clean', 0.0)):.6f} "
+                f"vel_err={float(summary.get('segment/motion_vel_error_repaired_clean', 0.0)):.6f} "
+                f"acc_err={float(summary.get('segment/motion_acc_error_repaired_clean', 0.0)):.6f} "
+                f"delta_se_norm={float(summary.get('segment/motion_delta_se_norm', 0.0)):.6f}"
+            ),
         )
     )
 
@@ -173,7 +181,7 @@ def _offline_eval_summary(capture: Any, *, sample_count: int) -> dict[str, float
     done = done_any.detach().bool().reshape(-1) if done_any is not None else None
     survival_flat = survival.detach().float().reshape(-1) if survival is not None else None
     score = _offline_eval_score_summary(capture, sample_count=sample_count)
-    return {
+    summary = {
         "episode_length": float(capture.rollout_k),
         "success_rate": float((~done).float().mean().cpu().item()) if done is not None and done.numel() else 0.0,
         "fall_rate": float(done.float().mean().cpu().item()) if done is not None and done.numel() else 0.0,
@@ -183,6 +191,16 @@ def _offline_eval_summary(capture: Any, *, sample_count: int) -> dict[str, float
         "score_repaired": float(score["repaired"]),
         "sample_count": float(sample_count),
     }
+    summary.update(
+        motion_quality_summary_to_scalars(
+            clean_positions=getattr(capture, "motion_clean_body_pos", None),
+            repaired_positions=getattr(capture, "motion_repaired_body_pos", None),
+            noisy_positions=getattr(capture, "motion_noisy_body_pos", None),
+            delta_se=getattr(capture, "transition_actions", None),
+            valid_mask=(~done) if done is not None else None,
+        )
+    )
+    return summary
 
 
 def _offline_eval_score_summary(capture: Any, *, sample_count: int) -> dict[str, float]:
