@@ -96,6 +96,7 @@ class FrontRESUnified:
         frontres_segment_live_storage_write_only: bool = False,
         frontres_segment_live_single_update_only: bool = False,
         frontres_segment_live_update_loop_only: bool = False,
+        frontres_segment_offline_eval_only: bool = False,
         frontres_segment_live_train_enabled: bool = False,
         frontres_segment_live_update_steps: int = 4,
         frontres_segment_periodic_eval_enabled: bool = False,
@@ -243,6 +244,7 @@ class FrontRESUnified:
         self.frontres_segment_live_storage_write_only = bool(frontres_segment_live_storage_write_only)
         self.frontres_segment_live_single_update_only = bool(frontres_segment_live_single_update_only)
         self.frontres_segment_live_update_loop_only = bool(frontres_segment_live_update_loop_only)
+        self.frontres_segment_offline_eval_only = bool(frontres_segment_offline_eval_only)
         self.frontres_segment_live_train_enabled = bool(frontres_segment_live_train_enabled)
         self.frontres_segment_live_update_steps = max(1, int(frontres_segment_live_update_steps))
         self.frontres_segment_periodic_eval_enabled = bool(frontres_segment_periodic_eval_enabled)
@@ -297,6 +299,12 @@ class FrontRESUnified:
                 print(
                     "[FrontRESUnified] Segment Replay HRL live update-loop probe initialized; "
                     f"runner will execute {self.frontres_segment_live_update_steps} PPO optimizer steps and exit.",
+                    flush=True,
+                )
+            elif self.frontres_segment_offline_eval_only:
+                print(
+                    "[FrontRESUnified] Segment Replay HRL offline eval initialized; "
+                    "runner will load checkpoint, evaluate sampled segments, and exit.",
                     flush=True,
                 )
             elif self.frontres_segment_live_train_enabled:

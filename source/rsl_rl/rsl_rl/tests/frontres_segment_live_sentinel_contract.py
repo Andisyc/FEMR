@@ -392,6 +392,9 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert "FrontRES Segment live update produced non-finite" in live_training
     assert "too few valid PPO samples" in live_training
     assert "Stage 3 Segment Replay live mode reached FrontRESUnified.update" in algorithm
+    assert "frontres_segment_offline_eval_only: bool = False" in algorithm
+    assert "self.frontres_segment_offline_eval_only = bool(frontres_segment_offline_eval_only)" in algorithm
+    assert "Segment Replay HRL offline eval initialized" in algorithm
     assert "runner will execute exactly one PPO optimizer step and exit" in algorithm
     assert "PPO optimizer steps and exit" in algorithm
     assert "PPO optimizer steps per iteration" in algorithm
