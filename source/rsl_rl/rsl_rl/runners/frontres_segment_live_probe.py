@@ -173,6 +173,138 @@ def _tensor_nonzero_frac(value: torch.Tensor) -> float:
     return float((data != 0).float().mean().cpu().item())
 
 
+def _safe_getattr(owner: Any, name: str) -> Any:
+    try:
+        return getattr(owner, name)
+    except Exception as exc:  # pragma: no cover - diagnostic-only best effort.
+        return f"<error {type(exc).__name__}: {exc}>"
+
+
+def _tensor_debug_summary(name: str, value: Any, *, limit: int = _VERBOSE_PROBE_BATCH_LIMIT) -> str:
+    if value is None:
+        return f"  {name}: None"
+    if not isinstance(value, torch.Tensor):
+        return f"  {name}: {value}"
+    data = value.detach()
+    flat = data.reshape(-1)
+    result: dict[str, Any] = {
+        "shape": tuple(data.shape),
+        "device": str(data.device),
+        "dtype": str(data.dtype),
+    }
+    if int(flat.numel()) <= 0:
+        result.update({"numel": 0, "finite": True, "nonzero_frac": "0.0%"})
+        return f"  {name}: {result}"
+    numeric = flat.float()
+    result.update(
+        {
+            "numel": int(flat.numel()),
+            "finite": bool(torch.isfinite(numeric).all().cpu().item()),
+            "min": _fmt_num(numeric.min().cpu().item()),
+            "max": _fmt_num(numeric.max().cpu().item()),
+            "mean": _fmt_num(numeric.mean().cpu().item()),
+            "abs_max": _fmt_num(numeric.abs().max().cpu().item()),
+            "nonzero_frac": _fmt_pct((flat != 0).float().mean().cpu().item()),
+        }
+    )
+    if int(flat.numel()) <= int(limit):
+        result["values"] = flat.cpu().tolist()
+    return f"  {name}: {result}"
+
+
+def _family_mask_debug_lines(masks: Any) -> tuple[str, ...]:
+    if not isinstance(masks, dict):
+        return (f"  dr.family_masks: {masks}",)
+    counts: dict[str, int] = {}
+    values: dict[str, Any] = {}
+    for family, mask in masks.items():
+        if isinstance(mask, torch.Tensor):
+            bool_mask = mask.detach().bool().reshape(-1)
+            counts[str(family)] = int(bool_mask.sum().cpu().item())
+            if int(bool_mask.numel()) <= _VERBOSE_PROBE_BATCH_LIMIT:
+                values[str(family)] = bool_mask.cpu().tolist()
+        else:
+            values[str(family)] = mask
+    return (
+        f"  dr.family_mask_counts: {counts}",
+        f"  dr.family_mask_values: {values}",
+    )
+
+
+def _perturber_debug_lines(runner: Any, *, rollout_step: int | None = None) -> tuple[str, ...]:
+    command = _motion_command_for_runner(runner)
+    if command is None:
+        return ("  dr.motion_command: missing",)
+    perturber = getattr(command, "perturber", None)
+    if perturber is None:
+        return ("  dr.perturber: missing",)
+    cfg = getattr(perturber, "cfg", None)
+    cfg_names = (
+        "enable",
+        "root_tilt_prob",
+        "root_tilt_max_rad",
+        "iid_prob_rp",
+        "iid_std_rp",
+        "iid_prob_xy",
+        "iid_std_xy",
+        "iid_prob_ya",
+        "iid_std_ya",
+        "iid_prob_z",
+        "iid_std_z",
+        "local_root_artifact_prob",
+        "local_root_artifact_xy_std",
+        "local_root_artifact_yaw_std",
+        "iid_temporal_mode",
+        "iid_burst_min_steps",
+        "iid_burst_max_steps",
+    )
+    cfg_values = {name: getattr(cfg, name, None) for name in cfg_names} if cfg is not None else None
+    lines = [
+        f"  dr.rollout_step: {rollout_step if rollout_step is not None else 'n/a'}",
+        f"  dr.cfg: {cfg_values}",
+        f"  dr.scale_scalar: {_safe_getattr(perturber, '_dr_scale')}",
+        _tensor_debug_summary("dr.scale_env", _safe_getattr(perturber, "_dr_scale_env")),
+        *_family_mask_debug_lines(_safe_getattr(perturber, "_family_masks")),
+    ]
+    for name in (
+        "_roll_state",
+        "_pitch_state",
+        "_iid_event_rp",
+        "_iid_event_yaw",
+        "_iid_event_xy",
+        "_iid_event_z",
+        "_iid_event_active",
+        "_iid_event_start",
+        "_artifact_yaw",
+        "_artifact_xy",
+        "_artifact_steps",
+    ):
+        lines.append(_tensor_debug_summary(f"dr.{name}", _safe_getattr(perturber, name)))
+    for name in (
+        "_cached_perturbed_pos",
+        "_cached_perturbed_quat",
+        "anchor_dr_delta_pos",
+        "anchor_dr_delta_quat_correction",
+        "_dr_supervised_target",
+        "jump_degree",
+    ):
+        lines.append(_tensor_debug_summary(f"cmd.{name}", _safe_getattr(command, name)))
+    return tuple(lines)
+
+
+def _print_frontres_dr_runtime_probe(runner: Any, *, label: str, rollout_step: int | None = None) -> None:
+    if not _live_detail_log_enabled(runner):
+        return
+    print(
+        _log_block(
+            "[FrontRES DR Runtime Probe]",
+            f"  dr.label: {label}",
+            *_perturber_debug_lines(runner, rollout_step=rollout_step),
+        ),
+        flush=True,
+    )
+
+
 def _count_summary(values: tuple[Any, ...]) -> dict[str, int]:
     return dict(Counter(str(item) for item in values))
 
@@ -348,6 +480,7 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
 
     reset_result = _apply_current_segment_reset(runner)
     reset_skip_reason = str(getattr(runner, "_frontres_segment_live_current_reset_skip_reason", "") or "")
+    _print_frontres_dr_runtime_probe(runner, label="after_current_segment_reset")
     observations = _read_live_observations(runner)
     runner.eval_mode()
     capture = _run_live_rollout_capture(runner, observations)
@@ -936,6 +1069,7 @@ def _run_live_rollout_capture(
                 actor_update_mask[: max(0, min(int(pair_layout.n_train), actions.shape[0]))] = True
 
             obs, rewards, dones, infos = runner.env.step(env_actions.to(runner.env.device))
+            _print_frontres_dr_runtime_probe(runner, label="after_env_step", rollout_step=rollout_step)
             rewards = rewards.to(runner.device)
             dones = dones.to(runner.device)
             reward_sum += float(rewards.mean().detach().cpu())

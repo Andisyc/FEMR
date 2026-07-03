@@ -161,6 +161,9 @@ class FrontRESStage1EnvAdapter:
             joint_pos=self.robot.data.joint_pos.index_select(0, ids),
             perturbation_strength=perturbation_state.get("strength"),
             perturbation_family=perturbation_state.get("family"),
+            perturbation_family_masks=perturbation_state.get("family_masks"),
+            perturber_dr_scale_env=getattr(getattr(self.command, "perturber", None), "_dr_scale_env", None),
+            perturber_family_masks=getattr(getattr(self.command, "perturber", None), "_family_masks", None),
         )
         return {"reset_success": success, "velocity_mismatch": velocity}
 
@@ -446,22 +449,37 @@ class FrontRESStage1EnvAdapter:
         print("\n".join(lines), flush=True)
 
     def _format_trace_value(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(key): self._format_trace_value(item) for key, item in value.items()}
         if isinstance(value, torch.Tensor):
             t = value.detach()
             if t.numel() == 0:
                 return {"shape": tuple(t.shape), "numel": 0}
+            nonzero_frac = float((t.reshape(-1) != 0).float().mean().item())
             if torch.is_floating_point(t):
                 finite = bool(torch.isfinite(t).all().item())
-                return {
+                result = {
                     "shape": tuple(t.shape),
                     "device": str(t.device),
                     "finite": finite,
                     "min": float(t.min().item()),
                     "max": float(t.max().item()),
                     "mean": float(t.float().mean().item()),
+                    "abs_max": float(t.float().abs().max().item()),
+                    "nonzero_frac": nonzero_frac,
                     "requires_grad": bool(t.requires_grad),
                 }
-            return {"shape": tuple(t.shape), "device": str(t.device), "min": int(t.min().item()), "max": int(t.max().item())}
+            else:
+                result = {
+                    "shape": tuple(t.shape),
+                    "device": str(t.device),
+                    "min": int(t.min().item()),
+                    "max": int(t.max().item()),
+                    "nonzero_frac": nonzero_frac,
+                }
+            if int(t.numel()) <= 16:
+                result["values"] = t.reshape(-1).cpu().tolist()
+            return result
         if isinstance(value, (list, tuple)):
             return self._format_sequence_trace(value)
         return value
