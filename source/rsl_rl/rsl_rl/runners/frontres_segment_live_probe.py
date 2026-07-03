@@ -61,10 +61,28 @@ def _mean_sequence(value: Any, default: float = 0.0) -> float:
     return float(sum(float(item) for item in value) / len(value))
 
 
+def _positive_fraction(value: Any) -> float:
+    if not isinstance(value, (list, tuple)) or len(value) == 0:
+        return 0.0
+    return sum(1 for item in value if float(item) > 0.0) / float(len(value))
+
+
 def _shape_last_dim(shape: tuple[int, ...] | None) -> int | None:
     if shape is None or len(shape) == 0:
         return None
     return int(shape[-1])
+
+
+def _delta_se_norm(actions: torch.Tensor | None) -> float:
+    if not isinstance(actions, torch.Tensor) or actions.numel() == 0:
+        return 0.0
+    return float(torch.linalg.norm(actions.detach().float(), dim=-1).mean().cpu().item())
+
+
+def _delta_z_up_frac(actions: torch.Tensor | None) -> float:
+    if not isinstance(actions, torch.Tensor) or actions.ndim < 2 or actions.shape[-1] < 3:
+        return 0.0
+    return float((actions.detach()[..., 2] > 0.0).float().mean().cpu().item())
 
 
 def _probe_status(summary: dict[str, object]) -> str:
@@ -113,6 +131,7 @@ class FrontRESSegmentLiveRolloutCapture:
     n_candidate: int = 0
     n_base: int = 0
     n_clean: int = 0
+    survival_steps: torch.Tensor | None = None
 
 
 def _verbose_probe_enabled(runner: Any, items: Any) -> bool:
@@ -806,15 +825,25 @@ def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
 def _run_live_rollout_capture(
     runner: Any,
     observations: FrontRESSegmentLiveObservations,
+    *,
+    rollout_steps: int | None = None,
 ) -> FrontRESSegmentLiveRolloutCapture:
     frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
     pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
-    rollout_k = max(1, int(getattr(runner.alg, "frontres_segment_k", runner._frontres_segment_replay_boundary.segment_k)))
+    rollout_k = max(
+        1,
+        int(
+            rollout_steps
+            if rollout_steps is not None
+            else getattr(runner.alg, "frontres_segment_k", runner._frontres_segment_replay_boundary.segment_k)
+        ),
+    )
     vel_est_error_buffer = deque(maxlen=1)
     reward_sum = 0.0
     done_sum = 0.0
     reward_accum = None
     done_any = None
+    survival_steps = None
     actor_update_mask = None
     transition_obs = None
     transition_privileged_obs = None
@@ -876,7 +905,11 @@ def _run_live_rollout_capture(
             reward_sum += float(rewards.mean().detach().cpu())
             done_sum += float(dones.float().mean().detach().cpu())
             reward_accum = rewards.detach().clone() if reward_accum is None else reward_accum + rewards.detach()
-            done_any = dones.detach().clone() if done_any is None else (done_any | dones.detach())
+            if done_any is None:
+                done_any = torch.zeros_like(dones.detach(), dtype=torch.bool)
+                survival_steps = torch.zeros_like(rewards.detach(), dtype=torch.float32)
+            survival_steps = survival_steps + (~done_any).float()
+            done_any = done_any | dones.detach().bool()
 
             obs, privileged_obs, teacher_obs, ref_vel_estimator_obs = _read_step_observations(runner, obs, infos)
             last_obs_shape = tuple(obs.shape)
@@ -902,6 +935,7 @@ def _run_live_rollout_capture(
         n_candidate=int(pair_layout.n_candidate),
         n_base=int(pair_layout.n_base),
         n_clean=int(pair_layout.n_clean),
+        survival_steps=survival_steps,
     )
 
 
@@ -936,11 +970,17 @@ def _initial_live_probe_summary(
     score_summary = _paired_score_summary(capture)
     score_noisy = _mean_sequence(score_summary.get("score_noisy_per_sample", ()))
     score_repaired = _mean_sequence(score_summary.get("score_repaired_per_sample", ()))
+    gains = score_summary.get("gain_over_noisy_per_sample", ())
     summary = {
         "reward_mean": capture.reward_mean,
         "env_reward_mean": capture.reward_mean,
         "train_reward_mean": capture.reward_mean,
+        "score_noisy_mean": score_noisy,
+        "score_repaired_mean": score_repaired,
         "score_gain_mean": score_repaired - score_noisy,
+        "score_gain_pos_frac": _positive_fraction(gains),
+        "motion_delta_se_norm": _delta_se_norm(capture.transition_actions),
+        "motion_delta_z_up_frac": _delta_z_up_frac(capture.transition_actions),
         "done_frac": capture.done_frac,
         "valid_mask_frac": 1.0 - capture.done_frac,
         "reward_per_sample": _rollout_reward_per_sample(capture),

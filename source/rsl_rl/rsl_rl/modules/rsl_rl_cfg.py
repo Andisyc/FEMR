@@ -350,6 +350,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Enable the dedicated live Segment Replay training loop instead of the legacy runner.learn path."""
     frontres_segment_live_update_steps: int = 4
     """Number of live Segment Replay PPO update steps for the Step 18 update-loop sentinel."""
+    frontres_segment_periodic_eval_enabled: bool = False
+    """Run periodic long-rollout Segment Replay evaluation during Stage 3 live training."""
+    frontres_segment_periodic_eval_interval: int = 100
+    """Training-iteration interval for periodic long-rollout Segment Replay evaluation."""
     frontres_segment_live_fail_on_invalid_update: bool = True
     """Fail Stage 3 live training when an iteration produces no update or too few valid PPO samples."""
     frontres_segment_live_min_valid_count: int = 1

@@ -16,6 +16,12 @@ assert diag_spec.loader is not None
 sys.modules[diag_spec.name] = diag_module
 diag_spec.loader.exec_module(diag_module)
 format_segment_replay_log = diag_module.format_segment_replay_log
+format_segment_train_effect_log = diag_module.format_segment_train_effect_log
+format_segment_motion_quality_log = diag_module.format_segment_motion_quality_log
+format_segment_periodic_eval_log = diag_module.format_segment_periodic_eval_log
+motion_quality_summary_to_scalars = diag_module.motion_quality_summary_to_scalars
+periodic_eval_summary_to_scalars = diag_module.periodic_eval_summary_to_scalars
+repair_effect_summary_to_scalars = diag_module.repair_effect_summary_to_scalars
 segment_summary_to_scalars = diag_module.segment_summary_to_scalars
 summarize_segment_batch = diag_module.summarize_segment_batch
 
@@ -137,9 +143,98 @@ def test_segment_log_contains_live_path_sentinel() -> None:
     assert "gain=0.3000" in log
 
 
+def test_repair_effect_summary_formats_training_fit_metrics() -> None:
+    summary = {
+        "score_noisy_mean": -0.04,
+        "score_repaired_mean": 0.01,
+        "score_gain_mean": 0.05,
+        "score_gain_pos_frac": 0.75,
+        "done_frac": 0.1,
+        "storage_valid_frac": 0.25,
+        "sampler_replay_pool_size": 32,
+        "sampler_replay_candidates": 12,
+    }
+    scalars = repair_effect_summary_to_scalars(summary)
+    assert scalars["segment/train_effect_noisy"] == -0.04
+    assert scalars["segment/train_effect_repaired"] == 0.01
+    assert scalars["segment/train_effect_gain"] == 0.05
+    assert scalars["segment/train_effect_gain_pos_frac"] == 0.75
+    assert scalars["segment/train_effect_fall_rate"] == 0.1
+    assert scalars["segment/train_effect_valid_frac"] == 0.25
+    assert scalars["segment/train_effect_replay_candidates"] == 12.0
+    assert scalars["segment/train_effect_replay_pool_size"] == 32.0
+    log = format_segment_train_effect_log(summary)
+    assert "[FrontRES Segment Train Effect]" in log
+    assert "noisy=-0.040000" in log
+    assert "repaired=0.010000" in log
+    assert "gain=0.050000" in log
+    assert "gain_pos=75.0%" in log
+    assert "fall=10.0%" in log
+    assert "pool=32" in log
+
+
+def test_motion_quality_summary_measures_pose_velocity_and_delta_se() -> None:
+    clean = torch.tensor(
+        [[
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            [[0.0, 1.0, 0.0], [1.0, 1.0, 0.0]],
+            [[0.0, 2.0, 0.0], [1.0, 2.0, 0.0]],
+        ]]
+    )
+    repaired = clean.clone()
+    repaired[..., 0] += 0.1
+    noisy = clean.clone()
+    noisy[..., 0] += 0.3
+    delta_se = torch.tensor([[0.1, 0.2, -0.3, 0.0, 0.0, 0.4]])
+    scalars = motion_quality_summary_to_scalars(
+        clean_positions=clean,
+        repaired_positions=repaired,
+        noisy_positions=noisy,
+        delta_se=delta_se,
+        valid_mask=torch.tensor([True]),
+    )
+    assert abs(scalars["segment/motion_mpjpe_repaired_clean"] - 0.1) < 1e-6
+    assert abs(scalars["segment/motion_mpjpe_noisy_clean"] - 0.3) < 1e-6
+    assert scalars["segment/motion_vel_error_repaired_clean"] == 0.0
+    assert scalars["segment/motion_acc_error_repaired_clean"] == 0.0
+    assert abs(scalars["segment/motion_delta_se_norm"] - float(torch.linalg.norm(delta_se, dim=-1).item())) < 1e-6
+    assert scalars["segment/motion_delta_z_up_frac"] == 0.0
+    log = format_segment_motion_quality_log(scalars)
+    assert "[FrontRES Segment Motion Quality]" in log
+    assert "mpjpe_repaired=0.100000" in log
+    assert "vel_err=0.000000" in log
+    assert "dz_up=0.0%" in log
+
+
+def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
+    summary = {
+        "episode_length": 500,
+        "success_rate": 0.7,
+        "fall_rate": 0.2,
+        "mean_survival_steps": 430,
+        "continuous_rollout_gain": 0.12,
+    }
+    scalars = periodic_eval_summary_to_scalars(summary)
+    assert scalars["segment/eval_episode_length"] == 500.0
+    assert scalars["segment/eval_success_rate"] == 0.7
+    assert scalars["segment/eval_fall_rate"] == 0.2
+    assert scalars["segment/eval_mean_survival_steps"] == 430.0
+    assert scalars["segment/eval_continuous_rollout_gain"] == 0.12
+    log = format_segment_periodic_eval_log(summary)
+    assert "[FrontRES Segment Periodic Eval]" in log
+    assert "episode_length=500.0" in log
+    assert "survival=430.0" in log
+    assert "success=70.0%" in log
+    assert "fall=20.0%" in log
+    assert "gain=0.120000" in log
+
+
 def main() -> None:
     test_segment_diagnostics_required_keys_and_no_acceptance_keys()
     test_segment_log_contains_live_path_sentinel()
+    test_repair_effect_summary_formats_training_fit_metrics()
+    test_motion_quality_summary_measures_pose_velocity_and_delta_se()
+    test_periodic_eval_summary_formats_long_rollout_metrics()
     print("result: PASS")
 
 

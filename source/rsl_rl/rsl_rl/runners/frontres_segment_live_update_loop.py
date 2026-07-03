@@ -86,7 +86,13 @@ def run_frontres_segment_live_update_loop(
     valid_count = sum(int(item["ppo_valid_count"]) for item in metrics)
     env_reward_mean = sum(float(item.get("env_reward_mean", item["reward_mean"])) for item in metrics) / float(update_steps)
     train_reward_mean = sum(float(item.get("train_reward_mean", item["reward_mean"])) for item in metrics) / float(update_steps)
+    score_noisy_mean = sum(float(item.get("score_noisy_mean", 0.0)) for item in metrics) / float(update_steps)
+    score_repaired_mean = sum(float(item.get("score_repaired_mean", 0.0)) for item in metrics) / float(update_steps)
     score_gain_mean = sum(float(item.get("score_gain_mean", 0.0)) for item in metrics) / float(update_steps)
+    score_gain_pos_frac = sum(float(item.get("score_gain_pos_frac", 0.0)) for item in metrics) / float(update_steps)
+    done_frac = sum(float(item.get("done_frac", 0.0)) for item in metrics) / float(update_steps)
+    motion_delta_se_norm = sum(float(item.get("motion_delta_se_norm", 0.0)) for item in metrics) / float(update_steps)
+    motion_delta_z_up_frac = sum(float(item.get("motion_delta_z_up_frac", 0.0)) for item in metrics) / float(update_steps)
     storage_valid_frac = sum(float(item["storage_valid_frac"]) for item in metrics) / float(update_steps)
     total_loss_mean = sum(float(item["ppo_total_loss"]) for item in metrics) / float(update_steps)
     actor_loss_mean = sum(float(item["ppo_actor_loss"]) for item in metrics) / float(update_steps)
@@ -167,7 +173,13 @@ def run_frontres_segment_live_update_loop(
         "reward_mean": train_reward_mean,
         "train_reward_mean": train_reward_mean,
         "env_reward_mean": env_reward_mean,
+        "score_noisy_mean": score_noisy_mean,
+        "score_repaired_mean": score_repaired_mean,
         "score_gain_mean": score_gain_mean,
+        "score_gain_pos_frac": score_gain_pos_frac,
+        "done_frac": done_frac,
+        "motion_delta_se_norm": motion_delta_se_norm,
+        "motion_delta_z_up_frac": motion_delta_z_up_frac,
         "storage_valid_frac": storage_valid_frac,
         "ppo_total_loss_mean": total_loss_mean,
         "ppo_actor_loss_mean": actor_loss_mean,

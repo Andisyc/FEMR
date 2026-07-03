@@ -119,6 +119,7 @@ the training environment.
 
 ## Coding Rules For This Repo
 
+- DO NOT send optional commentary.
 - Do not revert user changes.
 - Keep changes scoped to the current experiment.
 - Use `rg` for search.

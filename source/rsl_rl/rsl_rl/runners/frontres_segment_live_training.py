@@ -2,8 +2,39 @@ from __future__ import annotations
 
 import os
 import math
+import importlib.util
+import sys
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
+
+_DIAGNOSTICS_SPEC = importlib.util.spec_from_file_location(
+    "frontres_segment_diagnostics",
+    Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_diagnostics.py",
+)
+_DIAGNOSTICS_MODULE = importlib.util.module_from_spec(_DIAGNOSTICS_SPEC)
+sys.modules[_DIAGNOSTICS_SPEC.name] = _DIAGNOSTICS_MODULE
+_DIAGNOSTICS_SPEC.loader.exec_module(_DIAGNOSTICS_MODULE)
+format_segment_motion_quality_log = _DIAGNOSTICS_MODULE.format_segment_motion_quality_log
+format_segment_periodic_eval_log = _DIAGNOSTICS_MODULE.format_segment_periodic_eval_log
+format_segment_train_effect_log = _DIAGNOSTICS_MODULE.format_segment_train_effect_log
+motion_quality_summary_to_scalars = _DIAGNOSTICS_MODULE.motion_quality_summary_to_scalars
+
+try:
+    from rsl_rl.runners.frontres_segment_live_probe import (
+        _apply_current_segment_reset,
+        _read_live_observations,
+        _run_live_rollout_capture,
+    )
+except ModuleNotFoundError:
+    def _apply_current_segment_reset(runner: Any) -> None:
+        raise NotImplementedError("frontres_segment_live_probe import is unavailable.")
+
+    def _read_live_observations(runner: Any) -> None:
+        raise NotImplementedError("frontres_segment_live_probe import is unavailable.")
+
+    def _run_live_rollout_capture(runner: Any, observations: Any, *, rollout_steps: int) -> None:
+        raise NotImplementedError("frontres_segment_live_probe import is unavailable.")
 
 
 _REQUIRED_SUMMARY_KEYS = (
@@ -30,6 +61,159 @@ _FINITE_SUMMARY_KEYS = (
 )
 
 _LOG_SEPARATOR = "-" * 80
+
+
+def run_frontres_segment_periodic_eval(
+    runner: Any,
+    *,
+    iteration: int,
+    train_summary: Mapping[str, Any],
+) -> dict[str, float]:
+    eval_steps = max(
+        int(getattr(runner.env, "max_episode_length", 1)),
+        int(getattr(runner.alg, "frontres_segment_k", 1)),
+    )
+    with _temporary_eval_detail_silence(runner):
+        _apply_current_segment_reset(runner)
+        observations = _read_live_observations(runner)
+        runner.eval_mode()
+        capture = _run_live_rollout_capture(runner, observations, rollout_steps=eval_steps)
+    done_any = capture.done_any
+    survival = capture.survival_steps
+    if done_any is None or survival is None:
+        return {
+            "episode_length": float(eval_steps),
+            "success_rate": 0.0,
+            "fall_rate": 0.0,
+            "mean_survival_steps": 0.0,
+            "continuous_rollout_gain": float(train_summary.get("score_gain_mean", 0.0)),
+        }
+    done = done_any.detach().bool().reshape(-1)
+    survival_flat = survival.detach().float().reshape(-1)
+    return {
+        "episode_length": float(eval_steps),
+        "success_rate": float((~done).float().mean().cpu().item()),
+        "fall_rate": float(done.float().mean().cpu().item()),
+        "mean_survival_steps": float(survival_flat.mean().cpu().item()),
+        "continuous_rollout_gain": float(train_summary.get("score_gain_mean", 0.0)),
+    }
+
+
+def run_frontres_segment_offline_eval(
+    runner: Any,
+    *,
+    num_eval_segments: int,
+    rollout_steps: int,
+) -> dict[str, float]:
+    sampler = getattr(runner, "_frontres_segment_sampler", None)
+    if sampler is None:
+        raise RuntimeError("offline eval requires initialized FrontRES Segment sampler")
+    env_count = max(1, int(getattr(runner.env, "num_envs", num_eval_segments)))
+    requested_count = max(1, int(num_eval_segments))
+    if requested_count != env_count:
+        print(
+            "[FrontRES Segment Offline Eval] "
+            f"requested_segments={requested_count} env_count={env_count} "
+            "using env_count; set --num_envs to choose eval sample count",
+            flush=True,
+        )
+    sample = sampler.sample(env_count)
+    runner._frontres_segment_live_current_sample = sample
+    from rsl_rl.runners.frontres_segment_live_sampler import _build_current_segment_batch
+
+    try:
+        batch = _build_current_segment_batch(runner, sample, update_step=0, print_probe=True)
+        runner._frontres_segment_live_current_batch = batch
+        with _temporary_eval_detail_silence(runner):
+            _apply_current_segment_reset(runner)
+            observations = _read_live_observations(runner)
+            runner.eval_mode()
+            capture = _run_live_rollout_capture(runner, observations, rollout_steps=max(1, int(rollout_steps)))
+    finally:
+        runner._frontres_segment_live_current_sample = None
+        runner._frontres_segment_live_current_batch = None
+        runner._frontres_segment_live_current_reset_request = None
+        runner._frontres_segment_live_current_reset_result = None
+    summary = _offline_eval_summary(capture, sample_count=env_count)
+    print(
+        "\n".join(("", _LOG_SEPARATOR, "", _format_offline_eval_log(summary), "")),
+        flush=True,
+    )
+    return summary
+
+
+def _format_offline_eval_log(summary: Mapping[str, Any]) -> str:
+    return "\n".join(
+        (
+            "[FrontRES Segment Offline Eval]",
+            (
+                "  rollout: "
+                f"sample_count={int(summary.get('sample_count', 0))} "
+                f"episode_length={float(summary.get('episode_length', 0.0)):.1f} "
+                f"survival={float(summary.get('mean_survival_steps', 0.0)):.1f}"
+            ),
+            (
+                "  result: "
+                f"success={float(summary.get('success_rate', 0.0)) * 100.0:.1f}% "
+                f"fall={float(summary.get('fall_rate', 0.0)) * 100.0:.1f}%"
+            ),
+            (
+                "  score: "
+                f"noisy={float(summary.get('score_noisy', 0.0)):.6f} "
+                f"repaired={float(summary.get('score_repaired', 0.0)):.6f} "
+                f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f}"
+            ),
+        )
+    )
+
+
+def _offline_eval_summary(capture: Any, *, sample_count: int) -> dict[str, float]:
+    done_any = capture.done_any
+    survival = capture.survival_steps
+    done = done_any.detach().bool().reshape(-1) if done_any is not None else None
+    survival_flat = survival.detach().float().reshape(-1) if survival is not None else None
+    score = _offline_eval_score_summary(capture, sample_count=sample_count)
+    return {
+        "episode_length": float(capture.rollout_k),
+        "success_rate": float((~done).float().mean().cpu().item()) if done is not None and done.numel() else 0.0,
+        "fall_rate": float(done.float().mean().cpu().item()) if done is not None and done.numel() else 0.0,
+        "mean_survival_steps": float(survival_flat.mean().cpu().item()) if survival_flat is not None and survival_flat.numel() else 0.0,
+        "continuous_rollout_gain": float(score["gain"]),
+        "score_noisy": float(score["noisy"]),
+        "score_repaired": float(score["repaired"]),
+        "sample_count": float(sample_count),
+    }
+
+
+def _offline_eval_score_summary(capture: Any, *, sample_count: int) -> dict[str, float]:
+    if capture.reward_accum is None:
+        return {"noisy": 0.0, "repaired": 0.0, "gain": 0.0}
+    reward = capture.reward_accum.reshape(-1).detach().float() / float(max(1, int(capture.rollout_k)))
+    n = min(sample_count, max(0, int(capture.n_train)), max(0, int(capture.n_base)))
+    base_start = int(capture.n_train) + int(capture.n_candidate)
+    if n <= 0 or int(reward.numel()) < base_start + n:
+        repaired = float(reward.mean().cpu().item()) if reward.numel() else 0.0
+        return {"noisy": 0.0, "repaired": repaired, "gain": repaired}
+    repaired = reward[:n]
+    noisy = reward[base_start : base_start + n]
+    gain = repaired - noisy
+    return {
+        "noisy": float(noisy.mean().cpu().item()),
+        "repaired": float(repaired.mean().cpu().item()),
+        "gain": float(gain.mean().cpu().item()),
+    }
+
+
+class _temporary_eval_detail_silence:
+    def __init__(self, runner: Any):
+        self.runner = runner
+        self.previous = getattr(runner, "_frontres_segment_live_detail_log_enabled", True)
+
+    def __enter__(self) -> None:
+        self.runner._frontres_segment_live_detail_log_enabled = False
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.runner._frontres_segment_live_detail_log_enabled = self.previous
 
 
 def _fmt_num(value: Any) -> str:
@@ -68,6 +252,9 @@ def _print_live_train_summary(
     num_learning_iterations: int,
     summary: Mapping[str, Any],
 ) -> None:
+    motion_scalars = motion_quality_summary_to_scalars()
+    motion_scalars["segment/motion_delta_se_norm"] = float(summary.get("motion_delta_se_norm", 0.0))
+    motion_scalars["segment/motion_delta_z_up_frac"] = float(summary.get("motion_delta_z_up_frac", 0.0))
     print(
         "\n".join(
             (
@@ -100,6 +287,36 @@ def _print_live_train_summary(
                 f"kl={_fmt_num(summary['ppo_approx_kl_mean'])} "
                 f"clip={_fmt_pct(summary['ppo_clip_frac_mean'])} "
                 f"status={_live_train_status(summary)}",
+                "",
+                format_segment_train_effect_log(dict(summary)),
+                "",
+                format_segment_motion_quality_log(motion_scalars),
+                "",
+            )
+        ),
+        flush=True,
+    )
+
+
+def _maybe_print_periodic_eval(runner: Any, summary: Mapping[str, Any]) -> None:
+    boundary = getattr(runner, "_frontres_segment_replay_boundary", None)
+    if not bool(getattr(boundary, "periodic_eval_enabled", False)):
+        return
+    interval = max(1, int(getattr(boundary, "periodic_eval_interval", 100)))
+    iteration = int(getattr(runner, "current_learning_iteration", 0))
+    if iteration <= 0 or iteration % interval != 0:
+        return
+    eval_hook = getattr(runner, "run_frontres_segment_periodic_eval", None)
+    if not callable(eval_hook):
+        raise NotImplementedError("periodic eval is enabled, but runner.run_frontres_segment_periodic_eval is missing.")
+    eval_summary = eval_hook(iteration=iteration, train_summary=dict(summary))
+    print(
+        "\n".join(
+            (
+                "",
+                _LOG_SEPARATOR,
+                "",
+                format_segment_periodic_eval_log(dict(eval_summary)),
                 "",
             )
         ),
@@ -268,6 +485,7 @@ def run_frontres_segment_live_training_loop(
         )
         runner.current_learning_iteration += 1
         _print_live_train_summary(runner, num_learning_iterations=num_learning_iterations, summary=summary)
+        _maybe_print_periodic_eval(runner, summary)
         if (
             runner.log_dir is not None
             and not runner.disable_logs

@@ -4,9 +4,11 @@ set -euo pipefail
 if [[ $# -lt 1 ]]; then
   echo "Usage: bash run_stage3.sh STAGE2_CHECKPOINT [MOTION_PATH] [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE]"
   echo
-  echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop."
-  echo "CACHE_DIR selects the Stage 1 Segment Replay cache used by Stage 3."
-  echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
+ echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval."
+ echo "CACHE_DIR selects the Stage 1 Segment Replay cache used by Stage 3."
+ echo "PERIODIC_EVAL_ENABLED=1 enables periodic long-rollout eval; PERIODIC_EVAL_INTERVAL controls its interval."
+ echo "OFFLINE_EVAL_STEPS controls checkpoint eval rollout length when MODE=offline_eval."
+ echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "Set FRONTRES_STAGE_PREFLIGHT_ONLY=1 to print and validate the startup command without launching IsaacLab."
   exit 1
 fi
@@ -30,6 +32,10 @@ export WANDB_DIR="${WANDB_DIR:-/hdd1/cyx/FEMR}"
 export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-/hdd1/cyx/FEMR/.wandb_cache}"
 export CACHE_DIR
 export SHARD_CACHE_SIZE
+export PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
+export PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
+export OFFLINE_EVAL_SEGMENTS="${OFFLINE_EVAL_SEGMENTS:-${NUM_ENVS}}"
+export OFFLINE_EVAL_STEPS="${OFFLINE_EVAL_STEPS:-500}"
 
 CMD=(
   bash run/run_frontres_stage3_segment_hrl.sh

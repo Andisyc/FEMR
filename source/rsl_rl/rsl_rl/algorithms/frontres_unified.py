@@ -98,6 +98,8 @@ class FrontRESUnified:
         frontres_segment_live_update_loop_only: bool = False,
         frontres_segment_live_train_enabled: bool = False,
         frontres_segment_live_update_steps: int = 4,
+        frontres_segment_periodic_eval_enabled: bool = False,
+        frontres_segment_periodic_eval_interval: int = 100,
         frontres_segment_live_fail_on_invalid_update: bool = True,
         frontres_segment_live_min_valid_count: int = 1,
         frontres_segment_live_fail_on_nonfinite: bool = True,
@@ -243,6 +245,8 @@ class FrontRESUnified:
         self.frontres_segment_live_update_loop_only = bool(frontres_segment_live_update_loop_only)
         self.frontres_segment_live_train_enabled = bool(frontres_segment_live_train_enabled)
         self.frontres_segment_live_update_steps = max(1, int(frontres_segment_live_update_steps))
+        self.frontres_segment_periodic_eval_enabled = bool(frontres_segment_periodic_eval_enabled)
+        self.frontres_segment_periodic_eval_interval = max(1, int(frontres_segment_periodic_eval_interval))
         self.frontres_segment_live_fail_on_invalid_update = bool(frontres_segment_live_fail_on_invalid_update)
         self.frontres_segment_live_min_valid_count = max(0, int(frontres_segment_live_min_valid_count))
         self.frontres_segment_live_fail_on_nonfinite = bool(frontres_segment_live_fail_on_nonfinite)

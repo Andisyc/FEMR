@@ -31,6 +31,13 @@ live_training_module = _load(
 )
 
 run_frontres_segment_live_training_loop = live_training_module.run_frontres_segment_live_training_loop
+live_training_module._apply_current_segment_reset = lambda runner: None
+live_training_module._read_live_observations = lambda runner: "fake_obs"
+live_training_module._run_live_rollout_capture = lambda runner, observations, *, rollout_steps: runner.fake_eval_capture(
+    rollout_steps
+)
+offline_eval_summary = live_training_module._offline_eval_summary
+format_offline_eval_log = live_training_module._format_offline_eval_log
 
 
 def _probe_summary(name: str, summary: dict) -> None:
@@ -67,8 +74,10 @@ def _probe_exception(name: str, exc: Exception) -> None:
 
 
 class FakeBoundary:
-    def __init__(self, live_train_enabled: bool = True):
+    def __init__(self, live_train_enabled: bool = True, periodic_eval_enabled: bool = False, periodic_eval_interval: int = 100):
         self.live_train_enabled = live_train_enabled
+        self.periodic_eval_enabled = periodic_eval_enabled
+        self.periodic_eval_interval = periodic_eval_interval
 
 
 class FakeAlg:
@@ -92,7 +101,13 @@ def _full_summary(**overrides) -> dict:
         "reward_mean": 0.25,
         "train_reward_mean": 0.25,
         "env_reward_mean": -0.50,
+        "score_noisy_mean": -0.10,
+        "score_repaired_mean": 0.65,
         "score_gain_mean": 0.75,
+        "score_gain_pos_frac": 0.80,
+        "done_frac": 0.10,
+        "motion_delta_se_norm": 0.42,
+        "motion_delta_z_up_frac": 0.25,
         "sampler_update_gain_mean": 0.30,
         "sampler_update_gain_pos_frac": 0.60,
         "sampler_update_useful_mean": 0.40,
@@ -121,8 +136,14 @@ class FakeRunner:
         min_valid_count: int = 1,
         fail_on_nonfinite: bool = True,
         fail_save_paths: set[str] | None = None,
+        periodic_eval_enabled: bool = False,
+        periodic_eval_interval: int = 100,
     ):
-        self._frontres_segment_replay_boundary = FakeBoundary(live_train_enabled=live_train_enabled)
+        self._frontres_segment_replay_boundary = FakeBoundary(
+            live_train_enabled=live_train_enabled,
+            periodic_eval_enabled=periodic_eval_enabled,
+            periodic_eval_interval=periodic_eval_interval,
+        )
         self.alg = FakeAlg(
             fail_on_invalid_update=fail_on_invalid_update,
             min_valid_count=min_valid_count,
@@ -136,6 +157,8 @@ class FakeRunner:
         self.saved_paths: list[str] = []
         self.probe_records: list[tuple[dict, str]] = []
         self.fail_save_paths = fail_save_paths or set()
+        self.eval_calls: list[tuple[int, int]] = []
+        self.periodic_eval_hook_enabled = True
 
     def run_frontres_segment_live_update_loop(self, *, init_at_random_ep_len: bool, runner_learn: bool) -> dict:
         self.update_calls.append((init_at_random_ep_len, runner_learn))
@@ -158,6 +181,30 @@ class FakeRunner:
 
     def _record_frontres_checkpoint_probe(self, locs: dict, checkpoint_path: str) -> None:
         self.probe_records.append((locs, checkpoint_path))
+
+    def run_frontres_segment_periodic_eval(self, *, iteration: int, train_summary: dict) -> dict:
+        self.eval_calls.append((iteration, int(train_summary["update_count"])))
+        return {
+            "episode_length": 32,
+            "success_rate": 0.75,
+            "fall_rate": 0.25,
+            "mean_survival_steps": 28,
+            "continuous_rollout_gain": float(train_summary["score_gain_mean"]),
+        }
+
+    def fake_eval_capture(self, rollout_steps: int):
+        class Capture:
+            pass
+
+        capture = Capture()
+        capture.done_any = __import__("torch").tensor([False, True, False])
+        capture.survival_steps = __import__("torch").tensor([float(rollout_steps), 3.0, float(rollout_steps)])
+        capture.rollout_k = int(rollout_steps)
+        capture.reward_accum = __import__("torch").tensor([10.0, 11.0, 2.0, 3.0])
+        capture.n_train = 2
+        capture.n_candidate = 0
+        capture.n_base = 2
+        return capture
 
 
 def test_pseudo_live_training_runs_two_iterations_and_saves_checkpoints() -> None:
@@ -361,6 +408,10 @@ def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
     assert "  data: valid=8 valid_frac=100.0% train_reward=0.250000 env_reward=-0.500000 gain=0.750000" in output
     assert "  sampler: gain=0.300000 gain_pos=60.0% useful=0.400000 replay_candidates=5 priority=0.070000 pool=11 hopeless=20.0%" in output
     assert "  ppo: loss_total=1.516e+23" in output
+    assert "[FrontRES Segment Train Effect]" in output
+    assert "  score: noisy=-0.100000 repaired=0.650000 gain=0.750000 gain_pos=80.0%" in output
+    assert "[FrontRES Segment Motion Quality]" in output
+    assert "  action: delta_se_norm=0.420000 dz_up=25.0%" in output
     assert "loss_total=1.516e+23" in output
     assert "actor=1.516e+23" in output
     assert "clip=37.7%" in output
@@ -394,6 +445,73 @@ def test_pseudo_live_training_continues_after_periodic_checkpoint_failure() -> N
     assert "save.status: OK" in output
 
 
+def test_pseudo_live_training_runs_periodic_eval_only_on_interval() -> None:
+    runner = FakeRunner(periodic_eval_enabled=True, periodic_eval_interval=2)
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        run_frontres_segment_live_training_loop(
+            runner,
+            num_learning_iterations=3,
+            init_at_random_ep_len=False,
+        )
+    output = buffer.getvalue()
+    print(f"[probe periodic_eval] eval_calls={runner.eval_calls}", flush=True)
+    assert runner.eval_calls == [(2, 4)]
+    assert output.count("[FrontRES Segment Periodic Eval]") == 1
+    assert "episode_length=32.0" in output
+    assert "success=75.0%" in output
+    assert "gain=0.750000" in output
+
+
+def test_pseudo_live_training_periodic_eval_requires_hook() -> None:
+    runner = FakeRunner(periodic_eval_enabled=True, periodic_eval_interval=1)
+    runner.run_frontres_segment_periodic_eval = None
+    try:
+        run_frontres_segment_live_training_loop(
+            runner,
+            num_learning_iterations=1,
+            init_at_random_ep_len=False,
+        )
+    except NotImplementedError as exc:
+        _probe_exception("periodic_eval_requires_hook", exc)
+        assert "run_frontres_segment_periodic_eval" in str(exc)
+    else:
+        raise AssertionError("periodic eval must fail loudly when the live eval hook is missing")
+
+
+def test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline() -> None:
+    runner = FakeRunner()
+    capture = runner.fake_eval_capture(rollout_steps=5)
+    summary = offline_eval_summary(capture, sample_count=2)
+    print(
+        "[probe offline_eval_summary] "
+        f"sample_count={summary['sample_count']} "
+        f"episode_length={summary['episode_length']} "
+        f"success_rate={summary['success_rate']} "
+        f"fall_rate={summary['fall_rate']} "
+        f"survival={summary['mean_survival_steps']} "
+        f"noisy={summary['score_noisy']} "
+        f"repaired={summary['score_repaired']} "
+        f"gain={summary['continuous_rollout_gain']}",
+        flush=True,
+    )
+    assert summary["sample_count"] == 2.0
+    assert summary["episode_length"] == 5.0
+    assert round(summary["success_rate"], 6) == round(2.0 / 3.0, 6)
+    assert round(summary["fall_rate"], 6) == round(1.0 / 3.0, 6)
+    assert round(summary["score_repaired"], 6) == 2.1
+    assert round(summary["score_noisy"], 6) == 0.5
+    assert round(summary["continuous_rollout_gain"], 6) == 1.6
+    log = format_offline_eval_log(summary)
+    assert "[FrontRES Segment Offline Eval]" in log
+    assert "sample_count=2" in log
+    assert "success=66.7%" in log
+    assert "fall=33.3%" in log
+    assert "noisy=0.500000" in log
+    assert "repaired=2.100000" in log
+    assert "gain=1.600000" in log
+
+
 def main() -> None:
     test_pseudo_live_training_runs_two_iterations_and_saves_checkpoints()
     test_pseudo_live_training_zero_iterations_does_not_touch_update_loop()
@@ -405,6 +523,9 @@ def main() -> None:
     test_pseudo_live_training_can_disable_fail_fast_guards()
     test_pseudo_live_training_log_formats_large_loss_readably()
     test_pseudo_live_training_continues_after_periodic_checkpoint_failure()
+    test_pseudo_live_training_runs_periodic_eval_only_on_interval()
+    test_pseudo_live_training_periodic_eval_requires_hook()
+    test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline()
     print("result: PASS")
 
 

@@ -13,8 +13,11 @@ class FrontRESSegmentRunnerBoundary:
     live_storage_write_only: bool
     live_single_update_only: bool
     live_update_loop_only: bool
+    offline_eval_only: bool
     live_train_enabled: bool
     live_update_steps: int
+    periodic_eval_enabled: bool
+    periodic_eval_interval: int
     objective: str
     segment_k: int
     reset_mode: str
@@ -32,8 +35,11 @@ class FrontRESSegmentRunnerBoundary:
             live_storage_write_only=bool(alg_cfg.get("frontres_segment_live_storage_write_only", False)),
             live_single_update_only=bool(alg_cfg.get("frontres_segment_live_single_update_only", False)),
             live_update_loop_only=bool(alg_cfg.get("frontres_segment_live_update_loop_only", False)),
+            offline_eval_only=bool(alg_cfg.get("frontres_segment_offline_eval_only", False)),
             live_train_enabled=bool(alg_cfg.get("frontres_segment_live_train_enabled", False)),
             live_update_steps=max(1, int(alg_cfg.get("frontres_segment_live_update_steps", 4))),
+            periodic_eval_enabled=bool(alg_cfg.get("frontres_segment_periodic_eval_enabled", False)),
+            periodic_eval_interval=max(1, int(alg_cfg.get("frontres_segment_periodic_eval_interval", 100))),
             objective=objective,
             segment_k=max(1, int(alg_cfg.get("frontres_segment_k", 1))),
             reset_mode=str(alg_cfg.get("frontres_segment_reset_mode", "auto")).lower(),
@@ -53,6 +59,7 @@ class FrontRESSegmentRunnerBoundary:
             or self.live_storage_write_only
             or self.live_single_update_only
             or self.live_update_loop_only
+            or self.offline_eval_only
             or self.live_train_enabled
         ):
             return
@@ -84,6 +91,7 @@ class FrontRESSegmentRunnerBoundary:
                 or self.live_storage_write_only
                 or self.live_single_update_only
                 or self.live_update_loop_only
+                or self.offline_eval_only
             )
         ):
             return None
@@ -93,6 +101,7 @@ class FrontRESSegmentRunnerBoundary:
             else "False"
         )
         ppo_update = "True" if self.live_single_update_only or self.live_update_loop_only else "False"
+        mode = "offline_eval" if self.offline_eval_only else "probe"
         return (
             "[FrontRES Segment Live Probe Ready] "
             f"objective={self.objective} "
@@ -100,6 +109,7 @@ class FrontRESSegmentRunnerBoundary:
             f"update_steps={self.live_update_steps} "
             f"reset_mode={self.reset_mode} "
             "live_runner=True "
+            f"mode={mode} "
             "probe_only=True "
             f"storage_write={storage_write} "
             f"ppo_update={ppo_update}"
@@ -117,7 +127,9 @@ class FrontRESSegmentRunnerBoundary:
             "live_runner=True "
             "runner_learn=True "
             "storage=independent "
-            "ppo_action=delta_se3_6d"
+            "ppo_action=delta_se3_6d "
+            f"periodic_eval={self.periodic_eval_enabled} "
+            f"eval_interval={self.periodic_eval_interval}"
         )
 
     def build_fake_connector(
