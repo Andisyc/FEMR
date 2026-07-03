@@ -322,6 +322,7 @@ def test_live_sentinel_is_not_training_mode() -> None:
     live_probe = (RSL_ROOT / "rsl_rl" / "runners" / "frontres_segment_live_probe.py").read_text()
     live_update_loop = (RSL_ROOT / "rsl_rl" / "runners" / "frontres_segment_live_update_loop.py").read_text()
     live_training = (RSL_ROOT / "rsl_rl" / "runners" / "frontres_segment_live_training.py").read_text()
+    cfg = (RSL_ROOT / "rsl_rl" / "modules" / "rsl_rl_cfg.py").read_text()
     algorithm = (RSL_ROOT / "rsl_rl" / "algorithms" / "frontres_unified.py").read_text()
     assert '"--frontres_segment_live_sentinel_only"' in train
     assert '"--frontres_segment_live_probe_only"' in train
@@ -334,6 +335,7 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert '"--frontres_segment_offline_eval_only"' in train
     assert '"--frontres_segment_offline_eval_segments"' in train
     assert '"--frontres_segment_offline_eval_steps"' in train
+    assert "frontres_segment_offline_eval_only: bool = False" in cfg
     assert "agent_cfg.max_iterations = 0" in train
     assert (
         "live_sentinel_only or live_probe_only or live_storage_only or live_single_update_only or live_update_loop_only"

@@ -346,6 +346,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Run live Segment Replay storage and exactly one PPO optimizer step, then exit."""
     frontres_segment_live_update_loop_only: bool = False
     """Run a short live Segment Replay PPO update loop, then exit before normal training."""
+    frontres_segment_offline_eval_only: bool = False
+    """Load a checkpoint, evaluate sampled Stage 1 segments, print metrics, then exit."""
     frontres_segment_live_train_enabled: bool = False
     """Enable the dedicated live Segment Replay training loop instead of the legacy runner.learn path."""
     frontres_segment_live_update_steps: int = 4
