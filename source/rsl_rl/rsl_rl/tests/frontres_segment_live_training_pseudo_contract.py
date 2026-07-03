@@ -498,7 +498,7 @@ def test_pseudo_live_training_periodic_eval_requires_hook() -> None:
 def test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline() -> None:
     runner = FakeRunner()
     capture = runner.fake_eval_capture(rollout_steps=5)
-    summary = offline_eval_summary(capture, sample_count=2)
+    summary = offline_eval_summary(capture, sample_count=2, motion_ids=("motion_a.npz", "motion_b.npz"))
     print(
         "[probe offline_eval_summary] "
         f"sample_count={summary['sample_count']} "
@@ -519,7 +519,10 @@ def test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline() ->
     assert round(summary["score_noisy"], 6) == 0.5
     assert round(summary["continuous_rollout_gain"], 6) == 1.6
     log = format_offline_eval_log(summary)
-    assert "[FrontRES Segment Offline Eval]" in log
+    assert "[FrontRES Segment Offline Eval / Per Motion]" in log
+    assert "[FrontRES Segment Offline Eval / Mean]" in log
+    assert "id=motion_a.npz samples=1" in log
+    assert "id=motion_b.npz samples=1" in log
     assert "sample_count=2" in log
     assert "success=66.7%" in log
     assert "fall=33.3%" in log

@@ -104,7 +104,7 @@ def run_frontres_segment_offline_eval(
     *,
     num_eval_segments: int,
     rollout_steps: int,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     sampler = getattr(runner, "_frontres_segment_sampler", None)
     if sampler is None:
         raise RuntimeError("offline eval requires initialized FrontRES Segment sampler")
@@ -134,7 +134,11 @@ def run_frontres_segment_offline_eval(
         runner._frontres_segment_live_current_batch = None
         runner._frontres_segment_live_current_reset_request = None
         runner._frontres_segment_live_current_reset_result = None
-    summary = _offline_eval_summary(capture, sample_count=env_count)
+    summary = _offline_eval_summary(
+        capture,
+        sample_count=env_count,
+        motion_ids=_offline_eval_motion_ids_from_batch(batch, env_count),
+    )
     print(
         "\n".join(("", _LOG_SEPARATOR, "", _format_offline_eval_log(summary), "")),
         flush=True,
@@ -143,9 +147,40 @@ def run_frontres_segment_offline_eval(
 
 
 def _format_offline_eval_log(summary: Mapping[str, Any]) -> str:
-    return "\n".join(
+    lines: list[str] = []
+    per_motion = tuple(summary.get("per_motion", ()) or ())
+    if per_motion:
+        lines.append("[FrontRES Segment Offline Eval / Per Motion]")
+        for row in per_motion:
+            lines.extend(
+                (
+                    f"  motion: id={row.get('motion_id', 'unknown')} samples={int(row.get('sample_count', 0))}",
+                    (
+                        "    result: "
+                        f"success={float(row.get('success_rate', 0.0)) * 100.0:.1f}% "
+                        f"fall={float(row.get('fall_rate', 0.0)) * 100.0:.1f}% "
+                        f"survival={float(row.get('mean_survival_steps', 0.0)):.1f}"
+                    ),
+                    (
+                        "    score: "
+                        f"noisy={float(row.get('score_noisy', 0.0)):.6f} "
+                        f"repaired={float(row.get('score_repaired', 0.0)):.6f} "
+                        f"gain={float(row.get('continuous_rollout_gain', 0.0)):.6f}"
+                    ),
+                    (
+                        "    motion: "
+                        f"mpjpe_repaired={float(row.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
+                        f"mpjpe_noisy={float(row.get('segment/motion_mpjpe_noisy_clean', 0.0)):.6f} "
+                        f"vel_err={float(row.get('segment/motion_vel_error_repaired_clean', 0.0)):.6f} "
+                        f"acc_err={float(row.get('segment/motion_acc_error_repaired_clean', 0.0)):.6f}"
+                    ),
+                )
+            )
+        lines.append("")
+
+    lines.extend(
         (
-            "[FrontRES Segment Offline Eval]",
+            "[FrontRES Segment Offline Eval / Mean]",
             (
                 "  rollout: "
                 f"sample_count={int(summary.get('sample_count', 0))} "
@@ -173,9 +208,10 @@ def _format_offline_eval_log(summary: Mapping[str, Any]) -> str:
             ),
         )
     )
+    return "\n".join(lines)
 
 
-def _offline_eval_summary(capture: Any, *, sample_count: int) -> dict[str, float]:
+def _offline_eval_summary(capture: Any, *, sample_count: int, motion_ids: tuple[str, ...] = ()) -> dict[str, Any]:
     done_any = capture.done_any
     survival = capture.survival_steps
     done = done_any.detach().bool().reshape(-1) if done_any is not None else None
@@ -200,6 +236,8 @@ def _offline_eval_summary(capture: Any, *, sample_count: int) -> dict[str, float
             valid_mask=(~done) if done is not None else None,
         )
     )
+    if motion_ids:
+        summary["per_motion"] = _offline_eval_per_motion_summary(capture, sample_count=sample_count, motion_ids=motion_ids)
     return summary
 
 
@@ -220,6 +258,67 @@ def _offline_eval_score_summary(capture: Any, *, sample_count: int) -> dict[str,
         "repaired": float(repaired.mean().cpu().item()),
         "gain": float(gain.mean().cpu().item()),
     }
+
+
+def _offline_eval_motion_ids_from_batch(batch: Any, sample_count: int) -> tuple[str, ...]:
+    specs = tuple(getattr(batch, "specs", ()) or ())
+    motion_ids: list[str] = []
+    for spec in specs[: max(0, int(sample_count))]:
+        motion_ids.append(str(getattr(spec, "motion_id", "unknown")))
+    return tuple(motion_ids)
+
+
+def _offline_eval_per_motion_summary(capture: Any, *, sample_count: int, motion_ids: tuple[str, ...]) -> list[dict[str, Any]]:
+    if capture.reward_accum is None:
+        return []
+    reward = capture.reward_accum.reshape(-1).detach().float() / float(max(1, int(capture.rollout_k)))
+    n = min(sample_count, len(motion_ids), max(0, int(capture.n_train)), max(0, int(capture.n_base)))
+    base_start = int(capture.n_train) + int(capture.n_candidate)
+    if n <= 0 or int(reward.numel()) < base_start + n:
+        return []
+
+    done = capture.done_any.detach().bool().reshape(-1) if capture.done_any is not None else None
+    survival = capture.survival_steps.detach().float().reshape(-1) if capture.survival_steps is not None else None
+    grouped: dict[str, list[dict[str, float]]] = {}
+    for index in range(n):
+        repaired_score = float(reward[index].cpu().item())
+        noisy_score = float(reward[base_start + index].cpu().item())
+        scalars = motion_quality_summary_to_scalars(
+            clean_positions=_slice_first_dim(getattr(capture, "motion_clean_body_pos", None), index),
+            repaired_positions=_slice_first_dim(getattr(capture, "motion_repaired_body_pos", None), index),
+            noisy_positions=_slice_first_dim(getattr(capture, "motion_noisy_body_pos", None), index),
+            delta_se=_slice_first_dim(getattr(capture, "transition_actions", None), index),
+        )
+        row = {
+            "sample_count": 1.0,
+            "episode_length": float(capture.rollout_k),
+            "success_rate": float((~done[index]).float().cpu().item()) if done is not None and index < int(done.numel()) else 0.0,
+            "fall_rate": float(done[index].float().cpu().item()) if done is not None and index < int(done.numel()) else 0.0,
+            "mean_survival_steps": (
+                float(survival[index].cpu().item()) if survival is not None and index < int(survival.numel()) else 0.0
+            ),
+            "score_noisy": noisy_score,
+            "score_repaired": repaired_score,
+            "continuous_rollout_gain": repaired_score - noisy_score,
+        }
+        row.update(scalars)
+        grouped.setdefault(motion_ids[index], []).append(row)
+
+    summaries: list[dict[str, Any]] = []
+    for motion_id, rows in grouped.items():
+        keys = rows[0].keys()
+        item: dict[str, Any] = {"motion_id": motion_id}
+        for key in keys:
+            item[key] = sum(float(row.get(key, 0.0)) for row in rows) / float(len(rows))
+        item["sample_count"] = float(len(rows))
+        summaries.append(item)
+    return summaries
+
+
+def _slice_first_dim(value: Any, index: int) -> Any:
+    if value is None or not hasattr(value, "shape") or int(value.shape[0]) <= index:
+        return None
+    return value[index : index + 1]
 
 
 class _temporary_eval_detail_silence:
