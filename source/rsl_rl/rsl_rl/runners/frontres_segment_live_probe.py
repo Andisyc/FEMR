@@ -344,16 +344,18 @@ def _perturber_debug_lines(runner: Any, *, rollout_step: int | None = None) -> t
 
 
 def _print_frontres_dr_runtime_probe(runner: Any, *, label: str, rollout_step: int | None = None) -> None:
-    if not _live_detail_log_enabled(runner):
-        return
-    print(
-        _log_block(
-            "[FrontRES DR Runtime Probe]",
-            f"  dr.label: {label}",
-            *_perturber_debug_lines(runner, rollout_step=rollout_step),
-        ),
-        flush=True,
-    )
+    return
+    # DR runtime diagnostic dump; uncomment when tracing live perturbation state.
+    # if not _live_detail_log_enabled(runner):
+    #     return
+    # print(
+    #     _log_block(
+    #         "[FrontRES DR Runtime Probe]",
+    #         f"  dr.label: {label}",
+    #         *_perturber_debug_lines(runner, rollout_step=rollout_step),
+    #     ),
+    #     flush=True,
+    # )
 
 
 def _count_summary(values: tuple[Any, ...]) -> dict[str, int]:
