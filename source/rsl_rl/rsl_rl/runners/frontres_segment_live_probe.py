@@ -212,6 +212,57 @@ def _tensor_debug_summary(name: str, value: Any, *, limit: int = _VERBOSE_PROBE_
     return f"  {name}: {result}"
 
 
+def _optimizer_parameter_snapshots(policy: Any, optimizer: Any) -> tuple[tuple[str, torch.Tensor], dict[int, torch.Tensor]]:
+    names = {id(param): name for name, param in policy.named_parameters()} if hasattr(policy, "named_parameters") else {}
+    params: list[tuple[str, torch.Tensor]] = []
+    seen: set[int] = set()
+    for group in getattr(optimizer, "param_groups", ()):
+        for param in group.get("params", ()):
+            if not isinstance(param, torch.Tensor) or id(param) in seen:
+                continue
+            seen.add(id(param))
+            params.append((names.get(id(param), f"param_{len(params)}"), param))
+    snapshots = {id(param): param.detach().clone() for _, param in params}
+    return tuple(params), snapshots
+
+
+def _parameter_delta_stats(
+    params: tuple[tuple[str, torch.Tensor], ...],
+    snapshots: dict[int, torch.Tensor],
+) -> dict[str, Any]:
+    total = len(params)
+    changed = 0
+    max_abs = 0.0
+    l2_sq = 0.0
+    first_changed = ""
+    for name, param in params:
+        before = snapshots.get(id(param))
+        if before is None:
+            continue
+        delta = (param.detach() - before).float().reshape(-1)
+        if int(delta.numel()) <= 0:
+            continue
+        param_max = float(delta.abs().max().cpu().item())
+        if param_max > 0.0:
+            changed += 1
+            if not first_changed:
+                first_changed = name
+        max_abs = max(max_abs, param_max)
+        l2_sq += float(delta.pow(2).sum().cpu().item())
+    return {
+        "param_delta_max_abs": max_abs,
+        "param_delta_l2": math.sqrt(l2_sq),
+        "param_delta_changed": changed,
+        "param_delta_total": total,
+        "param_delta_first_changed": first_changed,
+    }
+
+
+def _attach_ppo_update_diagnostics(result: Any, diagnostics: dict[str, Any]) -> None:
+    for key, value in diagnostics.items():
+        object.__setattr__(result, key, value)
+
+
 def _family_mask_debug_lines(masks: Any) -> tuple[str, ...]:
     if not isinstance(masks, dict):
         return (f"  dr.family_masks: {masks}",)
@@ -524,6 +575,12 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     "ppo_advantage_mean": float(ppo_result.advantage_mean),
                     "ppo_advantage_min": float(ppo_result.advantage_min),
                     "ppo_advantage_max": float(ppo_result.advantage_max),
+                    "ppo_param_delta_max_abs": float(getattr(ppo_result, "param_delta_max_abs", 0.0)),
+                    "ppo_param_delta_l2": float(getattr(ppo_result, "param_delta_l2", 0.0)),
+                    "ppo_param_delta_changed": int(getattr(ppo_result, "param_delta_changed", 0)),
+                    "ppo_param_delta_total": int(getattr(ppo_result, "param_delta_total", 0)),
+                    "ppo_param_delta_first_changed": str(getattr(ppo_result, "param_delta_first_changed", "")),
+                    "ppo_param_grad_norm": float(getattr(ppo_result, "param_grad_norm", 0.0)),
                 }
             )
     _print_live_probe_summary(runner, capture, summary)
@@ -938,11 +995,20 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
         normalize_advantages=bool(getattr(runner.alg, "normalize_advantage_per_mini_batch", False)),
     )
     ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
+    optimizer_params, param_snapshots = _optimizer_parameter_snapshots(runner.alg.policy, runner.alg.optimizer)
+    grad_norm = 0.0
     if ppo_result.should_step:
         runner.alg.optimizer.zero_grad()
         ppo_result.total_loss.backward()
-        torch.nn.utils.clip_grad_norm_(runner.alg.policy.parameters(), float(getattr(runner.alg, "max_grad_norm", 1.0)))
+        grad_norm_tensor = torch.nn.utils.clip_grad_norm_(
+            (param for _, param in optimizer_params),
+            float(getattr(runner.alg, "max_grad_norm", 1.0)),
+        )
+        grad_norm = float(grad_norm_tensor.detach().cpu().item())
         runner.alg.optimizer.step()
+    diagnostics = _parameter_delta_stats(optimizer_params, param_snapshots)
+    diagnostics["param_grad_norm"] = grad_norm
+    _attach_ppo_update_diagnostics(ppo_result, diagnostics)
     runner.eval_mode()
     return ppo_result
 
@@ -1225,6 +1291,12 @@ def _initial_live_probe_summary(
         "ppo_value_loss": 0.0,
         "ppo_approx_kl": 0.0,
         "ppo_clip_frac": 0.0,
+        "ppo_param_delta_max_abs": 0.0,
+        "ppo_param_delta_l2": 0.0,
+        "ppo_param_delta_changed": 0,
+        "ppo_param_delta_total": 0,
+        "ppo_param_delta_first_changed": "",
+        "ppo_param_grad_norm": 0.0,
     }
     summary.update(score_summary)
     return summary
@@ -1419,6 +1491,19 @@ def _print_live_probe_summary(
                         "mean": _fmt_num(summary.get("ppo_advantage_mean", 0.0)),
                         "min": _fmt_num(summary.get("ppo_advantage_min", 0.0)),
                         "max": _fmt_num(summary.get("ppo_advantage_max", 0.0)),
+                    },
+                ),
+                *_kv_lines(
+                    "param_delta",
+                    {
+                        "max_abs": _fmt_num(summary.get("ppo_param_delta_max_abs", 0.0)),
+                        "l2": _fmt_num(summary.get("ppo_param_delta_l2", 0.0)),
+                        "changed": (
+                            f"{int(summary.get('ppo_param_delta_changed', 0))}/"
+                            f"{int(summary.get('ppo_param_delta_total', 0))}"
+                        ),
+                        "first": summary.get("ppo_param_delta_first_changed", ""),
+                        "grad_norm": _fmt_num(summary.get("ppo_param_grad_norm", 0.0)),
                     },
                 ),
             ),

@@ -122,6 +122,11 @@ def _probe_update(name: str, result, runner: "FakeRunner", before_actor: torch.T
         f"loss_requires_grad={result.total_loss.requires_grad} "
         f"actor_grad_norm={actor_grad_norm:.6f} critic_grad_norm={critic_grad_norm:.6f} "
         f"actor_delta_norm={actor_delta:.6f} critic_delta_norm={critic_delta:.6f} "
+        f"result_param_delta_max_abs={getattr(result, 'param_delta_max_abs', 0.0):.6f} "
+        f"result_param_delta_l2={getattr(result, 'param_delta_l2', 0.0):.6f} "
+        f"result_param_delta_changed={getattr(result, 'param_delta_changed', 0)}/"
+        f"{getattr(result, 'param_delta_total', 0)} "
+        f"result_param_grad_norm={getattr(result, 'param_grad_norm', 0.0):.6f} "
         f"mode_trace={runner.mode_trace} actor_obs_trace={runner.alg.policy.actor_obs_trace} "
         f"critic_obs_trace={runner.alg.policy.critic_obs_trace}",
         flush=True,
@@ -231,6 +236,11 @@ def test_single_update_steps_optimizer_with_valid_segment() -> None:
     assert runner.mode_trace == ["train", "eval"]
     assert runner.alg.policy.actor_obs_trace == [(2, 4)]
     assert runner.alg.policy.critic_obs_trace == [(2, 3)]
+    assert result.param_delta_total == 2
+    assert result.param_delta_changed == 2
+    assert result.param_delta_max_abs > 0.0
+    assert result.param_delta_l2 > 0.0
+    assert result.param_grad_norm > 0.0
     assert not torch.allclose(runner.alg.policy.actor.weight.detach(), before_actor)
     assert not torch.allclose(runner.alg.policy.critic.weight.detach(), before_critic)
 
@@ -249,6 +259,11 @@ def test_single_update_does_not_step_optimizer_without_valid_segments() -> None:
     assert not result.should_step
     assert result.valid_count == 0
     assert runner.mode_trace == ["train", "eval"]
+    assert result.param_delta_total == 2
+    assert result.param_delta_changed == 0
+    assert result.param_delta_max_abs == 0.0
+    assert result.param_delta_l2 == 0.0
+    assert result.param_grad_norm == 0.0
     torch.testing.assert_close(runner.alg.policy.actor.weight.detach(), before_actor)
     torch.testing.assert_close(runner.alg.policy.critic.weight.detach(), before_critic)
 
