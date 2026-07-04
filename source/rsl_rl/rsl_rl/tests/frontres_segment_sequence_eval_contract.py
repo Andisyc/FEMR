@@ -481,6 +481,58 @@ def test_sequence_eval_all_fall_keeps_action_diagnostics_in_summaries() -> None:
     )
 
 
+def test_sequence_eval_per_motion_uses_item_scope_for_repeated_motion_roles() -> None:
+    capture = FakeCapture(rollout_k=50, sequence_id=4)
+    capture.n_train = 1
+    capture.n_candidate = 1
+    capture.n_base = 1
+    capture.n_clean = 1
+    capture.reward_accum = torch.tensor([8.0, 0.0, 2.0, 0.0])
+    capture.done_any = torch.tensor([False, True, True, True])
+    capture.survival_steps = torch.tensor([50.0, 10.0, 20.0, 30.0])
+    capture.transition_actions = torch.full((4, 6), 0.2)
+    clean = torch.zeros(4, 50, 1, 3)
+    repaired = clean.clone()
+    noisy = clean.clone()
+    repaired[:, :, :, 0] = 0.1
+    noisy[:, :, :, 0] = 0.3
+    capture.motion_clean_body_pos = clean
+    capture.motion_repaired_body_pos = repaired
+    capture.motion_noisy_body_pos = noisy
+
+    summary = offline_eval_summary(
+        capture,
+        sample_count=4,
+        motion_ids=("same_motion", "same_motion", "same_motion", "same_motion"),
+    )
+    row = summary["per_motion"][0]
+    assert row["motion_id"] == "same_motion"
+    assert row["sample_count"] == 4.0
+    for key in (
+        "success_rate",
+        "fall_rate",
+        "mean_survival_steps",
+        "continuous_rollout_gain",
+        "segment/motion_delta_se_norm",
+    ):
+        assert abs(float(row[key]) - float(summary[key])) < 1e-6
+    merged = sequence_offline_eval_summary(
+        [summary],
+        plan=SimpleNamespace(requested_sequences=1, motion_ids=("same_motion",)),
+        env_count=4,
+    )
+    assert abs(float(merged["success_rate"]) - float(row["success_rate"])) < 1e-6
+    assert abs(float(merged["segment/motion_delta_se_norm"]) - float(row["segment/motion_delta_se_norm"])) < 1e-6
+    print(
+        "[probe step8] per_motion_scope_matches_item "
+        f"success={summary['success_rate']:.3f} "
+        f"per_motion_success={row['success_rate']:.3f} "
+        f"delta={summary['segment/motion_delta_se_norm']:.6f} "
+        f"per_motion_delta={row['segment/motion_delta_se_norm']:.6f}",
+        flush=True,
+    )
+
+
 def main() -> None:
     test_sequence_eval_prerolls_from_motion_start()
     test_sequence_count_is_not_env_count()
@@ -490,6 +542,7 @@ def main() -> None:
     test_sequence_eval_log_prints_motion_quality_metrics()
     test_sequence_offline_eval_owner_orders_reset_preroll_eval()
     test_sequence_eval_all_fall_keeps_action_diagnostics_in_summaries()
+    test_sequence_eval_per_motion_uses_item_scope_for_repeated_motion_roles()
     print(
         "[probe step23] sequence_eval_contract "
         "unique_motion_ids=True reset_frame=0 eval_start_frame=segment_start "

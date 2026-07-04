@@ -527,7 +527,18 @@ def _offline_eval_summary(capture: Any, *, sample_count: int, motion_ids: tuple[
         )
     )
     if motion_ids:
-        summary["per_motion"] = _offline_eval_per_motion_summary(capture, sample_count=sample_count, motion_ids=motion_ids)
+        unique_motion_ids = tuple(dict.fromkeys(str(motion_id) for motion_id in motion_ids))
+        if len(unique_motion_ids) == 1:
+            row = dict(summary)
+            row["motion_id"] = unique_motion_ids[0]
+            row["sample_count"] = float(sample_count)
+            summary["per_motion"] = [row]
+        else:
+            summary["per_motion"] = _offline_eval_per_motion_summary(
+                capture,
+                sample_count=sample_count,
+                motion_ids=motion_ids,
+            )
     return summary
 
 

@@ -576,9 +576,7 @@ Stop condition:
 Status:
 
 - Preflight verified on 2026-07-05.
-- Real live sentinel is still pending server execution/log review because the
-  local workspace does not expose the real `/hdd1/cyx/AMASS_G1Segment` and
-  `/hdd1/cyx/AMASS_G1NPZ_Final` data roots.
+- Real live sentinel log reviewed on 2026-07-05.
 
 Preflight evidence:
 
@@ -612,6 +610,85 @@ Server log checklist:
 
 ```text
 rg -n "FrontRES Segment Sequence Eval|Sequence Eval Item|motion_id=|reset_frame=|eval_start_frame=|family_counts=|delta_se_norm=|non_rp_frac|Traceback|ERROR|CUDA out of memory|nan|inf" /hdd1/cyx/FEMR/stage3_sequence_eval_sentinel_seq2_step120_preroll120.txt
+```
+
+Live log evidence:
+
+```text
+log: /Users/chengyuxuan/ArtiIntComVis/stage3_sequence_eval_sentinel_seq2_step120_preroll120.txt
+[FrontRES Stage] ... segment_sequence_eval=True ... segment_train=False ... is_full_resume=False
+[INFO] FrontRES perturbation alignment: rp (root_tilt=0.5/0.08, iid_rp=0.4/0.08; xy/yaw/z/joint disabled)
+[FrontRES Segment Sequence Eval Plan] max_preroll_steps=120 ...
+[FrontRES Segment Sequence Eval Progress] sequence=1/2 motion_id=KIT/883/amass_g1_wipe_back_horizontal02_poses_reflect.npz reset_frame=0 preroll_steps=106 eval_steps=120
+[FrontRES Segment Sequence Eval Progress] sequence=2/2 motion_id=CMU/29/amass_g1_29_04_poses_reflect.npz reset_frame=0 preroll_steps=8 eval_steps=120
+perturbation: family_counts={'local_rp': 4} strength_min=1.250000 strength_mean=1.250000 strength_max=1.250000 local_rp_frac=100.0% non_rp_frac=0.0%
+final: success=37.5% fall=62.5% survival=92.6 gain=-0.031203 delta_se_norm=0.095452
+```
+
+Live verdict:
+
+- Verified: launch entered sequence eval, two distinct motion ids were sampled,
+  reset frame stayed 0, eval start frames differed, perturbation was rp-only,
+  action diagnostics stayed visible, and no Python traceback/OOM was found.
+- Weak: per-motion rows are not directly comparable with item/final rows yet.
+  Item/final summarize all 4 role envs, while per-motion rows expose a
+  single-row motion view, so success/fall and `delta_se_norm` can differ by
+  aggregation scope.
+
+### Step 8: Per-Motion Aggregation Scope
+
+Scope:
+
+- Make per-motion rows use the same aggregate scope as the sequence item when
+  all role envs in that item belong to one motion.
+
+Non-scope:
+
+- Do not change rollout, perturbation, score construction, motion capture, or
+  training.
+
+Files:
+
+- Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py`
+- Test: `source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py`
+
+Owner module:
+
+- Module F: Metric Aggregation.
+
+Core parameter path:
+
+`capture done/actions -> item summary -> per-motion row -> final row`.
+
+Test class:
+
+- Core param path.
+
+Command:
+
+```text
+python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+```
+
+Expected result:
+
+- For a same-motion 4-role sequence item, item and per-motion rows report the
+  same success, fall, survival, and `delta_se_norm` values.
+
+Stop condition:
+
+- Contract fails if per-motion rows fall back to single-row role stats.
+
+Status:
+
+- Done on 2026-07-05.
+
+Evidence:
+
+```text
+[probe step8] per_motion_scope_matches_item success=0.250 per_motion_success=0.250 delta=0.489898 per_motion_delta=0.489898
+frontres_segment_sequence_eval_contract: ok
 ```
 
 ## Execution Rule
