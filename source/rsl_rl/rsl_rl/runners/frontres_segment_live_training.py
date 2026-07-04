@@ -269,17 +269,9 @@ def run_frontres_segment_sequence_offline_eval(
                     "eval_start_frame": float(item.eval_start_frame),
                 }
             )
+            summary.update(_offline_eval_perturbation_summary(reset_batch))
             summaries.append(summary)
-            print(
-                "[FrontRES Segment Sequence Eval Item] "
-                f"sequence={item_index}/{plan.sequence_count} "
-                f"motion_id={item.motion_id} "
-                f"success={float(summary.get('success_rate', 0.0)) * 100.0:.1f}% "
-                f"fall={float(summary.get('fall_rate', 0.0)) * 100.0:.1f}% "
-                f"survival={float(summary.get('mean_survival_steps', 0.0)):.1f} "
-                f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f}",
-                flush=True,
-            )
+            print(_format_sequence_eval_item_log(item_index, plan.sequence_count, summary), flush=True)
     finally:
         runner._frontres_segment_live_current_sample = previous_sample
         runner._frontres_segment_live_current_batch = previous_batch
@@ -330,6 +322,51 @@ def _sequence_offline_eval_summary(
         }
     )
     return merged
+
+
+def _format_sequence_eval_item_log(item_index: int, sequence_count: int, summary: Mapping[str, Any]) -> str:
+    return "\n".join(
+        (
+            "[FrontRES Segment Sequence Eval Item]",
+            (
+                "  sequence: "
+                f"{item_index}/{sequence_count} "
+                f"motion_id={summary.get('motion_id', 'unknown')} "
+                f"reset_frame={int(float(summary.get('reset_frame', 0.0)))} "
+                f"preroll_steps={int(float(summary.get('preroll_steps', 0.0)))} "
+                f"eval_start_frame={int(float(summary.get('eval_start_frame', 0.0)))}"
+            ),
+            (
+                "  result: "
+                f"success={float(summary.get('success_rate', 0.0)) * 100.0:.1f}% "
+                f"fall={float(summary.get('fall_rate', 0.0)) * 100.0:.1f}% "
+                f"survival={float(summary.get('mean_survival_steps', 0.0)):.1f}"
+            ),
+            (
+                "  score: "
+                f"noisy={float(summary.get('score_noisy', 0.0)):.6f} "
+                f"repaired={float(summary.get('score_repaired', 0.0)):.6f} "
+                f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f}"
+            ),
+            (
+                "  motion: "
+                f"mpjpe_repaired={float(summary.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
+                f"mpjpe_noisy={float(summary.get('segment/motion_mpjpe_noisy_clean', 0.0)):.6f} "
+                f"vel_err={float(summary.get('segment/motion_vel_error_repaired_clean', 0.0)):.6f} "
+                f"acc_err={float(summary.get('segment/motion_acc_error_repaired_clean', 0.0)):.6f} "
+                f"delta_se_norm={float(summary.get('segment/motion_delta_se_norm', 0.0)):.6f}"
+            ),
+            (
+                "  perturbation: "
+                f"family_counts={summary.get('perturbation_family_counts', {})} "
+                f"strength_min={float(summary.get('perturbation_strength_min', 0.0)):.6f} "
+                f"strength_mean={float(summary.get('perturbation_strength_mean', 0.0)):.6f} "
+                f"strength_max={float(summary.get('perturbation_strength_max', 0.0)):.6f} "
+                f"local_rp_frac={float(summary.get('perturbation_local_rp_frac', 0.0)) * 100.0:.1f}% "
+                f"non_rp_frac={float(summary.get('perturbation_non_rp_frac', 0.0)) * 100.0:.1f}%"
+            ),
+        )
+    )
 
 
 def _format_sequence_offline_eval_log(summary: Mapping[str, Any]) -> str:
@@ -492,6 +529,47 @@ def _offline_eval_summary(capture: Any, *, sample_count: int, motion_ids: tuple[
     if motion_ids:
         summary["per_motion"] = _offline_eval_per_motion_summary(capture, sample_count=sample_count, motion_ids=motion_ids)
     return summary
+
+
+def _offline_eval_perturbation_summary(batch: Any) -> dict[str, Any]:
+    families = tuple(
+        getattr(batch, "stage3_index_perturbation_family", ())
+        or getattr(batch, "perturbation_family", ())
+        or tuple(str(getattr(spec, "perturbation_family", "")) for spec in (getattr(batch, "specs", ()) or ()))
+    )
+    strengths = getattr(batch, "stage3_index_perturbation_strength", None)
+    if strengths is None:
+        strengths = getattr(batch, "perturbation_strength", None)
+    strength_values = _float_values(strengths)
+    local_rp_count = sum(1 for family in families if str(family) == "local_rp")
+    non_rp_count = sum(1 for family in families if str(family) and str(family) != "local_rp")
+    total = max(1, len(families))
+    return {
+        "perturbation_family_counts": _count_items(families),
+        "perturbation_local_rp_frac": float(local_rp_count) / float(total),
+        "perturbation_non_rp_frac": float(non_rp_count) / float(total),
+        "perturbation_strength_min": min(strength_values) if strength_values else 0.0,
+        "perturbation_strength_mean": (sum(strength_values) / float(len(strength_values))) if strength_values else 0.0,
+        "perturbation_strength_max": max(strength_values) if strength_values else 0.0,
+    }
+
+
+def _count_items(values: tuple[Any, ...]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        key = str(value)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _float_values(value: Any) -> list[float]:
+    if value is None:
+        return []
+    if hasattr(value, "detach"):
+        return [float(item) for item in value.detach().float().reshape(-1).cpu().tolist()]
+    if isinstance(value, (list, tuple)):
+        return [float(item) for item in value]
+    return []
 
 
 def _offline_eval_score_summary(capture: Any, *, sample_count: int) -> dict[str, float]:

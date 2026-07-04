@@ -3534,3 +3534,20 @@ Fixed sequence-eval result logging:
   `delta_se_norm`;
 - `frontres_segment_sequence_eval_contract.py` asserts those fields are present
   in the log text.
+
+### Step 7 Result
+
+Fixed sequence-eval item diagnostics and perturbation preservation:
+
+- each `[FrontRES Segment Sequence Eval Item]` now prints a multi-line block
+  with sequence boundary, result, score, motion-quality metrics, and
+  perturbation summary;
+- `build_frontres_sequence_eval_reset_batch(...)` preserves dynamic
+  `stage3_index_perturbation_family`, `stage3_index_perturbation_strength`, and
+  `stage3_index_perturbation_plan` when rewriting dataclass specs to
+  `start_frame=0`;
+- the sequence item log exposes `family_counts`, `strength_min/mean/max`,
+  `local_rp_frac`, and `non_rp_frac`, so a run can prove whether the test is
+  using `local_rp` instead of planar/yaw/z/mixed perturbations;
+- the contract test asserts the frame0 reset batch keeps `local_rp` and the
+  item log prints `local_rp_frac=100.0%`.

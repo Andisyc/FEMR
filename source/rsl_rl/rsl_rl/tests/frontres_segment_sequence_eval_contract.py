@@ -37,6 +37,7 @@ live_training_module = _load(
 )
 run_frontres_segment_sequence_offline_eval = live_training_module.run_frontres_segment_sequence_offline_eval
 format_sequence_offline_eval_log = live_training_module._format_sequence_offline_eval_log
+format_sequence_eval_item_log = live_training_module._format_sequence_eval_item_log
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,11 @@ class FakeSpec:
     motion_id: str
     start_frame: int
     horizon_k: int
+
+
+@dataclass(frozen=True)
+class FakeBatch:
+    specs: tuple[FakeSpec, ...]
 
 
 def test_sequence_eval_prerolls_from_motion_start() -> None:
@@ -129,6 +135,14 @@ def test_sequence_eval_reset_batch_rewrites_start_only() -> None:
     assert batch.specs[0].start_frame == 31
     assert segment_ids_for_sequence_eval_item(item, env_count=8) == (7,) * 8
 
+    dataclass_batch = FakeBatch(specs=(FakeSpec(7, "walk_reset", 31, 4),))
+    object.__setattr__(dataclass_batch, "stage3_index_perturbation_family", ("local_rp",))
+    object.__setattr__(dataclass_batch, "stage3_index_perturbation_strength", torch.tensor([1.25]))
+    reset_dataclass_batch = build_frontres_sequence_eval_reset_batch(dataclass_batch, item)
+    assert reset_dataclass_batch.specs[0].start_frame == 0
+    assert reset_dataclass_batch.stage3_index_perturbation_family == ("local_rp",)
+    assert float(reset_dataclass_batch.stage3_index_perturbation_strength[0]) == 1.25
+
 
 def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
     log = format_sequence_offline_eval_log(
@@ -174,6 +188,38 @@ def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
     assert "vel_err=0.070000" in log
     assert "acc_err=0.090000" in log
     assert "delta_se_norm=0.110000" in log
+
+    item_log = format_sequence_eval_item_log(
+        1,
+        10,
+        {
+            "motion_id": "motion_a",
+            "reset_frame": 0.0,
+            "preroll_steps": 12.0,
+            "eval_start_frame": 12.0,
+            "success_rate": 0.5,
+            "fall_rate": 0.5,
+            "mean_survival_steps": 25.0,
+            "score_noisy": 0.1,
+            "score_repaired": 0.2,
+            "continuous_rollout_gain": 0.1,
+            "segment/motion_mpjpe_repaired_clean": 0.03,
+            "segment/motion_mpjpe_noisy_clean": 0.05,
+            "segment/motion_vel_error_repaired_clean": 0.07,
+            "segment/motion_acc_error_repaired_clean": 0.09,
+            "segment/motion_delta_se_norm": 0.11,
+            "perturbation_family_counts": {"local_rp": 8},
+            "perturbation_strength_min": 1.25,
+            "perturbation_strength_mean": 1.25,
+            "perturbation_strength_max": 1.25,
+            "perturbation_local_rp_frac": 1.0,
+            "perturbation_non_rp_frac": 0.0,
+        },
+    )
+    assert "[FrontRES Segment Sequence Eval Item]" in item_log
+    assert "family_counts={'local_rp': 8}" in item_log
+    assert "local_rp_frac=100.0%" in item_log
+    assert "non_rp_frac=0.0%" in item_log
 
 
 class FakeSampler:
@@ -245,12 +291,21 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
             )
             for segment_id in sample.segment_ids.detach().cpu().tolist()
         )
-        return SimpleNamespace(segment_ids=sample.segment_ids, specs=specs)
+        n = int(sample.segment_ids.numel())
+        return SimpleNamespace(
+            segment_ids=sample.segment_ids,
+            specs=specs,
+            perturbation_family=("index_only",) * n,
+            perturbation_strength=torch.zeros(n),
+            stage3_index_perturbation_family=("local_rp",) * n,
+            stage3_index_perturbation_strength=torch.full((n,), 1.25),
+        )
 
     def fake_apply_current_segment_reset(runner_arg):
         starts = tuple(spec.start_frame for spec in runner_arg._frontres_segment_live_current_batch.specs)
         trace = bool(runner_arg.env._frontres_segment_index_reset_adapter.trace)
-        runner_arg.events.append(("reset", starts, trace))
+        families = tuple(getattr(runner_arg._frontres_segment_live_current_batch, "stage3_index_perturbation_family", ()))
+        runner_arg.events.append(("reset", starts, trace, families))
 
     def fake_read_live_observations(runner_arg):
         runner_arg.events.append(("read_obs", None))
@@ -294,6 +349,7 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
     assert len(reset_events) == 2
     assert all(set(event[1]) == {0} for event in reset_events)
     assert all(event[2] is False for event in reset_events)
+    assert all(set(event[3]) == {"local_rp"} for event in reset_events)
     assert runner.env._frontres_segment_index_reset_adapter.trace is True
     assert rollout_events[0][1:] == (3, (0, 0, 0, 0, 0, 0, 0, 0), False)
     assert rollout_events[1][1:] == (50, (3, 3, 3, 3, 3, 3, 3, 3), True)
@@ -321,7 +377,7 @@ def main() -> None:
         "[probe step24] sequence_eval_live_owner "
         "reset_before_preroll=True preroll_no_capture=True preroll_before_eval=True "
         "eval_capture=True reset_trace_silenced=True role_envs_repeated=True "
-        "max_preroll_routed=True motion_metrics_printed=True",
+        "max_preroll_routed=True motion_metrics_printed=True perturbation_rp_preserved=True",
         flush=True,
     )
     print("frontres_segment_sequence_eval_contract: ok")

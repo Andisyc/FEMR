@@ -125,10 +125,22 @@ def build_frontres_sequence_eval_reset_batch(
         raise ValueError("sequence eval reset batch requires specs")
     reset_specs = tuple(_replace_spec_start_frame(spec, item.reset_frame) for spec in specs)
     if is_dataclass(batch):
-        return replace(batch, specs=reset_specs)
+        reset_batch = replace(batch, specs=reset_specs)
+        _copy_sequence_eval_dynamic_attrs(batch, reset_batch)
+        return reset_batch
     values = dict(vars(batch))
     values["specs"] = reset_specs
     return SimpleNamespace(**values)
+
+
+def _copy_sequence_eval_dynamic_attrs(src: Any, dst: Any) -> None:
+    for name in (
+        "stage3_index_perturbation_family",
+        "stage3_index_perturbation_strength",
+        "stage3_index_perturbation_plan",
+    ):
+        if hasattr(src, name):
+            object.__setattr__(dst, name, getattr(src, name))
 
 
 def _replace_spec_start_frame(spec: Any, start_frame: int) -> Any:

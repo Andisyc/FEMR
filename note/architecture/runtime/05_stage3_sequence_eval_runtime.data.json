@@ -82,11 +82,11 @@
         {
           "id": "FRS3-EVAL-006",
           "title": "Build frame0 reset batch",
-          "role": "Rewrites sampled segment specs to start_frame=0 for reset while preserving original eval item boundaries.",
+          "role": "Rewrites sampled segment specs to start_frame=0 for reset while preserving original eval item boundaries and dynamic Stage 3 perturbation fields.",
           "input": "Eval batch plus sequence eval item.",
           "output": "Reset batch whose specs start from motion frame 0.",
-          "forbidden": "Must not mutate the original eval batch start_frame.",
-          "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py reset batch assertions.",
+          "forbidden": "Must not mutate the original eval batch start_frame or drop stage3_index_perturbation_family/strength.",
+          "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py reset batch assertions keep local_rp.",
           "concept": "C-PLAN"
         }
       ]
@@ -148,11 +148,11 @@
     {
       "id": "FRS3-EVAL-010",
       "title": "Attach sequence metadata",
-      "role": "Adds motion id, reset frame, preroll steps, and eval start frame to each sequence summary.",
+      "role": "Adds motion id, reset frame, preroll steps, eval start frame, and perturbation family/strength summary to each sequence summary.",
       "input": "Scoring-window capture and eval item.",
       "output": "Per-sequence summary with explicit temporal boundaries.",
-      "forbidden": "Must not report segment metrics without the motion-sequence boundary that produced them.",
-      "diagnostic": "code-confirmed: frontres_segment_live_training.py lines 231-245.",
+      "forbidden": "Must not report segment metrics without the motion-sequence boundary or perturbation family that produced them.",
+      "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py perturbation_rp_preserved=True.",
       "concept": "C-METRIC",
       "children": [
         {
@@ -168,10 +168,10 @@
         {
       "id": "FRS3-EVAL-011",
       "title": "Print compact result log",
-      "role": "Emits per-sequence progress/result lines plus final and per-motion success/fall/survival, score gain, MPJPE, velocity error, acceleration error, action norm, and motion ids.",
+      "role": "Emits per-sequence progress/result lines plus item, final, and per-motion success/fall/survival, score gain, MPJPE, velocity error, acceleration error, action norm, perturbation family, and motion ids.",
       "input": "Merged sequence eval summary.",
       "output": "[FrontRES Segment Sequence Eval] log block.",
-      "forbidden": "Must not hide long-running sequence progress, final motion ids, or motion-quality metrics from the training log.",
+      "forbidden": "Must not hide long-running sequence progress, final motion ids, perturbation family, or motion-quality metrics from the training log.",
           "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py prints motion_metrics_printed=True.",
           "concept": "C-METRIC"
         }
