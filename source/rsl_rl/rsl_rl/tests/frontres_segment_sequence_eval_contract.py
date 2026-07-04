@@ -38,6 +38,7 @@ live_training_module = _load(
 run_frontres_segment_sequence_offline_eval = live_training_module.run_frontres_segment_sequence_offline_eval
 format_sequence_offline_eval_log = live_training_module._format_sequence_offline_eval_log
 format_sequence_eval_item_log = live_training_module._format_sequence_eval_item_log
+format_sequence_eval_debug_log = live_training_module._format_sequence_eval_debug_log
 offline_eval_summary = live_training_module._offline_eval_summary
 sequence_offline_eval_summary = live_training_module._sequence_offline_eval_summary
 
@@ -320,6 +321,95 @@ class FakeCapture:
         self.motion_noisy_body_pos = noisy_body
 
 
+def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
+    item = build_frontres_sequence_eval_plan((FakeSpec(5, "debug_motion", 7, 4),), requested_sequences=1).items[0]
+    batch = SimpleNamespace(
+        segment_ids=torch.tensor([5, 5, 5, 5]),
+        specs=(FakeSpec(5, "debug_motion", 7, 4),) * 4,
+        perturbation_family=("index_only",) * 4,
+        perturbation_strength=torch.zeros(4),
+        stage3_index_perturbation_family=("local_rp",) * 4,
+        stage3_index_perturbation_strength=torch.full((4,), 1.25),
+    )
+    batch.stage3_index_perturbation_plan = SimpleNamespace(
+        perturbation_family=("local_rp",) * 4,
+        perturbation_strength=torch.full((4,), 1.25),
+        active_modes=("local_rp",),
+        complexity="single",
+        mix_mode="fixed",
+        mix_diag={"frontier_scale": 1.25},
+        progress=0.5,
+        seq_idx=17,
+    )
+    reset_batch = build_frontres_sequence_eval_reset_batch(batch, item)
+    capture = FakeCapture(rollout_k=50, sequence_id=2)
+    capture.env_actions = torch.full((4, 12), 0.05)
+    capture.transition_log_probs = torch.linspace(-0.3, -0.1, 4)
+    capture.transition_values = torch.linspace(0.1, 0.4, 4)
+    capture.transition_means = torch.full((4, 6), 0.02)
+    capture.transition_sigmas = torch.full((4, 6), 0.5)
+    summary = offline_eval_summary(
+        capture,
+        sample_count=4,
+        motion_ids=("debug_motion", "debug_motion", "debug_motion", "debug_motion"),
+    )
+    summary.update(
+        {
+            "motion_id": "debug_motion",
+            "reset_frame": 0.0,
+            "preroll_steps": 7.0,
+            "eval_start_frame": 7.0,
+        }
+    )
+    summary.update(live_training_module._offline_eval_perturbation_summary(reset_batch))
+    reset_request = SimpleNamespace(
+        segment_ids=batch.segment_ids,
+        motion_ids=("debug_motion",) * 4,
+        start_frames=torch.zeros(4, dtype=torch.long),
+        horizon_k=torch.full((4,), 4),
+        perturbation_family=("local_rp",) * 4,
+        perturbation_strength=torch.full((4,), 1.25),
+        valid_mask=torch.ones(4, dtype=torch.bool),
+    )
+    reset_result = SimpleNamespace(
+        success_mask=torch.ones(4, dtype=torch.bool),
+        direct_reset_mask=torch.ones(4, dtype=torch.bool),
+        preroll_mask=torch.zeros(4, dtype=torch.bool),
+        velocity_mismatch=torch.zeros(4),
+    )
+    log = format_sequence_eval_debug_log(
+        item_index=1,
+        sequence_count=1,
+        item=item,
+        eval_batch=batch,
+        reset_batch=reset_batch,
+        capture=capture,
+        summary=summary,
+        scoring_observations=torch.zeros(4, 29),
+        reset_request=reset_request,
+        reset_result=reset_result,
+    )
+    for marker in (
+        "[FrontRES Segment Sequence Eval Debug]",
+        "eval_batch:",
+        "reset_batch:",
+        "stage3_plan=",
+        "reset_request:",
+        "reset_result:",
+        "capture_shapes:",
+        "capture_reward_pairs:",
+        "raw_policy_action:",
+        "segment_transition_actions:",
+        "transition_log_probs:",
+        "motion_clean_body_pos:",
+        "motion_role_errors:",
+        "local_rp",
+        "summary:",
+    ):
+        assert marker in log
+    print("[probe step9] sequence_eval_debug_log_covers_runtime_parameters=True", flush=True)
+
+
 def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
     runner = FakeRunner()
 
@@ -540,6 +630,7 @@ def main() -> None:
     test_sequence_eval_can_cap_smoke_preroll_depth()
     test_sequence_eval_reset_batch_rewrites_start_only()
     test_sequence_eval_log_prints_motion_quality_metrics()
+    test_sequence_eval_debug_log_prints_key_runtime_parameters()
     test_sequence_offline_eval_owner_orders_reset_preroll_eval()
     test_sequence_eval_all_fall_keeps_action_diagnostics_in_summaries()
     test_sequence_eval_per_motion_uses_item_scope_for_repeated_motion_roles()

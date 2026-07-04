@@ -691,6 +691,62 @@ Evidence:
 frontres_segment_sequence_eval_contract: ok
 ```
 
+### Step 9: Sequence Eval Runtime Debug Block
+
+Scope:
+
+- Print enough runtime parameters after each sequence eval item to diagnose
+  policy output, rp perturbation routing, reset/preroll frame identity, reward
+  pairing, action magnitude, role masks, and motion-quality metrics from one
+  live log.
+
+Non-scope:
+
+- Do not change rollout, policy, perturbation sampling, score construction,
+  motion capture, aggregation math, training, or checkpoint behavior.
+
+Files:
+
+- Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py`
+- Test: `source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py`
+
+Owner module:
+
+- Module E/F: Rollout State Isolation and Metric Aggregation.
+
+Core parameter path:
+
+`plan/reset batch -> reset request/result -> scoring obs -> capture action/reward/motion tensors -> item summary`.
+
+Test class:
+
+- Live sentinel path with contract coverage for printed parameter categories.
+
+Command:
+
+```text
+python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+```
+
+Expected result:
+
+- Each sequence item prints `[FrontRES Segment Sequence Eval Debug]` with
+  plan, eval/reset batch, reset request/result, observation shape/value summary,
+  capture roles/shapes, reward pairs, done/survival, action rows, transition
+  distribution tensors, motion tensors, per-role motion errors, and summary.
+
+Status:
+
+- Done on 2026-07-05.
+
+Evidence:
+
+```text
+[probe step9] sequence_eval_debug_log_covers_runtime_parameters=True
+frontres_segment_sequence_eval_contract: ok
+```
+
 ## Execution Rule
 
 Execute only one step at a time.  After each step:

@@ -272,6 +272,21 @@ def run_frontres_segment_sequence_offline_eval(
             summary.update(_offline_eval_perturbation_summary(reset_batch))
             summaries.append(summary)
             print(_format_sequence_eval_item_log(item_index, plan.sequence_count, summary), flush=True)
+            print(
+                _format_sequence_eval_debug_log(
+                    item_index=item_index,
+                    sequence_count=plan.sequence_count,
+                    item=item,
+                    eval_batch=eval_batch,
+                    reset_batch=reset_batch,
+                    capture=capture,
+                    summary=summary,
+                    scoring_observations=observations,
+                    reset_request=getattr(runner, "_frontres_segment_live_current_reset_request", None),
+                    reset_result=getattr(runner, "_frontres_segment_live_current_reset_result", None),
+                ),
+                flush=True,
+            )
     finally:
         runner._frontres_segment_live_current_sample = previous_sample
         runner._frontres_segment_live_current_batch = previous_batch
@@ -322,6 +337,314 @@ def _sequence_offline_eval_summary(
         }
     )
     return merged
+
+
+def _format_sequence_eval_debug_log(
+    *,
+    item_index: int,
+    sequence_count: int,
+    item: Any,
+    eval_batch: Any,
+    reset_batch: Any,
+    capture: Any,
+    summary: Mapping[str, Any],
+    scoring_observations: Any,
+    reset_request: Any,
+    reset_result: Any,
+) -> str:
+    lines = [
+        "[FrontRES Segment Sequence Eval Debug]",
+        (
+            "  plan: "
+            f"sequence={item_index}/{sequence_count} "
+            f"segment_id={getattr(item, 'segment_id', 'missing')} "
+            f"motion_id={getattr(item, 'motion_id', 'missing')} "
+            f"reset_frame={getattr(item, 'reset_frame', 'missing')} "
+            f"preroll_steps={getattr(item, 'preroll_steps', 'missing')} "
+            f"eval_start_frame={getattr(item, 'eval_start_frame', 'missing')} "
+            f"eval_steps={getattr(item, 'eval_rollout_steps', 'missing')} "
+            f"horizon_k={getattr(item, 'segment_horizon_k', 'missing')}"
+        ),
+        f"  eval_batch: {_sequence_debug_batch(eval_batch)}",
+        f"  reset_batch: {_sequence_debug_batch(reset_batch)}",
+        f"  reset_request: {_sequence_debug_reset_request(reset_request)}",
+        f"  reset_result: {_sequence_debug_reset_result(reset_result)}",
+        f"  scoring_observations: {_sequence_debug_value(scoring_observations, max_items=8)}",
+        (
+            "  capture_roles: "
+            f"rollout_k={getattr(capture, 'rollout_k', 'missing')} "
+            f"n_train={getattr(capture, 'n_train', 'missing')} "
+            f"n_candidate={getattr(capture, 'n_candidate', 'missing')} "
+            f"n_base={getattr(capture, 'n_base', 'missing')} "
+            f"n_clean={getattr(capture, 'n_clean', 'missing')}"
+        ),
+        (
+            "  capture_shapes: "
+            f"last_obs_shape={getattr(capture, 'last_obs_shape', 'missing')} "
+            f"policy_action_shape={getattr(capture, 'action_shape', 'missing')} "
+            f"env_action_shape={getattr(capture, 'env_action_shape', 'missing')} "
+            f"reward_mean={float(getattr(capture, 'reward_mean', 0.0)):.6f} "
+            f"done_frac={float(getattr(capture, 'done_frac', 0.0)):.6f}"
+        ),
+        f"  capture_reward_accum: {_sequence_debug_value(getattr(capture, 'reward_accum', None))}",
+        f"  capture_reward_pairs: {_sequence_debug_reward_pairs(capture)}",
+        f"  capture_done_any: {_sequence_debug_value(getattr(capture, 'done_any', None))}",
+        f"  capture_survival_steps: {_sequence_debug_value(getattr(capture, 'survival_steps', None))}",
+        f"  capture_actor_update_mask: {_sequence_debug_value(getattr(capture, 'actor_update_mask', None))}",
+        f"  raw_policy_action: {_sequence_debug_value(getattr(capture, 'env_actions', None))}",
+        f"  segment_transition_actions: {_sequence_debug_actions(getattr(capture, 'transition_actions', None), capture)}",
+        f"  transition_log_probs: {_sequence_debug_value(getattr(capture, 'transition_log_probs', None))}",
+        f"  transition_values: {_sequence_debug_value(getattr(capture, 'transition_values', None))}",
+        f"  transition_means: {_sequence_debug_value(getattr(capture, 'transition_means', None))}",
+        f"  transition_sigmas: {_sequence_debug_value(getattr(capture, 'transition_sigmas', None))}",
+        f"  transition_obs: {_sequence_debug_value(getattr(capture, 'transition_obs', None), max_items=8)}",
+        f"  transition_privileged_obs: {_sequence_debug_value(getattr(capture, 'transition_privileged_obs', None), max_items=8)}",
+        f"  motion_clean_body_pos: {_sequence_debug_value(getattr(capture, 'motion_clean_body_pos', None), max_items=8)}",
+        f"  motion_repaired_body_pos: {_sequence_debug_value(getattr(capture, 'motion_repaired_body_pos', None), max_items=8)}",
+        f"  motion_noisy_body_pos: {_sequence_debug_value(getattr(capture, 'motion_noisy_body_pos', None), max_items=8)}",
+        f"  motion_role_errors: {_sequence_debug_motion_errors(capture)}",
+        (
+            "  summary: "
+            f"success={float(summary.get('success_rate', 0.0)):.6f} "
+            f"fall={float(summary.get('fall_rate', 0.0)):.6f} "
+            f"survival={float(summary.get('mean_survival_steps', 0.0)):.6f} "
+            f"score_noisy={float(summary.get('score_noisy', 0.0)):.6f} "
+            f"score_repaired={float(summary.get('score_repaired', 0.0)):.6f} "
+            f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f} "
+            f"mpjpe_repaired={float(summary.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
+            f"mpjpe_noisy={float(summary.get('segment/motion_mpjpe_noisy_clean', 0.0)):.6f} "
+            f"delta_se_norm={float(summary.get('segment/motion_delta_se_norm', 0.0)):.6f}"
+        ),
+    ]
+    return "\n".join(lines)
+
+
+def _sequence_debug_batch(batch: Any) -> str:
+    if batch is None:
+        return "missing"
+    specs = tuple(getattr(batch, "specs", ()) or ())
+    spec_rows = [
+        {
+            "segment_id": int(getattr(spec, "segment_id", -1)),
+            "motion_id": str(getattr(spec, "motion_id", "")),
+            "start_frame": int(getattr(spec, "start_frame", -1)),
+            "horizon_k": int(getattr(spec, "horizon_k", -1)),
+        }
+        for spec in specs[:8]
+    ]
+    plan = getattr(batch, "stage3_index_perturbation_plan", None)
+    return (
+        f"segment_ids={_sequence_debug_value(getattr(batch, 'segment_ids', None))} "
+        f"specs_head={spec_rows} "
+        f"perturbation_family={tuple(getattr(batch, 'perturbation_family', ()) or ())[:8]} "
+        f"perturbation_strength={_sequence_debug_value(getattr(batch, 'perturbation_strength', None))} "
+        f"stage3_family={tuple(getattr(batch, 'stage3_index_perturbation_family', ()) or ())[:8]} "
+        f"stage3_strength={_sequence_debug_value(getattr(batch, 'stage3_index_perturbation_strength', None))} "
+        f"stage3_plan={_sequence_debug_plan(plan)}"
+    )
+
+
+def _sequence_debug_plan(plan: Any) -> str:
+    if plan is None:
+        return "missing"
+    return (
+        f"family={tuple(getattr(plan, 'perturbation_family', ()) or ())[:8]} "
+        f"strength={_sequence_debug_value(getattr(plan, 'perturbation_strength', None))} "
+        f"active_modes={tuple(getattr(plan, 'active_modes', ()) or ())} "
+        f"complexity={getattr(plan, 'complexity', 'missing')} "
+        f"mix_mode={getattr(plan, 'mix_mode', 'missing')} "
+        f"progress={float(getattr(plan, 'progress', 0.0)):.6f} "
+        f"seq_idx={int(getattr(plan, 'seq_idx', -1))} "
+        f"mix_diag={dict(getattr(plan, 'mix_diag', {}) or {})}"
+    )
+
+
+def _sequence_debug_reset_request(request: Any) -> str:
+    if request is None:
+        return "missing"
+    return (
+        f"segment_ids={_sequence_debug_value(getattr(request, 'segment_ids', None))} "
+        f"motion_ids={tuple(getattr(request, 'motion_ids', ()) or ())[:8]} "
+        f"start_frames={_sequence_debug_value(getattr(request, 'start_frames', None))} "
+        f"horizon_k={_sequence_debug_value(getattr(request, 'horizon_k', None))} "
+        f"perturbation_family={tuple(getattr(request, 'perturbation_family', ()) or ())[:8]} "
+        f"perturbation_strength={_sequence_debug_value(getattr(request, 'perturbation_strength', None))} "
+        f"valid_mask={_sequence_debug_value(getattr(request, 'valid_mask', None))}"
+    )
+
+
+def _sequence_debug_reset_result(result: Any) -> str:
+    if result is None:
+        return "missing"
+    return (
+        f"success_mask={_sequence_debug_value(getattr(result, 'success_mask', None))} "
+        f"direct_reset_mask={_sequence_debug_value(getattr(result, 'direct_reset_mask', None))} "
+        f"preroll_mask={_sequence_debug_value(getattr(result, 'preroll_mask', None))} "
+        f"velocity_mismatch={_sequence_debug_value(getattr(result, 'velocity_mismatch', None))}"
+    )
+
+
+def _sequence_debug_actions(value: Any, capture: Any) -> str:
+    if not hasattr(value, "detach"):
+        return _sequence_debug_value(value)
+    tensor = value.detach().float().cpu()
+    rows = []
+    if tensor.ndim >= 2:
+        labels = _sequence_role_labels(capture, int(tensor.shape[0]))
+        flat = tensor.reshape(tensor.shape[0], -1)
+        for index in range(min(int(flat.shape[0]), 8)):
+            vec = flat[index, : min(int(flat.shape[1]), 6)]
+            rows.append(
+                {
+                    "role": labels[index],
+                    "delta": _round_list(vec.tolist()),
+                    "pos_norm": _round_float(vec[:3].norm().item()) if vec.numel() >= 3 else 0.0,
+                    "rpy_norm": _round_float(vec[3:6].norm().item()) if vec.numel() >= 6 else 0.0,
+                }
+            )
+    return f"{_sequence_debug_value(value)} rows={rows}"
+
+
+def _sequence_debug_reward_pairs(capture: Any) -> list[dict[str, float | int | bool]]:
+    reward = getattr(capture, "reward_accum", None)
+    if not hasattr(reward, "detach"):
+        return []
+    reward_per_step = reward.detach().float().reshape(-1).cpu() / float(max(1, int(getattr(capture, "rollout_k", 1))))
+    n_train = max(0, int(getattr(capture, "n_train", 0)))
+    n_base = max(0, int(getattr(capture, "n_base", 0)))
+    base_start = n_train + max(0, int(getattr(capture, "n_candidate", 0)))
+    n = min(n_train, n_base, max(0, int(reward_per_step.numel()) - base_start))
+    done = getattr(capture, "done_any", None)
+    survival = getattr(capture, "survival_steps", None)
+    done_flat = done.detach().bool().reshape(-1).cpu() if hasattr(done, "detach") else None
+    survival_flat = survival.detach().float().reshape(-1).cpu() if hasattr(survival, "detach") else None
+    rows = []
+    for index in range(min(n, 8)):
+        repaired = float(reward_per_step[index].item())
+        noisy = float(reward_per_step[base_start + index].item())
+        rows.append(
+            {
+                "index": index,
+                "repaired": _round_float(repaired),
+                "noisy": _round_float(noisy),
+                "gain": _round_float(repaired - noisy),
+                "done": bool(done_flat[index].item()) if done_flat is not None and index < done_flat.numel() else False,
+                "survival": (
+                    _round_float(float(survival_flat[index].item()))
+                    if survival_flat is not None and index < survival_flat.numel()
+                    else 0.0
+                ),
+            }
+        )
+    return rows
+
+
+def _sequence_debug_motion_errors(capture: Any) -> list[dict[str, float | int | str]]:
+    clean = getattr(capture, "motion_clean_body_pos", None)
+    repaired = getattr(capture, "motion_repaired_body_pos", None)
+    noisy = getattr(capture, "motion_noisy_body_pos", None)
+    repaired_err = _sequence_role_l2_mean(repaired, clean)
+    noisy_err = _sequence_role_l2_mean(noisy, clean)
+    if not repaired_err and not noisy_err:
+        return []
+    count = max(len(repaired_err), len(noisy_err))
+    labels = _sequence_role_labels(capture, count)
+    rows = []
+    for index in range(min(count, 8)):
+        rep = repaired_err[index] if index < len(repaired_err) else 0.0
+        noi = noisy_err[index] if index < len(noisy_err) else 0.0
+        rows.append(
+            {
+                "role": labels[index],
+                "repaired_mpjpe": _round_float(rep),
+                "noisy_mpjpe": _round_float(noi),
+                "repair_delta": _round_float(rep - noi),
+            }
+        )
+    return rows
+
+
+def _sequence_role_l2_mean(value: Any, reference: Any) -> list[float]:
+    if not (hasattr(value, "detach") and hasattr(reference, "detach")):
+        return []
+    lhs = value.detach().float().cpu()
+    rhs = reference.detach().float().cpu()
+    if tuple(lhs.shape) != tuple(rhs.shape) or lhs.ndim == 0:
+        return []
+    diff = lhs - rhs
+    if diff.ndim >= 2 and int(diff.shape[-1]) in (2, 3, 4, 6):
+        diff = diff.norm(dim=-1)
+    else:
+        diff = diff.abs()
+    if diff.ndim == 1:
+        per_role = diff
+    else:
+        per_role = diff.reshape(diff.shape[0], -1).mean(dim=1)
+    return [float(item) for item in per_role.tolist()]
+
+
+def _sequence_role_labels(capture: Any, count: int) -> list[str]:
+    sizes = (
+        ("train", max(0, int(getattr(capture, "n_train", 0)))),
+        ("candidate", max(0, int(getattr(capture, "n_candidate", 0)))),
+        ("base", max(0, int(getattr(capture, "n_base", 0)))),
+        ("clean", max(0, int(getattr(capture, "n_clean", 0)))),
+    )
+    labels = []
+    for name, size in sizes:
+        labels.extend(f"{name}{index}" for index in range(size))
+    labels.extend(f"env{index}" for index in range(len(labels), count))
+    return labels[:count]
+
+
+def _sequence_debug_value(value: Any, *, max_items: int = 16) -> str:
+    if value is None:
+        return "missing"
+    if hasattr(value, "detach"):
+        tensor = value.detach().cpu()
+        shape = tuple(tensor.shape)
+        dtype = str(tensor.dtype)
+        flat = tensor.reshape(-1)
+        head = _round_list(flat[:max_items].tolist())
+        if flat.numel() == 0:
+            return f"shape={shape} dtype={dtype} empty=True"
+        flat_float = flat.float()
+        finite_frac = float(torch_isfinite(flat_float).float().mean().item())
+        return (
+            f"shape={shape} dtype={dtype} finite_frac={finite_frac:.3f} "
+            f"min={float(flat_float.min().item()):.6f} "
+            f"max={float(flat_float.max().item()):.6f} "
+            f"mean={float(flat_float.mean().item()):.6f} "
+            f"head={head}"
+        )
+    if isinstance(value, Mapping):
+        return f"mapping_keys={tuple(value.keys())[:max_items]}"
+    if isinstance(value, (list, tuple)):
+        return repr(tuple(value[:max_items]))
+    text = repr(value)
+    return text if len(text) <= 240 else text[:237] + "..."
+
+
+def torch_isfinite(value: Any) -> Any:
+    import torch
+
+    return torch.isfinite(value)
+
+
+def _round_list(values: Any) -> list[Any]:
+    rounded = []
+    for value in values:
+        if isinstance(value, float):
+            rounded.append(_round_float(value))
+        elif isinstance(value, (list, tuple)):
+            rounded.append(_round_list(value))
+        else:
+            rounded.append(value)
+    return rounded
+
+
+def _round_float(value: float) -> float:
+    return round(float(value), 6)
 
 
 def _format_sequence_eval_item_log(item_index: int, sequence_count: int, summary: Mapping[str, Any]) -> str:
