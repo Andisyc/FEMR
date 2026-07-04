@@ -235,6 +235,12 @@ parser.add_argument(
     help="For Stage 3 only: load a checkpoint, sample Stage 1 segments, run eval rollout metrics, then exit.",
 )
 parser.add_argument(
+    "--frontres_segment_sequence_offline_eval_only",
+    action="store_true",
+    default=False,
+    help="For Stage 3 only: evaluate unique motion sequences from frame 0 through sampled segment starts, then exit.",
+)
+parser.add_argument(
     "--frontres_segment_live_update_steps",
     type=int,
     default=4,
@@ -257,6 +263,12 @@ parser.add_argument(
     type=int,
     default=8,
     help="For Stage 3 only: number of sampled Stage 1 segments for --frontres_segment_offline_eval_only.",
+)
+parser.add_argument(
+    "--frontres_segment_sequence_eval_sequences",
+    type=int,
+    default=10,
+    help="For Stage 3 only: number of unique motion sequences for --frontres_segment_sequence_offline_eval_only.",
 )
 parser.add_argument(
     "--frontres_segment_offline_eval_steps",
@@ -668,6 +680,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     live_single_update_arg = bool(getattr(args_cli, "frontres_segment_live_single_update_only", False))
     live_update_loop_arg = bool(getattr(args_cli, "frontres_segment_live_update_loop_only", False))
     offline_eval_arg = bool(getattr(args_cli, "frontres_segment_offline_eval_only", False))
+    sequence_eval_arg = bool(getattr(args_cli, "frontres_segment_sequence_offline_eval_only", False))
     if (
         live_sentinel_arg
         or live_probe_arg
@@ -675,6 +688,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         or live_single_update_arg
         or live_update_loop_arg
         or offline_eval_arg
+        or sequence_eval_arg
     ) and stage != "stage3_segment_hrl":
         raise ValueError("Stage 3 live sentinel/probe/storage/update flags require --frontres_stage stage3_segment_hrl.")
     if stage is None:
@@ -748,6 +762,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         live_single_update_only = live_single_update_arg
         live_update_loop_only = live_update_loop_arg
         offline_eval_only = offline_eval_arg
+        sequence_eval_only = sequence_eval_arg
         live_update_steps = max(1, int(getattr(args_cli, "frontres_segment_live_update_steps", 4)))
         live_train_enabled = not (
             live_sentinel_only
@@ -756,15 +771,32 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             or live_single_update_only
             or live_update_loop_only
             or offline_eval_only
+            or sequence_eval_only
         )
-        if sum((live_sentinel_only, live_probe_only, live_storage_only, live_single_update_only, live_update_loop_only, offline_eval_only)) > 1:
+        if sum((
+            live_sentinel_only,
+            live_probe_only,
+            live_storage_only,
+            live_single_update_only,
+            live_update_loop_only,
+            offline_eval_only,
+            sequence_eval_only,
+        )) > 1:
             raise ValueError(
                 "Use only one of --frontres_segment_live_sentinel_only, "
                 "--frontres_segment_live_probe_only, --frontres_segment_live_storage_write_only, "
                 "--frontres_segment_live_single_update_only, --frontres_segment_live_update_loop_only, "
-                "or --frontres_segment_offline_eval_only."
+                "--frontres_segment_offline_eval_only, or --frontres_segment_sequence_offline_eval_only."
             )
-        if live_sentinel_only or live_probe_only or live_storage_only or live_single_update_only or live_update_loop_only or offline_eval_only:
+        if (
+            live_sentinel_only
+            or live_probe_only
+            or live_storage_only
+            or live_single_update_only
+            or live_update_loop_only
+            or offline_eval_only
+            or sequence_eval_only
+        ):
             agent_cfg.max_iterations = 0
         _set_if_present(alg_cfg, "frontres_training_objective", "segment_replay_hrl")
         _set_if_present(alg_cfg, "frontres_segment_replay_enabled", True)
@@ -778,6 +810,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
                 or live_single_update_only
                 or live_update_loop_only
                 or offline_eval_only
+                or sequence_eval_only
                 or live_train_enabled
             ),
         )
@@ -787,6 +820,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_segment_live_single_update_only", live_single_update_only)
         _set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", live_update_loop_only)
         _set_if_present(alg_cfg, "frontres_segment_offline_eval_only", offline_eval_only)
+        _set_if_present(alg_cfg, "frontres_segment_sequence_offline_eval_only", sequence_eval_only)
         _set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)
         _set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)
         _set_if_present(
@@ -837,6 +871,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         f"segment_storage={getattr(alg_cfg, 'frontres_segment_live_storage_write_only', 'n/a')}, "
         f"segment_single_update={getattr(alg_cfg, 'frontres_segment_live_single_update_only', 'n/a')}, "
         f"segment_update_loop={getattr(alg_cfg, 'frontres_segment_live_update_loop_only', 'n/a')}, "
+        f"segment_sequence_eval={getattr(alg_cfg, 'frontres_segment_sequence_offline_eval_only', 'n/a')}, "
         f"segment_train={getattr(alg_cfg, 'frontres_segment_live_train_enabled', 'n/a')}, "
         f"segment_update_steps={getattr(alg_cfg, 'frontres_segment_live_update_steps', 'n/a')}, "
         f"segment_k={getattr(alg_cfg, 'frontres_segment_k', 'n/a')}, "
@@ -1291,6 +1326,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if args_cli.frontres_segment_offline_eval_only:
         runner.run_frontres_segment_offline_eval(
             num_eval_segments=max(1, int(getattr(args_cli, "frontres_segment_offline_eval_segments", 8))),
+            rollout_steps=max(1, int(getattr(args_cli, "frontres_segment_offline_eval_steps", 500))),
+        )
+        env.close()
+        return
+
+    if args_cli.frontres_segment_sequence_offline_eval_only:
+        runner.run_frontres_segment_sequence_offline_eval(
+            num_eval_sequences=max(1, int(getattr(args_cli, "frontres_segment_sequence_eval_sequences", 10))),
             rollout_steps=max(1, int(getattr(args_cli, "frontres_segment_offline_eval_steps", 500))),
         )
         env.close()

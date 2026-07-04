@@ -505,6 +505,12 @@ frontres_segment_stage1_env_hooks.py
   frames into command env-motion indices/time steps before the live K-step
   Segment Replay rollout.
 
+frontres_segment_sequence_eval.py
+  owns the pure sequence-eval plan contract for Stage 3 offline evaluation:
+  sampled segments are grouped by unique motion id, reset starts at motion
+  frame 0, preroll advances to the sampled segment start frame, and metrics
+  start only after that boundary.
+
 frontres_segment_sampler.py
   owns PLR-style segment sampling, priority, solved/hopeless flags, and state
   dict persistence
@@ -533,6 +539,9 @@ batch, `frontres_segment_live_probe.py` owns reset + K-step rollout + storage
 write, and sampler evidence is converted back into PLR priority after the probe
 summary is available.  This keeps runner orchestration as a connector instead of
 moving sampling, reset, reward, storage, and priority logic into one file.
+`frontres_segment_live_training.py` owns the offline/periodic evaluation entry
+points; its sequence-eval owner is exposed only through the explicit
+`sequence_eval` Stage 3 mode and remains outside default training.
 
 ### New Helpers Needed
 

@@ -15,6 +15,7 @@ SENTINEL_FLAGS = {
     "storage": "--frontres_segment_live_storage_write_only",
     "single_update": "--frontres_segment_live_single_update_only",
     "update_loop": "--frontres_segment_live_update_loop_only",
+    "sequence_eval": "--frontres_segment_sequence_offline_eval_only",
 }
 
 
@@ -63,6 +64,7 @@ def _probe(name: str, command: str) -> None:
         f"is_full_resume_false={'--is_full_resume False' in command} "
         f"update_steps_3={'--frontres_segment_live_update_steps 3' in command} "
         f"update_loop={'--frontres_segment_live_update_loop_only' in command} "
+        f"sequence_eval={'--frontres_segment_sequence_offline_eval_only' in command} "
         f"legacy_stage2={'stage2_acceptance' in command} "
         f"mosaic_path={'/MOSAIC/' in command}",
         flush=True,
@@ -81,6 +83,7 @@ def test_stage3_train_launch_preflight_builds_femr_command() -> None:
     assert "--is_full_resume False" in command
     assert "--frontres_segment_live_update_steps 3" in command
     assert "--frontres_segment_live_update_loop_only" not in command
+    assert "--frontres_segment_sequence_offline_eval_only" not in command
     assert "stage2_acceptance" not in command
     assert "/MOSAIC/" not in command
 
@@ -98,6 +101,8 @@ def test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel() ->
         for other_flag in SENTINEL_FLAGS.values():
             if other_flag != expected_flag:
                 assert other_flag not in command
+        if mode == "sequence_eval":
+            assert "--frontres_segment_sequence_eval_sequences 10" in command
 
 
 def test_stage3_launch_rejects_unknown_mode_before_training() -> None:

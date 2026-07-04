@@ -38,6 +38,7 @@ from rsl_rl.runners.frontres_segment_live_update_loop import (
 from rsl_rl.runners.frontres_segment_live_sampler import initialize_frontres_segment_live_sampler
 from rsl_rl.runners.frontres_segment_live_training import (
     run_frontres_segment_offline_eval as run_frontres_segment_offline_eval_helper,
+    run_frontres_segment_sequence_offline_eval as run_frontres_segment_sequence_offline_eval_helper,
     run_frontres_segment_live_training_loop,
     run_frontres_segment_periodic_eval as run_frontres_segment_periodic_eval_helper,
 )
@@ -714,6 +715,18 @@ class OnPolicyRunner:
         return run_frontres_segment_offline_eval_helper(
             self,
             num_eval_segments=num_eval_segments,
+            rollout_steps=rollout_steps,
+        )
+
+    def run_frontres_segment_sequence_offline_eval(
+        self,
+        *,
+        num_eval_sequences: int,
+        rollout_steps: int,
+    ) -> dict[str, float]:
+        return run_frontres_segment_sequence_offline_eval_helper(
+            self,
+            num_eval_sequences=num_eval_sequences,
             rollout_steps=rollout_steps,
         )
 

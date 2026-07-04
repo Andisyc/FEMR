@@ -6,6 +6,7 @@ import importlib.util
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 _DIAGNOSTICS_SPEC = importlib.util.spec_from_file_location(
@@ -119,7 +120,9 @@ def run_frontres_segment_offline_eval(
         )
     sample = sampler.sample(env_count)
     runner._frontres_segment_live_current_sample = sample
-    from rsl_rl.runners.frontres_segment_live_sampler import _build_current_segment_batch
+    batch_builder = globals().get("_build_current_segment_batch")
+    if batch_builder is None:
+        from rsl_rl.runners.frontres_segment_live_sampler import _build_current_segment_batch as batch_builder
 
     try:
         batch = _build_current_segment_batch(runner, sample, update_step=0, print_probe=True)
@@ -144,6 +147,166 @@ def run_frontres_segment_offline_eval(
         flush=True,
     )
     return summary
+
+
+def run_frontres_segment_sequence_offline_eval(
+    runner: Any,
+    *,
+    num_eval_sequences: int,
+    rollout_steps: int,
+) -> dict[str, Any]:
+    sampler = getattr(runner, "_frontres_segment_sampler", None)
+    if sampler is None:
+        raise RuntimeError("sequence offline eval requires initialized FrontRES Segment sampler")
+    import torch
+
+    env_count = max(1, int(getattr(runner.env, "num_envs", num_eval_sequences)))
+    requested_count = max(1, int(num_eval_sequences))
+
+    batch_builder = globals().get("_build_current_segment_batch")
+    if batch_builder is None:
+        from rsl_rl.runners.frontres_segment_live_sampler import _build_current_segment_batch as batch_builder
+    sequence_plan_builder = globals().get("build_frontres_sequence_eval_plan")
+    sequence_reset_batch_builder = globals().get("build_frontres_sequence_eval_reset_batch")
+    sequence_item_segment_ids = globals().get("segment_ids_for_sequence_eval_item")
+    if sequence_plan_builder is None or sequence_reset_batch_builder is None or sequence_item_segment_ids is None:
+        from rsl_rl.runners.frontres_segment_sequence_eval import (
+            build_frontres_sequence_eval_plan as sequence_plan_builder,
+            build_frontres_sequence_eval_reset_batch as sequence_reset_batch_builder,
+            segment_ids_for_sequence_eval_item as sequence_item_segment_ids,
+        )
+
+    specs: list[Any] = []
+    sample_size = max(env_count, requested_count)
+    for _ in range(max(4, requested_count * 4)):
+        sample = sampler.sample(sample_size)
+        batch = batch_builder(runner, sample, update_step=0, print_probe=False)
+        specs.extend(tuple(getattr(batch, "specs", ()) or ()))
+        unique = {str(getattr(spec, "motion_id", "")) for spec in specs}
+        unique.discard("")
+        if len(unique) >= requested_count:
+            break
+
+    plan = sequence_plan_builder(
+        specs,
+        requested_sequences=requested_count,
+        available_envs=env_count,
+        eval_rollout_steps=max(1, int(rollout_steps)),
+    )
+    summaries: list[dict[str, Any]] = []
+    previous_sample = getattr(runner, "_frontres_segment_live_current_sample", None)
+    previous_batch = getattr(runner, "_frontres_segment_live_current_batch", None)
+    try:
+        for item in plan.items:
+            segment_ids = torch.tensor(
+                sequence_item_segment_ids(item, env_count=env_count),
+                dtype=torch.long,
+                device=getattr(runner, "device", "cpu"),
+            )
+            sample = SimpleNamespace(segment_ids=segment_ids)
+            eval_batch = batch_builder(runner, sample, update_step=0, print_probe=False)
+            reset_batch = sequence_reset_batch_builder(eval_batch, item)
+            runner._frontres_segment_live_current_sample = sample
+            runner._frontres_segment_live_current_batch = reset_batch
+            with _temporary_eval_detail_silence(runner):
+                _apply_current_segment_reset(runner)
+                observations = _read_live_observations(runner)
+                runner.eval_mode()
+                if item.preroll_steps > 0:
+                    _run_live_rollout_capture(runner, observations, rollout_steps=item.preroll_steps)
+                    observations = _read_live_observations(runner)
+                runner._frontres_segment_live_current_batch = eval_batch
+                capture = _run_live_rollout_capture(runner, observations, rollout_steps=item.eval_rollout_steps)
+            summary = _offline_eval_summary(
+                capture,
+                sample_count=env_count,
+                motion_ids=_offline_eval_motion_ids_from_batch(eval_batch, env_count),
+            )
+            summary.update(
+                {
+                    "sequence_eval": True,
+                    "motion_id": item.motion_id,
+                    "reset_frame": float(item.reset_frame),
+                    "preroll_steps": float(item.preroll_steps),
+                    "eval_start_frame": float(item.eval_start_frame),
+                }
+            )
+            summaries.append(summary)
+    finally:
+        runner._frontres_segment_live_current_sample = previous_sample
+        runner._frontres_segment_live_current_batch = previous_batch
+        runner._frontres_segment_live_current_reset_request = None
+        runner._frontres_segment_live_current_reset_result = None
+
+    summary = _sequence_offline_eval_summary(summaries, plan=plan, env_count=env_count)
+    print(
+        "\n".join(("", _LOG_SEPARATOR, "", _format_sequence_offline_eval_log(summary), "")),
+        flush=True,
+    )
+    return summary
+
+
+def _sequence_offline_eval_summary(
+    summaries: list[dict[str, Any]],
+    *,
+    plan: Any,
+    env_count: int,
+) -> dict[str, Any]:
+    if not summaries:
+        return {"sequence_eval": True, "sequence_count": 0.0, "sample_count": 0.0}
+    numeric_keys = {
+        key
+        for summary in summaries
+        for key, value in summary.items()
+        if isinstance(value, (int, float)) and math.isfinite(float(value))
+    }
+    merged = {
+        key: sum(float(summary.get(key, 0.0)) for summary in summaries) / float(len(summaries))
+        for key in numeric_keys
+    }
+    per_motion = []
+    for summary in summaries:
+        rows = tuple(summary.get("per_motion", ()) or ())
+        if rows:
+            per_motion.extend(rows)
+    merged.update(
+        {
+            "sequence_eval": True,
+            "sequence_count": float(len(summaries)),
+            "requested_sequences": float(getattr(plan, "requested_sequences", len(summaries))),
+            "env_count": float(env_count),
+            "motion_ids": tuple(getattr(plan, "motion_ids", ())),
+            "per_motion": per_motion,
+        }
+    )
+    return merged
+
+
+def _format_sequence_offline_eval_log(summary: Mapping[str, Any]) -> str:
+    lines = [
+        "[FrontRES Segment Sequence Eval]",
+        (
+            "  rollout: "
+            f"sequence_count={int(summary.get('sequence_count', 0))} "
+            f"requested_sequences={int(summary.get('requested_sequences', 0))} "
+            f"env_count={int(summary.get('env_count', 0))} "
+            f"episode_length={float(summary.get('episode_length', 0.0)):.1f}"
+        ),
+        (
+            "  result: "
+            f"success={float(summary.get('success_rate', 0.0)) * 100.0:.1f}% "
+            f"fall={float(summary.get('fall_rate', 0.0)) * 100.0:.1f}% "
+            f"survival={float(summary.get('mean_survival_steps', 0.0)):.1f}"
+        ),
+        (
+            "  score: "
+            f"noisy={float(summary.get('score_noisy', 0.0)):.6f} "
+            f"repaired={float(summary.get('score_repaired', 0.0)):.6f} "
+            f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f}"
+        ),
+        f"  motion_ids: {tuple(summary.get('motion_ids', ()) or ())}",
+    ]
+    return "\n".join(lines)
 
 
 def _format_offline_eval_log(summary: Mapping[str, Any]) -> str:

@@ -54,12 +54,14 @@ CONTRACTS = (
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py",
         expected_probe="[probe step5]",
         path_class="secondary_contract_path",
+        requires_torch=True,
     ),
     PseudoContract(
         name="step21_live_training_resume",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_live_resume_pseudo_contract.py",
         expected_probe="[probe step21]",
         path_class="core_param_path",
+        requires_torch=True,
     ),
     PseudoContract(
         name="step22_live_sampler",
@@ -101,6 +103,20 @@ CONTRACTS = (
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_live_closed_loop_contract.py",
         expected_probe="[probe step17]",
         path_class="core_param_path",
+        requires_torch=True,
+    ),
+    PseudoContract(
+        name="step23_sequence_eval_contract",
+        path="source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py",
+        expected_probe="[probe step23]",
+        path_class="secondary_contract_path",
+        requires_torch=True,
+    ),
+    PseudoContract(
+        name="step24_sequence_eval_live_owner",
+        path="source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py",
+        expected_probe="[probe step24]",
+        path_class="live_sentinel_path",
         requires_torch=True,
     ),
     PseudoContract(

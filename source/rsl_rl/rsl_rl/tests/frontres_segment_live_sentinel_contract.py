@@ -333,14 +333,14 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert '"--frontres_segment_periodic_eval_enabled"' in train
     assert '"--frontres_segment_periodic_eval_interval"' in train
     assert '"--frontres_segment_offline_eval_only"' in train
+    assert '"--frontres_segment_sequence_offline_eval_only"' in train
     assert '"--frontres_segment_offline_eval_segments"' in train
+    assert '"--frontres_segment_sequence_eval_sequences"' in train
     assert '"--frontres_segment_offline_eval_steps"' in train
     assert "frontres_segment_offline_eval_only: bool = False" in cfg
+    assert "frontres_segment_sequence_offline_eval_only: bool = False" in cfg
     assert "agent_cfg.max_iterations = 0" in train
-    assert (
-        "live_sentinel_only or live_probe_only or live_storage_only or live_single_update_only or live_update_loop_only"
-        in train
-    )
+    assert "sequence_eval_only" in train
     assert "live_train_enabled = not (" in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_sentinel_only", live_sentinel_only)' in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_probe_only", live_probe_only)' in train
@@ -348,6 +348,7 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert '_set_if_present(alg_cfg, "frontres_segment_live_single_update_only", live_single_update_only)' in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", live_update_loop_only)' in train
     assert '_set_if_present(alg_cfg, "frontres_segment_offline_eval_only", offline_eval_only)' in train
+    assert '_set_if_present(alg_cfg, "frontres_segment_sequence_offline_eval_only", sequence_eval_only)' in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)' in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)' in train
     assert "sentinel_log()" in runner
@@ -358,6 +359,7 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert "run_frontres_segment_live_update_loop" in runner
     assert "run_frontres_segment_live_update_loop_helper(" in runner
     assert "run_frontres_segment_offline_eval" in runner
+    assert "run_frontres_segment_sequence_offline_eval" in runner
     assert "learn_frontres_segment_live" in runner
     assert "run_frontres_segment_live_training_loop" in runner
     assert "run_frontres_segment_periodic_eval" in runner

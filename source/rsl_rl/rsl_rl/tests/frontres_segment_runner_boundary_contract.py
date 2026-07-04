@@ -42,6 +42,7 @@ def _stage3_cfg(
     storage: bool = False,
     single_update: bool = False,
     update_loop: bool = False,
+    sequence_eval: bool = False,
     train: bool = False,
 ) -> dict:
     return {
@@ -54,6 +55,7 @@ def _stage3_cfg(
             "frontres_segment_live_storage_write_only": storage,
             "frontres_segment_live_single_update_only": single_update,
             "frontres_segment_live_update_loop_only": update_loop,
+            "frontres_segment_sequence_offline_eval_only": sequence_eval,
             "frontres_segment_live_train_enabled": train,
             "frontres_segment_live_update_steps": 4,
             "frontres_segment_k": 4,
@@ -161,6 +163,17 @@ def test_stage3_boundary_allows_live_update_loop_only() -> None:
     assert "ppo_update=True" in log
 
 
+def test_stage3_boundary_allows_sequence_eval_only() -> None:
+    boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(_stage3_cfg(live=True, sequence_eval=True))
+    boundary.assert_live_runner_ready()
+    log = boundary.probe_log()
+    assert log is not None
+    assert "FrontRES Segment Live Probe Ready" in log
+    assert "mode=sequence_eval" in log
+    assert "storage_write=False" in log
+    assert "ppo_update=False" in log
+
+
 def test_stage3_boundary_allows_live_train_enabled() -> None:
     boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(_stage3_cfg(live=True, train=True))
     boundary.assert_live_runner_ready()
@@ -204,6 +217,7 @@ def test_on_policy_runner_calls_stage3_boundary() -> None:
     assert "run_frontres_segment_live_probe" in runner_text
     assert "_run_frontres_segment_single_update" in runner_text
     assert "run_frontres_segment_live_update_loop" in runner_text
+    assert "run_frontres_segment_sequence_offline_eval" in runner_text
     assert "learn_frontres_segment_live" in runner_text
 
 
@@ -215,6 +229,7 @@ def main() -> None:
     test_stage3_boundary_allows_live_storage_write_only()
     test_stage3_boundary_allows_live_single_update_only()
     test_stage3_boundary_allows_live_update_loop_only()
+    test_stage3_boundary_allows_sequence_eval_only()
     test_stage3_boundary_allows_live_train_enabled()
     test_stage3_boundary_builds_fake_connector()
     test_on_policy_runner_calls_stage3_boundary()

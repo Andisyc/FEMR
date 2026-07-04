@@ -60,6 +60,7 @@ def main() -> None:
     assert '"--frontres_segment_live_storage_write_only"' in train
     assert '"--frontres_segment_live_single_update_only"' in train
     assert '"--frontres_segment_live_update_loop_only"' in train
+    assert '"--frontres_segment_sequence_offline_eval_only"' in train
     assert '"--frontres_segment_live_update_steps"' in train
     assert '"--frontres_segment_shard_cache_size"' in train
     assert "Stage 3 live sentinel/probe/storage/update flags require --frontres_stage stage3_segment_hrl" in train
@@ -214,6 +215,7 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_segment_live_storage_write_only", live_storage_only)',
         '_set_if_present(alg_cfg, "frontres_segment_live_single_update_only", live_single_update_only)',
         '_set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", live_update_loop_only)',
+        '_set_if_present(alg_cfg, "frontres_segment_sequence_offline_eval_only", sequence_eval_only)',
         '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)',
         '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)',
         '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)',
@@ -258,6 +260,7 @@ def main() -> None:
         assert "frontres_segment_live_single_update_only: bool = False" in cfg_text
         assert "frontres_segment_live_update_loop_only: bool = False" in cfg_text
         assert "frontres_segment_offline_eval_only: bool = False" in cfg_text
+        assert "frontres_segment_sequence_offline_eval_only: bool = False" in cfg_text
         assert "frontres_segment_live_train_enabled: bool = False" in cfg_text
         assert "frontres_segment_live_update_steps: int = 4" in cfg_text
         assert "frontres_segment_periodic_eval_enabled: bool = False" in cfg_text
@@ -282,6 +285,7 @@ def main() -> None:
     assert "frontres_segment_live_storage_write_only" in algorithm_impl
     assert "frontres_segment_live_single_update_only" in algorithm_impl
     assert "frontres_segment_live_update_loop_only" in algorithm_impl
+    assert "frontres_segment_sequence_offline_eval_only" in algorithm_impl
     assert "frontres_segment_live_train_enabled" in algorithm_impl
     assert "frontres_segment_live_update_steps" in algorithm_impl
     assert "frontres_segment_cache_dir: str = \"\"" in algorithm_impl
@@ -297,7 +301,9 @@ def main() -> None:
     assert "PPO optimizer steps per iteration" in algorithm_impl
     assert "args_cli.frontres_segment_live_single_update_only" in train
     assert "args_cli.frontres_segment_live_update_loop_only" in train
+    assert "args_cli.frontres_segment_sequence_offline_eval_only" in train
     assert "runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)" in train
+    assert "runner.run_frontres_segment_sequence_offline_eval(" in train
     assert "runner.learn_frontres_segment_live(" in train
     assert "frontres_segment_live_train_enabled" in train
     assert "runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)" in train
@@ -434,7 +440,7 @@ def main() -> None:
     assert 'acceptance' not in root_stage3.lower()
     assert '--frontres_stage stage3_segment_hrl' in stage3
     assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' in stage3
-    assert '--is_full_resume False' in stage3
+    assert '--is_full_resume "${STAGE3_IS_FULL_RESUME}"' in stage3
     assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in stage3
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in stage3
     assert 'SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size.' in stage3
@@ -444,6 +450,7 @@ def main() -> None:
     assert '" --frontres_segment_cache_dir ${CACHE_DIR} "' in stage3
     assert '" --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} "' in stage3
     assert '--frontres_segment_live_update_loop_only' in stage3
+    assert '--frontres_segment_sequence_offline_eval_only' in stage3
     assert 'FRONTRES_STAGE3_RUN_CONTRACTS' in stage3
     assert 'frontres_segment_all_contract_suite.py' in stage3
     assert '[FrontRES Stage3 contract preflight] PASS' in stage3

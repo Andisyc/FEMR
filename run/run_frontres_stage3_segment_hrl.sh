@@ -5,9 +5,10 @@ if [[ $# -lt 2 ]]; then
   echo "Usage: bash run/run_frontres_stage3_segment_hrl.sh HSL_CHECKPOINT MOTION_PATH [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE]"
   echo
   echo "Stage 3 loads an HSL Delta SE proposal checkpoint and trains Segment Replay HRL."
-  echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval."
+  echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval, sequence_eval."
   echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "offline_eval loads the checkpoint, samples NUM_ENVS indexed segments, runs OFFLINE_EVAL_STEPS rollout steps, and exits."
+  echo "sequence_eval loads the checkpoint, evaluates OFFLINE_EVAL_SEQUENCES unique motions from frame 0 to sampled segment starts, and exits."
   echo "Example:"
   echo "  SHARD_CACHE_SIZE=8 bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
   echo "  bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 1 1 1 update_loop"
@@ -65,6 +66,13 @@ case "${MODE}" in
     MODE_ARGS=(
       --frontres_segment_offline_eval_only
       --frontres_segment_offline_eval_segments "${OFFLINE_EVAL_SEGMENTS:-${NUM_ENVS}}"
+      --frontres_segment_offline_eval_steps "${OFFLINE_EVAL_STEPS:-500}"
+    )
+    ;;
+  sequence_eval)
+    MODE_ARGS=(
+      --frontres_segment_sequence_offline_eval_only
+      --frontres_segment_sequence_eval_sequences "${OFFLINE_EVAL_SEQUENCES:-10}"
       --frontres_segment_offline_eval_steps "${OFFLINE_EVAL_STEPS:-500}"
     )
     ;;

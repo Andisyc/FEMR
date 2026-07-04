@@ -232,6 +232,20 @@ CONTRACTS = (
         path_class="core_param_path",
         requires_torch=True,
     ),
+    ContractTarget(
+        name="stage3_sequence_eval_contract",
+        path="source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py",
+        expected_marker="frontres_segment_sequence_eval_contract: ok",
+        path_class="secondary_contract_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
+        name="stage3_sequence_eval_live_owner",
+        path="source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py",
+        expected_marker="[probe step24]",
+        path_class="live_sentinel_path",
+        requires_torch=True,
+    ),
 )
 
 

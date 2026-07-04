@@ -14,6 +14,7 @@ class FrontRESSegmentRunnerBoundary:
     live_single_update_only: bool
     live_update_loop_only: bool
     offline_eval_only: bool
+    sequence_offline_eval_only: bool
     live_train_enabled: bool
     live_update_steps: int
     periodic_eval_enabled: bool
@@ -36,6 +37,7 @@ class FrontRESSegmentRunnerBoundary:
             live_single_update_only=bool(alg_cfg.get("frontres_segment_live_single_update_only", False)),
             live_update_loop_only=bool(alg_cfg.get("frontres_segment_live_update_loop_only", False)),
             offline_eval_only=bool(alg_cfg.get("frontres_segment_offline_eval_only", False)),
+            sequence_offline_eval_only=bool(alg_cfg.get("frontres_segment_sequence_offline_eval_only", False)),
             live_train_enabled=bool(alg_cfg.get("frontres_segment_live_train_enabled", False)),
             live_update_steps=max(1, int(alg_cfg.get("frontres_segment_live_update_steps", 4))),
             periodic_eval_enabled=bool(alg_cfg.get("frontres_segment_periodic_eval_enabled", False)),
@@ -60,6 +62,7 @@ class FrontRESSegmentRunnerBoundary:
             or self.live_single_update_only
             or self.live_update_loop_only
             or self.offline_eval_only
+            or self.sequence_offline_eval_only
             or self.live_train_enabled
         ):
             return
@@ -92,6 +95,7 @@ class FrontRESSegmentRunnerBoundary:
                 or self.live_single_update_only
                 or self.live_update_loop_only
                 or self.offline_eval_only
+                or self.sequence_offline_eval_only
             )
         ):
             return None
@@ -101,7 +105,7 @@ class FrontRESSegmentRunnerBoundary:
             else "False"
         )
         ppo_update = "True" if self.live_single_update_only or self.live_update_loop_only else "False"
-        mode = "offline_eval" if self.offline_eval_only else "probe"
+        mode = "sequence_eval" if self.sequence_offline_eval_only else ("offline_eval" if self.offline_eval_only else "probe")
         return (
             "[FrontRES Segment Live Probe Ready] "
             f"objective={self.objective} "

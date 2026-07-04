@@ -3341,3 +3341,161 @@ sample_count=4 sampler_count=4 verbose=True
 [probe step6] live_probe_detail_gate:
 reset_count=0 live_probe_count=0 success_count=2
 ```
+
+## 36. Stage 3 Sequence Evaluation Contract
+
+Date: 2026-07-04
+
+### Problem
+
+The current `offline_eval` path is segment-local.  It samples segment ids,
+resets directly to each segment start frame, and begins scoring immediately.
+That does not answer the required question: can FrontRES/GMT survive a whole
+motion prefix and then repair the selected segment boundary?
+
+### Scope
+
+This contract defines the Stage 3 sequence-eval planning boundary:
+
+```text
+segment spec
+-> unique motion sequence
+-> reset_frame = 0
+-> preroll_steps = segment.start_frame
+-> eval_start_frame = segment.start_frame
+-> eval rollout metrics
+```
+
+### Non-Scope
+
+- no IsaacLab live reset change in this step;
+- no CLI mode change in this step;
+- no PPO, storage, sampler priority, checkpoint, or training behavior change.
+
+### Invariants
+
+- `requested_sequences` means unique motion sequences, not env rows;
+- at least 10 unique motions are required for formal evaluation;
+- a segment with `start_frame > 0` must not be evaluated by direct reset to
+  `start_frame`;
+- if env capacity is smaller than the requested sequence count, evaluation must
+  run in chunks instead of reducing the motion count;
+- paired B1 comparison uses 4 env rows per sequence when quartet layout is
+  active.
+
+### Step 2 Result
+
+Implemented the pure planning contract:
+
+- `frontres_segment_sequence_eval.py` builds a
+  `FrontRESSegmentSequenceEvalPlan` from segment specs;
+- each plan item records `reset_frame=0`, `preroll_steps=start_frame`,
+  `eval_start_frame=start_frame`, and `eval_end_frame`;
+- duplicate segment specs from the same motion are collapsed to one sequence;
+- `available_envs=8` with 10 requested sequences becomes 5 chunks, not 2
+  evaluated motions.
+
+Verified by:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+
+python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+```
+
+Observed probe:
+
+```text
+[probe step23] sequence_eval_contract reset_frame=0
+preroll_to_segment_start=True requested_sequences_not_env_count=True
+```
+
+### Next Step
+
+Step 3 should connect this plan to the offline eval owner without changing the
+existing training loop:
+
+```text
+sample candidate segments
+-> build sequence eval plan
+-> for each chunk: reset to frame 0
+-> preroll to eval_start_frame
+-> run eval window and score paired repaired/noisy/clean rows
+```
+
+### Step 3 Result
+
+Implemented the minimal live-owner connector without adding a CLI mode:
+
+- `run_frontres_segment_sequence_offline_eval(...)` lives in
+  `frontres_segment_live_training.py`;
+- it samples candidate segments until it has the requested number of unique
+  motion ids;
+- each evaluated sequence fills the current env batch with repeated copies of
+  that segment id, so the existing B1 role layout compares repaired/noisy/clean
+  rows for the same motion;
+- each sequence first resets through an index-only batch with `start_frame=0`;
+- it then prerolls for the original segment `start_frame`;
+- only after preroll does it run the scoring rollout window.
+
+Deliberate minimalism:
+
+- current Step 3 executes one sequence per eval pass.  This avoids staggered
+  metric windows when different motions have different `start_frame` values.
+  Grouping equal-preroll motions can be added later if eval speed matters.
+- no CLI flag or run script changed in this step.
+
+Verified by fake-runner contract:
+
+```text
+[probe step24] sequence_eval_live_owner
+reset_before_preroll=True preroll_before_eval=True role_envs_repeated=True
+```
+
+### Step 4 Result
+
+Connected the sequence-eval owner to explicit Stage 3 entrypoints:
+
+- `scripts/rsl_rl/train.py` adds
+  `--frontres_segment_sequence_offline_eval_only`;
+- `run/run_frontres_stage3_segment_hrl.sh` adds `MODE=sequence_eval`;
+- `OnPolicyRunner` exposes `run_frontres_segment_sequence_offline_eval(...)`;
+- `FrontRESSegmentRunnerBoundary` reports `mode=sequence_eval`;
+- `FrontRESUnified` and `rsl_rl_cfg.py` carry the config field so the runner
+  boundary receives the flag.
+
+Formal training remains unchanged:
+
+```text
+MODE=train
+-> no sequence eval flag
+-> live_train_enabled=True
+-> dedicated Stage 3 live train loop
+```
+
+Explicit evaluation mode:
+
+```text
+MODE=sequence_eval
+-> --frontres_segment_sequence_offline_eval_only
+-> --frontres_segment_sequence_eval_sequences ${OFFLINE_EVAL_SEQUENCES:-10}
+-> --frontres_segment_offline_eval_steps ${OFFLINE_EVAL_STEPS:-500}
+```
+
+Verified local boundary:
+
+```text
+python -m py_compile ...
+
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+```
+
+Observed probes:
+
+```text
+[probe step23] sequence_eval_contract ...
+[probe step24] sequence_eval_live_owner ...
+```

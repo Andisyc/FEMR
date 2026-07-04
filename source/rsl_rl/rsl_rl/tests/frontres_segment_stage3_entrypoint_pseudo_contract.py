@@ -34,6 +34,7 @@ def _alg_cfg() -> SimpleNamespace:
         frontres_segment_live_storage_write_only=False,
         frontres_segment_live_single_update_only=False,
         frontres_segment_live_update_loop_only=False,
+        frontres_segment_sequence_offline_eval_only=False,
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_steps=4,
         frontres_hsl_init_enabled=False,
@@ -84,6 +85,7 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_live_storage_write_only": False,
         "frontres_segment_live_single_update_only": False,
         "frontres_segment_live_update_loop_only": False,
+        "frontres_segment_sequence_offline_eval_only": False,
         "frontres_segment_live_update_steps": 6,
         "experiment_name": None,
         "is_full_resume": None,
@@ -109,6 +111,7 @@ def _probe_stage3_config(name: str, agent_cfg: SimpleNamespace) -> None:
         f"storage={alg.frontres_segment_live_storage_write_only} "
         f"single_update={alg.frontres_segment_live_single_update_only} "
         f"update_loop={alg.frontres_segment_live_update_loop_only} "
+        f"sequence_eval={alg.frontres_segment_sequence_offline_eval_only} "
         f"update_steps={alg.frontres_segment_live_update_steps} "
         f"hsl_init={alg.frontres_hsl_init_enabled} "
         f"acceptance_weight={alg.frontres_acceptance_preference_weight} "
@@ -157,6 +160,22 @@ def test_stage3_sentinel_zeroes_iterations_and_disables_live_train() -> None:
     assert alg.frontres_segment_live_train_enabled is False
     assert alg.frontres_segment_live_single_update_only is True
     assert alg.frontres_segment_live_update_steps == 3
+
+
+def test_stage3_sequence_eval_zeroes_iterations_and_disables_live_train() -> None:
+    agent_cfg = _agent_cfg()
+
+    _apply_frontres_stage_preset(
+        agent_cfg,
+        _args(frontres_segment_sequence_offline_eval_only=True),
+    )
+    _probe_stage3_config("stage3_sequence_eval", agent_cfg)
+
+    alg = agent_cfg.algorithm
+    assert agent_cfg.max_iterations == 0
+    assert alg.frontres_segment_live_runner_enabled is True
+    assert alg.frontres_segment_live_train_enabled is False
+    assert alg.frontres_segment_sequence_offline_eval_only is True
 
 
 def test_stage3_rejects_multiple_live_sentinel_modes() -> None:
@@ -215,22 +234,26 @@ def test_train_dispatch_orders_stage3_live_path_before_legacy_learn() -> None:
     legacy_learn = "runner.learn(num_learning_iterations=agent_cfg.max_iterations"
     update_loop = "runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)"
     probe = "runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)"
+    sequence_eval = "runner.run_frontres_segment_sequence_offline_eval("
 
     print(
         "[probe step6] train_dispatch_order: "
         f"probe_before_legacy={train.index(probe) < train.index(legacy_learn)} "
         f"update_loop_before_legacy={train.index(update_loop) < train.index(legacy_learn)} "
+        f"sequence_eval_before_legacy={train.index(sequence_eval) < train.index(legacy_learn)} "
         f"live_train_before_legacy={train.index(live_train) < train.index(legacy_learn)}",
         flush=True,
     )
     assert train.index(probe) < train.index(legacy_learn)
     assert train.index(update_loop) < train.index(legacy_learn)
+    assert train.index(sequence_eval) < train.index(legacy_learn)
     assert train.index(live_train) < train.index(legacy_learn)
 
 
 if __name__ == "__main__":
     test_stage3_default_enters_live_train_config_without_zeroing_iterations()
     test_stage3_sentinel_zeroes_iterations_and_disables_live_train()
+    test_stage3_sequence_eval_zeroes_iterations_and_disables_live_train()
     test_stage3_rejects_multiple_live_sentinel_modes()
     test_live_sentinel_flags_require_stage3()
     test_stage3_motion_loader_cfg_aligns_with_index_cache()
