@@ -393,6 +393,11 @@ def _format_sequence_eval_debug_log(
         f"  capture_actor_update_mask: {_sequence_debug_value(getattr(capture, 'actor_update_mask', None))}",
         f"  raw_policy_action: {_sequence_debug_value(getattr(capture, 'env_actions', None))}",
         f"  segment_transition_actions: {_sequence_debug_actions(getattr(capture, 'transition_actions', None), capture)}",
+        (
+            "  oracles: "
+            f"{_sequence_eval_oracles(item, eval_batch, reset_batch, capture, summary, reset_request, reset_result)}"
+        ),
+        f"  differential_proxy: {_sequence_eval_differential_proxy(capture, summary)}",
         f"  transition_log_probs: {_sequence_debug_value(getattr(capture, 'transition_log_probs', None))}",
         f"  transition_values: {_sequence_debug_value(getattr(capture, 'transition_values', None))}",
         f"  transition_means: {_sequence_debug_value(getattr(capture, 'transition_means', None))}",
@@ -417,6 +422,110 @@ def _format_sequence_eval_debug_log(
         ),
     ]
     return "\n".join(lines)
+
+
+def _sequence_eval_oracles(
+    item: Any,
+    eval_batch: Any,
+    reset_batch: Any,
+    capture: Any,
+    summary: Mapping[str, Any],
+    reset_request: Any,
+    reset_result: Any,
+) -> dict[str, bool | str]:
+    eval_start = int(getattr(item, "eval_start_frame", -1))
+    motion_id = str(getattr(item, "motion_id", ""))
+    families = tuple(str(value) for value in getattr(reset_request, "perturbation_family", ()) or ())
+    if not families:
+        families = tuple(str(value) for value in getattr(reset_batch, "stage3_index_perturbation_family", ()) or ())
+    return {
+        "reset_frame0": int(getattr(item, "reset_frame", -1)) == 0,
+        "reset_request_frame0": _sequence_values_all_int(getattr(reset_request, "start_frames", None), 0),
+        "reset_batch_frame0": _sequence_specs_start_all(reset_batch, 0),
+        "eval_batch_frame": _sequence_specs_start_all(eval_batch, eval_start),
+        "motion_id_aligned": _sequence_specs_motion_all(eval_batch, motion_id)
+        and _sequence_specs_motion_all(reset_batch, motion_id),
+        "preroll_not_scored": int(getattr(capture, "rollout_k", -1)) == int(getattr(item, "eval_rollout_steps", -2)),
+        "rp_only": bool(families)
+        and set(families).issubset({"local_rp", "rp"})
+        and float(summary.get("perturbation_non_rp_frac", 0.0)) <= 1e-6,
+        "roles_aligned": int(getattr(capture, "n_train", 0)) == int(getattr(capture, "n_base", -1))
+        and int(getattr(capture, "n_train", 0)) > 0,
+        "metric_shapes_aligned": _sequence_same_tensor_shape(
+            getattr(capture, "motion_clean_body_pos", None),
+            getattr(capture, "motion_repaired_body_pos", None),
+            getattr(capture, "motion_noisy_body_pos", None),
+        ),
+        "action_shape_visible": hasattr(getattr(capture, "transition_actions", None), "detach")
+        or hasattr(getattr(capture, "env_actions", None), "detach"),
+        "reset_success_all": _sequence_bool_tensor_all(getattr(reset_result, "success_mask", None)),
+        "summary_motion_aligned": str(summary.get("motion_id", motion_id)) == motion_id,
+    }
+
+
+def _sequence_eval_differential_proxy(capture: Any, summary: Mapping[str, Any]) -> dict[str, float | bool]:
+    reward_pairs = _sequence_debug_reward_pairs(capture)
+    gains = [float(row["gain"]) for row in reward_pairs if "gain" in row]
+    raw_norm = _sequence_tensor_l2_mean(getattr(capture, "env_actions", None))
+    segment_norm = _sequence_tensor_l2_mean(getattr(capture, "transition_actions", None))
+    score_delta = float(summary.get("score_repaired", 0.0)) - float(summary.get("score_noisy", 0.0))
+    mpjpe_delta = float(summary.get("segment/motion_mpjpe_repaired_clean", 0.0)) - float(
+        summary.get("segment/motion_mpjpe_noisy_clean", 0.0)
+    )
+    return {
+        "raw_action_norm_mean": _round_float(raw_norm),
+        "segment_action_norm_mean": _round_float(segment_norm),
+        "raw_action_nonzero": raw_norm > 1e-8,
+        "segment_action_nonzero": segment_norm > 1e-8,
+        "score_repaired_minus_noisy": _round_float(score_delta),
+        "mpjpe_repaired_minus_noisy": _round_float(mpjpe_delta),
+        "repaired_beats_noisy_mpjpe": mpjpe_delta < 0.0,
+        "reward_pair_gain_mean": _round_float(sum(gains) / float(len(gains))) if gains else 0.0,
+    }
+
+
+def _sequence_specs_start_all(batch: Any, expected: int) -> bool:
+    specs = tuple(getattr(batch, "specs", ()) or ())
+    return bool(specs) and all(int(getattr(spec, "start_frame", -999999)) == int(expected) for spec in specs)
+
+
+def _sequence_specs_motion_all(batch: Any, expected: str) -> bool:
+    specs = tuple(getattr(batch, "specs", ()) or ())
+    return bool(specs) and all(str(getattr(spec, "motion_id", "")) == str(expected) for spec in specs)
+
+
+def _sequence_values_all_int(value: Any, expected: int) -> bool | str:
+    if not hasattr(value, "detach"):
+        return "missing"
+    flat = value.detach().reshape(-1).cpu()
+    if not bool(flat.numel()):
+        return "empty"
+    return all(int(item) == int(expected) for item in flat.tolist())
+
+
+def _sequence_bool_tensor_all(value: Any) -> bool | str:
+    if not hasattr(value, "detach"):
+        return "missing"
+    flat = value.detach().bool().reshape(-1).cpu()
+    if not bool(flat.numel()):
+        return "empty"
+    return all(bool(item) for item in flat.tolist())
+
+
+def _sequence_same_tensor_shape(*values: Any) -> bool:
+    shapes = [tuple(value.shape) for value in values if hasattr(value, "shape")]
+    return len(shapes) == len(values) and len(set(shapes)) == 1
+
+
+def _sequence_tensor_l2_mean(value: Any) -> float:
+    if not hasattr(value, "detach"):
+        return 0.0
+    tensor = value.detach().float().cpu()
+    if tensor.numel() == 0:
+        return 0.0
+    if tensor.ndim >= 2:
+        return float(tensor.reshape(tensor.shape[0], -1).norm(dim=1).mean().item())
+    return float(tensor.reshape(-1).abs().mean().item())
 
 
 def _sequence_debug_batch(batch: Any) -> str:

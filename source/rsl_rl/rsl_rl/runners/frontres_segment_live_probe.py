@@ -135,6 +135,7 @@ class FrontRESSegmentLiveRolloutCapture:
     motion_clean_body_pos: torch.Tensor | None = None
     motion_repaired_body_pos: torch.Tensor | None = None
     motion_noisy_body_pos: torch.Tensor | None = None
+    env_actions: torch.Tensor | None = None
 
 
 def _verbose_probe_enabled(runner: Any, items: Any) -> bool:
@@ -1089,6 +1090,7 @@ def _run_live_rollout_capture(
     transition_values = None
     transition_means = None
     transition_sigmas = None
+    transition_env_actions = None
     action_shape = None
     env_action_shape = None
     clean_body_frames = []
@@ -1126,6 +1128,7 @@ def _run_live_rollout_capture(
             if rollout_step == 0 and actions is not None:
                 transition_obs = runner.alg.transition.observations.detach().clone()
                 transition_privileged_obs = runner.alg.transition.privileged_observations.detach().clone()
+                transition_env_actions = env_actions.detach().clone()
                 selected_actions, selected_log_probs = _select_segment_transition_actions(runner, actions=actions)
                 transition_actions = selected_actions.detach().clone()
                 transition_log_probs = selected_log_probs.detach().clone().reshape(-1)
@@ -1186,6 +1189,7 @@ def _run_live_rollout_capture(
         motion_clean_body_pos=_stack_motion_quality_frames(clean_body_frames),
         motion_repaired_body_pos=_stack_motion_quality_frames(repaired_body_frames),
         motion_noisy_body_pos=_stack_motion_quality_frames(noisy_body_frames),
+        env_actions=transition_env_actions,
     )
 
 

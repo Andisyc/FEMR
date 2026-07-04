@@ -400,6 +400,14 @@ def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
         "capture_reward_pairs:",
         "raw_policy_action:",
         "segment_transition_actions:",
+        "oracles:",
+        "reset_frame0': True",
+        "eval_batch_frame': True",
+        "rp_only': True",
+        "metric_shapes_aligned': True",
+        "differential_proxy:",
+        "segment_action_nonzero': True",
+        "mpjpe_repaired_minus_noisy",
         "transition_log_probs:",
         "motion_clean_body_pos:",
         "motion_role_errors:",
@@ -407,7 +415,10 @@ def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
         "summary:",
     ):
         assert marker in log
-    print("[probe step9] sequence_eval_debug_log_covers_runtime_parameters=True", flush=True)
+    print(
+        "[probe step10] sequence_eval_debug_log_covers_oracles_and_differential_proxy=True",
+        flush=True,
+    )
 
 
 def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:

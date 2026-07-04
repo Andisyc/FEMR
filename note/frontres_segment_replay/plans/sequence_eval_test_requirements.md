@@ -650,6 +650,7 @@ Non-scope:
 Files:
 
 - Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py`
+- Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
 - Test: `source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py`
 
 Owner module:
@@ -667,8 +668,9 @@ Test class:
 Command:
 
 ```text
-python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
 /Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py
 ```
 
 Expected result:
@@ -745,6 +747,62 @@ Evidence:
 ```text
 [probe step9] sequence_eval_debug_log_covers_runtime_parameters=True
 frontres_segment_sequence_eval_contract: ok
+```
+
+## Step 10 - Add Sequence Eval Oracles and Differential Proxy
+
+Scope:
+
+- Extend the existing `[FrontRES Segment Sequence Eval Debug]` block with
+  searchable oracle booleans and differential proxy values for sequence
+  evaluation review.
+
+Non-scope:
+
+- Do not add extra rollout passes, change policy behavior, change perturbation
+  sampling, change metrics, or alter training.
+
+Files:
+
+- Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py`
+- Test: `source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py`
+
+Owner module:
+
+- Module E/F: Rollout State Isolation and Metric Aggregation.
+
+Core parameter path:
+
+`motion_id/reset_frame/preroll/eval_frame/perturb_family/action/metric roles`.
+
+Test class:
+
+- Core param path plus live sentinel debug snapshot.
+
+Command:
+
+```text
+python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+```
+
+Expected result:
+
+- The debug block prints `oracles:` with reset/eval-frame/motion/rp-only/role
+  alignment booleans.
+- The debug block prints `differential_proxy:` with action nonzero flags,
+  repaired-vs-noisy score delta, MPJPE delta, and reward-pair gain mean.
+
+Status:
+
+- Done on 2026-07-05.
+
+Evidence:
+
+```text
+[probe step10] sequence_eval_debug_log_covers_oracles_and_differential_proxy=True
+frontres_segment_sequence_eval_contract: ok
+frontres_segment_live_probe_contract: ok
 ```
 
 ## Execution Rule
