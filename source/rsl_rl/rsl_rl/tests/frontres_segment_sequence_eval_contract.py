@@ -39,6 +39,7 @@ run_frontres_segment_sequence_offline_eval = live_training_module.run_frontres_s
 format_sequence_offline_eval_log = live_training_module._format_sequence_offline_eval_log
 format_sequence_eval_item_log = live_training_module._format_sequence_eval_item_log
 format_sequence_eval_debug_log = live_training_module._format_sequence_eval_debug_log
+format_sequence_eval_differential_log = live_training_module._format_sequence_eval_differential_log
 offline_eval_summary = live_training_module._offline_eval_summary
 sequence_offline_eval_summary = live_training_module._sequence_offline_eval_summary
 
@@ -421,6 +422,34 @@ def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
     )
 
 
+def test_sequence_eval_differential_log_compares_real_and_zero_policy() -> None:
+    real_capture = FakeCapture(rollout_k=50, sequence_id=2)
+    zero_capture = FakeCapture(rollout_k=50, sequence_id=1)
+    zero_capture.transition_actions = torch.zeros_like(real_capture.transition_actions)
+    real_summary = offline_eval_summary(real_capture, sample_count=4, motion_ids=("diff_motion",) * 4)
+    zero_summary = offline_eval_summary(zero_capture, sample_count=4, motion_ids=("diff_motion",) * 4)
+    real_summary["motion_id"] = "diff_motion"
+    zero_summary["motion_id"] = "diff_motion"
+
+    log = format_sequence_eval_differential_log(
+        item_index=1,
+        sequence_count=1,
+        summary=real_summary,
+        zero_summary=zero_summary,
+        capture=real_capture,
+        zero_capture=zero_capture,
+    )
+    for marker in (
+        "[FrontRES Segment Sequence Eval Differential]",
+        "real_policy:",
+        "zero_policy:",
+        "real_minus_zero:",
+        "zero_action_is_zero=True",
+    ):
+        assert marker in log
+    print("[probe step11] sequence_eval_differential_log_compares_real_zero=True", flush=True)
+
+
 def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
     runner = FakeRunner()
 
@@ -462,12 +491,18 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
         *,
         rollout_steps: int,
         capture_motion_quality: bool = True,
+        zero_segment_action: bool = False,
     ):
         starts = tuple(spec.start_frame for spec in runner_arg._frontres_segment_live_current_batch.specs)
-        runner_arg.events.append(("rollout", int(rollout_steps), starts, bool(capture_motion_quality), observations))
+        runner_arg.events.append(
+            ("rollout", int(rollout_steps), starts, bool(capture_motion_quality), observations, bool(zero_segment_action))
+        )
         if capture_motion_quality:
             runner_arg.scoring_capture_count += 1
-            return FakeCapture(rollout_k=int(rollout_steps), sequence_id=runner_arg.scoring_capture_count)
+            capture = FakeCapture(rollout_k=int(rollout_steps), sequence_id=runner_arg.scoring_capture_count)
+            if zero_segment_action:
+                capture.transition_actions = torch.zeros_like(capture.transition_actions)
+            return capture
         return FakeCapture(rollout_k=int(rollout_steps), sequence_id=0)
 
     live_training_module._build_current_segment_batch = fake_build_current_segment_batch
@@ -494,17 +529,33 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
     )
     reset_events = [event for event in runner.events if event[0] == "reset"]
     rollout_events = [event for event in runner.events if event[0] == "rollout"]
-    assert len(reset_events) == 2
+    assert len(reset_events) == 4
     assert all(set(event[1]) == {0} for event in reset_events)
     assert all(event[2] is False for event in reset_events)
     assert all(set(event[3]) == {"local_rp"} for event in reset_events)
     assert runner.env._frontres_segment_index_reset_adapter.trace is True
-    assert rollout_events[0][1:] == (3, (0, 0, 0, 0, 0, 0, 0, 0), False, "obs_1")
-    assert rollout_events[1][1:] == (50, (3, 3, 3, 3, 3, 3, 3, 3), True, "obs_2")
-    assert rollout_events[2][1:] == (4, (0, 0, 0, 0, 0, 0, 0, 0), False, "obs_3")
-    assert rollout_events[3][1:] == (50, (4, 4, 4, 4, 4, 4, 4, 4), True, "obs_4")
+    assert rollout_events[0][1:] == (3, (0, 0, 0, 0, 0, 0, 0, 0), False, "obs_1", False)
+    assert rollout_events[1][1:] == (50, (3, 3, 3, 3, 3, 3, 3, 3), True, "obs_2", False)
+    assert rollout_events[2][1:] == (3, (0, 0, 0, 0, 0, 0, 0, 0), False, "obs_3", False)
+    assert rollout_events[3][1:] == (50, (3, 3, 3, 3, 3, 3, 3, 3), True, "obs_4", True)
+    assert rollout_events[4][1:] == (4, (0, 0, 0, 0, 0, 0, 0, 0), False, "obs_5", False)
+    assert rollout_events[5][1:] == (50, (4, 4, 4, 4, 4, 4, 4, 4), True, "obs_6", False)
+    assert rollout_events[6][1:] == (4, (0, 0, 0, 0, 0, 0, 0, 0), False, "obs_7", False)
+    assert rollout_events[7][1:] == (50, (4, 4, 4, 4, 4, 4, 4, 4), True, "obs_8", True)
     event_names = [event[0] for event in runner.events]
     assert event_names == [
+        "reset",
+        "read_obs",
+        "eval_mode",
+        "rollout",
+        "read_obs",
+        "rollout",
+        "reset",
+        "read_obs",
+        "eval_mode",
+        "rollout",
+        "read_obs",
+        "rollout",
         "reset",
         "read_obs",
         "eval_mode",
@@ -642,6 +693,7 @@ def main() -> None:
     test_sequence_eval_reset_batch_rewrites_start_only()
     test_sequence_eval_log_prints_motion_quality_metrics()
     test_sequence_eval_debug_log_prints_key_runtime_parameters()
+    test_sequence_eval_differential_log_compares_real_and_zero_policy()
     test_sequence_offline_eval_owner_orders_reset_preroll_eval()
     test_sequence_eval_all_fall_keeps_action_diagnostics_in_summaries()
     test_sequence_eval_per_motion_uses_item_scope_for_repeated_motion_roles()

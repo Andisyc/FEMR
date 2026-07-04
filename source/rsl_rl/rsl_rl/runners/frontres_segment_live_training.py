@@ -40,6 +40,7 @@ except ModuleNotFoundError:
         *,
         rollout_steps: int,
         capture_motion_quality: bool = True,
+        zero_segment_action: bool = False,
     ) -> None:
         raise NotImplementedError("frontres_segment_live_probe import is unavailable.")
 
@@ -238,22 +239,13 @@ def run_frontres_segment_sequence_offline_eval(
             eval_batch = batch_builder(runner, sample, update_step=0, print_probe=False)
             reset_batch = sequence_reset_batch_builder(eval_batch, item)
             runner._frontres_segment_live_current_sample = sample
-            runner._frontres_segment_live_current_batch = reset_batch
-            with _temporary_eval_detail_silence(runner):
-                # FRS3-EVAL-009: reset at frame0, silence reset trace, no-capture preroll, then score.
-                _apply_current_segment_reset(runner)
-                observations = _read_live_observations(runner)
-                runner.eval_mode()
-                if item.preroll_steps > 0:
-                    _run_live_rollout_capture(
-                        runner,
-                        observations,
-                        rollout_steps=item.preroll_steps,
-                        capture_motion_quality=False,
-                    )
-                    observations = _read_live_observations(runner)
-                runner._frontres_segment_live_current_batch = eval_batch
-                capture = _run_live_rollout_capture(runner, observations, rollout_steps=item.eval_rollout_steps)
+            capture, observations, reset_request, reset_result = _run_sequence_eval_capture_for_item(
+                runner,
+                item=item,
+                eval_batch=eval_batch,
+                reset_batch=reset_batch,
+                zero_segment_action=False,
+            )
             summary = _offline_eval_summary(
                 capture,
                 sample_count=env_count,
@@ -271,7 +263,30 @@ def run_frontres_segment_sequence_offline_eval(
             )
             summary.update(_offline_eval_perturbation_summary(reset_batch))
             summaries.append(summary)
+            zero_capture, _, _, _ = _run_sequence_eval_capture_for_item(
+                runner,
+                item=item,
+                eval_batch=eval_batch,
+                reset_batch=reset_batch,
+                zero_segment_action=True,
+            )
+            zero_summary = _offline_eval_summary(
+                zero_capture,
+                sample_count=env_count,
+                motion_ids=_offline_eval_motion_ids_from_batch(eval_batch, env_count),
+            )
             print(_format_sequence_eval_item_log(item_index, plan.sequence_count, summary), flush=True)
+            print(
+                _format_sequence_eval_differential_log(
+                    item_index=item_index,
+                    sequence_count=plan.sequence_count,
+                    summary=summary,
+                    zero_summary=zero_summary,
+                    capture=capture,
+                    zero_capture=zero_capture,
+                ),
+                flush=True,
+            )
             print(
                 _format_sequence_eval_debug_log(
                     item_index=item_index,
@@ -282,8 +297,8 @@ def run_frontres_segment_sequence_offline_eval(
                     capture=capture,
                     summary=summary,
                     scoring_observations=observations,
-                    reset_request=getattr(runner, "_frontres_segment_live_current_reset_request", None),
-                    reset_result=getattr(runner, "_frontres_segment_live_current_reset_result", None),
+                    reset_request=reset_request,
+                    reset_result=reset_result,
                 ),
                 flush=True,
             )
@@ -300,6 +315,41 @@ def run_frontres_segment_sequence_offline_eval(
         flush=True,
     )
     return summary
+
+
+def _run_sequence_eval_capture_for_item(
+    runner: Any,
+    *,
+    item: Any,
+    eval_batch: Any,
+    reset_batch: Any,
+    zero_segment_action: bool,
+) -> tuple[Any, Any, Any, Any]:
+    runner._frontres_segment_live_current_batch = reset_batch
+    with _temporary_eval_detail_silence(runner):
+        # FRS3-EVAL-009: reset at frame0, silence reset trace, no-capture preroll, then score.
+        _apply_current_segment_reset(runner)
+        reset_request = getattr(runner, "_frontres_segment_live_current_reset_request", None)
+        reset_result = getattr(runner, "_frontres_segment_live_current_reset_result", None)
+        observations = _read_live_observations(runner)
+        runner.eval_mode()
+        if item.preroll_steps > 0:
+            _run_live_rollout_capture(
+                runner,
+                observations,
+                rollout_steps=item.preroll_steps,
+                capture_motion_quality=False,
+                zero_segment_action=False,
+            )
+            observations = _read_live_observations(runner)
+        runner._frontres_segment_live_current_batch = eval_batch
+        capture = _run_live_rollout_capture(
+            runner,
+            observations,
+            rollout_steps=item.eval_rollout_steps,
+            zero_segment_action=bool(zero_segment_action),
+        )
+    return capture, observations, reset_request, reset_result
 
 
 def _sequence_offline_eval_summary(
@@ -422,6 +472,63 @@ def _format_sequence_eval_debug_log(
         ),
     ]
     return "\n".join(lines)
+
+
+def _format_sequence_eval_differential_log(
+    *,
+    item_index: int,
+    sequence_count: int,
+    summary: Mapping[str, Any],
+    zero_summary: Mapping[str, Any],
+    capture: Any,
+    zero_capture: Any,
+) -> str:
+    real_score = float(summary.get("score_repaired", 0.0))
+    zero_score = float(zero_summary.get("score_repaired", 0.0))
+    real_mpjpe = float(summary.get("segment/motion_mpjpe_repaired_clean", 0.0))
+    zero_mpjpe = float(zero_summary.get("segment/motion_mpjpe_repaired_clean", 0.0))
+    real_survival = float(summary.get("mean_survival_steps", 0.0))
+    zero_survival = float(zero_summary.get("mean_survival_steps", 0.0))
+    real_fall = float(summary.get("fall_rate", 0.0))
+    zero_fall = float(zero_summary.get("fall_rate", 0.0))
+    real_action_norm = _sequence_tensor_l2_mean(getattr(capture, "transition_actions", None))
+    zero_action_norm = _sequence_tensor_l2_mean(getattr(zero_capture, "transition_actions", None))
+    return "\n".join(
+        (
+            "[FrontRES Segment Sequence Eval Differential]",
+            (
+                f"  sequence: {item_index}/{sequence_count} "
+                f"motion_id={summary.get('motion_id', 'missing')}"
+            ),
+            (
+                "  real_policy: "
+                f"score_repaired={real_score:.6f} "
+                f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f} "
+                f"mpjpe_repaired={real_mpjpe:.6f} "
+                f"fall={real_fall:.6f} "
+                f"survival={real_survival:.6f} "
+                f"segment_action_norm={real_action_norm:.6f}"
+            ),
+            (
+                "  zero_policy: "
+                f"score_repaired={zero_score:.6f} "
+                f"gain={float(zero_summary.get('continuous_rollout_gain', 0.0)):.6f} "
+                f"mpjpe_repaired={zero_mpjpe:.6f} "
+                f"fall={zero_fall:.6f} "
+                f"survival={zero_survival:.6f} "
+                f"segment_action_norm={zero_action_norm:.6f}"
+            ),
+            (
+                "  real_minus_zero: "
+                f"score={real_score - zero_score:.6f} "
+                f"mpjpe={real_mpjpe - zero_mpjpe:.6f} "
+                f"fall={real_fall - zero_fall:.6f} "
+                f"survival={real_survival - zero_survival:.6f} "
+                f"real_beats_zero_mpjpe={real_mpjpe < zero_mpjpe} "
+                f"zero_action_is_zero={zero_action_norm <= 1e-8}"
+            ),
+        )
+    )
 
 
 def _sequence_eval_oracles(

@@ -1064,6 +1064,7 @@ def _run_live_rollout_capture(
     *,
     rollout_steps: int | None = None,
     capture_motion_quality: bool = True,
+    zero_segment_action: bool = False,
 ) -> FrontRESSegmentLiveRolloutCapture:
     # FRS3-EVAL-014: step the live env and optionally capture motion-quality frames.
     frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
@@ -1123,6 +1124,19 @@ def _run_live_rollout_capture(
             )
             actions = step_plan.actions
             env_actions = step_plan.env_actions
+            if bool(zero_segment_action) and actions is not None and frontres_mode.is_task_space_mode:
+                actions = actions.detach().clone()
+                actions[: max(0, min(int(pair_layout.n_train), int(actions.shape[0])))] = 0.0
+                runner.alg.transition.actions = actions.detach()
+                env_actions = _zero_segment_env_actions(
+                    runner,
+                    obs=obs,
+                    actions=actions,
+                    is_frontres=frontres_mode.is_frontres,
+                    is_task_space_mode=frontres_mode.is_task_space_mode,
+                    n_train=pair_layout.n_train,
+                    n_candidate=pair_layout.n_candidate,
+                )
             action_shape = tuple(actions.shape) if actions is not None else None
             env_action_shape = tuple(env_actions.shape)
             if rollout_step == 0 and actions is not None:
@@ -1191,6 +1205,34 @@ def _run_live_rollout_capture(
         motion_noisy_body_pos=_stack_motion_quality_frames(noisy_body_frames),
         env_actions=transition_env_actions,
     )
+
+
+def _zero_segment_env_actions(
+    runner: Any,
+    *,
+    obs: torch.Tensor,
+    actions: torch.Tensor,
+    is_frontres: bool,
+    is_task_space_mode: bool,
+    n_train: int,
+    n_candidate: int,
+) -> torch.Tensor:
+    if is_task_space_mode:
+        runner._apply_frontres_task_corrections(
+            actions,
+            n_train,
+            allow_oracle=True,
+            n_candidate=n_candidate if is_frontres else 0,
+        )
+        obs_corr, extras_corr = runner.env.get_observations()
+        obs_corr_dict = extras_corr.get("observations", {})
+        if runner.policy_obs_type is not None and runner.policy_obs_type in obs_corr_dict:
+            obs_corr = obs_corr_dict[runner.policy_obs_type]
+        obs_corr = runner._apply_obs_normalizer(obs_corr.to(runner.device))
+        return runner.alg.policy.get_env_action(obs_corr, actions)
+    if hasattr(runner.alg.policy, "get_env_action"):
+        return runner.alg.policy.get_env_action(obs, actions)
+    return actions
 
 
 def _capture_motion_quality_frame(

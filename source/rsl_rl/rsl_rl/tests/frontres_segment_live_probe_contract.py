@@ -92,14 +92,14 @@ def _install_live_probe_import_stubs():
 
     def _prepare_frontres_rollout_step(runner, **kwargs):
         batch = int(kwargs["obs"].shape[0])
-        actions = torch.zeros(batch, 6)
+        actions = getattr(runner, "_frontres_test_policy_action", torch.zeros(batch, 6)).detach().clone()
         runner.alg.transition.observations = kwargs["obs"].detach().clone()
         runner.alg.transition.privileged_observations = kwargs["privileged_obs"].detach().clone()
         runner.alg.transition.actions_log_prob = torch.zeros(batch)
         runner.alg.transition.values = torch.zeros(batch)
         runner.alg.transition.action_mean = actions.detach().clone()
         runner.alg.transition.action_sigma = torch.ones_like(actions)
-        return SimpleNamespace(actions=actions, env_actions=torch.zeros(batch, 12))
+        return SimpleNamespace(actions=actions, env_actions=actions.detach().clone())
 
     rollout_step.prepare_frontres_rollout_step = _prepare_frontres_rollout_step
     sys.modules[rollout_step.__name__] = rollout_step
@@ -115,8 +115,10 @@ def _install_live_probe_import_stubs():
 
 live_probe = _install_live_probe_import_stubs()
 FrontRESSegmentLiveRolloutCapture = live_probe.FrontRESSegmentLiveRolloutCapture
+FrontRESSegmentLiveObservations = live_probe.FrontRESSegmentLiveObservations
 build_live_segment_storage = live_probe.build_live_segment_storage
 run_frontres_segment_live_probe = live_probe.run_frontres_segment_live_probe
+run_live_rollout_capture = live_probe._run_live_rollout_capture
 
 
 def _probe_tensor(name: str, tensor: torch.Tensor, semantic: str) -> None:
@@ -517,6 +519,7 @@ class _FakeLiveEnv:
 
     def step(self, actions):
         self.events.append("step")
+        self.last_step_actions = actions.detach().clone()
         obs = torch.ones(2, 4) * 2.0
         rewards = torch.tensor([1.0, 0.5])
         dones = torch.tensor([False, False])
@@ -531,6 +534,57 @@ class _FakeIndexResetLiveEnv(_FakeLiveEnv):
             "success_mask": torch.ones(int(request.segment_ids.numel()), dtype=torch.bool),
             "velocity_mismatch": torch.zeros(int(request.segment_ids.numel())),
         }
+
+
+def test_live_rollout_capture_zero_segment_action_reaches_env_step() -> None:
+    env = _FakeLiveEnv()
+    runner = SimpleNamespace(
+        env=env,
+        device=torch.device("cpu"),
+        training_type="frontres",
+        policy_obs_type=None,
+        privileged_obs_type=None,
+        teacher_obs_type=None,
+        ref_vel_estimator_obs_type=None,
+        current_learning_iteration=0,
+        _frontres_segment_replay_boundary=SimpleNamespace(segment_k=1),
+        _frontres_test_policy_action=torch.tensor(
+            [
+                [0.2, -0.1, 0.3, 0.4, -0.5, 0.6],
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ],
+            dtype=torch.float32,
+        ),
+        alg=SimpleNamespace(
+            frontres_segment_k=1,
+            transition=SimpleNamespace(),
+            policy=SimpleNamespace(get_env_action=lambda _obs, actions: actions),
+        ),
+        _apply_obs_normalizer=lambda obs: obs,
+        _apply_frontres_task_corrections=lambda *_args, **_kwargs: None,
+    )
+    observations = FrontRESSegmentLiveObservations(
+        obs=torch.ones(2, 4),
+        privileged_obs=torch.ones(2, 3),
+        teacher_obs=torch.ones(2, 3),
+        ref_vel_estimator_obs=None,
+    )
+
+    real_capture = run_live_rollout_capture(runner, observations, rollout_steps=1)
+    real_step_actions = env.last_step_actions.clone()
+    zero_capture = run_live_rollout_capture(runner, observations, rollout_steps=1, zero_segment_action=True)
+    zero_step_actions = env.last_step_actions.clone()
+
+    assert torch.linalg.norm(real_capture.transition_actions).item() > 0.0
+    assert torch.linalg.norm(real_step_actions).item() > 0.0
+    assert torch.linalg.norm(zero_capture.transition_actions).item() == 0.0
+    assert torch.linalg.norm(zero_step_actions).item() == 0.0
+    print(
+        "[probe step11] zero_segment_action_reaches_env_step "
+        f"real_norm={torch.linalg.norm(real_step_actions).item():.6f} "
+        f"zero_norm={torch.linalg.norm(zero_step_actions).item():.6f}",
+        flush=True,
+    )
 
 
 def _reset_batch() -> SimpleNamespace:
@@ -1145,6 +1199,7 @@ if __name__ == "__main__":
     test_ppo_eval_trace_prints_once_without_verbose()
     test_build_live_segment_storage_masks_failed_reset_samples()
     test_large_index_reset_probe_uses_summary_not_full_lists()
+    test_live_rollout_capture_zero_segment_action_reaches_env_step()
     test_live_probe_applies_current_segment_batch_reset_before_rollout()
     test_live_probe_skips_dynamic_reset_for_index_only_segments()
     test_live_probe_applies_index_reset_for_index_only_segments_when_env_supports_it()

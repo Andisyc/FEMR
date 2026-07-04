@@ -710,6 +710,7 @@ Non-scope:
 Files:
 
 - Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py`
+- Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
 - Test: `source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py`
 
 Owner module:
@@ -727,8 +728,9 @@ Test class:
 Command:
 
 ```text
-python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
 /Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py
 ```
 
 Expected result:
@@ -803,6 +805,67 @@ Evidence:
 [probe step10] sequence_eval_debug_log_covers_oracles_and_differential_proxy=True
 frontres_segment_sequence_eval_contract: ok
 frontres_segment_live_probe_contract: ok
+```
+
+## Step 11 - Add Real Policy vs Zero Policy Sequence Differential
+
+Scope:
+
+- For each sequence eval item, run the same reset -> preroll -> eval path twice:
+  once with the real FrontRES action and once with the actor-row FrontRES
+  action zeroed before the environment step.
+- Print a compact `[FrontRES Segment Sequence Eval Differential]` block.
+
+Non-scope:
+
+- Do not change training, reward construction, perturbation sampling, final
+  metric definitions, or checkpoint loading.
+
+Files:
+
+- Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
+- Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py`
+- Test: `source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- Test: `source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py`
+
+Owner module:
+
+- Module E/F: Rollout State Isolation and Metric Aggregation.
+
+Core parameter path:
+
+`policy action -> zeroed actor-row action -> env action -> rollout reward/motion metrics`.
+
+Test class:
+
+- Core param path plus live sentinel differential log.
+
+Command:
+
+```text
+python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+```
+
+Expected result:
+
+- Live probe contract proves `zero_segment_action=True` reaches the env step
+  with zero action norm.
+- Sequence eval contract proves the real/zero differential log exists and the
+  owner path runs real scoring and zero scoring for each sequence item.
+
+Status:
+
+- Done on 2026-07-05.
+
+Evidence:
+
+```text
+[probe step11] zero_segment_action_reaches_env_step real_norm=0.953939 zero_norm=0.000000
+[probe step11] sequence_eval_differential_log_compares_real_zero=True
+frontres_segment_live_probe_contract: ok
+frontres_segment_sequence_eval_contract: ok
 ```
 
 ## Execution Rule
