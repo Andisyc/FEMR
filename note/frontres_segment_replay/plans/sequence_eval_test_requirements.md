@@ -868,6 +868,67 @@ frontres_segment_live_probe_contract: ok
 frontres_segment_sequence_eval_contract: ok
 ```
 
+## Step 12 - Add Policy vs Anti-RP Sign Diagnostic
+
+Scope:
+
+- Snapshot the env-side signed roll/pitch perturbation at the first scoring
+  transition.
+- Print a compact debug line comparing `transition_actions[:, 3:5]` and
+  `transition_means[:, 3:5]` against the expected anti-rp direction.
+
+Non-scope:
+
+- Do not change training, reward, policy output, perturbation sampling, reset,
+  rollout count, or metric definitions.
+
+Files:
+
+- Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
+- Modify: `source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py`
+- Test: `source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- Test: `source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py`
+
+Owner module:
+
+- Module C/E: Perturbation Family and Rollout State Isolation.
+
+Core parameter path:
+
+`MotionPerturber._roll_state/_pitch_state/_iid_event_rp -> transition_perturbation_rp -> expected anti_rp -> policy action/mean rpy dims`.
+
+Test class:
+
+- Core param path plus live sentinel debug snapshot.
+
+Command:
+
+```text
+python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+```
+
+Expected result:
+
+- Live probe contract proves signed rp snapshot combines OU roll/pitch state
+  with temporal IID rp state and honors local_rp masks.
+- Sequence eval contract proves debug logs print
+  `policy_anti_rp_alignment` with action/mean anti-sign agreement fractions.
+
+Status:
+
+- Done on 2026-07-05.
+
+Evidence:
+
+```text
+[probe step12] signed_rp_perturbation_snapshot rp=[[0.12999999523162842, -0.24000000953674316], [-0.0, 0.0]]
+[probe step10] sequence_eval_debug_log_covers_oracles_and_differential_proxy=True
+frontres_segment_live_probe_contract: ok
+frontres_segment_sequence_eval_contract: ok
+```
+
 ## Execution Rule
 
 Execute only one step at a time.  After each step:

@@ -587,6 +587,61 @@ def test_live_rollout_capture_zero_segment_action_reaches_env_step() -> None:
     )
 
 
+def test_live_rollout_capture_snapshots_signed_rp_perturbation() -> None:
+    env = _FakeLiveEnv()
+    env.command_manager = SimpleNamespace(
+        _terms={
+            "motion": SimpleNamespace(
+                perturber=SimpleNamespace(
+                    _roll_state=torch.tensor([0.10, -0.40]),
+                    _pitch_state=torch.tensor([-0.20, 0.50]),
+                    _iid_event_rp=torch.tensor([[0.03, -0.04], [0.00, 0.10]]),
+                    _family_masks={"local_rp": torch.tensor([True, False])},
+                    _baseline_mask=torch.tensor([False, False]),
+                )
+            )
+        }
+    )
+    runner = SimpleNamespace(
+        env=env,
+        device=torch.device("cpu"),
+        training_type="frontres",
+        policy_obs_type=None,
+        privileged_obs_type=None,
+        teacher_obs_type=None,
+        ref_vel_estimator_obs_type=None,
+        current_learning_iteration=0,
+        _frontres_segment_replay_boundary=SimpleNamespace(segment_k=1),
+        _frontres_test_policy_action=torch.zeros(2, 6),
+        alg=SimpleNamespace(
+            frontres_segment_k=1,
+            transition=SimpleNamespace(),
+            policy=SimpleNamespace(get_env_action=lambda _obs, actions: actions),
+        ),
+        _apply_obs_normalizer=lambda obs: obs,
+        _apply_frontres_task_corrections=lambda *_args, **_kwargs: None,
+    )
+    observations = FrontRESSegmentLiveObservations(
+        obs=torch.ones(2, 4),
+        privileged_obs=torch.ones(2, 3),
+        teacher_obs=torch.ones(2, 3),
+        ref_vel_estimator_obs=None,
+    )
+
+    capture = run_live_rollout_capture(runner, observations, rollout_steps=1)
+
+    assert capture.transition_perturbation_rp is not None
+    torch.testing.assert_close(
+        capture.transition_perturbation_rp,
+        torch.tensor([[0.13, -0.24], [0.0, 0.0]]),
+    )
+    print(
+        "[probe step12] signed_rp_perturbation_snapshot "
+        f"rp={capture.transition_perturbation_rp.tolist()}",
+        flush=True,
+    )
+
+
 def _reset_batch() -> SimpleNamespace:
     return SimpleNamespace(
         segment_ids=torch.tensor([7, 9], dtype=torch.long),
@@ -1200,6 +1255,7 @@ if __name__ == "__main__":
     test_build_live_segment_storage_masks_failed_reset_samples()
     test_large_index_reset_probe_uses_summary_not_full_lists()
     test_live_rollout_capture_zero_segment_action_reaches_env_step()
+    test_live_rollout_capture_snapshots_signed_rp_perturbation()
     test_live_probe_applies_current_segment_batch_reset_before_rollout()
     test_live_probe_skips_dynamic_reset_for_index_only_segments()
     test_live_probe_applies_index_reset_for_index_only_segments_when_env_supports_it()

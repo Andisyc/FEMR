@@ -443,6 +443,7 @@ def _format_sequence_eval_debug_log(
         f"  capture_actor_update_mask: {_sequence_debug_value(getattr(capture, 'actor_update_mask', None))}",
         f"  raw_policy_action: {_sequence_debug_value(getattr(capture, 'env_actions', None))}",
         f"  segment_transition_actions: {_sequence_debug_actions(getattr(capture, 'transition_actions', None), capture)}",
+        f"  policy_anti_rp_alignment: {_sequence_eval_anti_rp_alignment(capture)}",
         (
             "  oracles: "
             f"{_sequence_eval_oracles(item, eval_batch, reset_batch, capture, summary, reset_request, reset_result)}"
@@ -719,6 +720,65 @@ def _sequence_debug_actions(value: Any, capture: Any) -> str:
                 }
             )
     return f"{_sequence_debug_value(value)} rows={rows}"
+
+
+def _sequence_eval_anti_rp_alignment(capture: Any) -> dict[str, Any]:
+    perturb_rp = getattr(capture, "transition_perturbation_rp", None)
+    actions = getattr(capture, "transition_actions", None)
+    means = getattr(capture, "transition_means", None)
+    if not hasattr(perturb_rp, "detach"):
+        return {"available": False, "reason": "missing_transition_perturbation_rp"}
+    rp = perturb_rp.detach().float().cpu()
+    if rp.ndim != 2 or int(rp.shape[-1]) < 2:
+        return {"available": False, "reason": f"bad_perturbation_shape={tuple(rp.shape)}"}
+    n_train = max(0, min(int(getattr(capture, "n_train", 0)), int(rp.shape[0])))
+    if n_train <= 0:
+        return {"available": False, "reason": "no_train_rows"}
+    rp = rp[:n_train, :2]
+    anti = -rp
+    result: dict[str, Any] = {
+        "available": True,
+        "perturb_rp_head": _round_list(rp[:4].tolist()),
+        "anti_rp_head": _round_list(anti[:4].tolist()),
+        "anti_rp_norm_mean": _round_float(rp.norm(dim=1).mean().item()),
+    }
+    _add_rp_sign_stats(result, "action", actions, anti, n_train=n_train)
+    _add_rp_sign_stats(result, "mean", means, anti, n_train=n_train)
+    return result
+
+
+def _add_rp_sign_stats(
+    result: dict[str, Any],
+    prefix: str,
+    value: Any,
+    anti_rp: Any,
+    *,
+    n_train: int,
+) -> None:
+    import torch
+
+    if not hasattr(value, "detach"):
+        result[f"{prefix}_available"] = False
+        return
+    tensor = value.detach().float().cpu()
+    if tensor.ndim != 2 or int(tensor.shape[-1]) < 5:
+        result[f"{prefix}_available"] = False
+        result[f"{prefix}_reason"] = f"bad_shape={tuple(tensor.shape)}"
+        return
+    rp_action = tensor[:n_train, 3:5]
+    valid = anti_rp.abs() > 1e-6
+    if not bool(valid.any().item()):
+        result[f"{prefix}_available"] = False
+        result[f"{prefix}_reason"] = "zero_anti_rp"
+        result[f"{prefix}_rp_head"] = _round_list(rp_action[:4].tolist())
+        return
+    action_sign = torch.sign(rp_action[valid])
+    anti_sign = torch.sign(anti_rp[valid])
+    result[f"{prefix}_available"] = True
+    result[f"{prefix}_rp_head"] = _round_list(rp_action[:4].tolist())
+    result[f"{prefix}_anti_sign_agree_frac"] = _round_float((action_sign == anti_sign).float().mean().item())
+    result[f"{prefix}_same_as_perturb_frac"] = _round_float((action_sign == -anti_sign).float().mean().item())
+    result[f"{prefix}_rp_norm_mean"] = _round_float(rp_action.norm(dim=1).mean().item())
 
 
 def _sequence_debug_reward_pairs(capture: Any) -> list[dict[str, float | int | bool]]:

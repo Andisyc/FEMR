@@ -298,6 +298,7 @@ class FakeCapture:
         self.transition_values = None
         self.transition_means = None
         self.transition_sigmas = None
+        self.transition_perturbation_rp = None
         repaired = 10.0 + float(sequence_id)
         noisy = 2.0 + 0.5 * float(sequence_id)
         self.reward_accum = torch.tensor([repaired, repaired, 0.0, 0.0, noisy, noisy, 0.0, 0.0])
@@ -347,8 +348,11 @@ def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
     capture.env_actions = torch.full((4, 12), 0.05)
     capture.transition_log_probs = torch.linspace(-0.3, -0.1, 4)
     capture.transition_values = torch.linspace(0.1, 0.4, 4)
-    capture.transition_means = torch.full((4, 6), 0.02)
+    capture.transition_actions = torch.zeros(4, 6)
+    capture.transition_actions[:, 3:5] = torch.tensor([[-0.1, 0.2], [-0.3, 0.4], [0.0, 0.0], [0.0, 0.0]])
+    capture.transition_means = capture.transition_actions.clone()
     capture.transition_sigmas = torch.full((4, 6), 0.5)
+    capture.transition_perturbation_rp = torch.tensor([[0.1, -0.2], [0.3, -0.4], [0.0, 0.0], [0.0, 0.0]])
     summary = offline_eval_summary(
         capture,
         sample_count=4,
@@ -401,6 +405,9 @@ def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
         "capture_reward_pairs:",
         "raw_policy_action:",
         "segment_transition_actions:",
+        "policy_anti_rp_alignment:",
+        "action_anti_sign_agree_frac': 1.0",
+        "action_same_as_perturb_frac': 0.0",
         "oracles:",
         "reset_frame0': True",
         "eval_batch_frame': True",

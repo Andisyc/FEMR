@@ -136,6 +136,7 @@ class FrontRESSegmentLiveRolloutCapture:
     motion_repaired_body_pos: torch.Tensor | None = None
     motion_noisy_body_pos: torch.Tensor | None = None
     env_actions: torch.Tensor | None = None
+    transition_perturbation_rp: torch.Tensor | None = None
 
 
 def _verbose_probe_enabled(runner: Any, items: Any) -> bool:
@@ -968,6 +969,46 @@ def _select_segment_transition_actions(
     return segment_actions, log_probs
 
 
+def _motion_perturber_from_runner(runner: Any) -> Any | None:
+    env_raw = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    command_manager = getattr(env_raw, "command_manager", None)
+    terms = getattr(command_manager, "_terms", {}) if command_manager is not None else {}
+    motion_command = terms.get("motion") if hasattr(terms, "get") else None
+    if motion_command is None:
+        motion_command = getattr(env_raw, "command", None)
+    return getattr(motion_command, "perturber", None)
+
+
+def _snapshot_frontres_perturbation_rp(runner: Any, *, num_envs: int) -> torch.Tensor | None:
+    perturber = _motion_perturber_from_runner(runner)
+    roll_state = getattr(perturber, "_roll_state", None)
+    pitch_state = getattr(perturber, "_pitch_state", None)
+    if not isinstance(roll_state, torch.Tensor) or not isinstance(pitch_state, torch.Tensor):
+        return None
+    count = max(0, min(int(num_envs), int(roll_state.numel()), int(pitch_state.numel())))
+    if count <= 0:
+        return None
+    rp = torch.stack(
+        (
+            roll_state[:count].detach().float(),
+            pitch_state[:count].detach().float(),
+        ),
+        dim=-1,
+    )
+    iid_event_rp = getattr(perturber, "_iid_event_rp", None)
+    if isinstance(iid_event_rp, torch.Tensor) and iid_event_rp.ndim == 2 and int(iid_event_rp.shape[0]) >= count:
+        rp = rp + iid_event_rp[:count, :2].detach().float()
+    family_masks = getattr(perturber, "_family_masks", None)
+    if isinstance(family_masks, dict) and isinstance(family_masks.get("local_rp"), torch.Tensor):
+        mask = family_masks["local_rp"][:count].to(device=rp.device, dtype=torch.bool)
+        rp = rp * mask.to(dtype=rp.dtype).view(-1, 1)
+    baseline_mask = getattr(perturber, "_baseline_mask", None)
+    if isinstance(baseline_mask, torch.Tensor) and int(baseline_mask.numel()) >= count:
+        mask = ~baseline_mask[:count].to(device=rp.device, dtype=torch.bool)
+        rp = rp * mask.to(dtype=rp.dtype).view(-1, 1)
+    return rp.detach().clone()
+
+
 def _current_reset_success_mask(runner: Any, *, batch_size: int, device: torch.device | str) -> torch.Tensor:
     result = getattr(runner, "_frontres_segment_live_current_reset_result", None)
     if result is None:
@@ -1092,6 +1133,7 @@ def _run_live_rollout_capture(
     transition_means = None
     transition_sigmas = None
     transition_env_actions = None
+    transition_perturbation_rp = None
     action_shape = None
     env_action_shape = None
     clean_body_frames = []
@@ -1143,6 +1185,10 @@ def _run_live_rollout_capture(
                 transition_obs = runner.alg.transition.observations.detach().clone()
                 transition_privileged_obs = runner.alg.transition.privileged_observations.detach().clone()
                 transition_env_actions = env_actions.detach().clone()
+                transition_perturbation_rp = _snapshot_frontres_perturbation_rp(
+                    runner,
+                    num_envs=int(actions.shape[0]),
+                )
                 selected_actions, selected_log_probs = _select_segment_transition_actions(runner, actions=actions)
                 transition_actions = selected_actions.detach().clone()
                 transition_log_probs = selected_log_probs.detach().clone().reshape(-1)
@@ -1204,6 +1250,7 @@ def _run_live_rollout_capture(
         motion_repaired_body_pos=_stack_motion_quality_frames(repaired_body_frames),
         motion_noisy_body_pos=_stack_motion_quality_frames(noisy_body_frames),
         env_actions=transition_env_actions,
+        transition_perturbation_rp=transition_perturbation_rp,
     )
 
 
