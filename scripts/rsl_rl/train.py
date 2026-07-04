@@ -78,6 +78,13 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--frontres_specialist_mode",
+    type=str,
+    choices=("rp", "local_rp", "rp_only", "strong_rp", "rp_z", "z_rp", "vertical_contact"),
+    default=None,
+    help="FrontRES perturbation specialist preset; rp means local_rp only.",
+)
+parser.add_argument(
     "--frontres_segment_cache_dir",
     type=str,
     default=None,
@@ -1201,6 +1208,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         agent_cfg.is_full_resume = args_cli.is_full_resume
     if args_cli.frontres_debug_training:
         agent_cfg.frontres_debug_training = True
+    if args_cli.frontres_specialist_mode is not None:
+        agent_cfg.frontres_specialist_mode = args_cli.frontres_specialist_mode
+        if args_cli.frontres_specialist_mode in ("rp", "local_rp", "rp_only", "strong_rp"):
+            agent_cfg.frontres_perturbation_channels = "rp"
+        elif args_cli.frontres_specialist_mode in ("rp_z", "z_rp", "vertical_contact"):
+            agent_cfg.frontres_perturbation_channels = "rp_z"
     _apply_frontres_stage_preset(agent_cfg, args_cli)
 
     # set seeds (explicit rank offset for distributed to avoid identical sampling across ranks)

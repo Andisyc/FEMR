@@ -3551,3 +3551,18 @@ Fixed sequence-eval item diagnostics and perturbation preservation:
   using `local_rp` instead of planar/yaw/z/mixed perturbations;
 - the contract test asserts the frame0 reset batch keeps `local_rp` and the
   item log prints `local_rp_frac=100.0%`.
+
+### Step 8 Result
+
+Made the Stage 3 perturbation preset explicit at launch:
+
+- `run_stage3.sh` defaults `FRONTRES_SPECIALIST_MODE=rp`;
+- `run/run_frontres_stage3_segment_hrl.sh` passes
+  `--frontres_specialist_mode ${FRONTRES_SPECIALIST_MODE}` for train,
+  offline eval, and sequence eval;
+- `scripts/rsl_rl/train.py` accepts `--frontres_specialist_mode` and maps rp
+  modes to `frontres_perturbation_channels=rp`;
+- launch preflight now proves the expanded command contains
+  `--frontres_specialist_mode rp`;
+- sequence eval item logs remain the live proof that the actual reset batch
+  used `family_counts={'local_rp': ...}` and `local_rp_frac=100.0%`.

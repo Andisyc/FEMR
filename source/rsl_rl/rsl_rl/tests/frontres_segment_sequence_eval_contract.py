@@ -38,6 +38,8 @@ live_training_module = _load(
 run_frontres_segment_sequence_offline_eval = live_training_module.run_frontres_segment_sequence_offline_eval
 format_sequence_offline_eval_log = live_training_module._format_sequence_offline_eval_log
 format_sequence_eval_item_log = live_training_module._format_sequence_eval_item_log
+offline_eval_summary = live_training_module._offline_eval_summary
+sequence_offline_eval_summary = live_training_module._sequence_offline_eval_summary
 
 
 @dataclass(frozen=True)
@@ -69,10 +71,20 @@ def test_sequence_eval_prerolls_from_motion_start() -> None:
     assert plan.sequence_count == 3
     assert plan.chunk_capacity == 2
     assert plan.chunk_count == 2
+    assert tuple(item.segment_id for item in plan.items) == (1, 3, 4)
     assert tuple(item.reset_frame for item in plan.items) == (0, 0, 0)
     assert tuple(item.preroll_steps for item in plan.items) == (12, 0, 25)
     assert tuple(item.eval_start_frame for item in plan.items) == (12, 0, 25)
     assert tuple(item.eval_end_frame for item in plan.items) == (62, 50, 75)
+    assert tuple(item.segment_horizon_k for item in plan.items) == (4, 5, 6)
+    print(
+        "[probe step2] sequence_plan_identity "
+        f"motion_ids={plan.motion_ids} "
+        f"segment_ids={[item.segment_id for item in plan.items]} "
+        f"reset_frames={[item.reset_frame for item in plan.items]} "
+        f"eval_start_frames={[item.eval_start_frame for item in plan.items]}",
+        flush=True,
+    )
 
 
 def test_sequence_count_is_not_env_count() -> None:
@@ -132,6 +144,9 @@ def test_sequence_eval_reset_batch_rewrites_start_only() -> None:
     batch = SimpleNamespace(specs=(FakeSpec(7, "walk_reset", 31, 4),))
     reset_batch = build_frontres_sequence_eval_reset_batch(batch, item)
     assert reset_batch.specs[0].start_frame == 0
+    assert reset_batch.specs[0].segment_id == 7
+    assert reset_batch.specs[0].motion_id == "walk_reset"
+    assert reset_batch.specs[0].horizon_k == 4
     assert batch.specs[0].start_frame == 31
     assert segment_ids_for_sequence_eval_item(item, env_count=8) == (7,) * 8
 
@@ -140,8 +155,20 @@ def test_sequence_eval_reset_batch_rewrites_start_only() -> None:
     object.__setattr__(dataclass_batch, "stage3_index_perturbation_strength", torch.tensor([1.25]))
     reset_dataclass_batch = build_frontres_sequence_eval_reset_batch(dataclass_batch, item)
     assert reset_dataclass_batch.specs[0].start_frame == 0
+    assert reset_dataclass_batch.specs[0].segment_id == 7
+    assert reset_dataclass_batch.specs[0].motion_id == "walk_reset"
+    assert reset_dataclass_batch.specs[0].horizon_k == 4
     assert reset_dataclass_batch.stage3_index_perturbation_family == ("local_rp",)
     assert float(reset_dataclass_batch.stage3_index_perturbation_strength[0]) == 1.25
+    print(
+        "[probe step2] reset_spec_identity "
+        f"segment_id={reset_batch.specs[0].segment_id} "
+        f"motion_id={reset_batch.specs[0].motion_id} "
+        f"reset_frame={reset_batch.specs[0].start_frame} "
+        f"original_start_frame={batch.specs[0].start_frame} "
+        f"horizon_k={reset_batch.specs[0].horizon_k}",
+        flush=True,
+    )
 
 
 def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
@@ -246,36 +273,51 @@ class FakeRunner:
         self._frontres_segment_live_current_reset_result = None
         self._frontres_segment_live_detail_log_enabled = True
         self.events: list[tuple[str, object]] = []
+        self.read_obs_count = 0
+        self.scoring_capture_count = 0
 
     def eval_mode(self):
         self.events.append(("eval_mode", None))
 
 
 class FakeCapture:
-    rollout_k = 50
-    reward_mean = 0.0
-    done_frac = 0.0
-    last_obs_shape = (8, 29)
-    action_shape = (8, 6)
-    env_action_shape = (8, 12)
-    transition_obs = None
-    transition_privileged_obs = None
-    transition_actions = torch.zeros((8, 6))
-    transition_log_probs = None
-    transition_values = None
-    transition_means = None
-    transition_sigmas = None
-    reward_accum = torch.tensor([0.5, 0.5, 0.0, 0.0, 0.2, 0.2, 0.6, 0.6])
-    done_any = torch.zeros(8, dtype=torch.bool)
-    actor_update_mask = None
-    n_train = 2
-    n_candidate = 2
-    n_base = 2
-    n_clean = 2
-    survival_steps = torch.full((8,), 50.0)
-    motion_clean_body_pos = None
-    motion_repaired_body_pos = None
-    motion_noisy_body_pos = None
+    def __init__(self, *, rollout_k: int = 50, sequence_id: int = 0) -> None:
+        self.rollout_k = int(rollout_k)
+        self.reward_mean = 0.0
+        self.done_frac = 0.0
+        self.last_obs_shape = (8, 29)
+        self.action_shape = (8, 6)
+        self.env_action_shape = (8, 12)
+        self.transition_obs = None
+        self.transition_privileged_obs = None
+        action_scale = 0.1 * float(sequence_id)
+        self.transition_actions = torch.full((8, 6), action_scale)
+        self.transition_log_probs = None
+        self.transition_values = None
+        self.transition_means = None
+        self.transition_sigmas = None
+        repaired = 10.0 + float(sequence_id)
+        noisy = 2.0 + 0.5 * float(sequence_id)
+        self.reward_accum = torch.tensor([repaired, repaired, 0.0, 0.0, noisy, noisy, 0.0, 0.0])
+        self.done_any = torch.zeros(8, dtype=torch.bool)
+        if sequence_id == 2:
+            self.done_any[0] = True
+        self.actor_update_mask = None
+        self.n_train = 2
+        self.n_candidate = 2
+        self.n_base = 2
+        self.n_clean = 2
+        self.survival_steps = torch.full((8,), 40.0 + 3.0 * float(sequence_id))
+        if sequence_id == 2:
+            self.survival_steps[0] = 17.0
+        clean = torch.zeros(2, self.rollout_k, 1, 3)
+        repaired_body = clean.clone()
+        noisy_body = clean.clone()
+        repaired_body[:, :, :, 0] = 0.05 * float(sequence_id)
+        noisy_body[:, :, :, 0] = 0.20 * float(sequence_id)
+        self.motion_clean_body_pos = clean
+        self.motion_repaired_body_pos = repaired_body
+        self.motion_noisy_body_pos = noisy_body
 
 
 def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
@@ -308,8 +350,10 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
         runner_arg.events.append(("reset", starts, trace, families))
 
     def fake_read_live_observations(runner_arg):
-        runner_arg.events.append(("read_obs", None))
-        return "obs"
+        runner_arg.read_obs_count += 1
+        obs = f"obs_{runner_arg.read_obs_count}"
+        runner_arg.events.append(("read_obs", obs))
+        return obs
 
     def fake_run_live_rollout_capture(
         runner_arg,
@@ -319,8 +363,11 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
         capture_motion_quality: bool = True,
     ):
         starts = tuple(spec.start_frame for spec in runner_arg._frontres_segment_live_current_batch.specs)
-        runner_arg.events.append(("rollout", int(rollout_steps), starts, bool(capture_motion_quality)))
-        return FakeCapture()
+        runner_arg.events.append(("rollout", int(rollout_steps), starts, bool(capture_motion_quality), observations))
+        if capture_motion_quality:
+            runner_arg.scoring_capture_count += 1
+            return FakeCapture(rollout_k=int(rollout_steps), sequence_id=runner_arg.scoring_capture_count)
+        return FakeCapture(rollout_k=int(rollout_steps), sequence_id=0)
 
     live_training_module._build_current_segment_batch = fake_build_current_segment_batch
     live_training_module.build_frontres_sequence_eval_plan = build_frontres_sequence_eval_plan
@@ -351,13 +398,87 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
     assert all(event[2] is False for event in reset_events)
     assert all(set(event[3]) == {"local_rp"} for event in reset_events)
     assert runner.env._frontres_segment_index_reset_adapter.trace is True
-    assert rollout_events[0][1:] == (3, (0, 0, 0, 0, 0, 0, 0, 0), False)
-    assert rollout_events[1][1:] == (50, (3, 3, 3, 3, 3, 3, 3, 3), True)
-    assert rollout_events[2][1:] == (4, (0, 0, 0, 0, 0, 0, 0, 0), False)
-    assert rollout_events[3][1:] == (50, (4, 4, 4, 4, 4, 4, 4, 4), True)
+    assert rollout_events[0][1:] == (3, (0, 0, 0, 0, 0, 0, 0, 0), False, "obs_1")
+    assert rollout_events[1][1:] == (50, (3, 3, 3, 3, 3, 3, 3, 3), True, "obs_2")
+    assert rollout_events[2][1:] == (4, (0, 0, 0, 0, 0, 0, 0, 0), False, "obs_3")
+    assert rollout_events[3][1:] == (50, (4, 4, 4, 4, 4, 4, 4, 4), True, "obs_4")
+    event_names = [event[0] for event in runner.events]
+    assert event_names == [
+        "reset",
+        "read_obs",
+        "eval_mode",
+        "rollout",
+        "read_obs",
+        "rollout",
+        "reset",
+        "read_obs",
+        "eval_mode",
+        "rollout",
+        "read_obs",
+        "rollout",
+    ]
     assert int(summary["sequence_count"]) == 2
     assert summary["motion_ids"] == ("motion_0", "motion_1")
     assert captured_plan_kwargs["max_preroll_steps"] == 10
+    per_motion = {row["motion_id"]: row for row in summary["per_motion"]}
+    assert per_motion["motion_0"]["score_repaired"] != per_motion["motion_1"]["score_repaired"]
+    assert per_motion["motion_0"]["mean_survival_steps"] != per_motion["motion_1"]["mean_survival_steps"]
+    assert per_motion["motion_0"]["segment/motion_delta_se_norm"] != per_motion["motion_1"][
+        "segment/motion_delta_se_norm"
+    ]
+    print(
+        "[probe step2] sequence_owner_identity "
+        f"motion_ids={summary['motion_ids']} "
+        f"reset_starts={[event[1] for event in reset_events]} "
+        f"eval_starts={[event[2] for event in rollout_events if event[3] is True]}",
+        flush=True,
+    )
+    print(
+        "[probe step3] reset_preroll_scoring_order "
+        f"events={event_names} "
+        f"preroll_capture={[event[3] for event in rollout_events[0::2]]} "
+        f"scoring_capture={[event[3] for event in rollout_events[1::2]]} "
+        f"scoring_obs={[event[4] for event in rollout_events[1::2]]}",
+        flush=True,
+    )
+    print(
+        "[probe step5] rollout_state_isolation "
+        f"motion_0_repaired={per_motion['motion_0']['score_repaired']:.6f} "
+        f"motion_1_repaired={per_motion['motion_1']['score_repaired']:.6f} "
+        f"motion_0_survival={per_motion['motion_0']['mean_survival_steps']:.1f} "
+        f"motion_1_survival={per_motion['motion_1']['mean_survival_steps']:.1f} "
+        f"motion_0_delta={per_motion['motion_0']['segment/motion_delta_se_norm']:.6f} "
+        f"motion_1_delta={per_motion['motion_1']['segment/motion_delta_se_norm']:.6f}",
+        flush=True,
+    )
+
+
+def test_sequence_eval_all_fall_keeps_action_diagnostics_in_summaries() -> None:
+    capture = FakeCapture(rollout_k=50, sequence_id=3)
+    capture.done_any = torch.ones(8, dtype=torch.bool)
+    capture.survival_steps = torch.zeros(8)
+    summary = offline_eval_summary(capture, sample_count=2, motion_ids=("fall_a", "fall_b"))
+    expected_delta = float(torch.linalg.norm(capture.transition_actions.float(), dim=-1).mean().item())
+    assert summary["fall_rate"] == 1.0
+    assert abs(summary["segment/motion_delta_se_norm"] - expected_delta) < 1e-6
+    per_motion_delta = [float(row["segment/motion_delta_se_norm"]) for row in summary["per_motion"]]
+    assert per_motion_delta and all(delta > 0.0 for delta in per_motion_delta)
+
+    merged = sequence_offline_eval_summary(
+        [summary],
+        plan=SimpleNamespace(requested_sequences=1, motion_ids=("fall_a", "fall_b")),
+        env_count=8,
+    )
+    assert abs(merged["segment/motion_delta_se_norm"] - expected_delta) < 1e-6
+    log = format_sequence_offline_eval_log(merged)
+    assert f"delta_se_norm={expected_delta:.6f}" in log
+    print(
+        "[probe step6] sequence_aggregation_all_fall_action_visible "
+        f"item_delta={summary['segment/motion_delta_se_norm']:.6f} "
+        f"per_motion_min={min(per_motion_delta):.6f} "
+        f"final_delta={merged['segment/motion_delta_se_norm']:.6f}",
+        flush=True,
+    )
 
 
 def main() -> None:
@@ -368,16 +489,18 @@ def main() -> None:
     test_sequence_eval_reset_batch_rewrites_start_only()
     test_sequence_eval_log_prints_motion_quality_metrics()
     test_sequence_offline_eval_owner_orders_reset_preroll_eval()
+    test_sequence_eval_all_fall_keeps_action_diagnostics_in_summaries()
     print(
         "[probe step23] sequence_eval_contract "
-        "reset_frame=0 preroll_to_segment_start=True requested_sequences_not_env_count=True",
+        "unique_motion_ids=True reset_frame=0 eval_start_frame=segment_start "
+        "segment_id_preserved=True requested_sequences_not_env_count=True",
         flush=True,
     )
     print(
         "[probe step24] sequence_eval_live_owner "
-        "reset_before_preroll=True preroll_no_capture=True preroll_before_eval=True "
+        "reset_before_preroll=True preroll_no_capture=True obs_refresh_before_eval=True preroll_before_eval=True "
         "eval_capture=True reset_trace_silenced=True role_envs_repeated=True "
-        "max_preroll_routed=True motion_metrics_printed=True perturbation_rp_preserved=True",
+        "fresh_sequence_capture=True max_preroll_routed=True motion_metrics_printed=True perturbation_rp_preserved=True",
         flush=True,
     )
     print("frontres_segment_sequence_eval_contract: ok")

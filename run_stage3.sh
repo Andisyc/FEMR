@@ -7,8 +7,9 @@ if [[ $# -lt 1 ]]; then
  echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval."
  echo "CACHE_DIR selects the Stage 1 Segment Replay cache used by Stage 3."
  echo "PERIODIC_EVAL_ENABLED=1 enables periodic long-rollout eval; PERIODIC_EVAL_INTERVAL controls its interval."
- echo "OFFLINE_EVAL_STEPS controls checkpoint eval rollout length when MODE=offline_eval."
- echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
+echo "OFFLINE_EVAL_STEPS controls checkpoint eval rollout length when MODE=offline_eval."
+echo "FRONTRES_SPECIALIST_MODE selects Stage 3 perturbation family preset, default rp."
+echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "Set FRONTRES_STAGE_PREFLIGHT_ONLY=1 to print and validate the startup command without launching IsaacLab."
   exit 1
 fi
@@ -36,6 +37,7 @@ export PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
 export PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
 export OFFLINE_EVAL_SEGMENTS="${OFFLINE_EVAL_SEGMENTS:-${NUM_ENVS}}"
 export OFFLINE_EVAL_STEPS="${OFFLINE_EVAL_STEPS:-500}"
+export FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
 
 CMD=(
   bash run/run_frontres_stage3_segment_hrl.sh

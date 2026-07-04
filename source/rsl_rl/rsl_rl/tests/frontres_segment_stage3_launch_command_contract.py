@@ -29,6 +29,7 @@ def _run_preflight(mode: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["FRONTRES_STAGE_PREFLIGHT_ONLY"] = "1"
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "0"
+        env["FRONTRES_SPECIALIST_MODE"] = "rp"
         return subprocess.run(
             [
                 "bash",
@@ -63,6 +64,7 @@ def _probe(name: str, command: str) -> None:
         f"resume_stage1={'--resume_student_checkpoint' in command} "
         f"is_full_resume_false={'--is_full_resume False' in command} "
         f"update_steps_3={'--frontres_segment_live_update_steps 3' in command} "
+        f"specialist_rp={'--frontres_specialist_mode rp' in command} "
         f"update_loop={'--frontres_segment_live_update_loop_only' in command} "
         f"sequence_eval={'--frontres_segment_sequence_offline_eval_only' in command} "
         f"legacy_stage2={'stage2_acceptance' in command} "
@@ -81,6 +83,7 @@ def test_stage3_train_launch_preflight_builds_femr_command() -> None:
     assert "--frontres_stage stage3_segment_hrl" in command
     assert "--resume_student_checkpoint" in command
     assert "--is_full_resume False" in command
+    assert "--frontres_specialist_mode rp" in command
     assert "--frontres_segment_live_update_steps 3" in command
     assert "--frontres_segment_live_update_loop_only" not in command
     assert "--frontres_segment_sequence_offline_eval_only" not in command
@@ -97,6 +100,7 @@ def test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel() ->
 
         assert f"[FrontRES Stage3 startup preflight] PASS mode={mode}" in result.stdout
         assert "--frontres_stage stage3_segment_hrl" in command
+        assert "--frontres_specialist_mode rp" in command
         assert expected_flag in command
         for other_flag in SENTINEL_FLAGS.values():
             if other_flag != expected_flag:

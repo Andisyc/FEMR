@@ -1196,7 +1196,9 @@ def _capture_motion_quality_frame(
     command = _motion_command_for_runner(runner)
     if command is None:
         return None, None, None
-    clean_ref = getattr(command, "body_pos_relative_w", None)
+    clean_ref = getattr(command, "body_pos_w", None)
+    if not isinstance(clean_ref, torch.Tensor):
+        clean_ref = getattr(command, "body_pos_relative_w", None)
     robot_pos = getattr(command, "robot_body_pos_w", None)
     if not isinstance(clean_ref, torch.Tensor) or not isinstance(robot_pos, torch.Tensor):
         return None, None, None
@@ -1210,10 +1212,16 @@ def _capture_motion_quality_frame(
     if n <= 0 or int(robot_pos.shape[0]) < base_start + n or int(clean_ref.shape[0]) < clean_start + n:
         return None, None, None
     return (
-        clean_ref[clean_start : clean_start + n].detach().clone(),
-        robot_pos[:n].detach().clone(),
-        robot_pos[base_start : base_start + n].detach().clone(),
+        _root_relative_body_pos(clean_ref[clean_start : clean_start + n]),
+        _root_relative_body_pos(robot_pos[:n]),
+        _root_relative_body_pos(robot_pos[base_start : base_start + n]),
     )
+
+
+def _root_relative_body_pos(body_pos: torch.Tensor) -> torch.Tensor:
+    if body_pos.ndim < 3 or int(body_pos.shape[-2]) <= 0:
+        return body_pos.detach().clone()
+    return (body_pos - body_pos[..., :1, :]).detach().clone()
 
 
 def _motion_command_for_runner(runner: Any) -> Any | None:

@@ -206,6 +206,36 @@ def test_motion_quality_summary_measures_pose_velocity_and_delta_se() -> None:
     assert "dz_up=0.0%" in log
 
 
+def test_motion_quality_keeps_action_diagnostics_when_all_samples_fall() -> None:
+    clean = torch.zeros((2, 3, 1, 3))
+    repaired = clean.clone()
+    repaired[..., 0] = 1.0
+    delta_se = torch.tensor(
+        [
+            [0.1, 0.0, 0.2, 0.0, 0.0, 0.3],
+            [0.4, 0.0, -0.5, 0.0, 0.0, 0.6],
+        ]
+    )
+    scalars = motion_quality_summary_to_scalars(
+        clean_positions=clean,
+        repaired_positions=repaired,
+        noisy_positions=repaired,
+        delta_se=delta_se,
+        valid_mask=torch.tensor([False, False]),
+    )
+    expected_delta = float(torch.linalg.norm(delta_se, dim=-1).mean().item())
+    assert scalars["segment/motion_mpjpe_repaired_clean"] == 0.0
+    assert abs(scalars["segment/motion_delta_se_norm"] - expected_delta) < 1e-6
+    assert scalars["segment/motion_delta_z_up_frac"] == 0.5
+    print(
+        "[probe step6] all_fall_motion_quality_action_visible "
+        f"mpjpe={scalars['segment/motion_mpjpe_repaired_clean']:.6f} "
+        f"delta={scalars['segment/motion_delta_se_norm']:.6f} "
+        f"dz_up={scalars['segment/motion_delta_z_up_frac']:.3f}",
+        flush=True,
+    )
+
+
 def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
     summary = {
         "episode_length": 500,
@@ -234,6 +264,7 @@ def main() -> None:
     test_segment_log_contains_live_path_sentinel()
     test_repair_effect_summary_formats_training_fit_metrics()
     test_motion_quality_summary_measures_pose_velocity_and_delta_se()
+    test_motion_quality_keeps_action_diagnostics_when_all_samples_fall()
     test_periodic_eval_summary_formats_long_rollout_metrics()
     print("result: PASS")
 

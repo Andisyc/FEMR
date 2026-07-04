@@ -142,8 +142,8 @@ def motion_quality_summary_to_scalars(
         "segment/motion_mpjpe_noisy_clean": _mpjpe(noisy_positions, clean_positions, valid),
         "segment/motion_vel_error_repaired_clean": _diff_mpjpe(repaired_positions, clean_positions, valid, order=1),
         "segment/motion_acc_error_repaired_clean": _diff_mpjpe(repaired_positions, clean_positions, valid, order=2),
-        "segment/motion_delta_se_norm": _delta_se_norm(delta_se, valid),
-        "segment/motion_delta_z_up_frac": _delta_z_up_frac(delta_se, valid),
+        "segment/motion_delta_se_norm": _delta_se_norm(delta_se, None),
+        "segment/motion_delta_z_up_frac": _delta_z_up_frac(delta_se, None),
     }
 
 

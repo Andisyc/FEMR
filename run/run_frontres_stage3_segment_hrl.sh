@@ -7,9 +7,10 @@ if [[ $# -lt 2 ]]; then
   echo "Stage 3 loads an HSL Delta SE proposal checkpoint and trains Segment Replay HRL."
   echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval, sequence_eval."
   echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
-  echo "offline_eval loads the checkpoint, samples NUM_ENVS indexed segments, runs OFFLINE_EVAL_STEPS rollout steps, and exits."
-  echo "sequence_eval loads the checkpoint, evaluates OFFLINE_EVAL_SEQUENCES unique motions from frame 0 to sampled segment starts, and exits."
-  echo "OFFLINE_EVAL_MAX_PREROLL_STEPS caps sampled segment starts for smoke tests; set 0 for unbounded full evaluation."
+ echo "offline_eval loads the checkpoint, samples NUM_ENVS indexed segments, runs OFFLINE_EVAL_STEPS rollout steps, and exits."
+ echo "sequence_eval loads the checkpoint, evaluates OFFLINE_EVAL_SEQUENCES unique motions from frame 0 to sampled segment starts, and exits."
+ echo "OFFLINE_EVAL_MAX_PREROLL_STEPS caps sampled segment starts for smoke tests; set 0 for unbounded full evaluation."
+ echo "FRONTRES_SPECIALIST_MODE selects the perturbation preset for train/eval; default rp."
   echo "Example:"
   echo "  SHARD_CACHE_SIZE=8 bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
   echo "  bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 1 1 1 update_loop"
@@ -30,6 +31,7 @@ SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
 PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
 PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
 STAGE3_IS_FULL_RESUME="${STAGE3_IS_FULL_RESUME:-False}"
+FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
 CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py}"
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
@@ -97,8 +99,9 @@ TRAIN_CMD=(
   --max_iterations "${MAX_ITERS}"
   --resume_student_checkpoint "${HSL_CHECKPOINT}"
   --is_full_resume "${STAGE3_IS_FULL_RESUME}"
-  --frontres_stage stage3_segment_hrl
-  --frontres_segment_cache_dir "${CACHE_DIR}"
+ --frontres_stage stage3_segment_hrl
+ --frontres_specialist_mode "${FRONTRES_SPECIALIST_MODE}"
+ --frontres_segment_cache_dir "${CACHE_DIR}"
   --frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"
   --frontres_segment_live_update_steps "${UPDATE_STEPS}"
 )
@@ -124,8 +127,9 @@ if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   joined=" ${TRAIN_CMD[*]} "
   for required in \
     " scripts/rsl_rl/train.py " \
-    " --frontres_stage stage3_segment_hrl " \
-    " --resume_student_checkpoint ${HSL_CHECKPOINT} " \
+  " --frontres_stage stage3_segment_hrl " \
+  " --frontres_specialist_mode ${FRONTRES_SPECIALIST_MODE} " \
+  " --resume_student_checkpoint ${HSL_CHECKPOINT} " \
     " --is_full_resume ${STAGE3_IS_FULL_RESUME} " \
     " --frontres_segment_cache_dir ${CACHE_DIR} " \
     " --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} " \

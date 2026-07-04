@@ -542,9 +542,48 @@ def test_stage1_index_reset_applies_dynamic_motion_perturbation_request() -> Non
         )
 
 
+def test_stage1_index_reset_applies_local_rp_only_perturbation_request() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        _write_fake_amass(root / "KIT" / "359" / "motion_a.npz")
+        env = FakeGymEnv(root)
+        adapter = FrontRESStage1EnvAdapter(env, amass_root=str(root), trace=False)
+
+        result = adapter.apply_frontres_segment_index_reset(
+            types.SimpleNamespace(
+                segment_ids=torch.tensor([5], dtype=torch.long),
+                motion_ids=("KIT/359/motion_a.npz",),
+                start_frames=torch.tensor([4], dtype=torch.long),
+                horizon_k=torch.tensor([2], dtype=torch.long),
+                perturbation_family=("local_rp",),
+                perturbation_strength=torch.tensor([1.25], dtype=torch.float32),
+            )
+        )
+        perturber = env.unwrapped.command.perturber
+        assert result["reset_success"].tolist() == [True]
+        assert perturber.dr_scale_env is not None
+        torch.testing.assert_close(perturber.dr_scale_env, torch.tensor([1.25]))
+        assert perturber.family_masks is not None
+        assert perturber.family_masks["planar"].tolist() == [False]
+        assert perturber.family_masks["yaw"].tolist() == [False]
+        assert perturber.family_masks["global_z"].tolist() == [False]
+        assert perturber.family_masks["local_rp"].tolist() == [True]
+        print(
+            "[probe step4] index_reset_applies_local_rp_only_perturbation "
+            f"family=('local_rp',) "
+            f"strength={perturber.dr_scale_env.tolist()} "
+            f"planar_mask={perturber.family_masks['planar'].tolist()} "
+            f"yaw_mask={perturber.family_masks['yaw'].tolist()} "
+            f"global_z_mask={perturber.family_masks['global_z'].tolist()} "
+            f"local_rp_mask={perturber.family_masks['local_rp'].tolist()}",
+            flush=True,
+        )
+
+
 if __name__ == "__main__":
     test_stage1_hook_trace_summarizes_large_sequences()
     test_stage1_env_adapter_hooks_trace_real_boundary_contract()
     test_stage1_env_adapter_writes_inference_tensors_under_inference_mode()
     test_stage1_index_reset_applies_dynamic_motion_perturbation_request()
+    test_stage1_index_reset_applies_local_rp_only_perturbation_request()
     print("PASS: FrontRES Stage 1 env adapter hooks trace motion, clean reset, perturbation, and baseline rollout.")
