@@ -1061,6 +1061,7 @@ def _run_live_rollout_capture(
     observations: FrontRESSegmentLiveObservations,
     *,
     rollout_steps: int | None = None,
+    capture_motion_quality: bool = True,
 ) -> FrontRESSegmentLiveRolloutCapture:
     frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
     pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
@@ -1148,11 +1149,12 @@ def _run_live_rollout_capture(
                 survival_steps = torch.zeros_like(rewards.detach(), dtype=torch.float32)
             survival_steps = survival_steps + (~done_any).float()
             done_any = done_any | dones.detach().bool()
-            clean_body, repaired_body, noisy_body = _capture_motion_quality_frame(runner, pair_layout)
-            if clean_body is not None and repaired_body is not None and noisy_body is not None:
-                clean_body_frames.append(clean_body)
-                repaired_body_frames.append(repaired_body)
-                noisy_body_frames.append(noisy_body)
+            if capture_motion_quality:
+                clean_body, repaired_body, noisy_body = _capture_motion_quality_frame(runner, pair_layout)
+                if clean_body is not None and repaired_body is not None and noisy_body is not None:
+                    clean_body_frames.append(clean_body)
+                    repaired_body_frames.append(repaired_body)
+                    noisy_body_frames.append(noisy_body)
 
             obs, privileged_obs, teacher_obs, ref_vel_estimator_obs = _read_step_observations(runner, obs, infos)
             last_obs_shape = tuple(obs.shape)

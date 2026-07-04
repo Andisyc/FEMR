@@ -541,7 +541,9 @@ summary is available.  This keeps runner orchestration as a connector instead of
 moving sampling, reset, reward, storage, and priority logic into one file.
 `frontres_segment_live_training.py` owns the offline/periodic evaluation entry
 points; its sequence-eval owner is exposed only through the explicit
-`sequence_eval` Stage 3 mode and remains outside default training.
+`sequence_eval` Stage 3 mode and remains outside default training.  Sequence
+eval preroll advances the live env to the segment start without motion-quality
+frame capture; only the eval window records rollout metrics.
 
 ### New Helpers Needed
 

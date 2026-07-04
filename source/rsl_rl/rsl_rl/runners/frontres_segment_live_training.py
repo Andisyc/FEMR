@@ -34,7 +34,13 @@ except ModuleNotFoundError:
     def _read_live_observations(runner: Any) -> None:
         raise NotImplementedError("frontres_segment_live_probe import is unavailable.")
 
-    def _run_live_rollout_capture(runner: Any, observations: Any, *, rollout_steps: int) -> None:
+    def _run_live_rollout_capture(
+        runner: Any,
+        observations: Any,
+        *,
+        rollout_steps: int,
+        capture_motion_quality: bool = True,
+    ) -> None:
         raise NotImplementedError("frontres_segment_live_probe import is unavailable.")
 
 
@@ -213,7 +219,12 @@ def run_frontres_segment_sequence_offline_eval(
                 observations = _read_live_observations(runner)
                 runner.eval_mode()
                 if item.preroll_steps > 0:
-                    _run_live_rollout_capture(runner, observations, rollout_steps=item.preroll_steps)
+                    _run_live_rollout_capture(
+                        runner,
+                        observations,
+                        rollout_steps=item.preroll_steps,
+                        capture_motion_quality=False,
+                    )
                     observations = _read_live_observations(runner)
                 runner._frontres_segment_live_current_batch = eval_batch
                 capture = _run_live_rollout_capture(runner, observations, rollout_steps=item.eval_rollout_steps)

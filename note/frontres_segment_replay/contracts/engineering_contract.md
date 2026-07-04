@@ -3438,7 +3438,8 @@ Implemented the minimal live-owner connector without adding a CLI mode:
   rows for the same motion;
 - each sequence first resets through an index-only batch with `start_frame=0`;
 - it then prerolls for the original segment `start_frame`;
-- only after preroll does it run the scoring rollout window.
+- the preroll advances live env state without motion-quality frame capture;
+- only after preroll does it run the scoring rollout window with metric capture.
 
 Deliberate minimalism:
 
@@ -3451,7 +3452,8 @@ Verified by fake-runner contract:
 
 ```text
 [probe step24] sequence_eval_live_owner
-reset_before_preroll=True preroll_before_eval=True role_envs_repeated=True
+reset_before_preroll=True preroll_no_capture=True preroll_before_eval=True
+eval_capture=True role_envs_repeated=True
 ```
 
 ### Step 4 Result

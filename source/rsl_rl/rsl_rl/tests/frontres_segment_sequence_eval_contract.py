@@ -178,9 +178,15 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
         runner_arg.events.append(("read_obs", None))
         return "obs"
 
-    def fake_run_live_rollout_capture(runner_arg, observations, *, rollout_steps: int):
+    def fake_run_live_rollout_capture(
+        runner_arg,
+        observations,
+        *,
+        rollout_steps: int,
+        capture_motion_quality: bool = True,
+    ):
         starts = tuple(spec.start_frame for spec in runner_arg._frontres_segment_live_current_batch.specs)
-        runner_arg.events.append(("rollout", int(rollout_steps), starts))
+        runner_arg.events.append(("rollout", int(rollout_steps), starts, bool(capture_motion_quality)))
         return FakeCapture()
 
     live_training_module._build_current_segment_batch = fake_build_current_segment_batch
@@ -200,10 +206,10 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
     rollout_events = [event for event in runner.events if event[0] == "rollout"]
     assert len(reset_events) == 2
     assert all(set(event[1]) == {0} for event in reset_events)
-    assert rollout_events[0][1:] == (3, (0, 0, 0, 0, 0, 0, 0, 0))
-    assert rollout_events[1][1:] == (50, (3, 3, 3, 3, 3, 3, 3, 3))
-    assert rollout_events[2][1:] == (4, (0, 0, 0, 0, 0, 0, 0, 0))
-    assert rollout_events[3][1:] == (50, (4, 4, 4, 4, 4, 4, 4, 4))
+    assert rollout_events[0][1:] == (3, (0, 0, 0, 0, 0, 0, 0, 0), False)
+    assert rollout_events[1][1:] == (50, (3, 3, 3, 3, 3, 3, 3, 3), True)
+    assert rollout_events[2][1:] == (4, (0, 0, 0, 0, 0, 0, 0, 0), False)
+    assert rollout_events[3][1:] == (50, (4, 4, 4, 4, 4, 4, 4, 4), True)
     assert int(summary["sequence_count"]) == 2
     assert summary["motion_ids"] == ("motion_0", "motion_1")
 
@@ -221,7 +227,8 @@ def main() -> None:
     )
     print(
         "[probe step24] sequence_eval_live_owner "
-        "reset_before_preroll=True preroll_before_eval=True role_envs_repeated=True",
+        "reset_before_preroll=True preroll_no_capture=True preroll_before_eval=True "
+        "eval_capture=True role_envs_repeated=True",
         flush=True,
     )
     print("frontres_segment_sequence_eval_contract: ok")
