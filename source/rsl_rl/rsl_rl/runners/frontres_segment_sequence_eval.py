@@ -27,6 +27,7 @@ class FrontRESSegmentSequenceEvalPlan:
     available_envs: int
     paired_envs_per_sequence: int
     chunk_capacity: int
+    max_preroll_steps: int | None = None
 
     @property
     def sequence_count(self) -> int:
@@ -48,22 +49,28 @@ def build_frontres_sequence_eval_plan(
     available_envs: int = 0,
     paired_envs_per_sequence: int = 4,
     eval_rollout_steps: int | None = None,
+    max_preroll_steps: int | None = None,
 ) -> FrontRESSegmentSequenceEvalPlan:
     if requested_sequences <= 0:
         raise ValueError("requested_sequences must be positive")
     if paired_envs_per_sequence <= 0:
         raise ValueError("paired_envs_per_sequence must be positive")
 
+    preroll_cap = None if max_preroll_steps is None or int(max_preroll_steps) <= 0 else int(max_preroll_steps)
+
+    # FRS3-EVAL-004: choose unique motion sequences and derive frame0->segment eval windows.
     items: list[FrontRESSegmentSequenceEvalItem] = []
     seen: set[str] = set()
     for index, spec in enumerate(specs):
         motion_id = str(getattr(spec, "motion_id", ""))
         if not motion_id:
             raise ValueError("sequence eval specs must expose motion_id")
+        start_frame = _required_nonnegative_int(spec, "start_frame")
+        if preroll_cap is not None and start_frame > preroll_cap:
+            continue
         if motion_id in seen:
             continue
         seen.add(motion_id)
-        start_frame = _required_nonnegative_int(spec, "start_frame")
         horizon_k = _positive_int(getattr(spec, "horizon_k", 1), "horizon_k")
         rollout_steps = _positive_int(eval_rollout_steps if eval_rollout_steps is not None else horizon_k, "eval_rollout_steps")
         items.append(
@@ -81,8 +88,9 @@ def build_frontres_sequence_eval_plan(
             break
 
     if len(items) < requested_sequences:
+        cap_note = "" if preroll_cap is None else f" with max_preroll_steps<={preroll_cap}"
         raise ValueError(
-            f"sequence eval requires {requested_sequences} unique motion ids, got {len(items)}"
+            f"sequence eval requires {requested_sequences} unique motion ids{cap_note}, got {len(items)}"
         )
 
     envs = max(0, int(available_envs))
@@ -93,6 +101,7 @@ def build_frontres_sequence_eval_plan(
         available_envs=envs,
         paired_envs_per_sequence=int(paired_envs_per_sequence),
         chunk_capacity=chunk_capacity,
+        max_preroll_steps=preroll_cap,
     )
 
 
@@ -101,6 +110,7 @@ def segment_ids_for_sequence_eval_item(
     *,
     env_count: int,
 ) -> tuple[int, ...]:
+    # FRS3-EVAL-005: repeat one segment across the full B1 role layout.
     count = _positive_int(env_count, "env_count")
     return tuple(int(item.segment_id) for _ in range(count))
 
@@ -109,6 +119,7 @@ def build_frontres_sequence_eval_reset_batch(
     batch: Any,
     item: FrontRESSegmentSequenceEvalItem,
 ) -> Any:
+    # FRS3-EVAL-006: rewrite reset specs to motion frame 0 before preroll.
     specs = tuple(getattr(batch, "specs", ()) or ())
     if not specs:
         raise ValueError("sequence eval reset batch requires specs")

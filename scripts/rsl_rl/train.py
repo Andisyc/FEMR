@@ -234,6 +234,7 @@ parser.add_argument(
     default=False,
     help="For Stage 3 only: load a checkpoint, sample Stage 1 segments, run eval rollout metrics, then exit.",
 )
+# FRS3-EVAL-001: expose Stage 3 whole-sequence evaluation CLI controls.
 parser.add_argument(
     "--frontres_segment_sequence_offline_eval_only",
     action="store_true",
@@ -269,6 +270,12 @@ parser.add_argument(
     type=int,
     default=10,
     help="For Stage 3 only: number of unique motion sequences for --frontres_segment_sequence_offline_eval_only.",
+)
+parser.add_argument(
+    "--frontres_segment_sequence_eval_max_preroll_steps",
+    type=int,
+    default=0,
+    help="For Stage 3 sequence eval: ignore sampled segments whose start_frame exceeds this cap; 0 disables the cap.",
 )
 parser.add_argument(
     "--frontres_segment_offline_eval_steps",
@@ -1332,9 +1339,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         return
 
     if args_cli.frontres_segment_sequence_offline_eval_only:
+        # FRS3-EVAL-002: dispatch sequence eval and exit without entering training.
         runner.run_frontres_segment_sequence_offline_eval(
             num_eval_sequences=max(1, int(getattr(args_cli, "frontres_segment_sequence_eval_sequences", 10))),
             rollout_steps=max(1, int(getattr(args_cli, "frontres_segment_offline_eval_steps", 500))),
+            max_preroll_steps=max(0, int(getattr(args_cli, "frontres_segment_sequence_eval_max_preroll_steps", 0))),
         )
         env.close()
         return

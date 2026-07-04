@@ -160,6 +160,7 @@ def run_frontres_segment_sequence_offline_eval(
     *,
     num_eval_sequences: int,
     rollout_steps: int,
+    max_preroll_steps: int | None = None,
 ) -> dict[str, Any]:
     sampler = getattr(runner, "_frontres_segment_sampler", None)
     if sampler is None:
@@ -169,6 +170,7 @@ def run_frontres_segment_sequence_offline_eval(
     env_count = max(1, int(getattr(runner.env, "num_envs", num_eval_sequences)))
     requested_count = max(1, int(num_eval_sequences))
 
+    # FRS3-EVAL-007: collect enough candidate specs to cover requested unique motions.
     batch_builder = globals().get("_build_current_segment_batch")
     if batch_builder is None:
         from rsl_rl.runners.frontres_segment_live_sampler import _build_current_segment_batch as batch_builder
@@ -184,26 +186,49 @@ def run_frontres_segment_sequence_offline_eval(
 
     specs: list[Any] = []
     sample_size = max(env_count, requested_count)
-    for _ in range(max(4, requested_count * 4)):
+    plan = None
+    last_plan_error: ValueError | None = None
+    for _ in range(max(8, requested_count * 20)):
         sample = sampler.sample(sample_size)
         batch = batch_builder(runner, sample, update_step=0, print_probe=False)
         specs.extend(tuple(getattr(batch, "specs", ()) or ()))
-        unique = {str(getattr(spec, "motion_id", "")) for spec in specs}
-        unique.discard("")
-        if len(unique) >= requested_count:
+        try:
+            plan = sequence_plan_builder(
+                specs,
+                requested_sequences=requested_count,
+                available_envs=env_count,
+                eval_rollout_steps=max(1, int(rollout_steps)),
+                max_preroll_steps=max_preroll_steps,
+            )
             break
-
-    plan = sequence_plan_builder(
-        specs,
-        requested_sequences=requested_count,
-        available_envs=env_count,
-        eval_rollout_steps=max(1, int(rollout_steps)),
-    )
+        except ValueError as exc:
+            last_plan_error = exc
+    if plan is None:
+        if last_plan_error is not None:
+            raise last_plan_error
+        raise ValueError("sequence eval could not build a plan from sampled specs")
+    if max_preroll_steps is not None and int(max_preroll_steps) > 0:
+        print(
+            "[FrontRES Segment Sequence Eval Plan] "
+            f"max_preroll_steps={int(max_preroll_steps)} "
+            "set OFFLINE_EVAL_MAX_PREROLL_STEPS=0 for unbounded full evaluation",
+            flush=True,
+        )
     summaries: list[dict[str, Any]] = []
     previous_sample = getattr(runner, "_frontres_segment_live_current_sample", None)
     previous_batch = getattr(runner, "_frontres_segment_live_current_batch", None)
     try:
-        for item in plan.items:
+        # FRS3-EVAL-008: evaluate one full motion sequence per pass to avoid staggered windows.
+        for item_index, item in enumerate(plan.items, start=1):
+            print(
+                "[FrontRES Segment Sequence Eval Progress] "
+                f"sequence={item_index}/{plan.sequence_count} "
+                f"motion_id={item.motion_id} "
+                f"reset_frame={item.reset_frame} "
+                f"preroll_steps={item.preroll_steps} "
+                f"eval_steps={item.eval_rollout_steps}",
+                flush=True,
+            )
             segment_ids = torch.tensor(
                 sequence_item_segment_ids(item, env_count=env_count),
                 dtype=torch.long,
@@ -215,6 +240,7 @@ def run_frontres_segment_sequence_offline_eval(
             runner._frontres_segment_live_current_sample = sample
             runner._frontres_segment_live_current_batch = reset_batch
             with _temporary_eval_detail_silence(runner):
+                # FRS3-EVAL-009: reset at frame0, silence reset trace, no-capture preroll, then score.
                 _apply_current_segment_reset(runner)
                 observations = _read_live_observations(runner)
                 runner.eval_mode()
@@ -233,6 +259,7 @@ def run_frontres_segment_sequence_offline_eval(
                 sample_count=env_count,
                 motion_ids=_offline_eval_motion_ids_from_batch(eval_batch, env_count),
             )
+            # FRS3-EVAL-010: attach sequence boundaries to the per-motion eval summary.
             summary.update(
                 {
                     "sequence_eval": True,
@@ -243,6 +270,16 @@ def run_frontres_segment_sequence_offline_eval(
                 }
             )
             summaries.append(summary)
+            print(
+                "[FrontRES Segment Sequence Eval Item] "
+                f"sequence={item_index}/{plan.sequence_count} "
+                f"motion_id={item.motion_id} "
+                f"success={float(summary.get('success_rate', 0.0)) * 100.0:.1f}% "
+                f"fall={float(summary.get('fall_rate', 0.0)) * 100.0:.1f}% "
+                f"survival={float(summary.get('mean_survival_steps', 0.0)):.1f} "
+                f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f}",
+                flush=True,
+            )
     finally:
         runner._frontres_segment_live_current_sample = previous_sample
         runner._frontres_segment_live_current_batch = previous_batch
@@ -250,6 +287,7 @@ def run_frontres_segment_sequence_offline_eval(
         runner._frontres_segment_live_current_reset_result = None
 
     summary = _sequence_offline_eval_summary(summaries, plan=plan, env_count=env_count)
+    # FRS3-EVAL-011: print compact whole-sequence evaluation metrics.
     print(
         "\n".join(("", _LOG_SEPARATOR, "", _format_sequence_offline_eval_log(summary), "")),
         flush=True,
@@ -263,6 +301,7 @@ def _sequence_offline_eval_summary(
     plan: Any,
     env_count: int,
 ) -> dict[str, Any]:
+    # FRS3-EVAL-012: merge per-sequence metrics into one reviewable result.
     if not summaries:
         return {"sequence_eval": True, "sequence_count": 0.0, "sample_count": 0.0}
     numeric_keys = {
@@ -294,7 +333,39 @@ def _sequence_offline_eval_summary(
 
 
 def _format_sequence_offline_eval_log(summary: Mapping[str, Any]) -> str:
-    lines = [
+    lines = []
+    per_motion = tuple(summary.get("per_motion", ()) or ())
+    if per_motion:
+        lines.append("[FrontRES Segment Sequence Eval / Per Motion]")
+        for row in per_motion:
+            lines.extend(
+                (
+                    f"  motion: id={row.get('motion_id', 'unknown')} samples={int(row.get('sample_count', 0))}",
+                    (
+                        "    result: "
+                        f"success={float(row.get('success_rate', 0.0)) * 100.0:.1f}% "
+                        f"fall={float(row.get('fall_rate', 0.0)) * 100.0:.1f}% "
+                        f"survival={float(row.get('mean_survival_steps', 0.0)):.1f}"
+                    ),
+                    (
+                        "    score: "
+                        f"noisy={float(row.get('score_noisy', 0.0)):.6f} "
+                        f"repaired={float(row.get('score_repaired', 0.0)):.6f} "
+                        f"gain={float(row.get('continuous_rollout_gain', 0.0)):.6f}"
+                    ),
+                    (
+                        "    motion: "
+                        f"mpjpe_repaired={float(row.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
+                        f"mpjpe_noisy={float(row.get('segment/motion_mpjpe_noisy_clean', 0.0)):.6f} "
+                        f"vel_err={float(row.get('segment/motion_vel_error_repaired_clean', 0.0)):.6f} "
+                        f"acc_err={float(row.get('segment/motion_acc_error_repaired_clean', 0.0)):.6f} "
+                        f"delta_se_norm={float(row.get('segment/motion_delta_se_norm', 0.0)):.6f}"
+                    ),
+                )
+            )
+        lines.append("")
+
+    lines.extend([
         "[FrontRES Segment Sequence Eval]",
         (
             "  rollout: "
@@ -315,8 +386,16 @@ def _format_sequence_offline_eval_log(summary: Mapping[str, Any]) -> str:
             f"repaired={float(summary.get('score_repaired', 0.0)):.6f} "
             f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f}"
         ),
+        (
+            "  motion: "
+            f"mpjpe_repaired={float(summary.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
+            f"mpjpe_noisy={float(summary.get('segment/motion_mpjpe_noisy_clean', 0.0)):.6f} "
+            f"vel_err={float(summary.get('segment/motion_vel_error_repaired_clean', 0.0)):.6f} "
+            f"acc_err={float(summary.get('segment/motion_acc_error_repaired_clean', 0.0)):.6f} "
+            f"delta_se_norm={float(summary.get('segment/motion_delta_se_norm', 0.0)):.6f}"
+        ),
         f"  motion_ids: {tuple(summary.get('motion_ids', ()) or ())}",
-    ]
+    ])
     return "\n".join(lines)
 
 
@@ -499,12 +578,36 @@ class _temporary_eval_detail_silence:
     def __init__(self, runner: Any):
         self.runner = runner
         self.previous = getattr(runner, "_frontres_segment_live_detail_log_enabled", True)
+        self.previous_index_reset_trace: list[tuple[Any, bool]] = []
 
     def __enter__(self) -> None:
         self.runner._frontres_segment_live_detail_log_enabled = False
+        for adapter in _index_reset_adapters_for_runner(self.runner):
+            self.previous_index_reset_trace.append((adapter, bool(getattr(adapter, "trace", False))))
+            adapter.trace = False
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         self.runner._frontres_segment_live_detail_log_enabled = self.previous
+        for adapter, trace in self.previous_index_reset_trace:
+            adapter.trace = trace
+
+
+def _index_reset_adapters_for_runner(runner: Any) -> tuple[Any, ...]:
+    envs = []
+    env = getattr(runner, "env", None)
+    if env is not None:
+        envs.append(env)
+        unwrapped = getattr(env, "unwrapped", None)
+        if unwrapped is not None:
+            envs.append(unwrapped)
+    adapters = []
+    seen = set()
+    for item in envs:
+        adapter = getattr(item, "_frontres_segment_index_reset_adapter", None)
+        if adapter is not None and id(adapter) not in seen and hasattr(adapter, "trace"):
+            seen.add(id(adapter))
+            adapters.append(adapter)
+    return tuple(adapters)
 
 
 def _fmt_num(value: Any) -> str:

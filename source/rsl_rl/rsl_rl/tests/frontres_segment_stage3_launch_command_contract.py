@@ -103,6 +103,7 @@ def test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel() ->
                 assert other_flag not in command
         if mode == "sequence_eval":
             assert "--frontres_segment_sequence_eval_sequences 10" in command
+            assert "--frontres_segment_sequence_eval_max_preroll_steps 2000" in command
 
 
 def test_stage3_launch_rejects_unknown_mode_before_training() -> None:

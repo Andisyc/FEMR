@@ -1,0 +1,191 @@
+{
+  "title": "Stage 3 Sequence Evaluation Runtime Atlas",
+  "subtitle": "Whole-sequence evaluation route for FrontRES Segment Replay. Block IDs match source comments; evidence is code-confirmed plus fake-runner contract unless noted otherwise.",
+  "layout": "flow_tree",
+  "concepts": {
+    "C-ENTRY": {
+      "name": "entrypoint / mode dispatch",
+      "color": "#2563eb"
+    },
+    "C-PLAN": {
+      "name": "sequence plan contract",
+      "color": "#059669"
+    },
+    "C-LIVE": {
+      "name": "live env reset / rollout",
+      "color": "#d97706"
+    },
+    "C-METRIC": {
+      "name": "metric capture / reporting",
+      "color": "#7c3aed"
+    },
+    "C-RISK": {
+      "name": "expected but not executed",
+      "color": "#dc2626"
+    }
+  },
+  "nodes": [
+    {
+      "id": "FRS3-EVAL-001",
+      "title": "CLI exposes sequence eval mode",
+      "role": "Adds the sequence-eval flag, unique-sequence count, rollout length, and smoke-test preroll cap to the Stage 3 command surface.",
+      "input": "Stage 3 launch command with mode=sequence_eval, OFFLINE_EVAL_SEQUENCES, OFFLINE_EVAL_STEPS, and OFFLINE_EVAL_MAX_PREROLL_STEPS.",
+      "output": "Parsed CLI flags for sequence offline evaluation.",
+      "forbidden": "Must not enter training or segment-local offline_eval when sequence_eval is requested.",
+      "diagnostic": "code-confirmed: scripts/rsl_rl/train.py lines 238-271.",
+      "concept": "C-ENTRY",
+      "children": [
+        {
+          "id": "FRS3-EVAL-002",
+          "title": "Dispatch eval and exit",
+          "role": "Calls runner.run_frontres_segment_sequence_offline_eval and closes env after evaluation.",
+          "input": "Parsed CLI sequence_eval flag, num_eval_sequences, rollout_steps.",
+          "output": "Evaluation runs once and returns before normal training.",
+          "forbidden": "Must not fall through into runner.learn().",
+          "diagnostic": "code-confirmed: scripts/rsl_rl/train.py lines 1334-1340.",
+          "concept": "C-ENTRY",
+          "children": [
+            {
+              "id": "FRS3-EVAL-003",
+              "title": "Thin runner API",
+              "role": "Keeps OnPolicyRunner as a delegating API boundary.",
+              "input": "num_eval_sequences and rollout_steps.",
+              "output": "Delegated call into frontres_segment_live_training helper.",
+              "forbidden": "Runner method must not own sequence sampling, reset, or metrics logic.",
+              "diagnostic": "code-confirmed: source/rsl_rl/rsl_rl/runners/on_policy_runner.py lines 721-731.",
+              "concept": "C-ENTRY"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FRS3-EVAL-004",
+      "title": "Build unique sequence plan",
+      "role": "Selects unique motion ids, optionally filters smoke-test samples by max_preroll_steps, and defines reset_frame=0, preroll_steps=start_frame, and eval window.",
+      "input": "Candidate segment specs from the live Segment Replay sampler.",
+      "output": "FrontRESSegmentSequenceEvalPlan with one item per unique motion sequence.",
+      "forbidden": "Must not treat env count as sequence count, start evaluation at segment frame directly, or silently run deep prerolls during smoke tests.",
+      "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py step23.",
+      "concept": "C-PLAN",
+      "children": [
+        {
+          "id": "FRS3-EVAL-005",
+          "title": "Repeat segment over B1 layout",
+          "role": "Fills the full env batch with one segment id so repaired/noisy/clean roles compare the same motion.",
+          "input": "One sequence eval item and env_count.",
+          "output": "Tuple of repeated segment ids.",
+          "forbidden": "Must not mix different motions inside one B1 comparison group.",
+          "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py step24 role_envs_repeated=True.",
+          "concept": "C-PLAN"
+        },
+        {
+          "id": "FRS3-EVAL-006",
+          "title": "Build frame0 reset batch",
+          "role": "Rewrites sampled segment specs to start_frame=0 for reset while preserving original eval item boundaries.",
+          "input": "Eval batch plus sequence eval item.",
+          "output": "Reset batch whose specs start from motion frame 0.",
+          "forbidden": "Must not mutate the original eval batch start_frame.",
+          "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py reset batch assertions.",
+          "concept": "C-PLAN"
+        }
+      ]
+    },
+    {
+      "id": "FRS3-EVAL-007",
+      "title": "Collect candidate specs",
+      "role": "Samples index-only batches until enough unique motion specs survive the requested sequence count and optional preroll cap.",
+      "input": "FrontRES segment sampler and requested sequence count.",
+      "output": "Candidate spec list passed into the sequence plan builder.",
+      "forbidden": "Must not run rollout while only discovering sequence candidates.",
+      "diagnostic": "code-confirmed: frontres_segment_live_training.py lines 172-201.",
+      "concept": "C-LIVE",
+      "children": [
+        {
+          "id": "FRS3-EVAL-008",
+          "title": "Evaluate one sequence per pass",
+          "role": "Loops over plan.items so each motion sequence gets its own reset/preroll/eval lifecycle.",
+          "input": "Sequence eval plan items.",
+          "output": "Per-sequence summaries.",
+          "forbidden": "Must not batch unrelated sequences with different preroll lengths into one metric window.",
+          "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py emits two reset and four rollout events for two sequences.",
+          "concept": "C-LIVE"
+        },
+        {
+      "id": "FRS3-EVAL-009",
+      "title": "Reset, no-capture preroll, capture eval",
+      "role": "Prints per-sequence progress including preroll length, silences verbose reset trace, advances preroll without motion-quality frames, then captures the eval window.",
+      "input": "Reset batch, live observations, preroll_steps, eval_rollout_steps.",
+      "output": "FrontRESSegmentLiveRolloutCapture for the scoring window only.",
+      "forbidden": "Must not store motion-quality frames during preroll or spam perturbation reset traces during evaluation.",
+      "diagnostic": "runtime-confirmed: step24 preroll_no_capture=True eval_capture=True reset_trace_silenced=True.",
+          "concept": "C-LIVE",
+          "children": [
+            {
+              "id": "FRS3-EVAL-013",
+              "title": "Apply index-only reset",
+              "role": "Applies the current reset batch to the live environment and records reset request/result.",
+              "input": "runner._frontres_segment_live_current_batch.",
+              "output": "FrontRESSegmentResetResult and reset diagnostics.",
+              "forbidden": "Must not skip env reset when a current sequence reset batch is present.",
+              "diagnostic": "code-confirmed: frontres_segment_live_probe.py lines 592-645.",
+              "concept": "C-LIVE"
+            },
+            {
+              "id": "FRS3-EVAL-014",
+              "title": "Run live rollout capture",
+              "role": "Steps the live env and captures transition/reward/done; motion-quality frames are optional.",
+              "input": "Live observations, rollout_steps, capture_motion_quality flag.",
+              "output": "FrontRESSegmentLiveRolloutCapture.",
+              "forbidden": "Preroll calls must pass capture_motion_quality=False.",
+              "diagnostic": "runtime-confirmed: contract test distinguishes preroll_no_capture=True from eval_capture=True.",
+              "concept": "C-LIVE"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FRS3-EVAL-010",
+      "title": "Attach sequence metadata",
+      "role": "Adds motion id, reset frame, preroll steps, and eval start frame to each sequence summary.",
+      "input": "Scoring-window capture and eval item.",
+      "output": "Per-sequence summary with explicit temporal boundaries.",
+      "forbidden": "Must not report segment metrics without the motion-sequence boundary that produced them.",
+      "diagnostic": "code-confirmed: frontres_segment_live_training.py lines 231-245.",
+      "concept": "C-METRIC",
+      "children": [
+        {
+          "id": "FRS3-EVAL-012",
+          "title": "Merge sequence summaries",
+          "role": "Averages numeric metrics and preserves per-motion rows/motion ids.",
+          "input": "List of per-sequence summaries and plan.",
+          "output": "One sequence eval summary.",
+          "forbidden": "Must not drop per-motion rows that help review weak sequences.",
+          "diagnostic": "code-confirmed: frontres_segment_live_training.py lines 260-293.",
+          "concept": "C-METRIC"
+        },
+        {
+      "id": "FRS3-EVAL-011",
+      "title": "Print compact result log",
+      "role": "Emits per-sequence progress/result lines plus final and per-motion success/fall/survival, score gain, MPJPE, velocity error, acceleration error, action norm, and motion ids.",
+      "input": "Merged sequence eval summary.",
+      "output": "[FrontRES Segment Sequence Eval] log block.",
+      "forbidden": "Must not hide long-running sequence progress, final motion ids, or motion-quality metrics from the training log.",
+          "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py prints motion_metrics_printed=True.",
+          "concept": "C-METRIC"
+        }
+      ]
+    },
+    {
+      "id": "FRS3-EVAL-RISK-001",
+      "title": "Live GPU coverage not captured locally",
+      "role": "Marks the remaining evidence gap for whole-run runtime coverage.",
+      "input": "Local fake-runner contract, codegraph static path, and py_compile.",
+      "output": "Current atlas is code-confirmed and contract-runtime-confirmed, not coverage-confirmed against a real GPU launch.",
+      "forbidden": "Must not claim exhaustive live coverage until a real sequence_eval launch is traced by coverage/trace/log evidence.",
+      "diagnostic": "expected next evidence: real sequence_eval log or coverage.py/trace artifact from the GPU run.",
+      "concept": "C-RISK"
+    }
+  ]
+}

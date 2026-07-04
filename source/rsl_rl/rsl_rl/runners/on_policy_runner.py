@@ -723,11 +723,14 @@ class OnPolicyRunner:
         *,
         num_eval_sequences: int,
         rollout_steps: int,
+        max_preroll_steps: int | None = None,
     ) -> dict[str, float]:
+        # FRS3-EVAL-003: keep runner API thin and delegate sequence eval ownership.
         return run_frontres_segment_sequence_offline_eval_helper(
             self,
             num_eval_sequences=num_eval_sequences,
             rollout_steps=rollout_steps,
+            max_preroll_steps=max_preroll_steps,
         )
 
     def _run_frontres_segment_single_update(self, storage_batch) -> object:

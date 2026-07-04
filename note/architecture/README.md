@@ -16,6 +16,7 @@ same Code Block ID
 - `architecture/01_repo_architecture.data.json`: editable source data for the VSCode-style repo map.
 - `architecture/04_femr_modular_architecture.data.json`: object-oriented FEMR modular redesign before code refactor.
 - `runtime/02_frontres_flow.data.json`: editable source data for the Interface Contract Map.
+- `runtime/05_stage3_sequence_eval_runtime.data.json`: editable source data for the Stage 3 sequence evaluation runtime route.
 - `concept/03_frontres_concept_tabs.data.json`: editable source data for the concept-tab map.
 - `concept/03_frontres_concept_tabs.mmd`: Mermaid structural source.
 - `concept/03_frontres_concept_tabs.svg`: generated static visual artifact.
@@ -55,6 +56,7 @@ Open one of these URLs on the right side of VSCode:
 http://127.0.0.1:8765/
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../runtime/02_frontres_flow.data.json
+http://127.0.0.1:8765/05_stage3_sequence_eval_runtime.html
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../concept/03_frontres_concept_tabs.data.json
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/04_femr_modular_architecture.data.json
 ```

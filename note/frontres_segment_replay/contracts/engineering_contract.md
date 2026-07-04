@@ -3453,7 +3453,7 @@ Verified by fake-runner contract:
 ```text
 [probe step24] sequence_eval_live_owner
 reset_before_preroll=True preroll_no_capture=True preroll_before_eval=True
-eval_capture=True role_envs_repeated=True
+eval_capture=True reset_trace_silenced=True role_envs_repeated=True
 ```
 
 ### Step 4 Result
@@ -3483,6 +3483,7 @@ Explicit evaluation mode:
 MODE=sequence_eval
 -> --frontres_segment_sequence_offline_eval_only
 -> --frontres_segment_sequence_eval_sequences ${OFFLINE_EVAL_SEQUENCES:-10}
+-> --frontres_segment_sequence_eval_max_preroll_steps ${OFFLINE_EVAL_MAX_PREROLL_STEPS:-2000}
 -> --frontres_segment_offline_eval_steps ${OFFLINE_EVAL_STEPS:-500}
 ```
 
@@ -3501,3 +3502,35 @@ Observed probes:
 [probe step23] sequence_eval_contract ...
 [probe step24] sequence_eval_live_owner ...
 ```
+
+### Step 5 Result
+
+Added a smoke-test preroll cap for sequence eval:
+
+- `run/run_frontres_stage3_segment_hrl.sh` defaults
+  `OFFLINE_EVAL_MAX_PREROLL_STEPS=2000` in `MODE=sequence_eval`;
+- `scripts/rsl_rl/train.py`, `OnPolicyRunner`, and
+  `run_frontres_segment_sequence_offline_eval(...)` route the cap into the
+  sequence plan builder;
+- `build_frontres_sequence_eval_plan(...)` filters sampled specs whose
+  `start_frame` is deeper than the cap before choosing unique motions;
+- `OFFLINE_EVAL_MAX_PREROLL_STEPS=0` disables the cap for unbounded formal full
+  evaluation.
+
+This keeps the full-sequence meaning intact while preventing quick tests from
+spending an hour prerolling into very deep sampled segments.
+
+### Step 6 Result
+
+Fixed sequence-eval result logging:
+
+- the old sequence formatter printed only success/fall/survival and
+  noisy/repaired/gain;
+- `_offline_eval_summary(...)` was already computing motion-quality scalars and
+  per-motion rows, but `_format_sequence_offline_eval_log(...)` did not expose
+  them;
+- sequence eval now prints per-motion rows plus mean
+  `mpjpe_repaired`, `mpjpe_noisy`, `vel_err`, `acc_err`, and
+  `delta_se_norm`;
+- `frontres_segment_sequence_eval_contract.py` asserts those fields are present
+  in the log text.

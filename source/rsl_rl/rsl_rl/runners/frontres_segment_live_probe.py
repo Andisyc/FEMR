@@ -590,6 +590,7 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
 
 
 def _apply_current_segment_reset(runner: Any) -> FrontRESSegmentResetResult | None:
+    # FRS3-EVAL-013: apply the current index-only reset batch to the live env.
     batch = getattr(runner, "_frontres_segment_live_current_batch", None)
     if batch is None:
         runner._frontres_segment_live_current_reset_skip_reason = "no_current_segment_batch"
@@ -1063,6 +1064,7 @@ def _run_live_rollout_capture(
     rollout_steps: int | None = None,
     capture_motion_quality: bool = True,
 ) -> FrontRESSegmentLiveRolloutCapture:
+    # FRS3-EVAL-014: step the live env and optionally capture motion-quality frames.
     frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
     pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
     rollout_k = max(

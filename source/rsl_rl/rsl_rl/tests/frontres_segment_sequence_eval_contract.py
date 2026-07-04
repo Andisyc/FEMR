@@ -36,6 +36,7 @@ live_training_module = _load(
     ROOT / "rsl_rl" / "runners" / "frontres_segment_live_training.py",
 )
 run_frontres_segment_sequence_offline_eval = live_training_module.run_frontres_segment_sequence_offline_eval
+format_sequence_offline_eval_log = live_training_module._format_sequence_offline_eval_log
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,32 @@ def test_sequence_eval_requires_unique_motion_ids() -> None:
         raise AssertionError("duplicate-only specs must not satisfy sequence eval")
 
 
+def test_sequence_eval_can_cap_smoke_preroll_depth() -> None:
+    plan = build_frontres_sequence_eval_plan(
+        (
+            FakeSpec(1, "late_a", 5000, 4),
+            FakeSpec(2, "early_b", 100, 4),
+            FakeSpec(3, "early_c", 200, 4),
+        ),
+        requested_sequences=2,
+        max_preroll_steps=200,
+    )
+    assert plan.motion_ids == ("early_b", "early_c")
+    assert tuple(item.preroll_steps for item in plan.items) == (100, 200)
+    assert plan.max_preroll_steps == 200
+
+    try:
+        build_frontres_sequence_eval_plan(
+            (FakeSpec(1, "late_a", 5000, 4),),
+            requested_sequences=1,
+            max_preroll_steps=200,
+        )
+    except ValueError as exc:
+        assert "max_preroll_steps<=200" in str(exc)
+    else:
+        raise AssertionError("cap should reject all-too-deep sequence eval specs")
+
+
 def test_sequence_eval_reset_batch_rewrites_start_only() -> None:
     item = build_frontres_sequence_eval_plan(
         (FakeSpec(7, "walk_reset", 31, 4),),
@@ -101,6 +128,52 @@ def test_sequence_eval_reset_batch_rewrites_start_only() -> None:
     assert reset_batch.specs[0].start_frame == 0
     assert batch.specs[0].start_frame == 31
     assert segment_ids_for_sequence_eval_item(item, env_count=8) == (7,) * 8
+
+
+def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
+    log = format_sequence_offline_eval_log(
+        {
+            "sequence_count": 2.0,
+            "requested_sequences": 2.0,
+            "env_count": 8.0,
+            "episode_length": 50.0,
+            "success_rate": 0.5,
+            "fall_rate": 0.5,
+            "mean_survival_steps": 25.0,
+            "score_noisy": 0.1,
+            "score_repaired": 0.2,
+            "continuous_rollout_gain": 0.1,
+            "segment/motion_mpjpe_repaired_clean": 0.03,
+            "segment/motion_mpjpe_noisy_clean": 0.05,
+            "segment/motion_vel_error_repaired_clean": 0.07,
+            "segment/motion_acc_error_repaired_clean": 0.09,
+            "segment/motion_delta_se_norm": 0.11,
+            "motion_ids": ("motion_a", "motion_b"),
+            "per_motion": (
+                {
+                    "motion_id": "motion_a",
+                    "sample_count": 1.0,
+                    "success_rate": 1.0,
+                    "fall_rate": 0.0,
+                    "mean_survival_steps": 50.0,
+                    "score_noisy": 0.1,
+                    "score_repaired": 0.2,
+                    "continuous_rollout_gain": 0.1,
+                    "segment/motion_mpjpe_repaired_clean": 0.03,
+                    "segment/motion_mpjpe_noisy_clean": 0.05,
+                    "segment/motion_vel_error_repaired_clean": 0.07,
+                    "segment/motion_acc_error_repaired_clean": 0.09,
+                    "segment/motion_delta_se_norm": 0.11,
+                },
+            ),
+        }
+    )
+    assert "[FrontRES Segment Sequence Eval / Per Motion]" in log
+    assert "mpjpe_repaired=0.030000" in log
+    assert "mpjpe_noisy=0.050000" in log
+    assert "vel_err=0.070000" in log
+    assert "acc_err=0.090000" in log
+    assert "delta_se_norm=0.110000" in log
 
 
 class FakeSampler:
@@ -114,7 +187,11 @@ class FakeSampler:
 
 class FakeRunner:
     def __init__(self):
-        self.env = SimpleNamespace(num_envs=8)
+        self.env = SimpleNamespace(
+            num_envs=8,
+            _frontres_segment_index_reset_adapter=SimpleNamespace(trace=True),
+        )
+        self.env.unwrapped = self.env
         self.device = torch.device("cpu")
         self._frontres_segment_sampler = FakeSampler()
         self._frontres_segment_live_current_sample = None
@@ -172,7 +249,8 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
 
     def fake_apply_current_segment_reset(runner_arg):
         starts = tuple(spec.start_frame for spec in runner_arg._frontres_segment_live_current_batch.specs)
-        runner_arg.events.append(("reset", starts))
+        trace = bool(runner_arg.env._frontres_segment_index_reset_adapter.trace)
+        runner_arg.events.append(("reset", starts, trace))
 
     def fake_read_live_observations(runner_arg):
         runner_arg.events.append(("read_obs", None))
@@ -196,29 +274,43 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
     live_training_module._apply_current_segment_reset = fake_apply_current_segment_reset
     live_training_module._read_live_observations = fake_read_live_observations
     live_training_module._run_live_rollout_capture = fake_run_live_rollout_capture
+    original_plan_builder = build_frontres_sequence_eval_plan
+    captured_plan_kwargs = {}
+
+    def fake_plan_builder(*args, **kwargs):
+        captured_plan_kwargs.update(kwargs)
+        return original_plan_builder(*args, **kwargs)
+
+    live_training_module.build_frontres_sequence_eval_plan = fake_plan_builder
 
     summary = run_frontres_segment_sequence_offline_eval(
         runner,
         num_eval_sequences=2,
         rollout_steps=50,
+        max_preroll_steps=10,
     )
     reset_events = [event for event in runner.events if event[0] == "reset"]
     rollout_events = [event for event in runner.events if event[0] == "rollout"]
     assert len(reset_events) == 2
     assert all(set(event[1]) == {0} for event in reset_events)
+    assert all(event[2] is False for event in reset_events)
+    assert runner.env._frontres_segment_index_reset_adapter.trace is True
     assert rollout_events[0][1:] == (3, (0, 0, 0, 0, 0, 0, 0, 0), False)
     assert rollout_events[1][1:] == (50, (3, 3, 3, 3, 3, 3, 3, 3), True)
     assert rollout_events[2][1:] == (4, (0, 0, 0, 0, 0, 0, 0, 0), False)
     assert rollout_events[3][1:] == (50, (4, 4, 4, 4, 4, 4, 4, 4), True)
     assert int(summary["sequence_count"]) == 2
     assert summary["motion_ids"] == ("motion_0", "motion_1")
+    assert captured_plan_kwargs["max_preroll_steps"] == 10
 
 
 def main() -> None:
     test_sequence_eval_prerolls_from_motion_start()
     test_sequence_count_is_not_env_count()
     test_sequence_eval_requires_unique_motion_ids()
+    test_sequence_eval_can_cap_smoke_preroll_depth()
     test_sequence_eval_reset_batch_rewrites_start_only()
+    test_sequence_eval_log_prints_motion_quality_metrics()
     test_sequence_offline_eval_owner_orders_reset_preroll_eval()
     print(
         "[probe step23] sequence_eval_contract "
@@ -228,7 +320,8 @@ def main() -> None:
     print(
         "[probe step24] sequence_eval_live_owner "
         "reset_before_preroll=True preroll_no_capture=True preroll_before_eval=True "
-        "eval_capture=True role_envs_repeated=True",
+        "eval_capture=True reset_trace_silenced=True role_envs_repeated=True "
+        "max_preroll_routed=True motion_metrics_printed=True",
         flush=True,
     )
     print("frontres_segment_sequence_eval_contract: ok")
