@@ -444,6 +444,7 @@ def _format_sequence_eval_debug_log(
         f"  raw_policy_action: {_sequence_debug_value(getattr(capture, 'env_actions', None))}",
         f"  segment_transition_actions: {_sequence_debug_actions(getattr(capture, 'transition_actions', None), capture)}",
         f"  policy_anti_rp_alignment: {_sequence_eval_anti_rp_alignment(capture)}",
+        f"  transition_supervised_target: {_sequence_debug_value(getattr(capture, 'transition_supervised_target', None))}",
         (
             "  oracles: "
             f"{_sequence_eval_oracles(item, eval_batch, reset_batch, capture, summary, reset_request, reset_result)}"
@@ -724,6 +725,7 @@ def _sequence_debug_actions(value: Any, capture: Any) -> str:
 
 def _sequence_eval_anti_rp_alignment(capture: Any) -> dict[str, Any]:
     perturb_rp = getattr(capture, "transition_perturbation_rp", None)
+    target = getattr(capture, "transition_supervised_target", None)
     actions = getattr(capture, "transition_actions", None)
     means = getattr(capture, "transition_means", None)
     if not hasattr(perturb_rp, "detach"):
@@ -741,10 +743,87 @@ def _sequence_eval_anti_rp_alignment(capture: Any) -> dict[str, Any]:
         "perturb_rp_head": _round_list(rp[:4].tolist()),
         "anti_rp_head": _round_list(anti[:4].tolist()),
         "anti_rp_norm_mean": _round_float(rp.norm(dim=1).mean().item()),
+        "max_delta_rpy": _round_float(float(getattr(capture, "max_delta_rpy", 0.0) or 0.0)),
     }
+    target_rp = _sequence_eval_target_rp(target, n_train=n_train)
+    if target_rp is not None:
+        result["target_rp_head"] = _round_list(target_rp[:4].tolist())
+        result["target_rp_norm_mean"] = _round_float(target_rp.norm(dim=1).mean().item())
+        result["target_vs_anti_sign_agree_frac"] = _rp_sign_agree_frac(target_rp, anti)
+        result["target_norm_over_anti_norm"] = _safe_norm_ratio(target_rp, anti)
     _add_rp_sign_stats(result, "action", actions, anti, n_train=n_train)
     _add_rp_sign_stats(result, "mean", means, anti, n_train=n_train)
+    _add_policy_scaling_stats(result, actions, means, target_rp, capture, n_train=n_train)
     return result
+
+
+def _sequence_eval_target_rp(value: Any, *, n_train: int) -> Any:
+    if not hasattr(value, "detach"):
+        return None
+    tensor = value.detach().float().cpu()
+    if tensor.ndim != 2 or int(tensor.shape[-1]) < 5:
+        return None
+    n = max(0, min(int(n_train), int(tensor.shape[0])))
+    if n <= 0:
+        return None
+    return tensor[:n, 3:5]
+
+
+def _rp_sign_agree_frac(value: Any, target: Any) -> Any:
+    import torch
+
+    valid = target.abs() > 1e-6
+    if not bool(valid.any().item()):
+        return None
+    return _round_float((torch.sign(value[valid]) == torch.sign(target[valid])).float().mean().item())
+
+
+def _safe_norm_ratio(value: Any, target: Any) -> Any:
+    denom = float(target.norm(dim=1).mean().item())
+    if abs(denom) <= 1e-8:
+        return None
+    return _round_float(value.norm(dim=1).mean().item() / denom)
+
+
+def _add_policy_scaling_stats(
+    result: dict[str, Any],
+    actions: Any,
+    means: Any,
+    target_rp: Any,
+    capture: Any,
+    *,
+    n_train: int,
+) -> None:
+    import torch
+
+    if target_rp is None or not hasattr(means, "detach"):
+        result["raw_to_delta_available"] = False
+        return
+    mean_tensor = means.detach().float().cpu()
+    if mean_tensor.ndim != 2 or int(mean_tensor.shape[-1]) < 5:
+        result["raw_to_delta_available"] = False
+        result["raw_to_delta_reason"] = f"bad_mean_shape={tuple(mean_tensor.shape)}"
+        return
+    n = max(0, min(int(n_train), int(mean_tensor.shape[0]), int(target_rp.shape[0])))
+    if n <= 0:
+        result["raw_to_delta_available"] = False
+        result["raw_to_delta_reason"] = "no_rows"
+        return
+    max_delta_rpy = float(getattr(capture, "max_delta_rpy", 0.0) or 0.0)
+    mean_raw_rp = mean_tensor[:n, 3:5]
+    mean_delta_rp = torch.tanh(mean_raw_rp) * max_delta_rpy
+    result["raw_to_delta_available"] = True
+    result["mean_delta_rp_head"] = _round_list(mean_delta_rp[:4].tolist())
+    result["mean_delta_norm_over_target_norm"] = _safe_norm_ratio(mean_delta_rp, target_rp[:n])
+    result["mean_raw_abs_max"] = _round_float(mean_raw_rp.abs().max().item())
+    result["mean_raw_saturated_frac_abs_gt_2"] = _round_float(mean_raw_rp.abs().gt(2.0).float().mean().item())
+    result["mean_delta_vs_target_sign_agree_frac"] = _rp_sign_agree_frac(mean_delta_rp, target_rp[:n])
+    if hasattr(actions, "detach"):
+        action_tensor = actions.detach().float().cpu()
+        if action_tensor.ndim == 2 and int(action_tensor.shape[-1]) >= 5:
+            action_rp = action_tensor[:n, 3:5]
+            result["action_norm_over_target_norm"] = _safe_norm_ratio(action_rp, target_rp[:n])
+            result["action_vs_target_sign_agree_frac"] = _rp_sign_agree_frac(action_rp, target_rp[:n])
 
 
 def _add_rp_sign_stats(

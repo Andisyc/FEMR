@@ -353,6 +353,9 @@ def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
     capture.transition_means = capture.transition_actions.clone()
     capture.transition_sigmas = torch.full((4, 6), 0.5)
     capture.transition_perturbation_rp = torch.tensor([[0.1, -0.2], [0.3, -0.4], [0.0, 0.0], [0.0, 0.0]])
+    capture.transition_supervised_target = torch.zeros(4, 6)
+    capture.transition_supervised_target[:, 3:5] = torch.tensor([[-0.1, 0.2], [-0.3, 0.4], [0.0, 0.0], [0.0, 0.0]])
+    capture.max_delta_rpy = 0.4
     summary = offline_eval_summary(
         capture,
         sample_count=4,
@@ -406,6 +409,10 @@ def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
         "raw_policy_action:",
         "segment_transition_actions:",
         "policy_anti_rp_alignment:",
+        "target_vs_anti_sign_agree_frac': 1.0",
+        "raw_to_delta_available': True",
+        "mean_delta_norm_over_target_norm",
+        "transition_supervised_target:",
         "action_anti_sign_agree_frac': 1.0",
         "action_same_as_perturb_frac': 0.0",
         "oracles:",
@@ -425,6 +432,45 @@ def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
         assert marker in log
     print(
         "[probe step10] sequence_eval_debug_log_covers_oracles_and_differential_proxy=True",
+        flush=True,
+    )
+
+
+def test_sequence_eval_policy_target_scaling_diagnostic_contract() -> None:
+    raw_rp = torch.tensor([[3.0, -3.0], [0.5, -0.5]])
+    max_delta_rpy = 0.4
+    target_rp = torch.tanh(raw_rp) * max_delta_rpy
+    target = torch.zeros(2, 6)
+    means = torch.zeros(2, 6)
+    actions = torch.zeros(2, 6)
+    target[:, 3:5] = target_rp
+    means[:, 3:5] = raw_rp
+    actions[:, 3:5] = target_rp
+    capture = SimpleNamespace(
+        n_train=2,
+        max_delta_rpy=max_delta_rpy,
+        transition_perturbation_rp=-target_rp,
+        transition_supervised_target=target,
+        transition_means=means,
+        transition_actions=actions,
+    )
+
+    result = live_training_module._sequence_eval_anti_rp_alignment(capture)
+
+    assert result["available"] is True
+    assert result["raw_to_delta_available"] is True
+    assert result["target_vs_anti_sign_agree_frac"] == 1.0
+    assert result["target_norm_over_anti_norm"] == 1.0
+    assert result["mean_delta_norm_over_target_norm"] == 1.0
+    assert result["action_norm_over_target_norm"] == 1.0
+    assert result["mean_delta_vs_target_sign_agree_frac"] == 1.0
+    assert result["action_vs_target_sign_agree_frac"] == 1.0
+    assert result["mean_raw_abs_max"] == 3.0
+    assert result["mean_raw_saturated_frac_abs_gt_2"] == 0.5
+    assert result["mean_delta_rp_head"] == live_training_module._round_list(target_rp.tolist())
+    print(
+        "[probe step13c] policy_target_scaling_diagnostic "
+        "target_vs_anti=True raw_to_delta=True saturation_frac=0.5",
         flush=True,
     )
 
@@ -700,6 +746,7 @@ def main() -> None:
     test_sequence_eval_reset_batch_rewrites_start_only()
     test_sequence_eval_log_prints_motion_quality_metrics()
     test_sequence_eval_debug_log_prints_key_runtime_parameters()
+    test_sequence_eval_policy_target_scaling_diagnostic_contract()
     test_sequence_eval_differential_log_compares_real_and_zero_policy()
     test_sequence_offline_eval_owner_orders_reset_preroll_eval()
     test_sequence_eval_all_fall_keeps_action_diagnostics_in_summaries()

@@ -137,6 +137,8 @@ class FrontRESSegmentLiveRolloutCapture:
     motion_noisy_body_pos: torch.Tensor | None = None
     env_actions: torch.Tensor | None = None
     transition_perturbation_rp: torch.Tensor | None = None
+    transition_supervised_target: torch.Tensor | None = None
+    max_delta_rpy: float | None = None
 
 
 def _verbose_probe_enabled(runner: Any, items: Any) -> bool:
@@ -1134,8 +1136,11 @@ def _run_live_rollout_capture(
     transition_sigmas = None
     transition_env_actions = None
     transition_perturbation_rp = None
+    transition_supervised_target = None
     action_shape = None
     env_action_shape = None
+    policy = getattr(getattr(runner, "alg", None), "policy", None)
+    max_delta_rpy = float(getattr(policy, "max_delta_rpy", 0.0)) if policy is not None else None
     clean_body_frames = []
     repaired_body_frames = []
     noisy_body_frames = []
@@ -1189,6 +1194,9 @@ def _run_live_rollout_capture(
                     runner,
                     num_envs=int(actions.shape[0]),
                 )
+                supervised_target = getattr(runner.alg.transition, "supervised_target", None)
+                if supervised_target is not None and supervised_target.ndim == 2 and supervised_target.shape[-1] >= 6:
+                    transition_supervised_target = supervised_target.detach().clone()
                 selected_actions, selected_log_probs = _select_segment_transition_actions(runner, actions=actions)
                 transition_actions = selected_actions.detach().clone()
                 transition_log_probs = selected_log_probs.detach().clone().reshape(-1)
@@ -1251,6 +1259,8 @@ def _run_live_rollout_capture(
         motion_noisy_body_pos=_stack_motion_quality_frames(noisy_body_frames),
         env_actions=transition_env_actions,
         transition_perturbation_rp=transition_perturbation_rp,
+        transition_supervised_target=transition_supervised_target,
+        max_delta_rpy=max_delta_rpy,
     )
 
 
