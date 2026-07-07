@@ -591,6 +591,21 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_candidate_underwrite_weight = 1.0
     frontres_candidate_projection_weight = 0.25
     frontres_candidate_harm_weight = 1.0
+    # Balance reward/metric: use paired rollout margins, not an absolute static
+    # stability penalty.  Positive reward means FrontRES reduces extra balance
+    # risk relative to the Noisy branch under the Clean branch's own margin.
+    frontres_balance_metric_enabled = True
+    frontres_balance_reward_enabled = True
+    frontres_balance_reward_weight = 0.5
+    frontres_balance_reward_slack = 0.02
+    frontres_balance_reward_clip = 0.10
+    frontres_balance_contact_height = 0.08
+    frontres_balance_foot_radius = 0.04
+    frontres_balance_capture_height = 0.8
+    frontres_balance_foot_body_names = [
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+    ]
     frontres_acceptance_preference_enabled = True
     frontres_acceptance_preference_margin = 0.003
     frontres_acceptance_calibration_step = 0.5
@@ -622,11 +637,18 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_adaptive_perturb_curriculum_enabled = True
     frontres_mixed_dr_strength_enabled = True
     frontres_mixed_dr_strength_per_env = True
-    # Expose a small hard band just beyond the GMT frontier.  These samples are
-    # for learning low/no repair authority, not for claiming deep recovery.
-    frontres_mixed_dr_easy_weight = 0.45
+    # Treat the probed GMT frontier as the upper envelope, not the distribution
+    # mean.  Keep low/mid perturbations present as the frontier rises.
+    frontres_mixed_dr_low_weight = 0.20
+    frontres_mixed_dr_mid_weight = 0.30
     frontres_mixed_dr_frontier_weight = 0.40
-    frontres_mixed_dr_hard_weight = 0.15
+    frontres_mixed_dr_hard_weight = 0.10
+    frontres_mixed_dr_low_hi_frac = 0.25
+    frontres_mixed_dr_mid_hi_frac = 0.70
+    frontres_mixed_dr_hard_hi_frac = 1.10
+    # Scalar fallback keeps the old factor fields; Stage 3 index-only training
+    # uses the per-env envelope sampler above.
+    frontres_mixed_dr_easy_weight = 0.45
     frontres_mixed_dr_easy_factor = 0.75
     frontres_mixed_dr_frontier_factor = 1.00
     frontres_mixed_dr_hard_factor = 1.08

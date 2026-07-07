@@ -239,7 +239,8 @@ class OnPolicyRunner:
         mode = str(self.cfg.get("frontres_specialist_mode", "") or "").lower()
         if mode in ("rp", "local_rp", "rp_only", "strong_rp"):
             task_conf_dim = int(self.policy_cfg.get("task_conf_dim", 2))
-            active_dims = [0, 1, 2, 3, 4, 5, 6] if task_conf_dim == 1 else (
+            active_dims = [3, 4] if task_conf_dim == 0 else (
+                [0, 1, 2, 3, 4, 5, 6] if task_conf_dim == 1 else
                 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] if task_conf_dim == 6 else [3, 4, 7]
             )
             self.cfg["frontres_specialist_mode"] = "rp"
@@ -258,7 +259,8 @@ class OnPolicyRunner:
             return
 
         task_conf_dim = int(self.policy_cfg.get("task_conf_dim", 2))
-        active_dims = [0, 1, 2, 3, 4, 5, 6] if task_conf_dim == 1 else (
+        active_dims = [2, 3, 4] if task_conf_dim == 0 else (
+            [0, 1, 2, 3, 4, 5, 6] if task_conf_dim == 1 else
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] if task_conf_dim == 6 else [2, 3, 4, 6, 7]
         )
         self.cfg["frontres_specialist_mode"] = "rp_z"
@@ -445,9 +447,9 @@ class OnPolicyRunner:
 
         # Track whether task-space FrontRES needs partial obs normalization.
         # Runtime layout for task-space FrontRES is:
-        #   [0:num_extra] = anchor-error extras, [num_extra:] = GMT obs.
+        #   [0:num_extra] = FrontRES-only prefix, [num_extra:] = GMT obs.
         # When set, the trailing _frontres_gmt_obs_dim dims are GMT-normalized;
-        # leading anchor-error extras optionally use Stage-1 empirical stats.
+        # leading FrontRES-only prefix optionally uses checkpoint empirical stats.
         self._frontres_gmt_obs_dim: int | None = None
         self._frontres_extra_mean: torch.Tensor | None = None  # (1, K) Stage-1 mean for extra dims
         self._frontres_extra_std:  torch.Tensor | None = None  # (1, K) Stage-1 std  for extra dims
@@ -458,7 +460,7 @@ class OnPolicyRunner:
             if policy.gmt_normalizer is not None:
                 self.obs_normalizer = policy.gmt_normalizer
                 print(f"[Runner] Using GMT's frozen normalizer for {type(policy).__name__}")
-                # Task-space mode: student obs may have extra anchor-error dims beyond
+                # Task-space mode: student obs may have FrontRES-only prefix dims beyond
                 # what the GMT normalizer expects.  Detect and store the split point.
                 if (isinstance(policy, FrontRESActorCritic)
                         and getattr(policy, 'num_task_corrections', 0) > 0):
@@ -467,7 +469,7 @@ class OnPolicyRunner:
                     if num_obs > gmt_norm_dim:
                         self._frontres_gmt_obs_dim = gmt_norm_dim
                         print(f"[Runner] FrontRES task-space obs layout: first "
-                              f"{num_obs - gmt_norm_dim} anchor-error dims pass-through; "
+                              f"{num_obs - gmt_norm_dim} FrontRES-only dims use prefix stats or pass-through; "
                               f"last {gmt_norm_dim} GMT dims normalized")
             else:
                 print("[Runner] WARNING: ResidualActorCritic has no GMT normalizer, using Identity")
@@ -1626,7 +1628,12 @@ class OnPolicyRunner:
             self.alg.rnd.train()
         # -- Normalization
         if self.empirical_normalization:
-            self.obs_normalizer.train()
+            if self._frontres_gmt_obs_dim is not None:
+                self.obs_normalizer.eval()
+                if hasattr(self.obs_normalizer, "until"):
+                    self.obs_normalizer.until = 0
+            else:
+                self.obs_normalizer.train()
             self.privileged_obs_normalizer.train()
             # Teacher normalizer should remain frozen for MOSAIC
             if self.training_type == "mosaic" and hasattr(self, 'teacher_obs_normalizer'):

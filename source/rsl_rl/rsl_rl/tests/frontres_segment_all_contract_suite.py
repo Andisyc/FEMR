@@ -109,6 +109,13 @@ CONTRACTS = (
         path_class="secondary_contract_path",
     ),
     ContractTarget(
+        name="total_reward_scale",
+        path="source/rsl_rl/rsl_rl/tests/frontres_total_reward_scale_contract.py",
+        expected_marker="frontres_total_reward_scale_contract: ok",
+        path_class="secondary_contract_path",
+        requires_torch=False,
+    ),
+    ContractTarget(
         name="reset",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_reset_contract.py",
         expected_marker="result: PASS",
@@ -145,10 +152,41 @@ CONTRACTS = (
         path_class="core_param_path",
     ),
     ContractTarget(
+        name="proposal_only_task_space_policy",
+        path="source/rsl_rl/rsl_rl/tests/frontres_task_space_proposal_only_contract.py",
+        expected_marker="frontres_task_space_proposal_only_contract: ok",
+        path_class="core_param_path",
+    ),
+    ContractTarget(
+        name="observation_layout",
+        path="source/rsl_rl/rsl_rl/tests/frontres_observation_layout_contract.py",
+        expected_marker="frontres_observation_layout_contract: ok",
+        path_class="core_param_path",
+    ),
+    ContractTarget(
+        name="balance_obs_cfg",
+        path="source/rsl_rl/rsl_rl/tests/frontres_balance_obs_cfg_contract.py",
+        expected_marker="frontres_balance_obs_cfg_contract: ok",
+        path_class="secondary_contract_path",
+        requires_torch=False,
+    ),
+    ContractTarget(
+        name="balance_offline_connectivity",
+        path="source/rsl_rl/rsl_rl/tests/frontres_balance_offline_connectivity_contract.py",
+        expected_marker="frontres_balance_offline_connectivity_contract: ok",
+        path_class="core_param_path",
+    ),
+    ContractTarget(
         name="checkpoint",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_checkpoint_contract.py",
         expected_marker="result: PASS",
         path_class="secondary_contract_path",
+    ),
+    ContractTarget(
+        name="authority_runner_integration",
+        path="source/rsl_rl/rsl_rl/tests/frontres_authority_runner_integration.py",
+        expected_marker="result: PASS",
+        path_class="core_param_path",
     ),
     ContractTarget(
         name="runner_lifecycle",

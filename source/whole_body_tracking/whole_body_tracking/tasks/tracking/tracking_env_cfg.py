@@ -198,9 +198,14 @@ class ObservationsCfg: # 学生模型观测量
         # 前帧动作指令 29 dim
         actions = ObsTerm(func=mdp.last_action)
 
-        # Task-space anchor error obs (None=disabled; enabled in Stage 2 __post_init__)
+        # FrontRES-only policy obs interfaces:
+        #   None 表示 base GMT disabled state.
+        #   G1 FrontRES __post_init__ wires them into the prefix/tail before GMT suffix.
+        # 主链路:
+        #   base cfg placeholder -> G1 FrontRES override -> IsaacLab obs manager.
         anchor_root_pos_error_w: ObsTerm | None = None
         anchor_root_rpy_error_w: ObsTerm | None = None
+        frontres_balance_context: ObsTerm | None = None
 
         def __post_init__(self):
             self.enable_corruption = True

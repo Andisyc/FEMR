@@ -56,6 +56,7 @@ def _alg_cfg() -> SimpleNamespace:
 
 def _policy_cfg() -> SimpleNamespace:
     return SimpleNamespace(
+        task_conf_dim=6,
         frontres_split_acceptance_head=True,
         frontres_authority_actor_critic=True,
         frontres_state_router_enabled=True,
@@ -115,6 +116,7 @@ def _probe_stage3_config(name: str, agent_cfg: SimpleNamespace) -> None:
         f"update_steps={alg.frontres_segment_live_update_steps} "
         f"hsl_init={alg.frontres_hsl_init_enabled} "
         f"acceptance_weight={alg.frontres_acceptance_preference_weight} "
+        f"task_conf_dim={policy.task_conf_dim} "
         f"split_acceptance_head={policy.frontres_split_acceptance_head}",
         flush=True,
     )
@@ -142,6 +144,7 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
     assert alg.frontres_segment_live_update_steps == 7
     assert alg.frontres_hsl_init_enabled is True
     assert alg.frontres_acceptance_preference_weight == 0.0
+    assert agent_cfg.policy.task_conf_dim == 0
     assert agent_cfg.policy.frontres_split_acceptance_head is False
 
 

@@ -45,7 +45,7 @@ def test_boundary_live_sentinel_log() -> None:
                 "frontres_segment_live_update_loop_only": False,
                 "frontres_segment_live_train_enabled": False,
                 "frontres_segment_live_update_steps": 4,
-                "frontres_segment_k": 4,
+                "frontres_segment_k": 8,
                 "frontres_segment_reset_mode": "auto",
             }
         }
@@ -56,7 +56,7 @@ def test_boundary_live_sentinel_log() -> None:
     required = [
         "FrontRES Segment Live Sentinel",
         "objective=segment_replay_hrl",
-        "segment_k=4",
+        "segment_k=8",
         "reset_mode=auto",
         "live_runner=True",
         "sentinel_only=True",
@@ -86,7 +86,7 @@ def test_boundary_live_probe_log() -> None:
                 "frontres_segment_live_update_loop_only": False,
                 "frontres_segment_live_train_enabled": False,
                 "frontres_segment_live_update_steps": 4,
-                "frontres_segment_k": 4,
+                "frontres_segment_k": 8,
                 "frontres_segment_reset_mode": "auto",
             }
         }
@@ -97,7 +97,7 @@ def test_boundary_live_probe_log() -> None:
     required = [
         "FrontRES Segment Live Probe Ready",
         "objective=segment_replay_hrl",
-        "segment_k=4",
+        "segment_k=8",
         "reset_mode=auto",
         "live_runner=True",
         "probe_only=True",
@@ -126,7 +126,7 @@ def test_boundary_live_storage_probe_log() -> None:
                 "frontres_segment_live_update_loop_only": False,
                 "frontres_segment_live_train_enabled": False,
                 "frontres_segment_live_update_steps": 4,
-                "frontres_segment_k": 4,
+                "frontres_segment_k": 8,
                 "frontres_segment_reset_mode": "auto",
             }
         }
@@ -137,7 +137,7 @@ def test_boundary_live_storage_probe_log() -> None:
     required = [
         "FrontRES Segment Live Probe Ready",
         "objective=segment_replay_hrl",
-        "segment_k=4",
+        "segment_k=8",
         "reset_mode=auto",
         "live_runner=True",
         "probe_only=True",
@@ -166,7 +166,7 @@ def test_boundary_live_single_update_probe_log() -> None:
                 "frontres_segment_live_update_loop_only": False,
                 "frontres_segment_live_train_enabled": False,
                 "frontres_segment_live_update_steps": 4,
-                "frontres_segment_k": 4,
+                "frontres_segment_k": 8,
                 "frontres_segment_reset_mode": "auto",
             }
         }
@@ -177,7 +177,7 @@ def test_boundary_live_single_update_probe_log() -> None:
     required = [
         "FrontRES Segment Live Probe Ready",
         "objective=segment_replay_hrl",
-        "segment_k=4",
+        "segment_k=8",
         "reset_mode=auto",
         "live_runner=True",
         "probe_only=True",
@@ -206,7 +206,7 @@ def test_boundary_live_update_loop_probe_log() -> None:
                 "frontres_segment_live_update_loop_only": True,
                 "frontres_segment_live_train_enabled": False,
                 "frontres_segment_live_update_steps": 4,
-                "frontres_segment_k": 4,
+                "frontres_segment_k": 8,
                 "frontres_segment_reset_mode": "auto",
             }
         }
@@ -217,7 +217,7 @@ def test_boundary_live_update_loop_probe_log() -> None:
     required = [
         "FrontRES Segment Live Probe Ready",
         "objective=segment_replay_hrl",
-        "segment_k=4",
+        "segment_k=8",
         "update_steps=4",
         "reset_mode=auto",
         "live_runner=True",
@@ -248,7 +248,7 @@ def test_boundary_offline_eval_probe_log() -> None:
                 "frontres_segment_offline_eval_only": True,
                 "frontres_segment_live_train_enabled": False,
                 "frontres_segment_live_update_steps": 4,
-                "frontres_segment_k": 4,
+                "frontres_segment_k": 8,
                 "frontres_segment_reset_mode": "auto",
             }
         }
@@ -259,7 +259,7 @@ def test_boundary_offline_eval_probe_log() -> None:
     required = [
         "FrontRES Segment Live Probe Ready",
         "objective=segment_replay_hrl",
-        "segment_k=4",
+        "segment_k=8",
         "update_steps=4",
         "reset_mode=auto",
         "live_runner=True",
@@ -291,7 +291,7 @@ def test_boundary_live_train_log() -> None:
                 "frontres_segment_live_update_steps": 4,
                 "frontres_segment_periodic_eval_enabled": True,
                 "frontres_segment_periodic_eval_interval": 50,
-                "frontres_segment_k": 4,
+                "frontres_segment_k": 8,
                 "frontres_segment_reset_mode": "auto",
             }
         }
@@ -302,7 +302,7 @@ def test_boundary_live_train_log() -> None:
     required = [
         "FrontRES Segment Live Train Ready",
         "objective=segment_replay_hrl",
-        "segment_k=4",
+        "segment_k=8",
         "update_steps=4",
         "reset_mode=auto",
         "live_runner=True",

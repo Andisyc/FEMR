@@ -848,7 +848,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             max(1, int(getattr(args_cli, "frontres_segment_periodic_eval_interval", 100))),
         )
         _set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)
-        _set_if_present(alg_cfg, "frontres_segment_k", 4)
+        _set_if_present(alg_cfg, "frontres_segment_k", 8)
         segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"
         shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))
         _set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))
@@ -866,6 +866,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_structured_joint_rl_enabled", False)
         _set_if_present(alg_cfg, "frontres_structured_joint_rl_weight", 0.0)
         _set_if_present(alg_cfg, "frontres_structured_joint_prior_loss_weight", 0.0)
+        _set_if_present(policy_cfg, "task_conf_dim", 0)
         _set_if_present(policy_cfg, "frontres_split_acceptance_head", False)
         _set_if_present(policy_cfg, "frontres_authority_actor_critic", False)
         _set_if_present(policy_cfg, "frontres_state_router_enabled", False)

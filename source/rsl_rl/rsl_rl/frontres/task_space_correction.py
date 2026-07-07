@@ -111,6 +111,9 @@ def _frontres_acceptance_coefficients(
         rho_pos = task_corr[:n_train, 6:7].clone().clamp(0.0, 1.0)
         c_pos = torch.ones_like(rho_pos)
         c_rpy = torch.ones_like(rho_pos)
+    elif task_conf_dim == 0 or task_corr.shape[-1] <= 6:
+        c_pos = torch.ones((n_train, 1), device=task_corr.device, dtype=task_corr.dtype)
+        c_rpy = torch.ones((n_train, 1), device=task_corr.device, dtype=task_corr.dtype)
     else:
         c_pos = task_corr[:n_train, 6:7].clone()
         c_rpy = task_corr[:n_train, 7:8].clone()

@@ -918,7 +918,8 @@ def test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank() -> 
         assert metadata["legacy_strengths"] == [0.0, 0.5]
         assert metadata["curriculum_bank_record_count"] == 16
         assert metadata["curriculum_allowed_bases"] == ["planar", "yaw", "local_rp"]
-        assert set(metadata["strengths"]).issubset({1.5, 2.0, 2.16})
+        assert min(metadata["strengths"]) >= 0.0
+        assert max(metadata["strengths"]) <= 2.2
         assert len(metadata["perturbation_levels"]) == 16
         assert len(all_noisy) == 16
         assert {item["curriculum_mode"] for item in params} == {"hrl_curriculum_bank"}
@@ -932,7 +933,7 @@ def test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank() -> 
                 ("local_rp",),
             }
         )
-        assert {item["mix_class"] for item in params}.issubset({"easy", "frontier", "hard"})
+        assert {item["mix_class"] for item in params}.issubset({"low", "mid", "frontier", "hard"})
         assert "hard" in {item["mix_class"] for item in params}
         for item in params:
             if item["mix_class"] == "hard":

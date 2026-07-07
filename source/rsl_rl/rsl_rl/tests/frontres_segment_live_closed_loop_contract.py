@@ -309,7 +309,7 @@ def test_segment_sampler_step_crosses_reset_rollout_storage_evidence_boundary() 
     assert summary["storage_size"] == 1
     assert summary["storage_segment_ids"] == [0]
     assert summary["storage_valid_mask_per_sample"] == [True]
-    assert summary["storage_reward_per_sample"] == [2.0]
+    assert summary["storage_reward_per_sample"] == [4.0]
     assert summary["sampler_update"] is True
     assert int(sampler.seen.sum().item()) == 1
     assert float(sampler.priority[0].item()) > 0.0

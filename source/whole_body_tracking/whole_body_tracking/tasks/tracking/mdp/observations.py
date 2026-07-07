@@ -5,10 +5,15 @@ from typing import TYPE_CHECKING
 
 from isaaclab.utils.math import matrix_from_quat, subtract_frame_transforms, quat_rotate_inverse, quat_mul, quat_inv
 
+from whole_body_tracking.tasks.tracking.mdp.balance import frontres_balance_context_from_feet
 from whole_body_tracking.tasks.tracking.mdp.commands import MotionCommand
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
+
+
+def _get_body_indexes(command: MotionCommand, body_names: list[str] | None) -> list[int]:
+    return [i for i, name in enumerate(command.cfg.body_names) if (body_names is None) or (name in body_names)]
 
 
 def _quat_to_rotvec_wxyz(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
@@ -124,6 +129,65 @@ def ref_projected_gravity(env: ManagerBasedEnv, command_name: str) -> torch.Tens
 
     return ref_gravity_b.view(env.num_envs, -1)
 
+
+def frontres_balance_context_proxy(
+    env: ManagerBasedEnv,
+    command_name: str,
+    foot_body_names: tuple[str, str] = ("left_ankle_roll_link", "right_ankle_roll_link"),
+    contact_height: float = 0.08,
+) -> torch.Tensor:
+    """返回已接入 FrontRES policy obs 的 14D balance context.
+
+    函数名说明:
+        `frontres_balance_context_proxy` 是 observation proxy/interface, 负责把部署
+        可得的 balance 线索整理成 policy 输入; 它不是 reward, metric, 或训练诊断函数.
+
+    主链路:
+        上游: `G1FlatFrontRESFinetuneEnvCfg.__post_init__` 把它注册为
+        `observations.policy.frontres_balance_context`.
+        内部: 读取 `MotionCommand` 的 robot root, velocity, foot positions, root quat,
+        再调用 `frontres_balance_context_from_feet`.
+        下游: IsaacLab obs manager 拼接 5 帧 history, 放入 FrontRES-only prefix
+        [30:100], 再进入 FrontRES actor policy obs.
+
+    接线状态:
+        G1 FrontRES finetune policy obs 的 FrontRES-only prefix.
+
+    信息来源:
+        robot root, root velocity, foot positions, projected gravity; 不读取 Clean reference.
+
+    布局:
+        contact(2), root_offset(2), capture_offset(2), support_half(2),
+        projected_gravity(3), root_margin(1), capture_margin(1), has_contact(1).
+    """
+    # B1: 从当前 motion command 读取部署可得的机器人状态.
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    foot_ids = _get_body_indexes(command, list(foot_body_names))
+    if len(foot_ids) != 2:
+        return torch.zeros(env.num_envs, 14, device=env.device)
+
+    # B2: 提取纯 helper 需要的 root, foot, 姿态张量.
+    root_xy = command.robot.data.root_pos_w[:, :2]
+    root_vel_w = getattr(command.robot.data, "root_lin_vel_w", None)
+    if root_vel_w is None:
+        root_vel_w = command.robot_anchor_vel_w[:, :3]
+    root_vel_xy = root_vel_w[:, :2]
+    feet_pos = command.robot_body_pos_w[:, foot_ids, :]
+    gravity_w = torch.zeros(env.num_envs, 3, dtype=root_xy.dtype, device=env.device)
+    gravity_w[:, 2] = -1.0
+    projected_gravity = quat_rotate_inverse(command.robot.data.root_quat_w, gravity_w)
+
+    # B3: 将布局和公式交给 mdp.balance 统一维护.
+    return frontres_balance_context_from_feet(
+        root_xy,
+        root_vel_xy,
+        feet_pos[..., :2],
+        feet_pos[..., 2],
+        contact_height=contact_height,
+        env_origin_z=env.scene.env_origins[:, 2],
+        projected_gravity=projected_gravity,
+    )
+
 def body_pos_relative_w(
     env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
     command: MotionCommand = env.command_manager.get_term(command_name)
@@ -174,6 +238,18 @@ def anchor_root_pos_error_w_perturbed(env: ManagerBasedEnv, command_name: str) -
     """
     Position error against the PERTURBED (pre-correction) anchor. Shape (N, 3).
 
+    函数名说明:
+        `anchor_root_pos_error_w_perturbed` 是 FrontRES policy obs 的 task-space
+        error interface, 读取 pre-correction anchor cache; 它不是 reward, 也不是
+        HSL target 生成函数.
+
+    主链路:
+        上游: `G1FlatFrontRESFinetuneEnvCfg.__post_init__` 注册为
+        `observations.policy.anchor_root_pos_error_w`.
+        内部: 优先读取 `command._cached_perturbed_pos`; 缺失时回退到 `anchor_pos_w`.
+        下游: 作为 FrontRES-only anchor error history 的位置部分进入 policy obs
+        [0:30], 与 rpy error 和 balance context 一起进入 FrontRES actor.
+
     Unlike anchor_root_pos_error_w, this uses _cached_perturbed_pos (the OU-shifted
     anchor BEFORE FrontRES/oracle correction is applied). This gives FrontRES a
     non-zero input signal even when oracle curriculum has corrected the commanded
@@ -217,6 +293,19 @@ def anchor_root_rpy_error_w(env: ManagerBasedEnv, command_name: str) -> torch.Te
 def anchor_root_rpy_error_w_perturbed(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     """
     DR orientation correction for the PERTURBED (pre-correction) anchor. Shape (N, 3).
+
+    函数名说明:
+        `anchor_root_rpy_error_w_perturbed` 是 FrontRES policy obs 的 rotational
+        error interface, 暴露可学习的 anti-perturbation 姿态信号; 它不是 reward,
+        metric, 或 runtime write 函数.
+
+    主链路:
+        上游: `G1FlatFrontRESFinetuneEnvCfg.__post_init__` 注册为
+        `observations.policy.anchor_root_rpy_error_w`.
+        内部: 优先读取 `command.anchor_dr_delta_quat_correction`; 缺失时回退到
+        legacy robot-vs-anchor RPY error.
+        下游: 作为 FrontRES-only anchor error history 的姿态部分进入 policy obs
+        [0:30], 与 position error 和 balance context 一起进入 FrontRES actor.
 
     For FrontRES task-space training the supervised target is
 
@@ -286,6 +375,19 @@ def get_supervision_target_task_space(env: ManagerBasedEnv, command_name: str) -
     """
     6-dim task-space supervision target for FrontRES Stage 1.
     [Δx, Δy, Δz, Δroll, Δpitch, Δyaw] — SE(3) ordering.
+
+    函数名说明:
+        `get_supervision_target_task_space` 是 HSL/supervised target provider,
+        只生成 Stage 1 的 anti-DR 标签; 它不是 policy observation, reward,
+        或 deployment runtime correction.
+
+    主链路:
+        上游: `tracking_env_cfg.ObservationsCfg.PrivilegedCfg.supervision_target`
+        和 `frontres_warmup` 的 `_get_warmup_target`.
+        内部: 读取 `command.anchor_dr_delta_pos` 和
+        `command.anchor_dr_delta_quat_correction`.
+        下游: 作为 HSL / supervised warmup target, 进入 FrontRES supervised
+        loss; deployment runtime 不调用这个函数.
 
     Target = anti-DR correction: the SE(3) delta that UNDOES the DR perturbation.
     Uses the perturber's known delta as ground truth (available because we control

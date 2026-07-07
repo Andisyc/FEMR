@@ -64,12 +64,12 @@
   </p>
   <section class="grid">
     <a href="./auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json">
-      <strong>01 Repo Architecture</strong>
-      <span>VSCode-style file tree. Each file expands into code blocks with role-first labels and line hints.</span>
+      <strong>01 Repo Mainline Atlas</strong>
+      <span>仓库主运行链路: entry/config -> env/MDP -> obs/model -> runner -> storage/update -> artifact/test.</span>
     </a>
     <a href="./auxiliary/atlas_app/architecture_atlas.html?data=../../runtime/02_frontres_flow.data.json">
-      <strong>02 Interface Contract Map</strong>
-      <span>Module boundary map. Each block shows input, ownership, output, forbidden freedom, and diagnostics.</span>
+      <strong>02 Method to Code Atlas</strong>
+      <span>方法设计到主流程阶段和具体代码位置的链路图, 使用与 01 相同的左右结构.</span>
     </a>
     <a href="./auxiliary/atlas_app/architecture_atlas.html?data=../../concept/03_frontres_concept_tabs.data.json">
       <strong>03 Concept Tabs</strong>
@@ -80,8 +80,12 @@
       <span>Object-oriented redesign for moving FEMR duties out of OnPolicyRunner.</span>
     </a>
     <a href="./05_stage3_sequence_eval_runtime.html">
-      <strong>05 Stage 3 Sequence Eval Runtime</strong>
-      <span>Whole-sequence evaluation runtime route with source block IDs, reset/preroll/eval boundaries, and evidence status.</span>
+      <strong>05 Stage 3 序列评估运行图</strong>
+      <span>整段序列评估路线, 包含 source block ID, reset/preroll/eval 边界和证据状态.</span>
+    </a>
+    <a href="./07_frontres_stat_audit.html">
+      <strong>07 FrontRES 统计量审计图</strong>
+      <span>mean/std 和 normalizer 审计路线, 覆盖来源, 传播, 消费端, 测试和未确认 runtime 边界.</span>
     </a>
   </section>
 </body>

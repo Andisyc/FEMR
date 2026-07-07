@@ -160,6 +160,8 @@ def _capture(actions: torch.Tensor | None = None) -> FrontRESSegmentLiveRolloutC
         transition_means=transition_actions + 0.1,
         transition_sigmas=torch.full_like(transition_actions, 0.2),
         reward_accum=torch.tensor([2.0, 4.0]),
+        reward_steps=torch.tensor([[1.0, 2.0], [1.0, 2.0]]),
+        done_steps=torch.tensor([[False, False], [False, True]]),
         done_any=torch.tensor([False, True]),
         n_train=2,
         n_base=0,
@@ -182,7 +184,7 @@ def test_build_live_segment_storage_preserves_first_step_tuple_trace() -> None:
     _probe_tensor("capture.reward_accum", capture.reward_accum, "K-step accumulated env reward before averaging")
     _probe_tensor("expected_rewards", expected_rewards, "reward_accum divided by rollout_k")
     _probe_tensor("storage.rewards", storage.rewards[: storage.step], "stored averaged segment reward")
-    _probe_tensor("batch.returns", batch.returns, "PPO return defaults to stored reward")
+    _probe_tensor("batch.returns", batch.returns, "PPO return uses captured K-step reward trace")
     _probe_tensor("capture.done_any", capture.done_any, "whether any env done occurred during K-step rollout")
     _probe_tensor("expected_valid", expected_valid, "valid segment mask derived as not done_any")
     _probe_tensor("storage.valid_mask", storage.valid_mask[: storage.step], "stored valid mask")
@@ -193,8 +195,8 @@ def test_build_live_segment_storage_preserves_first_step_tuple_trace() -> None:
     assert batch.actions.shape == (2, 6)
     torch.testing.assert_close(batch.actions, capture.transition_actions)
     torch.testing.assert_close(storage.rewards[: storage.step], torch.tensor([1.0, 2.0]))
-    torch.testing.assert_close(batch.returns, torch.tensor([1.0, 2.0]))
-    torch.testing.assert_close(batch.advantages, torch.tensor([0.5, 2.5]))
+    torch.testing.assert_close(batch.returns, torch.tensor([2.0, 4.0]))
+    torch.testing.assert_close(batch.advantages, torch.tensor([1.5, 4.5]))
     assert batch.valid_mask.tolist() == [True, False]
     assert storage.valid_mask[: storage.step].tolist() == [True, False]
     assert batch.segment_ids.tolist() == [0, 1]
@@ -226,6 +228,13 @@ def test_build_live_segment_storage_uses_b1_paired_gain_when_available() -> None
         transition_means=actions,
         transition_sigmas=torch.ones_like(actions),
         reward_accum=torch.tensor([0.2, 0.8, 0.1, 0.6, 1.0, 1.0]),
+        reward_steps=torch.tensor(
+            [
+                [0.1, 0.4, 0.05, 0.3, 0.5, 0.5],
+                [0.1, 0.4, 0.05, 0.3, 0.5, 0.5],
+            ]
+        ),
+        done_steps=torch.zeros(2, 6, dtype=torch.bool),
         done_any=torch.tensor([False, False, False, False, False, False]),
         actor_update_mask=torch.tensor([True, True, False, False, False, False]),
         n_train=2,
@@ -238,10 +247,68 @@ def test_build_live_segment_storage_uses_b1_paired_gain_when_available() -> None
     batch = storage.full_batch()
 
     _probe_tensor("capture.reward_accum", capture.reward_accum, "B1 quartet raw scores: repaired, noisy, clean")
-    _probe_tensor("batch.returns", batch.returns, "PPO should learn repaired-minus-noisy gain when paired scores exist")
-    torch.testing.assert_close(batch.returns[:2], torch.tensor([0.05, 0.10]))
-    torch.testing.assert_close(batch.advantages[:2], torch.tensor([0.05, 0.10]))
+    _probe_tensor("batch.returns", batch.returns, "PPO should learn K-step repaired-minus-noisy gain when paired scores exist")
+    torch.testing.assert_close(batch.returns[:2], torch.tensor([0.10, 0.20]))
+    torch.testing.assert_close(batch.advantages[:2], torch.tensor([0.10, 0.20]))
     assert batch.valid_mask.tolist() == [True, True, False, False, False, False]
+
+
+def test_build_live_segment_storage_uses_discounted_reward_trace_for_ppo_returns() -> None:
+    runner = SimpleNamespace(
+        device=torch.device("cpu"),
+        alg=SimpleNamespace(gamma=0.9, frontres_segment_k=4),
+    )
+    capture = _capture()
+    capture = FrontRESSegmentLiveRolloutCapture(
+        rollout_k=4,
+        reward_mean=capture.reward_mean,
+        done_frac=0.0,
+        last_obs_shape=capture.last_obs_shape,
+        action_shape=capture.action_shape,
+        env_action_shape=capture.env_action_shape,
+        transition_obs=capture.transition_obs,
+        transition_privileged_obs=capture.transition_privileged_obs,
+        transition_actions=capture.transition_actions,
+        transition_log_probs=capture.transition_log_probs,
+        transition_values=torch.tensor([0.1, 0.2]),
+        transition_means=capture.transition_means,
+        transition_sigmas=capture.transition_sigmas,
+        reward_accum=torch.tensor([-5.0, 1.25]),
+        reward_steps=torch.tensor(
+            [
+                [1.0, 0.5],
+                [-2.0, 0.25],
+                [-2.0, 0.25],
+                [-2.0, 0.25],
+            ]
+        ),
+        done_steps=torch.tensor(
+            [
+                [False, False],
+                [False, True],
+                [False, False],
+                [False, False],
+            ]
+        ),
+        done_any=torch.tensor([False, False]),
+        actor_update_mask=torch.tensor([True, True]),
+        n_train=2,
+        n_base=0,
+        n_clean=0,
+    )
+
+    storage = build_live_segment_storage(runner, capture)
+    batch = storage.full_batch()
+
+    expected_first = 1.0 + 0.9 * -2.0 + 0.9 * 0.9 * -2.0 + 0.9 * 0.9 * 0.9 * -2.0
+    expected_second = 0.5 + 0.9 * 0.25
+    _probe_tensor("capture.reward_steps", capture.reward_steps, "per-step executable reward trace")
+    _probe_tensor("capture.done_steps", capture.done_steps, "per-step done mask for K-step return")
+    _probe_tensor("batch.returns", batch.returns, "discounted K-step return consumed by Segment PPO")
+    _probe_tensor("batch.advantages", batch.advantages, "discounted K-step return minus first-step value")
+    torch.testing.assert_close(batch.returns, torch.tensor([expected_first, expected_second]))
+    torch.testing.assert_close(batch.advantages, batch.returns - torch.tensor([0.1, 0.2]))
+    assert batch.returns[0] < 0.0
 
 
 def test_build_live_segment_storage_masks_non_actor_rows() -> None:
@@ -262,6 +329,8 @@ def test_build_live_segment_storage_masks_non_actor_rows() -> None:
         transition_means=capture.transition_means,
         transition_sigmas=capture.transition_sigmas,
         reward_accum=capture.reward_accum,
+        reward_steps=capture.reward_steps,
+        done_steps=capture.done_steps,
         done_any=torch.tensor([False, False]),
         actor_update_mask=torch.tensor([True, False]),
     )
@@ -383,6 +452,38 @@ def test_live_probe_trace_prints_once_without_verbose() -> None:
     assert verbose_trace_count == 2
 
 
+def test_live_probe_trace_reports_native_6d_policy_surface() -> None:
+    actions = torch.arange(12, dtype=torch.float32).reshape(2, 6) * 0.1
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(
+            frontres_segment_verbose_probe=False,
+            transition=SimpleNamespace(actions_log_prob=torch.tensor([-1.0, -2.0])),
+        )
+    )
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        segment_actions, log_probs = live_probe._select_segment_transition_actions(runner, actions=actions)
+        live_probe._select_segment_transition_actions(runner, actions=actions)
+    output = buffer.getvalue()
+    trace_count = output.count("[FrontRES Segment Live Probe Trace]")
+    print(
+        "[probe step5b] native_6d_live_probe_trace: "
+        f"trace_count={trace_count} "
+        f"native_6d={'semantic=storage_uses_native_6d_delta_se_policy' in output} "
+        f"legacy_slice={'semantic=storage_uses_first_6_delta_se_dims' in output}",
+        flush=True,
+    )
+
+    assert trace_count == 1
+    assert "raw_action_shape=(2, 6)" in output
+    assert "segment_action_shape=(2, 6)" in output
+    assert "semantic=storage_uses_native_6d_delta_se_policy" in output
+    assert "semantic=storage_uses_first_6_delta_se_dims" not in output
+    torch.testing.assert_close(segment_actions, actions)
+    torch.testing.assert_close(log_probs, torch.tensor([-1.0, -2.0]))
+
+
 class _FakePPOEvalPolicy:
     def __init__(self) -> None:
         self.distribution = torch.distributions.Normal(torch.zeros(2, 6), torch.ones(2, 6))
@@ -463,6 +564,8 @@ def test_build_live_segment_storage_masks_failed_reset_samples() -> None:
         transition_means=capture.transition_means,
         transition_sigmas=capture.transition_sigmas,
         reward_accum=capture.reward_accum,
+        reward_steps=capture.reward_steps,
+        done_steps=capture.done_steps,
         done_any=torch.tensor([False, False]),
     )
 
@@ -1183,6 +1286,8 @@ def test_live_probe_summary_extracts_b1_noisy_repaired_scores() -> None:
         transition_means=torch.zeros(8, 6),
         transition_sigmas=torch.ones(8, 6),
         reward_accum=torch.tensor([1.4, 1.8, 0.0, 0.0, 0.4, 1.0, 2.0, 2.0]),
+        reward_steps=torch.tensor([[1.4, 1.8, 0.0, 0.0, 0.4, 1.0, 2.0, 2.0]]),
+        done_steps=torch.zeros(1, 8, dtype=torch.bool),
         done_any=torch.tensor([False, True, False, False, False, False, False, False]),
         n_train=2,
         n_candidate=2,
@@ -1223,6 +1328,8 @@ def test_live_probe_summary_preserves_b1_gain_when_env_rewards_are_negative() ->
         transition_means=torch.zeros(8, 6),
         transition_sigmas=torch.ones(8, 6),
         reward_accum=torch.tensor([-0.08, -0.02, 0.0, 0.0, -0.10, -0.07, 0.0, 0.0]),
+        reward_steps=torch.tensor([[-0.08, -0.02, 0.0, 0.0, -0.10, -0.07, 0.0, 0.0]]),
+        done_steps=torch.zeros(1, 8, dtype=torch.bool),
         done_any=torch.tensor([False, False, False, False, False, False, False, False]),
         n_train=2,
         n_candidate=2,
@@ -1247,10 +1354,12 @@ def test_live_probe_summary_preserves_b1_gain_when_env_rewards_are_negative() ->
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_uses_b1_paired_gain_when_available()
+    test_build_live_segment_storage_uses_discounted_reward_trace_for_ppo_returns()
     test_build_live_segment_storage_masks_non_actor_rows()
     test_build_live_segment_storage_rejects_non_6d_actions()
     test_live_probe_selects_6d_delta_se_from_12d_rollout_action()
     test_live_probe_trace_prints_once_without_verbose()
+    test_live_probe_trace_reports_native_6d_policy_surface()
     test_ppo_eval_trace_prints_once_without_verbose()
     test_build_live_segment_storage_masks_failed_reset_samples()
     test_large_index_reset_probe_uses_summary_not_full_lists()

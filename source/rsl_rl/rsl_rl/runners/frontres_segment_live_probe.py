@@ -126,6 +126,8 @@ class FrontRESSegmentLiveRolloutCapture:
     transition_sigmas: torch.Tensor | None
     reward_accum: torch.Tensor | None
     done_any: torch.Tensor | None
+    reward_steps: torch.Tensor | None = None
+    done_steps: torch.Tensor | None = None
     actor_update_mask: torch.Tensor | None = None
     n_train: int = 0
     n_candidate: int = 0
@@ -911,6 +913,16 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
             action_mask=torch.ones_like(capture.transition_actions, dtype=torch.bool),
         )
     )
+    reward_steps = _segment_storage_reward_steps(capture, batch_size=batch_size, device=runner.device)
+    done_steps = _segment_storage_done_steps(capture, batch_size=batch_size, device=runner.device)
+    if reward_steps is not None:
+        alg = getattr(runner, "alg", None)
+        segment_storage.compute_returns_and_advantages(
+            reward_steps=reward_steps,
+            done_steps=done_steps,
+            horizon=max(1, int(getattr(alg, "frontres_segment_k", capture.rollout_k))),
+            gamma=float(getattr(alg, "gamma", 1.0)),
+        )
     return segment_storage
 
 
@@ -933,6 +945,46 @@ def _segment_storage_rewards(
     return reward
 
 
+def _segment_storage_reward_steps(
+    capture: FrontRESSegmentLiveRolloutCapture,
+    *,
+    batch_size: int,
+    device: torch.device,
+) -> torch.Tensor | None:
+    if capture.reward_steps is None:
+        return None
+    reward_steps = capture.reward_steps.to(device=device, dtype=torch.float32)
+    if reward_steps.ndim != 2:
+        raise ValueError(f"segment reward_steps must be rank-2 [T, B], got {tuple(reward_steps.shape)}")
+    if int(reward_steps.shape[1]) != batch_size:
+        raise ValueError(f"segment reward_steps must have {batch_size} batch entries, got {int(reward_steps.shape[1])}")
+
+    n_train = max(0, int(capture.n_train))
+    n_candidate = max(0, int(capture.n_candidate))
+    n_base = max(0, int(capture.n_base))
+    base_start = n_train + n_candidate
+    if n_train > 0 and n_base >= n_train and batch_size >= base_start + n_train:
+        reward_steps = reward_steps.clone()
+        reward_steps[:, :n_train] = reward_steps[:, :n_train] - reward_steps[:, base_start : base_start + n_train]
+    return reward_steps
+
+
+def _segment_storage_done_steps(
+    capture: FrontRESSegmentLiveRolloutCapture,
+    *,
+    batch_size: int,
+    device: torch.device,
+) -> torch.Tensor | None:
+    if capture.done_steps is None:
+        return None
+    done_steps = capture.done_steps.to(device=device).bool()
+    if done_steps.ndim != 2:
+        raise ValueError(f"segment done_steps must be rank-2 [T, B], got {tuple(done_steps.shape)}")
+    if int(done_steps.shape[1]) != batch_size:
+        raise ValueError(f"segment done_steps must have {batch_size} batch entries, got {int(done_steps.shape[1])}")
+    return done_steps
+
+
 def _select_segment_transition_actions(
     runner: Any,
     *,
@@ -941,7 +993,17 @@ def _select_segment_transition_actions(
     if actions.ndim != 2:
         raise ValueError(f"live segment transition actions must be rank-2, got {tuple(actions.shape)}")
     if actions.shape[-1] == 6:
-        return actions, runner.alg.transition.actions_log_prob.detach().clone().reshape(-1)
+        log_probs = runner.alg.transition.actions_log_prob.detach().clone().reshape(-1)
+        if _should_print_once_or_verbose(runner.alg, "_frontres_segment_live_probe_trace_printed"):
+            print(
+                "[FrontRES Segment Live Probe Trace] "
+                f"raw_action_shape={tuple(actions.shape)} "
+                f"segment_action_shape={tuple(actions.shape)} "
+                f"log_prob_shape={tuple(log_probs.shape)} "
+                "semantic=storage_uses_native_6d_delta_se_policy",
+                flush=True,
+            )
+        return actions, log_probs
     if actions.shape[-1] < 6:
         raise ValueError(f"live segment transition actions must expose at least 6 Delta SE dims, got {tuple(actions.shape)}")
 
@@ -1125,6 +1187,8 @@ def _run_live_rollout_capture(
     done_sum = 0.0
     reward_accum = None
     done_any = None
+    reward_frames = []
+    done_frames = []
     survival_steps = None
     actor_update_mask = None
     transition_obs = None
@@ -1217,6 +1281,8 @@ def _run_live_rollout_capture(
             reward_sum += float(rewards.mean().detach().cpu())
             done_sum += float(dones.float().mean().detach().cpu())
             reward_accum = rewards.detach().clone() if reward_accum is None else reward_accum + rewards.detach()
+            reward_frames.append(rewards.detach().clone())
+            done_frames.append(dones.detach().bool().clone())
             if done_any is None:
                 done_any = torch.zeros_like(dones.detach(), dtype=torch.bool)
                 survival_steps = torch.zeros_like(rewards.detach(), dtype=torch.float32)
@@ -1248,6 +1314,8 @@ def _run_live_rollout_capture(
         transition_sigmas=transition_sigmas,
         reward_accum=reward_accum,
         done_any=done_any,
+        reward_steps=torch.stack(reward_frames, dim=0) if reward_frames else None,
+        done_steps=torch.stack(done_frames, dim=0) if done_frames else None,
         actor_update_mask=actor_update_mask,
         n_train=int(pair_layout.n_train),
         n_candidate=int(pair_layout.n_candidate),

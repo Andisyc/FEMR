@@ -1,57 +1,57 @@
 {
-  "title": "Stage 3 Sequence Evaluation Runtime Atlas",
-  "subtitle": "Whole-sequence evaluation route for FrontRES Segment Replay. Block IDs match source comments; evidence is code-confirmed plus fake-runner contract unless noted otherwise.",
+  "title": "Stage 3 序列评估运行图",
+  "subtitle": "说明 FrontRES Segment Replay 的整段序列评估路线. Block ID 对应源码注释; 除特别说明外, 证据来自代码确认和 fake-runner contract.",
   "layout": "flow_tree",
   "concepts": {
     "C-ENTRY": {
-      "name": "entrypoint / mode dispatch",
+      "name": "入口 / 模式分发",
       "color": "#2563eb"
     },
     "C-PLAN": {
-      "name": "sequence plan contract",
+      "name": "序列计划契约",
       "color": "#059669"
     },
     "C-LIVE": {
-      "name": "live env reset / rollout",
+      "name": "真实 env reset / rollout",
       "color": "#d97706"
     },
     "C-METRIC": {
-      "name": "metric capture / reporting",
+      "name": "指标采集 / 报告",
       "color": "#7c3aed"
     },
     "C-RISK": {
-      "name": "expected but not executed",
+      "name": "应执行但未实跑确认",
       "color": "#dc2626"
     }
   },
   "nodes": [
     {
       "id": "FRS3-EVAL-001",
-      "title": "CLI exposes sequence eval mode",
-      "role": "Adds the sequence-eval flag, unique-sequence count, rollout length, and smoke-test preroll cap to the Stage 3 command surface.",
-      "input": "Stage 3 launch command with mode=sequence_eval, OFFLINE_EVAL_SEQUENCES, OFFLINE_EVAL_STEPS, and OFFLINE_EVAL_MAX_PREROLL_STEPS.",
-      "output": "Parsed CLI flags for sequence offline evaluation.",
-      "forbidden": "Must not enter training or segment-local offline_eval when sequence_eval is requested.",
+      "title": "CLI 暴露 sequence_eval 模式",
+      "role": "给 Stage 3 命令面加入 sequence_eval, 序列数, rollout 长度, smoke-test preroll 上限.",
+      "input": "Stage 3 launch command: mode=sequence_eval, OFFLINE_EVAL_SEQUENCES, OFFLINE_EVAL_STEPS, OFFLINE_EVAL_MAX_PREROLL_STEPS.",
+      "output": "解析后的序列离线评估参数.",
+      "forbidden": "请求 sequence_eval 时不能进入训练或 segment-local offline_eval.",
       "diagnostic": "code-confirmed: scripts/rsl_rl/train.py lines 238-271.",
       "concept": "C-ENTRY",
       "children": [
         {
           "id": "FRS3-EVAL-002",
-          "title": "Dispatch eval and exit",
-          "role": "Calls runner.run_frontres_segment_sequence_offline_eval and closes env after evaluation.",
-          "input": "Parsed CLI sequence_eval flag, num_eval_sequences, rollout_steps.",
-          "output": "Evaluation runs once and returns before normal training.",
-          "forbidden": "Must not fall through into runner.learn().",
+          "title": "分发评估并退出训练路径",
+          "role": "调用 runner.run_frontres_segment_sequence_offline_eval, 评估后关闭 env.",
+          "input": "解析后的 sequence_eval flag, num_eval_sequences, rollout_steps.",
+          "output": "只运行一次评估, 在正常训练前 return.",
+          "forbidden": "不能继续落到 runner.learn().",
           "diagnostic": "code-confirmed: scripts/rsl_rl/train.py lines 1334-1340.",
           "concept": "C-ENTRY",
           "children": [
             {
               "id": "FRS3-EVAL-003",
-              "title": "Thin runner API",
-              "role": "Keeps OnPolicyRunner as a delegating API boundary.",
-              "input": "num_eval_sequences and rollout_steps.",
-              "output": "Delegated call into frontres_segment_live_training helper.",
-              "forbidden": "Runner method must not own sequence sampling, reset, or metrics logic.",
+              "title": "Runner 只做薄 API",
+              "role": "OnPolicyRunner 只保留委托边界.",
+              "input": "num_eval_sequences 和 rollout_steps.",
+              "output": "委托到 frontres_segment_live_training helper.",
+              "forbidden": "Runner method 不能拥有 sequence sampling, reset, metrics 逻辑.",
               "diagnostic": "code-confirmed: source/rsl_rl/rsl_rl/runners/on_policy_runner.py lines 721-731.",
               "concept": "C-ENTRY"
             }
@@ -61,31 +61,31 @@
     },
     {
       "id": "FRS3-EVAL-004",
-      "title": "Build unique sequence plan",
-      "role": "Selects unique motion ids, optionally filters smoke-test samples by max_preroll_steps, and defines reset_frame=0, preroll_steps=start_frame, and eval window.",
-      "input": "Candidate segment specs from the live Segment Replay sampler.",
-      "output": "FrontRESSegmentSequenceEvalPlan with one item per unique motion sequence.",
-      "forbidden": "Must not treat env count as sequence count, start evaluation at segment frame directly, or silently run deep prerolls during smoke tests.",
+      "title": "构造唯一 motion 序列计划",
+      "role": "选择唯一 motion id, 可按 max_preroll_steps 过滤 smoke-test 样本, 并定义 reset_frame=0, preroll_steps=start_frame, eval window.",
+      "input": "来自 live Segment Replay sampler 的 candidate segment specs.",
+      "output": "FrontRESSegmentSequenceEvalPlan, 每个唯一 motion sequence 一个 item.",
+      "forbidden": "不能把 env count 当序列数, 不能直接从 segment frame 开始评估, smoke test 不能静默跑超深 preroll.",
       "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py step23.",
       "concept": "C-PLAN",
       "children": [
         {
           "id": "FRS3-EVAL-005",
-          "title": "Repeat segment over B1 layout",
-          "role": "Fills the full env batch with one segment id so repaired/noisy/clean roles compare the same motion.",
-          "input": "One sequence eval item and env_count.",
-          "output": "Tuple of repeated segment ids.",
-          "forbidden": "Must not mix different motions inside one B1 comparison group.",
+          "title": "按 B1 layout 重复同一 segment",
+          "role": "用同一个 segment id 填满 env batch, 让 repaired/noisy/clean 比较同一个 motion.",
+          "input": "一个 sequence eval item 和 env_count.",
+          "output": "重复后的 segment id tuple.",
+          "forbidden": "同一个 B1 comparison group 内不能混入不同 motion.",
           "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py step24 role_envs_repeated=True.",
           "concept": "C-PLAN"
         },
         {
           "id": "FRS3-EVAL-006",
-          "title": "Build frame0 reset batch",
-          "role": "Rewrites sampled segment specs to start_frame=0 for reset while preserving original eval item boundaries and dynamic Stage 3 perturbation fields.",
-          "input": "Eval batch plus sequence eval item.",
-          "output": "Reset batch whose specs start from motion frame 0.",
-          "forbidden": "Must not mutate the original eval batch start_frame or drop stage3_index_perturbation_family/strength.",
+          "title": "构造 frame0 reset batch",
+          "role": "把 sampled segment specs 改写为 start_frame=0 用于 reset, 同时保留原 eval item 边界和 Stage 3 动态扰动字段.",
+          "input": "Eval batch 和 sequence eval item.",
+          "output": "specs 从 motion frame 0 开始的 reset batch.",
+          "forbidden": "不能修改原 eval batch start_frame, 不能丢失 stage3_index_perturbation_family/strength.",
           "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py reset batch assertions keep local_rp.",
           "concept": "C-PLAN"
         }
@@ -93,51 +93,51 @@
     },
     {
       "id": "FRS3-EVAL-007",
-      "title": "Collect candidate specs",
-      "role": "Samples index-only batches until enough unique motion specs survive the requested sequence count and optional preroll cap.",
-      "input": "FrontRES segment sampler and requested sequence count.",
-      "output": "Candidate spec list passed into the sequence plan builder.",
-      "forbidden": "Must not run rollout while only discovering sequence candidates.",
+      "title": "收集候选 sequence specs",
+      "role": "采样 index-only batches, 直到获得足够唯一 motion specs, 并满足可选 preroll cap.",
+      "input": "FrontRES segment sampler 和请求的 sequence count.",
+      "output": "传给 sequence plan builder 的 candidate spec list.",
+      "forbidden": "只发现候选序列时不能运行 rollout.",
       "diagnostic": "code-confirmed: frontres_segment_live_training.py lines 172-201.",
       "concept": "C-LIVE",
       "children": [
         {
           "id": "FRS3-EVAL-008",
-          "title": "Evaluate one sequence per pass",
-          "role": "Loops over plan.items so each motion sequence gets its own reset/preroll/eval lifecycle.",
+          "title": "每轮只评估一个 sequence",
+          "role": "遍历 plan.items, 让每个 motion sequence 拥有独立 reset/preroll/eval 生命周期.",
           "input": "Sequence eval plan items.",
-          "output": "Per-sequence summaries.",
-          "forbidden": "Must not batch unrelated sequences with different preroll lengths into one metric window.",
+          "output": "逐序列 summary.",
+          "forbidden": "不能把 preroll 长度不同的无关 sequences 合到同一个 metric window.",
           "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py emits two reset and four rollout events for two sequences.",
           "concept": "C-LIVE"
         },
         {
       "id": "FRS3-EVAL-009",
-      "title": "Reset, no-capture preroll, capture eval",
-      "role": "Prints per-sequence progress including preroll length, silences verbose reset trace, advances preroll without motion-quality frames, then captures the eval window.",
+      "title": "Reset -> 不采集 preroll -> 采集 eval",
+      "role": "打印逐序列进度和 preroll 长度, 静默 reset trace, preroll 不存 motion-quality frames, eval window 才采集.",
       "input": "Reset batch, live observations, preroll_steps, eval_rollout_steps.",
-      "output": "FrontRESSegmentLiveRolloutCapture for the scoring window only.",
-      "forbidden": "Must not store motion-quality frames during preroll or spam perturbation reset traces during evaluation.",
+      "output": "只覆盖 scoring window 的 FrontRESSegmentLiveRolloutCapture.",
+      "forbidden": "Preroll 不能存 motion-quality frames, evaluation 不能刷屏 perturbation reset trace.",
       "diagnostic": "runtime-confirmed: step24 preroll_no_capture=True eval_capture=True reset_trace_silenced=True.",
           "concept": "C-LIVE",
           "children": [
             {
               "id": "FRS3-EVAL-013",
-              "title": "Apply index-only reset",
-              "role": "Applies the current reset batch to the live environment and records reset request/result.",
+              "title": "应用 index-only reset",
+              "role": "把当前 reset batch 应用到 live env, 并记录 reset request/result.",
               "input": "runner._frontres_segment_live_current_batch.",
-              "output": "FrontRESSegmentResetResult and reset diagnostics.",
-              "forbidden": "Must not skip env reset when a current sequence reset batch is present.",
+              "output": "FrontRESSegmentResetResult 和 reset diagnostics.",
+              "forbidden": "当前 sequence reset batch 存在时不能跳过 env reset.",
               "diagnostic": "code-confirmed: frontres_segment_live_probe.py lines 592-645.",
               "concept": "C-LIVE"
             },
             {
               "id": "FRS3-EVAL-014",
-              "title": "Run live rollout capture",
-              "role": "Steps the live env and captures transition/reward/done; motion-quality frames are optional.",
+              "title": "运行 live rollout capture",
+              "role": "step live env 并采集 transition/reward/done; motion-quality frames 由 flag 控制.",
               "input": "Live observations, rollout_steps, capture_motion_quality flag.",
               "output": "FrontRESSegmentLiveRolloutCapture.",
-              "forbidden": "Preroll calls must pass capture_motion_quality=False.",
+              "forbidden": "Preroll 调用必须传 capture_motion_quality=False.",
               "diagnostic": "runtime-confirmed: contract test distinguishes preroll_no_capture=True from eval_capture=True.",
               "concept": "C-LIVE"
             }
@@ -147,31 +147,31 @@
     },
     {
       "id": "FRS3-EVAL-010",
-      "title": "Attach sequence metadata",
-      "role": "Adds motion id, reset frame, preroll steps, eval start frame, and perturbation family/strength summary to each sequence summary.",
-      "input": "Scoring-window capture and eval item.",
-      "output": "Per-sequence summary with explicit temporal boundaries.",
-      "forbidden": "Must not report segment metrics without the motion-sequence boundary or perturbation family that produced them.",
+      "title": "附加 sequence 元数据",
+      "role": "给每个 sequence summary 加入 motion id, reset frame, preroll steps, eval start frame, perturbation family/strength.",
+      "input": "Scoring-window capture 和 eval item.",
+      "output": "带明确时间边界的逐序列 summary.",
+      "forbidden": "不能报告缺少 motion-sequence 边界或 perturbation family 的 segment metrics.",
       "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py perturbation_rp_preserved=True.",
       "concept": "C-METRIC",
       "children": [
         {
           "id": "FRS3-EVAL-012",
-          "title": "Merge sequence summaries",
-          "role": "Averages numeric metrics and preserves per-motion rows/motion ids.",
-          "input": "List of per-sequence summaries and plan.",
-          "output": "One sequence eval summary.",
-          "forbidden": "Must not drop per-motion rows that help review weak sequences.",
+          "title": "合并 sequence summaries",
+          "role": "对 numeric metrics 求平均, 同时保留 per-motion rows 和 motion ids.",
+          "input": "per-sequence summaries list 和 plan.",
+          "output": "一个 sequence eval summary.",
+          "forbidden": "不能丢掉用于审查弱序列的 per-motion rows.",
           "diagnostic": "code-confirmed: frontres_segment_live_training.py lines 260-293.",
           "concept": "C-METRIC"
         },
         {
       "id": "FRS3-EVAL-011",
-      "title": "Print compact result log",
-      "role": "Emits per-sequence progress/result lines plus item, final, and per-motion success/fall/survival, score gain, MPJPE, velocity error, acceleration error, action norm, perturbation family, and motion ids.",
+      "title": "打印紧凑结果日志",
+      "role": "输出逐序列进度/结果, final 和 per-motion success/fall/survival, score gain, MPJPE, velocity error, acceleration error, action norm, perturbation family, motion ids.",
       "input": "Merged sequence eval summary.",
       "output": "[FrontRES Segment Sequence Eval] log block.",
-      "forbidden": "Must not hide long-running sequence progress, final motion ids, perturbation family, or motion-quality metrics from the training log.",
+      "forbidden": "不能从训练日志里隐藏长序列进度, final motion ids, perturbation family, motion-quality metrics.",
           "diagnostic": "runtime-confirmed: frontres_segment_sequence_eval_contract.py prints motion_metrics_printed=True.",
           "concept": "C-METRIC"
         }
@@ -179,12 +179,12 @@
     },
     {
       "id": "FRS3-EVAL-RISK-001",
-      "title": "Live GPU coverage not captured locally",
-      "role": "Marks the remaining evidence gap for whole-run runtime coverage.",
-      "input": "Local fake-runner contract, codegraph static path, and py_compile.",
-      "output": "Current atlas is code-confirmed and contract-runtime-confirmed, not coverage-confirmed against a real GPU launch.",
-      "forbidden": "Must not claim exhaustive live coverage until a real sequence_eval launch is traced by coverage/trace/log evidence.",
-      "diagnostic": "expected next evidence: real sequence_eval log or coverage.py/trace artifact from the GPU run.",
+      "title": "本地尚未捕获真实 GPU coverage",
+      "role": "标出 whole-run runtime coverage 的剩余证据缺口.",
+      "input": "Local fake-runner contract, CodeGraph static path, py_compile.",
+      "output": "当前 atlas 是 code-confirmed + contract-runtime-confirmed, 还不是针对真实 GPU launch 的 coverage-confirmed.",
+      "forbidden": "没有真实 sequence_eval launch 的 coverage/trace/log 证据前, 不能声称 exhaustive live coverage.",
+      "diagnostic": "next evidence: real sequence_eval log 或 GPU run 的 coverage.py/trace artifact.",
       "concept": "C-RISK"
     }
   ]

@@ -58,6 +58,13 @@ class FrontRESRewardWindow:
     ranking_reward: torch.Tensor | None
     reward_progress: float
     constraint_progress: float
+    balance_reward: torch.Tensor | None = None
+    balance_bonus: torch.Tensor | None = None
+    balance_weighted_bonus: torch.Tensor | None = None
+    balance_repaired_margin: torch.Tensor | None = None
+    balance_candidate_margin: torch.Tensor | None = None
+    balance_noisy_margin: torch.Tensor | None = None
+    balance_clean_margin: torch.Tensor | None = None
 
     @property
     def safe_gate(self) -> torch.Tensor:
@@ -165,6 +172,11 @@ class FrontRESRewardContext:
     stable_route_next: torch.Tensor
     stable_route_active: torch.Tensor
     reward_window: FrontRESRewardWindow
+    balance_reward: torch.Tensor | None = None
+    balance_repaired_margin: torch.Tensor | None = None
+    balance_candidate_margin: torch.Tensor | None = None
+    balance_noisy_margin: torch.Tensor | None = None
+    balance_clean_margin: torch.Tensor | None = None
 
 
 def frontres_family_gain_std(
@@ -231,6 +243,70 @@ def frontres_family_gain_std(
                 "std": max(math.sqrt(max(var, 0.0)), min_std),
             }
     return std.clamp(min=min_std)
+
+
+def _frontres_balance_helpers():
+    from whole_body_tracking.tasks.tracking.mdp.balance import (
+        frontres_balance_context_from_feet,
+        frontres_no_regret_balance_reward,
+    )
+
+    return frontres_balance_context_from_feet, frontres_no_regret_balance_reward
+
+
+def _frontres_branch_balance_margin(
+    runner: Any,
+    cmd: Any,
+    *,
+    start: int,
+    count: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Return min(root,capture) balance margin for one FrontRES branch slice."""
+
+    if count <= 0:
+        return torch.empty(0, device=device)
+    frontres_balance_context_from_feet, _ = _frontres_balance_helpers()
+    body_names = list(getattr(cmd.cfg, "body_names", []))
+    foot_names = runner.cfg.get(
+        "frontres_balance_foot_body_names",
+        runner.cfg.get(
+            "frontres_exec_foot_body_names",
+            ["left_ankle_roll_link", "right_ankle_roll_link"],
+        ),
+    )
+    foot_ids = [i for i, name in enumerate(body_names) if name in set(foot_names)]
+    if len(foot_ids) != 2:
+        raise RuntimeError(
+            "FrontRES balance reward requires exactly two foot body names in command.cfg.body_names; "
+            f"got {foot_names!r} -> ids={foot_ids!r}."
+        )
+
+    end = start + count
+    robot_data = cmd.robot.data
+    root_xy = robot_data.root_pos_w[start:end, :2]
+    root_vel_w = getattr(robot_data, "root_lin_vel_w", None)
+    if root_vel_w is None:
+        root_vel_w = getattr(cmd, "robot_anchor_vel_w", None)
+    if root_vel_w is None:
+        raise RuntimeError("FrontRES balance reward requires root_lin_vel_w or robot_anchor_vel_w.")
+    root_vel_xy = root_vel_w[start:end, :2]
+    feet_pos = cmd.robot_body_pos_w[start:end, foot_ids, :]
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    env_origin_z = None
+    if hasattr(env, "scene") and hasattr(env.scene, "env_origins"):
+        env_origin_z = env.scene.env_origins[start:end, 2]
+    context = frontres_balance_context_from_feet(
+        root_xy,
+        root_vel_xy,
+        feet_pos[..., :2],
+        feet_pos[..., 2],
+        contact_height=float(runner.cfg.get("frontres_balance_contact_height", 0.08)),
+        foot_radius=float(runner.cfg.get("frontres_balance_foot_radius", 0.04)),
+        capture_height=float(runner.cfg.get("frontres_balance_capture_height", 0.8)),
+        env_origin_z=env_origin_z,
+    )
+    return torch.minimum(context[:, -3], context[:, -2]).to(device)
 
 
 def build_frontres_reward_context(
@@ -471,6 +547,40 @@ def build_frontres_reward_context(
     repair_gain = rollout_evidence.repair_gain
     candidate_gain = rollout_evidence.candidate_gain
     projection_gain = rollout_evidence.projection_gain
+    balance_repaired_margin = None
+    balance_candidate_margin = None
+    balance_noisy_margin = None
+    balance_clean_margin = None
+    balance_reward = None
+    if bool(runner.cfg.get("frontres_balance_metric_enabled", False)) or bool(
+        runner.cfg.get("frontres_balance_reward_enabled", False)
+    ):
+        _, frontres_no_regret_balance_reward = _frontres_balance_helpers()
+        balance_repaired_margin = _frontres_branch_balance_margin(
+            runner, cmd, start=0, count=n_exec, device=device
+        )
+        balance_candidate_margin = (
+            _frontres_branch_balance_margin(
+                runner, cmd, start=candidate_start, count=n_exec, device=device
+            )
+            if n_candidate > 0
+            else balance_repaired_margin.detach()
+        )
+        balance_noisy_margin = _frontres_branch_balance_margin(
+            runner, cmd, start=base_start, count=n_exec, device=device
+        )
+        balance_clean_margin = _frontres_branch_balance_margin(
+            runner, cmd, start=clean_start, count=n_exec, device=device
+        )
+        balance_reward = frontres_no_regret_balance_reward(
+            balance_repaired_margin,
+            balance_noisy_margin,
+            balance_clean_margin,
+            slack=float(runner.cfg.get("frontres_balance_reward_slack", 0.02)),
+        )
+        balance_clip = float(runner.cfg.get("frontres_balance_reward_clip", 0.10))
+        if balance_clip > 0.0:
+            balance_reward = balance_reward.clamp(min=-balance_clip, max=balance_clip)
     oracle_ub = compute_frontres_oracle_upper_bound(
         exec_perturbed,
         exec_frontres,
@@ -548,6 +658,11 @@ def build_frontres_reward_context(
         intervention_cost=intervention_cost,
         action_activity=action_activity,
         under_repair_penalty=under_repair_penalty,
+        balance_reward=balance_reward,
+        balance_repaired_margin=balance_repaired_margin,
+        balance_candidate_margin=balance_candidate_margin,
+        balance_noisy_margin=balance_noisy_margin,
+        balance_clean_margin=balance_clean_margin,
         dr_scale=dr_scale,
         ppo_actor_weight_current=ppo_actor_weight_current,
         stable_route_active_mask=stable_route_active,
@@ -637,6 +752,11 @@ def build_frontres_reward_context(
         stable_route_next=stable_route_next,
         stable_route_active=stable_route_active,
         reward_window=reward_window,
+        balance_reward=balance_reward,
+        balance_repaired_margin=balance_repaired_margin,
+        balance_candidate_margin=balance_candidate_margin,
+        balance_noisy_margin=balance_noisy_margin,
+        balance_clean_margin=balance_clean_margin,
     )
 
 
@@ -661,6 +781,11 @@ def build_frontres_reward_window(
     ppo_actor_weight_current: float,
     stable_route_active_mask: torch.Tensor | None,
     device: torch.device,
+    balance_reward: torch.Tensor | None = None,
+    balance_repaired_margin: torch.Tensor | None = None,
+    balance_candidate_margin: torch.Tensor | None = None,
+    balance_noisy_margin: torch.Tensor | None = None,
+    balance_clean_margin: torch.Tensor | None = None,
 ) -> FrontRESRewardWindow:
     """Build reward gates, weights, harm terms, and actor-credit gates."""
 
@@ -820,6 +945,22 @@ def build_frontres_reward_window(
         effective_gain_bonus_exec = bonus_weight * repairable_score * torch.relu(repair_gain - min_effective_gain)
     effective_gain_bonus = torch.zeros(n_train, device=device)
     effective_gain_bonus[:n_exec] = effective_gain_bonus_exec
+    has_balance_reward = balance_reward is not None
+    if not has_balance_reward:
+        balance_reward_for_bonus = torch.zeros(n_exec, device=device)
+    else:
+        balance_reward_for_bonus = balance_reward.to(device).view(-1)[:n_exec]
+    balance_bonus = None
+    balance_weighted_bonus = None
+    if has_balance_reward:
+        balance_bonus = torch.zeros(n_train, device=device)
+        balance_bonus[:n_exec] = exec_gate * balance_reward_for_bonus
+        balance_weight = (
+            float(cfg.get("frontres_balance_reward_weight", 0.0))
+            if bool(cfg.get("frontres_balance_reward_enabled", False))
+            else 0.0
+        )
+        balance_weighted_bonus = balance_weight * balance_bonus
 
     return FrontRESRewardWindow(
         r_exec=r_exec,
@@ -854,6 +995,13 @@ def build_frontres_reward_window(
         ranking_reward=None,
         reward_progress=reward_progress,
         constraint_progress=constraint_progress,
+        balance_reward=balance_reward_for_bonus if has_balance_reward else None,
+        balance_bonus=balance_bonus,
+        balance_weighted_bonus=balance_weighted_bonus,
+        balance_repaired_margin=balance_repaired_margin,
+        balance_candidate_margin=balance_candidate_margin,
+        balance_noisy_margin=balance_noisy_margin,
+        balance_clean_margin=balance_clean_margin,
     )
 
 
@@ -906,6 +1054,11 @@ def compose_frontres_reward_delta(
     positive_reward = (
         float(w_exec) * float(repair_scale) * reward_window.exec_weight * reward_window.r_exec
         + float(w_exec) * float(repair_scale) * reward_window.effective_gain_bonus
+        + (
+            reward_window.balance_weighted_bonus
+            if reward_window.balance_weighted_bonus is not None
+            else torch.zeros(n_train, device=device)
+        )
         + float(w_geom) * r_step
         + float(cfg.get("frontres_candidate_ranking_reward_weight", 1.0)) * ranking_reward
         + float(w_rescue) * r_rescue

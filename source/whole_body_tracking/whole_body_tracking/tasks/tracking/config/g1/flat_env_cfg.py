@@ -307,17 +307,17 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         # Disable Physics DR: use module-level placeholder (must be picklable)
         self.events = _NoOpEventsCfg()
 
-        # Obs layout after IsaacLab concatenation/history flattening (800 dims total):
-        #   [0:30]   = FrontRES-only anchor error signals (3+3 dims × 5 frames):
-        #              pass-through in the runner's partial normalizer.
-        #   [30:800] = GMT-compatible suffix:
-        #              [cmd(58), ori(6), ang(3), jpos(29), jvel(29), act(29)] × 5
-        #              = 154/frame × 5 = 770 dims — identical to the layout GMT was
-        #              trained on (DistillationTrackingEnvCfg removes motion_anchor_pos_b
-        #              and base_lin_vel, giving 154 dims/frame × 5 = 770).
+        # IsaacLab 会把 optional obs term 放在 regular term 前面.
+        # 因此 FrontRES-only 信息必须放在前缀, 保证最后 770D 仍然是 GMT suffix.
+        # Obs layout after IsaacLab concatenation/history flattening (870 dims total):
+        #   [0:30]    = anchor error history, 6 dims x 5 frames.
+        #   [30:100]  = balance context history, 14 dims x 5 frames.
+        #   [100:870] = GMT-compatible suffix:
+        #               [cmd(58), ori(6), ang(3), jpos(29), jvel(29), act(29)] x 5
+        #               = 154/frame x 5 = 770 dims.
         #
         # Removing motion_anchor_pos_b and base_lin_vel (from the 160-dim base) is
-        # intentional: keeping them would make the GMT suffix 160×5=800 dims, shifting
+        # intentional: keeping them would make the GMT suffix 160x5=800 dims, shifting
         # every subsequent index and corrupting GMT's fixed ONNX weight alignment.
         self.observations.policy.motion_anchor_pos_b = None   # keep 154-dim/frame GMT suffix
         self.observations.policy.base_lin_vel = None          # keep 154-dim/frame GMT suffix
@@ -333,6 +333,14 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         self.observations.policy.anchor_root_rpy_error_w = ObsTerm(
             func=mdp.anchor_root_rpy_error_w_perturbed, params={"command_name": "motion"},
             noise=Unoise(n_min=-0.01, n_max=0.01))
+        # 接线说明:
+        #   frontres_balance_context 是 FrontRES-only policy obs tail term,
+        #   不是 reward 或 metric.
+        # 主链路:
+        #   G1 config -> IsaacLab obs manager -> frontres_balance_context_proxy
+        #   -> frontres_balance_context_from_feet -> policy obs [30:100].
+        self.observations.policy.frontres_balance_context = ObsTerm(
+            func=mdp.frontres_balance_context_proxy, params={"command_name": "motion"})
 
         # ee_body_pos uses bad_motion_body_pos_z_only with threshold=0.25m.
         # During walking, the reference ankle Z oscillates from ~0.05m (stance)

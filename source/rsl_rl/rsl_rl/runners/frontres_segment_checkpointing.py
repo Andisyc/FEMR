@@ -5,6 +5,11 @@ from typing import Any
 
 import torch
 
+from rsl_rl.modules.frontres_observation_layout import (
+    compose_frontres_obs_norm_state,
+    extract_frontres_extra_norm_stats,
+)
+
 
 @dataclass(frozen=True)
 class FrontRESSegmentCheckpointConfig:
@@ -56,7 +61,7 @@ def build_frontres_segment_checkpoint_payload(
         payload["optimizer_state_dict"] = optimizer.state_dict()
 
     if cfg.load_normalizers:
-        _save_normalizer(payload, "obs_norm_state_dict", getattr(runner, "obs_normalizer", None))
+        _save_obs_normalizer(payload, runner)
         _save_normalizer(
             payload,
             "privileged_obs_norm_state_dict",
@@ -185,15 +190,37 @@ def _numeric_module_keys(state_dict: dict[str, Any], suffix: str) -> list[str]:
 
 def _restore_normalizers(runner: Any, checkpoint: dict[str, Any]) -> tuple[str, ...]:
     loaded: list[str] = []
-    for key, attr in (
-        ("obs_norm_state_dict", "obs_normalizer"),
-        ("privileged_obs_norm_state_dict", "privileged_obs_normalizer"),
-    ):
-        normalizer = getattr(runner, attr, None)
-        if normalizer is not None and key in checkpoint and hasattr(normalizer, "load_state_dict"):
-            normalizer.load_state_dict(checkpoint[key])
-            loaded.append(key)
+    obs_state = checkpoint.get("obs_norm_state_dict")
+    if isinstance(obs_state, dict):
+        if _restore_frontres_extra_stats(runner, obs_state):
+            loaded.append("obs_norm_state_dict")
+        else:
+            normalizer = getattr(runner, "obs_normalizer", None)
+            if normalizer is not None and hasattr(normalizer, "load_state_dict"):
+                normalizer.load_state_dict(obs_state)
+                loaded.append("obs_norm_state_dict")
+
+    normalizer = getattr(runner, "privileged_obs_normalizer", None)
+    if normalizer is not None and "privileged_obs_norm_state_dict" in checkpoint and hasattr(normalizer, "load_state_dict"):
+        normalizer.load_state_dict(checkpoint["privileged_obs_norm_state_dict"])
+        loaded.append("privileged_obs_norm_state_dict")
     return tuple(loaded)
+
+
+def _restore_frontres_extra_stats(runner: Any, obs_state: dict[str, Any]) -> bool:
+    policy = getattr(getattr(runner, "alg", None), "policy", None)
+    gmt_dim = getattr(runner, "_frontres_gmt_obs_dim", None)
+    obs_dim = getattr(policy, "num_actor_obs", None)
+    extra_stats = extract_frontres_extra_norm_stats(
+        obs_state,
+        obs_dim,
+        gmt_dim,
+        getattr(runner, "device", None),
+    )
+    if extra_stats is None:
+        return False
+    runner._frontres_extra_mean, runner._frontres_extra_std = extra_stats
+    return True
 
 
 def _restore_sampler_state(runner: Any, checkpoint: dict[str, Any]) -> bool:
@@ -222,6 +249,17 @@ def _restore_dataset_cache_metadata(runner: Any, checkpoint: dict[str, Any]) -> 
 def _save_normalizer(payload: dict[str, Any], key: str, normalizer: Any) -> None:
     if normalizer is not None and hasattr(normalizer, "state_dict"):
         payload[key] = normalizer.state_dict()
+
+
+def _save_obs_normalizer(payload: dict[str, Any], runner: Any) -> None:
+    normalizer = getattr(runner, "obs_normalizer", None)
+    if normalizer is None or not hasattr(normalizer, "state_dict"):
+        return
+    payload["obs_norm_state_dict"] = compose_frontres_obs_norm_state(
+        normalizer.state_dict(),
+        getattr(runner, "_frontres_extra_mean", None),
+        getattr(runner, "_frontres_extra_std", None),
+    )
 
 
 def _dataset_cache_metadata(dataset: Any) -> Any | None:

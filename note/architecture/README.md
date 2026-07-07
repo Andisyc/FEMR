@@ -13,10 +13,11 @@ same Code Block ID
 
 ## Current Maps
 
-- `architecture/01_repo_architecture.data.json`: editable source data for the VSCode-style repo map.
+- `architecture/01_repo_architecture.data.json`: editable source data for the Repo Mainline Atlas.
 - `architecture/04_femr_modular_architecture.data.json`: object-oriented FEMR modular redesign before code refactor.
-- `runtime/02_frontres_flow.data.json`: editable source data for the Interface Contract Map.
+- `runtime/02_frontres_flow.data.json`: editable source data for the Method to Code Atlas.
 - `runtime/05_stage3_sequence_eval_runtime.data.json`: editable source data for the Stage 3 sequence evaluation runtime route.
+- `runtime/07_frontres_stat_audit.data.json`: editable source data for the FrontRES mean/std and normalizer audit route.
 - `concept/03_frontres_concept_tabs.data.json`: editable source data for the concept-tab map.
 - `concept/03_frontres_concept_tabs.mmd`: Mermaid structural source.
 - `concept/03_frontres_concept_tabs.svg`: generated static visual artifact.
@@ -57,6 +58,7 @@ http://127.0.0.1:8765/
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../runtime/02_frontres_flow.data.json
 http://127.0.0.1:8765/05_stage3_sequence_eval_runtime.html
+http://127.0.0.1:8765/07_frontres_stat_audit.html
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../concept/03_frontres_concept_tabs.data.json
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/04_femr_modular_architecture.data.json
 ```
@@ -87,18 +89,19 @@ auxiliary/atlas_app/architecture_atlas.html
 
 The three main pages are data variants, not separate applications:
 
-- Architecture uses `layout: "repo_tree"`.
+- Repo Mainline uses `layout: "repo_tree"`.
   - Source: `architecture/01_repo_architecture.data.json`.
-  - Purpose: file tree -> code block ownership.
-  - Main schema: `title`, `subtitle`, `layout`, `root`, `concepts`, `files[]`.
-  - Each file has `group`, `path`, `color`, `blocks[]`.
-  - Each block has `id`, `role`, `lines`, `concept`.
+  - Purpose: main runtime stage -> owner files -> code block responsibilities.
+  - Main schema: `title`, `subtitle`, `layout`, `root`, `files[]`.
+  - Optional display flags: `showLegend`, `showConceptBadges`.
+  - Each file has `group`, `summary`, `color`, `blocks[]`.
+  - Each block has `id`, `path`, `role`; use one responsibility per block.
 
-- Runtime uses `layout: "flow_tree"`.
+- Method to Code uses `layout: "repo_tree"`.
   - Source: `runtime/02_frontres_flow.data.json`.
-  - Purpose: interface boundary -> input / ownership / output / forbidden freedom / diagnostic proof.
-  - Main schema: `title`, `subtitle`, `layout`, `concepts`, `nodes[]`.
-  - Each node has `id`, `title`, `role`, `input`, `output`, `forbidden`, `diagnostic`, `concept`, optional `children[]`.
+  - Purpose: method design -> Repo Mainline stage -> owner files/functions.
+  - Main schema: `title`, `subtitle`, `layout`, `root`, `concepts`, `files[]`.
+  - Each file group names the matching `MAIN-*` stage from the Repo Mainline Atlas.
 
 - Concept uses the default tab renderer.
   - Source: `concept/03_frontres_concept_tabs.data.json`.

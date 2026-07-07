@@ -777,6 +777,14 @@ def log_runner(self, locs: dict, width: int = 80, pad: int = 35):
                                 f"{locs['frontres_over_cost_mean']:.4f} / "
                                 f"{locs['frontres_under_repair_cost_mean']:.4f}\n"
                             )
+                            if locs.get("frontres_balance_reward_mean") is not None:
+                                log_string += f"""{"balance C/N/R/rew:":>{pad}} """
+                                log_string += (
+                                    f"{locs['frontres_balance_margin_clean_mean']:+.4f} / "
+                                    f"{locs['frontres_balance_margin_noisy_mean']:+.4f} / "
+                                    f"{locs['frontres_balance_margin_repaired_mean']:+.4f} / "
+                                    f"{locs['frontres_balance_weighted_reward_mean']:+.4f}\n"
+                                )
                             if not _authority_active:
                                 log_string += f"""{'bonus/legacy S/R/B:':>{pad}} """
                                 log_string += (

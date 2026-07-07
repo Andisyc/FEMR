@@ -10,6 +10,7 @@ from __future__ import annotations
 import torch
 
 from rsl_rl.modules import FrontRESActorCritic
+from rsl_rl.modules.frontres_observation_layout import split_frontres_policy_obs
 from rsl_rl.frontres.runtime_diagnostics import maybe_print_frontres_restore_debug
 
 
@@ -57,27 +58,19 @@ def get_inference_policy_runner(self, device=None):
 def apply_obs_normalizer(self, obs: torch.Tensor) -> torch.Tensor:
     """Apply obs_normalizer, with partial pass-through for FrontRES task-space mode.
 
-    IsaacLab places Optional obs terms (anchor_root_pos_error_w, anchor_root_rpy_error_w)
-    BEFORE regular terms in the concatenated obs tensor, so the layout is:
-      [0 : num_extra]           = anchor-error dims  (FrontRES-only, NOT in GMT training)
-      [num_extra : num_extra+gmt_dim] = GMT-compatible dims (match GMT training obs exactly)
-
-    where num_extra = obs_dim - gmt_dim  (= 30 = 6 dims/frame × 5 frames).
-
-    We therefore normalize the LAST gmt_dim dims with the frozen GMT normalizer and
-    optionally normalize the FIRST num_extra dims with Stage-1 empirical stats.
-    Output shape is unchanged (800 dims); structure: [extra | gmt_part].
+    IsaacLab 会把 optional obs term 放在 regular term 前面.
+    因此 FrontRES-only 信息位于前缀, 最后 gmt_dim 维保持 GMT-compatible suffix.
+    这里只用 frozen GMT normalizer 归一化 suffix, prefix 使用 FrontRES 自己的统计值.
     """
-    if self._frontres_gmt_obs_dim is not None and obs.shape[-1] > self._frontres_gmt_obs_dim:
-        gmt_dim   = self._frontres_gmt_obs_dim
-        num_extra = obs.shape[-1] - gmt_dim          # = 30 (anchor errors at front)
-        extra     = obs[:, :num_extra]               # [0:30]   anchor errors
-        gmt_part  = self.obs_normalizer(obs[:, num_extra:])  # [30:800] GMT-compatible → normalize
+    extra, gmt_obs = split_frontres_policy_obs(obs, self._frontres_gmt_obs_dim)
+    if extra is not None:
+        num_extra = extra.shape[-1]
+        gmt_part = self.obs_normalizer(gmt_obs)
         _s1_mean = getattr(self, '_frontres_extra_mean', None)
         _s1_std  = getattr(self, '_frontres_extra_std',  None)
         if (_s1_mean is not None and _s1_std is not None
                 and _s1_mean.shape[-1] == num_extra
                 and _s1_std.shape[-1] == num_extra):
             extra = (extra - _s1_mean) / (_s1_std + 1e-8)
-        return torch.cat([extra, gmt_part], dim=-1)  # [anchor_errors | normalized_gmt]
+        return torch.cat([extra, gmt_part], dim=-1)
     return self.obs_normalizer(obs)

@@ -51,10 +51,16 @@ The current method contract is:
 note/frontres_core/contracts/design_contract.md
 ```
 
-The current engineering checklist is:
+The current global engineering checklist archive is:
 
 ```text
 note/frontres_core/checklists/modification_checklist.md
+```
+
+The active Stage 3 Segment Replay checklist is:
+
+```text
+note/frontres_segment_replay/checklists/stage3_runtime_distribution_checklist.md
 ```
 
 ## 1. Training Entrypoints
@@ -114,6 +120,7 @@ source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/agents/r
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py
+source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/balance.py
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/observations.py
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/rewards.py
 source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py
@@ -132,6 +139,8 @@ source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.p
 
 - `rsl_rl_mosaic_cfg.py` owns experiment-level config values;
 - `commands.py` and `motion_perturbations.py` own reference perturbation state;
+- `balance.py` owns pure support/capture margin proxy math for the active
+  FrontRES balance observation and optional reward candidates;
 - `observations.py` owns whether Stage 2 has enough state/history information;
 - `rewards.py` owns environment reward terms, but not FrontRES-specific
   executable reward aggregation.
@@ -164,6 +173,7 @@ algorithm loss.
 
 ```text
 source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py
+source/rsl_rl/rsl_rl/modules/frontres_observation_layout.py
 source/rsl_rl/rsl_rl/modules/actor_critic.py
 source/rsl_rl/rsl_rl/modules/residual_actor_critic.py
 source/rsl_rl/rsl_rl/modules/supervise_learning.py
@@ -183,6 +193,17 @@ FrontRESActorCritic
 - parameterize Stage 2 authority actor;
 - provide inference and training forward paths;
 - expose action distribution stats used by the algorithm.
+- in active Stage 3 Segment Replay, expose proposal-only 6D `Delta SE(3)` via
+  `task_conf_dim=0`; old 12D HSL/acceptance heads remain compatibility paths.
+- define the shared FrontRES observation split:
+  `870D = 100D FrontRES-only prefix + 770D GMT-compatible suffix`.
+  The 100D prefix is `30D` anchor-error history plus `70D` balance-context
+  history.
+- provide the shared helper that extracts/saves the extra-prefix normalizer
+  stats while keeping the frozen GMT normalizer responsible only for 770D.
+  Legacy 800D checkpoints keep their 30D anchor-error stats; the newly added
+  70D balance-context prefix uses identity normalization until a 870D checkpoint
+  provides explicit stats.
 
 ### Current Useful Structure
 
@@ -377,6 +398,13 @@ source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py
 - build storage transitions;
 - run update and logging;
 - save and resume checkpoints.
+- apply observation normalization by keeping the actor-facing 870D layout while
+  normalizing only the 770D GMT-compatible suffix with the frozen GMT stats.
+- preserve Stage 3 extra-prefix mean/std in checkpoint payloads without
+  overwriting the frozen GMT normalizer on resume.
+  Legacy 800D payloads are expanded to the current 100D prefix by retaining
+  the old 30D anchor stats and assigning identity stats to the new 70D balance
+  context.
 
 ### Segment Replay Runner Responsibilities
 

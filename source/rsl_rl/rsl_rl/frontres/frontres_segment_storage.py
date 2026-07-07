@@ -177,9 +177,45 @@ class FrontRESSegmentRolloutStorage:
             priority_evidence=payload.get("priority_evidence"),
         )
 
-    def compute_returns_and_advantages(self) -> None:
+    def compute_returns_and_advantages(
+        self,
+        *,
+        reward_steps: torch.Tensor | None = None,
+        done_steps: torch.Tensor | None = None,
+        horizon: int | None = None,
+        gamma: float = 1.0,
+    ) -> None:
         active = slice(0, self.step)
-        self.returns[active].copy_(self.rewards[active])
+        if reward_steps is None:
+            self.returns[active].copy_(self.rewards[active])
+            self.advantages[active].copy_(self.returns[active] - self.old_values[active])
+            return
+
+        if reward_steps.ndim != 2:
+            raise ValueError(f"reward_steps must be rank-2 [T, B], got {tuple(reward_steps.shape)}")
+        if int(reward_steps.shape[1]) < self.step:
+            raise ValueError(f"reward_steps must have at least {self.step} batch entries, got {int(reward_steps.shape[1])}")
+        if done_steps is not None and tuple(done_steps.shape) != tuple(reward_steps.shape):
+            raise ValueError(f"done_steps shape {tuple(done_steps.shape)} must match reward_steps {tuple(reward_steps.shape)}")
+
+        step_count = int(reward_steps.shape[0])
+        return_horizon = min(step_count, max(1, int(horizon if horizon is not None else step_count)))
+        rewards = reward_steps[:return_horizon, : self.step].to(device=self.device, dtype=torch.float32)
+        if done_steps is None:
+            dones = torch.zeros_like(rewards, dtype=torch.bool)
+        else:
+            dones = done_steps[:return_horizon, : self.step].to(device=self.device).bool()
+
+        returns = torch.zeros(self.step, device=self.device, dtype=torch.float32)
+        alive = torch.ones(self.step, device=self.device, dtype=torch.float32)
+        discount = 1.0
+        gamma_value = float(gamma)
+        for offset in range(return_horizon):
+            returns = returns + (discount * alive * rewards[offset])
+            alive = alive * (~dones[offset]).float()
+            discount *= gamma_value
+
+        self.returns[active].copy_(returns)
         self.advantages[active].copy_(self.returns[active] - self.old_values[active])
 
     def mini_batch_generator(

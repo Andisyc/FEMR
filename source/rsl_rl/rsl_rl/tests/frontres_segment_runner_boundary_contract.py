@@ -58,7 +58,7 @@ def _stage3_cfg(
             "frontres_segment_sequence_offline_eval_only": sequence_eval,
             "frontres_segment_live_train_enabled": train,
             "frontres_segment_live_update_steps": 4,
-            "frontres_segment_k": 4,
+            "frontres_segment_k": 8,
             "frontres_segment_reset_mode": "auto",
         }
     }
@@ -67,7 +67,7 @@ def _stage3_cfg(
 def test_stage3_boundary_rejects_live_runner_by_default() -> None:
     boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(_stage3_cfg(live=False))
     assert boundary.requested
-    assert boundary.segment_k == 4
+    assert boundary.segment_k == 8
     try:
         boundary.assert_live_runner_ready()
     except NotImplementedError as exc:
@@ -93,7 +93,7 @@ def test_stage3_boundary_allows_live_sentinel_only() -> None:
     assert log is not None
     assert "FrontRES Segment Live Sentinel" in log
     assert "objective=segment_replay_hrl" in log
-    assert "segment_k=4" in log
+    assert "segment_k=8" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
     assert "sentinel_only=True" in log
@@ -109,7 +109,7 @@ def test_stage3_boundary_allows_live_probe_only() -> None:
     assert log is not None
     assert "FrontRES Segment Live Probe Ready" in log
     assert "objective=segment_replay_hrl" in log
-    assert "segment_k=4" in log
+    assert "segment_k=8" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
     assert "probe_only=True" in log
@@ -124,7 +124,7 @@ def test_stage3_boundary_allows_live_storage_write_only() -> None:
     assert log is not None
     assert "FrontRES Segment Live Probe Ready" in log
     assert "objective=segment_replay_hrl" in log
-    assert "segment_k=4" in log
+    assert "segment_k=8" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
     assert "probe_only=True" in log
@@ -139,7 +139,7 @@ def test_stage3_boundary_allows_live_single_update_only() -> None:
     assert log is not None
     assert "FrontRES Segment Live Probe Ready" in log
     assert "objective=segment_replay_hrl" in log
-    assert "segment_k=4" in log
+    assert "segment_k=8" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
     assert "probe_only=True" in log
@@ -154,7 +154,7 @@ def test_stage3_boundary_allows_live_update_loop_only() -> None:
     assert log is not None
     assert "FrontRES Segment Live Probe Ready" in log
     assert "objective=segment_replay_hrl" in log
-    assert "segment_k=4" in log
+    assert "segment_k=8" in log
     assert "update_steps=4" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
@@ -181,7 +181,7 @@ def test_stage3_boundary_allows_live_train_enabled() -> None:
     assert log is not None
     assert "FrontRES Segment Live Train Ready" in log
     assert "objective=segment_replay_hrl" in log
-    assert "segment_k=4" in log
+    assert "segment_k=8" in log
     assert "update_steps=4" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log

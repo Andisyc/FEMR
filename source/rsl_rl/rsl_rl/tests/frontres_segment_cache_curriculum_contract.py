@@ -27,9 +27,14 @@ def _cfg() -> dict[str, float | bool]:
         "frontres_perturbation_curriculum_enabled": True,
         "frontres_adaptive_perturb_curriculum_enabled": True,
         "frontres_mixed_dr_strength_per_env": True,
+        "frontres_mixed_dr_low_weight": 0.20,
+        "frontres_mixed_dr_mid_weight": 0.30,
         "frontres_mixed_dr_easy_weight": 0.45,
         "frontres_mixed_dr_frontier_weight": 0.40,
-        "frontres_mixed_dr_hard_weight": 0.15,
+        "frontres_mixed_dr_hard_weight": 0.10,
+        "frontres_mixed_dr_low_hi_frac": 0.25,
+        "frontres_mixed_dr_mid_hi_frac": 0.70,
+        "frontres_mixed_dr_hard_hi_frac": 1.10,
         "frontres_mixed_dr_easy_factor": 0.75,
         "frontres_mixed_dr_frontier_factor": 1.0,
         "frontres_mixed_dr_hard_factor": 1.08,
@@ -72,14 +77,23 @@ def test_stage1_bank_traces_hrl_curriculum_chain() -> None:
     assert probe["record_count"] == 16
     assert probe["allowed_bases"] == ("planar", "yaw", "local_rp")
     assert set(probe["active_modes"]).issubset(set(probe["allowed_bases"]))
-    assert set(probe["mix_classes"]).issubset({"easy", "frontier", "hard"})
-    assert set(probe["dr_factors"]).issubset({0.75, 1.0, 1.08})
+    assert set(probe["mix_classes"]).issubset({"low", "mid", "frontier", "hard"})
+    for mix_class, dr_factor in zip(probe["mix_classes"], probe["dr_factors"]):
+        if mix_class == "low":
+            assert 0.0 <= dr_factor <= 0.25
+        elif mix_class == "mid":
+            assert 0.25 <= dr_factor <= 0.70
+        elif mix_class == "frontier":
+            assert 0.70 <= dr_factor <= 1.0
+        elif mix_class == "hard":
+            assert 1.0 <= dr_factor <= 1.10
     assert "hard" in probe["mix_classes"]
     for mix_class, role in zip(probe["mix_classes"], probe["roles"]):
         if mix_class == "hard":
             assert role == "boundary_diagnostic"
         else:
             assert role == "train"
+    assert abs(probe["mix_diag"]["easy"] - (probe["mix_diag"]["low"] + probe["mix_diag"]["mid"])) < 1e-6
     assert abs(sum(probe["mix_diag"][key] for key in ("easy", "frontier", "hard")) - 1.0) < 1e-6
 
 

@@ -5,6 +5,14 @@ keep concept, code path, diagnostics, and short-run evidence aligned.  Do not
 mark a change as ready for training until each relevant item has concrete
 evidence.
 
+Current status: this file is historical for the 2026-06 HSL, rho, authority, and
+acceptance refactors.  For the active Stage 3 Segment Replay HRL direct 6D
+`Delta SE(3)` path, use:
+
+```text
+note/frontres_segment_replay/checklists/stage3_runtime_distribution_checklist.md
+```
+
 ## Active Change Record: 2026-06-25 FEMR HSL+HRL Acceptance Refactor
 
 - [x] Step 1 design contract rewrite started:

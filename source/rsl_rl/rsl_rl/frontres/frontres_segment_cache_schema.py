@@ -159,9 +159,16 @@ class FrontRESPerturbationDescriptor:
             raise ValueError(f"unsupported curriculum_mode: {self.params['curriculum_mode']}")
         if "family_group" in self.params and not tuple(self.params["family_group"]):
             raise ValueError("family_group must be non-empty when provided")
-        if "mix_class" in self.params and str(self.params["mix_class"]) not in {"easy", "frontier", "hard", "fixed"}:
+        if "mix_class" in self.params and str(self.params["mix_class"]) not in {
+            "low",
+            "mid",
+            "easy",
+            "frontier",
+            "hard",
+            "fixed",
+        }:
             raise ValueError(f"unsupported mix_class: {self.params['mix_class']}")
-        if "mix_class_index" in self.params and int(self.params["mix_class_index"]) not in {-1, 0, 1, 2}:
+        if "mix_class_index" in self.params and int(self.params["mix_class_index"]) not in {-1, 0, 1, 2, 3}:
             raise ValueError(f"unsupported mix_class_index: {self.params['mix_class_index']}")
         if "frontier_scale" in self.params and float(self.params["frontier_scale"]) < 0.0:
             raise ValueError(f"frontier_scale must be non-negative, got {self.params['frontier_scale']}")

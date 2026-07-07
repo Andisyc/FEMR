@@ -19,6 +19,7 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 from rsl_rl.modules import ActorCritic, EmpiricalNormalization
+from rsl_rl.modules.frontres_observation_layout import split_frontres_policy_obs
 from rsl_rl.utils import resolve_nn_activation
 
 
@@ -228,7 +229,7 @@ class FrontRESActorCritic(nn.Module):
         num_task_corrections: int = 0,
         max_delta_pos: float = 0.3,     # tanh clip for position correction (metres)
         max_delta_rpy: float = 0.3,     # tanh clip for orientation correction (radians)
-        task_conf_dim: int = 2,          # 1: scalar trust, 2: c_pos/c_rpy, 6: per-axis coefficients
+        task_conf_dim: int = 2,          # 0: proposal only, 1: scalar trust, 2: c_pos/c_rpy, 6: per-axis coefficients
         # FrontRES-specific observation subset: when >0, FrontRES only processes the
         # first num_frontres_obs dims of policy_obs (reference-frame data only).
         # GMT continues to receive the full policy_obs. 0 = legacy (full obs for both).
@@ -260,9 +261,9 @@ class FrontRESActorCritic(nn.Module):
         self.num_z_outputs = num_z_outputs      # extra Δz outputs (0 = legacy)
         self.num_task_corrections = num_task_corrections  # task-space mode dim (0 = disabled)
         self.task_conf_dim = int(task_conf_dim)
-        if self.num_task_corrections > 0 and self.task_conf_dim not in (1, 2, 6):
-            raise ValueError("task_conf_dim must be 1 (trust), 2 (legacy), or 6 (per-axis coefficients).")
-        # Task-space mode: output = [Δpos(3), Δrpy(3), acceptance/coefficients].
+        if self.num_task_corrections > 0 and self.task_conf_dim not in (0, 1, 2, 6):
+            raise ValueError("task_conf_dim must be 0 (proposal only), 1 (trust), 2 (legacy), or 6 (per-axis coefficients).")
+        # Task-space mode: output = [Δpos(3), Δrpy(3)] plus optional acceptance/coefficients.
         if num_task_corrections > 0:
             self.total_output_dim = num_task_corrections + self.task_conf_dim
         else:
@@ -541,6 +542,8 @@ class FrontRESActorCritic(nn.Module):
         if num_task_corrections > 0:
             if self.frontres_split_acceptance_head:
                 coeff_desc = f"acceptance logits({self.task_conf_dim}) from split Stage-2 head"
+            elif self.task_conf_dim == 0:
+                coeff_desc = "proposal-only"
             elif self.task_conf_dim == 1:
                 coeff_desc = "legacy scalar rho(1)"
             elif self.task_conf_dim == 2:
@@ -616,7 +619,8 @@ class FrontRESActorCritic(nn.Module):
                 # FrontRES: per-dimension σ.
                 #   pos/rpy: precision, not exploration.
                 #   acceptance/coefficients: slightly larger so gates can move.
-                _val[-self.task_conf_dim:] = init_noise_std * 5.0
+                if self.task_conf_dim > 0:
+                    _val[-self.task_conf_dim:] = init_noise_std * 5.0
                 self.register_buffer('std', _val)
             else:
                 self.std = nn.Parameter(_val)
@@ -1189,18 +1193,14 @@ class FrontRESActorCritic(nn.Module):
         """Run GMT without q_ref patching (task-space mode).
 
         policy_obs may be a FrontRES-specific subset (when num_frontres_obs > 0).
-        GMT always receives the FULL observation from self._cached_full_policy_obs.
+        GMT receives only the GMT-compatible suffix from self._cached_full_policy_obs.
         """
-        # Use the FULL (untrimmed) policy obs for GMT; policy_obs may be a subset.
+        # B1: Start from the full policy obs, then strip FrontRES-only prefix for GMT.
         gmt_input = getattr(self, '_cached_full_policy_obs', policy_obs)
         if self.gmt_normalizer is not None:
             _gmt_mean = getattr(self.gmt_normalizer, '_mean', None)
-            if _gmt_mean is not None and gmt_input.shape[-1] > _gmt_mean.shape[-1]:
-                # IsaacLab places Optional obs terms (anchor errors) at the BEGINNING.
-                # GMT-compatible dims are therefore at the END: obs[:, num_extra:].
-                # num_extra = total_dims - gmt_dims (e.g. 800 - 770 = 30).
-                num_extra = gmt_input.shape[-1] - _gmt_mean.shape[-1]
-                gmt_input = gmt_input[:, num_extra:]  # [30:800] = 770 normalized GMT dims
+            if _gmt_mean is not None:
+                _, gmt_input = split_frontres_policy_obs(gmt_input, _gmt_mean.shape[-1])
 
         if ref_vel is not None:
             gmt_obs = torch.cat([gmt_input, ref_vel], dim=-1)
@@ -1235,6 +1235,8 @@ class FrontRESActorCritic(nn.Module):
                     proposal_delta_se=proposal,
                     detach_proposal=True,
                 )
+            elif self.task_conf_dim == 0:
+                coeff = proposal.new_zeros((proposal.shape[0], 0))
             else:
                 coeff = torch.sigmoid(raw[:, 6:6 + self.task_conf_dim])
             frontres_out = torch.cat([proposal, coeff], dim=-1)
@@ -1268,6 +1270,8 @@ class FrontRESActorCritic(nn.Module):
                 proposal_delta_se=proposal,
                 detach_proposal=True,
             )
+        elif self.task_conf_dim == 0:
+            coeff = proposal.new_zeros((proposal.shape[0], 0))
         else:
             coeff = torch.sigmoid(raw[:, 6:6 + self.task_conf_dim])
         correction = torch.cat([proposal, coeff], dim=-1)

@@ -28,7 +28,7 @@ except ModuleNotFoundError:
     sample_perturbation_mix = _CURRICULUM_MODULE.sample_perturbation_mix
 
 
-MIX_CLASS_NAMES = ("easy", "frontier", "hard")
+MIX_CLASS_NAMES = ("low", "mid", "frontier", "hard")
 
 
 @dataclass(frozen=True)
@@ -76,7 +76,7 @@ class FrontRESStage1CurriculumBankRecord:
             raise ValueError("family_group must be non-empty")
         if self.mix_class not in MIX_CLASS_NAMES and self.mix_class != "fixed":
             raise ValueError(f"invalid mix_class {self.mix_class!r}")
-        if int(self.mix_class_index) not in (-1, 0, 1, 2):
+        if int(self.mix_class_index) < -1 or int(self.mix_class_index) >= len(MIX_CLASS_NAMES):
             raise ValueError(f"invalid mix_class_index {self.mix_class_index}")
         if float(self.frontier_scale) < 0.0:
             raise ValueError(f"frontier_scale must be non-negative, got {self.frontier_scale}")

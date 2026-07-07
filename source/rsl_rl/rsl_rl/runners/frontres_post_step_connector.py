@@ -375,6 +375,12 @@ def apply_frontres_post_step_reward_connector(
                 "_cost_exec": reward_window.cost_exec if reward_window is not None else None,
                 "_effective_gain_bonus": reward_window.effective_gain_bonus if reward_window is not None else None,
                 "_effective_gain_bonus_exec": reward_window.effective_gain_bonus_exec if reward_window is not None else None,
+                "_balance_reward": reward_window.balance_reward if reward_window is not None else None,
+                "_balance_weighted_bonus": reward_window.balance_weighted_bonus if reward_window is not None else None,
+                "_balance_repaired_margin": reward_window.balance_repaired_margin if reward_window is not None else None,
+                "_balance_candidate_margin": reward_window.balance_candidate_margin if reward_window is not None else None,
+                "_balance_noisy_margin": reward_window.balance_noisy_margin if reward_window is not None else None,
+                "_balance_clean_margin": reward_window.balance_clean_margin if reward_window is not None else None,
                 "_reward_progress": reward_window.reward_progress if reward_window is not None else 0.0,
                 "_constraint_progress": reward_window.constraint_progress if reward_window is not None else 0.0,
             }

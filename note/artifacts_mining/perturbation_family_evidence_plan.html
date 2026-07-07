@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Artifacts Mining 与 Perturbation Family 证据规划</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #fbfaf4;
+      --panel: #fffdf7;
+      --ink: #1f2933;
+      --muted: #5c6675;
+      --line: #2f3440;
+      --soft-line: #ded6c5;
+      --green: #2f7c6f;
+      --green-soft: #e2f1ec;
+      --blue: #476fa8;
+      --blue-soft: #e7edf8;
+      --amber: #a66c1d;
+      --amber-soft: #faedd2;
+      --red: #9f4f4f;
+      --red-soft: #f7dfdc;
+      --purple: #6d5aa6;
+      --purple-soft: #ece6f5;
+      --shadow: 7px 7px 0 rgba(31, 41, 51, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(31, 41, 51, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(31, 41, 51, 0.035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 24px 24px;
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        "Noto Sans CJK SC",
+        "PingFang SC",
+        "Microsoft YaHei",
+        sans-serif;
+      line-height: 1.58;
+    }
+
+    main {
+      width: min(1200px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 72px;
+    }
+
+    header,
+    section {
+      margin-top: 24px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      max-width: 900px;
+      font-size: 38px;
+      line-height: 1.14;
+    }
+
+    h2 {
+      font-size: 25px;
+      line-height: 1.25;
+    }
+
+    h3 {
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    code {
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: #eef1f4;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .card,
+    .callout,
+    .step,
+    .table-wrap,
+    .note-box,
+    .axis-card {
+      position: relative;
+      background: var(--panel);
+      border: 2px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .hero {
+      min-height: 410px;
+      padding: 34px;
+    }
+
+    .kicker {
+      display: inline-block;
+      margin-bottom: 16px;
+      padding: 6px 12px;
+      color: var(--green);
+      background: var(--green-soft);
+      border: 2px solid var(--green);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 900;
+      transform: rotate(-1deg);
+    }
+
+    .lead {
+      max-width: 780px;
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .mini {
+      min-height: 116px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.76);
+      border: 2px dashed rgba(31, 41, 51, 0.36);
+      border-radius: 12px;
+    }
+
+    .mini strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 15px;
+    }
+
+    .mini span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .callout-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .callout {
+      min-height: 170px;
+      padding: 22px;
+    }
+
+    .callout strong {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--green);
+      font-size: 14px;
+    }
+
+    .callout p {
+      font-size: 21px;
+      line-height: 1.38;
+      font-weight: 850;
+    }
+
+    .callout.warn {
+      background: var(--amber-soft);
+    }
+
+    .callout.warn strong {
+      color: var(--amber);
+    }
+
+    .section-title {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+
+    .section-title p {
+      max-width: 720px;
+      color: var(--muted);
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .step {
+      min-height: 210px;
+      padding: 19px;
+    }
+
+    .num {
+      display: inline-flex;
+      width: 36px;
+      height: 36px;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
+      color: #fff;
+      background: var(--blue);
+      border: 2px solid var(--line);
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .step p,
+    .axis-card p,
+    .note-box p {
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .axis-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .axis-card {
+      min-height: 182px;
+      padding: 18px;
+    }
+
+    .tag {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 4px 9px;
+      border: 2px solid currentColor;
+      border-radius: 999px;
+      background: var(--green-soft);
+      color: var(--green);
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .tag.blue {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .tag.amber {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .tag.red {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .tag.purple {
+      background: var(--purple-soft);
+      color: var(--purple);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      min-width: 920px;
+      background: var(--panel);
+    }
+
+    th,
+    td {
+      padding: 14px 15px;
+      border-bottom: 2px solid rgba(31, 41, 51, 0.14);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--blue-soft);
+      color: var(--ink);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    td {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td strong {
+      color: var(--ink);
+    }
+
+    .status-strong {
+      color: var(--green);
+      font-weight: 900;
+    }
+
+    .status-medium {
+      color: var(--amber);
+      font-weight: 900;
+    }
+
+    .status-weak {
+      color: var(--red);
+      font-weight: 900;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .note-box {
+      padding: 20px;
+    }
+
+    .note-box ul {
+      margin: 12px 0 0;
+      padding-left: 20px;
+      color: var(--muted);
+    }
+
+    .note-box li + li {
+      margin-top: 7px;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .flow span {
+      display: flex;
+      min-height: 72px;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      border: 2px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 850;
+      text-align: center;
+    }
+
+    footer {
+      margin-top: 42px;
+      padding: 18px 0 0;
+      border-top: 2px dashed var(--soft-line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 980px) {
+      .board,
+      .strip,
+      .pipeline,
+      .axis-grid,
+      .two-col,
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      h1 {
+        font-size: 32px;
+      }
+
+      .section-title {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+
+    @media (max-width: 680px) {
+      main {
+        width: min(100vw - 22px, 1200px);
+        padding-top: 18px;
+      }
+
+      .hero,
+      .callout,
+      .step,
+      .axis-card,
+      .note-box {
+        padding: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="board">
+      <section class="card hero" aria-labelledby="page-title">
+        <div class="kicker">Artifacts Mining / FEMR Evidence Plan</div>
+        <h1 id="page-title">Perturbation Family 不是凭空噪声，而是真实 root-level artifact 的可控模拟。</h1>
+        <p class="lead">
+          当前目标不是建立完整 artifact scoring system，而是闭合一条小证据链：
+          真实视频存在 root/world-frame artifact；这些 artifact 会损害 GMT；四个 perturbation family 覆盖其主要方向。
+        </p>
+        <div class="strip" aria-label="三点规划">
+          <div class="mini">
+            <strong>1. 真实存在</strong>
+            <span>用自拍和公开视频证明自然使用动作提取工具会出现扰动。</span>
+          </div>
+          <div class="mini">
+            <strong>2. 损害 GMT</strong>
+            <span>把真实片段送入 GMT，用 ZMP、稳定性、执行质量展示下降。</span>
+          </div>
+          <div class="mini">
+            <strong>3. 方向覆盖</strong>
+            <span>证明四个 family 覆盖真实 artifact 的主方向，而不是拟合全部分布。</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="callout-stack">
+        <div class="callout">
+          <strong>核心理解</strong>
+          <p>许多真实失败不是局部姿态全错，而是 root/world frame、地面或重力方向错。</p>
+        </div>
+        <div class="callout warn">
+          <strong>安全表述</strong>
+          <p>我们不声称覆盖所有 artifacts；我们覆盖 repairable root-level SE(3) artifact subset。</p>
+        </div>
+      </aside>
+    </header>
+
+    <section aria-labelledby="claim-title">
+      <div class="section-title">
+        <h2 id="claim-title">你的方法主张</h2>
+        <p>这段是后续写 introduction / method motivation 时最需要保护的边界。</p>
+      </div>
+      <div class="two-col">
+        <article class="note-box">
+          <h3>问题压缩</h3>
+          <p>
+            OmniTrack 展示的 floating、penetration、skating、inconsistent CoM 等现象，
+            很多可以看作 root/world-frame 与地面、接触、重力方向不一致。
+          </p>
+          <p>
+            因此 FEMR 不直接修复全身关节姿态，而是在 frozen GMT 之前输出
+            <code>Delta SE(3)</code>，先修正更小、更可控的参考帧错误。
+          </p>
+        </article>
+        <article class="note-box">
+          <h3>原因分类</h3>
+          <p>
+            artifact 的来源可以分成两类：内生和外诱。二者来源不同，但最终都可能表现成
+            root-level SE(3) 错误。
+          </p>
+          <ul>
+            <li><strong>内生 artifact</strong>：动作提取工具自身假设不足，例如不能恢复斜坡。</li>
+            <li><strong>外诱 artifact</strong>：拍摄条件诱发工具出错，例如摄像头倾斜、低视角、抖动、远近变化。</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="pipeline-title">
+      <div class="section-title">
+        <h2 id="pipeline-title">三点证据链</h2>
+        <p>第三点的关键是 axis coverage，不是完整分布覆盖。</p>
+      </div>
+      <div class="pipeline">
+        <article class="step">
+          <span class="num">1</span>
+          <h3>真实视频里存在 artifact</h3>
+          <p>收集自拍和公开视频。人工审查可视化结果，记录滑步、倾斜、地面高度/坡度错误、方向漂移。</p>
+          <p><strong>证据形式：</strong>短片段 + 截图/视频 + 人类可审计标签。</p>
+        </article>
+        <article class="step">
+          <span class="num">2</span>
+          <h3>artifact 会损害 GMT</h3>
+          <p>把真实 artifact reference 输入 GMT。比较 clean / noisy / repaired 的 ZMP、稳定性、执行质量。</p>
+          <p><strong>证据形式：</strong>同一片段的 GMT 执行指标下降。</p>
+        </article>
+        <article class="step">
+          <span class="num">3</span>
+          <h3>perturbation family 覆盖主方向</h3>
+          <p>把真实 artifact 归到四个低维方向：xy、yaw、z、tilt。合成扰动只需要复现这些方向造成的执行损害。</p>
+          <p><strong>证据形式：</strong>真实现象与 synthetic family 的方向和后果一致。</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="axis-title">
+      <div class="section-title">
+        <h2 id="axis-title">四个 Perturbation Family</h2>
+        <p>它们是可控模拟器，不是 artifact detector。</p>
+      </div>
+      <div class="axis-grid">
+        <article class="axis-card">
+          <span class="tag blue">xy drift</span>
+          <h3>平面 root 漂移</h3>
+          <p>模拟 root/CoM 平面位置、速度、接触位置不一致。对应滑步、平面路径漂移、远距离跟踪不稳。</p>
+        </article>
+        <article class="axis-card">
+          <span class="tag purple">yaw drift</span>
+          <h3>朝向漂移</h3>
+          <p>模拟人体面向、运动方向、参考 heading 不一致。当前视频证据不足，需要补拍或找公开视频。</p>
+        </article>
+        <article class="axis-card">
+          <span class="tag amber">vertical drift</span>
+          <h3>地面高度错误</h3>
+          <p>模拟 floating、penetration、台阶/坡度高度估计错误。当前全局浮空证据需谨慎，因为 PHMR 可后调高度。</p>
+        </article>
+        <article class="axis-card">
+          <span class="tag red">tilt</span>
+          <h3>重力方向/身体倾斜</h3>
+          <p>模拟摄像头倾斜、地面法向估计错误、root roll/pitch 错误。当前证据最强。</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="video-title">
+      <div class="section-title">
+        <h2 id="video-title">现有视频分析</h2>
+        <p>浮空暂时不作为强证据，因为高度可后处理调整。当前强证据是滑步、倾斜、坡度/地面错误。</p>
+      </div>
+      <div class="table-wrap">
+        <table aria-label="已有视频 artifact 分析表">
+          <thead>
+            <tr>
+              <th>视频</th>
+              <th>拍摄条件</th>
+              <th>观察到的动作序列现象</th>
+              <th>原因类型</th>
+              <th>对应 family</th>
+              <th>证据强度</th>
+              <th>备注</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>walking_bagpack.mp4</strong></td>
+              <td>背包干扰预期</td>
+              <td>没有出现期望的背包影响姿态估计。</td>
+              <td>负例</td>
+              <td>不作为正例</td>
+              <td><span class="status-weak">弱</span></td>
+              <td>可以保留为失败采集案例，说明不是所有诱导条件都会产生 artifact。</td>
+            </tr>
+            <tr>
+              <td><strong>walking_fadeout.mp4</strong></td>
+              <td>人物远走再走回，轨迹呈 V 字</td>
+              <td>远点出现滑步。</td>
+              <td>混合：远距离/尺度变化诱发 + 工具接触估计不稳</td>
+              <td>xy drift / skating</td>
+              <td><span class="status-strong">有用</span></td>
+              <td>适合作为远距离视频导致 contact/root 不一致的案例。</td>
+            </tr>
+            <tr>
+              <td><strong>walking_jitter.mp4</strong></td>
+              <td>拍摄者抖动并跟随拍摄</td>
+              <td>当前可视化未出现预期上下抖动，但人物原地滑步。</td>
+              <td>外诱触发，但当前证据依赖可视化工具</td>
+              <td>xy drift；vertical 暂不主张</td>
+              <td><span class="status-medium">中等</span></td>
+              <td>如果 modacape 版本能复现上下抖动，可作为 vertical/jitter 辅助证据。</td>
+            </tr>
+            <tr>
+              <td><strong>walking_lowangle1.mp4</strong></td>
+              <td>侧边低视角，正常行走</td>
+              <td>前半段正常，后半段滑步。</td>
+              <td>外诱/混合：低视角诱发 contact/root 错误</td>
+              <td>xy drift / skating</td>
+              <td><span class="status-strong">有用</span></td>
+              <td>说明普通行走在不理想视角下也会出现 root-contact 不一致。</td>
+            </tr>
+            <tr>
+              <td><strong>walking_lowangle2.mp4</strong></td>
+              <td>侧边低视角 + 镜头倾斜</td>
+              <td>前半段正常，后半段倾斜和滑步。</td>
+              <td>混合：外部视角诱发 + 工具地面/重力估计错误</td>
+              <td>tilt + xy drift</td>
+              <td><span class="status-strong">强</span></td>
+              <td>是现有视频里最好的组合 artifact 案例之一。</td>
+            </tr>
+            <tr>
+              <td><strong>walking_slope.mp4</strong></td>
+              <td>真实人物上斜坡</td>
+              <td>动作序列没有提取出斜坡，人物呈现平地走。</td>
+              <td>内生：PHMR/视频动作恢复未建模真实地面几何</td>
+              <td>tilt / vertical drift / ground-frame error</td>
+              <td><span class="status-strong">强</span></td>
+              <td>非常适合证明工具自身会产生地面参考系错误。</td>
+            </tr>
+            <tr>
+              <td><strong>walking_tiltleft.mp4</strong></td>
+              <td>摄像头向左倾斜</td>
+              <td>动作序列人物明显倾斜。</td>
+              <td>外诱：摄像头姿态诱发 gravity/root roll-pitch 错误</td>
+              <td>tilt</td>
+              <td><span class="status-strong">强</span></td>
+              <td>直接支持 tilt family。</td>
+            </tr>
+            <tr>
+              <td><strong>walking_tiltright.mp4</strong></td>
+              <td>摄像头向右倾斜</td>
+              <td>动作序列人物明显倾斜。</td>
+              <td>外诱：摄像头姿态诱发 gravity/root roll-pitch 错误</td>
+              <td>tilt</td>
+              <td><span class="status-strong">强</span></td>
+              <td>与 tiltleft 构成左右方向对照。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="gap-title">
+      <div class="section-title">
+        <h2 id="gap-title">当前缺口</h2>
+        <p>不要盲目补拍。只补能让四个 family 更均衡的证据。</p>
+      </div>
+      <div class="two-col">
+        <article class="note-box">
+          <h3>缺口 1：Yaw drift</h3>
+          <p>目前还没有明确视频证明 heading / body facing / walking direction 不一致。</p>
+          <ul>
+            <li>拍摄绕弯、突然转身、斜向行走。</li>
+            <li>让摄像头跟随旋转，但不要过度剧烈。</li>
+            <li>目标现象：人体朝向和运动方向错开，或者朝向随时间漂移。</li>
+          </ul>
+        </article>
+        <article class="note-box">
+          <h3>缺口 2：Vertical / ground height</h3>
+          <p>当前“所有序列浮空”被 PHMR 高度后处理污染，不能作为强证据。</p>
+          <ul>
+            <li>拍台阶、路沿、坡顶坡底、不同高度地面。</li>
+            <li>目标不是全局浮空，而是局部 ground-height 变化无法恢复。</li>
+            <li>最好让脚接触高度明显，但人体姿态仍然正常。</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="internet-title">
+      <div class="section-title">
+        <h2 id="internet-title">如何选择互联网视频</h2>
+        <p>目标是证明扰动广泛可见，不是做无偏统计学采样。</p>
+      </div>
+      <div class="pipeline">
+        <article class="step">
+          <span class="num">A</span>
+          <h3>优先找自然失败条件</h3>
+          <p>斜坡、楼梯、路沿、低视角、手持抖动、远距离小人、出画再入画、遮挡、突然转身。</p>
+          <p>这些条件能分别对应 z/tilt/xy/yaw。</p>
+        </article>
+        <article class="step">
+          <span class="num">B</span>
+          <h3>保留可审计元数据</h3>
+          <p>记录 URL、视频标题、时间段、截图、提取工具版本、可视化结果。不要只保存结论。</p>
+          <p>论文中可以展示少量代表案例，补充材料放更多片段。</p>
+        </article>
+        <article class="step">
+          <span class="num">C</span>
+          <h3>按 axis 平衡选例</h3>
+          <p>不要只收 tilt。每个 family 至少保留 2-3 个不同来源案例。</p>
+          <p>如果 skating 不能干净归类，可标为 xy/yaw-induced contact inconsistency。</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="shoot-title">
+      <div class="section-title">
+        <h2 id="shoot-title">下一轮最小采集计划</h2>
+        <p>只拍最缺的，不重新做一个大数据集。</p>
+      </div>
+      <div class="table-wrap">
+        <table aria-label="下一轮补拍和互联网视频选择计划">
+          <thead>
+            <tr>
+              <th>目标 family</th>
+              <th>自拍方案</th>
+              <th>互联网视频关键词/类型</th>
+              <th>想看到的 artifact</th>
+              <th>验收标准</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>yaw drift</strong></td>
+              <td>绕弯走、突然 90 度转身、斜向走，摄像头轻微跟随旋转。</td>
+              <td>street walking turn, dance turn, parkour turn, handheld walking turn。</td>
+              <td>身体朝向、root heading、运动方向不一致。</td>
+              <td>至少 2 个片段可人工看出 heading mismatch。</td>
+            </tr>
+            <tr>
+              <td><strong>vertical drift</strong></td>
+              <td>上下台阶、路沿、坡顶坡底、不同高度平台。</td>
+              <td>walking stairs side view, walking curb, walking uphill downhill。</td>
+              <td>脚接触高度或 root-z 与真实地面不一致。</td>
+              <td>避免只使用全局高度未调好的浮空案例。</td>
+            </tr>
+            <tr>
+              <td><strong>xy drift</strong></td>
+              <td>远走再回来、横向穿过画面、短暂遮挡后继续走。</td>
+              <td>person walking far away, occluded walking, side view walking low angle。</td>
+              <td>滑步、路径漂移、脚接触点和 root 平移不一致。</td>
+              <td>同一片段中原视频意图清楚，输出可视化出现 contact inconsistency。</td>
+            </tr>
+            <tr>
+              <td><strong>tilt</strong></td>
+              <td>左右倾斜摄像头、斜坡侧拍、低视角倾斜拍摄。</td>
+              <td>tilted camera walking, action cam tilted walking, slope walking side view。</td>
+              <td>人体整体 roll/pitch 偏斜或 gravity direction 错误。</td>
+              <td>已有证据较强，只需补公开视频跨来源证明。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="paper-title">
+      <div class="section-title">
+        <h2 id="paper-title">可写进论文的最小表述</h2>
+        <p>这段可以作为后续 introduction / experiment motivation 的草稿。</p>
+      </div>
+      <article class="note-box">
+        <p>
+          We do not claim that all reference artifacts can be detected or repaired.
+          We focus on a repairable subset commonly observed in video-derived motion recovery:
+          the local body pose is still plausible, but the root/world frame, ground alignment,
+          heading, or gravity direction becomes physically inconsistent.
+        </p>
+        <div class="flow" aria-label="paper-facing logic flow">
+          <span>real videos</span>
+          <span>root-level artifacts</span>
+          <span>GMT degradation</span>
+          <span>four perturbation axes</span>
+          <span>FEMR Delta SE(3)</span>
+        </div>
+      </article>
+    </section>
+
+    <footer>
+      写作日期：2026-07-07。位置：note/artifacts_mining。定位：给人阅读的证据规划页，不替代机器可读 checklist。
+    </footer>
+  </main>
+</body>
+</html>

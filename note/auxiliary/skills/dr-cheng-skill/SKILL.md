@@ -79,6 +79,30 @@ large imagined system
   -> only then add capacity or richer modules
 ```
 
+Interpret "method as concept" as executable concept closure, not literal concept
+copying.  A method should preserve the causal role of the concept, but it must
+also close inside the current experiment: available input, evidence source,
+optimization path, diagnostics, and debugging route.  A conceptually beautiful
+variable that cannot be observed, optimized, diagnosed, or debugged is not yet a
+main-path method variable; it is a research hypothesis or future layer.
+
+When concept alignment and engineering feasibility conflict, compress the
+concept to the highest variable that still closes experimentally.  For example,
+if a separate proposal network, acceptance network, and continuous authority
+critic make the route too hard to diagnose, a single residual action may be the
+better first-order method because it keeps the same causal roles in one
+inspectable variable:
+
+```text
+action direction   -> repair direction
+action magnitude   -> implicit authority
+zero action        -> no-op / do-not-repair
+rollout gain       -> whether the action helped
+```
+
+This compression is not a conceptual retreat.  It is the step that lets the
+concept become testable before adding richer modules.
+
 For FrontRES/FEMR, this means treating the original larger idea
 `Encoder -> Latent Diffusion -> Intermediate Energy Model -> Decoder` as a
 research program, while using the current front-end residual architecture as

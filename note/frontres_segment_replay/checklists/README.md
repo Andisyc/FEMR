@@ -2,6 +2,11 @@
 
 Use this folder for scoped implementation checklists.
 
+Current active checklist:
+
+- `stage3_runtime_distribution_checklist.md`: Stage 3 Segment Replay HRL
+  runtime-distribution, curriculum, and over-strong action diagnostics.
+
 Each checklist should state:
 
 - scope;

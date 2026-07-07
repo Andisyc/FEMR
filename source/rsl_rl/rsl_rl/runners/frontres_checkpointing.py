@@ -13,6 +13,10 @@ import shutil
 import torch
 
 from rsl_rl.modules import FrontRESActorCritic, ResidualActorCritic
+from rsl_rl.modules.frontres_observation_layout import (
+    compose_frontres_obs_norm_state,
+    extract_frontres_extra_norm_stats,
+)
 
 
 # Full-resume diagnostic helper; uncomment with the probe prints below when needed.
@@ -247,7 +251,13 @@ def save_runner(self, path: str, infos=None):
     
     # -- Save observation normalizer if used
     if self.empirical_normalization:
-        saved_dict["obs_norm_state_dict"] = self.obs_normalizer.state_dict()
+        obs_norm_state = self.obs_normalizer.state_dict()
+        obs_norm_state = compose_frontres_obs_norm_state(
+            obs_norm_state,
+            getattr(self, "_frontres_extra_mean", None),
+            getattr(self, "_frontres_extra_std", None),
+        )
+        saved_dict["obs_norm_state_dict"] = obs_norm_state
         saved_dict["privileged_obs_norm_state_dict"] = self.privileged_obs_normalizer.state_dict()
         # Save teacher normalizer for MOSAIC
         if self.training_type == "mosaic" and hasattr(self, 'teacher_obs_normalizer'):
@@ -448,27 +458,22 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
             elif (isinstance(self.alg.policy, FrontRESActorCritic)
                     and self._frontres_gmt_obs_dim is not None
                     and "obs_norm_state_dict" in loaded_dict):
-                # Task-space FrontRES: anchor-error dims [:num_extra] are not
-                # covered by the GMT normalizer.  Restore Stage-1 empirical stats
-                # for those dims when the checkpoint actually contains them.
-                # so Stage 2 sees the same normalized scale that Stage 1 trained on.
-                _s1_sd   = loaded_dict["obs_norm_state_dict"]
-                _s1_mean = _s1_sd.get("_mean", None)  # shape (1, 800)
-                _s1_std  = _s1_sd.get("_std",  None)  # shape (1, 800)
-                if _s1_mean is not None and _s1_std is not None:
-                    gmt_dim = self._frontres_gmt_obs_dim
-                    obs_dim = int(getattr(self.alg.policy, "num_actor_obs", gmt_dim))
-                    num_extra = max(0, obs_dim - gmt_dim)
-                    if num_extra > 0 and _s1_mean.shape[-1] >= obs_dim and _s1_std.shape[-1] >= obs_dim:
-                        self._frontres_extra_mean = _s1_mean[:, :num_extra].to(self.device)
-                        self._frontres_extra_std  = _s1_std[:,  :num_extra].to(self.device)
-                        print(f"[Runner] Loaded Stage-1 anchor-error normalizer stats "
-                              f"(dims 0–{num_extra}) for FrontRES task-space.")
-                    else:
-                        self._frontres_extra_mean = None
-                        self._frontres_extra_std = None
-                        print("[Runner] Stage-1 checkpoint has no compatible anchor-error "
-                              "normalizer stats; FrontRES extra dims pass through unnormalized.")
+                # Task-space FrontRES: prefix dims [:num_extra] are not covered by
+                # the GMT normalizer.  Restore checkpoint stats for the available
+                # prefix dims; newly added prefix dims use identity normalization.
+                _s1_sd = loaded_dict["obs_norm_state_dict"]
+                gmt_dim = self._frontres_gmt_obs_dim
+                obs_dim = int(getattr(self.alg.policy, "num_actor_obs", gmt_dim))
+                extra_stats = extract_frontres_extra_norm_stats(_s1_sd, obs_dim, gmt_dim, self.device)
+                if extra_stats is not None:
+                    self._frontres_extra_mean, self._frontres_extra_std = extra_stats
+                    print(f"[Runner] Loaded FrontRES prefix normalizer stats "
+                          f"(dims 0–{self._frontres_extra_mean.shape[-1]}) for FrontRES task-space.")
+                else:
+                    self._frontres_extra_mean = None
+                    self._frontres_extra_std = None
+                    print("[Runner] Checkpoint has no compatible FrontRES prefix "
+                          "normalizer stats; FrontRES prefix dims pass through unnormalized.")
 
             if self.training_type == "mosaic":
                 # For MOSAIC: determine whether to load privileged_obs_normalizer from checkpoint

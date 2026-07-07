@@ -298,6 +298,43 @@ def sample_scalar_dr_strength(
     return _clamp(effective_scale, dr_min, dr_max), mix_mode
 
 
+def _sample_frontier_envelope_strength(
+    cfg: Any,
+    frontier_scale: float,
+    seq_idx: int,
+    env_i: int,
+    *,
+    dr_max: float,
+) -> tuple[float, int]:
+    """Sample strength with the probed frontier as an upper envelope."""
+    g = max(1e-6, min(float(frontier_scale), float(dr_max)))
+    low_w = max(0.0, _cfg_float(cfg, "frontres_mixed_dr_low_weight", 0.20))
+    mid_w = max(0.0, _cfg_float(cfg, "frontres_mixed_dr_mid_weight", 0.30))
+    frontier_w = max(0.0, _cfg_float(cfg, "frontres_mixed_dr_frontier_weight", 0.40))
+    hard_w = max(0.0, _cfg_float(cfg, "frontres_mixed_dr_hard_weight", 0.10))
+    total_w = max(low_w + mid_w + frontier_w + hard_w, 1e-6)
+    low_w /= total_w
+    mid_w /= total_w
+    frontier_w /= total_w
+
+    low_hi = _clamp(_cfg_float(cfg, "frontres_mixed_dr_low_hi_frac", 0.25), 0.0, 1.0)
+    mid_hi = _clamp(_cfg_float(cfg, "frontres_mixed_dr_mid_hi_frac", 0.70), low_hi, 1.0)
+    hard_hi_frac = max(1.0, _cfg_float(cfg, "frontres_mixed_dr_hard_hi_frac", 1.10))
+    bucket = (choice_hash(seq_idx * 9176 + env_i * 131 + 17) % 1000) / 1000.0
+    u = (choice_hash(seq_idx * 3571 + env_i * 1723 + 71) % 1000) / 999.0
+    if bucket < low_w:
+        lo, hi, cls = 0.0, low_hi * g, 0
+    elif bucket < low_w + mid_w:
+        lo, hi, cls = low_hi * g, mid_hi * g, 1
+    elif bucket < low_w + mid_w + frontier_w:
+        lo, hi, cls = mid_hi * g, g, 2
+    else:
+        hard_hi = min(hard_hi_frac * g, float(dr_max))
+        hard_lo = g if hard_hi > g else _clamp(0.90 * g, 0.0, float(dr_max))
+        lo, hi, cls = hard_lo, hard_hi, 3
+    return lo + (hi - lo) * u, cls
+
+
 def sample_per_env_dr_strength(
     cfg: Any,
     frontier_scale: float,
@@ -316,31 +353,19 @@ def sample_per_env_dr_strength(
     if not mix_enabled or n_train <= 0:
         return DRStrengthPlan(None, None, "fixed", fixed_diag, float(frontier_scale))
 
-    easy_w = max(0.0, _cfg_float(cfg, "frontres_mixed_dr_easy_weight", 0.5))
-    frontier_w = max(0.0, _cfg_float(cfg, "frontres_mixed_dr_frontier_weight", 0.4))
-    hard_w = max(0.0, _cfg_float(cfg, "frontres_mixed_dr_hard_weight", 0.1))
-    weight_sum = max(easy_w + frontier_w + hard_w, 1e-6)
-    easy_w /= weight_sum
-    frontier_w /= weight_sum
-
-    factors = (
-        max(0.0, _cfg_float(cfg, "frontres_mixed_dr_easy_factor", 0.75)),
-        max(0.0, _cfg_float(cfg, "frontres_mixed_dr_frontier_factor", 1.0)),
-        max(0.0, _cfg_float(cfg, "frontres_mixed_dr_hard_factor", 1.05)),
-    )
     frontier_scale = _clamp(frontier_scale, dr_min, dr_max)
     train_scales: list[float] = []
     mix_class: list[int] = []
     for env_i in range(int(n_train)):
-        bucket = (choice_hash(seq_idx * 9176 + env_i * 131 + 17) % 1000) / 1000.0
-        if bucket < easy_w:
-            cls = 0
-        elif bucket < easy_w + frontier_w:
-            cls = 1
-        else:
-            cls = 2
+        scale, cls = _sample_frontier_envelope_strength(
+            cfg,
+            frontier_scale,
+            seq_idx,
+            env_i,
+            dr_max=dr_max,
+        )
         mix_class.append(cls)
-        train_scales.append(_clamp(frontier_scale * factors[cls], dr_min, dr_max))
+        train_scales.append(_clamp(scale, 0.0, dr_max))
 
     scale_vector = [0.0 for _ in range(int(num_envs))]
     for env_i, scale in enumerate(train_scales[:num_envs]):
@@ -357,10 +382,16 @@ def sample_per_env_dr_strength(
             scale_vector[dst] = scale
 
     denom = max(1, len(mix_class))
+    low_frac = sum(1 for cls in mix_class if cls == 0) / denom
+    mid_frac = sum(1 for cls in mix_class if cls == 1) / denom
+    frontier_frac = sum(1 for cls in mix_class if cls == 2) / denom
+    hard_frac = sum(1 for cls in mix_class if cls == 3) / denom
     diag = {
-        "easy": sum(1 for cls in mix_class if cls == 0) / denom,
-        "frontier": sum(1 for cls in mix_class if cls == 1) / denom,
-        "hard": sum(1 for cls in mix_class if cls == 2) / denom,
+        "low": low_frac,
+        "mid": mid_frac,
+        "easy": low_frac + mid_frac,
+        "frontier": frontier_frac,
+        "hard": hard_frac,
         "mean": sum(train_scales) / max(1, len(train_scales)),
     }
     return DRStrengthPlan(scale_vector, mix_class, "per_env", diag, diag["mean"])

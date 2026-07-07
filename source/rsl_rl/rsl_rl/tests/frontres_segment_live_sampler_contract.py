@@ -80,10 +80,16 @@ def _install_import_stubs() -> None:
         pass
 
     modules_pkg = types.ModuleType("rsl_rl.modules")
+    modules_pkg.__path__ = [str(ROOT / "rsl_rl" / "modules")]
     modules_pkg.FrontRESActorCritic = _FakeFrontRESActorCritic
     modules_pkg.ResidualActorCritic = _FakeResidualActorCritic
     sys.modules[modules_pkg.__name__] = modules_pkg
     rsl_rl_pkg.modules = modules_pkg
+    layout_module = _load(
+        "rsl_rl.modules.frontres_observation_layout",
+        ROOT / "rsl_rl" / "modules" / "frontres_observation_layout.py",
+    )
+    modules_pkg.frontres_observation_layout = layout_module
 
     rollout_step = types.ModuleType("rsl_rl.runners.frontres_rollout_step")
     rollout_step.prepare_frontres_rollout_step = lambda *_args, **_kwargs: None

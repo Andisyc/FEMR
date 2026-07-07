@@ -219,7 +219,7 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)',
         '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)',
         '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)',
-        '_set_if_present(alg_cfg, "frontres_segment_k", 4)',
+        '_set_if_present(alg_cfg, "frontres_segment_k", 8)',
         'segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"',
         'shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))',
         '_set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))',
@@ -230,6 +230,7 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_segment_sampler_review_frac", 0.1)',
         '_set_if_present(alg_cfg, "frontres_segment_reset_mode", "auto")',
         '_set_if_present(alg_cfg, "frontres_acceptance_preference_weight", 0.0)',
+        '_set_if_present(policy_cfg, "task_conf_dim", 0)',
         '_set_if_present(policy_cfg, "frontres_split_acceptance_head", False)',
         '_set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)',
         '_set_if_present(alg_cfg, "frontres_structured_joint_rl_enabled", False)',
@@ -269,7 +270,7 @@ def main() -> None:
         assert "frontres_segment_live_min_valid_count: int = 1" in cfg_text
         assert "frontres_segment_live_fail_on_nonfinite: bool = True" in cfg_text
         assert "frontres_hsl_init_enabled: bool = False" in cfg_text
-        assert "frontres_segment_k: int = 4" in cfg_text
+        assert "frontres_segment_k: int = 8" in cfg_text
         assert 'frontres_segment_cache_dir: str = ""' in cfg_text
         assert "frontres_segment_shard_cache_size: int = 8" in cfg_text
         assert "frontres_segment_include_boundary_diagnostic: bool = False" in cfg_text

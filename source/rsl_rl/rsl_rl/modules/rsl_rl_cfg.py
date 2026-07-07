@@ -366,7 +366,7 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Fail Stage 3 live training when reward/loss/KL diagnostics become NaN or Inf."""
     frontres_hsl_init_enabled: bool = False
     """Initialize Stage 3 repair actor from Stage 1 HSL weights when loading checkpoints."""
-    frontres_segment_k: int = 4
+    frontres_segment_k: int = 8
     """K-step horizon for Segment Replay HRL rollout scoring."""
     frontres_segment_cache_dir: str = ""
     """Optional Stage 1 Segment cache directory used to initialize the Stage 3 Segment Replay dataset."""
@@ -508,6 +508,22 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Initial per-family gain std used before enough statistics are observed."""
     frontres_family_gain_min_std: float = 0.002
     """Lower bound for per-family gain std normalization."""
+    frontres_balance_metric_enabled: bool = False
+    """Log clean/noisy/repaired balance margins from the FrontRES rollout quartet."""
+    frontres_balance_reward_enabled: bool = False
+    """Add clean-relative no-regret balance risk reduction to FrontRES r_delta."""
+    frontres_balance_reward_weight: float = 0.0
+    """Weight for the bounded no-regret balance reward contribution."""
+    frontres_balance_reward_slack: float = 0.02
+    """Clean-margin slack in meters before repaired/noisy balance risk is counted."""
+    frontres_balance_reward_clip: float = 0.10
+    """Symmetric clip for the raw balance no-regret reward in meters."""
+    frontres_balance_contact_height: float = 0.08
+    """Foot height threshold used to infer support contacts for balance margins."""
+    frontres_balance_foot_radius: float = 0.04
+    """Half-size padding around each foot for the support-box proxy."""
+    frontres_balance_capture_height: float = 0.8
+    """Nominal COM height used by the capture-point approximation."""
     frontres_per_mode_supervised_mask: bool = True
     """Mask supervised ΔSE3 targets by the perturbation family assigned to each env."""
     frontres_adaptive_perturb_curriculum_enabled: bool = True

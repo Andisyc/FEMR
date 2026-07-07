@@ -7,6 +7,10 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
 from isaaclab.utils.math import quat_error_magnitude
 
+from whole_body_tracking.tasks.tracking.mdp.balance import (
+    frontres_balance_context_from_feet,
+    frontres_no_regret_balance_reward,
+)
 from whole_body_tracking.tasks.tracking.mdp.commands import MotionCommand
 
 if TYPE_CHECKING:
@@ -339,6 +343,97 @@ def contact_feet(
         return matching_states.sum(dim=-1) * 0.5
     else:
         return torch.zeros(env.num_envs, device=env.device)
+
+
+def frontres_dynamic_balance_margin_proxy(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    foot_body_names: tuple[str, str] = ("left_ankle_roll_link", "right_ankle_roll_link"),
+    contact_height: float = 0.08,
+) -> torch.Tensor:
+    """返回 review-only 的保守 balance margin 候选.
+
+    函数名说明:
+        `frontres_dynamic_balance_margin_proxy` 是 env-facing metric proxy, 从当前
+        机器人状态构造 margin 供 review/候选 reward 比较; 它不是已注册训练 reward,
+        也不是 policy observation.
+
+    主链路:
+        上游: review/eval/probe 代码显式调用; FrontRES 训练主线在
+        `frontres_reward_window.py` 中对四分支 rollout 计算同一类 margin.
+        内部: 读取 `MotionCommand` 的 root/foot 状态, 调用
+        `frontres_balance_context_from_feet`.
+        下游: 输出 min(root_margin, capture_margin), 供 Clean/Noisy/Repaired
+        margin 比较, no-regret reward, 或离线审计使用.
+
+    接线状态:
+        不注册为普通 RewTerm; 正式训练 reward 从 FrontRES 四分支 reward
+        window 接入, 避免把绝对静态 margin 当环境 reward.
+
+    语义:
+        从可部署机器人状态计算 min(root_margin, capture_margin).
+        比较 Clean/Noisy/Repaired margin, 不作为绝对 reward 直接使用.
+    """
+    # B1: 从当前 motion command 读取部署可得的机器人状态.
+    command: MotionCommand = env.command_manager.get_term(command_name)
+    foot_ids = _get_body_indexes(command, list(foot_body_names))
+    if len(foot_ids) != 2:
+        return torch.zeros(env.num_envs, device=env.device)
+
+    # B2: 提取纯 helper 需要的 root 和 foot 张量.
+    root_xy = command.robot.data.root_pos_w[:, :2]
+    root_vel_w = getattr(command.robot.data, "root_lin_vel_w", None)
+    if root_vel_w is None:
+        root_vel_w = command.robot_anchor_vel_w[:, :3]
+    root_vel_xy = root_vel_w[:, :2]
+    feet_pos = command.robot_body_pos_w[:, foot_ids, :]
+
+    # B3: 复用观测候选 helper, 保证 metric 和 context 共用同一布局.
+    context = frontres_balance_context_from_feet(
+        root_xy,
+        root_vel_xy,
+        feet_pos[..., :2],
+        feet_pos[..., 2],
+        contact_height=contact_height,
+        env_origin_z=env.scene.env_origins[:, 2],
+    )
+
+    # B4: 将 root/capture 两个 margin 合成一个保守标量.
+    root_margin = context[:, -3]
+    capture_margin = context[:, -2]
+    return torch.minimum(root_margin, capture_margin)
+
+
+def frontres_no_regret_balance_reward_candidate(
+    repaired_margin: torch.Tensor,
+    noisy_margin: torch.Tensor,
+    clean_margin: torch.Tensor,
+    slack: float = 0.02,
+) -> torch.Tensor:
+    """返回候选 Clean-relative no-regret balance reward.
+
+    函数名说明:
+        `frontres_no_regret_balance_reward_candidate` 是 reward adapter, 连接
+        rollout 分支 margin 和 mdp.balance 的纯公式 helper; 它不是 observation,
+        也不负责从 env 读取 root/foot/contact 状态.
+
+    主链路:
+        上游: rollout/eval adapter 传入 Repaired, Noisy/no-op, Clean 三条分支
+        的 balance margin.
+        内部: 调用 `frontres_no_regret_balance_reward`.
+        下游: 输出 Clean-relative no-regret reward; 正式训练主线由
+        `frontres_reward_window.py` 在四分支 rollout 内接入.
+
+    语义:
+        Repaired 移除 Noisy 在 Clean 下界以下的额外风险时为正.
+    """
+    # B1: 保持 rollout adapter 很薄, 公式所有权留在 mdp.balance.
+    return frontres_no_regret_balance_reward(
+        repaired_margin,
+        noisy_margin,
+        clean_margin,
+        slack=slack,
+    )
     
 def teleop_body_position_feet_z(
     env: ManagerBasedRLEnv,

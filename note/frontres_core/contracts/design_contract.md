@@ -44,7 +44,125 @@ HRL owns admissibility, not full continuous rho authority.
 This is not giving up on HRL.  It narrows HRL to the part that rollout evidence
 can support reliably.
 
-### Active Method
+### 2026-07-05 Stage 3 Method-Concept Compression Note
+
+For the active Stage 3 Segment Replay experiment, the method boundary is
+compressed one step further:
+
+```text
+candidate reference / corrupted reference
+  -> one policy directly outputs 6D Delta SE(3)
+  -> frozen GMT execution
+```
+
+This is not a conceptual reversal of HSL proposal or HRL acceptance.  It is the
+current first-order executable closure of the same idea.  The larger concept is:
+a corrupted reference may need a task-space repair, but that repair must earn
+execution authority relative to the no-write GMT baseline.  The older
+HSL-proposal plus HRL-acceptance formulation represented this concept explicitly:
+
+```text
+repair direction  = Clean-oriented Delta SE proposal
+write authority   = acceptance / rho
+no-op baseline    = Noisy/GMT
+```
+
+That formulation was conceptually aligned but engineering-heavy.  Continuous
+rho needed proposal-conditioned inputs, endpoint rollout evidence, an authority
+critic over `Q(s, d, rho)`, and diagnostics that could separate proposal errors,
+critic errors, reward-scale errors, horizon errors, and sampling errors.  The
+current experiment could not observe, optimize, diagnose, and debug all those
+variables robustly enough for the main path.
+
+The direct-Delta-SE Stage 3 policy therefore compresses the same causal roles
+into one trainable action:
+
+```text
+Delta SE direction   -> repair direction
+Delta SE magnitude   -> implicit execution authority
+Delta SE = 0         -> no-op / do-not-repair decision
+rollout gain         -> whether the action improves over doing nothing
+```
+
+This is the intended meaning of "method as concept" for FEMR: the method should
+be the smallest executable closure of the concept, not the most literal
+engineering copy of every conceptual variable.  A mechanism is ready for the
+live method only when its input, evidence source, optimization path, diagnostic,
+and debug loop all close inside the current experiment.
+
+### 2026-07-06 Stage 3 POMDP Boundary: Execution-Safe Residual Authority
+
+The active Stage 3 direct-Delta-SE path should no longer be described as exact
+Clean-reference reconstruction.  The correct theoretical boundary is partial
+observability:
+
+```text
+deployable actor input:
+  870D observation = 100D FrontRES-only prefix + 770D GMT context
+  100D prefix = 30D anchor-error history + 70D balance-context history
+
+hidden or training-only facts:
+  Clean reference, exact artifact source, future GMT rollout stability
+```
+
+If two hidden states produce similar actor observations but require different
+Clean deltas, then `Clean - input_reference` is not identifiable from the actor
+input.  Clean remains valid as a teacher/evaluator quantity, but not as the
+primary object that the deployed actor promises to reconstruct.
+
+The active Stage 3 method variable is therefore:
+
+```text
+execution-safe residual authority:
+  under deployable partial observation, does a small Delta SE(3) residual improve
+  frozen-GMT execution relative to the no-op / noisy baseline?
+```
+
+This keeps the direct 6D action concept aligned with the evidence:
+
+```text
+action direction   -> repair direction candidate
+action magnitude   -> implicit residual authority
+zero action        -> no-op / do-not-repair decision
+rollout gain       -> whether the residual helped GMT execution
+```
+
+The objective must be no-regret relative to Noisy/GMT, not absolute survival
+alone.  A policy that survives by high-frequency residual oscillation,
+persistent root lean, lateral drift, or large action bias violates the method
+even if the scalar rollout reward improves.
+
+Required behavior boundaries for Stage 3 reward design:
+
+```text
+no-regret:
+  reward marginal improvement over Noisy/GMT or no-op baseline.
+
+bounded authority:
+  penalize residual magnitude and over-large action relative to repair need.
+
+temporal smoothness:
+  penalize Delta SE action rate / residual jerk to prevent high-frequency
+  left-right repair oscillation.
+
+clean no-op protection:
+  on clean or near-clean references, the preferred residual is zero or very
+  small.
+
+demo-quality guard:
+  track root roll/pitch long-window bias, lateral drift, action RMS, action-rate
+  RMS, fall, survival, and clean/noisy/repaired visual quality separately.
+```
+
+These boundaries are not optional presentation metrics.  They are the safeguards
+that keep the learnable degree of freedom isomorphic to the concept: residual
+authority before a frozen tracker, not a new tracker or recovery generator.
+
+### Active Method (Legacy HSL+HRL Branches)
+
+This subsection records the earlier HSL+HRL branch contract.  For the active
+Stage 3 direct-Delta-SE Segment Replay path, use the 2026-07-05 and 2026-07-06
+sections above as the main method boundary.
 
 The active FEMR pipeline is:
 
@@ -2057,6 +2175,45 @@ frontier center or increase the easy fraction before changing the model.
 The frontier center should be adaptive.  It should move up when FrontRES remains
 comfortably better than GMT and move down when FrontRES becomes harmful.  This
 replaces hard-coding a single `dr_scale` value.
+
+### 2026-07-05 Stage 3 Sampling Simplicity Boundary
+
+For the active Stage 3 direct-Delta-SE experiment, do not turn sampling into a
+second method.  Mature motion/RL systems often use simple curriculum or adaptive
+sampling rules; the FrontRES sampler should follow that style unless live
+evidence proves that a richer controller is necessary.
+
+The active sampling rule should therefore remain a single frontier-envelope
+strategy:
+
+```text
+fixed or config-level bucket weights
+  + frontier-dependent bucket ranges
+  + one adaptive difficulty signal from the GMT/FrontRES frontier
+```
+
+The sampler may preserve low, medium, frontier, and hard exposure, but it should
+not introduce a multi-signal online reweighting controller as the default active
+method.  In particular:
+
+```text
+allowed:
+  move the frontier envelope as the probed repairable limit changes;
+  shift strength within a bucket as the envelope moves;
+  keep hard samples as a capped stress tail;
+  keep low/no-op exposure if over-repair on easy states is observed.
+
+not default:
+  let clean, low, mid, and hard buckets all fight through separate live rules;
+  let hard mining override no-op / residual-safety behavior;
+  add a second adaptive policy whose behavior becomes harder to diagnose than
+  the FrontRES policy itself.
+```
+
+If future evidence shows that fixed bucket weights are insufficient, use
+protected adaptive sampling as an ablation: each bucket must have a lower and
+upper bound, and conflict resolution must prioritize no-op safety and survival
+over harder-sample mining.  This is not the current default.
 
 ## Boundary-Aware Stabilizing Teacher
 

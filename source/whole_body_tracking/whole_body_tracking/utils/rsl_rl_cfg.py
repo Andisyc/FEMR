@@ -337,7 +337,7 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Fail Stage 3 live training when reward/loss/KL diagnostics become NaN or Inf."""
     frontres_hsl_init_enabled: bool = False
     """Initialize Stage 3 repair actor from Stage 1 HSL weights when loading checkpoints."""
-    frontres_segment_k: int = 4
+    frontres_segment_k: int = 8
     """K-step horizon for Segment Replay HRL rollout scoring."""
     frontres_segment_cache_dir: str = ""
     """Optional Stage 1 Segment cache directory used to initialize the Stage 3 Segment Replay dataset."""

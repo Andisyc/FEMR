@@ -108,6 +108,42 @@ def test_segment_storage_converts_to_algorithm_batch_and_masks_invalid_samples()
     assert torch.count_nonzero(policy.actor.weight.grad[:, 1:]) == 0
 
 
+def test_segment_storage_applies_discounted_k_step_returns_to_active_ppo_batch() -> None:
+    storage = FrontRESSegmentRolloutStorage(capacity=4, obs_shape=(4,))
+    storage.add_transition(_transition())
+    reward_steps = torch.tensor(
+        [
+            [1.0, 0.5, 100.0],
+            [-2.0, 0.25, 100.0],
+            [-2.0, 0.25, 100.0],
+            [-2.0, 0.25, 100.0],
+        ]
+    )
+    done_steps = torch.tensor(
+        [
+            [False, False, False],
+            [False, True, False],
+            [False, False, False],
+            [False, False, False],
+        ]
+    )
+
+    storage.compute_returns_and_advantages(
+        reward_steps=reward_steps,
+        done_steps=done_steps,
+        horizon=4,
+        gamma=0.9,
+    )
+    batch = storage.full_batch()
+
+    expected_first = 1.0 + 0.9 * -2.0 + 0.9 * 0.9 * -2.0 + 0.9 * 0.9 * 0.9 * -2.0
+    expected_second = 0.5 + 0.9 * 0.25
+    torch.testing.assert_close(batch.returns[:2], torch.tensor([expected_first, expected_second]))
+    torch.testing.assert_close(batch.advantages[:2], batch.returns[:2] - torch.tensor([0.1, 0.2]))
+    assert batch.valid_mask.tolist() == [True, False, False]
+    assert batch.returns[0] < 0.0
+
+
 def test_segment_storage_minibatches_and_round_trip_state() -> None:
     storage = FrontRESSegmentRolloutStorage(capacity=4, obs_shape=(4,))
     storage.add_transition(_transition())
@@ -174,6 +210,7 @@ def test_connector_writer_requires_policy_log_prob_and_value() -> None:
 def main() -> None:
     test_segment_storage_writes_clean_6d_ppo_tuple()
     test_segment_storage_converts_to_algorithm_batch_and_masks_invalid_samples()
+    test_segment_storage_applies_discounted_k_step_returns_to_active_ppo_batch()
     test_segment_storage_minibatches_and_round_trip_state()
     test_segment_storage_rejects_non_6d_actions_and_overflow()
     test_connector_writer_requires_policy_log_prob_and_value()

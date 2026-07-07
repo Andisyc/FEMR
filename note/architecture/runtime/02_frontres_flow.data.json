@@ -1,251 +1,186 @@
 {
-  "title": "FrontRES Interface Contract Map",
-  "subtitle": "Module boundary map. English titles stay stable; each card shows input, ownership, output, forbidden freedom, and diagnostic proof.",
-  "layout": "flow_tree",
-  "concepts": {
-    "C-DR": {
-      "name": "DR frontier / perturbation curriculum",
-      "color": "#d97706"
-    },
-    "C-HSL": {
-      "name": "geometric repair proposal",
-      "color": "#2563eb"
-    },
-    "C-FLOOR": {
-      "name": "Executable Floor",
-      "color": "#059669"
-    },
-    "C-ALPHA": {
-      "name": "state risk / alpha",
-      "color": "#7c3aed"
-    },
-    "C-RHO": {
-      "name": "structured repair retention / rho",
-      "color": "#dc2626"
-    },
-    "C-CONTRACT": {
-      "name": "storage and update contract",
-      "color": "#475569"
-    },
-    "C-DIAG": {
-      "name": "live diagnostics",
-      "color": "#0891b2"
-    }
-  },
-  "nodes": [
+  "title": "02 Method to Code Atlas",
+  "subtitle": "FrontRES 方法设计到主流程模块和具体代码位置的链路图. 左侧按 01 Repo Mainline 的阶段分组, 右侧只保留方法职责和代码锚点.",
+  "layout": "repo_tree",
+  "root": "FrontRES Method",
+  "showLegend": false,
+  "showConceptBadges": false,
+  "files": [
     {
-      "id": "E-01",
-      "title": "train.py starts experiment",
-      "role": "实验入口与全局配置解析。",
-      "input": "Hydra task、CLI 参数、checkpoint 路径、device。",
-      "output": "已实例化的 OnPolicyRunner 和 resolved config。",
-      "forbidden": "不承担 FrontRES 训练语义，不直接构造 repair target。",
-      "diagnostic": "启动日志、resolved task/config、checkpoint resume 信息。",
-      "concept": "C-CONTRACT",
-      "children": [
+      "group": "MAIN-10/18 Observation + Perturbation + Reward",
+      "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/",
+      "color": "#059669",
+      "blocks": [
         {
-          "id": "R-01",
-          "title": "Runner init / resume",
-          "role": "训练阶段与主循环所有者。",
-          "input": "runner config、resume state、policy/algorithm/storage 类。",
-          "output": "phase、rollout loop、storage/update 调用契约。",
-          "forbidden": "不能让旧 objective 悄悄覆盖当前 FEMR live path。",
-          "diagnostic": "phase/objective 日志、resume/cold-start 分支日志。",
-          "concept": "C-CONTRACT",
-          "children": [
-            {
-              "id": "DR-01",
-              "title": "Sample perturbation family",
-              "role": "扰动族选择边界。",
-              "input": "active task dims、当前训练阶段、curriculum 配置。",
-              "output": "本轮可修复 artifact family mix。",
-              "forbidden": "不能采样当前 action cone 无法修复的扰动族。",
-              "diagnostic": "modes=(...)、valid_pos/valid_rpy、family 统计。",
-              "concept": "C-DR",
-              "children": [
-                {
-                  "id": "DR-02",
-                  "title": "Probe GMT frontier",
-                  "role": "GMT 可执行边界估计。",
-                  "input": "当前 GMT tracker、扰动尺度候选、rollout 结果。",
-                  "output": "executable DR boundary 和训练 scale。",
-                  "forbidden": "不能把深度 broken 状态当成可学习 frontier。",
-                  "diagnostic": "frontier scale、safe/fragile/broken 分布。",
-                  "concept": "C-DR"
-                }
-              ]
-            },
-            {
-              "id": "R-02",
-              "title": "Build FrontRES rollout",
-              "role": "FrontRES 证据构造总线。",
-              "input": "tracking observation、扰动参考、GMT rollout 反馈。",
-              "output": "Noisy、Candidate、Projected、GMT evidence batch。",
-              "forbidden": "不能只生成本地张量而不写入后续 storage/update。",
-              "diagnostic": "live path sentinel、candidate/projected 统计、reward 分解。",
-              "concept": "C-HSL",
-              "children": [
-                {
-                  "id": "A-02",
-                  "title": "HSL repair proposal",
-                  "role": "几何修复方向 proposal。",
-                  "input": "tracking observation、anchor-error/history、active action mask。",
-                  "output": "clean-oriented Delta SE(3) repair candidate。",
-                  "forbidden": "不能决定动态 acceptance 或 repair-retention 强度。",
-                  "diagnostic": "HSL supervised loss、cosine、proposal magnitude。",
-                  "concept": "C-HSL"
-                },
-                {
-                  "id": "F-01",
-                  "title": "Executable Floor",
-                  "role": "可执行地板判定。",
-                  "input": "GMT frontier evidence、sample difficulty、rollout outcome。",
-                  "output": "floor value、pass/adapt mask、safe/adapt 判定。",
-                  "forbidden": "不能替代 HSL 生成修复方向。",
-                  "diagnostic": "floor counts、pass/adapt ratio、safe/fragile/broken。",
-                  "concept": "C-FLOOR"
-                },
-                {
-                  "id": "AL-01",
-                  "title": "State alpha target",
-                  "role": "状态风险目标构造。",
-                  "input": "floor evidence、当前状态、sample difficulty。",
-                  "output": "alpha target / state-risk supervision signal。",
-                  "forbidden": "不能使用部署时不可见的未来 rollout 信息作为输入。",
-                  "diagnostic": "alpha target、prediction、accuracy。",
-                  "concept": "C-ALPHA"
-                },
-                {
-                  "id": "RH-01",
-                  "title": "Structured rho carrier",
-                  "role": "repair-retention 载体。",
-                  "input": "candidate repair、alpha/floor context、rho branch state。",
-                  "output": "结构化 rho carrier。",
-                  "forbidden": "不能重新生成 repair direction，不能退回旧 scalar accept target。",
-                  "diagnostic": "rho direction、rho value、route weight。",
-                  "concept": "C-RHO",
-                  "children": [
-                    {
-                      "id": "RH-02",
-                      "title": "Rho advantage evidence",
-                      "role": "rho 更新证据。",
-                      "input": "Noisy/Candidate/Projected rollout utility 或 no-regret 证据。",
-                      "output": "signed repair-retention advantage。",
-                      "forbidden": "不能把 evaluator oracle 的动作直接记为 actor credit。",
-                      "diagnostic": "constrained advantage、positive gain、regret。",
-                      "concept": "C-RHO"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "id": "R-03",
-              "title": "Write storage contract",
-              "role": "训练证据持久化入口。",
-              "input": "rollout 构造出的 targets、masks、floor、rho、rewards。",
-              "output": "写入 RolloutStorage 的稳定训练字段。",
-              "forbidden": "不能只打印诊断而不保存训练所需信号。",
-              "diagnostic": "storage write branch、field shape、non-null 统计。",
-              "concept": "C-CONTRACT",
-              "children": [
-                {
-                  "id": "S-01",
-                  "title": "Transition fields",
-                  "role": "transition 字段契约。",
-                  "input": "runner 写入的 FrontRES batch tensors。",
-                  "output": "语义稳定的 transition fields。",
-                  "forbidden": "不能复用旧字段名承载新语义而不更新 unpack。",
-                  "diagnostic": "field shape、dtype、device、mask 非空率。",
-                  "concept": "C-CONTRACT"
-                },
-                {
-                  "id": "S-02",
-                  "title": "Minibatch contract",
-                  "role": "minibatch 暴露契约。",
-                  "input": "RolloutStorage 中的 transition fields。",
-                  "output": "algorithm update 可读取的 minibatch tuple。",
-                  "forbidden": "不能在 generator 中丢失或重排 FrontRES 证据。",
-                  "diagnostic": "batch unpack 顺序、tuple length、field presence。",
-                  "concept": "C-CONTRACT"
-                }
-              ]
-            },
-            {
-              "id": "A-01",
-              "title": "Algorithm update",
-              "role": "统一优化入口。",
-              "input": "minibatch、policy output、FrontRES evidence fields。",
-              "output": "PPO loss、HSL loss、alpha SSL、structured rho RL 更新。",
-              "forbidden": "不能让 PPO 路径越权训练 proposal 方向或 legacy accept pref。",
-              "diagnostic": "enabled losses、loss weights、gradient boundary 日志。",
-              "concept": "C-CONTRACT",
-              "children": [
-                {
-                  "id": "A-03",
-                  "title": "Alpha SSL update",
-                  "role": "alpha 分支监督更新。",
-                  "input": "state observation、floor-derived alpha target。",
-                  "output": "state-risk predictor 参数更新。",
-                  "forbidden": "不能泄漏部署不可见证据到 inference input。",
-                  "diagnostic": "alpha loss、target/pred/accuracy。",
-                  "concept": "C-ALPHA"
-                },
-                {
-                  "id": "A-04",
-                  "title": "Structured rho RL update",
-                  "role": "rho 分支 RL 更新。",
-                  "input": "rho carrier、repair-retention advantage、active mask。",
-                  "output": "rho branch / retention strength 更新。",
-                  "forbidden": "不能更新 HSL direction，不能启用 legacy accept preference。",
-                  "diagnostic": "rho loss、active weight、legacy disabled sentinel。",
-                  "concept": "C-RHO"
-                }
-              ]
-            },
-            {
-              "id": "R-04",
-              "title": "Print live diagnostics",
-              "role": "live path 证明层。",
-              "input": "runner、storage、algorithm 汇总出的训练统计。",
-              "output": "可读日志，证明每个概念在 active path 上。",
-              "forbidden": "不能只报告离线/未接入路径的漂亮数值。",
-              "diagnostic": "console live log、sentinel、nearby old/new labels。",
-              "concept": "C-DIAG",
-              "children": [
-                {
-                  "id": "G-01",
-                  "title": "Floor / alpha diagnostics",
-                  "role": "floor/alpha 诊断出口。",
-                  "input": "floor value、pass/adapt mask、alpha target/pred。",
-                  "output": "floor/alpha 可解释训练日志。",
-                  "forbidden": "不能隐藏 class imbalance 或 all-zero target。",
-                  "diagnostic": "floor counts、pass/adapt ratio、alpha accuracy。",
-                  "concept": "C-DIAG"
-                },
-                {
-                  "id": "G-02",
-                  "title": "Rho diagnostics",
-                  "role": "rho 诊断出口。",
-                  "input": "rho value、advantage、active mask、regret signal。",
-                  "output": "rho retention 学习是否有效的日志。",
-                  "forbidden": "不能只看均值而忽略 harmful/regret 样本。",
-                  "diagnostic": "rho direction、constrained advantage、active weight、regret。",
-                  "concept": "C-DIAG"
-                },
-                {
-                  "id": "G-03",
-                  "title": "Loss-path diagnostics",
-                  "role": "优化路径诊断出口。",
-                  "input": "loss config、legacy flags、gradient boundary 状态。",
-                  "output": "当前优化路径启停状态。",
-                  "forbidden": "不能让旧 loss 静默参与当前实验。",
-                  "diagnostic": "enabled/disabled losses、legacy path sentinel、gradient boundary hints。",
-                  "concept": "C-DIAG"
-                }
-              ]
-            }
-          ]
+          "id": "M2C-01",
+          "role": "观测入口: 原始 tracking observation, balance observation, anchor/history 等信号从 MDP 进入 policy 输入.",
+          "lines": "observations.py; balance.py"
+        },
+        {
+          "id": "M2C-02",
+          "role": "扰动和 reward 入口: reference artifact, motion perturbation, tracking/reward 项决定 FrontRES 要修什么和如何评分.",
+          "lines": "motion_perturbations.py; rewards.py; commands.py"
+        }
+      ]
+    },
+    {
+      "group": "MAIN-12/20 Observation Layout + Policy Stats",
+      "path": "source/rsl_rl/rsl_rl/modules/",
+      "color": "#0f766e",
+      "blocks": [
+        {
+          "id": "M2C-03",
+          "role": "Delta SE(3) proposal: actor 输出 task-space repair direction, 不是重新学习 GMT tracker.",
+          "lines": "front_residual_actor_critic.py; frontres/task_space_correction.py"
+        },
+        {
+          "id": "M2C-04",
+          "role": "Observation layout/stats: 区分 FrontRES prefix, GMT suffix, combined actor payload, privileged obs 和 checkpoint normalizer.",
+          "lines": "frontres_observation_layout.py; normalizer.py; front_residual_actor_critic.py"
+        }
+      ]
+    },
+    {
+      "group": "MAIN-14/25 FrontRES Method Core",
+      "path": "source/rsl_rl/rsl_rl/frontres/",
+      "color": "#7c3aed",
+      "blocks": [
+        {
+          "id": "M2C-05",
+          "role": "Perturbation curriculum: warmup/RL 阶段如何采样可修复 artifact family, 并服从 active task dims.",
+          "lines": "training_schedule.py; perturbation_runtime.py; frontres_dr_curriculum.py"
+        },
+        {
+          "id": "M2C-06",
+          "role": "Action cone: 限制 dx/dy/dz/rpy/yaw 的可修复范围, 尤其约束 upward dz 和 contact 相关风险.",
+          "lines": "frontres_action_cone.py; task_space_correction.py"
+        },
+        {
+          "id": "M2C-07",
+          "role": "Executable floor: 把 GMT frontier 和 rollout outcome 转成 safe/adapt/broken 边界和可训练 mask.",
+          "lines": "frontres_executable_floor.py; frontres_executability.py"
+        },
+        {
+          "id": "M2C-08",
+          "role": "Alpha/Rho route: alpha 判断状态风险, rho 表示 repair-retention 强度, 两者不重新生成 repair direction.",
+          "lines": "frontres_alpha_router.py; frontres_structured_rho.py; frontres_alpha_rho_bridge.py"
+        }
+      ]
+    },
+    {
+      "group": "MAIN-26/29 Segment Data",
+      "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_*.py",
+      "color": "#d97706",
+      "blocks": [
+        {
+          "id": "M2C-09",
+          "role": "Segment cache/dataset/sampler: Stage 3 的 motion segment 从 cache 到 batch 的采样和过滤路径.",
+          "lines": "frontres_segment_cache_*.py; frontres_segment_dataset.py; frontres_segment_sampler.py"
+        },
+        {
+          "id": "M2C-10",
+          "role": "Segment reset/reward/storage: reset 生命周期, per-segment reward, transition payload 进入训练字段.",
+          "lines": "frontres_segment_reset.py; frontres_segment_reward.py; frontres_segment_storage.py; frontres_transition_payload.py"
+        }
+      ]
+    },
+    {
+      "group": "MAIN-30/40 Runner Runtime",
+      "path": "source/rsl_rl/rsl_rl/runners/",
+      "color": "#d97706",
+      "blocks": [
+        {
+          "id": "M2C-11",
+          "role": "Four-branch rollout: 构造 Noisy, Candidate/HSL, Projected/FrontRES written, Clean/GMT reference 四类运行分支.",
+          "lines": "frontres_training_setup.py; frontres_rollout_step.py; frontres_reward_window.py"
+        },
+        {
+          "id": "M2C-12",
+          "role": "Runtime write: 把 proposal, action cone, alpha/rho, temporal reference cache 合成真正写给 GMT 的 reference.",
+          "lines": "frontres_runtime.py; frontres_post_step_connector.py; temporal_reference_cache.py"
+        },
+        {
+          "id": "M2C-13",
+          "role": "Live Stage 3 loop: sampler, reset hook, live probe, PPO update loop, sequence eval 的真实接线位置.",
+          "lines": "frontres_segment_live_sampler.py; frontres_segment_live_probe.py; frontres_segment_live_update_loop.py; frontres_segment_live_training.py"
+        }
+      ]
+    },
+    {
+      "group": "MAIN-41/44 Storage Boundary",
+      "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py",
+      "color": "#475569",
+      "blocks": [
+        {
+          "id": "M2C-14",
+          "role": "Training payload: FrontRES targets, masks, floor, alpha/rho, diagnostics 必须按稳定字段写入 transition.",
+          "lines": "Transition fields; add_transitions"
+        },
+        {
+          "id": "M2C-15",
+          "role": "Batch contract: algorithm update 依赖 minibatch tuple 的字段顺序, shape, dtype, device 和 mask 语义.",
+          "lines": "mini_batch_generator"
+        }
+      ]
+    },
+    {
+      "group": "MAIN-45/47 Algorithm Update",
+      "path": "source/rsl_rl/rsl_rl/algorithms/",
+      "color": "#dc2626",
+      "blocks": [
+        {
+          "id": "M2C-16",
+          "role": "HSL supervised loss: 学 repair proposal direction, 由 valid target/mask 控制, 不承担动态 acceptance.",
+          "lines": "frontres_unified.py HSL loss"
+        },
+        {
+          "id": "M2C-17",
+          "role": "Alpha/Rho losses: alpha 用 state-risk target, rho 用 repair-retention advantage, 共同接入 FrontRES update.",
+          "lines": "frontres_unified.py; frontres_segment_ppo.py"
+        },
+        {
+          "id": "M2C-18",
+          "role": "PPO/K-step scale: advantage normalization, reward scale, update count 等训练行为在算法层确认.",
+          "lines": "frontres_segment_ppo.py; ppo.py"
+        }
+      ]
+    },
+    {
+      "group": "MAIN-03/48/50 Artifact + Eval",
+      "path": "checkpoint, sequence_eval, export, play",
+      "color": "#0891b2",
+      "blocks": [
+        {
+          "id": "M2C-19",
+          "role": "Checkpoint stats: 770D GMT suffix, 100D FrontRES prefix, 870D payload, privileged stats 的保存和恢复.",
+          "lines": "frontres_checkpointing.py; frontres_segment_checkpointing.py"
+        },
+        {
+          "id": "M2C-20",
+          "role": "Sequence eval: 从 motion frame 0 reset, preroll 不采集, eval window 才捕获 metrics.",
+          "lines": "frontres_segment_sequence_eval.py; frontres_segment_live_training.py"
+        },
+        {
+          "id": "M2C-21",
+          "role": "Export/play sinks: deployment 和 ONNX/export/play 路径可能消费不同 normalizer, 必须单独审计.",
+          "lines": "whole_body_tracking/utils/exporter.py; utils/my_on_policy_runner.py"
+        }
+      ]
+    },
+    {
+      "group": "MAIN-51/54 Test Surface",
+      "path": "source/rsl_rl/rsl_rl/tests/",
+      "color": "#64748b",
+      "blocks": [
+        {
+          "id": "M2C-22",
+          "role": "方法级 contract tests: observation layout, checkpoint, storage, segment lifecycle, sequence eval, live sentinel.",
+          "lines": "frontres_observation_layout_contract.py; frontres_segment_*_contract.py"
+        },
+        {
+          "id": "M2C-23",
+          "role": "下一步测试控制面板应从这里接入: 每个 M2C block 对应测试类型, 参数形态, 命令和验证等级.",
+          "lines": "planned Test Control Board linkage"
         }
       ]
     }

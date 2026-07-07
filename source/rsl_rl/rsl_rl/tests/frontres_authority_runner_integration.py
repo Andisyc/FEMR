@@ -294,11 +294,50 @@ def test_finalize_k_step_return_writes_only_event_start_frames() -> None:
     torch.testing.assert_close(storage.authority_mask[:, :, 0], torch.tensor([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0], [0.0, 0.0]]))
 
 
+def test_long_horizon_penalizes_delayed_overrepair() -> None:
+    runner = _make_runner(num_envs=1)
+    runner.alg.storage = RolloutStorage(
+        "frontres",
+        num_envs=1,
+        num_transitions_per_env=4,
+        obs_shape=(3,),
+        privileged_obs_shape=(3,),
+        actions_shape=(12,),
+        device="cpu",
+    )
+    storage = runner.alg.storage
+    storage.rewards[:, 0, 0] = torch.tensor([1.0, -2.0, -2.0, -2.0])
+    storage.dones.zero_()
+    storage.authority_event_start.zero_()
+    storage.authority_event_active.zero_()
+    storage.authority_event_start[0, 0, 0] = 1.0
+    storage.authority_event_active[:, 0, 0] = 1.0
+
+    runner.cfg["frontres_authority_return_horizon"] = 1
+    finalize_frontres_authority_k_step_returns(runner, n_train=1)
+    short_return = storage.authority_return_k[0, 0, 0].clone()
+
+    runner.cfg["frontres_authority_return_horizon"] = 4
+    finalize_frontres_authority_k_step_returns(runner, n_train=1)
+    long_return = storage.authority_return_k[0, 0, 0].clone()
+
+    print(
+        "[FrontRES Authority Horizon Contract] "
+        f"short_horizon_return={float(short_return):+.4f} "
+        f"long_horizon_return={float(long_return):+.4f}",
+        flush=True,
+    )
+    assert short_return > 0.0
+    assert long_return < short_return
+    assert long_return < 0.0
+
+
 def main() -> None:
     test_authority_rollout_replaces_only_rho_columns()
     test_authority_return_uses_one_step_r_delta()
     test_burst_event_reuses_one_authority_query()
     test_finalize_k_step_return_writes_only_event_start_frames()
+    test_long_horizon_penalizes_delayed_overrepair()
     print("=== FrontRES Authority Runner Integration TEST ONLY ===")
     print("checks=runner action rewrite, burst authority reuse, behavior/noisy/full-write K-step event return write")
     print("result: PASS")

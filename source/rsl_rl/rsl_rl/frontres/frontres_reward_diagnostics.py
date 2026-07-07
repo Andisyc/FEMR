@@ -78,8 +78,11 @@ def initialize_frontres_reward_diagnostic_sums() -> dict[str, float | int]:
         "jump_degree", "reward_progress", "constraint_progress",
     )
     sums: dict[str, float | int] = {key: 0.0 for key in keys}
+    for key in _FRONTRES_BALANCE_DIAG_MEAN_KEYS:
+        sums[key] = 0.0
     sums["shaping_steps"] = 0
     sums["reward_diag_steps"] = 0
+    sums["balance_diag_steps"] = 0
     return sums
 
 
@@ -130,6 +133,12 @@ _FRONTRES_REWARD_DIAG_MEAN_KEYS = (
     "actor_gate", "exec_gate", "cost_gate",
 )
 
+_FRONTRES_BALANCE_DIAG_MEAN_KEYS = (
+    "balance_reward", "balance_weighted_reward", "balance_margin_repaired",
+    "balance_margin_candidate", "balance_margin_noisy", "balance_margin_clean",
+    "balance_positive_frac",
+)
+
 
 def _metric_mean(is_frontres: bool, steps: int, value: float | int) -> float | None:
     if not is_frontres or steps <= 0:
@@ -149,6 +158,7 @@ def materialize_frontres_reward_diagnostic_means(
 
     shaping_steps = int(sums.get("shaping_steps", 0))
     reward_diag_steps = int(sums.get("reward_diag_steps", 0))
+    balance_diag_steps = int(sums.get("balance_diag_steps", 0))
     means: dict[str, float | None] = {}
 
     for key in _FRONTRES_SHAPING_MEAN_KEYS:
@@ -158,6 +168,10 @@ def materialize_frontres_reward_diagnostic_means(
     for key in _FRONTRES_REWARD_DIAG_MEAN_KEYS:
         means[f"frontres_{key}_mean"] = _metric_mean(
             is_frontres, reward_diag_steps, sums.get(key, 0.0)
+        )
+    for key in _FRONTRES_BALANCE_DIAG_MEAN_KEYS:
+        means[f"frontres_{key}_mean"] = _metric_mean(
+            is_frontres, balance_diag_steps, sums.get(key, 0.0)
         )
 
     means["frontres_survival_rate"] = (
@@ -235,6 +249,16 @@ def accumulate_frontres_reward_diagnostics(
         sums["reward_clean"] += _item(locs["_r_clean_log"])
         sums["reward_candidate"] += _mean_item(locs["_exec_candidate"])
         sums["reward_oracle"] += _item(locs["_r_oracle_log"])
+        balance_reward = locs.get("_balance_reward", None)
+        if balance_reward is not None:
+            sums["balance_reward"] += _mean_item(balance_reward)
+            sums["balance_weighted_reward"] += _mean_item(locs.get("_balance_weighted_bonus"))
+            sums["balance_margin_repaired"] += _mean_item(locs.get("_balance_repaired_margin"))
+            sums["balance_margin_candidate"] += _mean_item(locs.get("_balance_candidate_margin"))
+            sums["balance_margin_noisy"] += _mean_item(locs.get("_balance_noisy_margin"))
+            sums["balance_margin_clean"] += _mean_item(locs.get("_balance_clean_margin"))
+            sums["balance_positive_frac"] += _mean_item((balance_reward > 0.0).float())
+            sums["balance_diag_steps"] += 1
         sums["exec_planar"] += _item(locs["_exec_planar_log"])
         sums["exec_vertical"] += _item(locs["_exec_vertical_log"])
         sums["exec_task"] += _item(locs["_exec_task_log"])

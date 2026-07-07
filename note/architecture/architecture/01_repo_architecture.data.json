@@ -1,219 +1,390 @@
 {
-  "title": "MOSAIC FrontRES Repo Architecture",
-  "subtitle": "VSCode-style file tree with code blocks. Role is primary; lines are audit hints.",
+  "title": "01 Repo Mainline Atlas",
+  "subtitle": "仓库主运行链路. 左侧子框给 owner path, 右侧给单职责解释; 先用这张图判断问题属于哪个阶段和测试范围.",
   "layout": "repo_tree",
-  "root": "MOSAIC",
-  "concepts": {
-    "C-DR": {
-      "name": "DR frontier / perturbation curriculum",
-      "color": "#d97706"
-    },
-    "C-HSL": {
-      "name": "geometric repair proposal",
-      "color": "#2563eb"
-    },
-    "C-FLOOR": {
-      "name": "Executable Floor",
-      "color": "#059669"
-    },
-    "C-ALPHA": {
-      "name": "state risk / alpha",
-      "color": "#7c3aed"
-    },
-    "C-RHO": {
-      "name": "structured repair retention / rho",
-      "color": "#dc2626"
-    },
-    "C-CONTRACT": {
-      "name": "storage and update contract",
-      "color": "#475569"
-    },
-    "C-DIAG": {
-      "name": "live diagnostics",
-      "color": "#0891b2"
-    }
-  },
+  "root": "FEMR",
+  "showLegend": false,
+  "showConceptBadges": false,
   "files": [
     {
-      "group": "Entry",
-      "path": "scripts/rsl_rl/train.py",
-      "color": "#64748b",
+      "group": "01 Launch Entry",
+      "summary": "把一次命令变成具体运行模式, 是训练、回放、导出、评估路径的入口.",
+      "color": "#2563eb",
       "blocks": [
         {
-          "id": "E-01",
-          "role": "Hydra/IsaacLab 训练入口。解析任务、配置、检查点和设备，然后启动 runner。",
-          "lines": "53-99; 439-580",
-          "concept": "C-CONTRACT"
+          "id": "MAIN-01",
+          "path": "scripts/rsl_rl/train.py",
+          "role": "训练入口: 解析 task、device、checkpoint、headless 等启动参数."
+        },
+        {
+          "id": "MAIN-02",
+          "path": "scripts/rsl_rl/cli_args.py",
+          "role": "命令参数定义: 把 CLI 选项暴露给 train/play 等脚本."
+        },
+        {
+          "id": "MAIN-03",
+          "path": "scripts/rsl_rl/play.py",
+          "role": "回放入口: 用已保存 policy 启动环境并执行 policy rollout."
         }
       ]
     },
     {
-      "group": "Runner",
-      "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py",
-      "color": "#475569",
+      "group": "02 Training Config",
+      "summary": "把实验意图落成可运行配置, 决定 runner、algorithm、policy、FrontRES 阶段参数.",
+      "color": "#3b82f6",
       "blocks": [
         {
-          "id": "R-01",
-          "role": "Runner 初始化与恢复契约。负责阶段、策略、算法和 rollout 循环的接线。",
-          "lines": "143-430; 6877-7214",
-          "concept": "C-CONTRACT"
+          "id": "MAIN-04",
+          "path": "source/rsl_rl/rsl_rl/modules/rsl_rl_cfg.py",
+          "role": "RSL-RL 配置对象: 定义 runner、algorithm、policy 的训练参数."
         },
         {
-          "id": "R-02",
-          "role": "FrontRES rollout 构造器。生成 Noisy、HSL Candidate、Projected 和 GMT 证据。",
-          "lines": "2247-2970; 7312-7558",
-          "concept": "C-HSL"
+          "id": "MAIN-05",
+          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/",
+          "role": "任务配置包: 选择 robot、motion source、observation group 和 reward scale."
         },
         {
-          "id": "R-03",
-          "role": "实时契约桥。把 floor、alpha、rho、mask 和 reward 写入 storage/update 路径。",
-          "lines": "2796-2970; storage bridge",
-          "concept": "C-CONTRACT"
-        },
-        {
-          "id": "R-04",
-          "role": "诊断桥。只打印能证明来自实时训练路径的数值。",
-          "lines": "6334-6659; 7744-8146",
-          "concept": "C-DIAG"
+          "id": "MAIN-06",
+          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py",
+          "role": "环境配置骨架: 组合 scene、command、MDP term 和 simulation 参数."
         }
       ]
     },
     {
-      "group": "Runner Module",
-      "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_curriculum.py",
-      "color": "#d97706",
-      "blocks": [
-        {
-          "id": "DR-01",
-          "role": "扰动族调度。在遵守 active task dims 的前提下采样可修复 artifact 族。",
-          "lines": "72-301",
-          "concept": "C-DR"
-        },
-        {
-          "id": "DR-02",
-          "role": "GMT frontier 探针。搜索当前 tracker 的可执行边界，用于确定 DR scale。",
-          "lines": "390-430",
-          "concept": "C-DR"
-        }
-      ]
-    },
-    {
-      "group": "Runner Module",
-      "path": "source/rsl_rl/rsl_rl/runners/frontres_executable_floor.py",
+      "group": "03 Env Construction",
+      "summary": "创建 IsaacLab tracking 环境, 决定 command manager、observation manager、reward manager 如何接入.",
       "color": "#059669",
       "blocks": [
         {
-          "id": "F-01",
-          "role": "Executable Floor 模块。把 GMT frontier 证据转换为可用的 floor 值和 mask。",
-          "lines": "13-187",
-          "concept": "C-FLOOR"
+          "id": "MAIN-07",
+          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py",
+          "role": "运动命令入口: 提供 reference motion、phase、root/body target 等环境侧状态."
+        },
+        {
+          "id": "MAIN-08",
+          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/events.py",
+          "role": "环境事件入口: 管理 reset、随机化和 episode 生命周期事件."
+        },
+        {
+          "id": "MAIN-09",
+          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py",
+          "role": "终止条件入口: 判定 rollout 何时 done 或被安全边界截断."
         }
       ]
     },
     {
-      "group": "Runner Module",
-      "path": "source/rsl_rl/rsl_rl/runners/frontres_alpha_router.py",
+      "group": "04 Observation Path",
+      "summary": "把仿真状态、参考运动和 FrontRES 所需信号变成 actor/critic 输入.",
+      "color": "#0f766e",
+      "blocks": [
+        {
+          "id": "MAIN-10",
+          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/observations.py",
+          "role": "观测项定义: 产出 policy、critic、history、reference 相关观测张量."
+        },
+        {
+          "id": "MAIN-11",
+          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/balance.py",
+          "role": "平衡观测定义: 产出 ZMP、support、margin 等可执行性相关信号."
+        },
+        {
+          "id": "MAIN-12",
+          "path": "source/rsl_rl/rsl_rl/modules/frontres_observation_layout.py",
+          "role": "观测布局定义: 记录 GMT suffix、FrontRES prefix 和 split/compose 规则."
+        }
+      ]
+    },
+    {
+      "group": "05 Perturbation Path",
+      "summary": "把参考帧错误注入训练样本, 是 FrontRES 学习 repair signal 的数据来源.",
+      "color": "#16a34a",
+      "blocks": [
+        {
+          "id": "MAIN-13",
+          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py",
+          "role": "环境扰动项: 在 tracking task 内生成 reference artifact."
+        },
+        {
+          "id": "MAIN-14",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_dr_curriculum.py",
+          "role": "扰动课程采样: 决定 planar、yaw、z、rp 等 family 的采样分布."
+        },
+        {
+          "id": "MAIN-15",
+          "path": "source/rsl_rl/rsl_rl/frontres/perturbation_runtime.py",
+          "role": "运行期扰动载体: 把扰动参数转成 runner 可消费的 batch payload."
+        }
+      ]
+    },
+    {
+      "group": "06 Reward Path",
+      "summary": "把跟踪误差、平衡状态和 FrontRES repair gain 转成训练标量.",
+      "color": "#65a30d",
+      "blocks": [
+        {
+          "id": "MAIN-16",
+          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/rewards.py",
+          "role": "环境 reward 项: 提供 GMT tracking 和基础运动质量标量."
+        },
+        {
+          "id": "MAIN-17",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reward.py",
+          "role": "Segment reward: 计算 Stage 3 segment 样本的 repair gain."
+        },
+        {
+          "id": "MAIN-18",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_reward_diagnostics.py",
+          "role": "Reward 诊断: 汇总 gain、harm、safe/broken 等训练解释量."
+        }
+      ]
+    },
+    {
+      "group": "07 Policy Model",
+      "summary": "把观测变成 robot action, 同时承载 FrontRES residual head 和 stats 边界.",
       "color": "#7c3aed",
       "blocks": [
         {
-          "id": "AL-01",
-          "role": "State alpha 目标构造器。估计当前状态应直接修复还是回退处理。",
-          "lines": "16-66",
-          "concept": "C-ALPHA"
-        }
-      ]
-    },
-    {
-      "group": "Runner Module",
-      "path": "source/rsl_rl/rsl_rl/runners/frontres_structured_rho.py",
-      "color": "#dc2626",
-      "blocks": [
-        {
-          "id": "RH-01",
-          "role": "Structured rho 载体。把 repair-retention 语义与旧 acceptance target 分开。",
-          "lines": "17-178",
-          "concept": "C-RHO"
+          "id": "MAIN-19",
+          "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py",
+          "role": "FrontRES policy: 在冻结 GMT 前产生 task-space residual action."
         },
         {
-          "id": "RH-02",
-          "role": "Rho advantage 信号。只有 rollout 证据显示修复有帮助时才奖励保留 repair。",
-          "lines": "179-313",
-          "concept": "C-RHO"
+          "id": "MAIN-20",
+          "path": "source/rsl_rl/rsl_rl/modules/normalizer.py",
+          "role": "观测归一化: 维护 mean/std 并影响 train、resume、eval、export."
+        },
+        {
+          "id": "MAIN-21",
+          "path": "source/rsl_rl/rsl_rl/modules/actor_critic.py",
+          "role": "基础 policy: 提供 RSL-RL 默认 actor/critic 接口."
         }
       ]
     },
     {
-      "group": "Storage",
-      "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py",
+      "group": "08 FrontRES Method Core",
+      "summary": "定义 FrontRES 能修什么、怎么修、哪些样本允许更新 actor.",
+      "color": "#9333ea",
+      "blocks": [
+        {
+          "id": "MAIN-22",
+          "path": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py",
+          "role": "Task-space correction: 把 residual 表达为 Delta SE(3) 修正."
+        },
+        {
+          "id": "MAIN-23",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_action_cone.py",
+          "role": "Action cone: 约束当前 active dims 能修复的扰动方向."
+        },
+        {
+          "id": "MAIN-24",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_executable_floor.py",
+          "role": "Executable floor: 给 repair 是否可执行提供下界信号."
+        },
+        {
+          "id": "MAIN-25",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_alpha_rho_bridge.py",
+          "role": "Alpha/rho bridge: 连接 acceptance、authority 和 structured rho 信号."
+        }
+      ]
+    },
+    {
+      "group": "09 Segment Data",
+      "summary": "把长序列切成可训练 segment, 管理 cache、dataset、sampler 和 reset 边界.",
+      "color": "#a855f7",
+      "blocks": [
+        {
+          "id": "MAIN-26",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py",
+          "role": "Cache builder: 从 rollout 或 motion source 生成 segment cache."
+        },
+        {
+          "id": "MAIN-27",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py",
+          "role": "Segment dataset: 读取 cache 并暴露可采样样本."
+        },
+        {
+          "id": "MAIN-28",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py",
+          "role": "Segment sampler: 决定每次更新使用哪些 segment."
+        },
+        {
+          "id": "MAIN-29",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reset.py",
+          "role": "Segment reset: 把环境放回 segment 起点状态."
+        }
+      ]
+    },
+    {
+      "group": "10 Runner Setup",
+      "summary": "把 env、policy、algorithm、storage、checkpoint 组装成一次可训练运行.",
+      "color": "#d97706",
+      "blocks": [
+        {
+          "id": "MAIN-30",
+          "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py",
+          "role": "Runner 骨架: 持有 env、alg、storage 并驱动 learn loop."
+        },
+        {
+          "id": "MAIN-31",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py",
+          "role": "FrontRES setup: 初始化 FrontRES 训练所需 helper 和运行状态."
+        },
+        {
+          "id": "MAIN-32",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py",
+          "role": "Runner checkpoint 接线: 在 runner 层接入 load/resume/save 逻辑."
+        }
+      ]
+    },
+    {
+      "group": "11 Rollout Runtime",
+      "summary": "执行 env step 前后的在线路径, 决定 action、target、mask、transition 如何生成.",
+      "color": "#f59e0b",
+      "blocks": [
+        {
+          "id": "MAIN-33",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py",
+          "role": "Rollout step: 生成 FrontRES action 并写入 env action."
+        },
+        {
+          "id": "MAIN-34",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_post_step_connector.py",
+          "role": "Post-step connector: 把 env.step 返回值转成 transition payload."
+        },
+        {
+          "id": "MAIN-35",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_hsl_rollout_target.py",
+          "role": "HSL rollout target: 生成 supervised target 和有效 mask."
+        },
+        {
+          "id": "MAIN-36",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py",
+          "role": "Runtime correction: 管理部署/评估时的 correction 写入路径."
+        }
+      ]
+    },
+    {
+      "group": "12 Stage 3 Live Loop",
+      "summary": "Stage 3 segment replay 的在线训练闭环, 覆盖采样、更新和序列评估.",
+      "color": "#ea580c",
+      "blocks": [
+        {
+          "id": "MAIN-37",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
+          "role": "Live sampler: 为 Stage 3 选择在线 segment batch."
+        },
+        {
+          "id": "MAIN-38",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
+          "role": "Live training: 驱动 Stage 3 segment replay 训练回合."
+        },
+        {
+          "id": "MAIN-39",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py",
+          "role": "Live update loop: 执行单次或多次 segment PPO update."
+        },
+        {
+          "id": "MAIN-40",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py",
+          "role": "Sequence eval: 按整段序列评估 reset、preroll、eval 边界."
+        }
+      ]
+    },
+    {
+      "group": "13 Storage Boundary",
+      "summary": "只负责保存和吐出训练 batch, 不应该重新解释 FrontRES 方法语义.",
       "color": "#475569",
       "blocks": [
         {
-          "id": "S-01",
-          "role": "Transition 字段。存储 FrontRES target、mask、alpha/rho 载体和诊断张量。",
-          "lines": "13-126",
-          "concept": "C-CONTRACT"
+          "id": "MAIN-41",
+          "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py :: Transition",
+          "role": "Transition schema: 定义 rollout 写入 storage 的字段集合."
         },
         {
-          "id": "S-02",
-          "role": "Minibatch 契约。把已存储的 FrontRES 证据无语义漂移地送入算法更新。",
-          "lines": "316-430",
-          "concept": "C-CONTRACT"
+          "id": "MAIN-42",
+          "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py :: add_transitions",
+          "role": "Transition write: 把 runner payload 复制到 rollout buffer."
+        },
+        {
+          "id": "MAIN-43",
+          "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py :: mini_batch_generator",
+          "role": "Batch generator: 产出 algorithm.update 消费的字段顺序和 shape."
+        },
+        {
+          "id": "MAIN-44",
+          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py",
+          "role": "Segment storage: 保存 Stage 3 segment replay 的专用 batch 字段."
         }
       ]
     },
     {
-      "group": "Algorithm",
-      "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py",
-      "color": "#334155",
+      "group": "14 Algorithm Update",
+      "summary": "把 storage batch 转成梯度更新, 是 loss、advantage、optimizer 的唯一 owner.",
+      "color": "#dc2626",
       "blocks": [
         {
-          "id": "A-01",
-          "role": "统一 update 入口。组合 PPO、HSL 监督、alpha SSL 和 structured rho RL。",
-          "lines": "430-809",
-          "concept": "C-CONTRACT"
+          "id": "MAIN-45",
+          "path": "source/rsl_rl/rsl_rl/algorithms/ppo.py",
+          "role": "Base PPO: 执行标准 PPO advantage、policy loss 和 value loss."
         },
         {
-          "id": "A-02",
-          "role": "HSL 监督损失。学习几何 Delta SE proposal，而不是学习可执行 acceptance。",
-          "lines": "1466-1792",
-          "concept": "C-HSL"
+          "id": "MAIN-46",
+          "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py",
+          "role": "Segment PPO: 执行 Stage 3 segment replay 的 PPO 更新."
         },
         {
-          "id": "A-03",
-          "role": "State alpha 损失。用 executable-floor 证据训练 state-risk 分支。",
-          "lines": "1413-1465",
-          "concept": "C-ALPHA"
-        },
-        {
-          "id": "A-04",
-          "role": "Structured rho RL 损失。只用 advantage 更新 repair-retention 载体。",
-          "lines": "1272-1412",
-          "concept": "C-RHO"
+          "id": "MAIN-47",
+          "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py",
+          "role": "FrontRES loss: 汇总 HSL、alpha、rho、acceptance 等方法损失."
         }
       ]
     },
     {
-      "group": "Diagnostics",
-      "path": "source/rsl_rl/rsl_rl/runners/frontres_diagnostics.py",
+      "group": "15 Artifacts",
+      "summary": "保存、恢复、导出和评估模型产物, 是 stat/checkpoint 漂移的高风险区.",
       "color": "#0891b2",
       "blocks": [
         {
-          "id": "G-01",
-          "role": "Floor/alpha 诊断。验证 floor 计数、alpha target、prediction 和 accuracy。",
-          "lines": "52-96",
-          "concept": "C-DIAG"
+          "id": "MAIN-48",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_checkpointing.py",
+          "role": "Segment checkpoint: 保存和恢复 Stage 3 专用训练状态."
         },
         {
-          "id": "G-02",
-          "role": "Rho 诊断。验证 rho 方向、受约束 advantage、active weight 和 route weight。",
-          "lines": "97-197",
-          "concept": "C-DIAG"
+          "id": "MAIN-49",
+          "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py",
+          "role": "DR sweep eval: 批量评估扰动强度下的模型表现."
         },
         {
-          "id": "G-03",
-          "role": "优化诊断。确认哪些 loss 已启用，以及哪些 legacy path 已禁用。",
-          "lines": "198-286",
-          "concept": "C-DIAG"
+          "id": "MAIN-50",
+          "path": "source/whole_body_tracking/whole_body_tracking/utils/exporter.py",
+          "role": "Policy export: 把训练模型导出到部署/推理格式."
+        }
+      ]
+    },
+    {
+      "group": "16 Test Surface",
+      "summary": "把主链路变成可执行检查, 用于确认 shape、route、checkpoint、storage、update 没有漂移.",
+      "color": "#64748b",
+      "blocks": [
+        {
+          "id": "MAIN-51",
+          "path": "source/rsl_rl/rsl_rl/tests/frontres_*_contract.py",
+          "role": "Contract tests: 检查单个模块接口和语义边界."
+        },
+        {
+          "id": "MAIN-52",
+          "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_*_contract.py",
+          "role": "Segment tests: 检查 Stage 3 cache、reset、storage、update 路径."
+        },
+        {
+          "id": "MAIN-53",
+          "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py",
+          "role": "Pseudo suite: 用轻量假对象覆盖昂贵运行路径的关键事实."
+        },
+        {
+          "id": "MAIN-54",
+          "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_live_sentinel_contract.py",
+          "role": "Live sentinel: 用最小真实边界验证在线路径仍可执行."
         }
       ]
     }

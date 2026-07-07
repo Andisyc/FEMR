@@ -106,7 +106,7 @@ class FrontRESUnified:
         frontres_segment_live_min_valid_count: int = 1,
         frontres_segment_live_fail_on_nonfinite: bool = True,
         frontres_hsl_init_enabled: bool = False,
-        frontres_segment_k: int = 4,
+        frontres_segment_k: int = 8,
         frontres_segment_cache_dir: str = "",
         frontres_segment_shard_cache_size: int = 8,
         frontres_segment_include_boundary_diagnostic: bool = False,
