@@ -49,6 +49,17 @@
       line-height: 1.58;
     }
 
+    a {
+      color: var(--blue);
+      font-weight: 850;
+      text-decoration: none;
+      border-bottom: 2px solid rgba(71, 111, 168, 0.35);
+    }
+
+    a:hover {
+      border-bottom-color: currentColor;
+    }
+
     main {
       width: min(1200px, calc(100vw - 32px));
       margin: 0 auto;
@@ -383,6 +394,40 @@
       text-align: center;
     }
 
+    .source-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .source-card {
+      min-height: 148px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.76);
+      border: 2px dashed rgba(31, 41, 51, 0.34);
+      border-radius: 12px;
+    }
+
+    .source-card strong {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .source-card p {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .paper-claim {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-left: 4px solid var(--green);
+      background: var(--green-soft);
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 750;
+    }
+
     footer {
       margin-top: 42px;
       padding: 18px 0 0;
@@ -397,7 +442,8 @@
       .pipeline,
       .axis-grid,
       .two-col,
-      .flow {
+      .flow,
+      .source-grid {
         grid-template-columns: 1fr;
       }
 
@@ -552,6 +598,167 @@
       </div>
     </section>
 
+    <section aria-labelledby="paper-principle-title">
+      <div class="section-title">
+        <h2 id="paper-principle-title">文献硬证据：视频动作恢复工具链确实会暴露这些脆弱变量</h2>
+        <p>这里不再只是解释旧判断，而是把文献中的问题设置直接转成 FEMR 的扰动轴。</p>
+      </div>
+      <div class="source-grid">
+        <article class="source-card">
+          <strong><a href="https://arxiv.org/abs/2409.06662">GVHMR</a></strong>
+          <p>指出 world coordinate definition 本身有歧义；GV 坐标用 gravity 和 camera view direction 来降低 image-pose mapping 的歧义。</p>
+          <div class="paper-claim">支持：yaw / world frame 不是天然可靠变量。</div>
+        </article>
+        <article class="source-card">
+          <strong><a href="https://arxiv.org/abs/2312.07531">WHAM</a></strong>
+          <p>指出很多 global-coordinate 方法假设 flat ground 并产生 foot sliding；还使用 camera angular velocity 和 human motion 估计 global trajectory。</p>
+          <div class="paper-claim">支持：ground height、xy contact、camera angular motion 都是关键脆弱点。</div>
+        </article>
+        <article class="source-card">
+          <strong><a href="https://arxiv.org/abs/2503.07597">HumanMM</a></strong>
+          <p>指出 in-the-wild multi-shot videos 受 abrupt shot transitions、partial occlusions、dynamic backgrounds 影响，需要维护 pose and orientation continuity。</p>
+          <div class="paper-claim">支持：shot cut / occlusion / dynamic background 是真实 yaw-xy 扰动来源。</div>
+        </article>
+        <article class="source-card">
+          <strong><a href="https://arxiv.org/abs/2008.08880">PhysCap</a></strong>
+          <p>指出单目 mocap 是 ill-posed，kinematic outputs 会出现 physically incorrect interactions，包括 floor penetration、foot skating、unnatural leaning、depth shifting。</p>
+          <div class="paper-claim">支持：z、xy、tilt、depth/root drift 都是已知物理 artifact。</div>
+        </article>
+        <article class="source-card">
+          <strong><a href="https://arxiv.org/abs/2205.12292">Physics Opt.</a></strong>
+          <p>指出非物理方法会产生 temporal inconsistency and motion artifacts；物理重建需要估计 ground-plane location，并处理 body-scene contact。</p>
+          <div class="paper-claim">支持：ground/contact 不是展示细节，而是恢复问题本身的核心变量。</div>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="hard-evidence-title">
+      <div class="section-title">
+        <h2 id="hard-evidence-title">可放进论文的问题设置证据</h2>
+        <p>这些条目可以直接转化为 related work / motivation / appendix 的论证。</p>
+      </div>
+      <div class="table-wrap">
+        <table aria-label="文献证据到 FEMR 扰动族映射">
+          <thead>
+            <tr>
+              <th>文献证据</th>
+              <th>文献中的问题变量</th>
+              <th>对 FEMR 的重新判断</th>
+              <th>对应 perturbation family</th>
+              <th>推荐实验/视频证据</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>GVHMR</strong>：world coordinate system definition 存在序列级歧义；用 gravity 与 camera view direction 约束坐标。</td>
+              <td>world frame / gravity / camera view。</td>
+              <td>yaw 不是简单“转身估错”，而是 camera view 与 world/root heading 的分离问题。</td>
+              <td>yaw drift；tilt。</td>
+              <td>优先拍 camera yaw jitter、camera pan、遮挡重入；不要只拍普通转身。</td>
+            </tr>
+            <tr>
+              <td><strong>WHAM</strong>：flat-ground assumption 会导致 foot sliding；camera angular velocity 被用于 global trajectory recovery。</td>
+              <td>flat ground、foot contact、camera angular velocity、global trajectory。</td>
+              <td>vertical/xy 的真实来源不是随机噪声，而是地面假设、接触约束和相机运动没有被正确解释。</td>
+              <td>vertical drift；xy drift；yaw drift。</td>
+              <td>拍台阶/斜坡/支架 vertical jitter；拍水平旋转支架 yaw jitter。</td>
+            </tr>
+            <tr>
+              <td><strong>HumanMM</strong>：multi-shot videos 中 abrupt transition、occlusion、dynamic background 会破坏 long-sequence world motion recovery。</td>
+              <td>shot transition、partial occlusion、dynamic background、orientation continuity。</td>
+              <td>互联网视频是必要补充，因为自拍视频只能证明可控诱发，公开视频能证明这些触发条件广泛存在。</td>
+              <td>yaw drift；xy drift。</td>
+              <td>筛选 shot cut、遮挡重入、多人/动态背景、camera pan 的公开视频。</td>
+            </tr>
+            <tr>
+              <td><strong>PhysCap</strong>：kinematic monocular capture 会出现 floor penetration、foot skating、unnatural leaning、depth shifting。</td>
+              <td>floor interaction、contact、leaning、depth/root translation。</td>
+              <td>我们的四个 family 正好覆盖这些物理 artifact 的 root-level 主轴，而不是凭空设定。</td>
+              <td>vertical drift；xy drift；tilt。</td>
+              <td>记录滑步、倾斜、浮空/压地、深度漂移；穿模可以作为 vertical/contact 的边界案例。</td>
+            </tr>
+            <tr>
+              <td><strong>Physics-based reconstruction</strong>：需要估计 ground-plane location，并处理 articulated body 与 scene geometry 的 contact。</td>
+              <td>ground-plane、scene contact、self-contact、temporal consistency。</td>
+              <td>不要把“地面错误”当成可视化小问题；它是单目动作恢复走向物理可执行时必须处理的变量。</td>
+              <td>vertical drift；tilt；xy drift。</td>
+              <td>优先找单一高度平移无法同时修复的片段，而不是强行制造地面穿模。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="paper-insert-title">
+      <div class="section-title">
+        <h2 id="paper-insert-title">论文中可以写的版本</h2>
+        <p>这一版比“我们观察到”更硬，因为它直接连接已有文献的问题设置。</p>
+      </div>
+      <article class="note-box">
+        <p>
+          Recent monocular human motion recovery studies show that world-grounded reconstruction is limited by coordinate ambiguity, camera motion, flat-ground assumptions, shot transitions, occlusions, and physically inconsistent body-ground interactions. These limitations often manifest as root-level artifacts such as global translation drift, heading inconsistency, root-height/ground-plane error, and gravity-direction mismatch.
+        </p>
+        <p>
+          FEMR therefore does not attempt to repair arbitrary local pose errors. It targets this repairable root-level subset by using controlled perturbation families over planar translation, yaw, vertical displacement, and roll-pitch tilt, and evaluates whether correcting these axes improves execution by a frozen GMT tracker.
+        </p>
+      </article>
+    </section>
+
+    <section aria-labelledby="recipe-title">
+      <div class="section-title">
+        <h2 id="recipe-title">按原理重新讨论如何制造四类扰动</h2>
+        <p>每个 family 都要有一个“工具为什么会错”的原因，而不是只设计拍摄动作。</p>
+      </div>
+      <div class="table-wrap">
+        <table aria-label="论文原理到扰动制造方案">
+          <thead>
+            <tr>
+              <th>Family</th>
+              <th>工具脆弱变量</th>
+              <th>自拍制造方案</th>
+              <th>互联网视频选择</th>
+              <th>想看到的输出错误</th>
+              <th>最小验证</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>xy drift</strong></td>
+              <td>global translation、foot contact、depth/scale。</td>
+              <td>远走再回来；横向穿过画面；遮挡后继续走；低视角侧拍。</td>
+              <td>远距离行走、街拍低视角、遮挡行人、动态背景。</td>
+              <td>滑步、路径漂移、脚接触点与 root 平移不一致。</td>
+              <td>侧视视频 + root xy 轨迹；接触期脚在地面上滑动。</td>
+            </tr>
+            <tr>
+              <td><strong>yaw drift</strong></td>
+              <td>camera yaw 与 human/root yaw 耦合；world frame 绕 gravity 轴不唯一。</td>
+              <td>手机固定在可水平旋转支架上，轻弹产生左右 yaw jitter；或遮挡中转身再出现。</td>
+              <td>camera pan、shot cut、遮挡重入、多机位切换、旋转运镜。</td>
+              <td>身体面向和运动方向不一致；heading 跳变；mesh 像侧着走或倒着走。</td>
+              <td>顶视/俯视渲染 + root yaw 曲线；同一片段中 heading 出现不合理跳变。</td>
+            </tr>
+            <tr>
+              <td><strong>vertical drift</strong></td>
+              <td>root height、ground plane、camera vertical motion、foot contact height。</td>
+              <td>弹性支架轻弹产生上下 jitter；上下台阶、路沿、坡顶坡底。</td>
+              <td>楼梯、台阶、坡道、手持上下抖动、运动相机上下晃动。</td>
+              <td>root-z 高频抖动；局部脚接触高度不一致；浮空/压地交替。</td>
+              <td><code>bodyTranslation.z</code> 曲线 + 侧视渲染；不要只依赖全局高度未校准的浮空。</td>
+            </tr>
+            <tr>
+              <td><strong>tilt</strong></td>
+              <td>gravity direction、camera roll/pitch、ground normal。</td>
+              <td>左右倾斜手机；低视角倾斜拍摄；斜坡侧拍。</td>
+              <td>倾斜相机、运动相机、坡地行走、手持 roll/pitch 晃动。</td>
+              <td>人体整体倾斜；地面法向错；重力方向与身体姿态不一致。</td>
+              <td>正面/侧面渲染 + root roll/pitch；观察是否局部姿态可信但全局倾斜。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section aria-labelledby="video-title">
       <div class="section-title">
         <h2 id="video-title">现有视频分析</h2>
@@ -594,9 +801,9 @@
               <td>拍摄者抖动并跟随拍摄</td>
               <td>当前可视化未出现预期上下抖动，但人物原地滑步。</td>
               <td>外诱触发，但当前证据依赖可视化工具</td>
-              <td>xy drift；vertical 暂不主张</td>
+              <td>xy drift；vertical candidate</td>
               <td><span class="status-medium">中等</span></td>
-              <td>如果 modacape 版本能复现上下抖动，可作为 vertical/jitter 辅助证据。</td>
+              <td>下一步用 <code>bodyTranslation.z</code> 曲线确认是否存在真实 root-height 高频抖动。</td>
             </tr>
             <tr>
               <td><strong>walking_lowangle1.mp4</strong></td>
@@ -721,17 +928,17 @@
           <tbody>
             <tr>
               <td><strong>yaw drift</strong></td>
-              <td>绕弯走、突然 90 度转身、斜向走，摄像头轻微跟随旋转。</td>
-              <td>street walking turn, dance turn, parkour turn, handheld walking turn。</td>
-              <td>身体朝向、root heading、运动方向不一致。</td>
-              <td>至少 2 个片段可人工看出 heading mismatch。</td>
+              <td>可水平旋转支架 yaw jitter；遮挡中转身再出现。</td>
+              <td>camera pan, shot cut walking, occlusion re-entry, multi-camera dance。</td>
+              <td>身体朝向、root heading、运动方向不一致，或 heading 跳变。</td>
+              <td>至少 2 个片段可人工看出 heading mismatch，并用顶视渲染或 yaw 曲线确认。</td>
             </tr>
             <tr>
               <td><strong>vertical drift</strong></td>
-              <td>上下台阶、路沿、坡顶坡底、不同高度平台。</td>
-              <td>walking stairs side view, walking curb, walking uphill downhill。</td>
-              <td>脚接触高度或 root-z 与真实地面不一致。</td>
-              <td>避免只使用全局高度未调好的浮空案例。</td>
+              <td>弹性支架 vertical jitter；上下台阶、路沿、坡顶坡底。</td>
+              <td>walking stairs side view, walking curb, action camera vertical shake。</td>
+              <td>root-z 高频抖动，或脚接触高度与真实地面不一致。</td>
+              <td>避免只使用全局高度未调好的浮空案例；优先看 <code>bodyTranslation.z</code>。</td>
             </tr>
             <tr>
               <td><strong>xy drift</strong></td>

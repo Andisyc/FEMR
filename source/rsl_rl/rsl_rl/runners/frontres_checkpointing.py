@@ -80,6 +80,43 @@ def _load_split_proposal_from_two_head_residual(proposal_actor, residual_state: 
     return True
 
 
+def _copy_policy_noise_state(policy, model_state: dict) -> bool:
+    """Load std/log_std only when checkpoint and runtime action dims match."""
+    if hasattr(policy, "std") and "std" in model_state:
+        source = model_state["std"].detach().to(device=policy.std.device, dtype=policy.std.dtype)
+        if tuple(source.shape) == tuple(policy.std.shape):
+            policy.std.data.copy_(source)
+            return True
+        print(
+            "[Runner] Skipping checkpoint noise std due to action-dim drift: "
+            f"checkpoint_shape={tuple(source.shape)} runtime_shape={tuple(policy.std.shape)}",
+            flush=True,
+        )
+        return False
+    if hasattr(policy, "log_std") and "log_std" in model_state:
+        source = model_state["log_std"].detach().to(device=policy.log_std.device, dtype=policy.log_std.dtype)
+        if tuple(source.shape) == tuple(policy.log_std.shape):
+            policy.log_std.data.copy_(source)
+            return True
+        print(
+            "[Runner] Skipping checkpoint log_std due to action-dim drift: "
+            f"checkpoint_shape={tuple(source.shape)} runtime_shape={tuple(policy.log_std.shape)}",
+            flush=True,
+        )
+        return False
+    return False
+
+
+def _reset_policy_noise_state(policy, *, init_noise_std: float, noise_std_type: str, device) -> None:
+    """Reset runtime std/log_std using the current policy tensor shape."""
+    if noise_std_type == "scalar" and hasattr(policy, "std"):
+        policy.std.data.copy_(torch.ones_like(policy.std, device=device) * init_noise_std)
+        print(f"[Runner] Reset noise std → {init_noise_std} shape={tuple(policy.std.shape)}")
+    elif noise_std_type == "log" and hasattr(policy, "log_std"):
+        policy.log_std.data.copy_(torch.log(torch.ones_like(policy.log_std, device=device) * init_noise_std))
+        print(f"[Runner] Reset log_std → log({init_noise_std}) shape={tuple(policy.log_std.shape)}")
+
+
 def record_frontres_checkpoint_probe(self, locs: dict, checkpoint_path: str) -> None:
     """Persist save-time FrontRES probe metrics and keep the best demo checkpoint.
 
@@ -421,11 +458,8 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
                 self.alg.policy.critic.load_state_dict(loaded_dict["model_state_dict"]["critic"])
             else:
                 print("[Runner] No critic weights found. Critic will be initialized from scratch.")
-        # Load noise std parameter
-        if "std" in loaded_dict["model_state_dict"]:
-            self.alg.policy.std.data = loaded_dict["model_state_dict"]["std"].data
-        elif "log_std" in loaded_dict["model_state_dict"]:
-            self.alg.policy.log_std.data = loaded_dict["model_state_dict"]["log_std"].data
+        # Load noise std parameter only when checkpoint and runtime action dims match.
+        _copy_policy_noise_state(self.alg.policy, loaded_dict["model_state_dict"])
         if load_critic:
             print("[Runner] Loaded residual network + critic from checkpoint (GMT remains frozen)")
         else:
@@ -595,15 +629,12 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     if reset_noise and (hasattr(self.alg.policy, 'std') or hasattr(self.alg.policy, 'log_std')):
         init_noise_std = self.policy_cfg.get("init_noise_std", 1.0)
         noise_std_type = self.policy_cfg.get("noise_std_type", "scalar")
-        num_actions = (self.alg.policy.std.shape[0] if hasattr(self.alg.policy, 'std')
-                       else self.alg.policy.log_std.shape[0])
-        if noise_std_type == "scalar":
-            self.alg.policy.std.data = torch.ones(num_actions, device=self.device) * init_noise_std
-            print(f"[Runner] Reset noise std → {init_noise_std}")
-        elif noise_std_type == "log":
-            self.alg.policy.log_std.data = torch.log(
-                torch.ones(num_actions, device=self.device) * init_noise_std)
-            print(f"[Runner] Reset log_std → log({init_noise_std})")
+        _reset_policy_noise_state(
+            self.alg.policy,
+            init_noise_std=init_noise_std,
+            noise_std_type=noise_std_type,
+            device=self.device,
+        )
     else:
         if hasattr(self.alg.policy, 'std'):
             print(f"[Runner] Kept noise std from checkpoint = {self.alg.policy.std.mean().item():.4f}")
