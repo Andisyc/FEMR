@@ -141,12 +141,16 @@ class FakeLivePolicy(torch.nn.Module):
         torch.nn.init.zeros_(self.actor.weight)
         torch.nn.init.zeros_(self.critic.weight)
         self.last_mean: torch.Tensor | None = None
+        self.action_mean: torch.Tensor | None = None
+        self.action_std: torch.Tensor | None = None
         self.actor_obs_trace: list[tuple[int, int]] = []
         self.critic_obs_trace: list[tuple[int, int]] = []
 
     def act(self, observations: torch.Tensor) -> torch.Tensor:
         self.actor_obs_trace.append(tuple(observations.shape))
         self.last_mean = self.actor(observations)
+        self.action_mean = self.last_mean
+        self.action_std = torch.ones_like(self.last_mean)
         return self.last_mean
 
     def evaluate(self, observations: torch.Tensor) -> torch.Tensor:
@@ -169,6 +173,9 @@ class FakeAlg:
         self.use_clipped_value_loss = True
         self.normalize_advantage_per_mini_batch = False
         self.max_grad_norm = 1.0
+        self.schedule = "fixed"
+        self.desired_kl = 0.01
+        self.learning_rate = 0.1
 
     def _get_actor_log_prob(self, actions: torch.Tensor) -> torch.Tensor:
         assert self.policy.last_mean is not None
@@ -187,7 +194,7 @@ class FakeRunner:
         self.mode_trace.append("eval")
 
 
-def _storage_batch(valid_mask: torch.Tensor) -> object:
+def _storage_batch(valid_mask: torch.Tensor, old_means: torch.Tensor | None = None) -> object:
     storage = FrontRESSegmentRolloutStorage(
         capacity=2,
         obs_shape=(4,),
@@ -206,7 +213,7 @@ def _storage_batch(valid_mask: torch.Tensor) -> object:
             valid_mask=valid_mask,
             reset_mask=torch.ones(2, dtype=torch.bool),
             segment_ids=torch.tensor([0, 1]),
-            old_means=torch.zeros(2, 6),
+            old_means=torch.zeros(2, 6) if old_means is None else old_means,
             old_sigmas=torch.ones(2, 6),
             action_mask=torch.ones(2, 6),
         )
@@ -268,7 +275,32 @@ def test_single_update_does_not_step_optimizer_without_valid_segments() -> None:
     torch.testing.assert_close(runner.alg.policy.critic.weight.detach(), before_critic)
 
 
+def test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl() -> None:
+    runner = FakeRunner()
+    runner.alg.schedule = "adaptive"
+    runner.alg.desired_kl = 0.01
+    runner.alg.learning_rate = 0.1
+    for group in runner.alg.optimizer.param_groups:
+        group["lr"] = runner.alg.learning_rate
+    storage_batch = _storage_batch(torch.tensor([True, False]), old_means=torch.full((2, 6), 0.5))
+
+    result = run_frontres_segment_single_update(runner, storage_batch)
+    print(
+        "[probe step3] adaptive_lr_old_stats: "
+        f"distribution_kl_mean={result.distribution_kl_mean:.6f} "
+        f"desired_kl={runner.alg.desired_kl:.6f} "
+        f"learning_rate_after={runner.alg.learning_rate:.8f} "
+        f"param_group_lr={runner.alg.optimizer.param_groups[0]['lr']:.8f}",
+        flush=True,
+    )
+
+    assert result.distribution_kl_mean > runner.alg.desired_kl * 2.0
+    assert runner.alg.learning_rate < 0.1
+    assert runner.alg.optimizer.param_groups[0]["lr"] == runner.alg.learning_rate
+
+
 if __name__ == "__main__":
     test_single_update_steps_optimizer_with_valid_segment()
     test_single_update_does_not_step_optimizer_without_valid_segments()
+    test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl()
     print("frontres_segment_live_single_update_contract: ok")

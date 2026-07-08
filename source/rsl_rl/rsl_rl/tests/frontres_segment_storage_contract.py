@@ -47,6 +47,7 @@ class FakePolicy(torch.nn.Module):
             "value": value,
             "entropy": torch.ones(actions.shape[0]) * 0.5,
             "mean": mean,
+            "sigma": torch.ones_like(mean),
         }
 
 
@@ -99,6 +100,10 @@ def test_segment_storage_converts_to_algorithm_batch_and_masks_invalid_samples()
     storage = FrontRESSegmentRolloutStorage(capacity=4, obs_shape=(4,))
     storage.add_transition(_transition())
     ppo_batch = storage.full_batch().to_ppo_batch(FrontRESSegmentPPOBatch)
+    assert ppo_batch.old_means is not None
+    assert ppo_batch.old_sigmas is not None
+    torch.testing.assert_close(ppo_batch.old_means, torch.zeros(3, 6))
+    torch.testing.assert_close(ppo_batch.old_sigmas, torch.ones(3, 6))
     policy = FakePolicy()
     result = compute_frontres_segment_ppo_loss(policy, ppo_batch)
     assert result.valid_count == 1

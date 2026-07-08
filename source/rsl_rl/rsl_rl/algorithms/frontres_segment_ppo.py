@@ -28,6 +28,8 @@ class FrontRESSegmentPPOBatch:
     valid_mask: torch.Tensor
     segment_ids: torch.Tensor | None = None
     action_mask: torch.Tensor | None = None
+    old_means: torch.Tensor | None = None
+    old_sigmas: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,9 @@ class FrontRESSegmentPPOResult:
     advantage_mean: float = 0.0
     advantage_min: float = 0.0
     advantage_max: float = 0.0
+    logprob_approx_kl: float = 0.0
+    distribution_kl_mean: float = 0.0
+    distribution_kl_available: bool = False
 
     @property
     def should_step(self) -> bool:
@@ -83,6 +88,9 @@ class FrontRESSegmentPPOResult:
             "segment/ppo_advantage_mean": self.advantage_mean,
             "segment/ppo_advantage_min": self.advantage_min,
             "segment/ppo_advantage_max": self.advantage_max,
+            "segment/ppo_logprob_approx_kl": self.logprob_approx_kl,
+            "segment/ppo_distribution_kl_mean": self.distribution_kl_mean,
+            "segment/ppo_distribution_kl_available": float(self.distribution_kl_available),
         }
 
 
@@ -106,6 +114,22 @@ def compute_frontres_segment_ppo_loss(
     )
     if policy_eval.entropy is not None:
         finite = finite & torch.isfinite(policy_eval.entropy)
+    has_distribution_stats = (
+        batch.old_means is not None
+        and batch.old_sigmas is not None
+        and policy_eval.mean is not None
+        and policy_eval.sigma is not None
+    )
+    if has_distribution_stats:
+        finite = (
+            finite
+            & torch.isfinite(batch.old_means).all(dim=-1)
+            & torch.isfinite(batch.old_sigmas).all(dim=-1)
+            & (batch.old_sigmas > 0.0).all(dim=-1)
+            & torch.isfinite(policy_eval.mean).all(dim=-1)
+            & torch.isfinite(policy_eval.sigma).all(dim=-1)
+            & (policy_eval.sigma > 0.0).all(dim=-1)
+        )
     valid = batch.valid_mask.bool() & finite
     valid_count = int(valid.sum().item())
     valid_frac = float(valid.float().mean().item()) if valid.numel() else 0.0
@@ -151,7 +175,11 @@ def compute_frontres_segment_ppo_loss(
     total_loss = actor_loss + cfg.value_loss_coef * value_loss - cfg.entropy_coef * entropy
     with torch.no_grad():
         clip_frac = ((ratio - 1.0).abs() > cfg.clip_param).float().mean().item()
-        approx_kl = (old_log_prob - log_prob).mean().item()
+        logprob_approx_kl = (old_log_prob - log_prob).mean().item()
+        distribution_kl_mean = (
+            _distribution_kl_mean(policy_eval, batch, valid).item() if has_distribution_stats else 0.0
+        )
+        approx_kl = distribution_kl_mean if has_distribution_stats else logprob_approx_kl
         ratio_mean = ratio.mean().item()
         ratio_max = ratio.max().item()
         old_log_prob_mean = old_log_prob.mean().item()
@@ -182,6 +210,9 @@ def compute_frontres_segment_ppo_loss(
         advantage_mean=float(advantage_mean),
         advantage_min=float(advantage_min),
         advantage_max=float(advantage_max),
+        logprob_approx_kl=float(logprob_approx_kl),
+        distribution_kl_mean=float(distribution_kl_mean),
+        distribution_kl_available=bool(has_distribution_stats),
     )
 
 
@@ -211,6 +242,26 @@ def _masked_entropy(entropy: torch.Tensor | None, valid: torch.Tensor, like: tor
     return entropy[valid].mean()
 
 
+def _distribution_kl_mean(
+    policy_eval: FrontRESSegmentPolicyEval,
+    batch: FrontRESSegmentPPOBatch,
+    valid: torch.Tensor,
+) -> torch.Tensor:
+    if batch.old_means is None or batch.old_sigmas is None or policy_eval.mean is None or policy_eval.sigma is None:
+        return batch.actions.new_zeros(())
+    old_mean = batch.old_means[valid].detach()
+    old_sigma = batch.old_sigmas[valid].detach()
+    mean = policy_eval.mean[valid].detach()
+    sigma = policy_eval.sigma[valid].detach()
+    kl = torch.sum(
+        torch.log(sigma / old_sigma + 1.0e-5)
+        + (old_sigma.square() + (old_mean - mean).square()) / (2.0 * sigma.square())
+        - 0.5,
+        dim=-1,
+    )
+    return kl.mean()
+
+
 def _validate_batch(batch: FrontRESSegmentPPOBatch) -> None:
     if batch.actions.ndim != 2 or batch.actions.shape[-1] != 6:
         raise ValueError(f"actions must have shape [B, 6], got {tuple(batch.actions.shape)}")
@@ -223,6 +274,12 @@ def _validate_batch(batch: FrontRESSegmentPPOBatch) -> None:
         _require_vector("segment_ids", batch.segment_ids, batch_size)
     if batch.action_mask is not None and tuple(batch.action_mask.shape) != (batch_size, 6):
         raise ValueError(f"action_mask must have shape [B, 6], got {tuple(batch.action_mask.shape)}")
+    if (batch.old_means is None) != (batch.old_sigmas is None):
+        raise ValueError("old_means and old_sigmas must be provided together")
+    if batch.old_means is not None and tuple(batch.old_means.shape) != (batch_size, 6):
+        raise ValueError(f"old_means must have shape [B, 6], got {tuple(batch.old_means.shape)}")
+    if batch.old_sigmas is not None and tuple(batch.old_sigmas.shape) != (batch_size, 6):
+        raise ValueError(f"old_sigmas must have shape [B, 6], got {tuple(batch.old_sigmas.shape)}")
 
 
 def _validate_policy_eval(policy_eval: FrontRESSegmentPolicyEval, batch: FrontRESSegmentPPOBatch) -> None:

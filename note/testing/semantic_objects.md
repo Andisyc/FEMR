@@ -137,6 +137,8 @@ delta_se_norm
 mean_raw_saturated_frac_abs_gt_2
 mean_raw_abs_max
 actions_log_prob
+advantages
+returns
 ```
 
 Owner and lifecycle:
@@ -145,6 +147,7 @@ Owner and lifecycle:
 policy distribution: MAIN-19 front_residual_actor_critic.py
 action mask / env bridge: MAIN-22 task_space_correction.py, MAIN-33 frontres_rollout_step.py
 algorithm log-prob consumer: MAIN-47 frontres_unified.py
+PPO loss/update: MAIN-46 frontres_segment_ppo.py
 sequence/live diagnostics: MAIN-38, MAIN-40
 checkpoint source: MAIN-32, MAIN-48
 ```
@@ -153,6 +156,7 @@ Required evidence:
 
 ```text
 S1 diagnostics contract for raw mean saturation health
+S1/S2 algorithm contract for positive-advantage gradient direction toward stored 6D actions
 S2 sequence eval debug contract that prints `action_distribution_health`
 S3 checkpoint/load forward-health contract before long training
 S4 sequence eval/live sentinel when actual checkpoint quality is questioned
@@ -162,4 +166,52 @@ Current gap:
 
 ```text
 S3 checkpoint load -> one policy forward health gate is not yet enforced.
+```
+
+## Direct Delta SE PPO Semantic Closure
+
+Aliases:
+
+```text
+direct Delta SE HRL
+executed Delta SE
+sampled repair action
+old_mu
+old_sigma
+old_means
+old_sigmas
+desired_kl
+adaptive LR
+PPO trust region
+frontres_mask
+paired repaired-vs-noisy gain
+actor_update_mask
+```
+
+Owner and lifecycle:
+
+```text
+policy distribution: MAIN-19 front_residual_actor_critic.py
+rollout action capture: MAIN-33 frontres_rollout_step.py, MAIN-38 frontres_segment_live_training.py
+segment storage: MAIN-44 frontres_segment_storage.py
+Segment PPO loss/update: MAIN-46 frontres_segment_ppo.py
+live update loop: MAIN-39 frontres_segment_live_update_loop.py
+legacy/direct PPO reference path: MAIN-45 ppo.py, MAIN-47 frontres_unified.py
+sequence/eval diagnostics: MAIN-40 frontres_segment_sequence_eval.py
+```
+
+Required evidence:
+
+```text
+S1/S2 action/log_prob transform contract for the same executed 6D Delta SE
+S1/S2 storage contract preserving old_log_prob, old_means, old_sigmas, returns, advantages, and valid masks
+S1/S2 PPO contract that uses old distribution stats for KL/trust-region diagnostics or explicitly proves the intended alternative
+S2 paired repaired-vs-noisy reward/advantage route contract
+S4 live sentinel when real rollout/update is changed
+```
+
+Current status:
+
+```text
+Segment storage preserves old_means/old_sigmas through FrontRESSegmentPPOBatch. frontres_segment_ppo.py reports both logprob_approx_kl and MOSAIC-style distribution_kl_mean, and uses distribution_kl_mean as approx_kl when old/new distribution stats are available. run_frontres_segment_single_update applies schedule=adaptive LR updates from that distribution KL. This is S1/S2 contract-confirmed; real training quality remains S4/live-log evidence.
 ```

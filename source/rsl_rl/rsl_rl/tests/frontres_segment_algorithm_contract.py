@@ -42,7 +42,7 @@ class FakeSegmentPolicy(torch.nn.Module):
         value = self.critic(observations).squeeze(-1)
         log_prob = -0.5 * (actions - mean).square().sum(dim=-1)
         entropy = torch.ones_like(log_prob) * 0.5
-        return FrontRESSegmentPolicyEval(log_prob=log_prob, value=value, entropy=entropy, mean=mean)
+        return FrontRESSegmentPolicyEval(log_prob=log_prob, value=value, entropy=entropy, mean=mean, sigma=torch.ones_like(mean))
 
     def acceptance_loss(self, *args, **kwargs):
         self.acceptance_called = True
@@ -76,6 +76,79 @@ def test_fake_batch_updates_actor_on_valid_segments() -> None:
     optimizer.step()
     assert not torch.allclose(policy.actor.weight.detach(), before)
     assert not policy.acceptance_called
+
+
+def test_positive_advantage_moves_mean_toward_stored_delta_se_action() -> None:
+    policy = FakeSegmentPolicy()
+    optimizer = torch.optim.SGD(policy.parameters(), lr=0.5)
+    obs = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+    large_rp_action = torch.tensor([[0.0, 0.0, 0.0, 0.4, 0.4, 0.0]])
+    old_log_prob = -0.5 * large_rp_action.square().sum(dim=-1)
+    batch = FrontRESSegmentPPOBatch(
+        observations=obs,
+        actions=large_rp_action,
+        old_log_probs=old_log_prob,
+        old_values=torch.zeros(1),
+        returns=torch.ones(1),
+        advantages=torch.ones(1),
+        valid_mask=torch.tensor([True]),
+        segment_ids=torch.tensor([11]),
+        action_mask=torch.ones(1, 6),
+    )
+
+    before_mean = policy.evaluate_segment_actions(obs, large_rp_action).mean.detach().clone()
+    result = compute_frontres_segment_ppo_loss(policy, batch, FrontRESSegmentPPOConfig(entropy_coef=0.0))
+    optimizer.zero_grad(set_to_none=True)
+    result.total_loss.backward()
+    optimizer.step()
+    after_mean = policy.evaluate_segment_actions(obs, large_rp_action).mean.detach()
+
+    print(
+        "[probe ppo_advantage_large_action] "
+        f"before_rp={before_mean[0, 3:5].tolist()} "
+        f"after_rp={after_mean[0, 3:5].tolist()} "
+        f"stored_action_rp={large_rp_action[0, 3:5].tolist()} "
+        f"advantage={batch.advantages.item():.6f}",
+        flush=True,
+    )
+    assert result.should_step
+    assert after_mean[0, 3] > before_mean[0, 3]
+    assert after_mean[0, 4] > before_mean[0, 4]
+    assert after_mean[0, 3] < large_rp_action[0, 3]
+    assert after_mean[0, 4] < large_rp_action[0, 4]
+
+
+def test_old_distribution_stats_drive_mosaic_style_kl() -> None:
+    policy = FakeSegmentPolicy()
+    obs = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+    actions = torch.zeros(1, 6)
+    batch = FrontRESSegmentPPOBatch(
+        observations=obs,
+        actions=actions,
+        old_log_probs=torch.zeros(1),
+        old_values=torch.zeros(1),
+        returns=torch.ones(1),
+        advantages=torch.ones(1),
+        valid_mask=torch.tensor([True]),
+        segment_ids=torch.tensor([12]),
+        action_mask=torch.ones(1, 6),
+        old_means=torch.full((1, 6), 0.5),
+        old_sigmas=torch.ones(1, 6),
+    )
+
+    result = compute_frontres_segment_ppo_loss(policy, batch, FrontRESSegmentPPOConfig(entropy_coef=0.0))
+    print(
+        "[probe old_stats_kl] "
+        f"logprob_approx_kl={result.logprob_approx_kl:.6f} "
+        f"distribution_kl_mean={result.distribution_kl_mean:.6f} "
+        f"distribution_kl_available={result.distribution_kl_available} "
+        f"approx_kl={result.approx_kl:.6f}",
+        flush=True,
+    )
+    assert result.distribution_kl_available
+    assert abs(result.logprob_approx_kl) < 1e-6
+    assert result.distribution_kl_mean > 0.7
+    assert abs(result.approx_kl - result.distribution_kl_mean) < 1e-6
 
 
 def test_invalid_samples_do_not_contribute_to_loss() -> None:
@@ -208,6 +281,8 @@ def test_all_invalid_batch_has_zero_loss_and_no_step() -> None:
 
 def main() -> None:
     test_fake_batch_updates_actor_on_valid_segments()
+    test_positive_advantage_moves_mean_toward_stored_delta_se_action()
+    test_old_distribution_stats_drive_mosaic_style_kl()
     test_invalid_samples_do_not_contribute_to_loss()
     test_nonfinite_valid_rows_are_masked_before_loss()
     test_extreme_log_ratio_does_not_overflow_loss()

@@ -269,6 +269,41 @@ def _attach_ppo_update_diagnostics(result: Any, diagnostics: dict[str, Any]) -> 
         object.__setattr__(result, key, value)
 
 
+def _apply_segment_adaptive_learning_rate(alg: Any, ppo_result: Any) -> dict[str, Any]:
+    optimizer = getattr(alg, "optimizer", None)
+    param_groups = getattr(optimizer, "param_groups", None)
+    if not param_groups:
+        return {
+            "adaptive_lr_applied": 0,
+            "adaptive_lr_before": 0.0,
+            "adaptive_lr_after": 0.0,
+        }
+    lr_before = float(getattr(alg, "learning_rate", param_groups[0].get("lr", 0.0)))
+    lr_after = lr_before
+    desired_kl = getattr(alg, "desired_kl", None)
+    schedule = str(getattr(alg, "schedule", "fixed")).lower()
+    if bool(getattr(ppo_result, "distribution_kl_available", False)):
+        kl_mean = float(getattr(ppo_result, "distribution_kl_mean", 0.0))
+    else:
+        kl_mean = float(getattr(ppo_result, "approx_kl", 0.0))
+    applied = 0
+    if desired_kl is not None and schedule == "adaptive" and math.isfinite(kl_mean):
+        desired = float(desired_kl)
+        if kl_mean > desired * 2.0:
+            lr_after = max(1e-5, lr_before / 1.5)
+        elif kl_mean < desired / 2.0 and kl_mean > 0.0:
+            lr_after = min(1e-2, lr_before * 1.5)
+        applied = int(lr_after != lr_before)
+        object.__setattr__(alg, "learning_rate", lr_after)
+        for group in param_groups:
+            group["lr"] = lr_after
+    return {
+        "adaptive_lr_applied": applied,
+        "adaptive_lr_before": lr_before,
+        "adaptive_lr_after": lr_after,
+    }
+
+
 def _family_mask_debug_lines(masks: Any) -> tuple[str, ...]:
     if not isinstance(masks, dict):
         return (f"  dr.family_masks: {masks}",)
@@ -1104,6 +1139,7 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
         normalize_advantages=bool(getattr(runner.alg, "normalize_advantage_per_mini_batch", False)),
     )
     ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
+    lr_diagnostics = _apply_segment_adaptive_learning_rate(runner.alg, ppo_result)
     optimizer_params, param_snapshots = _optimizer_parameter_snapshots(runner.alg.policy, runner.alg.optimizer)
     grad_norm = 0.0
     if ppo_result.should_step:
@@ -1117,6 +1153,7 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
         runner.alg.optimizer.step()
     diagnostics = _parameter_delta_stats(optimizer_params, param_snapshots)
     diagnostics["param_grad_norm"] = grad_norm
+    diagnostics.update(lr_diagnostics)
     _attach_ppo_update_diagnostics(ppo_result, diagnostics)
     runner.eval_mode()
     return ppo_result

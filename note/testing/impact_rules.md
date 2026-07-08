@@ -95,6 +95,7 @@ MAIN-32 frontres_checkpointing.py
 MAIN-33 frontres_rollout_step.py
 MAIN-38 frontres_segment_live_training.py
 MAIN-40 frontres_segment_sequence_eval.py
+MAIN-46 frontres_segment_ppo.py
 MAIN-47 frontres_unified.py
 MAIN-48 frontres_segment_checkpointing.py
 ```
@@ -103,11 +104,38 @@ Recommended tests:
 
 ```text
 S0 py_compile changed files
+S1/S2 frontres_segment_algorithm_contract.py
 S1/S2 frontres_segment_diagnostics_contract.py
 S2 frontres_segment_sequence_eval_contract.py
 S3 frontres_stage3_noise_std_migration_contract.py
 S3 frontres_segment_checkpoint_contract.py when checkpoint payload/load changes
 S4 offline/sequence eval log inspection when a real checkpoint has `transition_means` or `log_prob` explosions
+```
+
+### direct Delta SE PPO semantic closure
+
+Potential impact:
+
+```text
+MAIN-19 front_residual_actor_critic.py
+MAIN-33 frontres_rollout_step.py
+MAIN-38 frontres_segment_live_training.py
+MAIN-39 frontres_segment_live_update_loop.py
+MAIN-44 frontres_segment_storage.py
+MAIN-45 ppo.py
+MAIN-46 frontres_segment_ppo.py
+MAIN-47 frontres_unified.py
+```
+
+Recommended tests:
+
+```text
+S0 py_compile changed files
+S1/S2 frontres_segment_live_probe_ppo_contract.py for executed 6D Delta SE old/new log_prob transform
+S1/S2 frontres_segment_storage_contract.py for old_means/old_sigmas persistence through storage
+S1/S2 frontres_segment_algorithm_contract.py for valid-mask, gradient behavior, and old-stat distribution KL
+S2 frontres_segment_live_single_update_contract.py for old-stat KL -> adaptive LR route
+S2 frontres_segment_live_update_loop_contract.py for optimizer route
 ```
 
 ### Segment cache/dataset/sampler changes

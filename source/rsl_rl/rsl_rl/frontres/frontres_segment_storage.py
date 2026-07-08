@@ -52,6 +52,8 @@ class FrontRESSegmentStorageBatch:
             valid_mask=self.valid_mask,
             segment_ids=self.segment_ids,
             action_mask=self.action_mask,
+            old_means=self.old_means,
+            old_sigmas=self.old_sigmas,
         )
 
 
