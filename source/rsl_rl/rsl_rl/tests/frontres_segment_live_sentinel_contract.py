@@ -355,7 +355,7 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert "probe_log()" in runner
     assert "train_log()" in runner
     assert "run_frontres_segment_live_probe" in runner
-    assert "run_frontres_segment_live_probe_helper(self" in runner
+    assert "run_frontres_segment_live_probe_helper(" in runner
     assert "run_frontres_segment_live_update_loop" in runner
     assert "run_frontres_segment_live_update_loop_helper(" in runner
     assert "run_frontres_segment_offline_eval" in runner

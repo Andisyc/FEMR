@@ -176,6 +176,7 @@ class FakeAlg:
         self.schedule = "fixed"
         self.desired_kl = 0.01
         self.learning_rate = 0.1
+        self.frontres_segment_trust_region_max_retries = 2
 
     def _get_actor_log_prob(self, actions: torch.Tensor) -> torch.Tensor:
         assert self.policy.last_mean is not None
@@ -278,8 +279,9 @@ def test_single_update_does_not_step_optimizer_without_valid_segments() -> None:
 def test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl() -> None:
     runner = FakeRunner()
     runner.alg.schedule = "adaptive"
-    runner.alg.desired_kl = 0.01
+    runner.alg.desired_kl = 1e-5
     runner.alg.learning_rate = 0.1
+    runner.alg.frontres_segment_trust_region_rollback = False
     for group in runner.alg.optimizer.param_groups:
         group["lr"] = runner.alg.learning_rate
     storage_batch = _storage_batch(torch.tensor([True, False]), old_means=torch.full((2, 6), 0.5))
@@ -290,6 +292,7 @@ def test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl() -> N
         f"distribution_kl_mean={result.distribution_kl_mean:.6f} "
         f"post_distribution_kl_mean={result.post_update_distribution_kl_mean:.6f} "
         f"adaptive_lr_kl_mean={result.adaptive_lr_kl_mean:.6f} "
+        f"mosaic_pre_step_kl={result.mosaic_pre_step_adaptive_lr_kl_mean:.6f} "
         f"desired_kl={runner.alg.desired_kl:.6f} "
         f"learning_rate_after={runner.alg.learning_rate:.8f} "
         f"param_group_lr={runner.alg.optimizer.param_groups[0]['lr']:.8f}",
@@ -297,9 +300,53 @@ def test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl() -> N
     )
 
     assert result.distribution_kl_mean > runner.alg.desired_kl * 2.0
-    assert abs(result.adaptive_lr_kl_mean - result.post_update_distribution_kl_mean) < 1e-8
+    assert abs(result.adaptive_lr_kl_mean - result.distribution_kl_mean) < 1e-8
+    assert abs(result.mosaic_pre_step_adaptive_lr_kl_mean - result.distribution_kl_mean) < 1e-8
+    assert result.mosaic_pre_step_adaptive_lr_before == 0.1
+    assert result.mosaic_pre_step_adaptive_lr_after < result.mosaic_pre_step_adaptive_lr_before
     assert runner.alg.learning_rate < 0.1
     assert runner.alg.optimizer.param_groups[0]["lr"] == runner.alg.learning_rate
+    assert result.adaptive_lr_desired_kl == runner.alg.desired_kl
+
+
+def test_single_update_uses_mosaic_pre_step_lr_for_optimizer_step() -> None:
+    old_means = torch.full((2, 6), 0.5)
+    fixed_runner = FakeRunner()
+    fixed_runner.alg.schedule = "fixed"
+    fixed_runner.alg.learning_rate = 0.1
+    for group in fixed_runner.alg.optimizer.param_groups:
+        group["lr"] = fixed_runner.alg.learning_rate
+    fixed_result = run_frontres_segment_single_update(
+        fixed_runner,
+        _storage_batch(torch.tensor([True, False]), old_means=old_means),
+    )
+
+    adaptive_runner = FakeRunner()
+    adaptive_runner.alg.schedule = "adaptive"
+    adaptive_runner.alg.desired_kl = 0.01
+    adaptive_runner.alg.learning_rate = 0.1
+    adaptive_runner.alg.frontres_segment_trust_region_rollback = False
+    for group in adaptive_runner.alg.optimizer.param_groups:
+        group["lr"] = adaptive_runner.alg.learning_rate
+    adaptive_result = run_frontres_segment_single_update(
+        adaptive_runner,
+        _storage_batch(torch.tensor([True, False]), old_means=old_means),
+    )
+
+    print(
+        "[probe step3] mosaic_pre_step_lr_controls_step: "
+        f"fixed_delta_l2={fixed_result.param_delta_l2:.6f} "
+        f"adaptive_delta_l2={adaptive_result.param_delta_l2:.6f} "
+        f"pre_kl={adaptive_result.mosaic_pre_step_adaptive_lr_kl_mean:.6f} "
+        f"pre_lr_before={adaptive_result.mosaic_pre_step_adaptive_lr_before:.8f} "
+        f"pre_lr_after={adaptive_result.mosaic_pre_step_adaptive_lr_after:.8f}",
+        flush=True,
+    )
+
+    assert fixed_result.param_delta_l2 > 0.0
+    assert adaptive_result.param_delta_l2 > 0.0
+    assert adaptive_result.mosaic_pre_step_adaptive_lr_after < adaptive_result.mosaic_pre_step_adaptive_lr_before
+    assert adaptive_result.param_delta_l2 < fixed_result.param_delta_l2 * 0.2
 
 
 def test_single_update_reports_post_update_trust_region_kl() -> None:
@@ -325,9 +372,48 @@ def test_single_update_reports_post_update_trust_region_kl() -> None:
     assert abs(result.approx_kl - result.post_update_distribution_kl_mean) < 1e-8
 
 
+def test_single_update_rejects_explosive_adaptive_post_kl_and_reports_post_ratio_max() -> None:
+    runner = FakeRunner()
+    runner.alg.schedule = "adaptive"
+    runner.alg.desired_kl = 1e-5
+    runner.alg.learning_rate = 0.1
+    runner.alg.frontres_segment_trust_region_max_retries = 0
+    for group in runner.alg.optimizer.param_groups:
+        group["lr"] = runner.alg.learning_rate
+    before_actor = runner.alg.policy.actor.weight.detach().clone()
+    before_critic = runner.alg.policy.critic.weight.detach().clone()
+    storage_batch = _storage_batch(torch.tensor([True, False]))
+
+    result = run_frontres_segment_single_update(runner, storage_batch)
+    print(
+        "[probe step3] trust_region_rejects_post_kl: "
+        f"post_kl={result.post_update_distribution_kl_mean:.6f} "
+        f"post_ratio_mean={result.post_update_ratio_mean:.6e} "
+        f"post_ratio_max={result.post_update_ratio_max:.6e} "
+        f"rejected={result.trust_region_rejected_count} "
+        f"accepted={result.trust_region_accepted} "
+        f"lr_after={runner.alg.learning_rate:.8f} "
+        f"param_delta_l2={result.param_delta_l2:.6f}",
+        flush=True,
+    )
+
+    assert result.post_update_distribution_kl_mean > runner.alg.desired_kl * 2.0
+    assert result.trust_region_rejected_count == 1
+    assert result.trust_region_accepted == 0
+    assert result.param_delta_changed == 0
+    assert result.param_delta_l2 == 0.0
+    assert result.post_update_ratio_max >= result.post_update_ratio_mean
+    assert result.ratio_max == result.post_update_ratio_max
+    assert runner.alg.learning_rate < 0.1
+    torch.testing.assert_close(runner.alg.policy.actor.weight.detach(), before_actor)
+    torch.testing.assert_close(runner.alg.policy.critic.weight.detach(), before_critic)
+
+
 if __name__ == "__main__":
     test_single_update_steps_optimizer_with_valid_segment()
     test_single_update_does_not_step_optimizer_without_valid_segments()
     test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl()
+    test_single_update_uses_mosaic_pre_step_lr_for_optimizer_step()
     test_single_update_reports_post_update_trust_region_kl()
+    test_single_update_rejects_explosive_adaptive_post_kl_and_reports_post_ratio_max()
     print("frontres_segment_live_single_update_contract: ok")

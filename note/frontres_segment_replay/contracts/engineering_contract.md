@@ -1160,6 +1160,21 @@ Step 10 implementation result:
 - this is still a fake-batch algorithm contract and does not enable live
   Stage 3 training.
 
+Step 10.1 PPO update semantic alignment:
+- Stage 3 Segment live update remains isolated from legacy `runner.learn()`,
+  `PPO.update()`, and `FrontRESUnified.update()`;
+- the Segment path must still preserve the mature PPO distribution contract:
+  `old_log_prob`, `old_means`, `old_sigmas`, current mean/sigma, ratio, clipped
+  surrogate, distribution KL, adaptive LR, optimizer.step, and post-step
+  diagnostics;
+- schedule=`adaptive` LR is applied before optimizer.step from the pre-step
+  old/new distribution KL, matching the MOSAIC/RSL-RL PPO update ordering;
+- post-update KL is a Segment live diagnostic and trust-region rejection check,
+  not the primary MOSAIC adaptive-LR signal;
+- rejected post-KL steps may rollback and retry inside the Segment path, but
+  this does not change the full-6D Delta SE action semantics and must not touch
+  legacy PPO branches.
+
 ## 13. Checkpoint Contract
 
 Checkpoint behavior for `stage3_segment_hrl`:

@@ -684,8 +684,14 @@ class OnPolicyRunner:
             init_at_random_ep_len=init_at_random_ep_len,
         )
 
-    def run_frontres_segment_live_probe(self, init_at_random_ep_len: bool = True) -> dict[str, object]:
-        return run_frontres_segment_live_probe_helper(self, init_at_random_ep_len=init_at_random_ep_len)
+    def run_frontres_segment_live_probe(
+        self,
+        init_at_random_ep_len: bool = True,
+    ) -> dict[str, object]:
+        return run_frontres_segment_live_probe_helper(
+            self,
+            init_at_random_ep_len=init_at_random_ep_len,
+        )
 
     def run_frontres_segment_live_update_loop(
         self,

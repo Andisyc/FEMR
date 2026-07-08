@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, deque
+import copy
 from dataclasses import dataclass
 import math
 from types import SimpleNamespace
@@ -86,6 +87,8 @@ def _delta_z_up_frac(actions: torch.Tensor | None) -> float:
 
 
 def _probe_status(summary: dict[str, object]) -> str:
+    if int(summary.get("ppo_trust_region_rejected_count", 0) or 0) > 0:
+        return "WARN_TRUST_REGION_REJECTED"
     total_loss = float(summary.get("ppo_total_loss", 0.0))
     actor_loss = float(summary.get("ppo_actor_loss", 0.0))
     approx_kl = float(summary.get("ppo_approx_kl", 0.0))
@@ -264,6 +267,23 @@ def _parameter_delta_stats(
     }
 
 
+def _restore_optimizer_parameters(
+    params: tuple[tuple[str, torch.Tensor], ...],
+    snapshots: dict[int, torch.Tensor],
+) -> None:
+    for _, param in params:
+        before = snapshots.get(id(param))
+        if before is not None:
+            param.data.copy_(before)
+
+
+def _set_segment_optimizer_lr(alg: Any, lr: float) -> None:
+    optimizer = getattr(alg, "optimizer", None)
+    for group in getattr(optimizer, "param_groups", ()) or ():
+        group["lr"] = float(lr)
+    object.__setattr__(alg, "learning_rate", float(lr))
+
+
 def _attach_ppo_update_diagnostics(result: Any, diagnostics: dict[str, Any]) -> None:
     for key, value in diagnostics.items():
         object.__setattr__(result, key, value)
@@ -286,6 +306,7 @@ def _post_update_segment_ppo_diagnostics(
         "post_update_distribution_kl_available": bool(post_result.distribution_kl_available),
         "post_update_logprob_approx_kl": float(post_result.logprob_approx_kl),
         "post_update_ratio_mean": float(post_result.ratio_mean),
+        "post_update_ratio_max": float(post_result.ratio_max),
         "post_update_clip_frac": float(post_result.clip_frac),
         "post_update_approx_kl": post_kl,
     }
@@ -299,16 +320,20 @@ def _apply_segment_adaptive_learning_rate(
 ) -> dict[str, Any]:
     optimizer = getattr(alg, "optimizer", None)
     param_groups = getattr(optimizer, "param_groups", None)
+    desired_kl = getattr(alg, "desired_kl", None)
+    schedule = str(getattr(alg, "schedule", "fixed")).lower()
+    min_lr = float(getattr(alg, "frontres_segment_min_learning_rate", 1e-7))
+    max_lr = float(getattr(alg, "frontres_segment_max_learning_rate", 1e-2))
     if not param_groups:
         return {
             "adaptive_lr_applied": 0,
             "adaptive_lr_before": 0.0,
             "adaptive_lr_after": 0.0,
+            "adaptive_lr_desired_kl": float(desired_kl) if desired_kl is not None else 0.0,
+            "adaptive_lr_schedule": schedule,
         }
     lr_before = float(getattr(alg, "learning_rate", param_groups[0].get("lr", 0.0)))
     lr_after = lr_before
-    desired_kl = getattr(alg, "desired_kl", None)
-    schedule = str(getattr(alg, "schedule", "fixed")).lower()
     if kl_mean is not None:
         kl_mean = float(kl_mean)
     elif bool(getattr(ppo_result, "distribution_kl_available", False)):
@@ -319,18 +344,21 @@ def _apply_segment_adaptive_learning_rate(
     if desired_kl is not None and schedule == "adaptive" and math.isfinite(kl_mean):
         desired = float(desired_kl)
         if kl_mean > desired * 2.0:
-            lr_after = max(1e-5, lr_before / 1.5)
+            excess = kl_mean / max(desired * 2.0, 1e-12)
+            lr_after = min(max_lr, max(min_lr, lr_before / max(1.5, math.sqrt(excess))))
         elif kl_mean < desired / 2.0 and kl_mean > 0.0:
-            lr_after = min(1e-2, lr_before * 1.5)
+            lr_after = min(max_lr, lr_before * 1.5)
         applied = int(lr_after != lr_before)
-        object.__setattr__(alg, "learning_rate", lr_after)
-        for group in param_groups:
-            group["lr"] = lr_after
+        _set_segment_optimizer_lr(alg, lr_after)
     return {
         "adaptive_lr_applied": applied,
         "adaptive_lr_before": lr_before,
         "adaptive_lr_after": lr_after,
         "adaptive_lr_kl_mean": kl_mean,
+        "adaptive_lr_desired_kl": float(desired_kl) if desired_kl is not None else 0.0,
+        "adaptive_lr_schedule": schedule,
+        "adaptive_lr_min": min_lr,
+        "adaptive_lr_max": max_lr,
     }
 
 
@@ -659,6 +687,9 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     "ppo_post_update_ratio_mean": float(
                         getattr(ppo_result, "post_update_ratio_mean", 0.0)
                     ),
+                    "ppo_post_update_ratio_max": float(
+                        getattr(ppo_result, "post_update_ratio_max", 0.0)
+                    ),
                     "ppo_post_update_clip_frac": float(
                         getattr(ppo_result, "post_update_clip_frac", 0.0)
                     ),
@@ -671,6 +702,26 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     "ppo_param_delta_total": int(getattr(ppo_result, "param_delta_total", 0)),
                     "ppo_param_delta_first_changed": str(getattr(ppo_result, "param_delta_first_changed", "")),
                     "ppo_param_grad_norm": float(getattr(ppo_result, "param_grad_norm", 0.0)),
+                    "ppo_trust_region_rejected_count": int(
+                        getattr(ppo_result, "trust_region_rejected_count", 0)
+                    ),
+                    "ppo_trust_region_accepted": int(getattr(ppo_result, "trust_region_accepted", 1)),
+                    "ppo_adaptive_lr_before": float(getattr(ppo_result, "adaptive_lr_before", 0.0)),
+                    "ppo_adaptive_lr_after": float(getattr(ppo_result, "adaptive_lr_after", 0.0)),
+                    "ppo_adaptive_lr_kl_mean": float(getattr(ppo_result, "adaptive_lr_kl_mean", 0.0)),
+                    "ppo_adaptive_lr_desired_kl": float(getattr(ppo_result, "adaptive_lr_desired_kl", 0.0)),
+                    "ppo_mosaic_pre_step_adaptive_lr_before": float(
+                        getattr(ppo_result, "mosaic_pre_step_adaptive_lr_before", 0.0)
+                    ),
+                    "ppo_mosaic_pre_step_adaptive_lr_after": float(
+                        getattr(ppo_result, "mosaic_pre_step_adaptive_lr_after", 0.0)
+                    ),
+                    "ppo_mosaic_pre_step_adaptive_lr_kl_mean": float(
+                        getattr(ppo_result, "mosaic_pre_step_adaptive_lr_kl_mean", 0.0)
+                    ),
+                    "ppo_segment_reject_adaptive_lr_after": float(
+                        getattr(ppo_result, "segment_reject_adaptive_lr_after", 0.0)
+                    ),
                 }
             )
     _print_live_probe_summary(runner, capture, summary)
@@ -1171,6 +1222,14 @@ def _current_reset_success_mask(runner: Any, *, batch_size: int, device: torch.d
 
 
 def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> object:
+    """Run one Stage 3 Segment PPO update on the isolated live path.
+
+    Status: active Segment Replay path only.
+    Upstream: learn_frontres_segment_live -> live update loop -> this helper.
+    Downstream: FrontRESSegmentPPOBatch -> compute_frontres_segment_ppo_loss -> optimizer.step.
+    Evidence: code-confirmed and contract-confirmed by frontres_segment_live_single_update_contract.py.
+    Gap: real IsaacLab S4 training quality still needs live sentinel logs.
+    """
     runner.train_mode()
     ppo_batch = storage_batch.to_ppo_batch(FrontRESSegmentPPOBatch)
     policy_adapter = FrontRESSegmentLivePolicyAdapter(
@@ -1186,30 +1245,68 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
         normalize_advantages=bool(getattr(runner.alg, "normalize_advantage_per_mini_batch", False)),
     )
     ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
+    pre_step_lr_diagnostics = _apply_segment_adaptive_learning_rate(runner.alg, ppo_result)
     optimizer_params, param_snapshots = _optimizer_parameter_snapshots(runner.alg.policy, runner.alg.optimizer)
+    optimizer_state_snapshot = copy.deepcopy(runner.alg.optimizer.state_dict())
     grad_norm = 0.0
     post_update_diagnostics: dict[str, Any] = {}
+    rejected_lr_diagnostics: dict[str, Any] = {}
+    rejected_count = 0
+    accepted = True
     if ppo_result.should_step:
-        runner.alg.optimizer.zero_grad()
-        ppo_result.total_loss.backward()
-        grad_norm_tensor = torch.nn.utils.clip_grad_norm_(
-            (param for _, param in optimizer_params),
-            float(getattr(runner.alg, "max_grad_norm", 1.0)),
-        )
-        grad_norm = float(grad_norm_tensor.detach().cpu().item())
-        runner.alg.optimizer.step()
-        post_update_diagnostics = _post_update_segment_ppo_diagnostics(policy_adapter, ppo_batch, ppo_cfg)
-        object.__setattr__(ppo_result, "approx_kl", float(post_update_diagnostics["post_update_approx_kl"]))
-        object.__setattr__(ppo_result, "clip_frac", float(post_update_diagnostics["post_update_clip_frac"]))
-        object.__setattr__(ppo_result, "ratio_mean", float(post_update_diagnostics["post_update_ratio_mean"]))
-    kl_for_lr = (
-        float(post_update_diagnostics["post_update_approx_kl"])
-        if post_update_diagnostics
-        else None
-    )
-    lr_diagnostics = _apply_segment_adaptive_learning_rate(runner.alg, ppo_result, kl_mean=kl_for_lr)
+        max_retries = max(0, int(getattr(runner.alg, "frontres_segment_trust_region_max_retries", 2)))
+        rollback_enabled = bool(getattr(runner.alg, "frontres_segment_trust_region_rollback", True))
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
+            runner.alg.optimizer.zero_grad()
+            ppo_result.total_loss.backward()
+            grad_norm_tensor = torch.nn.utils.clip_grad_norm_(
+                (param for _, param in optimizer_params),
+                float(getattr(runner.alg, "max_grad_norm", 1.0)),
+            )
+            grad_norm = float(grad_norm_tensor.detach().cpu().item())
+            runner.alg.optimizer.step()
+            post_update_diagnostics = _post_update_segment_ppo_diagnostics(policy_adapter, ppo_batch, ppo_cfg)
+            post_kl = float(post_update_diagnostics["post_update_approx_kl"])
+            desired_kl = getattr(runner.alg, "desired_kl", None)
+            schedule = str(getattr(runner.alg, "schedule", "fixed")).lower()
+            reject = (
+                rollback_enabled
+                and desired_kl is not None
+                and schedule == "adaptive"
+                and math.isfinite(post_kl)
+                and post_kl > float(desired_kl) * 2.0
+            )
+            if reject:
+                _restore_optimizer_parameters(optimizer_params, param_snapshots)
+                runner.alg.optimizer.load_state_dict(optimizer_state_snapshot)
+                rejected_count += 1
+                rejected_lr_diagnostics = _apply_segment_adaptive_learning_rate(
+                    runner.alg,
+                    ppo_result,
+                    kl_mean=post_kl,
+                )
+                if attempt < max_retries:
+                    continue
+                accepted = False
+            object.__setattr__(ppo_result, "approx_kl", post_kl)
+            object.__setattr__(ppo_result, "clip_frac", float(post_update_diagnostics["post_update_clip_frac"]))
+            object.__setattr__(ppo_result, "ratio_mean", float(post_update_diagnostics["post_update_ratio_mean"]))
+            object.__setattr__(ppo_result, "ratio_max", float(post_update_diagnostics["post_update_ratio_max"]))
+            break
+    if rejected_lr_diagnostics and not accepted:
+        lr_diagnostics = rejected_lr_diagnostics
+    else:
+        lr_diagnostics = pre_step_lr_diagnostics
     diagnostics = _parameter_delta_stats(optimizer_params, param_snapshots)
     diagnostics["param_grad_norm"] = grad_norm
+    diagnostics["trust_region_rejected_count"] = rejected_count
+    diagnostics["trust_region_accepted"] = int(bool(accepted))
+    for key, value in pre_step_lr_diagnostics.items():
+        diagnostics[f"mosaic_pre_step_{key}"] = value
+    for key, value in rejected_lr_diagnostics.items():
+        diagnostics[f"segment_reject_{key}"] = value
     diagnostics.update(post_update_diagnostics)
     diagnostics.update(lr_diagnostics)
     _attach_ppo_update_diagnostics(ppo_result, diagnostics)
@@ -1577,6 +1674,7 @@ def _initial_live_probe_summary(
         "ppo_post_update_distribution_kl_mean": 0.0,
         "ppo_post_update_logprob_approx_kl": 0.0,
         "ppo_post_update_ratio_mean": 0.0,
+        "ppo_post_update_ratio_max": 0.0,
         "ppo_post_update_clip_frac": 0.0,
         "ppo_param_delta_max_abs": 0.0,
         "ppo_param_delta_l2": 0.0,
@@ -1584,9 +1682,26 @@ def _initial_live_probe_summary(
         "ppo_param_delta_total": 0,
         "ppo_param_delta_first_changed": "",
         "ppo_param_grad_norm": 0.0,
+        "ppo_trust_region_rejected_count": 0,
+        "ppo_trust_region_accepted": 1,
     }
     summary.update(score_summary)
+    summary.update(_motion_quality_summary(capture))
     return summary
+
+
+def _motion_quality_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[str, float]:
+    try:
+        from rsl_rl.frontres.frontres_segment_diagnostics import motion_quality_summary_to_scalars
+    except ModuleNotFoundError:
+        return {}
+    return motion_quality_summary_to_scalars(
+        clean_positions=capture.motion_clean_body_pos,
+        repaired_positions=capture.motion_repaired_body_pos,
+        noisy_positions=capture.motion_noisy_body_pos,
+        delta_se=capture.transition_actions,
+        valid_mask=capture.actor_update_mask,
+    )
 
 
 def _paired_score_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[str, object]:
@@ -1782,7 +1897,17 @@ def _print_live_probe_summary(
                     {
                         "reported_mean": _fmt_num(summary.get("ppo_ratio_mean", 0.0)),
                         "post_mean": _fmt_num(summary.get("ppo_post_update_ratio_mean", 0.0)),
-                        "max": _fmt_num(summary.get("ppo_ratio_max", 0.0)),
+                        "post_max": _fmt_num(summary.get("ppo_post_update_ratio_max", 0.0)),
+                    },
+                ),
+                *_kv_lines(
+                    "trust",
+                    {
+                        "accepted": bool(summary.get("ppo_trust_region_accepted", 1)),
+                        "rejected": int(summary.get("ppo_trust_region_rejected_count", 0)),
+                        "lr_before": _fmt_num(summary.get("ppo_adaptive_lr_before", 0.0)),
+                        "lr_after": _fmt_num(summary.get("ppo_adaptive_lr_after", 0.0)),
+                        "desired_kl": _fmt_num(summary.get("ppo_adaptive_lr_desired_kl", 0.0)),
                     },
                 ),
                 *_kv_lines(

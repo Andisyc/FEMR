@@ -571,6 +571,10 @@ segment_sampler
  -> segment diagnostics
 ```
 
+The Level Replay alignment here is semantic, not a literal call-order
+requirement: sampler priority evidence must be rollout-time evidence and remain
+independent of post-update PPO diagnostics.
+
 The runner may call this flow, but it should not own the logic.
 
 ## 6. Engineering Order

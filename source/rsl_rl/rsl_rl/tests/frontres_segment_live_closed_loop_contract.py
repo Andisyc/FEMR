@@ -243,8 +243,15 @@ class FakeRunner:
     def teacher_obs_normalizer(self, obs: torch.Tensor) -> torch.Tensor:
         return obs
 
-    def run_frontres_segment_live_probe(self, *, init_at_random_ep_len: bool):
-        return run_frontres_segment_live_probe(self, init_at_random_ep_len=init_at_random_ep_len)
+    def run_frontres_segment_live_probe(
+        self,
+        *,
+        init_at_random_ep_len: bool,
+    ):
+        return run_frontres_segment_live_probe(
+            self,
+            init_at_random_ep_len=init_at_random_ep_len,
+        )
 
 
 def _dataset() -> FrontRESSegmentDataset:

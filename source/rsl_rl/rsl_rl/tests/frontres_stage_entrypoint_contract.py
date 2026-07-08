@@ -33,6 +33,7 @@ def main() -> None:
     root_stage1 = _read("run_stage1.sh")
     root_stage2 = _read("run_stage2.sh")
     root_stage3 = _read("run_stage3.sh")
+    frontres_policy = _read("source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py")
 
     assert 'choices=("stage1_segment_cache", "stage1_hsl", "stage2_hsl_warmup", "stage2_acceptance", "stage3_segment_hrl")' in train
     assert '"--frontres_segment_cache_dir"' in train
@@ -48,6 +49,8 @@ def main() -> None:
     assert '"--frontres_segment_cache_curriculum_frontier_scale"' in train
     assert '"--frontres_segment_cache_curriculum_dr_min"' in train
     assert '"--frontres_segment_cache_curriculum_dr_max"' in train
+    assert 'if "actor_hidden_dims" in kwargs:' in frontres_policy
+    assert 'residual_hidden_dims = list(kwargs.pop("actor_hidden_dims"))' in frontres_policy
     assert '"--frontres_segment_cache_curriculum_progress"' in train
     assert '"--frontres_segment_cache_curriculum_seq_idx"' in train
     assert '"--frontres_segment_cache_curriculum_active_dims"' in train
@@ -308,7 +311,7 @@ def main() -> None:
     assert "runner.learn_frontres_segment_live(" in train
     assert "frontres_segment_live_train_enabled" in train
     assert "runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)" in train
-    assert "run_frontres_segment_live_probe_helper(self" in runner_impl
+    assert "run_frontres_segment_live_probe_helper(" in runner_impl
     assert "FrontRESSegmentRolloutStorage" not in runner_impl
     assert "FrontRESSegmentTransition" not in runner_impl
     assert "compute_frontres_segment_ppo_loss" not in runner_impl

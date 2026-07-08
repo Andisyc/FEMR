@@ -1403,6 +1403,14 @@ def _fmt_pct(value: Any) -> str:
 
 
 def _live_train_status(summary: Mapping[str, Any]) -> str:
+    if int(
+        summary.get(
+            "ppo_trust_region_rejected_count_sum",
+            summary.get("ppo_trust_region_rejected_count", 0),
+        )
+        or 0
+    ) > 0:
+        return "WARN_TRUST_REGION_REJECTED"
     total_loss = float(summary["ppo_total_loss_mean"])
     actor_loss = float(summary["ppo_actor_loss_mean"])
     approx_kl = float(summary["ppo_approx_kl_mean"])
@@ -1425,8 +1433,22 @@ def _print_live_train_summary(
     summary: Mapping[str, Any],
 ) -> None:
     motion_scalars = motion_quality_summary_to_scalars()
-    motion_scalars["segment/motion_delta_se_norm"] = float(summary.get("motion_delta_se_norm", 0.0))
-    motion_scalars["segment/motion_delta_z_up_frac"] = float(summary.get("motion_delta_z_up_frac", 0.0))
+    for key in (
+        "segment/motion_mpjpe_repaired_clean",
+        "segment/motion_mpjpe_noisy_clean",
+        "segment/motion_vel_error_repaired_clean",
+        "segment/motion_acc_error_repaired_clean",
+        "segment/motion_delta_se_norm",
+        "segment/motion_delta_z_up_frac",
+    ):
+        if key in summary:
+            motion_scalars[key] = float(summary[key])
+    motion_scalars["segment/motion_delta_se_norm"] = float(
+        summary.get("motion_delta_se_norm", motion_scalars["segment/motion_delta_se_norm"])
+    )
+    motion_scalars["segment/motion_delta_z_up_frac"] = float(
+        summary.get("motion_delta_z_up_frac", motion_scalars["segment/motion_delta_z_up_frac"])
+    )
     print(
         "\n".join(
             (
@@ -1459,6 +1481,15 @@ def _print_live_train_summary(
                 f"kl={_fmt_num(summary['ppo_approx_kl_mean'])} "
                 f"clip={_fmt_pct(summary['ppo_clip_frac_mean'])} "
                 f"status={_live_train_status(summary)}",
+                "  trust: "
+                f"accepted={int(summary.get('ppo_trust_region_accepted_min', summary.get('ppo_trust_region_accepted', 1)))} "
+                f"rejected={int(summary.get('ppo_trust_region_rejected_count_sum', summary.get('ppo_trust_region_rejected_count', 0)))} "
+                f"lr_before={_fmt_num(summary.get('ppo_adaptive_lr_before_first', summary.get('ppo_adaptive_lr_before', 0.0)))} "
+                f"lr_after={_fmt_num(summary.get('ppo_adaptive_lr_after_last', summary.get('ppo_adaptive_lr_after', 0.0)))} "
+                f"desired_kl={_fmt_num(summary.get('ppo_adaptive_lr_desired_kl_mean', summary.get('ppo_adaptive_lr_desired_kl', 0.0)))} "
+                f"pre_lr_before={_fmt_num(summary.get('ppo_mosaic_pre_step_adaptive_lr_before_first', summary.get('ppo_mosaic_pre_step_adaptive_lr_before', 0.0)))} "
+                f"pre_lr_after={_fmt_num(summary.get('ppo_mosaic_pre_step_adaptive_lr_after_last', summary.get('ppo_mosaic_pre_step_adaptive_lr_after', 0.0)))} "
+                f"pre_kl={_fmt_num(summary.get('ppo_mosaic_pre_step_adaptive_lr_kl_mean', 0.0))}",
                 "",
                 format_segment_train_effect_log(dict(summary)),
                 "",

@@ -46,6 +46,13 @@ def _loop_status(total_loss: float, actor_loss: float, approx_kl: float, clip_fr
     return "OK"
 
 
+def _mean_optional_metric(metrics: list[dict[str, Any]], key: str) -> float:
+    values = [float(item[key]) for item in metrics if key in item and math.isfinite(float(item[key]))]
+    if not values:
+        return float("nan")
+    return sum(values) / float(len(values))
+
+
 def _should_print_update_loop_summary(runner: Any) -> bool:
     alg = getattr(runner, "alg", None)
     if bool(getattr(alg, "frontres_segment_verbose_probe", False)):
@@ -93,12 +100,29 @@ def run_frontres_segment_live_update_loop(
     done_frac = sum(float(item.get("done_frac", 0.0)) for item in metrics) / float(update_steps)
     motion_delta_se_norm = sum(float(item.get("motion_delta_se_norm", 0.0)) for item in metrics) / float(update_steps)
     motion_delta_z_up_frac = sum(float(item.get("motion_delta_z_up_frac", 0.0)) for item in metrics) / float(update_steps)
+    motion_mpjpe_repaired_clean = _mean_optional_metric(metrics, "segment/motion_mpjpe_repaired_clean")
+    motion_mpjpe_noisy_clean = _mean_optional_metric(metrics, "segment/motion_mpjpe_noisy_clean")
+    motion_vel_error_repaired_clean = _mean_optional_metric(metrics, "segment/motion_vel_error_repaired_clean")
+    motion_acc_error_repaired_clean = _mean_optional_metric(metrics, "segment/motion_acc_error_repaired_clean")
     storage_valid_frac = sum(float(item["storage_valid_frac"]) for item in metrics) / float(update_steps)
     total_loss_mean = sum(float(item["ppo_total_loss"]) for item in metrics) / float(update_steps)
     actor_loss_mean = sum(float(item["ppo_actor_loss"]) for item in metrics) / float(update_steps)
     value_loss_mean = sum(float(item["ppo_value_loss"]) for item in metrics) / float(update_steps)
     approx_kl_mean = sum(float(item["ppo_approx_kl"]) for item in metrics) / float(update_steps)
     clip_frac_mean = sum(float(item["ppo_clip_frac"]) for item in metrics) / float(update_steps)
+    trust_region_rejected_count = sum(int(item.get("ppo_trust_region_rejected_count", 0)) for item in metrics)
+    trust_region_accepted_min = min(int(item.get("ppo_trust_region_accepted", 1)) for item in metrics)
+    adaptive_lr_before_first = float(metrics[0].get("ppo_adaptive_lr_before", 0.0))
+    adaptive_lr_after_last = float(metrics[-1].get("ppo_adaptive_lr_after", 0.0))
+    adaptive_lr_desired_kl_mean = (
+        sum(float(item.get("ppo_adaptive_lr_desired_kl", 0.0)) for item in metrics) / float(update_steps)
+    )
+    mosaic_pre_step_lr_before_first = float(metrics[0].get("ppo_mosaic_pre_step_adaptive_lr_before", 0.0))
+    mosaic_pre_step_lr_after_last = float(metrics[-1].get("ppo_mosaic_pre_step_adaptive_lr_after", 0.0))
+    mosaic_pre_step_lr_kl_mean = (
+        sum(float(item.get("ppo_mosaic_pre_step_adaptive_lr_kl_mean", 0.0)) for item in metrics)
+        / float(update_steps)
+    )
     sampler_update_count = sum(1 for item in metrics if bool(item.get("sampler_update", False)))
     sampler_global_count = sum(int(item.get("sampler_source_global_count", 0)) for item in metrics)
     sampler_replay_count = sum(int(item.get("sampler_source_replay_count", 0)) for item in metrics)
@@ -142,7 +166,17 @@ def run_frontres_segment_live_update_loop(
                     f"value={_fmt_num(value_loss_mean)} "
                     f"kl={_fmt_num(approx_kl_mean)} "
                     f"clip={_fmt_pct(clip_frac_mean)} "
-                    f"status={_loop_status(total_loss_mean, actor_loss_mean, approx_kl_mean, clip_frac_mean)}",
+                    "status="
+                    f"{'WARN_TRUST_REGION_REJECTED' if trust_region_rejected_count > 0 else _loop_status(total_loss_mean, actor_loss_mean, approx_kl_mean, clip_frac_mean)}",
+                    "  trust: "
+                    f"accepted={trust_region_accepted_min} "
+                    f"rejected={trust_region_rejected_count} "
+                    f"lr_before={_fmt_num(adaptive_lr_before_first)} "
+                    f"lr_after={_fmt_num(adaptive_lr_after_last)} "
+                    f"desired_kl={_fmt_num(adaptive_lr_desired_kl_mean)} "
+                    f"pre_lr_before={_fmt_num(mosaic_pre_step_lr_before_first)} "
+                    f"pre_lr_after={_fmt_num(mosaic_pre_step_lr_after_last)} "
+                    f"pre_kl={_fmt_num(mosaic_pre_step_lr_kl_mean)}",
                     "  sampler: "
                     f"global={sampler_global_count} "
                     f"replay={sampler_replay_count} "
@@ -180,12 +214,24 @@ def run_frontres_segment_live_update_loop(
         "done_frac": done_frac,
         "motion_delta_se_norm": motion_delta_se_norm,
         "motion_delta_z_up_frac": motion_delta_z_up_frac,
+        "segment/motion_mpjpe_repaired_clean": motion_mpjpe_repaired_clean,
+        "segment/motion_mpjpe_noisy_clean": motion_mpjpe_noisy_clean,
+        "segment/motion_vel_error_repaired_clean": motion_vel_error_repaired_clean,
+        "segment/motion_acc_error_repaired_clean": motion_acc_error_repaired_clean,
         "storage_valid_frac": storage_valid_frac,
         "ppo_total_loss_mean": total_loss_mean,
         "ppo_actor_loss_mean": actor_loss_mean,
         "ppo_value_loss_mean": value_loss_mean,
         "ppo_approx_kl_mean": approx_kl_mean,
         "ppo_clip_frac_mean": clip_frac_mean,
+        "ppo_trust_region_rejected_count_sum": trust_region_rejected_count,
+        "ppo_trust_region_accepted_min": trust_region_accepted_min,
+        "ppo_adaptive_lr_before_first": adaptive_lr_before_first,
+        "ppo_adaptive_lr_after_last": adaptive_lr_after_last,
+        "ppo_adaptive_lr_desired_kl_mean": adaptive_lr_desired_kl_mean,
+        "ppo_mosaic_pre_step_adaptive_lr_before_first": mosaic_pre_step_lr_before_first,
+        "ppo_mosaic_pre_step_adaptive_lr_after_last": mosaic_pre_step_lr_after_last,
+        "ppo_mosaic_pre_step_adaptive_lr_kl_mean": mosaic_pre_step_lr_kl_mean,
         "sampler_update_count": sampler_update_count,
         "sampler_global_count": sampler_global_count,
         "sampler_replay_count": sampler_replay_count,

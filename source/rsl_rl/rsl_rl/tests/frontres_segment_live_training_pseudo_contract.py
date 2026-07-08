@@ -412,18 +412,20 @@ def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
     output = buffer.getvalue()
     lines = output.splitlines()
     header_idx = lines.index("[FrontRES Segment Live Train]")
-    print(f"[probe readable_log] live_train_block={lines[max(0, header_idx - 3):header_idx + 5]}", flush=True)
+    print(f"[probe readable_log] live_train_block={lines[max(0, header_idx - 3):header_idx + 6]}", flush=True)
 
     assert "[FrontRES Segment Live Train]" in output
     assert lines[header_idx - 2] == "-" * 80
     assert lines[header_idx - 1] == ""
     assert lines[header_idx + 1].startswith("  progress:")
-    assert lines[header_idx + 5] == ""
-    assert lines[header_idx + 6] != "-" * 80
+    assert lines[header_idx + 5].startswith("  trust:")
+    assert lines[header_idx + 6] == ""
+    assert lines[header_idx + 7] != "-" * 80
     assert "  progress: iter=1/1 updates=4/4 runner_learn=True" in output
     assert "  data: valid=8 valid_frac=100.0% train_reward=0.250000 env_reward=-0.500000 gain=0.750000" in output
     assert "  sampler: gain=0.300000 gain_pos=60.0% useful=0.400000 replay_candidates=5 priority=0.070000 pool=11 hopeless=20.0%" in output
     assert "  ppo: loss_total=1.516e+23" in output
+    assert "  trust: accepted=1 rejected=0" in output
     assert "[FrontRES Segment Train Effect]" in output
     assert "  score: noisy=-0.100000 repaired=0.650000 gain=0.750000 gain_pos=80.0%" in output
     assert "[FrontRES Segment Motion Quality]" in output

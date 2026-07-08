@@ -82,8 +82,18 @@ def _summary(
     sampler_update_replay_candidate_count: int = 0,
     sampler_update_priority_before_mean: float = 0.0,
     sampler_update_priority_after_mean: float = 0.0,
+    motion_mpjpe_repaired: float | None = None,
+    motion_mpjpe_noisy: float | None = None,
+    trust_region_rejected_count: int = 0,
+    trust_region_accepted: int = 1,
+    adaptive_lr_before: float = 0.0,
+    adaptive_lr_after: float = 0.0,
+    adaptive_lr_desired_kl: float = 0.0,
+    mosaic_pre_step_lr_before: float = 0.0,
+    mosaic_pre_step_lr_after: float = 0.0,
+    mosaic_pre_step_lr_kl: float = 0.0,
 ) -> dict:
-    return {
+    result = {
         "ppo_update": ppo_update,
         "ppo_valid_count": ppo_valid_count,
         "reward_mean": reward_mean,
@@ -102,7 +112,20 @@ def _summary(
         "ppo_value_loss": ppo_value_loss,
         "ppo_approx_kl": ppo_approx_kl,
         "ppo_clip_frac": ppo_clip_frac,
+        "ppo_trust_region_rejected_count": trust_region_rejected_count,
+        "ppo_trust_region_accepted": trust_region_accepted,
+        "ppo_adaptive_lr_before": adaptive_lr_before,
+        "ppo_adaptive_lr_after": adaptive_lr_after,
+        "ppo_adaptive_lr_desired_kl": adaptive_lr_desired_kl,
+        "ppo_mosaic_pre_step_adaptive_lr_before": mosaic_pre_step_lr_before,
+        "ppo_mosaic_pre_step_adaptive_lr_after": mosaic_pre_step_lr_after,
+        "ppo_mosaic_pre_step_adaptive_lr_kl_mean": mosaic_pre_step_lr_kl,
     }
+    if motion_mpjpe_repaired is not None:
+        result["segment/motion_mpjpe_repaired_clean"] = motion_mpjpe_repaired
+    if motion_mpjpe_noisy is not None:
+        result["segment/motion_mpjpe_noisy_clean"] = motion_mpjpe_noisy
+    return result
 
 
 def test_live_update_loop_aggregates_probe_metrics_and_init_flag() -> None:
@@ -157,6 +180,78 @@ def test_live_update_loop_aggregates_probe_metrics_and_init_flag() -> None:
     assert result["ppo_value_loss_mean"] == 4.0
     assert abs(result["ppo_approx_kl_mean"] - 0.02) < 1e-8
     assert abs(result["ppo_clip_frac_mean"] - 0.20) < 1e-8
+
+
+def test_live_update_loop_aggregates_trust_region_and_motion_quality_metrics() -> None:
+    runner = FakeRunner(
+        [
+            _summary(
+                ppo_update=True,
+                ppo_valid_count=2,
+                reward_mean=1.0,
+                storage_valid_frac=0.50,
+                ppo_total_loss=1.0,
+                ppo_actor_loss=0.1,
+                ppo_value_loss=0.2,
+                ppo_approx_kl=0.01,
+                ppo_clip_frac=0.10,
+                motion_mpjpe_repaired=0.04,
+                motion_mpjpe_noisy=0.08,
+                trust_region_rejected_count=1,
+                trust_region_accepted=0,
+                adaptive_lr_before=1e-4,
+                adaptive_lr_after=1e-6,
+                adaptive_lr_desired_kl=0.01,
+                mosaic_pre_step_lr_before=1e-4,
+                mosaic_pre_step_lr_after=5e-5,
+                mosaic_pre_step_lr_kl=0.03,
+            ),
+            _summary(
+                ppo_update=True,
+                ppo_valid_count=2,
+                reward_mean=1.0,
+                storage_valid_frac=0.50,
+                ppo_total_loss=1.0,
+                ppo_actor_loss=0.1,
+                ppo_value_loss=0.2,
+                ppo_approx_kl=0.01,
+                ppo_clip_frac=0.10,
+                motion_mpjpe_repaired=0.06,
+                motion_mpjpe_noisy=0.10,
+                trust_region_rejected_count=0,
+                trust_region_accepted=1,
+                adaptive_lr_before=1e-6,
+                adaptive_lr_after=1e-6,
+                adaptive_lr_desired_kl=0.01,
+                mosaic_pre_step_lr_before=5e-5,
+                mosaic_pre_step_lr_after=5e-5,
+                mosaic_pre_step_lr_kl=0.01,
+            ),
+        ]
+    )
+
+    result = run_frontres_segment_live_update_loop(runner, init_at_random_ep_len=False)
+    print(
+        "[probe update_loop] trust_motion_aggregate: "
+        f"rejected={result['ppo_trust_region_rejected_count_sum']} "
+        f"accepted_min={result['ppo_trust_region_accepted_min']} "
+        f"mpjpe={result['segment/motion_mpjpe_repaired_clean']:.6f} "
+        f"lr_after={result['ppo_adaptive_lr_after_last']:.8f} "
+        f"pre_lr_after={result['ppo_mosaic_pre_step_adaptive_lr_after_last']:.8f} "
+        f"pre_kl={result['ppo_mosaic_pre_step_adaptive_lr_kl_mean']:.6f}",
+        flush=True,
+    )
+
+    assert result["ppo_trust_region_rejected_count_sum"] == 1
+    assert result["ppo_trust_region_accepted_min"] == 0
+    assert abs(result["segment/motion_mpjpe_repaired_clean"] - 0.05) < 1e-8
+    assert abs(result["segment/motion_mpjpe_noisy_clean"] - 0.09) < 1e-8
+    assert result["ppo_adaptive_lr_before_first"] == 1e-4
+    assert result["ppo_adaptive_lr_after_last"] == 1e-6
+    assert result["ppo_adaptive_lr_desired_kl_mean"] == 0.01
+    assert result["ppo_mosaic_pre_step_adaptive_lr_before_first"] == 1e-4
+    assert result["ppo_mosaic_pre_step_adaptive_lr_after_last"] == 5e-5
+    assert abs(result["ppo_mosaic_pre_step_adaptive_lr_kl_mean"] - 0.02) < 1e-8
 
 
 def test_live_update_loop_uses_algorithm_update_steps_override() -> None:
@@ -415,6 +510,7 @@ def test_live_update_loop_reports_sampler_evidence_update_metrics() -> None:
 
 if __name__ == "__main__":
     test_live_update_loop_aggregates_probe_metrics_and_init_flag()
+    test_live_update_loop_aggregates_trust_region_and_motion_quality_metrics()
     test_live_update_loop_uses_algorithm_update_steps_override()
     test_live_update_loop_requires_enabled_boundary()
     test_live_update_loop_summary_print_rate_default_and_verbose()

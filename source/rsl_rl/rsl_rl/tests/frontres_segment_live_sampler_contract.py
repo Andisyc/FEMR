@@ -205,7 +205,11 @@ class FakeRunner:
         self.probe_batch_roles: list[tuple[str, ...] | None] = []
         self.probe_batch_ids: list[list[int] | None] = []
 
-    def run_frontres_segment_live_probe(self, *, init_at_random_ep_len: bool) -> dict:
+    def run_frontres_segment_live_probe(
+        self,
+        *,
+        init_at_random_ep_len: bool,
+    ) -> dict:
         self.probe_init_flags.append(init_at_random_ep_len)
         adapter = getattr(self.env, "_frontres_segment_index_reset_adapter", None)
         if adapter is not None and hasattr(adapter, "trace_values"):
@@ -522,6 +526,42 @@ def test_live_sampler_evidence_prefers_explicit_gain_when_scores_are_raw_rewards
     torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.02, 0.05]))
     assert update.gain_mean > 0.0
     assert update.gain_pos_frac == 1.0
+
+
+def test_live_sampler_evidence_ignores_post_update_ppo_diagnostics() -> None:
+    sampler = FrontRESSegmentSampler(4, seed=16)
+    sample = sampler.sample(2)
+    summary = _summary_per_sample(
+        rewards=[0.3, -0.4],
+        storage_valid=[True, False],
+        done_any=[False, True],
+    )
+    summary.update(
+        {
+            "score_noisy_per_sample": [0.10, 0.80],
+            "score_repaired_per_sample": [0.40, 0.20],
+            "gain_over_noisy_per_sample": [0.30, -0.60],
+            "ppo_valid_count": 0,
+            "ppo_post_update_distribution_kl_mean": 1.0e9,
+            "ppo_post_update_ratio_mean": 1.0e9,
+            "ppo_post_update_ratio_max": 1.0e9,
+            "ppo_param_delta_l2": 1.0e9,
+        }
+    )
+    evidence = build_live_sampler_evidence(sample, summary, horizon_k=4)
+    update = sampler.update_with_probe(evidence)
+    print(
+        "[probe evidence-ppo-isolation] "
+        f"valid_reward={evidence.valid_reward.tolist()} "
+        f"gain={evidence.gain_over_noisy.tolist()} "
+        f"priority_after={update.priority_after_mean:.6f}",
+        flush=True,
+    )
+    assert evidence.valid_reward.tolist() == [True, False]
+    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.30, -0.60]))
+    torch.testing.assert_close(evidence.score_noisy, torch.tensor([0.10, 0.80]))
+    torch.testing.assert_close(evidence.score_repaired, torch.tensor([0.40, 0.20]))
+    assert update.valid_count == 1
 
 
 def test_live_sampler_evidence_uses_actor_owned_paired_rows_only() -> None:
@@ -1152,6 +1192,7 @@ def main() -> None:
     test_live_sampler_evidence_preserves_per_sample_rollout_facts()
     test_live_sampler_evidence_prefers_real_noisy_repaired_scores()
     test_live_sampler_evidence_prefers_explicit_gain_when_scores_are_raw_rewards()
+    test_live_sampler_evidence_ignores_post_update_ppo_diagnostics()
     test_live_sampler_evidence_uses_actor_owned_paired_rows_only()
     test_large_sampler_probe_uses_summary_not_full_lists()
     test_live_update_loop_samples_and_updates_priority()

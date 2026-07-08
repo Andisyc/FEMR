@@ -68,6 +68,7 @@ class FrontRESSegmentPPOResult:
     post_update_distribution_kl_available: bool = False
     post_update_logprob_approx_kl: float = 0.0
     post_update_ratio_mean: float = 0.0
+    post_update_ratio_max: float = 0.0
     post_update_clip_frac: float = 0.0
 
     @property
@@ -102,6 +103,7 @@ class FrontRESSegmentPPOResult:
             ),
             "segment/ppo_post_update_logprob_approx_kl": self.post_update_logprob_approx_kl,
             "segment/ppo_post_update_ratio_mean": self.post_update_ratio_mean,
+            "segment/ppo_post_update_ratio_max": self.post_update_ratio_max,
             "segment/ppo_post_update_clip_frac": self.post_update_clip_frac,
         }
 
