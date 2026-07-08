@@ -245,8 +245,9 @@ class FrontRESActorCritic(nn.Module):
         frontres_authority_hidden_dims: list[int] | None = None,
         **kwargs,
     ):
-        if "actor_hidden_dims" in kwargs:
-            residual_hidden_dims = list(kwargs.pop("actor_hidden_dims"))
+        legacy_actor_hidden_dims = kwargs.pop("actor_hidden_dims", None)
+        if not residual_hidden_dims and legacy_actor_hidden_dims:
+            residual_hidden_dims = list(legacy_actor_hidden_dims)
         if kwargs:
             print(
                 "ResidualActorCritic.__init__ got unexpected arguments, which will be ignored: "

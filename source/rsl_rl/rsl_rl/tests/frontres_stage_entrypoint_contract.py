@@ -49,8 +49,8 @@ def main() -> None:
     assert '"--frontres_segment_cache_curriculum_frontier_scale"' in train
     assert '"--frontres_segment_cache_curriculum_dr_min"' in train
     assert '"--frontres_segment_cache_curriculum_dr_max"' in train
-    assert 'if "actor_hidden_dims" in kwargs:' in frontres_policy
-    assert 'residual_hidden_dims = list(kwargs.pop("actor_hidden_dims"))' in frontres_policy
+    assert 'legacy_actor_hidden_dims = kwargs.pop("actor_hidden_dims", None)' in frontres_policy
+    assert "if not residual_hidden_dims and legacy_actor_hidden_dims:" in frontres_policy
     assert '"--frontres_segment_cache_curriculum_progress"' in train
     assert '"--frontres_segment_cache_curriculum_seq_idx"' in train
     assert '"--frontres_segment_cache_curriculum_active_dims"' in train
