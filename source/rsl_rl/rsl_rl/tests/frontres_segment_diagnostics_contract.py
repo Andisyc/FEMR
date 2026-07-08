@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -173,6 +174,24 @@ def test_repair_effect_summary_formats_training_fit_metrics() -> None:
     assert "pool=32" in log
 
 
+def test_repair_effect_summary_uses_live_sampler_candidate_field() -> None:
+    summary = {
+        "score_noisy_mean": -0.04,
+        "score_repaired_mean": 0.01,
+        "score_gain_mean": 0.05,
+        "score_gain_pos_frac": 0.75,
+        "done_frac": 0.1,
+        "storage_valid_frac": 0.25,
+        "sampler_replay_pool_size": 32,
+        "sampler_replay_candidates": 0,
+        "sampler_update_replay_candidate_count": 8347,
+    }
+    scalars = repair_effect_summary_to_scalars(summary)
+    assert scalars["segment/train_effect_replay_candidates"] == 8347.0
+    log = format_segment_train_effect_log(summary)
+    assert "candidates=8347" in log
+
+
 def test_motion_quality_summary_measures_pose_velocity_and_delta_se() -> None:
     clean = torch.tensor(
         [[
@@ -204,6 +223,22 @@ def test_motion_quality_summary_measures_pose_velocity_and_delta_se() -> None:
     assert "mpjpe_repaired=0.100000" in log
     assert "vel_err=0.000000" in log
     assert "dz_up=0.0%" in log
+
+
+def test_motion_quality_missing_positions_are_unconfirmed_not_zero() -> None:
+    delta_se = torch.tensor([[0.1, 0.2, -0.3, 0.0, 0.0, 0.4]])
+    scalars = motion_quality_summary_to_scalars(delta_se=delta_se)
+    assert math.isnan(scalars["segment/motion_mpjpe_repaired_clean"])
+    assert math.isnan(scalars["segment/motion_mpjpe_noisy_clean"])
+    assert math.isnan(scalars["segment/motion_vel_error_repaired_clean"])
+    assert math.isnan(scalars["segment/motion_acc_error_repaired_clean"])
+    assert scalars["segment/motion_delta_se_norm"] > 0.0
+    log = format_segment_motion_quality_log(scalars)
+    assert "mpjpe_repaired=UNCONFIRMED" in log
+    assert "mpjpe_noisy=UNCONFIRMED" in log
+    assert "vel_err=UNCONFIRMED" in log
+    assert "acc_err=UNCONFIRMED" in log
+    assert "mpjpe_repaired=0.000000" not in log
 
 
 def test_motion_quality_keeps_action_diagnostics_when_all_samples_fall() -> None:
@@ -243,6 +278,14 @@ def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
         "fall_rate": 0.2,
         "mean_survival_steps": 430,
         "continuous_rollout_gain": 0.12,
+        "score_noisy": -0.08,
+        "score_repaired": 0.04,
+        "segment/motion_mpjpe_repaired_clean": 0.11,
+        "segment/motion_mpjpe_noisy_clean": 0.44,
+        "segment/motion_vel_error_repaired_clean": 0.02,
+        "segment/motion_acc_error_repaired_clean": 0.03,
+        "segment/motion_delta_se_norm": 0.42,
+        "segment/motion_delta_z_up_frac": 0.25,
     }
     scalars = periodic_eval_summary_to_scalars(summary)
     assert scalars["segment/eval_episode_length"] == 500.0
@@ -250,6 +293,8 @@ def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
     assert scalars["segment/eval_fall_rate"] == 0.2
     assert scalars["segment/eval_mean_survival_steps"] == 430.0
     assert scalars["segment/eval_continuous_rollout_gain"] == 0.12
+    assert scalars["segment/eval_score_noisy"] == -0.08
+    assert scalars["segment/eval_score_repaired"] == 0.04
     log = format_segment_periodic_eval_log(summary)
     assert "[FrontRES Segment Periodic Eval]" in log
     assert "episode_length=500.0" in log
@@ -257,13 +302,22 @@ def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
     assert "success=70.0%" in log
     assert "fall=20.0%" in log
     assert "gain=0.120000" in log
+    assert "score: noisy=-0.080000 repaired=0.040000" in log
+    assert "mpjpe_repaired=0.110000" in log
+    assert "mpjpe_noisy=0.440000" in log
+    assert "vel_err=0.020000" in log
+    assert "acc_err=0.030000" in log
+    assert "delta_se_norm=0.420000" in log
+    assert "dz_up=25.0%" in log
 
 
 def main() -> None:
     test_segment_diagnostics_required_keys_and_no_acceptance_keys()
     test_segment_log_contains_live_path_sentinel()
     test_repair_effect_summary_formats_training_fit_metrics()
+    test_repair_effect_summary_uses_live_sampler_candidate_field()
     test_motion_quality_summary_measures_pose_velocity_and_delta_se()
+    test_motion_quality_missing_positions_are_unconfirmed_not_zero()
     test_motion_quality_keeps_action_diagnostics_when_all_samples_fall()
     test_periodic_eval_summary_formats_long_rollout_metrics()
     print("result: PASS")

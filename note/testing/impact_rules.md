@@ -78,6 +78,8 @@ Recommended tests:
 ```text
 S0 py_compile changed files
 S2 relevant runner contract
+S1/S2 frontres_segment_diagnostics_contract.py when live summary, diagnostics,
+  replay candidate counts, or Motion Quality fields change
 S2 frontres_segment_stage3_pseudo_suite.py
 S4 frontres_segment_live_sentinel_contract.py when live path changed
 ```

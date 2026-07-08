@@ -33,11 +33,12 @@ S4 Live Sentinel: minimal real runtime boundary.
 | `source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py` | S1/S2 | MAIN-41/44, M2C-14/15 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py` | contract-confirmed | Storage field and batch boundary. |
 | `source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py` | S1/S2 | MAIN-46/47, M2C-16/18 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py` | contract-confirmed | Segment algorithm update contract. |
 | `source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py` | S1/S2 | MAIN-28, MAIN-37 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py` | contract-confirmed | Live sampler contract and per-sample probes. |
+| `source/rsl_rl/rsl_rl/tests/frontres_segment_diagnostics_contract.py` | S1/S2 | MAIN-37/38/40 diagnostics | `python source/rsl_rl/rsl_rl/tests/frontres_segment_diagnostics_contract.py` | contract-confirmed | Regression for live summary `replay_candidates` field alias, Motion Quality missing-position data reporting as `UNCONFIRMED`, and Periodic Eval score/motion/action formatting. |
 | `source/rsl_rl/rsl_rl/tests/frontres_segment_live_reset_hook_contract.py` | S2/S4 | MAIN-29, MAIN-38 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_reset_hook_contract.py` | connectivity-confirmed | Reset/reference-window hook coverage. |
 | `source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py` | S2 | MAIN-39, MAIN-46 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py` | connectivity-confirmed | Live update loop wiring. |
 | `source/rsl_rl/rsl_rl/tests/frontres_segment_live_resume_pseudo_contract.py` | S3 | MAIN-32, MAIN-48 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_resume_pseudo_contract.py` | persistence-confirmed | Resume pseudo coverage. |
 | `source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py` | S0/S2 | MAIN-01, MAIN-04, MAIN-30 | `python source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py` | connectivity-confirmed | Stage entrypoint contract. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py` | S0 | MAIN-01, MAIN-04, MAIN-38 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py` | static-confirmed | Launch command/config contract. |
+| `source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py` | S0 | MAIN-01, MAIN-04, MAIN-38 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py` | static-confirmed | Launch command/config contract, including sequence_eval smoke env overrides for sequence count, rollout steps, and max preroll. |
 
 ## Inventory Gaps
 

@@ -4,10 +4,11 @@ set -euo pipefail
 if [[ $# -lt 1 ]]; then
   echo "Usage: bash run_stage3.sh STAGE2_CHECKPOINT [MOTION_PATH] [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE]"
   echo
- echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval."
+ echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval, sequence_eval."
  echo "CACHE_DIR selects the Stage 1 Segment Replay cache used by Stage 3."
  echo "PERIODIC_EVAL_ENABLED=1 enables periodic long-rollout eval; PERIODIC_EVAL_INTERVAL controls its interval."
-echo "OFFLINE_EVAL_STEPS controls checkpoint eval rollout length when MODE=offline_eval."
+echo "OFFLINE_EVAL_STEPS controls checkpoint eval rollout length when MODE=offline_eval or sequence_eval."
+echo "OFFLINE_EVAL_SEQUENCES and OFFLINE_EVAL_MAX_PREROLL_STEPS control MODE=sequence_eval."
 echo "FRONTRES_SPECIALIST_MODE selects Stage 3 perturbation family preset, default rp."
 echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
   echo "Set FRONTRES_STAGE_PREFLIGHT_ONLY=1 to print and validate the startup command without launching IsaacLab."

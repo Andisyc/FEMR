@@ -19,7 +19,7 @@ SENTINEL_FLAGS = {
 }
 
 
-def _run_preflight(mode: str) -> subprocess.CompletedProcess[str]:
+def _run_preflight(mode: str, env_overrides: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         checkpoint = tmp_path / "stage1_model.pt"
@@ -30,6 +30,8 @@ def _run_preflight(mode: str) -> subprocess.CompletedProcess[str]:
         env["FRONTRES_STAGE_PREFLIGHT_ONLY"] = "1"
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "0"
         env["FRONTRES_SPECIALIST_MODE"] = "rp"
+        if env_overrides:
+            env.update(env_overrides)
         return subprocess.run(
             [
                 "bash",
@@ -110,6 +112,25 @@ def test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel() ->
             assert "--frontres_segment_sequence_eval_max_preroll_steps 2000" in command
 
 
+def test_stage3_sequence_eval_launch_honors_smoke_eval_env_overrides() -> None:
+    result = _run_preflight(
+        "sequence_eval",
+        {
+            "OFFLINE_EVAL_SEQUENCES": "2",
+            "OFFLINE_EVAL_STEPS": "120",
+            "OFFLINE_EVAL_MAX_PREROLL_STEPS": "120",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    command = _command_line(result)
+    _probe("stage3_sequence_eval_smoke_overrides", command)
+
+    assert "--frontres_segment_sequence_offline_eval_only" in command
+    assert "--frontres_segment_sequence_eval_sequences 2" in command
+    assert "--frontres_segment_sequence_eval_max_preroll_steps 120" in command
+    assert "--frontres_segment_offline_eval_steps 120" in command
+
+
 def test_stage3_launch_rejects_unknown_mode_before_training() -> None:
     result = _run_preflight("unknown")
     print(
@@ -123,5 +144,6 @@ def test_stage3_launch_rejects_unknown_mode_before_training() -> None:
 if __name__ == "__main__":
     test_stage3_train_launch_preflight_builds_femr_command()
     test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel()
+    test_stage3_sequence_eval_launch_honors_smoke_eval_env_overrides()
     test_stage3_launch_rejects_unknown_mode_before_training()
     print("frontres_segment_stage3_launch_command_contract: ok")

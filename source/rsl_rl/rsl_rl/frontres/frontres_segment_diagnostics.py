@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any
 
 import torch
@@ -94,7 +95,11 @@ def repair_effect_summary_to_scalars(summary: dict[str, Any]) -> dict[str, float
         "segment/train_effect_gain_pos_frac": _float(summary.get("score_gain_pos_frac")),
         "segment/train_effect_fall_rate": _float(summary.get("done_frac")),
         "segment/train_effect_valid_frac": _float(summary.get("storage_valid_frac")),
-        "segment/train_effect_replay_candidates": _float(summary.get("sampler_replay_candidates")),
+        "segment/train_effect_replay_candidates": _summary_float(
+            summary,
+            "sampler_update_replay_candidate_count",
+            "sampler_replay_candidates",
+        ),
         "segment/train_effect_replay_pool_size": _float(summary.get("sampler_replay_pool_size")),
     }
     for key in FORBIDDEN_ACCEPTANCE_KEYS:
@@ -153,18 +158,18 @@ def format_segment_motion_quality_log(scalars: dict[str, float]) -> str:
             "[FrontRES Segment Motion Quality]",
             (
                 "  pose: "
-                f"mpjpe_repaired={scalars.get('segment/motion_mpjpe_repaired_clean', 0.0):.6f} "
-                f"mpjpe_noisy={scalars.get('segment/motion_mpjpe_noisy_clean', 0.0):.6f}"
+                f"mpjpe_repaired={_fmt_motion_scalar(scalars, 'segment/motion_mpjpe_repaired_clean')} "
+                f"mpjpe_noisy={_fmt_motion_scalar(scalars, 'segment/motion_mpjpe_noisy_clean')}"
             ),
             (
                 "  dynamics: "
-                f"vel_err={scalars.get('segment/motion_vel_error_repaired_clean', 0.0):.6f} "
-                f"acc_err={scalars.get('segment/motion_acc_error_repaired_clean', 0.0):.6f}"
+                f"vel_err={_fmt_motion_scalar(scalars, 'segment/motion_vel_error_repaired_clean')} "
+                f"acc_err={_fmt_motion_scalar(scalars, 'segment/motion_acc_error_repaired_clean')}"
             ),
             (
                 "  action: "
-                f"delta_se_norm={scalars.get('segment/motion_delta_se_norm', 0.0):.6f} "
-                f"dz_up={scalars.get('segment/motion_delta_z_up_frac', 0.0) * 100.0:.1f}%"
+                f"delta_se_norm={_fmt_motion_scalar(scalars, 'segment/motion_delta_se_norm')} "
+                f"dz_up={_fmt_motion_percent(scalars, 'segment/motion_delta_z_up_frac')}"
             ),
         )
     )
@@ -177,6 +182,14 @@ def periodic_eval_summary_to_scalars(summary: dict[str, Any]) -> dict[str, float
         "segment/eval_fall_rate": _float(summary.get("fall_rate")),
         "segment/eval_mean_survival_steps": _float(summary.get("mean_survival_steps")),
         "segment/eval_continuous_rollout_gain": _float(summary.get("continuous_rollout_gain")),
+        "segment/eval_score_noisy": _optional_float(summary.get("score_noisy")),
+        "segment/eval_score_repaired": _optional_float(summary.get("score_repaired")),
+        "segment/eval_motion_mpjpe_repaired_clean": _optional_float(summary.get("segment/motion_mpjpe_repaired_clean")),
+        "segment/eval_motion_mpjpe_noisy_clean": _optional_float(summary.get("segment/motion_mpjpe_noisy_clean")),
+        "segment/eval_motion_vel_error_repaired_clean": _optional_float(summary.get("segment/motion_vel_error_repaired_clean")),
+        "segment/eval_motion_acc_error_repaired_clean": _optional_float(summary.get("segment/motion_acc_error_repaired_clean")),
+        "segment/eval_motion_delta_se_norm": _optional_float(summary.get("segment/motion_delta_se_norm")),
+        "segment/eval_motion_delta_z_up_frac": _optional_float(summary.get("segment/motion_delta_z_up_frac")),
     }
 
 
@@ -195,6 +208,23 @@ def format_segment_periodic_eval_log(summary: dict[str, Any]) -> str:
                 f"success={scalars['segment/eval_success_rate'] * 100.0:.1f}% "
                 f"fall={scalars['segment/eval_fall_rate'] * 100.0:.1f}% "
                 f"gain={scalars['segment/eval_continuous_rollout_gain']:.6f}"
+            ),
+            (
+                "  score: "
+                f"noisy={_fmt_eval_scalar(scalars, 'segment/eval_score_noisy')} "
+                f"repaired={_fmt_eval_scalar(scalars, 'segment/eval_score_repaired')}"
+            ),
+            (
+                "  motion: "
+                f"mpjpe_repaired={_fmt_eval_scalar(scalars, 'segment/eval_motion_mpjpe_repaired_clean')} "
+                f"mpjpe_noisy={_fmt_eval_scalar(scalars, 'segment/eval_motion_mpjpe_noisy_clean')} "
+                f"vel_err={_fmt_eval_scalar(scalars, 'segment/eval_motion_vel_error_repaired_clean')} "
+                f"acc_err={_fmt_eval_scalar(scalars, 'segment/eval_motion_acc_error_repaired_clean')}"
+            ),
+            (
+                "  action: "
+                f"delta_se_norm={_fmt_eval_scalar(scalars, 'segment/eval_motion_delta_se_norm')} "
+                f"dz_up={_fmt_eval_percent(scalars, 'segment/eval_motion_delta_z_up_frac')}"
             ),
         )
     )
@@ -217,9 +247,49 @@ def _float(value: Any) -> float:
     return float(value)
 
 
+def _optional_float(value: Any) -> float:
+    if value is None:
+        return _unconfirmed()
+    return _float(value)
+
+
+def _summary_float(summary: dict[str, Any], *keys: str) -> float:
+    for key in keys:
+        value = summary.get(key)
+        if value is not None:
+            return _float(value)
+    return 0.0
+
+
+def _unconfirmed() -> float:
+    return float("nan")
+
+
+def _fmt_motion_scalar(scalars: dict[str, float], key: str) -> str:
+    value = float(scalars.get(key, _unconfirmed()))
+    if not math.isfinite(value):
+        return "UNCONFIRMED"
+    return f"{value:.6f}"
+
+
+def _fmt_motion_percent(scalars: dict[str, float], key: str) -> str:
+    value = float(scalars.get(key, _unconfirmed()))
+    if not math.isfinite(value):
+        return "UNCONFIRMED"
+    return f"{value * 100.0:.1f}%"
+
+
+def _fmt_eval_scalar(scalars: dict[str, float], key: str) -> str:
+    return _fmt_motion_scalar(scalars, key)
+
+
+def _fmt_eval_percent(scalars: dict[str, float], key: str) -> str:
+    return _fmt_motion_percent(scalars, key)
+
+
 def _mpjpe(a: torch.Tensor | None, b: torch.Tensor | None, valid: torch.Tensor | None) -> float:
     if not _same_position_shape(a, b):
-        return 0.0
+        return _unconfirmed()
     diff = torch.linalg.norm(a.float() - b.float(), dim=-1)
     return _masked_batch_mean(diff, valid)
 
@@ -232,7 +302,7 @@ def _diff_mpjpe(
     order: int,
 ) -> float:
     if not _same_position_shape(a, b) or a.shape[1] <= order:
-        return 0.0
+        return _unconfirmed()
     da = torch.diff(a.float(), n=order, dim=1)
     db = torch.diff(b.float(), n=order, dim=1)
     return _masked_batch_mean(torch.linalg.norm(da - db, dim=-1), valid)

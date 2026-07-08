@@ -96,6 +96,9 @@ live training
 sequence eval
 preroll
 eval window
+live summary replay candidates: `sampler_update_replay_candidate_count`
+legacy/compat replay candidates: `sampler_replay_candidates`
+motion quality positions: `motion_clean_body_pos`, `motion_noisy_body_pos`, `motion_repaired_body_pos`
 ```
 
 Owner and lifecycle:
@@ -112,6 +115,7 @@ Required evidence:
 
 ```text
 S1/S2 aggregate contract suite
+S1/S2 diagnostics contract for replay-candidate field alias and missing-position Motion Quality reporting
 S2 stage3 pseudo suite
 S4 live sentinel when reset/env/live route changes
 ```
