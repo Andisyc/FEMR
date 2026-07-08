@@ -421,6 +421,8 @@ def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
         "rp_only': True",
         "metric_shapes_aligned': True",
         "differential_proxy:",
+        "action_distribution_health:",
+        "status': 'OK",
         "segment_action_nonzero': True",
         "mpjpe_repaired_minus_noisy",
         "transition_log_probs:",

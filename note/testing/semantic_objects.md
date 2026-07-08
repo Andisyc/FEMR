@@ -119,3 +119,47 @@ S1/S2 diagnostics contract for replay-candidate field alias and missing-position
 S2 stage3 pseudo suite
 S4 live sentinel when reset/env/live route changes
 ```
+
+## Task-Space Action Distribution Health
+
+Aliases:
+
+```text
+transition_means
+transition_sigmas
+action_mean
+action_std
+raw mean
+raw logits
+raw_policy_action
+segment_transition_actions
+delta_se_norm
+mean_raw_saturated_frac_abs_gt_2
+mean_raw_abs_max
+actions_log_prob
+```
+
+Owner and lifecycle:
+
+```text
+policy distribution: MAIN-19 front_residual_actor_critic.py
+action mask / env bridge: MAIN-22 task_space_correction.py, MAIN-33 frontres_rollout_step.py
+algorithm log-prob consumer: MAIN-47 frontres_unified.py
+sequence/live diagnostics: MAIN-38, MAIN-40
+checkpoint source: MAIN-32, MAIN-48
+```
+
+Required evidence:
+
+```text
+S1 diagnostics contract for raw mean saturation health
+S2 sequence eval debug contract that prints `action_distribution_health`
+S3 checkpoint/load forward-health contract before long training
+S4 sequence eval/live sentinel when actual checkpoint quality is questioned
+```
+
+Current gap:
+
+```text
+S3 checkpoint load -> one policy forward health gate is not yet enforced.
+```

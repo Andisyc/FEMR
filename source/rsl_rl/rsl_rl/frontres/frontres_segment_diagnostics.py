@@ -193,6 +193,82 @@ def periodic_eval_summary_to_scalars(summary: dict[str, Any]) -> dict[str, float
     }
 
 
+def action_distribution_health_summary(
+    *,
+    means: torch.Tensor | None = None,
+    sigmas: torch.Tensor | None = None,
+    actions: torch.Tensor | None = None,
+    supervised_target: torch.Tensor | None = None,
+    raw_saturation_warn: float = 2.0,
+    raw_saturation_bad: float = 20.0,
+) -> dict[str, float | str | bool]:
+    """Summarize whether a task-space policy distribution is numerically usable."""
+    summary: dict[str, float | str | bool] = {
+        "available": isinstance(means, torch.Tensor) and means.numel() > 0,
+        "status": "UNCONFIRMED",
+        "raw_mean_abs_max": _unconfirmed(),
+        "raw_mean_abs_mean": _unconfirmed(),
+        "raw_saturated_frac_abs_gt_2": _unconfirmed(),
+        "raw_saturated_frac_abs_gt_20": _unconfirmed(),
+        "sigma_min": _unconfirmed(),
+        "sigma_mean": _unconfirmed(),
+        "sigma_max": _unconfirmed(),
+        "action_norm_mean": _unconfirmed(),
+        "target_norm_mean": _unconfirmed(),
+        "action_norm_over_target_norm": _unconfirmed(),
+    }
+    if not isinstance(means, torch.Tensor) or means.numel() == 0:
+        return summary
+
+    raw = means.detach().float()
+    finite = torch.isfinite(raw)
+    if not bool(finite.all().item()):
+        summary["status"] = "BAD_NONFINITE_RAW_MEAN"
+        return summary
+
+    abs_raw = raw.abs()
+    raw_abs_max = float(abs_raw.max().cpu().item())
+    raw_abs_mean = float(abs_raw.mean().cpu().item())
+    sat_warn = float((abs_raw > float(raw_saturation_warn)).float().mean().cpu().item())
+    sat_bad = float((abs_raw > float(raw_saturation_bad)).float().mean().cpu().item())
+    summary.update(
+        {
+            "raw_mean_abs_max": raw_abs_max,
+            "raw_mean_abs_mean": raw_abs_mean,
+            "raw_saturated_frac_abs_gt_2": sat_warn,
+            "raw_saturated_frac_abs_gt_20": sat_bad,
+        }
+    )
+
+    if isinstance(sigmas, torch.Tensor) and sigmas.numel() > 0:
+        sigma = sigmas.detach().float()
+        if not bool(torch.isfinite(sigma).all().item()):
+            summary["status"] = "BAD_NONFINITE_SIGMA"
+            return summary
+        summary.update(
+            {
+                "sigma_min": float(sigma.min().cpu().item()),
+                "sigma_mean": float(sigma.mean().cpu().item()),
+                "sigma_max": float(sigma.max().cpu().item()),
+            }
+        )
+
+    action_norm = _row_norm_mean(actions)
+    target_norm = _row_norm_mean(supervised_target)
+    summary["action_norm_mean"] = action_norm
+    summary["target_norm_mean"] = target_norm
+    if math.isfinite(action_norm) and math.isfinite(target_norm) and target_norm > 1e-8:
+        summary["action_norm_over_target_norm"] = action_norm / target_norm
+
+    if raw_abs_max >= float(raw_saturation_bad) or sat_bad > 0.0:
+        summary["status"] = "BAD_RAW_MEAN_SATURATED"
+    elif sat_warn >= 0.50:
+        summary["status"] = "WARN_RAW_MEAN_SATURATING"
+    else:
+        summary["status"] = "OK"
+    return summary
+
+
 def format_segment_periodic_eval_log(summary: dict[str, Any]) -> str:
     scalars = periodic_eval_summary_to_scalars(summary)
     return "\n".join(
@@ -342,6 +418,17 @@ def _delta_z_up_frac(delta_se: torch.Tensor | None, valid: torch.Tensor | None) 
         if value.numel() == 0:
             return 0.0
     return float(value.float().mean().item())
+
+
+def _row_norm_mean(value: torch.Tensor | None) -> float:
+    if not isinstance(value, torch.Tensor) or value.numel() == 0:
+        return _unconfirmed()
+    data = value.detach().float()
+    if data.ndim == 1:
+        data = data.view(1, -1)
+    if not bool(torch.isfinite(data).all().item()):
+        return _unconfirmed()
+    return float(torch.linalg.norm(data, dim=-1).mean().cpu().item())
 
 
 def _mean(value: torch.Tensor | None) -> float:

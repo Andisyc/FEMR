@@ -20,6 +20,7 @@ format_segment_replay_log = diag_module.format_segment_replay_log
 format_segment_train_effect_log = diag_module.format_segment_train_effect_log
 format_segment_motion_quality_log = diag_module.format_segment_motion_quality_log
 format_segment_periodic_eval_log = diag_module.format_segment_periodic_eval_log
+action_distribution_health_summary = diag_module.action_distribution_health_summary
 motion_quality_summary_to_scalars = diag_module.motion_quality_summary_to_scalars
 periodic_eval_summary_to_scalars = diag_module.periodic_eval_summary_to_scalars
 repair_effect_summary_to_scalars = diag_module.repair_effect_summary_to_scalars
@@ -311,6 +312,34 @@ def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
     assert "dz_up=25.0%" in log
 
 
+def test_action_distribution_health_flags_raw_mean_saturation() -> None:
+    means = torch.tensor(
+        [
+            [0.0, 0.0, 0.0, 6_844_382.0, 6_480_798.5, 0.0],
+            [0.0, 0.0, 0.0, 7_088_041.0, 6_711_514.0, 0.0],
+        ]
+    )
+    sigmas = torch.full((2, 6), 0.01)
+    actions = torch.zeros(2, 6)
+    actions[:, 3:5] = 0.4
+    target = torch.zeros(2, 6)
+    target[:, 3:5] = torch.tensor([[0.0017, 0.0185], [0.0051, 0.0217]])
+
+    summary = action_distribution_health_summary(
+        means=means,
+        sigmas=sigmas,
+        actions=actions,
+        supervised_target=target,
+    )
+
+    assert summary["available"] is True
+    assert summary["status"] == "BAD_RAW_MEAN_SATURATED"
+    assert float(summary["raw_mean_abs_max"]) > 1_000_000.0
+    assert float(summary["raw_saturated_frac_abs_gt_20"]) > 0.0
+    assert abs(float(summary["sigma_mean"]) - 0.01) < 1e-6
+    assert float(summary["action_norm_over_target_norm"]) > 10.0
+
+
 def main() -> None:
     test_segment_diagnostics_required_keys_and_no_acceptance_keys()
     test_segment_log_contains_live_path_sentinel()
@@ -320,6 +349,7 @@ def main() -> None:
     test_motion_quality_missing_positions_are_unconfirmed_not_zero()
     test_motion_quality_keeps_action_diagnostics_when_all_samples_fall()
     test_periodic_eval_summary_formats_long_rollout_metrics()
+    test_action_distribution_health_flags_raw_mean_saturation()
     print("result: PASS")
 
 

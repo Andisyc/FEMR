@@ -19,6 +19,7 @@ _DIAGNOSTICS_SPEC.loader.exec_module(_DIAGNOSTICS_MODULE)
 format_segment_motion_quality_log = _DIAGNOSTICS_MODULE.format_segment_motion_quality_log
 format_segment_periodic_eval_log = _DIAGNOSTICS_MODULE.format_segment_periodic_eval_log
 format_segment_train_effect_log = _DIAGNOSTICS_MODULE.format_segment_train_effect_log
+action_distribution_health_summary = _DIAGNOSTICS_MODULE.action_distribution_health_summary
 motion_quality_summary_to_scalars = _DIAGNOSTICS_MODULE.motion_quality_summary_to_scalars
 
 try:
@@ -450,6 +451,7 @@ def _format_sequence_eval_debug_log(
             f"{_sequence_eval_oracles(item, eval_batch, reset_batch, capture, summary, reset_request, reset_result)}"
         ),
         f"  differential_proxy: {_sequence_eval_differential_proxy(capture, summary)}",
+        f"  action_distribution_health: {_sequence_eval_action_distribution_health(capture)}",
         f"  transition_log_probs: {_sequence_debug_value(getattr(capture, 'transition_log_probs', None))}",
         f"  transition_values: {_sequence_debug_value(getattr(capture, 'transition_values', None))}",
         f"  transition_means: {_sequence_debug_value(getattr(capture, 'transition_means', None))}",
@@ -474,6 +476,15 @@ def _format_sequence_eval_debug_log(
         ),
     ]
     return "\n".join(lines)
+
+
+def _sequence_eval_action_distribution_health(capture: Any) -> dict[str, float | str | bool]:
+    return action_distribution_health_summary(
+        means=getattr(capture, "transition_means", None),
+        sigmas=getattr(capture, "transition_sigmas", None),
+        actions=getattr(capture, "transition_actions", None),
+        supervised_target=getattr(capture, "transition_supervised_target", None),
+    )
 
 
 def _format_sequence_eval_differential_log(

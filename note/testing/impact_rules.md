@@ -84,6 +84,32 @@ S2 frontres_segment_stage3_pseudo_suite.py
 S4 frontres_segment_live_sentinel_contract.py when live path changed
 ```
 
+### task-space action distribution, `transition_means`, raw logits, action clamp
+
+Potential impact:
+
+```text
+MAIN-19 front_residual_actor_critic.py
+MAIN-22 task_space_correction.py
+MAIN-32 frontres_checkpointing.py
+MAIN-33 frontres_rollout_step.py
+MAIN-38 frontres_segment_live_training.py
+MAIN-40 frontres_segment_sequence_eval.py
+MAIN-47 frontres_unified.py
+MAIN-48 frontres_segment_checkpointing.py
+```
+
+Recommended tests:
+
+```text
+S0 py_compile changed files
+S1/S2 frontres_segment_diagnostics_contract.py
+S2 frontres_segment_sequence_eval_contract.py
+S3 frontres_stage3_noise_std_migration_contract.py
+S3 frontres_segment_checkpoint_contract.py when checkpoint payload/load changes
+S4 offline/sequence eval log inspection when a real checkpoint has `transition_means` or `log_prob` explosions
+```
+
 ### Segment cache/dataset/sampler changes
 
 Potential impact:
