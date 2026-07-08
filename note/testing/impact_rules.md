@@ -133,9 +133,20 @@ Recommended tests:
 S0 py_compile changed files
 S1/S2 frontres_segment_live_probe_ppo_contract.py for executed 6D Delta SE old/new log_prob transform
 S1/S2 frontres_segment_storage_contract.py for old_means/old_sigmas persistence through storage
-S1/S2 frontres_segment_algorithm_contract.py for valid-mask, gradient behavior, and old-stat distribution KL
+S1/S2 frontres_segment_algorithm_contract.py for valid-mask, gradient behavior, exact clipped surrogate, exact old-stat distribution KL, old-policy detach, row permutation invariance, and full-6D support under single-family action-mask metadata
 S2 frontres_segment_live_single_update_contract.py for old-stat pre KL -> post-update trust-region KL -> adaptive LR route
 S2 frontres_segment_live_update_loop_contract.py for optimizer route
+```
+
+High-risk PPO T extensions:
+
+```text
+T-clip        exact clipped-surrogate behavior for positive and negative advantage ratio cases.
+T-kl-exact    exact old/new distribution KL from old_means/old_sigmas/new mean/sigma.
+T-detach      old policy, return, advantage, and old distribution tensors do not receive gradient.
+T-permute     row permutation does not change loss, KL, ratio summaries, or update decision.
+T-update-order pre-loss KL, optimizer step, post-update KL, and adaptive LR order are explicit.
+T-cone        direct Delta SE full-support semantics under single-family perturbation metadata; action_mask must not silently shrink PPO log_prob, KL, loss, or gradients unless a later method explicitly changes the design.
 ```
 
 ### Segment cache/dataset/sampler changes

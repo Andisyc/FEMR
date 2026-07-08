@@ -206,6 +206,7 @@ Required evidence:
 S1/S2 action/log_prob transform contract for the same executed 6D Delta SE
 S1/S2 storage contract preserving old_log_prob, old_means, old_sigmas, returns, advantages, and valid masks
 S1/S2 PPO contract that uses old distribution stats for KL/trust-region diagnostics or explicitly proves the intended alternative
+S1/S2 exact clipped-surrogate, old-policy detach, row-permutation invariance, invalid-row isolation, and full-6D support under single-family action-mask metadata contracts
 S2 paired repaired-vs-noisy reward/advantage route contract
 S4 live sentinel when real rollout/update is changed
 ```
@@ -213,5 +214,11 @@ S4 live sentinel when real rollout/update is changed
 Current status:
 
 ```text
-Segment storage preserves old_means/old_sigmas through FrontRESSegmentPPOBatch. frontres_segment_ppo.py reports both logprob_approx_kl and MOSAIC-style distribution_kl_mean, and uses distribution_kl_mean as approx_kl when old/new distribution stats are available. run_frontres_segment_single_update retains the pre-loss distribution KL, recomputes post-update trust-region KL after optimizer.step, reports the post value as the live `ppo.kl`, and applies schedule=adaptive LR from that post KL. This is S1/S2 contract-confirmed; real training quality remains S4/live-log evidence.
+Segment storage preserves old_means/old_sigmas through FrontRESSegmentPPOBatch. frontres_segment_ppo.py reports both logprob_approx_kl and MOSAIC-style distribution_kl_mean, and uses distribution_kl_mean as approx_kl when old/new distribution stats are available. frontres_segment_algorithm_contract.py now confirms exact distribution KL, exact clipped surrogate behavior, old-policy tensor detach, invalid-row isolation, row-permutation invariance, and full-6D PPO support under rp-only action-mask metadata. run_frontres_segment_single_update retains the pre-loss distribution KL, recomputes post-update trust-region KL after optimizer.step, reports the post value as the live `ppo.kl`, and applies schedule=adaptive LR from that post KL. This is S1/S2 contract-confirmed; real training quality remains S4/live-log evidence.
+```
+
+Current gap:
+
+```text
+`action_mask` is preserved through Segment storage and validated by Segment PPO, but direct Delta SE PPO intentionally keeps full-6D repair support. Current contracts prove an rp-only mask does not change loss/gradient, all 6D actor rows can receive gradient, and KL remains full-6D. Do not reinterpret perturbation family as a PPO dimension mask.
 ```

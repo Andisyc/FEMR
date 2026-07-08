@@ -70,6 +70,13 @@ Commands passed:
 - `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py`
 
 Evidence:
+- Segment algorithm contract observed exact KL `observed=0.890687585`,
+  exact clipped surrogate `actor_loss=-0.200000`, old tensors detached
+  with all old-policy grads `None`, and row permutation unchanged.
+- Full-support cone contract observed rp-only mask loss unchanged
+  (`full_loss=-0.500000000`, `rp_mask_loss=-0.500000000`), nonzero
+  gradients in all 6 action dimensions, full-6D mean movement under rp-only
+  metadata, and full-6D KL `observed=0.113810122`.
 - Single-update post-KL contract observed `pre_distribution_kl=0.000060`,
   `post_distribution_kl=0.000875`, `reported_kl=0.000875`, and
   `param_delta_l2=0.100000`.
@@ -171,7 +178,7 @@ Atlas readability finding:
 | MAIN-43 | `rollout_storage.py::mini_batch_generator` | Storage / batch tuple | S1, S2 | T-shape, T-order, T-mask, T-connect | storage + algorithm contracts | contract-confirmed | covered | None known. |
 | MAIN-44 | `frontres_segment_storage.py` | Storage / batch tuple | S1, S2, S3 if persisted | T-shape, T-order, T-mask, T-connect, T-persist | segment storage contract | contract-confirmed | covered | Storage preserves `old_means`/`old_sigmas` through PPO batch conversion. |
 | MAIN-45 | `ppo.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect | none mapped | unconfirmed | needs-inventory | Base PPO tests not mapped. |
-| MAIN-46 | `frontres_segment_ppo.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect | segment algorithm contract; live single-update contract; update loop contract | contract-confirmed | covered | Contract confirms 6D action PPO stepping, masking, logprob-ratio PPO loss, old_means/old_sigmas distribution KL diagnostics, and post-update KL reporting for live single-update. |
+| MAIN-46 | `frontres_segment_ppo.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect, T-clip, T-kl-exact, T-detach, T-permute, T-update-order, T-cone | segment algorithm contract; live single-update contract; update loop contract | contract-confirmed | covered | Contract confirms 6D action PPO stepping, masking, exact clipped surrogate, exact old_means/old_sigmas distribution KL, old-policy tensor detach, row-permutation invariance, full-6D support under rp-only action-mask metadata, and post-update KL reporting for live single-update. |
 | MAIN-47 | `frontres_unified.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect | segment algorithm contract; authority/HSL tests likely | contract-confirmed | covered | Map exact sub-loss coverage. |
 | MAIN-48 | `frontres_segment_checkpointing.py` | Checkpoint / resume / export / play | S3 | T-persist, T-order, T-diff | checkpoint/resume contracts; `frontres_stage3_noise_std_migration_contract.py` | persistence-confirmed | covered | None known. |
 | MAIN-49 | `frontres_dr_sweep_eval.py` | Reward / metric / evaluator | S1, S2 | T-dist, T-oracle, T-diff, T-connect | none mapped | unconfirmed | missing-test | Need sweep eval static/connectivity test. |
