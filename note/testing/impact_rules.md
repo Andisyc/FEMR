@@ -134,7 +134,7 @@ S0 py_compile changed files
 S1/S2 frontres_segment_live_probe_ppo_contract.py for executed 6D Delta SE old/new log_prob transform
 S1/S2 frontres_segment_storage_contract.py for old_means/old_sigmas persistence through storage
 S1/S2 frontres_segment_algorithm_contract.py for valid-mask, gradient behavior, and old-stat distribution KL
-S2 frontres_segment_live_single_update_contract.py for old-stat KL -> adaptive LR route
+S2 frontres_segment_live_single_update_contract.py for old-stat pre KL -> post-update trust-region KL -> adaptive LR route
 S2 frontres_segment_live_update_loop_contract.py for optimizer route
 ```
 

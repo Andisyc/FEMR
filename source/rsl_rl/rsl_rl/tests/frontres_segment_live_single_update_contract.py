@@ -241,8 +241,8 @@ def test_single_update_steps_optimizer_with_valid_segment() -> None:
     assert result.should_step
     assert result.valid_count == 1
     assert runner.mode_trace == ["train", "eval"]
-    assert runner.alg.policy.actor_obs_trace == [(2, 4)]
-    assert runner.alg.policy.critic_obs_trace == [(2, 3)]
+    assert runner.alg.policy.actor_obs_trace == [(2, 4), (2, 4)]
+    assert runner.alg.policy.critic_obs_trace == [(2, 3), (2, 3)]
     assert result.param_delta_total == 2
     assert result.param_delta_changed == 2
     assert result.param_delta_max_abs > 0.0
@@ -288,6 +288,8 @@ def test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl() -> N
     print(
         "[probe step3] adaptive_lr_old_stats: "
         f"distribution_kl_mean={result.distribution_kl_mean:.6f} "
+        f"post_distribution_kl_mean={result.post_update_distribution_kl_mean:.6f} "
+        f"adaptive_lr_kl_mean={result.adaptive_lr_kl_mean:.6f} "
         f"desired_kl={runner.alg.desired_kl:.6f} "
         f"learning_rate_after={runner.alg.learning_rate:.8f} "
         f"param_group_lr={runner.alg.optimizer.param_groups[0]['lr']:.8f}",
@@ -295,12 +297,37 @@ def test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl() -> N
     )
 
     assert result.distribution_kl_mean > runner.alg.desired_kl * 2.0
+    assert abs(result.adaptive_lr_kl_mean - result.post_update_distribution_kl_mean) < 1e-8
     assert runner.alg.learning_rate < 0.1
     assert runner.alg.optimizer.param_groups[0]["lr"] == runner.alg.learning_rate
+
+
+def test_single_update_reports_post_update_trust_region_kl() -> None:
+    runner = FakeRunner()
+    runner.alg.learning_rate = 0.1
+    for group in runner.alg.optimizer.param_groups:
+        group["lr"] = runner.alg.learning_rate
+    storage_batch = _storage_batch(torch.tensor([True, False]))
+
+    result = run_frontres_segment_single_update(runner, storage_batch)
+    print(
+        "[probe step3] post_update_trust_region_kl: "
+        f"pre_distribution_kl={result.distribution_kl_mean:.6f} "
+        f"post_distribution_kl={getattr(result, 'post_update_distribution_kl_mean', -1.0):.6f} "
+        f"reported_kl={result.approx_kl:.6f} "
+        f"param_delta_l2={result.param_delta_l2:.6f}",
+        flush=True,
+    )
+
+    assert result.param_delta_l2 > 0.0
+    assert result.distribution_kl_mean < 1e-4
+    assert result.post_update_distribution_kl_mean > result.distribution_kl_mean
+    assert abs(result.approx_kl - result.post_update_distribution_kl_mean) < 1e-8
 
 
 if __name__ == "__main__":
     test_single_update_steps_optimizer_with_valid_segment()
     test_single_update_does_not_step_optimizer_without_valid_segments()
     test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl()
+    test_single_update_reports_post_update_trust_region_kl()
     print("frontres_segment_live_single_update_contract: ok")

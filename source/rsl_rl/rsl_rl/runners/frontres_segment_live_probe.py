@@ -269,7 +269,34 @@ def _attach_ppo_update_diagnostics(result: Any, diagnostics: dict[str, Any]) -> 
         object.__setattr__(result, key, value)
 
 
-def _apply_segment_adaptive_learning_rate(alg: Any, ppo_result: Any) -> dict[str, Any]:
+def _post_update_segment_ppo_diagnostics(
+    policy_adapter: Any,
+    ppo_batch: FrontRESSegmentPPOBatch,
+    ppo_cfg: FrontRESSegmentPPOConfig,
+) -> dict[str, Any]:
+    with torch.no_grad():
+        post_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
+    post_kl = (
+        float(post_result.distribution_kl_mean)
+        if bool(post_result.distribution_kl_available)
+        else float(post_result.logprob_approx_kl)
+    )
+    return {
+        "post_update_distribution_kl_mean": float(post_result.distribution_kl_mean),
+        "post_update_distribution_kl_available": bool(post_result.distribution_kl_available),
+        "post_update_logprob_approx_kl": float(post_result.logprob_approx_kl),
+        "post_update_ratio_mean": float(post_result.ratio_mean),
+        "post_update_clip_frac": float(post_result.clip_frac),
+        "post_update_approx_kl": post_kl,
+    }
+
+
+def _apply_segment_adaptive_learning_rate(
+    alg: Any,
+    ppo_result: Any,
+    *,
+    kl_mean: float | None = None,
+) -> dict[str, Any]:
     optimizer = getattr(alg, "optimizer", None)
     param_groups = getattr(optimizer, "param_groups", None)
     if not param_groups:
@@ -282,7 +309,9 @@ def _apply_segment_adaptive_learning_rate(alg: Any, ppo_result: Any) -> dict[str
     lr_after = lr_before
     desired_kl = getattr(alg, "desired_kl", None)
     schedule = str(getattr(alg, "schedule", "fixed")).lower()
-    if bool(getattr(ppo_result, "distribution_kl_available", False)):
+    if kl_mean is not None:
+        kl_mean = float(kl_mean)
+    elif bool(getattr(ppo_result, "distribution_kl_available", False)):
         kl_mean = float(getattr(ppo_result, "distribution_kl_mean", 0.0))
     else:
         kl_mean = float(getattr(ppo_result, "approx_kl", 0.0))
@@ -301,6 +330,7 @@ def _apply_segment_adaptive_learning_rate(alg: Any, ppo_result: Any) -> dict[str
         "adaptive_lr_applied": applied,
         "adaptive_lr_before": lr_before,
         "adaptive_lr_after": lr_after,
+        "adaptive_lr_kl_mean": kl_mean,
     }
 
 
@@ -615,6 +645,23 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     "ppo_raw_log_ratio_mean": float(ppo_result.raw_log_ratio_mean),
                     "ppo_raw_log_ratio_min": float(ppo_result.raw_log_ratio_min),
                     "ppo_raw_log_ratio_max": float(ppo_result.raw_log_ratio_max),
+                    "ppo_pre_distribution_kl_mean": float(getattr(ppo_result, "distribution_kl_mean", 0.0)),
+                    "ppo_pre_logprob_approx_kl": float(getattr(ppo_result, "logprob_approx_kl", 0.0)),
+                    "ppo_distribution_kl_available": bool(
+                        getattr(ppo_result, "distribution_kl_available", False)
+                    ),
+                    "ppo_post_update_distribution_kl_mean": float(
+                        getattr(ppo_result, "post_update_distribution_kl_mean", 0.0)
+                    ),
+                    "ppo_post_update_logprob_approx_kl": float(
+                        getattr(ppo_result, "post_update_logprob_approx_kl", 0.0)
+                    ),
+                    "ppo_post_update_ratio_mean": float(
+                        getattr(ppo_result, "post_update_ratio_mean", 0.0)
+                    ),
+                    "ppo_post_update_clip_frac": float(
+                        getattr(ppo_result, "post_update_clip_frac", 0.0)
+                    ),
                     "ppo_advantage_mean": float(ppo_result.advantage_mean),
                     "ppo_advantage_min": float(ppo_result.advantage_min),
                     "ppo_advantage_max": float(ppo_result.advantage_max),
@@ -1139,9 +1186,9 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
         normalize_advantages=bool(getattr(runner.alg, "normalize_advantage_per_mini_batch", False)),
     )
     ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
-    lr_diagnostics = _apply_segment_adaptive_learning_rate(runner.alg, ppo_result)
     optimizer_params, param_snapshots = _optimizer_parameter_snapshots(runner.alg.policy, runner.alg.optimizer)
     grad_norm = 0.0
+    post_update_diagnostics: dict[str, Any] = {}
     if ppo_result.should_step:
         runner.alg.optimizer.zero_grad()
         ppo_result.total_loss.backward()
@@ -1151,8 +1198,19 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
         )
         grad_norm = float(grad_norm_tensor.detach().cpu().item())
         runner.alg.optimizer.step()
+        post_update_diagnostics = _post_update_segment_ppo_diagnostics(policy_adapter, ppo_batch, ppo_cfg)
+        object.__setattr__(ppo_result, "approx_kl", float(post_update_diagnostics["post_update_approx_kl"]))
+        object.__setattr__(ppo_result, "clip_frac", float(post_update_diagnostics["post_update_clip_frac"]))
+        object.__setattr__(ppo_result, "ratio_mean", float(post_update_diagnostics["post_update_ratio_mean"]))
+    kl_for_lr = (
+        float(post_update_diagnostics["post_update_approx_kl"])
+        if post_update_diagnostics
+        else None
+    )
+    lr_diagnostics = _apply_segment_adaptive_learning_rate(runner.alg, ppo_result, kl_mean=kl_for_lr)
     diagnostics = _parameter_delta_stats(optimizer_params, param_snapshots)
     diagnostics["param_grad_norm"] = grad_norm
+    diagnostics.update(post_update_diagnostics)
     diagnostics.update(lr_diagnostics)
     _attach_ppo_update_diagnostics(ppo_result, diagnostics)
     runner.eval_mode()
@@ -1513,6 +1571,13 @@ def _initial_live_probe_summary(
         "ppo_value_loss": 0.0,
         "ppo_approx_kl": 0.0,
         "ppo_clip_frac": 0.0,
+        "ppo_pre_distribution_kl_mean": 0.0,
+        "ppo_pre_logprob_approx_kl": 0.0,
+        "ppo_distribution_kl_available": False,
+        "ppo_post_update_distribution_kl_mean": 0.0,
+        "ppo_post_update_logprob_approx_kl": 0.0,
+        "ppo_post_update_ratio_mean": 0.0,
+        "ppo_post_update_clip_frac": 0.0,
         "ppo_param_delta_max_abs": 0.0,
         "ppo_param_delta_l2": 0.0,
         "ppo_param_delta_changed": 0,
@@ -1701,9 +1766,22 @@ def _print_live_probe_summary(
                     },
                 ),
                 *_kv_lines(
+                    "kl",
+                    {
+                        "pre_distribution": _fmt_num(summary.get("ppo_pre_distribution_kl_mean", 0.0)),
+                        "pre_logprob": _fmt_num(summary.get("ppo_pre_logprob_approx_kl", 0.0)),
+                        "post_distribution": _fmt_num(
+                            summary.get("ppo_post_update_distribution_kl_mean", 0.0)
+                        ),
+                        "post_logprob": _fmt_num(summary.get("ppo_post_update_logprob_approx_kl", 0.0)),
+                        "distribution_available": bool(summary.get("ppo_distribution_kl_available", False)),
+                    },
+                ),
+                *_kv_lines(
                     "ratio",
                     {
-                        "mean": _fmt_num(summary.get("ppo_ratio_mean", 0.0)),
+                        "reported_mean": _fmt_num(summary.get("ppo_ratio_mean", 0.0)),
+                        "post_mean": _fmt_num(summary.get("ppo_post_update_ratio_mean", 0.0)),
                         "max": _fmt_num(summary.get("ppo_ratio_max", 0.0)),
                     },
                 ),

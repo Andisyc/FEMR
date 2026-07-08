@@ -64,6 +64,11 @@ class FrontRESSegmentPPOResult:
     logprob_approx_kl: float = 0.0
     distribution_kl_mean: float = 0.0
     distribution_kl_available: bool = False
+    post_update_distribution_kl_mean: float = 0.0
+    post_update_distribution_kl_available: bool = False
+    post_update_logprob_approx_kl: float = 0.0
+    post_update_ratio_mean: float = 0.0
+    post_update_clip_frac: float = 0.0
 
     @property
     def should_step(self) -> bool:
@@ -91,6 +96,13 @@ class FrontRESSegmentPPOResult:
             "segment/ppo_logprob_approx_kl": self.logprob_approx_kl,
             "segment/ppo_distribution_kl_mean": self.distribution_kl_mean,
             "segment/ppo_distribution_kl_available": float(self.distribution_kl_available),
+            "segment/ppo_post_update_distribution_kl_mean": self.post_update_distribution_kl_mean,
+            "segment/ppo_post_update_distribution_kl_available": float(
+                self.post_update_distribution_kl_available
+            ),
+            "segment/ppo_post_update_logprob_approx_kl": self.post_update_logprob_approx_kl,
+            "segment/ppo_post_update_ratio_mean": self.post_update_ratio_mean,
+            "segment/ppo_post_update_clip_frac": self.post_update_clip_frac,
         }
 
 

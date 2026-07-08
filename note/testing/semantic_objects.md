@@ -213,5 +213,5 @@ S4 live sentinel when real rollout/update is changed
 Current status:
 
 ```text
-Segment storage preserves old_means/old_sigmas through FrontRESSegmentPPOBatch. frontres_segment_ppo.py reports both logprob_approx_kl and MOSAIC-style distribution_kl_mean, and uses distribution_kl_mean as approx_kl when old/new distribution stats are available. run_frontres_segment_single_update applies schedule=adaptive LR updates from that distribution KL. This is S1/S2 contract-confirmed; real training quality remains S4/live-log evidence.
+Segment storage preserves old_means/old_sigmas through FrontRESSegmentPPOBatch. frontres_segment_ppo.py reports both logprob_approx_kl and MOSAIC-style distribution_kl_mean, and uses distribution_kl_mean as approx_kl when old/new distribution stats are available. run_frontres_segment_single_update retains the pre-loss distribution KL, recomputes post-update trust-region KL after optimizer.step, reports the post value as the live `ppo.kl`, and applies schedule=adaptive LR from that post KL. This is S1/S2 contract-confirmed; real training quality remains S4/live-log evidence.
 ```
