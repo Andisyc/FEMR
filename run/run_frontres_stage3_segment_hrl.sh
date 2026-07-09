@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
-  echo "Usage: bash run/run_frontres_stage3_segment_hrl.sh HSL_CHECKPOINT MOTION_PATH [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE]"
+  echo "Usage: bash run/run_frontres_stage3_segment_hrl.sh HSL_CHECKPOINT MOTION_PATH [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE] [TRAIN_ARGS...]"
   echo
   echo "Stage 3 loads an HSL Delta SE proposal checkpoint and trains Segment Replay HRL."
   echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval, sequence_eval."
@@ -11,6 +11,7 @@ if [[ $# -lt 2 ]]; then
  echo "sequence_eval loads the checkpoint, evaluates OFFLINE_EVAL_SEQUENCES unique motions from frame 0 to sampled segment starts, and exits."
  echo "OFFLINE_EVAL_MAX_PREROLL_STEPS caps sampled segment starts for smoke tests; set 0 for unbounded full evaluation."
  echo "FRONTRES_SPECIALIST_MODE selects the perturbation preset for train/eval; default rp."
+  echo "Append --frontres_segment_ppo_schedule adaptive to test adaptive Segment PPO trust-region control."
   echo "Example:"
   echo "  SHARD_CACHE_SIZE=8 bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 12000 2000 4 train"
   echo "  bash run/run_frontres_stage3_segment_hrl.sh /path/to/hsl/model.pt /path/to/motions 1 1 1 update_loop"
@@ -23,6 +24,7 @@ NUM_ENVS="${3:-12000}"
 MAX_ITERS="${4:-2000}"
 UPDATE_STEPS="${5:-4}"
 MODE="${6:-train}"
+EXTRA_TRAIN_ARGS=("${@:7}")
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FEMR_STAGE3_SEGMENT_HRL}"
@@ -108,6 +110,10 @@ TRAIN_CMD=(
 
 if [[ ${#MODE_ARGS[@]} -gt 0 ]]; then
   TRAIN_CMD+=("${MODE_ARGS[@]}")
+fi
+
+if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
+  TRAIN_CMD+=("${EXTRA_TRAIN_ARGS[@]}")
 fi
 
 if [[ "${PERIODIC_EVAL_ENABLED}" == "1" ]]; then

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: bash run_stage3.sh STAGE2_CHECKPOINT [MOTION_PATH] [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE]"
+  echo "Usage: bash run_stage3.sh STAGE2_CHECKPOINT [MOTION_PATH] [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE] [TRAIN_ARGS...]"
   echo
  echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval, sequence_eval."
  echo "CACHE_DIR selects the Stage 1 Segment Replay cache used by Stage 3."
@@ -11,6 +11,7 @@ echo "OFFLINE_EVAL_STEPS controls checkpoint eval rollout length when MODE=offli
 echo "OFFLINE_EVAL_SEQUENCES and OFFLINE_EVAL_MAX_PREROLL_STEPS control MODE=sequence_eval."
 echo "FRONTRES_SPECIALIST_MODE selects Stage 3 perturbation family preset, default rp."
 echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
+echo "Append --frontres_segment_ppo_schedule adaptive to test adaptive Segment PPO trust-region control."
   echo "Set FRONTRES_STAGE_PREFLIGHT_ONLY=1 to print and validate the startup command without launching IsaacLab."
   exit 1
 fi
@@ -21,6 +22,7 @@ NUM_ENVS="${3:-12000}"
 MAX_ITERS="${4:-2000}"
 UPDATE_STEPS="${5:-4}"
 MODE="${6:-train}"
+EXTRA_TRAIN_ARGS=("${@:7}")
 CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
 SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
 LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage3_segment_hrl.txt}"
@@ -49,6 +51,9 @@ CMD=(
   "${UPDATE_STEPS}"
   "${MODE}"
 )
+if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
+  CMD+=("${EXTRA_TRAIN_ARGS[@]}")
+fi
 
 if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   echo "[FrontRES Stage3] preflight only"

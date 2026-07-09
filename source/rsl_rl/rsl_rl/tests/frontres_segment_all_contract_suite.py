@@ -226,7 +226,7 @@ CONTRACTS = (
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_live_resume_pseudo_contract.py",
         expected_marker="frontres_segment_live_resume_pseudo_contract: ok",
         path_class="core_param_path",
-        requires_torch=False,
+        requires_torch=True,
     ),
     ContractTarget(
         name="stage3_live_sampler",

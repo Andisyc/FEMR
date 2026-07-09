@@ -12,16 +12,29 @@ TRAIN_PATH = ROOT / "scripts" / "rsl_rl" / "train.py"
 
 def _load_stage_preset():
     tree = ast.parse(TRAIN_PATH.read_text())
-    wanted = {"_set_if_present", "_apply_frontres_stage_preset", "_configure_frontres_stage3_segment_hrl_env_cfg"}
+    wanted = {
+        "_set_if_present",
+        "_apply_frontres_stage_preset",
+        "_apply_frontres_segment_ppo_schedule_override",
+        "_configure_frontres_stage3_segment_hrl_env_cfg",
+    }
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
     module = ast.Module(body=nodes, type_ignores=[])
     ast.fix_missing_locations(module)
     namespace = {"RslRlOnPolicyRunnerCfg": object}
     exec(compile(module, str(TRAIN_PATH), "exec"), namespace)
-    return namespace["_apply_frontres_stage_preset"], namespace["_configure_frontres_stage3_segment_hrl_env_cfg"]
+    return (
+        namespace["_apply_frontres_stage_preset"],
+        namespace["_apply_frontres_segment_ppo_schedule_override"],
+        namespace["_configure_frontres_stage3_segment_hrl_env_cfg"],
+    )
 
 
-_apply_frontres_stage_preset, _configure_frontres_stage3_segment_hrl_env_cfg = _load_stage_preset()
+(
+    _apply_frontres_stage_preset,
+    _apply_frontres_segment_ppo_schedule_override,
+    _configure_frontres_stage3_segment_hrl_env_cfg,
+) = _load_stage_preset()
 
 
 def _alg_cfg() -> SimpleNamespace:
@@ -51,6 +64,7 @@ def _alg_cfg() -> SimpleNamespace:
         frontres_structured_joint_rl_enabled=True,
         frontres_structured_joint_rl_weight=1.0,
         frontres_structured_joint_prior_loss_weight=1.0,
+        schedule="fixed",
     )
 
 
@@ -88,6 +102,7 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_live_update_loop_only": False,
         "frontres_segment_sequence_offline_eval_only": False,
         "frontres_segment_live_update_steps": 6,
+        "frontres_segment_ppo_schedule": None,
         "experiment_name": None,
         "is_full_resume": None,
     }
@@ -181,6 +196,30 @@ def test_stage3_sequence_eval_zeroes_iterations_and_disables_live_train() -> Non
     assert alg.frontres_segment_sequence_offline_eval_only is True
 
 
+def test_stage3_ppo_schedule_override_is_explicit_parse_arg() -> None:
+    agent_cfg = _agent_cfg()
+
+    _apply_frontres_stage_preset(agent_cfg, _args(frontres_segment_ppo_schedule="adaptive"))
+    _apply_frontres_segment_ppo_schedule_override(agent_cfg, _args(frontres_segment_ppo_schedule="adaptive"))
+    _probe_stage3_config("stage3_ppo_schedule_override", agent_cfg)
+
+    assert agent_cfg.algorithm.schedule == "adaptive"
+
+
+def test_stage3_ppo_schedule_override_rejects_non_stage3() -> None:
+    agent_cfg = _agent_cfg()
+    try:
+        _apply_frontres_segment_ppo_schedule_override(
+            agent_cfg,
+            _args(frontres_stage="stage2_acceptance", frontres_segment_ppo_schedule="adaptive"),
+        )
+    except ValueError as exc:
+        _probe_exception("rejects_ppo_schedule_without_stage3", exc)
+        assert "requires --frontres_stage stage3_segment_hrl" in str(exc)
+    else:
+        raise AssertionError("PPO schedule override must require Stage 3")
+
+
 def test_stage3_rejects_multiple_live_sentinel_modes() -> None:
     agent_cfg = _agent_cfg()
     try:
@@ -257,6 +296,8 @@ if __name__ == "__main__":
     test_stage3_default_enters_live_train_config_without_zeroing_iterations()
     test_stage3_sentinel_zeroes_iterations_and_disables_live_train()
     test_stage3_sequence_eval_zeroes_iterations_and_disables_live_train()
+    test_stage3_ppo_schedule_override_is_explicit_parse_arg()
+    test_stage3_ppo_schedule_override_rejects_non_stage3()
     test_stage3_rejects_multiple_live_sentinel_modes()
     test_live_sentinel_flags_require_stage3()
     test_stage3_motion_loader_cfg_aligns_with_index_cache()

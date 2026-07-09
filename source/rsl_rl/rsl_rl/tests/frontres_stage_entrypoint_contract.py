@@ -65,7 +65,10 @@ def main() -> None:
     assert '"--frontres_segment_live_update_loop_only"' in train
     assert '"--frontres_segment_sequence_offline_eval_only"' in train
     assert '"--frontres_segment_live_update_steps"' in train
+    assert '"--frontres_segment_ppo_schedule"' in train
     assert '"--frontres_segment_shard_cache_size"' in train
+    assert "def _apply_frontres_segment_ppo_schedule_override(agent_cfg, args_cli) -> None:" in train
+    assert "_apply_frontres_segment_ppo_schedule_override(agent_cfg, args_cli)" in train
     assert "Stage 3 live sentinel/probe/storage/update flags require --frontres_stage stage3_segment_hrl" in train
     assert 'if stage == "stage1_segment_cache":' in train
     assert 'elif stage in ("stage1_hsl", "stage2_hsl_warmup"):' in train
@@ -432,6 +435,7 @@ def main() -> None:
     assert 'stage2_acceptance' not in root_stage2
     assert 'acceptance' not in root_stage2.lower()
     assert 'STAGE2_CHECKPOINT="$1"' in root_stage3
+    assert 'EXTRA_TRAIN_ARGS=("${@:7}")' in root_stage3
     assert 'bash run/run_frontres_stage3_segment_hrl.sh' in root_stage3
     assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in root_stage3
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in root_stage3
@@ -439,6 +443,7 @@ def main() -> None:
     assert 'export SHARD_CACHE_SIZE' in root_stage3
     assert 'FRONTRES_STAGE_PREFLIGHT_ONLY=1' in root_stage3
     assert '[FrontRES Stage3] preflight only' in root_stage3
+    assert 'CMD+=("${EXTRA_TRAIN_ARGS[@]}")' in root_stage3
     assert 'train_stage3_segment_hrl.txt' in root_stage3
     assert 'stage2_acceptance' not in root_stage3
     assert 'acceptance' not in root_stage3.lower()
@@ -447,10 +452,13 @@ def main() -> None:
     assert '--is_full_resume "${STAGE3_IS_FULL_RESUME}"' in stage3
     assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in stage3
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in stage3
+    assert 'EXTRA_TRAIN_ARGS=("${@:7}")' in stage3
     assert 'SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size.' in stage3
+    assert '--frontres_segment_ppo_schedule adaptive' in stage3
     assert '--frontres_segment_cache_dir "${CACHE_DIR}"' in stage3
     assert '--frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"' in stage3
     assert '--frontres_segment_live_update_steps "${UPDATE_STEPS}"' in stage3
+    assert 'TRAIN_CMD+=("${EXTRA_TRAIN_ARGS[@]}")' in stage3
     assert '" --frontres_segment_cache_dir ${CACHE_DIR} "' in stage3
     assert '" --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} "' in stage3
     assert '--frontres_segment_live_update_loop_only' in stage3

@@ -255,6 +255,16 @@ parser.add_argument(
     help="Number of live Segment Replay PPO update steps for --frontres_segment_live_update_loop_only.",
 )
 parser.add_argument(
+    "--frontres_segment_ppo_schedule",
+    type=str,
+    choices=("fixed", "adaptive"),
+    default=None,
+    help=(
+        "For Stage 3 only: explicitly override algorithm.schedule for Segment Replay PPO. "
+        "Use this instead of fragile Hydra deep overrides such as algorithm.schedule=adaptive."
+    ),
+)
+parser.add_argument(
     "--frontres_segment_periodic_eval_enabled",
     action="store_true",
     default=False,
@@ -901,6 +911,20 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     )
 
 
+def _apply_frontres_segment_ppo_schedule_override(agent_cfg, args_cli) -> None:
+    schedule = getattr(args_cli, "frontres_segment_ppo_schedule", None)
+    if schedule is None:
+        return
+    if getattr(args_cli, "frontres_stage", None) != "stage3_segment_hrl":
+        raise ValueError("--frontres_segment_ppo_schedule requires --frontres_stage stage3_segment_hrl")
+    alg_cfg = getattr(agent_cfg, "algorithm", None)
+    if alg_cfg is None or not hasattr(alg_cfg, "schedule"):
+        raise AttributeError("--frontres_segment_ppo_schedule requires an agent config with algorithm.schedule")
+    schedule = str(schedule).lower()
+    alg_cfg.schedule = schedule
+    print(f"[FrontRES Stage3 Segment HRL] ppo_schedule_override schedule={schedule}", flush=True)
+
+
 def _parse_frontres_segment_cache_strengths(value: str) -> list[float]:
     strengths: list[float] = []
     for item in str(value).split(","):
@@ -1216,6 +1240,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         elif args_cli.frontres_specialist_mode in ("rp_z", "z_rp", "vertical_contact"):
             agent_cfg.frontres_perturbation_channels = "rp_z"
     _apply_frontres_stage_preset(agent_cfg, args_cli)
+    _apply_frontres_segment_ppo_schedule_override(agent_cfg, args_cli)
 
     # set seeds (explicit rank offset for distributed to avoid identical sampling across ranks)
     # note: certain randomizations occur in the environment initialization so we set the seed here
