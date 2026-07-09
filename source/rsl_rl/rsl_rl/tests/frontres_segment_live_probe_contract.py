@@ -1167,6 +1167,16 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "ppo_raw_log_ratio_max": 2.0,
         "ppo_ratio_mean": 3.0,
         "ppo_ratio_max": 7.0,
+        "ppo_pre_update_raw_log_ratio_mean": 1.0,
+        "ppo_pre_update_raw_log_ratio_min": -0.5,
+        "ppo_pre_update_raw_log_ratio_max": 2.0,
+        "ppo_pre_update_clamped_ratio_mean": 3.0,
+        "ppo_pre_update_clamped_ratio_max": 7.0,
+        "ppo_post_update_raw_log_ratio_mean": 1.5,
+        "ppo_post_update_raw_log_ratio_min": -0.25,
+        "ppo_post_update_raw_log_ratio_max": 2.5,
+        "ppo_post_update_clamped_ratio_mean": 4.0,
+        "ppo_post_update_clamped_ratio_max": 8.0,
         "ppo_advantage_mean": 0.1,
         "ppo_advantage_min": -0.2,
         "ppo_advantage_max": 0.4,
@@ -1186,7 +1196,7 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         f"ppo_probe={'[FrontRES Segment PPO Probe]' in output} "
         f"route={'  route.objective:' in output} "
         f"reset={'  reset.enabled:' in output} "
-        f"log_ratio={'  log_ratio.mean:' in output}",
+        f"pre_log_ratio={'  pre_log_ratio.mean:' in output}",
         flush=True,
     )
     assert "[FrontRES Segment Live Probe]" in output
@@ -1201,7 +1211,8 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "  storage.write:",
         "  storage.train_reward:",
         "  ppo.valid:",
-        "  log_ratio.mean:",
+        "  pre_log_ratio.mean:",
+        "  post_log_ratio.mean:",
     ):
         assert label in output
     assert "reset.reason: applied" in output
@@ -1216,6 +1227,96 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
     assert output.startswith("\n" + live_probe._LOG_SEPARATOR + "\n")
     assert f"\n{live_probe._LOG_SEPARATOR}\n\n[FrontRES Segment PPO Probe]" in output
     assert not output.rstrip().endswith(live_probe._LOG_SEPARATOR)
+
+
+def test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks() -> None:
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(
+            frontres_training_objective="segment_replay_hrl",
+            frontres_segment_verbose_probe=True,
+        ),
+        _frontres_segment_replay_boundary=SimpleNamespace(reset_mode="direct"),
+        _frontres_segment_live_detail_log_enabled=True,
+    )
+    summary = {
+        "segment_reset": True,
+        "segment_reset_skip_reason": "",
+        "segment_reset_success_frac": 1.0,
+        "segment_reset_direct_frac": 1.0,
+        "segment_reset_preroll_frac": 0.0,
+        "segment_reset_velocity_mismatch_mean": 0.0,
+        "segment_reference_window_applied_frac": 0.0,
+        "valid_mask_frac": 1.0,
+        "reward_mean": 0.5,
+        "env_reward_mean": 0.5,
+        "train_reward_mean": 0.4,
+        "score_gain_mean": 0.4,
+        "done_frac": 0.0,
+        "storage_write": True,
+        "storage_size": 2,
+        "storage_valid_frac": 1.0,
+        "storage_reward_mean": 0.5,
+        "single_update": True,
+        "ppo_update": True,
+        "ppo_valid_count": 2,
+        "ppo_total_loss": 1.0,
+        "ppo_actor_loss": 0.5,
+        "ppo_value_loss": 0.25,
+        "ppo_approx_kl": 0.01,
+        "ppo_clip_frac": 0.5,
+        "ppo_old_log_prob_mean": -2.0,
+        "ppo_new_log_prob_mean": -1.0,
+        "ppo_pre_update_raw_log_ratio_mean": 1.0,
+        "ppo_pre_update_raw_log_ratio_min": -0.5,
+        "ppo_pre_update_raw_log_ratio_max": 2.0,
+        "ppo_pre_update_clamped_ratio_mean": 3.0,
+        "ppo_pre_update_clamped_ratio_max": 7.0,
+        "ppo_post_update_raw_log_ratio_mean": -5.0,
+        "ppo_post_update_raw_log_ratio_min": -6.0,
+        "ppo_post_update_raw_log_ratio_max": -4.0,
+        "ppo_post_update_clamped_ratio_mean": 0.01,
+        "ppo_post_update_clamped_ratio_max": 0.02,
+        "ppo_pre_distribution_kl_mean": 0.001,
+        "ppo_pre_logprob_approx_kl": 0.0,
+        "ppo_post_update_distribution_kl_mean": 0.009,
+        "ppo_post_update_logprob_approx_kl": 5.0,
+        "ppo_distribution_kl_available": True,
+        "ppo_trust_region_accepted": 1,
+        "ppo_trust_region_rejected_count": 0,
+        "ppo_adaptive_lr_before": 1e-4,
+        "ppo_adaptive_lr_after": 1e-4,
+        "ppo_adaptive_lr_desired_kl": 0.01,
+        "ppo_trust_region_schedule": "adaptive",
+        "ppo_trust_region_rollback_enabled": 1,
+        "ppo_trust_region_max_retries": 2,
+        "ppo_advantage_mean": 0.1,
+        "ppo_advantage_min": -0.2,
+        "ppo_advantage_max": 0.4,
+        "evidence_row_count": 2,
+        "score_source": "b1_paired_env_rewards",
+        "score_noisy_per_sample": [0.2, 0.3],
+        "score_repaired_per_sample": [0.7, 0.6],
+        "evidence_valid_mask_per_sample": [True, True],
+    }
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        live_probe._print_live_probe_summary(runner, _capture(), summary)
+    output = stream.getvalue()
+    print(
+        "[probe stepA] readable_ratio_blocks: "
+        f"pre_log_ratio={'  pre_log_ratio.mean:' in output} "
+        f"pre_ratio={'  pre_ratio.clamped_mean:' in output} "
+        f"post_log_ratio={'  post_log_ratio.mean:' in output} "
+        f"post_ratio={'  post_ratio.clamped_mean:' in output} "
+        f"legacy_reported={'  ratio.reported_mean:' in output}",
+        flush=True,
+    )
+
+    assert "  pre_log_ratio.mean:" in output
+    assert "  pre_ratio.clamped_mean:" in output
+    assert "  post_log_ratio.mean:" in output
+    assert "  post_ratio.clamped_mean:" in output
+    assert "  ratio.reported_mean:" not in output
 
 
 def test_live_probe_summary_reports_raw_policy_and_segment_delta_dims() -> None:
@@ -1371,6 +1472,7 @@ if __name__ == "__main__":
     test_index_reset_request_carries_stage3_dynamic_perturbation()
     test_live_probe_detail_gate_suppresses_reset_and_summary_logs()
     test_live_probe_summary_uses_readable_metric_blocks()
+    test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks()
     test_live_probe_summary_reports_raw_policy_and_segment_delta_dims()
     test_live_probe_summary_extracts_b1_noisy_repaired_scores()
     test_live_probe_summary_preserves_b1_gain_when_env_rewards_are_negative()

@@ -58,6 +58,11 @@ class FrontRESSegmentPPOResult:
     raw_log_ratio_mean: float = 0.0
     raw_log_ratio_min: float = 0.0
     raw_log_ratio_max: float = 0.0
+    pre_update_raw_log_ratio_mean: float = 0.0
+    pre_update_raw_log_ratio_min: float = 0.0
+    pre_update_raw_log_ratio_max: float = 0.0
+    pre_update_clamped_ratio_mean: float = 0.0
+    pre_update_clamped_ratio_max: float = 0.0
     advantage_mean: float = 0.0
     advantage_min: float = 0.0
     advantage_max: float = 0.0
@@ -76,6 +81,11 @@ class FrontRESSegmentPPOResult:
     post_update_logprob_approx_kl: float = 0.0
     post_update_ratio_mean: float = 0.0
     post_update_ratio_max: float = 0.0
+    post_update_raw_log_ratio_mean: float = 0.0
+    post_update_raw_log_ratio_min: float = 0.0
+    post_update_raw_log_ratio_max: float = 0.0
+    post_update_clamped_ratio_mean: float = 0.0
+    post_update_clamped_ratio_max: float = 0.0
     post_update_clip_frac: float = 0.0
 
     @property
@@ -98,6 +108,11 @@ class FrontRESSegmentPPOResult:
             "segment/ppo_raw_log_ratio_mean": self.raw_log_ratio_mean,
             "segment/ppo_raw_log_ratio_min": self.raw_log_ratio_min,
             "segment/ppo_raw_log_ratio_max": self.raw_log_ratio_max,
+            "segment/ppo_pre_update_raw_log_ratio_mean": self.pre_update_raw_log_ratio_mean,
+            "segment/ppo_pre_update_raw_log_ratio_min": self.pre_update_raw_log_ratio_min,
+            "segment/ppo_pre_update_raw_log_ratio_max": self.pre_update_raw_log_ratio_max,
+            "segment/ppo_pre_update_clamped_ratio_mean": self.pre_update_clamped_ratio_mean,
+            "segment/ppo_pre_update_clamped_ratio_max": self.pre_update_clamped_ratio_max,
             "segment/ppo_advantage_mean": self.advantage_mean,
             "segment/ppo_advantage_min": self.advantage_min,
             "segment/ppo_advantage_max": self.advantage_max,
@@ -118,6 +133,11 @@ class FrontRESSegmentPPOResult:
             "segment/ppo_post_update_logprob_approx_kl": self.post_update_logprob_approx_kl,
             "segment/ppo_post_update_ratio_mean": self.post_update_ratio_mean,
             "segment/ppo_post_update_ratio_max": self.post_update_ratio_max,
+            "segment/ppo_post_update_raw_log_ratio_mean": self.post_update_raw_log_ratio_mean,
+            "segment/ppo_post_update_raw_log_ratio_min": self.post_update_raw_log_ratio_min,
+            "segment/ppo_post_update_raw_log_ratio_max": self.post_update_raw_log_ratio_max,
+            "segment/ppo_post_update_clamped_ratio_mean": self.post_update_clamped_ratio_mean,
+            "segment/ppo_post_update_clamped_ratio_max": self.post_update_clamped_ratio_max,
             "segment/ppo_post_update_clip_frac": self.post_update_clip_frac,
         }
 
@@ -254,6 +274,11 @@ def compute_frontres_segment_ppo_loss(
         raw_log_ratio_mean=float(raw_log_ratio_mean),
         raw_log_ratio_min=float(raw_log_ratio_min),
         raw_log_ratio_max=float(raw_log_ratio_max),
+        pre_update_raw_log_ratio_mean=float(raw_log_ratio_mean),
+        pre_update_raw_log_ratio_min=float(raw_log_ratio_min),
+        pre_update_raw_log_ratio_max=float(raw_log_ratio_max),
+        pre_update_clamped_ratio_mean=float(ratio_mean),
+        pre_update_clamped_ratio_max=float(ratio_max),
         advantage_mean=float(advantage_mean),
         advantage_min=float(advantage_min),
         advantage_max=float(advantage_max),

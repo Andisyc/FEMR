@@ -111,6 +111,66 @@ Training gate:
 - Real simulator training quality and long-run KL behavior remain S4/live-log
   evidence, not claimed by this sweep.
 
+## Step A Ratio Diagnostic Consistency Contract - 2026-07-09
+
+Scope:
+- Added failing S1/S2 contracts for Stage 3 Segment PPO ratio diagnostics.
+- This step does not change PPO loss, action semantics, trust-region rollback,
+  sampler evidence, or live training behavior.
+
+Commands run:
+- `python -m py_compile source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py` (expected failure)
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py` (expected failure)
+
+Evidence:
+- Single-update contract prints `missing=['pre_update_raw_log_ratio_mean', ...,
+  'post_update_clamped_ratio_max']`, while legacy fields still show
+  `legacy_raw_log_ratio_mean`, `legacy_ratio_mean`, and `post_ratio_mean`.
+- Live-probe text contract prints `pre_log_ratio=False pre_ratio=False
+  post_log_ratio=False post_ratio=False legacy_reported=True`.
+
+Status:
+- MAIN-39/46 are now `missing-test-exposed` for ratio diagnostic separation:
+  the tests exist and intentionally fail until Step B adds explicit pre/post
+  raw-log-ratio and clamped-ratio diagnostics.
+- Do not treat current `ratio.reported_mean` logs as a reliable training-health
+  signal.
+
+## Step B Ratio Diagnostic Consistency Fix - 2026-07-09
+
+Scope:
+- Implemented the Step A diagnostic contract without changing PPO loss, action
+  semantics, sampler evidence, trust-region rollback, adaptive LR, or live
+  training behavior.
+- `frontres_segment_ppo.py` now carries explicit pre-loss raw-log-ratio,
+  pre-loss clamped-ratio, post-update raw-log-ratio, and post-update
+  clamped-ratio diagnostics.
+- `frontres_segment_live_probe.py` now prints `pre_log_ratio`, `pre_ratio`,
+  `post_log_ratio`, and `post_ratio` blocks instead of ambiguous
+  `ratio.reported_mean`.
+
+Commands passed:
+- `python -m py_compile source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py`
+
+Evidence:
+- Single-update ratio diagnostic contract reports `missing=[]`, proving all
+  explicit pre/post raw-log-ratio and clamped-ratio fields exist on the PPO
+  result.
+- Live-probe text contract reports `pre_log_ratio=True pre_ratio=True
+  post_log_ratio=True post_ratio=True legacy_reported=False`.
+- Segment algorithm and update-loop regressions still pass, so this step is a
+  diagnostics fix rather than a PPO behavior change.
+
+Status:
+- MAIN-39/46 ratio diagnostic separation is contract-confirmed fixed at S1/S2.
+- Live training quality remains S4/live-log evidence and is not claimed by this
+  diagnostic-only step.
+
 ## Latest Full Sweep - 2026-07-07
 Scope:
 - Tested the current dirty FEMR worktree through the Repo Mainline Atlas and

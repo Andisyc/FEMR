@@ -151,6 +151,7 @@ T-adv-dominance valid-sample advantage distribution reports whether one or a few
 T-bounded-logprob-source bounded Delta SE actions reconstruct log_prob from the same raw policy distribution stats and Jacobian correction.
 T-small-sigma-kl-sensitivity exact KL stress shows how small sigma amplifies the same mean shift.
 T-post-mean-delta post-update diagnostics report policy mean movement from stored old_means on the same PPO batch.
+T-ratio-diagnostic-consistency pre-loss raw log-ratio, pre-loss clamped ratio, post-update raw log-ratio, and post-update clamped ratio are named and displayed as separate timepoints.
 ```
 
 ### Segment cache/dataset/sampler changes

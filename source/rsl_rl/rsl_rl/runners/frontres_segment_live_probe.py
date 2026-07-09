@@ -301,12 +301,22 @@ def _post_update_segment_ppo_diagnostics(
         if bool(post_result.distribution_kl_available)
         else float(post_result.logprob_approx_kl)
     )
+    post_raw_log_ratio_mean = float(post_result.pre_update_raw_log_ratio_mean)
+    post_raw_log_ratio_min = float(post_result.pre_update_raw_log_ratio_min)
+    post_raw_log_ratio_max = float(post_result.pre_update_raw_log_ratio_max)
+    post_clamped_ratio_mean = float(post_result.pre_update_clamped_ratio_mean)
+    post_clamped_ratio_max = float(post_result.pre_update_clamped_ratio_max)
     return {
         "post_update_distribution_kl_mean": float(post_result.distribution_kl_mean),
         "post_update_distribution_kl_available": bool(post_result.distribution_kl_available),
         "post_update_logprob_approx_kl": float(post_result.logprob_approx_kl),
-        "post_update_ratio_mean": float(post_result.ratio_mean),
-        "post_update_ratio_max": float(post_result.ratio_max),
+        "post_update_raw_log_ratio_mean": post_raw_log_ratio_mean,
+        "post_update_raw_log_ratio_min": post_raw_log_ratio_min,
+        "post_update_raw_log_ratio_max": post_raw_log_ratio_max,
+        "post_update_clamped_ratio_mean": post_clamped_ratio_mean,
+        "post_update_clamped_ratio_max": post_clamped_ratio_max,
+        "post_update_ratio_mean": post_clamped_ratio_mean,
+        "post_update_ratio_max": post_clamped_ratio_max,
         "post_update_clip_frac": float(post_result.clip_frac),
         "post_update_approx_kl": post_kl,
         "post_update_mean_delta_l2_mean": float(post_result.distribution_mean_delta_l2_mean),
@@ -677,6 +687,21 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     "ppo_raw_log_ratio_mean": float(ppo_result.raw_log_ratio_mean),
                     "ppo_raw_log_ratio_min": float(ppo_result.raw_log_ratio_min),
                     "ppo_raw_log_ratio_max": float(ppo_result.raw_log_ratio_max),
+                    "ppo_pre_update_raw_log_ratio_mean": float(
+                        ppo_result.pre_update_raw_log_ratio_mean
+                    ),
+                    "ppo_pre_update_raw_log_ratio_min": float(
+                        ppo_result.pre_update_raw_log_ratio_min
+                    ),
+                    "ppo_pre_update_raw_log_ratio_max": float(
+                        ppo_result.pre_update_raw_log_ratio_max
+                    ),
+                    "ppo_pre_update_clamped_ratio_mean": float(
+                        ppo_result.pre_update_clamped_ratio_mean
+                    ),
+                    "ppo_pre_update_clamped_ratio_max": float(
+                        ppo_result.pre_update_clamped_ratio_max
+                    ),
                     "ppo_pre_distribution_kl_mean": float(getattr(ppo_result, "distribution_kl_mean", 0.0)),
                     "ppo_pre_logprob_approx_kl": float(getattr(ppo_result, "logprob_approx_kl", 0.0)),
                     "ppo_distribution_kl_available": bool(
@@ -693,6 +718,21 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     ),
                     "ppo_post_update_ratio_max": float(
                         getattr(ppo_result, "post_update_ratio_max", 0.0)
+                    ),
+                    "ppo_post_update_raw_log_ratio_mean": float(
+                        getattr(ppo_result, "post_update_raw_log_ratio_mean", 0.0)
+                    ),
+                    "ppo_post_update_raw_log_ratio_min": float(
+                        getattr(ppo_result, "post_update_raw_log_ratio_min", 0.0)
+                    ),
+                    "ppo_post_update_raw_log_ratio_max": float(
+                        getattr(ppo_result, "post_update_raw_log_ratio_max", 0.0)
+                    ),
+                    "ppo_post_update_clamped_ratio_mean": float(
+                        getattr(ppo_result, "post_update_clamped_ratio_mean", 0.0)
+                    ),
+                    "ppo_post_update_clamped_ratio_max": float(
+                        getattr(ppo_result, "post_update_clamped_ratio_max", 0.0)
                     ),
                     "ppo_post_update_clip_frac": float(
                         getattr(ppo_result, "post_update_clip_frac", 0.0)
@@ -1331,8 +1371,16 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
                 accepted = False
             object.__setattr__(ppo_result, "approx_kl", post_kl)
             object.__setattr__(ppo_result, "clip_frac", float(post_update_diagnostics["post_update_clip_frac"]))
-            object.__setattr__(ppo_result, "ratio_mean", float(post_update_diagnostics["post_update_ratio_mean"]))
-            object.__setattr__(ppo_result, "ratio_max", float(post_update_diagnostics["post_update_ratio_max"]))
+            object.__setattr__(
+                ppo_result,
+                "ratio_mean",
+                float(post_update_diagnostics["post_update_clamped_ratio_mean"]),
+            )
+            object.__setattr__(
+                ppo_result,
+                "ratio_max",
+                float(post_update_diagnostics["post_update_clamped_ratio_max"]),
+            )
             break
     if rejected_lr_diagnostics and not accepted:
         lr_diagnostics = rejected_lr_diagnostics
@@ -1711,6 +1759,11 @@ def _initial_live_probe_summary(
         "ppo_value_loss": 0.0,
         "ppo_approx_kl": 0.0,
         "ppo_clip_frac": 0.0,
+        "ppo_pre_update_raw_log_ratio_mean": 0.0,
+        "ppo_pre_update_raw_log_ratio_min": 0.0,
+        "ppo_pre_update_raw_log_ratio_max": 0.0,
+        "ppo_pre_update_clamped_ratio_mean": 0.0,
+        "ppo_pre_update_clamped_ratio_max": 0.0,
         "ppo_pre_distribution_kl_mean": 0.0,
         "ppo_pre_logprob_approx_kl": 0.0,
         "ppo_distribution_kl_available": False,
@@ -1718,6 +1771,11 @@ def _initial_live_probe_summary(
         "ppo_post_update_logprob_approx_kl": 0.0,
         "ppo_post_update_ratio_mean": 0.0,
         "ppo_post_update_ratio_max": 0.0,
+        "ppo_post_update_raw_log_ratio_mean": 0.0,
+        "ppo_post_update_raw_log_ratio_min": 0.0,
+        "ppo_post_update_raw_log_ratio_max": 0.0,
+        "ppo_post_update_clamped_ratio_mean": 0.0,
+        "ppo_post_update_clamped_ratio_max": 0.0,
         "ppo_post_update_clip_frac": 0.0,
         "ppo_param_delta_max_abs": 0.0,
         "ppo_param_delta_l2": 0.0,
@@ -1916,11 +1974,18 @@ def _print_live_probe_summary(
                     },
                 ),
                 *_kv_lines(
-                    "log_ratio",
+                    "pre_log_ratio",
                     {
-                        "mean": _fmt_num(summary.get("ppo_raw_log_ratio_mean", 0.0)),
-                        "min": _fmt_num(summary.get("ppo_raw_log_ratio_min", 0.0)),
-                        "max": _fmt_num(summary.get("ppo_raw_log_ratio_max", 0.0)),
+                        "mean": _fmt_num(summary.get("ppo_pre_update_raw_log_ratio_mean", 0.0)),
+                        "min": _fmt_num(summary.get("ppo_pre_update_raw_log_ratio_min", 0.0)),
+                        "max": _fmt_num(summary.get("ppo_pre_update_raw_log_ratio_max", 0.0)),
+                    },
+                ),
+                *_kv_lines(
+                    "pre_ratio",
+                    {
+                        "clamped_mean": _fmt_num(summary.get("ppo_pre_update_clamped_ratio_mean", 0.0)),
+                        "clamped_max": _fmt_num(summary.get("ppo_pre_update_clamped_ratio_max", 0.0)),
                     },
                 ),
                 *_kv_lines(
@@ -1936,11 +2001,18 @@ def _print_live_probe_summary(
                     },
                 ),
                 *_kv_lines(
-                    "ratio",
+                    "post_log_ratio",
                     {
-                        "reported_mean": _fmt_num(summary.get("ppo_ratio_mean", 0.0)),
-                        "post_mean": _fmt_num(summary.get("ppo_post_update_ratio_mean", 0.0)),
-                        "post_max": _fmt_num(summary.get("ppo_post_update_ratio_max", 0.0)),
+                        "mean": _fmt_num(summary.get("ppo_post_update_raw_log_ratio_mean", 0.0)),
+                        "min": _fmt_num(summary.get("ppo_post_update_raw_log_ratio_min", 0.0)),
+                        "max": _fmt_num(summary.get("ppo_post_update_raw_log_ratio_max", 0.0)),
+                    },
+                ),
+                *_kv_lines(
+                    "post_ratio",
+                    {
+                        "clamped_mean": _fmt_num(summary.get("ppo_post_update_clamped_ratio_mean", 0.0)),
+                        "clamped_max": _fmt_num(summary.get("ppo_post_update_clamped_ratio_max", 0.0)),
                     },
                 ),
                 *_kv_lines(

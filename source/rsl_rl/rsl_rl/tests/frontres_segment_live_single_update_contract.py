@@ -467,6 +467,43 @@ def test_single_update_rejects_explosive_adaptive_post_kl_and_reports_post_ratio
     torch.testing.assert_close(runner.alg.policy.critic.weight.detach(), before_critic)
 
 
+def test_single_update_requires_separate_pre_and_post_ratio_diagnostics() -> None:
+    runner = FakeRunner()
+    runner.alg.learning_rate = 0.1
+    for group in runner.alg.optimizer.param_groups:
+        group["lr"] = runner.alg.learning_rate
+    storage_batch = _storage_batch(torch.tensor([True, False]))
+
+    result = run_frontres_segment_single_update(runner, storage_batch)
+    required_fields = (
+        "pre_update_raw_log_ratio_mean",
+        "pre_update_raw_log_ratio_min",
+        "pre_update_raw_log_ratio_max",
+        "pre_update_clamped_ratio_mean",
+        "pre_update_clamped_ratio_max",
+        "post_update_raw_log_ratio_mean",
+        "post_update_raw_log_ratio_min",
+        "post_update_raw_log_ratio_max",
+        "post_update_clamped_ratio_mean",
+        "post_update_clamped_ratio_max",
+    )
+    missing = [name for name in required_fields if not hasattr(result, name)]
+    print(
+        "[probe stepA] ratio_diagnostic_contract: "
+        f"missing={missing} "
+        f"legacy_raw_log_ratio_mean={getattr(result, 'raw_log_ratio_mean', 'missing')} "
+        f"legacy_ratio_mean={getattr(result, 'ratio_mean', 'missing')} "
+        f"post_ratio_mean={getattr(result, 'post_update_ratio_mean', 'missing')} "
+        f"post_ratio_max={getattr(result, 'post_update_ratio_max', 'missing')}",
+        flush=True,
+    )
+
+    assert not missing, f"missing separated pre/post ratio diagnostics: {missing}"
+    assert result.pre_update_clamped_ratio_max >= result.pre_update_clamped_ratio_mean
+    assert result.post_update_clamped_ratio_max >= result.post_update_clamped_ratio_mean
+    assert result.post_update_raw_log_ratio_mean != result.pre_update_raw_log_ratio_mean
+
+
 if __name__ == "__main__":
     test_single_update_steps_optimizer_with_valid_segment()
     test_single_update_does_not_step_optimizer_without_valid_segments()
@@ -476,4 +513,5 @@ if __name__ == "__main__":
     test_bounded_delta_se_logprob_uses_same_raw_source_as_policy_stats()
     test_single_update_reports_post_update_mean_delta_from_old_distribution()
     test_single_update_rejects_explosive_adaptive_post_kl_and_reports_post_ratio_max()
+    test_single_update_requires_separate_pre_and_post_ratio_diagnostics()
     print("frontres_segment_live_single_update_contract: ok")

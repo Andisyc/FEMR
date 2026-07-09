@@ -183,6 +183,9 @@ old_sigmas
 desired_kl
 adaptive LR
 PPO trust region
+raw_log_ratio
+clamped ratio
+pre/post ratio diagnostics
 frontres_mask
 paired repaired-vs-noisy gain
 actor_update_mask
@@ -207,6 +210,7 @@ S1/S2 action/log_prob transform contract for the same executed 6D Delta SE
 S1/S2 storage contract preserving old_log_prob, old_means, old_sigmas, returns, advantages, and valid masks
 S1/S2 PPO contract that uses old distribution stats for KL/trust-region diagnostics or explicitly proves the intended alternative
 S1/S2 exact clipped-surrogate, old-policy detach, row-permutation invariance, invalid-row isolation, and full-6D support under single-family action-mask metadata contracts
+S1/S2 ratio diagnostic consistency contract separating pre-loss raw/clamped ratio from post-update raw/clamped ratio
 S2 paired repaired-vs-noisy reward/advantage route contract
 S4 live sentinel when real rollout/update is changed
 ```
@@ -214,7 +218,7 @@ S4 live sentinel when real rollout/update is changed
 Current status:
 
 ```text
-Segment storage preserves old_means/old_sigmas through FrontRESSegmentPPOBatch. frontres_segment_ppo.py reports both logprob_approx_kl and MOSAIC-style distribution_kl_mean, and uses distribution_kl_mean as approx_kl when old/new distribution stats are available. frontres_segment_algorithm_contract.py now confirms exact distribution KL, exact clipped surrogate behavior, old-policy tensor detach, invalid-row isolation, row-permutation invariance, full-6D PPO support under rp-only action-mask metadata, advantage-dominance diagnostics, and small-sigma KL sensitivity. run_frontres_segment_single_update applies schedule=adaptive LR from the pre-step MOSAIC-style old/new distribution KL before optimizer.step, recomputes post-update trust-region KL after optimizer.step, reports the post value as the live `ppo.kl`, reports post-ratio max beside post-ratio mean, reports post-update mean_delta from stored old_means, and rolls back adaptive post-KL violations before retrying with a reduced LR. bounded Delta SE log-prob reconstruction is covered by the live single-update contract using raw policy stats plus tanh Jacobian correction. This is S1/S2 contract-confirmed; real training quality remains S4/live-log evidence.
+Segment storage preserves old_means/old_sigmas through FrontRESSegmentPPOBatch. frontres_segment_ppo.py reports both logprob_approx_kl and MOSAIC-style distribution_kl_mean, and uses distribution_kl_mean as approx_kl when old/new distribution stats are available. frontres_segment_algorithm_contract.py now confirms exact distribution KL, exact clipped surrogate behavior, old-policy tensor detach, invalid-row isolation, row-permutation invariance, full-6D PPO support under rp-only action-mask metadata, advantage-dominance diagnostics, and small-sigma KL sensitivity. run_frontres_segment_single_update applies schedule=adaptive LR from the pre-step MOSAIC-style old/new distribution KL before optimizer.step, recomputes post-update trust-region KL after optimizer.step, reports the post value as the live `ppo.kl`, reports post-update mean_delta from stored old_means, and rolls back adaptive post-KL violations before retrying with a reduced LR. bounded Delta SE log-prob reconstruction is covered by the live single-update contract using raw policy stats plus tanh Jacobian correction. Step B on 2026-07-09 contract-confirms explicit separation of pre-loss raw-log-ratio, pre-loss clamped-ratio, post-update raw-log-ratio, and post-update clamped-ratio diagnostics, and live text now prints `pre_log_ratio`, `pre_ratio`, `post_log_ratio`, and `post_ratio` without ambiguous `ratio.reported_mean`. This is S1/S2 contract-confirmed; real training quality remains S4/live-log evidence.
 ```
 
 Current gap:
