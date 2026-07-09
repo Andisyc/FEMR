@@ -190,6 +190,7 @@ def compute_frontres_segment_ppo_loss(
     cfg = FrontRESSegmentPPOConfig() if cfg is None else cfg
     _validate_batch(batch)
     policy_eval = _evaluate_policy(policy, batch)
+    policy_eval = _project_policy_eval_to_action_mask(policy_eval, batch)
     _validate_policy_eval(policy_eval, batch)
 
     # B1: Build the valid training rows. Old policy tensors are detached below,
@@ -446,6 +447,43 @@ def _evaluate_policy(policy: Any, batch: FrontRESSegmentPPOBatch) -> FrontRESSeg
             log_jacobian_contrib=value.get("log_jacobian_contrib"),
         )
     raise TypeError(f"unsupported policy evaluation output: {type(value)!r}")
+
+
+def _project_policy_eval_to_action_mask(
+    policy_eval: FrontRESSegmentPolicyEval,
+    batch: FrontRESSegmentPPOBatch,
+) -> FrontRESSegmentPolicyEval:
+    """Align current policy stats with the executed Delta SE action cone."""
+
+    if (
+        batch.action_mask is None
+        or batch.old_means is None
+        or batch.old_sigmas is None
+        or policy_eval.mean is None
+        or policy_eval.sigma is None
+        or policy_eval.raw_actions is None
+        or policy_eval.log_jacobian_contrib is None
+    ):
+        return policy_eval
+    mask = batch.action_mask.to(device=policy_eval.mean.device, dtype=torch.bool)
+    if bool(mask.all().item()):
+        return policy_eval
+    old_mean = batch.old_means.to(device=policy_eval.mean.device, dtype=policy_eval.mean.dtype).detach()
+    old_sigma = batch.old_sigmas.to(device=policy_eval.sigma.device, dtype=policy_eval.sigma.dtype).detach()
+    mean = torch.where(mask, policy_eval.mean, old_mean)
+    sigma = torch.where(mask, policy_eval.sigma, old_sigma)
+    raw_actions = policy_eval.raw_actions.to(device=mean.device, dtype=mean.dtype).detach()
+    log_j = policy_eval.log_jacobian_contrib.to(device=mean.device, dtype=mean.dtype).detach()
+    log_prob = (torch.distributions.Normal(mean, sigma).log_prob(raw_actions) - log_j).sum(dim=-1)
+    return FrontRESSegmentPolicyEval(
+        log_prob=log_prob,
+        value=policy_eval.value,
+        entropy=policy_eval.entropy,
+        mean=mean,
+        sigma=sigma,
+        raw_actions=policy_eval.raw_actions,
+        log_jacobian_contrib=policy_eval.log_jacobian_contrib,
+    )
 
 
 def _masked_entropy(entropy: torch.Tensor | None, valid: torch.Tensor, like: torch.Tensor) -> torch.Tensor:

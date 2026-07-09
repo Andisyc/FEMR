@@ -340,12 +340,90 @@ def _record_velocity_estimator_error(runner: Any, vel_est_error_buffer: Any) -> 
     vel_est_error_buffer.extend(vel_error.cpu().numpy().tolist())
 
 
+def _task_space_active_proposal_mask(runner: Any, actions: torch.Tensor) -> torch.Tensor | None:
+    cfg = getattr(runner, "cfg", {}) or {}
+    active_dims = getattr(runner.alg, "frontres_active_task_dims", None)
+    if active_dims is None:
+        active_dims = cfg.get("frontres_active_task_dims", cfg.get("α1", None))
+    if active_dims is None:
+        return None
+    proposal_dim = min(6, actions.shape[-1])
+    mask = torch.zeros(proposal_dim, device=actions.device, dtype=torch.bool)
+    for idx in active_dims:
+        idx = int(idx)
+        if 0 <= idx < proposal_dim:
+            mask[idx] = True
+    return mask
+
+
+def _task_space_raw_proposal(policy: Any, actions: torch.Tensor) -> torch.Tensor:
+    proposal_dim = min(6, actions.shape[-1])
+    if proposal_dim <= 0:
+        return actions[:, :0]
+    scales = torch.empty(proposal_dim, device=actions.device, dtype=actions.dtype)
+    pos_dim = min(3, proposal_dim)
+    scales[:pos_dim] = float(getattr(policy, "max_delta_pos", 1.0))
+    if proposal_dim > 3:
+        scales[3:] = float(getattr(policy, "max_delta_rpy", 1.0))
+    normalized = (actions[:, :proposal_dim] / scales.view(1, -1)).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+    return torch.atanh(normalized)
+
+
+def _task_space_log_prob_from_stats(
+    policy: Any,
+    actions: torch.Tensor,
+    mean: torch.Tensor,
+    sigma: torch.Tensor,
+) -> torch.Tensor:
+    dim = min(actions.shape[-1], mean.shape[-1], sigma.shape[-1])
+    if hasattr(policy, "get_actions_log_prob_per_dim_from_stats"):
+        dims = torch.arange(dim, device=actions.device)
+        return policy.get_actions_log_prob_per_dim_from_stats(actions, mean, sigma, dims).sum(dim=-1)
+    raw = _task_space_raw_proposal(policy, actions)
+    dim = min(raw.shape[-1], mean.shape[-1], sigma.shape[-1])
+    dist = torch.distributions.Normal(mean[:, :dim], sigma[:, :dim])
+    log_prob = dist.log_prob(raw[:, :dim]).sum(dim=-1)
+    proposal_dim = raw.shape[-1]
+    scales = torch.empty(proposal_dim, device=actions.device, dtype=actions.dtype)
+    pos_dim = min(3, proposal_dim)
+    scales[:pos_dim] = float(getattr(policy, "max_delta_pos", 1.0))
+    if proposal_dim > 3:
+        scales[3:] = float(getattr(policy, "max_delta_rpy", 1.0))
+    normalized = (actions[:, :proposal_dim] / scales.view(1, -1)).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+    log_j = (torch.log(scales).view(1, -1) + torch.log(1.0 - normalized.pow(2) + 1e-6)).sum(dim=-1)
+    return log_prob - log_j
+
+
 def _rewrite_task_space_log_prob(runner: Any, actions: torch.Tensor) -> None:
     runner.alg.transition.actions = actions.detach()
-    if hasattr(runner.alg, "_get_actor_log_prob"):
+    policy = runner.alg.policy
+    proposal_mask = _task_space_active_proposal_mask(runner, actions)
+    action_mean = getattr(runner.alg.transition, "action_mean", getattr(policy, "action_mean", None))
+    action_sigma = getattr(runner.alg.transition, "action_sigma", getattr(policy, "action_std", None))
+    projected_mean = action_mean
+    projected_sigma = action_sigma
+    if proposal_mask is not None and action_mean is not None and action_sigma is not None:
+        raw_proposal = _task_space_raw_proposal(policy, actions)
+        projected_mean = action_mean.detach().clone()
+        projected_sigma = action_sigma.detach().clone()
+        n = min(projected_mean.shape[0], raw_proposal.shape[0])
+        proposal_dim = min(projected_mean.shape[-1], raw_proposal.shape[-1], proposal_mask.shape[0])
+        inactive = ~proposal_mask[:proposal_dim]
+        if n > 0 and proposal_dim > 0 and bool(inactive.any().item()):
+            projected_mean[:n, :proposal_dim][:, inactive] = raw_proposal[:n, :proposal_dim][:, inactive]
+        runner.alg.transition.action_mean = projected_mean
+        runner.alg.transition.action_sigma = projected_sigma
+    if proposal_mask is not None and projected_mean is not None and projected_sigma is not None:
+        runner.alg.transition.actions_log_prob = _task_space_log_prob_from_stats(
+            policy,
+            actions,
+            projected_mean,
+            projected_sigma,
+        ).detach()
+    elif hasattr(runner.alg, "_get_actor_log_prob"):
         runner.alg.transition.actions_log_prob = runner.alg._get_actor_log_prob(actions).detach()
     else:
-        runner.alg.transition.actions_log_prob = runner.alg.policy.get_actions_log_prob(actions).detach()
+        runner.alg.transition.actions_log_prob = policy.get_actions_log_prob(actions).detach()
 
 
 def _apply_frontres_baseline_transition_override(

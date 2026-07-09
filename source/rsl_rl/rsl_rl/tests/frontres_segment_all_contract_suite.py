@@ -140,6 +140,12 @@ CONTRACTS = (
         path_class="secondary_contract_path",
     ),
     ContractTarget(
+        name="rollout_step_action_stats",
+        path="source/rsl_rl/rsl_rl/tests/frontres_rollout_step_action_stats_contract.py",
+        expected_marker="frontres_rollout_step_action_stats_contract: ok",
+        path_class="core_param_path",
+    ),
+    ContractTarget(
         name="storage",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py",
         expected_marker="result: PASS",

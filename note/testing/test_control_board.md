@@ -246,6 +246,83 @@ Training gate:
 - Use that live evidence to decide whether high clip comes from action-tail
   samples, small sigma, one dominant action dimension, or the tanh Jacobian.
 
+## Stage 3 Masked-Action / Old-Stat Consistency Probe - 2026-07-09
+
+Scope:
+- Added an S1/S2 pseudo fixture for the observed env64/step20 `lr=1e-6`
+  pattern where the sixth dimension owns almost all post-update log-ratio.
+- This step does not change PPO behavior. It isolates the numerical mechanism
+  before deciding whether the live code should change action masking, old stats,
+  or the method-level full-6D support contract.
+
+Command passed:
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_rollout_step_action_stats_contract.py`
+
+Evidence:
+- The new pseudo fixture prints
+  `raw_abs_dim_mean=(..., 1.9459999799728394)`,
+  `mean_delta_dim=(..., 0.0009999275207519531)`,
+  `sigma_dim=(..., 0.009999999776482582)`, and
+  `log_ratio_dim=(..., 19.453125)`.
+- This reproduces the live-log shape: a masked/projected bounded action paired
+  with an unmasked raw old mean can create a sixth-dim ratio spike under
+  `sigma=0.01` even when the new/old mean movement is tiny.
+- The rollout-step contract prints
+  `action_dim6=0.000000 old_mean_dim6=-1.946000 sigma_dim6=0.010000
+  raw_minus_old_mean_dim6=1.946000`, proving `_rewrite_task_space_log_prob`
+  rewrites masked actions/log-prob but leaves `transition.action_mean` and
+  `transition.action_sigma` as the pre-mask policy statistics.
+
+Status:
+- MAIN-19/22/33/44/46 now have S1/S2 evidence for the masked-action vs
+  old-stat consistency failure mode.
+- Remaining gap is S4/source-of-value: confirm in a live or checkpoint forward
+  snapshot whether the sixth dim is zeroed by action masking while old_mean
+  remains saturated, or whether the policy itself is intentionally outputting a
+  full-6D yaw repair.
+
+## Stage 3 Projected Tuple Offline Gate - 2026-07-09
+
+Scope:
+- Local S0/S1/S2/S3 gate after fixing projected task-space rollout tuples and
+  Segment PPO current-policy eval alignment.
+- This sweep does not claim simulator physics or live training quality.
+
+Commands passed:
+- `frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_rollout_step_action_stats_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_rollout_step_action_stats_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_ppo_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_checkpoint_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_stage3_noise_std_migration_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+
+Evidence:
+- Rollout tuple contract observed
+  `action_dim6=0.000000 old_mean_dim6=0.000000 sigma_dim6=0.010000 raw_minus_old_mean_dim6=0.000000`.
+- Segment algorithm contract observed projected current eval:
+  `execution_mask=[1, 1, 1, 1, 1, 0]`, `log_ratio_dim=(0.0, ..., 0.0)`,
+  `ratio_mean=1.000000000`, and `clip_frac=0.000000000`.
+- Full-6D design remains covered when execution mask is full 6D:
+  `perturbation_rp_metadata=[0, 0, 0, 1, 1, 0]`,
+  `execution_mask=[1, 1, 1, 1, 1, 1]`, and all six actor rows have nonzero
+  gradient.
+- Stage 3 pseudo suite passed with `contract_count=17 failed_count=0
+  total_probe_count=183`.
+- Full aggregate suite passed with `contract_count=42 failed_count=0
+  total_marker_count=42`.
+
+Training gate:
+- Local offline coverage is sufficient for the projected tuple fix.
+- Remaining gate is S4 live evidence: run a short live test and inspect
+  `raw_action_old_mean_abs_dim_mean`, `log_ratio_dim`, `clip%`, post-update KL,
+  rejected count, and gain.
+
 ## Latest Full Sweep - 2026-07-07
 Scope:
 - Tested the current dirty FEMR worktree through the Repo Mainline Atlas and

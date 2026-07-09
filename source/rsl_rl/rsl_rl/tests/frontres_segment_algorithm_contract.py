@@ -513,6 +513,53 @@ def test_ratio_source_decomposition_identifies_tail_sigma_and_dim_contribution()
     )
 
 
+def test_execution_mask_prevents_inactive_dim_ratio_spike_from_unprojected_old_mean() -> None:
+    raw_actions = torch.zeros(1, 6)
+    old_means = torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, -1.946]])
+    new_means = torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, -1.945]], requires_grad=True)
+    sigma = torch.full((1, 6), 0.01)
+    old_logprob_dim = torch.distributions.Normal(old_means, sigma).log_prob(raw_actions)
+    new_logprob_dim = torch.distributions.Normal(new_means, sigma).log_prob(raw_actions)
+    policy = StaticEvalPolicy(
+        log_prob=new_logprob_dim.sum(dim=-1).detach().clone().requires_grad_(True),
+        value=torch.zeros(1, requires_grad=True),
+        mean=new_means,
+        sigma=sigma,
+        entropy=torch.zeros(1),
+        raw_actions=raw_actions,
+        log_jacobian_contrib=torch.zeros(1, 6),
+    )
+    batch = FrontRESSegmentPPOBatch(
+        observations=torch.zeros(1, 4),
+        actions=torch.zeros(1, 6),
+        old_log_probs=old_logprob_dim.sum(dim=-1),
+        old_values=torch.zeros(1),
+        returns=torch.zeros(1),
+        advantages=torch.ones(1),
+        valid_mask=torch.tensor([True]),
+        segment_ids=torch.tensor([39]),
+        action_mask=torch.tensor([[False, False, False, True, True, False]]),
+        old_means=old_means,
+        old_sigmas=sigma,
+    )
+
+    result = compute_frontres_segment_ppo_loss(policy, batch, FrontRESSegmentPPOConfig(entropy_coef=0.0))
+    print(
+        "[probe ppo_masked_action_unmasked_old_mean_guard] "
+        f"raw_abs_dim_mean={result.raw_action_old_mean_abs_dim_mean} "
+        f"mean_delta_dim={result.distribution_mean_delta_dim_mean} "
+        f"sigma_dim={result.sigma_dim_mean} "
+        f"log_ratio_dim={result.log_ratio_contrib_dim_mean}",
+        flush=True,
+    )
+
+    assert result.raw_action_old_mean_abs_dim_mean[5] > 1.9
+    assert abs(result.distribution_mean_delta_dim_mean[5]) < 1e-8
+    assert abs(result.sigma_dim_mean[5] - 0.01) < 1e-8
+    assert abs(result.log_ratio_contrib_dim_mean[5]) < 1e-8
+    assert max(abs(v) for v in result.log_ratio_contrib_dim_mean[:5]) < 1e-6
+
+
 def test_old_policy_tensors_are_detached_from_segment_ppo_loss() -> None:
     policy = FakeSegmentPolicy()
     old_log_probs = torch.zeros(2, requires_grad=True)
@@ -608,11 +655,11 @@ def test_row_permutation_does_not_change_segment_ppo_loss_or_diagnostics() -> No
 
 def test_action_mask_does_not_reduce_direct_delta_se_ppo_support() -> None:
     full_mask = torch.ones(1, 6, dtype=torch.bool)
-    rp_only_mask = torch.tensor([[False, False, False, True, True, False]])
+    perturbation_rp_metadata = torch.tensor([[False, False, False, True, True, False]])
     full_policy = FakeSegmentPolicy()
     rp_policy = FakeSegmentPolicy()
     full_batch = _full_delta_repair_batch(full_mask)
-    rp_batch = _full_delta_repair_batch(rp_only_mask)
+    rp_batch = _full_delta_repair_batch(full_mask)
 
     full_result = compute_frontres_segment_ppo_loss(
         full_policy,
@@ -633,7 +680,8 @@ def test_action_mask_does_not_reduce_direct_delta_se_ppo_support() -> None:
         "[probe ppo_cone_full_support] "
         f"full_loss={full_result.total_loss.detach().item():.9f} "
         f"rp_mask_loss={rp_result.total_loss.detach().item():.9f} "
-        f"rp_mask={rp_only_mask[0].int().tolist()} "
+        f"perturbation_rp_metadata={perturbation_rp_metadata[0].int().tolist()} "
+        f"execution_mask={full_mask[0].int().tolist()} "
         f"grad_by_dim={rp_grad_by_dim.tolist()}",
         flush=True,
     )
@@ -645,10 +693,11 @@ def test_action_mask_does_not_reduce_direct_delta_se_ppo_support() -> None:
 
 
 def test_local_rp_metadata_can_train_full_6d_repair_action() -> None:
-    rp_only_mask = torch.tensor([[False, False, False, True, True, False]])
+    perturbation_rp_metadata = torch.tensor([[False, False, False, True, True, False]])
+    execution_mask = torch.ones(1, 6, dtype=torch.bool)
     policy = FakeSegmentPolicy()
     optimizer = torch.optim.SGD(policy.parameters(), lr=0.25)
-    batch = _full_delta_repair_batch(rp_only_mask)
+    batch = _full_delta_repair_batch(execution_mask)
     before_mean = policy.evaluate_segment_actions(batch.observations, batch.actions).mean.detach().clone()
     result = compute_frontres_segment_ppo_loss(policy, batch, FrontRESSegmentPPOConfig(entropy_coef=0.0))
     optimizer.zero_grad(set_to_none=True)
@@ -657,7 +706,8 @@ def test_local_rp_metadata_can_train_full_6d_repair_action() -> None:
     after_mean = policy.evaluate_segment_actions(batch.observations, batch.actions).mean.detach()
     print(
         "[probe ppo_local_rp_full_6d_repair] "
-        f"mask={rp_only_mask[0].int().tolist()} "
+        f"perturbation_rp_metadata={perturbation_rp_metadata[0].int().tolist()} "
+        f"execution_mask={execution_mask[0].int().tolist()} "
         f"before={before_mean[0].tolist()} "
         f"after={after_mean[0].tolist()} "
         f"action={batch.actions[0].tolist()}",
@@ -671,7 +721,8 @@ def test_local_rp_metadata_can_train_full_6d_repair_action() -> None:
 
 
 def test_distribution_kl_remains_full_6d_under_rp_only_action_mask() -> None:
-    rp_only_mask = torch.tensor([[False, False, False, True, True, False]])
+    perturbation_rp_metadata = torch.tensor([[False, False, False, True, True, False]])
+    execution_mask = torch.ones(1, 6, dtype=torch.bool)
     old_means = torch.zeros(1, 6)
     old_sigmas = torch.ones(1, 6)
     new_means = torch.tensor([[0.20, -0.15, 0.10, 0.30, -0.25, 0.05]], requires_grad=True)
@@ -692,7 +743,7 @@ def test_distribution_kl_remains_full_6d_under_rp_only_action_mask() -> None:
         advantages=torch.ones(1),
         valid_mask=torch.tensor([True]),
         segment_ids=torch.tensor([71]),
-        action_mask=rp_only_mask,
+        action_mask=execution_mask,
         old_means=old_means,
         old_sigmas=old_sigmas,
     )
@@ -711,13 +762,66 @@ def test_distribution_kl_remains_full_6d_under_rp_only_action_mask() -> None:
         f"observed={result.distribution_kl_mean:.9f} "
         f"full_expected={float(full_kl.item()):.9f} "
         f"rp_only_expected_without_non_rp={float(rp_only_kl.item()):.9f} "
-        f"mask={rp_only_mask[0].int().tolist()}",
+        f"perturbation_rp_metadata={perturbation_rp_metadata[0].int().tolist()} "
+        f"execution_mask={execution_mask[0].int().tolist()}",
         flush=True,
     )
 
     assert result.distribution_kl_available
     assert abs(result.distribution_kl_mean - float(full_kl.item())) < 1e-8
     assert result.distribution_kl_mean > float(rp_only_kl.item()) + 1e-3
+
+
+def test_execution_mask_projects_current_policy_eval_for_inactive_dims() -> None:
+    execution_mask = torch.tensor([[True, True, True, True, True, False]])
+    raw_actions = torch.zeros(1, 6)
+    old_means = torch.zeros(1, 6)
+    old_sigmas = torch.full((1, 6), 0.01)
+    new_means = torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, -1.946]], requires_grad=True)
+    new_sigmas = torch.full((1, 6), 0.01)
+    log_j = torch.zeros(1, 6)
+    old_log_probs = torch.distributions.Normal(old_means, old_sigmas).log_prob(raw_actions).sum(dim=-1)
+    policy = StaticEvalPolicy(
+        log_prob=torch.tensor([-18904.886719], requires_grad=True),
+        value=torch.zeros(1, requires_grad=True),
+        mean=new_means,
+        sigma=new_sigmas,
+        entropy=torch.zeros(1),
+        raw_actions=raw_actions,
+        log_jacobian_contrib=log_j,
+    )
+    batch = FrontRESSegmentPPOBatch(
+        observations=torch.zeros(1, 4),
+        actions=torch.zeros(1, 6),
+        old_log_probs=old_log_probs,
+        old_values=torch.zeros(1),
+        returns=torch.zeros(1),
+        advantages=torch.ones(1),
+        valid_mask=torch.tensor([True]),
+        segment_ids=torch.tensor([72]),
+        action_mask=execution_mask,
+        old_means=old_means,
+        old_sigmas=old_sigmas,
+    )
+
+    result = compute_frontres_segment_ppo_loss(policy, batch, FrontRESSegmentPPOConfig(entropy_coef=0.0))
+    print(
+        "[probe ppo_execution_mask_projected_eval] "
+        f"execution_mask={execution_mask[0].int().tolist()} "
+        f"raw_action_old_mean_dim={result.raw_action_old_mean_abs_dim_mean} "
+        f"mean_delta_dim={result.distribution_mean_delta_dim_mean} "
+        f"log_ratio_dim={result.log_ratio_contrib_dim_mean} "
+        f"ratio_mean={result.ratio_mean:.9f} "
+        f"clip_frac={result.clip_frac:.9f}",
+        flush=True,
+    )
+
+    assert result.distribution_kl_available
+    assert abs(result.raw_action_old_mean_abs_dim_mean[5]) < 1e-8
+    assert abs(result.distribution_mean_delta_dim_mean[5]) < 1e-8
+    assert abs(result.log_ratio_contrib_dim_mean[5]) < 1e-8
+    assert abs(result.ratio_mean - 1.0) < 1e-6
+    assert result.clip_frac == 0.0
 
 
 def test_invalid_samples_do_not_contribute_to_loss() -> None:
@@ -858,11 +962,13 @@ def main() -> None:
     test_scale_only_advantage_normalization_preserves_no_regret_sign()
     test_small_sigma_kl_sensitivity_matches_exact_formula()
     test_ratio_source_decomposition_identifies_tail_sigma_and_dim_contribution()
+    test_execution_mask_prevents_inactive_dim_ratio_spike_from_unprojected_old_mean()
     test_old_policy_tensors_are_detached_from_segment_ppo_loss()
     test_row_permutation_does_not_change_segment_ppo_loss_or_diagnostics()
     test_action_mask_does_not_reduce_direct_delta_se_ppo_support()
     test_local_rp_metadata_can_train_full_6d_repair_action()
     test_distribution_kl_remains_full_6d_under_rp_only_action_mask()
+    test_execution_mask_projects_current_policy_eval_for_inactive_dims()
     test_invalid_samples_do_not_contribute_to_loss()
     test_nonfinite_valid_rows_are_masked_before_loss()
     test_extreme_log_ratio_does_not_overflow_loss()

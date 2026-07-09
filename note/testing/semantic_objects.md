@@ -194,6 +194,8 @@ pre/post ratio diagnostics
 raw_action
 raw action tail
 raw_action_old_mean
+masked bounded action
+unmasked old mean
 per-dim sigma
 per-dim mean delta
 per-dim log-ratio contribution
@@ -201,6 +203,8 @@ tanh Jacobian contribution
 frontres_mask
 paired repaired-vs-noisy gain
 actor_update_mask
+execution action mask
+perturbation family metadata
 ```
 
 Owner and lifecycle:
@@ -222,8 +226,9 @@ S1/S2 action/log_prob transform contract for the same executed 6D Delta SE
 S1/S2 storage contract preserving old_log_prob, old_means, old_sigmas, returns, advantages, and valid masks
 S1/S2 advantage scaling contract preserving no-regret sign under default `scale_only` mode
 S1/S2 PPO contract that uses old distribution stats for KL/trust-region diagnostics or explicitly proves the intended alternative
-S1/S2 exact clipped-surrogate, old-policy detach, row-permutation invariance, invalid-row isolation, and full-6D support under single-family action-mask metadata contracts
+S1/S2 exact clipped-surrogate, old-policy detach, row-permutation invariance, invalid-row isolation, and full-6D support under single-family perturbation metadata when execution mask is full 6D
 S1/S2 ratio diagnostic consistency contract separating pre-loss raw/clamped ratio from post-update raw/clamped ratio
+S1/S2 execution-mask projection contract showing how projected or zeroed bounded actions avoid one-dim log-ratio spikes from unprojected raw old/current means when sigma is small
 S2 paired repaired-vs-noisy reward/advantage route contract
 S4 live sentinel when real rollout/update is changed
 ```
@@ -231,11 +236,11 @@ S4 live sentinel when real rollout/update is changed
 Current status:
 
 ```text
-Segment storage preserves old_means/old_sigmas through FrontRESSegmentPPOBatch. frontres_segment_ppo.py reports both logprob_approx_kl and MOSAIC-style distribution_kl_mean, and uses distribution_kl_mean as approx_kl when old/new distribution stats are available. frontres_segment_algorithm_contract.py now confirms exact distribution KL, exact clipped surrogate behavior, old-policy tensor detach, invalid-row isolation, row-permutation invariance, full-6D PPO support under rp-only action-mask metadata, advantage-dominance diagnostics, small-sigma KL sensitivity, ratio-source decomposition, and scale-only advantage normalization preserving all-positive no-regret signs. run_frontres_segment_single_update defaults Segment PPO advantage normalization to `scale_only`, allows schedule=adaptive pre-step LR reduction when old/new distribution KL is already high, blocks low-pre-KL LR amplification before optimizer.step, recomputes post-update trust-region KL after optimizer.step, reports the post value as the live `ppo.kl`, reports post-update mean_delta from stored old_means, and rolls back adaptive post-KL violations before retrying with a reduced LR. bounded Delta SE log-prob reconstruction is covered by the live single-update contract using raw policy stats plus tanh Jacobian correction, and live probe text now prints ratio-source blocks for raw action tail, per-dim sigma, per-dim mean delta, per-dim log-ratio contribution, and tanh-Jacobian contribution. Step B on 2026-07-09 contract-confirms explicit separation of pre-loss raw-log-ratio, pre-loss clamped-ratio, post-update raw-log-ratio, and post-update clamped-ratio diagnostics, and live text now prints `pre_log_ratio`, `pre_ratio`, `post_log_ratio`, and `post_ratio` without ambiguous `ratio.reported_mean`. The Stage 3 entrypoint and launch contracts now cover explicit `--frontres_segment_ppo_lr` pass-through. This is S1/S2 contract-confirmed; real training quality remains S4/live-log evidence.
+Segment storage preserves old_means/old_sigmas through FrontRESSegmentPPOBatch. frontres_rollout_step.py now projects masked bounded Delta SE actions, old log-prob, old_mean, and old_sigma into the same rollout tuple representation before storage. frontres_segment_live_probe.py now writes an execution action mask into Segment storage instead of a hard-coded all-ones mask. frontres_segment_ppo.py reports both logprob_approx_kl and MOSAIC-style distribution_kl_mean, uses distribution_kl_mean as approx_kl when old/new distribution stats are available, and projects current policy eval on inactive executed dims so log_prob, ratio, and KL compare the same action representation. frontres_segment_algorithm_contract.py now confirms exact distribution KL, exact clipped surrogate behavior, old-policy tensor detach, invalid-row isolation, row-permutation invariance, full-6D PPO support under rp-only perturbation metadata when execution mask is full 6D, advantage-dominance diagnostics, small-sigma KL sensitivity, ratio-source decomposition, execution-mask projection that prevents inactive executed dims from creating sixth-dim ratio spikes, and scale-only advantage normalization preserving all-positive no-regret signs. run_frontres_segment_single_update defaults Segment PPO advantage normalization to `scale_only`, allows schedule=adaptive pre-step LR reduction when old/new distribution KL is already high, blocks low-pre-KL LR amplification before optimizer.step, recomputes post-update trust-region KL after optimizer.step, reports the post value as the live `ppo.kl`, reports post-update mean_delta from stored old_means, and rolls back adaptive post-KL violations before retrying with a reduced LR. bounded Delta SE log-prob reconstruction is covered by the live single-update contract using raw policy stats plus tanh Jacobian correction, and live probe text now prints ratio-source blocks for raw action tail, per-dim sigma, per-dim mean delta, per-dim log-ratio contribution, and tanh-Jacobian contribution. Step B on 2026-07-09 contract-confirms explicit separation of pre-loss raw-log-ratio, pre-loss clamped-ratio, post-update raw-log-ratio, and post-update clamped-ratio diagnostics, and live text now prints `pre_log_ratio`, `pre_ratio`, `post_log_ratio`, and `post_ratio` without ambiguous `ratio.reported_mean`. The Stage 3 entrypoint and launch contracts now cover explicit `--frontres_segment_ppo_lr` pass-through. This is S1/S2 contract-confirmed; real training quality remains S4/live-log evidence.
 ```
 
 Current gap:
 
 ```text
-`action_mask` is preserved through Segment storage and validated by Segment PPO, but direct Delta SE PPO intentionally keeps full-6D repair support. Current contracts prove an rp-only mask does not change loss/gradient, all 6D actor rows can receive gradient, and KL remains full-6D. Do not reinterpret perturbation family as a PPO dimension mask.
+`action_mask` is preserved through Segment storage and validated by Segment PPO as execution-mask metadata. Direct Delta SE PPO intentionally keeps full-6D repair support when the execution mask is full 6D; perturbation family metadata such as local_rp must not be reinterpreted as a PPO dimension mask. S4 live-log proof is still needed to confirm real rollout/update logs reflect the projected tuple semantics.
 ```

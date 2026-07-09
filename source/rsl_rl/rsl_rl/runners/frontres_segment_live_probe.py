@@ -1210,6 +1210,7 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
         actor_update_mask = torch.ones(batch_size, device=runner.device, dtype=torch.bool)
     valid_mask = rollout_valid_mask & reset_mask & actor_update_mask
     rewards = _segment_storage_rewards(capture, batch_size=batch_size, device=runner.device)
+    action_mask = _live_segment_execution_action_mask(runner, capture.transition_actions)
     segment_storage = FrontRESSegmentRolloutStorage(
         capacity=batch_size,
         obs_shape=capture.transition_obs.shape[1:],
@@ -1231,7 +1232,7 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
             segment_source=segment_source,
             old_means=capture.transition_means,
             old_sigmas=capture.transition_sigmas,
-            action_mask=torch.ones_like(capture.transition_actions, dtype=torch.bool),
+            action_mask=action_mask,
         )
     )
     reward_steps = _segment_storage_reward_steps(capture, batch_size=batch_size, device=runner.device)
@@ -1245,6 +1246,23 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
             gamma=float(getattr(alg, "gamma", 1.0)),
         )
     return segment_storage
+
+
+def _live_segment_execution_action_mask(runner: Any, actions: torch.Tensor) -> torch.Tensor:
+    active_dims = getattr(getattr(runner, "alg", None), "frontres_active_task_dims", None)
+    cfg = getattr(runner, "cfg", {}) or {}
+    if active_dims is None:
+        active_dims = cfg.get("frontres_active_task_dims", cfg.get("α1", None))
+    mask = torch.ones_like(actions, dtype=torch.bool)
+    if active_dims is None:
+        return mask
+    mask.zero_()
+    proposal_dim = min(6, actions.shape[-1])
+    for idx in active_dims:
+        idx = int(idx)
+        if 0 <= idx < proposal_dim:
+            mask[:, idx] = True
+    return mask
 
 
 def _segment_storage_rewards(

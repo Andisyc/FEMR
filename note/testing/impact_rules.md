@@ -155,6 +155,8 @@ T-post-mean-delta post-update diagnostics report policy mean movement from store
 T-ratio-diagnostic-consistency pre-loss raw log-ratio, pre-loss clamped ratio, post-update raw log-ratio, and post-update clamped ratio are named and displayed as separate timepoints.
 T-lr-scale    Segment PPO initial learning_rate, pre-step LR adjustment, post-update KL rejection, and CLI override path are covered together; low pre-step KL must not amplify LR before the post-update trust-region gate.
 T-ratio-source-decomposition high post-update ratio can be decomposed into old action vs old mean raw-space distance, per-dim sigma, per-dim mean delta, per-dim log-ratio contribution, and tanh-Jacobian contribution.
+T-masked-old-stat-consistency projected or zeroed bounded actions must be checked against the raw old_mean/old_sigma they are paired with; a masked action plus unmasked old raw mean can create a large per-dim log-ratio under small sigma even when mean_delta is tiny.
+T-execution-mask-projection execution mask is the executed action cone, not perturbation-family metadata; old tuple and current policy eval must project inactive executed dims to the same action representation before log_prob, ratio, and KL diagnostics.
 ```
 
 ### Segment cache/dataset/sampler changes
