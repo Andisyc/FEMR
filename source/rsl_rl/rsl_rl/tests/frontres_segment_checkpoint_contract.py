@@ -289,6 +289,32 @@ def test_stage3_payload_preserves_combined_extra_and_gmt_normalizer_stats() -> N
     torch.testing.assert_close(obs_state["_mean"][:, 100:], torch.full((1, 770), 100.0))
 
 
+def test_stage3_payload_saves_live_prefix_normalizer_stats_when_fixed_stats_are_absent() -> None:
+    runner = _runner()
+    runner.obs_normalizer = FakeEmpiricalNormalizer(770)
+    runner._frontres_extra_mean = None
+    runner._frontres_extra_std = None
+    runner._frontres_extra_normalizer = FakeEmpiricalNormalizer(100)
+    runner._frontres_extra_normalizer._mean = torch.full((1, 100), 3.0)
+    runner._frontres_extra_normalizer._std = torch.full((1, 100), 4.0)
+    runner._frontres_extra_normalizer._var = runner._frontres_extra_normalizer._std.square()
+
+    payload = build_frontres_segment_checkpoint_payload(runner, infos={"tag": "stage2"})
+    obs_state = payload["obs_norm_state_dict"]
+
+    print(
+        "[probe step3c] save_live_prefix_obs_norm: "
+        f"mean_shape={tuple(obs_state['_mean'].shape)} "
+        f"prefix_mean={float(obs_state['_mean'][:, :100].mean())} "
+        f"prefix_std={float(obs_state['_std'][:, :100].mean())}",
+        flush=True,
+    )
+    assert tuple(obs_state["_mean"].shape) == (1, 870)
+    assert tuple(obs_state["_std"].shape) == (1, 870)
+    torch.testing.assert_close(obs_state["_mean"][:, :100], torch.full((1, 100), 3.0))
+    torch.testing.assert_close(obs_state["_std"][:, :100], torch.full((1, 100), 4.0))
+
+
 def test_stage3_does_not_require_acceptance_actor() -> None:
     runner = _runner()
     assert not hasattr(runner.alg.policy, "acceptance_actor")
@@ -342,6 +368,7 @@ def main() -> None:
     test_stage3_restores_sampler_and_dataset_metadata_when_present()
     test_stage3_payload_saves_sampler_and_dataset_cache_metadata()
     test_stage3_payload_preserves_combined_extra_and_gmt_normalizer_stats()
+    test_stage3_payload_saves_live_prefix_normalizer_stats_when_fixed_stats_are_absent()
     test_stage3_does_not_require_acceptance_actor()
     test_stage3_full_resume_loads_exact_6d_actor()
     test_stage3_full_resume_rejects_legacy_12d_actor()

@@ -92,6 +92,9 @@ def _summary(
     mosaic_pre_step_lr_before: float = 0.0,
     mosaic_pre_step_lr_after: float = 0.0,
     mosaic_pre_step_lr_kl: float = 0.0,
+    ppo_distribution_kl_available: bool = False,
+    ppo_old_sigma_min: float | None = None,
+    ppo_sigma_min: float | None = None,
 ) -> dict:
     result = {
         "ppo_update": ppo_update,
@@ -120,7 +123,12 @@ def _summary(
         "ppo_mosaic_pre_step_adaptive_lr_before": mosaic_pre_step_lr_before,
         "ppo_mosaic_pre_step_adaptive_lr_after": mosaic_pre_step_lr_after,
         "ppo_mosaic_pre_step_adaptive_lr_kl_mean": mosaic_pre_step_lr_kl,
+        "ppo_distribution_kl_available": ppo_distribution_kl_available,
     }
+    if ppo_old_sigma_min is not None:
+        result["ppo_old_sigma_min"] = ppo_old_sigma_min
+    if ppo_sigma_min is not None:
+        result["ppo_sigma_min"] = ppo_sigma_min
     if motion_mpjpe_repaired is not None:
         result["segment/motion_mpjpe_repaired_clean"] = motion_mpjpe_repaired
     if motion_mpjpe_noisy is not None:
@@ -180,6 +188,66 @@ def test_live_update_loop_aggregates_probe_metrics_and_init_flag() -> None:
     assert result["ppo_value_loss_mean"] == 4.0
     assert abs(result["ppo_approx_kl_mean"] - 0.02) < 1e-8
     assert abs(result["ppo_clip_frac_mean"] - 0.20) < 1e-8
+
+
+def test_live_update_loop_sigma_summary_ignores_invalid_distribution_steps() -> None:
+    runner = FakeRunner(
+        [
+            _summary(
+                ppo_update=True,
+                ppo_valid_count=2,
+                reward_mean=1.0,
+                storage_valid_frac=1.0,
+                ppo_total_loss=1.0,
+                ppo_actor_loss=1.0,
+                ppo_value_loss=1.0,
+                ppo_approx_kl=0.01,
+                ppo_clip_frac=0.1,
+                ppo_distribution_kl_available=True,
+                ppo_old_sigma_min=0.01,
+                ppo_sigma_min=0.01,
+            ),
+            _summary(
+                ppo_update=False,
+                ppo_valid_count=0,
+                reward_mean=1.0,
+                storage_valid_frac=0.0,
+                ppo_total_loss=0.0,
+                ppo_actor_loss=0.0,
+                ppo_value_loss=0.0,
+                ppo_approx_kl=0.0,
+                ppo_clip_frac=0.0,
+                ppo_distribution_kl_available=False,
+                ppo_old_sigma_min=0.0,
+                ppo_sigma_min=0.0,
+            ),
+            _summary(
+                ppo_update=True,
+                ppo_valid_count=2,
+                reward_mean=1.0,
+                storage_valid_frac=1.0,
+                ppo_total_loss=1.0,
+                ppo_actor_loss=1.0,
+                ppo_value_loss=1.0,
+                ppo_approx_kl=0.01,
+                ppo_clip_frac=0.1,
+                ppo_distribution_kl_available=True,
+                ppo_old_sigma_min=0.02,
+                ppo_sigma_min=0.02,
+            ),
+        ]
+    )
+
+    result = run_frontres_segment_live_update_loop(runner, init_at_random_ep_len=False)
+
+    print(
+        "[probe update_loop] sigma_summary_filters_invalid_steps: "
+        f"old_sigma_min={result['ppo_old_sigma_min']} "
+        f"sigma_min={result['ppo_sigma_min']}",
+        flush=True,
+    )
+    assert abs(result["ppo_old_sigma_min"] - 0.01) < 1e-8
+    assert abs(result["ppo_sigma_min"] - 0.01) < 1e-8
 
 
 def test_live_update_loop_aggregates_trust_region_and_motion_quality_metrics() -> None:
@@ -510,6 +578,7 @@ def test_live_update_loop_reports_sampler_evidence_update_metrics() -> None:
 
 if __name__ == "__main__":
     test_live_update_loop_aggregates_probe_metrics_and_init_flag()
+    test_live_update_loop_sigma_summary_ignores_invalid_distribution_steps()
     test_live_update_loop_aggregates_trust_region_and_motion_quality_metrics()
     test_live_update_loop_uses_algorithm_update_steps_override()
     test_live_update_loop_requires_enabled_boundary()

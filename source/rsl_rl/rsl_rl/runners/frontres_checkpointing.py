@@ -16,6 +16,7 @@ from rsl_rl.modules import FrontRESActorCritic, ResidualActorCritic
 from rsl_rl.modules.frontres_observation_layout import (
     compose_frontres_obs_norm_state,
     extract_frontres_extra_norm_stats,
+    frontres_extra_norm_stats_for_save,
 )
 
 
@@ -288,11 +289,16 @@ def save_runner(self, path: str, infos=None):
     
     # -- Save observation normalizer if used
     if self.empirical_normalization:
+        extra_mean, extra_std = frontres_extra_norm_stats_for_save(
+            getattr(self, "_frontres_extra_mean", None),
+            getattr(self, "_frontres_extra_std", None),
+            getattr(self, "_frontres_extra_normalizer", None),
+        )
         obs_norm_state = self.obs_normalizer.state_dict()
         obs_norm_state = compose_frontres_obs_norm_state(
             obs_norm_state,
-            getattr(self, "_frontres_extra_mean", None),
-            getattr(self, "_frontres_extra_std", None),
+            extra_mean,
+            extra_std,
         )
         saved_dict["obs_norm_state_dict"] = obs_norm_state
         saved_dict["privileged_obs_norm_state_dict"] = self.privileged_obs_normalizer.state_dict()

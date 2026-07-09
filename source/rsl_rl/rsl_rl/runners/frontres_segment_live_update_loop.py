@@ -60,6 +60,20 @@ def _min_optional_metric(metrics: list[dict[str, Any]], key: str) -> float:
     return min(values)
 
 
+def _min_valid_distribution_metric(metrics: list[dict[str, Any]], key: str) -> float:
+    values = [
+        float(item[key])
+        for item in metrics
+        if bool(item.get("ppo_update", False))
+        and bool(item.get("ppo_distribution_kl_available", False))
+        and key in item
+        and math.isfinite(float(item[key]))
+    ]
+    if not values:
+        return float("nan")
+    return min(values)
+
+
 def _should_print_update_loop_summary(runner: Any) -> bool:
     alg = getattr(runner, "alg", None)
     if bool(getattr(alg, "frontres_segment_verbose_probe", False)):
@@ -139,8 +153,8 @@ def run_frontres_segment_live_update_loop(
         / float(update_steps)
     )
     ppo_advantage_abs_top1_frac_mean = _mean_optional_metric(metrics, "ppo_advantage_abs_top1_frac")
-    ppo_old_sigma_min = _min_optional_metric(metrics, "ppo_old_sigma_min")
-    ppo_sigma_min = _min_optional_metric(metrics, "ppo_sigma_min")
+    ppo_old_sigma_min = _min_valid_distribution_metric(metrics, "ppo_old_sigma_min")
+    ppo_sigma_min = _min_valid_distribution_metric(metrics, "ppo_sigma_min")
     ppo_post_update_mean_delta_l2_mean = _mean_optional_metric(metrics, "ppo_post_update_mean_delta_l2_mean")
     ppo_post_update_mean_delta_max_abs = _mean_optional_metric(metrics, "ppo_post_update_mean_delta_max_abs")
     sampler_update_count = sum(1 for item in metrics if bool(item.get("sampler_update", False)))

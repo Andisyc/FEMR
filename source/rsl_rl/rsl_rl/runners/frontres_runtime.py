@@ -72,5 +72,9 @@ def apply_obs_normalizer(self, obs: torch.Tensor) -> torch.Tensor:
                 and _s1_mean.shape[-1] == num_extra
                 and _s1_std.shape[-1] == num_extra):
             extra = (extra - _s1_mean) / (_s1_std + 1e-8)
+        else:
+            extra_normalizer = getattr(self, "_frontres_extra_normalizer", None)
+            if extra_normalizer is not None:
+                extra = extra_normalizer(extra)
         return torch.cat([extra, gmt_part], dim=-1)
     return self.obs_normalizer(obs)

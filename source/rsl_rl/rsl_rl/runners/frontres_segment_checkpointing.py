@@ -8,6 +8,7 @@ import torch
 from rsl_rl.modules.frontres_observation_layout import (
     compose_frontres_obs_norm_state,
     extract_frontres_extra_norm_stats,
+    frontres_extra_norm_stats_for_save,
 )
 
 
@@ -255,10 +256,15 @@ def _save_obs_normalizer(payload: dict[str, Any], runner: Any) -> None:
     normalizer = getattr(runner, "obs_normalizer", None)
     if normalizer is None or not hasattr(normalizer, "state_dict"):
         return
-    payload["obs_norm_state_dict"] = compose_frontres_obs_norm_state(
-        normalizer.state_dict(),
+    extra_mean, extra_std = frontres_extra_norm_stats_for_save(
         getattr(runner, "_frontres_extra_mean", None),
         getattr(runner, "_frontres_extra_std", None),
+        getattr(runner, "_frontres_extra_normalizer", None),
+    )
+    payload["obs_norm_state_dict"] = compose_frontres_obs_norm_state(
+        normalizer.state_dict(),
+        extra_mean,
+        extra_std,
     )
 
 

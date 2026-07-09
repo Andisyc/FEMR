@@ -453,6 +453,7 @@ class OnPolicyRunner:
         self._frontres_gmt_obs_dim: int | None = None
         self._frontres_extra_mean: torch.Tensor | None = None  # (1, K) Stage-1 mean for extra dims
         self._frontres_extra_std:  torch.Tensor | None = None  # (1, K) Stage-1 std  for extra dims
+        self._frontres_extra_normalizer: EmpiricalNormalization | None = None
 
         # Check if using ResidualActorCritic (special handling for GMT normalizer)
         if isinstance(policy, (ResidualActorCritic, FrontRESActorCritic)):
@@ -468,6 +469,11 @@ class OnPolicyRunner:
                     gmt_norm_dim = _gmt_mean.shape[-1] if _gmt_mean is not None else num_obs
                     if num_obs > gmt_norm_dim:
                         self._frontres_gmt_obs_dim = gmt_norm_dim
+                        if self.empirical_normalization:
+                            self._frontres_extra_normalizer = EmpiricalNormalization(
+                                shape=[num_obs - gmt_norm_dim],
+                                until=1.0e8,
+                            ).to(self.device)
                         print(f"[Runner] FrontRES task-space obs layout: first "
                               f"{num_obs - gmt_norm_dim} FrontRES-only dims use prefix stats or pass-through; "
                               f"last {gmt_norm_dim} GMT dims normalized")
@@ -1638,6 +1644,11 @@ class OnPolicyRunner:
                 self.obs_normalizer.eval()
                 if hasattr(self.obs_normalizer, "until"):
                     self.obs_normalizer.until = 0
+                if self._frontres_extra_normalizer is not None:
+                    if self._frontres_extra_mean is None or self._frontres_extra_std is None:
+                        self._frontres_extra_normalizer.train()
+                    else:
+                        self._frontres_extra_normalizer.eval()
             else:
                 self.obs_normalizer.train()
             self.privileged_obs_normalizer.train()
@@ -1655,6 +1666,8 @@ class OnPolicyRunner:
         # -- Normalization
         if self.empirical_normalization:
             self.obs_normalizer.eval()
+            if getattr(self, "_frontres_extra_normalizer", None) is not None:
+                self._frontres_extra_normalizer.eval()
             self.privileged_obs_normalizer.eval()
             # Teacher normalizer should remain frozen for MOSAIC
             if self.training_type == "mosaic" and hasattr(self, 'teacher_obs_normalizer'):

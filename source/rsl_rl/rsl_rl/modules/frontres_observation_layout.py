@@ -80,3 +80,20 @@ def compose_frontres_obs_norm_state(
     if isinstance(var, torch.Tensor):
         result["_var"] = torch.cat([extra_std.to(device=var.device, dtype=var.dtype).square(), var], dim=-1)
     return result
+
+
+def frontres_extra_norm_stats_for_save(
+    extra_mean: torch.Tensor | None,
+    extra_std: torch.Tensor | None,
+    extra_normalizer: object | None = None,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    """Return persisted FrontRES prefix stats from fixed tensors or a live normalizer."""
+    if isinstance(extra_mean, torch.Tensor) and isinstance(extra_std, torch.Tensor):
+        return extra_mean.detach().clone(), extra_std.detach().clone()
+    if extra_normalizer is None:
+        return None, None
+    mean = getattr(extra_normalizer, "_mean", None)
+    std = getattr(extra_normalizer, "_std", None)
+    if isinstance(mean, torch.Tensor) and isinstance(std, torch.Tensor):
+        return mean.detach().clone(), std.detach().clone()
+    return None, None

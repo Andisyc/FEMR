@@ -51,6 +51,15 @@ class FakeGMTPolicy:
         return obs
 
 
+class FakePrefixNormalizer:
+    def __init__(self):
+        self.calls: list[tuple[int, ...]] = []
+
+    def __call__(self, obs: torch.Tensor) -> torch.Tensor:
+        self.calls.append(tuple(obs.shape))
+        return obs / 2.0
+
+
 def test_frontres_obs_layout_splits_extra_prefix_and_gmt_suffix() -> None:
     extra_dim = 100
     gmt_dim = 770
@@ -101,6 +110,40 @@ def test_apply_obs_normalizer_preserves_actor_layout_and_normalizes_suffix() -> 
     assert runner.obs_normalizer.calls == [(2, gmt_dim)]
     torch.testing.assert_close(normalized[:, :extra_dim], expected_extra)
     torch.testing.assert_close(normalized[:, extra_dim:], expected_gmt)
+
+
+def test_apply_obs_normalizer_uses_live_prefix_normalizer_when_checkpoint_stats_are_missing() -> None:
+    extra_dim = 100
+    gmt_dim = 770
+    prefix_normalizer = FakePrefixNormalizer()
+    runner = SimpleNamespace(
+        _frontres_gmt_obs_dim=gmt_dim,
+        _frontres_extra_mean=None,
+        _frontres_extra_std=None,
+        _frontres_extra_normalizer=prefix_normalizer,
+        obs_normalizer=FakeGMTNormalizer(gmt_dim),
+    )
+    obs = torch.cat(
+        [
+            torch.full((2, extra_dim), 12.0),
+            torch.full((2, gmt_dim), 130.0),
+        ],
+        dim=-1,
+    )
+
+    normalized = apply_obs_normalizer(runner, obs)
+
+    print(
+        "[FrontRES Observation Layout Prefix Normalizer] "
+        f"prefix_calls={prefix_normalizer.calls} "
+        f"gmt_calls={runner.obs_normalizer.calls} "
+        f"normalized_shape={tuple(normalized.shape)}",
+        flush=True,
+    )
+    assert prefix_normalizer.calls == [(2, extra_dim)]
+    assert runner.obs_normalizer.calls == [(2, gmt_dim)]
+    torch.testing.assert_close(normalized[:, :extra_dim], torch.full((2, extra_dim), 6.0))
+    torch.testing.assert_close(normalized[:, extra_dim:], torch.full((2, gmt_dim), 3.0))
 
 
 def test_apply_obs_normalizer_falls_back_for_plain_gmt_obs() -> None:
@@ -157,11 +200,13 @@ def test_frontres_train_mode_keeps_gmt_normalizer_frozen_by_contract() -> None:
     assert "if self._frontres_gmt_obs_dim is not None:" in runner_text
     assert "self.obs_normalizer.eval()" in runner_text
     assert "self.obs_normalizer.until = 0" in runner_text
+    assert "self._frontres_extra_normalizer.train()" in runner_text
 
 
 if __name__ == "__main__":
     test_frontres_obs_layout_splits_extra_prefix_and_gmt_suffix()
     test_apply_obs_normalizer_preserves_actor_layout_and_normalizes_suffix()
+    test_apply_obs_normalizer_uses_live_prefix_normalizer_when_checkpoint_stats_are_missing()
     test_apply_obs_normalizer_falls_back_for_plain_gmt_obs()
     test_gmt_direct_uses_shared_layout_suffix()
     test_frontres_train_mode_keeps_gmt_normalizer_frozen_by_contract()
