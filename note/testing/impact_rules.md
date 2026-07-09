@@ -154,6 +154,7 @@ T-small-sigma-kl-sensitivity exact KL stress shows how small sigma amplifies the
 T-post-mean-delta post-update diagnostics report policy mean movement from stored old_means on the same PPO batch.
 T-ratio-diagnostic-consistency pre-loss raw log-ratio, pre-loss clamped ratio, post-update raw log-ratio, and post-update clamped ratio are named and displayed as separate timepoints.
 T-lr-scale    Segment PPO initial learning_rate, pre-step LR adjustment, post-update KL rejection, and CLI override path are covered together; low pre-step KL must not amplify LR before the post-update trust-region gate.
+T-ratio-source-decomposition high post-update ratio can be decomposed into old action vs old mean raw-space distance, per-dim sigma, per-dim mean delta, per-dim log-ratio contribution, and tanh-Jacobian contribution.
 ```
 
 ### Segment cache/dataset/sampler changes

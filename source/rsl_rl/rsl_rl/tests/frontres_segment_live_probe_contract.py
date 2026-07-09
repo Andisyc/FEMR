@@ -404,6 +404,35 @@ def test_live_probe_selects_6d_delta_se_from_12d_rollout_action() -> None:
     torch.testing.assert_close(log_probs, expected_log_probs)
 
 
+def test_delta_se_log_prob_parts_expose_raw_action_and_jacobian_contributions() -> None:
+    policy = SimpleNamespace(
+        num_task_corrections=6,
+        max_delta_pos=0.2,
+        max_delta_rpy=0.4,
+    )
+    raw = torch.tensor([[0.30, -0.20, 0.10, 0.50, -0.40, 0.20]])
+    mean = torch.tensor([[0.10, -0.05, 0.00, 0.20, -0.10, 0.00]])
+    std = torch.full((1, 6), 0.50)
+    max_d = torch.tensor([[0.20, 0.20, 0.20, 0.40, 0.40, 0.40]])
+    bounded_actions = torch.tanh(raw) * max_d
+
+    parts = live_probe._segment_delta_se_log_prob_parts(policy, bounded_actions, mean, std)
+    expected_log_prob_dim = torch.distributions.Normal(mean, std).log_prob(raw)
+    expected_log_jacobian_dim = torch.log(max_d) + torch.log(1.0 - torch.tanh(raw).pow(2) + 1e-6)
+    expected_log_prob = expected_log_prob_dim.sum(dim=-1) - expected_log_jacobian_dim.sum(dim=-1)
+    print(
+        "[probe step3] delta_se_log_prob_parts: "
+        f"raw={parts['raw_actions'][0].tolist()} "
+        f"log_jacobian={parts['log_jacobian_contrib'][0].tolist()} "
+        f"log_prob={parts['log_prob'].item():.9f}",
+        flush=True,
+    )
+
+    torch.testing.assert_close(parts["raw_actions"], raw)
+    torch.testing.assert_close(parts["log_jacobian_contrib"], expected_log_jacobian_dim)
+    torch.testing.assert_close(parts["log_prob"], expected_log_prob)
+
+
 def test_live_probe_trace_prints_once_without_verbose() -> None:
     raw_actions = torch.arange(24, dtype=torch.float32).reshape(2, 12) * 0.1
     runner = SimpleNamespace(
@@ -1289,6 +1318,18 @@ def test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks() -> Non
         "ppo_trust_region_schedule": "adaptive",
         "ppo_trust_region_rollback_enabled": 1,
         "ppo_trust_region_max_retries": 2,
+        "ppo_post_update_raw_action_old_mean_l2_mean": 0.3,
+        "ppo_post_update_raw_action_old_mean_abs_max": 0.2,
+        "ppo_post_update_raw_action_old_mean_abs_dim_mean": (0.1, 0.2, 0.0, 0.3, 0.1, 0.0),
+        "ppo_post_update_raw_action_old_mean_abs_dim_max": (0.2, 0.3, 0.0, 0.4, 0.2, 0.1),
+        "ppo_post_update_old_sigma_dim_mean": (0.01, 0.01, 0.01, 0.01, 0.01, 0.01),
+        "ppo_post_update_sigma_dim_mean": (0.01, 0.01, 0.01, 0.01, 0.01, 0.01),
+        "ppo_post_update_distribution_mean_delta_dim_mean": (0.001, 0.0, 0.0, -0.002, 0.0, 0.0),
+        "ppo_post_update_distribution_mean_delta_abs_dim_max": (0.002, 0.0, 0.0, 0.003, 0.0, 0.0),
+        "ppo_post_update_log_ratio_contrib_dim_mean": (1.0, 0.0, 0.0, 5.0, 0.0, 0.0),
+        "ppo_post_update_log_ratio_contrib_abs_dim_max": (2.0, 0.0, 0.0, 6.0, 0.0, 0.0),
+        "ppo_post_update_log_jacobian_dim_mean": (-1.61, -1.61, -1.61, -0.94, -0.94, -0.94),
+        "ppo_post_update_log_jacobian_abs_dim_max": (1.61, 1.61, 1.61, 0.94, 0.94, 0.94),
         "ppo_advantage_mean": 0.1,
         "ppo_advantage_min": -0.2,
         "ppo_advantage_max": 0.4,
@@ -1308,6 +1349,8 @@ def test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks() -> Non
         f"pre_ratio={'  pre_ratio.clamped_mean:' in output} "
         f"post_log_ratio={'  post_log_ratio.mean:' in output} "
         f"post_ratio={'  post_ratio.clamped_mean:' in output} "
+        f"ratio_source={'  ratio_source.raw_action_old_mean_l2:' in output} "
+        f"ratio_contrib={'  ratio_contrib.log_ratio_dim_mean:' in output} "
         f"legacy_reported={'  ratio.reported_mean:' in output}",
         flush=True,
     )
@@ -1316,6 +1359,11 @@ def test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks() -> Non
     assert "  pre_ratio.clamped_mean:" in output
     assert "  post_log_ratio.mean:" in output
     assert "  post_ratio.clamped_mean:" in output
+    assert "  ratio_source.raw_action_old_mean_l2:" in output
+    assert "  ratio_sigma.old_dim_mean:" in output
+    assert "  ratio_mean_delta.dim_mean:" in output
+    assert "  ratio_contrib.log_ratio_dim_mean:" in output
+    assert "  ratio_contrib.log_jacobian_dim_mean:" in output
     assert "  ratio.reported_mean:" not in output
 
 
@@ -1459,6 +1507,7 @@ if __name__ == "__main__":
     test_build_live_segment_storage_masks_non_actor_rows()
     test_build_live_segment_storage_rejects_non_6d_actions()
     test_live_probe_selects_6d_delta_se_from_12d_rollout_action()
+    test_delta_se_log_prob_parts_expose_raw_action_and_jacobian_contributions()
     test_live_probe_trace_prints_once_without_verbose()
     test_live_probe_trace_reports_native_6d_policy_surface()
     test_ppo_eval_trace_prints_once_without_verbose()

@@ -56,6 +56,12 @@ def _fmt_pct(value: Any) -> str:
     return f"{100.0 * float(value):.1f}%"
 
 
+def _fmt_vec(value: Any) -> str:
+    if not isinstance(value, (list, tuple)) or len(value) == 0:
+        return "UNCONFIRMED"
+    return "[" + ", ".join(_fmt_num(item) for item in value) + "]"
+
+
 def _mean_sequence(value: Any, default: float = 0.0) -> float:
     if not isinstance(value, (list, tuple)) or len(value) == 0:
         return float(default)
@@ -334,6 +340,20 @@ def _post_update_segment_ppo_diagnostics(
         "post_update_mean_delta_max_abs": float(post_result.distribution_mean_delta_max_abs),
         "post_update_old_sigma_min": float(post_result.old_sigma_min),
         "post_update_sigma_min": float(post_result.sigma_min),
+        "post_update_raw_action_old_mean_l2_mean": float(post_result.raw_action_old_mean_l2_mean),
+        "post_update_raw_action_old_mean_abs_max": float(post_result.raw_action_old_mean_abs_max),
+        "post_update_raw_action_old_mean_abs_dim_mean": tuple(post_result.raw_action_old_mean_abs_dim_mean),
+        "post_update_raw_action_old_mean_abs_dim_max": tuple(post_result.raw_action_old_mean_abs_dim_max),
+        "post_update_old_sigma_dim_mean": tuple(post_result.old_sigma_dim_mean),
+        "post_update_sigma_dim_mean": tuple(post_result.sigma_dim_mean),
+        "post_update_distribution_mean_delta_dim_mean": tuple(post_result.distribution_mean_delta_dim_mean),
+        "post_update_distribution_mean_delta_abs_dim_max": tuple(
+            post_result.distribution_mean_delta_abs_dim_max
+        ),
+        "post_update_log_ratio_contrib_dim_mean": tuple(post_result.log_ratio_contrib_dim_mean),
+        "post_update_log_ratio_contrib_abs_dim_max": tuple(post_result.log_ratio_contrib_abs_dim_max),
+        "post_update_log_jacobian_dim_mean": tuple(post_result.log_jacobian_dim_mean),
+        "post_update_log_jacobian_abs_dim_max": tuple(post_result.log_jacobian_abs_dim_max),
     }
 
 
@@ -574,15 +594,34 @@ class FrontRESSegmentLivePolicyAdapter:
         value_obs = self.privileged_observations if self.privileged_observations is not None else observations
         if actions.ndim != 2 or actions.shape[-1] != 6:
             raise ValueError(f"Segment PPO policy evaluation requires 6D Delta SE actions, got {tuple(actions.shape)}")
-        log_prob = _evaluate_segment_delta_se_log_prob(self.alg.policy, actions, alg=self.alg)
         action_mean = getattr(self.alg.policy, "action_mean", None)
         action_std = getattr(self.alg.policy, "action_std", None)
         mean_6d = None
         std_6d = None
+        raw_actions = None
+        log_jacobian_contrib = None
         if action_mean is not None and action_mean.ndim == 2 and action_mean.shape[-1] >= 6:
             mean_6d = action_mean[:, :6]
         if action_std is not None and action_std.ndim == 2 and action_std.shape[-1] >= 6:
             std_6d = action_std[:, :6]
+        distribution = getattr(self.alg.policy, "distribution", None)
+        if (
+            distribution is not None
+            and hasattr(distribution, "mean")
+            and distribution.mean.ndim == 2
+            and distribution.mean.shape[-1] >= 6
+        ):
+            logprob_parts = _segment_delta_se_log_prob_parts(
+                self.alg.policy,
+                actions,
+                distribution.mean,
+                distribution.stddev,
+            )
+            log_prob = logprob_parts["log_prob"]
+            raw_actions = logprob_parts["raw_actions"]
+            log_jacobian_contrib = logprob_parts["log_jacobian_contrib"]
+        else:
+            log_prob = _evaluate_segment_delta_se_log_prob(self.alg.policy, actions, alg=self.alg)
         entropy = getattr(self.alg.policy, "entropy", None)
         if callable(entropy):
             entropy = entropy()
@@ -606,6 +645,8 @@ class FrontRESSegmentLivePolicyAdapter:
             "entropy": entropy if isinstance(entropy, torch.Tensor) else None,
             "mean": mean_6d,
             "sigma": std_6d,
+            "raw_actions": raw_actions,
+            "log_jacobian_contrib": log_jacobian_contrib,
         }
 
 
@@ -631,6 +672,15 @@ def _evaluate_segment_delta_se_log_prob_from_stats(
     mean: torch.Tensor,
     std: torch.Tensor,
 ) -> torch.Tensor:
+    return _segment_delta_se_log_prob_parts(policy, actions, mean, std)["log_prob"]
+
+
+def _segment_delta_se_log_prob_parts(
+    policy: Any,
+    actions: torch.Tensor,
+    mean: torch.Tensor,
+    std: torch.Tensor,
+) -> dict[str, torch.Tensor]:
     mean_6d = mean[:, :6].to(device=actions.device, dtype=actions.dtype)
     std_6d = std[:, :6].to(device=actions.device, dtype=actions.dtype)
     if int(getattr(policy, "num_task_corrections", 0)) > 0:
@@ -645,10 +695,19 @@ def _evaluate_segment_delta_se_log_prob_from_stats(
         )
         normalized = (actions / max_d).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
         raw = torch.atanh(normalized)
-        log_prob = torch.distributions.Normal(mean_6d, std_6d).log_prob(raw).sum(dim=-1)
-        log_j = (torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)).sum(dim=-1)
-        return log_prob - log_j
-    return torch.distributions.Normal(mean_6d, std_6d).log_prob(actions).sum(dim=-1)
+        log_prob_dim = torch.distributions.Normal(mean_6d, std_6d).log_prob(raw)
+        log_j_dim = torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)
+        return {
+            "log_prob": log_prob_dim.sum(dim=-1) - log_j_dim.sum(dim=-1),
+            "raw_actions": raw,
+            "log_jacobian_contrib": log_j_dim,
+        }
+    log_prob_dim = torch.distributions.Normal(mean_6d, std_6d).log_prob(actions)
+    return {
+        "log_prob": log_prob_dim.sum(dim=-1),
+        "raw_actions": actions,
+        "log_jacobian_contrib": torch.zeros_like(actions),
+    }
 
 
 def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = True) -> dict[str, object]:
@@ -814,6 +873,42 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     ),
                     "ppo_post_update_sigma_min": float(
                         getattr(ppo_result, "post_update_sigma_min", 0.0)
+                    ),
+                    "ppo_post_update_raw_action_old_mean_l2_mean": float(
+                        getattr(ppo_result, "post_update_raw_action_old_mean_l2_mean", 0.0)
+                    ),
+                    "ppo_post_update_raw_action_old_mean_abs_max": float(
+                        getattr(ppo_result, "post_update_raw_action_old_mean_abs_max", 0.0)
+                    ),
+                    "ppo_post_update_raw_action_old_mean_abs_dim_mean": tuple(
+                        getattr(ppo_result, "post_update_raw_action_old_mean_abs_dim_mean", ())
+                    ),
+                    "ppo_post_update_raw_action_old_mean_abs_dim_max": tuple(
+                        getattr(ppo_result, "post_update_raw_action_old_mean_abs_dim_max", ())
+                    ),
+                    "ppo_post_update_old_sigma_dim_mean": tuple(
+                        getattr(ppo_result, "post_update_old_sigma_dim_mean", ())
+                    ),
+                    "ppo_post_update_sigma_dim_mean": tuple(
+                        getattr(ppo_result, "post_update_sigma_dim_mean", ())
+                    ),
+                    "ppo_post_update_distribution_mean_delta_dim_mean": tuple(
+                        getattr(ppo_result, "post_update_distribution_mean_delta_dim_mean", ())
+                    ),
+                    "ppo_post_update_distribution_mean_delta_abs_dim_max": tuple(
+                        getattr(ppo_result, "post_update_distribution_mean_delta_abs_dim_max", ())
+                    ),
+                    "ppo_post_update_log_ratio_contrib_dim_mean": tuple(
+                        getattr(ppo_result, "post_update_log_ratio_contrib_dim_mean", ())
+                    ),
+                    "ppo_post_update_log_ratio_contrib_abs_dim_max": tuple(
+                        getattr(ppo_result, "post_update_log_ratio_contrib_abs_dim_max", ())
+                    ),
+                    "ppo_post_update_log_jacobian_dim_mean": tuple(
+                        getattr(ppo_result, "post_update_log_jacobian_dim_mean", ())
+                    ),
+                    "ppo_post_update_log_jacobian_abs_dim_max": tuple(
+                        getattr(ppo_result, "post_update_log_jacobian_abs_dim_max", ())
                     ),
                 }
             )
@@ -2048,6 +2143,58 @@ def _print_live_probe_summary(
                     {
                         "clamped_mean": _fmt_num(summary.get("ppo_post_update_clamped_ratio_mean", 0.0)),
                         "clamped_max": _fmt_num(summary.get("ppo_post_update_clamped_ratio_max", 0.0)),
+                    },
+                ),
+                *_kv_lines(
+                    "ratio_source",
+                    {
+                        "raw_action_old_mean_l2": _fmt_num(
+                            summary.get("ppo_post_update_raw_action_old_mean_l2_mean", 0.0)
+                        ),
+                        "raw_action_old_mean_abs_max": _fmt_num(
+                            summary.get("ppo_post_update_raw_action_old_mean_abs_max", 0.0)
+                        ),
+                        "raw_action_old_mean_abs_dim_mean": _fmt_vec(
+                            summary.get("ppo_post_update_raw_action_old_mean_abs_dim_mean", ())
+                        ),
+                        "raw_action_old_mean_abs_dim_max": _fmt_vec(
+                            summary.get("ppo_post_update_raw_action_old_mean_abs_dim_max", ())
+                        ),
+                    },
+                ),
+                *_kv_lines(
+                    "ratio_sigma",
+                    {
+                        "old_dim_mean": _fmt_vec(summary.get("ppo_post_update_old_sigma_dim_mean", ())),
+                        "new_dim_mean": _fmt_vec(summary.get("ppo_post_update_sigma_dim_mean", ())),
+                    },
+                ),
+                *_kv_lines(
+                    "ratio_mean_delta",
+                    {
+                        "dim_mean": _fmt_vec(
+                            summary.get("ppo_post_update_distribution_mean_delta_dim_mean", ())
+                        ),
+                        "abs_dim_max": _fmt_vec(
+                            summary.get("ppo_post_update_distribution_mean_delta_abs_dim_max", ())
+                        ),
+                    },
+                ),
+                *_kv_lines(
+                    "ratio_contrib",
+                    {
+                        "log_ratio_dim_mean": _fmt_vec(
+                            summary.get("ppo_post_update_log_ratio_contrib_dim_mean", ())
+                        ),
+                        "log_ratio_abs_dim_max": _fmt_vec(
+                            summary.get("ppo_post_update_log_ratio_contrib_abs_dim_max", ())
+                        ),
+                        "log_jacobian_dim_mean": _fmt_vec(
+                            summary.get("ppo_post_update_log_jacobian_dim_mean", ())
+                        ),
+                        "log_jacobian_abs_dim_max": _fmt_vec(
+                            summary.get("ppo_post_update_log_jacobian_abs_dim_max", ())
+                        ),
                     },
                 ),
                 *_kv_lines(

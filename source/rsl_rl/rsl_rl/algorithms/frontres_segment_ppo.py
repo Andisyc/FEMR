@@ -41,6 +41,8 @@ class FrontRESSegmentPolicyEval:
     entropy: torch.Tensor | None = None
     mean: torch.Tensor | None = None
     sigma: torch.Tensor | None = None
+    raw_actions: torch.Tensor | None = None
+    log_jacobian_contrib: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -91,6 +93,30 @@ class FrontRESSegmentPPOResult:
     post_update_clamped_ratio_mean: float = 0.0
     post_update_clamped_ratio_max: float = 0.0
     post_update_clip_frac: float = 0.0
+    raw_action_old_mean_l2_mean: float = 0.0
+    raw_action_old_mean_abs_max: float = 0.0
+    raw_action_old_mean_abs_dim_mean: tuple[float, ...] = ()
+    raw_action_old_mean_abs_dim_max: tuple[float, ...] = ()
+    old_sigma_dim_mean: tuple[float, ...] = ()
+    sigma_dim_mean: tuple[float, ...] = ()
+    distribution_mean_delta_dim_mean: tuple[float, ...] = ()
+    distribution_mean_delta_abs_dim_max: tuple[float, ...] = ()
+    log_ratio_contrib_dim_mean: tuple[float, ...] = ()
+    log_ratio_contrib_abs_dim_max: tuple[float, ...] = ()
+    log_jacobian_dim_mean: tuple[float, ...] = ()
+    log_jacobian_abs_dim_max: tuple[float, ...] = ()
+    post_update_raw_action_old_mean_l2_mean: float = 0.0
+    post_update_raw_action_old_mean_abs_max: float = 0.0
+    post_update_raw_action_old_mean_abs_dim_mean: tuple[float, ...] = ()
+    post_update_raw_action_old_mean_abs_dim_max: tuple[float, ...] = ()
+    post_update_old_sigma_dim_mean: tuple[float, ...] = ()
+    post_update_sigma_dim_mean: tuple[float, ...] = ()
+    post_update_distribution_mean_delta_dim_mean: tuple[float, ...] = ()
+    post_update_distribution_mean_delta_abs_dim_max: tuple[float, ...] = ()
+    post_update_log_ratio_contrib_dim_mean: tuple[float, ...] = ()
+    post_update_log_ratio_contrib_abs_dim_max: tuple[float, ...] = ()
+    post_update_log_jacobian_dim_mean: tuple[float, ...] = ()
+    post_update_log_jacobian_abs_dim_max: tuple[float, ...] = ()
 
     @property
     def should_step(self) -> bool:
@@ -267,6 +293,18 @@ def compute_frontres_segment_ppo_loss(
         distribution_mean_delta_max_abs = 0.0
         old_sigma_min = 0.0
         sigma_min = 0.0
+        raw_action_old_mean_l2_mean = 0.0
+        raw_action_old_mean_abs_max = 0.0
+        raw_action_old_mean_abs_dim_mean: tuple[float, ...] = ()
+        raw_action_old_mean_abs_dim_max: tuple[float, ...] = ()
+        old_sigma_dim_mean: tuple[float, ...] = ()
+        sigma_dim_mean: tuple[float, ...] = ()
+        distribution_mean_delta_dim_mean: tuple[float, ...] = ()
+        distribution_mean_delta_abs_dim_max: tuple[float, ...] = ()
+        log_ratio_contrib_dim_mean: tuple[float, ...] = ()
+        log_ratio_contrib_abs_dim_max: tuple[float, ...] = ()
+        log_jacobian_dim_mean: tuple[float, ...] = ()
+        log_jacobian_abs_dim_max: tuple[float, ...] = ()
         if has_distribution_stats:
             old_mean = batch.old_means[valid].detach()
             old_sigma = batch.old_sigmas[valid].detach()
@@ -277,6 +315,26 @@ def compute_frontres_segment_ppo_loss(
             distribution_mean_delta_max_abs = mean_delta.abs().max().item()
             old_sigma_min = old_sigma.min().item()
             sigma_min = sigma.min().item()
+            old_sigma_dim_mean = _dim_mean_tuple(old_sigma)
+            sigma_dim_mean = _dim_mean_tuple(sigma)
+            distribution_mean_delta_dim_mean = _dim_mean_tuple(mean_delta)
+            distribution_mean_delta_abs_dim_max = _dim_max_tuple(mean_delta.abs())
+            if policy_eval.raw_actions is not None:
+                raw_actions = policy_eval.raw_actions[valid].detach()
+                raw_action_old_mean = raw_actions - old_mean
+                raw_action_old_mean_l2_mean = raw_action_old_mean.norm(dim=-1).mean().item()
+                raw_action_old_mean_abs_max = raw_action_old_mean.abs().max().item()
+                raw_action_old_mean_abs_dim_mean = _dim_mean_tuple(raw_action_old_mean.abs())
+                raw_action_old_mean_abs_dim_max = _dim_max_tuple(raw_action_old_mean.abs())
+                old_logprob_dim = torch.distributions.Normal(old_mean, old_sigma).log_prob(raw_actions)
+                new_logprob_dim = torch.distributions.Normal(mean, sigma).log_prob(raw_actions)
+                log_ratio_contrib = new_logprob_dim - old_logprob_dim
+                log_ratio_contrib_dim_mean = _dim_mean_tuple(log_ratio_contrib)
+                log_ratio_contrib_abs_dim_max = _dim_max_tuple(log_ratio_contrib.abs())
+            if policy_eval.log_jacobian_contrib is not None:
+                log_jacobian = policy_eval.log_jacobian_contrib[valid].detach()
+                log_jacobian_dim_mean = _dim_mean_tuple(log_jacobian)
+                log_jacobian_abs_dim_max = _dim_max_tuple(log_jacobian.abs())
 
     return FrontRESSegmentPPOResult(
         total_loss=total_loss,
@@ -314,7 +372,31 @@ def compute_frontres_segment_ppo_loss(
         distribution_mean_delta_max_abs=float(distribution_mean_delta_max_abs),
         old_sigma_min=float(old_sigma_min),
         sigma_min=float(sigma_min),
+        raw_action_old_mean_l2_mean=float(raw_action_old_mean_l2_mean),
+        raw_action_old_mean_abs_max=float(raw_action_old_mean_abs_max),
+        raw_action_old_mean_abs_dim_mean=raw_action_old_mean_abs_dim_mean,
+        raw_action_old_mean_abs_dim_max=raw_action_old_mean_abs_dim_max,
+        old_sigma_dim_mean=old_sigma_dim_mean,
+        sigma_dim_mean=sigma_dim_mean,
+        distribution_mean_delta_dim_mean=distribution_mean_delta_dim_mean,
+        distribution_mean_delta_abs_dim_max=distribution_mean_delta_abs_dim_max,
+        log_ratio_contrib_dim_mean=log_ratio_contrib_dim_mean,
+        log_ratio_contrib_abs_dim_max=log_ratio_contrib_abs_dim_max,
+        log_jacobian_dim_mean=log_jacobian_dim_mean,
+        log_jacobian_abs_dim_max=log_jacobian_abs_dim_max,
     )
+
+
+def _dim_mean_tuple(tensor: torch.Tensor) -> tuple[float, ...]:
+    if tensor.ndim != 2 or tensor.shape[-1] == 0:
+        return ()
+    return tuple(float(item) for item in tensor.mean(dim=0).detach().cpu().tolist())
+
+
+def _dim_max_tuple(tensor: torch.Tensor) -> tuple[float, ...]:
+    if tensor.ndim != 2 or tensor.shape[-1] == 0:
+        return ()
+    return tuple(float(item) for item in tensor.max(dim=0).values.detach().cpu().tolist())
 
 
 def _prepare_advantages(
@@ -360,6 +442,8 @@ def _evaluate_policy(policy: Any, batch: FrontRESSegmentPPOBatch) -> FrontRESSeg
             entropy=value.get("entropy"),
             mean=value.get("mean"),
             sigma=value.get("sigma"),
+            raw_actions=value.get("raw_actions"),
+            log_jacobian_contrib=value.get("log_jacobian_contrib"),
         )
     raise TypeError(f"unsupported policy evaluation output: {type(value)!r}")
 
@@ -420,6 +504,13 @@ def _validate_policy_eval(policy_eval: FrontRESSegmentPolicyEval, batch: FrontRE
         raise ValueError(f"policy mean must have shape [B, 6], got {tuple(policy_eval.mean.shape)}")
     if policy_eval.sigma is not None and tuple(policy_eval.sigma.shape) != (batch_size, 6):
         raise ValueError(f"policy sigma must have shape [B, 6], got {tuple(policy_eval.sigma.shape)}")
+    if policy_eval.raw_actions is not None and tuple(policy_eval.raw_actions.shape) != (batch_size, 6):
+        raise ValueError(f"policy raw_actions must have shape [B, 6], got {tuple(policy_eval.raw_actions.shape)}")
+    if policy_eval.log_jacobian_contrib is not None and tuple(policy_eval.log_jacobian_contrib.shape) != (batch_size, 6):
+        raise ValueError(
+            "policy log_jacobian_contrib must have shape [B, 6], "
+            f"got {tuple(policy_eval.log_jacobian_contrib.shape)}"
+        )
 
 
 def _require_vector(name: str, tensor: torch.Tensor, batch_size: int) -> None:

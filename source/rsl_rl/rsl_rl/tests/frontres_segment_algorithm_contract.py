@@ -58,12 +58,16 @@ class StaticEvalPolicy:
         mean: torch.Tensor | None = None,
         sigma: torch.Tensor | None = None,
         entropy: torch.Tensor | None = None,
+        raw_actions: torch.Tensor | None = None,
+        log_jacobian_contrib: torch.Tensor | None = None,
     ) -> None:
         self.log_prob = log_prob
         self.value = value
         self.mean = mean
         self.sigma = sigma
         self.entropy = entropy
+        self.raw_actions = raw_actions
+        self.log_jacobian_contrib = log_jacobian_contrib
 
     def evaluate_segment_actions(self, observations: torch.Tensor, actions: torch.Tensor) -> FrontRESSegmentPolicyEval:
         return FrontRESSegmentPolicyEval(
@@ -72,6 +76,8 @@ class StaticEvalPolicy:
             entropy=self.entropy,
             mean=self.mean,
             sigma=self.sigma,
+            raw_actions=self.raw_actions,
+            log_jacobian_contrib=self.log_jacobian_contrib,
         )
 
 
@@ -448,6 +454,65 @@ def test_small_sigma_kl_sensitivity_matches_exact_formula() -> None:
     assert abs(small.sigma_min - 0.01) < 1e-8
 
 
+def test_ratio_source_decomposition_identifies_tail_sigma_and_dim_contribution() -> None:
+    raw_actions = torch.tensor([[0.03, -0.01, 0.00, 0.06, -0.02, 0.01]])
+    old_means = torch.zeros(1, 6)
+    old_sigmas = torch.full((1, 6), 0.01)
+    new_means = torch.tensor([[0.00, -0.01, 0.00, 0.03, -0.02, 0.01]], requires_grad=True)
+    new_sigmas = torch.full((1, 6), 0.01)
+    old_logprob_dim = torch.distributions.Normal(old_means, old_sigmas).log_prob(raw_actions)
+    new_logprob_dim = torch.distributions.Normal(new_means, new_sigmas).log_prob(raw_actions)
+    log_ratio_dim = new_logprob_dim - old_logprob_dim
+    policy = StaticEvalPolicy(
+        log_prob=new_logprob_dim.sum(dim=-1).detach().clone().requires_grad_(True),
+        value=torch.zeros(1, requires_grad=True),
+        mean=new_means,
+        sigma=new_sigmas,
+        entropy=torch.zeros(1),
+        raw_actions=raw_actions,
+        log_jacobian_contrib=torch.tensor([[-1.61, -1.61, -1.61, -0.94, -0.94, -0.94]]),
+    )
+    batch = FrontRESSegmentPPOBatch(
+        observations=torch.zeros(1, 4),
+        actions=torch.zeros(1, 6),
+        old_log_probs=old_logprob_dim.sum(dim=-1),
+        old_values=torch.zeros(1),
+        returns=torch.zeros(1),
+        advantages=torch.ones(1),
+        valid_mask=torch.tensor([True]),
+        segment_ids=torch.tensor([38]),
+        action_mask=torch.ones(1, 6),
+        old_means=old_means,
+        old_sigmas=old_sigmas,
+    )
+
+    result = compute_frontres_segment_ppo_loss(policy, batch, FrontRESSegmentPPOConfig(entropy_coef=0.0))
+    print(
+        "[probe ppo_ratio_source_decomposition] "
+        f"raw_old_l2={result.raw_action_old_mean_l2_mean:.9f} "
+        f"raw_abs_dim_mean={result.raw_action_old_mean_abs_dim_mean} "
+        f"sigma_dim={result.sigma_dim_mean} "
+        f"mean_delta_dim={result.distribution_mean_delta_dim_mean} "
+        f"log_ratio_dim={result.log_ratio_contrib_dim_mean} "
+        f"log_jacobian_dim={result.log_jacobian_dim_mean}",
+        flush=True,
+    )
+
+    assert abs(result.raw_action_old_mean_l2_mean - raw_actions.norm(dim=-1).item()) < 1e-8
+    torch.testing.assert_close(
+        torch.tensor(result.raw_action_old_mean_abs_dim_mean),
+        raw_actions.abs()[0],
+    )
+    torch.testing.assert_close(torch.tensor(result.sigma_dim_mean), new_sigmas[0])
+    torch.testing.assert_close(torch.tensor(result.distribution_mean_delta_dim_mean), new_means.detach()[0])
+    torch.testing.assert_close(torch.tensor(result.log_ratio_contrib_dim_mean), log_ratio_dim[0])
+    torch.testing.assert_close(torch.tensor(result.log_ratio_contrib_abs_dim_max), log_ratio_dim.abs()[0])
+    torch.testing.assert_close(
+        torch.tensor(result.log_jacobian_dim_mean),
+        torch.tensor([-1.61, -1.61, -1.61, -0.94, -0.94, -0.94]),
+    )
+
+
 def test_old_policy_tensors_are_detached_from_segment_ppo_loss() -> None:
     policy = FakeSegmentPolicy()
     old_log_probs = torch.zeros(2, requires_grad=True)
@@ -792,6 +857,7 @@ def main() -> None:
     test_advantage_dominance_diagnostic_exposes_top_sample_control()
     test_scale_only_advantage_normalization_preserves_no_regret_sign()
     test_small_sigma_kl_sensitivity_matches_exact_formula()
+    test_ratio_source_decomposition_identifies_tail_sigma_and_dim_contribution()
     test_old_policy_tensors_are_detached_from_segment_ppo_loss()
     test_row_permutation_does_not_change_segment_ppo_loss_or_diagnostics()
     test_action_mask_does_not_reduce_direct_delta_se_ppo_support()

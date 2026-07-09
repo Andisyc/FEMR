@@ -211,6 +211,41 @@ Training gate:
   sentinel with explicit `--frontres_segment_ppo_lr 1e-6` and check rejected
   count, clip fraction, post-update KL, and gain.
 
+## Stage 3 Segment PPO Ratio-Source Decomposition - 2026-07-09
+
+Scope:
+- Added the diagnostic chain needed after the env64/step20 `lr=1e-6` sentinel
+  showed acceptable KL but high clip / high post-ratio.
+- The diagnostic is read-only with respect to PPO behavior: it does not change
+  action definition, loss, clipping, mask semantics, optimizer step, or
+  trust-region rollback.
+
+Commands passed:
+- `python -m py_compile source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+
+Evidence:
+- Algorithm contract prints ratio-source decomposition:
+  `raw_old_l2=0.071414277`, `sigma_dim=(0.01,...)`,
+  `log_ratio_dim=(0.0, 0.5, 0.0, 13.5, 2.0, 0.5)`.
+- Live-probe contract confirms the tanh-bounded Delta SE path exposes raw
+  action and Jacobian pieces:
+  `delta_se_log_prob_parts ... log_jacobian=[...] log_prob=6.211705208`.
+- Readable live summary contract confirms the new blocks are printed:
+  `ratio_source=True ratio_contrib=True legacy_reported=False`.
+- Full aggregate suite: `contract_count=41 failed_count=0 total_marker_count=41`.
+
+Training gate:
+- Run one short S4 sentinel again. The next log should contain
+  `ratio_source.*`, `ratio_sigma.*`, `ratio_mean_delta.*`, and
+  `ratio_contrib.*` under `[FrontRES Segment PPO Probe]`.
+- Use that live evidence to decide whether high clip comes from action-tail
+  samples, small sigma, one dominant action dimension, or the tanh Jacobian.
+
 ## Latest Full Sweep - 2026-07-07
 Scope:
 - Tested the current dirty FEMR worktree through the Repo Mainline Atlas and
