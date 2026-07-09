@@ -14,6 +14,8 @@ class FrontRESSegmentPPOConfig:
     entropy_coef: float = 0.0
     use_clipped_value_loss: bool = True
     normalize_advantages: bool = False
+    advantage_normalization: str = "none"
+    advantage_scale_epsilon: float = 1.0e-8
     max_log_ratio: float = 20.0
 
 
@@ -69,6 +71,8 @@ class FrontRESSegmentPPOResult:
     advantage_abs_mean: float = 0.0
     advantage_abs_max: float = 0.0
     advantage_abs_top1_frac: float = 0.0
+    advantage_scale: float = 1.0
+    advantage_sign_flip_count: int = 0
     logprob_approx_kl: float = 0.0
     distribution_kl_mean: float = 0.0
     distribution_kl_available: bool = False
@@ -119,6 +123,8 @@ class FrontRESSegmentPPOResult:
             "segment/ppo_advantage_abs_mean": self.advantage_abs_mean,
             "segment/ppo_advantage_abs_max": self.advantage_abs_max,
             "segment/ppo_advantage_abs_top1_frac": self.advantage_abs_top1_frac,
+            "segment/ppo_advantage_scale": self.advantage_scale,
+            "segment/ppo_advantage_sign_flip_count": float(self.advantage_sign_flip_count),
             "segment/ppo_logprob_approx_kl": self.logprob_approx_kl,
             "segment/ppo_distribution_kl_mean": self.distribution_kl_mean,
             "segment/ppo_distribution_kl_available": float(self.distribution_kl_available),
@@ -147,11 +153,21 @@ def compute_frontres_segment_ppo_loss(
     batch: FrontRESSegmentPPOBatch,
     cfg: FrontRESSegmentPPOConfig | None = None,
 ) -> FrontRESSegmentPPOResult:
+    """Compute one direct Delta SE PPO loss on an already sampled Segment batch.
+
+    Status: active Segment Replay algorithm boundary.
+    Upstream: live runner/storage converts rollout evidence into FrontRESSegmentPPOBatch.
+    Downstream: runner uses total_loss for backward/step and diagnostics for KL/trust logs.
+    Evidence: contract-confirmed by frontres_segment_algorithm_contract.py and live single-update tests.
+    Gap: this pure loss does not prove IsaacLab live rollout quality.
+    """
     cfg = FrontRESSegmentPPOConfig() if cfg is None else cfg
     _validate_batch(batch)
     policy_eval = _evaluate_policy(policy, batch)
     _validate_policy_eval(policy_eval, batch)
 
+    # B1: Build the valid training rows. Old policy tensors are detached below,
+    # so gradients only flow through the current policy evaluation.
     finite = (
         torch.isfinite(policy_eval.log_prob)
         & torch.isfinite(policy_eval.value)
@@ -202,9 +218,10 @@ def compute_frontres_segment_ppo_loss(
     old_value = batch.old_values[valid].detach()
     returns = batch.returns[valid].detach()
     advantages = batch.advantages[valid].detach()
-    if cfg.normalize_advantages and advantages.numel() > 1:
-        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
+    advantages, advantage_scale, advantage_sign_flip_count = _prepare_advantages(advantages, cfg)
 
+    # B2: PPO ratio path. raw_log_ratio is kept for diagnosis; log_ratio is
+    # clamped only before exp() to keep the surrogate finite.
     raw_log_ratio = log_prob - old_log_prob
     log_ratio = raw_log_ratio.clamp(-abs(float(cfg.max_log_ratio)), abs(float(cfg.max_log_ratio)))
     ratio = torch.exp(log_ratio)
@@ -222,6 +239,9 @@ def compute_frontres_segment_ppo_loss(
     entropy = _masked_entropy(policy_eval.entropy, valid, log_prob)
     total_loss = actor_loss + cfg.value_loss_coef * value_loss - cfg.entropy_coef * entropy
     with torch.no_grad():
+        # B3: Diagnostics are measured on this exact forward pass. The runner
+        # later reuses these fields as pre-update values, and runs a second
+        # forward after optimizer.step for post-update values.
         clip_frac = ((ratio - 1.0).abs() > cfg.clip_param).float().mean().item()
         logprob_approx_kl = (old_log_prob - log_prob).mean().item()
         distribution_kl_mean = (
@@ -285,6 +305,8 @@ def compute_frontres_segment_ppo_loss(
         advantage_abs_mean=float(advantage_abs_mean),
         advantage_abs_max=float(advantage_abs_max),
         advantage_abs_top1_frac=float(advantage_abs_top1_frac),
+        advantage_scale=float(advantage_scale),
+        advantage_sign_flip_count=int(advantage_sign_flip_count),
         logprob_approx_kl=float(logprob_approx_kl),
         distribution_kl_mean=float(distribution_kl_mean),
         distribution_kl_available=bool(has_distribution_stats),
@@ -293,6 +315,33 @@ def compute_frontres_segment_ppo_loss(
         old_sigma_min=float(old_sigma_min),
         sigma_min=float(sigma_min),
     )
+
+
+def _prepare_advantages(
+    advantages: torch.Tensor,
+    cfg: FrontRESSegmentPPOConfig,
+) -> tuple[torch.Tensor, float, int]:
+    mode = str(cfg.advantage_normalization).lower()
+    if cfg.normalize_advantages and mode == "none":
+        mode = "standard"
+    if mode not in ("none", "standard", "scale_only"):
+        raise ValueError(
+            "advantage_normalization must be one of none, standard, or scale_only; "
+            f"got {cfg.advantage_normalization!r}"
+        )
+    if advantages.numel() <= 1 or mode == "none":
+        return advantages, 1.0, 0
+    original = advantages
+    eps = abs(float(cfg.advantage_scale_epsilon))
+    if mode == "standard":
+        scale = advantages.std(unbiased=False) + eps
+        scaled = (advantages - advantages.mean()) / scale
+    else:
+        scale = torch.sqrt(advantages.square().mean()).clamp_min(eps)
+        scaled = advantages / scale
+    sign_rows = (original != 0.0) & (scaled != 0.0)
+    sign_flip_count = int((torch.sign(original[sign_rows]) != torch.sign(scaled[sign_rows])).sum().item())
+    return scaled, float(scale.detach().cpu().item()), sign_flip_count
 
 
 def _evaluate_policy(policy: Any, batch: FrontRESSegmentPPOBatch) -> FrontRESSegmentPolicyEval:

@@ -253,6 +253,32 @@ def test_single_update_steps_optimizer_with_valid_segment() -> None:
     assert not torch.allclose(runner.alg.policy.critic.weight.detach(), before_critic)
 
 
+def test_segment_live_update_uses_scale_only_advantages_independent_of_base_ppo_flag() -> None:
+    runner = FakeRunner()
+    runner.alg.normalize_advantage_per_mini_batch = False
+    runner.alg.frontres_segment_trust_region_rollback = False
+    storage_batch = _storage_batch(torch.tensor([True, True]))
+
+    result = run_frontres_segment_single_update(runner, storage_batch)
+    print(
+        "[probe step3] segment_advantage_scale_only: "
+        f"base_flag={runner.alg.normalize_advantage_per_mini_batch} "
+        f"adv_scale={result.advantage_scale:.6f} "
+        f"sign_flips={result.advantage_sign_flip_count} "
+        f"adv_mean={result.advantage_mean:.6f} "
+        f"adv_min={result.advantage_min:.6f} "
+        f"adv_max={result.advantage_max:.6f} "
+        f"adv_abs_max={result.advantage_abs_max:.6f}",
+        flush=True,
+    )
+
+    assert result.valid_count == 2
+    assert abs(result.advantage_scale - torch.sqrt(torch.tensor((1.0**2 + 1000.0**2) / 2.0)).item()) < 1e-3
+    assert result.advantage_sign_flip_count == 0
+    assert result.advantage_min > 0.0
+    assert result.advantage_max > result.advantage_min
+
+
 def test_single_update_does_not_step_optimizer_without_valid_segments() -> None:
     runner = FakeRunner()
     before_actor = runner.alg.policy.actor.weight.detach().clone()
@@ -506,6 +532,7 @@ def test_single_update_requires_separate_pre_and_post_ratio_diagnostics() -> Non
 
 if __name__ == "__main__":
     test_single_update_steps_optimizer_with_valid_segment()
+    test_segment_live_update_uses_scale_only_advantages_independent_of_base_ppo_flag()
     test_single_update_does_not_step_optimizer_without_valid_segments()
     test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl()
     test_single_update_uses_mosaic_pre_step_lr_for_optimizer_step()

@@ -3581,3 +3581,57 @@ Made the Stage 3 perturbation preset explicit at launch:
   `--frontres_specialist_mode rp`;
 - sequence eval item logs remain the live proof that the actual reset batch
   used `family_counts={'local_rp': ...}` and `local_rp_frac=100.0%`.
+
+## 37. Segment PPO Advantage Scaling Contract
+
+Date: 2026-07-09
+
+Stage 3 direct Delta SE PPO treats positive Segment gain as no-regret evidence:
+
+```text
+score_repaired > score_noisy
+-> sampled Delta SE helped relative to the Noisy baseline
+-> actor should still be encouraged toward that sampled action
+```
+
+Therefore default Segment PPO must not use standard mean-centered advantage
+normalization as a silent stabilizer.  Standard PPO normalization is allowed as
+an explicit ablation, but the live Stage 3 Segment path defaults to
+sign-preserving scale-only advantage scaling.
+
+Required live default:
+
+```text
+frontres_segment_advantage_normalization = scale_only
+```
+
+Algorithm owner:
+
+```text
+source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py
+```
+
+Runner connector owner:
+
+```text
+source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py
+```
+
+Required contracts:
+
+```text
+frontres_segment_algorithm_contract.py
+  scale_only preserves all-positive advantage signs;
+  standard mode is still testable and shows the semantic difference.
+
+frontres_segment_live_single_update_contract.py
+  live single-update uses scale_only independent of base PPO normalize flags.
+```
+
+Non-scope:
+
+- no change to full-6D Delta SE action support;
+- no change to old_means/old_sigmas KL source;
+- no change to adaptive LR or post-update rollback;
+- no change to sampler priority evidence;
+- no change to Stage 2 observation/normalizer requirements.

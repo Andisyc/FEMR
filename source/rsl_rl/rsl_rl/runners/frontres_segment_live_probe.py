@@ -294,6 +294,14 @@ def _post_update_segment_ppo_diagnostics(
     ppo_batch: FrontRESSegmentPPOBatch,
     ppo_cfg: FrontRESSegmentPPOConfig,
 ) -> dict[str, Any]:
+    """Re-forward the same batch after optimizer.step and rename diagnostics as post-update.
+
+    Status: active diagnostic boundary, not an optimizer or loss owner.
+    Upstream: run_frontres_segment_single_update calls this after optimizer.step.
+    Downstream: trust-region rollback, live summary, and PPO probe text consume these fields.
+    Evidence: contract-confirmed by frontres_segment_live_single_update_contract.py.
+    Gap: only proves same-batch post-step diagnostics, not long-horizon training quality.
+    """
     with torch.no_grad():
         post_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
     post_kl = (
@@ -301,6 +309,9 @@ def _post_update_segment_ppo_diagnostics(
         if bool(post_result.distribution_kl_available)
         else float(post_result.logprob_approx_kl)
     )
+    # compute_frontres_segment_ppo_loss names values by local forward timing.
+    # Here that local "pre_update" means "before any further update", i.e. the
+    # post-step distribution produced by the just-finished optimizer.step.
     post_raw_log_ratio_mean = float(post_result.pre_update_raw_log_ratio_mean)
     post_raw_log_ratio_min = float(post_result.pre_update_raw_log_ratio_min)
     post_raw_log_ratio_max = float(post_result.pre_update_raw_log_ratio_max)
@@ -1301,15 +1312,16 @@ def _current_reset_success_mask(runner: Any, *, batch_size: int, device: torch.d
 
 
 def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> object:
-    """Run one Stage 3 Segment PPO update on the isolated live path.
+    """Run one Stage 3 Segment PPO update on the isolated live Segment path.
 
-    Status: active Segment Replay path only.
-    Upstream: learn_frontres_segment_live -> live update loop -> this helper.
-    Downstream: FrontRESSegmentPPOBatch -> compute_frontres_segment_ppo_loss -> optimizer.step.
-    Evidence: code-confirmed and contract-confirmed by frontres_segment_live_single_update_contract.py.
-    Gap: real IsaacLab S4 training quality still needs live sentinel logs.
+    Status: active Segment Replay update boundary.
+    Upstream: live probe/update loop passes storage_batch from rollout evidence.
+    Downstream: FrontRESSegmentPPOBatch -> compute_frontres_segment_ppo_loss -> optimizer.step -> post diagnostics.
+    Evidence: contract-confirmed by frontres_segment_live_single_update_contract.py.
+    Gap: one fake/live-boundary update does not prove long live training quality.
     """
     runner.train_mode()
+    # B1: Convert storage evidence into the algorithm-owned batch contract.
     ppo_batch = storage_batch.to_ppo_batch(FrontRESSegmentPPOBatch)
     policy_adapter = FrontRESSegmentLivePolicyAdapter(
         runner.alg,
@@ -1321,8 +1333,9 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
         value_loss_coef=float(getattr(runner.alg, "value_loss_coef", 1.0)),
         entropy_coef=float(getattr(runner.alg, "entropy_coef", 0.0)),
         use_clipped_value_loss=bool(getattr(runner.alg, "use_clipped_value_loss", True)),
-        normalize_advantages=bool(getattr(runner.alg, "normalize_advantage_per_mini_batch", False)),
+        advantage_normalization=str(getattr(runner.alg, "frontres_segment_advantage_normalization", "scale_only")),
     )
+    # B2: First forward is the pre-step loss and MOSAIC-style old/new KL source.
     ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
     pre_step_lr_diagnostics = _apply_segment_adaptive_learning_rate(runner.alg, ppo_result)
     optimizer_params, param_snapshots = _optimizer_parameter_snapshots(runner.alg.policy, runner.alg.optimizer)
@@ -1336,6 +1349,8 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
     rollback_enabled = bool(getattr(runner.alg, "frontres_segment_trust_region_rollback", True))
     schedule = str(getattr(runner.alg, "schedule", "fixed")).lower()
     if ppo_result.should_step:
+        # B3: The optimizer step is accepted only after a post-step same-batch
+        # diagnostic pass says the policy distribution stayed inside the trust region.
         for attempt in range(max_retries + 1):
             if attempt > 0:
                 ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
@@ -1369,6 +1384,8 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
                 if attempt < max_retries:
                     continue
                 accepted = False
+            # B4: Keep legacy ratio_mean/ratio_max as post-step aliases for
+            # existing logs, while explicit pre/post fields carry the white-box timing.
             object.__setattr__(ppo_result, "approx_kl", post_kl)
             object.__setattr__(ppo_result, "clip_frac", float(post_update_diagnostics["post_update_clip_frac"]))
             object.__setattr__(
@@ -1877,6 +1894,14 @@ def _print_live_probe_summary(
     capture: FrontRESSegmentLiveRolloutCapture,
     summary: dict[str, object],
 ) -> None:
+    """Print the human-facing live probe blocks without changing training state.
+
+    Status: active diagnostic formatter.
+    Upstream: run_frontres_segment_live_probe builds summary from rollout, storage, and PPO result.
+    Downstream: terminal/log review only; no sampler, loss, optimizer, or checkpoint side effect.
+    Evidence: contract-confirmed by frontres_segment_live_probe_contract.py.
+    Gap: text presence does not prove live physics quality.
+    """
     if not _live_detail_log_enabled(runner):
         return
     segment_action_shape = (
@@ -1963,6 +1988,9 @@ def _print_live_probe_summary(
         flush=True,
     )
     if bool(summary.get("ppo_update", False)):
+        # B1: Separate the same-batch PPO evidence by time. pre_* comes from
+        # the loss forward before optimizer.step; post_* comes from the second
+        # forward after optimizer.step on the same stored batch.
         print(
             _log_block(
                 "[FrontRES Segment PPO Probe]",

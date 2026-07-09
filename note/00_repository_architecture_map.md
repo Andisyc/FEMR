@@ -545,6 +545,11 @@ frontres_segment_sampler.py
 
 frontres_segment_storage.py
   owns independent Stage 3 PPO tuple storage for 6D Delta SE(3) repair
+
+frontres_segment_ppo.py
+  owns direct Delta SE PPO loss, clipped surrogate, old/new distribution KL,
+  and sign-preserving scale-only advantage scaling for the default Segment HRL
+  no-regret semantics
 ```
 
 Per-sample rollout evidence belongs at the boundary between

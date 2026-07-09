@@ -151,6 +151,13 @@ The new RL version is:
 - PPO reinforces actions that improve the segment and suppresses actions that
   damage it.
 
+Segment PPO advantage scaling must preserve this no-regret meaning.  A positive
+gain means Repaired improved over Noisy, so the default Segment HRL update must
+not turn positive gain rows into negative training weights merely because they
+are below the mini-batch mean.  Standard PPO mean-centering is allowed only as an
+explicit ablation.  The default is sign-preserving scale-only advantage scaling,
+recorded in `note/frontres_segment_replay/contracts/advantage_scaling_contract.md`.
+
 So probing is not removed.  It is absorbed into PPO exploration.
 
 The difference is:

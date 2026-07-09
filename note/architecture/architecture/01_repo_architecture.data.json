@@ -330,7 +330,7 @@
         {
           "id": "MAIN-46",
           "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py",
-          "role": "Segment PPO: 执行 Stage 3 segment replay 的 PPO 更新."
+          "role": "Segment PPO: 执行 Stage 3 segment replay 的 PPO 更新, 包括 direct Delta SE clipped surrogate, distribution KL, 和默认 scale-only advantage scaling."
         },
         {
           "id": "MAIN-47",

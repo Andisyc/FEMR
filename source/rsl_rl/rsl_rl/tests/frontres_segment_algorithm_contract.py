@@ -346,6 +346,56 @@ def test_advantage_dominance_diagnostic_exposes_top_sample_control() -> None:
     assert result.advantage_abs_top1_frac > 0.99
 
 
+def test_scale_only_advantage_normalization_preserves_no_regret_sign() -> None:
+    advantages = torch.tensor([0.01, 0.03, 0.06])
+    policy = StaticEvalPolicy(
+        log_prob=torch.zeros(3, requires_grad=True),
+        value=torch.zeros(3, requires_grad=True),
+        mean=torch.zeros(3, 6, requires_grad=True),
+        sigma=torch.ones(3, 6),
+        entropy=torch.zeros(3),
+    )
+    batch = FrontRESSegmentPPOBatch(
+        observations=torch.zeros(3, 4),
+        actions=torch.zeros(3, 6),
+        old_log_probs=torch.zeros(3),
+        old_values=torch.zeros(3),
+        returns=torch.zeros(3),
+        advantages=advantages,
+        valid_mask=torch.tensor([True, True, True]),
+        segment_ids=torch.tensor([34, 35, 36]),
+        action_mask=torch.ones(3, 6),
+        old_means=torch.zeros(3, 6),
+        old_sigmas=torch.ones(3, 6),
+    )
+
+    scale_only = compute_frontres_segment_ppo_loss(
+        policy,
+        batch,
+        FrontRESSegmentPPOConfig(entropy_coef=0.0, advantage_normalization="scale_only"),
+    )
+    standard = compute_frontres_segment_ppo_loss(
+        policy,
+        batch,
+        FrontRESSegmentPPOConfig(entropy_coef=0.0, advantage_normalization="standard"),
+    )
+    expected_scale = torch.sqrt(advantages.square().mean()).item()
+    print(
+        "[probe ppo_advantage_scale_only] "
+        f"scale={scale_only.advantage_scale:.9f} expected_scale={expected_scale:.9f} "
+        f"scale_min={scale_only.advantage_min:.6f} scale_max={scale_only.advantage_max:.6f} "
+        f"scale_sign_flips={scale_only.advantage_sign_flip_count} "
+        f"standard_min={standard.advantage_min:.6f} standard_sign_flips={standard.advantage_sign_flip_count}",
+        flush=True,
+    )
+
+    assert abs(scale_only.advantage_scale - expected_scale) < 1e-8
+    assert scale_only.advantage_min > 0.0
+    assert scale_only.advantage_sign_flip_count == 0
+    assert standard.advantage_min < 0.0
+    assert standard.advantage_sign_flip_count > 0
+
+
 def test_small_sigma_kl_sensitivity_matches_exact_formula() -> None:
     obs = torch.zeros(1, 4)
     actions = torch.zeros(1, 6)
@@ -740,6 +790,7 @@ def main() -> None:
     test_distribution_kl_matches_old_new_stats_exactly()
     test_clipped_surrogate_matches_hand_computed_ratio_cases()
     test_advantage_dominance_diagnostic_exposes_top_sample_control()
+    test_scale_only_advantage_normalization_preserves_no_regret_sign()
     test_small_sigma_kl_sensitivity_matches_exact_formula()
     test_old_policy_tensors_are_detached_from_segment_ppo_loss()
     test_row_permutation_does_not_change_segment_ppo_loss_or_diagnostics()
