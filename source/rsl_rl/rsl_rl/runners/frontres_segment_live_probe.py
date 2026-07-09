@@ -342,6 +342,7 @@ def _apply_segment_adaptive_learning_rate(
     ppo_result: Any,
     *,
     kl_mean: float | None = None,
+    allow_increase: bool = True,
 ) -> dict[str, Any]:
     optimizer = getattr(alg, "optimizer", None)
     param_groups = getattr(optimizer, "param_groups", None)
@@ -356,6 +357,7 @@ def _apply_segment_adaptive_learning_rate(
             "adaptive_lr_after": 0.0,
             "adaptive_lr_desired_kl": float(desired_kl) if desired_kl is not None else 0.0,
             "adaptive_lr_schedule": schedule,
+            "adaptive_lr_allow_increase": int(bool(allow_increase)),
         }
     lr_before = float(getattr(alg, "learning_rate", param_groups[0].get("lr", 0.0)))
     lr_after = lr_before
@@ -371,7 +373,7 @@ def _apply_segment_adaptive_learning_rate(
         if kl_mean > desired * 2.0:
             excess = kl_mean / max(desired * 2.0, 1e-12)
             lr_after = min(max_lr, max(min_lr, lr_before / max(1.5, math.sqrt(excess))))
-        elif kl_mean < desired / 2.0 and kl_mean > 0.0:
+        elif allow_increase and kl_mean < desired / 2.0 and kl_mean > 0.0:
             lr_after = min(max_lr, lr_before * 1.5)
         applied = int(lr_after != lr_before)
         _set_segment_optimizer_lr(alg, lr_after)
@@ -384,6 +386,7 @@ def _apply_segment_adaptive_learning_rate(
         "adaptive_lr_schedule": schedule,
         "adaptive_lr_min": min_lr,
         "adaptive_lr_max": max_lr,
+        "adaptive_lr_allow_increase": int(bool(allow_increase)),
     }
 
 
@@ -1337,7 +1340,11 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
     )
     # B2: First forward is the pre-step loss and MOSAIC-style old/new KL source.
     ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
-    pre_step_lr_diagnostics = _apply_segment_adaptive_learning_rate(runner.alg, ppo_result)
+    pre_step_lr_diagnostics = _apply_segment_adaptive_learning_rate(
+        runner.alg,
+        ppo_result,
+        allow_increase=False,
+    )
     optimizer_params, param_snapshots = _optimizer_parameter_snapshots(runner.alg.policy, runner.alg.optimizer)
     optimizer_state_snapshot = copy.deepcopy(runner.alg.optimizer.state_dict())
     grad_norm = 0.0

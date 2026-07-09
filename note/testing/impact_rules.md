@@ -134,7 +134,7 @@ S0 py_compile changed files
 S1/S2 frontres_segment_live_probe_ppo_contract.py for executed 6D Delta SE old/new log_prob transform
 S1/S2 frontres_segment_storage_contract.py for old_means/old_sigmas persistence through storage
 S1/S2 frontres_segment_algorithm_contract.py for valid-mask, gradient behavior, exact clipped surrogate, exact old-stat distribution KL, old-policy detach, row permutation invariance, and full-6D support under single-family action-mask metadata
-S2 frontres_segment_live_single_update_contract.py for old-stat pre KL -> MOSAIC-style pre-step adaptive LR -> optimizer.step -> post-update trust-region KL diagnostic/reject route
+S2 frontres_segment_live_single_update_contract.py for old-stat pre KL -> pre-step high-KL LR reduction without low-KL LR increase -> optimizer.step -> post-update trust-region KL diagnostic/reject route
 S2 frontres_segment_live_update_loop_contract.py for optimizer route
 ```
 
@@ -145,7 +145,7 @@ T-clip        exact clipped-surrogate behavior for positive and negative advanta
 T-kl-exact    exact old/new distribution KL from old_means/old_sigmas/new mean/sigma.
 T-detach      old policy, return, advantage, and old distribution tensors do not receive gradient.
 T-permute     row permutation does not change loss, KL, ratio summaries, or update decision.
-T-update-order pre-loss KL, MOSAIC-style pre-step adaptive LR, optimizer step, post-update KL, and optional Segment trust-region rollback order are explicit.
+T-update-order pre-loss KL, pre-step high-KL LR reduction without low-KL LR increase, optimizer step, post-update KL, and optional Segment trust-region rollback order are explicit.
 T-cone        direct Delta SE full-support semantics under single-family perturbation metadata; action_mask must not silently shrink PPO log_prob, KL, loss, or gradients unless a later method explicitly changes the design.
 T-adv-dominance valid-sample advantage distribution reports whether one or a few samples dominate the actor update.
 T-adv-sign-preserve default Segment PPO advantage scaling preserves the sign of positive/negative no-regret evidence; standard mean-centering is only an explicit ablation.
@@ -153,6 +153,7 @@ T-bounded-logprob-source bounded Delta SE actions reconstruct log_prob from the 
 T-small-sigma-kl-sensitivity exact KL stress shows how small sigma amplifies the same mean shift.
 T-post-mean-delta post-update diagnostics report policy mean movement from stored old_means on the same PPO batch.
 T-ratio-diagnostic-consistency pre-loss raw log-ratio, pre-loss clamped ratio, post-update raw log-ratio, and post-update clamped ratio are named and displayed as separate timepoints.
+T-lr-scale    Segment PPO initial learning_rate, pre-step LR adjustment, post-update KL rejection, and CLI override path are covered together; low pre-step KL must not amplify LR before the post-update trust-region gate.
 ```
 
 ### Segment cache/dataset/sampler changes

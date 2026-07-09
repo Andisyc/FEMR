@@ -11,7 +11,7 @@ echo "OFFLINE_EVAL_STEPS controls checkpoint eval rollout length when MODE=offli
 echo "OFFLINE_EVAL_SEQUENCES and OFFLINE_EVAL_MAX_PREROLL_STEPS control MODE=sequence_eval."
 echo "FRONTRES_SPECIALIST_MODE selects Stage 3 perturbation family preset, default rp."
 echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
-echo "Append --frontres_segment_ppo_schedule adaptive to test adaptive Segment PPO trust-region control."
+echo "Append --frontres_segment_ppo_schedule adaptive --frontres_segment_ppo_lr 1e-6 to test adaptive Segment PPO trust-region control."
   echo "Set FRONTRES_STAGE_PREFLIGHT_ONLY=1 to print and validate the startup command without launching IsaacLab."
   exit 1
 fi

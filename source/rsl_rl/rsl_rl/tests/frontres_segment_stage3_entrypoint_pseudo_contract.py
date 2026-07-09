@@ -16,6 +16,7 @@ def _load_stage_preset():
         "_set_if_present",
         "_apply_frontres_stage_preset",
         "_apply_frontres_segment_ppo_schedule_override",
+        "_apply_frontres_segment_ppo_lr_override",
         "_configure_frontres_stage3_segment_hrl_env_cfg",
     }
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in wanted]
@@ -26,6 +27,7 @@ def _load_stage_preset():
     return (
         namespace["_apply_frontres_stage_preset"],
         namespace["_apply_frontres_segment_ppo_schedule_override"],
+        namespace["_apply_frontres_segment_ppo_lr_override"],
         namespace["_configure_frontres_stage3_segment_hrl_env_cfg"],
     )
 
@@ -33,6 +35,7 @@ def _load_stage_preset():
 (
     _apply_frontres_stage_preset,
     _apply_frontres_segment_ppo_schedule_override,
+    _apply_frontres_segment_ppo_lr_override,
     _configure_frontres_stage3_segment_hrl_env_cfg,
 ) = _load_stage_preset()
 
@@ -65,6 +68,7 @@ def _alg_cfg() -> SimpleNamespace:
         frontres_structured_joint_rl_weight=1.0,
         frontres_structured_joint_prior_loss_weight=1.0,
         schedule="fixed",
+        learning_rate=1.0e-4,
     )
 
 
@@ -103,6 +107,7 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_sequence_offline_eval_only": False,
         "frontres_segment_live_update_steps": 6,
         "frontres_segment_ppo_schedule": None,
+        "frontres_segment_ppo_lr": None,
         "experiment_name": None,
         "is_full_resume": None,
     }
@@ -220,6 +225,44 @@ def test_stage3_ppo_schedule_override_rejects_non_stage3() -> None:
         raise AssertionError("PPO schedule override must require Stage 3")
 
 
+def test_stage3_ppo_lr_override_is_explicit_parse_arg() -> None:
+    agent_cfg = _agent_cfg()
+
+    _apply_frontres_stage_preset(agent_cfg, _args(frontres_segment_ppo_lr=1.0e-6))
+    _apply_frontres_segment_ppo_lr_override(agent_cfg, _args(frontres_segment_ppo_lr=1.0e-6))
+    _probe_stage3_config("stage3_ppo_lr_override", agent_cfg)
+
+    assert agent_cfg.algorithm.learning_rate == 1.0e-6
+
+
+def test_stage3_ppo_lr_override_rejects_non_stage3() -> None:
+    agent_cfg = _agent_cfg()
+    try:
+        _apply_frontres_segment_ppo_lr_override(
+            agent_cfg,
+            _args(frontres_stage="stage2_acceptance", frontres_segment_ppo_lr=1.0e-6),
+        )
+    except ValueError as exc:
+        _probe_exception("rejects_ppo_lr_without_stage3", exc)
+        assert "requires --frontres_stage stage3_segment_hrl" in str(exc)
+    else:
+        raise AssertionError("PPO LR override must require Stage 3")
+
+
+def test_stage3_ppo_lr_override_rejects_non_positive_lr() -> None:
+    agent_cfg = _agent_cfg()
+    try:
+        _apply_frontres_segment_ppo_lr_override(
+            agent_cfg,
+            _args(frontres_segment_ppo_lr=0.0),
+        )
+    except ValueError as exc:
+        _probe_exception("rejects_non_positive_ppo_lr", exc)
+        assert "must be positive" in str(exc)
+    else:
+        raise AssertionError("PPO LR override must reject non-positive values")
+
+
 def test_stage3_rejects_multiple_live_sentinel_modes() -> None:
     agent_cfg = _agent_cfg()
     try:
@@ -298,6 +341,9 @@ if __name__ == "__main__":
     test_stage3_sequence_eval_zeroes_iterations_and_disables_live_train()
     test_stage3_ppo_schedule_override_is_explicit_parse_arg()
     test_stage3_ppo_schedule_override_rejects_non_stage3()
+    test_stage3_ppo_lr_override_is_explicit_parse_arg()
+    test_stage3_ppo_lr_override_rejects_non_stage3()
+    test_stage3_ppo_lr_override_rejects_non_positive_lr()
     test_stage3_rejects_multiple_live_sentinel_modes()
     test_live_sentinel_flags_require_stage3()
     test_stage3_motion_loader_cfg_aligns_with_index_cache()

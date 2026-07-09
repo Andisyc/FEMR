@@ -375,6 +375,33 @@ def test_single_update_uses_mosaic_pre_step_lr_for_optimizer_step() -> None:
     assert adaptive_result.param_delta_l2 < fixed_result.param_delta_l2 * 0.2
 
 
+def test_segment_adaptive_lr_does_not_pre_increase_from_near_zero_pre_kl() -> None:
+    runner = FakeRunner()
+    runner.alg.schedule = "adaptive"
+    runner.alg.desired_kl = 0.01
+    runner.alg.learning_rate = 0.1
+    runner.alg.frontres_segment_trust_region_rollback = False
+    for group in runner.alg.optimizer.param_groups:
+        group["lr"] = runner.alg.learning_rate
+    storage_batch = _storage_batch(torch.tensor([True, False]))
+
+    result = run_frontres_segment_single_update(runner, storage_batch)
+    print(
+        "[probe step3] adaptive_lr_no_pre_increase_on_near_zero_pre_kl: "
+        f"pre_kl={result.mosaic_pre_step_adaptive_lr_kl_mean:.9f} "
+        f"pre_lr_before={result.mosaic_pre_step_adaptive_lr_before:.8f} "
+        f"pre_lr_after={result.mosaic_pre_step_adaptive_lr_after:.8f} "
+        f"allow_increase={result.mosaic_pre_step_adaptive_lr_allow_increase} "
+        f"post_kl={result.post_update_distribution_kl_mean:.9f}",
+        flush=True,
+    )
+
+    assert 0.0 < result.mosaic_pre_step_adaptive_lr_kl_mean < runner.alg.desired_kl / 2.0
+    assert result.mosaic_pre_step_adaptive_lr_allow_increase == 0
+    assert result.mosaic_pre_step_adaptive_lr_after == result.mosaic_pre_step_adaptive_lr_before
+    assert runner.alg.learning_rate == result.mosaic_pre_step_adaptive_lr_before
+
+
 def test_single_update_reports_post_update_trust_region_kl() -> None:
     runner = FakeRunner()
     runner.alg.learning_rate = 0.1
@@ -536,6 +563,7 @@ if __name__ == "__main__":
     test_single_update_does_not_step_optimizer_without_valid_segments()
     test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl()
     test_single_update_uses_mosaic_pre_step_lr_for_optimizer_step()
+    test_segment_adaptive_lr_does_not_pre_increase_from_near_zero_pre_kl()
     test_single_update_reports_post_update_trust_region_kl()
     test_bounded_delta_se_logprob_uses_same_raw_source_as_policy_stats()
     test_single_update_reports_post_update_mean_delta_from_old_distribution()

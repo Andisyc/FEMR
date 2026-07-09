@@ -174,6 +174,43 @@ Status:
 - Live training quality remains S4/live-log evidence and is not claimed by this
   diagnostic-only step.
 
+## Stage 3 Segment PPO LR-Scale Contract - 2026-07-09
+
+Scope:
+- Checked the chain `sigma=0.01 -> initial learning_rate -> pre-step adaptive
+  LR -> optimizer.step -> post-update KL rollback`.
+- Added `T-lr-scale` coverage so low pre-step KL cannot increase LR before the
+  post-update trust-region gate, while high pre-step KL can still reduce LR.
+- Added explicit Stage 3 CLI coverage for `--frontres_segment_ppo_lr`.
+
+Commands passed:
+- `python -m py_compile scripts/rsl_rl/train.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_entrypoint_pseudo_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_entrypoint_pseudo_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+
+Evidence:
+- Single-update LR contract observed low pre-step KL with no LR amplification:
+  `pre_kl=0.000060081 pre_lr_before=0.10000000 pre_lr_after=0.10000000 allow_increase=0`.
+- Existing high-KL pre-step LR reduction still holds:
+  `distribution_kl_mean=0.750060 learning_rate_after=0.00051638`.
+- Stage 3 entrypoint prints
+  `[FrontRES Stage3 Segment HRL] ppo_lr_override learning_rate=1e-06`.
+- Stage 3 launch command contract confirms both
+  `--frontres_segment_ppo_schedule adaptive` and
+  `--frontres_segment_ppo_lr 1e-6` are forwarded.
+- Full aggregate suite: `contract_count=41 failed_count=0 total_marker_count=41`.
+
+Training gate:
+- Local S1/S2/S3 contracts now cover the suspected LR-scale chain.
+- The remaining decision is S4 live evidence: rerun a short env64/step20
+  sentinel with explicit `--frontres_segment_ppo_lr 1e-6` and check rejected
+  count, clip fraction, post-update KL, and gain.
+
 ## Latest Full Sweep - 2026-07-07
 Scope:
 - Tested the current dirty FEMR worktree through the Repo Mainline Atlas and

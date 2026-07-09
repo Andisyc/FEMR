@@ -265,6 +265,15 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--frontres_segment_ppo_lr",
+    type=float,
+    default=None,
+    help=(
+        "For Stage 3 only: explicitly override algorithm.learning_rate for Segment Replay PPO. "
+        "Use this instead of fragile Hydra deep overrides such as algorithm.learning_rate=..."
+    ),
+)
+parser.add_argument(
     "--frontres_segment_periodic_eval_enabled",
     action="store_true",
     default=False,
@@ -925,6 +934,22 @@ def _apply_frontres_segment_ppo_schedule_override(agent_cfg, args_cli) -> None:
     print(f"[FrontRES Stage3 Segment HRL] ppo_schedule_override schedule={schedule}", flush=True)
 
 
+def _apply_frontres_segment_ppo_lr_override(agent_cfg, args_cli) -> None:
+    lr = getattr(args_cli, "frontres_segment_ppo_lr", None)
+    if lr is None:
+        return
+    if getattr(args_cli, "frontres_stage", None) != "stage3_segment_hrl":
+        raise ValueError("--frontres_segment_ppo_lr requires --frontres_stage stage3_segment_hrl")
+    alg_cfg = getattr(agent_cfg, "algorithm", None)
+    if alg_cfg is None or not hasattr(alg_cfg, "learning_rate"):
+        raise AttributeError("--frontres_segment_ppo_lr requires an agent config with algorithm.learning_rate")
+    lr = float(lr)
+    if lr <= 0.0:
+        raise ValueError("--frontres_segment_ppo_lr must be positive")
+    alg_cfg.learning_rate = lr
+    print(f"[FrontRES Stage3 Segment HRL] ppo_lr_override learning_rate={lr:.6g}", flush=True)
+
+
 def _parse_frontres_segment_cache_strengths(value: str) -> list[float]:
     strengths: list[float] = []
     for item in str(value).split(","):
@@ -1241,6 +1266,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             agent_cfg.frontres_perturbation_channels = "rp_z"
     _apply_frontres_stage_preset(agent_cfg, args_cli)
     _apply_frontres_segment_ppo_schedule_override(agent_cfg, args_cli)
+    _apply_frontres_segment_ppo_lr_override(agent_cfg, args_cli)
 
     # set seeds (explicit rank offset for distributed to avoid identical sampling across ranks)
     # note: certain randomizations occur in the environment initialization so we set the seed here

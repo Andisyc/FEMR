@@ -19,7 +19,11 @@ SENTINEL_FLAGS = {
 }
 
 
-def _run_preflight(mode: str, env_overrides: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _run_preflight(
+    mode: str,
+    env_overrides: dict[str, str] | None = None,
+    extra_args: list[str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         checkpoint = tmp_path / "stage1_model.pt"
@@ -32,8 +36,7 @@ def _run_preflight(mode: str, env_overrides: dict[str, str] | None = None) -> su
         env["FRONTRES_SPECIALIST_MODE"] = "rp"
         if env_overrides:
             env.update(env_overrides)
-        return subprocess.run(
-            [
+        cmd = [
                 "bash",
                 str(SCRIPT),
                 str(checkpoint),
@@ -42,7 +45,11 @@ def _run_preflight(mode: str, env_overrides: dict[str, str] | None = None) -> su
                 "2",
                 "3",
                 mode,
-            ],
+            ]
+        if extra_args:
+            cmd.extend(extra_args)
+        return subprocess.run(
+            cmd,
             cwd=ROOT,
             env=env,
             text=True,
@@ -131,6 +138,20 @@ def test_stage3_sequence_eval_launch_honors_smoke_eval_env_overrides() -> None:
     assert "--frontres_segment_offline_eval_steps 120" in command
 
 
+def test_stage3_launch_passes_explicit_segment_ppo_schedule_and_lr_args() -> None:
+    result = _run_preflight(
+        "update_loop",
+        extra_args=["--frontres_segment_ppo_schedule", "adaptive", "--frontres_segment_ppo_lr", "1e-6"],
+    )
+    assert result.returncode == 0, result.stderr
+    command = _command_line(result)
+    _probe("stage3_update_loop_ppo_schedule_lr_args", command)
+
+    assert "--frontres_segment_live_update_loop_only" in command
+    assert "--frontres_segment_ppo_schedule adaptive" in command
+    assert "--frontres_segment_ppo_lr 1e-6" in command
+
+
 def test_stage3_launch_rejects_unknown_mode_before_training() -> None:
     result = _run_preflight("unknown")
     print(
@@ -145,5 +166,6 @@ if __name__ == "__main__":
     test_stage3_train_launch_preflight_builds_femr_command()
     test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel()
     test_stage3_sequence_eval_launch_honors_smoke_eval_env_overrides()
+    test_stage3_launch_passes_explicit_segment_ppo_schedule_and_lr_args()
     test_stage3_launch_rejects_unknown_mode_before_training()
     print("frontres_segment_stage3_launch_command_contract: ok")
