@@ -79,6 +79,10 @@ Evidence:
 - Segment algorithm contract observed exact KL `observed=0.890687585`,
   exact clipped surrogate `actor_loss=-0.200000`, old tensors detached
   with all old-policy grads `None`, and row permutation unchanged.
+- Segment algorithm contract observed advantage-dominance diagnostics
+  `adv_abs_top1_frac=0.997009` and small-sigma KL sensitivity
+  `sigma_small=0.010000 kl_small=12.000059` versus
+  `sigma_normal=1.000000 kl_normal=0.001259923`.
 - Full-support cone contract observed rp-only mask loss unchanged
   (`full_loss=-0.500000000`, `rp_mask_loss=-0.500000000`), nonzero
   gradients in all 6 action dimensions, full-6D mean movement under rp-only
@@ -86,6 +90,10 @@ Evidence:
 - Single-update post-KL contract observed `pre_distribution_kl=0.000060`,
   `post_distribution_kl=0.000875`, `reported_kl=0.000875`, and
   `param_delta_l2=0.100000`.
+- Single-update bounded-action/log-prob contract observed
+  `bounded_logprob_source` with `observed=6.211705208` equal to the
+  hand-computed raw-policy/Jacobian value, and post-update mean-delta contract
+  observed `pre_mean_delta_l2=0.000000`, `post_mean_delta_l2=0.040369`.
 - Trust-region rejection contract observed `rejected=1`, `accepted=0`, and
   `param_delta_l2=0.000000` after rollback, with `post_ratio_max` reported
   beside `post_ratio_mean`.
@@ -185,14 +193,14 @@ Atlas readability finding:
 | MAIN-36 | `frontres_runtime.py` | Runner / orchestration | S2, S4 for live-only boundaries | T-connect, T-oracle, T-live | balance offline connectivity; runtime contracts likely | connectivity-confirmed | covered-but-live-gap | Deployment sink tests incomplete. |
 | MAIN-37 | `frontres_segment_live_sampler.py` | Sampler / curriculum / priority | S1, S2, S4 when live sampling changes | T-dist, T-role, T-connect, T-oracle, T-live | live sampler contract; diagnostics contract; pseudo suite | contract-confirmed | covered | Live sampler contract verifies sampler evidence is isolated from post-update PPO diagnostics and remains policy-update independent; diagnostics contract verifies live `sampler_update_replay_candidate_count` is the displayed replay candidate field. |
 | MAIN-38 | `frontres_segment_live_training.py` | Runner / orchestration | S2, S4 | T-connect, T-oracle, T-live | diagnostics contract; pseudo suite; live sentinel | runtime-confirmed | covered-but-live-gap | Expensive full training not claimed; Motion Quality missing positions report `UNCONFIRMED`; sequence debug now prints action distribution health. |
-| MAIN-39 | `frontres_segment_live_update_loop.py` | Algorithm / loss / optimizer | S2 | T-connect, T-grad, T-oracle, T-update-order, T-state | live single-update contract; live update loop contract | connectivity-confirmed | covered | Single-update contract verifies old_means/old_sigmas pre-loss KL drives MOSAIC-style pre-step adaptive LR, post-update trust-region KL is reported, and rejected post-KL steps rollback without touching legacy PPO. |
+| MAIN-39 | `frontres_segment_live_update_loop.py` | Algorithm / loss / optimizer | S2 | T-connect, T-grad, T-oracle, T-update-order, T-state, T-post-mean-delta | live single-update contract; live update loop contract | connectivity-confirmed | covered | Single-update contract verifies old_means/old_sigmas pre-loss KL drives MOSAIC-style pre-step adaptive LR, post-update trust-region KL and post-update mean_delta are reported, and rejected post-KL steps rollback without touching legacy PPO. |
 | MAIN-40 | `frontres_segment_sequence_eval.py` | Reward / metric / evaluator | S2, S4 | T-role, T-oracle, T-meta, T-diff, T-live | diagnostics contract; sequence eval contract; live sentinel | connectivity-confirmed | covered-but-live-gap | Real long sequence eval is S4; contracts cover Periodic Eval formatting, missing-data reporting, differential zero-vs-real output, and raw action-distribution health. |
 | MAIN-41 | `rollout_storage.py::Transition` | Storage / batch tuple | S1, S2, S3 if persisted | T-shape, T-order, T-mask, T-persist | storage contract; aggregate suite | contract-confirmed | covered | None known. |
 | MAIN-42 | `rollout_storage.py::add_transitions` | Storage / batch tuple | S1, S2 | T-shape, T-order, T-mask, T-connect | storage contract | contract-confirmed | covered | None known. |
 | MAIN-43 | `rollout_storage.py::mini_batch_generator` | Storage / batch tuple | S1, S2 | T-shape, T-order, T-mask, T-connect | storage + algorithm contracts | contract-confirmed | covered | None known. |
 | MAIN-44 | `frontres_segment_storage.py` | Storage / batch tuple | S1, S2, S3 if persisted | T-shape, T-order, T-mask, T-connect, T-persist | segment storage contract | contract-confirmed | covered | Storage preserves `old_means`/`old_sigmas` through PPO batch conversion. |
 | MAIN-45 | `ppo.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect | none mapped | unconfirmed | needs-inventory | Base PPO tests not mapped. |
-| MAIN-46 | `frontres_segment_ppo.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect, T-clip, T-kl-exact, T-detach, T-permute, T-update-order, T-state, T-cone | segment algorithm contract; live single-update contract; update loop contract | contract-confirmed | covered | Contract confirms 6D action PPO stepping, masking, exact clipped surrogate, exact old_means/old_sigmas distribution KL, old-policy tensor detach, row-permutation invariance, full-6D support under rp-only action-mask metadata, MOSAIC-style pre-step adaptive LR, and post-update KL reporting for live single-update. |
+| MAIN-46 | `frontres_segment_ppo.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect, T-clip, T-kl-exact, T-detach, T-permute, T-update-order, T-state, T-cone, T-adv-dominance, T-bounded-logprob-source, T-small-sigma-kl-sensitivity, T-post-mean-delta | segment algorithm contract; live single-update contract; update loop contract | contract-confirmed | covered | Contract confirms 6D action PPO stepping, masking, exact clipped surrogate, exact old_means/old_sigmas distribution KL, old-policy tensor detach, row-permutation invariance, full-6D support under rp-only action-mask metadata, advantage dominance diagnostics, bounded Delta SE log-prob source reconstruction, small-sigma KL sensitivity, MOSAIC-style pre-step adaptive LR, post-update KL reporting, and post-update mean-delta reporting for live single-update. |
 | MAIN-47 | `frontres_unified.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect | segment algorithm contract; authority/HSL tests likely | contract-confirmed | covered | Map exact sub-loss coverage. |
 | MAIN-48 | `frontres_segment_checkpointing.py` | Checkpoint / resume / export / play | S3 | T-persist, T-order, T-diff | checkpoint/resume contracts; `frontres_stage3_noise_std_migration_contract.py` | persistence-confirmed | covered | None known. |
 | MAIN-49 | `frontres_dr_sweep_eval.py` | Reward / metric / evaluator | S1, S2 | T-dist, T-oracle, T-diff, T-connect | none mapped | unconfirmed | missing-test | Need sweep eval static/connectivity test. |

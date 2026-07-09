@@ -309,6 +309,10 @@ def _post_update_segment_ppo_diagnostics(
         "post_update_ratio_max": float(post_result.ratio_max),
         "post_update_clip_frac": float(post_result.clip_frac),
         "post_update_approx_kl": post_kl,
+        "post_update_mean_delta_l2_mean": float(post_result.distribution_mean_delta_l2_mean),
+        "post_update_mean_delta_max_abs": float(post_result.distribution_mean_delta_max_abs),
+        "post_update_old_sigma_min": float(post_result.old_sigma_min),
+        "post_update_sigma_min": float(post_result.sigma_min),
     }
 
 
@@ -696,6 +700,17 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     "ppo_advantage_mean": float(ppo_result.advantage_mean),
                     "ppo_advantage_min": float(ppo_result.advantage_min),
                     "ppo_advantage_max": float(ppo_result.advantage_max),
+                    "ppo_advantage_abs_mean": float(ppo_result.advantage_abs_mean),
+                    "ppo_advantage_abs_max": float(ppo_result.advantage_abs_max),
+                    "ppo_advantage_abs_top1_frac": float(ppo_result.advantage_abs_top1_frac),
+                    "ppo_distribution_mean_delta_l2_mean": float(
+                        ppo_result.distribution_mean_delta_l2_mean
+                    ),
+                    "ppo_distribution_mean_delta_max_abs": float(
+                        ppo_result.distribution_mean_delta_max_abs
+                    ),
+                    "ppo_old_sigma_min": float(ppo_result.old_sigma_min),
+                    "ppo_sigma_min": float(ppo_result.sigma_min),
                     "ppo_param_delta_max_abs": float(getattr(ppo_result, "param_delta_max_abs", 0.0)),
                     "ppo_param_delta_l2": float(getattr(ppo_result, "param_delta_l2", 0.0)),
                     "ppo_param_delta_changed": int(getattr(ppo_result, "param_delta_changed", 0)),
@@ -706,6 +721,18 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                         getattr(ppo_result, "trust_region_rejected_count", 0)
                     ),
                     "ppo_trust_region_accepted": int(getattr(ppo_result, "trust_region_accepted", 1)),
+                    "ppo_trust_region_rollback_enabled": int(
+                        getattr(ppo_result, "trust_region_rollback_enabled", 0)
+                    ),
+                    "ppo_trust_region_max_retries": int(
+                        getattr(ppo_result, "trust_region_max_retries", 0)
+                    ),
+                    "ppo_trust_region_schedule": str(
+                        getattr(ppo_result, "trust_region_schedule", "unknown")
+                    ),
+                    "ppo_trust_region_schedule_adaptive": int(
+                        getattr(ppo_result, "trust_region_schedule_adaptive", 0)
+                    ),
                     "ppo_adaptive_lr_before": float(getattr(ppo_result, "adaptive_lr_before", 0.0)),
                     "ppo_adaptive_lr_after": float(getattr(ppo_result, "adaptive_lr_after", 0.0)),
                     "ppo_adaptive_lr_kl_mean": float(getattr(ppo_result, "adaptive_lr_kl_mean", 0.0)),
@@ -721,6 +748,18 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     ),
                     "ppo_segment_reject_adaptive_lr_after": float(
                         getattr(ppo_result, "segment_reject_adaptive_lr_after", 0.0)
+                    ),
+                    "ppo_post_update_mean_delta_l2_mean": float(
+                        getattr(ppo_result, "post_update_mean_delta_l2_mean", 0.0)
+                    ),
+                    "ppo_post_update_mean_delta_max_abs": float(
+                        getattr(ppo_result, "post_update_mean_delta_max_abs", 0.0)
+                    ),
+                    "ppo_post_update_old_sigma_min": float(
+                        getattr(ppo_result, "post_update_old_sigma_min", 0.0)
+                    ),
+                    "ppo_post_update_sigma_min": float(
+                        getattr(ppo_result, "post_update_sigma_min", 0.0)
                     ),
                 }
             )
@@ -1253,9 +1292,10 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
     rejected_lr_diagnostics: dict[str, Any] = {}
     rejected_count = 0
     accepted = True
+    max_retries = max(0, int(getattr(runner.alg, "frontres_segment_trust_region_max_retries", 2)))
+    rollback_enabled = bool(getattr(runner.alg, "frontres_segment_trust_region_rollback", True))
+    schedule = str(getattr(runner.alg, "schedule", "fixed")).lower()
     if ppo_result.should_step:
-        max_retries = max(0, int(getattr(runner.alg, "frontres_segment_trust_region_max_retries", 2)))
-        rollback_enabled = bool(getattr(runner.alg, "frontres_segment_trust_region_rollback", True))
         for attempt in range(max_retries + 1):
             if attempt > 0:
                 ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
@@ -1270,7 +1310,6 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
             post_update_diagnostics = _post_update_segment_ppo_diagnostics(policy_adapter, ppo_batch, ppo_cfg)
             post_kl = float(post_update_diagnostics["post_update_approx_kl"])
             desired_kl = getattr(runner.alg, "desired_kl", None)
-            schedule = str(getattr(runner.alg, "schedule", "fixed")).lower()
             reject = (
                 rollback_enabled
                 and desired_kl is not None
@@ -1303,6 +1342,10 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
     diagnostics["param_grad_norm"] = grad_norm
     diagnostics["trust_region_rejected_count"] = rejected_count
     diagnostics["trust_region_accepted"] = int(bool(accepted))
+    diagnostics["trust_region_rollback_enabled"] = int(bool(rollback_enabled))
+    diagnostics["trust_region_max_retries"] = max_retries
+    diagnostics["trust_region_schedule_adaptive"] = int(schedule == "adaptive")
+    diagnostics["trust_region_schedule"] = schedule
     for key, value in pre_step_lr_diagnostics.items():
         diagnostics[f"mosaic_pre_step_{key}"] = value
     for key, value in rejected_lr_diagnostics.items():
@@ -1908,6 +1951,9 @@ def _print_live_probe_summary(
                         "lr_before": _fmt_num(summary.get("ppo_adaptive_lr_before", 0.0)),
                         "lr_after": _fmt_num(summary.get("ppo_adaptive_lr_after", 0.0)),
                         "desired_kl": _fmt_num(summary.get("ppo_adaptive_lr_desired_kl", 0.0)),
+                        "schedule": str(summary.get("ppo_trust_region_schedule", "unknown")),
+                        "rollback": bool(summary.get("ppo_trust_region_rollback_enabled", 0)),
+                        "max_retries": int(summary.get("ppo_trust_region_max_retries", 0)),
                     },
                 ),
                 *_kv_lines(

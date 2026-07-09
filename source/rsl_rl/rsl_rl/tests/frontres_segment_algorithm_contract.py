@@ -307,6 +307,97 @@ def test_clipped_surrogate_matches_hand_computed_ratio_cases() -> None:
     assert result.clip_frac == 1.0
 
 
+def test_advantage_dominance_diagnostic_exposes_top_sample_control() -> None:
+    policy = StaticEvalPolicy(
+        log_prob=torch.zeros(4, requires_grad=True),
+        value=torch.zeros(4, requires_grad=True),
+        mean=torch.zeros(4, 6, requires_grad=True),
+        sigma=torch.ones(4, 6),
+        entropy=torch.zeros(4),
+    )
+    batch = FrontRESSegmentPPOBatch(
+        observations=torch.zeros(4, 4),
+        actions=torch.zeros(4, 6),
+        old_log_probs=torch.zeros(4),
+        old_values=torch.zeros(4),
+        returns=torch.zeros(4),
+        advantages=torch.tensor([1000.0, 1.0, -1.0, 1.0]),
+        valid_mask=torch.tensor([True, True, True, True]),
+        segment_ids=torch.tensor([33, 34, 35, 36]),
+        action_mask=torch.ones(4, 6),
+        old_means=torch.zeros(4, 6),
+        old_sigmas=torch.ones(4, 6),
+    )
+
+    result = compute_frontres_segment_ppo_loss(policy, batch, FrontRESSegmentPPOConfig(entropy_coef=0.0))
+    expected_top1 = 1000.0 / 1003.0
+    print(
+        "[probe ppo_advantage_dominance] "
+        f"adv_mean={result.advantage_mean:.6f} "
+        f"adv_min={result.advantage_min:.6f} "
+        f"adv_max={result.advantage_max:.6f} "
+        f"adv_abs_mean={result.advantage_abs_mean:.6f} "
+        f"adv_abs_top1_frac={result.advantage_abs_top1_frac:.6f}",
+        flush=True,
+    )
+
+    assert result.valid_count == 4
+    assert abs(result.advantage_abs_top1_frac - expected_top1) < 1e-6
+    assert result.advantage_abs_top1_frac > 0.99
+
+
+def test_small_sigma_kl_sensitivity_matches_exact_formula() -> None:
+    obs = torch.zeros(1, 4)
+    actions = torch.zeros(1, 6)
+    old_means = torch.zeros(1, 6)
+    new_means = torch.full((1, 6), 0.02, requires_grad=True)
+
+    def _result_for_sigma(sigma_value: float):
+        sigma = torch.full((1, 6), float(sigma_value))
+        policy = StaticEvalPolicy(
+            log_prob=torch.zeros(1, requires_grad=True),
+            value=torch.zeros(1, requires_grad=True),
+            mean=new_means,
+            sigma=sigma,
+            entropy=torch.zeros(1),
+        )
+        batch = FrontRESSegmentPPOBatch(
+            observations=obs,
+            actions=actions,
+            old_log_probs=torch.zeros(1),
+            old_values=torch.zeros(1),
+            returns=torch.zeros(1),
+            advantages=torch.ones(1),
+            valid_mask=torch.tensor([True]),
+            segment_ids=torch.tensor([37]),
+            action_mask=torch.ones(1, 6),
+            old_means=old_means,
+            old_sigmas=sigma,
+        )
+        return compute_frontres_segment_ppo_loss(policy, batch, FrontRESSegmentPPOConfig(entropy_coef=0.0))
+
+    small = _result_for_sigma(0.01)
+    normal = _result_for_sigma(1.0)
+    expected_small = torch.sum(
+        torch.log(torch.ones(1, 6) + 1.0e-5)
+        + new_means.detach().square() / (2.0 * (0.01**2))
+    ).item()
+    print(
+        "[probe ppo_small_sigma_kl_sensitivity] "
+        f"sigma_small={small.sigma_min:.6f} "
+        f"kl_small={small.distribution_kl_mean:.6f} "
+        f"sigma_normal={normal.sigma_min:.6f} "
+        f"kl_normal={normal.distribution_kl_mean:.9f} "
+        f"mean_delta_l2={small.distribution_mean_delta_l2_mean:.6f}",
+        flush=True,
+    )
+
+    assert abs(small.distribution_kl_mean - expected_small) < 1e-5
+    assert small.distribution_kl_mean > normal.distribution_kl_mean * 1000.0
+    assert abs(small.old_sigma_min - 0.01) < 1e-8
+    assert abs(small.sigma_min - 0.01) < 1e-8
+
+
 def test_old_policy_tensors_are_detached_from_segment_ppo_loss() -> None:
     policy = FakeSegmentPolicy()
     old_log_probs = torch.zeros(2, requires_grad=True)
@@ -648,6 +739,8 @@ def main() -> None:
     test_old_distribution_stats_drive_mosaic_style_kl()
     test_distribution_kl_matches_old_new_stats_exactly()
     test_clipped_surrogate_matches_hand_computed_ratio_cases()
+    test_advantage_dominance_diagnostic_exposes_top_sample_control()
+    test_small_sigma_kl_sensitivity_matches_exact_formula()
     test_old_policy_tensors_are_detached_from_segment_ppo_loss()
     test_row_permutation_does_not_change_segment_ppo_loss_or_diagnostics()
     test_action_mask_does_not_reduce_direct_delta_se_ppo_support()

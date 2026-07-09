@@ -147,6 +147,10 @@ T-detach      old policy, return, advantage, and old distribution tensors do not
 T-permute     row permutation does not change loss, KL, ratio summaries, or update decision.
 T-update-order pre-loss KL, MOSAIC-style pre-step adaptive LR, optimizer step, post-update KL, and optional Segment trust-region rollback order are explicit.
 T-cone        direct Delta SE full-support semantics under single-family perturbation metadata; action_mask must not silently shrink PPO log_prob, KL, loss, or gradients unless a later method explicitly changes the design.
+T-adv-dominance valid-sample advantage distribution reports whether one or a few samples dominate the actor update.
+T-bounded-logprob-source bounded Delta SE actions reconstruct log_prob from the same raw policy distribution stats and Jacobian correction.
+T-small-sigma-kl-sensitivity exact KL stress shows how small sigma amplifies the same mean shift.
+T-post-mean-delta post-update diagnostics report policy mean movement from stored old_means on the same PPO batch.
 ```
 
 ### Segment cache/dataset/sampler changes

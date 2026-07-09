@@ -53,6 +53,13 @@ def _mean_optional_metric(metrics: list[dict[str, Any]], key: str) -> float:
     return sum(values) / float(len(values))
 
 
+def _min_optional_metric(metrics: list[dict[str, Any]], key: str) -> float:
+    values = [float(item[key]) for item in metrics if key in item and math.isfinite(float(item[key]))]
+    if not values:
+        return float("nan")
+    return min(values)
+
+
 def _should_print_update_loop_summary(runner: Any) -> bool:
     alg = getattr(runner, "alg", None)
     if bool(getattr(alg, "frontres_segment_verbose_probe", False)):
@@ -112,6 +119,14 @@ def run_frontres_segment_live_update_loop(
     clip_frac_mean = sum(float(item["ppo_clip_frac"]) for item in metrics) / float(update_steps)
     trust_region_rejected_count = sum(int(item.get("ppo_trust_region_rejected_count", 0)) for item in metrics)
     trust_region_accepted_min = min(int(item.get("ppo_trust_region_accepted", 1)) for item in metrics)
+    trust_region_rollback_enabled_min = min(
+        int(item.get("ppo_trust_region_rollback_enabled", 0)) for item in metrics
+    )
+    trust_region_max_retries_max = max(int(item.get("ppo_trust_region_max_retries", 0)) for item in metrics)
+    trust_region_schedule_set = sorted(
+        {str(item.get("ppo_trust_region_schedule", "unknown")) for item in metrics}
+    )
+    trust_region_schedule = ",".join(trust_region_schedule_set)
     adaptive_lr_before_first = float(metrics[0].get("ppo_adaptive_lr_before", 0.0))
     adaptive_lr_after_last = float(metrics[-1].get("ppo_adaptive_lr_after", 0.0))
     adaptive_lr_desired_kl_mean = (
@@ -123,6 +138,11 @@ def run_frontres_segment_live_update_loop(
         sum(float(item.get("ppo_mosaic_pre_step_adaptive_lr_kl_mean", 0.0)) for item in metrics)
         / float(update_steps)
     )
+    ppo_advantage_abs_top1_frac_mean = _mean_optional_metric(metrics, "ppo_advantage_abs_top1_frac")
+    ppo_old_sigma_min = _min_optional_metric(metrics, "ppo_old_sigma_min")
+    ppo_sigma_min = _min_optional_metric(metrics, "ppo_sigma_min")
+    ppo_post_update_mean_delta_l2_mean = _mean_optional_metric(metrics, "ppo_post_update_mean_delta_l2_mean")
+    ppo_post_update_mean_delta_max_abs = _mean_optional_metric(metrics, "ppo_post_update_mean_delta_max_abs")
     sampler_update_count = sum(1 for item in metrics if bool(item.get("sampler_update", False)))
     sampler_global_count = sum(int(item.get("sampler_source_global_count", 0)) for item in metrics)
     sampler_replay_count = sum(int(item.get("sampler_source_replay_count", 0)) for item in metrics)
@@ -174,9 +194,18 @@ def run_frontres_segment_live_update_loop(
                     f"lr_before={_fmt_num(adaptive_lr_before_first)} "
                     f"lr_after={_fmt_num(adaptive_lr_after_last)} "
                     f"desired_kl={_fmt_num(adaptive_lr_desired_kl_mean)} "
+                    f"schedule={trust_region_schedule} "
+                    f"rollback={bool(trust_region_rollback_enabled_min)} "
+                    f"max_retries={trust_region_max_retries_max} "
                     f"pre_lr_before={_fmt_num(mosaic_pre_step_lr_before_first)} "
                     f"pre_lr_after={_fmt_num(mosaic_pre_step_lr_after_last)} "
                     f"pre_kl={_fmt_num(mosaic_pre_step_lr_kl_mean)}",
+                    "  scale: "
+                    f"adv_top1={_fmt_pct(ppo_advantage_abs_top1_frac_mean)} "
+                    f"old_sigma_min={_fmt_num(ppo_old_sigma_min)} "
+                    f"sigma_min={_fmt_num(ppo_sigma_min)} "
+                    f"post_mean_delta_l2={_fmt_num(ppo_post_update_mean_delta_l2_mean)} "
+                    f"post_mean_delta_max={_fmt_num(ppo_post_update_mean_delta_max_abs)}",
                     "  sampler: "
                     f"global={sampler_global_count} "
                     f"replay={sampler_replay_count} "
@@ -226,12 +255,20 @@ def run_frontres_segment_live_update_loop(
         "ppo_clip_frac_mean": clip_frac_mean,
         "ppo_trust_region_rejected_count_sum": trust_region_rejected_count,
         "ppo_trust_region_accepted_min": trust_region_accepted_min,
+        "ppo_trust_region_rollback_enabled_min": trust_region_rollback_enabled_min,
+        "ppo_trust_region_max_retries_max": trust_region_max_retries_max,
+        "ppo_trust_region_schedule": trust_region_schedule,
         "ppo_adaptive_lr_before_first": adaptive_lr_before_first,
         "ppo_adaptive_lr_after_last": adaptive_lr_after_last,
         "ppo_adaptive_lr_desired_kl_mean": adaptive_lr_desired_kl_mean,
         "ppo_mosaic_pre_step_adaptive_lr_before_first": mosaic_pre_step_lr_before_first,
         "ppo_mosaic_pre_step_adaptive_lr_after_last": mosaic_pre_step_lr_after_last,
         "ppo_mosaic_pre_step_adaptive_lr_kl_mean": mosaic_pre_step_lr_kl_mean,
+        "ppo_advantage_abs_top1_frac_mean": ppo_advantage_abs_top1_frac_mean,
+        "ppo_old_sigma_min": ppo_old_sigma_min,
+        "ppo_sigma_min": ppo_sigma_min,
+        "ppo_post_update_mean_delta_l2_mean": ppo_post_update_mean_delta_l2_mean,
+        "ppo_post_update_mean_delta_max_abs": ppo_post_update_mean_delta_max_abs,
         "sampler_update_count": sampler_update_count,
         "sampler_global_count": sampler_global_count,
         "sampler_replay_count": sampler_replay_count,

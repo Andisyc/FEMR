@@ -1487,9 +1487,18 @@ def _print_live_train_summary(
                 f"lr_before={_fmt_num(summary.get('ppo_adaptive_lr_before_first', summary.get('ppo_adaptive_lr_before', 0.0)))} "
                 f"lr_after={_fmt_num(summary.get('ppo_adaptive_lr_after_last', summary.get('ppo_adaptive_lr_after', 0.0)))} "
                 f"desired_kl={_fmt_num(summary.get('ppo_adaptive_lr_desired_kl_mean', summary.get('ppo_adaptive_lr_desired_kl', 0.0)))} "
+                f"schedule={summary.get('ppo_trust_region_schedule', 'unknown')} "
+                f"rollback={bool(summary.get('ppo_trust_region_rollback_enabled_min', summary.get('ppo_trust_region_rollback_enabled', 0)))} "
+                f"max_retries={int(summary.get('ppo_trust_region_max_retries_max', summary.get('ppo_trust_region_max_retries', 0)))} "
                 f"pre_lr_before={_fmt_num(summary.get('ppo_mosaic_pre_step_adaptive_lr_before_first', summary.get('ppo_mosaic_pre_step_adaptive_lr_before', 0.0)))} "
                 f"pre_lr_after={_fmt_num(summary.get('ppo_mosaic_pre_step_adaptive_lr_after_last', summary.get('ppo_mosaic_pre_step_adaptive_lr_after', 0.0)))} "
                 f"pre_kl={_fmt_num(summary.get('ppo_mosaic_pre_step_adaptive_lr_kl_mean', 0.0))}",
+                "  scale: "
+                f"adv_top1={_fmt_pct(summary.get('ppo_advantage_abs_top1_frac_mean', 0.0))} "
+                f"old_sigma_min={_fmt_num(summary.get('ppo_old_sigma_min', 0.0))} "
+                f"sigma_min={_fmt_num(summary.get('ppo_sigma_min', 0.0))} "
+                f"post_mean_delta_l2={_fmt_num(summary.get('ppo_post_update_mean_delta_l2_mean', 0.0))} "
+                f"post_mean_delta_max={_fmt_num(summary.get('ppo_post_update_mean_delta_max_abs', 0.0))}",
                 "",
                 format_segment_train_effect_log(dict(summary)),
                 "",

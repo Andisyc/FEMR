@@ -61,9 +61,16 @@ class FrontRESSegmentPPOResult:
     advantage_mean: float = 0.0
     advantage_min: float = 0.0
     advantage_max: float = 0.0
+    advantage_abs_mean: float = 0.0
+    advantage_abs_max: float = 0.0
+    advantage_abs_top1_frac: float = 0.0
     logprob_approx_kl: float = 0.0
     distribution_kl_mean: float = 0.0
     distribution_kl_available: bool = False
+    distribution_mean_delta_l2_mean: float = 0.0
+    distribution_mean_delta_max_abs: float = 0.0
+    old_sigma_min: float = 0.0
+    sigma_min: float = 0.0
     post_update_distribution_kl_mean: float = 0.0
     post_update_distribution_kl_available: bool = False
     post_update_logprob_approx_kl: float = 0.0
@@ -94,9 +101,16 @@ class FrontRESSegmentPPOResult:
             "segment/ppo_advantage_mean": self.advantage_mean,
             "segment/ppo_advantage_min": self.advantage_min,
             "segment/ppo_advantage_max": self.advantage_max,
+            "segment/ppo_advantage_abs_mean": self.advantage_abs_mean,
+            "segment/ppo_advantage_abs_max": self.advantage_abs_max,
+            "segment/ppo_advantage_abs_top1_frac": self.advantage_abs_top1_frac,
             "segment/ppo_logprob_approx_kl": self.logprob_approx_kl,
             "segment/ppo_distribution_kl_mean": self.distribution_kl_mean,
             "segment/ppo_distribution_kl_available": float(self.distribution_kl_available),
+            "segment/ppo_distribution_mean_delta_l2_mean": self.distribution_mean_delta_l2_mean,
+            "segment/ppo_distribution_mean_delta_max_abs": self.distribution_mean_delta_max_abs,
+            "segment/ppo_old_sigma_min": self.old_sigma_min,
+            "segment/ppo_sigma_min": self.sigma_min,
             "segment/ppo_post_update_distribution_kl_mean": self.post_update_distribution_kl_mean,
             "segment/ppo_post_update_distribution_kl_available": float(
                 self.post_update_distribution_kl_available
@@ -204,6 +218,25 @@ def compute_frontres_segment_ppo_loss(
         advantage_mean = advantages.mean().item()
         advantage_min = advantages.min().item()
         advantage_max = advantages.max().item()
+        advantage_abs = advantages.abs()
+        advantage_abs_mean = advantage_abs.mean().item()
+        advantage_abs_max = advantage_abs.max().item()
+        advantage_abs_sum = advantage_abs.sum().item()
+        advantage_abs_top1_frac = advantage_abs_max / advantage_abs_sum if advantage_abs_sum > 0.0 else 0.0
+        distribution_mean_delta_l2_mean = 0.0
+        distribution_mean_delta_max_abs = 0.0
+        old_sigma_min = 0.0
+        sigma_min = 0.0
+        if has_distribution_stats:
+            old_mean = batch.old_means[valid].detach()
+            old_sigma = batch.old_sigmas[valid].detach()
+            mean = policy_eval.mean[valid].detach()
+            sigma = policy_eval.sigma[valid].detach()
+            mean_delta = mean - old_mean
+            distribution_mean_delta_l2_mean = mean_delta.norm(dim=-1).mean().item()
+            distribution_mean_delta_max_abs = mean_delta.abs().max().item()
+            old_sigma_min = old_sigma.min().item()
+            sigma_min = sigma.min().item()
 
     return FrontRESSegmentPPOResult(
         total_loss=total_loss,
@@ -224,9 +257,16 @@ def compute_frontres_segment_ppo_loss(
         advantage_mean=float(advantage_mean),
         advantage_min=float(advantage_min),
         advantage_max=float(advantage_max),
+        advantage_abs_mean=float(advantage_abs_mean),
+        advantage_abs_max=float(advantage_abs_max),
+        advantage_abs_top1_frac=float(advantage_abs_top1_frac),
         logprob_approx_kl=float(logprob_approx_kl),
         distribution_kl_mean=float(distribution_kl_mean),
         distribution_kl_available=bool(has_distribution_stats),
+        distribution_mean_delta_l2_mean=float(distribution_mean_delta_l2_mean),
+        distribution_mean_delta_max_abs=float(distribution_mean_delta_max_abs),
+        old_sigma_min=float(old_sigma_min),
+        sigma_min=float(sigma_min),
     )
 
 

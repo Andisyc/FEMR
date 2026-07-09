@@ -372,6 +372,64 @@ def test_single_update_reports_post_update_trust_region_kl() -> None:
     assert abs(result.approx_kl - result.post_update_distribution_kl_mean) < 1e-8
 
 
+def test_bounded_delta_se_logprob_uses_same_raw_source_as_policy_stats() -> None:
+    policy = types.SimpleNamespace(
+        num_task_corrections=6,
+        max_delta_pos=0.20,
+        max_delta_rpy=0.40,
+    )
+    raw = torch.tensor([[0.30, -0.20, 0.10, 0.50, -0.40, 0.20]])
+    mean = torch.tensor([[0.10, -0.05, 0.00, 0.20, -0.10, 0.00]])
+    std = torch.full((1, 6), 0.50)
+    max_d = torch.tensor([[0.20, 0.20, 0.20, 0.40, 0.40, 0.40]])
+    bounded_actions = torch.tanh(raw) * max_d
+
+    observed = live_probe._evaluate_segment_delta_se_log_prob_from_stats(
+        policy,
+        bounded_actions,
+        mean,
+        std,
+    )
+    expected_log_prob = torch.distributions.Normal(mean, std).log_prob(raw).sum(dim=-1)
+    expected_log_jacobian = (torch.log(max_d) + torch.log(1.0 - torch.tanh(raw).pow(2) + 1e-6)).sum(dim=-1)
+    expected = expected_log_prob - expected_log_jacobian
+    print(
+        "[probe step3] bounded_logprob_source: "
+        f"raw={raw[0].tolist()} "
+        f"bounded_action={bounded_actions[0].tolist()} "
+        f"observed={observed.item():.9f} "
+        f"expected={expected.item():.9f}",
+        flush=True,
+    )
+
+    torch.testing.assert_close(observed, expected)
+
+
+def test_single_update_reports_post_update_mean_delta_from_old_distribution() -> None:
+    runner = FakeRunner()
+    runner.alg.learning_rate = 0.1
+    for group in runner.alg.optimizer.param_groups:
+        group["lr"] = runner.alg.learning_rate
+    storage_batch = _storage_batch(torch.tensor([True, False]))
+
+    result = run_frontres_segment_single_update(runner, storage_batch)
+    print(
+        "[probe step3] post_update_mean_delta: "
+        f"pre_mean_delta_l2={result.distribution_mean_delta_l2_mean:.6f} "
+        f"post_mean_delta_l2={result.post_update_mean_delta_l2_mean:.6f} "
+        f"post_mean_delta_max={result.post_update_mean_delta_max_abs:.6f} "
+        f"old_sigma_min={result.post_update_old_sigma_min:.6f} "
+        f"sigma_min={result.post_update_sigma_min:.6f}",
+        flush=True,
+    )
+
+    assert result.distribution_mean_delta_l2_mean < 1e-8
+    assert result.post_update_mean_delta_l2_mean > 0.0
+    assert result.post_update_mean_delta_max_abs > 0.0
+    assert result.post_update_old_sigma_min == 1.0
+    assert result.post_update_sigma_min == 1.0
+
+
 def test_single_update_rejects_explosive_adaptive_post_kl_and_reports_post_ratio_max() -> None:
     runner = FakeRunner()
     runner.alg.schedule = "adaptive"
@@ -415,5 +473,7 @@ if __name__ == "__main__":
     test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl()
     test_single_update_uses_mosaic_pre_step_lr_for_optimizer_step()
     test_single_update_reports_post_update_trust_region_kl()
+    test_bounded_delta_se_logprob_uses_same_raw_source_as_policy_stats()
+    test_single_update_reports_post_update_mean_delta_from_old_distribution()
     test_single_update_rejects_explosive_adaptive_post_kl_and_reports_post_ratio_max()
     print("frontres_segment_live_single_update_contract: ok")
