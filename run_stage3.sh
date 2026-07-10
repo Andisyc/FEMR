@@ -1,75 +1,98 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 1 ]]; then
-  echo "Usage: bash run_stage3.sh STAGE2_CHECKPOINT [MOTION_PATH] [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE] [TRAIN_ARGS...]"
-  echo
- echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval, sequence_eval."
- echo "CACHE_DIR selects the Stage 1 Segment Replay cache used by Stage 3."
- echo "PERIODIC_EVAL_ENABLED=1 enables periodic long-rollout eval; PERIODIC_EVAL_INTERVAL controls its interval."
-echo "OFFLINE_EVAL_STEPS controls checkpoint eval rollout length when MODE=offline_eval or sequence_eval."
-echo "OFFLINE_EVAL_SEQUENCES and OFFLINE_EVAL_MAX_PREROLL_STEPS control MODE=sequence_eval."
-echo "FRONTRES_SPECIALIST_MODE selects Stage 3 perturbation family preset, default rp."
-echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
-echo "Append --frontres_segment_ppo_schedule adaptive --frontres_segment_ppo_lr 1e-6 to test adaptive Segment PPO trust-region control."
-  echo "Set FRONTRES_STAGE_PREFLIGHT_ONLY=1 to print and validate the startup command without launching IsaacLab."
-  exit 1
-fi
+# FrontRES Stage 3 Segment Replay training launcher.
+#
+# Status: active.
+# Upstream: Stage 2 warmup checkpoint and Stage 1 segment cache.
+# Downstream: Segment Replay HRL checkpoints and online eval logs.
+# Evidence: script-level route, not a live validation.
+#
+# B1: Runtime owner. Select GPU, cache, and log sink.
 
-STAGE2_CHECKPOINT="$1"
-MOTION_PATH="${2:-/hdd1/cyx/AMASS_G1NPZ_Final}"
-NUM_ENVS="${3:-12000}"
-MAX_ITERS="${4:-2000}"
-UPDATE_STEPS="${5:-4}"
-MODE="${6:-train}"
-EXTRA_TRAIN_ARGS=("${@:7}")
+CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-2}"
 CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
-SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
 LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage3_segment_hrl.txt}"
-RUN_FOREGROUND="${RUN_FOREGROUND:-0}"
+
+# B2: Model and dataset contract. Positional args only override these two.
+
+MODEL_PATH="${1:-/hdd1/cyx/FEMR/model/model_warmup.pt}"
+MOTION_PATH="${2:-/hdd1/cyx/AMASS_G1NPZ_Final}"
+
+# B3: Stage 3 training schedule.
+
+NUM_ENVS="${NUM_ENVS:-12000}"
+MAX_ITERS="${MAX_ITERS:-2000}"
+UPDATE_STEPS="${UPDATE_STEPS:-4}"
+MODE="train"
+
+# B4: Online eval. Use run_eval.sh for sequence/offline eval.
+
+PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-1}"
+PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
+
+# B5: PPO safety knobs for direct Delta SE Stage 3.
+
+FRONTRES_SEGMENT_PPO_SCHEDULE="${FRONTRES_SEGMENT_PPO_SCHEDULE:-adaptive}"
+FRONTRES_SEGMENT_PPO_LR="${FRONTRES_SEGMENT_PPO_LR:-1e-6}"
+
+# B6: Cache, logging, and distributed launch.
+
+SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
+LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
+RUN_NAME="${RUN_NAME:-FEMR_STAGE3_SEGMENT_HRL}"
+NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 
 cd "$(dirname "$0")"
 
+export CUDA_VISIBLE_DEVICES
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 export FEMR_LOG_ROOT="${FEMR_LOG_ROOT:-/hdd1/cyx/FEMR}"
 export WANDB_DIR="${WANDB_DIR:-/hdd1/cyx/FEMR}"
 export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-/hdd1/cyx/FEMR/.wandb_cache}"
 export CACHE_DIR
 export SHARD_CACHE_SIZE
-export PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
-export PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
-export OFFLINE_EVAL_SEGMENTS="${OFFLINE_EVAL_SEGMENTS:-${NUM_ENVS}}"
-export OFFLINE_EVAL_STEPS="${OFFLINE_EVAL_STEPS:-500}"
-export FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
+export PERIODIC_EVAL_ENABLED
+export PERIODIC_EVAL_INTERVAL
+export LOG_PROJECT_NAME
+export RUN_NAME
+export NPROC_PER_NODE
+
+mkdir -p "$(dirname "${LOG_PATH}")"
 
 CMD=(
   bash run/run_frontres_stage3_segment_hrl.sh
-  "${STAGE2_CHECKPOINT}"
+  "${MODEL_PATH}"
   "${MOTION_PATH}"
   "${NUM_ENVS}"
   "${MAX_ITERS}"
   "${UPDATE_STEPS}"
   "${MODE}"
+  --frontres_segment_ppo_schedule "${FRONTRES_SEGMENT_PPO_SCHEDULE}"
+  --frontres_segment_ppo_lr "${FRONTRES_SEGMENT_PPO_LR}"
 )
-if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
-  CMD+=("${EXTRA_TRAIN_ARGS[@]}")
-fi
 
 if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   echo "[FrontRES Stage3] preflight only"
+  printf '%q ' "${CMD[@]}"
+  echo
   "${CMD[@]}"
   exit 0
 fi
 
-mkdir -p "$(dirname "${LOG_PATH}")"
+nohup "${CMD[@]}" >"${LOG_PATH}" 2>&1 &
+PID="$!"
 
-if [[ "${RUN_FOREGROUND}" == "1" ]]; then
-  echo "[FrontRES Stage3] running in foreground; log=${LOG_PATH}"
-  "${CMD[@]}" >"${LOG_PATH}" 2>&1
-else
-  nohup "${CMD[@]}" >"${LOG_PATH}" 2>&1 &
-  PID="$!"
-  echo "[FrontRES Stage3] submitted pid=${PID}"
-  echo "[FrontRES Stage3] log=${LOG_PATH}"
-  echo "[FrontRES Stage3] follow: tail -f ${LOG_PATH}"
-fi
+echo "[FrontRES Stage3] submitted pid=${PID}"
+echo "[FrontRES Stage3] mode=${MODE}"
+echo "[FrontRES Stage3] model=${MODEL_PATH}"
+echo "[FrontRES Stage3] motion=${MOTION_PATH}"
+echo "[FrontRES Stage3] num_envs=${NUM_ENVS}"
+echo "[FrontRES Stage3] max_iters=${MAX_ITERS}"
+echo "[FrontRES Stage3] update_steps=${UPDATE_STEPS}"
+echo "[FrontRES Stage3] periodic_eval=${PERIODIC_EVAL_ENABLED}"
+echo "[FrontRES Stage3] eval_interval=${PERIODIC_EVAL_INTERVAL}"
+echo "[FrontRES Stage3] ppo_schedule=${FRONTRES_SEGMENT_PPO_SCHEDULE}"
+echo "[FrontRES Stage3] ppo_lr=${FRONTRES_SEGMENT_PPO_LR}"
+echo "[FrontRES Stage3] log=${LOG_PATH}"
+echo "[FrontRES Stage3] follow: tail -f ${LOG_PATH}"

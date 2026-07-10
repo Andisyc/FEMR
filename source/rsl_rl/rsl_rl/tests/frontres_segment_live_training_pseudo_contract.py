@@ -35,6 +35,7 @@ diagnostics_module = _load(
 )
 
 run_frontres_segment_live_training_loop = live_training_module.run_frontres_segment_live_training_loop
+run_frontres_segment_periodic_eval = live_training_module.run_frontres_segment_periodic_eval
 live_training_module._apply_current_segment_reset = lambda runner: None
 live_training_module._read_live_observations = lambda runner: "fake_obs"
 live_training_module._run_live_rollout_capture = lambda runner, observations, *, rollout_steps: runner.fake_eval_capture(
@@ -96,6 +97,10 @@ class FakeAlg:
         self.frontres_segment_live_fail_on_invalid_update = fail_on_invalid_update
         self.frontres_segment_live_min_valid_count = min_valid_count
         self.frontres_segment_live_fail_on_nonfinite = fail_on_nonfinite
+
+
+class FakeEnv:
+    max_episode_length = 32
 
 
 def _full_summary(**overrides) -> dict:
@@ -167,6 +172,7 @@ class FakeRunner:
         self.fail_save_paths = fail_save_paths or set()
         self.eval_calls: list[tuple[int, int]] = []
         self.periodic_eval_hook_enabled = True
+        self.env = FakeEnv()
 
     def run_frontres_segment_live_update_loop(self, *, init_at_random_ep_len: bool, runner_learn: bool) -> dict:
         self.update_calls.append((init_at_random_ep_len, runner_learn))
@@ -223,7 +229,17 @@ class FakeRunner:
         capture.n_candidate = 0
         capture.n_base = 2
         capture.n_clean = 2
+        capture.transition_actions = __import__("torch").tensor(
+            [
+                [0.0, 0.0, 0.0, 0.10, 0.20, 0.0],
+                [0.0, 0.0, 0.0, 0.20, 0.10, 0.0],
+            ]
+        )
+        capture.actor_update_mask = __import__("torch").tensor([True, True])
         return capture
+
+    def eval_mode(self) -> None:
+        self.eval_mode_called = True
 
 
 def test_pseudo_live_training_runs_two_iterations_and_saves_checkpoints() -> None:
@@ -487,6 +503,28 @@ def test_pseudo_live_training_runs_periodic_eval_only_on_interval() -> None:
     assert "gain=0.750000" in output
 
 
+def test_periodic_eval_preserves_score_and_motion_metrics_when_all_samples_fall() -> None:
+    runner = FakeRunner()
+    capture = runner.fake_eval_capture(32)
+    capture.done_any = __import__("torch").tensor([True, True, True])
+    capture.survival_steps = __import__("torch").tensor([12.0, 8.0, 10.0])
+    runner.fake_eval_capture = lambda rollout_steps: capture
+    summary = run_frontres_segment_periodic_eval(
+        runner,
+        iteration=100,
+        train_summary={"score_gain_mean": 0.0},
+    )
+    log = diagnostics_module.format_segment_periodic_eval_log(summary)
+    print(f"[probe periodic_eval_metrics] {log.replace(chr(10), ' | ')}", flush=True)
+    assert summary["success_rate"] == 0.0
+    assert summary["fall_rate"] == 1.0
+    assert "score: noisy=2.500000 repaired=10.500000" in log
+    assert "mpjpe_repaired=0.111435" in log
+    assert "mpjpe_noisy=0.445738" in log
+    assert "delta_se_norm=0.223607" in log
+    assert "UNCONFIRMED" not in log
+
+
 def test_pseudo_live_training_periodic_eval_requires_hook() -> None:
     runner = FakeRunner(periodic_eval_enabled=True, periodic_eval_interval=1)
     runner.run_frontres_segment_periodic_eval = None
@@ -580,6 +618,7 @@ def main() -> None:
     test_pseudo_live_training_log_formats_large_loss_readably()
     test_pseudo_live_training_continues_after_periodic_checkpoint_failure()
     test_pseudo_live_training_runs_periodic_eval_only_on_interval()
+    test_periodic_eval_preserves_score_and_motion_metrics_when_all_samples_fall()
     test_pseudo_live_training_periodic_eval_requires_hook()
     test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline()
     test_pseudo_offline_eval_capture_exposes_motion_quality_tensors()

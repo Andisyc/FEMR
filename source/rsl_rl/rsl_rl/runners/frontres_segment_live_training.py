@@ -77,7 +77,7 @@ def run_frontres_segment_periodic_eval(
     *,
     iteration: int,
     train_summary: Mapping[str, Any],
-) -> dict[str, float]:
+) -> dict[str, Any]:
     eval_steps = max(
         int(getattr(runner.env, "max_episode_length", 1)),
         int(getattr(runner.alg, "frontres_segment_k", 1)),
@@ -99,13 +99,42 @@ def run_frontres_segment_periodic_eval(
         }
     done = done_any.detach().bool().reshape(-1)
     survival_flat = survival.detach().float().reshape(-1)
-    return {
+    summary: dict[str, Any] = {
         "episode_length": float(eval_steps),
         "success_rate": float((~done).float().mean().cpu().item()),
         "fall_rate": float(done.float().mean().cpu().item()),
         "mean_survival_steps": float(survival_flat.mean().cpu().item()),
         "continuous_rollout_gain": float(train_summary.get("score_gain_mean", 0.0)),
     }
+    if capture.reward_accum is not None:
+        reward = capture.reward_accum.detach().float().reshape(-1)
+        n_train = max(0, int(getattr(capture, "n_train", 0)))
+        n_base = max(0, int(getattr(capture, "n_base", 0)))
+        if n_train > 0 and n_base > 0 and reward.numel() >= n_train + n_base:
+            repaired = reward[:n_train]
+            noisy = reward[n_train : n_train + n_base]
+            pair_count = min(int(repaired.numel()), int(noisy.numel()))
+            if pair_count > 0:
+                repaired = repaired[:pair_count]
+                noisy = noisy[:pair_count]
+                gain = repaired - noisy
+                summary.update(
+                    {
+                        "score_noisy": float(noisy.mean().cpu().item()),
+                        "score_repaired": float(repaired.mean().cpu().item()),
+                        "continuous_rollout_gain": float(gain.mean().cpu().item()),
+                    }
+                )
+    summary.update(
+        motion_quality_summary_to_scalars(
+            clean_positions=getattr(capture, "motion_clean_body_pos", None),
+            repaired_positions=getattr(capture, "motion_repaired_body_pos", None),
+            noisy_positions=getattr(capture, "motion_noisy_body_pos", None),
+            delta_se=getattr(capture, "transition_actions", None),
+            valid_mask=getattr(capture, "actor_update_mask", None),
+        )
+    )
+    return summary
 
 
 def run_frontres_segment_offline_eval(

@@ -1,18 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# FrontRES Stage 2 HSL warmup launcher.
+#
+# Status: active.
+# Upstream: Stage 1 motion dataset and user shell command.
+# Downstream: warmup checkpoint consumed by Stage 3.
+# Evidence: script-level route, not a live validation.
+#
+# B1: Runtime owner. Select GPU and log sink.
+
+CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-2}"
+LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage2_hsl_warmup.txt}"
+
+# B2: Training contract. Positional args are shortcuts for these values.
+
 MOTION_PATH="${1:-/hdd1/cyx/AMASS_G1NPZ_Final}"
 NUM_ENVS="${2:-12000}"
 MAX_ITERS="${3:-200}"
+
+# Stage 2 default is pure supervised warmup.
 SUPERVISED_WARMUP_ITERS="${SUPERVISED_WARMUP_ITERS:-${MAX_ITERS}}"
-LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage2_hsl_warmup.txt}"
+
+# B3: Logging and distributed launch.
+
 LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FEMR_STAGE2_HSL_WARMUP}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
-RUN_FOREGROUND="${RUN_FOREGROUND:-0}"
 
 cd "$(dirname "$0")"
 
+export CUDA_VISIBLE_DEVICES
 export HYDRA_FULL_ERROR="${HYDRA_FULL_ERROR:-1}"
 export FEMR_LOG_ROOT="${FEMR_LOG_ROOT:-/hdd1/cyx/FEMR}"
 export WANDB_DIR="${WANDB_DIR:-/hdd1/cyx/FEMR}"
@@ -41,13 +59,13 @@ CMD=(
   --frontres_stage stage2_hsl_warmup
 )
 
-if [[ "${RUN_FOREGROUND}" == "1" ]]; then
-  echo "[FrontRES Stage2] running in foreground; log=${LOG_PATH}"
-  "${CMD[@]}" >"${LOG_PATH}" 2>&1
-else
-  nohup "${CMD[@]}" >"${LOG_PATH}" 2>&1 &
-  PID="$!"
-  echo "[FrontRES Stage2] submitted pid=${PID}"
-  echo "[FrontRES Stage2] log=${LOG_PATH}"
-  echo "[FrontRES Stage2] follow: tail -f ${LOG_PATH}"
-fi
+nohup "${CMD[@]}" >"${LOG_PATH}" 2>&1 &
+PID="$!"
+
+echo "[FrontRES Stage2] submitted pid=${PID}"
+echo "[FrontRES Stage2] motion=${MOTION_PATH}"
+echo "[FrontRES Stage2] num_envs=${NUM_ENVS}"
+echo "[FrontRES Stage2] max_iters=${MAX_ITERS}"
+echo "[FrontRES Stage2] supervised_warmup_iters=${SUPERVISED_WARMUP_ITERS}"
+echo "[FrontRES Stage2] log=${LOG_PATH}"
+echo "[FrontRES Stage2] follow: tail -f ${LOG_PATH}"
