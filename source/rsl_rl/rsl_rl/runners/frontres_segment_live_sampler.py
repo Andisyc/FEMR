@@ -596,13 +596,24 @@ def _resolve_live_batch_size(runner: Any) -> int:
     return max(1, int(getattr(env, "num_envs", 1) or 1))
 
 
+def _resolve_live_scorable_row_budget(runner: Any) -> int:
+    """Return the FrontRES repair rows that can receive paired rollout scores."""
+    batch_size = _resolve_live_batch_size(runner)
+    cfg_present = getattr(runner, "cfg", None) is not None or getattr(runner, "alg_cfg", None) is not None
+    if not cfg_present:
+        return batch_size
+    use_quartet_reward = bool(_runner_cfg_get(runner, "frontres_candidate_rollout_enabled", False))
+    divisor = 4 if use_quartet_reward else 3
+    return max(1, batch_size // divisor)
+
+
 def _resolve_live_max_horizon_k(runner: Any) -> int:
     alg = getattr(runner, "alg", None)
     return max(1, int(getattr(alg, "frontres_segment_max_horizon_k", getattr(alg, "frontres_segment_k", 1))))
 
 
 def _sample_live_segment_rows(runner: Any, sampler: FrontRESSegmentSampler) -> FrontRESSegmentSample:
-    row_budget = _resolve_live_batch_size(runner)
+    row_budget = _resolve_live_scorable_row_budget(runner)
     max_horizon_k = _resolve_live_max_horizon_k(runner)
     if hasattr(sampler, "sample_rollout_rows"):
         return sampler.sample_rollout_rows(row_budget, max_horizon_k=max_horizon_k)

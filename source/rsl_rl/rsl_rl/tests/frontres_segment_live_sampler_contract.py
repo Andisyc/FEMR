@@ -1069,6 +1069,44 @@ def test_live_sampler_expands_trial_rows_before_probe_without_changing_ppo_seman
         assert int(sampler.last_trial_count[0].item()) == 2
 
 
+def test_live_sampler_quartet_samples_only_scorable_repair_rows() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp) / "AMASS_G1Segment"
+        _write_stage1_cache(cache_dir)
+        env = FakeEnv()
+        env.num_envs = 8
+        runner = FakeRunner(
+            [_summary_per_sample([0.4, 0.2], [True, True], [False, False])],
+            cache_dir=str(cache_dir),
+            env=env,
+        )
+        runner.cfg = {"frontres_candidate_rollout_enabled": True}
+        initialize_frontres_segment_live_sampler(runner)
+        sampler = runner._frontres_segment_sampler
+        sampler.segment_state[0] = int(FrontRESSegmentState.FRONTIER)
+        sampler.last_trial_count[0] = 3
+        sampler.last_oracle_gap[0] = 0.5
+        sampler.last_success_frac[0] = 0.5
+
+        row_budget = live_sampler_module._resolve_live_scorable_row_budget(runner)
+        result = run_frontres_segment_sampler_step(runner, init_at_random_ep_len=False, update_step=0)
+        print(
+            "[probe step4] quartet_scorable_trial_rows: "
+            f"env_num_envs={runner.env.num_envs} "
+            f"row_budget={row_budget} "
+            f"batch_ids={runner.probe_batch_ids[-1]} "
+            f"trial_roles={runner.probe_trial_roles[-1]} "
+            f"sampler_update_trial_count={result['sampler_update_trial_count']} "
+            f"ppo_valid_count={result['ppo_valid_count']}",
+            flush=True,
+        )
+        assert row_budget == 2
+        assert runner.probe_batch_ids[-1] == [0, 0]
+        assert runner.probe_trial_roles[-1] == ("policy", "search")
+        assert result["sampler_update_trial_count"] == 2
+        assert result["ppo_valid_count"] == 1
+
+
 def test_live_storage_uses_sampled_segment_ids_and_sources() -> None:
     runner = FakeRunner()
     initialize_frontres_segment_live_sampler(runner)
@@ -1262,6 +1300,7 @@ def main() -> None:
     test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset()
     test_live_sampler_builds_current_batch_before_probe()
     test_live_sampler_expands_trial_rows_before_probe_without_changing_ppo_semantics()
+    test_live_sampler_quartet_samples_only_scorable_repair_rows()
     test_live_storage_uses_sampled_segment_ids_and_sources()
     test_missing_dataset_probe_reports_cache_and_sampler_state()
     test_runner_checkpoint_saves_and_restores_sampler_state()

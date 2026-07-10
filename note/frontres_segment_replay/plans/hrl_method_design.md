@@ -341,6 +341,10 @@ Implementation checkpoint:
   fixed env-row budget. The live sampler now builds executable rows such as
   `[segment 0 policy, segment 0 search]` before dataset batch construction and
   env probe, while keeping PPO storage/update semantics unchanged.
+- In paired B1 rollout layouts, Step 4 budgets only the scorable FrontRES repair
+  rows (`n_train`), not the total vectorized env count. Candidate, Noisy, and
+  Clean rows are paired counterfactual baselines for those repair rows, so they
+  must not be sampled as independent policy/search trial evidence rows.
 - Step 4 intentionally does not enlarge `num_envs`, does not run optimizer
   updates between local trials, and does not feed best-trial actions into PPO.
   It only changes which segment rows the next live probe executes and how the
