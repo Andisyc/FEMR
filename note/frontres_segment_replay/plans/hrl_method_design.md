@@ -353,6 +353,10 @@ Implementation checkpoint:
   batch now carries `policy/search`, `source_index`, `trial_index`, and
   `budget_horizon_k` through reset requests, storage-side priority evidence,
   probe summaries, and human-readable `trial.*` log lines.
+- For paired quartet probes, Step 5 expands `n_train` scorable trial metadata to
+  the full env capture batch by marking the paired candidate, Noisy, and Clean
+  rows as `baseline`. These baseline rows are visible for role readability, but
+  they are not policy/search evidence rows and cannot become PPO-valid rows.
 - Step 5 still does not change PPO semantics: trial metadata is not added to
   the PPO batch, no optimizer update is run between local trials, and no
   best-trial regression is introduced.

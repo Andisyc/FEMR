@@ -1179,6 +1179,79 @@ def test_live_probe_carries_multi_trial_metadata_through_reset_storage_and_summa
     assert "ppo_boundary.search_evidence_only: 1" in output
 
 
+def test_live_probe_expands_scorable_trial_metadata_to_full_quartet_batch() -> None:
+    batch = _index_only_reset_batch()
+    batch.segment_ids = torch.tensor([7, 7], dtype=torch.long)
+    batch.frontres_segment_trial_role = ("policy", "search")
+    batch.frontres_segment_source_index = torch.tensor([0, 0], dtype=torch.long)
+    batch.frontres_segment_trial_index = torch.tensor([0, 1], dtype=torch.long)
+    batch.frontres_segment_budget_horizon_k = torch.tensor([8, 8], dtype=torch.long)
+    runner = SimpleNamespace(
+        device=torch.device("cpu"),
+        _frontres_segment_live_current_batch=batch,
+        alg=SimpleNamespace(frontres_segment_k=8, gamma=1.0),
+    )
+    actions = torch.zeros(8, 6)
+    capture = FrontRESSegmentLiveRolloutCapture(
+        rollout_k=8,
+        reward_mean=0.0,
+        done_frac=0.0,
+        last_obs_shape=(8, 4),
+        action_shape=(8, 6),
+        env_action_shape=(8, 29),
+        transition_obs=torch.zeros(8, 4),
+        transition_privileged_obs=torch.zeros(8, 3),
+        transition_actions=actions,
+        transition_log_probs=torch.zeros(8),
+        transition_values=torch.zeros(8),
+        transition_means=torch.zeros(8, 6),
+        transition_sigmas=torch.ones(8, 6),
+        reward_accum=torch.arange(8, dtype=torch.float32),
+        done_any=torch.zeros(8, dtype=torch.bool),
+        actor_update_mask=torch.tensor([True, True, False, False, False, False, False, False]),
+        n_train=2,
+        n_candidate=2,
+        n_base=2,
+        n_clean=2,
+    )
+    summary: dict[str, object] = {}
+    live_probe._update_trial_metadata_summary(summary, runner, batch_size=8)
+    live_probe._update_ppo_boundary_summary(summary, torch.tensor([True, False, False, False, False, False, False, False]))
+    storage = build_live_segment_storage(runner, capture)
+    evidence = storage.priority_evidence[0]
+
+    print(
+        "[probe step5] quartet_trial_metadata_expand: "
+        f"roles={summary['trial_role_per_sample']} "
+        f"evidence_rows={summary['ppo_boundary_evidence_rows']} "
+        f"policy={summary['ppo_boundary_policy_rows']} "
+        f"search={summary['ppo_boundary_search_rows']} "
+        f"ppo_valid={summary['ppo_boundary_eligible_rows']} "
+        f"valid_mask={storage.valid_mask[: storage.step].tolist()}",
+        flush=True,
+    )
+
+    assert summary["trial_role_per_sample"] == [
+        "policy",
+        "search",
+        "baseline",
+        "baseline",
+        "baseline",
+        "baseline",
+        "baseline",
+        "baseline",
+    ]
+    assert summary["trial_policy_count"] == 1
+    assert summary["trial_search_count"] == 1
+    assert summary["ppo_boundary_evidence_rows"] == 2
+    assert summary["ppo_boundary_policy_rows"] == 1
+    assert summary["ppo_boundary_search_rows"] == 1
+    assert summary["ppo_boundary_eligible_rows"] == 1
+    assert summary["ppo_boundary_search_evidence_only_rows"] == 1
+    assert storage.valid_mask[: storage.step].tolist() == [True, False, False, False, False, False, False, False]
+    assert evidence["trial_role"] == tuple(summary["trial_role_per_sample"])
+
+
 def test_live_probe_detail_gate_suppresses_reset_and_summary_logs() -> None:
     env = _FakeIndexResetLiveEnv()
     runner = SimpleNamespace(
@@ -1627,6 +1700,7 @@ if __name__ == "__main__":
     test_live_probe_applies_index_reset_for_index_only_segments_when_env_supports_it()
     test_index_reset_request_carries_stage3_dynamic_perturbation()
     test_live_probe_carries_multi_trial_metadata_through_reset_storage_and_summary()
+    test_live_probe_expands_scorable_trial_metadata_to_full_quartet_batch()
     test_live_probe_detail_gate_suppresses_reset_and_summary_logs()
     test_live_probe_summary_uses_readable_metric_blocks()
     test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks()

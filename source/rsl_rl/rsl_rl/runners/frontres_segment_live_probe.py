@@ -1210,6 +1210,8 @@ def _current_trial_metadata(
         trial_role = ("policy",) * int(batch_size)
     else:
         trial_role = tuple(str(item) for item in roles)
+    if len(trial_role) < int(batch_size):
+        trial_role = trial_role + ("baseline",) * (int(batch_size) - len(trial_role))
     if len(trial_role) != int(batch_size):
         raise ValueError(f"frontres_segment_trial_role must have {batch_size} rows, got {len(trial_role)}")
 
@@ -1261,6 +1263,12 @@ def _trial_long_vector(
     else:
         tensor = torch.tensor(list(value), dtype=torch.long)
     tensor = tensor.to(device=device, dtype=torch.long).reshape(-1)
+    if int(tensor.numel()) < int(batch_size):
+        expanded = default.to(device=device, dtype=torch.long).reshape(-1).detach().clone()
+        if int(expanded.numel()) != int(batch_size):
+            raise ValueError(f"{name} default must have {batch_size} rows, got {int(expanded.numel())}")
+        expanded[: int(tensor.numel())] = tensor
+        tensor = expanded
     if int(tensor.numel()) != int(batch_size):
         raise ValueError(f"{name} must have {batch_size} rows, got {int(tensor.numel())}")
     return tensor.detach()
@@ -1283,6 +1291,7 @@ def _update_trial_metadata_summary(
     role_counts = dict(Counter(metadata.trial_role))
     policy_count = int(role_counts.get("policy", 0))
     search_count = int(role_counts.get("search", 0))
+    evidence_count = policy_count + search_count
     summary.update(
         {
             "trial_role_per_sample": list(metadata.trial_role),
@@ -1293,7 +1302,7 @@ def _update_trial_metadata_summary(
             "trial_policy_count": policy_count,
             "trial_search_count": search_count,
             "trial_horizon_summary": _tensor_range_summary("horizon", metadata.horizon_k),
-            "ppo_boundary_evidence_rows": int(batch_size),
+            "ppo_boundary_evidence_rows": evidence_count,
             "ppo_boundary_policy_rows": policy_count,
             "ppo_boundary_search_rows": search_count,
             "ppo_boundary_eligible_rows": 0,
@@ -1311,12 +1320,13 @@ def _update_ppo_boundary_summary(summary: dict[str, object], valid_mask: torch.T
     if not roles or len(roles) != int(valid.numel()):
         roles = ("policy",) * int(valid.numel())
     policy_mask = torch.tensor([role == "policy" for role in roles], dtype=torch.bool)
-    search_mask = ~policy_mask
+    search_mask = torch.tensor([role == "search" for role in roles], dtype=torch.bool)
+    evidence_mask = policy_mask | search_mask
     policy_rows = int(policy_mask.sum().item())
     search_rows = int(search_mask.sum().item())
     eligible_rows = int(valid.sum().item())
     policy_invalid_rows = int((policy_mask & ~valid).sum().item())
-    evidence_rows = int(valid.numel())
+    evidence_rows = int(evidence_mask.sum().item())
     summary.update(
         {
             "ppo_boundary_evidence_rows": evidence_rows,
