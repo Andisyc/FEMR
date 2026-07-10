@@ -323,6 +323,199 @@ Training gate:
   `raw_action_old_mean_abs_dim_mean`, `log_ratio_dim`, `clip%`, post-update KL,
   rejected count, and gain.
 
+## Segment Multi-Trial Live Sampler Connector - 2026-07-10
+
+Scope:
+- Wired sampler-owned `expand_rollout_trials()` semantics into the live sampler
+  connector while preserving fixed env row budget and PPO loss/update semantics.
+- Added `sample_rollout_rows()` so the sampler selects only executable rows and
+  does not mark unexecuted base segments as seen.
+- Live sampler batches now carry `frontres_segment_trial_role`,
+  `frontres_segment_trial_index`, and `frontres_segment_budget_horizon_k`.
+
+Commands passed:
+- `frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py`
+
+Evidence:
+- Sampler contract prints `segment_ids=[0, 0]`, roles
+  `('policy', 'search')`, `trial_index=[0, 1]`, and `seen=[True, False]`.
+- Live sampler contract prints expanded fake-live rows:
+  `batch_ids=[0, 0]`, dataset roles `('train', 'train')`, trial roles
+  `('policy', 'search')`, `budget_horizon=[4, 4]`,
+  `sampler_update_segment_count=1`, and `sampler_update_trial_count=2`.
+- Update-loop contract still passes, so the connector did not change the PPO
+  summary/update path.
+
+Non-blocking sweep finding:
+- `frontres_segment_all_contract_suite.py` currently fails only through
+  `stage3_pseudo_suite -> frontres_stage_entrypoint_contract.py`, where the
+  assertion expects `train_stage1_segment_cache_${STAGE1_MODE}.txt` in the root
+  Stage 1 command. This is unrelated to Step 4 sampler/live connector changes.
+
+Training gate:
+- Step 4 is S1/S2-confirmed for fake-live connectivity.
+- Real IsaacLab multi-trial rollout quality is still S4 evidence and should be
+  checked with a short live sentinel before treating the method as trained.
+
+## Segment Multi-Trial Live Probe Interface - 2026-07-10
+
+Scope:
+- Wired Step 5 trial metadata through `frontres_segment_live_probe.py` without
+  changing PPO semantics.
+- `frontres_segment_trial_role`, `frontres_segment_source_index`,
+  `frontres_segment_trial_index`, and `frontres_segment_budget_horizon_k` now
+  reach reset requests, storage priority evidence, probe summaries, and
+  printable `trial.*` log lines.
+- Index-reset probe requests prefer sampler-planned `budget_horizon_k`; this is
+  still an offline/fake-live interface proof, not real IsaacLab long-horizon
+  quality proof.
+
+Commands passed:
+- `frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py`
+
+Evidence:
+- Live probe contract prints
+  `request_roles=('policy', 'search')`, `request_trial_index=[0, 1]`,
+  `request_horizon=[8, 8]`, `summary_roles=['policy', 'search']`, and
+  storage priority evidence roles `('policy', 'search')`.
+- Printable summary now includes `trial.policy`, `trial.search`, and
+  `trial.horizon` so multi-trial rows are inspectable in live logs.
+- Storage keeps trial metadata in `priority_evidence`; `FrontRESSegmentStorageBatch`
+  remains unchanged, so PPO does not receive trial identity fields.
+
+Training gate:
+- Step 5 is S2-confirmed for live-probe metadata readability and PPO semantic
+  isolation.
+- Real IsaacLab S4 remains required before claiming multi-trial rollout quality
+  or long-horizon curriculum benefit.
+
+## Segment Multi-Trial PPO Boundary - 2026-07-10
+
+Scope:
+- Wired Step 6 role-gated PPO eligibility for multi-trial rows.
+- `policy` trial rows remain eligible for Segment PPO; `search` rows remain
+  priority evidence for sampler/local comparison and are invalid PPO rows.
+- PPO loss/update semantics are unchanged: `frontres_segment_ppo.py` still
+  consumes the normal tuple and sees only `valid_mask`, not `trial_role`.
+
+Commands passed:
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_ppo_contract.py`
+- `frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_ppo_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py`
+
+Aggregate suite status:
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+  now includes `stage3_live_probe_ppo_boundary` and observes 42/43 markers.
+- The remaining failure is the pre-existing
+  `stage3_pseudo_suite -> stage_entrypoint_guard` assertion in
+  `frontres_stage_entrypoint_contract.py`, which expects
+  `train_stage1_segment_cache_${STAGE1_MODE}.txt` in the root Stage 1 command.
+  This is unrelated to Step 6 PPO boundary semantics.
+
+Evidence:
+- Live probe PPO contract prints
+  `roles=('policy', 'search')`, `valid_mask=[True, False]`, and
+  `ppo_valid_count=1`.
+- The constructed policy/search rows share the same segment id, so the test
+  proves row eligibility is role-gated, not accidentally separated by segment.
+- `priority_evidence` retains both roles, so sampler evidence is not lost when
+  the search row is excluded from PPO.
+- Live sampler contract now reports expanded trial rows with
+  `ppo_valid_count=1`, matching the role-gated boundary.
+
+Training gate:
+- Step 6 is S1/S2-confirmed for fake-live PPO boundary semantics.
+- Real IsaacLab S4 remains required before claiming multi-trial rollout quality,
+  long-horizon curriculum benefit, or non-policy/oracle search-action learning.
+
+## Segment Multi-Trial Diagnostics - 2026-07-10
+
+Scope:
+- Added Step 7 diagnostics for the multi-trial boundary without changing PPO
+  loss/update semantics, sampler priority, rollout allocation, env stepping, or
+  reward.
+- Live/probe/update logs now expose trial roles, evidence rows, PPO-valid rows,
+  search-only evidence rows, policy-invalid rows, valid fractions, and sampler
+  oracle quality.
+
+Commands passed:
+- `frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py`
+
+Evidence:
+- Live probe contract asserts readable `ppo_boundary.*` fields including
+  evidence rows, policy/search rows, PPO-valid rows, search-only evidence rows,
+  and policy-invalid rows.
+- Live sampler contract prints `sampler.oracle: gap:...,confidence:...,delayed:...`.
+- Update-loop and live-training pseudo contracts print the main `trial:` line
+  with policy/search/evidence/PPO-valid/search-only/policy-invalid counts and
+  valid fractions.
+- Legacy fake summaries that lack explicit trial metadata fall back to
+  policy-only diagnostics, preventing impossible valid fractions above 100%.
+
+Training gate:
+- Step 7 is S1/S2-confirmed as a diagnostics/readability layer.
+- S4 live logs are still required before using these diagnostics to judge real
+  IsaacLab multi-trial rollout quality.
+
+## Segment Multi-Trial All-Module Gate - 2026-07-10
+
+Scope:
+- Ran the Step 8 all-module gate after Step 1-7 multi-trial replay changes.
+- Covered S0 syntax plus S1/S2/S3-adjacent Segment Replay contracts selected
+  from the inventory and impact rules.
+- Fixed a stale entrypoint contract mismatch: `run_stage3.sh` now honors the
+  documented positional overrides for `NUM_ENVS`, `MAX_ITERS`, `UPDATE_STEPS`,
+  `MODE`, and forwards extra train args after argument 6.
+
+Commands passed:
+- `frontres/bin/python -m py_compile $(git diff --name-only -- '*.py')`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_ppo_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_checkpoint_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_stage3_noise_std_migration_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_rollout_step_action_stats_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_diagnostics_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py`
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+
+Evidence:
+- Stage 3 pseudo suite reports `contract_count=17 failed_count=0`.
+- Segment Replay aggregate suite reports `contract_count=43 failed_count=0
+  total_marker_count=43`.
+- Entrypoint contract reports `PASS: FrontRES Stage 1/2 live presets and Stage
+  3 Segment Replay contract are explicit`.
+- Stage 3 launch command contract reports that update-loop and sequence-eval
+  modes route correctly and that schedule/LR args are forwarded.
+
+Training gate:
+- Step 8 is S0/S1/S2/S3-adjacent confirmed for the current local contract
+  surface.
+- It still does not prove real IsaacLab simulator physics, GPU memory behavior,
+  long training quality, or deployment/export behavior.
+
 ## Latest Full Sweep - 2026-07-07
 Scope:
 - Tested the current dirty FEMR worktree through the Repo Mainline Atlas and
@@ -367,7 +560,7 @@ Atlas readability finding:
 
 | MAIN | Owner | Module type | Required S | Required T | Current tests | Evidence | Status | Gap |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| MAIN-01 | `scripts/rsl_rl/train.py` | Entrypoint / CLI / config | S0, S2 | T-connect, T-oracle | `frontres_stage_entrypoint_contract.py`; `frontres_segment_stage3_launch_command_contract.py` | connectivity-confirmed | covered | Full Hydra/live launch still separate. |
+| MAIN-01 | `scripts/rsl_rl/train.py` | Entrypoint / CLI / config | S0, S2 | T-connect, T-oracle | `frontres_stage_entrypoint_contract.py`; `frontres_segment_stage3_launch_command_contract.py` | connectivity-confirmed | covered | Step 8 confirms Stage 3 positional overrides and extra train args are forwarded by launcher contracts. Full Hydra/live launch still separate. |
 | MAIN-02 | `scripts/rsl_rl/cli_args.py` | Entrypoint / CLI / config | S0 | T-connect | `frontres_segment_stage3_launch_command_contract.py` | static-confirmed | covered | None known. |
 | MAIN-03 | `scripts/rsl_rl/play.py` | Checkpoint / resume / export / play | S3, S4 when deployment changes | T-persist, T-order, T-diff, T-live | none mapped | unconfirmed | missing-test | Need play/export normalizer sink inventory. |
 | MAIN-04 | `rsl_rl_cfg.py` | Entrypoint / CLI / config | S0, S2 | T-connect, T-oracle | `frontres_stage_entrypoint_contract.py`; launch command contract | connectivity-confirmed | covered | None known. |
@@ -394,7 +587,7 @@ Atlas readability finding:
 | MAIN-25 | `frontres_alpha_rho_bridge.py` | Algorithm / loss / optimizer | S1, S2 | T-shape, T-mask, T-value, T-grad, T-connect | authority/alpha/rho tests likely | needs-inventory | needs-inventory | Map exact alpha/rho tests. |
 | MAIN-26 | `frontres_segment_cache_builder.py` | Storage / batch tuple | S1, S2, S3 | T-shape, T-order, T-connect, T-persist | aggregate suite cache_builder | contract-confirmed | covered | None known. |
 | MAIN-27 | `frontres_segment_dataset.py` | Storage / batch tuple | S1, S2 | T-shape, T-order, T-role, T-connect | aggregate suite dataset | contract-confirmed | covered | None known. |
-| MAIN-28 | `frontres_segment_sampler.py` | Sampler / curriculum / priority | S1, S2 | T-dist, T-meta, T-role | aggregate suite sampler; live sampler contract | contract-confirmed | covered | Distribution stress for sampler policy changes. |
+| MAIN-28 | `frontres_segment_sampler.py` | Sampler / curriculum / priority | S1, S2 | T-dist, T-meta, T-role, T-persist | aggregate suite sampler; live sampler contract; sampler state/multi-trial/budget contract | contract-confirmed | covered-but-live-gap | Step 1 sampler state model is S1-confirmed. Step 2 fixed-policy multi-trial aggregation is S1-confirmed. Step 3 rollout-budget planning and policy-first trial expansion are S1-confirmed. Step 4 fixed-env-row-budget trial sampling is S1/S2-confirmed and avoids marking unexecuted base segments as seen. Real IsaacLab expanded trial-row rollout remains S4. Distribution stress is still required when priority formulas, trial allocation, or curriculum allocation change. |
 | MAIN-29 | `frontres_segment_reset.py` | Env command / reset / lifecycle adapter | S2, S4 when live behavior changes | T-connect, T-oracle, T-live | aggregate suite reset; reset hook contract | connectivity-confirmed | covered-but-live-gap | Real env reset is S4. |
 | MAIN-30 | `on_policy_runner.py` | Runner / orchestration | S2, S4 for live-only boundaries | T-connect, T-oracle, T-live | runner lifecycle/boundary contracts | connectivity-confirmed | covered-but-live-gap | Full training run not claimed. |
 | MAIN-31 | `frontres_training_setup.py` | Runner / orchestration | S2 | T-connect, T-oracle | aggregate suite runner targets indirect | connectivity-confirmed | covered | None known. |
@@ -403,16 +596,16 @@ Atlas readability finding:
 | MAIN-34 | `frontres_post_step_connector.py` | Storage / batch tuple | S1, S2 | T-shape, T-order, T-mask, T-connect | storage/algorithm contracts indirect | connectivity-confirmed | covered | None known. |
 | MAIN-35 | `frontres_hsl_rollout_target.py` | Tensor layout / adapter | S1, S2 | T-shape, T-mask, T-value, T-transform | HSL acceptance tests likely | needs-inventory | needs-inventory | Map exact HSL target tests. |
 | MAIN-36 | `frontres_runtime.py` | Runner / orchestration | S2, S4 for live-only boundaries | T-connect, T-oracle, T-live | balance offline connectivity; runtime contracts likely | connectivity-confirmed | covered-but-live-gap | Deployment sink tests incomplete. |
-| MAIN-37 | `frontres_segment_live_sampler.py` | Sampler / curriculum / priority | S1, S2, S4 when live sampling changes | T-dist, T-role, T-connect, T-oracle, T-live | live sampler contract; diagnostics contract; pseudo suite | contract-confirmed | covered | Live sampler contract verifies sampler evidence is isolated from post-update PPO diagnostics and remains policy-update independent; diagnostics contract verifies live `sampler_update_replay_candidate_count` is the displayed replay candidate field. |
-| MAIN-38 | `frontres_segment_live_training.py` | Runner / orchestration | S2, S4 | T-connect, T-oracle, T-live | diagnostics contract; pseudo suite; live sentinel | runtime-confirmed | covered-but-live-gap | Expensive full training not claimed; Motion Quality missing positions report `UNCONFIRMED`; sequence debug now prints action distribution health. |
-| MAIN-39 | `frontres_segment_live_update_loop.py` | Algorithm / loss / optimizer | S2 | T-connect, T-grad, T-oracle, T-update-order, T-state, T-post-mean-delta | live single-update contract; live update loop contract | connectivity-confirmed | covered | Single-update contract verifies old_means/old_sigmas pre-loss KL drives MOSAIC-style pre-step adaptive LR, post-update trust-region KL and post-update mean_delta are reported, and rejected post-KL steps rollback without touching legacy PPO. |
+| MAIN-37 | `frontres_segment_live_sampler.py` | Sampler / curriculum / priority | S1, S2, S4 when live sampling changes | T-dist, T-role, T-connect, T-oracle, T-live, T-ppo-boundary, T-diagnostic-boundary | live sampler contract; live probe contract; live probe PPO contract; diagnostics contract; pseudo suite | contract-confirmed | covered-but-live-gap | Live sampler contract verifies sampler evidence is isolated from post-update PPO diagnostics and remains policy-update independent; diagnostics contract verifies live `sampler_update_replay_candidate_count` is the displayed replay candidate field. Step 4 live connector contract verifies expanded policy/search trial rows, trial-index metadata, and budget-horizon metadata reach batch/probe before sampler evidence update. Step 5 live probe contract verifies the same metadata reaches reset/storage/summary. Step 6 fake-live accounting confirms only policy rows count as PPO-valid. Step 7 prints sampler oracle gap/confidence/delayed-regret diagnostics. Real IsaacLab rollout execution remains S4. |
+| MAIN-38 | `frontres_segment_live_training.py` | Runner / orchestration | S2, S4 | T-connect, T-oracle, T-live, T-ppo-boundary, T-diagnostic-boundary | live probe contract; live probe PPO contract; diagnostics contract; pseudo suite; live-training pseudo; live sentinel | runtime-confirmed | covered-but-live-gap | Expensive full training not claimed; Motion Quality missing positions report `UNCONFIRMED`; sequence debug now prints action distribution health. Step 5 live probe contract verifies printable `trial.*` metadata for multi-trial log readability. Step 6 live probe PPO contract verifies search rows remain priority evidence and are not valid PPO rows. Step 7 live/probe/training contracts expose policy/search/evidence/PPO-valid/search-only/policy-invalid counts and valid fractions in human-readable logs. Step 8 aggregate suite passes 43/43 contract markers. |
+| MAIN-39 | `frontres_segment_live_update_loop.py` | Algorithm / loss / optimizer | S2 | T-connect, T-grad, T-oracle, T-update-order, T-state, T-post-mean-delta, T-diagnostic-boundary | live single-update contract; live update loop contract | connectivity-confirmed | covered | Single-update contract verifies old_means/old_sigmas pre-loss KL drives MOSAIC-style pre-step adaptive LR, post-update trust-region KL and post-update mean_delta are reported, and rejected post-KL steps rollback without touching legacy PPO. Step 7 update-loop contract aggregates trial/evidence/PPO-boundary diagnostics across repeated steps. |
 | MAIN-40 | `frontres_segment_sequence_eval.py` | Reward / metric / evaluator | S2, S4 | T-role, T-oracle, T-meta, T-diff, T-live | diagnostics contract; sequence eval contract; live sentinel | connectivity-confirmed | covered-but-live-gap | Real long sequence eval is S4; contracts cover Periodic Eval formatting, missing-data reporting, differential zero-vs-real output, and raw action-distribution health. |
 | MAIN-41 | `rollout_storage.py::Transition` | Storage / batch tuple | S1, S2, S3 if persisted | T-shape, T-order, T-mask, T-persist | storage contract; aggregate suite | contract-confirmed | covered | None known. |
 | MAIN-42 | `rollout_storage.py::add_transitions` | Storage / batch tuple | S1, S2 | T-shape, T-order, T-mask, T-connect | storage contract | contract-confirmed | covered | None known. |
 | MAIN-43 | `rollout_storage.py::mini_batch_generator` | Storage / batch tuple | S1, S2 | T-shape, T-order, T-mask, T-connect | storage + algorithm contracts | contract-confirmed | covered | None known. |
-| MAIN-44 | `frontres_segment_storage.py` | Storage / batch tuple | S1, S2, S3 if persisted | T-shape, T-order, T-mask, T-connect, T-persist | segment storage contract | contract-confirmed | covered | Storage preserves `old_means`/`old_sigmas` through PPO batch conversion. |
+| MAIN-44 | `frontres_segment_storage.py` | Storage / batch tuple | S1, S2, S3 if persisted | T-shape, T-order, T-mask, T-connect, T-persist, T-ppo-boundary | segment storage contract; live probe contract; live probe PPO contract | contract-confirmed | covered | Storage preserves `old_means`/`old_sigmas` through PPO batch conversion. Step 5 stores trial metadata only as `priority_evidence`; Step 6 gates storage/PPO `valid_mask` so search rows stay evidence-only while PPO batch fields remain unchanged. |
 | MAIN-45 | `ppo.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect | none mapped | unconfirmed | needs-inventory | Base PPO tests not mapped. |
-| MAIN-46 | `frontres_segment_ppo.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect, T-clip, T-kl-exact, T-detach, T-permute, T-update-order, T-state, T-cone, T-adv-dominance, T-adv-sign-preserve, T-bounded-logprob-source, T-small-sigma-kl-sensitivity, T-post-mean-delta | segment algorithm contract; live single-update contract; update loop contract | contract-confirmed | covered | Contract confirms 6D action PPO stepping, masking, exact clipped surrogate, exact old_means/old_sigmas distribution KL, old-policy tensor detach, row-permutation invariance, full-6D support under rp-only action-mask metadata, advantage dominance diagnostics, scale-only no-regret sign preservation, bounded Delta SE log-prob source reconstruction, small-sigma KL sensitivity, MOSAIC-style pre-step adaptive LR, post-update KL reporting, and post-update mean-delta reporting for live single-update. |
+| MAIN-46 | `frontres_segment_ppo.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect, T-clip, T-kl-exact, T-detach, T-permute, T-update-order, T-state, T-cone, T-adv-dominance, T-adv-sign-preserve, T-bounded-logprob-source, T-small-sigma-kl-sensitivity, T-post-mean-delta, T-ppo-boundary | segment algorithm contract; live single-update contract; update loop contract; live probe PPO contract | contract-confirmed | covered | Contract confirms 6D action PPO stepping, masking, exact clipped surrogate, exact old_means/old_sigmas distribution KL, old-policy tensor detach, row-permutation invariance, full-6D support under rp-only action-mask metadata, advantage dominance diagnostics, scale-only no-regret sign preservation, bounded Delta SE log-prob source reconstruction, small-sigma KL sensitivity, MOSAIC-style pre-step adaptive LR, post-update KL reporting, and post-update mean-delta reporting for live single-update. Step 6 confirms PPO loss remains trial-role blind and consumes only role-gated valid rows. |
 | MAIN-47 | `frontres_unified.py` | Algorithm / loss / optimizer | S1, S2 | T-mask, T-value, T-grad, T-connect | segment algorithm contract; authority/HSL tests likely | contract-confirmed | covered | Map exact sub-loss coverage. |
 | MAIN-48 | `frontres_segment_checkpointing.py` | Checkpoint / resume / export / play | S3 | T-persist, T-order, T-diff | checkpoint/resume contracts; `frontres_stage3_noise_std_migration_contract.py` | persistence-confirmed | covered | None known. |
 | MAIN-49 | `frontres_dr_sweep_eval.py` | Reward / metric / evaluator | S1, S2 | T-dist, T-oracle, T-diff, T-connect | none mapped | unconfirmed | missing-test | Need sweep eval static/connectivity test. |

@@ -21,10 +21,11 @@ MOTION_PATH="${2:-/hdd1/cyx/AMASS_G1NPZ_Final}"
 
 # B3: Stage 3 training schedule.
 
-NUM_ENVS="${NUM_ENVS:-12000}"
-MAX_ITERS="${MAX_ITERS:-2000}"
-UPDATE_STEPS="${UPDATE_STEPS:-4}"
-MODE="train"
+NUM_ENVS="${3:-${NUM_ENVS:-12000}}"
+MAX_ITERS="${4:-${MAX_ITERS:-2000}}"
+UPDATE_STEPS="${5:-${UPDATE_STEPS:-4}}"
+MODE="${6:-${MODE:-train}}"
+EXTRA_TRAIN_ARGS=("${@:7}")
 
 # B4: Online eval. Use run_eval.sh for sequence/offline eval.
 
@@ -71,6 +72,10 @@ CMD=(
   --frontres_segment_ppo_schedule "${FRONTRES_SEGMENT_PPO_SCHEDULE}"
   --frontres_segment_ppo_lr "${FRONTRES_SEGMENT_PPO_LR}"
 )
+
+if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
+  CMD+=("${EXTRA_TRAIN_ARGS[@]}")
+fi
 
 if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   echo "[FrontRES Stage3] preflight only"

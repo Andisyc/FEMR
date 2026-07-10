@@ -196,7 +196,7 @@ def run_frontres_segment_sampler_step(
     if sampler is None:
         return runner.run_frontres_segment_live_probe(init_at_random_ep_len=init_at_random_ep_len)
 
-    sample = sampler.sample(_resolve_live_batch_size(runner))
+    sample = _sample_live_segment_rows(runner, sampler)
     detail_log = _live_detail_log_enabled(runner)
     verbose_probe = _verbose_probe_enabled(runner, sample)
     if detail_log:
@@ -225,7 +225,7 @@ def run_frontres_segment_sampler_step(
     evidence = build_live_sampler_evidence(
         sample,
         summary,
-        horizon_k=int(getattr(runner.alg, "frontres_segment_k", 1)),
+        horizon_k=sample.horizon_k if isinstance(sample.horizon_k, torch.Tensor) else int(getattr(runner.alg, "frontres_segment_k", 1)),
         reset_result=reset_result,
         print_probe=detail_log,
     )
@@ -244,6 +244,11 @@ def run_frontres_segment_sampler_step(
             "sampler_update_priority_after_max": update_probe.priority_after_max,
             "sampler_update_replay_candidate_count": update_probe.replay_candidate_count,
             "sampler_update_hopeless_count": update_probe.hopeless_count,
+            "sampler_update_delayed_regret_count": update_probe.delayed_regret_count,
+            "sampler_update_segment_count": update_probe.segment_count,
+            "sampler_update_trial_count": update_probe.trial_count,
+            "sampler_update_oracle_gap_mean": update_probe.oracle_gap_mean,
+            "sampler_update_confidence_mean": update_probe.confidence_mean,
         }
     )
     summary.update(sampler_summary)
@@ -343,6 +348,19 @@ def _attach_stage3_index_perturbation_plan(batch: Any, plan: Any | None) -> Any:
     return batch
 
 
+def _attach_frontres_segment_trial_plan(batch: Any, sample: FrontRESSegmentSample) -> Any:
+    roles = tuple(getattr(sample, "trial_role", ()) or ())
+    if roles and len(roles) == int(sample.segment_ids.numel()):
+        object.__setattr__(batch, "frontres_segment_trial_role", roles)
+    if isinstance(sample.source_index, torch.Tensor) and int(sample.source_index.numel()) == int(sample.segment_ids.numel()):
+        object.__setattr__(batch, "frontres_segment_source_index", sample.source_index.detach().clone())
+    if isinstance(sample.trial_index, torch.Tensor) and int(sample.trial_index.numel()) == int(sample.segment_ids.numel()):
+        object.__setattr__(batch, "frontres_segment_trial_index", sample.trial_index.detach().clone())
+    if isinstance(sample.horizon_k, torch.Tensor) and int(sample.horizon_k.numel()) == int(sample.segment_ids.numel()):
+        object.__setattr__(batch, "frontres_segment_budget_horizon_k", sample.horizon_k.detach().clone())
+    return batch
+
+
 def _tensor_nonzero_frac(value: object) -> float:
     if not isinstance(value, torch.Tensor) or int(value.numel()) <= 0:
         return 0.0
@@ -382,6 +400,7 @@ def _build_current_segment_batch(
             )
         return None
     batch = dataset.get_segments(sample.segment_ids)
+    _attach_frontres_segment_trial_plan(batch, sample)
     validation = dataset.validate_batch(batch) if hasattr(dataset, "validate_batch") else None
     valid_count = (
         int(validation.valid_mask.bool().sum().detach().cpu().item())
@@ -405,7 +424,12 @@ def _build_current_segment_batch(
                         "ids": _id_summary(sample.segment_ids),
                         "valid_count": valid_count,
                         "role_counts": _count_summary(roles),
+                        "trial_role_counts": _count_summary(tuple(getattr(batch, "frontres_segment_trial_role", ()) or ())),
                         "strength": _tensor_value_summary("strength", strength),
+                        "budget_horizon": _tensor_value_summary(
+                            "budget_horizon",
+                            getattr(batch, "frontres_segment_budget_horizon_k", None),
+                        ),
                         "strength_nonzero_frac": _fmt_pct(_tensor_nonzero_frac(strength)),
                         "dynamic_family_counts": _count_summary(dynamic_family),
                     },
@@ -431,6 +455,7 @@ def build_live_sampler_evidence(
         ids = ids[:row_count]
     n = int(ids.numel())
     device = ids.device
+    horizon = _horizon_vector(horizon_k, n=n, device=device)
     reset_success = _reset_success_for_sample(reset_result, n=n, device=device)
     reward = _summary_vector(
         summary,
@@ -510,7 +535,7 @@ def build_live_sampler_evidence(
         contact_consistency=torch.ones(n, dtype=torch.float32, device=device),
         action_norm=torch.ones(n, dtype=torch.float32, device=device),
         valid_reward=valid_reward,
-        horizon_k=torch.full((n,), max(1, int(horizon_k)), dtype=torch.long, device=device),
+        horizon_k=horizon,
     )
 
 
@@ -531,6 +556,7 @@ def _reset_success_for_sample(reset_result: Any | None, *, n: int, device: torch
 def summarize_sampler_step(sampler: FrontRESSegmentSampler, sample: FrontRESSegmentSample) -> dict[str, object]:
     stats = sampler.stats()
     counts = Counter(sample.source)
+    trial_counts = Counter(sample.trial_role)
     stale_review_count = int(((sampler.staleness > 0.0) & sampler.solved & (~sampler.invalid)).sum().item())
     return {
         "sampler_update": True,
@@ -538,6 +564,14 @@ def summarize_sampler_step(sampler: FrontRESSegmentSampler, sample: FrontRESSegm
         "sampler_source_global_count": int(counts.get("global", 0)),
         "sampler_source_replay_count": int(counts.get("replay", 0)),
         "sampler_source_review_count": int(counts.get("review", 0)),
+        "sampler_trial_policy_count": int(trial_counts.get("policy", 0)),
+        "sampler_trial_search_count": int(trial_counts.get("search", 0)),
+        "sampler_budget_trial_count_mean": float(sample.rollout_trial_count.float().mean().item())
+        if isinstance(sample.rollout_trial_count, torch.Tensor) and sample.rollout_trial_count.numel() > 0
+        else 0.0,
+        "sampler_budget_horizon_mean": float(sample.horizon_k.float().mean().item())
+        if isinstance(sample.horizon_k, torch.Tensor) and sample.horizon_k.numel() > 0
+        else 0.0,
         "sampler_replay_pool_size": int(stats.replay_pool_size),
         "sampler_review_pool_size": int(stats.review_pool_size),
         "sampler_priority_mean": float(stats.priority_mean),
@@ -562,6 +596,19 @@ def _resolve_live_batch_size(runner: Any) -> int:
     return max(1, int(getattr(env, "num_envs", 1) or 1))
 
 
+def _resolve_live_max_horizon_k(runner: Any) -> int:
+    alg = getattr(runner, "alg", None)
+    return max(1, int(getattr(alg, "frontres_segment_max_horizon_k", getattr(alg, "frontres_segment_k", 1))))
+
+
+def _sample_live_segment_rows(runner: Any, sampler: FrontRESSegmentSampler) -> FrontRESSegmentSample:
+    row_budget = _resolve_live_batch_size(runner)
+    max_horizon_k = _resolve_live_max_horizon_k(runner)
+    if hasattr(sampler, "sample_rollout_rows"):
+        return sampler.sample_rollout_rows(row_budget, max_horizon_k=max_horizon_k)
+    return sampler.sample(row_budget, max_horizon_k=max_horizon_k)
+
+
 def _summary_float(summary: dict[str, object], key: str, default: float) -> float:
     try:
         return float(summary.get(key, default))
@@ -574,6 +621,18 @@ def _summary_int(summary: dict[str, object], key: str, default: int) -> int:
         return int(summary.get(key, default))
     except (TypeError, ValueError):
         return int(default)
+
+
+def _horizon_vector(horizon_k: int | torch.Tensor | list[int] | tuple[int, ...], *, n: int, device: torch.device) -> torch.Tensor:
+    if isinstance(horizon_k, torch.Tensor):
+        horizon = horizon_k.to(device=device, dtype=torch.long).reshape(-1)
+    elif isinstance(horizon_k, (list, tuple)):
+        horizon = torch.tensor(list(horizon_k), dtype=torch.long, device=device).reshape(-1)
+    else:
+        return torch.full((n,), max(1, int(horizon_k)), dtype=torch.long, device=device)
+    if int(horizon.numel()) < n:
+        raise ValueError(f"horizon_k must have at least {n} rows, got {int(horizon.numel())}")
+    return horizon[:n].clamp_min(1).detach().clone()
 
 
 def _summary_vector(
@@ -730,9 +789,14 @@ def _tensor_value_summary(name: str, value: object) -> str:
 def _verbose_sample_lines(sample: FrontRESSegmentSample, *, verbose: bool) -> tuple[str, ...]:
     if not verbose:
         return ()
+    horizon = sample.horizon_k.detach().cpu().tolist() if isinstance(sample.horizon_k, torch.Tensor) else []
+    trial_index = sample.trial_index.detach().cpu().tolist() if isinstance(sample.trial_index, torch.Tensor) else []
     return (
         f"  sample.segment_ids: {sample.segment_ids.detach().cpu().tolist()}",
         f"  sample.sources: {list(sample.source)}",
+        f"  sample.trial_roles: {list(sample.trial_role)}",
+        f"  sample.trial_index: {trial_index}",
+        f"  sample.budget_horizon: {horizon}",
     )
 
 
@@ -749,6 +813,7 @@ def _verbose_batch_lines(
     return (
         f"  batch.segment_ids: {sample.segment_ids.detach().cpu().tolist()}",
         f"  batch.roles: {roles}",
+        f"  batch.trial_roles: {list(sample.trial_role)}",
         f"  batch.strength: {strength_list}",
     )
 
@@ -766,6 +831,8 @@ def _print_sample_probe(update_step: int, sample: FrontRESSegmentSample, *, verb
                         "priority": _fmt_num(sample.priority.float().mean().detach().cpu()),
                         "staleness": _fmt_num(sample.staleness.float().mean().detach().cpu()),
                         "valid_count": int(sample.valid_mask.bool().sum().detach().cpu().item()),
+                        "trial_role_counts": _count_summary(list(sample.trial_role)),
+                        "budget_horizon": _tensor_value_summary("budget_horizon", sample.horizon_k),
                     },
                 ),
                 *_verbose_sample_lines(sample, verbose=verbose),
@@ -791,6 +858,12 @@ def _print_sampler_summary(update_step: int, summary: dict[str, object]) -> None
                             f"replay:{int(summary['sampler_replay_pool_size'])},"
                             f"review:{int(summary['sampler_review_pool_size'])}"
                         ),
+                        "trial": (
+                            f"policy:{int(summary.get('sampler_trial_policy_count', 0))},"
+                            f"search:{int(summary.get('sampler_trial_search_count', 0))},"
+                            f"budget_mean:{_fmt_num(summary.get('sampler_budget_trial_count_mean', 0.0))},"
+                            f"horizon_mean:{_fmt_num(summary.get('sampler_budget_horizon_mean', 0.0))}"
+                        ),
                         "priority": _fmt_num(summary["sampler_priority_mean"]),
                         "useful": (
                             f"mean:{_fmt_num(summary.get('sampler_update_useful_mean', 0.0))},"
@@ -805,10 +878,17 @@ def _print_sampler_summary(update_step: int, summary: dict[str, object]) -> None
                             f"mean:{_fmt_num(summary.get('sampler_update_gain_mean', 0.0))},"
                             f"pos:{_fmt_pct(summary.get('sampler_update_gain_pos_frac', 0.0))}"
                         ),
+                        "oracle": (
+                            f"gap:{_fmt_num(summary.get('sampler_update_oracle_gap_mean', 0.0))},"
+                            f"confidence:{_fmt_num(summary.get('sampler_update_confidence_mean', 0.0))},"
+                            f"delayed:{int(summary.get('sampler_update_delayed_regret_count', 0))}"
+                        ),
                         "update": (
                             f"valid:{int(summary.get('sampler_update_valid_count', 0))},"
                             f"fall:{int(summary.get('sampler_update_fall_count', 0))},"
                             f"hopeless:{int(summary.get('sampler_update_hopeless_count', 0))},"
+                            f"segments:{int(summary.get('sampler_update_segment_count', 0))},"
+                            f"trials:{int(summary.get('sampler_update_trial_count', 0))},"
                             f"replay_candidates:{int(summary.get('sampler_update_replay_candidate_count', 0))}"
                         ),
                         "solved": _fmt_pct(summary["sampler_solved_frac"]),

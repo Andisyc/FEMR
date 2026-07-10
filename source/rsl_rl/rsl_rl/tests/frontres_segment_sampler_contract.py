@@ -17,7 +17,11 @@ assert spec.loader is not None
 sys.modules[spec.name] = sampler_module
 spec.loader.exec_module(sampler_module)
 FrontRESSegmentRolloutEvidence = sampler_module.FrontRESSegmentRolloutEvidence
+FrontRESSegmentRolloutBudget = sampler_module.FrontRESSegmentRolloutBudget
 FrontRESSegmentSampler = sampler_module.FrontRESSegmentSampler
+FrontRESSegmentState = sampler_module.FrontRESSegmentState
+FrontRESSegmentTrialPlan = sampler_module.FrontRESSegmentTrialPlan
+FrontRESSegmentTrialEvidence = sampler_module.FrontRESSegmentTrialEvidence
 
 
 def _evidence(
@@ -28,8 +32,13 @@ def _evidence(
     *,
     fall: list[bool] | None = None,
     valid: list[bool] | None = None,
+    horizon_k: list[int] | int = 4,
 ) -> FrontRESSegmentRolloutEvidence:
     n = len(segment_ids)
+    if isinstance(horizon_k, int):
+        horizon = torch.ones(n, dtype=torch.long) * int(horizon_k)
+    else:
+        horizon = torch.tensor(horizon_k, dtype=torch.long)
     return FrontRESSegmentRolloutEvidence(
         segment_ids=torch.tensor(segment_ids, dtype=torch.long),
         reset_success=torch.ones(n, dtype=torch.bool),
@@ -41,7 +50,7 @@ def _evidence(
         contact_consistency=torch.ones(n, dtype=torch.float32),
         action_norm=torch.ones(n, dtype=torch.float32),
         valid_reward=torch.tensor(valid if valid is not None else [True] * n, dtype=torch.bool),
-        horizon_k=torch.ones(n, dtype=torch.long) * 4,
+        horizon_k=horizon,
     )
 
 
@@ -97,6 +106,245 @@ def test_sampler_update_probe_exposes_priority_boundary() -> None:
     assert probe.hopeless_count == 1
 
 
+def test_sampler_state_model_tracks_learning_frontier() -> None:
+    sampler = FrontRESSegmentSampler(4, global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=29)
+
+    assert sampler.segment_state.tolist() == [FrontRESSegmentState.UNKNOWN] * 4
+
+    sampler.update(_evidence([0], gain=[0.30], repaired=[0.55], noisy=[0.20], horizon_k=8))
+    assert int(sampler.segment_state[0].item()) == FrontRESSegmentState.PROMISING
+
+    sampler.update(_evidence([0], gain=[0.25], repaired=[0.60], noisy=[0.20], horizon_k=8))
+    assert int(sampler.segment_state[0].item()) == FrontRESSegmentState.FRONTIER
+
+    sampler.update(_evidence([0], gain=[-0.10], repaired=[0.35], noisy=[0.45], fall=[False], horizon_k=32))
+    assert int(sampler.segment_state[0].item()) == FrontRESSegmentState.DELAYED_REGRET
+    assert not sampler.hopeless[0].item()
+
+    sampler.update(_evidence([1], gain=[0.01], repaired=[0.95], noisy=[0.94], horizon_k=8))
+    sampler.update(_evidence([2], gain=[-0.20], repaired=[0.10], noisy=[0.10], fall=[True], horizon_k=8))
+    stats = sampler.stats()
+    print(
+        "[probe sampler_state] "
+        f"states={sampler.segment_state.tolist()} "
+        f"unknown={stats.unknown_count} promising={stats.promising_count} "
+        f"frontier={stats.frontier_count} delayed={stats.delayed_regret_count} "
+        f"solved={stats.solved_count} hopeless={stats.hopeless_count}",
+        flush=True,
+    )
+    assert int(sampler.segment_state[1].item()) == FrontRESSegmentState.SOLVED
+    assert int(sampler.segment_state[2].item()) == FrontRESSegmentState.HOPELESS
+    assert stats.delayed_regret_count == 1
+    assert stats.solved_count == 1
+    assert stats.hopeless_count == 1
+
+
+def test_sampler_state_model_round_trips_and_migrates_legacy_state() -> None:
+    sampler = FrontRESSegmentSampler(3, seed=31)
+    sampler.update(_evidence([0], gain=[0.20], repaired=[0.50], noisy=[0.20], horizon_k=8))
+    sampler.update(_evidence([0], gain=[-0.10], repaired=[0.35], noisy=[0.45], horizon_k=32))
+    sampler.update(_evidence([1], gain=[0.01], repaired=[0.95], noisy=[0.94], horizon_k=8))
+
+    restored = FrontRESSegmentSampler(3, seed=31)
+    restored.load_state_dict(sampler.state_dict())
+    assert restored.segment_state.tolist() == sampler.segment_state.tolist()
+    torch.testing.assert_close(restored.best_short_gain, sampler.best_short_gain)
+    assert restored.evidence_count.tolist() == sampler.evidence_count.tolist()
+
+    legacy = {
+        "priority": torch.zeros(3),
+        "staleness": torch.zeros(3),
+        "seen": torch.tensor([True, True, True]),
+        "solved": torch.tensor([False, True, False]),
+        "hopeless": torch.tensor([False, False, True]),
+        "invalid": torch.zeros(3, dtype=torch.bool),
+        "invalid_reasons": {},
+    }
+    migrated = FrontRESSegmentSampler(3, seed=31)
+    migrated.load_state_dict(legacy)
+    print(
+        "[probe sampler_state_migration] "
+        f"legacy_solved={legacy['solved'].tolist()} "
+        f"legacy_hopeless={legacy['hopeless'].tolist()} "
+        f"migrated_state={migrated.segment_state.tolist()}",
+        flush=True,
+    )
+    assert int(migrated.segment_state[0].item()) == FrontRESSegmentState.UNKNOWN
+    assert int(migrated.segment_state[1].item()) == FrontRESSegmentState.SOLVED
+    assert int(migrated.segment_state[2].item()) == FrontRESSegmentState.HOPELESS
+
+
+def test_sampler_multi_trial_aggregates_fixed_policy_visit() -> None:
+    sampler = FrontRESSegmentSampler(3, seed=37)
+    trial = sampler.aggregate_trial_evidence(
+        _evidence(
+            [0, 0, 0, 1, 1],
+            gain=[0.10, 0.60, -0.20, 0.20, 0.25],
+            repaired=[0.30, 0.80, 0.10, 0.50, 0.55],
+            noisy=[0.20, 0.20, 0.20, 0.30, 0.30],
+            fall=[False, False, True, False, False],
+            horizon_k=8,
+        )
+    )
+    print(
+        "[probe sampler_multi_trial] "
+        f"ids={trial.segment_ids.tolist()} "
+        f"trial_count={trial.trial_count.tolist()} "
+        f"policy_gain={trial.policy_gain.tolist()} "
+        f"best_gain={trial.best_gain.tolist()} "
+        f"mean_gain={trial.mean_gain.tolist()} "
+        f"success_frac={trial.success_frac.tolist()} "
+        f"fall_frac={trial.fall_frac.tolist()} "
+        f"oracle_gap={trial.oracle_gap.tolist()} "
+        f"confidence={trial.confidence.tolist()}",
+        flush=True,
+    )
+    assert isinstance(trial, FrontRESSegmentTrialEvidence)
+    assert trial.segment_ids.tolist() == [0, 1]
+    assert trial.trial_count.tolist() == [3, 2]
+    torch.testing.assert_close(trial.policy_gain, torch.tensor([0.10, 0.20]))
+    torch.testing.assert_close(trial.best_gain, torch.tensor([0.60, 0.25]))
+    torch.testing.assert_close(trial.mean_gain, torch.tensor([0.16666667, 0.225]))
+    torch.testing.assert_close(trial.success_frac, torch.tensor([2.0 / 3.0, 1.0]))
+    torch.testing.assert_close(trial.fall_frac, torch.tensor([1.0 / 3.0, 0.0]))
+    torch.testing.assert_close(trial.oracle_gap, torch.tensor([0.50, 0.05]))
+    torch.testing.assert_close(trial.confidence, torch.tensor([2.0 / 3.0, 2.0 / 3.0]))
+
+
+def test_sampler_multi_trial_update_records_oracle_gap_without_policy_update() -> None:
+    sampler = FrontRESSegmentSampler(3, seed=41)
+    probe = sampler.update_with_probe(
+        _evidence(
+            [0, 0, 0],
+            gain=[0.10, 0.60, -0.20],
+            repaired=[0.30, 0.80, 0.10],
+            noisy=[0.20, 0.20, 0.20],
+            fall=[False, False, True],
+            horizon_k=8,
+        )
+    )
+    print(
+        "[probe sampler_multi_trial_update] "
+        f"segment_count={probe.segment_count} trial_count={probe.trial_count} "
+        f"oracle_gap_mean={probe.oracle_gap_mean:.6f} "
+        f"last_trial_count={sampler.last_trial_count.tolist()} "
+        f"last_oracle_gap={sampler.last_oracle_gap.tolist()} "
+        f"states={sampler.segment_state.tolist()}",
+        flush=True,
+    )
+    assert probe.segment_count == 1
+    assert probe.trial_count == 3
+    assert probe.valid_count == 3
+    assert probe.fall_count == 1
+    assert probe.oracle_gap_mean > 0.49
+    assert int(sampler.last_trial_count[0].item()) == 3
+    torch.testing.assert_close(sampler.last_oracle_gap[0], torch.tensor(0.50))
+    assert int(sampler.segment_state[0].item()) == FrontRESSegmentState.FRONTIER
+
+
+def _sampler_with_all_budget_states() -> FrontRESSegmentSampler:
+    sampler = FrontRESSegmentSampler(6, seed=43)
+    sampler.update(_evidence([1], gain=[0.30], repaired=[0.55], noisy=[0.20], horizon_k=8))
+    sampler.update(
+        _evidence(
+            [2, 2, 2],
+            gain=[0.10, 0.60, -0.20],
+            repaired=[0.30, 0.80, 0.10],
+            noisy=[0.20, 0.20, 0.20],
+            fall=[False, False, True],
+            horizon_k=8,
+        )
+    )
+    sampler.update(_evidence([3], gain=[0.30], repaired=[0.55], noisy=[0.20], horizon_k=8))
+    sampler.update(_evidence([3], gain=[-0.10], repaired=[0.35], noisy=[0.45], fall=[False], horizon_k=32))
+    sampler.update(_evidence([4], gain=[0.01], repaired=[0.95], noisy=[0.94], horizon_k=8))
+    sampler.update(_evidence([5], gain=[-0.20], repaired=[0.10], noisy=[0.10], fall=[True], horizon_k=8))
+    return sampler
+
+
+def test_sampler_rollout_budget_allocates_trials_by_state_and_horizon_unlock() -> None:
+    sampler = _sampler_with_all_budget_states()
+    budget = sampler.plan_rollout_budget(torch.tensor([0, 1, 2, 3, 4, 5]), max_horizon_k=32)
+    print(
+        "[probe sampler_budget] "
+        f"states={budget.segment_state.tolist()} "
+        f"trials={budget.trial_count.tolist()} "
+        f"horizon={budget.horizon_k.tolist()} "
+        f"reason={budget.reason}",
+        flush=True,
+    )
+    assert isinstance(budget, FrontRESSegmentRolloutBudget)
+    assert budget.trial_count.tolist() == [1, 3, 6, 6, 1, 1]
+    assert budget.horizon_k.tolist() == [8, 16, 32, 32, 32, 8]
+    assert budget.reason == (
+        "unknown_probe",
+        "promising_local_trials",
+        "frontier_multi_trial",
+        "delayed_regret_long_check",
+        "solved_review",
+        "hopeless_recheck",
+    )
+
+    short_budget = sampler.plan_rollout_budget(torch.tensor([2, 3, 4]), max_horizon_k=8)
+    assert short_budget.horizon_k.tolist() == [8, 8, 8]
+
+
+def test_sampler_trial_plan_expands_policy_first_roles() -> None:
+    sampler = _sampler_with_all_budget_states()
+    plan = sampler.expand_rollout_trials(torch.tensor([1, 2]), max_horizon_k=32)
+    print(
+        "[probe sampler_trial_plan] "
+        f"segment_ids={plan.segment_ids.tolist()} "
+        f"source_index={plan.source_index.tolist()} "
+        f"trial_index={plan.trial_index.tolist()} "
+        f"roles={plan.trial_role} "
+        f"horizon={plan.horizon_k.tolist()}",
+        flush=True,
+    )
+    assert isinstance(plan, FrontRESSegmentTrialPlan)
+    assert plan.segment_ids.tolist() == [1, 1, 1, 2, 2, 2, 2, 2, 2]
+    assert plan.source_index.tolist() == [0, 0, 0, 1, 1, 1, 1, 1, 1]
+    assert plan.trial_index.tolist() == [0, 1, 2, 0, 1, 2, 3, 4, 5]
+    assert plan.trial_role == (
+        "policy",
+        "search",
+        "search",
+        "policy",
+        "search",
+        "search",
+        "search",
+        "search",
+        "search",
+    )
+    assert plan.horizon_k.tolist() == [16, 16, 16, 32, 32, 32, 32, 32, 32]
+
+
+def test_sampler_rollout_row_sampling_respects_fixed_env_budget() -> None:
+    sampler = FrontRESSegmentSampler(2, global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=47)
+    sampler.mark_invalid([1], "holdout")
+    sampler.segment_state[0] = int(FrontRESSegmentState.FRONTIER)
+    sampler.last_trial_count[0] = 3
+    sampler.last_oracle_gap[0] = 0.5
+    sampler.last_success_frac[0] = 0.5
+
+    sample = sampler.sample_rollout_rows(2, max_horizon_k=32)
+    print(
+        "[probe sampler_rollout_rows] "
+        f"segment_ids={sample.segment_ids.tolist()} "
+        f"roles={sample.trial_role} "
+        f"trial_index={sample.trial_index.tolist()} "
+        f"horizon={sample.horizon_k.tolist()} "
+        f"seen={sampler.seen.tolist()}",
+        flush=True,
+    )
+    assert int(sample.segment_ids.numel()) == 2
+    assert sample.segment_ids.tolist() == [0, 0]
+    assert sample.trial_role == ("policy", "search")
+    assert sample.trial_index.tolist() == [0, 1]
+    assert sample.horizon_k.tolist() == [32, 32]
+    assert sampler.seen.tolist() == [True, False]
+
+
 def test_sampler_review_and_staleness_keep_coverage() -> None:
     sampler = FrontRESSegmentSampler(3, global_frac=0.0, replay_frac=0.0, review_frac=1.0, seed=11)
     sampler.update(_evidence([0, 1], gain=[0.01, 0.4], repaired=[0.95, 0.5], noisy=[0.94, 0.1]))
@@ -129,6 +377,13 @@ def main() -> None:
     test_sampler_replays_useful_unsolved_segments()
     test_sampler_reports_effective_source_after_fallback()
     test_sampler_update_probe_exposes_priority_boundary()
+    test_sampler_state_model_tracks_learning_frontier()
+    test_sampler_state_model_round_trips_and_migrates_legacy_state()
+    test_sampler_multi_trial_aggregates_fixed_policy_visit()
+    test_sampler_multi_trial_update_records_oracle_gap_without_policy_update()
+    test_sampler_rollout_budget_allocates_trials_by_state_and_horizon_unlock()
+    test_sampler_trial_plan_expands_policy_first_roles()
+    test_sampler_rollout_row_sampling_respects_fixed_env_budget()
     test_sampler_review_and_staleness_keep_coverage()
     test_sampler_invalid_and_state_dict_restore()
     print("result: PASS")

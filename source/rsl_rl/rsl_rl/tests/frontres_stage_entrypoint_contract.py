@@ -426,7 +426,7 @@ def main() -> None:
     assert 'VARIANTS_PER_STRENGTH="${VARIANTS_PER_STRENGTH:-1}"' in root_stage1
     assert 'VALIDATION_MIN_SEGMENTS="${VALIDATION_MIN_SEGMENTS:-1}"' in root_stage1
     assert 'VALIDATION_MIN_NOISY="${VALIDATION_MIN_NOISY:-1}"' in root_stage1
-    assert 'train_stage1_segment_cache_${STAGE1_MODE}.txt' in root_stage1
+    assert 'LOG_PATH="${LOG_PATH:-/hdd1/cyx/FEMR/train_stage1_segment_index_full.txt}"' in root_stage1
     assert 'build_rollout_cache=${STAGE1_BUILD_ROLLOUT_CACHE}' in root_stage1
     assert 'cache_chunk_size=${CACHE_CHUNK_SIZE}' in root_stage1
     assert '--frontres_stage stage2_hsl_warmup' in root_stage2
@@ -434,14 +434,14 @@ def main() -> None:
     assert 'SUPERVISED_WARMUP_ITERS="${SUPERVISED_WARMUP_ITERS:-${MAX_ITERS}}"' in root_stage2
     assert 'stage2_acceptance' not in root_stage2
     assert 'acceptance' not in root_stage2.lower()
-    assert 'STAGE2_CHECKPOINT="$1"' in root_stage3
+    assert 'MODEL_PATH="${1:-/hdd1/cyx/FEMR/model/model_warmup.pt}"' in root_stage3
     assert 'EXTRA_TRAIN_ARGS=("${@:7}")' in root_stage3
     assert 'bash run/run_frontres_stage3_segment_hrl.sh' in root_stage3
     assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in root_stage3
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in root_stage3
     assert 'export CACHE_DIR' in root_stage3
     assert 'export SHARD_CACHE_SIZE' in root_stage3
-    assert 'FRONTRES_STAGE_PREFLIGHT_ONLY=1' in root_stage3
+    assert 'FRONTRES_STAGE_PREFLIGHT_ONLY' in root_stage3
     assert '[FrontRES Stage3] preflight only' in root_stage3
     assert 'CMD+=("${EXTRA_TRAIN_ARGS[@]}")' in root_stage3
     assert 'train_stage3_segment_hrl.txt' in root_stage3

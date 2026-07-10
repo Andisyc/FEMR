@@ -189,6 +189,13 @@ is sampled repeatedly.
 This makes single-segment multiple rollout a scheduler outcome, not a manually
 fixed inner loop.
 
+When the scheduler chooses multi-trial replay for one segment, the policy
+parameters should stay fixed during those trials.  The trials estimate local
+repair evidence for that segment; they should not trigger an optimizer update
+after every sampled action.  The policy update should still happen from a batch
+containing multiple segments, so the actor learns a reusable repair rule rather
+than overfitting one segment visit.
+
 ## 8. Prioritized Segment Replay
 
 Each PPO batch should mix three sources.
@@ -251,6 +258,227 @@ Low replay priority:
 This follows the same idea as prioritized level replay and reducible-loss
 sampling: repeat samples that the policy can still learn from, not merely
 samples with bad outcomes.
+
+### 9.1 Mature-work alignment
+
+The replay evaluator should adapt mature replay and local-search ideas rather
+than use raw reward as a shortcut.
+
+- Prioritized Level Replay / ACCEL: replay a level because it has future
+  learning utility, not because it is simply bad.  For FEMR, the level is a
+  motion segment.
+- CEM / MPPI / PI2-style local search: repeated trials on the same local
+  problem reveal whether good actions exist and whether the current policy can
+  find them reliably.  For FEMR, this becomes multi-trial Delta SE evidence
+  under a fixed policy snapshot.
+- AWR / AWAC-style advantage weighting: high-value trial actions can later
+  become supervised or weighted-regression evidence, but they must not be
+  silently treated as PPO on-policy samples unless they were actually sampled
+  from the stored old policy distribution with matching log probabilities.
+
+The important transfer is not a literal algorithm copy.  The transferable rule
+is: replay priority should estimate learning potential at the segment frontier.
+
+### 9.2 Multi-trial replay evidence
+
+A segment should be evaluated by a small set of local trials when its current
+state suggests that one rollout is not enough to judge repairability.
+
+Core multi-trial fields:
+
+- `trial_count`: number of rollout attempts collected for this segment visit.
+- `policy_gain`: gain from the ordinary policy-sampled action.
+- `best_gain`: best gain observed among trials.
+- `mean_gain`: average gain over trials.
+- `success_frac`: fraction of trials with positive no-regret gain and no fall.
+- `fall_frac`: fraction of trials that fall or become invalid.
+- `oracle_gap`: `best_gain - mean_gain` or `best_gain - policy_gain`.
+
+Interpretation:
+
+- high `best_gain` and low `success_frac`: the segment is learnable but the
+  current policy is unreliable, so replay priority should increase;
+- high `best_gain` and high `success_frac`: the segment is near solved, so it
+  should decay into review sampling;
+- low `best_gain` and high `fall_frac`: the segment is likely hopeless or
+  outside the current repair authority, so active replay should decrease;
+- high `oracle_gap`: a good local repair exists but the policy does not find it
+  consistently, so the segment has high learning value.
+
+The replay score should therefore be learning-potential based:
+
+```text
+base_priority = repair_need * solvability * learning_gap * confidence
+priority = base_priority + freshness_or_diversity_bonus
+```
+
+Where:
+
+- `repair_need` measures whether Noisy is actually damaged;
+- `solvability` measures whether at least one trial can improve the segment
+  without falling;
+- `learning_gap` is driven by `oracle_gap` and incomplete `success_frac`;
+- `confidence` downweights a single lucky trial and increases after repeated
+  consistent evidence;
+- `freshness_or_diversity_bonus` prevents the pool from collapsing onto a few
+  segments or one perturbation family.
+
+Implementation checkpoint:
+
+- Step 2 implements the fixed-policy multi-trial evidence aggregator in
+  `frontres_segment_sampler.py`.
+- The implemented S1 boundary groups multiple rollout rows for the same
+  segment visit into `trial_count`, `policy_gain`, `best_gain`, `mean_gain`,
+  `success_frac`, `fall_frac`, `oracle_gap`, and `confidence`.
+- Until the live scheduler stores explicit trial roles, `policy_gain` is the
+  first rollout row for that segment visit.
+- Step 3 implements the sampler-owned rollout budget planner:
+  `segment_state -> trial_count / horizon_k`.
+- Step 3 also implements the pure trial-row expansion contract: each selected
+  segment expands into one `policy` trial followed by zero or more `search`
+  trials. This makes the Step 2 `policy_gain = first row` convention explicit.
+- Step 4 wires trial-row expansion into the live sampler connector under a
+  fixed env-row budget. The live sampler now builds executable rows such as
+  `[segment 0 policy, segment 0 search]` before dataset batch construction and
+  env probe, while keeping PPO storage/update semantics unchanged.
+- Step 4 intentionally does not enlarge `num_envs`, does not run optimizer
+  updates between local trials, and does not feed best-trial actions into PPO.
+  It only changes which segment rows the next live probe executes and how the
+  sampler receives policy/search evidence.
+- Step 5 wires the live probe interface for trial metadata. The current sampled
+  batch now carries `policy/search`, `source_index`, `trial_index`, and
+  `budget_horizon_k` through reset requests, storage-side priority evidence,
+  probe summaries, and human-readable `trial.*` log lines.
+- Step 5 still does not change PPO semantics: trial metadata is not added to
+  the PPO batch, no optimizer update is run between local trials, and no
+  best-trial regression is introduced.
+- Step 6 makes the PPO boundary explicit. `policy` trial rows are eligible for
+  the on-policy PPO tuple, while `search` rows remain rollout evidence for
+  replay priority, local comparison, and future non-PPO branches.
+- Step 6 intentionally does not change the PPO loss, optimizer, trust-region
+  rule, or direct 6D Delta SE action semantics. It only prevents non-policy
+  multi-trial evidence from silently becoming PPO update rows.
+- Step 7 adds diagnostics for the Step 4-6 boundary. Live probe, live sampler,
+  live update-loop, and normal live-training logs should expose trial roles,
+  evidence rows, PPO-eligible rows, search-only evidence rows, policy-invalid
+  rows, and sampler oracle quality (`oracle_gap`, `confidence`,
+  `delayed_regret`) in human-readable form.
+- Step 7 intentionally does not change PPO loss, sampler priority, rollout
+  allocation, env stepping, reward, or long-horizon curriculum. It is a
+  white-box visibility layer for auditing whether multi-trial evidence and
+  on-policy PPO rows remain separated.
+- Long-horizon execution remains a later S4 boundary: Step 5 lets index-reset
+  probe requests prefer the planned `budget_horizon_k`, but it does not yet
+  prove real IsaacLab long-window execution quality.
+
+Suggested rollout-budget states:
+
+- `unknown`: one probe rollout;
+- `promising`: three local trials;
+- `frontier`: up to six local trials;
+- `diagnostic`: up to eight local trials, used rarely for debugging or method
+  validation;
+- `solved`: mostly review sampling;
+- `hopeless`: low-rate recheck only.
+
+Forbidden shortcuts:
+
+- do not use low reward alone as priority;
+- do not use positive gain alone as priority;
+- do not update network parameters after each single segment trial;
+- do not mix heuristic or best-of-trial actions into PPO as if the actor caused
+  them, unless the action source, old log probability, and distribution stats
+  are policy-consistent.
+
+### 9.3 Horizon curriculum and delayed no-regret
+
+The default short segment horizon, such as `k=8`, should be treated as a local
+repair probe, not as proof that the repair remains valid over time.  A Delta SE
+action can improve the first few control steps and still create delayed damage
+through balance drift, contact mismatch, or accumulated tracker error.
+
+The long-horizon variable is temporal repair validity:
+
+```text
+Does a locally useful repair remain no-regret when the frozen tracker executes
+the repaired reference for a longer horizon?
+```
+
+The curriculum should combine two mechanisms:
+
+- global horizon unlock: the training run gradually allows longer evaluation
+  horizons;
+- segment-specific horizon allocation: each segment receives only the horizons
+  justified by its current evidence state.
+
+Do not run every segment through every horizon from `k=8` to `k=64`.  That
+would waste rollout budget on already fine, solved, or hopeless segments.  Also
+do not use a purely global schedule where all segments move from `k=8` to
+`k=64` at the same time.  Delayed-regret cases can appear early and should be
+detected as soon as short-horizon success becomes suspicious.
+
+Recommended global unlock schedule:
+
+- Phase 0: `max_horizon = 8`, learn and diagnose immediate local repair.
+- Phase 1: `max_horizon = 16`, check short persistence for promising segments.
+- Phase 2: `max_horizon = 32`, detect delayed regret and early drift.
+- Phase 3: `max_horizon = 64`, validate stability for frontier and solved
+  segments.
+- Phase 4: `horizon = 120+`, use offline sequence validation or low-rate review,
+  not default dense training.
+
+Recommended segment-specific horizon allocation:
+
+- `unknown`: run `k=8`;
+- `promising`: run `k=8` plus occasional `k=16`;
+- `frontier`: run `k=8` multi-trial plus selected `k=16` or `k=32`;
+- `delayed_regret`: run `k=32` or `k=64` because short gain is not trusted;
+- `solved`: run low-rate `k=64` or sequence review to prevent forgetting;
+- `hopeless`: run low-rate `k=8` recheck and avoid long rollout budget.
+
+Core horizon fields:
+
+- `gain_k8`: immediate repair gain;
+- `gain_k16`: short persistence;
+- `gain_k32`: delayed-regret check;
+- `survival_k64`: longer stability check;
+- `fall_time`: first fall or invalid step;
+- `drift_slope`: long-window error growth rate;
+- `delayed_regret`: true when short-horizon gain is positive but longer-horizon
+  gain becomes negative or the rollout falls;
+- `horizon_tag`: the horizon that produced a reward, priority update, or
+  diagnostic row.
+
+The horizon curriculum should use short horizons and long horizons differently:
+
+- `k=8` and selected `k=16` are the primary PPO training signal because they are
+  cheaper and have clearer credit assignment;
+- `k=32` and `k=64` should first act as temporal verifiers that update replay
+  priority, segment state, delayed-regret diagnostics, and review selection;
+- if longer horizons are later used directly in PPO, the batch must carry
+  `horizon_tag`, use horizon-aware advantage scaling, and avoid mixing reward
+  scales as if `k=8` and `k=64` were the same objective.
+
+State transitions:
+
+- `unknown -> promising`: high repair need, positive `best_gain_k8`, and low
+  `fall_frac_k8`;
+- `promising -> frontier`: high `oracle_gap_k8` or low `success_frac_k8`;
+- `promising/frontier -> delayed_regret`: positive `gain_k8` but negative
+  `gain_k16` or `gain_k32`, or early `fall_time`;
+- `frontier -> solved`: stable positive gain across unlocked horizons and low
+  fall rate;
+- `any -> hopeless`: repeated non-positive `best_gain` with high fall rate.
+
+Forbidden shortcuts:
+
+- do not promote all segments to long horizons just because training iteration
+  increased;
+- do not treat `gain_k8 > 0` as solved unless persistence has been checked;
+- do not mix `k=8`, `k=32`, and `k=64` rewards into PPO without horizon tags and
+  scale control;
+- do not continue scoring long-horizon reward after a fall as if it were useful
+  repair evidence.
 
 ## 10. Relationship To Grouping And Experts
 
@@ -344,6 +572,27 @@ Learning-value diagnostics:
 - replay segments retired as solved;
 - replay segments retired as hopeless.
 
+Multi-trial replay diagnostics:
+
+- trial_count by segment state;
+- best_gain / mean_gain / policy_gain;
+- success_frac and fall_frac;
+- oracle_gap;
+- confidence score;
+- freshness / diversity bonus;
+- segment state counts: unknown / promising / frontier / solved / hopeless.
+
+Horizon curriculum diagnostics:
+
+- current global max_horizon;
+- horizon sample fractions for k8 / k16 / k32 / k64 / sequence review;
+- gain_k8 / gain_k16 / gain_k32;
+- survival_k64 and fall_time;
+- drift_slope;
+- delayed_regret count and fraction;
+- segment state transitions into and out of delayed_regret;
+- PPO batch horizon_tag distribution if long horizons enter policy updates.
+
 HSL/HRL diagnostics:
 
 - HSL supervised loss / proposal magnitude;
@@ -382,6 +631,13 @@ is connected to the live training runner.  The minimum test ladder is:
 - deterministic sampler test for global / replay / review proportions;
 - priority-update test showing solved segments decay and learnable segments
   replay more often;
+- multi-trial evidence test showing best_gain, mean_gain, success_frac,
+  oracle_gap, confidence, and state transitions are computed from a fixed-policy
+  segment visit before any optimizer update;
+- horizon-curriculum test showing segments receive k8 / k16 / k32 / k64 only
+  according to global unlock and segment state, not by dense all-horizon sweep;
+- delayed-regret test showing positive short gain plus negative long gain or
+  early fall promotes the segment to delayed_regret and raises verifier priority;
 - dynamic-reset payload test using a fabricated clean state;
 - reward-construction test comparing Noisy, Repaired, and Clean scores;
 - HRL action-bound test for 6D Delta SE masks and unsafe dz handling;
@@ -417,10 +673,19 @@ Useful mature references:
   from dynamic motion states.  https://arxiv.org/abs/1804.02717
 - Prioritized Level Replay: replay environment instances that remain useful for
   learning.  https://arxiv.org/abs/2010.03934
+- ACCEL: use edit/replay curriculum around the agent's capability frontier
+  rather than only the hardest levels.  https://arxiv.org/abs/2203.01302
 - Prioritized Experience Replay: non-uniform replay based on learning utility.
   https://arxiv.org/abs/1511.05952
 - Reducible loss sampling: prefer samples whose loss can still be reduced, not
   merely samples with high irreducible error.  https://arxiv.org/abs/2208.10483
+- AWR: advantage-weighted policy learning from high-value actions; useful as a
+  future bridge from multi-trial evidence to supervised actor updates, but not a
+  PPO on-policy substitute by default.  https://arxiv.org/abs/1910.00177
+- MPPI / PI2-family local rollout optimization: repeated candidate rollouts can
+  estimate local action quality, but FEMR should use it as budgeted segment
+  evidence rather than exhaustive per-segment control.
+  https://arxiv.org/abs/1206.4621
 
 Code references for segment reset and motion cache are recorded in
 `note/frontres_segment_replay/references/segment_rollout_code_references.md`.

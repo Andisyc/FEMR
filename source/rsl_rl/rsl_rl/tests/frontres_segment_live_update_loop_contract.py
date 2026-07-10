@@ -95,7 +95,17 @@ def _summary(
     ppo_distribution_kl_available: bool = False,
     ppo_old_sigma_min: float | None = None,
     ppo_sigma_min: float | None = None,
+    trial_policy_count: int = 0,
+    trial_search_count: int = 0,
+    ppo_boundary_evidence_rows: int | None = None,
+    ppo_boundary_search_evidence_only_rows: int | None = None,
+    ppo_boundary_policy_invalid_rows: int = 0,
 ) -> dict:
+    evidence_rows = (
+        int(ppo_boundary_evidence_rows)
+        if ppo_boundary_evidence_rows is not None
+        else int(trial_policy_count) + int(trial_search_count)
+    )
     result = {
         "ppo_update": ppo_update,
         "ppo_valid_count": ppo_valid_count,
@@ -124,6 +134,20 @@ def _summary(
         "ppo_mosaic_pre_step_adaptive_lr_after": mosaic_pre_step_lr_after,
         "ppo_mosaic_pre_step_adaptive_lr_kl_mean": mosaic_pre_step_lr_kl,
         "ppo_distribution_kl_available": ppo_distribution_kl_available,
+        "trial_policy_count": trial_policy_count,
+        "trial_search_count": trial_search_count,
+        "ppo_boundary_evidence_rows": evidence_rows,
+        "ppo_boundary_policy_rows": trial_policy_count,
+        "ppo_boundary_search_rows": trial_search_count,
+        "ppo_boundary_eligible_rows": ppo_valid_count,
+        "ppo_boundary_search_evidence_only_rows": (
+            trial_search_count
+            if ppo_boundary_search_evidence_only_rows is None
+            else ppo_boundary_search_evidence_only_rows
+        ),
+        "ppo_boundary_policy_invalid_rows": ppo_boundary_policy_invalid_rows,
+        "ppo_boundary_valid_policy_frac": float(ppo_valid_count / max(1, trial_policy_count)),
+        "ppo_boundary_valid_evidence_frac": float(ppo_valid_count / max(1, evidence_rows)),
     }
     if ppo_old_sigma_min is not None:
         result["ppo_old_sigma_min"] = ppo_old_sigma_min
@@ -149,6 +173,8 @@ def test_live_update_loop_aggregates_probe_metrics_and_init_flag() -> None:
                 ppo_value_loss=2.0,
                 ppo_approx_kl=0.01,
                 ppo_clip_frac=0.10,
+                trial_policy_count=2,
+                trial_search_count=1,
             ),
             _summary(
                 ppo_update=False,
@@ -160,6 +186,9 @@ def test_live_update_loop_aggregates_probe_metrics_and_init_flag() -> None:
                 ppo_value_loss=4.0,
                 ppo_approx_kl=0.02,
                 ppo_clip_frac=0.20,
+                trial_policy_count=1,
+                trial_search_count=1,
+                ppo_boundary_policy_invalid_rows=1,
             ),
             _summary(
                 ppo_update=True,
@@ -171,6 +200,8 @@ def test_live_update_loop_aggregates_probe_metrics_and_init_flag() -> None:
                 ppo_value_loss=6.0,
                 ppo_approx_kl=0.03,
                 ppo_clip_frac=0.30,
+                trial_policy_count=4,
+                trial_search_count=2,
             ),
         ]
     )
@@ -181,6 +212,13 @@ def test_live_update_loop_aggregates_probe_metrics_and_init_flag() -> None:
     assert result["update_steps"] == 3
     assert result["update_count"] == 2
     assert result["ppo_valid_count"] == 6
+    assert result["trial_policy_count"] == 7
+    assert result["trial_search_count"] == 4
+    assert result["ppo_boundary_evidence_rows"] == 11
+    assert result["ppo_boundary_search_evidence_only_rows"] == 4
+    assert result["ppo_boundary_policy_invalid_rows"] == 1
+    assert abs(result["ppo_boundary_valid_policy_frac"] - (6.0 / 7.0)) < 1e-8
+    assert abs(result["ppo_boundary_valid_evidence_frac"] - (6.0 / 11.0)) < 1e-8
     assert result["reward_mean"] == 2.0
     assert result["storage_valid_frac"] == (0.50 + 0.25 + 1.00) / 3.0
     assert result["ppo_total_loss_mean"] == 20.0
@@ -436,6 +474,11 @@ def test_live_update_loop_log_formats_large_loss_readably() -> None:
                 ppo_value_loss=0.00114,
                 ppo_approx_kl=-0.004483,
                 ppo_clip_frac=0.376726,
+                trial_policy_count=16000,
+                trial_search_count=8000,
+                ppo_boundary_evidence_rows=24000,
+                ppo_boundary_search_evidence_only_rows=8000,
+                ppo_boundary_policy_invalid_rows=4000,
             )
         ],
         boundary=FakeBoundary(live_update_steps=1),
@@ -448,6 +491,9 @@ def test_live_update_loop_log_formats_large_loss_readably() -> None:
     print(f"[probe readable_log] update_loop_line={output.strip()}", flush=True)
 
     assert "loss_total=1.516e+23" in output
+    assert "trial: policy=16000 search=8000 evidence=24000 ppo_valid=12000" in output
+    assert "search_evidence_only=8000 policy_invalid=4000" in output
+    assert "valid_policy=75.0% valid_evidence=50.0%" in output
     assert "actor=1.516e+23" in output
     assert "clip=37.7%" in output
     assert "status=BAD_LOSS_EXPLOSION" in output

@@ -414,17 +414,32 @@ The Stage 3 runner helper modules should stay thin:
 frontres_segment_live_probe.py
   owns live K-step rollout capture, per-sample reward/done payloads, and
   independent Segment Replay storage writes
+  owns live probe trial metadata visibility: sampled policy/search role,
+  source index, trial index, and budget horizon must reach reset requests,
+  storage priority evidence, summary fields, and human-readable logs without
+  becoming PPO batch inputs
+  owns the Step 6 PPO eligibility gate: policy rows can become PPO-valid rows;
+  search rows remain priority evidence and are invalid for on-policy PPO
+  owns Step 7 ppo-boundary diagnostics: evidence rows, policy/search rows,
+  PPO-valid rows, search-only evidence rows, policy-invalid rows, and valid
+  fractions must be visible without adding trial fields to the PPO batch
 
 frontres_segment_live_sampler.py
   owns live sampler initialization, sampled segment batch construction, and
   conversion from per-sample rollout payloads to sampler evidence
+  owns Step 7 sampler-oracle diagnostics for oracle_gap, confidence, and
+  delayed_regret visibility
 
 frontres_segment_live_update_loop.py
   owns short repeated live update orchestration and summary aggregation
+  owns Step 7 aggregation of trial/evidence/PPO-boundary diagnostics across
+  repeated update-loop steps
 
 frontres_segment_live_training.py
   owns the normal Stage 3 training loop, checkpoint cadence, resume sentinel,
   and fail-fast diagnostics
+  owns Step 7 main training-log visibility for the same trial/evidence/PPO
+  boundary fields
 ```
 
 The runner should not compute priority formulas, cache schemas, or algorithm
@@ -540,16 +555,21 @@ frontres_segment_sequence_eval.py
   start only after that boundary.
 
 frontres_segment_sampler.py
-  owns PLR-style segment sampling, priority, solved/hopeless flags, and state
-  dict persistence
+  owns PLR-style segment sampling, priority, explicit segment state
+  (unknown/promising/frontier/delayed_regret/solved/hopeless), rollout evidence
+  counters, fixed-policy multi-trial evidence aggregation, rollout-budget
+  planning, policy-first trial-row expansion, fixed env-row-budget live row
+  sampling, solved/hopeless compatibility flags, and state dict persistence
 
 frontres_segment_storage.py
-  owns independent Stage 3 PPO tuple storage for 6D Delta SE(3) repair
+  owns independent Stage 3 PPO tuple storage for 6D Delta SE(3) repair and
+  preserves the valid_mask computed before the PPO batch boundary
 
 frontres_segment_ppo.py
   owns direct Delta SE PPO loss, clipped surrogate, old/new distribution KL,
   and sign-preserving scale-only advantage scaling for the default Segment HRL
-  no-regret semantics
+  no-regret semantics; it must remain trial-role blind and consume only the
+  normal PPO tuple plus valid_mask
 ```
 
 Per-sample rollout evidence belongs at the boundary between
@@ -572,6 +592,22 @@ batch, `frontres_segment_live_probe.py` owns reset + K-step rollout + storage
 write, and sampler evidence is converted back into PLR priority after the probe
 summary is available.  This keeps runner orchestration as a connector instead of
 moving sampling, reset, reward, storage, and priority logic into one file.
+For multi-trial replay, `frontres_segment_live_sampler.py` must use the sampler
+as the owner of row expansion, then attach `frontres_segment_trial_role`,
+`frontres_segment_trial_index`, and `frontres_segment_budget_horizon_k` to the
+batch before the live probe. It must not change PPO loss semantics or update the
+network between policy/search trials.
+`frontres_segment_live_probe.py` must preserve that row identity across reset,
+storage priority evidence, and summary/logging, while keeping
+`FrontRESSegmentStorageBatch` free of trial identity fields so direct Delta SE
+PPO still sees only the normal on-policy tuple. Step 6 resolves row eligibility
+before that boundary: `policy` rows can be valid PPO rows, while `search` rows
+stay in priority evidence and are masked out of PPO updates.
+Step 7 adds diagnostics around this same boundary only: live logs should show
+trial roles, evidence rows, PPO-valid rows, search-only evidence rows,
+policy-invalid rows, valid fractions, and sampler oracle quality. These fields
+are audit signals and must not become PPO loss inputs or sampler priority
+formula changes by accident.
 `frontres_segment_live_training.py` owns the offline/periodic evaluation entry
 points; its sequence-eval owner is exposed only through the explicit
 `sequence_eval` Stage 3 mode and remains outside default training.  Sequence

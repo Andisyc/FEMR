@@ -126,6 +126,24 @@ def run_frontres_segment_live_update_loop(
     motion_vel_error_repaired_clean = _mean_optional_metric(metrics, "segment/motion_vel_error_repaired_clean")
     motion_acc_error_repaired_clean = _mean_optional_metric(metrics, "segment/motion_acc_error_repaired_clean")
     storage_valid_frac = sum(float(item["storage_valid_frac"]) for item in metrics) / float(update_steps)
+    trial_policy_count = sum(int(item.get("trial_policy_count", item.get("ppo_boundary_policy_rows", 0))) for item in metrics)
+    trial_search_count = sum(int(item.get("trial_search_count", item.get("ppo_boundary_search_rows", 0))) for item in metrics)
+    ppo_boundary_evidence_rows = sum(
+        int(item.get("ppo_boundary_evidence_rows", int(item.get("trial_policy_count", 0)) + int(item.get("trial_search_count", 0))))
+        for item in metrics
+    )
+    ppo_boundary_search_evidence_only_rows = sum(
+        int(item.get("ppo_boundary_search_evidence_only_rows", item.get("trial_search_count", 0))) for item in metrics
+    )
+    ppo_boundary_policy_invalid_rows = sum(
+        int(item.get("ppo_boundary_policy_invalid_rows", max(0, int(item.get("trial_policy_count", 0)) - int(item.get("ppo_valid_count", 0)))))
+        for item in metrics
+    )
+    if valid_count > 0 and trial_policy_count <= 0 and ppo_boundary_evidence_rows <= 0:
+        trial_policy_count = valid_count
+        ppo_boundary_evidence_rows = valid_count
+    ppo_boundary_valid_policy_frac = float(valid_count / max(1, trial_policy_count))
+    ppo_boundary_valid_evidence_frac = float(valid_count / max(1, ppo_boundary_evidence_rows))
     total_loss_mean = sum(float(item["ppo_total_loss"]) for item in metrics) / float(update_steps)
     actor_loss_mean = sum(float(item["ppo_actor_loss"]) for item in metrics) / float(update_steps)
     value_loss_mean = sum(float(item["ppo_value_loss"]) for item in metrics) / float(update_steps)
@@ -194,6 +212,15 @@ def run_frontres_segment_live_update_loop(
                     f"train_reward={_fmt_num(train_reward_mean)} "
                     f"env_reward={_fmt_num(env_reward_mean)} "
                     f"gain={_fmt_num(score_gain_mean)}",
+                    "  trial: "
+                    f"policy={trial_policy_count} "
+                    f"search={trial_search_count} "
+                    f"evidence={ppo_boundary_evidence_rows} "
+                    f"ppo_valid={valid_count} "
+                    f"search_evidence_only={ppo_boundary_search_evidence_only_rows} "
+                    f"policy_invalid={ppo_boundary_policy_invalid_rows} "
+                    f"valid_policy={_fmt_pct(ppo_boundary_valid_policy_frac)} "
+                    f"valid_evidence={_fmt_pct(ppo_boundary_valid_evidence_frac)}",
                     "  ppo: "
                     f"loss_total={_fmt_num(total_loss_mean)} "
                     f"actor={_fmt_num(actor_loss_mean)} "
@@ -262,6 +289,16 @@ def run_frontres_segment_live_update_loop(
         "segment/motion_vel_error_repaired_clean": motion_vel_error_repaired_clean,
         "segment/motion_acc_error_repaired_clean": motion_acc_error_repaired_clean,
         "storage_valid_frac": storage_valid_frac,
+        "trial_policy_count": trial_policy_count,
+        "trial_search_count": trial_search_count,
+        "ppo_boundary_evidence_rows": ppo_boundary_evidence_rows,
+        "ppo_boundary_policy_rows": trial_policy_count,
+        "ppo_boundary_search_rows": trial_search_count,
+        "ppo_boundary_eligible_rows": valid_count,
+        "ppo_boundary_search_evidence_only_rows": ppo_boundary_search_evidence_only_rows,
+        "ppo_boundary_policy_invalid_rows": ppo_boundary_policy_invalid_rows,
+        "ppo_boundary_valid_policy_frac": ppo_boundary_valid_policy_frac,
+        "ppo_boundary_valid_evidence_frac": ppo_boundary_valid_evidence_frac,
         "ppo_total_loss_mean": total_loss_mean,
         "ppo_actor_loss_mean": actor_loss_mean,
         "ppo_value_loss_mean": value_loss_mean,

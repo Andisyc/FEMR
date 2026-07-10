@@ -724,12 +724,14 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
     runner.eval_mode()
     capture = _run_live_rollout_capture(runner, observations)
     summary = _initial_live_probe_summary(capture, storage_write=storage_write, single_update=single_update)
+    _update_trial_metadata_summary(summary, runner, batch_size=_capture_batch_size(capture))
     _update_reset_summary(summary, reset_result, skip_reason=reset_skip_reason)
 
     if storage_write:
         segment_storage = build_live_segment_storage(runner, capture)
         storage_stats = segment_storage.stats()
         storage_batch = segment_storage.full_batch()
+        _update_ppo_boundary_summary(summary, storage_batch.valid_mask)
         train_reward_mean = _valid_reward_mean(storage_batch.returns, storage_batch.valid_mask)
         summary.update(
             {
@@ -939,6 +941,14 @@ def _apply_current_segment_reset(runner: Any) -> FrontRESSegmentResetResult | No
         )
     ).lower()
     request = adapter.build_request(batch, mode=reset_mode)
+    _attach_trial_metadata_to_request(
+        request,
+        _current_trial_metadata(
+            runner,
+            batch_size=int(request.segment_ids.numel()),
+            device=request.segment_ids.device,
+        ),
+    )
     if not _env_has_segment_reset_hook(runner.env):
         ensure_frontres_segment_live_reset_hook(
             runner.env,
@@ -994,6 +1004,13 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
         dtype=torch.long,
         device=batch.segment_ids.device,
     )
+    trial_metadata = _current_trial_metadata(
+        runner,
+        batch_size=int(batch.segment_ids.numel()),
+        device=batch.segment_ids.device,
+        default_horizon_k=horizon_k,
+    )
+    horizon_k = trial_metadata.horizon_k
     perturbation_family = tuple(
         getattr(batch, "stage3_index_perturbation_family", ())
         or getattr(batch, "perturbation_family", ())
@@ -1016,6 +1033,7 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
         perturbation_strength=perturbation_strength,
         valid_mask=torch.ones_like(batch.segment_ids, dtype=torch.bool),
     )
+    _attach_trial_metadata_to_request(request, trial_metadata)
     hook = _index_segment_reset_hook(runner.env)
     if hook is None:
         runner._frontres_segment_live_current_reset_request = None
@@ -1172,6 +1190,166 @@ def _update_reset_summary(
     )
 
 
+def _capture_batch_size(capture: FrontRESSegmentLiveRolloutCapture) -> int:
+    for value in (capture.transition_actions, capture.reward_accum, capture.done_any):
+        if isinstance(value, torch.Tensor) and value.ndim >= 1:
+            return int(value.shape[0])
+    return 0
+
+
+def _current_trial_metadata(
+    runner: Any,
+    *,
+    batch_size: int,
+    device: torch.device | str,
+    default_horizon_k: torch.Tensor | None = None,
+) -> SimpleNamespace:
+    batch = getattr(runner, "_frontres_segment_live_current_batch", None)
+    roles = getattr(batch, "frontres_segment_trial_role", None) if batch is not None else None
+    if roles is None:
+        trial_role = ("policy",) * int(batch_size)
+    else:
+        trial_role = tuple(str(item) for item in roles)
+    if len(trial_role) != int(batch_size):
+        raise ValueError(f"frontres_segment_trial_role must have {batch_size} rows, got {len(trial_role)}")
+
+    default_source_index = torch.arange(batch_size, dtype=torch.long, device=device)
+    default_trial_index = torch.zeros(batch_size, dtype=torch.long, device=device)
+    if default_horizon_k is None:
+        alg = getattr(runner, "alg", None)
+        default_horizon = int(getattr(alg, "frontres_segment_k", 1) or 1)
+        default_horizon_k = torch.full((batch_size,), default_horizon, dtype=torch.long, device=device)
+
+    return SimpleNamespace(
+        trial_role=trial_role,
+        source_index=_trial_long_vector(
+            getattr(batch, "frontres_segment_source_index", None) if batch is not None else None,
+            name="frontres_segment_source_index",
+            batch_size=batch_size,
+            device=device,
+            default=default_source_index,
+        ),
+        trial_index=_trial_long_vector(
+            getattr(batch, "frontres_segment_trial_index", None) if batch is not None else None,
+            name="frontres_segment_trial_index",
+            batch_size=batch_size,
+            device=device,
+            default=default_trial_index,
+        ),
+        horizon_k=_trial_long_vector(
+            getattr(batch, "frontres_segment_budget_horizon_k", None) if batch is not None else None,
+            name="frontres_segment_budget_horizon_k",
+            batch_size=batch_size,
+            device=device,
+            default=default_horizon_k,
+        ),
+    )
+
+
+def _trial_long_vector(
+    value: Any,
+    *,
+    name: str,
+    batch_size: int,
+    device: torch.device | str,
+    default: torch.Tensor,
+) -> torch.Tensor:
+    if value is None:
+        tensor = default
+    elif isinstance(value, torch.Tensor):
+        tensor = value
+    else:
+        tensor = torch.tensor(list(value), dtype=torch.long)
+    tensor = tensor.to(device=device, dtype=torch.long).reshape(-1)
+    if int(tensor.numel()) != int(batch_size):
+        raise ValueError(f"{name} must have {batch_size} rows, got {int(tensor.numel())}")
+    return tensor.detach()
+
+
+def _attach_trial_metadata_to_request(request: Any, metadata: SimpleNamespace) -> None:
+    object.__setattr__(request, "trial_role", metadata.trial_role)
+    object.__setattr__(request, "source_index", metadata.source_index)
+    object.__setattr__(request, "trial_index", metadata.trial_index)
+    object.__setattr__(request, "budget_horizon_k", metadata.horizon_k)
+
+
+def _update_trial_metadata_summary(
+    summary: dict[str, object],
+    runner: Any,
+    *,
+    batch_size: int,
+) -> None:
+    metadata = _current_trial_metadata(runner, batch_size=batch_size, device=getattr(runner, "device", "cpu"))
+    role_counts = dict(Counter(metadata.trial_role))
+    policy_count = int(role_counts.get("policy", 0))
+    search_count = int(role_counts.get("search", 0))
+    summary.update(
+        {
+            "trial_role_per_sample": list(metadata.trial_role),
+            "trial_source_index_per_sample": _long_list(metadata.source_index),
+            "trial_index_per_sample": _long_list(metadata.trial_index),
+            "trial_horizon_k_per_sample": _long_list(metadata.horizon_k),
+            "trial_role_counts": role_counts,
+            "trial_policy_count": policy_count,
+            "trial_search_count": search_count,
+            "trial_horizon_summary": _tensor_range_summary("horizon", metadata.horizon_k),
+            "ppo_boundary_evidence_rows": int(batch_size),
+            "ppo_boundary_policy_rows": policy_count,
+            "ppo_boundary_search_rows": search_count,
+            "ppo_boundary_eligible_rows": 0,
+            "ppo_boundary_search_evidence_only_rows": search_count,
+            "ppo_boundary_policy_invalid_rows": policy_count,
+            "ppo_boundary_valid_policy_frac": 0.0,
+            "ppo_boundary_valid_evidence_frac": 0.0,
+        }
+    )
+
+
+def _update_ppo_boundary_summary(summary: dict[str, object], valid_mask: torch.Tensor) -> None:
+    roles = tuple(str(item) for item in summary.get("trial_role_per_sample", ()))
+    valid = valid_mask.detach().bool().reshape(-1).cpu()
+    if not roles or len(roles) != int(valid.numel()):
+        roles = ("policy",) * int(valid.numel())
+    policy_mask = torch.tensor([role == "policy" for role in roles], dtype=torch.bool)
+    search_mask = ~policy_mask
+    policy_rows = int(policy_mask.sum().item())
+    search_rows = int(search_mask.sum().item())
+    eligible_rows = int(valid.sum().item())
+    policy_invalid_rows = int((policy_mask & ~valid).sum().item())
+    evidence_rows = int(valid.numel())
+    summary.update(
+        {
+            "ppo_boundary_evidence_rows": evidence_rows,
+            "ppo_boundary_policy_rows": policy_rows,
+            "ppo_boundary_search_rows": search_rows,
+            "ppo_boundary_eligible_rows": eligible_rows,
+            "ppo_boundary_search_evidence_only_rows": search_rows,
+            "ppo_boundary_policy_invalid_rows": policy_invalid_rows,
+            "ppo_boundary_valid_policy_frac": float(eligible_rows / max(1, policy_rows)),
+            "ppo_boundary_valid_evidence_frac": float(eligible_rows / max(1, evidence_rows)),
+        }
+    )
+
+
+def _trial_metadata_priority_evidence(runner: Any, *, batch_size: int, device: torch.device | str) -> dict[str, Any]:
+    metadata = _current_trial_metadata(runner, batch_size=batch_size, device=device)
+    return {
+        "trial_role": metadata.trial_role,
+        "source_index": metadata.source_index,
+        "trial_index": metadata.trial_index,
+        "horizon_k": metadata.horizon_k,
+    }
+
+
+def _trial_metadata_ppo_update_mask(runner: Any, *, batch_size: int, device: torch.device | str) -> torch.Tensor:
+    metadata = _current_trial_metadata(runner, batch_size=batch_size, device=device)
+    return torch.tensor(
+        [role == "policy" for role in metadata.trial_role],
+        dtype=torch.bool,
+        device=device,
+    )
+
+
 def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutCapture) -> FrontRESSegmentRolloutStorage:
     if (
         capture.transition_obs is None
@@ -1188,10 +1366,14 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
 
     batch_size = int(capture.transition_actions.shape[0])
     sample = getattr(runner, "_frontres_segment_live_current_sample", None)
+    current_batch = getattr(runner, "_frontres_segment_live_current_batch", None)
     sample_ids = getattr(sample, "segment_ids", None)
     sample_source = getattr(sample, "source", None)
+    batch_ids = getattr(current_batch, "segment_ids", None)
     if sample_ids is not None and int(sample_ids.numel()) == batch_size:
         segment_ids = sample_ids.to(device=runner.device, dtype=torch.long).reshape(-1)
+    elif batch_ids is not None and int(batch_ids.numel()) == batch_size:
+        segment_ids = batch_ids.to(device=runner.device, dtype=torch.long).reshape(-1)
     else:
         segment_ids = torch.arange(batch_size, device=runner.device, dtype=torch.long)
     if sample_source is not None and len(sample_source) == batch_size:
@@ -1208,7 +1390,8 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
             )
     else:
         actor_update_mask = torch.ones(batch_size, device=runner.device, dtype=torch.bool)
-    valid_mask = rollout_valid_mask & reset_mask & actor_update_mask
+    ppo_update_mask = _trial_metadata_ppo_update_mask(runner, batch_size=batch_size, device=runner.device)
+    valid_mask = rollout_valid_mask & reset_mask & actor_update_mask & ppo_update_mask
     rewards = _segment_storage_rewards(capture, batch_size=batch_size, device=runner.device)
     action_mask = _live_segment_execution_action_mask(runner, capture.transition_actions)
     segment_storage = FrontRESSegmentRolloutStorage(
@@ -1233,6 +1416,11 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
             old_means=capture.transition_means,
             old_sigmas=capture.transition_sigmas,
             action_mask=action_mask,
+            priority_evidence=_trial_metadata_priority_evidence(
+                runner,
+                batch_size=batch_size,
+                device=runner.device,
+            ),
         )
     )
     reward_steps = _segment_storage_reward_steps(capture, batch_size=batch_size, device=runner.device)
@@ -2066,6 +2254,28 @@ def _print_live_probe_summary(
                     "k": capture.rollout_k,
                     "env_reward": _fmt_num(summary.get("env_reward_mean", summary["reward_mean"])),
                     "done": _fmt_pct(summary["done_frac"]),
+                },
+            ),
+            *_kv_lines(
+                "trial",
+                {
+                    "roles": summary.get("trial_role_counts", {}),
+                    "policy": int(summary.get("trial_policy_count", 0) or 0),
+                    "search": int(summary.get("trial_search_count", 0) or 0),
+                    "horizon": summary.get("trial_horizon_summary", "horizon_count=0 horizon_min=None horizon_max=None"),
+                },
+            ),
+            *_kv_lines(
+                "ppo_boundary",
+                {
+                    "evidence": int(summary.get("ppo_boundary_evidence_rows", 0) or 0),
+                    "policy": int(summary.get("ppo_boundary_policy_rows", 0) or 0),
+                    "search": int(summary.get("ppo_boundary_search_rows", 0) or 0),
+                    "ppo_valid": int(summary.get("ppo_boundary_eligible_rows", summary.get("ppo_valid_count", 0)) or 0),
+                    "search_evidence_only": int(summary.get("ppo_boundary_search_evidence_only_rows", 0) or 0),
+                    "policy_invalid": int(summary.get("ppo_boundary_policy_invalid_rows", 0) or 0),
+                    "valid_policy": _fmt_pct(summary.get("ppo_boundary_valid_policy_frac", 0.0)),
+                    "valid_evidence": _fmt_pct(summary.get("ppo_boundary_valid_evidence_frac", 0.0)),
                 },
             ),
             *_kv_lines(

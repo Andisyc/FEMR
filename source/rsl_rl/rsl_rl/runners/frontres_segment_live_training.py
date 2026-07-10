@@ -1495,6 +1495,15 @@ def _print_live_train_summary(
                 f"train_reward={_fmt_num(summary.get('train_reward_mean', summary['reward_mean']))} "
                 f"env_reward={_fmt_num(summary.get('env_reward_mean', summary['reward_mean']))} "
                 f"gain={_fmt_num(summary.get('score_gain_mean', 0.0))}",
+                "  trial: "
+                f"policy={int(summary.get('trial_policy_count', summary.get('ppo_boundary_policy_rows', 0)))} "
+                f"search={int(summary.get('trial_search_count', summary.get('ppo_boundary_search_rows', 0)))} "
+                f"evidence={int(summary.get('ppo_boundary_evidence_rows', 0))} "
+                f"ppo_valid={int(summary.get('ppo_boundary_eligible_rows', summary.get('ppo_valid_count', 0)))} "
+                f"search_evidence_only={int(summary.get('ppo_boundary_search_evidence_only_rows', 0))} "
+                f"policy_invalid={int(summary.get('ppo_boundary_policy_invalid_rows', 0))} "
+                f"valid_policy={_fmt_pct(summary.get('ppo_boundary_valid_policy_frac', 0.0))} "
+                f"valid_evidence={_fmt_pct(summary.get('ppo_boundary_valid_evidence_frac', 0.0))}",
                 "  sampler: "
                 f"gain={_fmt_num(summary.get('sampler_update_gain_mean', 0.0))} "
                 f"gain_pos={_fmt_pct(summary.get('sampler_update_gain_pos_frac', 0.0))} "

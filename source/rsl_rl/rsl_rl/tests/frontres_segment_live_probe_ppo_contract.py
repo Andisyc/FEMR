@@ -244,6 +244,65 @@ def _ppo_batch(invalid_action: float, invalid_reward_accum: float) -> FrontRESSe
     return storage.full_batch().to_ppo_batch(FrontRESSegmentPPOBatch)
 
 
+def test_multi_trial_search_rows_remain_priority_evidence_not_ppo_rows() -> None:
+    capture = FrontRESSegmentLiveRolloutCapture(
+        rollout_k=2,
+        reward_mean=0.0,
+        done_frac=0.0,
+        last_obs_shape=(2, 4),
+        action_shape=(2, 6),
+        env_action_shape=(2, 12),
+        transition_obs=torch.tensor([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]),
+        transition_privileged_obs=torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+        transition_actions=torch.tensor([[0.10, 0.00, 0.00, 0.00, 0.00, 0.00], [0.20, 0.00, 0.00, 0.00, 0.00, 0.00]]),
+        transition_log_probs=torch.zeros(2),
+        transition_values=torch.zeros(2),
+        transition_means=torch.zeros(2, 6),
+        transition_sigmas=torch.ones(2, 6),
+        reward_accum=torch.tensor([1.0, 2.0]),
+        reward_steps=torch.tensor([[0.5, 1.0], [0.5, 1.0]]),
+        done_steps=torch.zeros(2, 2, dtype=torch.bool),
+        done_any=torch.tensor([False, False]),
+    )
+    runner = SimpleNamespace(
+        device=torch.device("cpu"),
+        alg=SimpleNamespace(gamma=1.0, frontres_segment_k=2),
+        _frontres_segment_live_current_batch=SimpleNamespace(
+            segment_ids=torch.tensor([3, 3], dtype=torch.long),
+            frontres_segment_trial_role=("policy", "search"),
+            frontres_segment_source_index=torch.tensor([0, 0], dtype=torch.long),
+            frontres_segment_trial_index=torch.tensor([0, 1], dtype=torch.long),
+            frontres_segment_budget_horizon_k=torch.tensor([8, 8], dtype=torch.long),
+        ),
+    )
+
+    storage = build_live_segment_storage(runner, capture)
+    storage_batch = storage.full_batch()
+    ppo_batch = storage_batch.to_ppo_batch(FrontRESSegmentPPOBatch)
+    evidence = storage.priority_evidence[0]
+    result = compute_frontres_segment_ppo_loss(
+        FakeSegmentPolicy(),
+        ppo_batch,
+        FrontRESSegmentPPOConfig(entropy_coef=0.0),
+    )
+
+    _probe_tensor("multi_trial.storage_valid_mask", storage_batch.valid_mask, "policy row is PPO-eligible, search row is evidence-only")
+    _probe_tensor("multi_trial.returns", storage_batch.returns, "both rows keep rollout returns for evidence review")
+    print(
+        "[probe step6] multi_trial_ppo_boundary: "
+        f"roles={evidence['trial_role']} "
+        f"valid_mask={storage_batch.valid_mask.tolist()} "
+        f"ppo_valid_count={result.valid_count}",
+        flush=True,
+    )
+
+    assert evidence["trial_role"] == ("policy", "search")
+    assert storage_batch.segment_ids.tolist() == [3, 3]
+    assert storage_batch.valid_mask.tolist() == [True, False]
+    assert ppo_batch.valid_mask.tolist() == [True, False]
+    assert result.valid_count == 1
+
+
 def test_live_probe_storage_batch_masks_invalid_segment_before_ppo_loss() -> None:
     policy = FakeSegmentPolicy()
     clean_batch = _ppo_batch(invalid_action=1.0, invalid_reward_accum=2.0)
@@ -338,6 +397,7 @@ def test_live_probe_adapter_evaluates_6d_actions_against_12d_policy_distribution
 
 if __name__ == "__main__":
     test_6d_old_and_new_log_prob_use_same_delta_se_transform()
+    test_multi_trial_search_rows_remain_priority_evidence_not_ppo_rows()
     test_live_probe_storage_batch_masks_invalid_segment_before_ppo_loss()
     test_live_probe_storage_batch_backpropagates_only_valid_segment()
     test_live_probe_adapter_evaluates_6d_actions_against_12d_policy_distribution()

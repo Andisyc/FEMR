@@ -1093,6 +1093,92 @@ def test_index_reset_request_carries_stage3_dynamic_perturbation() -> None:
     assert result.success_mask.tolist() == [True, True]
 
 
+def test_live_probe_carries_multi_trial_metadata_through_reset_storage_and_summary() -> None:
+    env = _FakeIndexResetLiveEnv()
+    batch = _index_only_reset_batch()
+    batch.segment_ids = torch.tensor([7, 7], dtype=torch.long)
+    batch.frontres_segment_trial_role = ("policy", "search")
+    batch.frontres_segment_source_index = torch.tensor([0, 0], dtype=torch.long)
+    batch.frontres_segment_trial_index = torch.tensor([0, 1], dtype=torch.long)
+    batch.frontres_segment_budget_horizon_k = torch.tensor([8, 8], dtype=torch.long)
+    runner = SimpleNamespace(
+        env=env,
+        device=torch.device("cpu"),
+        policy_obs_type=None,
+        privileged_obs_type=None,
+        teacher_obs_type=None,
+        ref_vel_estimator_obs_type=None,
+        current_learning_iteration=0,
+        _frontres_segment_replay_boundary=SimpleNamespace(
+            live_probe_only=False,
+            live_storage_write_only=True,
+            live_single_update_only=False,
+            live_update_loop_only=False,
+            live_train_enabled=False,
+            segment_k=1,
+            reset_mode="direct",
+        ),
+        _frontres_segment_live_current_batch=batch,
+        alg=SimpleNamespace(
+            frontres_training_objective="segment_replay_hrl",
+            frontres_segment_k=1,
+            frontres_segment_reset_mode="direct",
+            frontres_segment_preroll_steps=0,
+            frontres_segment_verbose_probe=True,
+            transition=SimpleNamespace(),
+        ),
+        eval_mode=lambda: None,
+        _apply_obs_normalizer=lambda obs: obs,
+        privileged_obs_normalizer=lambda obs: obs,
+        teacher_obs_normalizer=lambda obs: obs,
+        _frontres_segment_live_detail_log_enabled=True,
+    )
+
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        summary = run_frontres_segment_live_probe(runner, init_at_random_ep_len=False)
+    output = stream.getvalue()
+    request = runner._frontres_segment_live_current_reset_request
+    storage = build_live_segment_storage(runner, _capture())
+    evidence = storage.priority_evidence[0]
+
+    print(
+        "[probe step5] multi_trial_live_probe_metadata: "
+        f"request_roles={request.trial_role} "
+        f"request_trial_index={request.trial_index.tolist()} "
+        f"request_horizon={request.horizon_k.tolist()} "
+        f"summary_roles={summary['trial_role_per_sample']} "
+        f"evidence_roles={evidence['trial_role']} "
+        f"ppo_boundary_valid={summary['ppo_boundary_eligible_rows']}",
+        flush=True,
+    )
+
+    assert request.segment_ids.tolist() == [7, 7]
+    assert request.trial_role == ("policy", "search")
+    assert request.source_index.tolist() == [0, 0]
+    assert request.trial_index.tolist() == [0, 1]
+    assert request.horizon_k.tolist() == [8, 8]
+    assert summary["trial_role_per_sample"] == ["policy", "search"]
+    assert summary["trial_source_index_per_sample"] == [0, 0]
+    assert summary["trial_index_per_sample"] == [0, 1]
+    assert summary["trial_horizon_k_per_sample"] == [8, 8]
+    assert summary["trial_policy_count"] == 1
+    assert summary["trial_search_count"] == 1
+    assert summary["ppo_boundary_evidence_rows"] == 2
+    assert summary["ppo_boundary_policy_rows"] == 1
+    assert summary["ppo_boundary_search_rows"] == 1
+    assert summary["ppo_boundary_eligible_rows"] == 1
+    assert summary["ppo_boundary_search_evidence_only_rows"] == 1
+    assert evidence["trial_role"] == ("policy", "search")
+    assert evidence["trial_index"].tolist() == [0, 1]
+    assert evidence["horizon_k"].tolist() == [8, 8]
+    assert "trial.policy: 1" in output
+    assert "trial.search: 1" in output
+    assert "trial.horizon: horizon_count=2 horizon_min=8 horizon_max=8" in output
+    assert "ppo_boundary.ppo_valid: 1" in output
+    assert "ppo_boundary.search_evidence_only: 1" in output
+
+
 def test_live_probe_detail_gate_suppresses_reset_and_summary_logs() -> None:
     env = _FakeIndexResetLiveEnv()
     runner = SimpleNamespace(
@@ -1214,6 +1300,18 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "score_noisy_per_sample": [0.2, 0.3],
         "score_repaired_per_sample": [0.7, 0.6],
         "evidence_valid_mask_per_sample": [True, False],
+        "trial_role_counts": {"policy": 1, "search": 1},
+        "trial_policy_count": 1,
+        "trial_search_count": 1,
+        "trial_horizon_summary": "horizon_count=2 horizon_min=8 horizon_max=8",
+        "ppo_boundary_evidence_rows": 2,
+        "ppo_boundary_policy_rows": 1,
+        "ppo_boundary_search_rows": 1,
+        "ppo_boundary_eligible_rows": 1,
+        "ppo_boundary_search_evidence_only_rows": 1,
+        "ppo_boundary_policy_invalid_rows": 0,
+        "ppo_boundary_valid_policy_frac": 1.0,
+        "ppo_boundary_valid_evidence_frac": 0.5,
     }
     stream = io.StringIO()
     with contextlib.redirect_stdout(stream):
@@ -1235,6 +1333,9 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "  reset.enabled:",
         "  rollout.obs:",
         "  rollout.env_reward:",
+        "  trial.policy:",
+        "  ppo_boundary.evidence:",
+        "  ppo_boundary.ppo_valid:",
         "  score.source:",
         "  score.gain:",
         "  storage.write:",
@@ -1251,6 +1352,12 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
     assert "score.source: b1_paired_env_rewards" in output
     assert "score.gain: 0.400000" in output
     assert "score.rows: 2" in output
+    assert "trial.policy: 1" in output
+    assert "trial.search: 1" in output
+    assert "ppo_boundary.evidence: 2" in output
+    assert "ppo_boundary.ppo_valid: 1" in output
+    assert "ppo_boundary.search_evidence_only: 1" in output
+    assert "ppo_boundary.valid_evidence: 50.0%" in output
     assert "storage.train_reward: 0.400000" in output
     assert "storage.all_reward: 0.500000" in output
     assert output.startswith("\n" + live_probe._LOG_SEPARATOR + "\n")
@@ -1519,6 +1626,7 @@ if __name__ == "__main__":
     test_live_probe_skips_dynamic_reset_for_index_only_segments()
     test_live_probe_applies_index_reset_for_index_only_segments_when_env_supports_it()
     test_index_reset_request_carries_stage3_dynamic_perturbation()
+    test_live_probe_carries_multi_trial_metadata_through_reset_storage_and_summary()
     test_live_probe_detail_gate_suppresses_reset_and_summary_logs()
     test_live_probe_summary_uses_readable_metric_blocks()
     test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks()

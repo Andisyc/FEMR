@@ -136,6 +136,19 @@ def _full_summary(**overrides) -> dict:
         "ppo_trust_region_max_retries_max": 2,
     }
     summary.update(overrides)
+    policy_count = int(summary.get("trial_policy_count", summary["ppo_valid_count"]))
+    search_count = int(summary.get("trial_search_count", 0))
+    evidence_rows = int(summary.get("ppo_boundary_evidence_rows", policy_count + search_count))
+    summary.setdefault("trial_policy_count", policy_count)
+    summary.setdefault("trial_search_count", search_count)
+    summary.setdefault("ppo_boundary_evidence_rows", evidence_rows)
+    summary.setdefault("ppo_boundary_policy_rows", policy_count)
+    summary.setdefault("ppo_boundary_search_rows", search_count)
+    summary.setdefault("ppo_boundary_eligible_rows", int(summary["ppo_valid_count"]))
+    summary.setdefault("ppo_boundary_search_evidence_only_rows", search_count)
+    summary.setdefault("ppo_boundary_policy_invalid_rows", max(0, policy_count - int(summary["ppo_valid_count"])))
+    summary.setdefault("ppo_boundary_valid_policy_frac", float(int(summary["ppo_valid_count"]) / max(1, policy_count)))
+    summary.setdefault("ppo_boundary_valid_evidence_frac", float(int(summary["ppo_valid_count"]) / max(1, evidence_rows)))
     return summary
 
 
@@ -418,6 +431,14 @@ def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
             ppo_value_loss_mean=0.00114,
             ppo_approx_kl_mean=-0.004483,
             ppo_clip_frac_mean=0.376726,
+            trial_policy_count=12,
+            trial_search_count=4,
+            ppo_boundary_evidence_rows=16,
+            ppo_boundary_eligible_rows=8,
+            ppo_boundary_search_evidence_only_rows=4,
+            ppo_boundary_policy_invalid_rows=4,
+            ppo_boundary_valid_policy_frac=8.0 / 12.0,
+            ppo_boundary_valid_evidence_frac=0.5,
         )
 
     runner.run_frontres_segment_live_update_loop = large_loss_update_loop
@@ -437,12 +458,13 @@ def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
     assert lines[header_idx - 2] == "-" * 80
     assert lines[header_idx - 1] == ""
     assert lines[header_idx + 1].startswith("  progress:")
-    assert lines[header_idx + 5].startswith("  trust:")
-    assert lines[header_idx + 6].startswith("  scale:")
-    assert lines[header_idx + 7] == ""
-    assert lines[header_idx + 8] != "-" * 80
+    assert lines[header_idx + 6].startswith("  trust:")
+    assert lines[header_idx + 7].startswith("  scale:")
+    assert lines[header_idx + 8] == ""
+    assert lines[header_idx + 9] != "-" * 80
     assert "  progress: iter=1/1 updates=4/4 runner_learn=True" in output
     assert "  data: valid=8 valid_frac=100.0% train_reward=0.250000 env_reward=-0.500000 gain=0.750000" in output
+    assert "  trial: policy=12 search=4 evidence=16 ppo_valid=8 search_evidence_only=4 policy_invalid=4 valid_policy=66.7% valid_evidence=50.0%" in output
     assert "  sampler: gain=0.300000 gain_pos=60.0% useful=0.400000 replay_candidates=5 priority=0.070000 pool=11 hopeless=20.0%" in output
     assert "  ppo: loss_total=1.516e+23" in output
     assert "  trust: accepted=1 rejected=0" in output

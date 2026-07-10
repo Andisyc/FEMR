@@ -242,6 +242,13 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
+        name="stage3_live_probe_ppo_boundary",
+        path="source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_ppo_contract.py",
+        expected_marker="frontres_segment_live_probe_ppo_contract: ok",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
         name="stage3_per_sample_evidence",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py",
         expected_marker="[probe step14]",

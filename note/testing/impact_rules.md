@@ -131,7 +131,7 @@ Recommended tests:
 
 ```text
 S0 py_compile changed files
-S1/S2 frontres_segment_live_probe_ppo_contract.py for executed 6D Delta SE old/new log_prob transform
+S1/S2 frontres_segment_live_probe_ppo_contract.py for executed 6D Delta SE old/new log_prob transform and multi-trial PPO row eligibility
 S1/S2 frontres_segment_storage_contract.py for old_means/old_sigmas persistence through storage
 S1/S2 frontres_segment_algorithm_contract.py for valid-mask, gradient behavior, exact clipped surrogate, exact old-stat distribution KL, old-policy detach, row permutation invariance, and full-6D support under single-family action-mask metadata
 S2 frontres_segment_live_single_update_contract.py for old-stat pre KL -> pre-step high-KL LR reduction without low-KL LR increase -> optimizer.step -> post-update trust-region KL diagnostic/reject route
@@ -157,6 +157,9 @@ T-lr-scale    Segment PPO initial learning_rate, pre-step LR adjustment, post-up
 T-ratio-source-decomposition high post-update ratio can be decomposed into old action vs old mean raw-space distance, per-dim sigma, per-dim mean delta, per-dim log-ratio contribution, and tanh-Jacobian contribution.
 T-masked-old-stat-consistency projected or zeroed bounded actions must be checked against the raw old_mean/old_sigma they are paired with; a masked action plus unmasked old raw mean can create a large per-dim log-ratio under small sigma even when mean_delta is tiny.
 T-execution-mask-projection execution mask is the executed action cone, not perturbation-family metadata; old tuple and current policy eval must project inactive executed dims to the same action representation before log_prob, ratio, and KL diagnostics.
+T-trial-metadata-interface multi-trial row identity must survive sampler -> live batch -> reset request -> storage priority evidence -> summary/log without becoming a PPO batch field.
+T-ppo-boundary multi-trial search/oracle evidence must not become an on-policy PPO row; PPO remains blind to trial_role and only consumes the role-gated valid_mask.
+T-diagnostic-boundary diagnostics must distinguish rollout evidence rows, policy/search trial roles, PPO-eligible rows, search-only evidence rows, policy-invalid rows, sampler oracle gap/confidence, and delayed-regret state without changing PPO or sampler behavior.
 ```
 
 ### Segment cache/dataset/sampler changes
@@ -175,7 +178,12 @@ Recommended tests:
 
 ```text
 S1/S2 frontres_segment_all_contract_suite.py
-S1 frontres_segment_live_sampler_contract.py when sampler changes
+S1 frontres_segment_sampler_contract.py when sampler state, priority, solved/hopeless, delayed_regret, multi-trial evidence, rollout budget, trial-row roles, oracle_gap/confidence, or persistence fields change
+S2 frontres_segment_live_sampler_contract.py when sampler row construction, live batch metadata, trial-role metadata, horizon metadata, or sampler evidence conversion changes
+S2 frontres_segment_live_probe_contract.py when reset request metadata, live probe storage evidence, trial horizon routing, or human-readable trial summary changes
+S1/S2 frontres_segment_live_probe_ppo_contract.py when trial roles, storage valid_mask, PPO valid rows, or priority_evidence/PPO isolation changes
+S2 frontres_segment_live_update_loop_contract.py and frontres_segment_live_training_pseudo_contract.py when main training/update-loop log diagnostics change
+S3 frontres_segment_checkpoint_contract.py when sampler state_dict compatibility becomes a checkpoint/resume gate
 S4 live sentinel only if reset/env interaction changed
 ```
 

@@ -1,9 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import Any, Iterable
 
 import torch
+
+
+class FrontRESSegmentState(IntEnum):
+    """Segment replay budget state owned by the sampler."""
+
+    UNKNOWN = 0
+    PROMISING = 1
+    FRONTIER = 2
+    DELAYED_REGRET = 3
+    SOLVED = 4
+    HOPELESS = 5
+
+
+SEGMENT_STATE_NAMES = tuple(state.name.lower() for state in FrontRESSegmentState)
 
 
 @dataclass(frozen=True)
@@ -13,6 +28,13 @@ class FrontRESSegmentSample:
     priority: torch.Tensor
     staleness: torch.Tensor
     valid_mask: torch.Tensor
+    segment_state: torch.Tensor | None = None
+    rollout_trial_count: torch.Tensor | None = None
+    horizon_k: torch.Tensor | None = None
+    budget_reason: tuple[str, ...] = ()
+    trial_role: tuple[str, ...] = ()
+    source_index: torch.Tensor | None = None
+    trial_index: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -31,6 +53,44 @@ class FrontRESSegmentRolloutEvidence:
 
 
 @dataclass(frozen=True)
+class FrontRESSegmentTrialEvidence:
+    segment_ids: torch.Tensor
+    trial_count: torch.Tensor
+    valid_trial_count: torch.Tensor
+    policy_gain: torch.Tensor
+    best_gain: torch.Tensor
+    mean_gain: torch.Tensor
+    success_frac: torch.Tensor
+    fall_frac: torch.Tensor
+    oracle_gap: torch.Tensor
+    confidence: torch.Tensor
+    score_noisy: torch.Tensor
+    score_repaired: torch.Tensor
+    horizon_k: torch.Tensor
+    valid_mask: torch.Tensor
+
+
+@dataclass(frozen=True)
+class FrontRESSegmentRolloutBudget:
+    segment_ids: torch.Tensor
+    trial_count: torch.Tensor
+    horizon_k: torch.Tensor
+    segment_state: torch.Tensor
+    reason: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class FrontRESSegmentTrialPlan:
+    segment_ids: torch.Tensor
+    source_index: torch.Tensor
+    trial_index: torch.Tensor
+    horizon_k: torch.Tensor
+    trial_role: tuple[str, ...]
+    base_segment_ids: torch.Tensor
+    base_trial_count: torch.Tensor
+
+
+@dataclass(frozen=True)
 class FrontRESSegmentSamplerStats:
     replay_pool_size: int
     review_pool_size: int
@@ -40,6 +100,15 @@ class FrontRESSegmentSamplerStats:
     priority_p90: float
     solved_frac: float
     hopeless_frac: float
+    unknown_count: int = 0
+    promising_count: int = 0
+    frontier_count: int = 0
+    delayed_regret_count: int = 0
+    solved_count: int = 0
+    hopeless_count: int = 0
+    mean_trial_count: float = 0.0
+    oracle_gap_mean: float = 0.0
+    confidence_mean: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -56,6 +125,11 @@ class FrontRESSegmentSamplerUpdateProbe:
     priority_after_max: float
     replay_candidate_count: int
     hopeless_count: int
+    delayed_regret_count: int = 0
+    segment_count: int = 0
+    trial_count: int = 0
+    oracle_gap_mean: float = 0.0
+    confidence_mean: float = 0.0
 
 
 class FrontRESSegmentSampler:
@@ -103,8 +177,29 @@ class FrontRESSegmentSampler:
         self.hopeless = torch.zeros(self.num_segments, dtype=torch.bool, device=self.device)
         self.invalid = torch.zeros(self.num_segments, dtype=torch.bool, device=self.device)
         self.invalid_reasons: dict[int, str] = {}
+        self.segment_state = torch.full(
+            (self.num_segments,),
+            int(FrontRESSegmentState.UNKNOWN),
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.evidence_count = torch.zeros(self.num_segments, dtype=torch.long, device=self.device)
+        self.valid_evidence_count = torch.zeros(self.num_segments, dtype=torch.long, device=self.device)
+        self.success_count = torch.zeros(self.num_segments, dtype=torch.long, device=self.device)
+        self.fall_count = torch.zeros(self.num_segments, dtype=torch.long, device=self.device)
+        self.best_gain = torch.full((self.num_segments,), -float("inf"), dtype=torch.float32, device=self.device)
+        self.best_short_gain = torch.full((self.num_segments,), -float("inf"), dtype=torch.float32, device=self.device)
+        self.best_long_gain = torch.full((self.num_segments,), -float("inf"), dtype=torch.float32, device=self.device)
+        self.last_horizon_k = torch.zeros(self.num_segments, dtype=torch.long, device=self.device)
+        self.last_trial_count = torch.zeros(self.num_segments, dtype=torch.long, device=self.device)
+        self.last_policy_gain = torch.zeros(self.num_segments, dtype=torch.float32, device=self.device)
+        self.last_mean_gain = torch.zeros(self.num_segments, dtype=torch.float32, device=self.device)
+        self.last_success_frac = torch.zeros(self.num_segments, dtype=torch.float32, device=self.device)
+        self.last_fall_frac = torch.zeros(self.num_segments, dtype=torch.float32, device=self.device)
+        self.last_oracle_gap = torch.zeros(self.num_segments, dtype=torch.float32, device=self.device)
+        self.last_confidence = torch.zeros(self.num_segments, dtype=torch.float32, device=self.device)
 
-    def sample(self, batch_size: int) -> FrontRESSegmentSample:
+    def sample(self, batch_size: int, *, max_horizon_k: int = 8) -> FrontRESSegmentSample:
         if batch_size <= 0:
             raise ValueError(f"batch_size must be positive, got {batch_size}")
         valid_ids = self._valid_ids()
@@ -123,41 +218,92 @@ class FrontRESSegmentSampler:
         segment_ids = torch.tensor(ids, dtype=torch.long, device=self.device)
         self.staleness += 1.0
         self.staleness[segment_ids] = 0.0
+        budget = self.plan_rollout_budget(segment_ids, max_horizon_k=max_horizon_k)
         return FrontRESSegmentSample(
             segment_ids=segment_ids,
             source=tuple(sources),
             priority=self.priority[segment_ids].clone(),
             staleness=self.staleness[segment_ids].clone(),
             valid_mask=~self.invalid[segment_ids],
+            segment_state=self.segment_state[segment_ids].clone(),
+            rollout_trial_count=budget.trial_count.clone(),
+            horizon_k=budget.horizon_k.clone(),
+            budget_reason=budget.reason,
+            trial_role=tuple("policy" for _ in ids),
+            source_index=torch.arange(int(segment_ids.numel()), dtype=torch.long, device=self.device),
+            trial_index=torch.zeros(int(segment_ids.numel()), dtype=torch.long, device=self.device),
+        )
+
+    def sample_rollout_rows(self, row_budget: int, *, max_horizon_k: int = 8) -> FrontRESSegmentSample:
+        """Sample executable live rows after expanding per-segment trial budgets."""
+        if row_budget <= 0:
+            raise ValueError(f"row_budget must be positive, got {row_budget}")
+        valid_ids = self._valid_ids()
+        if valid_ids.numel() == 0:
+            raise RuntimeError("no valid segments are available")
+
+        base_ids: list[int] = []
+        base_sources: list[str] = []
+        planned_rows = 0
+        while planned_rows < row_budget:
+            source = self._choose_source()
+            segment_id, effective_source = self._sample_one(source, valid_ids)
+            base_ids.append(segment_id)
+            base_sources.append(effective_source)
+            self.seen[segment_id] = True
+            budget = self.plan_rollout_budget([segment_id], max_horizon_k=max_horizon_k)
+            planned_rows += max(1, int(budget.trial_count[0].item()))
+
+        base_segment_ids = torch.tensor(base_ids, dtype=torch.long, device=self.device)
+        plan = self.expand_rollout_trials(base_segment_ids, max_horizon_k=max_horizon_k)
+        keep = min(int(row_budget), int(plan.segment_ids.numel()))
+        source_index = plan.source_index[:keep].to(device=self.device, dtype=torch.long)
+        row_ids = plan.segment_ids[:keep].to(device=self.device, dtype=torch.long)
+        self.staleness += 1.0
+        self.staleness[torch.unique(row_ids)] = 0.0
+        base_budget = self.plan_rollout_budget(base_segment_ids, max_horizon_k=max_horizon_k)
+        source_rows = source_index.detach().cpu().tolist()
+        return FrontRESSegmentSample(
+            segment_ids=row_ids.detach().clone(),
+            source=tuple(str(base_sources[int(row)]) for row in source_rows),
+            priority=self.priority[row_ids].detach().clone(),
+            staleness=self.staleness[row_ids].detach().clone(),
+            valid_mask=~self.invalid[row_ids],
+            segment_state=self.segment_state[row_ids].detach().clone(),
+            rollout_trial_count=base_budget.trial_count[source_index].detach().clone(),
+            horizon_k=plan.horizon_k[:keep].detach().clone(),
+            budget_reason=tuple(str(base_budget.reason[int(row)]) for row in source_rows),
+            trial_role=tuple(plan.trial_role[:keep]),
+            source_index=source_index.detach().clone(),
+            trial_index=plan.trial_index[:keep].to(device=self.device, dtype=torch.long).detach().clone(),
         )
 
     def update(self, evidence: FrontRESSegmentRolloutEvidence) -> None:
         self.update_with_probe(evidence)
 
     def update_with_probe(self, evidence: FrontRESSegmentRolloutEvidence) -> FrontRESSegmentSamplerUpdateProbe:
-        ids = evidence.segment_ids.to(device=self.device, dtype=torch.long).flatten()
-        self._validate_ids(ids)
-        useful = self._learning_value(evidence)
-        valid = evidence.reset_success.to(self.device).bool() & evidence.valid_reward.to(self.device).bool()
-        fall = evidence.fall_repaired.to(self.device).bool()
-        gain = evidence.gain_over_noisy.to(self.device).float()
-        repaired = evidence.score_repaired.to(self.device).float()
-        noisy = evidence.score_noisy.to(self.device).float()
+        row_ids = evidence.segment_ids.to(device=self.device, dtype=torch.long).flatten()
+        self._validate_ids(row_ids)
+        trial = self.aggregate_trial_evidence(evidence)
+        ids = trial.segment_ids
+        useful_rows = self._learning_value(evidence)
+        useful = self._mean_by_ids(row_ids, useful_rows, ids)
+        valid = trial.valid_mask
+        fall_count = torch.round(trial.fall_frac * trial.trial_count.float()).long()
 
         current = self.priority[ids]
         self.priority[ids] = torch.where(valid, 0.8 * current + 0.2 * useful, current)
         self.seen[ids] = True
-        self.solved[ids] = valid & (repaired >= 0.9) & (gain.abs() < self.min_replay_score)
-        self.hopeless[ids] = (~valid) | (fall & (gain <= 0.0)) | ((noisy < 0.2) & (repaired < 0.2) & (gain <= 0.0))
+        self._update_segment_state_from_trials(trial)
         self.priority[ids] = torch.where(self.solved[ids] | self.hopeless[ids], self.priority[ids] * 0.25, self.priority[ids])
         priority_after = self.priority[ids]
         replay_candidates = (~self.invalid[ids]) & (~self.solved[ids]) & (~self.hopeless[ids]) & (priority_after >= self.min_replay_score)
         return FrontRESSegmentSamplerUpdateProbe(
-            count=int(ids.numel()),
-            valid_count=int(valid.sum().item()),
-            fall_count=int(fall.sum().item()),
-            gain_mean=float(gain.mean().item()) if gain.numel() > 0 else 0.0,
-            gain_pos_frac=float((gain > 0.0).float().mean().item()) if gain.numel() > 0 else 0.0,
+            count=int(row_ids.numel()),
+            valid_count=int(trial.valid_trial_count.sum().item()),
+            fall_count=int(fall_count.sum().item()),
+            gain_mean=float(evidence.gain_over_noisy.to(self.device).float().mean().item()) if row_ids.numel() > 0 else 0.0,
+            gain_pos_frac=float((evidence.gain_over_noisy.to(self.device).float() > 0.0).float().mean().item()) if row_ids.numel() > 0 else 0.0,
             useful_mean=float(useful.mean().item()) if useful.numel() > 0 else 0.0,
             useful_max=float(useful.max().item()) if useful.numel() > 0 else 0.0,
             priority_before_mean=float(current.mean().item()) if current.numel() > 0 else 0.0,
@@ -165,6 +311,178 @@ class FrontRESSegmentSampler:
             priority_after_max=float(priority_after.max().item()) if priority_after.numel() > 0 else 0.0,
             replay_candidate_count=int(replay_candidates.sum().item()),
             hopeless_count=int(self.hopeless[ids].sum().item()),
+            delayed_regret_count=int((self.segment_state[ids] == int(FrontRESSegmentState.DELAYED_REGRET)).sum().item()),
+            segment_count=int(ids.numel()),
+            trial_count=int(trial.trial_count.sum().item()),
+            oracle_gap_mean=float(trial.oracle_gap.mean().item()) if trial.oracle_gap.numel() > 0 else 0.0,
+            confidence_mean=float(trial.confidence.mean().item()) if trial.confidence.numel() > 0 else 0.0,
+        )
+
+    def aggregate_trial_evidence(self, evidence: FrontRESSegmentRolloutEvidence) -> FrontRESSegmentTrialEvidence:
+        ids = evidence.segment_ids.to(device=self.device, dtype=torch.long).flatten()
+        self._validate_ids(ids)
+        unique_ids = torch.unique(ids, sorted=True)
+        gain = evidence.gain_over_noisy.to(self.device).float().flatten()
+        valid = evidence.reset_success.to(self.device).bool().flatten() & evidence.valid_reward.to(self.device).bool().flatten()
+        fall = evidence.fall_repaired.to(self.device).bool().flatten() | (~valid)
+        noisy = evidence.score_noisy.to(self.device).float().flatten()
+        repaired = evidence.score_repaired.to(self.device).float().flatten()
+        horizon = evidence.horizon_k.to(self.device).long().flatten()
+
+        trial_count: list[int] = []
+        valid_trial_count: list[int] = []
+        policy_gain: list[float] = []
+        best_gain: list[float] = []
+        mean_gain: list[float] = []
+        success_frac: list[float] = []
+        fall_frac: list[float] = []
+        oracle_gap: list[float] = []
+        confidence: list[float] = []
+        score_noisy: list[float] = []
+        score_repaired: list[float] = []
+        horizon_k: list[int] = []
+        valid_mask: list[bool] = []
+
+        for segment_id in unique_ids.tolist():
+            mask = ids == int(segment_id)
+            trial_n = int(mask.sum().item())
+            row_gain = gain[mask]
+            row_valid = valid[mask]
+            row_fall = fall[mask]
+            row_noisy = noisy[mask]
+            row_repaired = repaired[mask]
+            row_horizon = horizon[mask]
+            valid_gain = row_gain[row_valid]
+            valid_n = int(row_valid.sum().item())
+            policy = float(row_gain[0].item()) if trial_n else 0.0
+            best = float(valid_gain.max().item()) if valid_n else 0.0
+            mean = float(valid_gain.mean().item()) if valid_n else 0.0
+            success = (row_valid & (~row_fall) & (row_gain > self.min_replay_score)).float()
+            fall_or_invalid = row_fall.float()
+            gap = max(0.0, best - policy)
+            fall_rate = float(fall_or_invalid.mean().item()) if trial_n else 0.0
+            conf = min(1.0, float(valid_n) / 3.0) * max(0.0, 1.0 - fall_rate)
+
+            trial_count.append(trial_n)
+            valid_trial_count.append(valid_n)
+            policy_gain.append(policy)
+            best_gain.append(best)
+            mean_gain.append(mean)
+            success_frac.append(float(success.mean().item()) if trial_n else 0.0)
+            fall_frac.append(fall_rate)
+            oracle_gap.append(gap)
+            confidence.append(conf)
+            score_noisy.append(float(row_noisy[row_valid].mean().item()) if valid_n else float(row_noisy.mean().item()))
+            score_repaired.append(float(row_repaired[row_valid].mean().item()) if valid_n else float(row_repaired.mean().item()))
+            horizon_k.append(int(row_horizon.max().item()) if trial_n else 0)
+            valid_mask.append(valid_n > 0)
+
+        return FrontRESSegmentTrialEvidence(
+            segment_ids=unique_ids,
+            trial_count=torch.tensor(trial_count, dtype=torch.long, device=self.device),
+            valid_trial_count=torch.tensor(valid_trial_count, dtype=torch.long, device=self.device),
+            policy_gain=torch.tensor(policy_gain, dtype=torch.float32, device=self.device),
+            best_gain=torch.tensor(best_gain, dtype=torch.float32, device=self.device),
+            mean_gain=torch.tensor(mean_gain, dtype=torch.float32, device=self.device),
+            success_frac=torch.tensor(success_frac, dtype=torch.float32, device=self.device),
+            fall_frac=torch.tensor(fall_frac, dtype=torch.float32, device=self.device),
+            oracle_gap=torch.tensor(oracle_gap, dtype=torch.float32, device=self.device),
+            confidence=torch.tensor(confidence, dtype=torch.float32, device=self.device),
+            score_noisy=torch.tensor(score_noisy, dtype=torch.float32, device=self.device),
+            score_repaired=torch.tensor(score_repaired, dtype=torch.float32, device=self.device),
+            horizon_k=torch.tensor(horizon_k, dtype=torch.long, device=self.device),
+            valid_mask=torch.tensor(valid_mask, dtype=torch.bool, device=self.device),
+        )
+
+    def plan_rollout_budget(
+        self,
+        segment_ids: Iterable[int] | torch.Tensor,
+        *,
+        max_horizon_k: int = 8,
+    ) -> FrontRESSegmentRolloutBudget:
+        """Map selected segments to a pure rollout budget without touching env or PPO."""
+        ids = self._ids_tensor(segment_ids)
+        max_horizon = int(max_horizon_k)
+        if max_horizon <= 0:
+            raise ValueError(f"max_horizon_k must be positive, got {max_horizon_k}")
+        states = self.segment_state[ids].clone()
+        trial_count = torch.ones_like(ids, dtype=torch.long, device=self.device)
+        horizon_k = torch.empty_like(ids, dtype=torch.long, device=self.device)
+        reasons: list[str] = []
+
+        for row, segment_id in enumerate(ids.tolist()):
+            state = FrontRESSegmentState(int(states[row].item()))
+            trial_n = 1
+            preferred_horizon = 8
+            reason = "unknown_probe"
+            if state == FrontRESSegmentState.PROMISING:
+                trial_n = 3
+                preferred_horizon = 16
+                reason = "promising_local_trials"
+            elif state == FrontRESSegmentState.FRONTIER:
+                trial_n = 6
+                use_long = (
+                    float(self.last_oracle_gap[segment_id].item()) > self.min_replay_score
+                    or float(self.last_success_frac[segment_id].item()) < 0.75
+                    or int(self.last_trial_count[segment_id].item()) >= 2
+                )
+                preferred_horizon = 32 if use_long else 16
+                reason = "frontier_multi_trial"
+            elif state == FrontRESSegmentState.DELAYED_REGRET:
+                trial_n = 6
+                preferred_horizon = 64 if max_horizon >= 64 else 32
+                reason = "delayed_regret_long_check"
+            elif state == FrontRESSegmentState.SOLVED:
+                trial_n = 1
+                preferred_horizon = 64
+                reason = "solved_review"
+            elif state == FrontRESSegmentState.HOPELESS:
+                trial_n = 1
+                preferred_horizon = 8
+                reason = "hopeless_recheck"
+
+            trial_count[row] = int(trial_n)
+            horizon_k[row] = self._bounded_horizon(preferred_horizon, max_horizon)
+            reasons.append(reason)
+
+        return FrontRESSegmentRolloutBudget(
+            segment_ids=ids.clone(),
+            trial_count=trial_count,
+            horizon_k=horizon_k,
+            segment_state=states,
+            reason=tuple(reasons),
+        )
+
+    def expand_rollout_trials(
+        self,
+        segment_ids: Iterable[int] | torch.Tensor,
+        *,
+        max_horizon_k: int = 8,
+    ) -> FrontRESSegmentTrialPlan:
+        """Expand per-segment budget into policy-first trial rows for future live wiring."""
+        budget = self.plan_rollout_budget(segment_ids, max_horizon_k=max_horizon_k)
+        expanded_ids: list[int] = []
+        source_index: list[int] = []
+        trial_index: list[int] = []
+        horizon: list[int] = []
+        roles: list[str] = []
+        for source_row, segment_id in enumerate(budget.segment_ids.tolist()):
+            count = int(budget.trial_count[source_row].item())
+            horizon_value = int(budget.horizon_k[source_row].item())
+            for trial_row in range(count):
+                expanded_ids.append(int(segment_id))
+                source_index.append(source_row)
+                trial_index.append(trial_row)
+                horizon.append(horizon_value)
+                roles.append("policy" if trial_row == 0 else "search")
+        return FrontRESSegmentTrialPlan(
+            segment_ids=torch.tensor(expanded_ids, dtype=torch.long, device=self.device),
+            source_index=torch.tensor(source_index, dtype=torch.long, device=self.device),
+            trial_index=torch.tensor(trial_index, dtype=torch.long, device=self.device),
+            horizon_k=torch.tensor(horizon, dtype=torch.long, device=self.device),
+            trial_role=tuple(roles),
+            base_segment_ids=budget.segment_ids.clone(),
+            base_trial_count=budget.trial_count.clone(),
         )
 
     def mark_invalid(self, segment_ids: Iterable[int] | torch.Tensor, reason: str) -> None:
@@ -189,6 +507,15 @@ class FrontRESSegmentSampler:
             priority_p90=p90,
             solved_frac=float((self.solved & valid).sum().item()) / valid_count,
             hopeless_frac=float((self.hopeless & valid).sum().item()) / valid_count,
+            unknown_count=self._state_count(FrontRESSegmentState.UNKNOWN, valid),
+            promising_count=self._state_count(FrontRESSegmentState.PROMISING, valid),
+            frontier_count=self._state_count(FrontRESSegmentState.FRONTIER, valid),
+            delayed_regret_count=self._state_count(FrontRESSegmentState.DELAYED_REGRET, valid),
+            solved_count=self._state_count(FrontRESSegmentState.SOLVED, valid),
+            hopeless_count=self._state_count(FrontRESSegmentState.HOPELESS, valid),
+            mean_trial_count=float(self.last_trial_count[valid].float().mean().item()) if valid.any() else 0.0,
+            oracle_gap_mean=float(self.last_oracle_gap[valid].mean().item()) if valid.any() else 0.0,
+            confidence_mean=float(self.last_confidence[valid].mean().item()) if valid.any() else 0.0,
         )
 
     def state_dict(self) -> dict[str, Any]:
@@ -199,16 +526,54 @@ class FrontRESSegmentSampler:
             "solved": self.solved.cpu(),
             "hopeless": self.hopeless.cpu(),
             "invalid": self.invalid.cpu(),
+            "segment_state": self.segment_state.cpu(),
+            "evidence_count": self.evidence_count.cpu(),
+            "valid_evidence_count": self.valid_evidence_count.cpu(),
+            "success_count": self.success_count.cpu(),
+            "fall_count": self.fall_count.cpu(),
+            "best_gain": self.best_gain.cpu(),
+            "best_short_gain": self.best_short_gain.cpu(),
+            "best_long_gain": self.best_long_gain.cpu(),
+            "last_horizon_k": self.last_horizon_k.cpu(),
+            "last_trial_count": self.last_trial_count.cpu(),
+            "last_policy_gain": self.last_policy_gain.cpu(),
+            "last_mean_gain": self.last_mean_gain.cpu(),
+            "last_success_frac": self.last_success_frac.cpu(),
+            "last_fall_frac": self.last_fall_frac.cpu(),
+            "last_oracle_gap": self.last_oracle_gap.cpu(),
+            "last_confidence": self.last_confidence.cpu(),
             "invalid_reasons": dict(self.invalid_reasons),
             "fractions": (self.global_frac, self.replay_frac, self.review_frac),
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        for name in ("priority", "staleness", "seen", "solved", "hopeless", "invalid"):
-            value = state[name].to(self.device)
-            if value.numel() != self.num_segments:
-                raise ValueError(f"{name} size mismatch: {value.numel()} != {self.num_segments}")
-            setattr(self, name, value.clone())
+        self.priority = self._load_state_tensor(state, "priority", self.priority)
+        self.staleness = self._load_state_tensor(state, "staleness", self.staleness)
+        self.seen = self._load_state_tensor(state, "seen", self.seen)
+        self.solved = self._load_state_tensor(state, "solved", self.solved)
+        self.hopeless = self._load_state_tensor(state, "hopeless", self.hopeless)
+        self.invalid = self._load_state_tensor(state, "invalid", self.invalid)
+        self.evidence_count = self._load_state_tensor(state, "evidence_count", self.seen.long())
+        self.valid_evidence_count = self._load_state_tensor(state, "valid_evidence_count", self.valid_evidence_count)
+        self.success_count = self._load_state_tensor(state, "success_count", self.success_count)
+        self.fall_count = self._load_state_tensor(state, "fall_count", self.fall_count)
+        self.best_gain = self._load_state_tensor(state, "best_gain", self.best_gain)
+        self.best_short_gain = self._load_state_tensor(state, "best_short_gain", self.best_short_gain)
+        self.best_long_gain = self._load_state_tensor(state, "best_long_gain", self.best_long_gain)
+        self.last_horizon_k = self._load_state_tensor(state, "last_horizon_k", self.last_horizon_k)
+        self.last_trial_count = self._load_state_tensor(state, "last_trial_count", self.last_trial_count)
+        self.last_policy_gain = self._load_state_tensor(state, "last_policy_gain", self.last_policy_gain)
+        self.last_mean_gain = self._load_state_tensor(state, "last_mean_gain", self.last_mean_gain)
+        self.last_success_frac = self._load_state_tensor(state, "last_success_frac", self.last_success_frac)
+        self.last_fall_frac = self._load_state_tensor(state, "last_fall_frac", self.last_fall_frac)
+        self.last_oracle_gap = self._load_state_tensor(state, "last_oracle_gap", self.last_oracle_gap)
+        self.last_confidence = self._load_state_tensor(state, "last_confidence", self.last_confidence)
+        if "segment_state" in state:
+            self.segment_state = self._load_state_tensor(state, "segment_state", self.segment_state)
+            self._validate_segment_state()
+            self._sync_terminal_flags_from_state()
+        else:
+            self._derive_segment_state_from_legacy_flags()
         self.invalid_reasons = {int(k): str(v) for k, v in state.get("invalid_reasons", {}).items()}
 
     def _choose_source(self) -> str:
@@ -245,6 +610,14 @@ class FrontRESSegmentSampler:
             weights = torch.ones_like(weights)
         return weights / torch.sum(weights)
 
+    @staticmethod
+    def _bounded_horizon(preferred_horizon: int, max_horizon: int) -> int:
+        target = min(int(preferred_horizon), int(max_horizon))
+        if target < 8:
+            return max(1, target)
+        allowed = [8, 16, 32, 64]
+        return max(horizon for horizon in allowed if horizon <= target)
+
     def _replay_ids(self) -> torch.Tensor:
         base = (~self.invalid) & (~self.solved) & (self.priority >= self.min_replay_score)
         normal = torch.nonzero(base & (~self.hopeless), as_tuple=False).flatten()
@@ -268,6 +641,148 @@ class FrontRESSegmentSampler:
         unsolved = (1.0 - repaired).clamp(0.0, 1.0)
         improvement = gain.clamp_min(0.0)
         return reset * valid * contact * (1.0 - fall) * (improvement + 0.25 * need * unsolved)
+
+    def _mean_by_ids(self, ids: torch.Tensor, values: torch.Tensor, unique_ids: torch.Tensor) -> torch.Tensor:
+        means = []
+        values = values.to(self.device).float().flatten()
+        for segment_id in unique_ids.tolist():
+            mask = ids == int(segment_id)
+            means.append(float(values[mask].mean().item()) if bool(mask.any()) else 0.0)
+        return torch.tensor(means, dtype=torch.float32, device=self.device)
+
+    def _update_segment_state_from_trials(self, trial: FrontRESSegmentTrialEvidence) -> None:
+        ids = trial.segment_ids
+        self.evidence_count[ids] += trial.trial_count
+        self.valid_evidence_count[ids] += trial.valid_trial_count
+        self.success_count[ids] += torch.round(trial.success_frac * trial.trial_count.float()).long()
+        self.fall_count[ids] += torch.round(trial.fall_frac * trial.trial_count.float()).long()
+        self.last_horizon_k[ids] = trial.horizon_k
+        self.last_trial_count[ids] = trial.trial_count
+        self.last_policy_gain[ids] = trial.policy_gain
+        self.last_mean_gain[ids] = trial.mean_gain
+        self.last_success_frac[ids] = trial.success_frac
+        self.last_fall_frac[ids] = trial.fall_frac
+        self.last_oracle_gap[ids] = trial.oracle_gap
+        self.last_confidence[ids] = trial.confidence
+
+        neg_inf = torch.full_like(trial.best_gain, -float("inf"))
+        self._scatter_max(self.best_gain, ids, torch.where(trial.valid_mask, trial.best_gain, neg_inf))
+        short_horizon = trial.horizon_k <= 8
+        long_horizon = trial.horizon_k >= 16
+        self._scatter_max(self.best_short_gain, ids, torch.where(trial.valid_mask & short_horizon, trial.best_gain, neg_inf))
+        self._scatter_max(self.best_long_gain, ids, torch.where(trial.valid_mask & long_horizon, trial.best_gain, neg_inf))
+
+        solved = trial.valid_mask & (trial.score_repaired >= 0.9) & (trial.mean_gain.abs() < self.min_replay_score)
+        short_positive = self.best_short_gain[ids] > self.min_replay_score
+        long_regret = long_horizon & short_positive & ((trial.mean_gain < 0.0) | (trial.fall_frac > 0.0) | (~trial.valid_mask))
+        hopeless = (~trial.valid_mask) | (
+            (trial.fall_frac >= 0.5) & (trial.best_gain <= 0.0)
+        ) | ((trial.score_noisy < 0.2) & (trial.score_repaired < 0.2) & (trial.best_gain <= 0.0))
+        positive = trial.valid_mask & (trial.best_gain > self.min_replay_score)
+        frontier = positive & (
+            (self.evidence_count[ids] >= 2)
+            | ((trial.trial_count >= 2) & ((trial.oracle_gap > self.min_replay_score) | (trial.success_frac < 0.75)))
+        )
+        promising = positive | ((self.segment_state[ids] == int(FrontRESSegmentState.PROMISING)) & (~frontier))
+
+        state = self.segment_state[ids].clone()
+        state = torch.where(promising, torch.full_like(state, int(FrontRESSegmentState.PROMISING)), state)
+        state = torch.where(frontier, torch.full_like(state, int(FrontRESSegmentState.FRONTIER)), state)
+        state = torch.where(solved, torch.full_like(state, int(FrontRESSegmentState.SOLVED)), state)
+        state = torch.where(hopeless & (~long_regret), torch.full_like(state, int(FrontRESSegmentState.HOPELESS)), state)
+        state = torch.where(long_regret, torch.full_like(state, int(FrontRESSegmentState.DELAYED_REGRET)), state)
+        self.segment_state[ids] = state
+        self._sync_terminal_flags_for_ids(ids)
+
+    def _update_segment_state(
+        self,
+        ids: torch.Tensor,
+        *,
+        valid: torch.Tensor,
+        fall: torch.Tensor,
+        gain: torch.Tensor,
+        repaired: torch.Tensor,
+        noisy: torch.Tensor,
+        horizon: torch.Tensor,
+    ) -> None:
+        if horizon.numel() != ids.numel():
+            raise ValueError(f"horizon_k must match segment_ids, got {horizon.numel()} and {ids.numel()}")
+        ones = torch.ones_like(ids, dtype=torch.long, device=self.device)
+        valid_long = valid.to(self.device).long()
+        success = valid & (~fall) & (gain > self.min_replay_score)
+        self.evidence_count.scatter_add_(0, ids, ones)
+        self.valid_evidence_count.scatter_add_(0, ids, valid_long)
+        self.success_count.scatter_add_(0, ids, success.long())
+        self.fall_count.scatter_add_(0, ids, fall.long())
+        self.last_horizon_k[ids] = horizon
+
+        neg_inf = torch.full_like(gain, -float("inf"))
+        self._scatter_max(self.best_gain, ids, torch.where(valid, gain, neg_inf))
+        short_horizon = horizon <= 8
+        long_horizon = horizon >= 16
+        self._scatter_max(self.best_short_gain, ids, torch.where(valid & short_horizon, gain, neg_inf))
+        self._scatter_max(self.best_long_gain, ids, torch.where(valid & long_horizon, gain, neg_inf))
+
+        solved = valid & (~fall) & (repaired >= 0.9) & (gain.abs() < self.min_replay_score)
+        short_positive = self.best_short_gain[ids] > self.min_replay_score
+        long_regret = long_horizon & short_positive & ((gain < 0.0) | fall | (~valid))
+        hopeless = (~valid) | (fall & (gain <= 0.0)) | ((noisy < 0.2) & (repaired < 0.2) & (gain <= 0.0))
+        positive = valid & (~fall) & (gain > self.min_replay_score)
+        frontier = positive & (self.evidence_count[ids] >= 2)
+        promising = positive | ((self.segment_state[ids] == int(FrontRESSegmentState.PROMISING)) & (~frontier))
+
+        state = self.segment_state[ids].clone()
+        state = torch.where(promising, torch.full_like(state, int(FrontRESSegmentState.PROMISING)), state)
+        state = torch.where(frontier, torch.full_like(state, int(FrontRESSegmentState.FRONTIER)), state)
+        state = torch.where(solved, torch.full_like(state, int(FrontRESSegmentState.SOLVED)), state)
+        state = torch.where(hopeless & (~long_regret), torch.full_like(state, int(FrontRESSegmentState.HOPELESS)), state)
+        state = torch.where(long_regret, torch.full_like(state, int(FrontRESSegmentState.DELAYED_REGRET)), state)
+        self.segment_state[ids] = state
+        self._sync_terminal_flags_for_ids(ids)
+
+    def _scatter_max(self, target: torch.Tensor, ids: torch.Tensor, values: torch.Tensor) -> None:
+        if hasattr(target, "scatter_reduce_"):
+            target.scatter_reduce_(0, ids, values.to(target.dtype), reduce="amax", include_self=True)
+            return
+        for segment_id, value in zip(ids.tolist(), values.tolist()):
+            if value > float(target[int(segment_id)].item()):
+                target[int(segment_id)] = float(value)
+
+    def _state_count(self, state: FrontRESSegmentState, valid: torch.Tensor) -> int:
+        return int(((self.segment_state == int(state)) & valid).sum().item())
+
+    def _load_state_tensor(self, state: dict[str, Any], name: str, default: torch.Tensor) -> torch.Tensor:
+        value = state.get(name)
+        if value is None:
+            return default.clone()
+        value = value.to(device=self.device, dtype=default.dtype).flatten()
+        if value.numel() != self.num_segments:
+            raise ValueError(f"{name} size mismatch: {value.numel()} != {self.num_segments}")
+        return value.clone()
+
+    def _validate_segment_state(self) -> None:
+        min_state = int(self.segment_state.min().item()) if self.segment_state.numel() else 0
+        max_state = int(self.segment_state.max().item()) if self.segment_state.numel() else 0
+        if min_state < int(FrontRESSegmentState.UNKNOWN) or max_state > int(FrontRESSegmentState.HOPELESS):
+            raise ValueError(f"segment_state contains unsupported ids: min={min_state} max={max_state}")
+
+    def _derive_segment_state_from_legacy_flags(self) -> None:
+        self.segment_state = torch.full(
+            (self.num_segments,),
+            int(FrontRESSegmentState.UNKNOWN),
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.segment_state[self.solved] = int(FrontRESSegmentState.SOLVED)
+        self.segment_state[self.hopeless] = int(FrontRESSegmentState.HOPELESS)
+
+    def _sync_terminal_flags_for_ids(self, ids: torch.Tensor) -> None:
+        self.solved[ids] = self.segment_state[ids] == int(FrontRESSegmentState.SOLVED)
+        self.hopeless[ids] = self.segment_state[ids] == int(FrontRESSegmentState.HOPELESS)
+
+    def _sync_terminal_flags_from_state(self) -> None:
+        self.solved = self.segment_state == int(FrontRESSegmentState.SOLVED)
+        self.hopeless = self.segment_state == int(FrontRESSegmentState.HOPELESS)
 
     def _valid_ids(self) -> torch.Tensor:
         return torch.nonzero(~self.invalid, as_tuple=False).flatten()

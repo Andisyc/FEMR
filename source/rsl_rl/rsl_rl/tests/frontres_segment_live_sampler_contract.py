@@ -143,6 +143,7 @@ stage1_hooks_contract = _load(
 
 FrontRESSegmentSampler = sampler_module.FrontRESSegmentSampler
 FrontRESSegmentSample = sampler_module.FrontRESSegmentSample
+FrontRESSegmentState = sampler_module.FrontRESSegmentState
 initialize_frontres_segment_live_sampler = live_sampler_module.initialize_frontres_segment_live_sampler
 build_live_sampler_evidence = live_sampler_module.build_live_sampler_evidence
 run_frontres_segment_sampler_step = live_sampler_module.run_frontres_segment_sampler_step
@@ -203,6 +204,8 @@ class FakeRunner:
         self.summaries = summaries or []
         self.probe_init_flags: list[bool] = []
         self.probe_batch_roles: list[tuple[str, ...] | None] = []
+        self.probe_trial_roles: list[tuple[str, ...] | None] = []
+        self.probe_budget_horizon: list[list[int] | None] = []
         self.probe_batch_ids: list[list[int] | None] = []
 
     def run_frontres_segment_live_probe(
@@ -216,15 +219,27 @@ class FakeRunner:
             adapter.trace_values.append(bool(adapter.trace))
         batch = getattr(self, "_frontres_segment_live_current_batch", None)
         self.probe_batch_roles.append(None if batch is None else tuple(batch.perturbation_role))
+        self.probe_trial_roles.append(None if batch is None else tuple(getattr(batch, "frontres_segment_trial_role", ())))
+        budget_horizon = None if batch is None else getattr(batch, "frontres_segment_budget_horizon_k", None)
+        self.probe_budget_horizon.append(
+            None if budget_horizon is None else budget_horizon.detach().cpu().tolist()
+        )
         self.probe_batch_ids.append(None if batch is None else batch.segment_ids.detach().cpu().tolist())
         index = min(len(self.probe_init_flags) - 1, len(self.summaries) - 1)
         summary = dict(self.summaries[index])
+        trial_roles = self.probe_trial_roles[-1]
+        if trial_roles:
+            policy_count = sum(1 for role in trial_roles if role == "policy")
+            summary["ppo_valid_count"] = policy_count
+            summary["storage_valid_frac"] = float(policy_count / max(1, len(trial_roles)))
+            summary["ppo_update"] = policy_count > 0
         print(
             "[probe step22] fake_live_probe: "
             f"call={len(self.probe_init_flags)} "
             f"init_at_random_ep_len={init_at_random_ep_len} "
             f"batch_ids={self.probe_batch_ids[-1]} "
             f"batch_roles={self.probe_batch_roles[-1]} "
+            f"trial_roles={self.probe_trial_roles[-1]} "
             f"reward_mean={summary['reward_mean']} "
             f"storage_reward_mean={summary['storage_reward_mean']} "
             f"ppo_valid_count={summary['ppo_valid_count']}",
@@ -683,7 +698,10 @@ def test_live_update_loop_samples_and_updates_priority() -> None:
 def test_live_sampler_summary_exposes_update_probe_boundary() -> None:
     runner = FakeRunner([_summary_per_sample([0.8, -0.2], [True, True], [False, True])])
     initialize_frontres_segment_live_sampler(runner)
-    result = run_frontres_segment_sampler_step(runner, init_at_random_ep_len=False, update_step=0)
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        result = run_frontres_segment_sampler_step(runner, init_at_random_ep_len=False, update_step=0)
+    output = stream.getvalue()
     print(
         "[probe step22] sampler_update_boundary: "
         f"useful_mean={result['sampler_update_useful_mean']:.6f} "
@@ -691,7 +709,8 @@ def test_live_sampler_summary_exposes_update_probe_boundary() -> None:
         f"priority_before={result['sampler_update_priority_before_mean']:.6f} "
         f"priority_after={result['sampler_update_priority_after_mean']:.6f} "
         f"gain_pos_frac={result['sampler_update_gain_pos_frac']:.6f} "
-        f"replay_candidates={result['sampler_update_replay_candidate_count']}",
+        f"replay_candidates={result['sampler_update_replay_candidate_count']} "
+        f"oracle_diag={'sampler.oracle:' in output}",
         flush=True,
     )
     assert result["sampler_update_valid_count"] == 2
@@ -699,6 +718,9 @@ def test_live_sampler_summary_exposes_update_probe_boundary() -> None:
     assert result["sampler_update_useful_max"] > 0.0
     assert result["sampler_update_priority_after_mean"] > result["sampler_update_priority_before_mean"]
     assert result["sampler_update_hopeless_count"] == 1
+    assert "sampler.oracle:" in output
+    assert "gap:" in output
+    assert "confidence:" in output
 
 
 def test_live_detail_logs_are_rate_limited_by_default_and_verbose() -> None:
@@ -1013,6 +1035,40 @@ def test_live_sampler_builds_current_batch_before_probe() -> None:
         assert getattr(runner, "_frontres_segment_live_current_reset_result", None) is None
 
 
+def test_live_sampler_expands_trial_rows_before_probe_without_changing_ppo_semantics() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp) / "AMASS_G1Segment"
+        _write_stage1_cache(cache_dir)
+        runner = FakeRunner([_summary_per_sample([0.4, 0.2], [True, True], [False, False])], cache_dir=str(cache_dir))
+        initialize_frontres_segment_live_sampler(runner)
+        sampler = runner._frontres_segment_sampler
+        sampler.segment_state[0] = int(FrontRESSegmentState.FRONTIER)
+        sampler.last_trial_count[0] = 3
+        sampler.last_oracle_gap[0] = 0.5
+        sampler.last_success_frac[0] = 0.5
+
+        result = run_frontres_segment_sampler_step(runner, init_at_random_ep_len=False, update_step=0)
+        print(
+            "[probe step4] expanded_trial_rows: "
+            f"batch_ids={runner.probe_batch_ids[-1]} "
+            f"dataset_roles={runner.probe_batch_roles[-1]} "
+            f"trial_roles={runner.probe_trial_roles[-1]} "
+            f"budget_horizon={runner.probe_budget_horizon[-1]} "
+            f"sampler_update_segment_count={result['sampler_update_segment_count']} "
+            f"sampler_update_trial_count={result['sampler_update_trial_count']} "
+            f"ppo_valid_count={result['ppo_valid_count']}",
+            flush=True,
+        )
+        assert runner.probe_batch_ids[-1] == [0, 0]
+        assert runner.probe_batch_roles[-1] == ("train", "train")
+        assert runner.probe_trial_roles[-1] == ("policy", "search")
+        assert runner.probe_budget_horizon[-1] == [4, 4]
+        assert result["sampler_update_segment_count"] == 1
+        assert result["sampler_update_trial_count"] == 2
+        assert result["ppo_valid_count"] == 1
+        assert int(sampler.last_trial_count[0].item()) == 2
+
+
 def test_live_storage_uses_sampled_segment_ids_and_sources() -> None:
     runner = FakeRunner()
     initialize_frontres_segment_live_sampler(runner)
@@ -1205,6 +1261,7 @@ def main() -> None:
     test_stage3_index_only_perturbation_plan_uses_dr_curriculum()
     test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset()
     test_live_sampler_builds_current_batch_before_probe()
+    test_live_sampler_expands_trial_rows_before_probe_without_changing_ppo_semantics()
     test_live_storage_uses_sampled_segment_ids_and_sources()
     test_missing_dataset_probe_reports_cache_and_sampler_state()
     test_runner_checkpoint_saves_and_restores_sampler_state()
