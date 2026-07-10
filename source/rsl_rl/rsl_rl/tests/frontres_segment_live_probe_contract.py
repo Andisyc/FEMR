@@ -1181,14 +1181,21 @@ def test_live_probe_carries_multi_trial_metadata_through_reset_storage_and_summa
 
 def test_live_probe_expands_scorable_trial_metadata_to_full_quartet_batch() -> None:
     batch = _index_only_reset_batch()
-    batch.segment_ids = torch.tensor([7, 7], dtype=torch.long)
+    batch.segment_ids = torch.tensor([7, 9], dtype=torch.long)
     batch.frontres_segment_trial_role = ("policy", "search")
-    batch.frontres_segment_source_index = torch.tensor([0, 0], dtype=torch.long)
-    batch.frontres_segment_trial_index = torch.tensor([0, 1], dtype=torch.long)
+    batch.frontres_segment_source_index = torch.tensor([0, 1], dtype=torch.long)
+    batch.frontres_segment_trial_index = torch.tensor([0, 0], dtype=torch.long)
     batch.frontres_segment_budget_horizon_k = torch.tensor([8, 8], dtype=torch.long)
     runner = SimpleNamespace(
         device=torch.device("cpu"),
         _frontres_segment_live_current_batch=batch,
+        _frontres_segment_live_current_sample=SimpleNamespace(
+            segment_ids=torch.tensor([7, 9], dtype=torch.long),
+            source=("global", "replay"),
+        ),
+        _frontres_segment_live_current_reset_result=SimpleNamespace(
+            success_mask=torch.tensor([True, False], dtype=torch.bool),
+        ),
         alg=SimpleNamespace(frontres_segment_k=8, gamma=1.0),
     )
     actions = torch.zeros(8, 6)
@@ -1227,6 +1234,7 @@ def test_live_probe_expands_scorable_trial_metadata_to_full_quartet_batch() -> N
         f"policy={summary['ppo_boundary_policy_rows']} "
         f"search={summary['ppo_boundary_search_rows']} "
         f"ppo_valid={summary['ppo_boundary_eligible_rows']} "
+        f"reset_mask={storage.reset_mask[: storage.step].tolist()} "
         f"valid_mask={storage.valid_mask[: storage.step].tolist()}",
         flush=True,
     )
@@ -1248,7 +1256,9 @@ def test_live_probe_expands_scorable_trial_metadata_to_full_quartet_batch() -> N
     assert summary["ppo_boundary_search_rows"] == 1
     assert summary["ppo_boundary_eligible_rows"] == 1
     assert summary["ppo_boundary_search_evidence_only_rows"] == 1
+    assert storage.reset_mask[: storage.step].tolist() == [True, False, True, False, True, False, True, False]
     assert storage.valid_mask[: storage.step].tolist() == [True, False, False, False, False, False, False, False]
+    assert storage.full_batch().segment_ids.tolist() == [7, 9, 7, 9, 7, 9, 7, 9]
     assert evidence["trial_role"] == tuple(summary["trial_role_per_sample"])
 
 

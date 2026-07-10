@@ -1380,14 +1380,26 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
     sample_ids = getattr(sample, "segment_ids", None)
     sample_source = getattr(sample, "source", None)
     batch_ids = getattr(current_batch, "segment_ids", None)
-    if sample_ids is not None and int(sample_ids.numel()) == batch_size:
-        segment_ids = sample_ids.to(device=runner.device, dtype=torch.long).reshape(-1)
-    elif batch_ids is not None and int(batch_ids.numel()) == batch_size:
-        segment_ids = batch_ids.to(device=runner.device, dtype=torch.long).reshape(-1)
+    if sample_ids is not None:
+        segment_ids = _expand_short_counterfactual_vector(
+            sample_ids.to(device=runner.device, dtype=torch.long).reshape(-1),
+            name="segment ids",
+            batch_size=batch_size,
+        )
+    elif batch_ids is not None:
+        segment_ids = _expand_short_counterfactual_vector(
+            batch_ids.to(device=runner.device, dtype=torch.long).reshape(-1),
+            name="segment ids",
+            batch_size=batch_size,
+        )
     else:
         segment_ids = torch.arange(batch_size, device=runner.device, dtype=torch.long)
-    if sample_source is not None and len(sample_source) == batch_size:
-        segment_source = tuple(str(item) for item in sample_source)
+    if sample_source is not None:
+        segment_source = _expand_short_counterfactual_tuple(
+            sample_source,
+            name="segment source",
+            batch_size=batch_size,
+        )
     else:
         segment_source = ("live_storage_probe",) * batch_size
     reset_mask = _current_reset_success_mask(runner, batch_size=batch_size, device=runner.device)
@@ -1610,6 +1622,30 @@ def _snapshot_frontres_perturbation_rp(runner: Any, *, num_envs: int) -> torch.T
     return rp.detach().clone()
 
 
+def _expand_short_counterfactual_vector(
+    tensor: torch.Tensor,
+    *,
+    name: str,
+    batch_size: int,
+) -> torch.Tensor:
+    rows = int(tensor.numel())
+    if rows == int(batch_size):
+        return tensor
+    if rows > 0 and int(batch_size) % rows == 0:
+        return tensor.repeat(int(batch_size) // rows)
+    raise ValueError(f"{name} must have {batch_size} rows, got {rows}")
+
+
+def _expand_short_counterfactual_tuple(value: Any, *, name: str, batch_size: int) -> tuple[str, ...]:
+    items = tuple(str(item) for item in value)
+    rows = len(items)
+    if rows == int(batch_size):
+        return items
+    if rows > 0 and int(batch_size) % rows == 0:
+        return items * (int(batch_size) // rows)
+    raise ValueError(f"{name} must have {batch_size} rows, got {rows}")
+
+
 def _current_reset_success_mask(runner: Any, *, batch_size: int, device: torch.device | str) -> torch.Tensor:
     result = getattr(runner, "_frontres_segment_live_current_reset_result", None)
     if result is None:
@@ -1618,10 +1654,11 @@ def _current_reset_success_mask(runner: Any, *, batch_size: int, device: torch.d
     if success_mask is None:
         return torch.ones(batch_size, device=device, dtype=torch.bool)
     success_mask = success_mask.to(device=device).bool().reshape(-1)
-    if int(success_mask.numel()) != batch_size:
-        raise ValueError(
-            f"segment reset success mask must have {batch_size} rows, got {int(success_mask.numel())}"
-        )
+    success_mask = _expand_short_counterfactual_vector(
+        success_mask,
+        name="segment reset success mask",
+        batch_size=batch_size,
+    )
     return success_mask.detach()
 
 

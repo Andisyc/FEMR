@@ -357,6 +357,10 @@ Implementation checkpoint:
   the full env capture batch by marking the paired candidate, Noisy, and Clean
   rows as `baseline`. These baseline rows are visible for role readability, but
   they are not policy/search evidence rows and cannot become PPO-valid rows.
+- The same expansion rule applies to reset success masks and storage-visible
+  segment ids/sources. Reset succeeds or fails per scorable repair row, then the
+  paired counterfactual rows inherit that row-level reset fact only for storage
+  consistency; PPO validity is still controlled by policy role and actor mask.
 - Step 5 still does not change PPO semantics: trial metadata is not added to
   the PPO batch, no optimizer update is run between local trials, and no
   best-trial regression is introduced.
