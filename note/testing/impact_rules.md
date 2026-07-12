@@ -5,6 +5,26 @@ files to likely affected modules so cross-cutting bugs do not hide.
 
 ## Semantic Object Expansion
 
+### periodic/offline eval batch or score semantics
+
+Potential impact:
+
+```text
+MAIN-28 segment sampler mutable state and RNG
+MAIN-29 reset lifecycle
+MAIN-38 live training/eval orchestration
+MAIN-40 evaluator role layout and diagnostics
+```
+
+Required tests:
+
+```text
+S1/T-role,T-oracle diagnostic formatting and quartet Repair-vs-Noisy offset
+S2/T-connect independent sample -> batch -> reset -> rollout route
+S2/T-state sampler and runner temporary-state restoration
+S4/T-live real IsaacLab reset, metadata diversity, and rollout metrics
+```
+
 ### `normalizer.py`, `mean`, `std`, obs stats
 
 Potential impact:

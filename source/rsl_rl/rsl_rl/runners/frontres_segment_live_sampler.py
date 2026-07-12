@@ -352,12 +352,15 @@ def _attach_frontres_segment_trial_plan(batch: Any, sample: FrontRESSegmentSampl
     roles = tuple(getattr(sample, "trial_role", ()) or ())
     if roles and len(roles) == int(sample.segment_ids.numel()):
         object.__setattr__(batch, "frontres_segment_trial_role", roles)
-    if isinstance(sample.source_index, torch.Tensor) and int(sample.source_index.numel()) == int(sample.segment_ids.numel()):
-        object.__setattr__(batch, "frontres_segment_source_index", sample.source_index.detach().clone())
-    if isinstance(sample.trial_index, torch.Tensor) and int(sample.trial_index.numel()) == int(sample.segment_ids.numel()):
-        object.__setattr__(batch, "frontres_segment_trial_index", sample.trial_index.detach().clone())
-    if isinstance(sample.horizon_k, torch.Tensor) and int(sample.horizon_k.numel()) == int(sample.segment_ids.numel()):
-        object.__setattr__(batch, "frontres_segment_budget_horizon_k", sample.horizon_k.detach().clone())
+    source_index = getattr(sample, "source_index", None)
+    if isinstance(source_index, torch.Tensor) and int(source_index.numel()) == int(sample.segment_ids.numel()):
+        object.__setattr__(batch, "frontres_segment_source_index", source_index.detach().clone())
+    trial_index = getattr(sample, "trial_index", None)
+    if isinstance(trial_index, torch.Tensor) and int(trial_index.numel()) == int(sample.segment_ids.numel()):
+        object.__setattr__(batch, "frontres_segment_trial_index", trial_index.detach().clone())
+    horizon_k = getattr(sample, "horizon_k", None)
+    if isinstance(horizon_k, torch.Tensor) and int(horizon_k.numel()) == int(sample.segment_ids.numel()):
+        object.__setattr__(batch, "frontres_segment_budget_horizon_k", horizon_k.detach().clone())
     return batch
 
 

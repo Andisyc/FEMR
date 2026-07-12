@@ -78,61 +78,54 @@ def run_frontres_segment_periodic_eval(
     iteration: int,
     train_summary: Mapping[str, Any],
 ) -> dict[str, Any]:
+    """Evaluate an independently sampled segment batch without changing training sampler state."""
+    sampler = getattr(runner, "_frontres_segment_sampler", None)
+    if sampler is None:
+        raise RuntimeError("periodic eval requires initialized FrontRES Segment sampler")
+    sample_rows = globals().get("_sample_live_segment_rows")
+    batch_builder = globals().get("_build_current_segment_batch")
+    if sample_rows is None or batch_builder is None:
+        from rsl_rl.runners.frontres_segment_live_sampler import (
+            _build_current_segment_batch as imported_batch_builder,
+            _sample_live_segment_rows as imported_sample_rows,
+        )
+
+        sample_rows = imported_sample_rows
+        batch_builder = imported_batch_builder
     eval_steps = max(
         int(getattr(runner.env, "max_episode_length", 1)),
         int(getattr(runner.alg, "frontres_segment_k", 1)),
     )
-    with _temporary_eval_detail_silence(runner):
-        _apply_current_segment_reset(runner)
-        observations = _read_live_observations(runner)
-        runner.eval_mode()
-        capture = _run_live_rollout_capture(runner, observations, rollout_steps=eval_steps)
-    done_any = capture.done_any
-    survival = capture.survival_steps
-    if done_any is None or survival is None:
-        return {
-            "episode_length": float(eval_steps),
-            "success_rate": 0.0,
-            "fall_rate": 0.0,
-            "mean_survival_steps": 0.0,
-            "continuous_rollout_gain": float(train_summary.get("score_gain_mean", 0.0)),
-        }
-    done = done_any.detach().bool().reshape(-1)
-    survival_flat = survival.detach().float().reshape(-1)
-    summary: dict[str, Any] = {
-        "episode_length": float(eval_steps),
-        "success_rate": float((~done).float().mean().cpu().item()),
-        "fall_rate": float(done.float().mean().cpu().item()),
-        "mean_survival_steps": float(survival_flat.mean().cpu().item()),
-        "continuous_rollout_gain": float(train_summary.get("score_gain_mean", 0.0)),
-    }
-    if capture.reward_accum is not None:
-        reward = capture.reward_accum.detach().float().reshape(-1)
-        n_train = max(0, int(getattr(capture, "n_train", 0)))
-        n_base = max(0, int(getattr(capture, "n_base", 0)))
-        if n_train > 0 and n_base > 0 and reward.numel() >= n_train + n_base:
-            repaired = reward[:n_train]
-            noisy = reward[n_train : n_train + n_base]
-            pair_count = min(int(repaired.numel()), int(noisy.numel()))
-            if pair_count > 0:
-                repaired = repaired[:pair_count]
-                noisy = noisy[:pair_count]
-                gain = repaired - noisy
-                summary.update(
-                    {
-                        "score_noisy": float(noisy.mean().cpu().item()),
-                        "score_repaired": float(repaired.mean().cpu().item()),
-                        "continuous_rollout_gain": float(gain.mean().cpu().item()),
-                    }
-                )
+    with _temporary_sampler_sampling_state(sampler):
+        sample = sample_rows(runner, sampler)
+    batch = batch_builder(runner, sample, update_step=0, print_probe=False)
+    if batch is None:
+        raise RuntimeError("periodic eval could not build an independent FrontRES Segment batch")
+    sample_count = int(getattr(sample, "segment_ids").numel())
+    with _temporary_runner_segment_eval_state(runner, sample=sample, batch=batch):
+        with _temporary_eval_detail_silence(runner):
+            _apply_current_segment_reset(runner)
+            reset_applied = getattr(runner, "_frontres_segment_live_current_reset_result", None) is not None
+            observations = _read_live_observations(runner)
+            runner.eval_mode()
+            try:
+                capture = _run_live_rollout_capture(runner, observations, rollout_steps=eval_steps)
+            finally:
+                runner.train_mode()
+    summary = _offline_eval_summary(
+        capture,
+        sample_count=sample_count,
+        motion_ids=_offline_eval_motion_ids_from_batch(batch, sample_count),
+    )
+    summary.update(_offline_eval_perturbation_summary(batch))
     summary.update(
-        motion_quality_summary_to_scalars(
-            clean_positions=getattr(capture, "motion_clean_body_pos", None),
-            repaired_positions=getattr(capture, "motion_repaired_body_pos", None),
-            noisy_positions=getattr(capture, "motion_noisy_body_pos", None),
-            delta_se=getattr(capture, "transition_actions", None),
-            valid_mask=getattr(capture, "actor_update_mask", None),
-        )
+        {
+            "eval_batch_source": "independent_sampler",
+            "eval_iteration": int(iteration),
+            "eval_reset_applied": bool(reset_applied),
+            "motion_ids": _offline_eval_motion_ids_from_batch(batch, sample_count),
+            "start_frames": _offline_eval_start_frames_from_batch(batch, sample_count),
+        }
     )
     return summary
 
@@ -1328,6 +1321,11 @@ def _offline_eval_motion_ids_from_batch(batch: Any, sample_count: int) -> tuple[
     return tuple(motion_ids)
 
 
+def _offline_eval_start_frames_from_batch(batch: Any, sample_count: int) -> tuple[int, ...]:
+    specs = tuple(getattr(batch, "specs", ()) or ())
+    return tuple(int(getattr(spec, "start_frame", -1)) for spec in specs[: max(0, int(sample_count))])
+
+
 def _offline_eval_per_motion_summary(capture: Any, *, sample_count: int, motion_ids: tuple[str, ...]) -> list[dict[str, Any]]:
     if capture.reward_accum is None:
         return []
@@ -1397,6 +1395,63 @@ class _temporary_eval_detail_silence:
         self.runner._frontres_segment_live_detail_log_enabled = self.previous
         for adapter, trace in self.previous_index_reset_trace:
             adapter.trace = trace
+
+
+class _temporary_sampler_sampling_state:
+    """Keep periodic evaluation from advancing the training sampler sequence."""
+
+    def __init__(self, sampler: Any):
+        self.sampler = sampler
+        self.seen = getattr(sampler, "seen", None)
+        self.staleness = getattr(sampler, "staleness", None)
+        self.seen_snapshot = self.seen.detach().clone() if hasattr(self.seen, "detach") else None
+        self.staleness_snapshot = self.staleness.detach().clone() if hasattr(self.staleness, "detach") else None
+        generator = getattr(sampler, "generator", None)
+        self.generator_state = generator.get_state().clone() if hasattr(generator, "get_state") else None
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        if self.seen_snapshot is not None:
+            self.seen.copy_(self.seen_snapshot)
+        if self.staleness_snapshot is not None:
+            self.staleness.copy_(self.staleness_snapshot)
+        generator = getattr(self.sampler, "generator", None)
+        if self.generator_state is not None and hasattr(generator, "set_state"):
+            generator.set_state(self.generator_state)
+
+
+class _temporary_runner_segment_eval_state:
+    """Install an eval batch for reset/rollout and restore the caller's runner fields."""
+
+    _FIELDS = (
+        "_frontres_segment_live_current_sample",
+        "_frontres_segment_live_current_batch",
+        "_frontres_segment_live_current_reset_request",
+        "_frontres_segment_live_current_reset_result",
+    )
+
+    def __init__(self, runner: Any, *, sample: Any, batch: Any):
+        self.runner = runner
+        self.missing = object()
+        self.previous = {name: getattr(runner, name, self.missing) for name in self._FIELDS}
+        self.sample = sample
+        self.batch = batch
+
+    def __enter__(self) -> None:
+        self.runner._frontres_segment_live_current_sample = self.sample
+        self.runner._frontres_segment_live_current_batch = self.batch
+        self.runner._frontres_segment_live_current_reset_request = None
+        self.runner._frontres_segment_live_current_reset_result = None
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        for name, value in self.previous.items():
+            if value is self.missing:
+                if hasattr(self.runner, name):
+                    delattr(self.runner, name)
+            else:
+                setattr(self.runner, name, value)
 
 
 def _index_reset_adapters_for_runner(runner: Any) -> tuple[Any, ...]:

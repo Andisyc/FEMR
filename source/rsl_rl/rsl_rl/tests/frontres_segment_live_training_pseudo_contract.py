@@ -11,6 +11,7 @@ import io
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -186,6 +187,8 @@ class FakeRunner:
         self.eval_calls: list[tuple[int, int]] = []
         self.periodic_eval_hook_enabled = True
         self.env = FakeEnv()
+        self.eval_mode_called = False
+        self.train_mode_calls = 0
 
     def run_frontres_segment_live_update_loop(self, *, init_at_random_ep_len: bool, runner_learn: bool) -> dict:
         self.update_calls.append((init_at_random_ep_len, runner_learn))
@@ -253,6 +256,9 @@ class FakeRunner:
 
     def eval_mode(self) -> None:
         self.eval_mode_called = True
+
+    def train_mode(self) -> None:
+        self.train_mode_calls += 1
 
 
 def test_pseudo_live_training_runs_two_iterations_and_saves_checkpoints() -> None:
@@ -526,25 +532,178 @@ def test_pseudo_live_training_runs_periodic_eval_only_on_interval() -> None:
 
 
 def test_periodic_eval_preserves_score_and_motion_metrics_when_all_samples_fall() -> None:
+    torch = __import__("torch")
     runner = FakeRunner()
+    runner._frontres_segment_sampler = SimpleNamespace(
+        seen=torch.tensor([False, False]),
+        staleness=torch.tensor([0.0, 0.0]),
+        generator=torch.Generator().manual_seed(3),
+    )
     capture = runner.fake_eval_capture(32)
     capture.done_any = __import__("torch").tensor([True, True, True])
     capture.survival_steps = __import__("torch").tensor([12.0, 8.0, 10.0])
     runner.fake_eval_capture = lambda rollout_steps: capture
-    summary = run_frontres_segment_periodic_eval(
-        runner,
-        iteration=100,
-        train_summary={"score_gain_mean": 0.0},
-    )
+    batch = SimpleNamespace(specs=(SimpleNamespace(motion_id="a", start_frame=1), SimpleNamespace(motion_id="b", start_frame=2)))
+    old_sample_rows = getattr(live_training_module, "_sample_live_segment_rows", None)
+    old_batch_builder = getattr(live_training_module, "_build_current_segment_batch", None)
+    live_training_module._sample_live_segment_rows = lambda *_args: SimpleNamespace(segment_ids=torch.tensor([0, 1]))
+    live_training_module._build_current_segment_batch = lambda *_args, **_kwargs: batch
+    try:
+        summary = run_frontres_segment_periodic_eval(
+            runner,
+            iteration=100,
+            train_summary={"score_gain_mean": 0.0},
+        )
+    finally:
+        live_training_module._sample_live_segment_rows = old_sample_rows
+        live_training_module._build_current_segment_batch = old_batch_builder
     log = diagnostics_module.format_segment_periodic_eval_log(summary)
     print(f"[probe periodic_eval_metrics] {log.replace(chr(10), ' | ')}", flush=True)
     assert summary["success_rate"] == 0.0
     assert summary["fall_rate"] == 1.0
-    assert "score: noisy=2.500000 repaired=10.500000" in log
+    assert "score: noisy=0.078125 repaired=0.328125" in log
     assert "mpjpe_repaired=0.111435" in log
     assert "mpjpe_noisy=0.445738" in log
     assert "delta_se_norm=0.223607" in log
     assert "UNCONFIRMED" not in log
+
+
+def test_periodic_eval_uses_independent_batch_and_restores_training_state() -> None:
+    torch = __import__("torch")
+    runner = FakeRunner()
+    runner.env.num_envs = 8
+    runner.cfg = {"frontres_candidate_rollout_enabled": True}
+    runner._frontres_segment_live_current_sample = "training_sample"
+    runner._frontres_segment_live_current_batch = "training_batch"
+    runner._frontres_segment_live_current_reset_request = "training_request"
+    runner._frontres_segment_live_current_reset_result = "training_result"
+
+    class FakeSampler:
+        def __init__(self):
+            self.seen = torch.tensor([False, True])
+            self.staleness = torch.tensor([3.0, 7.0])
+            self.generator = torch.Generator().manual_seed(17)
+
+    sampler = FakeSampler()
+    runner._frontres_segment_sampler = sampler
+    seen_before = sampler.seen.clone()
+    staleness_before = sampler.staleness.clone()
+    rng_before = sampler.generator.get_state().clone()
+    sample = SimpleNamespace(segment_ids=torch.tensor([0, 1]))
+    batch = SimpleNamespace(
+        specs=(
+            SimpleNamespace(motion_id="motion_a.npz", start_frame=12),
+            SimpleNamespace(motion_id="motion_b.npz", start_frame=24),
+        ),
+        stage3_index_perturbation_family=("local_rp", "local_rp"),
+        stage3_index_perturbation_strength=torch.tensor([0.15, 0.25]),
+    )
+    calls: list[str] = []
+
+    def fake_sample_rows(_runner, _sampler):
+        calls.append("sample")
+        _sampler.seen[:] = True
+        _sampler.staleness += 10.0
+        torch.rand((), generator=_sampler.generator)
+        return sample
+
+    def fake_build(_runner, actual_sample, *, update_step, print_probe):
+        calls.append("build")
+        assert actual_sample is sample
+        assert update_step == 0
+        assert print_probe is False
+        return batch
+
+    def fake_reset(actual_runner):
+        calls.append("reset")
+        assert actual_runner._frontres_segment_live_current_sample is sample
+        assert actual_runner._frontres_segment_live_current_batch is batch
+        actual_runner._frontres_segment_live_current_reset_result = SimpleNamespace(ok=True)
+
+    capture = runner.fake_eval_capture(32)
+    capture.reward_accum = torch.tensor([10.0, 11.0, 100.0, 101.0, 2.0, 3.0])
+    capture.n_candidate = 2
+    old_sample_rows = getattr(live_training_module, "_sample_live_segment_rows", None)
+    old_batch_builder = getattr(live_training_module, "_build_current_segment_batch", None)
+    old_reset = live_training_module._apply_current_segment_reset
+    old_capture = live_training_module._run_live_rollout_capture
+    live_training_module._sample_live_segment_rows = fake_sample_rows
+    live_training_module._build_current_segment_batch = fake_build
+    live_training_module._apply_current_segment_reset = fake_reset
+    live_training_module._run_live_rollout_capture = lambda *_args, **_kwargs: capture
+    try:
+        summary = run_frontres_segment_periodic_eval(
+            runner,
+            iteration=100,
+            train_summary={"score_gain_mean": 999.0},
+        )
+    finally:
+        live_training_module._sample_live_segment_rows = old_sample_rows
+        live_training_module._build_current_segment_batch = old_batch_builder
+        live_training_module._apply_current_segment_reset = old_reset
+        live_training_module._run_live_rollout_capture = old_capture
+
+    log = diagnostics_module.format_segment_periodic_eval_log(summary)
+    print(f"[probe periodic_eval_independent] {log.replace(chr(10), ' | ')}", flush=True)
+    assert calls == ["sample", "build", "reset"]
+    assert runner.eval_mode_called is True
+    assert runner.train_mode_calls == 1
+    assert summary["eval_batch_source"] == "independent_sampler"
+    assert summary["eval_reset_applied"] is True
+    assert summary["score_repaired"] == 10.5 / 32.0
+    assert summary["score_noisy"] == 2.5 / 32.0
+    assert summary["continuous_rollout_gain"] == 8.0 / 32.0
+    assert summary["motion_ids"] == ("motion_a.npz", "motion_b.npz")
+    assert summary["start_frames"] == (12, 24)
+    assert summary["perturbation_family_counts"] == {"local_rp": 2}
+    assert summary["perturbation_strength_min"] == float(torch.tensor(0.15))
+    assert summary["perturbation_strength_max"] == 0.25
+    assert runner._frontres_segment_live_current_sample == "training_sample"
+    assert runner._frontres_segment_live_current_batch == "training_batch"
+    assert runner._frontres_segment_live_current_reset_request == "training_request"
+    assert runner._frontres_segment_live_current_reset_result == "training_result"
+    assert torch.equal(sampler.seen, seen_before)
+    assert torch.equal(sampler.staleness, staleness_before)
+    assert torch.equal(sampler.generator.get_state(), rng_before)
+    assert "batch: source=independent_sampler" in log
+    assert "reset=True" in log
+    assert "motion_ids=('motion_a.npz', 'motion_b.npz')" in log
+    assert "start_frames=(12, 24)" in log
+    assert "families={'local_rp': 2}" in log
+
+
+def test_periodic_eval_restores_train_mode_when_rollout_raises() -> None:
+    torch = __import__("torch")
+    runner = FakeRunner()
+    runner._frontres_segment_sampler = SimpleNamespace(
+        seen=torch.tensor([False]),
+        staleness=torch.tensor([0.0]),
+        generator=torch.Generator().manual_seed(5),
+    )
+    sample = SimpleNamespace(segment_ids=torch.tensor([0]))
+    batch = SimpleNamespace(specs=(SimpleNamespace(motion_id="motion_a.npz", start_frame=12),))
+    old_sample_rows = getattr(live_training_module, "_sample_live_segment_rows", None)
+    old_batch_builder = getattr(live_training_module, "_build_current_segment_batch", None)
+    old_capture = live_training_module._run_live_rollout_capture
+    live_training_module._sample_live_segment_rows = lambda *_args: sample
+    live_training_module._build_current_segment_batch = lambda *_args, **_kwargs: batch
+    live_training_module._run_live_rollout_capture = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        RuntimeError("synthetic periodic rollout failure")
+    )
+    try:
+        try:
+            run_frontres_segment_periodic_eval(runner, iteration=100, train_summary={})
+        except RuntimeError as exc:
+            assert "synthetic periodic rollout failure" in str(exc)
+        else:
+            raise AssertionError("periodic eval must propagate rollout failures")
+    finally:
+        live_training_module._sample_live_segment_rows = old_sample_rows
+        live_training_module._build_current_segment_batch = old_batch_builder
+        live_training_module._run_live_rollout_capture = old_capture
+    assert runner.train_mode_calls == 1
+    assert not hasattr(runner, "_frontres_segment_live_current_sample")
+    assert not hasattr(runner, "_frontres_segment_live_current_batch")
 
 
 def test_pseudo_live_training_periodic_eval_requires_hook() -> None:
@@ -641,6 +800,8 @@ def main() -> None:
     test_pseudo_live_training_continues_after_periodic_checkpoint_failure()
     test_pseudo_live_training_runs_periodic_eval_only_on_interval()
     test_periodic_eval_preserves_score_and_motion_metrics_when_all_samples_fall()
+    test_periodic_eval_uses_independent_batch_and_restores_training_state()
+    test_periodic_eval_restores_train_mode_when_rollout_raises()
     test_pseudo_live_training_periodic_eval_requires_hook()
     test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline()
     test_pseudo_offline_eval_capture_exposes_motion_quality_tensors()

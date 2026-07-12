@@ -1280,6 +1280,19 @@ def test_runner_checkpoint_save_skips_missing_external_writer() -> None:
         assert saved["iter"] == 6
 
 
+def test_trial_plan_attachment_accepts_sequence_eval_sample_without_optional_metadata() -> None:
+    batch = SimpleNamespace()
+    sample = SimpleNamespace(segment_ids=torch.tensor([3, 7], dtype=torch.long))
+
+    result = live_sampler_module._attach_frontres_segment_trial_plan(batch, sample)
+
+    assert result is batch
+    assert not hasattr(batch, "frontres_segment_trial_role")
+    assert not hasattr(batch, "frontres_segment_source_index")
+    assert not hasattr(batch, "frontres_segment_trial_index")
+    assert not hasattr(batch, "frontres_segment_budget_horizon_k")
+
+
 def main() -> None:
     test_live_summary_becomes_sampler_evidence()
     test_live_sampler_evidence_carries_partial_reset_failure()
@@ -1306,6 +1319,7 @@ def main() -> None:
     test_runner_checkpoint_saves_and_restores_sampler_state()
     test_runner_checkpoint_save_does_not_require_logger_type()
     test_runner_checkpoint_save_skips_missing_external_writer()
+    test_trial_plan_attachment_accepts_sequence_eval_sample_without_optional_metadata()
     print("frontres_segment_live_sampler_contract: ok")
 
 

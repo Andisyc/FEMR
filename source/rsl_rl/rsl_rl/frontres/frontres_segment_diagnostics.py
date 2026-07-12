@@ -271,9 +271,24 @@ def action_distribution_health_summary(
 
 def format_segment_periodic_eval_log(summary: dict[str, Any]) -> str:
     scalars = periodic_eval_summary_to_scalars(summary)
+    families = dict(summary.get("perturbation_family_counts", {}) or {})
     return "\n".join(
         (
             "[FrontRES Segment Periodic Eval]",
+            (
+                "  batch: "
+                f"source={summary.get('eval_batch_source', 'UNCONFIRMED')} "
+                f"reset={bool(summary.get('eval_reset_applied', False))} "
+                f"motion_ids={tuple(summary.get('motion_ids', ()) or ())} "
+                f"start_frames={tuple(summary.get('start_frames', ()) or ())}"
+            ),
+            (
+                "  perturbation: "
+                f"families={families} "
+                f"strength_min={float(summary.get('perturbation_strength_min', 0.0)):.6f} "
+                f"strength_mean={float(summary.get('perturbation_strength_mean', 0.0)):.6f} "
+                f"strength_max={float(summary.get('perturbation_strength_max', 0.0)):.6f}"
+            ),
             (
                 "  rollout: "
                 f"episode_length={scalars['segment/eval_episode_length']:.1f} "
