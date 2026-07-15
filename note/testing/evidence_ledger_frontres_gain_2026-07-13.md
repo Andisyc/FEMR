@@ -999,3 +999,23 @@ not current runnable paths. Current checkpoint evidence is the formal
   stopped at this wrapper boundary.
 - Evidence level: S1/S2 integration fix PASS; S4 fixed-sequence quality
   comparison pending.
+
+## E46 - Fixed-Sequence Perturbation Curriculum Fix (2026-07-16)
+
+- Both new eval logs completed without traceback. The two motion IDs,
+  `reset_frame=0`, `preroll_steps`, and `eval_start_frame` matched exactly.
+- They were nevertheless not a strict paired comparison: `model_1` used
+  `seq_idx=100000` and strengths `[0.921171, 1.313188, 1.085961, 0.318131]`,
+  while `model_2` used `seq_idx=200000` and strengths
+  `[0.286224, 0.542230, 0.982733, 1.183559]`.
+- Root cause: the sequence evaluator's perturbation plan inherited both
+  `current_learning_iteration` through `seq_idx` and curriculum progress.
+  Thus checkpoint iteration leaked into the supposedly fixed corruption.
+- Sequence eval now uses the explicit eval seed for `seq_idx` and fixes
+  perturbation curriculum progress at `1.0`; normal training still uses its
+  iteration-based curriculum. Contracts prove equal family/strength plans
+  across different checkpoint iterations.
+- The old metrics are diagnostic only, not a valid checkpoint ranking. A new
+  pair run is required before Step I quality acceptance.
+- Evidence level: S1/S2 perturbation-control fix PASS; S4 paired quality
+  comparison pending.

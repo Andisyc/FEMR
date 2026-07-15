@@ -296,6 +296,10 @@ def _stage3_index_frontier_scale(runner: Any) -> float:
 
 
 def _stage3_index_progress(runner: Any, update_step: int) -> float:
+    if getattr(runner, "_frontres_segment_sequence_eval_seed", None) is not None:
+        # Evaluation compares policies under one fixed, fully materialized
+        # perturbation curriculum rather than their training-time progress.
+        return 1.0
     current_iter = int(getattr(runner, "current_learning_iteration", 0) or 0)
     max_iter = max(1, int(_runner_cfg_get(runner, "max_iterations", 1)))
     return max(0.0, min(1.0, (current_iter + int(update_step)) / float(max_iter)))
@@ -314,7 +318,13 @@ def _build_stage3_index_perturbation_plan(runner: Any, batch: Any, *, update_ste
         return None
     n = int(getattr(batch, "batch_size", int(batch.segment_ids.numel())))
     cfg = getattr(runner, "cfg", None) or getattr(runner, "alg_cfg", None) or {}
-    seq_idx = int(getattr(runner, "current_learning_iteration", 0) or 0) * 100000 + int(update_step)
+    eval_seed = getattr(runner, "_frontres_segment_sequence_eval_seed", None)
+    if eval_seed is None:
+        seq_idx = int(getattr(runner, "current_learning_iteration", 0) or 0) * 100000 + int(update_step)
+    else:
+        # Sequence eval must not change its corruption when comparing
+        # checkpoints saved at different training iterations.
+        seq_idx = int(eval_seed) * 100000 + int(update_step)
     progress = _stage3_index_progress(runner, update_step)
     mix_plan = sample_perturbation_mix(cfg, None, progress, seq_idx, n, is_frontres=True)
     frontier_scale = _stage3_index_frontier_scale(runner)

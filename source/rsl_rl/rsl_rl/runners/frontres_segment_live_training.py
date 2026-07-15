@@ -341,6 +341,13 @@ def run_frontres_segment_sequence_offline_eval(
         if last_plan_error is not None:
             raise last_plan_error
         raise ValueError("sequence eval could not build a plan from sampled specs")
+    previous_eval_seed = getattr(runner, "_frontres_segment_sequence_eval_seed", None)
+    runner._frontres_segment_sequence_eval_seed = eval_seed
+    print(
+        "[FrontRES Segment Sequence Eval Perturbation] "
+        f"fixed=1 seed={eval_seed} checkpoint_iteration_ignored=1",
+        flush=True,
+    )
     if max_preroll_steps is not None and int(max_preroll_steps) > 0:
         print(
             "[FrontRES Segment Sequence Eval Plan] "
@@ -440,6 +447,10 @@ def run_frontres_segment_sequence_offline_eval(
         runner._frontres_segment_live_current_batch = previous_batch
         runner._frontres_segment_live_current_reset_request = None
         runner._frontres_segment_live_current_reset_result = None
+        if previous_eval_seed is None:
+            runner.__dict__.pop("_frontres_segment_sequence_eval_seed", None)
+        else:
+            runner._frontres_segment_sequence_eval_seed = previous_eval_seed
 
     summary = _sequence_offline_eval_summary(summaries, plan=plan, env_count=env_count)
     # FRS3-EVAL-011: print compact whole-sequence evaluation metrics.

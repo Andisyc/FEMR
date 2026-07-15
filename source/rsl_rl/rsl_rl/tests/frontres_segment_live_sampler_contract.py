@@ -1061,6 +1061,16 @@ def test_stage3_index_only_perturbation_plan_uses_dr_curriculum() -> None:
 
         plan = live_sampler_module._build_stage3_index_perturbation_plan(runner, batch, update_step=3)
         assert plan is not None
+        runner._frontres_segment_sequence_eval_seed = 20260716
+        runner.current_learning_iteration = 2
+        eval_plan_a = live_sampler_module._build_stage3_index_perturbation_plan(runner, batch, update_step=3)
+        runner.current_learning_iteration = 9
+        eval_plan_b = live_sampler_module._build_stage3_index_perturbation_plan(runner, batch, update_step=3)
+        assert eval_plan_a is not None and eval_plan_b is not None
+        torch.testing.assert_close(eval_plan_a.perturbation_strength, eval_plan_b.perturbation_strength)
+        assert eval_plan_a.perturbation_family == eval_plan_b.perturbation_family
+        runner.__dict__.pop("_frontres_segment_sequence_eval_seed", None)
+        runner.current_learning_iteration = 2
         print(
             "[probe step1] stage3_index_perturbation_source: "
             f"source=frontres_dr_curriculum "
