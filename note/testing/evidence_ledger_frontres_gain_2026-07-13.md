@@ -592,3 +592,29 @@ not current runnable paths. Current checkpoint evidence is the formal
   contract, Stage 3 pseudo entrypoint contract, and `git diff --check`.
 - Limitation: this is offline evidence only. No S4 live runtime or checkpoint
   artifact resume was run.
+
+## E25 - Pre-Fall Style Evidence Mask Correction (2026-07-15)
+
+- Live evidence: `formal_runtime_audit_20260715.txt` reached finite task-space
+  application, frozen GMT execution, paired body/ZMP/contact capture, Physics
+  Gain, and Repair Cost. `AUDIT-GAIN-01` then reported all-NaN Style Gain.
+- Root cause: `_capture_paired_gain()` used final `~done_any` as a row-level
+  Style mask. Any fall within K erased all valid pre-fall Style frames. This
+  duplicated terminal semantics already owned by Physics Gain and storage PPO
+  eligibility, and violated the contract's per-step K/done accumulation rule.
+- Fix: body and root-orientation Style now share the executed per-step
+  `horizon & not_done_before_step` mask. Post-fall frames are excluded, while
+  finite pre-fall evidence remains available for diagnostics and replay.
+- PPO semantics are unchanged: `build_live_segment_storage()` still excludes
+  terminal policy rows through its independent `valid_mask`.
+- Regression: a K=3 pseudo trajectory falls on step 2 and places extreme
+  contamination at step 3. Canonical Style MPJPE remains finite and uses only
+  steps 1-2; the same policy row remains invalid for PPO.
+- Verification passed: Gain component contract, Gain connectivity contract,
+  live probe contract, formal runtime audit contract, Runtime Atlas owner-path
+  check, Python compile, and aggregate `contract_count=44 failed_count=0`.
+- The adjacent audit-only defect `max_horizon_k=missing` was caused by printing
+  before the Stage 3 preset assignment. The probe now emits after the value is
+  finalized, with a source-order regression assertion.
+- Status: S1/S2 correction confirmed. Current source requires the same official
+  tiny formal-route rerun before S4 Gain/return or downstream rows can pass.

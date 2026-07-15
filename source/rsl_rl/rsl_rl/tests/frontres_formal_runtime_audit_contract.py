@@ -172,6 +172,9 @@ def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
     dataset_source = (ROOT / "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py").read_text()
     assert "getattr(agent_cfg, 'frontres_specialist_mode', 'missing')" in train_source
     assert "getattr(agent_cfg, 'frontres_perturbation_channels', 'missing')" in train_source
+    max_horizon_set = train_source.index('_set_if_present(alg_cfg, "frontres_segment_max_horizon_k", 64)')
+    perturb_probe = train_source.index('"[AUDIT-PERTURB-01] "')
+    assert max_horizon_set < perturb_probe, "AUDIT-PERTURB-01 must print the finalized horizon preset"
     assert "cache_horizon_k=batch.horizon_k" in dataset_source
 
 

@@ -1627,7 +1627,17 @@ def _capture_paired_gain(capture: FrontRESSegmentLiveRolloutCapture) -> Any | No
     noisy_zmp = _average_physics_steps(capture.physics_zmp_noisy_steps, horizon)
     repaired_contact = _average_physics_steps(capture.physics_contact_repaired_steps, horizon)
     noisy_contact = _average_physics_steps(capture.physics_contact_noisy_steps, horizon)
-    if horizon is not None and capture.motion_clean_body_pos is not None:
+    if action_valid_steps is not None and capture.motion_clean_body_pos is not None:
+        # Style owns the executed trajectory prefix. A terminal fall truncates
+        # later frames, but it must not erase the finite pre-fall evidence.
+        temporal_mask = action_valid_steps[:, :n].transpose(0, 1)
+        expected_shape = tuple(capture.motion_clean_body_pos[:n].shape[:2])
+        if tuple(temporal_mask.shape) != expected_shape:
+            raise ValueError(
+                "paired Style validity must match captured [B,T] motion evidence, "
+                f"got {tuple(temporal_mask.shape)} for {expected_shape}"
+            )
+    elif horizon is not None and capture.motion_clean_body_pos is not None:
         temporal_mask = torch.arange(
             capture.motion_clean_body_pos.shape[1],
             device=capture.motion_clean_body_pos.device,
@@ -1653,7 +1663,9 @@ def _capture_paired_gain(capture: FrontRESSegmentLiveRolloutCapture) -> Any | No
         clean_action_steps=clean_action_steps,
         clean_action_step_mask=clean_action_step_mask,
         temporal_mask=temporal_mask,
-        valid_mask=(~capture.done_any[:n]).reshape(-1),
+        # PPO row eligibility still excludes terminal rows in storage. Gain
+        # retains their paired pre-fall evidence for diagnostics and replay.
+        valid_mask=None,
     )
 
 

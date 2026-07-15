@@ -167,12 +167,12 @@
               "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=877"
             },
             {
-              "location": "scripts/rsl_rl/train.py:883 :: 正式 consumer 接收前",
+              "location": "scripts/rsl_rl/train.py:897 :: 正式 consumer 接收前",
               "capture": "DR scale/schedule",
               "whyHere": "sampler/rollout 读取前检查可发现配置存在但未透传的旁路",
               "failureOwner": "失败归属: alg config 到 runtime owner 的转发",
-              "sourceLine": 883,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=883"
+              "sourceLine": 897,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=897"
             }
           ],
           "probe": {
@@ -1053,28 +1053,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2549 :: _capture_motion_quality_frame()/_capture_physics_frame() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2561 :: _capture_motion_quality_frame()/_capture_physics_frame() 入口/调用前",
               "capture": "shared segment/K",
               "whyHere": "同一 quartet frame 的 Clean/Repaired/Noisy 行尚未聚合, 可验证配对身份",
               "failureOwner": "失败归属: role slicing 或 motion/frame alignment",
-              "sourceLine": 2549,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2549"
+              "sourceLine": 2561,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2561"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2568 :: _capture_motion_quality_frame()/_capture_physics_frame() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2580 :: _capture_motion_quality_frame()/_capture_physics_frame() 产物边界",
               "capture": "Noisy/Repaired execution",
               "whyHere": "style 与 physics frame 完成后首次具备 canonical Gain 所需配对语义",
               "failureOwner": "失败归属: motion/physics capture owners",
-              "sourceLine": 2568,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2568"
+              "sourceLine": 2580,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2580"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2017 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2029 :: 正式 consumer 接收前",
               "capture": "paired style/physics evidence",
               "whyHere": "Gain 调用前检查可发现 evidence 被跨 motion、跨 K 或跨 role 混合",
               "failureOwner": "失败归属: paired capture 到 Gain connector",
-              "sourceLine": 2017,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2017"
+              "sourceLine": 2029,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2029"
             }
           ],
           "probe": {
@@ -1135,28 +1135,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:406 :: compute_segment_gain() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:407 :: compute_segment_gain() 入口/调用前",
               "capture": "style_gain",
               "whyHere": "Style、Physics、Repair 输入尚未加权, 可分别确认可观测性与行对齐",
               "failureOwner": "失败归属: paired evidence 或 repair action history",
-              "sourceLine": 406,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=406"
+              "sourceLine": 407,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=407"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:334 :: compute_segment_gain() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:335 :: compute_segment_gain() 产物边界",
               "capture": "physics_gain/repair_cost",
               "whyHere": "gain_total 形成后是 accepted Gain 公式的唯一语义承诺点",
               "failureOwner": "失败归属: compute_segment_gain",
-              "sourceLine": 334,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=334"
+              "sourceLine": 335,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=335"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:468 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:469 :: 正式 consumer 接收前",
               "capture": "gain_total",
               "whyHere": "storage/sampler 消费前检查可发现 canonical Gain 被旧 score 替代",
               "failureOwner": "失败归属: Gain 到 reward/sampler evidence wiring",
-              "sourceLine": 468,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=468"
+              "sourceLine": 469,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=469"
             }
           ],
           "probe": {

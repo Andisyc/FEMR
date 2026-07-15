@@ -880,17 +880,6 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             "frontres_formal_runtime_audit",
             formal_audit_enabled,
         )
-        # B3: AUDIT-PERTURB-01 records the config that formal sampler/rollout owners will consume.
-        # Result: PENDING_LIVE.
-        if formal_audit_enabled:
-            print(
-                "[AUDIT-PERTURB-01] "
-                f"specialist_mode={getattr(agent_cfg, 'frontres_specialist_mode', 'missing')} "
-                f"perturbation_channels={getattr(agent_cfg, 'frontres_perturbation_channels', 'missing')} "
-                f"dr_scale={getattr(agent_cfg, 'dr_scale_init', 'missing')} "
-                f"max_horizon_k={getattr(alg_cfg, 'frontres_segment_max_horizon_k', 'missing')}",
-                flush=True,
-            )
         _set_if_present(
             alg_cfg,
             "frontres_segment_periodic_eval_enabled",
@@ -905,6 +894,17 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_segment_k", 8)
         _set_if_present(alg_cfg, "frontres_segment_max_horizon_k", 64)
         _set_if_present(alg_cfg, "frontres_segment_advantage_normalization", "scale_only")
+        # B3: AUDIT-PERTURB-01 records the finalized preset consumed by sampler/rollout owners.
+        # Result: PENDING_LIVE.
+        if formal_audit_enabled:
+            print(
+                "[AUDIT-PERTURB-01] "
+                f"specialist_mode={getattr(agent_cfg, 'frontres_specialist_mode', 'missing')} "
+                f"perturbation_channels={getattr(agent_cfg, 'frontres_perturbation_channels', 'missing')} "
+                f"dr_scale={getattr(agent_cfg, 'dr_scale_init', 'missing')} "
+                f"max_horizon_k={getattr(alg_cfg, 'frontres_segment_max_horizon_k', 'missing')}",
+                flush=True,
+            )
         segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"
         shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))
         _set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))

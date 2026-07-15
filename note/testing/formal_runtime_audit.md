@@ -1,6 +1,6 @@
 # Formal Runtime Audit
 
-Status: `phase-b-rerun-ready-after-task-application-fix`
+Status: `phase-b-rerun2-ready-after-prefall-style-mask-fix`
 
 Correction 2026-07-15: the first 20-card Atlas revision pointed many cards at
 owner functions while emitting their labels only from five runner summaries.
@@ -36,9 +36,10 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
   deployed source snapshot must match this worktree before live evidence is accepted.
 - Checkpoint identity: must be supplied and printed by the upcoming formal run.
 - Official command: locked below under `Tiny Formal-Route Command`.
-- Current gate: the first live attempt reached full-6D actor sampling and then
-  failed at task-space application; the API defect and audit-field ambiguity
-  are fixed offline with a fresh `44/44`. Deployment and rerun remain pending.
+- Current gate: the second live attempt passed task-space application, Frozen
+  GMT, and paired evidence capture, then exposed terminal `done_any` erasing
+  the finite pre-fall Style prefix. The mask owner is fixed offline with a
+  fresh `44/44`; deployment and rerun2 remain pending.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
@@ -81,6 +82,32 @@ Raw evidence: `formal_runtime_audit_20260715.txt`.
 - Because code changed after the failed attempt, no source result comment is
   promoted to PASS. All live rows require the same formal-route rerun.
 
+## Second Live Attempt
+
+Raw evidence: `formal_runtime_audit_20260715.txt`. The rerun was pulled to the
+original local path, so this file now contains the second attempt rather than
+a separately named `rerun1` artifact.
+
+- Newly runtime-observed before failure: finite per-row task-space correction,
+  frozen GMT execution (`gmt_training=False`), finite paired body/ZMP/contact
+  evidence, and finite Physics Gain and Repair Cost.
+- Failure owner: `_capture_paired_gain()` passed final `~done_any` as a Style
+  row mask. A row that fell anywhere in K therefore lost its entire finite
+  pre-fall trajectory, although Physics Gain and PPO eligibility already own
+  terminal semantics.
+- Correction: Style body and root-orientation components now use the shared
+  per-step `horizon & not_done_before_step` mask. A fall truncates later frames
+  without deleting earlier evidence. Storage still excludes the terminal
+  policy row from PPO through its independent `valid_mask`.
+- Audit-field correction: `AUDIT-PERTURB-01` now emits after the Stage 3 preset
+  assigns `max_horizon_k=64`; the second attempt's `missing` value was a
+  print-order defect, not the sampler's effective horizon.
+- Regression evidence: a K=3 fixture falls on step 2 and poisons step 3 with
+  an extreme value; pre-fall MPJPE Gain remains finite while the PPO row remains
+  invalid. Focused Gain/live/formal tests and aggregate `44/44` pass.
+- Because the Gain owner changed after this run, all live rows remain
+  `stale-rerun-required`; no source `Result` comment is promoted to PASS.
+
 ## Current Checklist
 
 | ID | Owner/function | Core parameter | Probe location | Expected shape/value | Status | Evidence |
@@ -91,7 +118,7 @@ Raw evidence: `formal_runtime_audit_20260715.txt`.
 | OBS-01 | observation/normalizer | 870D balance/ZMP observation | `AUDIT-OBS-01` | expected layout, finite, same normalizer identity | stale-rerun-required | failed attempt + insertion contract |
 | K-01 | sampler/reset/rollout | per-row K and valid rows | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | K tensor, role rows, reset/valid counts | stale-rerun-required | failed attempt + insertion contract |
 | ACT-01 | actor/rollout/storage | full-6D Delta SE(3) | `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | observation and action/storage tuple shapes, finite | stale-rerun-required | task-application fix + insertion contract |
-| GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | stale-rerun-required | not reached in failed attempt |
+| GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | stale-rerun-required | second attempt localized pre-fall Style mask bug; fixed offline |
 | PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | stale-rerun-required | not reached in failed attempt |
 | PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | stale-rerun-required | not reached in failed attempt |
 | DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | stale-rerun-required | not reached in failed attempt |
@@ -614,9 +641,9 @@ storage-only, update-loop-only, or offline-eval branch.
 ```bash
 CUDA_VISIBLE_DEVICES=2 \
 CACHE_DIR=/hdd1/cyx/AMASS_G1Segment \
-LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_20260715_rerun1.txt \
+LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_20260715_rerun2.txt \
 PERIODIC_EVAL_ENABLED=0 \
-RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_20260715_RERUN1 \
+RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_20260715_RERUN2 \
 HYDRA_FULL_ERROR=1 \
 bash /hdd1/cyx/FEMR/run_stage3.sh \
   /hdd1/cyx/FEMR/model/model_warmup.pt \

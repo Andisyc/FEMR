@@ -149,6 +149,7 @@ def compute_paired_style_gain(
         noisy_root_quaternions,
         config.root_orientation_scale,
         valid_mask,
+        temporal_mask=temporal_mask,
     )
     result["style"] = _available_mean(tuple(result.values()))
     return result
@@ -603,13 +604,22 @@ def _quaternion_error_gain(
     noisy: torch.Tensor | None,
     scale: float,
     valid_mask: torch.Tensor | None,
+    *,
+    temporal_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if not _same_shape(clean, repaired, noisy) or clean.shape[-1] != 4:
         like = _first_tensor(clean, repaired, noisy)
         return torch.full((like.shape[0],), float("nan"), device=like.device) if like is not None else torch.empty(0)
     repaired_err = _quat_geodesic(clean.float(), repaired.float())
     noisy_err = _quat_geodesic(clean.float(), noisy.float())
-    if repaired_err.ndim > 1:
+    if (
+        repaired_err.ndim >= 2
+        and isinstance(temporal_mask, torch.Tensor)
+        and tuple(temporal_mask.shape) == tuple(repaired_err.shape[:2])
+    ):
+        repaired_err = _masked_temporal_mean(repaired_err, temporal_mask)
+        noisy_err = _masked_temporal_mean(noisy_err, temporal_mask)
+    elif repaired_err.ndim > 1:
         repaired_err = repaired_err.mean(dim=tuple(range(1, repaired_err.ndim)))
         noisy_err = noisy_err.mean(dim=tuple(range(1, noisy_err.ndim)))
     gain = (noisy_err - repaired_err) / max(float(scale), 1e-8)

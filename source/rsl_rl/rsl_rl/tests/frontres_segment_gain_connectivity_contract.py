@@ -204,6 +204,80 @@ def test_formal_gain_reaches_storage_and_ppo_batch() -> None:
     torch.testing.assert_close(ppo_batch.valid_mask, batch.valid_mask)
 
 
+def test_fall_keeps_prefall_style_evidence_but_blocks_ppo_row() -> None:
+    """A terminal fall must truncate Style in time, not erase its valid prefix."""
+    probe, gain = _load_live_probe()
+    clean = torch.zeros(1, 3, 1, 3)
+    repaired = clean.clone()
+    noisy = clean.clone()
+    repaired[:, :2, :, 0] = 0.1
+    noisy[:, :2, :, 0] = 0.2
+    repaired[:, 2, :, 0] = 99.0
+    noisy[:, 2, :, 0] = -99.0
+    capture = probe.FrontRESSegmentLiveRolloutCapture(
+        rollout_k=3,
+        reward_mean=0.0,
+        done_frac=1.0 / 3.0,
+        last_obs_shape=(3, 3),
+        action_shape=(3, 6),
+        env_action_shape=(3, 6),
+        transition_obs=torch.zeros(3, 3),
+        transition_privileged_obs=torch.zeros(3, 3),
+        transition_actions=torch.zeros(3, 6),
+        transition_log_probs=torch.zeros(3),
+        transition_values=torch.zeros(3),
+        transition_means=torch.zeros(3, 6),
+        transition_sigmas=torch.ones(3, 6),
+        reward_accum=torch.zeros(3),
+        done_any=torch.tensor([True, False, False]),
+        reward_steps=torch.zeros(3, 3),
+        done_steps=torch.tensor(
+            [
+                [False, False, False],
+                [True, False, False],
+                [False, False, False],
+            ]
+        ),
+        horizon_k=torch.full((3,), 3, dtype=torch.long),
+        n_train=1,
+        n_candidate=0,
+        n_base=1,
+        n_clean=1,
+        survival_steps=torch.tensor([2.0, 3.0, 3.0]),
+        motion_clean_body_pos=clean,
+        motion_repaired_body_pos=repaired,
+        motion_noisy_body_pos=noisy,
+        transition_action_steps=torch.zeros(3, 3, 6),
+        gain_steps=torch.tensor(
+            [
+                [0.1, float("nan"), float("nan")],
+                [0.1, float("nan"), float("nan")],
+                [0.0, float("nan"), float("nan")],
+            ]
+        ),
+        gain_config=gain.FrontRESSegmentGainConfig(
+            mpjpe_scale=1.0,
+            velocity_scale=1.0,
+            acceleration_scale=1.0,
+            repair_weight=0.0,
+        ),
+    )
+
+    result = probe._capture_paired_gain(capture)
+    assert result is not None
+    assert bool(torch.isfinite(result.style_gain).all())
+    torch.testing.assert_close(result.style_mpjpe_gain, torch.tensor([0.1]))
+
+    runner = types.SimpleNamespace(
+        device=torch.device("cpu"),
+        _frontres_segment_live_current_batch=types.SimpleNamespace(
+            frontres_segment_trial_role=("policy", "baseline", "baseline")
+        ),
+    )
+    storage = probe.build_live_segment_storage(runner, capture)
+    assert storage.full_batch().valid_mask.tolist() == [False, False, False]
+
+
 def test_formal_gain_route_rejects_legacy_score_fallback() -> None:
     probe, gain = _load_live_probe()
     capture = probe.FrontRESSegmentLiveRolloutCapture(
@@ -245,6 +319,7 @@ def test_formal_gain_route_rejects_legacy_score_fallback() -> None:
 def main() -> None:
     test_paired_gain_replaces_old_training_score()
     test_formal_gain_reaches_storage_and_ppo_batch()
+    test_fall_keeps_prefall_style_evidence_but_blocks_ppo_row()
     test_formal_gain_route_rejects_legacy_score_fallback()
     print("frontres_segment_gain_connectivity_contract: ok")
 
