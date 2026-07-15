@@ -97,6 +97,7 @@ def _agent_cfg() -> SimpleNamespace:
         supervised_warmup_iterations=99,
         critic_warmup_iterations=99,
         max_iterations=11,
+        save_interval=100,
     )
 
 
@@ -117,6 +118,7 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_ppo_lr": None,
         "experiment_name": None,
         "is_full_resume": None,
+        "frontres_checkpoint_interval": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -177,9 +179,25 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
     assert alg.frontres_segment_k == 8
     assert alg.frontres_segment_max_horizon_k == 64
     assert alg.frontres_segment_advantage_normalization == "scale_only"
+    assert agent_cfg.save_interval == 100
     assert agent_cfg.policy.num_task_corrections == 6
     assert not hasattr(agent_cfg.policy, "task_conf_dim")
     assert not hasattr(agent_cfg.policy, "frontres_split_acceptance_head")
+
+    audit_cfg = _agent_cfg()
+    _apply_frontres_stage_preset(
+        audit_cfg,
+        _args(frontres_checkpoint_interval=1),
+    )
+    assert audit_cfg.save_interval == 1
+
+    invalid_cfg = _agent_cfg()
+    try:
+        _apply_frontres_stage_preset(invalid_cfg, _args(frontres_checkpoint_interval=0))
+    except ValueError as exc:
+        assert "frontres_checkpoint_interval" in str(exc)
+    else:
+        raise AssertionError("non-positive checkpoint interval must be rejected")
 
 
 def test_stage2_hsl_warmup_constructs_proposal_only_6d_policy() -> None:

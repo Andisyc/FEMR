@@ -305,6 +305,27 @@ distribution into the live summary; update the formal probe contract.
 Non-scope: perturbation sampling/application, K curriculum, Gain, PPO, or
 training defaults.
 
-Status: integrated-offline in E40. One short S4 rerun must show
-`max_horizon_k=64`, `family_counts={'local_rp': 8}`, and finite strength
-min/mean/max without `missing`.
+Status: S4 runtime-observed in E41. The official route shows
+`max_horizon_k=64`, `family_counts={'local_rp': 8}`, finite strength
+min/mean/max, and no audit `missing`.
+
+### Step I: Method-Quality Sentinel
+
+Objective: decide whether the actor-warmup policy improves paired executable
+Gain after an accepted actor update.
+
+Scope: a short sequential or fixed-sequence comparison that evaluates policy
+behavior after the actor update, with the same perturbation family and reported
+K distribution.
+
+Checkpoint prerequisite: run the official route with
+`--frontres_checkpoint_interval 1` and two iterations so the same run produces
+`model_1.pt` after critic-only and `model_2.pt` after actor-warmup. Then use
+both checkpoints on the same fixed offline-eval sequence.
+
+Non-scope: further audit instrumentation, reward redesign, or formal long
+training.
+
+Status: pending. E41 proves integration, but its second rollout precedes that
+iteration's optimizer step and has Gain `-0.325550`, Physics Gain `-0.281932`,
+and repaired MPJPE `0.095913 > 0.072490` noisy MPJPE.

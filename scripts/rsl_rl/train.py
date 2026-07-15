@@ -286,6 +286,12 @@ parser.add_argument(
     help="Emit compact AUDIT-* snapshots on the official Stage 3 live-training route.",
 )
 parser.add_argument(
+    "--frontres_checkpoint_interval",
+    type=int,
+    default=None,
+    help="For Stage 3 audit runs: override checkpoint save interval, e.g. 1 to retain model_1.pt and model_2.pt.",
+)
+parser.add_argument(
     "--frontres_segment_periodic_eval_interval",
     type=int,
     default=100,
@@ -792,6 +798,12 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             agent_cfg.experiment_name = "g1_flat_frontres_stage3_segment_hrl"
         if getattr(args_cli, "is_full_resume", None) is None:
             agent_cfg.is_full_resume = False
+        checkpoint_interval = getattr(args_cli, "frontres_checkpoint_interval", None)
+        if checkpoint_interval is not None:
+            checkpoint_interval = int(checkpoint_interval)
+            if checkpoint_interval <= 0:
+                raise ValueError("--frontres_checkpoint_interval must be positive")
+            agent_cfg.save_interval = checkpoint_interval
         _set_if_present(agent_cfg, "frontres_stage1_exit_after_warmup", False)
         agent_cfg.supervised_warmup_iterations = 0
         live_sentinel_only = live_sentinel_arg

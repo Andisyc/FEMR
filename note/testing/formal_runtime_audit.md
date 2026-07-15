@@ -333,9 +333,9 @@ timestamp 2026-07-15 22:32.
 - Tiny-run Gain is `-0.006978` because repair cost `0.073285` exceeds the small
   positive Style/Physics gains. This is a one-batch method-quality observation,
   not a cache regression; actor weight is intentionally zero in critic-only.
-- E39 confirms the four E38 fields on the official route and observes the
-  critic-only -> actor-warmup transition. E40 closes the remaining perturbation
-  config/summary aliases offline; only those E40 fields require one S4 rerun.
+- E39 confirms the four E38 fields and actor-warmup. E41 confirms the E40
+  perturbation fields on the official route. Compact formal diagnostics are
+  now runtime-complete; method-quality acceptance remains separate.
 
 ## Current Checklist
 
@@ -350,7 +350,7 @@ timestamp 2026-07-15 22:32.
 | GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | runtime-observed | E39 reward/return/advantage and canonical Gain populated |
 | PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | runtime-observed | E39 actor-warmup valid=7, post KL=0.005442, trust accepted |
 | PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | runtime-observed | E37 model_1.pt payload complete |
-| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | partial | E39 closes E38 fields live; E40 perturb fields fixed offline, S4 rerun pending |
+| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | runtime-observed | E41 contains no audit missing/NaN/exception and closes perturb fields live |
 
 ## Phase B Probe Ownership
 

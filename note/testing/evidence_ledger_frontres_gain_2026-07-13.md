@@ -904,3 +904,24 @@ not current runnable paths. Current checkpoint evidence is the formal
   three-row `local_rp` fixture with strengths `[0.25, 0.5, 0.75]`.
 - Evidence level: S1/S2 integrated-offline PASS. One S4 rerun remains required
   for the corrected compact perturbation fields.
+
+## E41 - Perturbation Audit And Compact Formal Route Closed Live (2026-07-16)
+
+- Raw evidence: refreshed `formal_runtime_audit_actor_warmup_20260715.txt`,
+  run directory timestamp 2026-07-15 23:48, reviewed 2026-07-16.
+- Both startup and runner probes report `specialist_mode=rp`,
+  `perturbation_channels=rp`, `dr_scale=1.25`, and `max_horizon_k=64`.
+- The actor-warmup rollout reports `family_counts={'local_rp': 8}` with
+  strength min `0.151714`, mean `0.858859`, and max `1.313188`.
+- The log contains no audit `missing`, traceback, NaN, or Inf. Reset success is
+  `1.0`; seven of eight policy rows are valid; actor-warmup post KL is
+  `0.005442` and the trust-region update is accepted.
+- `model_2.pt` saves model, optimizer, observation normalizer, sampler, Gain
+  config, and warmup identity.
+- Method-quality boundary remains open: the second rollout has total Gain
+  `-0.325550`, Physics Gain `-0.281932`, repair cost `0.115193`, one fall, and
+  repaired MPJPE `0.095913` versus noisy MPJPE `0.072490`. This rollout is
+  collected before its actor update, so it does not measure post-update policy
+  improvement.
+- Evidence level: S4 PASS for Step H and compact formal-route diagnostics;
+  method-quality acceptance remains pending Step I.

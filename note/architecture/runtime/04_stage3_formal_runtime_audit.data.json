@@ -110,7 +110,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -153,28 +153,28 @@
           ],
           "probeSteps": [
             {
-              "location": "scripts/rsl_rl/train.py:874 :: _configure_frontres_motion_perturbations() 入口/调用前",
+              "location": "scripts/rsl_rl/train.py:886 :: _configure_frontres_motion_perturbations() 入口/调用前",
               "capture": "specialist_mode",
               "whyHere": "specialist mode 与 DR 参数尚未写入 alg config, 可隔离 CLI 来源错误",
               "failureOwner": "失败归属: CLI/preset 输入",
-              "sourceLine": 874,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=874"
+              "sourceLine": 886,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=886"
             },
             {
-              "location": "scripts/rsl_rl/train.py:877 :: _configure_frontres_motion_perturbations() 产物边界",
+              "location": "scripts/rsl_rl/train.py:889 :: _configure_frontres_motion_perturbations() 产物边界",
               "capture": "family config",
               "whyHere": "这里首次形成正式训练使用的 canonical perturbation config",
               "failureOwner": "失败归属: Stage 3 perturbation configuration",
-              "sourceLine": 877,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=877"
+              "sourceLine": 889,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=889"
             },
             {
-              "location": "scripts/rsl_rl/train.py:897 :: 正式 consumer 接收前",
+              "location": "scripts/rsl_rl/train.py:909 :: 正式 consumer 接收前",
               "capture": "DR scale/schedule",
               "whyHere": "sampler/rollout 读取前检查可发现配置存在但未透传的旁路",
               "failureOwner": "失败归属: alg config 到 runtime owner 的转发",
-              "sourceLine": 897,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=897"
+              "sourceLine": 909,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=909"
             }
           ],
           "probe": {
@@ -192,13 +192,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "offline-fixed: formal config owner now carries max_horizon_k=64; S4 rerun pending (E40)"
+          "gap": "runtime-observed: rp, dr_scale=1.25 and max_horizon_k=64 are populated (E41)"
         },
         {
           "id": "AUDIT-PERTURB-02",
@@ -274,13 +274,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "offline-fixed: reset summary now carries family counts and strength min/mean/max; S4 rerun pending (E40)"
+          "gap": "runtime-observed: local_rp=8 with finite strength min/mean/max (E41)"
         },
         {
           "id": "AUDIT-SEGDATA-01",
@@ -356,7 +356,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -438,7 +438,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -520,7 +520,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -602,7 +602,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -684,7 +684,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -766,7 +766,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -848,7 +848,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -930,7 +930,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1012,7 +1012,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1094,7 +1094,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1176,7 +1176,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1258,7 +1258,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1340,7 +1340,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1422,7 +1422,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1504,7 +1504,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1586,7 +1586,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1668,7 +1668,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1750,7 +1750,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1832,7 +1832,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
+            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
           ],
           "tests": [
             "S2 official-route connectivity",

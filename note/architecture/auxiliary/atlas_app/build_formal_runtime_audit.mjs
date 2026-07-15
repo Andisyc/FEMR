@@ -53,8 +53,8 @@ runtimeStatus["AUDIT-KROLLOUT-01"] = "runtime-observed: reset_success_frac=1.0 a
 runtimeStatus["AUDIT-APPLY-01"] = "runtime-observed: finite full-6D action and delta_norm=0.016680 (E39)";
 runtimeStatus["AUDIT-PAIR-01"] = "runtime-observed: roles policy=8/baseline=24 and valid=7 (E39)";
 runtimeStatus["AUDIT-RETURN-01"] = "runtime-observed: reward/return/advantage tensors are finite and populated (E39)";
-runtimeStatus["AUDIT-PERTURB-01"] = "offline-fixed: formal config owner now carries max_horizon_k=64; S4 rerun pending (E40)";
-runtimeStatus["AUDIT-PERTURB-02"] = "offline-fixed: reset summary now carries family counts and strength min/mean/max; S4 rerun pending (E40)";
+runtimeStatus["AUDIT-PERTURB-01"] = "runtime-observed: rp, dr_scale=1.25 and max_horizon_k=64 are populated (E41)";
+runtimeStatus["AUDIT-PERTURB-02"] = "runtime-observed: local_rp=8 with finite strength min/mean/max (E41)";
 
 const probeRationales = {
   "AUDIT-ROUTE-01": [
@@ -226,7 +226,7 @@ const card = ([id, title, design, summary, ownerPath, ownerFunction, captures], 
     capture: captures,
     failIf: ["关键对象缺失、非有限或 shape/role 不符", "owner 产物未到达正式 consumer"],
   },
-  review: ["按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属", "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"],
+  review: ["按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属", "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"],
   tests: ["S2 official-route connectivity", "S4 formal live snapshot"],
   gap: runtimeStatus[id],
   });
