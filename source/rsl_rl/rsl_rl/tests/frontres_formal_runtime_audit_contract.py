@@ -113,6 +113,10 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         "ppo_valid_count": 1,
         "motion_delta_se_norm": 0.125,
         "trial_role_counts": {"policy": 1, "candidate": 1},
+        "perturbation_family_counts": {"local_rp": 2},
+        "perturbation_strength_min": 0.25,
+        "perturbation_strength_mean": 0.5,
+        "perturbation_strength_max": 0.75,
         "gain_style_mean": 0.3,
         "gain_physics_mean": 0.2,
         "gain_repair_cost_mean": 0.1,
@@ -159,6 +163,12 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "shape=(2, 6)" in output
     assert "sigma=shape=(2, 6)" in output
     assert "perturb_rp=shape=(2, 2)" in output
+    perturb_line = next(line for line in output.splitlines() if line.startswith("[AUDIT-PERTURB-02]"))
+    assert "family_counts={'local_rp': 2}" in perturb_line
+    assert "strength_min=0.25" in perturb_line
+    assert "strength_mean=0.5" in perturb_line
+    assert "strength_max=0.75" in perturb_line
+    assert "missing" not in perturb_line
     assert "reset_success_frac=1.0" in output
     assert "delta_norm=0.125" in output
     assert "roles={'policy': 1, 'candidate': 1}" in output
@@ -401,7 +411,8 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
             assert 1 <= source_line <= len(owner_lines)
             assert f"# B{step_index}:" in owner_lines[source_line - 1]
     assert modules["AUDIT-PPO-01"]["gap"].startswith("runtime-observed:")
-    assert "valid=8" in modules["AUDIT-PPO-01"]["gap"]
+    assert "actor-warmup valid=7" in modules["AUDIT-PPO-01"]["gap"]
+    assert "post KL=0.005442" in modules["AUDIT-PPO-01"]["gap"]
     assert modules["AUDIT-PERSIST-01"]["gap"].startswith("runtime-observed:")
     assert len(why_here_texts) == 66
     assert len(set(why_here_texts)) == 66, "whyHere must not be a shared template across probe boundaries"

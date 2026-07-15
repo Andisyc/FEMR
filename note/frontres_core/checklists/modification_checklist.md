@@ -55,7 +55,7 @@ runtime reachability fact.
 | Boundary | S/T | Status | Evidence |
 | --- | --- | --- | --- |
 | Formal route | S4 `T-connect` | runtime-observed | `AUDIT-ROUTE-01`, `E37`: official train route, alternate_modes=0 |
-| Perturbation config/application | S4 `T-config/T-value` | runtime-observed | `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02`, `E37`: rp, dr_scale=1.25, applied finite |
+| Perturbation config/application | S2/S4 `T-config/T-value/T-source` | offline-fixed | `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02`, E39 owner values are correct; E40 removes duplicate `missing` fields; S4 rerun pending |
 | Segment data/sampler transaction | S4 `T-source/T-state` | runtime-observed | `AUDIT-SEGDATA-01`, `AUDIT-SAMPLER-01`, `E37`: 8 source rows, priority update observed |
 | K plan/executed horizon | S4 `T-shape/T-forward` | runtime-observed | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01`, `E37`: all quartet rows survive K=8; policy valid=8 |
 | Quartet reset lifecycle | S4 `T-role/T-state/T-timeout` | live-confirmed-aligned | episode=0, root max<=1.91e-6, joint max=0 for all roles; downstream step-0 termination remains |
@@ -68,5 +68,5 @@ runtime reachability fact.
 | Paired roles/execution evidence | S4 `T-role/T-source` | offline-fixed | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01`, `E37/E38`: corrected role-count key awaits S4 rerun |
 | Gain/returns | S4 `T-value/T-forward` | offline-fixed | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`, `E37/E38`: reward/return/advantage diagnostic tuple complete offline; S4 rerun pending |
 | HSL Stage2-to-Stage3 load | S4 `T-persist/T-source` | runtime-observed | `AUDIT-HSL-LOAD-01`, `E37`: model_warmup actor and EmpiricalNormalization loaded |
-| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | partial | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01`, `E37`: critic_only confirmed; actor-warmup transition awaits Step G |
+| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | runtime-observed | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01`, `E39`: actor_warmup weight=0.5, valid=7, post KL=0.005442, trust accepted |
 | Checkpoint payload identity | S4 `T-persist` | runtime-observed | `AUDIT-PERSIST-01`, `E37`: model_1.pt includes model/optimizer/normalizer/sampler/Gain/warmup |

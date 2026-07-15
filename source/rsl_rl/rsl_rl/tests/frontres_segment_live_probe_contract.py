@@ -1856,6 +1856,19 @@ def test_reset_role_env_ids_expand_sources_in_quartet_order() -> None:
     }
 
 
+def test_reset_summary_preserves_consumed_perturbation_distribution() -> None:
+    summary: dict[str, object] = {}
+    request = SimpleNamespace(
+        perturbation_family=("local_rp", "local_rp", "local_rp"),
+        perturbation_strength=torch.tensor([0.25, 0.5, 0.75]),
+    )
+    live_probe._update_reset_summary(summary, None, request=request, skip_reason="fixture")
+    assert summary["perturbation_family_counts"] == {"local_rp": 3}
+    assert summary["perturbation_strength_min"] == 0.25
+    assert summary["perturbation_strength_mean"] == 0.5
+    assert summary["perturbation_strength_max"] == 0.75
+
+
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_uses_b1_paired_gain_when_available()
@@ -1888,4 +1901,5 @@ if __name__ == "__main__":
     test_executed_segment_action_capture_uses_transition_after_baseline_override()
     test_action_valid_steps_counts_done_producing_action_and_masks_tail()
     test_reset_role_env_ids_expand_sources_in_quartet_order()
+    test_reset_summary_preserves_consumed_perturbation_distribution()
     print("frontres_segment_live_probe_contract: ok")

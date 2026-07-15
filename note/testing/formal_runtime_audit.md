@@ -333,25 +333,24 @@ timestamp 2026-07-15 22:32.
 - Tiny-run Gain is `-0.006978` because repair cost `0.073285` exceeds the small
   positive Style/Physics gains. This is a one-batch method-quality observation,
   not a cache regression; actor weight is intentionally zero in critic-only.
-- The four compact diagnostic gaps from E37 are fixed offline in E38. Three
-  probes now read the actual live-summary owner keys, and the storage diagnostic
-  batch retains the already-computed rollout reward without forwarding it into
-  the PPO batch. One formal rerun is still required for S4 evidence.
+- E39 confirms the four E38 fields on the official route and observes the
+  critic-only -> actor-warmup transition. E40 closes the remaining perturbation
+  config/summary aliases offline; only those E40 fields require one S4 rerun.
 
 ## Current Checklist
 
 | ID | Owner/function | Core parameter | Probe location | Expected shape/value | Status | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | GOV-01 | workflow governance | contract/code/checkpoint/command identity | this document | identity is explicit before run | user-reviewed | this file |
-| METHOD-07 | critic-ready actor curriculum | HSL -> protected RL warmup -> actor ramp -> joint RL | `AUDIT-HSL-LOAD-01`, `AUDIT-WARMUP-01`, `AUDIT-PPO-01` | phase/weight and frozen actor boundary | partial | E37 critic_only confirmed; actor-warmup transition awaits the Step G S4 run |
+| METHOD-07 | critic-ready actor curriculum | HSL -> protected RL warmup -> actor ramp -> joint RL | `AUDIT-HSL-LOAD-01`, `AUDIT-WARMUP-01`, `AUDIT-PPO-01` | phase/weight and frozen actor boundary | runtime-observed | E39 critic_only -> actor_warmup(0.5), valid=7, trust accepted |
 | ROUTE-01 | formal entrypoint and runner | Stage 3 branch selection | `AUDIT-ROUTE-01` | live_train=1 and alternate_modes=0 | runtime-observed | E37 official train route |
 | OBS-01 | observation/normalizer | 870D balance/ZMP observation | `AUDIT-OBS-01` | expected layout, finite, same normalizer identity | runtime-observed | E37 finite 870D, 100D+770D split |
-| K-01 | sampler/reset/rollout | per-row K and valid rows | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | K tensor, role rows, reset/valid counts | offline-fixed | E37 K=8/valid=8; E38 corrected reset-success owner key; S4 rerun pending |
-| ACT-01 | actor/rollout/storage | full-6D Delta SE(3) | `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | observation and action/storage tuple shapes, finite | offline-fixed | E37 full-6D reached apply; E38 corrected delta-norm owner key; S4 rerun pending |
-| GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | offline-fixed | E37 Gain/returns populated; E38 retained reward in diagnostic batch; S4 rerun pending |
-| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | runtime-observed | E37 valid=8, critic update accepted, KL=6.008e-05 |
+| K-01 | sampler/reset/rollout | per-row K and valid rows | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | K tensor, role rows, reset/valid counts | runtime-observed | E39 reset_success_frac=1.0, K=8..64, valid=7 |
+| ACT-01 | actor/rollout/storage | full-6D Delta SE(3) | `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | observation and action/storage tuple shapes, finite | runtime-observed | E39 full-6D finite, delta_norm=0.016680 |
+| GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | runtime-observed | E39 reward/return/advantage and canonical Gain populated |
+| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | runtime-observed | E39 actor-warmup valid=7, post KL=0.005442, trust accepted |
 | PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | runtime-observed | E37 model_1.pt payload complete |
-| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | offline-fixed | E38 closes four fields offline; S4 rerun pending |
+| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | partial | E39 closes E38 fields live; E40 perturb fields fixed offline, S4 rerun pending |
 
 ## Phase B Probe Ownership
 

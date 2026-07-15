@@ -872,3 +872,35 @@ not current runnable paths. Current checkpoint evidence is the formal
   `missing`; the storage contract proves reward row identity is preserved.
 - Evidence level: S1/S2 integrated-offline PASS. S4 actor-warmup formal rerun
   remains required to confirm the fields on the official runtime path.
+
+## E39 - Actor-Warmup Formal Sentinel (2026-07-15)
+
+- Raw evidence: `formal_runtime_audit_actor_warmup_20260715.txt`, 32 envs,
+  two iterations, critic warmup 1 and actor warmup 2.
+- Iteration 0 is `critic_only` with actor weight 0. Iteration 1 is
+  `actor_warmup` with actor weight 0.5, seven valid policy rows, finite loss,
+  post-update KL `0.005442`, and accepted trust-region update.
+- The four E38 fields are live-populated: reset success `1.0`, applied Delta
+  SE(3) norm `0.016680`, role counts policy 8/baseline 24, and finite
+  reward/return/advantage tensors.
+- Actor parameters change (`residual_actor.0.weight` first); frozen GMT remains
+  outside the optimizer. The second rollout Gain is negative, but it precedes
+  that iteration's optimizer step and is not evidence of post-update quality.
+- Evidence level: S4 PASS for Step G wiring and E38 diagnostic closure.
+
+## E40 - Perturbation Audit Aliases Closed Offline (2026-07-15)
+
+- Root cause 1: the formal task algorithm config lacked
+  `frontres_segment_max_horizon_k` and
+  `frontres_segment_advantage_normalization`, although the mirrored rsl_rl
+  config defined both. `_set_if_present()` therefore skipped the preset and
+  runtime happened to use algorithm defaults.
+- Root cause 2: the formal rollout summary did not retain the perturbation
+  family/strength already consumed by the index-reset request.
+- The task config now owns `64` and `scale_only`. Reset summary now records
+  actual family counts and strength min/mean/max; no-perturbation reset requests
+  produce empty/zero diagnostics without failing.
+- Focused entrypoint, formal-audit, and live-probe contracts pass, including a
+  three-row `local_rp` fixture with strengths `[0.25, 0.5, 0.75]`.
+- Evidence level: S1/S2 integrated-offline PASS. One S4 rerun remains required
+  for the corrected compact perturbation fields.

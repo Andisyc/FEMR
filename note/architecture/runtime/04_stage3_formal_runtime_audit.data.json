@@ -110,7 +110,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -192,13 +192,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
+          "gap": "offline-fixed: formal config owner now carries max_horizon_k=64; S4 rerun pending (E40)"
         },
         {
           "id": "AUDIT-PERTURB-02",
@@ -274,13 +274,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
+          "gap": "offline-fixed: reset summary now carries family counts and strength min/mean/max; S4 rerun pending (E40)"
         },
         {
           "id": "AUDIT-SEGDATA-01",
@@ -356,7 +356,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -438,7 +438,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -520,7 +520,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -602,13 +602,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "offline-fixed: reset_success_frac now reads the live summary owner; S4 rerun pending (E38)"
+          "gap": "runtime-observed: reset_success_frac=1.0 and valid=7/8 are populated (E39)"
         },
         {
           "id": "AUDIT-RESET-LIFECYCLE-01",
@@ -645,28 +645,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2287 :: _run_live_rollout_capture() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2308 :: _run_live_rollout_capture() 入口/调用前",
               "capture": "reset 前/随机化后/reset 后 episode_length_buf",
               "whyHere": "index reset 刚结束且 env.step 尚未发生, 可直接比较每个 role 的 episode 生命周期是否同源",
               "failureOwner": "失败归属: episode_length_buf randomization 或 index-reset lifecycle wiring",
-              "sourceLine": 2287,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2287"
+              "sourceLine": 2308,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2308"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2288 :: _run_live_rollout_capture() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2309 :: _run_live_rollout_capture() 产物边界",
               "capture": "quartet origin-relative root/joint pair error",
               "whyHere": "policy/candidate/noisy/clean 的机器人 dynamic state 在此首次应构成可比较 quartet",
               "failureOwner": "失败归属: index reset robot-state write 或 quartet state synchronization",
-              "sourceLine": 2288,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2288"
+              "sourceLine": 2309,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2309"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2289 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2310 :: 正式 consumer 接收前",
               "capture": "逐步 role done/timeout/termination/survival 与 active term masks",
               "whyHere": "env.step 返回时 done 与 time_out 同时可见, 能区分时限结束和物理 termination",
               "failureOwner": "失败归属: environment termination owner 或 rollout survival accounting",
-              "sourceLine": 2289,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2289"
+              "sourceLine": 2310,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2310"
             }
           ],
           "probe": {
@@ -684,7 +684,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -766,7 +766,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -848,7 +848,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -930,7 +930,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1012,13 +1012,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "offline-fixed: delta_norm now reads motion_delta_se_norm; S4 rerun pending (E38)"
+          "gap": "runtime-observed: finite full-6D action and delta_norm=0.016680 (E39)"
         },
         {
           "id": "AUDIT-GMT-01",
@@ -1094,7 +1094,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1176,13 +1176,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "offline-fixed: roles now reads trial_role_counts; S4 rerun pending (E38)"
+          "gap": "runtime-observed: roles policy=8/baseline=24 and valid=7 (E39)"
         },
         {
           "id": "AUDIT-PAIR-EVIDENCE-01",
@@ -1219,28 +1219,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2670 :: _capture_motion_quality_frame()/_capture_physics_frame() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2691 :: _capture_motion_quality_frame()/_capture_physics_frame() 入口/调用前",
               "capture": "shared segment/K",
               "whyHere": "同一 quartet frame 的 Clean/Repaired/Noisy 行尚未聚合, 可验证配对身份",
               "failureOwner": "失败归属: role slicing 或 motion/frame alignment",
-              "sourceLine": 2670,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2670"
+              "sourceLine": 2691,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2691"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2689 :: _capture_motion_quality_frame()/_capture_physics_frame() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2710 :: _capture_motion_quality_frame()/_capture_physics_frame() 产物边界",
               "capture": "Noisy/Repaired execution",
               "whyHere": "style 与 physics frame 完成后首次具备 canonical Gain 所需配对语义",
               "failureOwner": "失败归属: motion/physics capture owners",
-              "sourceLine": 2689,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2689"
+              "sourceLine": 2710,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2710"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2289 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2310 :: 正式 consumer 接收前",
               "capture": "paired style/physics evidence",
               "whyHere": "Gain 调用前检查可发现 evidence 被跨 motion、跨 K 或跨 role 混合",
               "failureOwner": "失败归属: paired capture 到 Gain connector",
-              "sourceLine": 2289,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2289"
+              "sourceLine": 2310,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2310"
             }
           ],
           "probe": {
@@ -1258,7 +1258,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1340,7 +1340,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1422,13 +1422,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "offline-fixed: storage diagnostic batch now retains rollout rewards; S4 rerun pending (E38)"
+          "gap": "runtime-observed: reward/return/advantage tensors are finite and populated (E39)"
         },
         {
           "id": "AUDIT-HSL-LOAD-01",
@@ -1504,7 +1504,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1586,13 +1586,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "partial: critic-only is runtime-observed; actor-warmup transition awaits Step G"
+          "gap": "runtime-observed: critic-only -> actor-warmup(0.5), finite accepted update (E39)"
         },
         {
           "id": "AUDIT-PPO-01",
@@ -1668,13 +1668,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: valid=8, critic-only update observed, trust accepted, KL=6.008e-05 (E37)"
+          "gap": "runtime-observed: actor-warmup valid=7, post KL=0.005442, trust accepted (E39)"
         },
         {
           "id": "AUDIT-PERSIST-01",
@@ -1750,7 +1750,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1832,7 +1832,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
+            "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"
           ],
           "tests": [
             "S2 official-route connectivity",

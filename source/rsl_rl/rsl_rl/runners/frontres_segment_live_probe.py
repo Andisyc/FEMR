@@ -815,7 +815,12 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
     )
     summary = _initial_live_probe_summary(capture, storage_write=storage_write, single_update=single_update)
     _update_trial_metadata_summary(summary, runner, batch_size=_capture_batch_size(capture))
-    _update_reset_summary(summary, reset_result, skip_reason=reset_skip_reason)
+    _update_reset_summary(
+        summary,
+        reset_result,
+        request=getattr(runner, "_frontres_segment_live_current_reset_request", None),
+        skip_reason=reset_skip_reason,
+    )
 
     storage_batch = None
     if storage_write:
@@ -1296,8 +1301,24 @@ def _update_reset_summary(
     summary: dict[str, object],
     result: FrontRESSegmentResetResult | None,
     *,
+    request: Any | None = None,
     skip_reason: str = "",
 ) -> None:
+    # B1: Read the perturbation identity consumed by the reset owner.
+    families = tuple(str(item) for item in (getattr(request, "perturbation_family", ()) or ()))
+    strength = getattr(request, "perturbation_strength", None)
+    strength_values = _float_list(strength) if isinstance(strength, torch.Tensor) else []
+    # B2: Preserve distribution facts for diagnostics without changing reset behavior.
+    summary.update(
+        {
+            "perturbation_family_counts": _count_summary(families),
+            "perturbation_strength_min": min(strength_values) if strength_values else 0.0,
+            "perturbation_strength_mean": (
+                sum(strength_values) / float(len(strength_values)) if strength_values else 0.0
+            ),
+            "perturbation_strength_max": max(strength_values) if strength_values else 0.0,
+        }
+    )
     if result is None:
         summary.update(
             {

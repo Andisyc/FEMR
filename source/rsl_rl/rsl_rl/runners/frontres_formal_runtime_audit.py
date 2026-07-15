@@ -330,7 +330,14 @@ def print_rollout_storage_audit(
         assert isinstance(value, torch.Tensor) and bool(torch.isfinite(value).all().item())
     # AUDIT-PERTURB-02: 检查实际 rollout 扰动, 位于 perturbation application -> paired execution.
     # Result: PENDING_LIVE.
-    _emit_owner_snapshot("AUDIT-PERTURB-02", perturb_rp=_tensor_stats(getattr(capture, "transition_perturbation_rp", None)), family=_summary_value(summary, "perturbation_family"), strength=_summary_value(summary, "perturbation_strength"))
+    _emit_owner_snapshot(
+        "AUDIT-PERTURB-02",
+        perturb_rp=_tensor_stats(getattr(capture, "transition_perturbation_rp", None)),
+        family_counts=_summary_value(summary, "perturbation_family_counts"),
+        strength_min=_summary_value(summary, "perturbation_strength_min"),
+        strength_mean=_summary_value(summary, "perturbation_strength_mean"),
+        strength_max=_summary_value(summary, "perturbation_strength_max"),
+    )
     # AUDIT-OBS-01: 检查 100D balance + 770D GMT observation, 位于 env observation -> policy normalizer.
     # Result: PENDING_LIVE.
     _emit_owner_snapshot("AUDIT-OBS-01", obs=_tensor_stats(observations), prefix100=_tensor_stats(obs_prefix), suffix770=_tensor_stats(obs_suffix))

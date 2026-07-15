@@ -47,11 +47,14 @@ runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "runtime-observed: all quartet roles
 runtimeStatus["AUDIT-ANCHOR-Z-01"] = "runtime-observed: first-call raw/clean/robot z align, max abs error=0.0201m, anchor_pos=0 for all roles (E37)";
 runtimeStatus["AUDIT-DIAG-01"] = "runtime-observed: canonical Gain, valid fraction, warmup, PPO and trust diagnostics are populated (E37)";
 runtimeStatus["AUDIT-PERSIST-01"] = "runtime-observed: model_1.pt saved with model, optimizer, normalizer, sampler, Gain and warmup payloads (E37)";
-runtimeStatus["AUDIT-WARMUP-01"] = "partial: critic-only is runtime-observed; actor-warmup transition awaits Step G";
-runtimeStatus["AUDIT-KROLLOUT-01"] = "offline-fixed: reset_success_frac now reads the live summary owner; S4 rerun pending (E38)";
-runtimeStatus["AUDIT-APPLY-01"] = "offline-fixed: delta_norm now reads motion_delta_se_norm; S4 rerun pending (E38)";
-runtimeStatus["AUDIT-PAIR-01"] = "offline-fixed: roles now reads trial_role_counts; S4 rerun pending (E38)";
-runtimeStatus["AUDIT-RETURN-01"] = "offline-fixed: storage diagnostic batch now retains rollout rewards; S4 rerun pending (E38)";
+runtimeStatus["AUDIT-WARMUP-01"] = "runtime-observed: critic-only -> actor-warmup(0.5), finite accepted update (E39)";
+runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: actor-warmup valid=7, post KL=0.005442, trust accepted (E39)";
+runtimeStatus["AUDIT-KROLLOUT-01"] = "runtime-observed: reset_success_frac=1.0 and valid=7/8 are populated (E39)";
+runtimeStatus["AUDIT-APPLY-01"] = "runtime-observed: finite full-6D action and delta_norm=0.016680 (E39)";
+runtimeStatus["AUDIT-PAIR-01"] = "runtime-observed: roles policy=8/baseline=24 and valid=7 (E39)";
+runtimeStatus["AUDIT-RETURN-01"] = "runtime-observed: reward/return/advantage tensors are finite and populated (E39)";
+runtimeStatus["AUDIT-PERTURB-01"] = "offline-fixed: formal config owner now carries max_horizon_k=64; S4 rerun pending (E40)";
+runtimeStatus["AUDIT-PERTURB-02"] = "offline-fixed: reset summary now carries family counts and strength min/mean/max; S4 rerun pending (E40)";
 
 const probeRationales = {
   "AUDIT-ROUTE-01": [
@@ -223,7 +226,7 @@ const card = ([id, title, design, summary, ownerPath, ownerFunction, captures], 
     capture: captures,
     failIf: ["关键对象缺失、非有限或 shape/role 不符", "owner 产物未到达正式 consumer"],
   },
-  review: ["按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属", "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"],
+  review: ["按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属", "E39 已验证 actor-warmup 与 E38 四字段; E40 perturb 汇总离线闭合"],
   tests: ["S2 official-route connectivity", "S4 formal live snapshot"],
   gap: runtimeStatus[id],
   });

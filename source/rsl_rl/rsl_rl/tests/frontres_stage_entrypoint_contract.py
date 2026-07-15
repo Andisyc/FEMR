@@ -231,6 +231,8 @@ def main() -> None:
         assert "frontres_segment_live_fail_on_nonfinite: bool = True" in cfg_text
         assert "frontres_hsl_init_enabled: bool = False" in cfg_text
         assert "frontres_segment_k: int = 8" in cfg_text
+        assert "frontres_segment_max_horizon_k: int = 64" in cfg_text
+        assert 'frontres_segment_advantage_normalization: str = "scale_only"' in cfg_text
         assert 'frontres_segment_cache_dir: str = ""' in cfg_text
         assert "frontres_segment_shard_cache_size: int = 8" in cfg_text
         assert "frontres_segment_include_boundary_diagnostic: bool = False" in cfg_text

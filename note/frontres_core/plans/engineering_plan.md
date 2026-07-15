@@ -290,4 +290,21 @@ Expected evidence: `AUDIT-WARMUP-01` transitions from `critic_only` to
 delta and valid trust diagnostics; K rollout, apply, pair, and return rows no
 longer contain `missing`.
 
-Status: ready for S4 live execution after the E38 code is synchronized.
+Status: S4 runtime-observed in E39. The two-iteration sentinel reached
+critic-only and actor-warmup, and all four E38 fields were populated.
+
+### Step H: Perturbation Audit Alias Closure
+
+Objective: remove the final duplicate `missing` values without changing the
+perturbation or K-step training paths.
+
+Scope: add max-horizon and advantage-normalization fields to the formal task
+config owner; copy consumed reset-request family counts and strength
+distribution into the live summary; update the formal probe contract.
+
+Non-scope: perturbation sampling/application, K curriculum, Gain, PPO, or
+training defaults.
+
+Status: integrated-offline in E40. One short S4 rerun must show
+`max_horizon_k=64`, `family_counts={'local_rp': 8}`, and finite strength
+min/mean/max without `missing`.

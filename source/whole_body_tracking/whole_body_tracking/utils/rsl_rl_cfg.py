@@ -329,6 +329,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Initialize Stage 3 repair actor from Stage 1 HSL weights when loading checkpoints."""
     frontres_segment_k: int = 8
     """K-step horizon for Segment Replay HRL rollout scoring."""
+    frontres_segment_max_horizon_k: int = 64
+    """Maximum formal-training horizon for the 8/16/32/64 Segment Replay curriculum."""
+    frontres_segment_advantage_normalization: str = "scale_only"
+    """Segment PPO advantage mode; scale_only preserves the Gain sign by default."""
     frontres_segment_cache_dir: str = ""
     """Optional Stage 1 Segment cache directory used to initialize the Stage 3 Segment Replay dataset."""
     frontres_segment_shard_cache_size: int = 8
