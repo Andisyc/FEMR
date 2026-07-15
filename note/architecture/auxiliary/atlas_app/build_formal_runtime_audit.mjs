@@ -13,6 +13,7 @@ const specs = [
   ["AUDIT-KPLAN-01", "K-step 计划", "M-06, SR-01", "curriculum K 被展开为 per-row rollout budget", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "plan_rollout_budget()/expand_rollout_trials()", ["curriculum max K", "per-row horizon_k", "expanded trial rows"]],
   ["AUDIT-KROLLOUT-01", "K-step 执行", "M-06, Q-PAIR", "expanded trial rows 将同一 K 交给 reset 和 rollout", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "expand_rollout_trials()", ["base segment budget", "expanded source/trial/K rows", "reset/rollout consumer rows"]],
   ["AUDIT-RESET-LIFECYCLE-01", "Reset Lifecycle", "M-06, Q-PAIR, SR-01", "index reset 后四类 role 共享可比较的 episode 与 dynamic-state 起点", "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "_run_live_rollout_capture()", ["reset 前/随机化后/reset 后 episode_length_buf", "quartet origin-relative root/joint pair error", "逐步 role done/timeout/termination/survival 与 active term masks"]],
+  ["AUDIT-ANCHOR-Z-01", "Anchor Z Termination", "M-06, Q-PAIR, M-10", "逐 role 定位 reference anchor z 与 robot torso z 的首个错位对象", "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py", "bad_anchor_pos_z_only()", ["world-frame reference_z/robot_z 与 frame identity", "clean/raw/correction z 分解和 signed/abs error", "0.5m threshold 前的原始 termination mask"]],
   ["AUDIT-OBS-01", "870D Observation", "M-04, M-10", "100D balance prefix 与 770D GMT suffix 保持布局", "source/rsl_rl/rsl_rl/runners/frontres_runtime.py", "apply_obs_normalizer()", ["raw obs[*,870]", "prefix100/suffix770", "normalized finite obs"]],
   ["AUDIT-ACTION-01", "Full-6D Actor", "M-04", "mean、sigma 与 sampled action 保持 full-6D 同源", "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "update_distribution()/act()", ["policy obs", "mean/sigma[*,6]", "sampled action[*,6]"]],
   ["AUDIT-APPLY-01", "Delta SE(3) 应用", "M-04, M-10", "完整 6D repair 写入 repaired reference", "source/rsl_rl/rsl_rl/frontres/task_space_correction.py", "apply_frontres_task_corrections()", ["raw Delta SE(3)", "task correction", "repaired reference"]],
@@ -42,7 +43,8 @@ const runtimeStatus = Object.fromEntries(specs.map(([id]) => [
     : "unconfirmed: rerun3 did not reach this owner",
 ]));
 runtimeStatus["AUDIT-PPO-01"] = "blocked: 8/8 policy rows terminated, valid=0, optimizer update was not observed";
-runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "blocked: role-expanded reset is live-confirmed aligned, but 32 rows still terminate at step 0; per-term audit inserted";
+runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "runtime-observed: role-expanded reset is aligned; anchor_pos alone terminates all 32 rows at step 0 (E33)";
+runtimeStatus["AUDIT-ANCHOR-Z-01"] = "inserted: exact anchor-z value provenance awaits one tiny formal live rerun";
 runtimeStatus["AUDIT-DIAG-01"] = "unconfirmed: accepted post-update diagnostics were not reached";
 runtimeStatus["AUDIT-PERSIST-01"] = "unconfirmed: checkpoint payload/save boundary was not reached";
 
@@ -86,6 +88,11 @@ const probeRationales = {
     ["index reset 刚结束且 env.step 尚未发生, 可直接比较每个 role 的 episode 生命周期是否同源", "失败归属: episode_length_buf randomization 或 index-reset lifecycle wiring"],
     ["policy/candidate/noisy/clean 的机器人 dynamic state 在此首次应构成可比较 quartet", "失败归属: index reset robot-state write 或 quartet state synchronization"],
     ["env.step 返回时 done 与 time_out 同时可见, 能区分时限结束和物理 termination", "失败归属: environment termination owner 或 rollout survival accounting"],
+  ],
+  "AUDIT-ANCHOR-Z-01": [
+    ["termination owner 刚读取最终 reference/robot anchor z, 可排除 runner 二次计算差异", "失败归属: command anchor 或 robot anchor source"],
+    ["clean/raw/correction 与 frame identity 同时可见, 能定位 cache、correction 或 time-step 错位", "失败归属: command cached reference lifecycle"],
+    ["原始 mask 返回前检查可证明数值分解与实际 anchor_pos done 完全同源", "失败归属: bad_anchor_pos_z_only threshold comparison"],
   ],
   "AUDIT-OBS-01": [
     ["raw 870D obs 尚未归一化, 可先验证 100D+770D 布局来源", "失败归属: environment observation construction"],
@@ -219,7 +226,7 @@ const card = ([id, title, design, summary, ownerPath, ownerFunction, captures], 
 
 const data = {
   title: "04 Stage 3 Formal Runtime Audit",
-  subtitle: "21 个重要 Owner 边界的正式训练插桩阅读图. 每个 B 子框解释为什么测这里、截获什么以及失败归属.",
+  subtitle: "22 个重要 Owner 边界的正式训练插桩阅读图. 每个 B 子框解释为什么测这里、截获什么以及失败归属.",
   layout: "repository_reading_atlas",
   canvasWidth: 16900,
   defaultZoom: 0.18,

@@ -15,6 +15,16 @@ from torch import nn
 
 ROOT = Path(__file__).resolve().parents[4]
 AUDIT_PATH = ROOT / "source" / "rsl_rl" / "rsl_rl" / "runners" / "frontres_formal_runtime_audit.py"
+TERMINATIONS_PATH = (
+    ROOT
+    / "source"
+    / "whole_body_tracking"
+    / "whole_body_tracking"
+    / "tasks"
+    / "tracking"
+    / "mdp"
+    / "terminations.py"
+)
 spec = importlib.util.spec_from_file_location("frontres_formal_runtime_audit_contract_module", AUDIT_PATH)
 audit = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
@@ -315,16 +325,19 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
     audit_ids = [
         "AUDIT-ROUTE-01", "AUDIT-PERTURB-01", "AUDIT-PERTURB-02", "AUDIT-SEGDATA-01",
         "AUDIT-SAMPLER-01", "AUDIT-KPLAN-01", "AUDIT-KROLLOUT-01", "AUDIT-RESET-LIFECYCLE-01",
+        "AUDIT-ANCHOR-Z-01",
         "AUDIT-OBS-01",
         "AUDIT-ACTION-01", "AUDIT-APPLY-01", "AUDIT-GMT-01", "AUDIT-PAIR-01",
         "AUDIT-PAIR-EVIDENCE-01", "AUDIT-GAIN-01", "AUDIT-RETURN-01", "AUDIT-HSL-LOAD-01",
         "AUDIT-WARMUP-01", "AUDIT-PPO-01", "AUDIT-PERSIST-01", "AUDIT-DIAG-01",
     ]
     audit_source = AUDIT_PATH.read_text()
+    termination_source = TERMINATIONS_PATH.read_text()
     for audit_id in audit_ids:
         assert audit_id in atlas_text
         assert audit_id in checklist
-        assert audit_id in audit_source
+        owner_source = termination_source if audit_id == "AUDIT-ANCHOR-Z-01" else audit_source
+        assert audit_id in owner_source
     assert atlas["layout"] == "repository_reading_atlas"
     assert atlas["runtimeOrder"] == audit_ids
     modules = {
@@ -332,7 +345,7 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
         for system in atlas["systems"]
         for module in system["modules"]
     }
-    assert len(modules) == 21
+    assert len(modules) == 22
     why_here_texts: list[str] = []
     for audit_id in audit_ids:
         module = modules[audit_id]
@@ -377,8 +390,24 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
     assert modules["AUDIT-PPO-01"]["gap"].startswith("blocked:")
     assert "8/8 policy rows" in modules["AUDIT-PPO-01"]["gap"]
     assert modules["AUDIT-PERSIST-01"]["gap"].startswith("unconfirmed:")
-    assert len(why_here_texts) == 63
-    assert len(set(why_here_texts)) == 63, "whyHere must not be a shared template across probe boundaries"
+    assert len(why_here_texts) == 66
+    assert len(set(why_here_texts)) == 66, "whyHere must not be a shared template across probe boundaries"
+
+    assert "result = (error > threshold) | torch.isnan(error)" in termination_source
+    assert "return result" in termination_source
+    for field in (
+        "reference_z=role_reference_z",
+        "robot_z=",
+        "signed_error=",
+        "abs_error=",
+        "threshold=float(threshold)",
+        "clean_reference_z=",
+        "raw_reference_z=",
+        "correction_z=",
+        "time_steps=",
+        "motion_indices=",
+    ):
+        assert field in termination_source
 
 
 if __name__ == "__main__":

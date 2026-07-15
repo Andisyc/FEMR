@@ -1,6 +1,6 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B Step B live-confirmed for state alignment; Step C termination-term audit in progress
+Status: Phase B Step C live-confirmed; Step D anchor-position value probe inserted, pending live evidence
 Updated: 2026-07-15
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
@@ -51,6 +51,36 @@ Expected evidence: S2 `T-role/T-source/T-value` and S4 one-run term identity.
 
 Stop condition: the probe changes done behavior, active term names cannot be
 read, or a live term mask cannot be reconciled with the returned done mask.
+
+Step result: completed by `E33`. At rollout step 0, `anchor_pos` is true for
+all 8 Policy, 8 Candidate, 8 Noisy, and 8 Clean rows. Every other active term
+is false. The returned done mask therefore reconciles exactly with the active
+term masks.
+
+### Reset Recovery Step D / 4: Anchor Position Value Localization
+
+Objective: identify why `bad_anchor_pos_z_only()` sees an error above `0.5 m`
+immediately after an otherwise aligned quartet reset.
+
+Scope: observe role-aware reference anchor z, robot torso z, signed/absolute z
+error, threshold, command time step, and cached-reference identity immediately
+before termination computation at rollout step 0.
+
+Non-scope: threshold changes, termination suppression, command update order,
+reset writes, PPO, Gain, valid masks, and fail-fast behavior.
+
+Owner files/modules:
+- `tracking/mdp/terminations.py`: `bad_anchor_pos_z_only()` value owner.
+- `tracking/mdp/commands.py`: cached reference anchor and robot anchor owners.
+- `runners/frontres_segment_live_probe.py`: role-aware formal-route connector.
+
+Expected evidence: S2 `T-source/T-value/T-frame/T-role` plus one S4 snapshot.
+
+Stop condition: the first mismatched object is identified among cached
+reference frame/time, reference anchor z, robot torso z, or threshold routing.
+Insertion status: user-reviewed and inserted as `AUDIT-ANCHOR-Z-01`. The probe
+is default-off and does not change the returned termination mask. S4 value
+provenance remains pending.
 
 ## Objective
 

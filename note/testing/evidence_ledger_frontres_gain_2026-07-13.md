@@ -756,3 +756,37 @@ not current runnable paths. Current checkpoint evidence is the formal
 - Post-insertion verification passed: aggregate contract suite `44/44`, formal
   runtime audit contract, Runtime Atlas import with 62 owner paths, Python
   compilation, and `git diff --check`.
+
+## E33 - Step-0 Termination Owner Is Anchor Position (2026-07-15)
+
+- Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 777 lines,
+  timestamp 2026-07-15 18:05.
+- `AUDIT-RESET-LIFECYCLE-01` at rollout step 0 reports
+  `anchor_pos={policy:8,candidate:8,noisy:8,clean:8}`.
+- Every other active term is zero: `motion_end`, `time_out`, `anchor_ori`, and
+  `ee_body_pos`. The per-term union matches the returned physical termination
+  count exactly.
+- Code ownership: active G1 config routes `anchor_pos` to
+  `bad_anchor_pos_z_only()`, which compares `command.anchor_pos_w[:,2]` and
+  `command.robot_anchor_pos_w[:,2]` against threshold `0.5 m`.
+- Confirmed: quartet reset and active-term identity are live evidence.
+- Unconfirmed: whether the excessive z error originates from stale cached
+  reference/time-step state, reference anchor z, robot torso z, or update
+  ordering. No termination or training behavior was changed.
+
+## E34 - Anchor-Z Owner Probe Insertion (2026-07-15)
+
+- `AUDIT-ANCHOR-Z-01` is inserted directly in
+  `terminations.py::bad_anchor_pos_z_only()` and remains `PENDING_LIVE`.
+- Captured per quartet role: final world-frame reference z, robot torso z,
+  signed/absolute error, returned mask, threshold, clean/raw/correction z,
+  command time step, and motion index.
+- The original mask expression remains
+  `(error > threshold) | torch.isnan(error)` and the probe returns that same
+  tensor without a clamp, skip, fallback, or threshold change.
+- Verification: formal runtime audit contract PASS, Python compilation PASS,
+  Runtime Atlas rebuilt with 22 owner cards, viewer/import check PASS with 62
+  repository owner paths, aggregate contract suite `44/44`, and
+  `git diff --check` PASS.
+- Evidence level: S2 insertion/integration PASS. S4 value provenance remains
+  pending one tiny official-route formal run.

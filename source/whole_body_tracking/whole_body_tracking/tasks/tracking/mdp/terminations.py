@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
+
 import torch
 from typing import TYPE_CHECKING
 
@@ -14,6 +17,33 @@ from isaaclab.managers import SceneEntityCfg
 from whole_body_tracking.tasks.tracking.mdp.commands import MotionCommand
 from whole_body_tracking.tasks.tracking.mdp.rewards import _get_body_indexes
 
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_probe_termination",
+    Path(__file__).resolve().parents[5] / "rsl_rl" / "rsl_rl" / "frontres" / "frontres_formal_runtime_probe.py",
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
+emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
+formal_runtime_probe_enabled = _AUDIT_MODULE.formal_runtime_probe_enabled
+
+
+def _frontres_quartet_role_values(command: MotionCommand, value: torch.Tensor) -> dict[str, torch.Tensor] | None:
+    """Return one diagnostic tensor view per active quartet role."""
+
+    role_ids = {
+        "policy": getattr(command, "_frontres_pair_train_ids", None),
+        "candidate": getattr(command, "_frontres_pair_candidate_ids", None),
+        "noisy": getattr(command, "_frontres_pair_base_ids", None),
+        "clean": getattr(command, "_frontres_pair_clean_ids", None),
+    }
+    if any(not isinstance(env_ids, torch.Tensor) for env_ids in role_ids.values()):
+        return None
+    return {
+        role: value.index_select(0, env_ids.to(value.device, dtype=torch.long))
+        for role, env_ids in role_ids.items()
+    }
+
 
 def bad_anchor_pos(env: ManagerBasedRLEnv, command_name: str, threshold: float) -> torch.Tensor:
     command: MotionCommand = env.command_manager.get_term(command_name)
@@ -25,8 +55,39 @@ def bad_anchor_pos(env: ManagerBasedRLEnv, command_name: str, threshold: float) 
 
 def bad_anchor_pos_z_only(env: ManagerBasedRLEnv, command_name: str, threshold: float) -> torch.Tensor:
     command: MotionCommand = env.command_manager.get_term(command_name)
-    error = torch.abs(command.anchor_pos_w[:, -1] - command.robot_anchor_pos_w[:, -1])
-    return (error > threshold) | torch.isnan(error)
+    # B1: 读取 termination 实际消费的世界系 reference/robot anchor z.
+    reference_z = command.anchor_pos_w[:, -1]
+    robot_z = command.robot_anchor_pos_w[:, -1]
+    signed_error = reference_z - robot_z
+    error = torch.abs(signed_error)
+    result = (error > threshold) | torch.isnan(error)
+
+    # B2: 将最终 reference z 分解为 clean/raw/correction, 并保留 frame identity.
+    if formal_runtime_probe_enabled():
+        clean_reference_z = command.anchor_pos_w_original[:, -1]
+        raw_reference_z = command.anchor_pos_w_raw[:, -1]
+        correction_z = command._frontres_pos_correction[:, -1]
+        role_reference_z = _frontres_quartet_role_values(command, reference_z)
+        if role_reference_z is not None:
+            # B3: 在原 termination mask 返回前截获同一批 role, 不改变 done 语义.
+            # AUDIT-ANCHOR-Z-01: 检查 command reference -> robot torso -> anchor_pos termination 数值链.
+            # Result: PENDING_LIVE.
+            emit_formal_runtime_probe(
+                "AUDIT-ANCHOR-Z-01",
+                limit=2,
+                reference_z=role_reference_z,
+                robot_z=_frontres_quartet_role_values(command, robot_z),
+                signed_error=_frontres_quartet_role_values(command, signed_error),
+                abs_error=_frontres_quartet_role_values(command, error),
+                terminated=_frontres_quartet_role_values(command, result),
+                threshold=float(threshold),
+                clean_reference_z=_frontres_quartet_role_values(command, clean_reference_z),
+                raw_reference_z=_frontres_quartet_role_values(command, raw_reference_z),
+                correction_z=_frontres_quartet_role_values(command, correction_z),
+                time_steps=_frontres_quartet_role_values(command, command.time_steps),
+                motion_indices=_frontres_quartet_role_values(command, command.env_motion_indices),
+            )
+    return result
 
 
 def bad_anchor_ori(

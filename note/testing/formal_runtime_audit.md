@@ -260,6 +260,26 @@ timestamp 2026-07-15 17:49.
 - Startup still prints `max_horizon_k=missing` before the runner prints 64, so
   the server `scripts/rsl_rl/train.py` remains stale relative to local source.
 
+## Step C Live Result - Termination Owner Identified
+
+Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 777 lines, local
+timestamp 2026-07-15 18:05.
+
+- At rollout step 0, `anchor_pos` is true for all Policy/Candidate/Noisy/Clean
+  rows: `{policy:8,candidate:8,noisy:8,clean:8}`.
+- `motion_end`, `time_out`, `anchor_ori`, and `ee_body_pos` are zero for every
+  role. Their union exactly explains the returned physical termination mask.
+- The active G1 path defines this term through `bad_anchor_pos_z_only()`, which
+  compares reference anchor z with robot anchor-body z against the configured
+  `0.5 m` threshold.
+- This closes term identity but not value provenance. The next live-dependent
+  boundary is the signed z error and the two values that produce it. Threshold
+  changes or termination suppression are not justified by this log.
+- `AUDIT-ANCHOR-Z-01` is inserted at `bad_anchor_pos_z_only()`. It captures
+  per-role world-frame reference/robot z, signed/absolute error, original/raw/
+  correction reference decomposition, command time step, motion index, and the
+  unchanged termination mask. Runtime status remains `inserted` until rerun.
+
 ## Current Checklist
 
 | ID | Owner/function | Core parameter | Probe location | Expected shape/value | Status | Evidence |

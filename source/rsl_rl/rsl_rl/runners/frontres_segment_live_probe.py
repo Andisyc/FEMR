@@ -2288,7 +2288,7 @@ def _run_live_rollout_capture(
     # B2: rollout 前比较 policy/candidate/noisy/clean 的 root 与 joint dynamic state, 定位 quartet 配对断点.
     # B3: 每次 env.step 后按 role 分解 done/timeout/physical termination/alive/survival 与 first-done step.
     # AUDIT-RESET-LIFECYCLE-01: 检查 index reset -> quartet dynamic state -> K-step termination 生命周期.
-    # Result: quartet reset is live-aligned; all rows still terminate at step 0, so active term identity awaits rerun.
+    # Result: quartet reset is live-aligned; anchor_pos alone terminates all 32 rows at step 0, run=E33.
     if reset_lifecycle is not None:
         print_reset_lifecycle_audit(
             runner,

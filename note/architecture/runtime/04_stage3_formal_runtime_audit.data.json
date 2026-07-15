@@ -1,6 +1,6 @@
 {
   "title": "04 Stage 3 Formal Runtime Audit",
-  "subtitle": "21 个重要 Owner 边界的正式训练插桩阅读图. 每个 B 子框解释为什么测这里、截获什么以及失败归属.",
+  "subtitle": "22 个重要 Owner 边界的正式训练插桩阅读图. 每个 B 子框解释为什么测这里、截获什么以及失败归属.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 16900,
   "defaultZoom": 0.18,
@@ -13,6 +13,7 @@
     "AUDIT-KPLAN-01",
     "AUDIT-KROLLOUT-01",
     "AUDIT-RESET-LIFECYCLE-01",
+    "AUDIT-ANCHOR-Z-01",
     "AUDIT-OBS-01",
     "AUDIT-ACTION-01",
     "AUDIT-APPLY-01",
@@ -689,11 +690,93 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: role-expanded reset is live-confirmed aligned, but 32 rows still terminate at step 0; per-term audit inserted"
+          "gap": "runtime-observed: role-expanded reset is aligned; anchor_pos alone terminates all 32 rows at step 0 (E33)"
+        },
+        {
+          "id": "AUDIT-ANCHOR-Z-01",
+          "title": "Probe 09 | Anchor Z Termination",
+          "summary": "逐 role 定位 reference anchor z 与 robot torso z 的首个错位对象",
+          "cardKind": "runtime_probe",
+          "owns": "验证 逐 role 定位 reference anchor z 与 robot torso z 的首个错位对象",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-06, Q-PAIR, M-10",
+            "world-frame reference_z/robot_z 与 frame identity",
+            "clean/raw/correction z 分解和 signed/abs error",
+            "0.5m threshold 前的原始 termination mask"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-ANCHOR-Z-01-SRC",
+              "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "bad_anchor_pos_z_only()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 bad_anchor_pos_z_only(): upstream state -> owner input",
+            "B2 bad_anchor_pos_z_only(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py:58 :: bad_anchor_pos_z_only() 入口/调用前",
+              "capture": "world-frame reference_z/robot_z 与 frame identity",
+              "whyHere": "termination owner 刚读取最终 reference/robot anchor z, 可排除 runner 二次计算差异",
+              "failureOwner": "失败归属: command anchor 或 robot anchor source",
+              "sourceLine": 58,
+              "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fterminations.py&line=58"
+            },
+            {
+              "location": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py:65 :: bad_anchor_pos_z_only() 产物边界",
+              "capture": "clean/raw/correction z 分解和 signed/abs error",
+              "whyHere": "clean/raw/correction 与 frame identity 同时可见, 能定位 cache、correction 或 time-step 错位",
+              "failureOwner": "失败归属: command cached reference lifecycle",
+              "sourceLine": 65,
+              "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fterminations.py&line=65"
+            },
+            {
+              "location": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py:72 :: 正式 consumer 接收前",
+              "capture": "0.5m threshold 前的原始 termination mask",
+              "whyHere": "原始 mask 返回前检查可证明数值分解与实际 anchor_pos done 完全同源",
+              "failureOwner": "失败归属: bad_anchor_pos_z_only threshold comparison",
+              "sourceLine": 72,
+              "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fterminations.py&line=72"
+            }
+          ],
+          "probe": {
+            "owner": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py::bad_anchor_pos_z_only()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "world-frame reference_z/robot_z 与 frame identity",
+              "clean/raw/correction z 分解和 signed/abs error",
+              "0.5m threshold 前的原始 termination mask"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "inserted: exact anchor-z value provenance awaits one tiny formal live rerun"
         },
         {
           "id": "AUDIT-OBS-01",
-          "title": "Probe 09 | 870D Observation",
+          "title": "Probe 10 | 870D Observation",
           "summary": "100D balance prefix 与 770D GMT suffix 保持布局",
           "cardKind": "runtime_probe",
           "owns": "验证 100D balance prefix 与 770D GMT suffix 保持布局",
@@ -775,7 +858,7 @@
         },
         {
           "id": "AUDIT-ACTION-01",
-          "title": "Probe 10 | Full-6D Actor",
+          "title": "Probe 11 | Full-6D Actor",
           "summary": "mean、sigma 与 sampled action 保持 full-6D 同源",
           "cardKind": "runtime_probe",
           "owns": "验证 mean、sigma 与 sampled action 保持 full-6D 同源",
@@ -857,7 +940,7 @@
         },
         {
           "id": "AUDIT-APPLY-01",
-          "title": "Probe 11 | Delta SE(3) 应用",
+          "title": "Probe 12 | Delta SE(3) 应用",
           "summary": "完整 6D repair 写入 repaired reference",
           "cardKind": "runtime_probe",
           "owns": "验证 完整 6D repair 写入 repaired reference",
@@ -939,7 +1022,7 @@
         },
         {
           "id": "AUDIT-GMT-01",
-          "title": "Probe 12 | Frozen GMT",
+          "title": "Probe 13 | Frozen GMT",
           "summary": "GMT 执行 repaired reference 且参数保持冻结",
           "cardKind": "runtime_probe",
           "owns": "验证 GMT 执行 repaired reference 且参数保持冻结",
@@ -1021,7 +1104,7 @@
         },
         {
           "id": "AUDIT-PAIR-01",
-          "title": "Probe 13 | Quartet Role 布局",
+          "title": "Probe 14 | Quartet Role 布局",
           "summary": "Clean/Noisy/Repaired/Train 行身份与 reset 对齐",
           "cardKind": "runtime_probe",
           "owns": "验证 Clean/Noisy/Repaired/Train 行身份与 reset 对齐",
@@ -1103,7 +1186,7 @@
         },
         {
           "id": "AUDIT-PAIR-EVIDENCE-01",
-          "title": "Probe 14 | Paired Execution Evidence",
+          "title": "Probe 15 | Paired Execution Evidence",
           "summary": "同 segment/K 的 Noisy 与 Repaired 证据可比较",
           "cardKind": "runtime_probe",
           "owns": "验证 同 segment/K 的 Noisy 与 Repaired 证据可比较",
@@ -1185,7 +1268,7 @@
         },
         {
           "id": "AUDIT-GAIN-01",
-          "title": "Probe 15 | Canonical Repair Gain",
+          "title": "Probe 16 | Canonical Repair Gain",
           "summary": "Style、Physics、Repair Cost 合成为 Total Gain",
           "cardKind": "runtime_probe",
           "owns": "验证 Style、Physics、Repair Cost 合成为 Total Gain",
@@ -1267,7 +1350,7 @@
         },
         {
           "id": "AUDIT-RETURN-01",
-          "title": "Probe 16 | Gain 到 PPO Return",
+          "title": "Probe 17 | Gain 到 PPO Return",
           "summary": "canonical Gain 成为 storage reward、return 和 advantage",
           "cardKind": "runtime_probe",
           "owns": "验证 canonical Gain 成为 storage reward、return 和 advantage",
@@ -1349,7 +1432,7 @@
         },
         {
           "id": "AUDIT-HSL-LOAD-01",
-          "title": "Probe 17 | HSL 到 Stage 3",
+          "title": "Probe 18 | HSL 到 Stage 3",
           "summary": "Stage 2 actor 与 observation normalizer 正确进入 Stage 3",
           "cardKind": "runtime_probe",
           "owns": "验证 Stage 2 actor 与 observation normalizer 正确进入 Stage 3",
@@ -1431,7 +1514,7 @@
         },
         {
           "id": "AUDIT-WARMUP-01",
-          "title": "Probe 18 | Actor/Critic Warmup",
+          "title": "Probe 19 | Actor/Critic Warmup",
           "summary": "critic-only、actor ramp 与 joint phase 按 iteration 生效",
           "cardKind": "runtime_probe",
           "owns": "验证 critic-only、actor ramp 与 joint phase 按 iteration 生效",
@@ -1513,7 +1596,7 @@
         },
         {
           "id": "AUDIT-PPO-01",
-          "title": "Probe 19 | Segment PPO 更新",
+          "title": "Probe 20 | Segment PPO 更新",
           "summary": "old tuple 到 accepted post-update policy 形成闭环",
           "cardKind": "runtime_probe",
           "owns": "验证 old tuple 到 accepted post-update policy 形成闭环",
@@ -1595,7 +1678,7 @@
         },
         {
           "id": "AUDIT-PERSIST-01",
-          "title": "Probe 20 | Checkpoint 写盘",
+          "title": "Probe 21 | Checkpoint 写盘",
           "summary": "完整 Stage 3 训练语义写入 model_N.pt",
           "cardKind": "runtime_probe",
           "owns": "验证 完整 Stage 3 训练语义写入 model_N.pt",
@@ -1677,7 +1760,7 @@
         },
         {
           "id": "AUDIT-DIAG-01",
-          "title": "Probe 21 | 正式 Diagnostics",
+          "title": "Probe 22 | 正式 Diagnostics",
           "summary": "日志读取 canonical summary 且缺失值不伪装为零",
           "cardKind": "runtime_probe",
           "owns": "验证 日志读取 canonical summary 且缺失值不伪装为零",
