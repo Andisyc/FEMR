@@ -51,6 +51,8 @@ _FORMAL_AUDIT_SPEC.loader.exec_module(_FORMAL_AUDIT_MODULE)
 print_ppo_audit = _FORMAL_AUDIT_MODULE.print_ppo_audit
 print_rollout_storage_audit = _FORMAL_AUDIT_MODULE.print_rollout_storage_audit
 emit_formal_runtime_probe = _FORMAL_AUDIT_MODULE.emit_formal_runtime_probe
+print_reset_lifecycle_audit = _FORMAL_AUDIT_MODULE.print_reset_lifecycle_audit
+snapshot_reset_pair_state = _FORMAL_AUDIT_MODULE.snapshot_reset_pair_state
 
 
 _VERBOSE_PROBE_BATCH_LIMIT = 16
@@ -785,17 +787,28 @@ def _segment_delta_se_log_prob_parts(
 
 def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = True) -> dict[str, object]:
     single_update, storage_write = _resolve_probe_modes(runner)
+    episode_before = runner.env.episode_length_buf.detach().clone()
     if init_at_random_ep_len:
         runner.env.episode_length_buf = torch.randint_like(
             runner.env.episode_length_buf, high=int(runner.env.max_episode_length)
         )
+    episode_randomized = runner.env.episode_length_buf.detach().clone()
 
     reset_result = _apply_current_segment_reset(runner)
+    episode_after_reset = runner.env.episode_length_buf.detach().clone()
     reset_skip_reason = str(getattr(runner, "_frontres_segment_live_current_reset_skip_reason", "") or "")
     _print_frontres_dr_runtime_probe(runner, label="after_current_segment_reset")
     observations = _read_live_observations(runner)
     runner.eval_mode()
-    capture = _run_live_rollout_capture(runner, observations)
+    capture = _run_live_rollout_capture(
+        runner,
+        observations,
+        reset_lifecycle={
+            "episode_before": episode_before,
+            "episode_randomized": episode_randomized,
+            "episode_after_reset": episode_after_reset,
+        },
+    )
     summary = _initial_live_probe_summary(capture, storage_write=storage_write, single_update=single_update)
     _update_trial_metadata_summary(summary, runner, batch_size=_capture_batch_size(capture))
     _update_reset_summary(summary, reset_result, skip_reason=reset_skip_reason)
@@ -2215,11 +2228,25 @@ def _run_live_rollout_capture(
     rollout_steps: int | None = None,
     capture_motion_quality: bool = True,
     zero_segment_action: bool = False,
+    reset_lifecycle: dict[str, torch.Tensor] | None = None,
 ) -> FrontRESSegmentLiveRolloutCapture:
     # FRS3-EVAL-014: step the live env and optionally capture motion-quality frames.
     frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
     pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
     batch_size = int(observations.obs.shape[0])
+    # B1: reset 完成后比较四类 role 的 episode_length_buf, 确认生命周期是否只重置了 policy rows.
+    # B2: rollout 前比较 policy/candidate/noisy/clean 的 root 与 joint dynamic state, 定位 quartet 配对断点.
+    # B3: 每次 env.step 后按 role 分解 done/timeout/physical termination/alive/survival 与 first-done step.
+    # AUDIT-RESET-LIFECYCLE-01: 检查 index reset -> quartet dynamic state -> K-step termination 生命周期.
+    # Result: PENDING_LIVE.
+    if reset_lifecycle is not None:
+        print_reset_lifecycle_audit(
+            runner,
+            pair_layout=pair_layout,
+            phase="reset",
+            pair_state=snapshot_reset_pair_state(runner, pair_layout),
+            **reset_lifecycle,
+        )
     if rollout_steps is not None:
         rollout_k = max(1, int(rollout_steps))
         horizon_k = torch.full((batch_size,), rollout_k, dtype=torch.long, device=runner.device)
@@ -2237,6 +2264,7 @@ def _run_live_rollout_capture(
     action_step_frames = []
     done_frames = []
     survival_steps = None
+    first_done_step = torch.full((batch_size,), -1, dtype=torch.long, device=runner.device)
     actor_update_mask = None
     transition_obs = None
     transition_privileged_obs = None
@@ -2390,7 +2418,26 @@ def _run_live_rollout_capture(
                 done_any = torch.zeros_like(dones.detach(), dtype=torch.bool)
                 survival_steps = torch.zeros_like(rewards.detach(), dtype=torch.float32)
             survival_steps = survival_steps + score_active.float()
+            newly_done = scored_dones & first_done_step.lt(0)
+            first_done_step[newly_done] = int(rollout_step)
             done_any = done_any | scored_dones
+            time_outs = infos.get("time_outs") if isinstance(infos, dict) else None
+            if isinstance(time_outs, torch.Tensor):
+                time_outs = time_outs.to(runner.device).detach().bool()
+                terminated = dones.detach().bool() & ~time_outs
+            else:
+                terminated = None
+            print_reset_lifecycle_audit(
+                runner,
+                pair_layout=pair_layout,
+                phase="step",
+                rollout_step=rollout_step,
+                dones=dones.detach().bool(),
+                time_outs=time_outs,
+                terminated=terminated,
+                alive=~done_any,
+                survival_steps=survival_steps,
+            )
             if capture_motion_quality:
                 clean_body, repaired_body, noisy_body = _capture_motion_quality_frame(runner, pair_layout)
                 clean_root_quat, repaired_root_quat, noisy_root_quat = _capture_root_orientation_frame(runner, pair_layout)
@@ -2464,6 +2511,13 @@ def _run_live_rollout_capture(
 
             obs, privileged_obs, teacher_obs, ref_vel_estimator_obs = _read_step_observations(runner, obs, infos)
             last_obs_shape = tuple(obs.shape)
+
+    print_reset_lifecycle_audit(
+        runner,
+        pair_layout=pair_layout,
+        phase="final",
+        first_done_step=first_done_step,
+    )
 
     return FrontRESSegmentLiveRolloutCapture(
         rollout_k=rollout_k,

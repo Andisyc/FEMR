@@ -58,6 +58,7 @@ runtime reachability fact.
 | Perturbation config/application | S4 `T-config/T-value` | stale-rerun-required | `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02` |
 | Segment data/sampler transaction | S4 `T-source/T-state` | stale-rerun-required | `AUDIT-SEGDATA-01`, `AUDIT-SAMPLER-01` |
 | K plan/executed horizon | S4 `T-shape/T-forward` | blocked | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01`; rerun3 K=8 reached, but all 32 quartet rows terminated; done/timeout owner unresolved |
+| Quartet reset lifecycle | S4 `T-role/T-state/T-timeout` | inserted | `AUDIT-RESET-LIFECYCLE-01`; offline role/timeout/first-done contract passes, formal live evidence pending |
 | Observation/full-6D repair/application | S4 `T-shape/T-source/T-value` | stale-rerun-required | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01` |
 | Frozen GMT | S4 `T-grad/T-state` | stale-rerun-required | `AUDIT-GMT-01` |
 | Paired roles/execution evidence | S4 `T-role/T-source` | stale-rerun-required | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01` |

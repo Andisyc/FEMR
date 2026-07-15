@@ -1,6 +1,6 @@
 {
   "title": "04 Stage 3 Formal Runtime Audit",
-  "subtitle": "20 个重要 Owner 边界的正式训练插桩阅读图. 每个 B 子框解释为什么测这里、截获什么以及失败归属.",
+  "subtitle": "21 个重要 Owner 边界的正式训练插桩阅读图. 每个 B 子框解释为什么测这里、截获什么以及失败归属.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 16900,
   "defaultZoom": 0.18,
@@ -12,6 +12,7 @@
     "AUDIT-SAMPLER-01",
     "AUDIT-KPLAN-01",
     "AUDIT-KROLLOUT-01",
+    "AUDIT-RESET-LIFECYCLE-01",
     "AUDIT-OBS-01",
     "AUDIT-ACTION-01",
     "AUDIT-APPLY-01",
@@ -609,8 +610,90 @@
           "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
+          "id": "AUDIT-RESET-LIFECYCLE-01",
+          "title": "Probe 08 | Reset Lifecycle",
+          "summary": "index reset 后四类 role 共享可比较的 episode 与 dynamic-state 起点",
+          "cardKind": "runtime_probe",
+          "owns": "验证 index reset 后四类 role 共享可比较的 episode 与 dynamic-state 起点",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-06, Q-PAIR, SR-01",
+            "reset 前/随机化后/reset 后 episode_length_buf",
+            "quartet root/joint pair error",
+            "逐步 role done/timeout/termination/survival"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-RESET-LIFECYCLE-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "_run_live_rollout_capture()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 _run_live_rollout_capture(): upstream state -> owner input",
+            "B2 _run_live_rollout_capture(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2237 :: _run_live_rollout_capture() 入口/调用前",
+              "capture": "reset 前/随机化后/reset 后 episode_length_buf",
+              "whyHere": "index reset 刚结束且 env.step 尚未发生, 可直接比较每个 role 的 episode 生命周期是否同源",
+              "failureOwner": "失败归属: episode_length_buf randomization 或 index-reset lifecycle wiring",
+              "sourceLine": 2237,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2237"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2238 :: _run_live_rollout_capture() 产物边界",
+              "capture": "quartet root/joint pair error",
+              "whyHere": "policy/candidate/noisy/clean 的机器人 dynamic state 在此首次应构成可比较 quartet",
+              "failureOwner": "失败归属: index reset robot-state write 或 quartet state synchronization",
+              "sourceLine": 2238,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2238"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2239 :: 正式 consumer 接收前",
+              "capture": "逐步 role done/timeout/termination/survival",
+              "whyHere": "env.step 返回时 done 与 time_out 同时可见, 能区分时限结束和物理 termination",
+              "failureOwner": "失败归属: environment termination owner 或 rollout survival accounting",
+              "sourceLine": 2239,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2239"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py::_run_live_rollout_capture()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "reset 前/随机化后/reset 后 episode_length_buf",
+              "quartet root/joint pair error",
+              "逐步 role done/timeout/termination/survival"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "inserted: offline role/timeout contract passed; formal live evidence is pending"
+        },
+        {
           "id": "AUDIT-OBS-01",
-          "title": "Probe 08 | 870D Observation",
+          "title": "Probe 09 | 870D Observation",
           "summary": "100D balance prefix 与 770D GMT suffix 保持布局",
           "cardKind": "runtime_probe",
           "owns": "验证 100D balance prefix 与 770D GMT suffix 保持布局",
@@ -692,7 +775,7 @@
         },
         {
           "id": "AUDIT-ACTION-01",
-          "title": "Probe 09 | Full-6D Actor",
+          "title": "Probe 10 | Full-6D Actor",
           "summary": "mean、sigma 与 sampled action 保持 full-6D 同源",
           "cardKind": "runtime_probe",
           "owns": "验证 mean、sigma 与 sampled action 保持 full-6D 同源",
@@ -774,7 +857,7 @@
         },
         {
           "id": "AUDIT-APPLY-01",
-          "title": "Probe 10 | Delta SE(3) 应用",
+          "title": "Probe 11 | Delta SE(3) 应用",
           "summary": "完整 6D repair 写入 repaired reference",
           "cardKind": "runtime_probe",
           "owns": "验证 完整 6D repair 写入 repaired reference",
@@ -856,7 +939,7 @@
         },
         {
           "id": "AUDIT-GMT-01",
-          "title": "Probe 11 | Frozen GMT",
+          "title": "Probe 12 | Frozen GMT",
           "summary": "GMT 执行 repaired reference 且参数保持冻结",
           "cardKind": "runtime_probe",
           "owns": "验证 GMT 执行 repaired reference 且参数保持冻结",
@@ -938,7 +1021,7 @@
         },
         {
           "id": "AUDIT-PAIR-01",
-          "title": "Probe 12 | Quartet Role 布局",
+          "title": "Probe 13 | Quartet Role 布局",
           "summary": "Clean/Noisy/Repaired/Train 行身份与 reset 对齐",
           "cardKind": "runtime_probe",
           "owns": "验证 Clean/Noisy/Repaired/Train 行身份与 reset 对齐",
@@ -1020,7 +1103,7 @@
         },
         {
           "id": "AUDIT-PAIR-EVIDENCE-01",
-          "title": "Probe 13 | Paired Execution Evidence",
+          "title": "Probe 14 | Paired Execution Evidence",
           "summary": "同 segment/K 的 Noisy 与 Repaired 证据可比较",
           "cardKind": "runtime_probe",
           "owns": "验证 同 segment/K 的 Noisy 与 Repaired 证据可比较",
@@ -1053,28 +1136,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2561 :: _capture_motion_quality_frame()/_capture_physics_frame() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2615 :: _capture_motion_quality_frame()/_capture_physics_frame() 入口/调用前",
               "capture": "shared segment/K",
               "whyHere": "同一 quartet frame 的 Clean/Repaired/Noisy 行尚未聚合, 可验证配对身份",
               "failureOwner": "失败归属: role slicing 或 motion/frame alignment",
-              "sourceLine": 2561,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2561"
+              "sourceLine": 2615,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2615"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2580 :: _capture_motion_quality_frame()/_capture_physics_frame() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2634 :: _capture_motion_quality_frame()/_capture_physics_frame() 产物边界",
               "capture": "Noisy/Repaired execution",
               "whyHere": "style 与 physics frame 完成后首次具备 canonical Gain 所需配对语义",
               "failureOwner": "失败归属: motion/physics capture owners",
-              "sourceLine": 2580,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2580"
+              "sourceLine": 2634,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2634"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2029 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2239 :: 正式 consumer 接收前",
               "capture": "paired style/physics evidence",
               "whyHere": "Gain 调用前检查可发现 evidence 被跨 motion、跨 K 或跨 role 混合",
               "failureOwner": "失败归属: paired capture 到 Gain connector",
-              "sourceLine": 2029,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2029"
+              "sourceLine": 2239,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2239"
             }
           ],
           "probe": {
@@ -1102,7 +1185,7 @@
         },
         {
           "id": "AUDIT-GAIN-01",
-          "title": "Probe 14 | Canonical Repair Gain",
+          "title": "Probe 15 | Canonical Repair Gain",
           "summary": "Style、Physics、Repair Cost 合成为 Total Gain",
           "cardKind": "runtime_probe",
           "owns": "验证 Style、Physics、Repair Cost 合成为 Total Gain",
@@ -1184,7 +1267,7 @@
         },
         {
           "id": "AUDIT-RETURN-01",
-          "title": "Probe 15 | Gain 到 PPO Return",
+          "title": "Probe 16 | Gain 到 PPO Return",
           "summary": "canonical Gain 成为 storage reward、return 和 advantage",
           "cardKind": "runtime_probe",
           "owns": "验证 canonical Gain 成为 storage reward、return 和 advantage",
@@ -1266,7 +1349,7 @@
         },
         {
           "id": "AUDIT-HSL-LOAD-01",
-          "title": "Probe 16 | HSL 到 Stage 3",
+          "title": "Probe 17 | HSL 到 Stage 3",
           "summary": "Stage 2 actor 与 observation normalizer 正确进入 Stage 3",
           "cardKind": "runtime_probe",
           "owns": "验证 Stage 2 actor 与 observation normalizer 正确进入 Stage 3",
@@ -1348,7 +1431,7 @@
         },
         {
           "id": "AUDIT-WARMUP-01",
-          "title": "Probe 17 | Actor/Critic Warmup",
+          "title": "Probe 18 | Actor/Critic Warmup",
           "summary": "critic-only、actor ramp 与 joint phase 按 iteration 生效",
           "cardKind": "runtime_probe",
           "owns": "验证 critic-only、actor ramp 与 joint phase 按 iteration 生效",
@@ -1430,7 +1513,7 @@
         },
         {
           "id": "AUDIT-PPO-01",
-          "title": "Probe 18 | Segment PPO 更新",
+          "title": "Probe 19 | Segment PPO 更新",
           "summary": "old tuple 到 accepted post-update policy 形成闭环",
           "cardKind": "runtime_probe",
           "owns": "验证 old tuple 到 accepted post-update policy 形成闭环",
@@ -1512,7 +1595,7 @@
         },
         {
           "id": "AUDIT-PERSIST-01",
-          "title": "Probe 19 | Checkpoint 写盘",
+          "title": "Probe 20 | Checkpoint 写盘",
           "summary": "完整 Stage 3 训练语义写入 model_N.pt",
           "cardKind": "runtime_probe",
           "owns": "验证 完整 Stage 3 训练语义写入 model_N.pt",
@@ -1594,7 +1677,7 @@
         },
         {
           "id": "AUDIT-DIAG-01",
-          "title": "Probe 20 | 正式 Diagnostics",
+          "title": "Probe 21 | 正式 Diagnostics",
           "summary": "日志读取 canonical summary 且缺失值不伪装为零",
           "cardKind": "runtime_probe",
           "owns": "验证 日志读取 canonical summary 且缺失值不伪装为零",

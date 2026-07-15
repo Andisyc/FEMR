@@ -183,6 +183,21 @@ timestamp 2026-07-15 16:24:31.
   index reset; the index reset hook does not reset it. The current log does not
   expose per-step timeout versus physical termination, so this remains a
   code-supported root-cause hypothesis rather than a completed fix.
+
+## Step A - Reset Lifecycle Probe Inserted
+
+- Added `AUDIT-RESET-LIFECYCLE-01` at the formal rollout owner. It records
+  role-aware `episode_length_buf` before randomization, after randomization, and
+  after reset; post-reset quartet root/joint pair errors; and per-step
+  done/timeout/physical-termination/alive/survival plus first-done step.
+- The probe is default-off and does not change reset, rollout, valid masks,
+  Gain, PPO, or the production zero-update guard.
+- S2 pseudo evidence separates timeout from physical termination on multi-role
+  rows and detects deliberately mismatched Noisy root and Clean joint state.
+- The Runtime Atlas now contains 21 owner cards. The source-link/B1-B3/whyHere
+  contract and viewer import pass; the aggregate suite passes 44/44.
+- Status remains `PENDING_LIVE`: the next formal tiny run must determine which
+  reset invariant is first contradicted before any quartet-reset repair.
 - Required next boundary: add role-aware per-step done/timeout/survival audit,
   then repair full-quartet reset only if the live probe confirms this owner.
 - Startup still prints `max_horizon_k=missing` before the runner prints 64, so
@@ -213,6 +228,7 @@ Human control surface: open `note/architecture/04_stage3_formal_runtime_audit.ht
 | `AUDIT-PERTURB-01/02` | M-02 | perturb config/application | Are configured and applied perturbations aligned? |
 | `AUDIT-SEGDATA-01/SAMPLER-01` | SR-01 | dataset/sampler | Are segment identity and priority evidence from one transaction? |
 | `AUDIT-KPLAN-01/KROLLOUT-01` | M-06 | sampler/rollout | Does per-row K survive planning and execution? |
+| `AUDIT-RESET-LIFECYCLE-01` | M-06, Q-PAIR, SR-01 | reset/rollout | Do all quartet roles start from aligned episode and robot state, and are done rows timeout or physical termination? |
 | `AUDIT-OBS-01/ACTION-01/APPLY-01` | M-04 | runtime/policy/task correction | Does 870D obs produce and execute full-6D repair? |
 | `AUDIT-GMT-01` | M-10 | frozen GMT | Is GMT frozen while executing repaired reference? |
 | `AUDIT-PAIR-01/PAIR-EVIDENCE-01` | Q-PAIR | pair layout/capture | Are roles and paired execution evidence aligned? |
@@ -229,6 +245,7 @@ Human control surface: open `note/architecture/04_stage3_formal_runtime_audit.ht
 | `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02` | M-02 | perturbation config and applied rows |
 | `AUDIT-SEGDATA-01`, `AUDIT-SAMPLER-01` | SR-01 | segment dataset and replay transaction |
 | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | M-06 | K plan and executed horizon |
+| `AUDIT-RESET-LIFECYCLE-01` | M-06, Q-PAIR, SR-01 | episode buffer, quartet root/joint pairing, per-step done/timeout/termination/survival |
 | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | M-04 | 870D obs, full-6D actor, task correction |
 | `AUDIT-GMT-01` | M-10 | frozen GMT execution |
 | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01` | Q-PAIR | quartet roles and paired evidence |
@@ -237,7 +254,7 @@ Human control surface: open `note/architecture/04_stage3_formal_runtime_audit.ht
 | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01` | M-05 | warmup, accepted PPO state, diagnostics |
 | `AUDIT-PERSIST-01` | M-03, SR-01, M-05, Q-01 | formal checkpoint payload |
 
-All 20 Atlas cards remain `PENDING_LIVE`. Offline contracts prove insertion and synchronization only.
+All 21 Atlas cards remain `PENDING_LIVE`. Offline contracts prove insertion and synchronization only.
 
 ## Method Semantics Extracted (Dr.Cheng)
 

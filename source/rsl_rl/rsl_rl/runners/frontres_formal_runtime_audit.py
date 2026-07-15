@@ -54,6 +54,130 @@ def _emit_owner_snapshot(audit_id: str, **values: Any) -> None:
     emit_formal_runtime_probe(audit_id, limit=2, **values)
 
 
+def _role_slices(pair_layout: Any, batch_size: int) -> dict[str, slice]:
+    counts = {
+        "policy": int(getattr(pair_layout, "n_train", 0)),
+        "candidate": int(getattr(pair_layout, "n_candidate", 0)),
+        "noisy": int(getattr(pair_layout, "n_base", 0)),
+        "clean": int(getattr(pair_layout, "n_clean", 0)),
+    }
+    if sum(counts.values()) != int(batch_size):
+        return {"layout_error": slice(0, int(batch_size))}
+    result: dict[str, slice] = {}
+    start = 0
+    for role, count in counts.items():
+        result[role] = slice(start, start + count)
+        start += count
+    return result
+
+
+def _role_tensor_stats(value: Any, pair_layout: Any, *, batch_size: int) -> dict[str, str]:
+    if not isinstance(value, torch.Tensor) or value.ndim == 0 or int(value.shape[0]) != int(batch_size):
+        return {"status": "missing_or_shape_mismatch"}
+    return {
+        role: _tensor_stats(value[role_slice])
+        for role, role_slice in _role_slices(pair_layout, batch_size).items()
+    }
+
+
+def _role_true_counts(value: Any, pair_layout: Any, *, batch_size: int) -> dict[str, int | str]:
+    if not isinstance(value, torch.Tensor) or value.ndim == 0 or int(value.shape[0]) != int(batch_size):
+        return {"status": "missing_or_shape_mismatch"}
+    mask = value.detach().bool().reshape(batch_size, -1).any(dim=-1)
+    return {
+        role: int(mask[role_slice].sum().item())
+        for role, role_slice in _role_slices(pair_layout, batch_size).items()
+    }
+
+
+def _resolve_audit_robot(runner: Any) -> Any | None:
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    scene = getattr(env, "scene", None)
+    if scene is None:
+        return None
+    try:
+        return scene["robot"]
+    except (KeyError, TypeError):
+        return getattr(scene, "robot", None)
+
+
+def snapshot_reset_pair_state(runner: Any, pair_layout: Any) -> dict[str, Any]:
+    """Measure whether quartet robot states are paired immediately after index reset."""
+    robot = _resolve_audit_robot(runner)
+    data = getattr(robot, "data", None)
+    if data is None:
+        return {"root_pair_error": "missing_robot", "joint_pair_error": "missing_robot"}
+    root_parts = [
+        getattr(data, name, None)
+        for name in ("root_pos_w", "root_quat_w", "root_lin_vel_w", "root_ang_vel_w")
+    ]
+    joint_parts = [getattr(data, name, None) for name in ("joint_pos", "joint_vel")]
+    root_state = torch.cat(root_parts, dim=-1) if all(isinstance(item, torch.Tensor) for item in root_parts) else None
+    joint_state = torch.cat(joint_parts, dim=-1) if all(isinstance(item, torch.Tensor) for item in joint_parts) else None
+    batch_size = int(sum(int(getattr(pair_layout, name, 0)) for name in ("n_train", "n_candidate", "n_base", "n_clean")))
+
+    def pair_error(value: torch.Tensor | None) -> dict[str, str]:
+        if value is None or value.ndim < 2 or int(value.shape[0]) < batch_size:
+            return {"status": "missing_or_shape_mismatch"}
+        slices = _role_slices(pair_layout, batch_size)
+        policy = value[slices["policy"]].detach().float()
+        result: dict[str, str] = {}
+        for role, role_slice in slices.items():
+            rows = value[role_slice].detach().float()
+            count = min(int(policy.shape[0]), int(rows.shape[0]))
+            if count == 0:
+                result[role] = "count=0"
+                continue
+            delta = (rows[:count] - policy[:count]).abs()
+            result[role] = f"count={count} max={delta.max().item():.6g} mean={delta.mean().item():.6g}"
+        return result
+
+    return {"root_pair_error": pair_error(root_state), "joint_pair_error": pair_error(joint_state)}
+
+
+def print_reset_lifecycle_audit(
+    runner: Any,
+    *,
+    pair_layout: Any,
+    phase: str,
+    episode_before: Any = None,
+    episode_randomized: Any = None,
+    episode_after_reset: Any = None,
+    pair_state: Mapping[str, Any] | None = None,
+    rollout_step: int | None = None,
+    dones: Any = None,
+    time_outs: Any = None,
+    terminated: Any = None,
+    alive: Any = None,
+    survival_steps: Any = None,
+    first_done_step: Any = None,
+) -> None:
+    """Emit role-aware reset and termination facts without changing rollout state."""
+    if not formal_runtime_audit_enabled(runner):
+        return
+    batch_size = int(sum(int(getattr(pair_layout, name, 0)) for name in ("n_train", "n_candidate", "n_base", "n_clean")))
+    values: dict[str, Any] = {"phase": phase, "batch_size": batch_size}
+    if phase == "reset":
+        values.update(
+            episode_before=_role_tensor_stats(episode_before, pair_layout, batch_size=batch_size),
+            episode_randomized=_role_tensor_stats(episode_randomized, pair_layout, batch_size=batch_size),
+            episode_after_reset=_role_tensor_stats(episode_after_reset, pair_layout, batch_size=batch_size),
+            **dict(pair_state or {}),
+        )
+    elif phase == "step":
+        values.update(
+            rollout_step=rollout_step,
+            done=_role_true_counts(dones, pair_layout, batch_size=batch_size),
+            time_out=_role_true_counts(time_outs, pair_layout, batch_size=batch_size),
+            terminated=_role_true_counts(terminated, pair_layout, batch_size=batch_size),
+            alive=_role_true_counts(alive, pair_layout, batch_size=batch_size),
+            survival=_role_tensor_stats(survival_steps, pair_layout, batch_size=batch_size),
+        )
+    elif phase == "final":
+        values["first_done_step"] = _role_tensor_stats(first_done_step, pair_layout, batch_size=batch_size)
+    emit_formal_runtime_probe("AUDIT-RESET-LIFECYCLE-01", limit=128, **values)
+
+
 def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> None:
     if not formal_runtime_audit_enabled(runner):
         return

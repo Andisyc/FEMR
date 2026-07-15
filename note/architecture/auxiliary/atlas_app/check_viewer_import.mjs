@@ -188,7 +188,8 @@ if (
 }
 const formalAuditIds = [
   "AUDIT-ROUTE-01", "AUDIT-PERTURB-01", "AUDIT-PERTURB-02", "AUDIT-SEGDATA-01",
-  "AUDIT-SAMPLER-01", "AUDIT-KPLAN-01", "AUDIT-KROLLOUT-01", "AUDIT-OBS-01",
+  "AUDIT-SAMPLER-01", "AUDIT-KPLAN-01", "AUDIT-KROLLOUT-01", "AUDIT-RESET-LIFECYCLE-01",
+  "AUDIT-OBS-01",
   "AUDIT-ACTION-01", "AUDIT-APPLY-01", "AUDIT-GMT-01", "AUDIT-PAIR-01",
   "AUDIT-PAIR-EVIDENCE-01", "AUDIT-GAIN-01", "AUDIT-RETURN-01", "AUDIT-HSL-LOAD-01",
   "AUDIT-WARMUP-01", "AUDIT-PPO-01", "AUDIT-PERSIST-01", "AUDIT-DIAG-01",
@@ -220,8 +221,9 @@ for (const module of formalAuditModules) {
   }
 }
 const formalAuditWhyHere = formalAuditModules.flatMap((module) => module.probeSteps.map((step) => step.whyHere));
-if (formalAuditWhyHere.length !== 60 || new Set(formalAuditWhyHere).size !== 60) {
-  throw new Error("formal runtime audit requires 60 non-template whyHere decisions");
+const expectedWhyHereCount = formalAuditIds.length * 3;
+if (formalAuditWhyHere.length !== expectedWhyHereCount || new Set(formalAuditWhyHere).size !== expectedWhyHereCount) {
+  throw new Error(`formal runtime audit requires ${expectedWhyHereCount} non-template whyHere decisions`);
 }
 const atlasServerSource = fs.readFileSync("serve_architecture.mjs", "utf8");
 if (

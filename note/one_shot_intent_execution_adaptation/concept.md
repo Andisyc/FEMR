@@ -220,3 +220,41 @@ LoRA 则不负责提供数据方向，而是限制适应权限和参数容量。
 > Why Do Failed Rollouts Enable Execution Alignment?
 
 第一项最小判别实验应保持 target rollout 的状态边缘分布和样本数量不变，只打乱 \(Y_{t,\mathrm{exec}}^K\) 与 \(U_{t,\mathrm{exec}}^K\) 的时序或窗口配对。如果适应收益消失，说明关键证据是目标域逆动力学对应关系，而不是单纯的状态覆盖；如果仍然有效，才支持 occupancy repair 占主导的解释。后续再分别控制 rollout 质量、off-support 程度、LoRA 容量和跨 Command 迁移，系统拆解“哪些失败是可校准数据，哪些失败只是坏数据”。
+
+### 2026-07-15：LoRA 可能在辨识跨状态共享的低维动力学修正
+
+进一步追问仍然存在一个 gap：目标域 rollout 数量有限，也没有覆盖完整的未来状态分布，为什么 LoRA-IDM 能在尚未于目标域真正实现过的 Planner intent 上输出正确动作？这里首先需要区分：适应过程没有重新学习期望未来。Planner 已经能够输出 \(\hat Y_{\mathrm{plan}}\)，并在目标适应过程中保持冻结；LoRA-IDM 新学的只有给定历史和未来状态时应当输出什么动作。
+
+目前最有解释力、但尚未被 FADA 原文直接证明的机制推断是：源域 IDM 已经学习了大部分通用逆动力学，目标域数据无需重新学习完整分布，只需辨识一个由持续部署条件引起、能够跨状态共享的低维修正。可写为：
+
+\[
+G_{\mathrm{tgt}}(h,Y)
+=
+G_{\mathrm{src}}(h,Y)
++
+\Delta G_{\theta}(h,Y).
+\]
+
+其中，\(G_{\mathrm{src}}\) 由大规模源域训练提供，目标 rollout 只负责估计小维度的 \(\theta\)。如果目标域变化主要来自电机增益、持续负载、摩擦系数或稳定接触条件，那么大量不同状态中的执行误差可能共享同一个隐藏原因。例如，当执行器响应整体缩小为源域的 0.8 倍时，需要辨识的主要是一个近似缩放量，而不是重新学习所有 \(Y\rightarrow U\) 配对。有限状态上的 realized-future/action 对便可能足以估计该修正，并将它应用到邻近但未在目标域实现过的 Planner intent。
+
+LoRA 在这里可能同时承担两层作用：第一，它限制目标域更新的自由度，避免少样本重写整个 IDM；第二，它用预训练特征规定了修正如何从已观测状态延伸到未观测状态。FADA 的主适应预算约为 6000 control steps，通过滑动窗口形成大量但高度相关的监督样本。这些数据不足以重新学习目标域完整分布，却可能足以估计一个低维、持续的动力学差异。
+
+从这个角度看，FADA 不是传统的 zero-shot transfer，而更接近：
+
+> few-shot implicit system identification + pretrained inverse-dynamics prior + local out-of-sample intent query.
+
+真正尚未闭合的科学假设是：
+
+> 目标域动力学差异是否真的可以由一个跨状态共享的低秩参数更新表达？
+
+如果该假设成立，LoRA 参数近似承担了隐式 dynamics latent 的角色，窄分布目标数据也能改善未见过的 Command；如果不成立，FADA 的收益可能主要来自 rollout support 附近的局部插值，而不是可复用的动力学辨识。
+
+对应的最小实验是：只在狭窄 Command 或姿态范围收集适应数据，然后逐渐增加测试 intent 与适应轨迹之间的距离，测量
+
+\[
+\mathrm{adaptation\ gain}
+\quad\mathrm{vs.}\quad
+d(\hat Y_{\mathrm{test}},Y_{\mathrm{adapt}}).
+\]
+
+若远离适应轨迹的 Command 仍获得稳定收益，说明 LoRA 更可能辨识了跨状态共享的动力学修正；若收益随距离迅速消失，则其主要作用是局部状态分布修补。这一实验可以直接区分“隐式低维系统辨识”和“局部行为插值”两种解释。

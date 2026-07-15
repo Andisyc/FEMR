@@ -12,6 +12,7 @@ const specs = [
   ["AUDIT-SAMPLER-01", "Segment Replay 事务", "SR-01", "sample、rollout evidence 与 priority update 同源", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "sample()/update_with_probe()", ["sample state", "rollout evidence", "priority before/after"]],
   ["AUDIT-KPLAN-01", "K-step 计划", "M-06, SR-01", "curriculum K 被展开为 per-row rollout budget", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "plan_rollout_budget()/expand_rollout_trials()", ["curriculum max K", "per-row horizon_k", "expanded trial rows"]],
   ["AUDIT-KROLLOUT-01", "K-step 执行", "M-06, Q-PAIR", "expanded trial rows 将同一 K 交给 reset 和 rollout", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "expand_rollout_trials()", ["base segment budget", "expanded source/trial/K rows", "reset/rollout consumer rows"]],
+  ["AUDIT-RESET-LIFECYCLE-01", "Reset Lifecycle", "M-06, Q-PAIR, SR-01", "index reset 后四类 role 共享可比较的 episode 与 dynamic-state 起点", "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "_run_live_rollout_capture()", ["reset 前/随机化后/reset 后 episode_length_buf", "quartet root/joint pair error", "逐步 role done/timeout/termination/survival"]],
   ["AUDIT-OBS-01", "870D Observation", "M-04, M-10", "100D balance prefix 与 770D GMT suffix 保持布局", "source/rsl_rl/rsl_rl/runners/frontres_runtime.py", "apply_obs_normalizer()", ["raw obs[*,870]", "prefix100/suffix770", "normalized finite obs"]],
   ["AUDIT-ACTION-01", "Full-6D Actor", "M-04", "mean、sigma 与 sampled action 保持 full-6D 同源", "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "update_distribution()/act()", ["policy obs", "mean/sigma[*,6]", "sampled action[*,6]"]],
   ["AUDIT-APPLY-01", "Delta SE(3) 应用", "M-04, M-10", "完整 6D repair 写入 repaired reference", "source/rsl_rl/rsl_rl/frontres/task_space_correction.py", "apply_frontres_task_corrections()", ["raw Delta SE(3)", "task correction", "repaired reference"]],
@@ -41,6 +42,7 @@ const runtimeStatus = Object.fromEntries(specs.map(([id]) => [
     : "unconfirmed: rerun3 did not reach this owner",
 ]));
 runtimeStatus["AUDIT-PPO-01"] = "blocked: 8/8 policy rows terminated, valid=0, optimizer update was not observed";
+runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "inserted: offline role/timeout contract passed; formal live evidence is pending";
 runtimeStatus["AUDIT-DIAG-01"] = "unconfirmed: accepted post-update diagnostics were not reached";
 runtimeStatus["AUDIT-PERSIST-01"] = "unconfirmed: checkpoint payload/save boundary was not reached";
 
@@ -79,6 +81,11 @@ const probeRationales = {
     ["base budget 进入 expansion 时可验证每个 source segment 的 K", "失败归属: K plan 输出"],
     ["source_index/trial_index/role/K 在 expanded plan 中首次逐行对齐", "失败归属: expand_rollout_trials"],
     ["reset/rollout 消费前检查可发现 expanded rows 被截断或重排", "失败归属: trial plan 到 reset/rollout connector"],
+  ],
+  "AUDIT-RESET-LIFECYCLE-01": [
+    ["index reset 刚结束且 env.step 尚未发生, 可直接比较每个 role 的 episode 生命周期是否同源", "失败归属: episode_length_buf randomization 或 index-reset lifecycle wiring"],
+    ["policy/candidate/noisy/clean 的机器人 dynamic state 在此首次应构成可比较 quartet", "失败归属: index reset robot-state write 或 quartet state synchronization"],
+    ["env.step 返回时 done 与 time_out 同时可见, 能区分时限结束和物理 termination", "失败归属: environment termination owner 或 rollout survival accounting"],
   ],
   "AUDIT-OBS-01": [
     ["raw 870D obs 尚未归一化, 可先验证 100D+770D 布局来源", "失败归属: environment observation construction"],
@@ -212,7 +219,7 @@ const card = ([id, title, design, summary, ownerPath, ownerFunction, captures], 
 
 const data = {
   title: "04 Stage 3 Formal Runtime Audit",
-  subtitle: "20 个重要 Owner 边界的正式训练插桩阅读图. 每个 B 子框解释为什么测这里、截获什么以及失败归属.",
+  subtitle: "21 个重要 Owner 边界的正式训练插桩阅读图. 每个 B 子框解释为什么测这里、截获什么以及失败归属.",
   layout: "repository_reading_atlas",
   canvasWidth: 16900,
   defaultZoom: 0.18,

@@ -160,6 +160,7 @@ def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
         "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py": "print_formal_route_audit(",
         "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py": "print_sampler_audit(",
         "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py": "print_rollout_storage_audit(",
+        "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py#reset": "print_reset_lifecycle_audit(",
         "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py#ppo": "print_ppo_audit(",
         "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py": "print_checkpoint_payload_audit(",
         "scripts/rsl_rl/train.py": "--frontres_formal_runtime_audit",
@@ -201,6 +202,71 @@ def test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_fl
     assert "update_observed=0" in output
 
 
+def test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_termination() -> None:
+    runner = _runner()
+    root = torch.zeros(8, 3)
+    root[4:6] = 1.0
+    joint_pos = torch.zeros(8, 2)
+    joint_pos[6:8] = 2.0
+    runner.env = SimpleNamespace(
+        scene={
+            "robot": SimpleNamespace(
+                data=SimpleNamespace(
+                    root_pos_w=root,
+                    root_quat_w=torch.zeros(8, 4),
+                    root_lin_vel_w=torch.zeros(8, 3),
+                    root_ang_vel_w=torch.zeros(8, 3),
+                    joint_pos=joint_pos,
+                    joint_vel=torch.zeros(8, 2),
+                )
+            )
+        }
+    )
+    layout = SimpleNamespace(n_train=2, n_candidate=2, n_base=2, n_clean=2)
+    pair_state = audit.snapshot_reset_pair_state(runner, layout)
+    dones = torch.tensor([True, False, False, True, True, True, False, False])
+    time_outs = torch.tensor([True, False, False, False, False, False, False, False])
+    terminated = dones & ~time_outs
+    stream = io.StringIO()
+    audit.configure_formal_runtime_probe(False)
+    with contextlib.redirect_stdout(stream):
+        audit.print_reset_lifecycle_audit(
+            runner,
+            pair_layout=layout,
+            phase="reset",
+            episode_before=torch.arange(8),
+            episode_randomized=torch.arange(8) + 10,
+            episode_after_reset=torch.tensor([0, 0, 12, 13, 14, 15, 16, 17]),
+            pair_state=pair_state,
+        )
+        audit.print_reset_lifecycle_audit(
+            runner,
+            pair_layout=layout,
+            phase="step",
+            rollout_step=0,
+            dones=dones,
+            time_outs=time_outs,
+            terminated=terminated,
+            alive=~dones,
+            survival_steps=torch.ones(8),
+        )
+        audit.print_reset_lifecycle_audit(
+            runner,
+            pair_layout=layout,
+            phase="final",
+            first_done_step=torch.tensor([0, -1, -1, 0, 0, 0, -1, -1]),
+        )
+    output = stream.getvalue()
+    assert output.count("[AUDIT-RESET-LIFECYCLE-01]") == 3
+    assert "phase=reset" in output and "episode_after_reset=" in output
+    assert "noisy:count=2 max=1" in output
+    assert "clean:count=2 max=2" in output
+    assert "done={policy:1,candidate:1,noisy:2,clean:0}" in output
+    assert "time_out={policy:1,candidate:0,noisy:0,clean:0}" in output
+    assert "terminated={policy:0,candidate:1,noisy:2,clean:0}" in output
+    assert "phase=final" in output and "first_done_step=" in output
+
+
 def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
     atlas_path = ROOT / "note" / "architecture" / "runtime" / "04_stage3_formal_runtime_audit.data.json"
     atlas = json.loads(atlas_path.read_text())
@@ -211,7 +277,8 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
     checklist = (ROOT / "note" / "frontres_core" / "checklists" / "modification_checklist.md").read_text()
     audit_ids = [
         "AUDIT-ROUTE-01", "AUDIT-PERTURB-01", "AUDIT-PERTURB-02", "AUDIT-SEGDATA-01",
-        "AUDIT-SAMPLER-01", "AUDIT-KPLAN-01", "AUDIT-KROLLOUT-01", "AUDIT-OBS-01",
+        "AUDIT-SAMPLER-01", "AUDIT-KPLAN-01", "AUDIT-KROLLOUT-01", "AUDIT-RESET-LIFECYCLE-01",
+        "AUDIT-OBS-01",
         "AUDIT-ACTION-01", "AUDIT-APPLY-01", "AUDIT-GMT-01", "AUDIT-PAIR-01",
         "AUDIT-PAIR-EVIDENCE-01", "AUDIT-GAIN-01", "AUDIT-RETURN-01", "AUDIT-HSL-LOAD-01",
         "AUDIT-WARMUP-01", "AUDIT-PPO-01", "AUDIT-PERSIST-01", "AUDIT-DIAG-01",
@@ -228,7 +295,7 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
         for system in atlas["systems"]
         for module in system["modules"]
     }
-    assert len(modules) == 20
+    assert len(modules) == 21
     why_here_texts: list[str] = []
     for audit_id in audit_ids:
         module = modules[audit_id]
@@ -270,13 +337,14 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
     assert modules["AUDIT-PPO-01"]["gap"].startswith("blocked:")
     assert "8/8 policy rows" in modules["AUDIT-PPO-01"]["gap"]
     assert modules["AUDIT-PERSIST-01"]["gap"].startswith("unconfirmed:")
-    assert len(why_here_texts) == 60
-    assert len(set(why_here_texts)) == 60, "whyHere must not be a shared template across probe boundaries"
+    assert len(why_here_texts) == 63
+    assert len(set(why_here_texts)) == 63, "whyHere must not be a shared template across probe boundaries"
 
 
 if __name__ == "__main__":
     test_structured_phase_b_snapshots_cover_all_formal_boundaries()
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
     test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()
+    test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_termination()
     test_runtime_audit_atlas_source_comments_and_checklist_share_ids()
     print("frontres_formal_runtime_audit_contract: ok")

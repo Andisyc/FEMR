@@ -683,3 +683,20 @@ not current runnable paths. Current checkpoint evidence is the formal
 - Decision: do not change PPO, valid masks, Gain, actor bounds, or fail-fast
   guards. First add a role-aware per-step done/timeout/survival probe, then fix
   the earliest contradicted reset invariant with a quartet reset regression.
+
+## E29 - Reset Lifecycle Step A Offline Closure (2026-07-15)
+
+- Added `AUDIT-RESET-LIFECYCLE-01` to the formal rollout owner and the Runtime
+  Atlas as the 21st owner card.
+- Captured objects are: role-aware episode length before/randomized/after
+  reset, quartet root/joint pair error, and per-step done/timeout/physical
+  termination/alive/survival with first-done step.
+- The pseudo contract uses eight rows in a 2/2/2/2 layout. It distinguishes one
+  policy timeout from candidate/Noisy physical terminations and detects
+  intentional Noisy root and Clean joint mismatches.
+- Verification: `frontres_formal_runtime_audit_contract: ok`,
+  `frontres_segment_live_probe_contract: ok`, Atlas viewer import passed, Python
+  compilation passed, diff check passed, and aggregate contracts passed 44/44.
+- Evidence level: S2 insertion and semantic-contract PASS; S4 remains pending.
+  No reset behavior was changed. The next live log must select the earliest
+  contradicted owner before a repair is implemented.

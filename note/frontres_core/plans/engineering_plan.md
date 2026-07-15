@@ -1,8 +1,10 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B rerun3 blocked; all 32 quartet rows terminated and reset lifecycle requires audit
+Status: Phase B Step A inserted; reset lifecycle formal live evidence pending
 Updated: 2026-07-15
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
+
+Current bounded recovery step: `AUDIT-RESET-LIFECYCLE-01` observes reset-before/randomized/after episode buffers, quartet root/joint state pairing, and per-step role-aware done/timeout/termination/survival. It does not modify reset behavior, PPO eligibility, Gain, or fail-fast guards.
 
 ## Objective
 
