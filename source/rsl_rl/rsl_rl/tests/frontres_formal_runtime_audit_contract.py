@@ -267,6 +267,25 @@ def test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_terminat
     assert "phase=final" in output and "first_done_step=" in output
 
 
+def test_reset_pair_root_error_removes_per_environment_world_origins() -> None:
+    runner = _runner()
+    origins = torch.tensor([[0.0, 0.0, 0.0], [20.0, 0.0, 0.0], [40.0, 0.0, 0.0], [60.0, 0.0, 0.0]])
+    robot = SimpleNamespace(
+        data=SimpleNamespace(
+            root_pos_w=origins.clone(),
+            root_quat_w=torch.zeros(4, 4),
+            root_lin_vel_w=torch.zeros(4, 3),
+            root_ang_vel_w=torch.zeros(4, 3),
+            joint_pos=torch.zeros(4, 2),
+            joint_vel=torch.zeros(4, 2),
+        )
+    )
+    runner.env = SimpleNamespace(scene=SimpleNamespace(robot=robot, env_origins=origins))
+    layout = SimpleNamespace(n_train=1, n_candidate=1, n_base=1, n_clean=1)
+    snapshot = audit.snapshot_reset_pair_state(runner, layout)
+    assert all("max=0" in value for value in snapshot["root_pair_error"].values())
+
+
 def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
     atlas_path = ROOT / "note" / "architecture" / "runtime" / "04_stage3_formal_runtime_audit.data.json"
     atlas = json.loads(atlas_path.read_text())
@@ -319,7 +338,10 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
         owner_text = owner_path.read_text()
         owner_lines = owner_text.splitlines()
         assert audit_id in owner_text, f"{audit_id} is not inserted at Atlas owner {owner_path}"
-        assert "Result: PENDING_LIVE." in owner_text, f"{audit_id} owner lacks a PENDING_LIVE comment"
+        if audit_id == "AUDIT-RESET-LIFECYCLE-01":
+            assert "quartet role reset is contract-fixed offline" in owner_text
+        else:
+            assert "Result: PENDING_LIVE." in owner_text, f"{audit_id} owner lacks a PENDING_LIVE comment"
         for block_id in ("B1", "B2", "B3"):
             assert f"# {block_id}:" in owner_text, f"{audit_id} owner lacks human-readable {block_id} comments"
         for step_index, step in enumerate(module["probeSteps"], start=1):
@@ -346,5 +368,6 @@ if __name__ == "__main__":
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
     test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()
     test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_termination()
+    test_reset_pair_root_error_removes_per_environment_world_origins()
     test_runtime_audit_atlas_source_comments_and_checklist_share_ids()
     print("frontres_formal_runtime_audit_contract: ok")

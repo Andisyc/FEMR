@@ -116,12 +116,27 @@ class FrontRESStage1EnvAdapter:
         return {"success": torch.ones(ids.numel(), dtype=torch.bool, device=ids.device)}
 
     def apply_frontres_segment_index_reset(self, request: Any) -> dict[str, torch.Tensor]:
+        """将 sampled Segment 状态重置到显式配对的全部 split-env role.
+
+        状态: active Stage 1 index 与 Stage 3 quartet reset owner.
+        上游: live probe 从 pair layout 附加 `frontres_role_env_ids`.
+        下游: frozen GMT rollout 消费 role-aligned robot 与 episode state.
+        证据: contract-confirmed.
+        缺口: 32-env formal live survival 尚未确认.
+        """
         segment_ids = getattr(request, "segment_ids")
         count = int(segment_ids.numel())
-        ids = self._normalize_env_ids(range(count))
+        role_env_ids = self._normalize_frontres_role_env_ids(request, source_count=count)
+        source_ids = role_env_ids["policy"]
+        ids = torch.cat(tuple(role_env_ids.values()), dim=0)
+        source_rows = torch.arange(count, device=ids.device, dtype=torch.long).repeat(len(role_env_ids))
         num_envs = int(getattr(self.base_env, "num_envs", getattr(self.command, "num_envs", count)) or count)
-        if count > num_envs:
-            raise ValueError(f"index reset request has {count} rows but env exposes only {num_envs} envs")
+        if (
+            int(ids.numel()) > num_envs
+            or (ids.numel() and int(ids.min().item()) < 0)
+            or (ids.numel() and int(ids.max().item()) >= num_envs)
+        ):
+            raise ValueError(f"index reset role rows {ids.tolist()} exceed env count {num_envs}")
         motion_ids = tuple(str(item) for item in getattr(request, "motion_ids"))
         start_frames = getattr(request, "start_frames").to(device=ids.device, dtype=torch.long).flatten()
         if len(motion_ids) != count or int(start_frames.numel()) != count:
@@ -139,14 +154,21 @@ class FrontRESStage1EnvAdapter:
             dtype=torch.long,
             device=ids.device,
         )
+        expanded_motion_indices = motion_indices.index_select(0, source_rows)
+        expanded_frame_indices = frame_indices.index_select(0, source_rows)
         with torch.inference_mode():
-            self.command.env_motion_indices[ids] = motion_indices
-            self.command.time_steps[ids] = frame_indices
+            # B1: 按稳定 role 顺序展开 sampled policy motion/frame.
+            self.command.env_motion_indices[ids] = expanded_motion_indices
+            self._write_frontres_motion_groups(ids, expanded_motion_indices)
+            self.command.time_steps[ids] = expanded_frame_indices
             if hasattr(self.command, "motion_end_buf"):
                 self.command.motion_end_buf[ids] = False
+            # B2: role-specific reference 生效前, 所有 role 获得同源 dynamic start.
             self._reset_frontres_command_state(ids)
-            perturbation_state = self._apply_index_reset_perturbation_request(request, ids)
+            perturbation_state = self._apply_index_reset_perturbation_request(request, source_ids)
             self._write_command_reference_to_robot(ids)
+            # B3: Segment index reset 后不得保留随机化的旧 episode age.
+            self._reset_frontres_episode_lifecycle(ids)
         success = torch.ones(count, dtype=torch.bool, device=segment_ids.device)
         velocity = torch.zeros(count, dtype=torch.float32, device=segment_ids.device)
         self._trace(
@@ -157,6 +179,7 @@ class FrontRESStage1EnvAdapter:
             start_frames=start_frames,
             frame_indices=frame_indices,
             env_ids=ids.detach().cpu().tolist(),
+            role_env_ids={role: role_ids.detach().cpu().tolist() for role, role_ids in role_env_ids.items()},
             root_pos=self.robot.data.root_pos_w.index_select(0, ids),
             joint_pos=self.robot.data.joint_pos.index_select(0, ids),
             perturbation_strength=perturbation_state.get("strength"),
@@ -166,6 +189,51 @@ class FrontRESStage1EnvAdapter:
             perturber_family_masks=getattr(getattr(self.command, "perturber", None), "_family_masks", None),
         )
         return {"reset_success": success, "velocity_mismatch": velocity}
+
+    def _normalize_frontres_role_env_ids(self, request: Any, *, source_count: int) -> dict[str, torch.Tensor]:
+        raw = getattr(request, "frontres_role_env_ids", None)
+        if raw is None:
+            return {"policy": self._normalize_env_ids(range(source_count))}
+        if not isinstance(raw, dict) or "policy" not in raw:
+            raise ValueError("frontres_role_env_ids must be a mapping containing policy rows")
+        result: dict[str, torch.Tensor] = {}
+        seen: set[int] = set()
+        for role in ("policy", "candidate", "noisy", "clean"):
+            if role not in raw:
+                continue
+            role_ids = self._normalize_env_ids(raw[role])
+            if int(role_ids.numel()) != int(source_count):
+                raise ValueError(
+                    f"frontres role {role} must have {source_count} rows, got {int(role_ids.numel())}"
+                )
+            values = role_ids.detach().cpu().tolist()
+            if any(int(value) in seen for value in values):
+                raise ValueError(f"frontres role {role} overlaps another reset role")
+            seen.update(int(value) for value in values)
+            result[role] = role_ids
+        return result
+
+    def _reset_frontres_episode_lifecycle(self, env_ids: torch.Tensor) -> None:
+        for owner in (self.base_env, self.env):
+            episode_length_buf = getattr(owner, "episode_length_buf", None)
+            if isinstance(episode_length_buf, torch.Tensor):
+                episode_length_buf[env_ids.to(episode_length_buf.device)] = 0
+
+    def _write_frontres_motion_groups(self, env_ids: torch.Tensor, motion_indices: torch.Tensor) -> None:
+        groups = getattr(self.command, "env_motion_groups", None)
+        motion_to_group = getattr(getattr(self.command, "motion_dir_loader", None), "motion_to_group", None)
+        group_name_to_idx = getattr(self.command, "group_name_to_idx", None)
+        if (
+            not isinstance(groups, torch.Tensor)
+            or not isinstance(motion_to_group, dict)
+            or not isinstance(group_name_to_idx, dict)
+        ):
+            return
+        values = [
+            int(group_name_to_idx[motion_to_group.get(int(motion_index.item()), "default")])
+            for motion_index in motion_indices
+        ]
+        groups[env_ids.to(groups.device)] = torch.tensor(values, dtype=groups.dtype, device=groups.device)
 
     def set_frontres_rollout_state(
         self, *, clean_state: FrontRESRobotRolloutState, env_ids: torch.Tensor

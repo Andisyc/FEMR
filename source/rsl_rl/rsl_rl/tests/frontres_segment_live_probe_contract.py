@@ -63,8 +63,8 @@ def _install_live_probe_import_stubs():
     frontres_pkg.training_schedule = training_schedule
 
     training_setup = types.ModuleType("rsl_rl.runners.frontres_training_setup")
-    training_setup.configure_frontres_pair_layout = lambda *_args, **_kwargs: SimpleNamespace(
-        n_train=1,
+    training_setup.configure_frontres_pair_layout = lambda runner, **_kwargs: SimpleNamespace(
+        n_train=int(runner.env.episode_length_buf.numel()),
         n_candidate=0,
         n_base=0,
         n_clean=0,
@@ -1841,6 +1841,21 @@ def test_action_valid_steps_counts_done_producing_action_and_masks_tail() -> Non
     torch.testing.assert_close(valid, expected)
 
 
+def test_reset_role_env_ids_expand_sources_in_quartet_order() -> None:
+    layout = SimpleNamespace(n_train=2, n_candidate=2, n_base=2, n_clean=2)
+    role_ids = live_probe._frontres_reset_role_env_ids(
+        layout,
+        source_count=2,
+        device=torch.device("cpu"),
+    )
+    assert {role: ids.tolist() for role, ids in role_ids.items()} == {
+        "policy": [0, 1],
+        "candidate": [2, 3],
+        "noisy": [4, 5],
+        "clean": [6, 7],
+    }
+
+
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_uses_b1_paired_gain_when_available()
@@ -1872,4 +1887,5 @@ if __name__ == "__main__":
     test_live_probe_summary_preserves_negative_repair_executability_gain()
     test_executed_segment_action_capture_uses_transition_after_baseline_override()
     test_action_valid_steps_counts_done_producing_action_and_masks_tail()
+    test_reset_role_env_ids_expand_sources_in_quartet_order()
     print("frontres_segment_live_probe_contract: ok")

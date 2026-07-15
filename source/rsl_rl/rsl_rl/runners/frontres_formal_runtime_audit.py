@@ -107,9 +107,22 @@ def snapshot_reset_pair_state(runner: Any, pair_layout: Any) -> dict[str, Any]:
     data = getattr(robot, "data", None)
     if data is None:
         return {"root_pair_error": "missing_robot", "joint_pair_error": "missing_robot"}
+    root_pos = getattr(data, "root_pos_w", None)
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    env_origins = getattr(getattr(env, "scene", None), "env_origins", None)
+    if (
+        isinstance(root_pos, torch.Tensor)
+        and isinstance(env_origins, torch.Tensor)
+        and root_pos.ndim == 2
+        and env_origins.ndim == 2
+        and int(env_origins.shape[0]) >= int(root_pos.shape[0])
+    ):
+        root_pos = root_pos - env_origins[: root_pos.shape[0]].to(root_pos.device, root_pos.dtype)
     root_parts = [
-        getattr(data, name, None)
-        for name in ("root_pos_w", "root_quat_w", "root_lin_vel_w", "root_ang_vel_w")
+        root_pos,
+        getattr(data, "root_quat_w", None),
+        getattr(data, "root_lin_vel_w", None),
+        getattr(data, "root_ang_vel_w", None),
     ]
     joint_parts = [getattr(data, name, None) for name in ("joint_pos", "joint_vel")]
     root_state = torch.cat(root_parts, dim=-1) if all(isinstance(item, torch.Tensor) for item in root_parts) else None

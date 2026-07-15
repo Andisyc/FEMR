@@ -69,8 +69,8 @@ class FakeRobotData:
 
 
 class FakeRobot:
-    def __init__(self) -> None:
-        self.data = FakeRobotData()
+    def __init__(self, num_envs: int = 1) -> None:
+        self.data = FakeRobotData(num_envs=num_envs)
         self.root_writes: list[torch.Tensor] = []
         self.joint_writes: list[torch.Tensor] = []
 
@@ -101,6 +101,7 @@ class FakeMotionLoader:
         }
         self.motion_lengths = torch.tensor([8], dtype=torch.long)
         self.motion_fps = torch.tensor([30.0], dtype=torch.float32)
+        self.motion_to_group = {0: "default"}
 
     def gather(self, attr: str, motion_indices: torch.Tensor, frame_indices: torch.Tensor, out_device) -> torch.Tensor:
         batch = motion_indices.numel()
@@ -147,9 +148,9 @@ class FakePerturber:
 
 
 class FakeCommand:
-    def __init__(self, root: Path, robot: FakeRobot) -> None:
+    def __init__(self, root: Path, robot: FakeRobot, num_envs: int = 1) -> None:
         self.device = torch.device("cpu")
-        self.num_envs = 1
+        self.num_envs = int(num_envs)
         self.robot = robot
         self.cfg = types.SimpleNamespace(
             motion_dataset_load_cap=1,
@@ -157,11 +158,13 @@ class FakeCommand:
         )
         self.motion_dir_loader = FakeMotionLoader(root)
         self.motion_lengths = self.motion_dir_loader.motion_lengths
-        self.env_motion_indices = torch.zeros(1, dtype=torch.long)
-        self.time_steps = torch.zeros(1, dtype=torch.long)
-        self.motion_end_buf = torch.zeros(1, dtype=torch.bool)
-        self._frontres_pos_correction = torch.ones(1, 3)
-        self._frontres_quat_correction = torch.zeros(1, 4)
+        self.env_motion_indices = torch.zeros(self.num_envs, dtype=torch.long)
+        self.env_motion_groups = torch.full((self.num_envs,), -1, dtype=torch.long)
+        self.group_name_to_idx = {"default": 0}
+        self.time_steps = torch.zeros(self.num_envs, dtype=torch.long)
+        self.motion_end_buf = torch.zeros(self.num_envs, dtype=torch.bool)
+        self._frontres_pos_correction = torch.ones(self.num_envs, 3)
+        self._frontres_quat_correction = torch.zeros(self.num_envs, 4)
         self.perturber = FakePerturber()
         self.metrics = {
             "error_anchor_pos": torch.zeros(1),
@@ -191,9 +194,9 @@ class FakeCommandManager:
 
 
 class FakeScene:
-    def __init__(self, robot: FakeRobot) -> None:
+    def __init__(self, robot: FakeRobot, num_envs: int = 1) -> None:
         self.robot = robot
-        self.env_origins = torch.zeros(1, 3)
+        self.env_origins = torch.zeros(num_envs, 3)
 
     def __getitem__(self, name: str):
         assert name == "robot"
@@ -201,18 +204,19 @@ class FakeScene:
 
 
 class FakeBaseEnv:
-    def __init__(self, root: Path) -> None:
-        self.num_envs = 1
+    def __init__(self, root: Path, num_envs: int = 1) -> None:
+        self.num_envs = int(num_envs)
         self.num_actions = 29
-        self.robot = FakeRobot()
-        self.scene = FakeScene(self.robot)
-        self.command = FakeCommand(root, self.robot)
+        self.robot = FakeRobot(num_envs=self.num_envs)
+        self.scene = FakeScene(self.robot, num_envs=self.num_envs)
+        self.command = FakeCommand(root, self.robot, num_envs=self.num_envs)
         self.command_manager = FakeCommandManager(self.command)
+        self.episode_length_buf = torch.full((self.num_envs,), 99, dtype=torch.long)
 
 
 class FakeGymEnv:
-    def __init__(self, root: Path) -> None:
-        self.unwrapped = FakeBaseEnv(root)
+    def __init__(self, root: Path, num_envs: int = 1) -> None:
+        self.unwrapped = FakeBaseEnv(root, num_envs=num_envs)
         self.step_actions: list[torch.Tensor] = []
         self.reset_count = 0
 
@@ -224,8 +228,8 @@ class FakeGymEnv:
         if self.reset_count <= 0:
             raise RuntimeError("Cannot call env.step() before calling env.reset()")
         self.step_actions.append(actions.detach().clone())
-        rewards = torch.full((1,), 0.75, dtype=torch.float32)
-        dones = torch.zeros(1, dtype=torch.bool)
+        rewards = torch.full((self.unwrapped.num_envs,), 0.75, dtype=torch.float32)
+        dones = torch.zeros(self.unwrapped.num_envs, dtype=torch.bool)
         return None, rewards, dones, {}
 
 
@@ -580,10 +584,65 @@ def test_stage1_index_reset_applies_local_rp_only_perturbation_request() -> None
         )
 
 
+def test_index_reset_expands_sampled_rows_to_full_quartet_dynamic_state() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        _write_fake_amass(root / "KIT" / "359" / "motion_a.npz")
+        env = FakeGymEnv(root, num_envs=8)
+        env.unwrapped.scene.env_origins[:, 0] = torch.arange(8, dtype=torch.float32) * 10.0
+        env.unwrapped.robot.data.joint_pos[:] = torch.arange(8, dtype=torch.float32).view(8, 1) * 100.0
+        adapter = FrontRESStage1EnvAdapter(env, amass_root=str(root), trace=False)
+        role_env_ids = {
+            "policy": torch.tensor([0, 1], dtype=torch.long),
+            "candidate": torch.tensor([2, 3], dtype=torch.long),
+            "noisy": torch.tensor([4, 5], dtype=torch.long),
+            "clean": torch.tensor([6, 7], dtype=torch.long),
+        }
+
+        result = adapter.apply_frontres_segment_index_reset(
+            types.SimpleNamespace(
+                segment_ids=torch.tensor([5, 6], dtype=torch.long),
+                motion_ids=("KIT/359/motion_a.npz", "KIT/359/motion_a.npz"),
+                start_frames=torch.tensor([3, 4], dtype=torch.long),
+                horizon_k=torch.tensor([2, 2], dtype=torch.long),
+                perturbation_family=("local_rp", "local_rp"),
+                perturbation_strength=torch.tensor([0.5, 1.0], dtype=torch.float32),
+                frontres_role_env_ids=role_env_ids,
+            )
+        )
+
+        expected_frames = torch.tensor([3, 4, 3, 4, 3, 4, 3, 4], dtype=torch.long)
+        expected_joint_head = torch.tensor([3, 4, 3, 4, 3, 4, 3, 4], dtype=torch.float32)
+        local_root = env.unwrapped.robot.data.root_pos_w - env.unwrapped.scene.env_origins
+        assert result["reset_success"].tolist() == [True, True]
+        torch.testing.assert_close(env.unwrapped.command.time_steps, expected_frames)
+        assert env.unwrapped.command.env_motion_groups.tolist() == [0] * 8
+        torch.testing.assert_close(env.unwrapped.robot.data.joint_pos[:, 0], expected_joint_head)
+        torch.testing.assert_close(local_root[:, 0], expected_joint_head)
+        assert env.unwrapped.episode_length_buf.tolist() == [0] * 8
+        torch.testing.assert_close(
+            env.unwrapped.command.perturber.dr_scale_env,
+            torch.tensor([0.5, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        )
+        assert env.unwrapped.command.perturber.family_masks["local_rp"].tolist() == [
+            True, True, False, False, False, False, False, False
+        ]
+        print(
+            "[probe quartet_reset] "
+            f"frames={env.unwrapped.command.time_steps.tolist()} "
+            f"joint0={env.unwrapped.robot.data.joint_pos[:, 0].tolist()} "
+            f"local_root_x={local_root[:, 0].tolist()} "
+            f"episode={env.unwrapped.episode_length_buf.tolist()} "
+            f"dr_scale={env.unwrapped.command.perturber.dr_scale_env.tolist()}",
+            flush=True,
+        )
+
+
 if __name__ == "__main__":
     test_stage1_hook_trace_summarizes_large_sequences()
     test_stage1_env_adapter_hooks_trace_real_boundary_contract()
     test_stage1_env_adapter_writes_inference_tensors_under_inference_mode()
     test_stage1_index_reset_applies_dynamic_motion_perturbation_request()
     test_stage1_index_reset_applies_local_rp_only_perturbation_request()
+    test_index_reset_expands_sampled_rows_to_full_quartet_dynamic_state()
     print("PASS: FrontRES Stage 1 env adapter hooks trace motion, clean reset, perturbation, and baseline rollout.")

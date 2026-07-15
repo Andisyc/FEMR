@@ -196,8 +196,47 @@ timestamp 2026-07-15 16:24:31.
   rows and detects deliberately mismatched Noisy root and Clean joint state.
 - The Runtime Atlas now contains 21 owner cards. The source-link/B1-B3/whyHere
   contract and viewer import pass; the aggregate suite passes 44/44.
-- Status remains `PENDING_LIVE`: the next formal tiny run must determine which
-  reset invariant is first contradicted before any quartet-reset repair.
+- At insertion time the status remained `PENDING_LIVE`; the following formal
+  tiny run supplied the required owner-localizing evidence.
+
+## Step A Live Result - Quartet Reset Owner Confirmed
+
+Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 776 lines, local
+timestamp 2026-07-15 17:19.
+
+- The reset probe reached the official 32-env quartet route with role counts
+  `8/8/8/8`.
+- `episode_length_buf` was randomized and not reset, but all step-0 terminations
+  were physical: every role reported `done=8`, `time_out=0`, `terminated=8`.
+  Therefore stale episode length is not the immediate step-0 failure owner.
+- Robot joint state was not paired after reset. Candidate/Noisy/Clean joint max
+  error versus policy was `8.43462/8.34135/6.73203`.
+- The first root metric used world coordinates and is contaminated by different
+  per-env origins, so its `64.0339/47.9014/64.1966` values are invalid evidence.
+  The probe now subtracts `scene.env_origins`; origin-relative root evidence
+  requires the next rerun.
+- The index-reset trace confirms only env ids 0-7 were written. The remaining
+  24 baseline rows received synchronized reference identity later, but not the
+  matching robot dynamic state.
+- Earliest contradicted invariant: quartet dynamic-state reset ownership. PPO,
+  Gain, valid masks, action bounds, and the zero-update guard remain downstream
+  consequences and must not be changed for this failure.
+
+## Step B - Quartet Dynamic-State Reset Repair
+
+- The formal live probe now configures the split-env layout before index reset
+  and attaches explicit Policy/Candidate/Noisy/Clean env IDs to the request.
+- The index-reset adapter expands each sampled motion/frame to all active roles,
+  writes motion group, root pose/velocity, joint pose/velocity, clears
+  `motion_end_buf`, and resets `episode_length_buf` for every role row.
+- Perturbation strength/family remains attached only to Policy source rows.
+  Existing command synchronization subsequently shares Noisy corruption with
+  Candidate/Noisy while retaining the Clean baseline behavior.
+- Sample-level reset result remains one row per sampled segment, so PPO/storage
+  evidence ownership is unchanged.
+- The eight-row golden fixture passes with frames and local roots
+  `[3,4,3,4,3,4,3,4]`, matched joint state, zero episode age, and nonzero DR
+  scale only on Policy rows. Live S4 survival remains pending.
 - Required next boundary: add role-aware per-step done/timeout/survival audit,
   then repair full-quartet reset only if the live probe confirms this owner.
 - Startup still prints `max_horizon_k=missing` before the runner prints 64, so

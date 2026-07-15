@@ -700,3 +700,39 @@ not current runnable paths. Current checkpoint evidence is the formal
 - Evidence level: S2 insertion and semantic-contract PASS; S4 remains pending.
   No reset behavior was changed. The next live log must select the earliest
   contradicted owner before a repair is implemented.
+
+## E30 - Reset Lifecycle Live Localization (2026-07-15)
+
+- Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 776 lines,
+  timestamp 2026-07-15 17:19.
+- The official 32-env route used quartet `8/8/8/8`. Index reset wrote only env
+  ids 0-7.
+- After reset, Candidate/Noisy/Clean joint-state max error versus Policy was
+  `8.43462/8.34135/6.73203`, proving the quartet dynamic states are not paired.
+- The initial root metric compared world positions across different env origins
+  and is therefore invalid as pairing evidence. The corrected probe subtracts
+  `scene.env_origins`; root-local evidence is pending another tiny rerun.
+- At rollout step 0 every role produced eight dones. Every timeout count was
+  zero and every physical-termination count was eight. First-done step was zero
+  for all 32 rows.
+- Conclusion: the immediate zero-valid failure is not timeout and is upstream
+  of PPO. The first proven contract violation is the quartet dynamic-state
+  reset boundary. The next bounded change must reset all four role rows from
+  the sampled policy-row state before applying role-specific corruption/repair.
+
+## E31 - Quartet Reset Offline Repair (2026-07-15)
+
+- Runner connector now establishes pair layout before reset and passes explicit
+  Policy/Candidate/Noisy/Clean env IDs with each sampled index-reset request.
+- Adapter reset expands sampled motion/frame to all role rows and writes motion
+  group, root pose/velocity, joint pose/velocity, command correction reset, and
+  zero episode age. The returned reset-success tensor remains sample-sized.
+- Eight-row golden evidence: frame, origin-relative root x, and first joint are
+  all `[3,4,3,4,3,4,3,4]`; episode ages are all zero; DR scale is
+  `[0.5,1.0,0,0,0,0,0,0]` and local-rp mask is true only for Policy rows.
+- Focused contracts passed for stage1 env hooks, live-probe connector, sequence
+  eval isolation, and live-training validation/fail-fast behavior.
+- Full aggregate verification passed `44/44`; formal audit contract, Atlas
+  viewer, Python compilation, and diff check also passed.
+- Evidence level: S1/S2 integrated-offline PASS. S4 requires the corrected
+  32-env formal live rerun; PPO/Gain semantics were not modified.

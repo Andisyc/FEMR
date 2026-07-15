@@ -1,10 +1,35 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B Step A inserted; reset lifecycle formal live evidence pending
+Status: Phase B Step B integrated offline; corrected 32-env live rerun pending
 Updated: 2026-07-15
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
 Current bounded recovery step: `AUDIT-RESET-LIFECYCLE-01` observes reset-before/randomized/after episode buffers, quartet root/joint state pairing, and per-step role-aware done/timeout/termination/survival. It does not modify reset behavior, PPO eligibility, Gain, or fail-fast guards.
+
+### Reset Recovery Step B / 2: Quartet Dynamic-State Reset
+
+Objective: expand each sampled policy reset row to its corresponding
+Policy/Candidate/Noisy/Clean environment rows before rollout.
+
+Scope: establish pair layout before reset; attach explicit role env IDs to the
+index-reset request; write one motion/frame-derived root and joint dynamic state
+to all four roles; reset their episode-length lifecycle.
+
+Non-scope: perturbation-family semantics, FrontRES full-6D action, Gain, PPO,
+valid masks, termination thresholds, or zero-update guards.
+
+Owner files/modules:
+- `runners/frontres_segment_live_probe.py`: layout-to-reset connector.
+- `frontres/frontres_segment_stage1_env_hooks.py`: simulator reset owner.
+- focused lifecycle and role-pairing contracts.
+
+Expected evidence: S1/S2 `T-role/T-state/T-forward/T-timeout`; all role rows
+share motion/frame, origin-relative root, joint pose/velocity, and zero episode
+length while perturbation scale/mask remains policy-owned.
+
+Stop condition: any baseline role remains stale, perturbation leaks into Clean,
+sample-level reset result changes from eight rows to 32 rows, or existing
+index-reset and aggregate contracts regress.
 
 ## Objective
 

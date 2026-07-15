@@ -794,7 +794,9 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
         )
     episode_randomized = runner.env.episode_length_buf.detach().clone()
 
-    reset_result = _apply_current_segment_reset(runner)
+    frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
+    pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
+    reset_result = _apply_current_segment_reset(runner, pair_layout=pair_layout)
     episode_after_reset = runner.env.episode_length_buf.detach().clone()
     reset_skip_reason = str(getattr(runner, "_frontres_segment_live_current_reset_skip_reason", "") or "")
     _print_frontres_dr_runtime_probe(runner, label="after_current_segment_reset")
@@ -808,6 +810,7 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
             "episode_randomized": episode_randomized,
             "episode_after_reset": episode_after_reset,
         },
+        pair_layout=pair_layout,
     )
     summary = _initial_live_probe_summary(capture, storage_write=storage_write, single_update=single_update)
     _update_trial_metadata_summary(summary, runner, batch_size=_capture_batch_size(capture))
@@ -1011,14 +1014,18 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
     return summary
 
 
-def _apply_current_segment_reset(runner: Any) -> FrontRESSegmentResetResult | None:
+def _apply_current_segment_reset(
+    runner: Any,
+    *,
+    pair_layout: Any | None = None,
+) -> FrontRESSegmentResetResult | None:
     # FRS3-EVAL-013: apply the current index-only reset batch to the live env.
     batch = getattr(runner, "_frontres_segment_live_current_batch", None)
     if batch is None:
         runner._frontres_segment_live_current_reset_skip_reason = "no_current_segment_batch"
         return None
     if _is_index_only_segment_batch(batch):
-        return _apply_index_only_segment_reset(runner, batch)
+        return _apply_index_only_segment_reset(runner, batch, pair_layout=pair_layout)
     adapter = getattr(runner, "_frontres_segment_reset_adapter", None)
     if adapter is None:
         adapter = FrontRESSegmentResetAdapter(
@@ -1084,7 +1091,12 @@ def _is_index_only_segment_batch(batch: Any) -> bool:
     return bool(specs) and all(str(getattr(spec, "perturbation_family", "")) == "index_only" for spec in specs)
 
 
-def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentResetResult | None:
+def _apply_index_only_segment_reset(
+    runner: Any,
+    batch: Any,
+    *,
+    pair_layout: Any | None = None,
+) -> FrontRESSegmentResetResult | None:
     specs = tuple(getattr(batch, "specs", ()) or ())
     motion_ids = tuple(str(getattr(spec, "motion_id", "")) for spec in specs)
     start_frames = torch.tensor(
@@ -1126,6 +1138,12 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
         perturbation_strength=perturbation_strength,
         valid_mask=torch.ones_like(batch.segment_ids, dtype=torch.bool),
     )
+    if pair_layout is not None:
+        request.frontres_role_env_ids = _frontres_reset_role_env_ids(
+            pair_layout,
+            source_count=int(batch.segment_ids.numel()),
+            device=batch.segment_ids.device,
+        )
     _attach_trial_metadata_to_request(request, trial_metadata)
     hook = _index_segment_reset_hook(runner.env)
     if hook is None:
@@ -1181,6 +1199,35 @@ def _apply_index_only_segment_reset(runner: Any, batch: Any) -> FrontRESSegmentR
             ),
             flush=True,
         )
+    return result
+
+
+def _frontres_reset_role_env_ids(
+    pair_layout: Any,
+    *,
+    source_count: int,
+    device: torch.device,
+) -> dict[str, torch.Tensor]:
+    """将 sampled policy rows 映射到配对的 split-env role rows."""
+    source_count = int(source_count)
+    counts = (
+        ("policy", int(getattr(pair_layout, "n_train", 0))),
+        ("candidate", int(getattr(pair_layout, "n_candidate", 0))),
+        ("noisy", int(getattr(pair_layout, "n_base", 0))),
+        ("clean", int(getattr(pair_layout, "n_clean", 0))),
+    )
+    active_counts = [count for _, count in counts if count > 0]
+    if not active_counts or any(count != source_count for count in active_counts):
+        raise ValueError(
+            "Segment index reset requires one split-env row per sampled source and active role; "
+            f"source_count={source_count} role_counts={dict(counts)}"
+        )
+    result: dict[str, torch.Tensor] = {}
+    offset = 0
+    for role, count in counts:
+        if count > 0:
+            result[role] = torch.arange(offset, offset + count, dtype=torch.long, device=device)
+        offset += count
     return result
 
 
@@ -2229,16 +2276,18 @@ def _run_live_rollout_capture(
     capture_motion_quality: bool = True,
     zero_segment_action: bool = False,
     reset_lifecycle: dict[str, torch.Tensor] | None = None,
+    pair_layout: Any | None = None,
 ) -> FrontRESSegmentLiveRolloutCapture:
     # FRS3-EVAL-014: step the live env and optionally capture motion-quality frames.
     frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
-    pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
+    if pair_layout is None:
+        pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
     batch_size = int(observations.obs.shape[0])
     # B1: reset 完成后比较四类 role 的 episode_length_buf, 确认生命周期是否只重置了 policy rows.
     # B2: rollout 前比较 policy/candidate/noisy/clean 的 root 与 joint dynamic state, 定位 quartet 配对断点.
     # B3: 每次 env.step 后按 role 分解 done/timeout/physical termination/alive/survival 与 first-done step.
     # AUDIT-RESET-LIFECYCLE-01: 检查 index reset -> quartet dynamic state -> K-step termination 生命周期.
-    # Result: PENDING_LIVE.
+    # Result: quartet role reset is contract-fixed offline; origin-relative root/joint and step-0 survival await live rerun.
     if reset_lifecycle is not None:
         print_reset_lifecycle_audit(
             runner,

@@ -58,7 +58,8 @@ runtime reachability fact.
 | Perturbation config/application | S4 `T-config/T-value` | stale-rerun-required | `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02` |
 | Segment data/sampler transaction | S4 `T-source/T-state` | stale-rerun-required | `AUDIT-SEGDATA-01`, `AUDIT-SAMPLER-01` |
 | K plan/executed horizon | S4 `T-shape/T-forward` | blocked | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01`; rerun3 K=8 reached, but all 32 quartet rows terminated; done/timeout owner unresolved |
-| Quartet reset lifecycle | S4 `T-role/T-state/T-timeout` | inserted | `AUDIT-RESET-LIFECYCLE-01`; offline role/timeout/first-done contract passes, formal live evidence pending |
+| Quartet reset lifecycle | S4 `T-role/T-state/T-timeout` | runtime-observed-blocked | `AUDIT-RESET-LIFECYCLE-01`; joint quartet unpaired, 32/32 physical termination at step 0, timeout=0; origin-relative root rerun pending |
+| Quartet reset repair | S1/S2 `T-role/T-state/T-forward/T-timeout` | integrated-offline | role IDs -> index reset -> full quartet robot/lifecycle write; perturbation remains policy-owned; S4 rerun pending |
 | Observation/full-6D repair/application | S4 `T-shape/T-source/T-value` | stale-rerun-required | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01` |
 | Frozen GMT | S4 `T-grad/T-state` | stale-rerun-required | `AUDIT-GMT-01` |
 | Paired roles/execution evidence | S4 `T-role/T-source` | stale-rerun-required | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01` |
