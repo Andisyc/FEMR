@@ -964,3 +964,22 @@ not current runnable paths. Current checkpoint evidence is the formal
   `reset_frame/preroll` fields.
 - Evidence level: S1/S2 evaluation reproducibility PASS; S4 checkpoint quality
   comparison pending.
+
+## E44 - Eval-Only Warmup Guard Fix (2026-07-16)
+
+- `eval_model1_fixed.txt` failed before sequence rollout because the command
+  set `STAGE3_IS_FULL_RESUME=True`. The checkpoint stores the short audit-run
+  warmup config `critic=1, actor=2`, while the runtime training defaults are
+  `critic=200, actor=500`.
+- This is a mode mismatch, not a bad checkpoint. Warmup equality is a
+  training-resume invariant; it is irrelevant after the runner enters an
+  offline evaluation-only route.
+- Checkpoint loading now skips only this warmup equality guard when either
+  Stage 3 offline-eval flag is active. Actor weights, observation normalizer,
+  policy std, sampler payload, and FRS-GAIN-v001 validation remain active.
+  Formal training resume still raises on the same mismatch.
+- Python compilation and the full live-sampler checkpoint contract pass after
+  the fix. The pair quality comparison remains pending a rerun of both eval
+  commands.
+- Evidence level: S1/S2 load-boundary fix PASS; S4 fixed-sequence quality
+  comparison pending.

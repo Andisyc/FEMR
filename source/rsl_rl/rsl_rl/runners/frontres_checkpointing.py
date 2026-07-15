@@ -407,6 +407,12 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     # learned E(s)=R_feasible_oracle-R_noisy and should be transferred into RL.
     # load_optimizer 参数仍可从外部显式覆盖（例如强制跳过优化器加载）。
     is_full_resume: bool = self.cfg.get('is_full_resume', True)
+    eval_only = bool(
+        getattr(self.alg, "frontres_segment_offline_eval_only", False)
+        or getattr(self.alg, "frontres_segment_sequence_offline_eval_only", False)
+        or self.cfg.get("frontres_segment_offline_eval_only", False)
+        or self.cfg.get("frontres_segment_sequence_offline_eval_only", False)
+    )
     if not is_full_resume:
         load_optimizer = False   # 权重迁移模式：强制跳过优化器，从零初始化 Adam
         load_critic = self._frontres_warmup_complete
@@ -423,7 +429,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     # )
     print(f"[Runner] is_full_resume={is_full_resume} → "
           f"load_optimizer={load_optimizer}, load_critic={load_critic}, "
-          f"reset_noise_std={not is_full_resume}")
+          f"reset_noise_std={not is_full_resume}, eval_only={eval_only}")
 
     # Check if using ResidualActorCritic (special handling)
     if isinstance(self.alg.policy, (ResidualActorCritic, FrontRESActorCritic)):
@@ -589,10 +595,17 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
             "actor_warmup_iterations": int(getattr(self.alg, "frontres_segment_actor_warmup_iterations", 0)),
         }
         if saved_warmup != runtime_warmup:
-            raise ValueError(
-                "Stage 3 warmup config changed across full resume: "
-                f"checkpoint={saved_warmup}, runtime={runtime_warmup}."
-            )
+            if eval_only:
+                print(
+                    "[Runner] Eval-only checkpoint load: warmup config guard skipped; "
+                    f"checkpoint={saved_warmup}, runtime={runtime_warmup}.",
+                    flush=True,
+                )
+            else:
+                raise ValueError(
+                    "Stage 3 warmup config changed across full resume: "
+                    f"checkpoint={saved_warmup}, runtime={runtime_warmup}."
+                )
     if resumed_training:
         if is_full_resume:
             self.current_learning_iteration = loaded_dict["iter"]

@@ -327,7 +327,8 @@ Non-scope: further audit instrumentation, reward redesign, or formal long
 training.
 
 Status: checkpoint prerequisite satisfied in E42 and sequence-selection
-reproducibility guard satisfied in E43. E41 proves integration, but its second
+reproducibility guard satisfied in E43 and eval-only checkpoint loading fixed
+in E44. E41 proves integration, but its second
 rollout precedes that iteration's optimizer step and has Gain `-0.325550`,
 Physics Gain `-0.281932`, and repaired MPJPE `0.095913 > 0.072490` noisy MPJPE.
 The actual fixed-sequence evaluation of the pair is still pending on the
