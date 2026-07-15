@@ -1,6 +1,6 @@
 # Formal Runtime Audit
 
-Status: `phase-b-control-surface-ready-human-review`
+Status: `phase-b-rerun-ready-after-task-application-fix`
 
 Correction 2026-07-15: the first 20-card Atlas revision pointed many cards at
 owner functions while emitting their labels only from five runner summaries.
@@ -32,11 +32,13 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
 
 - Active method contract: `FRS-METHOD-v011-segment-replay`
 - Active training contract: `FRS-TRAIN-v003-segment-replay-warmup`
-- Code revision inspected: `2ff791e` plus a dirty worktree; the deployed
-  source snapshot must be verified before live evidence is accepted.
+- Code revision inspected: `2ff791e` plus the current dirty worktree; the
+  deployed source snapshot must match this worktree before live evidence is accepted.
 - Checkpoint identity: must be supplied and printed by the upcoming formal run.
-- Official command: pending final local insertion gate.
-- Current gate: source probes are authorized and inserted; no live run has occurred.
+- Official command: locked below under `Tiny Formal-Route Command`.
+- Current gate: the first live attempt reached full-6D actor sampling and then
+  failed at task-space application; the API defect and audit-field ambiguity
+  are fixed offline with a fresh `44/44`. Deployment and rerun remain pending.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
@@ -59,20 +61,40 @@ Out of scope for this round: legacy MOSAIC-only paths, toy contracts as live
 evidence, sentinel-only/storage-only/update-loop-only/offline-eval-only
 branches, and long training.
 
+## First Live Attempt
+
+Raw evidence: `formal_runtime_audit_20260715.txt`.
+
+- Runtime-observed before failure: official Stage 3 route, HSL actor/normalizer
+  load, global Segment sampling, policy-row K=8 through reset, local-rp batch
+  strength, quartet `2/2/2/2`, finite `(8,870)` observation, and finite
+  full-6D mean/sigma/action.
+- Failure owner: `task_space_correction.py::_frontres_contact_consistent_position_correction`.
+  PyTorch rejected a scalar lower bound combined with a per-row Tensor upper
+  bound in `Tensor.clamp` before `AUDIT-APPLY-01` could emit.
+- Correction: preserve the accepted per-row interval semantics with
+  `torch.minimum(torch.maximum(z, z_lower), z_upper)` and explicit dtype/device
+  alignment. This changes no action dimension, reward, sampler, or PPO rule.
+- Audit clarification: perturbation config now reads the agent/runner owner;
+  Stage 1 reference length is printed as `cache_horizon_k`, distinct from the
+  curriculum `budget/effective horizon_k`.
+- Because code changed after the failed attempt, no source result comment is
+  promoted to PASS. All live rows require the same formal-route rerun.
+
 ## Current Checklist
 
 | ID | Owner/function | Core parameter | Probe location | Expected shape/value | Status | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| GOV-01 | workflow governance | contract/code/checkpoint/command identity | this document | identity is explicit before run | runtime-observed | this file |
-| METHOD-07 | critic-ready actor curriculum | HSL -> protected RL warmup -> actor ramp -> joint RL | `AUDIT-HSL-LOAD-01`, `AUDIT-WARMUP-01`, `AUDIT-PPO-01` | phase/weight and frozen actor boundary | inserted | offline contracts; live pending |
-| ROUTE-01 | formal entrypoint and runner | Stage 3 branch selection | `AUDIT-ROUTE-01` | live_train=1 and alternate_modes=0 | inserted | insertion contract |
-| OBS-01 | observation/normalizer | 870D balance/ZMP observation | `AUDIT-OBS-01` | expected layout, finite, same normalizer identity | inserted | insertion contract |
-| K-01 | sampler/reset/rollout | per-row K and valid rows | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | K tensor, role rows, reset/valid counts | inserted | insertion contract |
-| ACT-01 | actor/rollout/storage | full-6D Delta SE(3) | `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | observation and action/storage tuple shapes, finite | inserted | insertion contract |
-| GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | inserted | insertion contract |
-| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | inserted | insertion contract |
-| PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | inserted | insertion contract |
-| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | inserted | insertion contract |
+| GOV-01 | workflow governance | contract/code/checkpoint/command identity | this document | identity is explicit before run | user-reviewed | this file |
+| METHOD-07 | critic-ready actor curriculum | HSL -> protected RL warmup -> actor ramp -> joint RL | `AUDIT-HSL-LOAD-01`, `AUDIT-WARMUP-01`, `AUDIT-PPO-01` | phase/weight and frozen actor boundary | stale-rerun-required | failed attempt + offline contracts |
+| ROUTE-01 | formal entrypoint and runner | Stage 3 branch selection | `AUDIT-ROUTE-01` | live_train=1 and alternate_modes=0 | stale-rerun-required | failed attempt + insertion contract |
+| OBS-01 | observation/normalizer | 870D balance/ZMP observation | `AUDIT-OBS-01` | expected layout, finite, same normalizer identity | stale-rerun-required | failed attempt + insertion contract |
+| K-01 | sampler/reset/rollout | per-row K and valid rows | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | K tensor, role rows, reset/valid counts | stale-rerun-required | failed attempt + insertion contract |
+| ACT-01 | actor/rollout/storage | full-6D Delta SE(3) | `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | observation and action/storage tuple shapes, finite | stale-rerun-required | task-application fix + insertion contract |
+| GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | stale-rerun-required | not reached in failed attempt |
+| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | stale-rerun-required | not reached in failed attempt |
+| PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | stale-rerun-required | not reached in failed attempt |
+| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | stale-rerun-required | not reached in failed attempt |
 
 ## Phase B Probe Ownership
 
@@ -574,30 +596,27 @@ promoted to live evidence: the aggregate suite, full-6D/no-mask, actual policy
 distribution, Gain connectivity, Stage 3 entrypoint, and checkpoint contracts
 already cover the local boundaries.
 
-## Planned AUDIT Probes (no source edits yet)
+## Inserted AUDIT Probe Set
 
-| ID | Planned source location | Runtime fact to print/assert |
-| --- | --- | --- |
-| AUDIT-R01 | `train.py` after Stage 3 preset and `on_policy_runner.py` at dispatch | `stage=stage3_segment_hrl`, `objective=segment_replay_hrl`, `mode=train`, `runner_learn=True`, `update_steps=1` |
-| AUDIT-K01 | `frontres_segment_live_sampler.py:run_frontres_segment_sampler_step` and `frontres_segment_live_probe.py:build_live_segment_storage` | sampled/trial/storage row counts, policy/search roles, `K` distribution, valid/reset counts |
-| AUDIT-A01 | `frontres_segment_live_probe.py` around rollout capture and storage write | policy mean/std/action/stored action shapes `(N,6)`, finite fraction, perturbation family/strength |
-| AUDIT-G01 | `frontres_segment_live_probe.py` at paired Gain boundary | style/physics/repair/total Gain finite status, paired row count, harmful fraction, no legacy fallback |
-| AUDIT-P01 | `run_frontres_segment_single_update` around pre-loss/backward/step/post-diagnostic | valid count, loss/grad finite, old/new stats, pre/post KL, parameter delta, accepted/rejected, LR |
-| AUDIT-C01 | `_save_live_checkpoint` and `_print_checkpoint_save_probe` | exact save path, iteration, in-log-dir, route owner; no resume claim yet |
-| AUDIT-D01 | `_print_live_train_summary` | live populated metric keys, `UNCONFIRMED` only when input is genuinely absent, no silent zero |
+The authoritative probe inventory is the 20-owner table above and the Runtime
+Audit Atlas. Every owner contains its matching default-off `AUDIT-*` emission,
+adjacent B1/B2/B3 reading comments, and `Result: PENDING_LIVE`. The prior
+seven-probe planning projection is retired and must not be used for live
+acceptance.
 
-## Proposed Tiny Formal-Route Command
+## Tiny Formal-Route Command
 
-This is the only proposed command for the first live audit. It uses the
-official wrapper and `MODE=train`; it does not pass any sentinel, probe,
-storage-only, update-loop-only, or offline-eval flag.
+This is the locked command for the first live audit. It uses the official
+wrapper and `MODE=train`; `--frontres_formal_runtime_audit` only enables
+default-off observations and does not select a sentinel, probe-only,
+storage-only, update-loop-only, or offline-eval branch.
 
 ```bash
 CUDA_VISIBLE_DEVICES=2 \
 CACHE_DIR=/hdd1/cyx/AMASS_G1Segment \
-LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_20260714.txt \
+LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_20260715_rerun1.txt \
 PERIODIC_EVAL_ENABLED=0 \
-RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_20260714 \
+RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_20260715_RERUN1 \
 HYDRA_FULL_ERROR=1 \
 bash /hdd1/cyx/FEMR/run_stage3.sh \
   /hdd1/cyx/FEMR/model/model_warmup.pt \
@@ -605,7 +624,8 @@ bash /hdd1/cyx/FEMR/run_stage3.sh \
   8 \
   1 \
   1 \
-  train
+  train \
+  --frontres_formal_runtime_audit
 ```
 
 Expected cost: one official Stage 3 training iteration, one Segment PPO update
@@ -617,18 +637,19 @@ command is accepted as live evidence.
 
 ## Stop Conditions
 
-- Stop before live execution if the proposed command enters an alternate
+- Stop before live execution if the locked command enters an alternate
   sentinel, probe, storage, update-loop, offline-eval, or sequence-eval branch.
 - Stop if checkpoint identity, method contract, or active branch is unknown.
-- Stop while M7 is absent from the active optimization/training contracts and
-  the dedicated direct Segment PPO route.
+- Stop if the active `FRS-TRAIN-v003` warmup route or its printed phase/weight
+  disagrees with the deployed code and checkpoint identity.
 - Stop if an owner does not receive the expected shape/count/value relation.
 - Do not convert offline contract PASS into formal-route or live PASS.
 
 ## Required Next Step
 
-Step 2-6 planning is complete. The next gate is human confirmation of the
-owner map, probe plan, checkpoint identity, target paths, and tiny formal-route
-command above. After confirmation, insert only the listed probes, run the exact
-`MODE=train` command, write results beside the source prints, and then stop for
-user review before any longer training.
+Phase A, probe insertion, Atlas synchronization, and human review are complete.
+The next bounded step is to deploy the inspected worktree, confirm the Stage 2
+checkpoint and target paths, run the exact `MODE=train` command above, and pull
+the named log. Then write observed facts beside the same source probes, update
+the Runtime Audit Atlas/checklist/evidence ledger, and stop for user review
+before any longer training.

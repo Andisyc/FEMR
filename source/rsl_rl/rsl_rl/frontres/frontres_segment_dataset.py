@@ -295,7 +295,7 @@ class FrontRESSegmentDataset:
         emit_formal_runtime_probe(
             "AUDIT-SEGDATA-01",
             segment_ids=batch.segment_ids,
-            horizon_k=batch.horizon_k,
+            cache_horizon_k=batch.horizon_k,
             perturbation_family=batch.perturbation_family,
             reference_window=batch.reference_window,
         )

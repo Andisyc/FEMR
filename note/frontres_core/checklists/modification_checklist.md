@@ -10,7 +10,7 @@ Scope: `FRS-DP-09` Stage 3 Actor/Critic warmup and `FRS-DP-05` Frozen GMT eviden
 | 1 | Segment warmup phase owner | completed | `frontres_segment_warmup_contract.py` |
 | 2 | Formal Stage 3 integration | completed | entrypoint + single-update contracts |
 | 3 | Persistence and Frozen GMT | completed offline | checkpoint config guard + Frozen GMT contract |
-| 4 | Cross-file acceptance | completed offline | aggregate suite 42/42; live remains separate |
+| 4 | Cross-file acceptance | completed offline | aggregate suite 44/44; live rerun remains separate |
 
 ## DP-09 Acceptance Matrix
 
@@ -46,7 +46,7 @@ runtime reachability fact.
 - [x] Formal Stage 3 entry reaches the same phase reported by diagnostics.
 - [x] Resume selects phase from persisted iteration and rejects warmup-config drift.
 - [x] Frozen GMT optimizer isolation is contract-confirmed.
-- [x] Aggregate S0-S3 suite passes: 42/42 on 2026-07-15.
+- [x] Aggregate S0-S3 suite passes: 44/44 on 2026-07-15.
 - [x] Architecture and task evidence are current for this change.
 - [x] Offline gate passed; Phase B tiny formal live run is now the remaining evidence boundary.
 
@@ -54,14 +54,14 @@ runtime reachability fact.
 
 | Boundary | S/T | Status | Evidence |
 | --- | --- | --- | --- |
-| Formal route | S4 `T-connect` | inserted, live pending | `AUDIT-ROUTE-01` |
-| Perturbation config/application | S4 `T-config/T-value` | inserted, live pending | `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02` |
-| Segment data/sampler transaction | S4 `T-source/T-state` | inserted, live pending | `AUDIT-SEGDATA-01`, `AUDIT-SAMPLER-01` |
-| K plan/executed horizon | S4 `T-shape/T-forward` | inserted, live pending | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` |
-| Observation/full-6D repair/application | S4 `T-shape/T-source/T-value` | inserted, live pending | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01` |
-| Frozen GMT | S4 `T-grad/T-state` | inserted, live pending | `AUDIT-GMT-01` |
-| Paired roles/execution evidence | S4 `T-role/T-source` | inserted, live pending | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01` |
-| Gain/returns | S4 `T-value/T-forward` | inserted, live pending | `AUDIT-GAIN-01`, `AUDIT-RETURN-01` |
-| HSL Stage2-to-Stage3 load | S4 `T-persist/T-source` | inserted, live pending | `AUDIT-HSL-LOAD-01` |
-| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | inserted, live pending | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01` |
-| Checkpoint payload identity | S4 `T-persist` | inserted, live pending | `AUDIT-PERSIST-01` |
+| Formal route | S4 `T-connect` | stale-rerun-required | `AUDIT-ROUTE-01` |
+| Perturbation config/application | S4 `T-config/T-value` | stale-rerun-required | `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02` |
+| Segment data/sampler transaction | S4 `T-source/T-state` | stale-rerun-required | `AUDIT-SEGDATA-01`, `AUDIT-SAMPLER-01` |
+| K plan/executed horizon | S4 `T-shape/T-forward` | stale-rerun-required | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` |
+| Observation/full-6D repair/application | S4 `T-shape/T-source/T-value` | stale-rerun-required | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01` |
+| Frozen GMT | S4 `T-grad/T-state` | stale-rerun-required | `AUDIT-GMT-01` |
+| Paired roles/execution evidence | S4 `T-role/T-source` | stale-rerun-required | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01` |
+| Gain/returns | S4 `T-value/T-forward` | stale-rerun-required | `AUDIT-GAIN-01`, `AUDIT-RETURN-01` |
+| HSL Stage2-to-Stage3 load | S4 `T-persist/T-source` | stale-rerun-required | `AUDIT-HSL-LOAD-01` |
+| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | stale-rerun-required | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01` |
+| Checkpoint payload identity | S4 `T-persist` | stale-rerun-required | `AUDIT-PERSIST-01` |

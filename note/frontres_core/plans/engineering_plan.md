@@ -1,6 +1,6 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B probe insertion completed; tiny formal live run pending
+Status: Phase B tiny formal live run authorized; deployment and S4 evidence pending
 Updated: 2026-07-15
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
@@ -106,7 +106,8 @@ test inventory/control board/evidence/checklist consistency.
 Non-scope: live IsaacLab execution or long training.
 
 Expected evidence: S0-S3 tests pass with fresh counts; all documentation uses
-`FRS-TRAIN-v003`; remaining S4 facts are explicit.
+`FRS-TRAIN-v003`; remaining S4 facts are explicit. The current aggregate is
+`44/44` with `failed_count=0` after adding the task-space correction contract.
 
 Stop condition: any DP-09 owner is only locally implemented, stale test counts
 remain, or Architecture still describes the missing route as active.

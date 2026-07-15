@@ -885,8 +885,9 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         if formal_audit_enabled:
             print(
                 "[AUDIT-PERTURB-01] "
-                f"specialist_mode={getattr(alg_cfg, 'frontres_specialist_mode', 'missing')} "
-                f"dr_scale={getattr(alg_cfg, 'frontres_dr_scale', 'missing')} "
+                f"specialist_mode={getattr(agent_cfg, 'frontres_specialist_mode', 'missing')} "
+                f"perturbation_channels={getattr(agent_cfg, 'frontres_perturbation_channels', 'missing')} "
+                f"dr_scale={getattr(agent_cfg, 'dr_scale_init', 'missing')} "
                 f"max_horizon_k={getattr(alg_cfg, 'frontres_segment_max_horizon_k', 'missing')}",
                 flush=True,
             )

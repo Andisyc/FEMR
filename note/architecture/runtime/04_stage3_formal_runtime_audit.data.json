@@ -290,7 +290,7 @@
           "objects": [
             "Design: SR-01",
             "sampled segment ids",
-            "state/reference/K/family batch",
+            "state/reference/cache horizon/family batch",
             "sampler batch consumer"
           ],
           "files": [
@@ -324,8 +324,8 @@
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py:273 :: FrontRESSegmentDataset.get_segments() 产物边界",
-              "capture": "state/reference/K/family batch",
-              "whyHere": "state、reference、K、family 在 batch.validate 后首次构成完整 Segment 数据对象",
+              "capture": "state/reference/cache horizon/family batch",
+              "whyHere": "state、reference、cache horizon、family 在 batch.validate 后首次构成完整 Segment 数据对象",
               "failureOwner": "失败归属: FrontRESSegmentDataset.get_segments",
               "sourceLine": 273,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_dataset.py&line=273"
@@ -344,7 +344,7 @@
             "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
             "capture": [
               "sampled segment ids",
-              "state/reference/K/family batch",
+              "state/reference/cache horizon/family batch",
               "sampler batch consumer"
             ],
             "failIf": [
@@ -807,28 +807,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py:96 :: apply_frontres_task_corrections() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py:98 :: apply_frontres_task_corrections() 入口/调用前",
               "capture": "raw Delta SE(3)",
               "whyHere": "full-6D task action 尚未写入 command, 可验证执行输入与 actor 输出同源",
               "failureOwner": "失败归属: actor 到 task-correction connector",
-              "sourceLine": 96,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=96"
+              "sourceLine": 98,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=98"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py:113 :: apply_frontres_task_corrections() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py:115 :: apply_frontres_task_corrections() 产物边界",
               "capture": "task correction",
               "whyHere": "position/rotation correction 写入 command buffer 后执行语义首次成立",
               "failureOwner": "失败归属: apply_frontres_task_corrections",
-              "sourceLine": 113,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=113"
+              "sourceLine": 115,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=115"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py:132 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py:134 :: 正式 consumer 接收前",
               "capture": "repaired reference",
               "whyHere": "GMT 刷新参考前检查可发现 buffer 被清零、截断或 role 错位",
               "failureOwner": "失败归属: command correction 到 GMT execution",
-              "sourceLine": 132,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=132"
+              "sourceLine": 134,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=134"
             }
           ],
           "probe": {

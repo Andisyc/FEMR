@@ -8,7 +8,7 @@ const specs = [
   ["AUDIT-ROUTE-01", "正式 Stage 3 路由", "M-03, M-05, SR-01", "正式 train 身份进入 live update loop", "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "run_frontres_segment_live_training_loop()", ["stage/task/mode/checkpoint", "live_train/alternate_modes", "iteration/update loop"]],
   ["AUDIT-PERTURB-01", "扰动配置", "M-02", "specialist family 与 DR scale 进入正式训练", "scripts/rsl_rl/train.py", "_configure_frontres_motion_perturbations()", ["specialist_mode", "family config", "DR scale/schedule"]],
   ["AUDIT-PERTURB-02", "实际扰动", "M-02, Q-PAIR", "实际 rollout 行收到预期 local_rp 扰动", "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py", "MotionPerturber.apply_perturbations()", ["family row mask", "applied root-position delta", "DR scale/finite stats"]],
-  ["AUDIT-SEGDATA-01", "Segment 数据身份", "SR-01", "cache source 与 sampled segment 身份可追溯", "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py", "FrontRESSegmentDataset.get_segments()", ["sampled segment ids", "state/reference/K/family batch", "sampler batch consumer"]],
+  ["AUDIT-SEGDATA-01", "Segment 数据身份", "SR-01", "cache source 与 sampled segment 身份可追溯", "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py", "FrontRESSegmentDataset.get_segments()", ["sampled segment ids", "state/reference/cache horizon/family batch", "sampler batch consumer"]],
   ["AUDIT-SAMPLER-01", "Segment Replay 事务", "SR-01", "sample、rollout evidence 与 priority update 同源", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "sample()/update_with_probe()", ["sample state", "rollout evidence", "priority before/after"]],
   ["AUDIT-KPLAN-01", "K-step 计划", "M-06, SR-01", "curriculum K 被展开为 per-row rollout budget", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "plan_rollout_budget()/expand_rollout_trials()", ["curriculum max K", "per-row horizon_k", "expanded trial rows"]],
   ["AUDIT-KROLLOUT-01", "K-step 执行", "M-06, Q-PAIR", "expanded trial rows 将同一 K 交给 reset 和 rollout", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "expand_rollout_trials()", ["base segment budget", "expanded source/trial/K rows", "reset/rollout consumer rows"]],
@@ -45,7 +45,7 @@ const probeRationales = {
   ],
   "AUDIT-SEGDATA-01": [
     ["sampled ids 刚进入 dataset, 可确认 sampler 请求的 segment 身份", "失败归属: sampler 产生的 segment ids"],
-    ["state、reference、K、family 在 batch.validate 后首次构成完整 Segment 数据对象", "失败归属: FrontRESSegmentDataset.get_segments"],
+    ["state、reference、cache horizon、family 在 batch.validate 后首次构成完整 Segment 数据对象", "失败归属: FrontRESSegmentDataset.get_segments"],
     ["sampler batch builder 读取前检查可发现 batch 身份被重新索引", "失败归属: dataset batch 到 live sampler connector"],
   ],
   "AUDIT-SAMPLER-01": [

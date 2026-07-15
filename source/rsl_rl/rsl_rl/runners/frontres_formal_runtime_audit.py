@@ -43,6 +43,12 @@ def _summary_value(summary: Mapping[str, Any], key: str) -> str:
     return str(value)
 
 
+def _config_value(owner: Any, key: str, default: Any = "missing") -> Any:
+    if isinstance(owner, Mapping):
+        return owner.get(key, default)
+    return getattr(owner, key, default)
+
+
 def _emit_owner_snapshot(audit_id: str, **values: Any) -> None:
     """Print one compact owner-boundary snapshot for the Runtime Audit Atlas."""
     emit_formal_runtime_probe(audit_id, limit=2, **values)
@@ -58,8 +64,10 @@ def print_formal_route_audit(runner: Any, *, num_learning_iterations: int) -> No
     # Result: PENDING_LIVE.
     _emit_owner_snapshot(
         "AUDIT-PERTURB-01",
-        specialist_mode=getattr(alg, "frontres_specialist_mode", "missing"),
-        dr_scale=getattr(alg, "frontres_dr_scale", "missing"),
+        specialist_mode=_config_value(getattr(runner, "cfg", None), "frontres_specialist_mode"),
+        perturbation_channels=_config_value(getattr(runner, "cfg", None), "frontres_perturbation_channels"),
+        dr_scale=getattr(runner, "_dr_scale", _config_value(getattr(runner, "cfg", None), "dr_scale_init")),
+        max_horizon_k=getattr(alg, "frontres_segment_max_horizon_k", "missing"),
     )
     # AUDIT-HSL-LOAD-01: 检查 HSL actor 与 normalizer 已进入 Stage 3, 位于 checkpoint load -> live policy.
     # Result: PENDING_LIVE.

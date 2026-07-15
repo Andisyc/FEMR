@@ -6,9 +6,10 @@ Updated: 2026-07-15
 
 | Test | Tier | Current ownership |
 | --- | --- | --- |
-| `frontres_segment_all_contract_suite.py` | S0-S3 aggregate | Runs 43 current Segment/observation/checkpoint/PPO/eval contracts. |
+| `frontres_segment_all_contract_suite.py` | S0-S3 aggregate | Runs 44 current Segment/observation/checkpoint/PPO/eval contracts. |
 | `frontres_segment_stage3_pseudo_suite.py` | S2 | Cheap formal Stage 3 route. |
 | `frontres_full6_no_active_mask_contract.py` | S0 | Rejects action-mask reintroduction on formal full-6D paths. |
+| `frontres_task_space_correction_contract.py` | S1 | Per-row contact-consistent XY scaling and dynamic `dz` lower/upper bounds. |
 | `frontres_observation_layout_contract.py` | S1/S3 | 100D prefix + 770D GMT suffix + checkpoint stats. |
 | `frontres_balance_obs_cfg_contract.py` | S0/S1 | Balance/ZMP observation config. |
 | `frontres_balance_offline_connectivity_contract.py` | S2 | Balance observation reaches FrontRES actor path. |

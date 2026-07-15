@@ -31,6 +31,7 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
     alg = SimpleNamespace(
         frontres_formal_runtime_audit=enabled,
         frontres_training_objective="segment_replay_hrl",
+        frontres_segment_max_horizon_k=64,
         policy=policy,
         optimizer=torch.optim.SGD([actor_param], lr=0.1),
     )
@@ -46,6 +47,12 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
     )
     return SimpleNamespace(
         alg=alg,
+        cfg={
+            "frontres_specialist_mode": "rp",
+            "frontres_perturbation_channels": "rp",
+            "dr_scale_init": 1.25,
+        },
+        _dr_scale=1.25,
         _frontres_segment_replay_boundary=boundary,
         current_learning_iteration=3,
     )
@@ -128,6 +135,10 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     ):
         assert output.count(f"[{label}]") == 1
     assert "alternate_modes=0" in output
+    assert "specialist_mode=rp" in output
+    assert "perturbation_channels=rp" in output
+    assert "dr_scale=1.25" in output
+    assert "max_horizon_k=64" in output
     assert "shape=(2, 870)" in output
     assert "prefix100=shape=(2, 100)" in output
     assert "suffix770=shape=(2, 770)" in output
@@ -156,6 +167,12 @@ def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
     for path_key, marker in expected_hooks.items():
         path = path_key.split("#", 1)[0]
         assert marker in (ROOT / path).read_text(), f"missing {marker} in {path}"
+
+    train_source = (ROOT / "scripts/rsl_rl/train.py").read_text()
+    dataset_source = (ROOT / "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py").read_text()
+    assert "getattr(agent_cfg, 'frontres_specialist_mode', 'missing')" in train_source
+    assert "getattr(agent_cfg, 'frontres_perturbation_channels', 'missing')" in train_source
+    assert "cache_horizon_k=batch.horizon_k" in dataset_source
 
 
 def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:

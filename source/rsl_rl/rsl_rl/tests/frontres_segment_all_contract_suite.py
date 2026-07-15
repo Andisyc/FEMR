@@ -103,6 +103,12 @@ CONTRACTS = (
         path_class="core_param_path",
     ),
     ContractTarget(
+        name="task_space_contact_correction",
+        path="source/rsl_rl/rsl_rl/tests/frontres_task_space_correction_contract.py",
+        expected_marker="frontres_task_space_correction_contract: ok",
+        path_class="core_param_path",
+    ),
+    ContractTarget(
         name="reward",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_reward_contract.py",
         expected_marker="result: PASS",

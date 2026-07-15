@@ -29,17 +29,19 @@ def _frontres_contact_consistent_position_correction(
 ) -> torch.Tensor:
     """Keep horizontal and upward root corrections compatible with contact state."""
     if hasattr(cmd_term, "jump_degree"):
-        jump_degree = cmd_term.jump_degree[:n_rows].to(pos_corr.device).clamp(0.0, 1.0)
+        jump_degree = cmd_term.jump_degree[:n_rows].to(device=pos_corr.device, dtype=pos_corr.dtype).clamp(0.0, 1.0)
         pos_corr[:, :2] *= (1.0 - jump_degree).unsqueeze(-1)
         if hasattr(cmd_term, "anchor_penetration_depth"):
-            z_upper = jump_degree * cmd_term.anchor_penetration_depth[:n_rows].to(pos_corr.device)
+            penetration = cmd_term.anchor_penetration_depth[:n_rows].to(device=pos_corr.device, dtype=pos_corr.dtype)
+            z_upper = jump_degree * penetration
         else:
             z_upper = torch.zeros_like(pos_corr[:, 2])
     else:
         z_upper = torch.zeros_like(pos_corr[:, 2])
 
     max_delta_pos = float(getattr(runner.alg.policy, "max_delta_pos", 0.3))
-    pos_corr[:, 2] = pos_corr[:, 2].clamp(-max_delta_pos, max=z_upper)
+    z_lower = torch.full_like(z_upper, -max_delta_pos)
+    pos_corr[:, 2] = torch.minimum(torch.maximum(pos_corr[:, 2], z_lower), z_upper)
     return pos_corr
 
 
