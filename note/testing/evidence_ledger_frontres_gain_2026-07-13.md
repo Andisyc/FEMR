@@ -661,3 +661,25 @@ not current runnable paths. Current checkpoint evidence is the formal
 - Decision: preserve all production guards and method semantics. Synchronize
   the complete worktree and execute the exact 32-env rerun3 command before any
   S4 or long-training decision.
+
+## E28 - Rerun3 Full-Quartet Termination Boundary (2026-07-15)
+
+- Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 767 lines,
+  timestamp 2026-07-15 16:24:31.
+- Rerun3 used 32 envs and quartet `8/8/8/8`; the prior row-budget concern is
+  closed for this run.
+- All 32 rollout rows terminated within K=8. Policy eligibility was 0/8,
+  `evidence.fall_count=8`, and the production zero-update guard fired.
+- Gain remained finite but negative on average; this cannot be interpreted as
+  a PPO update failure because no policy row was eligible.
+- Code-supported mismatch: index reset accepts eight sampled rows and writes
+  robot state only to env ids 0..7. Quartet reference indices are synchronized
+  by the command owner, but no equivalent full-quartet dynamic-state write is
+  visible at the reset owner.
+- Additional lifecycle risk: `episode_length_buf` is randomized before reset
+  and is not reset by the index hook. The log lacks timeout/terminated
+  decomposition, so the first live contradiction is not yet localized between
+  stale episode lifecycle and invalid quartet dynamic state.
+- Decision: do not change PPO, valid masks, Gain, actor bounds, or fail-fast
+  guards. First add a role-aware per-step done/timeout/survival probe, then fix
+  the earliest contradicted reset invariant with a quartet reset regression.

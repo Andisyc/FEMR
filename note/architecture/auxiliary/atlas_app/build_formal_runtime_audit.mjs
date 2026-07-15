@@ -27,7 +27,7 @@ const specs = [
   ["AUDIT-DIAG-01", "正式 Diagnostics", "Q-01, M-05", "日志读取 canonical summary 且缺失值不伪装为零", "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "repair_effect_summary_to_scalars()", ["canonical live summary", "diagnostic scalars", "terminal/logger consumer"]],
 ];
 
-const fourthAttemptReached = new Set([
+const rerun3Reached = new Set([
   "AUDIT-ROUTE-01", "AUDIT-PERTURB-01", "AUDIT-PERTURB-02", "AUDIT-SEGDATA-01",
   "AUDIT-SAMPLER-01", "AUDIT-KPLAN-01", "AUDIT-KROLLOUT-01", "AUDIT-OBS-01",
   "AUDIT-ACTION-01", "AUDIT-APPLY-01", "AUDIT-GMT-01", "AUDIT-PAIR-01",
@@ -36,11 +36,11 @@ const fourthAttemptReached = new Set([
 ]);
 const runtimeStatus = Object.fromEntries(specs.map(([id]) => [
   id,
-  fourthAttemptReached.has(id)
-    ? "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
-    : "unconfirmed: fourth attempt did not reach this owner",
+  rerun3Reached.has(id)
+    ? "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+    : "unconfirmed: rerun3 did not reach this owner",
 ]));
-runtimeStatus["AUDIT-PPO-01"] = "stale-rerun-required: 2/2 policy rows fell, valid=0, optimizer update was not observed";
+runtimeStatus["AUDIT-PPO-01"] = "blocked: 8/8 policy rows terminated, valid=0, optimizer update was not observed";
 runtimeStatus["AUDIT-DIAG-01"] = "unconfirmed: accepted post-update diagnostics were not reached";
 runtimeStatus["AUDIT-PERSIST-01"] = "unconfirmed: checkpoint payload/save boundary was not reached";
 
@@ -204,7 +204,7 @@ const card = ([id, title, design, summary, ownerPath, ownerFunction, captures], 
     capture: captures,
     failIf: ["关键对象缺失、非有限或 shape/role 不符", "owner 产物未到达正式 consumer"],
   },
-  review: ["按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属", "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"],
+  review: ["按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属", "当前状态来自 32-env rerun3; reset/done owner 待审计"],
   tests: ["S2 official-route connectivity", "S4 formal live snapshot"],
   gap: runtimeStatus[id],
   });

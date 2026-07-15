@@ -108,13 +108,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-PERTURB-01",
@@ -190,13 +190,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-PERTURB-02",
@@ -272,13 +272,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-SEGDATA-01",
@@ -354,13 +354,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-SAMPLER-01",
@@ -436,13 +436,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-KPLAN-01",
@@ -518,13 +518,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-KROLLOUT-01",
@@ -600,13 +600,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-OBS-01",
@@ -682,13 +682,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-ACTION-01",
@@ -764,13 +764,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-APPLY-01",
@@ -846,13 +846,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-GMT-01",
@@ -928,13 +928,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-PAIR-01",
@@ -1010,13 +1010,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-PAIR-EVIDENCE-01",
@@ -1092,13 +1092,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-GAIN-01",
@@ -1174,13 +1174,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-RETURN-01",
@@ -1256,13 +1256,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-HSL-LOAD-01",
@@ -1338,13 +1338,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-WARMUP-01",
@@ -1420,13 +1420,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: fourth attempt reached this owner, but used stale train.py and 8 env instead of locked 32"
+          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
         },
         {
           "id": "AUDIT-PPO-01",
@@ -1502,13 +1502,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: 2/2 policy rows fell, valid=0, optimizer update was not observed"
+          "gap": "blocked: 8/8 policy rows terminated, valid=0, optimizer update was not observed"
         },
         {
           "id": "AUDIT-PERSIST-01",
@@ -1584,7 +1584,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",
@@ -1666,7 +1666,7 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 fourth formal attempt; locked rerun3 尚未执行"
+            "当前状态来自 32-env rerun3; reset/done owner 待审计"
           ],
           "tests": [
             "S2 official-route connectivity",

@@ -267,8 +267,8 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
             source_line = int(step["sourceLine"])
             assert 1 <= source_line <= len(owner_lines)
             assert f"# B{step_index}:" in owner_lines[source_line - 1]
-    assert modules["AUDIT-PPO-01"]["gap"].startswith("stale-rerun-required:")
-    assert "valid=0" in modules["AUDIT-PPO-01"]["gap"]
+    assert modules["AUDIT-PPO-01"]["gap"].startswith("blocked:")
+    assert "8/8 policy rows" in modules["AUDIT-PPO-01"]["gap"]
     assert modules["AUDIT-PERSIST-01"]["gap"].startswith("unconfirmed:")
     assert len(why_here_texts) == 60
     assert len(set(why_here_texts)) == 60, "whyHere must not be a shared template across probe boundaries"

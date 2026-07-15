@@ -1,6 +1,6 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B rerun3 still pending; fourth attempt used stale script and 8 env instead of locked 32
+Status: Phase B rerun3 blocked; all 32 quartet rows terminated and reset lifecycle requires audit
 Updated: 2026-07-15
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
@@ -129,6 +129,13 @@ quartet policy count 2, and stale startup audit ordering. Both policy rows fell,
 so the required live-training guard rejected `update_count=0`. No production
 guard or PPO rule should change; the next action remains the exact synchronized
 32-env rerun3.
+
+The later 32-env rerun3 satisfied the cost configuration but still produced
+zero valid rows: all 32 quartet rows terminated within K=8. The next bounded
+step is no longer another PPO rerun. It is a reset-lifecycle audit covering
+per-step timeout/termination, survival step, quartet role, episode-length state,
+and whether index reset writes all four paired dynamic states. PPO, Gain, and
+the zero-update guard are non-scope until this owner closes.
 
 Stop condition: any DP-09 owner is only locally implemented, stale test counts
 remain, or Architecture still describes the missing route as active.

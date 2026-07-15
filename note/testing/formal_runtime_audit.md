@@ -1,6 +1,6 @@
 # Formal Runtime Audit
 
-Status: `phase-b-rerun3-not-yet-executed-last-run-used-env8-stale-script`
+Status: `phase-b-rerun3-blocked-all-quartet-rows-done-reset-lifecycle-audit-required`
 
 Correction 2026-07-15: the first 20-card Atlas revision pointed many cards at
 owner functions while emitting their labels only from five runner summaries.
@@ -36,10 +36,10 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
   deployed source snapshot must match this worktree before live evidence is accepted.
 - Checkpoint identity: must be supplied and printed by the upcoming formal run.
 - Official command: locked below under `Tiny Formal-Route Command`.
-- Current gate: the fourth attempt confirmed the zero-valid audit fix, but it
-  again used 8 environments and a stale `scripts/rsl_rl/train.py`. It therefore
-  was not the locked rerun3. A synchronized 32-environment rerun3 remains
-  pending.
+- Current gate: the 32-environment rerun3 executed, but all 32 quartet rows
+  terminated within K=8, including all eight policy rows. PPO correctly had no
+  eligible row. Reset/episode/done ownership must be audited before another
+  formal run.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
@@ -161,6 +161,32 @@ Raw evidence: `formal_runtime_audit_20260715.txt`, 767 lines, local timestamp
 - PPO post-update trust evidence and checkpoint payload remain unconfirmed.
   Source comments stay `PENDING_LIVE`; Atlas/checklist remain stale or
   unconfirmed until the exact 32-env command and full worktree are deployed.
+
+## Rerun3 - Full Quartet Termination
+
+Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 767 lines, local
+timestamp 2026-07-15 16:24:31.
+
+- Command cost identity is confirmed: PhysX prepared 32 envs; quartet layout
+  was `8/8/8/8`; sampler and batch each contained eight policy rows.
+- All 32 rollout rows terminated within K=8. All eight policy rows were
+  invalid, `evidence.fall_count=8`, `updates=0/1`, and the required production
+  guard rejected `update_count=0`.
+- This is not explained by policy-row sample count. Candidate/Noisy/Clean rows
+  also terminated, so the failure owner is earlier than PPO and cannot be
+  attributed only to actor correction.
+- Code audit found that index reset writes motion/frame and robot state only to
+  request rows `env_ids=0..7`. The quartet command owner synchronizes reference
+  motion indices, but the index-reset owner does not visibly rewrite the other
+  24 robot dynamic states or reset quartet episode lifecycle state.
+- `run_frontres_segment_live_probe()` randomizes `episode_length_buf` before
+  index reset; the index reset hook does not reset it. The current log does not
+  expose per-step timeout versus physical termination, so this remains a
+  code-supported root-cause hypothesis rather than a completed fix.
+- Required next boundary: add role-aware per-step done/timeout/survival audit,
+  then repair full-quartet reset only if the live probe confirms this owner.
+- Startup still prints `max_horizon_k=missing` before the runner prints 64, so
+  the server `scripts/rsl_rl/train.py` remains stale relative to local source.
 
 ## Current Checklist
 

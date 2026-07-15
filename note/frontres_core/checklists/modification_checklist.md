@@ -57,11 +57,11 @@ runtime reachability fact.
 | Formal route | S4 `T-connect` | stale-rerun-required | `AUDIT-ROUTE-01` |
 | Perturbation config/application | S4 `T-config/T-value` | stale-rerun-required | `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02` |
 | Segment data/sampler transaction | S4 `T-source/T-state` | stale-rerun-required | `AUDIT-SEGDATA-01`, `AUDIT-SAMPLER-01` |
-| K plan/executed horizon | S4 `T-shape/T-forward` | stale-rerun-required | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` |
+| K plan/executed horizon | S4 `T-shape/T-forward` | blocked | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01`; rerun3 K=8 reached, but all 32 quartet rows terminated; done/timeout owner unresolved |
 | Observation/full-6D repair/application | S4 `T-shape/T-source/T-value` | stale-rerun-required | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01` |
 | Frozen GMT | S4 `T-grad/T-state` | stale-rerun-required | `AUDIT-GMT-01` |
 | Paired roles/execution evidence | S4 `T-role/T-source` | stale-rerun-required | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01` |
 | Gain/returns | S4 `T-value/T-forward` | stale-rerun-required | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`; second live attempt found terminal `done_any` erased pre-fall Style; owner fixed offline; rerun2 required |
 | HSL Stage2-to-Stage3 load | S4 `T-persist/T-source` | stale-rerun-required | `AUDIT-HSL-LOAD-01` |
-| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | stale-rerun-required | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01`; fourth attempt used 8 env: 2/2 policy rows fell, valid=0, update unobserved; locked 32-env rerun3 not executed |
+| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | blocked | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01`; rerun3 8/8 policy rows invalid, update unobserved; reset lifecycle must close first |
 | Checkpoint payload identity | S4 `T-persist` | stale-rerun-required | `AUDIT-PERSIST-01` |
