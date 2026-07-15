@@ -148,6 +148,25 @@ def snapshot_reset_pair_state(runner: Any, pair_layout: Any) -> dict[str, Any]:
     return {"root_pair_error": pair_error(root_state), "joint_pair_error": pair_error(joint_state)}
 
 
+def snapshot_termination_terms(runner: Any, pair_layout: Any, *, batch_size: int) -> dict[str, Any]:
+    """读取 env.step 当前时刻的 active termination term masks."""
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    manager = getattr(env, "termination_manager", None)
+    if manager is None:
+        return {"status": "missing_termination_manager"}
+    names = tuple(getattr(manager, "active_terms", ()) or getattr(manager, "_term_names", ()) or ())
+    get_term = getattr(manager, "get_term", None)
+    term_dones = getattr(manager, "_term_dones", None)
+    result: dict[str, Any] = {}
+    for index, name in enumerate(names):
+        value = get_term(name) if callable(get_term) else None
+        if value is None and isinstance(term_dones, torch.Tensor) and term_dones.ndim == 2:
+            if index < int(term_dones.shape[1]):
+                value = term_dones[:, index]
+        result[str(name)] = _role_true_counts(value, pair_layout, batch_size=batch_size)
+    return result or {"status": "no_active_terms"}
+
+
 def print_reset_lifecycle_audit(
     runner: Any,
     *,
@@ -164,6 +183,7 @@ def print_reset_lifecycle_audit(
     alive: Any = None,
     survival_steps: Any = None,
     first_done_step: Any = None,
+    termination_terms: Mapping[str, Any] | None = None,
 ) -> None:
     """Emit role-aware reset and termination facts without changing rollout state."""
     if not formal_runtime_audit_enabled(runner):
@@ -185,6 +205,7 @@ def print_reset_lifecycle_audit(
             terminated=_role_true_counts(terminated, pair_layout, batch_size=batch_size),
             alive=_role_true_counts(alive, pair_layout, batch_size=batch_size),
             survival=_role_tensor_stats(survival_steps, pair_layout, batch_size=batch_size),
+            termination_terms=dict(termination_terms or {}),
         )
     elif phase == "final":
         values["first_done_step"] = _role_tensor_stats(first_done_step, pair_layout, batch_size=batch_size)

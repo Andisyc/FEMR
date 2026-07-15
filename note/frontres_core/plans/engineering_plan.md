@@ -1,6 +1,6 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B Step B integrated offline; corrected 32-env live rerun pending
+Status: Phase B Step B live-confirmed for state alignment; Step C termination-term audit in progress
 Updated: 2026-07-15
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
@@ -30,6 +30,27 @@ length while perturbation scale/mask remains policy-owned.
 Stop condition: any baseline role remains stale, perturbation leaks into Clean,
 sample-level reset result changes from eight rows to 32 rows, or existing
 index-reset and aggregate contracts regress.
+
+### Reset Recovery Step C / 3: Termination Term Localization
+
+Objective: identify the exact IsaacLab termination term that kills all aligned
+quartet rows at rollout step 0.
+
+Scope: read current-step term masks from `TerminationManager.get_term()` after
+`env.step`; summarize every active term by Policy/Candidate/Noisy/Clean role.
+
+Non-scope: termination thresholds/functions, reset, action, Gain, PPO, valid
+masks, and fail-fast behavior.
+
+Owner files/modules:
+- `runners/frontres_formal_runtime_audit.py`: compact per-term role summary.
+- `runners/frontres_segment_live_probe.py`: post-step observation connector.
+- formal runtime audit contract.
+
+Expected evidence: S2 `T-role/T-source/T-value` and S4 one-run term identity.
+
+Stop condition: the probe changes done behavior, active term names cannot be
+read, or a live term mask cannot be reconciled with the returned done mask.
 
 ## Objective
 

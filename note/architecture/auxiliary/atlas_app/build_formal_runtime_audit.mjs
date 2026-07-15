@@ -12,7 +12,7 @@ const specs = [
   ["AUDIT-SAMPLER-01", "Segment Replay 事务", "SR-01", "sample、rollout evidence 与 priority update 同源", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "sample()/update_with_probe()", ["sample state", "rollout evidence", "priority before/after"]],
   ["AUDIT-KPLAN-01", "K-step 计划", "M-06, SR-01", "curriculum K 被展开为 per-row rollout budget", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "plan_rollout_budget()/expand_rollout_trials()", ["curriculum max K", "per-row horizon_k", "expanded trial rows"]],
   ["AUDIT-KROLLOUT-01", "K-step 执行", "M-06, Q-PAIR", "expanded trial rows 将同一 K 交给 reset 和 rollout", "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "expand_rollout_trials()", ["base segment budget", "expanded source/trial/K rows", "reset/rollout consumer rows"]],
-  ["AUDIT-RESET-LIFECYCLE-01", "Reset Lifecycle", "M-06, Q-PAIR, SR-01", "index reset 后四类 role 共享可比较的 episode 与 dynamic-state 起点", "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "_run_live_rollout_capture()", ["reset 前/随机化后/reset 后 episode_length_buf", "quartet origin-relative root/joint pair error", "逐步 role done/timeout/termination/survival"]],
+  ["AUDIT-RESET-LIFECYCLE-01", "Reset Lifecycle", "M-06, Q-PAIR, SR-01", "index reset 后四类 role 共享可比较的 episode 与 dynamic-state 起点", "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "_run_live_rollout_capture()", ["reset 前/随机化后/reset 后 episode_length_buf", "quartet origin-relative root/joint pair error", "逐步 role done/timeout/termination/survival 与 active term masks"]],
   ["AUDIT-OBS-01", "870D Observation", "M-04, M-10", "100D balance prefix 与 770D GMT suffix 保持布局", "source/rsl_rl/rsl_rl/runners/frontres_runtime.py", "apply_obs_normalizer()", ["raw obs[*,870]", "prefix100/suffix770", "normalized finite obs"]],
   ["AUDIT-ACTION-01", "Full-6D Actor", "M-04", "mean、sigma 与 sampled action 保持 full-6D 同源", "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "update_distribution()/act()", ["policy obs", "mean/sigma[*,6]", "sampled action[*,6]"]],
   ["AUDIT-APPLY-01", "Delta SE(3) 应用", "M-04, M-10", "完整 6D repair 写入 repaired reference", "source/rsl_rl/rsl_rl/frontres/task_space_correction.py", "apply_frontres_task_corrections()", ["raw Delta SE(3)", "task correction", "repaired reference"]],
@@ -42,7 +42,7 @@ const runtimeStatus = Object.fromEntries(specs.map(([id]) => [
     : "unconfirmed: rerun3 did not reach this owner",
 ]));
 runtimeStatus["AUDIT-PPO-01"] = "blocked: 8/8 policy rows terminated, valid=0, optimizer update was not observed";
-runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "integrated-offline: role-expanded robot/lifecycle reset contract passes; corrected origin-relative live rerun pending";
+runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "blocked: role-expanded reset is live-confirmed aligned, but 32 rows still terminate at step 0; per-term audit inserted";
 runtimeStatus["AUDIT-DIAG-01"] = "unconfirmed: accepted post-update diagnostics were not reached";
 runtimeStatus["AUDIT-PERSIST-01"] = "unconfirmed: checkpoint payload/save boundary was not reached";
 

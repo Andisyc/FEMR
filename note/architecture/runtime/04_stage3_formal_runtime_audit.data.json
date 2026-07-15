@@ -620,7 +620,7 @@
             "Design: M-06, Q-PAIR, SR-01",
             "reset 前/随机化后/reset 后 episode_length_buf",
             "quartet origin-relative root/joint pair error",
-            "逐步 role done/timeout/termination/survival"
+            "逐步 role done/timeout/termination/survival 与 active term masks"
           ],
           "files": [
             {
@@ -644,28 +644,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2286 :: _run_live_rollout_capture() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2287 :: _run_live_rollout_capture() 入口/调用前",
               "capture": "reset 前/随机化后/reset 后 episode_length_buf",
               "whyHere": "index reset 刚结束且 env.step 尚未发生, 可直接比较每个 role 的 episode 生命周期是否同源",
               "failureOwner": "失败归属: episode_length_buf randomization 或 index-reset lifecycle wiring",
-              "sourceLine": 2286,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2286"
-            },
-            {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2287 :: _run_live_rollout_capture() 产物边界",
-              "capture": "quartet origin-relative root/joint pair error",
-              "whyHere": "policy/candidate/noisy/clean 的机器人 dynamic state 在此首次应构成可比较 quartet",
-              "failureOwner": "失败归属: index reset robot-state write 或 quartet state synchronization",
               "sourceLine": 2287,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2287"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2288 :: 正式 consumer 接收前",
-              "capture": "逐步 role done/timeout/termination/survival",
-              "whyHere": "env.step 返回时 done 与 time_out 同时可见, 能区分时限结束和物理 termination",
-              "failureOwner": "失败归属: environment termination owner 或 rollout survival accounting",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2288 :: _run_live_rollout_capture() 产物边界",
+              "capture": "quartet origin-relative root/joint pair error",
+              "whyHere": "policy/candidate/noisy/clean 的机器人 dynamic state 在此首次应构成可比较 quartet",
+              "failureOwner": "失败归属: index reset robot-state write 或 quartet state synchronization",
               "sourceLine": 2288,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2288"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2289 :: 正式 consumer 接收前",
+              "capture": "逐步 role done/timeout/termination/survival 与 active term masks",
+              "whyHere": "env.step 返回时 done 与 time_out 同时可见, 能区分时限结束和物理 termination",
+              "failureOwner": "失败归属: environment termination owner 或 rollout survival accounting",
+              "sourceLine": 2289,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2289"
             }
           ],
           "probe": {
@@ -674,7 +674,7 @@
             "capture": [
               "reset 前/随机化后/reset 后 episode_length_buf",
               "quartet origin-relative root/joint pair error",
-              "逐步 role done/timeout/termination/survival"
+              "逐步 role done/timeout/termination/survival 与 active term masks"
             ],
             "failIf": [
               "关键对象缺失、非有限或 shape/role 不符",
@@ -689,7 +689,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "integrated-offline: role-expanded robot/lifecycle reset contract passes; corrected origin-relative live rerun pending"
+          "gap": "blocked: role-expanded reset is live-confirmed aligned, but 32 rows still terminate at step 0; per-term audit inserted"
         },
         {
           "id": "AUDIT-OBS-01",
@@ -1136,28 +1136,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2664 :: _capture_motion_quality_frame()/_capture_physics_frame() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2670 :: _capture_motion_quality_frame()/_capture_physics_frame() 入口/调用前",
               "capture": "shared segment/K",
               "whyHere": "同一 quartet frame 的 Clean/Repaired/Noisy 行尚未聚合, 可验证配对身份",
               "failureOwner": "失败归属: role slicing 或 motion/frame alignment",
-              "sourceLine": 2664,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2664"
+              "sourceLine": 2670,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2670"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2683 :: _capture_motion_quality_frame()/_capture_physics_frame() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2689 :: _capture_motion_quality_frame()/_capture_physics_frame() 产物边界",
               "capture": "Noisy/Repaired execution",
               "whyHere": "style 与 physics frame 完成后首次具备 canonical Gain 所需配对语义",
               "failureOwner": "失败归属: motion/physics capture owners",
-              "sourceLine": 2683,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2683"
+              "sourceLine": 2689,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2689"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2288 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2289 :: 正式 consumer 接收前",
               "capture": "paired style/physics evidence",
               "whyHere": "Gain 调用前检查可发现 evidence 被跨 motion、跨 K 或跨 role 混合",
               "failureOwner": "失败归属: paired capture 到 Gain connector",
-              "sourceLine": 2288,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2288"
+              "sourceLine": 2289,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2289"
             }
           ],
           "probe": {

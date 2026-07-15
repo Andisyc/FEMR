@@ -53,6 +53,7 @@ print_rollout_storage_audit = _FORMAL_AUDIT_MODULE.print_rollout_storage_audit
 emit_formal_runtime_probe = _FORMAL_AUDIT_MODULE.emit_formal_runtime_probe
 print_reset_lifecycle_audit = _FORMAL_AUDIT_MODULE.print_reset_lifecycle_audit
 snapshot_reset_pair_state = _FORMAL_AUDIT_MODULE.snapshot_reset_pair_state
+snapshot_termination_terms = _FORMAL_AUDIT_MODULE.snapshot_termination_terms
 
 
 _VERBOSE_PROBE_BATCH_LIMIT = 16
@@ -2287,7 +2288,7 @@ def _run_live_rollout_capture(
     # B2: rollout 前比较 policy/candidate/noisy/clean 的 root 与 joint dynamic state, 定位 quartet 配对断点.
     # B3: 每次 env.step 后按 role 分解 done/timeout/physical termination/alive/survival 与 first-done step.
     # AUDIT-RESET-LIFECYCLE-01: 检查 index reset -> quartet dynamic state -> K-step termination 生命周期.
-    # Result: quartet role reset is contract-fixed offline; origin-relative root/joint and step-0 survival await live rerun.
+    # Result: quartet reset is live-aligned; all rows still terminate at step 0, so active term identity awaits rerun.
     if reset_lifecycle is not None:
         print_reset_lifecycle_audit(
             runner,
@@ -2486,6 +2487,11 @@ def _run_live_rollout_capture(
                 terminated=terminated,
                 alive=~done_any,
                 survival_steps=survival_steps,
+                termination_terms=snapshot_termination_terms(
+                    runner,
+                    pair_layout,
+                    batch_size=batch_size,
+                ),
             )
             if capture_motion_quality:
                 clean_body, repaired_body, noisy_body = _capture_motion_quality_frame(runner, pair_layout)

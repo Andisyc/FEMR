@@ -286,6 +286,24 @@ def test_reset_pair_root_error_removes_per_environment_world_origins() -> None:
     assert all("max=0" in value for value in snapshot["root_pair_error"].values())
 
 
+def test_termination_term_snapshot_preserves_term_and_role_identity() -> None:
+    layout = SimpleNamespace(n_train=2, n_candidate=2, n_base=2, n_clean=2)
+    terms = {
+        "motion_end": torch.zeros(8, dtype=torch.bool),
+        "anchor_pos": torch.tensor([True, False, False, False, True, True, False, False]),
+        "anchor_ori": torch.tensor([False, False, True, True, False, False, True, False]),
+    }
+    manager = SimpleNamespace(
+        active_terms=tuple(terms),
+        get_term=lambda name: terms[name],
+    )
+    runner = SimpleNamespace(env=SimpleNamespace(termination_manager=manager))
+    snapshot = audit.snapshot_termination_terms(runner, layout, batch_size=8)
+    assert snapshot["motion_end"] == {"policy": 0, "candidate": 0, "noisy": 0, "clean": 0}
+    assert snapshot["anchor_pos"] == {"policy": 1, "candidate": 0, "noisy": 2, "clean": 0}
+    assert snapshot["anchor_ori"] == {"policy": 0, "candidate": 2, "noisy": 0, "clean": 1}
+
+
 def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
     atlas_path = ROOT / "note" / "architecture" / "runtime" / "04_stage3_formal_runtime_audit.data.json"
     atlas = json.loads(atlas_path.read_text())
@@ -339,7 +357,7 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
         owner_lines = owner_text.splitlines()
         assert audit_id in owner_text, f"{audit_id} is not inserted at Atlas owner {owner_path}"
         if audit_id == "AUDIT-RESET-LIFECYCLE-01":
-            assert "quartet role reset is contract-fixed offline" in owner_text
+            assert "quartet reset is live-aligned" in owner_text
         else:
             assert "Result: PENDING_LIVE." in owner_text, f"{audit_id} owner lacks a PENDING_LIVE comment"
         for block_id in ("B1", "B2", "B3"):
@@ -369,5 +387,6 @@ if __name__ == "__main__":
     test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()
     test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_termination()
     test_reset_pair_root_error_removes_per_environment_world_origins()
+    test_termination_term_snapshot_preserves_term_and_role_identity()
     test_runtime_audit_atlas_source_comments_and_checklist_share_ids()
     print("frontres_formal_runtime_audit_contract: ok")

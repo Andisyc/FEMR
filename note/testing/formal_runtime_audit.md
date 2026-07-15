@@ -237,6 +237,24 @@ timestamp 2026-07-15 17:19.
 - The eight-row golden fixture passes with frames and local roots
   `[3,4,3,4,3,4,3,4]`, matched joint state, zero episode age, and nonzero DR
   scale only on Policy rows. Live S4 survival remains pending.
+
+## Step B Live Result - Reset Alignment Closed
+
+Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 777 lines, local
+timestamp 2026-07-15 17:49.
+
+- The deployed code emitted explicit role IDs `0..7`, `8..15`, `16..23`, and
+  `24..31`; the updated adapter therefore ran on all 32 rows.
+- After reset every role had episode age zero. Candidate/Noisy/Clean
+  origin-relative root max error was at most `1.90735e-6`; joint error was
+  exactly zero. The quartet reset repair is live-confirmed.
+- Nevertheless all four roles still reported eight physical terminations at
+  step 0 and zero timeouts. This moves the first unresolved owner from reset
+  state to the environment termination terms.
+- Added a default-off per-term snapshot using IsaacLab
+  `TerminationManager.get_term()`. The next tiny formal rerun will report role
+  masks for `motion_end`, `time_out`, `anchor_pos`, `anchor_ori`, and
+  `ee_body_pos`; no threshold or termination function was changed.
 - Required next boundary: add role-aware per-step done/timeout/survival audit,
   then repair full-quartet reset only if the live probe confirms this owner.
 - Startup still prints `max_horizon_k=missing` before the runner prints 64, so

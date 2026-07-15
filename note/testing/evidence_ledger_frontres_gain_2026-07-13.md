@@ -736,3 +736,23 @@ not current runnable paths. Current checkpoint evidence is the formal
   viewer, Python compilation, and diff check also passed.
 - Evidence level: S1/S2 integrated-offline PASS. S4 requires the corrected
   32-env formal live rerun; PPO/Gain semantics were not modified.
+
+## E32 - Quartet Reset Live Closure And Termination Boundary (2026-07-15)
+
+- Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 777 lines,
+  timestamp 2026-07-15 17:49.
+- Deployment identity is proven by `role_env_ids` covering Policy `0..7`,
+  Candidate `8..15`, Noisy `16..23`, and Clean `24..31`.
+- Reset repair succeeded live: all episode ages are zero; origin-relative root
+  mismatch is at numerical-noise scale (`<=1.90735e-6`); all joint mismatches
+  are zero.
+- The same final exception remains because every aligned role physically
+  terminates at step 0. Timeout counts are zero, so this is a new downstream
+  boundary rather than failure of the reset patch.
+- A role-aware active-term probe now reads current-step masks from IsaacLab
+  `TerminationManager.get_term()`. Offline contract preserves term names and
+  role counts. S4 term identity remains pending; termination thresholds and
+  PPO/Gain paths are unchanged.
+- Post-insertion verification passed: aggregate contract suite `44/44`, formal
+  runtime audit contract, Runtime Atlas import with 62 owner paths, Python
+  compilation, and `git diff --check`.
