@@ -983,3 +983,19 @@ not current runnable paths. Current checkpoint evidence is the formal
   commands.
 - Evidence level: S1/S2 load-boundary fix PASS; S4 fixed-sequence quality
   comparison pending.
+
+## E45 - Sequence Eval Seed Forwarding Fix (2026-07-16)
+
+- The refreshed log confirmed E44 was active: `eval_only=True` and the warmup
+  guard was skipped, so the checkpoint loaded successfully.
+- The next failure was a missing API edge: `train.py` passed `sampler_seed`,
+  but `OnPolicyRunner.run_frontres_segment_sequence_offline_eval()` did not
+  accept or forward it to the sequence-eval owner. No rollout had started yet.
+- The runner wrapper now forwards `sampler_seed` end to end. Python
+  compilation, sequence-eval, Stage 3 entrypoint, and explicit three-layer
+  seed-wiring contracts pass.
+- The pair quality comparison remains pending a fresh server rerun. The
+  previous `eval_model1_fixed.txt` contains no evaluation metrics because it
+  stopped at this wrapper boundary.
+- Evidence level: S1/S2 integration fix PASS; S4 fixed-sequence quality
+  comparison pending.

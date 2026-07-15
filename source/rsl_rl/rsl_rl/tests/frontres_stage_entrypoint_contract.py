@@ -267,6 +267,9 @@ def main() -> None:
     assert "args_cli.frontres_segment_sequence_offline_eval_only" in train
     assert "runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)" in train
     assert "runner.run_frontres_segment_sequence_offline_eval(" in train
+    assert 'sampler_seed=getattr(args_cli, "frontres_segment_sequence_eval_seed", None)' in train
+    assert "sampler_seed: int | None = None" in runner_impl
+    assert "sampler_seed=sampler_seed" in runner_impl
     assert "runner.learn_frontres_segment_live(" in train
     assert "frontres_segment_live_train_enabled" in train
     assert "runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)" in train
