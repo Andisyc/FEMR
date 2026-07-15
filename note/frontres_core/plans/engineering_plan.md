@@ -328,9 +328,38 @@ training.
 
 Status: checkpoint prerequisite satisfied in E42 and sequence-selection
 reproducibility guard satisfied in E43, eval-only checkpoint loading fixed
-in E44, and checkpoint-independent perturbation control fixed in E46. E41
-proves integration, but its second
+in E44, checkpoint-independent perturbation control fixed in E46, and valid
+paired comparison completed in E47. E41 proves integration, but its second
 rollout precedes that iteration's optimizer step and has Gain `-0.325550`,
 Physics Gain `-0.281932`, and repaired MPJPE `0.095913 > 0.072490` noisy MPJPE.
-The actual fixed-sequence evaluation of the pair is still pending on the
-server runtime.
+The paired result is mixed: model 2 improves survival on one motion and is
+nearly unchanged on the other, while aggregate Gain decreases. Broader fixed
+sequence coverage and Gain/survival alignment are still required for method
+quality acceptance.
+
+### Step I-B: Gain Decomposition Audit
+
+Objective: determine whether the observed Gain/survival tension is caused by a
+component implementation defect, a metric-definition mismatch, or two-motion
+variance.
+
+Scope: expose and compare Physics success/survival/ZMP/contact components,
+Style components, Repair Cost, zero-policy differential, and survival/fall on
+the same fixed checkpoint pairs.
+
+Non-scope: changing Gain weights/formula, changing PPO, adding action clamps,
+or starting formal long training.
+
+Owner files/modules: `frontres_gain.py`, paired capture in
+`frontres_segment_live_probe.py`, sequence formatting in
+`frontres_segment_live_training.py`.
+
+Expected evidence: component-level paired logs for at least 8 fixed motions
+and two matched seeds, with identical motion/frame/family/strength conditions.
+
+Stop condition: if a component is mathematically or operationally wrong, open
+a semantic decision gate before editing it; if components are correct but
+correlation is noisy, keep the Gain contract and report the variance boundary.
+
+Status: component diagnostic implementation complete in E48; broader paired
+component evidence pending.

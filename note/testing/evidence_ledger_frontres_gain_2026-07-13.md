@@ -1019,3 +1019,48 @@ not current runnable paths. Current checkpoint evidence is the formal
   pair run is required before Step I quality acceptance.
 - Evidence level: S1/S2 perturbation-control fix PASS; S4 paired quality
   comparison pending.
+
+## E47 - Valid Same-Condition Checkpoint Comparison (2026-07-16)
+
+- Raw evidence: refreshed `eval_model1_fixed.txt` and `eval_model2_fixed.txt`.
+  Both runs completed without traceback, reset all four rows successfully, and
+  report the same two motion IDs, reset frames, preroll steps, eval starts,
+  `local_rp` family, and perturbation strength vector
+  `[1.248498, 0.477477, 0.509009, 1.081832]`.
+- Motion `CMU/74/...`: both checkpoints remain at 25% success, 75% fall, and
+  survival `76.5`. Model 2 changes total Gain only from `16.221064` to
+  `16.232580`; repaired MPJPE changes `0.140732 -> 0.140054`. This is a
+  negligible policy-quality change on this motion.
+- Motion `BioMotionLab_NTroje/...`: model 2 improves success `75% -> 100%`,
+  fall `25% -> 0%`, survival `113.5 -> 120.0`, repaired MPJPE
+  `0.040587 -> 0.038695`, velocity error `0.004418 -> 0.002475`, and
+  acceleration error `0.003281 -> 0.001510`. Its total Gain changes from
+  `6.747443` to `-0.022432`, showing that the current Gain decomposition and
+  survival outcome are not perfectly aligned on this sample.
+- Aggregate: model 2 success `50% -> 62.5%`, fall `50% -> 37.5%`, survival
+  `95.0 -> 98.2`, while total Gain decreases `11.484253 -> 8.105074` and
+  positive-gain fraction changes `100% -> 50%`. The result is mixed, not a
+  universal improvement claim.
+- Evidence level: S4 valid paired comparison PASS; broad method-quality
+  acceptance remains pending a larger fixed-sequence set and Gain/survival
+  alignment review.
+
+## E48 - Gain Component Audit Boundary (2026-07-16)
+
+- Active Gain owner is `frontres_gain.py`: Style is the mean of normalized
+  Clean-vs-Repaired improvements for MPJPE, velocity, acceleration, and root
+  orientation; Physics is the mean of available paired success, survival, ZMP,
+  and contact improvements; Repair Cost is the executed full-6D norm/temporal
+  cost. The composition is
+  `style_weight * style + physics_weight * physics - repair_weight * cost`.
+- The E47 logs prove a real semantic tension but not a formula defect: model 2
+  improves survival and dynamics on the second motion while its total Gain is
+  negative. The logs only expose aggregate Physics, not its success/survival/
+  ZMP/contact components, so attribution from E47 alone would be speculation.
+- Diagnostics now expose all four Physics subcomponents in the live and
+  sequence-eval Gain lines. No Gain weights or formulas were changed.
+- Python compilation and sequence-eval, live-probe, and diagnostics contracts
+  pass. A new paired eval is required to determine whether the conflict is
+  systematic or a two-motion sample effect.
+- Evidence level: S1/S2 Gain-owner and diagnostic audit PASS; S4 component
+  correlation and method-quality decision pending.
