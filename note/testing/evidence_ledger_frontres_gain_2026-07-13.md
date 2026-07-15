@@ -640,3 +640,24 @@ not current runnable paths. Current checkpoint evidence is the formal
   the full local worktree; no S4 PASS is promoted.
 - Next live boundary: synchronized rerun3 with 32 environments, requiring at
   least one eligible policy row before PPO update/trust evidence can close.
+
+## E27 - Fourth Formal Attempt Used Wrong Cost Configuration (2026-07-15)
+
+- Raw evidence: `formal_runtime_audit_20260715.txt`, 767 lines, timestamp
+  2026-07-15 16:09:19.
+- The audit-only zero-valid correction works live:
+  `AUDIT-PPO-01 valid=0 update_observed=0` emitted without an assertion.
+- The production fail-fast guard then correctly rejected `update_count=0`.
+  Existing pseudo contracts require this behavior; it is not a bug to remove.
+- The run was not the governed rerun3: PhysX reported 8 envs and the quartet
+  contained only two policy rows. The locked command requires 32 envs and eight
+  policy rows.
+- Both policy rows fell and carried negative total Gain. With no eligible row,
+  PPO loss, gradient, parameter delta, and post-update KL are intentionally
+  unobserved.
+- Deployment remained mixed: startup `train.py` printed
+  `max_horizon_k=missing`, while the runner printed 64. Current local script
+  prints after assigning 64.
+- Decision: preserve all production guards and method semantics. Synchronize
+  the complete worktree and execute the exact 32-env rerun3 command before any
+  S4 or long-training decision.

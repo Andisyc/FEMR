@@ -1,6 +1,6 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B rerun3 planned after zero-valid audit fix; synchronized deployment and S4 evidence pending
+Status: Phase B rerun3 still pending; fourth attempt used stale script and 8 env instead of locked 32
 Updated: 2026-07-15
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
@@ -123,6 +123,12 @@ helper now reports `update_observed=0` without changing control flow. Rerun3
 uses 32 environments to provide eight policy rows and improve the chance of
 observing a real optimizer step. The entire worktree, including
 `scripts/rsl_rl/train.py`, must be synchronized before that run.
+
+The fourth attempt did not satisfy this plan: the simulator reported 8 envs,
+quartet policy count 2, and stale startup audit ordering. Both policy rows fell,
+so the required live-training guard rejected `update_count=0`. No production
+guard or PPO rule should change; the next action remains the exact synchronized
+32-env rerun3.
 
 Stop condition: any DP-09 owner is only locally implemented, stale test counts
 remain, or Architecture still describes the missing route as active.

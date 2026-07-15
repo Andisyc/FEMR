@@ -189,3 +189,34 @@ FADA 将适应权限限制在 Tracker/IDM，即执行空间。下一步候选概
 > 在没有正确示范的情况下，使单次失败从负面证据变成定向修正信号，最少需要什么先验？
 
 这一定义暂时独立于搬运、视觉和具体网络结构。下一步必须先决定允许哪一种修正方向来源：可计算任务误差、仿真预训练先验，或额外一次试探执行。只有该变量闭合后，实验场景、适应对象与工程架构才有确定依据。
+
+### 2026-07-15：为什么失败 Rollout 能实现执行对齐
+
+重新细读 FADA 后需要修正一个重要表述：目标域适应并不是直接更新整个 Tracker 或 IDM。论文在目标域冻结 Planner 参数 \(\phi\) 和预训练 IDM 参数 \(\psi\)，仅优化插入 IDM 的 LoRA 参数 \(\Delta\psi\)。Appendix B.3 给出的配置为 rank \(r=8\)、scaling \(\alpha=16\) 和 dropout 0.05。部署时实际使用的是 \(I_{\psi+\Delta\psi}\)。因此，基础 IDM 权重没有更新，但有效的 plan-to-action 映射发生了受限变化；不能把“参数冻结”误解为“执行函数没有适应”。
+
+目标 rollout 被转换为与源域 IDM 训练相同的窗口：
+
+\[
+W_{\mathrm{tgt}} = (O_t^H, A_t^H, Y_{t,\mathrm{exec}}^K, U_{t,\mathrm{exec}}^K).
+\]
+
+其中，\(Y_{t,\mathrm{exec}}^K\) 是真实执行后观察到的未来本体状态，\(U_{t,\mathrm{exec}}^K\) 是同一物理 rollout 中实际执行的动作序列。目标域没有 reward、oracle label、simulator calibration 或 source replay；监督完全来自这组 realized-future/action 配对。
+
+由此，使用“状态分布修补”解释 FADA 是有根据的，但仍不完整。失败 rollout 至少同时提供两类信息：
+
+1. **Target occupancy**：暴露源域未覆盖的部署历史、姿态、接触后状态和累积偏移；
+2. **Target inverse-dynamics correspondence**：给出目标动力学下“什么动作实际产生了什么未来”的因果配对。
+
+LoRA 则不负责提供数据方向，而是限制适应权限和参数容量。FADA 的 full-IDM finetuning ablation 在三个任务上均劣于 zero-shot，说明少样本条件下完整更新容易过拟合；LoRA 的作用更接近受限执行残差和正则化。冻结 Planner 还提供了不变的任务意图锚点，使目标域更新不会重新解释任务语义。
+
+因此，目前更准确的机制假设是：
+
+> 失败 rollout 通过覆盖关键目标域状态，并提供这些状态下的 realized-future/action 对，使低秩 IDM residual 能够重新校准 Planner-to-action 接口。
+
+这一解释包含四个尚未被论文完全拆开的因素：target occupancy、future-action pairing、frozen Planner anchor 和 low-rank update constraint。FADA 的现有实验分别证明了 LoRA 比 full finetuning 更稳定、数据收益在约 6000 steps 后趋于饱和，以及 IDM consistency gap 在固定基座负载实验中下降；但这些证据还没有回答四个因素中哪一个是主要因果来源。
+
+由此形成新的基础研究问题：
+
+> Why Do Failed Rollouts Enable Execution Alignment?
+
+第一项最小判别实验应保持 target rollout 的状态边缘分布和样本数量不变，只打乱 \(Y_{t,\mathrm{exec}}^K\) 与 \(U_{t,\mathrm{exec}}^K\) 的时序或窗口配对。如果适应收益消失，说明关键证据是目标域逆动力学对应关系，而不是单纯的状态覆盖；如果仍然有效，才支持 occupancy repair 占主导的解释。后续再分别控制 rollout 质量、off-support 程度、LoRA 容量和跨 Command 迁移，系统拆解“哪些失败是可校准数据，哪些失败只是坏数据”。

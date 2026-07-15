@@ -1,6 +1,6 @@
 # Formal Runtime Audit
 
-Status: `phase-b-rerun3-ready-after-zero-valid-audit-fix`
+Status: `phase-b-rerun3-not-yet-executed-last-run-used-env8-stale-script`
 
 Correction 2026-07-15: the first 20-card Atlas revision pointed many cards at
 owner functions while emitting their labels only from five runner summaries.
@@ -36,11 +36,10 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
   deployed source snapshot must match this worktree before live evidence is accepted.
 - Checkpoint identity: must be supplied and printed by the upcoming formal run.
 - Official command: locked below under `Tiny Formal-Route Command`.
-- Current gate: the third live attempt reached finite canonical Gain and
-  returns, but sampled zero PPO-eligible policy rows. The audit-only
-  `valid_count > 0` assertion incorrectly terminated an otherwise valid
-  no-update batch. That instrumentation defect is fixed offline; a synchronized
-  deployment and rerun3 remain pending.
+- Current gate: the fourth attempt confirmed the zero-valid audit fix, but it
+  again used 8 environments and a stale `scripts/rsl_rl/train.py`. It therefore
+  was not the locked rerun3. A synchronized 32-environment rerun3 remains
+  pending.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
@@ -138,6 +137,31 @@ contains this third attempt.
 - Current status: all reached rows remain `stale-rerun-required`; PPO update,
   accepted diagnostics, and checkpoint payload remain unconfirmed.
 
+## Fourth Live Attempt - Command Mismatch
+
+Raw evidence: `formal_runtime_audit_20260715.txt`, 767 lines, local timestamp
+2026-07-15 16:09:19. The same local filename was overwritten again.
+
+- The zero-valid audit correction is runtime-confirmed: `AUDIT-PPO-01` emitted
+  `valid=0 update_observed=0` and did not terminate the run.
+- Production then correctly rejected the iteration with
+  `FrontRES Segment live update produced update_count=0`. This is the accepted
+  fail-fast guard for formal training and must not be disabled or removed.
+- The simulator reported `PhysX GPU capacities prepared for 8 envs` and quartet
+  `2/2/2/2`. The locked rerun3 requires 32 envs and eight policy rows. Rerun3
+  was therefore not actually executed.
+- The same two global segments were sampled as in the previous attempt. Both
+  policy rows fell, `valid=0`, `gain_total=-0.152922`, positive-gain fraction
+  0%, and no optimizer update was possible. This is a two-row failed sample,
+  not evidence that the PPO implementation is broken.
+- Startup still printed `max_horizon_k=missing`, while the later runner owner
+  printed 64. Current local `train.py` prints only after assigning 64, proving
+  the server script was stale even though the updated source audit helper was
+  present.
+- PPO post-update trust evidence and checkpoint payload remain unconfirmed.
+  Source comments stay `PENDING_LIVE`; Atlas/checklist remain stale or
+  unconfirmed until the exact 32-env command and full worktree are deployed.
+
 ## Current Checklist
 
 | ID | Owner/function | Core parameter | Probe location | Expected shape/value | Status | Evidence |
@@ -149,9 +173,9 @@ contains this third attempt.
 | K-01 | sampler/reset/rollout | per-row K and valid rows | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | K tensor, role rows, reset/valid counts | stale-rerun-required | failed attempt + insertion contract |
 | ACT-01 | actor/rollout/storage | full-6D Delta SE(3) | `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | observation and action/storage tuple shapes, finite | stale-rerun-required | task-application fix + insertion contract |
 | GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | stale-rerun-required | second attempt localized pre-fall Style mask bug; fixed offline |
-| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | stale-rerun-required | third attempt reached PPO eval but valid=0; update not observed; audit assertion fixed offline |
-| PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | stale-rerun-required | not reached in third attempt |
-| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | stale-rerun-required | third attempt stopped before accepted final diagnostics |
+| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | stale-rerun-required | fourth attempt: valid=0 update_observed=0; locked 32-env rerun3 not executed |
+| PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | stale-rerun-required | fourth attempt stopped at required zero-update guard |
+| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | stale-rerun-required | no accepted post-update diagnostics in fourth attempt |
 
 ## Phase B Probe Ownership
 

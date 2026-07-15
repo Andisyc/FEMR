@@ -63,5 +63,5 @@ runtime reachability fact.
 | Paired roles/execution evidence | S4 `T-role/T-source` | stale-rerun-required | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01` |
 | Gain/returns | S4 `T-value/T-forward` | stale-rerun-required | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`; second live attempt found terminal `done_any` erased pre-fall Style; owner fixed offline; rerun2 required |
 | HSL Stage2-to-Stage3 load | S4 `T-persist/T-source` | stale-rerun-required | `AUDIT-HSL-LOAD-01` |
-| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | stale-rerun-required | `AUDIT-WARMUP-01` reached; PPO valid=0 and update unobserved; audit no longer crashes; `AUDIT-PPO-01`/`AUDIT-DIAG-01` require rerun3 |
+| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | stale-rerun-required | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01`; fourth attempt used 8 env: 2/2 policy rows fell, valid=0, update unobserved; locked 32-env rerun3 not executed |
 | Checkpoint payload identity | S4 `T-persist` | stale-rerun-required | `AUDIT-PERSIST-01` |
