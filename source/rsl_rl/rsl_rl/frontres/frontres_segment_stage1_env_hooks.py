@@ -166,6 +166,17 @@ class FrontRESStage1EnvAdapter:
             # B2: role-specific reference 生效前, 所有 role 获得同源 dynamic start.
             self._reset_frontres_command_state(ids)
             perturbation_state = self._apply_index_reset_perturbation_request(request, source_ids)
+            refresh_reference_cache = getattr(
+                self.command,
+                "refresh_frontres_reference_cache_current_frame",
+                None,
+            )
+            if not callable(refresh_reference_cache):
+                raise RuntimeError(
+                    "FrontRES index reset requires command.refresh_frontres_reference_cache_current_frame()"
+                )
+            # Sampled motion/frame 已显式写入, 此处只刷新 cache, 不调用会推进 time_steps 的 _update_command().
+            refresh_reference_cache()
             self._write_command_reference_to_robot(ids)
             # B3: Segment index reset 后不得保留随机化的旧 episode age.
             self._reset_frontres_episode_lifecycle(ids)
@@ -185,6 +196,7 @@ class FrontRESStage1EnvAdapter:
             perturbation_strength=perturbation_state.get("strength"),
             perturbation_family=perturbation_state.get("family"),
             perturbation_family_masks=perturbation_state.get("family_masks"),
+            cached_perturbed_pos=getattr(self.command, "_cached_perturbed_pos", None),
             perturber_dr_scale_env=getattr(getattr(self.command, "perturber", None), "_dr_scale_env", None),
             perturber_family_masks=getattr(getattr(self.command, "perturber", None), "_family_masks", None),
         )

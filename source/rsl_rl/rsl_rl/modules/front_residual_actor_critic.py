@@ -33,6 +33,52 @@ from rsl_rl.modules.frontres_observation_layout import split_frontres_policy_obs
 from rsl_rl.utils import resolve_nn_activation
 
 
+def _gmt_observation_route_messages(
+    *,
+    environment_obs_dim: int,
+    gmt_policy_obs_dim: int,
+    gmt_actor_input_dim: int,
+    task_space_frontres: bool,
+    has_gmt_normalizer: bool,
+    has_ref_vel_estimator: bool,
+) -> tuple[str, ...]:
+    """Describe the effective FrontRES/GMT observation route without changing it."""
+
+    messages: list[str] = []
+    if environment_obs_dim > gmt_policy_obs_dim:
+        prefix_dim = environment_obs_dim - gmt_policy_obs_dim
+        if task_space_frontres and has_gmt_normalizer:
+            messages.append(
+                f"[FrontRESActorCritic] Observation layout: {environment_obs_dim}D = "
+                f"{prefix_dim}D FrontRES-only prefix + {gmt_policy_obs_dim}D GMT-compatible suffix. "
+                "GMT consumes the suffix only; no zero padding."
+            )
+        else:
+            messages.append(
+                f"[ResidualActorCritic] WARNING: observation provides {environment_obs_dim}D but GMT policy "
+                f"expects {gmt_policy_obs_dim}D; no verified suffix-slicing contract is available."
+            )
+    elif environment_obs_dim < gmt_policy_obs_dim:
+        missing_dim = gmt_policy_obs_dim - environment_obs_dim
+        messages.append(
+            f"[ResidualActorCritic] WARNING: GMT policy observation requires {gmt_policy_obs_dim}D but the "
+            f"environment provides {environment_obs_dim}D; the missing {missing_dim}D will be zero padded."
+        )
+
+    ref_vel_dim = max(0, gmt_actor_input_dim - gmt_policy_obs_dim)
+    if ref_vel_dim > 0:
+        if has_ref_vel_estimator:
+            messages.append(
+                f"[ResidualActorCritic] GMT ref-velocity suffix: {ref_vel_dim}D supplied by the frozen estimator."
+            )
+        else:
+            messages.append(
+                f"[ResidualActorCritic] WARNING: GMT expects a {ref_vel_dim}D ref-velocity suffix; "
+                "if the caller does not provide it, that suffix will be zero padded."
+            )
+    return tuple(messages)
+
+
 class ComposedActor(nn.Module):
     """
     Legacy composed actor for ONNX export: combines frozen GMT + trainable FrontRES.
@@ -303,11 +349,13 @@ class FrontRESActorCritic(nn.Module):
 
         # Load GMT's observation normalizer (critical!)
         self.gmt_normalizer = None # 导入GMT观测量归一器
+        gmt_policy_obs_dim = gmt_actor_input_dim
         if "obs_norm_state_dict" in checkpoint:
             # Infer normalizer dimension from checkpoint (usually policy_obs_dim, not gmt_actor_input_dim)
             # This is because normalizer operates on policy_obs before ref_vel is concatenated
             obs_norm_state = checkpoint["obs_norm_state_dict"]
             normalizer_dim = obs_norm_state["_mean"].shape[1]
+            gmt_policy_obs_dim = int(normalizer_dim)
 
             self.gmt_normalizer = EmpiricalNormalization(
                 shape=[normalizer_dim], until=1.0e8)
@@ -359,9 +407,7 @@ class FrontRESActorCritic(nn.Module):
             for param in self.ref_vel_estimator.parameters():
                 param.requires_grad = False
             print("[ResidualActorCritic] Ref vel estimator loaded and frozen")
-        else:
-            print("[ResidualActorCritic] WARNING: No ref_vel estimator provided, will use zero padding for GMT policy")
-        
+
         # ========== Build Front-End Residual Network ==========
 
         # Joint-space mode outputs [Δq, Δz]. Task-space mode is full-6D ΔSE(3).
@@ -471,9 +517,10 @@ class FrontRESActorCritic(nn.Module):
             num_z_outputs if num_task_corrections == 0 else 0)
         print("[ResidualActorCritic] Created composed actor for ONNX export")
 
-        # ========== Store GMT input dimension for padding ==========
+        # ========== Store and report the effective GMT observation route ==========
 
-        # If GMT expects more observations than provided, we'll need to pad
+        # GMT actor input may include a separate ref-velocity suffix; the
+        # diagnostic below distinguishes suffix routing from actual padding.
         self.gmt_actor_input_dim = gmt_actor_input_dim
         self.num_actor_obs = num_actor_obs
 
@@ -490,9 +537,15 @@ class FrontRESActorCritic(nn.Module):
             print(f"[ResidualActorCritic] Δq output clipping: tanh * {self.max_delta_q:.3f} rad "
                   f"(≈ ±{self.max_delta_q * 57.3:.1f}°) per joint")
 
-        if gmt_actor_input_dim != num_actor_obs:
-            print(f"[ResidualActorCritic] WARNING: GMT expects {gmt_actor_input_dim} observations, "
-                  f"but environment provides {num_actor_obs}. Will pad with zeros during inference.")
+        for message in _gmt_observation_route_messages(
+            environment_obs_dim=int(num_actor_obs),
+            gmt_policy_obs_dim=int(gmt_policy_obs_dim),
+            gmt_actor_input_dim=int(gmt_actor_input_dim),
+            task_space_frontres=self.num_task_corrections > 0,
+            has_gmt_normalizer=self.gmt_normalizer is not None,
+            has_ref_vel_estimator=self.ref_vel_estimator is not None,
+        ):
+            print(message)
 
     def _frontres_raw_task_output(self, policy_obs: torch.Tensor) -> torch.Tensor:
         """Return raw full-6D task-space correction logits."""

@@ -44,7 +44,7 @@ const runtimeStatus = Object.fromEntries(specs.map(([id]) => [
 ]));
 runtimeStatus["AUDIT-PPO-01"] = "blocked: 8/8 policy rows terminated, valid=0, optimizer update was not observed";
 runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "runtime-observed: role-expanded reset is aligned; anchor_pos alone terminates all 32 rows at step 0 (E33)";
-runtimeStatus["AUDIT-ANCHOR-Z-01"] = "inserted: exact anchor-z value provenance awaits one tiny formal live rerun";
+runtimeStatus["AUDIT-ANCHOR-Z-01"] = "stale-rerun-required: E35 localized zero sampled-frame cache; command-owned current-frame refresh is integrated offline and awaits live proof";
 runtimeStatus["AUDIT-DIAG-01"] = "unconfirmed: accepted post-update diagnostics were not reached";
 runtimeStatus["AUDIT-PERSIST-01"] = "unconfirmed: checkpoint payload/save boundary was not reached";
 

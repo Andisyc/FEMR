@@ -91,6 +91,9 @@ must use one representation.
 - `frontres_segment_dataset.py`: lazy cache loading and semantic segment batch.
 - `frontres_segment_reset.py`: reset request/result and dynamic-state boundary.
 - `frontres_segment_stage1_env_hooks.py`: command-side segment reset adapter.
+- `commands.py::MultiMotionCommand.refresh_frontres_reference_cache_current_frame()`:
+  command-owned current-frame cache construction shared by ordinary command
+  updates and Segment index reset; only the ordinary update advances the frame.
 - `frontres_segment_sampler.py`: global/replay/review source selection,
   priority, segment state, trial planning, and `8/16/32/64` horizon assignment.
 

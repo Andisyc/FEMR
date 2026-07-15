@@ -278,7 +278,42 @@ timestamp 2026-07-15 18:05.
 - `AUDIT-ANCHOR-Z-01` is inserted at `bad_anchor_pos_z_only()`. It captures
   per-role world-frame reference/robot z, signed/absolute error, original/raw/
   correction reference decomposition, command time step, motion index, and the
-  unchanged termination mask. Runtime status remains `inserted` until rerun.
+  unchanged termination mask. Runtime status is `runtime-observed` by `E35`.
+
+## Step D Live Result - Stale Command Cache Identified
+
+Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 779 lines, local
+timestamp 2026-07-15 22:02.
+
+- First termination call: clean reference z and robot torso z are aligned near
+  `0.79 m`, but raw/final reference z remains near `0..0.03 m` for every role.
+- The signed error is therefore about `-0.776 m`; absolute error is
+  `0.543..0.869 m`, so all 32 rows legitimately exceed threshold `0.5 m`.
+- Motion indices and sampled time steps are already quartet-aligned. The bad
+  object is specifically the command's cached perturbed position, not the
+  sampled frame identity, robot reset state, FrontRES z correction, or threshold.
+- On the second call, raw/clean z agree and absolute error drops below
+  `0.014 m`. This occurs only after the first termination caused automatic env
+  reset; the rollout's first-done state is already irreversible.
+- Classified defect: index-reset integration defect. It assigns motion/frame
+  and robot state but reaches first termination before initializing the command
+  cache for that sampled frame.
+
+## Step E Offline Result - Current-Frame Cache Fix Integrated
+
+- `MultiMotionCommand.refresh_frontres_reference_cache_current_frame()` now
+  owns position/quaternion perturbation cache, supervised target construction,
+  vertical projection, and quartet synchronization for the current frame.
+- Ordinary `_update_command()` advances the frame and then calls this owner
+  exactly once. Segment index reset calls the same owner after assigning its
+  explicit sampled frame, without advancing `time_steps`.
+- The eight-row golden fixture preserves frames `[3,4,3,4,3,4,3,4]`, performs
+  one cache refresh, and obtains current-frame cache z `[1,1,1,1,1,1,1,1]`.
+- A production-source contract proves the refresh owner has no frame increment,
+  performs one position draw, one quaternion draw, and one quartet sync.
+- Evidence class: integrated-offline. The original E35 runtime result is stale
+  for current code; one tiny formal rerun must show first-call raw/clean/robot z
+  aligned and `anchor_pos=0` before this defect is closed.
 
 ## Current Checklist
 

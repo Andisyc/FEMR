@@ -27,7 +27,7 @@ frontres_runtime = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(frontres_runtime)
 apply_obs_normalizer = frontres_runtime.apply_obs_normalizer
-from rsl_rl.modules.front_residual_actor_critic import FrontRESActorCritic
+from rsl_rl.modules.front_residual_actor_critic import FrontRESActorCritic, _gmt_observation_route_messages
 from rsl_rl.modules.frontres_observation_layout import split_frontres_policy_obs
 
 
@@ -190,6 +190,45 @@ def test_gmt_direct_uses_shared_layout_suffix() -> None:
     assert tuple(gmt_action.shape) == (2, gmt_dim)
 
 
+def test_gmt_observation_route_diagnostics_match_actual_dimension_semantics() -> None:
+    task_space = _gmt_observation_route_messages(
+        environment_obs_dim=870,
+        gmt_policy_obs_dim=770,
+        gmt_actor_input_dim=770,
+        task_space_frontres=True,
+        has_gmt_normalizer=True,
+        has_ref_vel_estimator=False,
+    )
+    assert len(task_space) == 1
+    assert "100D FrontRES-only prefix + 770D GMT-compatible suffix" in task_space[0]
+    assert "no zero padding" in task_space[0]
+    assert "WARNING" not in task_space[0]
+
+    ref_vel_fallback = _gmt_observation_route_messages(
+        environment_obs_dim=770,
+        gmt_policy_obs_dim=770,
+        gmt_actor_input_dim=773,
+        task_space_frontres=False,
+        has_gmt_normalizer=True,
+        has_ref_vel_estimator=False,
+    )
+    assert len(ref_vel_fallback) == 1
+    assert "3D ref-velocity suffix" in ref_vel_fallback[0]
+    assert "zero padded" in ref_vel_fallback[0]
+
+    unverified_split = _gmt_observation_route_messages(
+        environment_obs_dim=870,
+        gmt_policy_obs_dim=770,
+        gmt_actor_input_dim=770,
+        task_space_frontres=True,
+        has_gmt_normalizer=False,
+        has_ref_vel_estimator=False,
+    )
+    assert len(unverified_split) == 1
+    assert "WARNING" in unverified_split[0]
+    assert "no verified suffix-slicing contract" in unverified_split[0]
+
+
 def test_frontres_train_mode_keeps_gmt_normalizer_frozen_by_contract() -> None:
     runner_text = ON_POLICY_RUNNER.read_text()
     print(
@@ -209,5 +248,6 @@ if __name__ == "__main__":
     test_apply_obs_normalizer_uses_live_prefix_normalizer_when_checkpoint_stats_are_missing()
     test_apply_obs_normalizer_falls_back_for_plain_gmt_obs()
     test_gmt_direct_uses_shared_layout_suffix()
+    test_gmt_observation_route_diagnostics_match_actual_dimension_semantics()
     test_frontres_train_mode_keeps_gmt_normalizer_frozen_by_contract()
     print("frontres_observation_layout_contract: ok")

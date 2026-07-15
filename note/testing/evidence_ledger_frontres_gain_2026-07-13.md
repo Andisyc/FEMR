@@ -790,3 +790,46 @@ not current runnable paths. Current checkpoint evidence is the formal
   `git diff --check` PASS.
 - Evidence level: S2 insertion/integration PASS. S4 value provenance remains
   pending one tiny official-route formal run.
+
+## E35 - Stale Sampled-Frame Command Cache Causes Step-0 Done (2026-07-15)
+
+- Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 779 lines,
+  timestamp 2026-07-15 22:02.
+- First `AUDIT-ANCHOR-Z-01`: clean reference z mean is approximately
+  `0.79 m` and robot z mean is approximately `0.79 m`, while raw/final
+  reference z remains near `0..0.03 m`.
+- This produces per-role absolute-error means near `0.776 m` and minima above
+  `0.543 m`; all rows therefore exceed the configured `0.5 m` threshold.
+- Quartet motion indices and sampled time steps are identical across roles.
+  Policy/Candidate z correction is only about `-0.001 m` mean and cannot
+  explain the error. Clean and Noisy corrections are zero.
+- Second owner call: raw/clean reference z agree around `0.78..0.80 m`, and
+  maximum absolute error is below `0.014 m`. The first termination has already
+  invalidated the K-step rollout by then.
+- Root cause boundary: index reset does not initialize the command's current
+  sampled-frame perturbation cache before the first termination evaluation.
+  This is an integration defect, not a threshold, reset-state, perturbation,
+  FrontRES actor, Gain, valid-mask, or PPO defect.
+
+## E36 - Sampled-Frame Command Cache Fix Integrated Offline (2026-07-15)
+
+- Production owner: `commands.py::MultiMotionCommand.`
+  `refresh_frontres_reference_cache_current_frame()` builds current-frame
+  perturbed position/quaternion cache, supervised target, vertical projection,
+  and quartet synchronization without changing `time_steps`.
+- Connector: `frontres_segment_stage1_env_hooks.py::`
+  `apply_frontres_segment_index_reset()` calls the owner after sampled
+  motion/frame and role perturbation setup, before robot write and first env
+  termination.
+- Eight-row golden evidence: frame identity stays `[3,4,3,4,3,4,3,4]`, cache
+  refresh count is one, cache z is `[1,1,1,1,1,1,1,1]`, episode age remains
+  zero, and perturbation scale remains Policy-owned.
+- Production-source evidence: refresh contains no `time_steps +=`, performs one
+  position draw, one quaternion draw, and one quartet sync; `_update_command()`
+  advances first and calls the refresh owner exactly once.
+- Focused stage1 hook, live-probe, sequence-eval, live-training, PPO-boundary,
+  and formal-audit contracts pass. Python compilation passes.
+- Aggregate contract suite passes `44/44`; Runtime Atlas viewer/import checks
+  62 repository owner paths and `git diff --check` passes.
+- Evidence level: S1/S2 integrated-offline PASS. S4 first-step anchor and
+  nonzero-update evidence remain pending.

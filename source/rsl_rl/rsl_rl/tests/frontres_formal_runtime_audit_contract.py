@@ -371,6 +371,8 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
         assert audit_id in owner_text, f"{audit_id} is not inserted at Atlas owner {owner_path}"
         if audit_id == "AUDIT-RESET-LIFECYCLE-01":
             assert "quartet reset is live-aligned" in owner_text
+        elif audit_id == "AUDIT-ANCHOR-Z-01":
+            assert "cache fix is inserted" in owner_text
         else:
             assert "Result: PENDING_LIVE." in owner_text, f"{audit_id} owner lacks a PENDING_LIVE comment"
         for block_id in ("B1", "B2", "B3"):

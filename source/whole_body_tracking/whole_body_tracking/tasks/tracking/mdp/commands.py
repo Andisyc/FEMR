@@ -2276,15 +2276,16 @@ class MultiMotionCommand(CommandTerm):
             -(a_z + self._jump_g).pow(2) / (2.0 * self._jump_sigma * self._jump_sigma)
         )  # (N_envs,) ∈ [0, 1]
 
-    def _update_command(self):
-        self._global_sim_step += 1
-        self.time_steps += 1
-        self._advance_frontres_reference_window()
+    def refresh_frontres_reference_cache_current_frame(self) -> None:
+        """Refresh FrontRES reference caches without advancing the motion frame.
 
-        # ── Cache perturbation samples once per step ──────────────────────────
-        # All properties using MotionPerturber must read from this cache to
-        # guarantee the SAME random draw within one step, and to expose a
-        # consistent supervised_target to the runner.
+        Status: active command-owned reset boundary.
+        Upstream: Segment index reset after motion/frame and perturbation setup.
+        Downstream: anchor properties, termination, observations, and GMT rollout.
+        Evidence: contract-confirmed; live rerun required.
+        """
+
+        # B1: 从当前 time_steps 读取一次 sampled-frame reference, 不推进 frame.
         _pos_data = self._gather_by_motion("body_pos_w")
         _root_pos_ref = _pos_data[:, self.motion_anchor_body_index]
         self._cached_perturbed_pos = self.perturber.apply_perturbations(
@@ -2295,21 +2296,28 @@ class MultiMotionCommand(CommandTerm):
         _quat_data = self._gather_by_motion("body_quat_w")
         _root_quat_ref = _quat_data[:, self.motion_anchor_body_index]
         self._cached_perturbed_quat = self.perturber.apply_quat_perturbation(_root_quat_ref)
-        # Update jump_degree before building the supervised target so vertical
-        # targets use the same contact-aware conservative projection as runtime.
+
+        # B2: 使用同一次 perturbation draw 构造监督 target 与 vertical feasibility.
         self._compute_jump_degree()
-        # ΔSE3 supervised target: correction that UNDOES the DR perturbation.
         self._dr_supervised_target[:, :3] = _root_pos_ref - self._cached_perturbed_pos
-        # Conservative vertical projection:
-        #   contact phase: positive Δz is blocked (do not inject artificial lift)
-        #   airborne phase: positive Δz is allowed only up to penetration depth
-        #                   (remove invalid ground penetration, not recover height)
         z_upper = self.jump_degree * self.anchor_penetration_depth
         self._dr_supervised_target[:, 2] = torch.minimum(self._dr_supervised_target[:, 2], z_upper)
         _corr_quat = quat_mul(quat_inv(self._cached_perturbed_quat), _root_quat_ref)
         _corr_rotvec = _quat_to_rotvec_wxyz(_corr_quat)
         self._dr_supervised_target[:, 3:6] = _corr_rotvec
+
+        # B3: 将同一当前帧 cache 同步到 quartet, Clean 保持 clean/no-op 语义.
         self._sync_frontres_pairs(sync_perturbation=True)
+
+    def _update_command(self):
+        self._global_sim_step += 1
+        self.time_steps += 1
+        self._advance_frontres_reference_window()
+
+        # Each command step advances first, then draws exactly one perturbation
+        # sample for the new frame. Index reset calls the same cache owner for
+        # its explicitly selected current frame before the first termination.
+        self.refresh_frontres_reference_cache_current_frame()
         # ─────────────────────────────────────────────────────────────────────
 
         # Per-motion episode end detection and resampling

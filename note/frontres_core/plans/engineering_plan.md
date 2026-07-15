@@ -1,6 +1,6 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B Step C live-confirmed; Step D anchor-position value probe inserted, pending live evidence
+Status: Phase B Step E integrated-offline; sampled-frame command-cache fix awaits tiny formal live proof
 Updated: 2026-07-15
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
@@ -80,7 +80,41 @@ Stop condition: the first mismatched object is identified among cached
 reference frame/time, reference anchor z, robot torso z, or threshold routing.
 Insertion status: user-reviewed and inserted as `AUDIT-ANCHOR-Z-01`. The probe
 is default-off and does not change the returned termination mask. S4 value
-provenance remains pending.
+provenance is live-confirmed by `E35`.
+
+Step result: completed by `E35`. On the first termination call, clean reference
+and robot anchor z both average about `0.79 m`, while raw/final reference z is
+still near the environment-origin height (`0..0.03 m`). The resulting absolute
+error averages about `0.776 m` and alone exceeds the `0.5 m` threshold for all
+roles. On the second call, raw and clean reference z agree and error falls below
+`0.014 m`, but the first done mask is already sticky for the rollout.
+
+### Reset Recovery Step E / 5: Sampled-Frame Command Cache Initialization
+
+Objective: initialize the command's cached perturbed reference from the sampled
+motion/frame before the first termination evaluation, without advancing the
+frame or changing perturbation semantics.
+
+Scope: add one command-owned current-frame cache refresh boundary; call it from
+the index-reset adapter after motion/frame and perturbation role state are set,
+then write the robot from that same frame/cache identity.
+
+Non-scope: calling the full `_update_command()` from reset, changing time-step
+order, suppressing done, raising the threshold, PPO, Gain, or valid masks.
+
+Expected evidence: S1/S2 `T-frame/T-role/T-state/T-forward` proving
+raw-reference z equals current-frame perturbed reference for all roles before
+the first step; S4 proving step-0 `anchor_pos=0` without bypassing termination.
+
+Stop condition: cache refresh advances `time_steps`, draws perturbation twice,
+changes Clean semantics, or first-step raw/clean/robot identity remains broken.
+
+Implementation result: `MultiMotionCommand` now owns
+`refresh_frontres_reference_cache_current_frame()`. Both ordinary command
+updates and index reset call the same cache construction; only ordinary updates
+advance `time_steps`. The index-reset adapter invokes it after motion/frame and
+role perturbation setup and before robot write/first termination. Offline
+evidence is `E36`; S4 remains pending.
 
 ## Objective
 

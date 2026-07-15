@@ -772,7 +772,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "inserted: exact anchor-z value provenance awaits one tiny formal live rerun"
+          "gap": "stale-rerun-required: E35 localized zero sampled-frame cache; command-owned current-frame refresh is integrated offline and awaits live proof"
         },
         {
           "id": "AUDIT-OBS-01",
@@ -891,28 +891,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:798 :: update_distribution()/act() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:851 :: update_distribution()/act() 入口/调用前",
               "capture": "policy obs",
               "whyHere": "policy obs 刚进入 actor, 可把 observation 错误与 actor 错误分开",
               "failureOwner": "失败归属: observation/normalizer upstream",
-              "sourceLine": 798,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=798"
+              "sourceLine": 851,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=851"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:868 :: update_distribution()/act() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:921 :: update_distribution()/act() 产物边界",
               "capture": "mean/sigma[*,6]",
               "whyHere": "Normal(mean,sigma) 建立后 full-6D distribution 语义第一次完整成立",
               "failureOwner": "失败归属: actor head、std 或 distribution construction",
-              "sourceLine": 868,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=868"
+              "sourceLine": 921,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=921"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:930 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:983 :: 正式 consumer 接收前",
               "capture": "sampled action[*,6]",
               "whyHere": "act 返回前首次完成 raw sample 到 bounded Delta SE(3) action 的转换",
               "failureOwner": "失败归属: sampling、bounding 或 action representation",
-              "sourceLine": 930,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=930"
+              "sourceLine": 983,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=983"
             }
           ],
           "probe": {
@@ -1055,28 +1055,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:989 :: get_env_action() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:1042 :: get_env_action() 入口/调用前",
               "capture": "GMT observation",
               "whyHere": "GMT policy obs 与 FrontRES correction 同时可见, 可确认 repaired path 输入",
               "failureOwner": "失败归属: repaired reference 或 GMT observation",
-              "sourceLine": 989,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=989"
+              "sourceLine": 1042,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=1042"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:995 :: get_env_action() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:1048 :: get_env_action() 产物边界",
               "capture": "requires_grad/optimizer exclusion",
               "whyHere": "no_grad GMT 调用后可直接检查冻结执行与 robot action",
               "failureOwner": "失败归属: frozen GMT invocation",
-              "sourceLine": 995,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=995"
+              "sourceLine": 1048,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=1048"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:930 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:983 :: 正式 consumer 接收前",
               "capture": "GMT execution/checksum",
               "whyHere": "env.step 前检查可发现 GMT 输出被旧 action 或其他分支覆盖",
               "failureOwner": "失败归属: GMT output 到 environment action connector",
-              "sourceLine": 930,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=930"
+              "sourceLine": 983,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=983"
             }
           ],
           "probe": {

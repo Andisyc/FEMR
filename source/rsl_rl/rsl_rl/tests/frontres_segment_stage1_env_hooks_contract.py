@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 import importlib.util
 import sys
@@ -12,6 +13,16 @@ import torch
 
 
 ROOT = Path(__file__).resolve().parents[4]
+COMMANDS_PATH = (
+    ROOT
+    / "source"
+    / "whole_body_tracking"
+    / "whole_body_tracking"
+    / "tasks"
+    / "tracking"
+    / "mdp"
+    / "commands.py"
+)
 SOURCE_ROOT = ROOT / "source" / "rsl_rl"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
@@ -165,6 +176,11 @@ class FakeCommand:
         self.motion_end_buf = torch.zeros(self.num_envs, dtype=torch.bool)
         self._frontres_pos_correction = torch.ones(self.num_envs, 3)
         self._frontres_quat_correction = torch.zeros(self.num_envs, 4)
+        self._cached_perturbed_pos = torch.zeros(self.num_envs, 3)
+        self._cached_perturbed_quat = torch.zeros(self.num_envs, 4)
+        self._cached_perturbed_quat[:, 0] = 1.0
+        self._dr_supervised_target = torch.zeros(self.num_envs, 6)
+        self.cache_refresh_calls = 0
         self.perturber = FakePerturber()
         self.metrics = {
             "error_anchor_pos": torch.zeros(1),
@@ -182,6 +198,16 @@ class FakeCommand:
     def _update_metrics(self) -> None:
         self.metrics["error_anchor_pos"][:] = torch.norm(self.robot.data.root_pos_w[:, :2], dim=-1)
         self.metrics["error_anchor_rot"][:] = 0.25
+
+    def refresh_frontres_reference_cache_current_frame(self) -> None:
+        """Model the command-owned current-frame cache boundary for connector tests."""
+
+        self.cache_refresh_calls += 1
+        body_pos = self._gather_by_motion_for_envs("body_pos_w", torch.arange(self.num_envs))
+        body_quat = self._gather_by_motion_for_envs("body_quat_w", torch.arange(self.num_envs))
+        self._cached_perturbed_pos.copy_(body_pos[:, 0])
+        self._cached_perturbed_quat.copy_(body_quat[:, 0])
+        self._dr_supervised_target.zero_()
 
 
 class FakeCommandManager:
@@ -616,6 +642,11 @@ def test_index_reset_expands_sampled_rows_to_full_quartet_dynamic_state() -> Non
         local_root = env.unwrapped.robot.data.root_pos_w - env.unwrapped.scene.env_origins
         assert result["reset_success"].tolist() == [True, True]
         torch.testing.assert_close(env.unwrapped.command.time_steps, expected_frames)
+        assert env.unwrapped.command.cache_refresh_calls == 1
+        torch.testing.assert_close(
+            env.unwrapped.command._cached_perturbed_pos[:, 2],
+            torch.ones(8, dtype=torch.float32),
+        )
         assert env.unwrapped.command.env_motion_groups.tolist() == [0] * 8
         torch.testing.assert_close(env.unwrapped.robot.data.joint_pos[:, 0], expected_joint_head)
         torch.testing.assert_close(local_root[:, 0], expected_joint_head)
@@ -633,9 +664,38 @@ def test_index_reset_expands_sampled_rows_to_full_quartet_dynamic_state() -> Non
             f"joint0={env.unwrapped.robot.data.joint_pos[:, 0].tolist()} "
             f"local_root_x={local_root[:, 0].tolist()} "
             f"episode={env.unwrapped.episode_length_buf.tolist()} "
+            f"cache_z={env.unwrapped.command._cached_perturbed_pos[:, 2].tolist()} "
+            f"cache_refresh_calls={env.unwrapped.command.cache_refresh_calls} "
             f"dr_scale={env.unwrapped.command.perturber.dr_scale_env.tolist()}",
             flush=True,
         )
+
+
+def test_production_cache_refresh_owner_does_not_advance_frame() -> None:
+    source = COMMANDS_PATH.read_text()
+    module = ast.parse(source)
+    multi_motion = next(
+        node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "MultiMotionCommand"
+    )
+    functions = {
+        node.name: node
+        for node in multi_motion.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    refresh = ast.get_source_segment(source, functions["refresh_frontres_reference_cache_current_frame"])
+    update = ast.get_source_segment(source, functions["_update_command"])
+    assert refresh is not None and update is not None
+    assert "time_steps +=" not in refresh
+    assert refresh.count("apply_perturbations(") == 1
+    assert refresh.count("apply_quat_perturbation(") == 1
+    assert refresh.count("_sync_frontres_pairs(sync_perturbation=True)") == 1
+    assert update.count("refresh_frontres_reference_cache_current_frame()") == 1
+    assert update.index("self.time_steps += 1") < update.index("refresh_frontres_reference_cache_current_frame()")
+    print(
+        "[probe quartet_cache_owner] frame_advance_in_refresh=0 "
+        "position_draws=1 quaternion_draws=1 pair_sync=1 update_calls=1",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
@@ -645,4 +705,5 @@ if __name__ == "__main__":
     test_stage1_index_reset_applies_dynamic_motion_perturbation_request()
     test_stage1_index_reset_applies_local_rp_only_perturbation_request()
     test_index_reset_expands_sampled_rows_to_full_quartet_dynamic_state()
+    test_production_cache_refresh_owner_does_not_advance_frame()
     print("PASS: FrontRES Stage 1 env adapter hooks trace motion, clean reset, perturbation, and baseline rollout.")

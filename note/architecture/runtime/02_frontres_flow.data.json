@@ -212,17 +212,18 @@
             {"id": "M2C-QP1", "path": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py", "role": "4-split layout owner", "functions": ["configure_frontres_pair_layout()"]},
             {"id": "M2C-QP2", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "paired rollout capture", "functions": ["_run_live_rollout_capture()", "_capture_motion_quality_frame()", "_capture_physics_frame()"]},
             {"id": "M2C-QP3", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reset.py", "role": "generic dynamic reset contract", "functions": []},
-            {"id": "M2C-QP4", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_stage1_env_hooks.py", "role": "index reset quartet state owner", "functions": ["apply_frontres_segment_index_reset()"]}
+            {"id": "M2C-QP4", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_stage1_env_hooks.py", "role": "index reset quartet state owner", "functions": ["apply_frontres_segment_index_reset()"]},
+            {"id": "M2C-QP5", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "sampled-frame command cache owner", "functions": ["refresh_frontres_reference_cache_current_frame()"]}
           ],
           "mainRoute": [
             "B1 frontres_training_setup.py::configure_frontres_pair_layout(): env rows -> explicit trial roles",
-            "B2 frontres_segment_live_probe.py -> frontres_segment_stage1_env_hooks.py: sampled rows -> explicit role IDs -> aligned robot/lifecycle reset",
+            "B2 frontres_segment_live_probe.py -> frontres_segment_stage1_env_hooks.py -> commands.py: sampled rows -> explicit role IDs -> current-frame cache -> aligned robot/lifecycle reset",
             "B3 frontres_segment_live_probe.py::_run_live_rollout_capture(): aligned roles -> paired execution evidence"
           ],
           "mainRouteTitles": ["建立 4-split Roles", "恢复匹配动态状态", "采集 Paired Execution"],
           "review": ["检查 policy/search credit boundary", "检查 Clean/Noisy/Repaired 的 segment/K identity"],
       "tests": ["S2 reset/role contracts", "S4 AUDIT-PAIR-01/AUDIT-PAIR-EVIDENCE-01"],
-          "gap": "quartet reset 已离线对齐; 真实 origin-relative state 与 survival 等待 live rerun"
+          "gap": "quartet reset 与 sampled-frame cache 已离线对齐; 真实 first-step anchor/survival 等待 live rerun"
         },
         {
           "id": "DP-GAIN",
