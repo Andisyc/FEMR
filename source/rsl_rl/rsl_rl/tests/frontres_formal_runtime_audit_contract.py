@@ -178,6 +178,29 @@ def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
     assert "cache_horizon_k=batch.horizon_k" in dataset_source
 
 
+def test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow() -> None:
+    runner = _runner()
+    result = SimpleNamespace(
+        warmup_phase="critic_only",
+        warmup_phase_iteration=0,
+        actor_loss_weight=0.0,
+        valid_count=0,
+        total_loss=torch.tensor(0.0),
+        param_grad_norm=0.0,
+        param_delta_l2=0.0,
+        distribution_kl_mean=0.0,
+        post_update_distribution_kl_mean=0.0,
+        trust_region_accepted=0,
+    )
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        audit.print_ppo_audit(runner, result=result)
+    output = stream.getvalue()
+    assert "[AUDIT-PPO-01]" in output
+    assert "valid=0" in output
+    assert "update_observed=0" in output
+
+
 def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
     atlas_path = ROOT / "note" / "architecture" / "runtime" / "04_stage3_formal_runtime_audit.data.json"
     atlas = json.loads(atlas_path.read_text())
@@ -222,7 +245,7 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
         )
         why_here_texts.extend(step["whyHere"] for step in module["probeSteps"])
         assert any(str(value).startswith("Design:") for value in module["objects"])
-        assert module["gap"] == "Result=PENDING_LIVE"
+        assert module["gap"]
         assert len(module["mainRoute"]) == len(module["mainRouteTitles"])
         owner_path = ROOT / module["files"][0]["path"]
         assert owner_path.exists(), f"Atlas owner path does not exist: {owner_path}"
@@ -244,6 +267,9 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
             source_line = int(step["sourceLine"])
             assert 1 <= source_line <= len(owner_lines)
             assert f"# B{step_index}:" in owner_lines[source_line - 1]
+    assert modules["AUDIT-PPO-01"]["gap"].startswith("stale-rerun-required:")
+    assert "valid=0" in modules["AUDIT-PPO-01"]["gap"]
+    assert modules["AUDIT-PERSIST-01"]["gap"].startswith("unconfirmed:")
     assert len(why_here_texts) == 60
     assert len(set(why_here_texts)) == 60, "whyHere must not be a shared template across probe boundaries"
 
@@ -251,5 +277,6 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
 if __name__ == "__main__":
     test_structured_phase_b_snapshots_cover_all_formal_boundaries()
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
+    test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()
     test_runtime_audit_atlas_source_comments_and_checklist_share_ids()
     print("frontres_formal_runtime_audit_contract: ok")

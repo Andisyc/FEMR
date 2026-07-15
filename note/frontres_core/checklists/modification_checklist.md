@@ -10,7 +10,7 @@ Scope: `FRS-DP-09` Stage 3 Actor/Critic warmup and `FRS-DP-05` Frozen GMT eviden
 | 1 | Segment warmup phase owner | completed | `frontres_segment_warmup_contract.py` |
 | 2 | Formal Stage 3 integration | completed | entrypoint + single-update contracts |
 | 3 | Persistence and Frozen GMT | completed offline | checkpoint config guard + Frozen GMT contract |
-| 4 | Cross-file acceptance | completed offline | aggregate suite 44/44 after pre-fall Style mask regression; live rerun2 remains separate |
+| 4 | Cross-file acceptance | completed offline | aggregate suite 44/44 after pre-fall Style and zero-valid audit regressions; live rerun3 remains separate |
 
 ## DP-09 Acceptance Matrix
 
@@ -63,5 +63,5 @@ runtime reachability fact.
 | Paired roles/execution evidence | S4 `T-role/T-source` | stale-rerun-required | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01` |
 | Gain/returns | S4 `T-value/T-forward` | stale-rerun-required | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`; second live attempt found terminal `done_any` erased pre-fall Style; owner fixed offline; rerun2 required |
 | HSL Stage2-to-Stage3 load | S4 `T-persist/T-source` | stale-rerun-required | `AUDIT-HSL-LOAD-01` |
-| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | stale-rerun-required | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01` |
+| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | stale-rerun-required | `AUDIT-WARMUP-01` reached; PPO valid=0 and update unobserved; audit no longer crashes; `AUDIT-PPO-01`/`AUDIT-DIAG-01` require rerun3 |
 | Checkpoint payload identity | S4 `T-persist` | stale-rerun-required | `AUDIT-PERSIST-01` |

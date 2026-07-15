@@ -27,6 +27,23 @@ const specs = [
   ["AUDIT-DIAG-01", "正式 Diagnostics", "Q-01, M-05", "日志读取 canonical summary 且缺失值不伪装为零", "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "repair_effect_summary_to_scalars()", ["canonical live summary", "diagnostic scalars", "terminal/logger consumer"]],
 ];
 
+const thirdAttemptReached = new Set([
+  "AUDIT-ROUTE-01", "AUDIT-PERTURB-01", "AUDIT-PERTURB-02", "AUDIT-SEGDATA-01",
+  "AUDIT-SAMPLER-01", "AUDIT-KPLAN-01", "AUDIT-KROLLOUT-01", "AUDIT-OBS-01",
+  "AUDIT-ACTION-01", "AUDIT-APPLY-01", "AUDIT-GMT-01", "AUDIT-PAIR-01",
+  "AUDIT-PAIR-EVIDENCE-01", "AUDIT-GAIN-01", "AUDIT-RETURN-01", "AUDIT-HSL-LOAD-01",
+  "AUDIT-WARMUP-01",
+]);
+const runtimeStatus = Object.fromEntries(specs.map(([id]) => [
+  id,
+  thirdAttemptReached.has(id)
+    ? "stale-rerun-required: third attempt reached this owner, but server source snapshot was mixed"
+    : "unconfirmed: third attempt did not reach this owner",
+]));
+runtimeStatus["AUDIT-PPO-01"] = "stale-rerun-required: PPO eval reached with valid=0; optimizer update was not observed";
+runtimeStatus["AUDIT-DIAG-01"] = "unconfirmed: accepted post-update diagnostics were not reached";
+runtimeStatus["AUDIT-PERSIST-01"] = "unconfirmed: checkpoint payload/save boundary was not reached";
+
 const probeRationales = {
   "AUDIT-ROUTE-01": [
     ["命令刚完成 Stage 3 preset, 这里能确认本次运行身份而不受 runner 后续状态影响", "失败归属: CLI 参数或 Stage 3 preset"],
@@ -187,9 +204,9 @@ const card = ([id, title, design, summary, ownerPath, ownerFunction, captures], 
     capture: captures,
     failIf: ["关键对象缺失、非有限或 shape/role 不符", "owner 产物未到达正式 consumer"],
   },
-  review: ["按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属", "live 前保持 Result=PENDING_LIVE"],
+  review: ["按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属", "当前状态来自 third formal attempt; rerun3 后必须重建"],
   tests: ["S2 official-route connectivity", "S4 formal live snapshot"],
-  gap: "Result=PENDING_LIVE",
+  gap: runtimeStatus[id],
   });
 };
 

@@ -1,6 +1,6 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B rerun2 authorized after pre-fall Style mask fix; deployment and S4 evidence pending
+Status: Phase B rerun3 planned after zero-valid audit fix; synchronized deployment and S4 evidence pending
 Updated: 2026-07-15
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
@@ -114,7 +114,15 @@ integration mismatch: final `done_any` erased the full Style row instead of
 truncating its trajectory at the fall. Gain capture now reuses the per-step
 horizon/alive mask for body and root-orientation Style, while storage keeps
 terminal PPO eligibility unchanged. The focused regression and aggregate suite
-pass; the current source still requires rerun2 before any S4 promotion.
+pass; the current source still requires rerun3 before any S4 promotion.
+
+The third Phase B attempt confirmed finite Gain and returns but sampled zero
+PPO-eligible policy rows. Production PPO correctly selected a no-update result;
+the formal audit helper incorrectly asserted that every batch must update. The
+helper now reports `update_observed=0` without changing control flow. Rerun3
+uses 32 environments to provide eight policy rows and improve the chance of
+observing a real optimizer step. The entire worktree, including
+`scripts/rsl_rl/train.py`, must be synchronized before that run.
 
 Stop condition: any DP-09 owner is only locally implemented, stale test counts
 remain, or Architecture still describes the missing route as active.

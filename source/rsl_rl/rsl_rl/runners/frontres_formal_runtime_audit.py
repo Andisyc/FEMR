@@ -205,7 +205,9 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
         for group in getattr(runner.alg.optimizer, "param_groups", ())
         for param in group.get("params", ())
     }
-    assert int(getattr(result, "valid_count", 0)) > 0
+    valid_count = int(getattr(result, "valid_count", 0))
+    update_observed = int(valid_count > 0)
+    assert valid_count >= 0
     assert bool(torch.isfinite(result.total_loss).all().item())
     assert all(not param.requires_grad and id(param) not in optimizer_ids for param in gmt_params)
     # AUDIT-WARMUP-01: 检查 critic-only/actor-ramp/joint phase, 位于 warmup owner -> PPO loss.
@@ -220,7 +222,8 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
     # Result: PENDING_LIVE.
     _emit_owner_snapshot(
         "AUDIT-DIAG-01",
-        valid=getattr(result, "valid_count", "missing"),
+        valid=valid_count,
+        update_observed=update_observed,
         post_kl=getattr(result, "post_update_distribution_kl_mean", "missing"),
         accepted=getattr(result, "trust_region_accepted", "missing"),
     )
@@ -229,7 +232,7 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
         f"phase={getattr(result, 'warmup_phase', 'missing')} "
         f"phase_iter={getattr(result, 'warmup_phase_iteration', 'missing')} "
         f"actor_weight={getattr(result, 'actor_loss_weight', 'missing')} "
-        f"valid={getattr(result, 'valid_count', 'missing')} "
+        f"valid={valid_count} update_observed={update_observed} "
         f"loss={float(result.total_loss.detach().cpu().item()):.6g} "
         f"grad_norm={getattr(result, 'param_grad_norm', 'missing')} "
         f"param_delta={getattr(result, 'param_delta_l2', 'missing')} "

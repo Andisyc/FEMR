@@ -618,3 +618,25 @@ not current runnable paths. Current checkpoint evidence is the formal
   finalized, with a source-order regression assertion.
 - Status: S1/S2 correction confirmed. Current source requires the same official
   tiny formal-route rerun before S4 Gain/return or downstream rows can pass.
+
+## E26 - Third Formal Audit Zero-Valid Instrumentation Failure (2026-07-15)
+
+- Raw evidence: `formal_runtime_audit_20260715.txt`, 650 lines, timestamp
+  2026-07-15 15:46:01.
+- Confirmed live: the pre-fall Style correction works. Style, Physics, Repair,
+  total Gain, returns, and advantages are finite on the official Stage 3 route.
+- The two policy rows were terminal/ineligible, so production Segment PPO
+  returned its contract-defined no-step result with `valid_count=0`.
+- Root cause of the crash: `frontres_formal_runtime_audit.py` imposed an
+  audit-only `valid_count > 0` assertion. This was not a production invariant
+  and changed formal-training control flow when audit mode was enabled.
+- Fix: the audit now records `valid` and `update_observed`; zero valid rows emit
+  `update_observed=0` and remain unconfirmed PPO evidence without raising.
+- Regression: a zero-valid critic-warmup result previously reproduces the exact
+  assertion and now emits `AUDIT-PPO-01 valid=0 update_observed=0`.
+- Deployment identity warning: startup `train.py` reported
+  `max_horizon_k=missing`, whereas the runner reported 64 and current local
+  `train.py` prints after assignment. The server run therefore did not match
+  the full local worktree; no S4 PASS is promoted.
+- Next live boundary: synchronized rerun3 with 32 environments, requiring at
+  least one eligible policy row before PPO update/trust evidence can close.

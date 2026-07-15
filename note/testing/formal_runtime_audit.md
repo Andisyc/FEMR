@@ -1,6 +1,6 @@
 # Formal Runtime Audit
 
-Status: `phase-b-rerun2-ready-after-prefall-style-mask-fix`
+Status: `phase-b-rerun3-ready-after-zero-valid-audit-fix`
 
 Correction 2026-07-15: the first 20-card Atlas revision pointed many cards at
 owner functions while emitting their labels only from five runner summaries.
@@ -36,10 +36,11 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
   deployed source snapshot must match this worktree before live evidence is accepted.
 - Checkpoint identity: must be supplied and printed by the upcoming formal run.
 - Official command: locked below under `Tiny Formal-Route Command`.
-- Current gate: the second live attempt passed task-space application, Frozen
-  GMT, and paired evidence capture, then exposed terminal `done_any` erasing
-  the finite pre-fall Style prefix. The mask owner is fixed offline with a
-  fresh `44/44`; deployment and rerun2 remain pending.
+- Current gate: the third live attempt reached finite canonical Gain and
+  returns, but sampled zero PPO-eligible policy rows. The audit-only
+  `valid_count > 0` assertion incorrectly terminated an otherwise valid
+  no-update batch. That instrumentation defect is fixed offline; a synchronized
+  deployment and rerun3 remain pending.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
@@ -108,6 +109,35 @@ a separately named `rerun1` artifact.
 - Because the Gain owner changed after this run, all live rows remain
   `stale-rerun-required`; no source `Result` comment is promoted to PASS.
 
+## Third Live Attempt
+
+Raw evidence: `formal_runtime_audit_20260715.txt`, 650 lines, local timestamp
+2026-07-15 15:46:01. The same local filename was overwritten again, so it now
+contains this third attempt.
+
+- Runtime-observed: official Stage 3 `train` route, Stage 2 checkpoint and
+  prefix-normalizer load, global Segment sampling, K=8 quartet `2/2/2/2`,
+  finite 870D observation, full-6D action/application, frozen GMT execution,
+  paired Style/Physics/Repair evidence, finite `gain_total`, and finite
+  returns/advantages.
+- Gain correction confirmed live: `style_gain` and `gain_total` are finite;
+  the previous all-NaN Style failure no longer occurs.
+- Update boundary: both policy rows were terminal/ineligible, so Segment PPO
+  correctly returned `valid_count=0`, zero loss, and no optimizer step. The
+  audit helper then raised its own `assert valid_count > 0` before
+  `AUDIT-PPO-01`, final diagnostics, or checkpoint persistence could emit.
+- Correction: `print_ppo_audit()` now accepts the production no-update result
+  and prints `valid=0 update_observed=0`. This does not change storage masks,
+  PPO loss, warmup, sampler, or optimizer behavior. A valid-count-zero contract
+  reproduces the old assertion and passes after the correction.
+- Deployment mismatch: the startup `train.py` probe printed
+  `max_horizon_k=missing`, while the later runner probe printed 64. Local
+  `train.py` already prints only after assigning 64. Therefore this run used a
+  mixed or stale server source snapshot and cannot establish current-revision
+  S4 evidence.
+- Current status: all reached rows remain `stale-rerun-required`; PPO update,
+  accepted diagnostics, and checkpoint payload remain unconfirmed.
+
 ## Current Checklist
 
 | ID | Owner/function | Core parameter | Probe location | Expected shape/value | Status | Evidence |
@@ -119,9 +149,9 @@ a separately named `rerun1` artifact.
 | K-01 | sampler/reset/rollout | per-row K and valid rows | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | K tensor, role rows, reset/valid counts | stale-rerun-required | failed attempt + insertion contract |
 | ACT-01 | actor/rollout/storage | full-6D Delta SE(3) | `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | observation and action/storage tuple shapes, finite | stale-rerun-required | task-application fix + insertion contract |
 | GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | stale-rerun-required | second attempt localized pre-fall Style mask bug; fixed offline |
-| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | stale-rerun-required | not reached in failed attempt |
-| PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | stale-rerun-required | not reached in failed attempt |
-| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | stale-rerun-required | not reached in failed attempt |
+| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | stale-rerun-required | third attempt reached PPO eval but valid=0; update not observed; audit assertion fixed offline |
+| PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | stale-rerun-required | not reached in third attempt |
+| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | stale-rerun-required | third attempt stopped before accepted final diagnostics |
 
 ## Phase B Probe Ownership
 
@@ -641,14 +671,14 @@ storage-only, update-loop-only, or offline-eval branch.
 ```bash
 CUDA_VISIBLE_DEVICES=2 \
 CACHE_DIR=/hdd1/cyx/AMASS_G1Segment \
-LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_20260715_rerun2.txt \
+LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_20260715_rerun3.txt \
 PERIODIC_EVAL_ENABLED=0 \
-RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_20260715_RERUN2 \
+RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_20260715_RERUN3 \
 HYDRA_FULL_ERROR=1 \
 bash /hdd1/cyx/FEMR/run_stage3.sh \
   /hdd1/cyx/FEMR/model/model_warmup.pt \
   /hdd1/cyx/AMASS_G1NPZ_Final \
-  8 \
+  32 \
   1 \
   1 \
   train \
@@ -656,7 +686,8 @@ bash /hdd1/cyx/FEMR/run_stage3.sh \
 ```
 
 Expected cost: one official Stage 3 training iteration, one Segment PPO update
-step per iteration, eight environments, one final checkpoint, and no periodic
+step per iteration, 32 environments (eight policy rows), one final checkpoint,
+and no periodic
 evaluation. The wrapper backgrounds the process; the audit log is the named
 runtime evidence file. The checkpoint path, cache path, motion path, and
 deployed source snapshot must be confirmed on the target machine before this
