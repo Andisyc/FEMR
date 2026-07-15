@@ -39,14 +39,19 @@ const rerun3Reached = new Set([
 const runtimeStatus = Object.fromEntries(specs.map(([id]) => [
   id,
   rerun3Reached.has(id)
-    ? "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+    ? "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
     : "unconfirmed: rerun3 did not reach this owner",
 ]));
-runtimeStatus["AUDIT-PPO-01"] = "blocked: 8/8 policy rows terminated, valid=0, optimizer update was not observed";
-runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "runtime-observed: role-expanded reset is aligned; anchor_pos alone terminates all 32 rows at step 0 (E33)";
-runtimeStatus["AUDIT-ANCHOR-Z-01"] = "stale-rerun-required: E35 localized zero sampled-frame cache; command-owned current-frame refresh is integrated offline and awaits live proof";
-runtimeStatus["AUDIT-DIAG-01"] = "unconfirmed: accepted post-update diagnostics were not reached";
-runtimeStatus["AUDIT-PERSIST-01"] = "unconfirmed: checkpoint payload/save boundary was not reached";
+runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: valid=8, critic-only update observed, trust accepted, KL=6.008e-05 (E37)";
+runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "runtime-observed: all quartet roles start aligned and survive every K=8 step without termination (E37)";
+runtimeStatus["AUDIT-ANCHOR-Z-01"] = "runtime-observed: first-call raw/clean/robot z align, max abs error=0.0201m, anchor_pos=0 for all roles (E37)";
+runtimeStatus["AUDIT-DIAG-01"] = "runtime-observed: canonical Gain, valid fraction, warmup, PPO and trust diagnostics are populated (E37)";
+runtimeStatus["AUDIT-PERSIST-01"] = "runtime-observed: model_1.pt saved with model, optimizer, normalizer, sampler, Gain and warmup payloads (E37)";
+runtimeStatus["AUDIT-WARMUP-01"] = "partial: critic-only is runtime-observed; actor-warmup transition awaits Step G";
+runtimeStatus["AUDIT-KROLLOUT-01"] = "offline-fixed: reset_success_frac now reads the live summary owner; S4 rerun pending (E38)";
+runtimeStatus["AUDIT-APPLY-01"] = "offline-fixed: delta_norm now reads motion_delta_se_norm; S4 rerun pending (E38)";
+runtimeStatus["AUDIT-PAIR-01"] = "offline-fixed: roles now reads trial_role_counts; S4 rerun pending (E38)";
+runtimeStatus["AUDIT-RETURN-01"] = "offline-fixed: storage diagnostic batch now retains rollout rewards; S4 rerun pending (E38)";
 
 const probeRationales = {
   "AUDIT-ROUTE-01": [
@@ -218,7 +223,7 @@ const card = ([id, title, design, summary, ownerPath, ownerFunction, captures], 
     capture: captures,
     failIf: ["关键对象缺失、非有限或 shape/role 不符", "owner 产物未到达正式 consumer"],
   },
-  review: ["按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属", "当前状态来自 32-env rerun3; reset/done owner 待审计"],
+  review: ["按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属", "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"],
   tests: ["S2 official-route connectivity", "S4 formal live snapshot"],
   gap: runtimeStatus[id],
   });

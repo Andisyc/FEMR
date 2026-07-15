@@ -71,7 +71,7 @@ def bad_anchor_pos_z_only(env: ManagerBasedRLEnv, command_name: str, threshold: 
         if role_reference_z is not None:
             # B3: 在原 termination mask 返回前截获同一批 role, 不改变 done 语义.
             # AUDIT-ANCHOR-Z-01: 检查 command reference -> robot torso -> anchor_pos termination 数值链.
-            # Result: E35 found stale raw_z; cache fix is inserted, so live result is stale-rerun-required.
+            # Result: raw/clean/robot z align, abs_error<=0.0201m, all quartet anchor_pos=0, run=E37.
             emit_formal_runtime_probe(
                 "AUDIT-ANCHOR-Z-01",
                 limit=2,

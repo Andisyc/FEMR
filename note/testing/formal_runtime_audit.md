@@ -315,20 +315,43 @@ timestamp 2026-07-15 22:02.
   for current code; one tiny formal rerun must show first-call raw/clean/robot z
   aligned and `anchor_pos=0` before this defect is closed.
 
+## Step E Live Result - Cache And First-Step Termination Closed
+
+Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 803 lines, local
+timestamp 2026-07-15 22:32.
+
+- First owner call has raw/clean/final reference z around `0.78..0.80 m`, robot
+  z in the same range, and maximum absolute error `0.020011 m`.
+- `anchor_pos`, every other active termination term, and returned done are zero
+  for Policy/Candidate/Noisy/Clean at every one of eight rollout steps.
+- Survival reaches eight for every row; first-done indices remain `-1`.
+- Storage receives 32 rows and eight valid Policy rows. One formal critic-only
+  PPO update executes with actor weight zero, trust accepted, KL
+  `6.008e-05`, and no rollback/retry.
+- `model_1.pt` saves model, optimizer, observation normalizer, sampler, Gain
+  config, and warmup state. The cache/reset defect is integrated-live closed.
+- Tiny-run Gain is `-0.006978` because repair cost `0.073285` exceeds the small
+  positive Style/Physics gains. This is a one-batch method-quality observation,
+  not a cache regression; actor weight is intentionally zero in critic-only.
+- The four compact diagnostic gaps from E37 are fixed offline in E38. Three
+  probes now read the actual live-summary owner keys, and the storage diagnostic
+  batch retains the already-computed rollout reward without forwarding it into
+  the PPO batch. One formal rerun is still required for S4 evidence.
+
 ## Current Checklist
 
 | ID | Owner/function | Core parameter | Probe location | Expected shape/value | Status | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | GOV-01 | workflow governance | contract/code/checkpoint/command identity | this document | identity is explicit before run | user-reviewed | this file |
-| METHOD-07 | critic-ready actor curriculum | HSL -> protected RL warmup -> actor ramp -> joint RL | `AUDIT-HSL-LOAD-01`, `AUDIT-WARMUP-01`, `AUDIT-PPO-01` | phase/weight and frozen actor boundary | stale-rerun-required | failed attempt + offline contracts |
-| ROUTE-01 | formal entrypoint and runner | Stage 3 branch selection | `AUDIT-ROUTE-01` | live_train=1 and alternate_modes=0 | stale-rerun-required | failed attempt + insertion contract |
-| OBS-01 | observation/normalizer | 870D balance/ZMP observation | `AUDIT-OBS-01` | expected layout, finite, same normalizer identity | stale-rerun-required | failed attempt + insertion contract |
-| K-01 | sampler/reset/rollout | per-row K and valid rows | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | K tensor, role rows, reset/valid counts | stale-rerun-required | failed attempt + insertion contract |
-| ACT-01 | actor/rollout/storage | full-6D Delta SE(3) | `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | observation and action/storage tuple shapes, finite | stale-rerun-required | task-application fix + insertion contract |
-| GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | stale-rerun-required | second attempt localized pre-fall Style mask bug; fixed offline |
-| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | stale-rerun-required | fourth attempt: valid=0 update_observed=0; locked 32-env rerun3 not executed |
-| PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | stale-rerun-required | fourth attempt stopped at required zero-update guard |
-| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | stale-rerun-required | no accepted post-update diagnostics in fourth attempt |
+| METHOD-07 | critic-ready actor curriculum | HSL -> protected RL warmup -> actor ramp -> joint RL | `AUDIT-HSL-LOAD-01`, `AUDIT-WARMUP-01`, `AUDIT-PPO-01` | phase/weight and frozen actor boundary | partial | E37 critic_only confirmed; actor-warmup transition awaits the Step G S4 run |
+| ROUTE-01 | formal entrypoint and runner | Stage 3 branch selection | `AUDIT-ROUTE-01` | live_train=1 and alternate_modes=0 | runtime-observed | E37 official train route |
+| OBS-01 | observation/normalizer | 870D balance/ZMP observation | `AUDIT-OBS-01` | expected layout, finite, same normalizer identity | runtime-observed | E37 finite 870D, 100D+770D split |
+| K-01 | sampler/reset/rollout | per-row K and valid rows | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | K tensor, role rows, reset/valid counts | offline-fixed | E37 K=8/valid=8; E38 corrected reset-success owner key; S4 rerun pending |
+| ACT-01 | actor/rollout/storage | full-6D Delta SE(3) | `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | observation and action/storage tuple shapes, finite | offline-fixed | E37 full-6D reached apply; E38 corrected delta-norm owner key; S4 rerun pending |
+| GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | offline-fixed | E37 Gain/returns populated; E38 retained reward in diagnostic batch; S4 rerun pending |
+| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | runtime-observed | E37 valid=8, critic update accepted, KL=6.008e-05 |
+| PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | runtime-observed | E37 model_1.pt payload complete |
+| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | offline-fixed | E38 closes four fields offline; S4 rerun pending |
 
 ## Phase B Probe Ownership
 

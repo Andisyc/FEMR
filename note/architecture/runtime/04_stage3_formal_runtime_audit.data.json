@@ -110,13 +110,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-PERTURB-01",
@@ -192,13 +192,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-PERTURB-02",
@@ -274,13 +274,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-SEGDATA-01",
@@ -356,13 +356,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-SAMPLER-01",
@@ -438,13 +438,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-KPLAN-01",
@@ -520,13 +520,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-KROLLOUT-01",
@@ -602,13 +602,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "offline-fixed: reset_success_frac now reads the live summary owner; S4 rerun pending (E38)"
         },
         {
           "id": "AUDIT-RESET-LIFECYCLE-01",
@@ -684,13 +684,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: role-expanded reset is aligned; anchor_pos alone terminates all 32 rows at step 0 (E33)"
+          "gap": "runtime-observed: all quartet roles start aligned and survive every K=8 step without termination (E37)"
         },
         {
           "id": "AUDIT-ANCHOR-Z-01",
@@ -766,13 +766,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: E35 localized zero sampled-frame cache; command-owned current-frame refresh is integrated offline and awaits live proof"
+          "gap": "runtime-observed: first-call raw/clean/robot z align, max abs error=0.0201m, anchor_pos=0 for all roles (E37)"
         },
         {
           "id": "AUDIT-OBS-01",
@@ -848,13 +848,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-ACTION-01",
@@ -930,13 +930,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-APPLY-01",
@@ -1012,13 +1012,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "offline-fixed: delta_norm now reads motion_delta_se_norm; S4 rerun pending (E38)"
         },
         {
           "id": "AUDIT-GMT-01",
@@ -1094,13 +1094,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-PAIR-01",
@@ -1176,13 +1176,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "offline-fixed: roles now reads trial_role_counts; S4 rerun pending (E38)"
         },
         {
           "id": "AUDIT-PAIR-EVIDENCE-01",
@@ -1258,13 +1258,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-GAIN-01",
@@ -1340,13 +1340,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-RETURN-01",
@@ -1383,28 +1383,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:68 :: compute_returns_and_advantages()/to_ppo_batch() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:71 :: compute_returns_and_advantages()/to_ppo_batch() 入口/调用前",
               "capture": "gain reward",
               "whyHere": "per-step Gain reward 与 per-row K 同时可见, 可验证 return 输入",
               "failureOwner": "失败归属: Gain reward construction 或 horizon forwarding",
-              "sourceLine": 68,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=68"
+              "sourceLine": 71,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=71"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:69 :: compute_returns_and_advantages()/to_ppo_batch() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:72 :: compute_returns_and_advantages()/to_ppo_batch() 产物边界",
               "capture": "returns/advantages",
               "whyHere": "done/K-aware accumulation 后 returns/advantages 第一次完整成立",
               "failureOwner": "失败归属: compute_returns_and_advantages",
-              "sourceLine": 69,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=69"
+              "sourceLine": 72,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=72"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:82 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:85 :: 正式 consumer 接收前",
               "capture": "PPO batch",
               "whyHere": "PPO batch 构造时检查可发现 return、advantage、valid rows 错位",
               "failureOwner": "失败归属: storage to_ppo_batch conversion",
-              "sourceLine": 82,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=82"
+              "sourceLine": 85,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=85"
             }
           ],
           "probe": {
@@ -1422,13 +1422,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "offline-fixed: storage diagnostic batch now retains rollout rewards; S4 rerun pending (E38)"
         },
         {
           "id": "AUDIT-HSL-LOAD-01",
@@ -1504,13 +1504,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
         },
         {
           "id": "AUDIT-WARMUP-01",
@@ -1586,13 +1586,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 32-env rerun3 reached this owner, but all 32 quartet rows terminated within K=8"
+          "gap": "partial: critic-only is runtime-observed; actor-warmup transition awaits Step G"
         },
         {
           "id": "AUDIT-PPO-01",
@@ -1668,13 +1668,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "blocked: 8/8 policy rows terminated, valid=0, optimizer update was not observed"
+          "gap": "runtime-observed: valid=8, critic-only update observed, trust accepted, KL=6.008e-05 (E37)"
         },
         {
           "id": "AUDIT-PERSIST-01",
@@ -1750,13 +1750,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "unconfirmed: checkpoint payload/save boundary was not reached"
+          "gap": "runtime-observed: model_1.pt saved with model, optimizer, normalizer, sampler, Gain and warmup payloads (E37)"
         },
         {
           "id": "AUDIT-DIAG-01",
@@ -1832,13 +1832,13 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "当前状态来自 32-env rerun3; reset/done owner 待审计"
+            "E37 已闭合 reset/cache; E38 四字段离线闭合; actor-warmup S4 待验证"
           ],
           "tests": [
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "unconfirmed: accepted post-update diagnostics were not reached"
+          "gap": "runtime-observed: canonical Gain, valid fraction, warmup, PPO and trust diagnostics are populated (E37)"
         }
       ]
     }

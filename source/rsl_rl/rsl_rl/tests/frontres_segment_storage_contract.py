@@ -84,6 +84,7 @@ def test_segment_storage_writes_clean_6d_ppo_tuple() -> None:
     storage = FrontRESSegmentRolloutStorage(capacity=4, obs_shape=(4,))
     storage.add_transition(_transition())
     batch = storage.full_batch()
+    torch.testing.assert_close(batch.rewards, torch.tensor([1.0, 0.5, 100.0]))
     assert batch.actions.shape == (3, 6)
     assert batch.old_log_probs.shape == (3,)
     assert batch.old_values.shape == (3,)
@@ -99,6 +100,7 @@ def test_segment_storage_converts_to_algorithm_batch_and_masks_invalid_samples()
     storage = FrontRESSegmentRolloutStorage(capacity=4, obs_shape=(4,))
     storage.add_transition(_transition())
     ppo_batch = storage.full_batch().to_ppo_batch(FrontRESSegmentPPOBatch)
+    assert not hasattr(ppo_batch, "rewards"), "rollout reward is diagnostic storage state, not a PPO input"
     assert ppo_batch.old_means is not None
     assert ppo_batch.old_sigmas is not None
     torch.testing.assert_close(ppo_batch.old_means, torch.zeros(3, 6))

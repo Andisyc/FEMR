@@ -91,7 +91,9 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         actions=torch.ones(2, 6),
         old_means=torch.zeros(2, 6),
         old_sigmas=torch.ones(2, 6) * 0.01,
+        rewards=torch.tensor([0.4, -0.2]),
         returns=torch.tensor([0.2, -0.1]),
+        advantages=torch.tensor([0.1, -0.3]),
         valid_mask=torch.tensor([True, False]),
     )
     result = SimpleNamespace(
@@ -107,8 +109,10 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         trust_region_accepted=1,
     )
     summary = {
-        "reset_success_count": 2,
+        "segment_reset_success_frac": 1.0,
         "ppo_valid_count": 1,
+        "motion_delta_se_norm": 0.125,
+        "trial_role_counts": {"policy": 1, "candidate": 1},
         "gain_style_mean": 0.3,
         "gain_physics_mean": 0.2,
         "gain_repair_cost_mean": 0.1,
@@ -155,6 +159,13 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "shape=(2, 6)" in output
     assert "sigma=shape=(2, 6)" in output
     assert "perturb_rp=shape=(2, 2)" in output
+    assert "reset_success_frac=1.0" in output
+    assert "delta_norm=0.125" in output
+    assert "roles={'policy': 1, 'candidate': 1}" in output
+    assert "rewards=shape=(2,)" in output
+    for label in ("AUDIT-KROLLOUT-01", "AUDIT-APPLY-01", "AUDIT-PAIR-01", "AUDIT-RETURN-01"):
+        line = next(line for line in output.splitlines() if line.startswith(f"[{label}]"))
+        assert "missing" not in line, line
     assert "gmt_trainable=0 gmt_in_optimizer=0" in output
     assert "warmup={'critic_warmup_iterations': 200, 'actor_warmup_iterations': 500}" in output
 
@@ -372,7 +383,7 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
         if audit_id == "AUDIT-RESET-LIFECYCLE-01":
             assert "quartet reset is live-aligned" in owner_text
         elif audit_id == "AUDIT-ANCHOR-Z-01":
-            assert "cache fix is inserted" in owner_text
+            assert "all quartet anchor_pos=0" in owner_text
         else:
             assert "Result: PENDING_LIVE." in owner_text, f"{audit_id} owner lacks a PENDING_LIVE comment"
         for block_id in ("B1", "B2", "B3"):
@@ -389,9 +400,9 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
             source_line = int(step["sourceLine"])
             assert 1 <= source_line <= len(owner_lines)
             assert f"# B{step_index}:" in owner_lines[source_line - 1]
-    assert modules["AUDIT-PPO-01"]["gap"].startswith("blocked:")
-    assert "8/8 policy rows" in modules["AUDIT-PPO-01"]["gap"]
-    assert modules["AUDIT-PERSIST-01"]["gap"].startswith("unconfirmed:")
+    assert modules["AUDIT-PPO-01"]["gap"].startswith("runtime-observed:")
+    assert "valid=8" in modules["AUDIT-PPO-01"]["gap"]
+    assert modules["AUDIT-PERSIST-01"]["gap"].startswith("runtime-observed:")
     assert len(why_here_texts) == 66
     assert len(set(why_here_texts)) == 66, "whyHere must not be a shared template across probe boundaries"
 

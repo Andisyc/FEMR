@@ -1,6 +1,6 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B Step E integrated-offline; sampled-frame command-cache fix awaits tiny formal live proof
+Status: Phase B Step E integrated-live; sampled-frame command-cache defect closed by E37
 Updated: 2026-07-15
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
@@ -114,7 +114,12 @@ Implementation result: `MultiMotionCommand` now owns
 updates and index reset call the same cache construction; only ordinary updates
 advance `time_steps`. The index-reset adapter invokes it after motion/frame and
 role perturbation setup and before robot write/first termination. Offline
-evidence is `E36`; S4 remains pending.
+offline evidence is `E36`; live evidence is `E37`.
+
+Live result: completed by `E37`. First-call raw/clean/robot anchor z align,
+maximum absolute error is `0.020011 m`, all quartet roles survive all eight
+steps, `valid=8`, one critic-only PPO update is accepted, and `model_1.pt` is
+saved. No termination threshold or done handling was changed.
 
 ## Objective
 
@@ -251,3 +256,38 @@ the zero-update guard are non-scope until this owner closes.
 
 Stop condition: any DP-09 owner is only locally implemented, stale test counts
 remain, or Architecture still describes the missing route as active.
+
+### Step F: Formal Diagnostic Tuple Closure
+
+Objective: close the four compact `missing` fields observed in E37 without
+changing Stage 3 training semantics.
+
+Scope: correct live-summary aliases for reset success, applied correction norm,
+and quartet roles; retain canonical reward in the read-only storage batch;
+refresh contracts and Runtime Atlas.
+
+Non-scope: reset/cache behavior, Gain calculation, PPO batch/loss, optimizer,
+or warmup schedule.
+
+Status: integrated-offline in E38. The next official formal run must verify the
+four values and enter actor warmup before this step receives S4 closure.
+
+### Step G: Actor-Warmup Formal Sentinel
+
+Objective: observe one critic-only iteration followed by one actor-warmup
+iteration on the official Stage 3 route while rechecking the E38 fields.
+
+Scope: 32 environments, two learning iterations, one update per iteration,
+formal probes enabled, periodic evaluation disabled. Audit-only warmup
+boundaries are critic=1 and actor=2, so iteration 0 has actor weight 0 and
+iteration 1 has actor weight 0.5.
+
+Non-scope: long training, production warmup defaults (200/500), reward tuning,
+or checkpoint promotion.
+
+Expected evidence: `AUDIT-WARMUP-01` transitions from `critic_only` to
+`actor_warmup`; the actor-warmup update has finite loss/gradient/parameter
+delta and valid trust diagnostics; K rollout, apply, pair, and return rows no
+longer contain `missing`.
+
+Status: ready for S4 live execution after the E38 code is synchronized.

@@ -281,7 +281,7 @@ def print_sampler_audit(runner: Any, *, update_step: int, sample: Any, batch: An
     # Result: PENDING_LIVE.
     _emit_owner_snapshot(
         "AUDIT-KROLLOUT-01",
-        reset_ok=_summary_value(summary, "reset_success_count"),
+        reset_success_frac=_summary_value(summary, "segment_reset_success_frac"),
         valid=_summary_value(summary, "ppo_valid_count"),
         horizon_k=_tensor_stats(horizon_k),
     )
@@ -291,7 +291,7 @@ def print_sampler_audit(runner: Any, *, update_step: int, sample: Any, batch: An
         f"source_index={_tensor_stats(getattr(sample, 'source_index', None))} "
         f"horizon_k={_tensor_stats(getattr(sample, 'horizon_k', None))} "
         f"trial_roles={getattr(batch, 'frontres_segment_trial_role', 'missing')} "
-        f"reset_ok={_summary_value(summary, 'reset_success_count')} "
+        f"reset_success_frac={_summary_value(summary, 'segment_reset_success_frac')} "
         f"valid={_summary_value(summary, 'ppo_valid_count')} "
         f"priority_before={_summary_value(summary, 'sampler_update_priority_before_mean')} "
         f"priority_after={_summary_value(summary, 'sampler_update_priority_after_mean')}",
@@ -323,7 +323,9 @@ def print_rollout_storage_audit(
         getattr(storage_batch, "actions", None),
         getattr(storage_batch, "old_means", None),
         getattr(storage_batch, "old_sigmas", None),
+        getattr(storage_batch, "rewards", None),
         getattr(storage_batch, "returns", None),
+        getattr(storage_batch, "advantages", None),
     ):
         assert isinstance(value, torch.Tensor) and bool(torch.isfinite(value).all().item())
     # AUDIT-PERTURB-02: 检查实际 rollout 扰动, 位于 perturbation application -> paired execution.
@@ -337,13 +339,13 @@ def print_rollout_storage_audit(
     _emit_owner_snapshot("AUDIT-ACTION-01", mean=_tensor_stats(getattr(capture, "transition_means", None)), sigma=_tensor_stats(getattr(capture, "transition_sigmas", None)), action=_tensor_stats(actions))
     # AUDIT-APPLY-01: 检查 executed Delta SE(3), 位于 task correction -> repaired reference.
     # Result: PENDING_LIVE.
-    _emit_owner_snapshot("AUDIT-APPLY-01", action=_tensor_stats(actions), delta_norm=_summary_value(summary, "delta_se_norm"))
+    _emit_owner_snapshot("AUDIT-APPLY-01", action=_tensor_stats(actions), delta_norm=_summary_value(summary, "motion_delta_se_norm"))
     # AUDIT-GMT-01: 检查 frozen GMT observation/execution, 位于 repaired reference -> GMT rollout.
     # Result: PENDING_LIVE.
     _emit_owner_snapshot("AUDIT-GMT-01", gmt_obs=_tensor_stats(obs_suffix), normalizer=type(getattr(runner, "obs_normalizer", None)).__name__)
     # AUDIT-PAIR-01: 检查 quartet roles 与有效行, 位于 trial plan -> paired rollout.
     # Result: PENDING_LIVE.
-    _emit_owner_snapshot("AUDIT-PAIR-01", roles=_summary_value(summary, "trial_roles"), valid=_summary_value(summary, "ppo_valid_count"))
+    _emit_owner_snapshot("AUDIT-PAIR-01", roles=_summary_value(summary, "trial_role_counts"), valid=_summary_value(summary, "ppo_valid_count"))
     # AUDIT-PAIR-EVIDENCE-01: 检查同 segment/K 的 paired evidence, 位于 rollout capture -> Gain.
     # Result: PENDING_LIVE.
     _emit_owner_snapshot("AUDIT-PAIR-EVIDENCE-01", noisy=_summary_value(summary, "score_noisy"), repaired=_summary_value(summary, "score_repaired"), gain=_summary_value(summary, "score_gain"))

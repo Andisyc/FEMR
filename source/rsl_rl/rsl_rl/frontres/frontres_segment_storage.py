@@ -42,6 +42,9 @@ class FrontRESSegmentStorageBatch:
     actions: torch.Tensor
     old_log_probs: torch.Tensor
     old_values: torch.Tensor
+    # Diagnostic owner copy of the rollout reward. PPO still consumes returns
+    # and advantages below; retaining reward here makes that transformation auditable.
+    rewards: torch.Tensor
     returns: torch.Tensor
     advantages: torch.Tensor
     valid_mask: torch.Tensor
@@ -375,6 +378,7 @@ class FrontRESSegmentRolloutStorage:
             old_values=self.old_values[idx],
             old_means=self.old_means[idx],
             old_sigmas=self.old_sigmas[idx],
+            rewards=self.rewards[idx],
             returns=self.returns[idx],
             advantages=self.advantages[idx],
             valid_mask=self.valid_mask[idx],

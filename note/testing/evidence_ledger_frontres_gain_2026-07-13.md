@@ -833,3 +833,42 @@ not current runnable paths. Current checkpoint evidence is the formal
   62 repository owner paths and `git diff --check` passes.
 - Evidence level: S1/S2 integrated-offline PASS. S4 first-step anchor and
   nonzero-update evidence remain pending.
+
+## E37 - Sampled-Frame Cache Fix Integrated Live (2026-07-15)
+
+- Raw evidence: `formal_runtime_audit_20260715_rerun3.txt`, 803 lines,
+  timestamp 2026-07-15 22:32.
+- First `AUDIT-ANCHOR-Z-01`: raw, clean, and final reference z align with robot
+  z; maximum absolute error is `0.020011 m`, far below threshold `0.5 m`.
+- All active termination masks are zero for all four roles through K=8;
+  survival reaches eight and first-done indices remain `-1`.
+- Formal training continues through storage (`size=32`, `valid=8`), one
+  critic-only PPO update (`actor_weight=0`, `KL=6.008e-05`, trust accepted),
+  sampler update, diagnostics, and checkpoint save.
+- Saved payload: model, optimizer, observation normalizer, sampler, canonical
+  Gain config, and warmup state are present in `model_1.pt`.
+- Method-quality observation: Gain Total is `-0.006978` with positive Style
+  `0.002784`, positive Physics `0.001231`, and Repair Cost `0.073285`; this
+  single critic-only batch does not evaluate actor learning quality.
+- Evidence level: S4 integrated-live PASS for sampled-frame cache, quartet
+  reset, K=8 survival, first formal update, and checkpoint boundary.
+- Remaining formal-audit gaps are diagnostic, not execution blockers:
+  `KROLLOUT.reset_ok`, `APPLY.delta_norm`, `PAIR.roles`, and `RETURN.rewards`
+  are still `missing`; their owner rows remain partial.
+
+## E38 - Four Formal Diagnostic Fields Closed Offline (2026-07-15)
+
+- Root cause: the consolidated audit read three retired summary aliases
+  (`reset_success_count`, `delta_se_norm`, `trial_roles`) instead of the live
+  owners (`segment_reset_success_frac`, `motion_delta_se_norm`,
+  `trial_role_counts`).
+- Segment storage already owned the canonical rollout reward, but `_batch()`
+  omitted it from `FrontRESSegmentStorageBatch`. The diagnostic batch now
+  retains the indexed reward alongside returns and advantages.
+- `to_ppo_batch()` remains unchanged and does not forward reward into the PPO
+  loss contract. Reset/cache, Gain calculation, PPO math, and update control
+  flow are unchanged.
+- Pseudo-sample contracts prove all four owner rows contain real values and no
+  `missing`; the storage contract proves reward row identity is preserved.
+- Evidence level: S1/S2 integrated-offline PASS. S4 actor-warmup formal rerun
+  remains required to confirm the fields on the official runtime path.

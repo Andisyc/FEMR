@@ -2282,7 +2282,7 @@ class MultiMotionCommand(CommandTerm):
         Status: active command-owned reset boundary.
         Upstream: Segment index reset after motion/frame and perturbation setup.
         Downstream: anchor properties, termination, observations, and GMT rollout.
-        Evidence: contract-confirmed; live rerun required.
+        Evidence: runtime-confirmed by E37; current-frame cache is aligned before first termination.
         """
 
         # B1: 从当前 time_steps 读取一次 sampled-frame reference, 不推进 frame.

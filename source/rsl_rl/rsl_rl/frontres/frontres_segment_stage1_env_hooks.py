@@ -121,8 +121,8 @@ class FrontRESStage1EnvAdapter:
         状态: active Stage 1 index 与 Stage 3 quartet reset owner.
         上游: live probe 从 pair layout 附加 `frontres_role_env_ids`.
         下游: frozen GMT rollout 消费 role-aligned robot 与 episode state.
-        证据: contract-confirmed.
-        缺口: 32-env formal live survival 尚未确认.
+        证据: runtime-confirmed by E37.
+        缺口: none for quartet reset/cache alignment.
         """
         segment_ids = getattr(request, "segment_ids")
         count = int(segment_ids.numel())
