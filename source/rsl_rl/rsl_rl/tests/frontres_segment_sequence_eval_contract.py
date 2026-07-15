@@ -277,6 +277,10 @@ def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
 class FakeSampler:
     def __init__(self):
         self.calls: list[int] = []
+        self.reset_seeds: list[int] = []
+
+    def reset_for_deterministic_eval(self, *, seed: int) -> None:
+        self.reset_seeds.append(int(seed))
 
     def sample(self, batch_size: int):
         self.calls.append(int(batch_size))

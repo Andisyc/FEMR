@@ -925,3 +925,42 @@ not current runnable paths. Current checkpoint evidence is the formal
   improvement.
 - Evidence level: S4 PASS for Step H and compact formal-route diagnostics;
   method-quality acceptance remains pending Step I.
+
+## E42 - Same-Run Checkpoint Pair Verified (2026-07-16)
+
+- Raw evidence: `formal_actor_pair_20260716.txt`, local `model_1.pt`, and local
+  `model_2.pt`.
+- `model_1.pt` is `iter=1` and `model_2.pt` is `iter=2`; both contain model,
+  optimizer, observation normalizer, privileged normalizer, sampler, Gain, and
+  warmup payloads. Both use `FRS-GAIN-v001`, six-dimensional `std=0.01`, and
+  learning rate `1e-6`.
+- The nested model state contains 19 common tensors. Between the checkpoints,
+  18 tensors change: all eight residual-actor tensors change, while the policy
+  std remains unchanged. Optimizer state grows from 10 to 18 entries, matching
+  the actor entering optimization after critic-only warmup.
+- This proves the pair is suitable for a controlled same-sequence comparison.
+  It does not yet prove which checkpoint has better repair quality.
+- Evidence level: S2 checkpoint identity/parameter-delta PASS; Step I fixed
+  offline evaluation remains pending.
+
+## E43 - Fixed-Sequence Eval Reproducibility Guard (2026-07-16)
+
+- The checkpoint loader restores the Segment sampler before the official
+  sequence evaluator runs. That replay history is valid training-resume state,
+  but it is not a valid selector for comparing `model_1.pt` and `model_2.pt`.
+- Sequence offline eval now rebuilds the sampler's initial state with an
+  explicit `--frontres_segment_sequence_eval_seed` before selecting candidate
+  motions. The policy, observation normalizer, environment, and Gain contract
+  are unchanged; only evaluation sampler history is ignored.
+- The evaluator prints `reset=1`, the seed, and
+  `checkpoint_replay_state=ignored`. It still prints per-sequence motion IDs,
+  reset frames, preroll, and evaluation boundaries for the human comparison.
+- Offline contracts pass: sampler reset pseudo-sample, sequence evaluator,
+  Stage 3 launch command, live sentinel, and Stage 1/2/3 entrypoint contracts.
+  Python compilation also passes for all changed modules.
+- The actual IsaacLab evaluation is not run on this Mac because the server
+  motion/cache paths under `/hdd1/cyx` are unavailable. Step I remains pending
+  until both checkpoints produce logs with identical `motion_ids` and
+  `reset_frame/preroll` fields.
+- Evidence level: S1/S2 evaluation reproducibility PASS; S4 checkpoint quality
+  comparison pending.

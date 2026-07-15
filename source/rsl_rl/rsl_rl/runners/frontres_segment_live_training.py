@@ -280,11 +280,26 @@ def run_frontres_segment_sequence_offline_eval(
     num_eval_sequences: int,
     rollout_steps: int,
     max_preroll_steps: int | None = None,
+    sampler_seed: int | None = None,
 ) -> dict[str, Any]:
     sampler = getattr(runner, "_frontres_segment_sampler", None)
     if sampler is None:
         raise RuntimeError("sequence offline eval requires initialized FrontRES Segment sampler")
     import torch
+
+    # FRS3-EVAL-011: checkpoint replay history is training state, not an
+    # evaluation-sequence selector. Reset it so model_1/model_2 see the same
+    # deterministic candidate distribution before the fixed plan is built.
+    eval_seed = int(sampler_seed if sampler_seed is not None else getattr(runner, "seed", 0) or 0)
+    reset_eval_sampler = getattr(sampler, "reset_for_deterministic_eval", None)
+    if not callable(reset_eval_sampler):
+        raise RuntimeError("sequence eval sampler lacks deterministic reset contract")
+    reset_eval_sampler(seed=eval_seed)
+    print(
+        "[FrontRES Segment Sequence Eval Sampler] "
+        f"reset=1 seed={eval_seed} checkpoint_replay_state=ignored",
+        flush=True,
+    )
 
     env_count = max(1, int(getattr(runner.env, "num_envs", num_eval_sequences)))
     requested_count = max(1, int(num_eval_sequences))

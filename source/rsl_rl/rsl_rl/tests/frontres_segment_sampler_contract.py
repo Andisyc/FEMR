@@ -84,10 +84,25 @@ def test_sampler_reports_effective_source_after_fallback() -> None:
     sampler = FrontRESSegmentSampler(4, global_frac=0.0, replay_frac=1.0, review_frac=0.0, seed=17)
     sample = sampler.sample(4)
     assert sample.source == ("global", "global", "global", "global")
-
     sampler = FrontRESSegmentSampler(4, global_frac=0.0, replay_frac=0.0, review_frac=1.0, seed=19)
     sample = sampler.sample(4)
     assert sample.source == ("global", "global", "global", "global")
+
+
+def test_sampler_deterministic_eval_reset_ignores_checkpoint_frontier() -> None:
+    sampler = FrontRESSegmentSampler(5, seed=7)
+    sampler.priority.fill_(3.0)
+    sampler.solved[0] = True
+    sampler.invalid[1] = True
+    sampler.reset_for_deterministic_eval(seed=19)
+
+    fresh = FrontRESSegmentSampler(5, seed=19)
+    sample = sampler.sample(10)
+    fresh_sample = fresh.sample(10)
+
+    assert sample.segment_ids.tolist() == fresh_sample.segment_ids.tolist()
+    assert sample.source == fresh_sample.source
+    assert int(sampler.stats().seen_count) == int(fresh.stats().seen_count)
 
 
 def test_sampler_update_probe_exposes_priority_boundary() -> None:

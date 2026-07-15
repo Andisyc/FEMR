@@ -215,6 +215,29 @@ class FrontRESSegmentSampler:
         self.last_oracle_gap = torch.zeros(self.num_segments, dtype=torch.float32, device=self.device)
         self.last_confidence = torch.zeros(self.num_segments, dtype=torch.float32, device=self.device)
 
+    def reset_for_deterministic_eval(self, *, seed: int) -> None:
+        """Reset replay history before a cross-checkpoint sequence evaluation.
+
+        Checkpoints persist replay frontier state because it is part of training
+        resume semantics.  That state must not choose different evaluation
+        motions for two checkpoints being compared.  Rebuild only this sampler
+        with the same configuration and seed; the policy, normalizer, and
+        environment state remain owned by the runner and are untouched.
+        """
+        fresh = type(self)(
+            num_segments=self.num_segments,
+            global_frac=self.global_frac,
+            replay_frac=self.replay_frac,
+            review_frac=self.review_frac,
+            priority_mode=self.priority_mode,
+            staleness_weight=self.staleness_weight,
+            min_replay_score=self.min_replay_score,
+            max_hopeless_replay_frac=self.max_hopeless_replay_frac,
+            seed=int(seed),
+            device=self.device,
+        )
+        self.__dict__.update(fresh.__dict__)
+
     def sample(self, batch_size: int, *, max_horizon_k: int = 8) -> FrontRESSegmentSample:
         """按 replay mixture 选择 base segments 并附加 rollout budget.
 

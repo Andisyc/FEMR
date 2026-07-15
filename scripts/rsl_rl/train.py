@@ -316,6 +316,12 @@ parser.add_argument(
     help="For Stage 3 sequence eval: ignore sampled segments whose start_frame exceeds this cap; 0 disables the cap.",
 )
 parser.add_argument(
+    "--frontres_segment_sequence_eval_seed",
+    type=int,
+    default=None,
+    help="For Stage 3 sequence eval: reset the replay sampler with this seed before selecting the fixed plan.",
+)
+parser.add_argument(
     "--frontres_segment_offline_eval_steps",
     type=int,
     default=500,
@@ -1447,6 +1453,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             num_eval_sequences=max(1, int(getattr(args_cli, "frontres_segment_sequence_eval_sequences", 10))),
             rollout_steps=max(1, int(getattr(args_cli, "frontres_segment_offline_eval_steps", 500))),
             max_preroll_steps=max(0, int(getattr(args_cli, "frontres_segment_sequence_eval_max_preroll_steps", 0))),
+            sampler_seed=getattr(args_cli, "frontres_segment_sequence_eval_seed", None),
         )
         env.close()
         return
