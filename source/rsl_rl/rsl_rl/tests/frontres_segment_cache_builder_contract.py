@@ -888,7 +888,7 @@ def test_stage1_builder_derives_noisy_descriptors_from_hrl_curriculum_bank() -> 
             strengths=(0.0, 0.5),
             variants_per_strength=1,
             curriculum_bank_size=16,
-            curriculum_active_dims=(0, 1, 3, 4, 5),
+            curriculum_perturbation_bases=("planar", "yaw", "local_rp"),
             base_seed=321,
             env_id=0,
         )

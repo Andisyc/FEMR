@@ -112,20 +112,16 @@ class PPO:
         # PPO components
         self.policy = policy
         self.policy.to(self.device)
-        # Create optimizer — for FrontRESActorCritic only train residual_actor + critic + std;
-        # GMT parameters have requires_grad=False so policy.parameters() already excludes them,
-        # but we make it explicit here to match the MOSAIC optimizer pattern.
+        # Train only the residual actor, critic, and action-noise parameters for
+        # FrontRES. The frozen GMT parameters remain excluded from the optimizer.
         if isinstance(policy, FrontRESActorCritic):
             trainable = list(policy.residual_actor.parameters()) + list(policy.critic.parameters())
-            if getattr(policy, "acceptance_actor", None) is not None:
-                trainable.extend(policy.acceptance_actor.parameters())
             if hasattr(policy, "std"):
                 trainable.append(policy.std)
             elif hasattr(policy, "log_std"):
                 trainable.append(policy.log_std)
             self.optimizer = optim.Adam(trainable, lr=learning_rate)
-            actor_desc = "residual_actor + acceptance_actor" if getattr(policy, "acceptance_actor", None) is not None else "residual_actor"
-            print(f"[PPO] FrontRESActorCritic detected: optimizer restricted to {actor_desc} + critic")
+            print("[PPO] FrontRESActorCritic detected: optimizer restricted to residual_actor + critic")
         else:
             self.optimizer = optim.Adam(self.policy.parameters(), lr=learning_rate)
 

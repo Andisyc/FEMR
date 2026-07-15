@@ -51,6 +51,11 @@ def _evidence(
         action_norm=torch.ones(n, dtype=torch.float32),
         valid_reward=torch.tensor(valid if valid is not None else [True] * n, dtype=torch.bool),
         horizon_k=horizon,
+        gain_total=torch.tensor(gain, dtype=torch.float32),
+        gain_style=torch.tensor(gain, dtype=torch.float32),
+        gain_physics=torch.zeros(n, dtype=torch.float32),
+        repair_cost=torch.zeros(n, dtype=torch.float32),
+        gain_source="FRS-GAIN-v001",
     )
 
 
@@ -137,6 +142,39 @@ def test_sampler_state_model_tracks_learning_frontier() -> None:
     assert stats.delayed_regret_count == 1
     assert stats.solved_count == 1
     assert stats.hopeless_count == 1
+
+
+def test_sampler_priority_and_state_ignore_legacy_scores() -> None:
+    base = _evidence(
+        [0, 1],
+        gain=[0.20, -0.20],
+        repaired=[0.00, 0.00],
+        noisy=[0.00, 0.00],
+        fall=[False, True],
+    )
+    poisoned = _evidence(
+        [0, 1],
+        gain=[0.20, -0.20],
+        repaired=[1.00, 1.00],
+        noisy=[1.00, 1.00],
+        fall=[False, True],
+    )
+    clean_sampler = FrontRESSegmentSampler(2, seed=53)
+    poisoned_sampler = FrontRESSegmentSampler(2, seed=53)
+    clean_update = clean_sampler.update_with_probe(base)
+    poisoned_update = poisoned_sampler.update_with_probe(poisoned)
+    print(
+        "[probe sampler_gain_only] "
+        f"clean_priority={clean_sampler.priority.tolist()} "
+        f"poisoned_priority={poisoned_sampler.priority.tolist()} "
+        f"clean_state={clean_sampler.segment_state.tolist()} "
+        f"poisoned_state={poisoned_sampler.segment_state.tolist()}",
+        flush=True,
+    )
+    torch.testing.assert_close(clean_sampler.priority, poisoned_sampler.priority)
+    assert clean_sampler.segment_state.tolist() == poisoned_sampler.segment_state.tolist()
+    assert clean_update.priority_after_mean == poisoned_update.priority_after_mean
+    assert clean_sampler.segment_state.tolist() == [FrontRESSegmentState.PROMISING, FrontRESSegmentState.HOPELESS]
 
 
 def test_sampler_state_model_round_trips_and_migrates_legacy_state() -> None:
@@ -288,6 +326,9 @@ def test_sampler_rollout_budget_allocates_trials_by_state_and_horizon_unlock() -
     short_budget = sampler.plan_rollout_budget(torch.tensor([2, 3, 4]), max_horizon_k=8)
     assert short_budget.horizon_k.tolist() == [8, 8, 8]
 
+    full_budget = sampler.plan_rollout_budget(torch.tensor([0, 1, 2, 3, 4, 5]), max_horizon_k=64)
+    assert full_budget.horizon_k.tolist() == [8, 16, 32, 64, 64, 8]
+
 
 def test_sampler_trial_plan_expands_policy_first_roles() -> None:
     sampler = _sampler_with_all_budget_states()
@@ -378,6 +419,7 @@ def main() -> None:
     test_sampler_reports_effective_source_after_fallback()
     test_sampler_update_probe_exposes_priority_boundary()
     test_sampler_state_model_tracks_learning_frontier()
+    test_sampler_priority_and_state_ignore_legacy_scores()
     test_sampler_state_model_round_trips_and_migrates_legacy_state()
     test_sampler_multi_trial_aggregates_fixed_policy_visit()
     test_sampler_multi_trial_update_records_oracle_gap_without_policy_update()

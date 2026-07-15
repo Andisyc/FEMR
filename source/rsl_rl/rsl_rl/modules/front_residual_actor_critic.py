@@ -7,90 +7,30 @@
 Residual Learning Policy for Physical-Aware Motion Refiner.
 
 The legacy joint-space path predicts Δq and patches q_ref before frozen GMT.
-The current FrontRES task-space path predicts bounded ΔSE(3) plus acceptance
-heads; the runner applies that correction to the command/reference frame before
-refreshing observations and asking frozen GMT for robot actions.
+The current FrontRES task-space path predicts full-6D bounded ΔSE(3); the runner
+applies that correction to the command/reference frame before refreshing observations.
 """
 
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.distributions import Normal
 
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_probe_actor",
+    Path(__file__).resolve().parents[1] / "frontres" / "frontres_formal_runtime_probe.py",
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
+emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
+
 from rsl_rl.modules import ActorCritic, EmpiricalNormalization
 from rsl_rl.modules.frontres_observation_layout import split_frontres_policy_obs
 from rsl_rl.utils import resolve_nn_activation
-
-
-class FrontRESTwoHeadActor(nn.Module):
-    """Single FrontRES network with shared trunk and proposal/acceptance heads."""
-
-    def __init__(
-        self,
-        input_dim: int,
-        proposal_dim: int,
-        acceptance_dim: int,
-        hidden_dims: list[int],
-        activation: nn.Module,
-        last_layer_gain: float,
-    ):
-        super().__init__()
-        layers = []
-        prev_dim = input_dim
-        for hidden_dim in hidden_dims:
-            linear = nn.Linear(prev_dim, hidden_dim)
-            nn.init.xavier_uniform_(linear.weight, gain=1.0)
-            nn.init.zeros_(linear.bias)
-            layers.append(linear)
-            layers.append(activation)
-            prev_dim = hidden_dim
-        self.trunk = nn.Sequential(*layers)
-        self.proposal_head = nn.Linear(prev_dim, proposal_dim)
-        self.acceptance_head = nn.Linear(prev_dim, acceptance_dim)
-        nn.init.xavier_uniform_(self.proposal_head.weight, gain=last_layer_gain)
-        nn.init.zeros_(self.proposal_head.bias)
-        nn.init.xavier_uniform_(self.acceptance_head.weight, gain=last_layer_gain)
-        nn.init.zeros_(self.acceptance_head.bias)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        z = self.trunk(x)
-        return torch.cat([self.proposal_head(z), self.acceptance_head(z)], dim=-1)
-
-
-class FrontRESStateRouter(nn.Module):
-    """Auxiliary instability head for Stable Frame routing.
-
-    This head is intentionally not part of the residual action distribution.
-    It predicts current-state risk from the same FrontRES observation stream and
-    is trained by rollout labels in FrontRESUnified.
-    """
-
-    def __init__(
-        self,
-        input_dim: int,
-        hidden_dims: list[int],
-        activation: nn.Module,
-        init_bias: float = -3.0,
-    ):
-        super().__init__()
-        layers = []
-        prev_dim = input_dim
-        for hidden_dim in hidden_dims:
-            linear = nn.Linear(prev_dim, hidden_dim)
-            nn.init.xavier_uniform_(linear.weight, gain=1.0)
-            nn.init.zeros_(linear.bias)
-            layers.append(linear)
-            layers.append(activation)
-            prev_dim = hidden_dim
-        out = nn.Linear(prev_dim, 1)
-        nn.init.xavier_uniform_(out.weight, gain=0.01)
-        nn.init.constant_(out.bias, float(init_bias))
-        layers.append(out)
-        self.net = nn.Sequential(*layers)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
 
 
 class ComposedActor(nn.Module):
@@ -184,7 +124,7 @@ class FrontRESActorCritic(nn.Module):
     - gmt_normalizer: Frozen observation normalizer from GMT checkpoint
 
     In joint-space mode the residual actor outputs Δq.  In task-space mode it
-    outputs [Δpos, Δrpy, acceptance]; the command/reference correction is
+    outputs full-6D [Δpos, Δrpy]; the command/reference correction is
     applied outside this module by the runner.
     """
 
@@ -225,24 +165,14 @@ class FrontRESActorCritic(nn.Module):
         # 0.3 m covers typical float/sink artifacts (AMASS→G1 conversion errors).
         max_delta_z: float = 0.3,
         # Task-space mode: when >0, replaces Δq+Δz with [Δpos(3), Δrpy(3)]
-        # plus acceptance/repair-coefficient heads. Δq patching is disabled.
+        # Δq patching is disabled in task-space mode.
         num_task_corrections: int = 0,
         max_delta_pos: float = 0.3,     # tanh clip for position correction (metres)
         max_delta_rpy: float = 0.3,     # tanh clip for orientation correction (radians)
-        task_conf_dim: int = 2,          # 0: proposal only, 1: scalar trust, 2: c_pos/c_rpy, 6: per-axis coefficients
         # FrontRES-specific observation subset: when >0, FrontRES only processes the
         # first num_frontres_obs dims of policy_obs (reference-frame data only).
         # GMT continues to receive the full policy_obs. 0 = legacy (full obs for both).
         num_frontres_obs: int = 0,
-        # Active FEMR uses a separate acceptance MLP fed by full current state
-        # plus a detached Stage-1 proposal.  The shared two-head actor remains an
-        # ablation surface.
-        frontres_split_acceptance_head: bool = False,
-        # Retired authority actor-critic surface.  Keep it ablation-only and off
-        # the active HSL+acceptance path.
-        frontres_authority_actor_critic: bool = False,
-        frontres_state_router_enabled: bool = False,
-        frontres_authority_hidden_dims: list[int] | None = None,
         **kwargs,
     ):
         legacy_actor_hidden_dims = kwargs.pop("actor_hidden_dims", None)
@@ -263,25 +193,12 @@ class FrontRESActorCritic(nn.Module):
         self.num_actions = num_actions          # = robot joint DOFs = GMT output dim (e.g. 29)
         self.num_z_outputs = num_z_outputs      # extra Δz outputs (0 = legacy)
         self.num_task_corrections = num_task_corrections  # task-space mode dim (0 = disabled)
-        self.task_conf_dim = int(task_conf_dim)
-        if self.num_task_corrections > 0 and self.task_conf_dim not in (0, 1, 2, 6):
-            raise ValueError("task_conf_dim must be 0 (proposal only), 1 (trust), 2 (legacy), or 6 (per-axis coefficients).")
-        # Task-space mode: output = [Δpos(3), Δrpy(3)] plus optional acceptance/coefficients.
-        if num_task_corrections > 0:
-            self.total_output_dim = num_task_corrections + self.task_conf_dim
-        else:
-            self.total_output_dim = num_actions + num_z_outputs  # FrontRES output (e.g. 30)
+        self.total_output_dim = (
+            num_task_corrections if num_task_corrections > 0 else num_actions + num_z_outputs
+        )
         # FrontRES observation subset: when >0, residual_actor only sees first N dims
         # (reference-frame data). GMT always sees the full observation.
         self.num_frontres_obs = num_frontres_obs
-        self.frontres_split_acceptance_head = bool(frontres_split_acceptance_head)
-        self.frontres_authority_actor_critic = bool(frontres_authority_actor_critic)
-        self.frontres_state_router_enabled = bool(frontres_state_router_enabled)
-        if self.frontres_authority_actor_critic and self.num_task_corrections != 6:
-            raise ValueError(
-                "frontres_authority_actor_critic requires 6D task-space corrections "
-                "[dx, dy, dz, droll, dpitch, dyaw]."
-            )
         self.q_ref_start_idx = q_ref_start_idx
         self.noise_std_type = noise_std_type
         self.max_delta_q = max_delta_q          # tanh clip for Δq (rad)
@@ -447,115 +364,18 @@ class FrontRESActorCritic(nn.Module):
         
         # ========== Build Front-End Residual Network ==========
 
-        # Joint-space mode outputs [Δq, Δz].  The default task-space FrontRES
-        # path uses one shared network with proposal and acceptance heads.
+        # Joint-space mode outputs [Δq, Δz]. Task-space mode is full-6D ΔSE(3).
         _frontres_input_dim = num_frontres_obs if num_frontres_obs > 0 else num_actor_obs
-        self.acceptance_actor = None
-        self.authority_actor = None
-        self.authority_critic = None
-        self.state_router_head = None
-        if (
-            self.num_task_corrections > 0
-            and not self.frontres_split_acceptance_head
-            and self.task_conf_dim in (1, 6)
-        ):
-            self.residual_actor = self._build_frontres_two_head_actor(
-                input_dim=_frontres_input_dim,
-                proposal_dim=self.num_task_corrections,
-                acceptance_dim=self.task_conf_dim,
-                hidden_dims=residual_hidden_dims,
-                activation=activation_fn,
-                last_layer_gain=residual_last_layer_gain,
-            )
-        else:
-            # In active split-acceptance FEMR, Stage 1 owns only the 6D proposal.
-            # Stage 2 acceptance logits come from acceptance_actor below, so do
-            # not build unused rho/coeff output columns into the proposal actor.
-            _residual_output_dim = (
-                self.num_task_corrections
-                if self.num_task_corrections > 0 and self.frontres_split_acceptance_head
-                else self.total_output_dim
-            )
-            self.residual_actor = self._build_residual_actor(
-                input_dim=_frontres_input_dim,
-                output_dim=_residual_output_dim,
-                hidden_dims=residual_hidden_dims,
-                activation=activation_fn,
-                last_layer_gain=residual_last_layer_gain)
-        if (
-            self.frontres_split_acceptance_head
-            and self.num_task_corrections > 0
-            and self.task_conf_dim in (1, 6)
-        ):
-            _acceptance_input_dim = num_actor_obs + self.num_task_corrections
-            self.acceptance_actor = self._build_residual_actor(
-                input_dim=_acceptance_input_dim,
-                output_dim=self.task_conf_dim,
-                hidden_dims=residual_hidden_dims,
-                activation=activation_fn,
-                last_layer_gain=residual_last_layer_gain)
-            print(
-                "[FrontEndResidualActorCritic] Split acceptance head enabled: "
-                f"proposal_input_dim={_frontres_input_dim}, "
-                f"acceptance_input_dim={_acceptance_input_dim} "
-                "(ablation: full current-state obs + detached proposal)"
-            )
-        if self.frontres_authority_actor_critic and self.num_task_corrections > 0:
-            _authority_hidden = (
-                list(frontres_authority_hidden_dims)
-                if frontres_authority_hidden_dims is not None
-                else list(residual_hidden_dims)
-            )
-            _authority_actor_input_dim = num_actor_obs + self.num_task_corrections
-            _authority_critic_input_dim = num_actor_obs + 2 * self.num_task_corrections
-            self.authority_actor = self._build_residual_actor(
-                input_dim=_authority_actor_input_dim,
-                output_dim=self.num_task_corrections,
-                hidden_dims=_authority_hidden,
-                activation=activation_fn,
-                last_layer_gain=residual_last_layer_gain,
-            )
-            self.authority_critic = self._build_residual_actor(
-                input_dim=_authority_critic_input_dim,
-                output_dim=1,
-                hidden_dims=_authority_hidden,
-                activation=activation_fn,
-                last_layer_gain=1.0,
-            )
-            print(
-                "[FrontEndResidualActorCritic] Authority actor-critic enabled: "
-                f"actor_input_dim={_authority_actor_input_dim}, "
-                f"critic_input_dim={_authority_critic_input_dim}, "
-                f"rho_dim={self.num_task_corrections}"
-            )
-        if self.frontres_state_router_enabled and self.num_task_corrections > 0:
-            _router_hidden = list(residual_hidden_dims[:2]) if len(residual_hidden_dims) >= 2 else list(residual_hidden_dims)
-            if not _router_hidden:
-                _router_hidden = [128, 64]
-            self.state_router_head = FrontRESStateRouter(
-                input_dim=_frontres_input_dim,
-                hidden_dims=_router_hidden,
-                activation=activation_fn,
-                init_bias=-3.0,
-            )
-            print(
-                "[FrontEndResidualActorCritic] State-router alpha head enabled: "
-                f"input_dim={_frontres_input_dim}, hidden_dims={_router_hidden}, init_alpha≈0.047"
-            )
+        self.residual_actor = self._build_residual_actor(
+            input_dim=_frontres_input_dim,
+            output_dim=self.total_output_dim,
+            hidden_dims=residual_hidden_dims,
+            activation=activation_fn,
+            last_layer_gain=residual_last_layer_gain)
         if num_task_corrections > 0:
-            if self.frontres_split_acceptance_head:
-                coeff_desc = f"acceptance logits({self.task_conf_dim}) from split Stage-2 head"
-            elif self.task_conf_dim == 0:
-                coeff_desc = "proposal-only"
-            elif self.task_conf_dim == 1:
-                coeff_desc = "legacy scalar rho(1)"
-            elif self.task_conf_dim == 2:
-                coeff_desc = "legacy c_pos(1)+c_rpy(1)"
-            else:
-                coeff_desc = "rho_pos(3)+rho_rpy(3)"
             print(f"[FrontEndResidualActorCritic] FrontRES output: "
                   f"{self.total_output_dim} task-space dims "
-                  f"[Δpos(3)+Δrpy(3)+{coeff_desc}] — no Δq patching")
+                  "[Δpos(3)+Δrpy(3)] — no Δq patching")
         else:
             print(f"[FrontEndResidualActorCritic] FrontRES output: "
                   f"{num_actions} Δq + {num_z_outputs} Δz = {self.total_output_dim} dims")
@@ -619,11 +439,6 @@ class FrontRESActorCritic(nn.Module):
         if self.noise_std_type == "scalar":
             _val = init_noise_std * torch.ones(self.total_output_dim)
             if self.num_task_corrections > 0:
-                # FrontRES: per-dimension σ.
-                #   pos/rpy: precision, not exploration.
-                #   acceptance/coefficients: slightly larger so gates can move.
-                if self.task_conf_dim > 0:
-                    _val[-self.task_conf_dim:] = init_noise_std * 5.0
                 self.register_buffer('std', _val)
             else:
                 self.std = nn.Parameter(_val)
@@ -680,31 +495,8 @@ class FrontRESActorCritic(nn.Module):
                   f"but environment provides {num_actor_obs}. Will pad with zeros during inference.")
 
     def _frontres_raw_task_output(self, policy_obs: torch.Tensor) -> torch.Tensor:
-        """Return raw [proposal, acceptance] logits for task-space FrontRES.
-
-        The active HSL+acceptance path uses residual_actor for the Stage-1
-        proposal and acceptance_actor for Stage-2 admissibility.  The acceptance
-        actor sees the full current-state observation and a detached proposal.
-        The older shared two-head actor remains an ablation path.
-        """
-        raw = self.residual_actor(policy_obs)
-        if (
-            self.num_task_corrections <= 0
-            or self.acceptance_actor is None
-            or not self.frontres_split_acceptance_head
-        ):
-            return raw
-
-        raw_pos = raw[:, :3]
-        raw_rpy = raw[:, 3:6]
-        proposal = torch.cat([
-            torch.tanh(raw_pos) * self.max_delta_pos,
-            torch.tanh(raw_rpy) * self.max_delta_rpy,
-        ], dim=-1)
-        full_obs = getattr(self, "_cached_full_policy_obs", policy_obs)
-        acceptance_input = torch.cat([full_obs, proposal.detach()], dim=-1)
-        raw_coeff = self.acceptance_actor(acceptance_input)
-        return torch.cat([raw_pos, raw_rpy, raw_coeff], dim=-1)
+        """Return raw full-6D task-space correction logits."""
+        return self.residual_actor(policy_obs)
 
     def _frontres_bounded_proposal(self, raw: torch.Tensor) -> torch.Tensor:
         """Return bounded Stage-1 Delta SE proposal from raw FrontRES output."""
@@ -715,93 +507,6 @@ class FrontRESActorCritic(nn.Module):
             torch.tanh(raw_pos) * self.max_delta_pos,
             torch.tanh(raw_rpy) * self.max_delta_rpy,
         ], dim=-1)
-
-    def _frontres_authority_state_and_proposal(
-        self,
-        observations: torch.Tensor | dict[str, torch.Tensor],
-        proposal_delta_se: torch.Tensor | None = None,
-        *,
-        detach_proposal: bool = True,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return full current-state obs and Stage-1 proposal for authority heads."""
-
-        policy_obs, _, _ = self._parse_observations(observations)
-        full_obs = getattr(self, "_cached_full_policy_obs", policy_obs)
-        if proposal_delta_se is None:
-            raw = self.residual_actor(policy_obs)
-            proposal_delta_se = self._frontres_bounded_proposal(raw)
-        if proposal_delta_se.shape[-1] != self.num_task_corrections:
-            raise ValueError(
-                f"proposal_delta_se must have last dimension {self.num_task_corrections}, "
-                f"got shape {tuple(proposal_delta_se.shape)}."
-            )
-        if detach_proposal:
-            proposal_delta_se = proposal_delta_se.detach()
-        return full_obs, proposal_delta_se
-
-    def get_authority_rho(
-        self,
-        observations: torch.Tensor | dict[str, torch.Tensor],
-        proposal_delta_se: torch.Tensor | None = None,
-        *,
-        active_task_dims: torch.Tensor | None = None,
-        detach_proposal: bool = True,
-    ) -> torch.Tensor:
-        """Return bounded continuous 6D authority rho from Stage-2 actor."""
-
-        if self.authority_actor is None:
-            raise RuntimeError("FrontRES authority_actor is not enabled on this policy.")
-        full_obs, proposal = self._frontres_authority_state_and_proposal(
-            observations,
-            proposal_delta_se,
-            detach_proposal=detach_proposal,
-        )
-        raw_rho = self.authority_actor(torch.cat([full_obs, proposal], dim=-1))
-        rho = torch.sigmoid(raw_rho)
-        if active_task_dims is not None:
-            mask = active_task_dims.to(device=rho.device, dtype=rho.dtype)
-            if mask.shape[-1] != self.num_task_corrections:
-                raise ValueError(
-                    f"active_task_dims must have last dimension {self.num_task_corrections}, "
-                    f"got shape {tuple(mask.shape)}."
-                )
-            rho = rho * mask
-        return rho
-
-    def evaluate_authority_q(
-        self,
-        observations: torch.Tensor | dict[str, torch.Tensor],
-        proposal_delta_se: torch.Tensor,
-        authority_rho: torch.Tensor,
-        *,
-        detach_proposal: bool = True,
-    ) -> torch.Tensor:
-        """Evaluate Q(state, detached proposal, rho) for the authority critic."""
-
-        if self.authority_critic is None:
-            raise RuntimeError("FrontRES authority_critic is not enabled on this policy.")
-        if authority_rho.shape[-1] != self.num_task_corrections:
-            raise ValueError(
-                f"authority_rho must have last dimension {self.num_task_corrections}, "
-                f"got shape {tuple(authority_rho.shape)}."
-            )
-        full_obs, proposal = self._frontres_authority_state_and_proposal(
-            observations,
-            proposal_delta_se,
-            detach_proposal=detach_proposal,
-        )
-        return self.authority_critic(torch.cat([full_obs, proposal, authority_rho], dim=-1))
-
-    def get_state_router_logit(self, observations: torch.Tensor) -> torch.Tensor:
-        """Return unnormalized alpha logit for the auxiliary instability head."""
-        if self.state_router_head is None:
-            return torch.zeros(observations.shape[0], 1, device=observations.device, dtype=observations.dtype)
-        policy_obs, _, _ = self._parse_observations(observations)
-        return self.state_router_head(policy_obs)
-
-    def get_state_router_alpha(self, observations: torch.Tensor) -> torch.Tensor:
-        """Return alpha=P(current state needs Stable Frame route)."""
-        return torch.sigmoid(self.get_state_router_logit(observations))
 
     def _infer_gmt_architecture(self, state_dict, activation):
         """Infer GMT policy architecture from checkpoint state_dict"""
@@ -904,170 +609,6 @@ class FrontRESActorCritic(nn.Module):
                   f"(gain={last_layer_gain})")
 
         return nn.Sequential(*layers)
-
-    def _build_frontres_two_head_actor(
-        self,
-        input_dim,
-        proposal_dim,
-        acceptance_dim,
-        hidden_dims,
-        activation,
-        last_layer_gain,
-    ):
-        """Build the preferred hsl_hybrid actor: one trunk, proposal/acceptance heads."""
-        actor = FrontRESTwoHeadActor(
-            input_dim=input_dim,
-            proposal_dim=proposal_dim,
-            acceptance_dim=acceptance_dim,
-            hidden_dims=hidden_dims,
-            activation=activation,
-            last_layer_gain=last_layer_gain,
-        )
-        with torch.no_grad():
-            prop_norm = torch.norm(actor.proposal_head.weight).item()
-            acc_norm = torch.norm(actor.acceptance_head.weight).item()
-            print(
-                "[ResidualActorCritic] FrontRES two-head actor: "
-                f"shared_input_dim={input_dim}, proposal_dim={proposal_dim}, "
-                f"acceptance_dim={acceptance_dim}, "
-                f"proposal_head_norm={prop_norm:.6f}, "
-                f"acceptance_head_norm={acc_norm:.6f} (gain={last_layer_gain})"
-            )
-        return actor
-
-    def initialize_two_head_from_legacy_state(self, residual_state_dict: dict) -> bool:
-        """Warm-start the two-head actor from a legacy single-output MLP."""
-        actor = getattr(self, "residual_actor", None)
-        if not isinstance(actor, FrontRESTwoHeadActor) or not residual_state_dict:
-            return False
-
-        new_state = actor.state_dict()
-        legacy_linear_keys = sorted(
-            [k for k in residual_state_dict.keys() if k.endswith(".weight")],
-            key=lambda k: int(k.split(".")[0]) if k.split(".")[0].isdigit() else -1,
-        )
-        if not legacy_linear_keys:
-            return False
-        legacy_last_weight = legacy_linear_keys[-1]
-        legacy_last_bias = legacy_last_weight.replace(".weight", ".bias")
-        copied_any = False
-
-        for key, value in list(new_state.items()):
-            if key.startswith("trunk."):
-                legacy_key = key.replace("trunk.", "", 1)
-                src = residual_state_dict.get(legacy_key)
-                if src is not None and src.shape == value.shape:
-                    new_state[key] = src.clone()
-                    copied_any = True
-            elif key == "proposal_head.weight":
-                src = residual_state_dict.get(legacy_last_weight)
-                if src is not None and src.ndim == 2 and src.shape[0] >= self.num_task_corrections:
-                    copied = torch.zeros_like(value)
-                    rows = min(copied.shape[0], self.num_task_corrections)
-                    cols = min(copied.shape[1], src.shape[1])
-                    copied[:rows, :cols] = src[:rows, :cols]
-                    new_state[key] = copied
-                    copied_any = True
-            elif key == "proposal_head.bias":
-                src = residual_state_dict.get(legacy_last_bias)
-                if src is not None and src.ndim == 1 and src.shape[0] >= self.num_task_corrections:
-                    copied = torch.zeros_like(value)
-                    rows = min(copied.shape[0], self.num_task_corrections)
-                    copied[:rows] = src[:rows]
-                    new_state[key] = copied
-                    copied_any = True
-            elif key == "acceptance_head.weight":
-                src = residual_state_dict.get(legacy_last_weight)
-                start = int(self.num_task_corrections)
-                end = start + int(self.task_conf_dim)
-                if src is not None and src.ndim == 2 and src.shape[0] >= end:
-                    copied = torch.zeros_like(value)
-                    rows = min(copied.shape[0], self.task_conf_dim)
-                    cols = min(copied.shape[1], src.shape[1])
-                    copied[:rows, :cols] = src[start:start + rows, :cols]
-                    new_state[key] = copied
-                    copied_any = True
-            elif key == "acceptance_head.bias":
-                src = residual_state_dict.get(legacy_last_bias)
-                start = int(self.num_task_corrections)
-                end = start + int(self.task_conf_dim)
-                if src is not None and src.ndim == 1 and src.shape[0] >= end:
-                    copied = torch.zeros_like(value)
-                    rows = min(copied.shape[0], self.task_conf_dim)
-                    copied[:rows] = src[start:start + rows]
-                    new_state[key] = copied
-                    copied_any = True
-
-        if copied_any:
-            actor.load_state_dict(new_state, strict=True)
-        return copied_any
-
-    def initialize_acceptance_from_residual_state(self, residual_state_dict: dict) -> bool:
-        """Warm-start split acceptance head from a legacy combined residual actor.
-
-        Legacy hsl_hybrid checkpoints stored proposal and rho in one MLP.  The
-        split head has a wider first layer because it receives full current-state
-        obs plus a detached proposal.  Copy overlapping hidden-layer weights and
-        copy the legacy acceptance output rows into the new head; newly added
-        proposal-input columns remain zero.
-        """
-        if self.acceptance_actor is None:
-            return False
-        acceptance_state = self.acceptance_actor.state_dict()
-        if not residual_state_dict or not acceptance_state:
-            return False
-
-        weight_keys = sorted(
-            [k for k in acceptance_state.keys() if k.endswith(".weight")],
-            key=lambda k: int(k.split(".")[0]) if k.split(".")[0].isdigit() else -1,
-        )
-        if not weight_keys:
-            return False
-        last_weight_key = weight_keys[-1]
-        last_bias_key = last_weight_key.replace(".weight", ".bias")
-        start = int(self.num_task_corrections)
-        end = start + int(self.task_conf_dim)
-
-        new_state = {}
-        copied_any = False
-        for key, value in acceptance_state.items():
-            copied = torch.zeros_like(value)
-            src = residual_state_dict.get(key)
-            if src is None:
-                new_state[key] = value
-                continue
-
-            if key == last_weight_key:
-                if src.ndim == 2 and src.shape[0] >= end:
-                    rows = min(copied.shape[0], self.task_conf_dim)
-                    cols = min(copied.shape[1], src.shape[1])
-                    copied[:rows, :cols] = src[start:start + rows, :cols]
-                    new_state[key] = copied
-                    copied_any = True
-                else:
-                    new_state[key] = value
-            elif key == last_bias_key:
-                if src.ndim == 1 and src.shape[0] >= end:
-                    rows = min(copied.shape[0], self.task_conf_dim)
-                    copied[:rows] = src[start:start + rows]
-                    new_state[key] = copied
-                    copied_any = True
-                else:
-                    new_state[key] = value
-            elif src.shape == value.shape:
-                new_state[key] = src.clone()
-                copied_any = True
-            elif src.ndim == value.ndim:
-                slices = tuple(slice(0, min(a, b)) for a, b in zip(value.shape, src.shape))
-                copied[slices] = src[slices]
-                new_state[key] = copied
-                copied_any = True
-            else:
-                new_state[key] = value
-
-        if copied_any:
-            self.acceptance_actor.load_state_dict(new_state, strict=True)
-        return copied_any
 
     def _pad_observations_for_gmt(self, observations):
         """
@@ -1224,7 +765,7 @@ class FrontRESActorCritic(nn.Module):
 
         Returns:
             robot_actions (Tensor): final motor commands from GMT
-            frontres_out  (Tensor): FrontRES output (Δq or [Δpos, Δrpy, acceptance])
+            frontres_out  (Tensor): FrontRES output (Δq or full-6D [Δpos, Δrpy])
         """
         policy_obs, ref_vel, ref_vel_estimator_obs = self._parse_observations(observations)
 
@@ -1232,18 +773,8 @@ class FrontRESActorCritic(nn.Module):
 
         if self.num_task_corrections > 0:
             proposal = self._frontres_bounded_proposal(raw)
-            if self.authority_actor is not None:
-                coeff = self.get_authority_rho(
-                    observations,
-                    proposal_delta_se=proposal,
-                    detach_proposal=True,
-                )
-            elif self.task_conf_dim == 0:
-                coeff = proposal.new_zeros((proposal.shape[0], 0))
-            else:
-                coeff = torch.sigmoid(raw[:, 6:6 + self.task_conf_dim])
-            frontres_out = torch.cat([proposal, coeff], dim=-1)
-            self.last_task_correction = frontres_out.detach()
+            frontres_out = proposal
+            self.last_task_correction = proposal.detach()
             self.last_delta_z = None
             with torch.no_grad():
                 robot_actions = self._run_gmt_direct(policy_obs, ref_vel, ref_vel_estimator_obs)
@@ -1264,44 +795,31 @@ class FrontRESActorCritic(nn.Module):
         """Deterministic bounded task-space correction for runner/env-side application."""
         if self.num_task_corrections <= 0:
             raise RuntimeError("get_task_correction_inference is only valid in task-space FrontRES mode")
+        # B1: Parse the policy observation without narrowing the full-6D repair cone.
         policy_obs, _, _ = self._parse_observations(observations)
-        raw = self._frontres_raw_task_output(policy_obs) if self.num_task_corrections > 0 else self.residual_actor(policy_obs)
+        raw = self._frontres_raw_task_output(policy_obs)
         proposal = self._frontres_bounded_proposal(raw)
-        if self.authority_actor is not None:
-            coeff = self.get_authority_rho(
-                observations,
-                proposal_delta_se=proposal,
-                detach_proposal=True,
-            )
-        elif self.task_conf_dim == 0:
-            coeff = proposal.new_zeros((proposal.shape[0], 0))
-        else:
-            coeff = torch.sigmoid(raw[:, 6:6 + self.task_conf_dim])
-        correction = torch.cat([proposal, coeff], dim=-1)
-        self.last_task_correction = correction.detach()
+        correction = proposal
+        self.last_task_correction = proposal.detach()
         self.last_delta_z = None
         self.last_residual_actions = correction.detach()
         return correction
 
     def update_distribution(self, observations):
-        """
-        Define FrontRES action distribution for PPO training.
+        """构造 direct Delta SE(3) PPO 的 full-6D action distribution.
 
-        Design rationale
-        ----------------
-        Treating the residual correction as the "action" of FrontRES (with
-        frozen GMT + robot as the black-box environment) is the correct
-        policy-gradient formulation:
+        函数名说明:
+            `update_distribution` 是 FrontRES policy distribution owner, 产生 mean
+            和 sigma; 它不执行 GMT, 也不把 residual action 改写为 motor action.
 
-            ∇J ∝ E[ A · ∇_θ log π_θ(Δ | obs) ]
+        主链路:
+            上游: `act` 或 PPO evaluate 传入同一布局的 normalized observation.
+            下游: `Normal(mean, sigma)` 为 rollout sampling, old stats storage,
+            log_prob 和 KL 提供同一个 raw action space.
 
-        The gradient ∂ log π / ∂θ flows through the trainable FrontRES action
-        distribution (proposal path and, in split mode, acceptance path), with
-        NO need to backpropagate through the frozen GMT network.
-
-        The runner calls get_env_action() separately to map the sampled residual
-        correction to robot_actions for env.step(). The rollout buffer stores
-        the residual action for log_prob computation.
+        语义:
+            PPO 优化的是完整 6D Delta SE(3) distribution. 梯度只穿过 FrontRES
+            actor, frozen GMT 和机器人动力学属于 environment boundary.
         """
         policy_obs, _, _ = self._parse_observations(observations)
 
@@ -1347,19 +865,17 @@ class FrontRESActorCritic(nn.Module):
         # Cache full observations so get_env_action can access ref_vel if present
         self._cached_observations = observations
 
+        # B2: Produce raw full-6D mean and positive sigma for one Normal distribution.
         # FrontRES forward
         raw = self._frontres_raw_task_output(policy_obs) if self.num_task_corrections > 0 else self.residual_actor(policy_obs)
 
         if self.num_task_corrections > 0:
-            # Output: [Δpos_raw(3), Δrpy_raw(3), acceptance/coefficient raw dims].
-            raw_pos   = raw[:, :3]
-            raw_rpy   = raw[:, 3:6]
-            raw_coeff = raw[:, 6:6 + self.task_conf_dim]
-            frontres_mean = torch.cat([raw_pos, raw_rpy, raw_coeff], dim=-1)
+            raw_pos = raw[:, :3]
+            raw_rpy = raw[:, 3:6]
+            frontres_mean = raw
             self.last_task_correction = torch.cat([
-                torch.tanh(raw_pos)    * self.max_delta_pos,
-                torch.tanh(raw_rpy)    * self.max_delta_rpy,
-                torch.sigmoid(raw_coeff),
+                torch.tanh(raw_pos) * self.max_delta_pos,
+                torch.tanh(raw_rpy) * self.max_delta_rpy,
             ], dim=-1).detach()
             self.last_delta_z          = None
             self.last_residual_actions = self.last_task_correction
@@ -1411,51 +927,74 @@ class FrontRESActorCritic(nn.Module):
         # Distribution is over the full residual output. PPO stores residual
         # samples as "actions"; get_env_action maps them to GMT/robot actions.
         self.distribution = Normal(frontres_mean, std)
+        # B3: mean 和 sigma 定义 act 与 PPO storage 共用的 raw distribution.
 
     def act(self, observations, **kwargs):
-        """
-        Sample a FrontRES residual action for rollout data collection.
+        """从 FrontRES distribution 采样 rollout residual action.
 
-        Returns the residual sample, NOT robot motor actions. In task-space mode
-        the sample is [Δpos, Δrpy, c_pos, c_rpy]; in joint-space mode it is Δq
-        or [Δq, Δz]. The runner converts it to robot_actions via get_env_action().
+        函数名说明:
+            `act` 返回策略 action, 即 full-6D Delta SE(3) repair; 它不是 GMT
+            motor action. Motor action 由后续 `get_env_action` 单独产生.
+
+        主链路:
+            上游: rollout step 传入 normalized policy observation.
+            下游: bounded repair 写入 PPO transition, 同时传给 task correction
+            application 和 frozen-GMT execution.
+
+        语义:
+            raw sample 与 mean/sigma 同源, bounded sample 是环境执行表示. 两种
+            representation 的 log_prob 重写必须保持同一个 rollout tuple.
         """
         self.update_distribution(observations)
         raw_sample = self.distribution.sample()
         if self.num_task_corrections > 0:
-            # Raw → bounded: pos/rpy via tanh, acceptance/coefficients via sigmoid.
-            return torch.cat([
+            # Raw -> bounded full-6D Delta SE(3).
+            action = torch.cat([
                 torch.tanh(raw_sample[:, :3])  * self.max_delta_pos,
                 torch.tanh(raw_sample[:, 3:6]) * self.max_delta_rpy,
-                torch.sigmoid(raw_sample[:, 6:6 + self.task_conf_dim]),
             ], dim=-1)
-        return raw_sample
+        else:
+            action = raw_sample
+        # AUDIT-ACTION-01: Record the exact mean/sigma/action tuple at the actor owner.
+        # Result: PENDING_LIVE.
+        emit_formal_runtime_probe(
+            "AUDIT-ACTION-01",
+            observations=observations,
+            mean=self.distribution.mean,
+            sigma=self.distribution.stddev,
+            action=action,
+        )
+        return action
 
     def get_env_action(self, observations, delta_q_sample: torch.Tensor) -> torch.Tensor:
-        """
-        Convert a FrontRES residual sample to robot motor actions for env.step().
+        """在保存 repair action 后调用 frozen GMT 生成 motor action.
 
-        Called by the runner immediately after policy.act():
-            residual_sample = policy.act(obs)           # stored in rollout buffer
-            robot_actions   = policy.get_env_action(obs, residual_sample)
-            env.step(robot_actions)
+        函数名说明:
+            `get_env_action` 是 FrontRES action 到环境 motor action 的 execution
+            adapter; 它不重新采样 repair, 也不允许梯度进入 frozen GMT.
 
-        Uses cached observations from the preceding act() call so that ref_vel
-        (possibly appended by the velocity estimator inside MOSAIC.act()) is
-        correctly forwarded to GMT even when the runner only passes raw obs here.
+        主链路:
+            上游: rollout step 传入 `act` 刚采样的 full-6D repair 和同源 obs.
+            下游: task-space repair 写入 command owner, frozen GMT 读取修正后的
+            reference 并返回 `env.step` 使用的 robot actions.
+
+        语义:
+            PPO storage 保存的是 repair action, 不是 robot action. GMT 在
+            `torch.no_grad()` 下执行, 其参数必须保持 frozen.
         """
         # Prefer the cached obs from act() which may include ref_vel suffix.
         # If _cached_observations has a different number of environments than delta_q_sample
         # (B1 split-env case: runner calls with sliced obs[:N_train] or obs[N_train:]),
         # fall back to the passed observations to avoid dimension mismatch.
+        # B1: 复用与 sampled FrontRES action 配对的 observation.
         cached = getattr(self, '_cached_observations', observations)
         if cached.shape[0] != delta_q_sample.shape[0]:
             cached = observations
         policy_obs, ref_vel, ref_vel_estimator_obs = self._parse_observations(cached)
 
+        # B2: 先记录 full-6D correction, 再在 no_grad 边界执行 frozen GMT.
         if self.num_task_corrections > 0:
-            # Task-space mode: delta_q_sample is the full
-            # [Δpos(3), Δrpy(3), c_pos(1), c_rpy(1)] sample.
+            # Task-space mode: delta_q_sample is the full [Δpos(3), Δrpy(3)] sample.
             # Store as last_task_correction so the runner can apply it to the command term.
             self.last_task_correction = delta_q_sample.detach()
             with torch.no_grad():
@@ -1467,6 +1006,15 @@ class FrontRESActorCritic(nn.Module):
                 robot_actions = self._apply_delta_q_and_run_gmt(
                     policy_obs, delta_q_only, ref_vel, ref_vel_estimator_obs)
 
+        # AUDIT-GMT-01: Confirm GMT consumed the repaired path under the no_grad boundary above.
+        # Result: PENDING_LIVE.
+        emit_formal_runtime_probe(
+            "AUDIT-GMT-01",
+            policy_obs=policy_obs,
+            frontres_action=delta_q_sample,
+            robot_actions=robot_actions,
+            gmt_training=getattr(self.gmt_policy, "training", "missing"),
+        )
         return robot_actions
 
     def get_actions_log_prob(self, actions):
@@ -1476,9 +1024,8 @@ class FrontRESActorCritic(nn.Module):
         `actions` here are full frontres_output values stored during rollout (NOT robot actions).
         """
         if self.num_task_corrections > 0:
-            # Actions: [Δpos(3), Δrpy(3), acceptance/coefficient dims].
+            # Actions: bounded full-6D Delta SE(3).
             _pos_rpy = actions[:, :6]
-            _coeff   = actions[:, 6:6 + self.task_conf_dim]
             # ── pos/rpy: invert tanh ──────────────────────────────────────
             max_d = torch.cat([
                 torch.full((3,), self.max_delta_pos, device=actions.device),
@@ -1486,16 +1033,12 @@ class FrontRESActorCritic(nn.Module):
             ], dim=-1)
             normalized = (_pos_rpy / max_d).clamp(-1 + 1e-6, 1 - 1e-6)
             raw_pr = torch.atanh(normalized)
-            # ── acceptance/coefficients: invert sigmoid → logit ───────────
-            _coeff_clamped = _coeff.clamp(1e-6, 1.0 - 1e-6)
-            raw_coeff = torch.log(_coeff_clamped / (1.0 - _coeff_clamped))
+            # Bounded full-6D action: invert task-space squash to raw logits.
             # ── raw sample + log_prob ─────────────────────────────────────
-            raw_sample = torch.cat([raw_pr, raw_coeff], dim=-1)
-            log_prob = self.distribution.log_prob(raw_sample).sum(dim=-1)
+            log_prob = self.distribution.log_prob(raw_pr).sum(dim=-1)
             # Jacobian
             log_j   = (torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)).sum(dim=-1)
-            log_j_c = (torch.log(_coeff_clamped) + torch.log(1.0 - _coeff_clamped)).sum(dim=-1)
-            return log_prob - log_j - log_j_c
+            return log_prob - log_j
         return self.distribution.log_prob(actions).sum(dim=-1)
 
     def get_actions_log_prob_selected(self, actions, selected_dims):
@@ -1513,22 +1056,15 @@ class FrontRESActorCritic(nn.Module):
 
         if self.num_task_corrections > 0:
             _pos_rpy = actions[:, :6]
-            _coeff = actions[:, 6:6 + self.task_conf_dim]
             max_d = torch.cat([
                 torch.full((3,), self.max_delta_pos, device=actions.device),
                 torch.full((3,), self.max_delta_rpy, device=actions.device),
             ], dim=-1)
             normalized = (_pos_rpy / max_d).clamp(-1 + 1e-6, 1 - 1e-6)
             raw_pr = torch.atanh(normalized)
-            _coeff_clamped = _coeff.clamp(1e-6, 1.0 - 1e-6)
-            raw_coeff = torch.log(_coeff_clamped / (1.0 - _coeff_clamped))
-            raw_sample = torch.cat([raw_pr, raw_coeff], dim=-1)
-
-            log_prob_all = self.distribution.log_prob(raw_sample)
+            log_prob_all = self.distribution.log_prob(raw_pr)
             log_j_pr = torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)
-            log_j_c = torch.log(_coeff_clamped) + torch.log(1.0 - _coeff_clamped)
-            log_j_all = torch.cat([log_j_pr, log_j_c], dim=-1)
-            return (log_prob_all[:, dims] - log_j_all[:, dims]).sum(dim=-1)
+            return (log_prob_all[:, dims] - log_j_pr[:, dims]).sum(dim=-1)
 
         return self.distribution.log_prob(actions)[:, dims].sum(dim=-1)
 
@@ -1553,23 +1089,16 @@ class FrontRESActorCritic(nn.Module):
 
         if self.num_task_corrections > 0:
             _pos_rpy = actions[:, :6]
-            _coeff = actions[:, 6:6 + self.task_conf_dim]
             max_d = torch.cat([
                 torch.full((3,), self.max_delta_pos, device=actions.device),
                 torch.full((3,), self.max_delta_rpy, device=actions.device),
             ], dim=-1)
             normalized = (_pos_rpy / max_d).clamp(-1 + 1e-6, 1 - 1e-6)
             raw_pr = torch.atanh(normalized)
-            _coeff_clamped = _coeff.clamp(1e-6, 1.0 - 1e-6)
-            raw_coeff = torch.log(_coeff_clamped / (1.0 - _coeff_clamped))
-            raw_sample = torch.cat([raw_pr, raw_coeff], dim=-1)
-
             dist = Normal(mean, std)
-            log_prob_all = dist.log_prob(raw_sample)
+            log_prob_all = dist.log_prob(raw_pr)
             log_j_pr = torch.log(max_d) + torch.log(1.0 - normalized.pow(2) + 1e-6)
-            log_j_c = torch.log(_coeff_clamped) + torch.log(1.0 - _coeff_clamped)
-            log_j_all = torch.cat([log_j_pr, log_j_c], dim=-1)
-            return log_prob_all[:, dims] - log_j_all[:, dims]
+            return log_prob_all[:, dims] - log_j_pr[:, dims]
 
         dist = Normal(mean, std)
         return dist.log_prob(actions)[:, dims]

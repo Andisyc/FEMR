@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib.util
 import math
+from pathlib import Path
 from typing import Any
 
 import torch
+
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_probe_diagnostics",
+    Path(__file__).resolve().with_name("frontres_formal_runtime_probe.py"),
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
+emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
 
 
 FORBIDDEN_ACCEPTANCE_KEYS = {
@@ -69,6 +80,7 @@ def summarize_segment_batch(
     labels = ("dx", "dy", "dz", "droll", "dpitch", "dyaw")
     for i, label in enumerate(labels):
         scalars[f"segment/action_norm_{label}"] = float(per_dim[i].item()) if i < per_dim.numel() else 0.0
+    # B2: Remove retired acceptance fields before terminal/logger formatting.
     for key in FORBIDDEN_ACCEPTANCE_KEYS:
         scalars.pop(key, None)
     return FrontRESSegmentReplaySummary(scalars=scalars, stage=stage, objective=objective)
@@ -88,13 +100,29 @@ def format_segment_replay_log(summary: FrontRESSegmentReplaySummary) -> str:
 
 
 def repair_effect_summary_to_scalars(summary: dict[str, Any]) -> dict[str, float]:
+    """把 canonical Gain summary 转换为 train-effect scalars.
+
+    函数名说明:
+        `repair_effect_summary_to_scalars` 是 diagnostic projection owner, 只选择和
+        命名正式 Gain/sampler 字段; 它不是 Gain 公式, 也不回写训练状态.
+
+    主链路:
+        上游: live probe 和 update-loop aggregation 产生 canonical summary.
+        下游: terminal/logger formatter 消费扁平 scalars.
+
+    语义:
+        诊断必须读取 Style/Physics/Repair Cost/Total Gain 的正式 owner 字段.
+        缺失 motion/physics evidence 保持 UNCONFIRMED, legacy acceptance score 被忽略.
+    """
+    # B1: 从 final live summary 读取 canonical Gain 和 sampler fields.
     scalars = {
-        "segment/train_effect_noisy": _float(summary.get("score_noisy_mean")),
-        "segment/train_effect_repaired": _float(summary.get("score_repaired_mean")),
-        "segment/train_effect_gain": _float(summary.get("score_gain_mean")),
-        "segment/train_effect_gain_pos_frac": _float(summary.get("score_gain_pos_frac")),
-        "segment/train_effect_fall_rate": _float(summary.get("done_frac")),
-        "segment/train_effect_valid_frac": _float(summary.get("storage_valid_frac")),
+        "segment/train_effect_gain_style": _optional_float(summary.get("gain_style_mean")),
+        "segment/train_effect_gain_physics": _optional_float(summary.get("gain_physics_mean")),
+        "segment/train_effect_repair_cost": _optional_float(summary.get("gain_repair_cost_mean")),
+        "segment/train_effect_gain_total": _optional_float(summary.get("gain_total_mean")),
+        "segment/train_effect_gain_pos_frac": _optional_float(summary.get("gain_total_pos_frac")),
+        "segment/train_effect_fall_rate": _optional_float(summary.get("done_frac")),
+        "segment/train_effect_valid_frac": _optional_float(summary.get("storage_valid_frac")),
         "segment/train_effect_replay_candidates": _summary_float(
             summary,
             "sampler_update_replay_candidate_count",
@@ -104,6 +132,9 @@ def repair_effect_summary_to_scalars(summary: dict[str, Any]) -> dict[str, float
     }
     for key in FORBIDDEN_ACCEPTANCE_KEYS:
         scalars.pop(key, None)
+    # B3: AUDIT-DIAG-01 截获 terminal/logger formatter 实际消费的 scalars.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe("AUDIT-DIAG-01", scalars=scalars)
     return scalars
 
 
@@ -113,16 +144,17 @@ def format_segment_train_effect_log(summary: dict[str, Any]) -> str:
         (
             "[FrontRES Segment Train Effect]",
             (
-                "  score: "
-                f"noisy={scalars['segment/train_effect_noisy']:.6f} "
-                f"repaired={scalars['segment/train_effect_repaired']:.6f} "
-                f"gain={scalars['segment/train_effect_gain']:.6f} "
-                f"gain_pos={scalars['segment/train_effect_gain_pos_frac'] * 100.0:.1f}%"
+                "  gain: "
+                f"style={_fmt_motion_scalar(scalars, 'segment/train_effect_gain_style')} "
+                f"physics={_fmt_motion_scalar(scalars, 'segment/train_effect_gain_physics')} "
+                f"repair_cost={_fmt_motion_scalar(scalars, 'segment/train_effect_repair_cost')} "
+                f"total={_fmt_motion_scalar(scalars, 'segment/train_effect_gain_total')} "
+                f"gain_pos={_fmt_motion_percent(scalars, 'segment/train_effect_gain_pos_frac')}"
             ),
             (
                 "  data: "
-                f"fall={scalars['segment/train_effect_fall_rate'] * 100.0:.1f}% "
-                f"valid={scalars['segment/train_effect_valid_frac'] * 100.0:.1f}%"
+                f"fall={_fmt_motion_percent(scalars, 'segment/train_effect_fall_rate')} "
+                f"valid={_fmt_motion_percent(scalars, 'segment/train_effect_valid_frac')}"
             ),
             (
                 "  replay: "
@@ -140,13 +172,15 @@ def motion_quality_summary_to_scalars(
     noisy_positions: torch.Tensor | None = None,
     delta_se: torch.Tensor | None = None,
     valid_mask: torch.Tensor | None = None,
+    temporal_mask: torch.Tensor | None = None,
 ) -> dict[str, float]:
     valid = valid_mask.bool() if isinstance(valid_mask, torch.Tensor) else None
+    temporal = temporal_mask.bool() if isinstance(temporal_mask, torch.Tensor) else None
     return {
-        "segment/motion_mpjpe_repaired_clean": _mpjpe(repaired_positions, clean_positions, valid),
-        "segment/motion_mpjpe_noisy_clean": _mpjpe(noisy_positions, clean_positions, valid),
-        "segment/motion_vel_error_repaired_clean": _diff_mpjpe(repaired_positions, clean_positions, valid, order=1),
-        "segment/motion_acc_error_repaired_clean": _diff_mpjpe(repaired_positions, clean_positions, valid, order=2),
+        "segment/motion_mpjpe_repaired_clean": _mpjpe(repaired_positions, clean_positions, valid, temporal),
+        "segment/motion_mpjpe_noisy_clean": _mpjpe(noisy_positions, clean_positions, valid, temporal),
+        "segment/motion_vel_error_repaired_clean": _diff_mpjpe(repaired_positions, clean_positions, valid, temporal, order=1),
+        "segment/motion_acc_error_repaired_clean": _diff_mpjpe(repaired_positions, clean_positions, valid, temporal, order=2),
         "segment/motion_delta_se_norm": _delta_se_norm(delta_se, None),
         "segment/motion_delta_z_up_frac": _delta_z_up_frac(delta_se, None),
     }
@@ -181,9 +215,11 @@ def periodic_eval_summary_to_scalars(summary: dict[str, Any]) -> dict[str, float
         "segment/eval_success_rate": _float(summary.get("success_rate")),
         "segment/eval_fall_rate": _float(summary.get("fall_rate")),
         "segment/eval_mean_survival_steps": _float(summary.get("mean_survival_steps")),
-        "segment/eval_continuous_rollout_gain": _float(summary.get("continuous_rollout_gain")),
-        "segment/eval_score_noisy": _optional_float(summary.get("score_noisy")),
-        "segment/eval_score_repaired": _optional_float(summary.get("score_repaired")),
+        "segment/eval_gain_style": _optional_float(summary.get("gain_style_mean")),
+        "segment/eval_gain_physics": _optional_float(summary.get("gain_physics_mean")),
+        "segment/eval_gain_repair_cost": _optional_float(summary.get("gain_repair_cost_mean")),
+        "segment/eval_gain_total": _optional_float(summary.get("gain_total_mean")),
+        "segment/eval_gain_total_pos_frac": _optional_float(summary.get("gain_total_pos_frac")),
         "segment/eval_motion_mpjpe_repaired_clean": _optional_float(summary.get("segment/motion_mpjpe_repaired_clean")),
         "segment/eval_motion_mpjpe_noisy_clean": _optional_float(summary.get("segment/motion_mpjpe_noisy_clean")),
         "segment/eval_motion_vel_error_repaired_clean": _optional_float(summary.get("segment/motion_vel_error_repaired_clean")),
@@ -297,13 +333,16 @@ def format_segment_periodic_eval_log(summary: dict[str, Any]) -> str:
             (
                 "  result: "
                 f"success={scalars['segment/eval_success_rate'] * 100.0:.1f}% "
-                f"fall={scalars['segment/eval_fall_rate'] * 100.0:.1f}% "
-                f"gain={scalars['segment/eval_continuous_rollout_gain']:.6f}"
+                f"fall={scalars['segment/eval_fall_rate'] * 100.0:.1f}%"
             ),
             (
-                "  score: "
-                f"noisy={_fmt_eval_scalar(scalars, 'segment/eval_score_noisy')} "
-                f"repaired={_fmt_eval_scalar(scalars, 'segment/eval_score_repaired')}"
+                "  gain: "
+                f"source={summary.get('gain_source', 'UNCONFIRMED')} "
+                f"style={_fmt_eval_scalar(scalars, 'segment/eval_gain_style')} "
+                f"physics={_fmt_eval_scalar(scalars, 'segment/eval_gain_physics')} "
+                f"repair_cost={_fmt_eval_scalar(scalars, 'segment/eval_gain_repair_cost')} "
+                f"total={_fmt_eval_scalar(scalars, 'segment/eval_gain_total')} "
+                f"positive={_fmt_eval_percent(scalars, 'segment/eval_gain_total_pos_frac')}"
             ),
             (
                 "  motion: "
@@ -378,17 +417,23 @@ def _fmt_eval_percent(scalars: dict[str, float], key: str) -> str:
     return _fmt_motion_percent(scalars, key)
 
 
-def _mpjpe(a: torch.Tensor | None, b: torch.Tensor | None, valid: torch.Tensor | None) -> float:
+def _mpjpe(
+    a: torch.Tensor | None,
+    b: torch.Tensor | None,
+    valid: torch.Tensor | None,
+    temporal: torch.Tensor | None,
+) -> float:
     if not _same_position_shape(a, b):
         return _unconfirmed()
     diff = torch.linalg.norm(a.float() - b.float(), dim=-1)
-    return _masked_batch_mean(diff, valid)
+    return _masked_batch_mean(diff, valid, temporal)
 
 
 def _diff_mpjpe(
     a: torch.Tensor | None,
     b: torch.Tensor | None,
     valid: torch.Tensor | None,
+    temporal: torch.Tensor | None,
     *,
     order: int,
 ) -> float:
@@ -396,18 +441,29 @@ def _diff_mpjpe(
         return _unconfirmed()
     da = torch.diff(a.float(), n=order, dim=1)
     db = torch.diff(b.float(), n=order, dim=1)
-    return _masked_batch_mean(torch.linalg.norm(da - db, dim=-1), valid)
+    diff_temporal = temporal[:, order:] if temporal is not None and temporal.ndim == 2 else None
+    return _masked_batch_mean(torch.linalg.norm(da - db, dim=-1), valid, diff_temporal)
 
 
 def _same_position_shape(a: torch.Tensor | None, b: torch.Tensor | None) -> bool:
     return isinstance(a, torch.Tensor) and isinstance(b, torch.Tensor) and a.shape == b.shape and a.ndim >= 3
 
 
-def _masked_batch_mean(value: torch.Tensor, valid: torch.Tensor | None) -> float:
+def _masked_batch_mean(
+    value: torch.Tensor,
+    valid: torch.Tensor | None,
+    temporal: torch.Tensor | None = None,
+) -> float:
     if value.numel() == 0:
         return 0.0
     if valid is not None and valid.shape[0] == value.shape[0]:
         value = value[valid]
+        if temporal is not None and temporal.shape[0] == valid.shape[0]:
+            temporal = temporal[valid]
+        if value.numel() == 0:
+            return 0.0
+    if temporal is not None and value.ndim >= 2 and tuple(temporal.shape) == tuple(value.shape[:2]):
+        value = value[temporal]
         if value.numel() == 0:
             return 0.0
     return float(value.mean().item())

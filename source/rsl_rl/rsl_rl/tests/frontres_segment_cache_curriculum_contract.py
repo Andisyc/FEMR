@@ -58,7 +58,7 @@ def test_stage1_bank_traces_hrl_curriculum_chain() -> None:
         n_train=16,
         progress=0.8,
         seq_idx=17,
-        active_dims=[0, 1, 3, 4, 5],
+        perturbation_bases=["planar", "yaw", "local_rp"],
         boundary_stats={"safe": 0.2, "repair": 0.55, "broken": 0.1, "positive_gain": 0.7},
     )
     bank = cache_curriculum.build_stage1_curriculum_bank(_cfg(), bank_cfg)
@@ -97,7 +97,7 @@ def test_stage1_bank_traces_hrl_curriculum_chain() -> None:
     assert abs(sum(probe["mix_diag"][key] for key in ("easy", "frontier", "hard")) - 1.0) < 1e-6
 
 
-def test_stage1_bank_respects_active_dims_and_hard_training_override() -> None:
+def test_stage1_bank_respects_perturbation_family_allowlist_and_hard_training_override() -> None:
     bank_cfg = cache_curriculum.FrontRESStage1CurriculumBankConfig(
         frontier_scale=2.0,
         dr_min=1.25,
@@ -105,14 +105,14 @@ def test_stage1_bank_respects_active_dims_and_hard_training_override() -> None:
         n_train=16,
         progress=0.8,
         seq_idx=17,
-        active_dims=[3, 4],
+        perturbation_bases=["local_rp"],
         boundary_stats={"safe": 0.2, "repair": 0.55, "broken": 0.1, "positive_gain": 0.7},
         include_hard_as_train=True,
     )
     bank = cache_curriculum.build_stage1_curriculum_bank(_cfg(), bank_cfg)
     probe = cache_curriculum.stage1_curriculum_bank_probe(bank)
     print(
-        "[cache_curriculum trace] active_dims "
+        "[cache_curriculum trace] perturbation_bases "
         f"allowed_bases={probe['allowed_bases']} "
         f"family_groups={probe['family_groups']} "
         f"mix_classes={probe['mix_classes']} "
@@ -142,6 +142,6 @@ def test_stage1_bank_rejects_invalid_contract_config() -> None:
 
 if __name__ == "__main__":
     test_stage1_bank_traces_hrl_curriculum_chain()
-    test_stage1_bank_respects_active_dims_and_hard_training_override()
+    test_stage1_bank_respects_perturbation_family_allowlist_and_hard_training_override()
     test_stage1_bank_rejects_invalid_contract_config()
     print("PASS: FrontRES Stage 1 curriculum bank derives cache levels from HRL perturbation curriculum.")

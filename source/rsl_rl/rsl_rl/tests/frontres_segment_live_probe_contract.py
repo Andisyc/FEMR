@@ -205,8 +205,6 @@ def test_build_live_segment_storage_preserves_first_step_tuple_trace() -> None:
     torch.testing.assert_close(batch.old_values, torch.tensor([0.5, -0.5]))
     torch.testing.assert_close(batch.old_means, capture.transition_means)
     torch.testing.assert_close(batch.old_sigmas, capture.transition_sigmas)
-    assert batch.action_mask.shape == (2, 6)
-    assert batch.action_mask.bool().all().item()
 
 
 def test_build_live_segment_storage_uses_b1_paired_gain_when_available() -> None:
@@ -228,10 +226,17 @@ def test_build_live_segment_storage_uses_b1_paired_gain_when_available() -> None
         transition_means=actions,
         transition_sigmas=torch.ones_like(actions),
         reward_accum=torch.tensor([0.2, 0.8, 0.1, 0.6, 1.0, 1.0]),
+        repair_score_accum=torch.tensor([1.6, 1.2, 0.4, 0.4, 1.0, 0.8]),
         reward_steps=torch.tensor(
             [
                 [0.1, 0.4, 0.05, 0.3, 0.5, 0.5],
                 [0.1, 0.4, 0.05, 0.3, 0.5, 0.5],
+            ]
+        ),
+        repair_score_steps=torch.tensor(
+            [
+                [0.8, 0.6, 0.2, 0.2, 0.5, 0.4],
+                [0.8, 0.6, 0.2, 0.2, 0.5, 0.4],
             ]
         ),
         done_steps=torch.zeros(2, 6, dtype=torch.bool),
@@ -246,11 +251,63 @@ def test_build_live_segment_storage_uses_b1_paired_gain_when_available() -> None
     storage = build_live_segment_storage(runner, capture)
     batch = storage.full_batch()
 
-    _probe_tensor("capture.reward_accum", capture.reward_accum, "B1 quartet raw scores: repaired, noisy, clean")
-    _probe_tensor("batch.returns", batch.returns, "PPO should learn K-step repaired-minus-noisy gain when paired scores exist")
-    torch.testing.assert_close(batch.returns[:2], torch.tensor([0.10, 0.20]))
-    torch.testing.assert_close(batch.advantages[:2], torch.tensor([0.10, 0.20]))
+    _probe_tensor("capture.reward_accum", capture.reward_accum, "unrelated env reward must not define Segment gain")
+    _probe_tensor("capture.repair_score_accum", capture.repair_score_accum, "repair-specific executable score")
+    _probe_tensor("batch.returns", batch.returns, "PPO learns executable repaired-minus-noisy gain")
+    torch.testing.assert_close(batch.returns[:2], torch.tensor([1.20, 0.80]))
+    torch.testing.assert_close(batch.advantages[:2], torch.tensor([1.20, 0.80]))
     assert batch.valid_mask.tolist() == [True, True, False, False, False, False]
+
+    summary = live_probe._paired_score_summary(capture)
+    assert summary["score_source"] == "repair_executability"
+    torch.testing.assert_close(torch.tensor(summary["score_repaired_per_sample"]), torch.tensor([0.8, 0.6]))
+    torch.testing.assert_close(torch.tensor(summary["score_noisy_per_sample"]), torch.tensor([0.2, 0.2]))
+    torch.testing.assert_close(torch.tensor(summary["gain_over_noisy_per_sample"]), torch.tensor([0.6, 0.4]))
+
+
+def test_live_repair_score_excludes_generic_task_reward() -> None:
+    class _Scorer:
+        def exec_score(self, command, return_components=False):
+            assert return_components is True
+            components = {
+                "xy": torch.tensor([0.0, 0.0, 0.0, 0.0]),
+                "yaw": torch.tensor([0.0, 0.0, 0.0, 0.0]),
+                "z": torch.tensor([0.0, 0.0, 0.0, 0.0]),
+                "rp": torch.tensor([0.7, 0.6, 0.2, 0.9]),
+                "planar": torch.zeros(4),
+                "vertical": torch.zeros(4),
+                "task": torch.full((4,), 999.0),
+            }
+            return torch.full((4,), 999.0), components
+
+        def exec_score_for_modes(
+            self,
+            components,
+            start,
+            count,
+            mode_groups,
+            active_modes,
+            *,
+            include_task,
+        ):
+            assert include_task is False
+            assert all(tuple(group) == ("local_rp",) for group in mode_groups)
+            return components["rp"][start : start + count]
+
+    env = SimpleNamespace(command_manager=SimpleNamespace(_terms={"motion": object()}))
+    runner = SimpleNamespace(
+        device=torch.device("cpu"),
+        cfg={"frontres_specialist_mode": "rp", "frontres_exec_cone_task_weight": 1000.0},
+        env=env,
+        _frontres_executability=_Scorer(),
+        _frontres_curriculum_env_mode_groups=[("local_rp",)],
+        _frontres_curriculum_active_modes=("local_rp",),
+    )
+    pair_layout = SimpleNamespace(n_train=1, n_candidate=1, n_base=1, n_clean=1)
+
+    score = live_probe._segment_repair_executability_scores(runner, pair_layout, batch_size=4)
+
+    torch.testing.assert_close(score, torch.tensor([0.7, 0.6, 0.2, 0.9]))
 
 
 def test_build_live_segment_storage_uses_discounted_reward_trace_for_ppo_returns() -> None:
@@ -309,6 +366,38 @@ def test_build_live_segment_storage_uses_discounted_reward_trace_for_ppo_returns
     torch.testing.assert_close(batch.returns, torch.tensor([expected_first, expected_second]))
     torch.testing.assert_close(batch.advantages, batch.returns - torch.tensor([0.1, 0.2]))
     assert batch.returns[0] < 0.0
+
+
+def test_build_live_segment_storage_uses_mixed_per_row_horizons() -> None:
+    runner = SimpleNamespace(device=torch.device("cpu"), alg=SimpleNamespace(gamma=1.0, frontres_segment_k=8))
+    capture = _capture()
+    capture = FrontRESSegmentLiveRolloutCapture(
+        rollout_k=4,
+        reward_mean=0.0,
+        done_frac=0.0,
+        last_obs_shape=capture.last_obs_shape,
+        action_shape=capture.action_shape,
+        env_action_shape=capture.env_action_shape,
+        transition_obs=capture.transition_obs,
+        transition_privileged_obs=capture.transition_privileged_obs,
+        transition_actions=capture.transition_actions,
+        transition_log_probs=capture.transition_log_probs,
+        transition_values=torch.zeros(2),
+        transition_means=capture.transition_means,
+        transition_sigmas=capture.transition_sigmas,
+        reward_accum=torch.tensor([1.0, 4.0]),
+        reward_steps=torch.ones(4, 2),
+        done_steps=torch.zeros(4, 2, dtype=torch.bool),
+        done_any=torch.zeros(2, dtype=torch.bool),
+        actor_update_mask=torch.ones(2, dtype=torch.bool),
+        horizon_k=torch.tensor([1, 4], dtype=torch.long),
+    )
+
+    storage = build_live_segment_storage(runner, capture)
+    batch = storage.full_batch()
+
+    torch.testing.assert_close(batch.returns, torch.tensor([1.0, 4.0]))
+    assert capture.horizon_k.tolist() == [1, 4]
 
 
 def test_build_live_segment_storage_masks_non_actor_rows() -> None:
@@ -392,7 +481,7 @@ def test_live_probe_selects_6d_delta_se_from_12d_rollout_action() -> None:
         action_sigma,
     )
 
-    _probe_tensor("raw_actions", raw_actions, "12D rollout action from legacy HSL+acceptance policy")
+    _probe_tensor("raw_actions", raw_actions, "6D full Delta SE(3) rollout action")
     _probe_tensor("segment_actions", segment_actions, "selected 6D Delta SE action for Segment Replay storage")
     _probe_tensor("selected_log_probs", log_probs, "old 6D log_prob rebuilt from rollout mean/sigma with Delta-SE transform")
     _probe_tensor("expected_log_probs", expected_log_probs, "same formula used by PPO eval for new 6D log_prob")
@@ -876,6 +965,11 @@ def test_large_index_reset_probe_uses_summary_not_full_lists() -> None:
 
 def test_live_probe_applies_current_segment_batch_reset_before_rollout() -> None:
     env = _FakeLiveEnv()
+    batch = _reset_batch()
+    batch.frontres_segment_trial_role = ("policy", "policy")
+    batch.frontres_segment_source_index = torch.tensor([0, 1], dtype=torch.long)
+    batch.frontres_segment_trial_index = torch.tensor([0, 0], dtype=torch.long)
+    batch.frontres_segment_budget_horizon_k = torch.tensor([1, 3], dtype=torch.long)
     runner = SimpleNamespace(
         env=env,
         device=torch.device("cpu"),
@@ -893,7 +987,7 @@ def test_live_probe_applies_current_segment_batch_reset_before_rollout() -> None
             segment_k=1,
             reset_mode="direct",
         ),
-        _frontres_segment_live_current_batch=_reset_batch(),
+        _frontres_segment_live_current_batch=batch,
         alg=SimpleNamespace(
             frontres_training_objective="segment_replay_hrl",
             frontres_segment_k=1,
@@ -925,11 +1019,14 @@ def test_live_probe_applies_current_segment_batch_reset_before_rollout() -> None
         flush=True,
     )
 
-    assert env.events == ["reset", "get_obs", "step"]
+    assert env.events == ["reset", "get_obs", "step", "step", "step"]
     assert request.segment_ids.tolist() == [7, 9]
     assert tuple(request.mode) == ("direct", "direct")
     assert request.valid_mask.tolist() == [True, True]
     assert result.success_mask.tolist() == [True, True]
+    assert request.budget_horizon_k.tolist() == [1, 3]
+    assert summary["trial_horizon_k_per_sample"] == [1, 3]
+    assert summary["rollout_k"] == 3
     assert summary["segment_reset"] is True
     assert summary["segment_reset_success_frac"] == 1.0
     assert summary["segment_reset_direct_frac"] == 1.0
@@ -1185,7 +1282,7 @@ def test_live_probe_expands_scorable_trial_metadata_to_full_quartet_batch() -> N
     batch.frontres_segment_trial_role = ("policy", "search")
     batch.frontres_segment_source_index = torch.tensor([0, 1], dtype=torch.long)
     batch.frontres_segment_trial_index = torch.tensor([0, 0], dtype=torch.long)
-    batch.frontres_segment_budget_horizon_k = torch.tensor([8, 8], dtype=torch.long)
+    batch.frontres_segment_budget_horizon_k = torch.tensor([8, 32], dtype=torch.long)
     runner = SimpleNamespace(
         device=torch.device("cpu"),
         _frontres_segment_live_current_batch=batch,
@@ -1214,6 +1311,7 @@ def test_live_probe_expands_scorable_trial_metadata_to_full_quartet_batch() -> N
         transition_means=torch.zeros(8, 6),
         transition_sigmas=torch.ones(8, 6),
         reward_accum=torch.arange(8, dtype=torch.float32),
+        repair_score_accum=torch.arange(8, dtype=torch.float32),
         done_any=torch.zeros(8, dtype=torch.bool),
         actor_update_mask=torch.tensor([True, True, False, False, False, False, False, False]),
         n_train=2,
@@ -1260,6 +1358,7 @@ def test_live_probe_expands_scorable_trial_metadata_to_full_quartet_batch() -> N
     assert storage.valid_mask[: storage.step].tolist() == [True, False, False, False, False, False, False, False]
     assert storage.full_batch().segment_ids.tolist() == [7, 9, 7, 9, 7, 9, 7, 9]
     assert evidence["trial_role"] == tuple(summary["trial_role_per_sample"])
+    assert evidence["horizon_k"].tolist() == [8, 32, 8, 32, 8, 32, 8, 32]
 
 
 def test_live_probe_detail_gate_suppresses_reset_and_summary_logs() -> None:
@@ -1343,8 +1442,12 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "valid_mask_frac": 1.0,
         "reward_mean": 0.5,
         "env_reward_mean": 0.5,
+        "rollout_horizon_summary": "horizon_count=2 horizon_min=8 horizon_max=32",
         "train_reward_mean": 0.4,
-        "score_gain_mean": 0.4,
+        "gain_total_mean": 0.4,
+        "gain_style_mean": 0.2,
+        "gain_physics_mean": 0.3,
+        "gain_repair_cost_mean": 0.1,
         "done_frac": 0.0,
         "storage_write": True,
         "storage_size": 2,
@@ -1379,9 +1482,7 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "ppo_advantage_min": -0.2,
         "ppo_advantage_max": 0.4,
         "evidence_row_count": 2,
-        "score_source": "b1_paired_env_rewards",
-        "score_noisy_per_sample": [0.2, 0.3],
-        "score_repaired_per_sample": [0.7, 0.6],
+        "gain_source": "FRS-GAIN-v001",
         "evidence_valid_mask_per_sample": [True, False],
         "trial_role_counts": {"policy": 1, "search": 1},
         "trial_policy_count": 1,
@@ -1411,6 +1512,7 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
     )
     assert "[FrontRES Segment Live Probe]" in output
     assert "[FrontRES Segment PPO Probe]" in output
+    assert "  rollout.horizon: horizon_count=2 horizon_min=8 horizon_max=32" in output
     for label in (
         "  route.objective:",
         "  reset.enabled:",
@@ -1419,8 +1521,8 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "  trial.policy:",
         "  ppo_boundary.evidence:",
         "  ppo_boundary.ppo_valid:",
-        "  score.source:",
-        "  score.gain:",
+        "  gain.source:",
+        "  gain.total:",
         "  storage.write:",
         "  storage.train_reward:",
         "  ppo.valid:",
@@ -1432,9 +1534,8 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
     assert "rollout.policy_dim: 6" in output
     assert "rollout.env_reward: 0.500000" in output
     assert "rollout.segment_delta_se_6d: True" in output
-    assert "score.source: b1_paired_env_rewards" in output
-    assert "score.gain: 0.400000" in output
-    assert "score.rows: 2" in output
+    assert "gain.source: FRS-GAIN-v001" in output
+    assert "gain.total: 0.400000" in output
     assert "trial.policy: 1" in output
     assert "trial.search: 1" in output
     assert "ppo_boundary.evidence: 2" in output
@@ -1469,7 +1570,10 @@ def test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks() -> Non
         "reward_mean": 0.5,
         "env_reward_mean": 0.5,
         "train_reward_mean": 0.4,
-        "score_gain_mean": 0.4,
+        "gain_total_mean": 0.4,
+        "gain_style_mean": 0.2,
+        "gain_physics_mean": 0.3,
+        "gain_repair_cost_mean": 0.1,
         "done_frac": 0.0,
         "storage_write": True,
         "storage_size": 2,
@@ -1524,9 +1628,7 @@ def test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks() -> Non
         "ppo_advantage_min": -0.2,
         "ppo_advantage_max": 0.4,
         "evidence_row_count": 2,
-        "score_source": "b1_paired_env_rewards",
-        "score_noisy_per_sample": [0.2, 0.3],
-        "score_repaired_per_sample": [0.7, 0.6],
+        "gain_source": "FRS-GAIN-v001",
         "evidence_valid_mask_per_sample": [True, True],
     }
     stream = io.StringIO()
@@ -1609,7 +1711,7 @@ def test_live_probe_summary_reports_raw_policy_and_segment_delta_dims() -> None:
     assert "reset.reason: no_current_segment_batch" in output
 
 
-def test_live_probe_summary_extracts_b1_noisy_repaired_scores() -> None:
+def test_live_probe_summary_extracts_repair_executability_scores() -> None:
     capture = FrontRESSegmentLiveRolloutCapture(
         rollout_k=2,
         reward_mean=0.0,
@@ -1624,8 +1726,10 @@ def test_live_probe_summary_extracts_b1_noisy_repaired_scores() -> None:
         transition_values=torch.zeros(8),
         transition_means=torch.zeros(8, 6),
         transition_sigmas=torch.ones(8, 6),
-        reward_accum=torch.tensor([1.4, 1.8, 0.0, 0.0, 0.4, 1.0, 2.0, 2.0]),
-        reward_steps=torch.tensor([[1.4, 1.8, 0.0, 0.0, 0.4, 1.0, 2.0, 2.0]]),
+        reward_accum=torch.full((8,), -99.0),
+        repair_score_accum=torch.tensor([1.4, 1.8, 0.0, 0.0, 0.4, 1.0, 2.0, 2.0]),
+        reward_steps=torch.full((1, 8), -99.0),
+        repair_score_steps=torch.tensor([[1.4, 1.8, 0.0, 0.0, 0.4, 1.0, 2.0, 2.0]]),
         done_steps=torch.zeros(1, 8, dtype=torch.bool),
         done_any=torch.tensor([False, True, False, False, False, False, False, False]),
         n_train=2,
@@ -1651,7 +1755,7 @@ def test_live_probe_summary_extracts_b1_noisy_repaired_scores() -> None:
     assert summary["evidence_valid_mask_per_sample"] == [True, False]
 
 
-def test_live_probe_summary_preserves_b1_gain_when_env_rewards_are_negative() -> None:
+def test_live_probe_summary_preserves_negative_repair_executability_gain() -> None:
     capture = FrontRESSegmentLiveRolloutCapture(
         rollout_k=1,
         reward_mean=0.0,
@@ -1666,8 +1770,10 @@ def test_live_probe_summary_preserves_b1_gain_when_env_rewards_are_negative() ->
         transition_values=torch.zeros(8),
         transition_means=torch.zeros(8, 6),
         transition_sigmas=torch.ones(8, 6),
-        reward_accum=torch.tensor([-0.08, -0.02, 0.0, 0.0, -0.10, -0.07, 0.0, 0.0]),
-        reward_steps=torch.tensor([[-0.08, -0.02, 0.0, 0.0, -0.10, -0.07, 0.0, 0.0]]),
+        reward_accum=torch.full((8,), 99.0),
+        repair_score_accum=torch.tensor([-0.08, -0.02, 0.0, 0.0, -0.10, -0.07, 0.0, 0.0]),
+        reward_steps=torch.full((1, 8), 99.0),
+        repair_score_steps=torch.tensor([[-0.08, -0.02, 0.0, 0.0, -0.10, -0.07, 0.0, 0.0]]),
         done_steps=torch.zeros(1, 8, dtype=torch.bool),
         done_any=torch.tensor([False, False, False, False, False, False, False, False]),
         n_train=2,
@@ -1681,19 +1787,66 @@ def test_live_probe_summary_preserves_b1_gain_when_env_rewards_are_negative() ->
         f"repaired={summary['score_repaired_per_sample']} "
         f"noisy={summary['score_noisy_per_sample']} "
         f"gain={summary['gain_over_noisy_per_sample']} "
-        f"gain_mean={summary['score_gain_mean']}",
+        f"gain_source={summary['gain_source']} "
+        f"legacy_gain_scalar_present={'score_gain_mean' in summary}",
         flush=True,
     )
     torch.testing.assert_close(torch.tensor(summary["score_repaired_per_sample"]), torch.tensor([-0.08, -0.02]))
     torch.testing.assert_close(torch.tensor(summary["score_noisy_per_sample"]), torch.tensor([-0.10, -0.07]))
     torch.testing.assert_close(torch.tensor(summary["gain_over_noisy_per_sample"]), torch.tensor([0.02, 0.05]))
-    assert abs(float(summary["score_gain_mean"]) - 0.035) < 1e-6
+    assert summary["gain_source"] == "UNCONFIRMED"
+    assert "score_gain_mean" not in summary
+
+
+def test_executed_segment_action_capture_uses_transition_after_baseline_override() -> None:
+    raw_actions = torch.tensor(
+        [
+            [0.1, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.9, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.8, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.7, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ]
+    )
+    transition = types.SimpleNamespace(actions=raw_actions.clone())
+    runner = types.SimpleNamespace(alg=types.SimpleNamespace(transition=transition))
+    transition.actions[1:] = 0.0
+    executed = live_probe._select_executed_segment_actions(runner, actions=raw_actions)
+    torch.testing.assert_close(executed, transition.actions)
+    assert not torch.equal(executed, raw_actions)
+
+
+def test_action_valid_steps_counts_done_producing_action_and_masks_tail() -> None:
+    capture = types.SimpleNamespace(
+        transition_action_steps=torch.zeros(4, 2, 6),
+        horizon_k=torch.tensor([2, 4]),
+        done_steps=torch.tensor(
+            [
+                [False, False],
+                [True, False],
+                [False, True],
+                [False, False],
+            ]
+        ),
+    )
+    valid = live_probe._capture_action_valid_steps(capture)
+    assert valid is not None
+    expected = torch.tensor(
+        [
+            [True, True],
+            [True, True],
+            [False, True],
+            [False, False],
+        ]
+    )
+    torch.testing.assert_close(valid, expected)
 
 
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_uses_b1_paired_gain_when_available()
+    test_live_repair_score_excludes_generic_task_reward()
     test_build_live_segment_storage_uses_discounted_reward_trace_for_ppo_returns()
+    test_build_live_segment_storage_uses_mixed_per_row_horizons()
     test_build_live_segment_storage_masks_non_actor_rows()
     test_build_live_segment_storage_rejects_non_6d_actions()
     test_live_probe_selects_6d_delta_se_from_12d_rollout_action()
@@ -1715,6 +1868,8 @@ if __name__ == "__main__":
     test_live_probe_summary_uses_readable_metric_blocks()
     test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks()
     test_live_probe_summary_reports_raw_policy_and_segment_delta_dims()
-    test_live_probe_summary_extracts_b1_noisy_repaired_scores()
-    test_live_probe_summary_preserves_b1_gain_when_env_rewards_are_negative()
+    test_live_probe_summary_extracts_repair_executability_scores()
+    test_live_probe_summary_preserves_negative_repair_executability_gain()
+    test_executed_segment_action_capture_uses_transition_after_baseline_override()
+    test_action_valid_steps_counts_done_producing_action_and_masks_tail()
     print("frontres_segment_live_probe_contract: ok")

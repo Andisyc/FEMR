@@ -10,8 +10,12 @@ tracker. It receives the tracking observation plus anchor-error history and
 outputs task-space corrections:
 
 ```text
-[dx, dy, dz, droll, dpitch, dyaw, conf_pos, conf_rpy]
+[dx, dy, dz, droll, dpitch, dyaw]
 ```
+
+The old confidence, acceptance, rho, authority-critic, and active-action-mask
+interfaces are retired. Perturbation family never narrows the six-dimensional
+repair output.
 
 The goal is not to replace GMT. The goal is to make corrupted reference frames
 more executable by GMT, especially when visual/video extraction artifacts
@@ -35,51 +39,39 @@ consume robustness budget.
 
 The intended training flow is:
 
-1. Joint warmup
-   - Actor learns the supervised anti-perturbation target.
-   - Critic learns executable damage energy.
-   - Warmup perturbations should be clear and balanced, usually one family at a
-     time.
-
-2. Actor takeover
-   - PPO actor weight ramps up.
-   - DR scale should remain controlled to avoid critic distribution shift.
-
-3. PPO fine-tuning
-   - Actor is fully active.
-   - Perturbation curriculum can introduce mixed perturbation families.
-   - Boundary DR should keep the batch near the repairable frontier, not deep in
-     broken states.
+1. Stage 1 Segment Cache
+   - Store replayable Clean dynamic states and discrete Noisy variants.
+2. Stage 2 HSL
+   - Train a proposal-only full-6D actor from the 870D ZMP/balance observation.
+3. Stage 3 Segment Replay PPO
+   - Initialize the same 6D actor from HSL, then optimize direct Delta SE(3)
+     repair with paired executable evidence and K-step replay.
 
 ## Perturbation Curriculum
 
-Use two different schedules:
-
-- Warmup: `balanced_single`
-  - one perturbation family per rollout;
-  - balanced across `planar`, `yaw`, `global_z`, `local_rp`;
-  - purpose: clean supervised labels.
-
-- RL: curriculum from single to mixed perturbations
-  - early: single families;
-  - middle: pairs;
-  - late: occasional three/full combinations;
-  - purpose: robustness to realistic composite artifacts.
-
-The curriculum must respect `frontres_active_task_dims`. Do not sample
-perturbation families that the active action cone cannot repair.
+The current experiment samples `local_rp` perturbations only through
+`frontres_specialist_mode="rp"`. This restricts the corruption distribution,
+not the policy output: Stage 2 and Stage 3 always retain full-6D repair.
 
 ## Reward / Energy Notes
 
-Avoid using the full environment reward directly for FrontRES. Teleoperation,
-tracking, or unrelated task terms can introduce noise.
+Do not use the full environment reward for Segment gain or PPO return.
+Teleoperation, velocity-command, generic tracking, and unrelated task terms are
+not repair evidence.
 
-Prefer executable reward components:
+The accepted Segment gain has two paired improvements and one regularizer:
 
-- planar executability for `dx/dy/dyaw`;
-- vertical/contact executability for `dz/droll/dpitch`;
-- a weak task-consistency term only when needed to prevent trivial no-motion
-  fixes.
+```text
+gain_total = w_style * style_gain
+           + w_physics * physics_gain
+           - w_repair * repair_cost
+```
+
+Style compares Noisy/Repaired robot execution against immutable Clean motion.
+Physics compares paired frozen-GMT executability. Repair cost covers full-6D
+magnitude and temporal change. There is no epsilon-style mechanism or extra
+gate. The current RP-only Segment score is a known implementation mismatch,
+not the accepted method.
 
 Important diagnostics:
 
@@ -92,8 +84,8 @@ Important diagnostics:
   samples;
 - `exec planar/vertical/task`: reward decomposition for mismatch debugging.
 
-If gain becomes negative, first check whether the perturbation family, action
-cone, and reward component are aligned.
+If gain becomes negative, first check whether the perturbation family and
+repair-specific executability component are aligned.
 
 ## Validation Experiments
 
@@ -135,7 +127,7 @@ the training environment.
 - When touching FrontRES training logic, check:
   - resume/cold-start behavior;
   - debug mode overrides;
-  - active action mask;
+  - full-6D action identity;
   - perturbation schedule;
   - reward diagnostics.
 

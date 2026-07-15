@@ -270,22 +270,6 @@ def run_frontres_joint_warmup(
         _N = _all_obs.shape[0]
         _last_actor_loss = torch.tensor(0.0, device=self.device)
         _last_energy_loss = torch.tensor(0.0, device=self.device)
-        _sup_mask = None
-        _active_sup_dims = getattr(self.alg, "frontres_active_task_dims", None)
-        if _active_sup_dims is not None:
-            _sup_mask = torch.zeros(_all_tgt.shape[-1], device=self.device, dtype=_all_tgt.dtype)
-            for _dim in _active_sup_dims:
-                _dim = int(_dim)
-                if 0 <= _dim < _sup_mask.numel():
-                    _sup_mask[_dim] = 1.0
-            if _wu == 0:
-                print(
-                    "[Runner] Joint warmup supervised active mask: "
-                    f"{[float(x) for x in _sup_mask.detach().cpu().tolist()]} "
-                    "(dx,dy,dz,droll,dpitch,dyaw)",
-                    flush=True,
-                )
-
         for epoch in range(_warmup_epochs):
             perm = torch.randperm(_N, device=self.device)
             for i in range(0, _N, 4096):
@@ -305,10 +289,6 @@ def run_frontres_joint_warmup(
                 else:
                     pred_sup = pred[:, :_all_tgt.shape[-1]]
                     target_sup = _all_tgt[idx]
-                if _sup_mask is not None:
-                    pred_sup = pred_sup * _sup_mask.view(1, -1)
-                    target_sup = target_sup * _sup_mask.view(1, -1)
-
                 target_norm = target_sup.norm(dim=-1)
                 valid = target_norm > 1e-4
                 pos_valid = target_sup[:, :3].norm(dim=-1) > 1e-4
@@ -347,17 +327,6 @@ def run_frontres_joint_warmup(
                             ).mean()
                         )
                     loss = loss + _warmup_dir_w * direction_loss
-                _conf_w = float(getattr(self.alg, "supervised_conf_loss_weight", 0.0))
-                if (
-                    getattr(self.alg.policy, "num_task_corrections", 0) > 0
-                    and pred.shape[-1] >= 8
-                    and _conf_w > 0
-                    and int(getattr(self.alg.policy, "task_conf_dim", 2)) == 2
-                ):
-                    target_conf = valid.view(-1, 1).to(pred.dtype)
-                    conf_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-                        pred[:, 6:8], target_conf.expand(-1, 2))
-                    loss = loss + _conf_w * conf_loss
                 actor_loss = loss
                 value_pred = self.alg.policy.evaluate(_all_critic_obs[idx])
                 energy_loss = torch.nn.functional.huber_loss(

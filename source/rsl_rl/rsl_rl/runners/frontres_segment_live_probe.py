@@ -3,7 +3,10 @@ from __future__ import annotations
 from collections import Counter, deque
 import copy
 from dataclasses import dataclass
+import importlib.util
 import math
+from pathlib import Path
+import sys
 from types import SimpleNamespace
 from typing import Any
 
@@ -24,10 +27,30 @@ from rsl_rl.frontres.frontres_segment_reset import (
     FrontRESSegmentResetResult,
     ensure_frontres_segment_live_reset_hook,
 )
+try:
+    from rsl_rl.frontres.frontres_segment_warmup import frontres_segment_warmup_phase
+except ModuleNotFoundError:
+    _WARMUP_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py"
+    _WARMUP_SPEC = importlib.util.spec_from_file_location("frontres_segment_warmup_runtime", _WARMUP_PATH)
+    if _WARMUP_SPEC is None or _WARMUP_SPEC.loader is None:
+        raise RuntimeError(f"Could not load Segment warmup owner from {_WARMUP_PATH}.")
+    _WARMUP_MODULE = importlib.util.module_from_spec(_WARMUP_SPEC)
+    sys.modules[_WARMUP_SPEC.name] = _WARMUP_MODULE
+    _WARMUP_SPEC.loader.exec_module(_WARMUP_MODULE)
+    frontres_segment_warmup_phase = _WARMUP_MODULE.frontres_segment_warmup_phase
 from rsl_rl.frontres.training_schedule import resolve_frontres_mode_state
 from rsl_rl.modules import FrontRESActorCritic
 from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout
 from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
+_FORMAL_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_audit_probe", Path(__file__).resolve().with_name("frontres_formal_runtime_audit.py")
+)
+_FORMAL_AUDIT_MODULE = importlib.util.module_from_spec(_FORMAL_AUDIT_SPEC)
+assert _FORMAL_AUDIT_SPEC.loader is not None
+_FORMAL_AUDIT_SPEC.loader.exec_module(_FORMAL_AUDIT_MODULE)
+print_ppo_audit = _FORMAL_AUDIT_MODULE.print_ppo_audit
+print_rollout_storage_audit = _FORMAL_AUDIT_MODULE.print_rollout_storage_audit
+emit_formal_runtime_probe = _FORMAL_AUDIT_MODULE.emit_formal_runtime_probe
 
 
 _VERBOSE_PROBE_BATCH_LIMIT = 16
@@ -72,6 +95,24 @@ def _positive_fraction(value: Any) -> float:
     if not isinstance(value, (list, tuple)) or len(value) == 0:
         return 0.0
     return sum(1 for item in value if float(item) > 0.0) / float(len(value))
+
+
+def _finite_mean(value: torch.Tensor | None) -> float:
+    if not isinstance(value, torch.Tensor) or value.numel() == 0:
+        return float("nan")
+    flat = value.detach().float().reshape(-1)
+    finite = torch.isfinite(flat)
+    if not bool(finite.any().item()):
+        return float("nan")
+    return float(flat[finite].mean().cpu().item())
+
+
+def _fmt_metric(value: Any) -> str:
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return "UNCONFIRMED"
+    return "UNCONFIRMED" if not math.isfinite(value) else _fmt_num(value)
 
 
 def _shape_last_dim(shape: tuple[int, ...] | None) -> int | None:
@@ -137,6 +178,7 @@ class FrontRESSegmentLiveRolloutCapture:
     done_any: torch.Tensor | None
     reward_steps: torch.Tensor | None = None
     done_steps: torch.Tensor | None = None
+    horizon_k: torch.Tensor | None = None
     actor_update_mask: torch.Tensor | None = None
     n_train: int = 0
     n_candidate: int = 0
@@ -146,10 +188,30 @@ class FrontRESSegmentLiveRolloutCapture:
     motion_clean_body_pos: torch.Tensor | None = None
     motion_repaired_body_pos: torch.Tensor | None = None
     motion_noisy_body_pos: torch.Tensor | None = None
+    motion_clean_root_quat: torch.Tensor | None = None
+    motion_repaired_root_quat: torch.Tensor | None = None
+    motion_noisy_root_quat: torch.Tensor | None = None
+    physics_zmp_repaired_steps: torch.Tensor | None = None
+    physics_zmp_noisy_steps: torch.Tensor | None = None
+    physics_contact_repaired_steps: torch.Tensor | None = None
+    physics_contact_noisy_steps: torch.Tensor | None = None
     env_actions: torch.Tensor | None = None
     transition_perturbation_rp: torch.Tensor | None = None
     transition_supervised_target: torch.Tensor | None = None
     max_delta_rpy: float | None = None
+    repair_score_accum: torch.Tensor | None = None
+    repair_score_steps: torch.Tensor | None = None
+    transition_action_steps: torch.Tensor | None = None
+    gain_steps: torch.Tensor | None = None
+    gain_config: Any | None = None
+
+
+def _gain_module() -> Any | None:
+    try:
+        from rsl_rl.frontres import frontres_gain
+    except (ImportError, ModuleNotFoundError):
+        return None
+    return frontres_gain
 
 
 def _verbose_probe_enabled(runner: Any, items: Any) -> bool:
@@ -281,6 +343,17 @@ def _restore_optimizer_parameters(
         before = snapshots.get(id(param))
         if before is not None:
             param.data.copy_(before)
+
+
+def _clear_noncritic_grads(policy: Any, optimizer_params: tuple[tuple[str, torch.Tensor], ...]) -> None:
+    """Hold the full-6D actor and its std fixed during DP-09 critic-only warmup."""
+    critic = getattr(policy, "critic", None)
+    critic_ids = {id(param) for param in critic.parameters()} if critic is not None else set()
+    if not critic_ids:
+        raise RuntimeError("DP-09 critic-only warmup requires policy.critic parameters.")
+    for _, param in optimizer_params:
+        if id(param) not in critic_ids:
+            param.grad = None
 
 
 def _set_segment_optimizer_lr(alg: Any, lr: float) -> None:
@@ -727,6 +800,7 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
     _update_trial_metadata_summary(summary, runner, batch_size=_capture_batch_size(capture))
     _update_reset_summary(summary, reset_result, skip_reason=reset_skip_reason)
 
+    storage_batch = None
     if storage_write:
         segment_storage = build_live_segment_storage(runner, capture)
         storage_stats = segment_storage.stats()
@@ -832,6 +906,9 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     "ppo_param_delta_total": int(getattr(ppo_result, "param_delta_total", 0)),
                     "ppo_param_delta_first_changed": str(getattr(ppo_result, "param_delta_first_changed", "")),
                     "ppo_param_grad_norm": float(getattr(ppo_result, "param_grad_norm", 0.0)),
+                    "ppo_warmup_phase": str(getattr(ppo_result, "warmup_phase", "joint")),
+                    "ppo_warmup_phase_iteration": int(getattr(ppo_result, "warmup_phase_iteration", 0)),
+                    "ppo_actor_loss_weight": float(getattr(ppo_result, "actor_loss_weight", 1.0)),
                     "ppo_trust_region_rejected_count": int(
                         getattr(ppo_result, "trust_region_rejected_count", 0)
                     ),
@@ -914,6 +991,9 @@ def run_frontres_segment_live_probe(runner: Any, init_at_random_ep_len: bool = T
                     ),
                 }
             )
+    # AUDIT-PERTURB-02..AUDIT-RETURN-01: 检查 perturb/obs/action/GMT/pair/Gain/return owner 边界.
+    # Result: PENDING_LIVE.
+    print_rollout_storage_audit(runner, capture=capture, summary=summary, storage_batch=storage_batch)
     _print_live_probe_summary(runner, capture, summary)
     return summary
 
@@ -1238,7 +1318,7 @@ def _current_trial_metadata(
             device=device,
             default=default_trial_index,
         ),
-        horizon_k=_trial_long_vector(
+        horizon_k=_trial_horizon_vector(
             getattr(batch, "frontres_segment_budget_horizon_k", None) if batch is not None else None,
             name="frontres_segment_budget_horizon_k",
             batch_size=batch_size,
@@ -1272,6 +1352,31 @@ def _trial_long_vector(
     if int(tensor.numel()) != int(batch_size):
         raise ValueError(f"{name} must have {batch_size} rows, got {int(tensor.numel())}")
     return tensor.detach()
+
+
+def _trial_horizon_vector(
+    value: Any,
+    *,
+    name: str,
+    batch_size: int,
+    device: torch.device | str,
+    default: torch.Tensor,
+) -> torch.Tensor:
+    if value is None:
+        return default.to(device=device, dtype=torch.long).reshape(-1).detach()
+    tensor = value if isinstance(value, torch.Tensor) else torch.tensor(list(value), dtype=torch.long)
+    tensor = tensor.to(device=device, dtype=torch.long).reshape(-1)
+    if int(tensor.numel()) == int(batch_size):
+        return tensor.detach()
+    if int(tensor.numel()) > 0 and int(batch_size) % int(tensor.numel()) == 0:
+        return tensor.repeat(int(batch_size) // int(tensor.numel())).detach()
+    return _trial_long_vector(
+        tensor,
+        name=name,
+        batch_size=batch_size,
+        device=device,
+        default=default,
+    )
 
 
 def _attach_trial_metadata_to_request(request: Any, metadata: SimpleNamespace) -> None:
@@ -1415,7 +1520,6 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
     ppo_update_mask = _trial_metadata_ppo_update_mask(runner, batch_size=batch_size, device=runner.device)
     valid_mask = rollout_valid_mask & reset_mask & actor_update_mask & ppo_update_mask
     rewards = _segment_storage_rewards(capture, batch_size=batch_size, device=runner.device)
-    action_mask = _live_segment_execution_action_mask(runner, capture.transition_actions)
     segment_storage = FrontRESSegmentRolloutStorage(
         capacity=batch_size,
         obs_shape=capture.transition_obs.shape[1:],
@@ -1437,7 +1541,6 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
             segment_source=segment_source,
             old_means=capture.transition_means,
             old_sigmas=capture.transition_sigmas,
-            action_mask=action_mask,
             priority_evidence=_trial_metadata_priority_evidence(
                 runner,
                 batch_size=batch_size,
@@ -1452,27 +1555,153 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
         segment_storage.compute_returns_and_advantages(
             reward_steps=reward_steps,
             done_steps=done_steps,
-            horizon=max(1, int(getattr(alg, "frontres_segment_k", capture.rollout_k))),
+            horizon=capture.horizon_k
+            if isinstance(capture.horizon_k, torch.Tensor)
+            else max(1, int(getattr(alg, "frontres_segment_k", capture.rollout_k))),
             gamma=float(getattr(alg, "gamma", 1.0)),
         )
     return segment_storage
 
 
-def _live_segment_execution_action_mask(runner: Any, actions: torch.Tensor) -> torch.Tensor:
-    active_dims = getattr(getattr(runner, "alg", None), "frontres_active_task_dims", None)
-    cfg = getattr(runner, "cfg", {}) or {}
-    if active_dims is None:
-        active_dims = cfg.get("frontres_active_task_dims", cfg.get("α1", None))
-    mask = torch.ones_like(actions, dtype=torch.bool)
-    if active_dims is None:
-        return mask
-    mask.zero_()
-    proposal_dim = min(6, actions.shape[-1])
-    for idx in active_dims:
-        idx = int(idx)
-        if 0 <= idx < proposal_dim:
-            mask[:, idx] = True
-    return mask
+def _capture_averaged_rewards(
+    capture: FrontRESSegmentLiveRolloutCapture,
+    *,
+    device: torch.device | None = None,
+) -> torch.Tensor:
+    reward = capture.reward_accum.reshape(-1).detach().float()
+    if device is not None:
+        reward = reward.to(device=device)
+    if isinstance(capture.horizon_k, torch.Tensor):
+        horizon = capture.horizon_k.to(device=reward.device, dtype=torch.float32).reshape(-1)
+        if int(horizon.numel()) != int(reward.numel()):
+            raise ValueError(f"capture horizon must have {int(reward.numel())} rows, got {int(horizon.numel())}")
+        return reward / horizon.clamp_min(1.0)
+    return reward / float(max(1, int(capture.rollout_k)))
+
+
+def _capture_averaged_repair_scores(
+    capture: FrontRESSegmentLiveRolloutCapture,
+    *,
+    device: torch.device | None = None,
+) -> torch.Tensor:
+    if capture.repair_score_accum is None:
+        raise RuntimeError(
+            "paired Segment Replay gain requires repair-specific executability scores; "
+            "generic env reward is not a valid fallback"
+        )
+    score = capture.repair_score_accum.reshape(-1).detach().float()
+    if device is not None:
+        score = score.to(device=device)
+    if isinstance(capture.horizon_k, torch.Tensor):
+        horizon = capture.horizon_k.to(device=score.device, dtype=torch.float32).reshape(-1)
+        if int(horizon.numel()) != int(score.numel()):
+            raise ValueError(f"capture horizon must have {int(score.numel())} rows, got {int(horizon.numel())}")
+        return score / horizon.clamp_min(1.0)
+    return score / float(max(1, int(capture.rollout_k)))
+
+
+def _capture_paired_gain(capture: FrontRESSegmentLiveRolloutCapture) -> Any | None:
+    n_train = max(0, int(capture.n_train))
+    n_base = max(0, int(capture.n_base))
+    n_candidate = max(0, int(capture.n_candidate))
+    n = min(n_train, n_base)
+    gain_module = _gain_module()
+    if n <= 0 or capture.gain_config is None or gain_module is None:
+        return None
+    if capture.done_any is None or capture.survival_steps is None:
+        raise RuntimeError("paired Gain requires done_any and survival_steps")
+    if capture.transition_action_steps is None:
+        raise RuntimeError("paired Gain requires full-6D action steps")
+    base_start = n_train + n_candidate
+    clean_start = base_start + n_base
+    horizon = capture.horizon_k[:n].to(dtype=torch.float32) if isinstance(capture.horizon_k, torch.Tensor) else None
+    action_valid_steps = _capture_action_valid_steps(capture)
+    clean_action_steps = None
+    clean_action_step_mask = None
+    if capture.n_clean >= n and int(capture.transition_action_steps.shape[1]) >= clean_start + n:
+        clean_action_steps = capture.transition_action_steps[:, clean_start : clean_start + n]
+        if action_valid_steps is not None:
+            clean_action_step_mask = action_valid_steps[:, clean_start : clean_start + n]
+    temporal_mask = None
+    repaired_zmp = _average_physics_steps(capture.physics_zmp_repaired_steps, horizon)
+    noisy_zmp = _average_physics_steps(capture.physics_zmp_noisy_steps, horizon)
+    repaired_contact = _average_physics_steps(capture.physics_contact_repaired_steps, horizon)
+    noisy_contact = _average_physics_steps(capture.physics_contact_noisy_steps, horizon)
+    if horizon is not None and capture.motion_clean_body_pos is not None:
+        temporal_mask = torch.arange(
+            capture.motion_clean_body_pos.shape[1],
+            device=capture.motion_clean_body_pos.device,
+        ).view(1, -1) < horizon.to(capture.motion_clean_body_pos.device).view(-1, 1)
+    return gain_module.compute_segment_gain(
+        clean_positions=capture.motion_clean_body_pos[:n] if capture.motion_clean_body_pos is not None else None,
+        repaired_positions=capture.motion_repaired_body_pos[:n] if capture.motion_repaired_body_pos is not None else None,
+        noisy_positions=capture.motion_noisy_body_pos[:n] if capture.motion_noisy_body_pos is not None else None,
+        clean_root_quaternions=capture.motion_clean_root_quat[:n] if capture.motion_clean_root_quat is not None else None,
+        repaired_root_quaternions=capture.motion_repaired_root_quat[:n] if capture.motion_repaired_root_quat is not None else None,
+        noisy_root_quaternions=capture.motion_noisy_root_quat[:n] if capture.motion_noisy_root_quat is not None else None,
+        repaired_success=(~capture.done_any[:n]).reshape(-1),
+        noisy_success=(~capture.done_any[base_start : base_start + n]).reshape(-1),
+        repaired_survival=capture.survival_steps[:n].reshape(-1),
+        noisy_survival=capture.survival_steps[base_start : base_start + n].reshape(-1),
+        repaired_zmp_margin=repaired_zmp,
+        noisy_zmp_margin=noisy_zmp,
+        repaired_contact=repaired_contact,
+        noisy_contact=noisy_contact,
+        action_steps=capture.transition_action_steps[:, :n],
+        config=capture.gain_config,
+        action_step_mask=action_valid_steps[:, :n] if action_valid_steps is not None else None,
+        clean_action_steps=clean_action_steps,
+        clean_action_step_mask=clean_action_step_mask,
+        temporal_mask=temporal_mask,
+        valid_mask=(~capture.done_any[:n]).reshape(-1),
+    )
+
+
+def _average_physics_steps(
+    values: torch.Tensor | None,
+    horizon: torch.Tensor | None,
+) -> torch.Tensor | None:
+    if not isinstance(values, torch.Tensor) or values.ndim != 2:
+        return None
+    mask = torch.isfinite(values)
+    if horizon is not None and horizon.numel() == values.shape[0]:
+        time = torch.arange(values.shape[1], device=values.device).view(1, -1)
+        mask = mask & (time < horizon.to(values.device).view(-1, 1))
+    count = mask.sum(dim=1)
+    summed = torch.where(mask, values.float(), torch.zeros_like(values.float())).sum(dim=1)
+    return torch.where(count > 0, summed / count.clamp_min(1), torch.full_like(summed, float("nan")))
+
+
+def _capture_action_valid_steps(capture: FrontRESSegmentLiveRolloutCapture) -> torch.Tensor | None:
+    """Build the executed-action mask from horizon and done-before-step state.
+
+    Status: active, paired repair-cost boundary.
+    Upstream: captured action steps, per-row horizon, and raw done trace.
+    Downstream: `frontres_gain.compute_repair_cost`.
+    Evidence: offline mixed-K/done contract; live population uses the same
+    rollout trace but still requires S4 confirmation.
+    Gap: none for the captured tensor schema; missing traces return None.
+    """
+    actions = capture.transition_action_steps
+    if not isinstance(actions, torch.Tensor) or actions.ndim != 3:
+        return None
+    steps, batch_size = int(actions.shape[0]), int(actions.shape[1])
+    if not isinstance(capture.horizon_k, torch.Tensor) or int(capture.horizon_k.numel()) != batch_size:
+        return None
+    time = torch.arange(steps, device=actions.device).view(-1, 1)
+    valid = time < capture.horizon_k.to(device=actions.device, dtype=torch.long).reshape(1, -1)
+    if isinstance(capture.done_steps, torch.Tensor):
+        done_steps = capture.done_steps.to(device=actions.device, dtype=torch.bool)
+        if tuple(done_steps.shape) != (steps, batch_size):
+            raise ValueError(
+                "segment done_steps must match captured action steps, "
+                f"got {tuple(done_steps.shape)} for {(steps, batch_size)}"
+            )
+        done_before = torch.zeros_like(done_steps)
+        if steps > 1:
+            done_before[1:] = done_steps[:-1].cumsum(dim=0).bool()
+        valid = valid & ~done_before
+    return valid
 
 
 def _segment_storage_rewards(
@@ -1481,14 +1710,37 @@ def _segment_storage_rewards(
     batch_size: int,
     device: torch.device,
 ) -> torch.Tensor:
-    reward = capture.reward_accum.reshape(-1).to(device=device).float() / float(max(1, int(capture.rollout_k)))
+    """选择正式 policy-row reward, 不把 legacy score 当作 Gain.
+
+    Status: active.
+    Upstream: paired live capture and FRS-GAIN-v001 component owner.
+    Downstream: FrontRESSegmentRolloutStorage.rewards.
+    Evidence: contract-confirmed by the formal Gain connectivity test.
+    Gap: real rollout population remains live-only.
+    """
+    reward = _capture_averaged_rewards(capture, device=device)
     n_train = max(0, int(capture.n_train))
     n_candidate = max(0, int(capture.n_candidate))
     n_base = max(0, int(capture.n_base))
     base_start = n_train + n_candidate
     if n_train > 0 and n_base >= n_train and int(reward.numel()) >= base_start + n_train and batch_size == int(reward.numel()):
-        reward = reward.clone()
-        reward[:n_train] = reward[:n_train] - reward[base_start : base_start + n_train]
+        paired_gain = _capture_paired_gain(capture)
+        if paired_gain is not None:
+            if int(paired_gain.gain_total.numel()) != n_train or not bool(torch.isfinite(paired_gain.gain_total).all().item()):
+                raise RuntimeError("paired Gain has missing/non-finite training rows; inspect component evidence before PPO")
+            reward = reward.clone()
+            reward[:n_train] = paired_gain.gain_total.to(device=device)
+            return reward
+        if capture.gain_config is not None:
+            raise RuntimeError(
+                "FRS-GAIN formal policy-row reward evidence is unavailable; "
+                "refusing legacy repair_score fallback"
+            )
+        repair_score = _capture_averaged_repair_scores(capture, device=device)
+        if int(repair_score.numel()) != batch_size:
+            raise ValueError(f"segment repair scores must have {batch_size} rows, got {int(repair_score.numel())}")
+        reward = repair_score.clone()
+        reward[:n_train] = repair_score[:n_train] - repair_score[base_start : base_start + n_train]
     if int(reward.numel()) != batch_size:
         raise ValueError(f"segment rewards must have {batch_size} rows, got {int(reward.numel())}")
     return reward
@@ -1500,6 +1752,14 @@ def _segment_storage_reward_steps(
     batch_size: int,
     device: torch.device,
 ) -> torch.Tensor | None:
+    """选择进入 K-step return 的 policy-row Gain trace.
+
+    Status: active.
+    Upstream: per-step paired Gain capture.
+    Downstream: storage.compute_returns_and_advantages.
+    Evidence: contract-confirmed by the storage and formal-route tests.
+    Gap: live finite-value diversity remains unconfirmed.
+    """
     if capture.reward_steps is None:
         return None
     reward_steps = capture.reward_steps.to(device=device, dtype=torch.float32)
@@ -1513,6 +1773,27 @@ def _segment_storage_reward_steps(
     n_base = max(0, int(capture.n_base))
     base_start = n_train + n_candidate
     if n_train > 0 and n_base >= n_train and batch_size >= base_start + n_train:
+        if capture.gain_config is not None:
+            if capture.gain_steps is None:
+                raise RuntimeError("paired Gain returns require per-step Gain evidence")
+            gain_steps = capture.gain_steps.to(device=device, dtype=torch.float32)
+            if gain_steps.ndim != 2 or int(gain_steps.shape[1]) != batch_size:
+                raise ValueError(f"segment gain_steps must have shape [T, {batch_size}], got {tuple(gain_steps.shape)}")
+            if not bool(torch.isfinite(gain_steps[:, :n_train]).all().item()):
+                raise RuntimeError("paired Gain step evidence contains missing/non-finite training rows")
+            reward_steps = reward_steps.clone()
+            reward_steps[:, :n_train] = gain_steps[:, :n_train]
+            return reward_steps
+        if capture.repair_score_steps is None:
+            raise RuntimeError(
+                "paired Segment PPO returns require repair-specific executability steps; "
+                "generic env reward is not a valid fallback"
+            )
+        reward_steps = capture.repair_score_steps.to(device=device, dtype=torch.float32)
+        if reward_steps.ndim != 2 or int(reward_steps.shape[1]) != batch_size:
+            raise ValueError(
+                f"segment repair_score_steps must have shape [T, {batch_size}], got {tuple(reward_steps.shape)}"
+            )
         reward_steps = reward_steps.clone()
         reward_steps[:, :n_train] = reward_steps[:, :n_train] - reward_steps[:, base_start : base_start + n_train]
     return reward_steps
@@ -1580,6 +1861,29 @@ def _select_segment_transition_actions(
             flush=True,
         )
     return segment_actions, log_probs
+
+
+def _select_executed_segment_actions(
+    runner: Any,
+    *,
+    actions: torch.Tensor,
+) -> torch.Tensor:
+    """Return the full-6D action actually stored after baseline overrides.
+
+    This is intentionally separate from `_select_segment_transition_actions`:
+    the latter reconstructs old log-probabilities from raw policy statistics,
+    while Repair Cost must observe the executed transition tuple. Candidate,
+    baseline, and Clean rows are therefore zero after the baseline override.
+    """
+    transition_actions = getattr(getattr(runner, "alg", None), "transition", None)
+    transition_actions = getattr(transition_actions, "actions", None)
+    if isinstance(transition_actions, torch.Tensor) and transition_actions.shape == actions.shape:
+        selected = transition_actions
+    else:
+        selected, _ = _select_segment_transition_actions(runner, actions=actions)
+    if selected.ndim != 2 or selected.shape[-1] < 6:
+        raise ValueError(f"executed Segment action must expose full 6D Delta SE, got {tuple(selected.shape)}")
+    return selected[:, :6].detach().clone()
 
 
 def _motion_perturber_from_runner(runner: Any) -> Any | None:
@@ -1678,6 +1982,11 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
         runner.alg,
         privileged_observations=storage_batch.privileged_observations,
     )
+    warmup_phase = frontres_segment_warmup_phase(
+        iteration=int(getattr(runner, "current_learning_iteration", 0)),
+        critic_warmup_iterations=int(getattr(runner.alg, "frontres_segment_critic_warmup_iterations", 0)),
+        actor_warmup_iterations=int(getattr(runner.alg, "frontres_segment_actor_warmup_iterations", 0)),
+    )
     ppo_cfg = FrontRESSegmentPPOConfig(
         clip_param=float(getattr(runner.alg, "clip_param", 0.2)),
         value_clip_param=float(getattr(runner.alg, "clip_param", 0.2)),
@@ -1685,6 +1994,7 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
         entropy_coef=float(getattr(runner.alg, "entropy_coef", 0.0)),
         use_clipped_value_loss=bool(getattr(runner.alg, "use_clipped_value_loss", True)),
         advantage_normalization=str(getattr(runner.alg, "frontres_segment_advantage_normalization", "scale_only")),
+        actor_loss_weight=warmup_phase.actor_loss_weight,
     )
     # B2: First forward is the pre-step loss and MOSAIC-style old/new KL source.
     ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
@@ -1711,6 +2021,8 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
                 ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
             runner.alg.optimizer.zero_grad()
             ppo_result.total_loss.backward()
+            if warmup_phase.name == "critic_only":
+                _clear_noncritic_grads(runner.alg.policy, optimizer_params)
             grad_norm_tensor = torch.nn.utils.clip_grad_norm_(
                 (param for _, param in optimizer_params),
                 float(getattr(runner.alg, "max_grad_norm", 1.0)),
@@ -1766,6 +2078,9 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
     diagnostics["trust_region_max_retries"] = max_retries
     diagnostics["trust_region_schedule_adaptive"] = int(schedule == "adaptive")
     diagnostics["trust_region_schedule"] = schedule
+    diagnostics["warmup_phase"] = warmup_phase.name
+    diagnostics["warmup_phase_iteration"] = warmup_phase.phase_iteration
+    diagnostics["actor_loss_weight"] = warmup_phase.actor_loss_weight
     for key, value in pre_step_lr_diagnostics.items():
         diagnostics[f"mosaic_pre_step_{key}"] = value
     for key, value in rejected_lr_diagnostics.items():
@@ -1773,6 +2088,9 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
     diagnostics.update(post_update_diagnostics)
     diagnostics.update(lr_diagnostics)
     _attach_ppo_update_diagnostics(ppo_result, diagnostics)
+    # AUDIT-PPO-01: 检查 warmup/PPO/KL/Frozen GMT, 位于 optimizer diagnostics -> live summary.
+    # Result: PENDING_LIVE.
+    print_ppo_audit(runner, result=ppo_result)
     runner.eval_mode()
     return ppo_result
 
@@ -1818,6 +2136,66 @@ def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
     )
 
 
+def _segment_repair_executability_scores(
+    runner: Any,
+    pair_layout: Any,
+    *,
+    batch_size: int,
+) -> torch.Tensor:
+    """Return family-matched repair scores without generic env/task reward."""
+    scorer = getattr(runner, "_frontres_executability", None)
+    if scorer is None:
+        raise RuntimeError("Segment Replay gain requires runner._frontres_executability")
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    command_manager = getattr(env, "command_manager", None)
+    command = getattr(command_manager, "_terms", {}).get("motion") if command_manager is not None else None
+    if command is None:
+        raise RuntimeError("Segment Replay gain requires the motion command executability source")
+
+    _, components = scorer.exec_score(command, return_components=True)
+    role_counts = (
+        int(pair_layout.n_train),
+        int(pair_layout.n_candidate),
+        int(pair_layout.n_base),
+        int(pair_layout.n_clean),
+    )
+    if sum(role_counts) != int(batch_size):
+        raise ValueError(
+            "Segment Replay executability requires an exact quartet row layout; "
+            f"counts={role_counts} batch_size={batch_size}"
+        )
+
+    cfg = getattr(runner, "cfg", {}) or {}
+    specialist = str(cfg.get("frontres_specialist_mode", "") if hasattr(cfg, "get") else "").lower()
+    active_modes = tuple(getattr(runner, "_frontres_curriculum_active_modes", ()))
+    if specialist in ("rp", "local_rp", "rp_only", "strong_rp"):
+        fallback_modes = ("local_rp",)
+    elif active_modes:
+        fallback_modes = active_modes
+    else:
+        raise RuntimeError("Segment Replay gain requires an explicit perturbation family")
+
+    max_count = max(role_counts, default=0)
+    mode_groups = list(getattr(runner, "_frontres_curriculum_env_mode_groups", ()))[:max_count]
+    if len(mode_groups) < max_count:
+        mode_groups.extend([fallback_modes] * (max_count - len(mode_groups)))
+
+    scores = torch.empty(batch_size, device=runner.device, dtype=components["rp"].dtype)
+    start = 0
+    for count in role_counts:
+        if count > 0:
+            scores[start : start + count] = scorer.exec_score_for_modes(
+                components,
+                start,
+                count,
+                mode_groups=mode_groups[:count],
+                active_modes=active_modes,
+                include_task=False,
+            )
+        start += count
+    return scores.detach()
+
+
 def _run_live_rollout_capture(
     runner: Any,
     observations: FrontRESSegmentLiveObservations,
@@ -1829,20 +2207,22 @@ def _run_live_rollout_capture(
     # FRS3-EVAL-014: step the live env and optionally capture motion-quality frames.
     frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
     pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
-    rollout_k = max(
-        1,
-        int(
-            rollout_steps
-            if rollout_steps is not None
-            else getattr(runner.alg, "frontres_segment_k", runner._frontres_segment_replay_boundary.segment_k)
-        ),
-    )
+    batch_size = int(observations.obs.shape[0])
+    if rollout_steps is not None:
+        rollout_k = max(1, int(rollout_steps))
+        horizon_k = torch.full((batch_size,), rollout_k, dtype=torch.long, device=runner.device)
+    else:
+        metadata = _current_trial_metadata(runner, batch_size=batch_size, device=runner.device)
+        horizon_k = metadata.horizon_k.clamp_min(1)
+        rollout_k = int(horizon_k.max().item())
     vel_est_error_buffer = deque(maxlen=1)
-    reward_sum = 0.0
-    done_sum = 0.0
     reward_accum = None
+    repair_score_accum = None
     done_any = None
     reward_frames = []
+    repair_score_frames = []
+    gain_step_frames = []
+    action_step_frames = []
     done_frames = []
     survival_steps = None
     actor_update_mask = None
@@ -1863,6 +2243,29 @@ def _run_live_rollout_capture(
     clean_body_frames = []
     repaired_body_frames = []
     noisy_body_frames = []
+    clean_root_quat_frames = []
+    repaired_root_quat_frames = []
+    noisy_root_quat_frames = []
+    zmp_repaired_frames = []
+    zmp_noisy_frames = []
+    contact_repaired_frames = []
+    contact_noisy_frames = []
+    previous_clean_body = None
+    previous_repaired_body = None
+    previous_noisy_body = None
+    previous_clean_root_quat = None
+    previous_repaired_root_quat = None
+    previous_noisy_root_quat = None
+    previous_previous_clean_body = None
+    previous_previous_repaired_body = None
+    previous_previous_noisy_body = None
+    previous_action = None
+    gain_module = _gain_module()
+    gain_config = (
+        gain_module.FrontRESSegmentGainConfig.from_mapping(getattr(runner, "cfg", None))
+        if gain_module is not None
+        else None
+    )
     obs = observations.obs
     privileged_obs = observations.privileged_obs
     teacher_obs = observations.teacher_obs
@@ -1917,7 +2320,7 @@ def _run_live_rollout_capture(
                 if supervised_target is not None and supervised_target.ndim == 2 and supervised_target.shape[-1] >= 6:
                     transition_supervised_target = supervised_target.detach().clone()
                 selected_actions, selected_log_probs = _select_segment_transition_actions(runner, actions=actions)
-                transition_actions = selected_actions.detach().clone()
+                transition_actions = _select_executed_segment_actions(runner, actions=actions)
                 transition_log_probs = selected_log_probs.detach().clone().reshape(-1)
                 transition_values = runner.alg.transition.values.detach().clone().reshape(-1)
                 action_mean = getattr(runner.alg.transition, "action_mean", None)
@@ -1929,34 +2332,131 @@ def _run_live_rollout_capture(
                 actor_update_mask = torch.zeros(actions.shape[0], device=runner.device, dtype=torch.bool)
                 actor_update_mask[: max(0, min(int(pair_layout.n_train), actions.shape[0]))] = True
 
+            selected_actions, _ = _select_segment_transition_actions(runner, actions=actions)
+            executed_actions = _select_executed_segment_actions(runner, actions=actions)
+            action_step_frames.append(executed_actions)
+
             obs, rewards, dones, infos = runner.env.step(env_actions.to(runner.env.device))
             _print_frontres_dr_runtime_probe(runner, label="after_env_step", rollout_step=rollout_step)
             rewards = rewards.to(runner.device)
             dones = dones.to(runner.device)
-            reward_sum += float(rewards.mean().detach().cpu())
-            done_sum += float(dones.float().mean().detach().cpu())
-            reward_accum = rewards.detach().clone() if reward_accum is None else reward_accum + rewards.detach()
+            paired_repair_evidence = (
+                int(pair_layout.n_train) > 0
+                and int(pair_layout.n_base) >= int(pair_layout.n_train)
+            )
+            repair_scores = (
+                _segment_repair_executability_scores(
+                    runner,
+                    pair_layout,
+                    batch_size=batch_size,
+                )
+                if paired_repair_evidence
+                else None
+            )
+            horizon_active = rollout_step < horizon_k
+            alive_before_step = torch.ones_like(horizon_active) if done_any is None else ~done_any
+            score_active = horizon_active & alive_before_step
+            scored_rewards = rewards.detach() * score_active.to(dtype=rewards.dtype)
+            scored_repair = (
+                repair_scores * score_active.to(dtype=repair_scores.dtype)
+                if repair_scores is not None
+                else None
+            )
+            scored_dones = dones.detach().bool() & score_active
+            reward_accum = scored_rewards.clone() if reward_accum is None else reward_accum + scored_rewards
+            if scored_repair is not None:
+                repair_score_accum = (
+                    scored_repair.clone()
+                    if repair_score_accum is None
+                    else repair_score_accum + scored_repair
+                )
             reward_frames.append(rewards.detach().clone())
+            if repair_scores is not None:
+                repair_score_frames.append(repair_scores.detach().clone())
             done_frames.append(dones.detach().bool().clone())
             if done_any is None:
                 done_any = torch.zeros_like(dones.detach(), dtype=torch.bool)
                 survival_steps = torch.zeros_like(rewards.detach(), dtype=torch.float32)
-            survival_steps = survival_steps + (~done_any).float()
-            done_any = done_any | dones.detach().bool()
+            survival_steps = survival_steps + score_active.float()
+            done_any = done_any | scored_dones
             if capture_motion_quality:
                 clean_body, repaired_body, noisy_body = _capture_motion_quality_frame(runner, pair_layout)
+                clean_root_quat, repaired_root_quat, noisy_root_quat = _capture_root_orientation_frame(runner, pair_layout)
+                physics_frame = _capture_physics_frame(runner, pair_layout)
                 if clean_body is not None and repaired_body is not None and noisy_body is not None:
                     clean_body_frames.append(clean_body)
                     repaired_body_frames.append(repaired_body)
                     noisy_body_frames.append(noisy_body)
+                    if clean_root_quat is not None and repaired_root_quat is not None and noisy_root_quat is not None:
+                        clean_root_quat_frames.append(clean_root_quat)
+                        repaired_root_quat_frames.append(repaired_root_quat)
+                        noisy_root_quat_frames.append(noisy_root_quat)
+                    if physics_frame is not None:
+                        zmp_repaired, zmp_noisy, contact_repaired, contact_noisy = physics_frame
+                        zmp_repaired_frames.append(zmp_repaired)
+                        zmp_noisy_frames.append(zmp_noisy)
+                        contact_repaired_frames.append(contact_repaired)
+                        contact_noisy_frames.append(contact_noisy)
+                    n_pair = min(int(pair_layout.n_train), int(pair_layout.n_base))
+                    if n_pair > 0 and gain_module is not None and gain_config is not None:
+                        train_success = (~done_any[:n_pair]).detach()
+                        base_start = int(pair_layout.n_train) + int(pair_layout.n_candidate)
+                        base_success = (~done_any[base_start : base_start + n_pair]).detach()
+                        train_survival = survival_steps[:n_pair] / float(rollout_step + 1)
+                        base_survival = survival_steps[base_start : base_start + n_pair] / float(rollout_step + 1)
+                        step_result = gain_module.compute_segment_gain_step(
+                            clean_position=clean_body[:n_pair],
+                            repaired_position=repaired_body[:n_pair],
+                            noisy_position=noisy_body[:n_pair],
+                            previous_clean_position=previous_clean_body,
+                            previous_repaired_position=previous_repaired_body,
+                            previous_noisy_position=previous_noisy_body,
+                            previous_previous_clean_position=previous_previous_clean_body,
+                            previous_previous_repaired_position=previous_previous_repaired_body,
+                            previous_previous_noisy_position=previous_previous_noisy_body,
+                            clean_root_quaternion=clean_root_quat,
+                            repaired_root_quaternion=repaired_root_quat,
+                            noisy_root_quaternion=noisy_root_quat,
+                            repaired_zmp_margin=physics_frame[0] if physics_frame is not None else None,
+                            noisy_zmp_margin=physics_frame[1] if physics_frame is not None else None,
+                            repaired_contact=physics_frame[2] if physics_frame is not None else None,
+                            noisy_contact=physics_frame[3] if physics_frame is not None else None,
+                            repaired_success=train_success,
+                            noisy_success=base_success,
+                            repaired_survival=train_survival,
+                            noisy_survival=base_survival,
+                            action=executed_actions[:n_pair],
+                            previous_action=previous_action,
+                            config=gain_config,
+                        )
+                        full_step_gain = torch.full(
+                            (batch_size,),
+                            float("nan"),
+                            device=runner.device,
+                            dtype=step_result.gain_total.dtype,
+                        )
+                        full_step_gain[:n_pair] = step_result.gain_total
+                        gain_step_frames.append(full_step_gain)
+                    previous_previous_clean_body = previous_clean_body
+                    previous_previous_repaired_body = previous_repaired_body
+                    previous_previous_noisy_body = previous_noisy_body
+                    previous_clean_body = clean_body
+                    previous_repaired_body = repaired_body
+                    previous_noisy_body = noisy_body
+                    previous_clean_root_quat = clean_root_quat
+                    previous_repaired_root_quat = repaired_root_quat
+                    previous_noisy_root_quat = noisy_root_quat
+            elif int(pair_layout.n_train) > 0:
+                gain_step_frames.append(torch.full((batch_size,), float("nan"), device=runner.device))
+            previous_action = executed_actions
 
             obs, privileged_obs, teacher_obs, ref_vel_estimator_obs = _read_step_observations(runner, obs, infos)
             last_obs_shape = tuple(obs.shape)
 
     return FrontRESSegmentLiveRolloutCapture(
         rollout_k=rollout_k,
-        reward_mean=reward_sum / float(rollout_k),
-        done_frac=done_sum / float(rollout_k),
+        reward_mean=float((reward_accum / horizon_k.to(dtype=reward_accum.dtype)).mean().detach().cpu()),
+        done_frac=float(done_any.float().mean().detach().cpu()),
         last_obs_shape=last_obs_shape,
         action_shape=action_shape,
         env_action_shape=env_action_shape,
@@ -1967,10 +2467,16 @@ def _run_live_rollout_capture(
         transition_values=transition_values,
         transition_means=transition_means,
         transition_sigmas=transition_sigmas,
+        transition_action_steps=torch.stack(action_step_frames, dim=0) if action_step_frames else None,
         reward_accum=reward_accum,
         done_any=done_any,
         reward_steps=torch.stack(reward_frames, dim=0) if reward_frames else None,
+        repair_score_accum=repair_score_accum,
+        repair_score_steps=torch.stack(repair_score_frames, dim=0) if repair_score_frames else None,
+        gain_steps=torch.stack(gain_step_frames, dim=0) if gain_step_frames else None,
+        gain_config=gain_config,
         done_steps=torch.stack(done_frames, dim=0) if done_frames else None,
+        horizon_k=horizon_k.detach().clone(),
         actor_update_mask=actor_update_mask,
         n_train=int(pair_layout.n_train),
         n_candidate=int(pair_layout.n_candidate),
@@ -1980,6 +2486,13 @@ def _run_live_rollout_capture(
         motion_clean_body_pos=_stack_motion_quality_frames(clean_body_frames),
         motion_repaired_body_pos=_stack_motion_quality_frames(repaired_body_frames),
         motion_noisy_body_pos=_stack_motion_quality_frames(noisy_body_frames),
+        motion_clean_root_quat=_stack_motion_quality_frames(clean_root_quat_frames),
+        motion_repaired_root_quat=_stack_motion_quality_frames(repaired_root_quat_frames),
+        motion_noisy_root_quat=_stack_motion_quality_frames(noisy_root_quat_frames),
+        physics_zmp_repaired_steps=_stack_motion_quality_frames(zmp_repaired_frames),
+        physics_zmp_noisy_steps=_stack_motion_quality_frames(zmp_noisy_frames),
+        physics_contact_repaired_steps=_stack_motion_quality_frames(contact_repaired_frames),
+        physics_contact_noisy_steps=_stack_motion_quality_frames(contact_noisy_frames),
         env_actions=transition_env_actions,
         transition_perturbation_rp=transition_perturbation_rp,
         transition_supervised_target=transition_supervised_target,
@@ -2019,6 +2532,21 @@ def _capture_motion_quality_frame(
     runner: Any,
     pair_layout: Any,
 ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+    """截获同一 quartet frame 的 Clean/Repaired/Noisy Style evidence.
+
+    函数名说明:
+        `_capture_motion_quality_frame` 是 paired Style capture adapter, 只对齐并
+        返回 root-relative body positions; 它不是 MPJPE 聚合器或 Gain 公式.
+
+    主链路:
+        上游: env.step 后的 motion command 和 split-env pair layout.
+        下游: `compute_segment_gain` 的 Style component 比较 matching motion/frame.
+
+    语义:
+        三个分支必须来自同一 motion/frame. 任一字段缺失时返回 None, diagnostics
+        应标记 UNCONFIRMED, 不得静默写成 0.
+    """
+    # B1: 从一个 quartet frame 读取 matching Clean, Repaired 和 Noisy rows.
     command = _motion_command_for_runner(runner)
     if command is None:
         return None, None, None
@@ -2037,10 +2565,163 @@ def _capture_motion_quality_frame(
     clean_start = base_start + n_base
     if n <= 0 or int(robot_pos.shape[0]) < base_start + n or int(clean_ref.shape[0]) < clean_start + n:
         return None, None, None
-    return (
+    # B2: 按 role 对齐 root-relative body positions, 不跨 motion 聚合.
+    frame = (
         _root_relative_body_pos(clean_ref[clean_start : clean_start + n]),
         _root_relative_body_pos(robot_pos[:n]),
         _root_relative_body_pos(robot_pos[base_start : base_start + n]),
+    )
+    # AUDIT-PAIR-EVIDENCE-01: Record style evidence before canonical Gain consumes it.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-PAIR-EVIDENCE-01",
+        clean_positions=frame[0],
+        repaired_positions=frame[1],
+        noisy_positions=frame[2],
+    )
+    return frame
+
+
+def _capture_root_orientation_frame(
+    runner: Any,
+    pair_layout: Any,
+) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+    """Capture Clean-target and executed root quaternions for one quartet.
+
+    Status: active Style capture boundary.
+    Upstream: motion command quartet and robot anchor state after env.step.
+    Downstream: frontres_gain geodesic Style component.
+    Evidence: source-confirmed fields; runtime availability still requires S4.
+    Gap: absent anchor quaternions remain UNCONFIRMED rather than zero.
+    """
+    command = _motion_command_for_runner(runner)
+    if command is None:
+        return None, None, None
+    clean_ref = getattr(command, "anchor_quat_w_original", None)
+    robot_quat = getattr(command, "robot_anchor_quat_w", None)
+    if not isinstance(clean_ref, torch.Tensor) or not isinstance(robot_quat, torch.Tensor):
+        return None, None, None
+    n_train = max(0, int(pair_layout.n_train))
+    n_candidate = max(0, int(pair_layout.n_candidate))
+    n_base = max(0, int(pair_layout.n_base))
+    n_clean = max(0, int(pair_layout.n_clean))
+    n = min(n_train, n_base, n_clean)
+    base_start = n_train + n_candidate
+    clean_start = base_start + n_base
+    if n <= 0 or clean_ref.shape[-1] != 4 or robot_quat.shape[-1] != 4:
+        return None, None, None
+    if int(clean_ref.shape[0]) < clean_start + n or int(robot_quat.shape[0]) < base_start + n:
+        return None, None, None
+    return (
+        clean_ref[clean_start : clean_start + n].detach().clone(),
+        robot_quat[:n].detach().clone(),
+        robot_quat[base_start : base_start + n].detach().clone(),
+    )
+
+
+def _capture_physics_frame(
+    runner: Any,
+    pair_layout: Any,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None:
+    """截获 paired ZMP/support 和 height-contact Physics evidence.
+
+    函数名说明:
+        `_capture_physics_frame` 是 paired Physics capture adapter, 读取 frozen-GMT
+        执行结果; 它不是 environment reward, 也不构造 Style Gain.
+
+    主链路:
+        上游: env.step 后的 robot state, motion command 和 quartet role layout.
+        下游: `compute_paired_physics_gain` 比较 Repaired/Noisy executability.
+
+    语义:
+        ZMP/support 必须按同一 quartet frame 配对. 当前 contact 是 foot-height
+        support proxy, 不是 contact-force sensor; 该限制必须保留在审计解释中.
+    """
+    # B1: 读取同一 quartet frame 的 paired frozen-GMT execution state.
+    command = _motion_command_for_runner(runner)
+    if command is None:
+        return None
+    n_train = max(0, int(pair_layout.n_train))
+    n_candidate = max(0, int(pair_layout.n_candidate))
+    n_base = max(0, int(pair_layout.n_base))
+    n = min(n_train, n_base)
+    if n <= 0:
+        return None
+    base_start = n_train + n_candidate
+    try:
+        from rsl_rl.frontres.frontres_balance import _frontres_branch_balance_margin
+
+        zmp_repaired = _frontres_branch_balance_margin(
+            runner, command, start=0, count=n, device=runner.device
+        ).detach()
+        zmp_noisy = _frontres_branch_balance_margin(
+            runner, command, start=base_start, count=n, device=runner.device
+        ).detach()
+    except (ImportError, AttributeError, KeyError, RuntimeError, TypeError, ValueError):
+        return None
+
+    contact = _height_contact_consistency_pair(runner, command, pair_layout, n)
+    if contact is None:
+        return None
+    contact_repaired, contact_noisy = contact
+    # B2: 对齐 Repaired/Noisy ZMP 和 contact evidence, 产出 canonical Physics 输入.
+    frame = (zmp_repaired, zmp_noisy, contact_repaired, contact_noisy)
+    # AUDIT-PAIR-EVIDENCE-01: Record physics evidence beside style evidence.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-PAIR-EVIDENCE-01",
+        zmp_repaired=frame[0],
+        zmp_noisy=frame[1],
+        contact_repaired=frame[2],
+        contact_noisy=frame[3],
+    )
+    return frame
+
+
+def _height_contact_consistency_pair(
+    runner: Any,
+    command: Any,
+    pair_layout: Any,
+    n: int,
+) -> tuple[torch.Tensor, torch.Tensor] | None:
+    clean_ref = getattr(command, "body_pos_w", None)
+    robot_pos = getattr(command, "robot_body_pos_w", None)
+    body_names = list(getattr(getattr(command, "cfg", None), "body_names", []))
+    if not isinstance(clean_ref, torch.Tensor) or not isinstance(robot_pos, torch.Tensor):
+        return None
+    foot_names = getattr(runner, "cfg", {}).get(
+        "frontres_balance_foot_body_names",
+        getattr(runner, "cfg", {}).get(
+            "frontres_exec_foot_body_names",
+            ["left_ankle_roll_link", "right_ankle_roll_link"],
+        ),
+    )
+    foot_ids = [index for index, name in enumerate(body_names) if name in set(foot_names)]
+    if len(foot_ids) != 2:
+        return None
+    n_train = int(pair_layout.n_train)
+    n_candidate = int(pair_layout.n_candidate)
+    n_base = int(pair_layout.n_base)
+    base_start = n_train + n_candidate
+    clean_start = base_start + n_base
+    if int(clean_ref.shape[0]) < clean_start + n or int(robot_pos.shape[0]) < base_start + n:
+        return None
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    origin_z = getattr(getattr(env, "scene", None), "env_origins", None)
+    threshold = float(getattr(runner, "cfg", {}).get("frontres_balance_contact_height", 0.08))
+
+    def contact_mask(values: torch.Tensor, start: int) -> torch.Tensor:
+        feet = values[start : start + n, foot_ids, 2]
+        if isinstance(origin_z, torch.Tensor):
+            feet = feet - origin_z[start : start + n, 2].view(-1, 1)
+        return feet <= threshold
+
+    clean_contact = contact_mask(clean_ref, clean_start)
+    repaired_contact = contact_mask(robot_pos, 0)
+    noisy_contact = contact_mask(robot_pos, base_start)
+    return (
+        (clean_contact == repaired_contact).float().mean(dim=-1),
+        (clean_contact == noisy_contact).float().mean(dim=-1),
     )
 
 
@@ -2098,18 +2779,32 @@ def _initial_live_probe_summary(
     storage_write: bool,
     single_update: bool,
 ) -> dict[str, object]:
-    score_summary = _paired_score_summary(capture)
-    score_noisy = _mean_sequence(score_summary.get("score_noisy_per_sample", ()))
-    score_repaired = _mean_sequence(score_summary.get("score_repaired_per_sample", ()))
-    gains = score_summary.get("gain_over_noisy_per_sample", ())
+    """Build the active live summary from canonical paired Gain evidence.
+
+    Status: active diagnostic boundary.
+    Upstream: captured paired rollout and ``_capture_paired_gain``.
+    Downstream: sampler evidence, update-loop aggregation, and train logs.
+    Evidence: Step 7 implementation path; legacy per-row score fields remain
+    only for sampler compatibility and are not active train diagnostics.
+    Gap: real simulator component population remains an S4 boundary.
+    """
+    legacy_score_compatibility = _paired_score_summary(capture)
+    paired_gain = _capture_paired_gain(capture)
+    gain_summary = _paired_gain_summary(capture)
+    gain_total_pos_frac = (
+        _positive_fraction(_float_list(paired_gain.gain_total))
+        if paired_gain is not None
+        else float("nan")
+    )
     summary = {
+        "rollout_k": capture.rollout_k,
+        "rollout_horizon_summary": _tensor_range_summary("horizon", capture.horizon_k)
+        if isinstance(capture.horizon_k, torch.Tensor)
+        else f"horizon_count=0 horizon_min={capture.rollout_k} horizon_max={capture.rollout_k}",
         "reward_mean": capture.reward_mean,
         "env_reward_mean": capture.reward_mean,
         "train_reward_mean": capture.reward_mean,
-        "score_noisy_mean": score_noisy,
-        "score_repaired_mean": score_repaired,
-        "score_gain_mean": score_repaired - score_noisy,
-        "score_gain_pos_frac": _positive_fraction(gains),
+        "gain_total_pos_frac": gain_total_pos_frac,
         "motion_delta_se_norm": _delta_se_norm(capture.transition_actions),
         "motion_delta_z_up_frac": _delta_z_up_frac(capture.transition_actions),
         "done_frac": capture.done_frac,
@@ -2158,7 +2853,10 @@ def _initial_live_probe_summary(
         "ppo_trust_region_rejected_count": 0,
         "ppo_trust_region_accepted": 1,
     }
-    summary.update(score_summary)
+    # Compatibility vectors are retained for sampler evidence serialization;
+    # no legacy scalar is used by active diagnostics or training aggregation.
+    summary.update(legacy_score_compatibility)
+    summary.update(gain_summary)
     summary.update(_motion_quality_summary(capture))
     return summary
 
@@ -2168,17 +2866,35 @@ def _motion_quality_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[
         from rsl_rl.frontres.frontres_segment_diagnostics import motion_quality_summary_to_scalars
     except ModuleNotFoundError:
         return {}
+    positions = capture.motion_repaired_body_pos
+    temporal_mask = None
+    valid_mask = capture.actor_update_mask
+    if isinstance(positions, torch.Tensor):
+        batch_size, time_steps = int(positions.shape[0]), int(positions.shape[1])
+        if isinstance(valid_mask, torch.Tensor):
+            valid_mask = valid_mask[:batch_size]
+        if isinstance(capture.horizon_k, torch.Tensor):
+            horizon = capture.horizon_k[:batch_size].to(device=positions.device, dtype=torch.long)
+            temporal_mask = torch.arange(time_steps, device=positions.device).view(1, -1) < horizon.view(-1, 1)
     return motion_quality_summary_to_scalars(
         clean_positions=capture.motion_clean_body_pos,
         repaired_positions=capture.motion_repaired_body_pos,
         noisy_positions=capture.motion_noisy_body_pos,
         delta_se=capture.transition_actions,
-        valid_mask=capture.actor_update_mask,
+        valid_mask=valid_mask,
+        temporal_mask=temporal_mask,
     )
 
 
 def _paired_score_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[str, object]:
-    if capture.reward_accum is None or capture.done_any is None:
+    """Return legacy executable-score vectors for compatibility evidence only.
+
+    Status: legacy compatibility boundary, not an active training diagnostic.
+    Upstream: paired rollout capture. Downstream: sampler evidence compatibility
+    fields and migration tests only. Evidence: Step 6C/7 audit.
+    Gap: the active route must use ``_paired_gain_summary`` instead.
+    """
+    if capture.done_any is None:
         return {}
     n_train = max(0, int(capture.n_train))
     n_candidate = max(0, int(capture.n_candidate))
@@ -2187,15 +2903,15 @@ def _paired_score_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[st
     n = min(n_train, n_base)
     if n <= 0:
         return {}
-    reward = capture.reward_accum.reshape(-1).detach().float() / float(max(1, int(capture.rollout_k)))
+    score = _capture_averaged_repair_scores(capture)
     done = capture.done_any.reshape(-1).detach().bool()
     base_start = n_train + n_candidate
     clean_start = base_start + n_base
-    if int(reward.numel()) < base_start + n:
+    if int(score.numel()) < base_start + n:
         return {}
-    clean = reward[clean_start : clean_start + n] if n_clean >= n and int(reward.numel()) >= clean_start + n else torch.ones(n, device=reward.device)
-    noisy = reward[base_start : base_start + n]
-    repaired = reward[:n]
+    clean = score[clean_start : clean_start + n] if n_clean >= n and int(score.numel()) >= clean_start + n else torch.ones(n, device=score.device)
+    noisy = score[base_start : base_start + n]
+    repaired = score[:n]
     return {
         "evidence_row_count": n,
         "evidence_reward_per_sample": _float_list(repaired),
@@ -2205,14 +2921,41 @@ def _paired_score_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[st
         "score_noisy_per_sample": _float_list(noisy),
         "gain_over_noisy_per_sample": _float_list(repaired - noisy),
         "score_clean_per_sample": _float_list(clean),
-        "score_source": "b1_paired_env_rewards",
+        "score_source": "repair_executability",
+    }
+
+
+def _paired_gain_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[str, object]:
+    result = _capture_paired_gain(capture)
+    if result is None:
+        return {"gain_source": "UNCONFIRMED"}
+    return {
+        "gain_source": "FRS-GAIN-v001",
+        "gain_style_per_sample": _float_list(result.style_gain),
+        "gain_physics_per_sample": _float_list(result.physics_gain),
+        "gain_repair_cost_per_sample": _float_list(result.repair_cost),
+        "gain_total_per_sample": _float_list(result.gain_total),
+        "gain_style_mean": _finite_mean(result.style_gain),
+        "gain_physics_mean": _finite_mean(result.physics_gain),
+        "gain_repair_cost_mean": _finite_mean(result.repair_cost),
+        "gain_total_mean": _finite_mean(result.gain_total),
+        "gain_style_mpjpe_mean": _finite_mean(result.style_mpjpe_gain),
+        "gain_style_velocity_mean": _finite_mean(result.style_velocity_gain),
+        "gain_style_acceleration_mean": _finite_mean(result.style_acceleration_gain),
+        "gain_style_root_orientation_mean": _finite_mean(result.style_root_orientation_gain),
+        "gain_physics_success_mean": _finite_mean(result.physics_success_gain),
+        "gain_physics_survival_mean": _finite_mean(result.physics_survival_gain),
+        "gain_repair_norm_mean": _finite_mean(result.repair_norm),
+        "gain_repair_temporal_mean": _finite_mean(result.repair_temporal_change),
+        "gain_repair_clean_cost_per_sample": _float_list(result.repair_clean_cost),
+        "gain_repair_clean_cost_mean": _finite_mean(result.repair_clean_cost),
     }
 
 
 def _rollout_reward_per_sample(capture: FrontRESSegmentLiveRolloutCapture) -> list[float]:
     if capture.reward_accum is None:
         return []
-    reward = capture.reward_accum.reshape(-1).detach().float() / float(max(1, int(capture.rollout_k)))
+    reward = _capture_averaged_rewards(capture)
     return _float_list(reward)
 
 
@@ -2263,8 +3006,6 @@ def _print_live_probe_summary(
         tuple(capture.transition_actions.shape) if capture.transition_actions is not None else None
     )
     segment_delta_se_6d = bool(_shape_last_dim(segment_action_shape) == 6)
-    score_noisy = _mean_sequence(summary.get("score_noisy_per_sample", ()))
-    score_repaired = _mean_sequence(summary.get("score_repaired_per_sample", ()))
     print(
         _log_block(
             "[FrontRES Segment Live Probe]",
@@ -2299,6 +3040,7 @@ def _print_live_probe_summary(
                     "env_action": capture.env_action_shape,
                     "env_dim": _shape_last_dim(capture.env_action_shape),
                     "k": capture.rollout_k,
+                    "horizon": summary.get("rollout_horizon_summary", "unavailable"),
                     "env_reward": _fmt_num(summary.get("env_reward_mean", summary["reward_mean"])),
                     "done": _fmt_pct(summary["done_frac"]),
                 },
@@ -2326,14 +3068,21 @@ def _print_live_probe_summary(
                 },
             ),
             *_kv_lines(
-                "score",
+                "gain",
                 {
-                    "source": summary.get("score_source", "synthetic_or_unavailable"),
-                    "rows": int(summary.get("evidence_row_count", 0) or 0),
-                    "noisy": _fmt_num(score_noisy),
-                    "repaired": _fmt_num(score_repaired),
-                    "gain": _fmt_num(summary.get("score_gain_mean", score_repaired - score_noisy)),
-                    "valid": _fmt_pct(_mean_sequence(summary.get("evidence_valid_mask_per_sample", ()))),
+                    "source": summary.get("gain_source", "UNCONFIRMED"),
+                    "style": _fmt_metric(summary.get("gain_style_mean")),
+                    "physics": _fmt_metric(summary.get("gain_physics_mean")),
+                    "repair_cost": _fmt_metric(summary.get("gain_repair_cost_mean")),
+                    "total": _fmt_metric(summary.get("gain_total_mean")),
+                    "mpjpe": _fmt_metric(summary.get("gain_style_mpjpe_mean")),
+                    "velocity": _fmt_metric(summary.get("gain_style_velocity_mean")),
+                    "acceleration": _fmt_metric(summary.get("gain_style_acceleration_mean")),
+                    "root_orientation": _fmt_metric(summary.get("gain_style_root_orientation_mean")),
+                    "success": _fmt_metric(summary.get("gain_physics_success_mean")),
+                    "survival": _fmt_metric(summary.get("gain_physics_survival_mean")),
+                    "repair_norm": _fmt_metric(summary.get("gain_repair_norm_mean")),
+                    "repair_temporal": _fmt_metric(summary.get("gain_repair_temporal_mean")),
                 },
             ),
             *_kv_lines(

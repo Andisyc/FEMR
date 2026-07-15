@@ -5,9 +5,20 @@
 
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
 from typing import Any
 
 import torch
+
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_probe_setup",
+    Path(__file__).resolve().parents[1] / "frontres" / "frontres_formal_runtime_probe.py",
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
+emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
 
 from rsl_rl.frontres.perturbation_runtime import (
     apply_frontres_dr_scale,
@@ -68,7 +79,6 @@ def apply_frontres_debug_training_overrides(runner: Any, *, is_frontres: bool) -
         "dr_ema_alpha": float(debug_value("debug_dr_ema_alpha", 0.90)),
         "dr_p_gain": float(debug_value("debug_dr_p_gain", 0.20)),
         "dr_i_gain": float(debug_value("debug_dr_i_gain", 0.03)),
-        "dr_start_ppo_actor_weight": float(debug_value("debug_dr_start_ppo_actor_weight", 1.0)),
         "frontres_safe_gap_per_step": float(debug_value("debug_frontres_safe_gap_per_step", 0.003)),
         "frontres_broken_gap_per_step": float(debug_value("debug_frontres_broken_gap_per_step", 0.08)),
         "frontres_gap_gate_temp": float(debug_value("debug_frontres_gap_gate_temp", 0.005)),
@@ -76,23 +86,13 @@ def apply_frontres_debug_training_overrides(runner: Any, *, is_frontres: bool) -
     for key, value in debug_overrides.items():
         runner.cfg[key] = value
 
-    actor_warmup_debug = int(debug_value("debug_ppo_actor_warmup_iterations", 50))
-    actor_ramp_debug = int(debug_value("debug_ppo_actor_ramp_iterations", 200))
-    runner.cfg["ppo_actor_warmup_iterations"] = actor_warmup_debug
-    runner.cfg["ppo_actor_ramp_iterations"] = actor_ramp_debug
-    runner.alg_cfg["ppo_actor_warmup_iterations"] = actor_warmup_debug
-    runner.alg_cfg["ppo_actor_ramp_iterations"] = actor_ramp_debug
-
     print(
         "[Runner] === FrontRES DEBUG TRAINING enabled ===\n"
         f"[Runner]   supervised_warmup_iterations={runner.cfg['supervised_warmup_iterations']}, "
         f"critic_warmup_iterations={runner.cfg['critic_warmup_iterations']}\n"
-        f"[Runner]   ppo_actor_warmup_iterations={actor_warmup_debug}, "
-        f"ppo_actor_ramp_iterations={actor_ramp_debug}\n"
         f"[Runner]   dr_scale_init={runner.cfg['dr_scale_init']}, "
         f"dr_min_scale={runner.cfg['dr_min_scale']}, "
         f"dr_p_gain={runner.cfg['dr_p_gain']}, dr_i_gain={runner.cfg['dr_i_gain']}, "
-        f"dr_start_ppo_actor_weight={runner.cfg['dr_start_ppo_actor_weight']}\n"
         f"[Runner]   frontres_safe_gap_per_step={runner.cfg['frontres_safe_gap_per_step']}, "
         f"frontres_broken_gap_per_step={runner.cfg['frontres_broken_gap_per_step']}, "
         f"frontres_gap_gate_temp={runner.cfg['frontres_gap_gate_temp']}",
@@ -151,11 +151,25 @@ def update_frontres_supervised_controller(
 
 
 def configure_frontres_pair_layout(runner: Any, *, is_frontres: bool) -> FrontRESPairLayout:
-    """Configure FrontRES projected/candidate/noisy/clean env layout."""
+    """建立 FrontRES Repaired/Candidate/Noisy/Clean split-env 布局.
+
+    函数名说明:
+        `configure_frontres_pair_layout` 是 paired role layout owner, 只划分 env rows
+        并同步 motion-command baseline; 它不是 sampler trial planner 或 reward owner.
+
+    主链路:
+        上游: runner 初始化时提供 `num_envs` 和 quartet/triplet config.
+        下游: reset, rollout capture, Gain 和 diagnostics 共用同一 role counts.
+
+    语义:
+        同一 quartet 的各行必须共享 motion/frame 和 corruption identity, 仅 repair
+        路径不同. Role counts 一旦建立, 下游不得按总 env 数误读 trial rows.
+    """
 
     if not is_frontres:
         return FrontRESPairLayout(False, 0, 0, 0, 0, None)
 
+    # B1: 在 paired reset/rollout 前划分每种语义角色的 env rows.
     runner.alg.state_supervised_controller_enabled = bool(
         runner.cfg.get("frontres_state_supervised_controller_enabled", True)
     )
@@ -184,6 +198,7 @@ def configure_frontres_pair_layout(runner: Any, *, is_frontres: bool) -> FrontRE
                 flush=True,
             )
 
+    # B2: 将同一 row partition 写入 motion-command baseline owner.
     env_pair = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
     if hasattr(env_pair, "command_manager") and "motion" in env_pair.command_manager._terms:
         motion_command = env_pair.command_manager._terms["motion"]
@@ -219,7 +234,7 @@ def configure_frontres_pair_layout(runner: Any, *, is_frontres: bool) -> FrontRE
         dtype=torch.float,
         device=runner.device,
     )
-    return FrontRESPairLayout(
+    layout = FrontRESPairLayout(
         use_quartet_reward=use_quartet_reward,
         n_train=n_train,
         n_candidate=n_candidate,
@@ -227,32 +242,17 @@ def configure_frontres_pair_layout(runner: Any, *, is_frontres: bool) -> FrontRE
         n_clean=n_clean,
         cur_reward_sum_gmt=cur_reward_sum_gmt,
     )
-
-
-def build_frontres_task_action_mask(runner: Any, *, is_task_space_mode: bool) -> torch.Tensor | None:
-    """Create the active task-action mask used for runtime safety."""
-
-    if not is_task_space_mode:
-        return None
-    active_dims = runner.cfg.get("frontres_active_task_dims", None)
-    if active_dims is None:
-        return None
-    task_action_dim = int(getattr(runner.alg.policy, "total_output_dim", 8))
-    task_action_mask = torch.zeros(task_action_dim, device=runner.device)
-    for idx in active_dims:
-        idx = int(idx)
-        if not 0 <= idx < task_action_dim:
-            raise ValueError(
-                "frontres_active_task_dims contains an index outside the "
-                f"current FrontRES action dim {task_action_dim}."
-            )
-        task_action_mask[idx] = 1.0
-    print(
-        "[Runner] FrontRES task-space action mask enabled: "
-        f"dim={task_action_dim} mask={task_action_mask.detach().cpu().tolist()}",
-        flush=True,
+    # B3: AUDIT-PAIR-01 截获 reset/capture 实际消费的 role counts.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-PAIR-01",
+        use_quartet_reward=layout.use_quartet_reward,
+        n_train=layout.n_train,
+        n_candidate=layout.n_candidate,
+        n_base=layout.n_base,
+        n_clean=layout.n_clean,
     )
-    return task_action_mask
+    return layout
 
 
 def initialize_frontres_dr_setup(runner: Any, *, is_frontres: bool) -> FrontRESDRSetup:
@@ -289,12 +289,10 @@ def initialize_frontres_dr_setup(runner: Any, *, is_frontres: bool) -> FrontRESD
         print(
             f"[Runner] Adaptive DR controller: "
             f"boundary_enabled={runner.cfg.get('frontres_boundary_dr_enabled', True)}, "
-            f"boundary_takeover={runner.cfg.get('frontres_boundary_dr_during_actor_takeover', False)}, "
             f"fallback_PI=(Kp={runner.cfg.get('dr_p_gain', 0.10)}, "
             f"Ki={runner.cfg.get('dr_i_gain', 0.01)}, "
             f"target={runner.cfg.get('dr_target_r_delta', 0.01)}), "
             f"max_scale={dr_max}, ema_alpha={dr_ema_alpha}, "
-            f"start_actor_weight={runner.cfg.get('dr_start_ppo_actor_weight', 1.0)}, "
             f"resume dr_scale={dr_scale:.3f}"
         )
     elif is_frontres:
@@ -349,7 +347,7 @@ def sample_frontres_rollout_perturbation_mix(
         stats = getattr(runner, "_last_frontres_boundary_stats", None)
     plan = sample_perturbation_mix(
         runner.cfg,
-        runner.cfg.get("frontres_active_task_dims", None),
+        None,
         progress,
         seq_idx,
         int(n_train),
@@ -382,8 +380,7 @@ def maybe_print_frontres_perturbation_curriculum(runner: Any, *, is_frontres: bo
         f"full_prob={runner.cfg.get('frontres_curriculum_full_prob', 0.05)}, "
         f"temporal={runner.cfg.get('frontres_perturbation_temporal_mode', 'legacy')}, "
         f"burst={runner.cfg.get('frontres_perturbation_burst_min_steps', 1)}-"
-        f"{runner.cfg.get('frontres_perturbation_burst_max_steps', 1)}, "
-        f"K={runner.cfg.get('frontres_authority_return_horizon', 1)}",
+        f"{runner.cfg.get('frontres_perturbation_burst_max_steps', 1)}",
         flush=True,
     )
 
@@ -401,7 +398,6 @@ def apply_frontres_iteration_dr_controller(
     frontres_hsl_restore: bool,
     perturb_target: Any | None,
     critic_warmup_iters: int,
-    ppo_actor_weight_current: float,
     dr_scale: float,
     dr_scale_init: float,
     dr_min: float,
@@ -423,22 +419,14 @@ def apply_frontres_iteration_dr_controller(
         and int(critic_warmup_iters) > 0
         and int(iteration) < int(critic_warmup_iters)
     )
-    dr_start_actor_weight = float(runner.cfg.get("dr_start_ppo_actor_weight", 1.0))
-    actor_takeover_active = (
-        is_frontres
-        and (not critic_warmup)
-        and ppo_actor_weight_current < dr_start_actor_weight
-    )
-
     boundary_enabled_for_iter = bool(runner.cfg.get("frontres_boundary_dr_enabled", True))
-    boundary_takeover_for_iter = bool(runner.cfg.get("frontres_boundary_dr_during_actor_takeover", False))
     hsl_boundary_available = (
         frontres_hsl_restore
         and perturb_target is not None
         and boundary_enabled_for_iter
         and getattr(runner, "_last_frontres_boundary_stats", None) is not None
         and (not critic_warmup)
-        and ((not actor_takeover_active) or boundary_takeover_for_iter)
+        and (not critic_warmup)
     )
 
     gmt_frontier_score = getattr(runner, "_frontres_gmt_frontier_probe_score", None)
@@ -457,12 +445,12 @@ def apply_frontres_iteration_dr_controller(
         sup_dr_phase = max(0, int(iteration) - sup_dr_delay)
         sup_dr_frac = min(1.0, max(0.0, sup_dr_phase / float(sup_dr_ramp)))
         dr_scale = sup_dr_start + (sup_dr_end - sup_dr_start) * sup_dr_frac
-        if critic_warmup or actor_takeover_active:
+        if critic_warmup:
             dr_scale = dr_scale_init
         dr_scale = max(dr_min, min(dr_max, dr_scale))
         runner._dr_scale = dr_scale
         curriculum_progress = _frontres_curriculum_progress(runner, iteration)
-        if critic_warmup or actor_takeover_active:
+        if critic_warmup:
             curriculum_progress = 0.0
         sample_frontres_rollout_perturbation_mix(
             runner,
@@ -474,7 +462,7 @@ def apply_frontres_iteration_dr_controller(
             n_clean=n_clean,
             is_frontres=is_frontres,
         )
-        mix_strength_enabled = not (critic_warmup or actor_takeover_active)
+        mix_strength_enabled = not critic_warmup
         scale_plan = frontres_mixed_dr_scale_env(
             runner,
             frontier_scale=dr_scale,
@@ -504,16 +492,15 @@ def apply_frontres_iteration_dr_controller(
             + (1.0 - dr_ema_alpha) * getattr(runner, "_last_r_delta_mean", 0.0)
         )
         boundary_enabled = bool(runner.cfg.get("frontres_boundary_dr_enabled", True))
-        boundary_takeover = bool(runner.cfg.get("frontres_boundary_dr_during_actor_takeover", False))
         boundary_stats = getattr(runner, "_last_frontres_boundary_stats", None)
         use_boundary = (
             boundary_enabled
             and boundary_stats is not None
             and (not critic_warmup)
-            and ((not actor_takeover_active) or boundary_takeover)
+            and (not critic_warmup)
         )
 
-        if critic_warmup or (actor_takeover_active and not boundary_takeover):
+        if critic_warmup:
             dr_scale = dr_scale_init
             runner._dr_hold_just_ended = True
         elif use_boundary:
@@ -610,7 +597,6 @@ def apply_frontres_iteration_dr_controller(
         dr_mix_mode=dr_mix_mode,
         mix_diag=mix_diag,
         critic_warmup=critic_warmup,
-        actor_takeover_active=actor_takeover_active,
         hsl_boundary_available=hsl_boundary_available,
         use_boundary=use_boundary,
         gmt_frontier_score=gmt_frontier_score,

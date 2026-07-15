@@ -55,6 +55,11 @@ def _install_import_stubs():
         ROOT / "rsl_rl" / "frontres" / "frontres_segment_reset.py",
     )
     frontres_pkg.frontres_segment_reset = reset_module
+    warmup_module = _load(
+        "rsl_rl.frontres.frontres_segment_warmup",
+        ROOT / "rsl_rl" / "frontres" / "frontres_segment_warmup.py",
+    )
+    frontres_pkg.frontres_segment_warmup = warmup_module
 
     training_schedule = types.ModuleType("rsl_rl.frontres.training_schedule")
     training_schedule.resolve_frontres_mode_state = lambda *_args, **_kwargs: None
@@ -186,6 +191,7 @@ class FakeAlg:
 class FakeRunner:
     def __init__(self) -> None:
         self.alg = FakeAlg()
+        self.current_learning_iteration = 0
         self.mode_trace: list[str] = []
 
     def train_mode(self) -> None:
@@ -216,7 +222,6 @@ def _storage_batch(valid_mask: torch.Tensor, old_means: torch.Tensor | None = No
             segment_ids=torch.tensor([0, 1]),
             old_means=torch.zeros(2, 6) if old_means is None else old_means,
             old_sigmas=torch.ones(2, 6),
-            action_mask=torch.ones(2, 6),
         )
     )
     return storage.full_batch()
@@ -249,8 +254,35 @@ def test_single_update_steps_optimizer_with_valid_segment() -> None:
     assert result.param_delta_max_abs > 0.0
     assert result.param_delta_l2 > 0.0
     assert result.param_grad_norm > 0.0
-    assert not torch.allclose(runner.alg.policy.actor.weight.detach(), before_actor)
-    assert not torch.allclose(runner.alg.policy.critic.weight.detach(), before_critic)
+
+
+def test_dp09_critic_only_phase_holds_actor_and_updates_critic() -> None:
+    runner = FakeRunner()
+    runner.alg.frontres_segment_critic_warmup_iterations = 2
+    runner.alg.frontres_segment_actor_warmup_iterations = 4
+    before_actor = runner.alg.policy.actor.weight.detach().clone()
+    before_critic = runner.alg.policy.critic.weight.detach().clone()
+
+    result = run_frontres_segment_single_update(runner, _storage_batch(torch.tensor([True, False])))
+
+    assert result.warmup_phase == "critic_only"
+    assert result.actor_loss_weight == 0.0
+    assert torch.equal(runner.alg.policy.actor.weight, before_actor)
+    assert not torch.equal(runner.alg.policy.critic.weight, before_critic)
+
+
+def test_dp09_actor_warmup_phase_uses_linear_actor_weight() -> None:
+    runner = FakeRunner()
+    runner.alg.frontres_segment_critic_warmup_iterations = 2
+    runner.alg.frontres_segment_actor_warmup_iterations = 4
+    runner.current_learning_iteration = 2
+    before_actor = runner.alg.policy.actor.weight.detach().clone()
+
+    result = run_frontres_segment_single_update(runner, _storage_batch(torch.tensor([True, False])))
+
+    assert result.warmup_phase == "actor_warmup"
+    assert result.actor_loss_weight == 0.25
+    assert not torch.equal(runner.alg.policy.actor.weight, before_actor)
 
 
 def test_segment_live_update_uses_scale_only_advantages_independent_of_base_ppo_flag() -> None:
@@ -559,6 +591,8 @@ def test_single_update_requires_separate_pre_and_post_ratio_diagnostics() -> Non
 
 if __name__ == "__main__":
     test_single_update_steps_optimizer_with_valid_segment()
+    test_dp09_critic_only_phase_holds_actor_and_updates_critic()
+    test_dp09_actor_warmup_phase_uses_linear_actor_weight()
     test_segment_live_update_uses_scale_only_advantages_independent_of_base_ppo_flag()
     test_single_update_does_not_step_optimizer_without_valid_segments()
     test_single_update_applies_mosaic_style_adaptive_lr_from_old_stats_kl()

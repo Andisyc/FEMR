@@ -9,6 +9,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import torch
+
+_FORMAL_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_audit_training", Path(__file__).resolve().with_name("frontres_formal_runtime_audit.py")
+)
+_FORMAL_AUDIT_MODULE = importlib.util.module_from_spec(_FORMAL_AUDIT_SPEC)
+assert _FORMAL_AUDIT_SPEC.loader is not None
+_FORMAL_AUDIT_SPEC.loader.exec_module(_FORMAL_AUDIT_MODULE)
+print_formal_route_audit = _FORMAL_AUDIT_MODULE.print_formal_route_audit
+
 _DIAGNOSTICS_SPEC = importlib.util.spec_from_file_location(
     "frontres_segment_diagnostics",
     Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_diagnostics.py",
@@ -25,6 +35,7 @@ motion_quality_summary_to_scalars = _DIAGNOSTICS_MODULE.motion_quality_summary_t
 try:
     from rsl_rl.runners.frontres_segment_live_probe import (
         _apply_current_segment_reset,
+        _capture_paired_gain,
         _read_live_observations,
         _run_live_rollout_capture,
     )
@@ -33,6 +44,9 @@ except ModuleNotFoundError:
         raise NotImplementedError("frontres_segment_live_probe import is unavailable.")
 
     def _read_live_observations(runner: Any) -> None:
+        raise NotImplementedError("frontres_segment_live_probe import is unavailable.")
+
+    def _capture_paired_gain(capture: Any) -> Any | None:
         raise NotImplementedError("frontres_segment_live_probe import is unavailable.")
 
     def _run_live_rollout_capture(
@@ -70,6 +84,70 @@ _FINITE_SUMMARY_KEYS = (
 )
 
 _LOG_SEPARATOR = "-" * 80
+
+
+_EVAL_GAIN_COMPONENTS = (
+    "style_gain",
+    "physics_gain",
+    "repair_cost",
+    "gain_total",
+    "style_mpjpe_gain",
+    "style_velocity_gain",
+    "style_acceleration_gain",
+    "style_root_orientation_gain",
+    "physics_success_gain",
+    "physics_survival_gain",
+    "physics_zmp_gain",
+    "physics_contact_gain",
+    "repair_norm",
+    "repair_temporal_change",
+    "repair_clean_cost",
+)
+
+
+def _capture_eval_gain_summary(capture: Any) -> tuple[Any | None, dict[str, Any]]:
+    """Adapt the paired Gain owner output to any evaluation summary."""
+    result = _capture_paired_gain(capture)
+    summary: dict[str, Any] = {
+        "gain_source": "UNCONFIRMED",
+    }
+    for component in _EVAL_GAIN_COMPONENTS:
+        summary[f"gain_{component}_per_sample"] = []
+        summary[f"gain_{component}_mean"] = float("nan")
+    if result is None:
+        return None, summary
+
+    total = result.gain_total.detach().float().reshape(-1)
+    finite = torch.isfinite(total)
+    if not bool(finite.any().item()):
+        return result, summary
+    summary.update(
+        {
+            "gain_source": "FRS-GAIN-v001",
+            "gain_total_pos_frac": float((total[finite] > 0.0).float().mean().cpu().item()),
+        }
+    )
+    for component in _EVAL_GAIN_COMPONENTS:
+        value = getattr(result, component, None)
+        summary[f"gain_{component}_per_sample"] = _float_values(value)
+        summary[f"gain_{component}_mean"] = _finite_tensor_mean(value)
+    summary.update(
+        {
+            "gain_style_mean": summary["gain_style_gain_mean"],
+            "gain_physics_mean": summary["gain_physics_gain_mean"],
+            "gain_repair_cost_mean": summary["gain_repair_cost_mean"],
+            "gain_total_mean": summary["gain_gain_total_mean"],
+        }
+    )
+    return result, summary
+
+
+def _finite_tensor_mean(value: Any) -> float:
+    if not isinstance(value, torch.Tensor) or value.numel() == 0:
+        return float("nan")
+    data = value.detach().float().reshape(-1)
+    data = data[torch.isfinite(data)]
+    return float(data.mean().cpu().item()) if data.numel() else float("nan")
 
 
 def run_frontres_segment_periodic_eval(
@@ -112,10 +190,27 @@ def run_frontres_segment_periodic_eval(
                 capture = _run_live_rollout_capture(runner, observations, rollout_steps=eval_steps)
             finally:
                 runner.train_mode()
-    summary = _offline_eval_summary(
-        capture,
-        sample_count=sample_count,
-        motion_ids=_offline_eval_motion_ids_from_batch(batch, sample_count),
+    done_any = capture.done_any
+    done = done_any.detach().bool().reshape(-1) if done_any is not None else None
+    survival = capture.survival_steps
+    survival_flat = survival.detach().float().reshape(-1) if survival is not None else None
+    summary = {
+        "episode_length": float(capture.rollout_k),
+        "success_rate": float((~done).float().mean().cpu().item()) if done is not None and done.numel() else 0.0,
+        "fall_rate": float(done.float().mean().cpu().item()) if done is not None and done.numel() else 0.0,
+        "mean_survival_steps": float(survival_flat.mean().cpu().item()) if survival_flat is not None and survival_flat.numel() else 0.0,
+        "sample_count": float(sample_count),
+    }
+    _, gain_summary = _capture_eval_gain_summary(capture)
+    summary.update(gain_summary)
+    summary.update(
+        motion_quality_summary_to_scalars(
+            clean_positions=getattr(capture, "motion_clean_body_pos", None),
+            repaired_positions=getattr(capture, "motion_repaired_body_pos", None),
+            noisy_positions=getattr(capture, "motion_noisy_body_pos", None),
+            delta_se=getattr(capture, "transition_actions", None),
+            valid_mask=(~done) if done is not None else None,
+        )
     )
     summary.update(_offline_eval_perturbation_summary(batch))
     summary.update(
@@ -390,10 +485,10 @@ def _sequence_offline_eval_summary(
         for key, value in summary.items()
         if isinstance(value, (int, float)) and math.isfinite(float(value))
     }
-    merged = {
-        key: sum(float(summary.get(key, 0.0)) for summary in summaries) / float(len(summaries))
-        for key in numeric_keys
-    }
+    merged = {}
+    for key in numeric_keys:
+        values = [float(summary[key]) for summary in summaries if key in summary and math.isfinite(float(summary[key]))]
+        merged[key] = sum(values) / float(len(values)) if values else float("nan")
     per_motion = []
     for summary in summaries:
         rows = tuple(summary.get("per_motion", ()) or ())
@@ -407,6 +502,11 @@ def _sequence_offline_eval_summary(
             "env_count": float(env_count),
             "motion_ids": tuple(getattr(plan, "motion_ids", ())),
             "per_motion": per_motion,
+            "gain_source": (
+                "FRS-GAIN-v001"
+                if all(summary.get("gain_source") == "FRS-GAIN-v001" for summary in summaries)
+                else "UNCONFIRMED"
+            ),
         }
     )
     return merged
@@ -459,8 +559,7 @@ def _format_sequence_eval_debug_log(
             f"reward_mean={float(getattr(capture, 'reward_mean', 0.0)):.6f} "
             f"done_frac={float(getattr(capture, 'done_frac', 0.0)):.6f}"
         ),
-        f"  capture_reward_accum: {_sequence_debug_value(getattr(capture, 'reward_accum', None))}",
-        f"  capture_reward_pairs: {_sequence_debug_reward_pairs(capture)}",
+        f"  capture_legacy_reward_accum_raw: {_sequence_debug_value(getattr(capture, 'reward_accum', None))}",
         f"  capture_done_any: {_sequence_debug_value(getattr(capture, 'done_any', None))}",
         f"  capture_survival_steps: {_sequence_debug_value(getattr(capture, 'survival_steps', None))}",
         f"  capture_actor_update_mask: {_sequence_debug_value(getattr(capture, 'actor_update_mask', None))}",
@@ -489,9 +588,11 @@ def _format_sequence_eval_debug_log(
             f"success={float(summary.get('success_rate', 0.0)):.6f} "
             f"fall={float(summary.get('fall_rate', 0.0)):.6f} "
             f"survival={float(summary.get('mean_survival_steps', 0.0)):.6f} "
-            f"score_noisy={float(summary.get('score_noisy', 0.0)):.6f} "
-            f"score_repaired={float(summary.get('score_repaired', 0.0)):.6f} "
-            f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f} "
+            f"gain_source={summary.get('gain_source', 'UNCONFIRMED')} "
+            f"gain_style={_fmt_eval_value(summary.get('gain_style_mean'))} "
+            f"gain_physics={_fmt_eval_value(summary.get('gain_physics_mean'))} "
+            f"gain_repair_cost={_fmt_eval_value(summary.get('gain_repair_cost_mean'))} "
+            f"gain_total={_fmt_eval_value(summary.get('gain_total_mean'))} "
             f"mpjpe_repaired={float(summary.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
             f"mpjpe_noisy={float(summary.get('segment/motion_mpjpe_noisy_clean', 0.0)):.6f} "
             f"delta_se_norm={float(summary.get('segment/motion_delta_se_norm', 0.0)):.6f}"
@@ -518,8 +619,8 @@ def _format_sequence_eval_differential_log(
     capture: Any,
     zero_capture: Any,
 ) -> str:
-    real_score = float(summary.get("score_repaired", 0.0))
-    zero_score = float(zero_summary.get("score_repaired", 0.0))
+    real_gain = float(summary.get("gain_total_mean", float("nan")))
+    zero_gain = float(zero_summary.get("gain_total_mean", float("nan")))
     real_mpjpe = float(summary.get("segment/motion_mpjpe_repaired_clean", 0.0))
     zero_mpjpe = float(zero_summary.get("segment/motion_mpjpe_repaired_clean", 0.0))
     real_survival = float(summary.get("mean_survival_steps", 0.0))
@@ -537,8 +638,7 @@ def _format_sequence_eval_differential_log(
             ),
             (
                 "  real_policy: "
-                f"score_repaired={real_score:.6f} "
-                f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f} "
+                f"gain_total={_fmt_eval_value(real_gain)} "
                 f"mpjpe_repaired={real_mpjpe:.6f} "
                 f"fall={real_fall:.6f} "
                 f"survival={real_survival:.6f} "
@@ -546,8 +646,7 @@ def _format_sequence_eval_differential_log(
             ),
             (
                 "  zero_policy: "
-                f"score_repaired={zero_score:.6f} "
-                f"gain={float(zero_summary.get('continuous_rollout_gain', 0.0)):.6f} "
+                f"gain_total={_fmt_eval_value(zero_gain)} "
                 f"mpjpe_repaired={zero_mpjpe:.6f} "
                 f"fall={zero_fall:.6f} "
                 f"survival={zero_survival:.6f} "
@@ -555,7 +654,7 @@ def _format_sequence_eval_differential_log(
             ),
             (
                 "  real_minus_zero: "
-                f"score={real_score - zero_score:.6f} "
+                f"gain_total={_fmt_eval_value(real_gain - zero_gain)} "
                 f"mpjpe={real_mpjpe - zero_mpjpe:.6f} "
                 f"fall={real_fall - zero_fall:.6f} "
                 f"survival={real_survival - zero_survival:.6f} "
@@ -606,11 +705,9 @@ def _sequence_eval_oracles(
 
 
 def _sequence_eval_differential_proxy(capture: Any, summary: Mapping[str, Any]) -> dict[str, float | bool]:
-    reward_pairs = _sequence_debug_reward_pairs(capture)
-    gains = [float(row["gain"]) for row in reward_pairs if "gain" in row]
     raw_norm = _sequence_tensor_l2_mean(getattr(capture, "env_actions", None))
     segment_norm = _sequence_tensor_l2_mean(getattr(capture, "transition_actions", None))
-    score_delta = float(summary.get("score_repaired", 0.0)) - float(summary.get("score_noisy", 0.0))
+    gain_total = float(summary.get("gain_total_mean", float("nan")))
     mpjpe_delta = float(summary.get("segment/motion_mpjpe_repaired_clean", 0.0)) - float(
         summary.get("segment/motion_mpjpe_noisy_clean", 0.0)
     )
@@ -619,10 +716,9 @@ def _sequence_eval_differential_proxy(capture: Any, summary: Mapping[str, Any]) 
         "segment_action_norm_mean": _round_float(segment_norm),
         "raw_action_nonzero": raw_norm > 1e-8,
         "segment_action_nonzero": segment_norm > 1e-8,
-        "score_repaired_minus_noisy": _round_float(score_delta),
+        "gain_total_mean": _round_float(gain_total) if math.isfinite(gain_total) else float("nan"),
         "mpjpe_repaired_minus_noisy": _round_float(mpjpe_delta),
         "repaired_beats_noisy_mpjpe": mpjpe_delta < 0.0,
-        "reward_pair_gain_mean": _round_float(sum(gains) / float(len(gains))) if gains else 0.0,
     }
 
 
@@ -893,40 +989,6 @@ def _add_rp_sign_stats(
     result[f"{prefix}_rp_norm_mean"] = _round_float(rp_action.norm(dim=1).mean().item())
 
 
-def _sequence_debug_reward_pairs(capture: Any) -> list[dict[str, float | int | bool]]:
-    reward = getattr(capture, "reward_accum", None)
-    if not hasattr(reward, "detach"):
-        return []
-    reward_per_step = reward.detach().float().reshape(-1).cpu() / float(max(1, int(getattr(capture, "rollout_k", 1))))
-    n_train = max(0, int(getattr(capture, "n_train", 0)))
-    n_base = max(0, int(getattr(capture, "n_base", 0)))
-    base_start = n_train + max(0, int(getattr(capture, "n_candidate", 0)))
-    n = min(n_train, n_base, max(0, int(reward_per_step.numel()) - base_start))
-    done = getattr(capture, "done_any", None)
-    survival = getattr(capture, "survival_steps", None)
-    done_flat = done.detach().bool().reshape(-1).cpu() if hasattr(done, "detach") else None
-    survival_flat = survival.detach().float().reshape(-1).cpu() if hasattr(survival, "detach") else None
-    rows = []
-    for index in range(min(n, 8)):
-        repaired = float(reward_per_step[index].item())
-        noisy = float(reward_per_step[base_start + index].item())
-        rows.append(
-            {
-                "index": index,
-                "repaired": _round_float(repaired),
-                "noisy": _round_float(noisy),
-                "gain": _round_float(repaired - noisy),
-                "done": bool(done_flat[index].item()) if done_flat is not None and index < done_flat.numel() else False,
-                "survival": (
-                    _round_float(float(survival_flat[index].item()))
-                    if survival_flat is not None and index < survival_flat.numel()
-                    else 0.0
-                ),
-            }
-        )
-    return rows
-
-
 def _sequence_debug_motion_errors(capture: Any) -> list[dict[str, float | int | str]]:
     clean = getattr(capture, "motion_clean_body_pos", None)
     repaired = getattr(capture, "motion_repaired_body_pos", None)
@@ -1035,6 +1097,28 @@ def _round_float(value: float) -> float:
     return round(float(value), 6)
 
 
+def _fmt_eval_value(value: Any, *, percent: bool = False) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "UNCONFIRMED"
+    if not math.isfinite(numeric):
+        return "UNCONFIRMED"
+    return f"{numeric * 100.0:.1f}%" if percent else f"{numeric:.6f}"
+
+
+def _format_eval_gain_line(summary: Mapping[str, Any], *, indent: str) -> str:
+    return (
+        f"{indent}gain: "
+        f"source={summary.get('gain_source', 'UNCONFIRMED')} "
+        f"style={_fmt_eval_value(summary.get('gain_style_mean'))} "
+        f"physics={_fmt_eval_value(summary.get('gain_physics_mean'))} "
+        f"repair_cost={_fmt_eval_value(summary.get('gain_repair_cost_mean'))} "
+        f"total={_fmt_eval_value(summary.get('gain_total_mean'))} "
+        f"positive={_fmt_eval_value(summary.get('gain_total_pos_frac'), percent=True)}"
+    )
+
+
 def _format_sequence_eval_item_log(item_index: int, sequence_count: int, summary: Mapping[str, Any]) -> str:
     return "\n".join(
         (
@@ -1053,12 +1137,7 @@ def _format_sequence_eval_item_log(item_index: int, sequence_count: int, summary
                 f"fall={float(summary.get('fall_rate', 0.0)) * 100.0:.1f}% "
                 f"survival={float(summary.get('mean_survival_steps', 0.0)):.1f}"
             ),
-            (
-                "  score: "
-                f"noisy={float(summary.get('score_noisy', 0.0)):.6f} "
-                f"repaired={float(summary.get('score_repaired', 0.0)):.6f} "
-                f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f}"
-            ),
+            _format_eval_gain_line(summary, indent="  "),
             (
                 "  motion: "
                 f"mpjpe_repaired={float(summary.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
@@ -1095,12 +1174,7 @@ def _format_sequence_offline_eval_log(summary: Mapping[str, Any]) -> str:
                         f"fall={float(row.get('fall_rate', 0.0)) * 100.0:.1f}% "
                         f"survival={float(row.get('mean_survival_steps', 0.0)):.1f}"
                     ),
-                    (
-                        "    score: "
-                        f"noisy={float(row.get('score_noisy', 0.0)):.6f} "
-                        f"repaired={float(row.get('score_repaired', 0.0)):.6f} "
-                        f"gain={float(row.get('continuous_rollout_gain', 0.0)):.6f}"
-                    ),
+                    _format_eval_gain_line(row, indent="    "),
                     (
                         "    motion: "
                         f"mpjpe_repaired={float(row.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
@@ -1128,12 +1202,7 @@ def _format_sequence_offline_eval_log(summary: Mapping[str, Any]) -> str:
             f"fall={float(summary.get('fall_rate', 0.0)) * 100.0:.1f}% "
             f"survival={float(summary.get('mean_survival_steps', 0.0)):.1f}"
         ),
-        (
-            "  score: "
-            f"noisy={float(summary.get('score_noisy', 0.0)):.6f} "
-            f"repaired={float(summary.get('score_repaired', 0.0)):.6f} "
-            f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f}"
-        ),
+        _format_eval_gain_line(summary, indent="  "),
         (
             "  motion: "
             f"mpjpe_repaired={float(summary.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
@@ -1162,12 +1231,7 @@ def _format_offline_eval_log(summary: Mapping[str, Any]) -> str:
                         f"fall={float(row.get('fall_rate', 0.0)) * 100.0:.1f}% "
                         f"survival={float(row.get('mean_survival_steps', 0.0)):.1f}"
                     ),
-                    (
-                        "    score: "
-                        f"noisy={float(row.get('score_noisy', 0.0)):.6f} "
-                        f"repaired={float(row.get('score_repaired', 0.0)):.6f} "
-                        f"gain={float(row.get('continuous_rollout_gain', 0.0)):.6f}"
-                    ),
+                    _format_eval_gain_line(row, indent="    "),
                     (
                         "    motion: "
                         f"mpjpe_repaired={float(row.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
@@ -1193,12 +1257,7 @@ def _format_offline_eval_log(summary: Mapping[str, Any]) -> str:
                 f"success={float(summary.get('success_rate', 0.0)) * 100.0:.1f}% "
                 f"fall={float(summary.get('fall_rate', 0.0)) * 100.0:.1f}%"
             ),
-            (
-                "  score: "
-                f"noisy={float(summary.get('score_noisy', 0.0)):.6f} "
-                f"repaired={float(summary.get('score_repaired', 0.0)):.6f} "
-                f"gain={float(summary.get('continuous_rollout_gain', 0.0)):.6f}"
-            ),
+            _format_eval_gain_line(summary, indent="  "),
             (
                 "  motion: "
                 f"mpjpe_repaired={float(summary.get('segment/motion_mpjpe_repaired_clean', 0.0)):.6f} "
@@ -1217,17 +1276,15 @@ def _offline_eval_summary(capture: Any, *, sample_count: int, motion_ids: tuple[
     survival = capture.survival_steps
     done = done_any.detach().bool().reshape(-1) if done_any is not None else None
     survival_flat = survival.detach().float().reshape(-1) if survival is not None else None
-    score = _offline_eval_score_summary(capture, sample_count=sample_count)
+    gain_result, gain_summary = _capture_eval_gain_summary(capture)
     summary = {
         "episode_length": float(capture.rollout_k),
         "success_rate": float((~done).float().mean().cpu().item()) if done is not None and done.numel() else 0.0,
         "fall_rate": float(done.float().mean().cpu().item()) if done is not None and done.numel() else 0.0,
         "mean_survival_steps": float(survival_flat.mean().cpu().item()) if survival_flat is not None and survival_flat.numel() else 0.0,
-        "continuous_rollout_gain": float(score["gain"]),
-        "score_noisy": float(score["noisy"]),
-        "score_repaired": float(score["repaired"]),
         "sample_count": float(sample_count),
     }
+    summary.update(gain_summary)
     summary.update(
         motion_quality_summary_to_scalars(
             clean_positions=getattr(capture, "motion_clean_body_pos", None),
@@ -1249,6 +1306,7 @@ def _offline_eval_summary(capture: Any, *, sample_count: int, motion_ids: tuple[
                 capture,
                 sample_count=sample_count,
                 motion_ids=motion_ids,
+                gain_result=gain_result,
             )
     return summary
 
@@ -1294,25 +1352,6 @@ def _float_values(value: Any) -> list[float]:
     return []
 
 
-def _offline_eval_score_summary(capture: Any, *, sample_count: int) -> dict[str, float]:
-    if capture.reward_accum is None:
-        return {"noisy": 0.0, "repaired": 0.0, "gain": 0.0}
-    reward = capture.reward_accum.reshape(-1).detach().float() / float(max(1, int(capture.rollout_k)))
-    n = min(sample_count, max(0, int(capture.n_train)), max(0, int(capture.n_base)))
-    base_start = int(capture.n_train) + int(capture.n_candidate)
-    if n <= 0 or int(reward.numel()) < base_start + n:
-        repaired = float(reward.mean().cpu().item()) if reward.numel() else 0.0
-        return {"noisy": 0.0, "repaired": repaired, "gain": repaired}
-    repaired = reward[:n]
-    noisy = reward[base_start : base_start + n]
-    gain = repaired - noisy
-    return {
-        "noisy": float(noisy.mean().cpu().item()),
-        "repaired": float(repaired.mean().cpu().item()),
-        "gain": float(gain.mean().cpu().item()),
-    }
-
-
 def _offline_eval_motion_ids_from_batch(batch: Any, sample_count: int) -> tuple[str, ...]:
     specs = tuple(getattr(batch, "specs", ()) or ())
     motion_ids: list[str] = []
@@ -1326,21 +1365,21 @@ def _offline_eval_start_frames_from_batch(batch: Any, sample_count: int) -> tupl
     return tuple(int(getattr(spec, "start_frame", -1)) for spec in specs[: max(0, int(sample_count))])
 
 
-def _offline_eval_per_motion_summary(capture: Any, *, sample_count: int, motion_ids: tuple[str, ...]) -> list[dict[str, Any]]:
-    if capture.reward_accum is None:
-        return []
-    reward = capture.reward_accum.reshape(-1).detach().float() / float(max(1, int(capture.rollout_k)))
+def _offline_eval_per_motion_summary(
+    capture: Any,
+    *,
+    sample_count: int,
+    motion_ids: tuple[str, ...],
+    gain_result: Any | None,
+) -> list[dict[str, Any]]:
     n = min(sample_count, len(motion_ids), max(0, int(capture.n_train)), max(0, int(capture.n_base)))
-    base_start = int(capture.n_train) + int(capture.n_candidate)
-    if n <= 0 or int(reward.numel()) < base_start + n:
+    if n <= 0 or gain_result is None:
         return []
 
     done = capture.done_any.detach().bool().reshape(-1) if capture.done_any is not None else None
     survival = capture.survival_steps.detach().float().reshape(-1) if capture.survival_steps is not None else None
     grouped: dict[str, list[dict[str, float]]] = {}
     for index in range(n):
-        repaired_score = float(reward[index].cpu().item())
-        noisy_score = float(reward[base_start + index].cpu().item())
         scalars = motion_quality_summary_to_scalars(
             clean_positions=_slice_first_dim(getattr(capture, "motion_clean_body_pos", None), index),
             repaired_positions=_slice_first_dim(getattr(capture, "motion_repaired_body_pos", None), index),
@@ -1355,10 +1394,8 @@ def _offline_eval_per_motion_summary(capture: Any, *, sample_count: int, motion_
             "mean_survival_steps": (
                 float(survival[index].cpu().item()) if survival is not None and index < int(survival.numel()) else 0.0
             ),
-            "score_noisy": noisy_score,
-            "score_repaired": repaired_score,
-            "continuous_rollout_gain": repaired_score - noisy_score,
         }
+        row.update(_gain_result_row_summary(gain_result, index))
         row.update(scalars)
         grouped.setdefault(motion_ids[index], []).append(row)
 
@@ -1367,10 +1404,43 @@ def _offline_eval_per_motion_summary(capture: Any, *, sample_count: int, motion_
         keys = rows[0].keys()
         item: dict[str, Any] = {"motion_id": motion_id}
         for key in keys:
-            item[key] = sum(float(row.get(key, 0.0)) for row in rows) / float(len(rows))
+            values: list[float] = []
+            for row in rows:
+                try:
+                    numeric = float(row[key])
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(numeric):
+                    values.append(numeric)
+            if values:
+                item[key] = sum(values) / float(len(values))
+            else:
+                item[key] = rows[0].get(key, "UNCONFIRMED")
         item["sample_count"] = float(len(rows))
         summaries.append(item)
     return summaries
+
+
+def _gain_result_row_summary(result: Any, index: int) -> dict[str, float]:
+    row: dict[str, float] = {}
+    for component in _EVAL_GAIN_COMPONENTS:
+        value = getattr(result, component, None)
+        if not isinstance(value, torch.Tensor) or value.ndim == 0 or int(value.numel()) <= index:
+            row[f"gain_{component}_mean"] = float("nan")
+            continue
+        item = value.detach().float().reshape(-1)[index]
+        row[f"gain_{component}_mean"] = float(item.cpu().item()) if bool(torch.isfinite(item).item()) else float("nan")
+    row.update(
+        {
+            "gain_source": "FRS-GAIN-v001",
+            "gain_style_mean": row["gain_style_gain_mean"],
+            "gain_physics_mean": row["gain_physics_gain_mean"],
+            "gain_repair_cost_mean": row["gain_repair_cost_mean"],
+            "gain_total_mean": row["gain_gain_total_mean"],
+            "gain_total_pos_frac": 1.0 if row["gain_gain_total_mean"] > 0.0 else 0.0,
+        }
+    )
+    return row
 
 
 def _slice_first_dim(value: Any, index: int) -> Any:
@@ -1549,7 +1619,7 @@ def _print_live_train_summary(
                 f"valid_frac={_fmt_pct(summary['storage_valid_frac'])} "
                 f"train_reward={_fmt_num(summary.get('train_reward_mean', summary['reward_mean']))} "
                 f"env_reward={_fmt_num(summary.get('env_reward_mean', summary['reward_mean']))} "
-                f"gain={_fmt_num(summary.get('score_gain_mean', 0.0))}",
+                f"gain_total={_fmt_num(summary.get('gain_total_mean', float('nan')))}",
                 "  trial: "
                 f"policy={int(summary.get('trial_policy_count', summary.get('ppo_boundary_policy_rows', 0)))} "
                 f"search={int(summary.get('trial_search_count', summary.get('ppo_boundary_search_rows', 0)))} "
@@ -1568,6 +1638,9 @@ def _print_live_train_summary(
                 f"pool={int(summary.get('sampler_replay_pool_size', 0))} "
                 f"hopeless={_fmt_pct(summary.get('sampler_hopeless_frac', 0.0))}",
                 "  ppo: "
+                f"phase={summary.get('ppo_warmup_phase', 'joint')} "
+                f"phase_iter={int(summary.get('ppo_warmup_phase_iteration', 0))} "
+                f"actor_weight={_fmt_num(summary.get('ppo_actor_loss_weight', 1.0))} "
                 f"loss_total={_fmt_num(summary['ppo_total_loss_mean'])} "
                 f"actor={_fmt_num(summary['ppo_actor_loss_mean'])} "
                 f"value={_fmt_num(summary['ppo_value_loss_mean'])} "
@@ -1604,6 +1677,8 @@ def _print_live_train_summary(
 
 
 def _maybe_print_periodic_eval(runner: Any, summary: Mapping[str, Any]) -> None:
+    # B1: Reject every alternate probe/eval route before formal live training starts.
+    # B1: 验证唯一正式 route boundary, 拒绝 probe/eval 入口进入训练循环.
     boundary = getattr(runner, "_frontres_segment_replay_boundary", None)
     if not bool(getattr(boundary, "periodic_eval_enabled", False)):
         return
@@ -1759,11 +1834,32 @@ def run_frontres_segment_live_training_loop(
     num_learning_iterations: int,
     init_at_random_ep_len: bool = True,
 ) -> None:
+    """运行正式 Stage 3 Segment Replay 训练迭代.
+
+    函数名说明:
+        `run_frontres_segment_live_training_loop` 是正式训练 route owner, 负责把
+        已完成配置的 runner 送入重复的 live update; 它不是单次 rollout,
+        eval 或离线 probe 入口.
+
+    主链路:
+        上游: `train.py` 在 `MODE=train` 且 live train 开启时调用本函数.
+        下游: 每轮调用 `run_frontres_segment_live_update_loop`, 校验 summary,
+        输出诊断并按计划保存 checkpoint.
+
+    语义:
+        进入本函数意味着正式 Stage 3 路由已唯一确定. 任何 probe/eval 路径
+        都不得伪装成该训练循环.
+    """
     boundary = getattr(runner, "_frontres_segment_replay_boundary", None)
     if not bool(getattr(boundary, "live_train_enabled", False)):
         raise ValueError("FrontRES Segment live training requires frontres_segment_live_train_enabled=True.")
 
+    # B2: 冻结 live update loop 将消费的正式 iteration budget.
     num_learning_iterations = max(0, int(num_learning_iterations))
+    # B3: 首次正式 update iteration 前截获 route identity.
+    # AUDIT-ROUTE-01: 检查正式 Stage 3 路由, 位于 train dispatch -> live iteration loop.
+    # Result: PENDING_LIVE.
+    print_formal_route_audit(runner, num_learning_iterations=num_learning_iterations)
     if num_learning_iterations == 0:
         print(
             "[FrontRES Segment Live Train] "

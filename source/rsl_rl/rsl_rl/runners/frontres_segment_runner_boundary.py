@@ -21,6 +21,7 @@ class FrontRESSegmentRunnerBoundary:
     periodic_eval_interval: int
     objective: str
     segment_k: int
+    max_horizon_k: int
     reset_mode: str
 
     @classmethod
@@ -44,6 +45,10 @@ class FrontRESSegmentRunnerBoundary:
             periodic_eval_interval=max(1, int(alg_cfg.get("frontres_segment_periodic_eval_interval", 100))),
             objective=objective,
             segment_k=max(1, int(alg_cfg.get("frontres_segment_k", 1))),
+            max_horizon_k=max(
+                max(1, int(alg_cfg.get("frontres_segment_k", 1))),
+                int(alg_cfg.get("frontres_segment_max_horizon_k", 64)),
+            ),
             reset_mode=str(alg_cfg.get("frontres_segment_reset_mode", "auto")).lower(),
         )
 
@@ -77,6 +82,7 @@ class FrontRESSegmentRunnerBoundary:
             "[FrontRES Segment Live Sentinel] "
             f"objective={self.objective} "
             f"segment_k={self.segment_k} "
+            f"max_horizon_k={self.max_horizon_k} "
             f"reset_mode={self.reset_mode} "
             "live_runner=True "
             "sentinel_only=True "
@@ -110,6 +116,7 @@ class FrontRESSegmentRunnerBoundary:
             "[FrontRES Segment Live Probe Ready] "
             f"objective={self.objective} "
             f"segment_k={self.segment_k} "
+            f"max_horizon_k={self.max_horizon_k} "
             f"update_steps={self.live_update_steps} "
             f"reset_mode={self.reset_mode} "
             "live_runner=True "
@@ -126,6 +133,7 @@ class FrontRESSegmentRunnerBoundary:
             "[FrontRES Segment Live Train Ready] "
             f"objective={self.objective} "
             f"segment_k={self.segment_k} "
+            f"max_horizon_k={self.max_horizon_k} "
             f"update_steps={self.live_update_steps} "
             f"reset_mode={self.reset_mode} "
             "live_runner=True "
@@ -134,39 +142,4 @@ class FrontRESSegmentRunnerBoundary:
             "ppo_action=delta_se3_6d "
             f"periodic_eval={self.periodic_eval_enabled} "
             f"eval_interval={self.periodic_eval_interval}"
-        )
-
-    def build_fake_connector(
-        self,
-        *,
-        dataset: Any,
-        sampler: Any,
-        reset_adapter: Any,
-        action_projector: Any,
-        reward: Any,
-        rollout_fn: Callable[..., Any],
-        transition_writer: Any | None = None,
-        diagnostics_fn: Callable[..., Any] | None = None,
-        log_formatter: Callable[[Any], str] | None = None,
-        connector_cls: type | None = None,
-    ) -> Any:
-        if not self.requested:
-            raise ValueError("fake Segment Replay connector requires frontres_segment_replay_enabled or segment_replay_hrl")
-        if connector_cls is None:
-            from rsl_rl.runners.frontres_segment_replay import FrontRESSegmentReplayConnector
-
-            connector_cls = FrontRESSegmentReplayConnector
-        return connector_cls(
-            dataset=dataset,
-            sampler=sampler,
-            reset_adapter=reset_adapter,
-            action_projector=action_projector,
-            reward=reward,
-            rollout_fn=rollout_fn,
-            transition_writer=transition_writer,
-            diagnostics_fn=diagnostics_fn,
-            log_formatter=log_formatter,
-            reset_mode=self.reset_mode,
-            stage="stage3_segment_hrl",
-            objective="segment_replay_hrl",
         )

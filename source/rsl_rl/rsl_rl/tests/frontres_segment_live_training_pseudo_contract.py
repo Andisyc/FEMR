@@ -39,6 +39,7 @@ run_frontres_segment_live_training_loop = live_training_module.run_frontres_segm
 run_frontres_segment_periodic_eval = live_training_module.run_frontres_segment_periodic_eval
 live_training_module._apply_current_segment_reset = lambda runner: None
 live_training_module._read_live_observations = lambda runner: "fake_obs"
+live_training_module._capture_paired_gain = lambda capture: None
 live_training_module._run_live_rollout_capture = lambda runner, observations, *, rollout_steps: runner.fake_eval_capture(
     rollout_steps
 )
@@ -112,10 +113,11 @@ def _full_summary(**overrides) -> dict:
         "reward_mean": 0.25,
         "train_reward_mean": 0.25,
         "env_reward_mean": -0.50,
-        "score_noisy_mean": -0.10,
-        "score_repaired_mean": 0.65,
-        "score_gain_mean": 0.75,
-        "score_gain_pos_frac": 0.80,
+        "gain_style_mean": 0.20,
+        "gain_physics_mean": 0.40,
+        "gain_repair_cost_mean": 0.15,
+        "gain_total_mean": 0.75,
+        "gain_total_pos_frac": 0.80,
         "done_frac": 0.10,
         "motion_delta_se_norm": 0.42,
         "motion_delta_z_up_frac": 0.25,
@@ -219,7 +221,12 @@ class FakeRunner:
             "success_rate": 0.75,
             "fall_rate": 0.25,
             "mean_survival_steps": 28,
-            "continuous_rollout_gain": float(train_summary["score_gain_mean"]),
+            "gain_source": "FRS-GAIN-v001",
+            "gain_style_mean": 0.20,
+            "gain_physics_mean": 0.40,
+            "gain_repair_cost_mean": 0.15,
+            "gain_total_mean": float(train_summary["gain_total_mean"]),
+            "gain_total_pos_frac": 0.80,
         }
 
     def fake_eval_capture(self, rollout_steps: int):
@@ -469,15 +476,15 @@ def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
     assert lines[header_idx + 8] == ""
     assert lines[header_idx + 9] != "-" * 80
     assert "  progress: iter=1/1 updates=4/4 runner_learn=True" in output
-    assert "  data: valid=8 valid_frac=100.0% train_reward=0.250000 env_reward=-0.500000 gain=0.750000" in output
+    assert "  data: valid=8 valid_frac=100.0% train_reward=0.250000 env_reward=-0.500000 gain_total=0.750000" in output
     assert "  trial: policy=12 search=4 evidence=16 ppo_valid=8 search_evidence_only=4 policy_invalid=4 valid_policy=66.7% valid_evidence=50.0%" in output
     assert "  sampler: gain=0.300000 gain_pos=60.0% useful=0.400000 replay_candidates=5 priority=0.070000 pool=11 hopeless=20.0%" in output
-    assert "  ppo: loss_total=1.516e+23" in output
+    assert "actor_weight=1.000000 loss_total=1.516e+23" in output
     assert "  trust: accepted=1 rejected=0" in output
     assert "schedule=adaptive rollback=True max_retries=2" in output
     assert "  scale: adv_top1=" in output
     assert "[FrontRES Segment Train Effect]" in output
-    assert "  score: noisy=-0.100000 repaired=0.650000 gain=0.750000 gain_pos=80.0%" in output
+    assert "  gain: style=0.200000 physics=0.400000 repair_cost=0.150000 total=0.750000 gain_pos=80.0%" in output
     assert "[FrontRES Segment Motion Quality]" in output
     assert "  action: delta_se_norm=0.420000 dz_up=25.0%" in output
     assert "loss_total=1.516e+23" in output
@@ -528,10 +535,10 @@ def test_pseudo_live_training_runs_periodic_eval_only_on_interval() -> None:
     assert output.count("[FrontRES Segment Periodic Eval]") == 1
     assert "episode_length=32.0" in output
     assert "success=75.0%" in output
-    assert "gain=0.750000" in output
+    assert "total=0.750000" in output
 
 
-def test_periodic_eval_preserves_score_and_motion_metrics_when_all_samples_fall() -> None:
+def test_periodic_eval_marks_missing_gain_and_preserves_motion_metrics_when_all_samples_fall() -> None:
     torch = __import__("torch")
     runner = FakeRunner()
     runner._frontres_segment_sampler = SimpleNamespace(
@@ -552,7 +559,7 @@ def test_periodic_eval_preserves_score_and_motion_metrics_when_all_samples_fall(
         summary = run_frontres_segment_periodic_eval(
             runner,
             iteration=100,
-            train_summary={"score_gain_mean": 0.0},
+            train_summary={"gain_total_mean": 0.0},
         )
     finally:
         live_training_module._sample_live_segment_rows = old_sample_rows
@@ -561,11 +568,12 @@ def test_periodic_eval_preserves_score_and_motion_metrics_when_all_samples_fall(
     print(f"[probe periodic_eval_metrics] {log.replace(chr(10), ' | ')}", flush=True)
     assert summary["success_rate"] == 0.0
     assert summary["fall_rate"] == 1.0
-    assert "score: noisy=0.078125 repaired=0.328125" in log
+    assert "source=UNCONFIRMED" in log
+    assert "total=UNCONFIRMED" in log
+    assert "score:" not in log
     assert "mpjpe_repaired=0.111435" in log
     assert "mpjpe_noisy=0.445738" in log
     assert "delta_se_norm=0.223607" in log
-    assert "UNCONFIRMED" not in log
 
 
 def test_periodic_eval_uses_independent_batch_and_restores_training_state() -> None:
@@ -627,21 +635,29 @@ def test_periodic_eval_uses_independent_batch_and_restores_training_state() -> N
     old_batch_builder = getattr(live_training_module, "_build_current_segment_batch", None)
     old_reset = live_training_module._apply_current_segment_reset
     old_capture = live_training_module._run_live_rollout_capture
+    old_gain = live_training_module._capture_paired_gain
     live_training_module._sample_live_segment_rows = fake_sample_rows
     live_training_module._build_current_segment_batch = fake_build
     live_training_module._apply_current_segment_reset = fake_reset
     live_training_module._run_live_rollout_capture = lambda *_args, **_kwargs: capture
+    live_training_module._capture_paired_gain = lambda _capture: SimpleNamespace(
+        style_gain=torch.tensor([1.0, 3.0]),
+        physics_gain=torch.tensor([2.0, 4.0]),
+        repair_cost=torch.tensor([0.5, 1.0]),
+        gain_total=torch.tensor([2.5, 6.0]),
+    )
     try:
         summary = run_frontres_segment_periodic_eval(
             runner,
             iteration=100,
-            train_summary={"score_gain_mean": 999.0},
+            train_summary={"gain_total_mean": 999.0},
         )
     finally:
         live_training_module._sample_live_segment_rows = old_sample_rows
         live_training_module._build_current_segment_batch = old_batch_builder
         live_training_module._apply_current_segment_reset = old_reset
         live_training_module._run_live_rollout_capture = old_capture
+        live_training_module._capture_paired_gain = old_gain
 
     log = diagnostics_module.format_segment_periodic_eval_log(summary)
     print(f"[probe periodic_eval_independent] {log.replace(chr(10), ' | ')}", flush=True)
@@ -650,9 +666,12 @@ def test_periodic_eval_uses_independent_batch_and_restores_training_state() -> N
     assert runner.train_mode_calls == 1
     assert summary["eval_batch_source"] == "independent_sampler"
     assert summary["eval_reset_applied"] is True
-    assert summary["score_repaired"] == 10.5 / 32.0
-    assert summary["score_noisy"] == 2.5 / 32.0
-    assert summary["continuous_rollout_gain"] == 8.0 / 32.0
+    assert summary["gain_source"] == "FRS-GAIN-v001"
+    assert summary["gain_style_mean"] == 2.0
+    assert summary["gain_physics_mean"] == 3.0
+    assert summary["gain_repair_cost_mean"] == 0.75
+    assert summary["gain_total_mean"] == 4.25
+    assert summary["gain_total_pos_frac"] == 1.0
     assert summary["motion_ids"] == ("motion_a.npz", "motion_b.npz")
     assert summary["start_frames"] == (12, 24)
     assert summary["perturbation_family_counts"] == {"local_rp": 2}
@@ -670,6 +689,8 @@ def test_periodic_eval_uses_independent_batch_and_restores_training_state() -> N
     assert "motion_ids=('motion_a.npz', 'motion_b.npz')" in log
     assert "start_frames=(12, 24)" in log
     assert "families={'local_rp': 2}" in log
+    assert "total=4.250000" in log
+    assert "score:" not in log
 
 
 def test_periodic_eval_restores_train_mode_when_rollout_raises() -> None:
@@ -722,10 +743,21 @@ def test_pseudo_live_training_periodic_eval_requires_hook() -> None:
         raise AssertionError("periodic eval must fail loudly when the live eval hook is missing")
 
 
-def test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline() -> None:
+def test_pseudo_offline_eval_summary_uses_canonical_gain() -> None:
     runner = FakeRunner()
     capture = runner.fake_eval_capture(rollout_steps=5)
-    summary = offline_eval_summary(capture, sample_count=2, motion_ids=("motion_a.npz", "motion_b.npz"))
+    torch = __import__("torch")
+    old_gain = live_training_module._capture_paired_gain
+    live_training_module._capture_paired_gain = lambda _capture: SimpleNamespace(
+        style_gain=torch.tensor([1.0, 3.0]),
+        physics_gain=torch.tensor([2.0, 4.0]),
+        repair_cost=torch.tensor([0.5, 1.0]),
+        gain_total=torch.tensor([2.5, 6.0]),
+    )
+    try:
+        summary = offline_eval_summary(capture, sample_count=2, motion_ids=("motion_a.npz", "motion_b.npz"))
+    finally:
+        live_training_module._capture_paired_gain = old_gain
     print(
         "[probe offline_eval_summary] "
         f"sample_count={summary['sample_count']} "
@@ -733,29 +765,36 @@ def test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline() ->
         f"success_rate={summary['success_rate']} "
         f"fall_rate={summary['fall_rate']} "
         f"survival={summary['mean_survival_steps']} "
-        f"noisy={summary['score_noisy']} "
-        f"repaired={summary['score_repaired']} "
-        f"gain={summary['continuous_rollout_gain']}",
+        f"gain_source={summary['gain_source']} "
+        f"style={summary['gain_style_mean']} "
+        f"physics={summary['gain_physics_mean']} "
+        f"repair_cost={summary['gain_repair_cost_mean']} "
+        f"gain_total={summary['gain_total_mean']}",
         flush=True,
     )
     assert summary["sample_count"] == 2.0
     assert summary["episode_length"] == 5.0
     assert round(summary["success_rate"], 6) == round(2.0 / 3.0, 6)
     assert round(summary["fall_rate"], 6) == round(1.0 / 3.0, 6)
-    assert round(summary["score_repaired"], 6) == 2.1
-    assert round(summary["score_noisy"], 6) == 0.5
-    assert round(summary["continuous_rollout_gain"], 6) == 1.6
+    assert summary["gain_source"] == "FRS-GAIN-v001"
+    assert round(summary["gain_style_mean"], 6) == 2.0
+    assert round(summary["gain_physics_mean"], 6) == 3.0
+    assert round(summary["gain_repair_cost_mean"], 6) == 0.75
+    assert round(summary["gain_total_mean"], 6) == 4.25
     log = format_offline_eval_log(summary)
     assert "[FrontRES Segment Offline Eval / Per Motion]" in log
+    assert "gain: source=FRS-GAIN-v001" in log
+    assert "score:" not in log
     assert "[FrontRES Segment Offline Eval / Mean]" in log
     assert "id=motion_a.npz samples=1" in log
     assert "id=motion_b.npz samples=1" in log
     assert "sample_count=2" in log
     assert "success=66.7%" in log
     assert "fall=33.3%" in log
-    assert "noisy=0.500000" in log
-    assert "repaired=2.100000" in log
-    assert "gain=1.600000" in log
+    assert "style=2.000000" in log
+    assert "physics=3.000000" in log
+    assert "repair_cost=0.750000" in log
+    assert "total=4.250000" in log
     assert "mpjpe_repaired=" in log
     assert "mpjpe_noisy=" in log
     assert "vel_err=" in log
@@ -799,11 +838,11 @@ def main() -> None:
     test_pseudo_live_training_log_formats_large_loss_readably()
     test_pseudo_live_training_continues_after_periodic_checkpoint_failure()
     test_pseudo_live_training_runs_periodic_eval_only_on_interval()
-    test_periodic_eval_preserves_score_and_motion_metrics_when_all_samples_fall()
+    test_periodic_eval_marks_missing_gain_and_preserves_motion_metrics_when_all_samples_fall()
     test_periodic_eval_uses_independent_batch_and_restores_training_state()
     test_periodic_eval_restores_train_mode_when_rollout_raises()
     test_pseudo_live_training_periodic_eval_requires_hook()
-    test_pseudo_offline_eval_summary_scores_repaired_against_noisy_baseline()
+    test_pseudo_offline_eval_summary_uses_canonical_gain()
     test_pseudo_offline_eval_capture_exposes_motion_quality_tensors()
     print("result: PASS")
 

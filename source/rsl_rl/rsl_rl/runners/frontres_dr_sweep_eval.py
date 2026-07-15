@@ -15,7 +15,6 @@ from typing import Any
 import torch
 
 from rsl_rl.modules import FrontRESActorCritic
-from rsl_rl.frontres.temporal_reference_cache import frontres_invalidate_temporal_reference_cache
 
 
 def evaluate_frontres_dr_sweep(
@@ -96,20 +95,7 @@ def evaluate_frontres_dr_sweep(
             return ("local_rp",)
         if channels in ("rp_z", "z_rp", "vertical_contact"):
             return ("global_z", "local_rp")
-        active_dims = runner.cfg.get("frontres_active_task_dims", None)
-        if active_dims is None:
-            return ("planar", "yaw", "global_z", "local_rp")
-        dim_set = {int(idx) for idx in active_dims}
-        bases: list[str] = []
-        if dim_set.intersection({0, 1}):
-            bases.append("planar")
-        if 5 in dim_set:
-            bases.append("yaw")
-        if 2 in dim_set:
-            bases.append("global_z")
-        if dim_set.intersection({3, 4}):
-            bases.append("local_rp")
-        return tuple(bases or ["local_rp"])
+        return ("planar", "yaw", "global_z", "local_rp")
 
     allowed_bases = _allowed_bases()
 
@@ -219,19 +205,6 @@ def evaluate_frontres_dr_sweep(
 
                 for _ in range(rollout_steps):
                     task_corr = runner.alg.policy.get_task_correction_inference(obs)
-                    task_corr = runner._mask_frontres_task_actions(task_corr)
-                    if (
-                        bool(runner.cfg.get("frontres_state_alpha_enabled", True))
-                        and hasattr(runner.alg.policy, "get_state_router_alpha")
-                        and n_train > 0
-                    ):
-                        alpha = runner.alg.policy.get_state_router_alpha(obs[:n_train]).view(-1).detach()
-                        runner._frontres_state_alpha_prob_next = alpha
-                        runner._frontres_state_alpha_pred_last = float(alpha.mean().item())
-                    else:
-                        runner._frontres_state_alpha_prob_next = torch.zeros(n_train, device=runner.device)
-                        runner._frontres_state_alpha_pred_last = 0.0
-
                     runner._frontres_stable_route_next_mask = torch.zeros(
                         n_train, device=runner.device, dtype=torch.bool
                     )
@@ -275,7 +248,6 @@ def evaluate_frontres_dr_sweep(
                         cur_episode_length[done_ids] = 0.0
                         if hasattr(runner.alg.policy, "reset"):
                             runner.alg.policy.reset(dones)
-                        frontres_invalidate_temporal_reference_cache(runner, dones)
                     obs, ref_vel_estimator_obs = _policy_obs_from_extras(obs, infos)
                     obs = _frontres_policy_input(obs, ref_vel_estimator_obs)
 

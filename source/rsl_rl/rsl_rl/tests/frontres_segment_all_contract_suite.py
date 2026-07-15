@@ -97,9 +97,9 @@ CONTRACTS = (
         path_class="secondary_contract_path",
     ),
     ContractTarget(
-        name="hrl_action",
-        path="source/rsl_rl/rsl_rl/tests/frontres_hrl_action_contract.py",
-        expected_marker="result: PASS",
+        name="full6_no_active_mask",
+        path="source/rsl_rl/rsl_rl/tests/frontres_full6_no_active_mask_contract.py",
+        expected_marker="frontres_full6_no_active_mask_contract: ok",
         path_class="core_param_path",
     ),
     ContractTarget(
@@ -134,12 +134,6 @@ CONTRACTS = (
         path_class="live_sentinel_path",
     ),
     ContractTarget(
-        name="runner_toy_chain",
-        path="source/rsl_rl/rsl_rl/tests/frontres_segment_replay_toy_chain.py",
-        expected_marker="result: PASS",
-        path_class="secondary_contract_path",
-    ),
-    ContractTarget(
         name="rollout_step_action_stats",
         path="source/rsl_rl/rsl_rl/tests/frontres_rollout_step_action_stats_contract.py",
         expected_marker="frontres_rollout_step_action_stats_contract: ok",
@@ -155,6 +149,12 @@ CONTRACTS = (
         name="algorithm",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py",
         expected_marker="result: PASS",
+        path_class="core_param_path",
+    ),
+    ContractTarget(
+        name="actual_policy_distribution",
+        path="source/rsl_rl/rsl_rl/tests/frontres_actual_policy_distribution_contract.py",
+        expected_marker="frontres_actual_policy_distribution_contract: ok",
         path_class="core_param_path",
     ),
     ContractTarget(
@@ -181,24 +181,6 @@ CONTRACTS = (
         path="source/rsl_rl/rsl_rl/tests/frontres_balance_offline_connectivity_contract.py",
         expected_marker="frontres_balance_offline_connectivity_contract: ok",
         path_class="core_param_path",
-    ),
-    ContractTarget(
-        name="checkpoint",
-        path="source/rsl_rl/rsl_rl/tests/frontres_segment_checkpoint_contract.py",
-        expected_marker="result: PASS",
-        path_class="secondary_contract_path",
-    ),
-    ContractTarget(
-        name="authority_runner_integration",
-        path="source/rsl_rl/rsl_rl/tests/frontres_authority_runner_integration.py",
-        expected_marker="result: PASS",
-        path_class="core_param_path",
-    ),
-    ContractTarget(
-        name="runner_lifecycle",
-        path="source/rsl_rl/rsl_rl/tests/frontres_segment_runner_lifecycle_contract.py",
-        expected_marker="result: PASS",
-        path_class="secondary_contract_path",
     ),
     ContractTarget(
         name="live_sentinel",
@@ -232,6 +214,27 @@ CONTRACTS = (
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_live_resume_pseudo_contract.py",
         expected_marker="frontres_segment_live_resume_pseudo_contract: ok",
         path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
+        name="stage3_actor_critic_warmup",
+        path="source/rsl_rl/rsl_rl/tests/frontres_segment_warmup_contract.py",
+        expected_marker="frontres_segment_warmup_contract: ok",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
+        name="frozen_gmt_gradient_boundary",
+        path="source/rsl_rl/rsl_rl/tests/frontres_frozen_gmt_contract.py",
+        expected_marker="frontres_frozen_gmt_contract: ok",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
+        name="formal_runtime_audit_insertion",
+        path="source/rsl_rl/rsl_rl/tests/frontres_formal_runtime_audit_contract.py",
+        expected_marker="frontres_formal_runtime_audit_contract: ok",
+        path_class="secondary_contract_path",
         requires_torch=True,
     ),
     ContractTarget(

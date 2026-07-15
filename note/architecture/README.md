@@ -13,22 +13,18 @@ same Code Block ID
 
 ## Current Maps
 
-- `architecture/01_repo_architecture.data.json`: editable source data for the Repo Mainline Atlas.
-- `architecture/04_femr_modular_architecture.data.json`: object-oriented FEMR modular redesign before code refactor.
-- `runtime/02_frontres_flow.data.json`: editable source data for the Method to Code Atlas.
-- `runtime/05_stage3_sequence_eval_runtime.data.json`: editable source data for the Stage 3 sequence evaluation runtime route.
-- `runtime/07_frontres_stat_audit.data.json`: editable source data for the FrontRES mean/std and normalizer audit route.
-- `concept/03_frontres_concept_tabs.data.json`: editable source data for the concept-tab map.
-- `concept/03_frontres_concept_tabs.mmd`: Mermaid structural source.
-- `concept/03_frontres_concept_tabs.svg`: generated static visual artifact.
-- `auxiliary/atlas_app/`: helper viewer, local server, static renderer, checks, and JS dependencies.
+- `architecture/01_repo_architecture.data.json`: editable source data for the ultra-wide Repository Reading Atlas.
+- `runtime/02_frontres_flow.data.json`: editable source data for the Concept Figure-driven Method-to-Code Reading Atlas.
+- `runtime/04_stage3_formal_runtime_audit.data.json`: permanent Runtime Audit Atlas for the Concept Figure-mapped Stage 3 Phase B probe route.
+- `concept/03_frontres_concept_tabs.data.json`: editable source data for the paper-style FrontRES method figure.
+- `auxiliary/atlas_app/`: current helper viewer, local server, checks, and JS dependencies.
+- `auxiliary/legacy/`: retired viewer/render helpers kept outside the active app.
 
 ## Folder Contract
 
 ```text
 note/architecture/
   architecture/   repo/file/block mind map
-                 FEMR modular redesign map
   runtime/        module interface contract map
   concept/        FrontRES design concept tabs
   auxiliary/      helper app files kept out of the map folders
@@ -41,8 +37,8 @@ Temporary maps are allowed, including in the main entry page, while they are
 actively guiding a change. After the change lands, a temporary map must be
 either deleted or integrated into one of the active maps.
 
-The main entry should stay small: repo map, interface contract, concept tabs,
-and one active refactor map.
+The main entry should stay small: current repo map, method/runtime maps,
+concept tabs, and explicitly named diagnostics pages.
 
 ## VSCode Workflow
 
@@ -57,10 +53,8 @@ Open one of these URLs on the right side of VSCode:
 http://127.0.0.1:8765/
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../runtime/02_frontres_flow.data.json
-http://127.0.0.1:8765/05_stage3_sequence_eval_runtime.html
-http://127.0.0.1:8765/07_frontres_stat_audit.html
+http://127.0.0.1:8765/04_stage3_formal_runtime_audit.html
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../concept/03_frontres_concept_tabs.data.json
-http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/04_femr_modular_architecture.data.json
 ```
 
 Open the matching `*.data.json` on the left. Saving the JSON refreshes the graph
@@ -89,30 +83,36 @@ auxiliary/atlas_app/architecture_atlas.html
 
 The three main pages are data variants, not separate applications:
 
-- Repo Mainline uses `layout: "repo_tree"`.
+- Repository Architecture uses `layout: "repository_reading_atlas"`.
   - Source: `architecture/01_repo_architecture.data.json`.
-  - Purpose: main runtime stage -> owner files -> code block responsibilities.
-  - Main schema: `title`, `subtitle`, `layout`, `root`, `files[]`.
-  - Optional display flags: `showLegend`, `showConceptBadges`.
-  - Each file has `group`, `summary`, `color`, `blocks[]`.
-  - Each block has `id`, `path`, `role`; use one responsibility per block.
+  - Purpose: read the whole repository as runtime-ordered module-family cards.
+  - Reading direction: module-family cards follow `runtimeOrder[]` directly
+    from left to right. Inventory-style system containers are not rendered.
+  - Every card shows responsibility, read-first files, key functions, core
+    objects, and the module-internal formal main path.
+  - `mainRoute[]` and `mainRouteTitles[]` define matching `B1/B2/...` steps.
+    Each rendered step exposes a human title, owner, input, and output.
+  - Cards omit eval/debug/legacy branches. Those belong in separate Runtime
+    Atlas views when they are the subject of review.
+  - Non-main-path repository context uses `supportOrder[]`; it is rendered in a
+    separate Supporting Boundaries row and never inserted into the formal route.
+  - Main schema: `systems[].modules[]`, with `files[]`, `objects[]`, and
+    `mainRoute[]` as the human code-reading contract.
 
-- Method to Code uses `layout: "repo_tree"`.
+- Method to Code uses `layout: "repository_reading_atlas"`.
   - Source: `runtime/02_frontres_flow.data.json`.
-  - Purpose: method design -> Repo Mainline stage -> owner files/functions.
-  - Main schema: `title`, `subtitle`, `layout`, `root`, `concepts`, `files[]`.
-  - Each file group names the matching `MAIN-*` stage from the Repo Mainline Atlas.
+  - Purpose: Concept Figure design point -> coherent owner module family -> internal formal route.
+  - Main schema: `runtimeOrder[]`, `supportOrder[]`, `systems[].modules[]`, matching the 01 reading-card layout.
+  - Each card names one Concept Figure design point and exposes responsibility, read-first files, functions, objects, and B1/B2/B3 route.
 
-- Concept uses the default tab renderer.
+- Concept uses `layout: "method_figure"`.
   - Source: `concept/03_frontres_concept_tabs.data.json`.
-  - Purpose: real problem layer -> concept variable layer -> engineering carrier layer.
-  - Main schema: `title`, `subtitle`, `tabs[]`, optional `links[]`.
-  - Each tab has `id`, `title`, `color`, `cards[]`.
-  - Each card has `id`, `title`, `body`.
+  - Purpose: show the active method as one causal paper figure before exposing code ownership.
+  - Main schema: `title`, `subtitle`, `claim`, `zones[]`, `nodes[]`, `edges[]`, `callouts[]`, `acceptance[]`.
+  - Nodes keep stable block IDs, concise method summaries, evidence status, and secondary `codeRefs` metadata.
+  - Edges expose forward execution, paired comparison, PPO feedback, replay-priority feedback, and evidence boundaries.
+  - Method-to-code and runtime maps remain separate engineering views that reuse the same IDs and concept colors.
 
-`frontres_concept_tabs.legacy.html` is an older Concept-only viewer. Keep it only
-as a reference while migrating old behavior; new maps should use
-`architecture_atlas.html` unless a genuinely new interaction model is needed.
 
 ## Reuse Contract
 
@@ -141,7 +141,6 @@ note/architecture/
   auxiliary/atlas_app/
     architecture_atlas.html
     serve_architecture.mjs
-    render_rough_arch_svg.mjs
     package.json
     package-lock.json
 ```
@@ -169,6 +168,9 @@ http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../PAT
 
 Choose the `layout` field by the thinking task:
 
+- Use `repository_reading_atlas` when the question is "how is the whole
+  repository divided, and in what order should I read its code?".
+- Use `method_figure` when the question is "what is the method, why does it work, and how does its feedback loop close?".
 - Use `repo_tree` when the question is "which file owns which code block?".
 - Use `flow_tree` when the question is "what enters a module, what does it own, what exits, and what is forbidden?".
 - Omit `layout` or use `tabs` when the question is conceptual taxonomy rather than code ownership.
@@ -208,12 +210,6 @@ layouts/             repo_tree.js, flow_tree.js, tabs.js
 Do not do this split merely because one map changes. Do it only when the HTML
 itself becomes a maintenance bottleneck.
 
-## Static SVG
-
-```bash
-node note/architecture/auxiliary/atlas_app/render_rough_arch_svg.mjs
-```
-
 ## ID Convention
 
 - `P-*`: real problem layer.
@@ -225,6 +221,6 @@ node note/architecture/auxiliary/atlas_app/render_rough_arch_svg.mjs
 - `D-*`: diagnostics block.
 - `DR-*`: DR curriculum / GMT frontier block.
 - `F-*`: executable floor block.
-- `AL-*`: state alpha block.
-- `RH-*`: structured rho block.
+- `SR-*`: Segment Replay block.
+- `Q-*`: repair-quality / gain block.
 - `G-*`: diagnostics block.

@@ -1,0 +1,634 @@
+# Formal Runtime Audit
+
+Status: `phase-b-control-surface-ready-human-review`
+
+Correction 2026-07-15: the first 20-card Atlas revision pointed many cards at
+owner functions while emitting their labels only from five runner summaries.
+That projection was invalid. Each current card is now accepted only when its
+declared owner file contains the same `AUDIT-*` ID, a real default-off emit or
+print boundary, adjacent `B1/B2/B3` reading comments, and `Result:
+PENDING_LIVE.`. The contract test enforces this source-to-Atlas identity.
+
+Human selection rationale 2026-07-15: every B1/B2/B3 boundary now records
+`whyHere` and `failureOwner` beside its source location and captured object.
+B1 isolates upstream source failures, B2 identifies the first point where the
+owner's semantic object is complete, and B3 detects overwrite, stale-field, or
+bypass failures before the formal consumer. All 60 `whyHere` statements are
+boundary-specific; the generator and viewer contracts reject duplicated
+template rationale.
+
+Source navigation 2026-07-15: every B-step stores a generated `sourceLine` and
+a validated local `/open-source` hyperlink. The visible insertion location is
+blue with an external-link marker. Clicking it keeps the Atlas page open while
+the local server invokes VS Code with `--goto file:line:column`. Generation
+fails when an owner lacks the matching block comment, and the contract verifies
+that each linked line contains the expected block ID. Direct `vscode://` links
+were retired because some browser/OS combinations interpreted the line suffix
+as a new empty filename.
+Created: 2026-07-14
+Audit type: official Stage 3 Segment Replay formal-route live sentinel
+
+## Round Identity
+
+- Active method contract: `FRS-METHOD-v011-segment-replay`
+- Active training contract: `FRS-TRAIN-v003-segment-replay-warmup`
+- Code revision inspected: `2ff791e` plus a dirty worktree; the deployed
+  source snapshot must be verified before live evidence is accepted.
+- Checkpoint identity: must be supplied and printed by the upcoming formal run.
+- Official command: pending final local insertion gate.
+- Current gate: source probes are authorized and inserted; no live run has occurred.
+- Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
+- Prior offline evidence: retained in
+  `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
+  repository testing documents; it is not promoted to live evidence.
+
+## Scope
+
+The audit will prove the official formal Stage 3 route only:
+
+`config -> scripts/rsl_rl/train.py -> OnPolicyRunner -> Segment sampler ->`
+`reset/preroll -> full-6D Delta SE(3) rollout -> Segment storage -> paired`
+`Gain -> direct Segment PPO -> sampler/diagnostics -> checkpoint boundary`
+
+Cost reductions may use a tiny environment count, short iteration count, and
+small sampled workload. The audit must not change branch selection, action
+representation, perturbation semantics, K-step behavior, Gain ownership, PPO
+update semantics, or checkpoint ownership.
+
+Out of scope for this round: legacy MOSAIC-only paths, toy contracts as live
+evidence, sentinel-only/storage-only/update-loop-only/offline-eval-only
+branches, and long training.
+
+## Current Checklist
+
+| ID | Owner/function | Core parameter | Probe location | Expected shape/value | Status | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| GOV-01 | workflow governance | contract/code/checkpoint/command identity | this document | identity is explicit before run | runtime-observed | this file |
+| METHOD-07 | critic-ready actor curriculum | HSL -> protected RL warmup -> actor ramp -> joint RL | `AUDIT-HSL-LOAD-01`, `AUDIT-WARMUP-01`, `AUDIT-PPO-01` | phase/weight and frozen actor boundary | inserted | offline contracts; live pending |
+| ROUTE-01 | formal entrypoint and runner | Stage 3 branch selection | `AUDIT-ROUTE-01` | live_train=1 and alternate_modes=0 | inserted | insertion contract |
+| OBS-01 | observation/normalizer | 870D balance/ZMP observation | `AUDIT-OBS-01` | expected layout, finite, same normalizer identity | inserted | insertion contract |
+| K-01 | sampler/reset/rollout | per-row K and valid rows | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | K tensor, role rows, reset/valid counts | inserted | insertion contract |
+| ACT-01 | actor/rollout/storage | full-6D Delta SE(3) | `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | observation and action/storage tuple shapes, finite | inserted | insertion contract |
+| GAIN-01 | paired evidence/Gain | Style/Physics/Repair/Total | `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | all canonical Gain components populated | inserted | insertion contract |
+| PPO-01 | Segment PPO update | old stats -> loss -> optimizer step | `AUDIT-PPO-01` | phase, loss, grad, delta, pre/post KL, trust, frozen GMT | inserted | insertion contract |
+| PERSIST-01 | checkpoint boundary | model/normalizer/optimizer/sampler/Gain/warmup | `AUDIT-PERSIST-01` | payload identity at actual save | inserted | insertion contract |
+| DIAG-01 | diagnostics | live populated metrics | all `AUDIT-*` snapshots | compact searchable fields; missing remains explicit | inserted | insertion contract |
+
+## Phase B Probe Ownership
+
+Human control surface: open `note/architecture/04_stage3_formal_runtime_audit.html`. Every row below has a matching Atlas reading block and a `PENDING_LIVE` source comment at the real owner location.
+
+| Audit ID | Parent design points | Formal owner | Runtime question |
+| --- | --- | --- | --- |
+| `AUDIT-ROUTE-01` | all active points | formal training loop | Is this the official Stage 3 train route? |
+| `AUDIT-PERTURB-01/02` | M-02 | perturb config/application | Are configured and applied perturbations aligned? |
+| `AUDIT-SEGDATA-01/SAMPLER-01` | SR-01 | dataset/sampler | Are segment identity and priority evidence from one transaction? |
+| `AUDIT-KPLAN-01/KROLLOUT-01` | M-06 | sampler/rollout | Does per-row K survive planning and execution? |
+| `AUDIT-OBS-01/ACTION-01/APPLY-01` | M-04 | runtime/policy/task correction | Does 870D obs produce and execute full-6D repair? |
+| `AUDIT-GMT-01` | M-10 | frozen GMT | Is GMT frozen while executing repaired reference? |
+| `AUDIT-PAIR-01/PAIR-EVIDENCE-01` | Q-PAIR | pair layout/capture | Are roles and paired execution evidence aligned? |
+| `AUDIT-GAIN-01/RETURN-01` | Q-01 | Gain/storage | Does canonical Gain reach PPO returns? |
+| `AUDIT-HSL-LOAD-01` | M-03 | checkpoint load | Did Stage 2 actor/normalizer initialize Stage 3? |
+| `AUDIT-WARMUP-01/PPO-01/DIAG-01` | M-05 | warmup/PPO/diagnostics | Did the permitted update become the reported accepted state? |
+| `AUDIT-PERSIST-01` | M-03, SR-01, M-05, Q-01 | checkpoint save | Does model_N.pt retain all formal identities? |
+
+### Expanded 20-owner probe inventory
+
+| Audit IDs | Parent design | Formal owner boundary |
+| --- | --- | --- |
+| `AUDIT-ROUTE-01` | M-03, M-05, SR-01 | formal Stage 3 route |
+| `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02` | M-02 | perturbation config and applied rows |
+| `AUDIT-SEGDATA-01`, `AUDIT-SAMPLER-01` | SR-01 | segment dataset and replay transaction |
+| `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01` | M-06 | K plan and executed horizon |
+| `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01` | M-04 | 870D obs, full-6D actor, task correction |
+| `AUDIT-GMT-01` | M-10 | frozen GMT execution |
+| `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01` | Q-PAIR | quartet roles and paired evidence |
+| `AUDIT-GAIN-01`, `AUDIT-RETURN-01` | Q-01 | canonical Gain and PPO returns |
+| `AUDIT-HSL-LOAD-01` | M-03 | Stage 2 actor/normalizer load |
+| `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01` | M-05 | warmup, accepted PPO state, diagnostics |
+| `AUDIT-PERSIST-01` | M-03, SR-01, M-05, Q-01 | formal checkpoint payload |
+
+All 20 Atlas cards remain `PENDING_LIVE`. Offline contracts prove insertion and synchronization only.
+
+## Method Semantics Extracted (Dr.Cheng)
+
+- Indispensable variable: executable improvement of a corrupted reference frame
+  under frozen GMT, measured by paired Noisy/Repaired evidence over a dynamic
+  segment.
+- Policy action: full six-dimensional Delta SE(3),
+  `[dx, dy, dz, droll, dpitch, dyaw]`; `local_rp` labels the corruption and
+  does not mask the repair output.
+- Training signal: `gain_total = style_gain + physics_gain - repair_cost`
+  with the active named weights; generic environment reward is not a fallback.
+- Ownership split: the sampler owns segment selection/replay priority from
+  rollout evidence; Segment PPO owns policy-action returns/advantages and the
+  direct full-6D update.
+- Horizon: the per-row K assignment must survive sampling, reset, rollout,
+  storage/returns, sampler evidence, and diagnostics; the preset exposes
+  `8/16/32/64` support with `max_horizon_k=64`.
+
+## Method Design Map
+
+The primary review unit is the research design, not an entrypoint, tensor, or
+diagnostic. Runtime routes, storage, checkpoints, and logs are implementation
+boundaries attached below the method design that they serve.
+
+| ID | Research design point | Current meaning | Current status |
+| --- | --- | --- | --- |
+| M1 | Front End Residual architecture | A deployable residual actor reads the FrontRES/GMT observation, writes a bounded full-6D Delta SE(3) correction before frozen GMT, and does not replace the tracker | active; contract/code-confirmed; live pending |
+| M2 | Perturbation Family | Perturbation family defines the corruption distribution; the current experiment selects `local_rp`, while the actor still outputs full 6D | active; contract/code-confirmed; live distribution pending |
+| M3 | HSL warmup | Stage 2 supervises the same full-6D actor with task-space repair targets and an easy-to-hard perturbation/DR schedule, then saves `model_warmup.pt` | active; code-confirmed; current checkpoint identity pending |
+| M4 | HRL 4-split rollout | Each selected case is evaluated through Projected/Repaired policy, Candidate/Search, Noisy GMT, and Clean GMT rows with explicit role ownership | active; contract/code-confirmed; live role counts pending |
+| M5 | Segment Replay mechanism | Global sampling discovers coverage; replay revisits useful segments; review rechecks stale/solved segments; priority uses rollout-time evidence | active; contract/code-confirmed; live source/priority distribution pending |
+| M6 | K-step curriculum | Per-row horizons such as `8/16/32/64` expose immediate repair and delayed regret and must survive every downstream boundary | active; offline-connected; live effective-K distribution pending |
+| M7 | Critic/Actor warmup curriculum | Any transition from HSL initialization into RL must first make the critic usable, then protect and gradually release the actor so early RL gradients cannot destroy the pretrained policy | active under FRS-TRAIN-v003; offline-connected; live phase/gradient evidence pending |
+| M8 | ZMP reward | Two distinct active roles must stay separate: deployable ZMP/balance observation context, and paired ZMP/support-margin evidence inside Physics Gain. The review-only reward adapter is not the formal PPO reward | active after role separation; live ZMP population pending |
+| M9 | Gain design | One canonical owner combines paired Style gain, Physics gain, and full-6D Repair cost; PPO, sampler, diagnostics, and eval consume the same decomposition | active; offline-connected; live component population pending |
+
+### M1 - Front End Residual architecture
+
+- Observation and layout: `mdp/observations.py` ->
+  `modules/frontres_observation_layout.py:split_frontres_policy_obs` line 8 ->
+  `runners/frontres_runtime.py:apply_obs_normalizer` line 54.
+- Actor: `modules/front_residual_actor_critic.py:update_distribution` line 796,
+  `act` line 922, and `get_actions_log_prob` line 977.
+- Runtime write: `runners/frontres_rollout_step.py:prepare_frontres_rollout_step`
+  line 228 -> `frontres_action_cone.py:project_task_target` line 20 ->
+  `task_space_correction.py:apply_frontres_task_corrections` line 60 -> frozen
+  GMT command.
+- Human reading question: what FrontRES sees, what exactly it outputs, where
+  safety is applied, and where GMT consumes the repaired reference.
+
+### M2 - Perturbation Family
+
+- CLI/config selection: `scripts/rsl_rl/train.py:_configure_frontres_motion_perturbations`
+  line 547 and the specialist preset handling around lines 607-683/1215-1221.
+- Curriculum definition: `frontres/frontres_dr_curriculum.py` and
+  `frontres/training_schedule.py:frontres_warmup_perturbation_mode_groups` line
+  143.
+- Runtime application: `frontres/perturbation_runtime.py` and
+  `mdp/motion_perturbations.py`.
+- Segment persistence/forwarding: `frontres_segment_dataset.py` -> live sampler
+  -> reset request -> rollout diagnostics.
+- Human reading question: which corruption is sampled, at what strength, on
+  which rows, and whether family ever leaks into policy action masking.
+
+### M3 - HSL warmup
+
+- Stage preset: `scripts/rsl_rl/train.py:_apply_frontres_stage_preset` lines
+  743-750 selects `supervised_restore`.
+- Warmup decision/call: `on_policy_runner.py` lines 890-911.
+- Warmup owner: `runners/frontres_warmup.py:resolve_frontres_warmup_iterations`
+  line 21 and `run_frontres_joint_warmup` line 70.
+- Full-6D target: `mdp/observations.py:get_supervision_target_task_space` line
+  374 and `runners/frontres_hsl_rollout_target.py`.
+- Perturbation/DR curriculum inside HSL: `frontres_warmup.py` lines 121-177.
+- Checkpoint output: `frontres_warmup.py` lines 620-624 saves
+  `model_warmup.pt`.
+- Human reading question: target source, actor input/output, valid dimensions,
+  easy-to-hard perturbation schedule, and the exact artifact handed to Stage 3.
+
+### M4 - HRL 4-split rollout
+
+- Layout owner: `runners/frontres_training_setup.py:configure_frontres_pair_layout`
+  line 142.
+- Environment branch identity:
+  `mdp/commands.py:set_frontres_quartet_baseline` line 1245.
+- Branch semantics: Projected/Repaired policy, Candidate/Search, Noisy GMT, and
+  Clean GMT; current counts are `n_train/n_candidate/n_base/n_clean`.
+- Rollout construction: `frontres_rollout_step.py:prepare_frontres_rollout_step`
+  line 228 and `frontres_segment_live_probe.py:_run_live_rollout_capture` line
+  2144.
+- Policy-credit boundary: `_trial_metadata_ppo_update_mask` line 1418 and
+  `build_live_segment_storage` line 1427.
+- Human reading question: what each split means, which action each split runs,
+  which comparisons form evidence, and which rows can update the actor.
+
+### M5 - Segment Replay mechanism
+
+- Semantic owner: `frontres_segment_sampler.py:FrontRESSegmentSampler` line
+  140; `sample` line 207 and `update_with_probe` line 289.
+- Global/replay/review budgeting: `plan_rollout_budget` line 394.
+- Formal connector: `frontres_segment_live_sampler.py:run_frontres_segment_sampler_step`
+  line 189 and `_build_current_segment_batch` line 373.
+- Dynamic state boundary: `frontres_segment_dataset.py`,
+  `frontres_segment_reset.py`, and `_apply_current_segment_reset` line 960.
+- Evidence/priority connector: `build_live_sampler_evidence` line 446 ->
+  `FrontRESSegmentSampler.update_with_probe` line 289.
+- Human reading question: why a segment is sampled again, what state is reset,
+  and which rollout fact changes its priority.
+
+### M6 - K-step curriculum
+
+- Stage 3 config: `train.py` lines 836-837 sets base K 8 and maximum K 64.
+- Assignment: `frontres_segment_sampler.py:plan_rollout_budget` line 394 and
+  `expand_rollout_trials` line 452.
+- Forwarding chain: trial attachment line 350 -> trial metadata line 1239 ->
+  reset line 960 -> rollout line 2144 -> valid-step masks/returns in
+  `frontres_segment_storage.py:compute_returns_and_advantages` line 175 ->
+  sampler evidence and diagnostics.
+- Human reading question: where K is chosen, how row termination works, and
+  whether delayed regret reaches both PPO and replay priority.
+
+### M7 - Critic/Actor warmup curriculum
+
+- User-confirmed method principle: entering RL requires a staged transition so
+  a noisy/untrained value surface and early high-variance policy gradients do
+  not destroy the HSL-initialized actor.
+- Intended causal order:
+  `HSL actor initialization -> protected RL warmup -> actor ramp -> joint RL`.
+  During the protected warmup, the critic learns while actor PPO weight remains
+  zero. The historical formal values aligned critic warmup and actor warmup at
+  200 iterations, followed by a 500-iteration actor ramp; the debug values were
+  50/50/100.
+- Historical design evidence:
+  `FRS-METHOD-v000-design-history-compendium.md` lines 408-434 records the
+  general `Critic-Ready Actor Update` principle: train the evaluator first and
+  let the actor follow only after its local ordering is usable.
+- Historical schedule evidence: the same compendium lines 2015-2029 records
+  critic warmup, actor warmup/ramp, absolute-iteration resume semantics, and
+  the expected transition from actor weight 0 to 1.
+- Historical runtime evidence: `train_stage3_segment_hrl.txt` line 392 records
+  `PPO actor warmup=200 ramp=500` in a Segment Replay HRL run.
+- Recoverable implementation evidence from `HEAD` before the current cleanup:
+  `frontres_ppo_actor_weight_for_iter` returned actor weight 0 during warmup,
+  linearly ramped it over `ppo_actor_ramp_iterations`, then returned 1.
+- Important separation: the historical authority/rho actor used this staging,
+  but does not own the principle. The active direct full-6D actor needs its own
+  critic-ready transition without restoring rho, acceptance, authority heads,
+  or active-dimension masks.
+- Current implementation: `train.py` configures 200 critic-only iterations and
+  a 500-iteration actor ramp. `frontres_segment_warmup.py` owns phase mapping,
+  and `run_frontres_segment_single_update` applies the actor loss weight while
+  clearing non-critic gradients in critic-only. `AUDIT-PPO-01` now exposes the
+  live phase, loss weight, gradient/update facts, KL, trust decision, and GMT
+  optimizer isolation without restoring any retired authority/rho mechanism.
+
+### M8 - ZMP reward
+
+- Shared geometry/formula: `mdp/balance.py:frontres_balance_context_from_feet`
+  line 26.
+- Deployable observation role: `mdp/observations.py:frontres_balance_context_proxy`
+  line 133.
+- Paired rollout evidence role:
+  `frontres/frontres_balance.py:_frontres_branch_balance_margin` line 15 and
+  `frontres_segment_live_probe.py:_capture_physics_frame` line 2542.
+- Physics Gain consumer: `frontres_gain.py:compute_paired_physics_gain` line
+  146.
+- Non-formal compatibility path:
+  `mdp/rewards.py:frontres_no_regret_balance_reward_candidate` line 407 is a
+  review-only adapter, not the PPO reward owner.
+- Human reading question: which balance facts are actor inputs, which are
+  privileged rollout evidence, and which scalar actually reaches Gain.
+
+### M9 - Gain design
+
+- Pure owner: `frontres_gain.py:compute_paired_style_gain` line 94,
+  `compute_paired_physics_gain` line 146, `compute_repair_cost` line 184, and
+  `compute_segment_gain` line 354.
+- Live paired capture: `frontres_segment_live_probe.py:_capture_paired_gain`
+  line 1562.
+- PPO return: `_segment_storage_rewards` line 1666 and
+  `_segment_storage_reward_steps` line 1708 -> Segment storage/PPO.
+- Replay priority: `frontres_segment_live_sampler.py:build_live_sampler_evidence`
+  line 446 -> sampler update.
+- Diagnostics/evaluation: `frontres_segment_live_training.py` and
+  `frontres_segment_diagnostics.py`.
+- Human reading question: raw component source, pairing, sign/scale/K mask,
+  consumer identity, and missing-data behavior.
+
+## Implementation Audit Objects (secondary, not method design)
+
+The D01-D12 items below are retained only as lower-level runtime verification
+objects. They are not research contributions or top-level method design points.
+Line numbers describe the current source before review comments are inserted;
+function names are the stable navigation anchors.
+
+| ID | Active design point | Non-negotiable invariant | Fastest live falsifier |
+| --- | --- | --- | --- |
+| D01 | Formal Stage 3 route | `MODE=train` reaches `learn_frontres_segment_live`; no alternate probe/eval branch substitutes for training | route snapshot reports stage, objective, train mode, and `runner_learn=True` |
+| D02 | 870D deployable observation and normalizer identity | actor receives 100D FrontRES prefix + 770D GMT suffix; Stage 2/3 stats are loaded and applied in the same layout | prefix/suffix/normalized shapes and finite ranges disagree or checkpoint stats are absent |
+| D03 | Direct full-6D Delta SE(3) action | corruption family never narrows `[dx,dy,dz,droll,dpitch,dyaw]`; safety projection is not an active-dim mask | actor/executed/stored action is not `(N,6)` or an RP family zeros other dimensions by policy mask |
+| D04 | Global/replay/review Segment sampling and explicit trial roles | segment identity and source survive row expansion; only policy rows receive PPO credit | source/role counts disappear, row domains disagree, or search rows become PPO-valid |
+| D05 | Dynamic reset or faithful preroll | reset restores dynamic state and metadata in the same row domain; pose-only teleport is insufficient | reset-success count differs from trial rows or velocity/state fidelity fails |
+| D06 | Per-row K curriculum | assigned `8/16/32/64` horizon survives trial plan, reset, rollout masks, returns, evidence, and diagnostics | sampled K differs from effective/storage K or every row is silently clamped to 8 |
+| D07 | Single paired Style/Physics/Repair Gain owner | Clean/Noisy/Repaired use matching segment/K; generic env reward and legacy RP score cannot replace Gain | required components are absent/stale, pairing count differs, or PPO return follows env reward |
+| D08 | Policy-credit and storage tuple identity | action, old log-prob, old mean/sigma, return, advantage, and valid mask describe the same policy rows and representation | tuple shapes/source differ or invalid/search rows contribute gradient |
+| D09 | Sign-preserving direct Segment PPO | default advantage mode is `scale_only`; clipped surrogate, old/new KL, optimizer step, rollback, and LR order remain explicit | positive gain flips sign, loss/grad is nonfinite, update count is zero, or post-KL escapes trust control |
+| D10 | Sampler evidence isolation | sampler priority consumes rollout-time canonical Gain, not post-update KL, parameter delta, or logger state | poisoning PPO diagnostics changes sampler priority/update evidence |
+| D11 | Checkpoint ownership and Stage 2 -> Stage 3 identity | one owner saves/loads policy, normalizer, sigma/optimizer, sampler, and Gain identity as applicable | loaded path/state keys differ, normalizer layout changes, or final checkpoint is outside the formal log route |
+| D12 | Non-stale diagnostics and evaluation isolation | required live facts are populated or `UNCONFIRMED`, never silent zero; eval samples fresh data without mutating training state | repeated metadata is identical without resampling, required raw components vanish, or eval changes sampler/RNG state |
+
+## Design-To-Code Matrix
+
+### D01 - Formal Stage 3 route
+
+- Config owner: `scripts/rsl_rl/train.py:_apply_frontres_stage_preset` at line
+  706; the active Stage 3 block begins at line 751 and sets objective, K,
+  advantage mode, sampler fractions, and live-train routing.
+- Dispatch owner: `scripts/rsl_rl/train.py:main` at lines 1379-1385 selects
+  `runner.learn_frontres_segment_live` only when formal live training is active.
+- Thin runner API: `on_policy_runner.py:learn_frontres_segment_live` at line 596.
+- Formal loop: `frontres_segment_live_training.py:run_frontres_segment_live_training_loop`
+  at line 1818.
+- Read first: Stage 3 preset -> `main` dispatch -> formal loop guard.
+
+### D02 - Observation and normalizer
+
+- Layout owner: `modules/frontres_observation_layout.py:split_frontres_policy_obs`
+  at line 8; checkpoint prefix extraction/composition at lines 17 and 62.
+- Runtime normalization: `runners/frontres_runtime.py:apply_obs_normalizer` at
+  line 54.
+- Live observation boundary:
+  `frontres_segment_live_probe.py:_read_live_observations` at line 2060.
+- Actor consumer: `modules/front_residual_actor_critic.py:update_distribution`
+  at line 796.
+- Persistence owner: `frontres_checkpointing.py:save_runner` line 226 and
+  `load_runner` line 333.
+- Read first: layout split -> runtime normalizer -> actor distribution ->
+  checkpoint save/load.
+
+### D03 - Full-6D action and safety boundary
+
+- Config declaration: `rsl_rl_mosaic_cfg.py` line 832 sets
+  `num_task_corrections=6`.
+- Distribution/action/log-prob owner:
+  `front_residual_actor_critic.py:update_distribution` line 796, `act` line 922,
+  and `get_actions_log_prob` line 977.
+- Rollout construction: `frontres_rollout_step.py:prepare_frontres_rollout_step`
+  at line 228.
+- Physical safety projection: `frontres_action_cone.py:project_task_target` at
+  line 20.
+- Reference write: `task_space_correction.py:apply_frontres_task_corrections`
+  at line 60.
+- Read first: actor raw distribution -> bounded action/log-prob -> rollout plan
+  -> safety projection -> command write.
+
+### D04 - Segment sampling and trial roles
+
+- Semantic sampler: `frontres_segment_sampler.py:FrontRESSegmentSampler` line
+  140; `sample` line 207; `sample_rollout_rows` line 242.
+- Budget/role expansion: `plan_rollout_budget` line 394 and
+  `expand_rollout_trials` line 452.
+- Formal connector: `frontres_segment_live_sampler.py:run_frontres_segment_sampler_step`
+  line 189.
+- Trial metadata attachment and batch construction:
+  `_attach_frontres_segment_trial_plan` line 350 and
+  `_build_current_segment_batch` line 373.
+- Read first: sampler source choice -> budget/trial expansion -> attached batch
+  role metadata.
+
+### D05 - Dynamic reset/preroll
+
+- Reset contract objects: `frontres_segment_reset.py`.
+- Formal reset entry:
+  `frontres_segment_live_probe.py:_apply_current_segment_reset` at line 960.
+- Trial metadata row owner:
+  `frontres_segment_live_probe.py:_current_trial_metadata` at line 1239.
+- Environment hook owner: `frontres_segment_stage1_env_hooks.py` and the
+  tracking command/reset adapter.
+- Rollout consumer: `_run_live_rollout_capture` at line 2144.
+- Read first: current batch metadata -> reset request/result -> rollout start.
+
+### D06 - Per-row K curriculum
+
+- Config: `train.py` lines 836-837 sets base K 8 and max K 64.
+- Assignment owner: `frontres_segment_sampler.py:plan_rollout_budget` line 394
+  and `expand_rollout_trials` line 452.
+- Forwarding owners: live sampler trial attachment line 350; trial metadata line
+  1239; reset line 960; rollout capture line 2144.
+- Return owner:
+  `frontres_segment_storage.py:compute_returns_and_advantages` at line 175.
+- Diagnostic consumers: live update loop and train summary.
+- Read first: assigned K -> attached K -> reset K -> valid-step mask -> return K
+  -> printed effective K.
+
+### D07 - Canonical paired Gain
+
+- Pure owner: `frontres_gain.py:compute_paired_style_gain` line 94,
+  `compute_paired_physics_gain` line 146, `compute_repair_cost` line 184,
+  `compute_segment_gain_step` line 265, and `compute_segment_gain` line 354.
+- Live capture owner:
+  `frontres_segment_live_probe.py:_capture_paired_gain` line 1562.
+- PPO reward/step extraction: `_segment_storage_rewards` line 1666 and
+  `_segment_storage_reward_steps` line 1708.
+- Sampler connector:
+  `frontres_segment_live_sampler.py:build_live_sampler_evidence` line 446.
+- Diagnostic/eval consumers: `frontres_segment_live_training.py` and
+  `frontres_segment_diagnostics.py`.
+- Read first: pure component formulas -> paired live capture -> PPO returns and
+  sampler evidence -> diagnostics.
+
+### D08 - Policy credit and storage tuple
+
+- PPO eligibility owner:
+  `frontres_segment_live_probe.py:_trial_metadata_ppo_update_mask` line 1418.
+- Formal storage build: `build_live_segment_storage` line 1427.
+- Storage owner: `frontres_segment_storage.py:FrontRESSegmentRolloutStorage`
+  line 67; `add_transition` line 113; `compute_returns_and_advantages` line 175;
+  `FrontRESSegmentStorageBatch.to_ppo_batch` line 42.
+- PPO consumer: `run_frontres_segment_single_update` line 1928.
+- Read first: role/reset masks -> transition tuple -> return/advantage -> PPO
+  batch.
+
+### D09 - Segment PPO and trust region
+
+- Loss owner: `frontres_segment_ppo.py:compute_frontres_segment_ppo_loss` line
+  176.
+- Advantage owner: `_prepare_advantages` line 401.
+- Exact distribution KL owner: `_distribution_kl_mean` line 456.
+- Optimizer/update owner:
+  `frontres_segment_live_probe.py:run_frontres_segment_single_update` line 1928.
+- Post-update evidence and rollback helper:
+  `_post_update_segment_ppo_diagnostics` line 337.
+- Read first: PPO batch validation -> advantage scaling -> policy evaluation ->
+  surrogate/KL -> backward/step -> post-update diagnostics/rollback/LR.
+
+### D10 - Sampler evidence isolation
+
+- Evidence construction:
+  `frontres_segment_live_sampler.py:build_live_sampler_evidence` line 446.
+- Priority/state update:
+  `frontres_segment_sampler.py:update_with_probe` line 289.
+- Canonical Gain selection: `_active_gain` line 637.
+- Formal call order: `run_frontres_segment_sampler_step` line 189.
+- Read first: immutable rollout summary -> evidence object -> priority/state
+  update; PPO diagnostics must not enter these inputs.
+
+### D11 - Checkpoint identity
+
+- Evidence record: `frontres_checkpointing.py:record_frontres_checkpoint_probe`
+  line 132.
+- Save owner: `save_runner` line 226.
+- Load/migration owner: `load_runner` line 333.
+- Formal training save boundary:
+  `frontres_segment_live_training.py:_save_live_checkpoint` line 1785 and final
+  save in `run_frontres_segment_live_training_loop` lines 1866-1869.
+- Read first: load path and migration -> live state -> save payload -> checkpoint
+  probe.
+
+### D12 - Diagnostics and evaluation
+
+- Live train formatter:
+  `frontres_segment_live_training.py:_print_live_train_summary` line 1575.
+- Periodic evaluation: `run_frontres_segment_periodic_eval` line 145.
+- Sequence evaluation: `run_frontres_segment_sequence_offline_eval` line 269.
+- Shared formatters: `frontres_segment_diagnostics.py:format_segment_train_effect_log`
+  line 119, `format_segment_motion_quality_log` line 167, and
+  `format_segment_periodic_eval_log` line 286.
+- Read first: captured raw facts -> summary keys -> formatter -> eval state
+  isolation and metadata freshness.
+
+## Source Comment Plan (runtime-probing-debug)
+
+No source comment has been inserted yet. After user confirmation, comments will
+be added in three bounded passes so each pass can be reviewed independently.
+Every status/docstring and major block comment will carry its owning method ID
+such as `M1`, `M4`, or `M9`, so a reader can move in both directions:
+method design -> code owner and code owner -> method design.
+
+### Comment Pass A - Formal routing, sampling, reset, and K
+
+- `scripts/rsl_rl/train.py:_apply_frontres_stage_preset`: short caller-facing
+  docstring plus `B1` mode exclusion, `B2` formal Stage 3 semantic config, and
+  `B3` route summary comments for D01/D06.
+- `frontres_segment_live_training.py:run_frontres_segment_live_training_loop`:
+  `Status/Upstream/Downstream/Evidence/Gap` docstring and `B1` route guard,
+  `B2` formal update, `B3` validation/diagnostics/checkpoint comments.
+- `frontres_segment_sampler.py:sample`, `plan_rollout_budget`,
+  `expand_rollout_trials`: block comments for source choice, K assignment, and
+  semantic trial roles.
+- `frontres_segment_live_sampler.py:run_frontres_segment_sampler_step`,
+  `_attach_frontres_segment_trial_plan`, `_build_current_segment_batch`:
+  comments that distinguish segment rows, expanded env rows, policy rows, and
+  evidence-only rows.
+- `frontres_segment_live_probe.py:_apply_current_segment_reset` and
+  `_current_trial_metadata`: comments for row-domain and dynamic-state fidelity.
+
+### Comment Pass B - Observation, action, Gain, storage, and PPO
+
+- `frontres_observation_layout.py` and `frontres_runtime.py:apply_obs_normalizer`:
+  comments for 100D prefix, 770D suffix, privilege status, and checkpoint stats.
+- `front_residual_actor_critic.py:update_distribution`, `act`, and
+  `get_actions_log_prob`: block comments for raw Gaussian -> bounded full-6D
+  action -> inverse-transform log-prob identity.
+- `frontres_rollout_step.py:prepare_frontres_rollout_step`,
+  `frontres_action_cone.py:project_task_target`, and
+  `task_space_correction.py:apply_frontres_task_corrections`: comments separating
+  policy semantics, physical safety, and command write.
+- `frontres_gain.py`: module audit status and `B1/B2/B3` comments for
+  Style/Physics/Repair, paired total, missing-component semantics, and K masks.
+- `frontres_segment_live_probe.py:build_live_segment_storage` and
+  `frontres_segment_storage.py`: comments for policy-credit mask, same-source
+  tuple, raw advantages, and PPO conversion.
+- `frontres_segment_ppo.py:compute_frontres_segment_ppo_loss` and
+  `run_frontres_segment_single_update`: comments for scale-only advantages,
+  clip/KL, update order, post-update trust evidence, rollback, and LR.
+
+### Comment Pass C - Sampler isolation, checkpoint, and diagnostics
+
+- `frontres_segment_live_sampler.py:build_live_sampler_evidence` and
+  `frontres_segment_sampler.py:update_with_probe`: comments stating rollout-time
+  evidence ownership and forbidden PPO-diagnostic inputs.
+- `frontres_checkpointing.py:save_runner/load_runner` and
+  `frontres_segment_live_training.py:_save_live_checkpoint`: status comments for
+  state ownership, Stage 2 -> Stage 3 identity, and remaining live gap.
+- `frontres_segment_live_training.py:_print_live_train_summary` and
+  `frontres_segment_diagnostics.py`: comments for raw source, aggregation,
+  `UNCONFIRMED`, and non-stale requirements.
+
+Comment language will be Chinese with ASCII punctuation. Comments will explain
+contracts, blocks, coordinate/shape/role/gradient boundaries, and current
+evidence only; they will not restate individual assignments or claim runtime
+facts before the live run.
+
+## Secondary Execution Order (repo-architecture-atlas)
+
+| Boundary | Owner and entry | Upstream | Downstream | Evidence class |
+| --- | --- | --- | --- | --- |
+| Config / entry | `scripts/rsl_rl/train.py:_apply_frontres_stage_preset`, `main` | CLI, task config, checkpoint path | `OnPolicyRunner` | code-confirmed; live pending |
+| Runner dispatch | `source/rsl_rl/rsl_rl/runners/on_policy_runner.py:learn_frontres_segment_live` | Stage 3 config | `run_frontres_segment_live_training_loop` | code-confirmed; live pending |
+| Training loop | `frontres_segment_live_training.py:run_frontres_segment_live_training_loop` | runner/boundary | repeated `run_frontres_segment_live_update_loop`, checkpoint save | code-confirmed; live pending |
+| Sampling | `frontres_segment_live_sampler.py:run_frontres_segment_sampler_step` | global/replay/review sampler state | trial/quartet batch and reset metadata | code-confirmed; live pending |
+| Reset / rollout | `frontres_segment_live_probe.py:run_frontres_segment_live_probe` | current segment batch | observations, executed action, K-step capture | code-confirmed; live pending |
+| Storage | `frontres_segment_live_probe.py:build_live_segment_storage`, `frontres_segment_storage.py` | captured policy rows and paired evidence | valid PPO batch, returns/advantages | code-confirmed; live pending |
+| Gain | `frontres_gain.py`, called from live probe | Clean/Noisy/Repaired paired rollout | canonical `gain_total` and component evidence | contract-confirmed; live pending |
+| PPO | `frontres_segment_live_probe.py:run_frontres_segment_single_update`, `frontres_segment_ppo.py:compute_frontres_segment_ppo_loss` | same-source action/stats/returns | optimizer update and trust-region diagnostics | contract-confirmed; live pending |
+| Diagnostics / checkpoint | `frontres_segment_live_training.py:_print_live_train_summary`, `_save_live_checkpoint` | update summary | log and saved artifact | code-confirmed; live pending |
+
+## Minimal S/T Selection (all-module-test)
+
+| ID | Required tier | T kinds | Why selected | Intentionally skipped |
+| --- | --- | --- | --- | --- |
+| ROUTE-01 | S2, S4 | `T-connect`, `T-live` | prove `train` reaches the formal Segment loop | alternate branch tests are not formal evidence |
+| OBS-01 | S1, S3, S4 | `T-shape`, `T-order`, `T-finite`, `T-persist`, `T-live` | 870D layout and Stage 2 normalizer/checkpoint identity are high-risk | export/play are out of this training sentinel |
+| K-01 | S2, S4 | `T-connect`, `T-order`, `T-mask`, `T-live` | implementation already supports K; live must show multiple effective K | long-horizon quality and 64-step statistics are not claimed from one run |
+| ACT-01 | S1, S2, S4 | `T-shape`, `T-order`, `T-cone`, `T-scale`, `T-connect`, `T-live` | full-6D actor -> executed correction -> stored action is a core identity | no action-mask ablation; it is forbidden by the active contract |
+| GAIN-01 | S1, S2, S4 | `T-value`, `T-sign`, `T-pair`, `T-connect`, `T-single-owner`, `T-no-legacy-score`, `T-live` | Gain is the method's executable evidence and must populate in IsaacLab | no generic reward comparison; it is outside the active method |
+| PPO-01 | S1, S2, S4 | `T-clip`, `T-KL-exact`, `T-detach`, `T-permute`, `T-advantage-sign`, `T-update-order`, `T-state`, `T-connect`, `T-live` | update semantics and direct full-6D policy update are high-risk | no new algorithm change is authorized by this audit |
+| PERSIST-01 | S3, S4 | `T-persist`, `T-order`, `T-diff`, `T-live` | one-iteration formal loop saves a checkpoint; identity must be logged | full resume migration is a separate S3/S4 run |
+| DIAG-01 | S1, S2, S4 | `T-unconfirmed`, `T-nonstale`, `T-decompose`, `T-live` | required live metrics must be populated or explicitly unconfirmed | long-run quality and periodic/sequence eval are separate gates |
+
+Existing S0-S3 contract evidence is reused as implementation evidence, not
+promoted to live evidence: the aggregate suite, full-6D/no-mask, actual policy
+distribution, Gain connectivity, Stage 3 entrypoint, and checkpoint contracts
+already cover the local boundaries.
+
+## Planned AUDIT Probes (no source edits yet)
+
+| ID | Planned source location | Runtime fact to print/assert |
+| --- | --- | --- |
+| AUDIT-R01 | `train.py` after Stage 3 preset and `on_policy_runner.py` at dispatch | `stage=stage3_segment_hrl`, `objective=segment_replay_hrl`, `mode=train`, `runner_learn=True`, `update_steps=1` |
+| AUDIT-K01 | `frontres_segment_live_sampler.py:run_frontres_segment_sampler_step` and `frontres_segment_live_probe.py:build_live_segment_storage` | sampled/trial/storage row counts, policy/search roles, `K` distribution, valid/reset counts |
+| AUDIT-A01 | `frontres_segment_live_probe.py` around rollout capture and storage write | policy mean/std/action/stored action shapes `(N,6)`, finite fraction, perturbation family/strength |
+| AUDIT-G01 | `frontres_segment_live_probe.py` at paired Gain boundary | style/physics/repair/total Gain finite status, paired row count, harmful fraction, no legacy fallback |
+| AUDIT-P01 | `run_frontres_segment_single_update` around pre-loss/backward/step/post-diagnostic | valid count, loss/grad finite, old/new stats, pre/post KL, parameter delta, accepted/rejected, LR |
+| AUDIT-C01 | `_save_live_checkpoint` and `_print_checkpoint_save_probe` | exact save path, iteration, in-log-dir, route owner; no resume claim yet |
+| AUDIT-D01 | `_print_live_train_summary` | live populated metric keys, `UNCONFIRMED` only when input is genuinely absent, no silent zero |
+
+## Proposed Tiny Formal-Route Command
+
+This is the only proposed command for the first live audit. It uses the
+official wrapper and `MODE=train`; it does not pass any sentinel, probe,
+storage-only, update-loop-only, or offline-eval flag.
+
+```bash
+CUDA_VISIBLE_DEVICES=2 \
+CACHE_DIR=/hdd1/cyx/AMASS_G1Segment \
+LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_20260714.txt \
+PERIODIC_EVAL_ENABLED=0 \
+RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_20260714 \
+HYDRA_FULL_ERROR=1 \
+bash /hdd1/cyx/FEMR/run_stage3.sh \
+  /hdd1/cyx/FEMR/model/model_warmup.pt \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  8 \
+  1 \
+  1 \
+  train
+```
+
+Expected cost: one official Stage 3 training iteration, one Segment PPO update
+step per iteration, eight environments, one final checkpoint, and no periodic
+evaluation. The wrapper backgrounds the process; the audit log is the named
+runtime evidence file. The checkpoint path, cache path, motion path, and
+deployed source snapshot must be confirmed on the target machine before this
+command is accepted as live evidence.
+
+## Stop Conditions
+
+- Stop before live execution if the proposed command enters an alternate
+  sentinel, probe, storage, update-loop, offline-eval, or sequence-eval branch.
+- Stop if checkpoint identity, method contract, or active branch is unknown.
+- Stop while M7 is absent from the active optimization/training contracts and
+  the dedicated direct Segment PPO route.
+- Stop if an owner does not receive the expected shape/count/value relation.
+- Do not convert offline contract PASS into formal-route or live PASS.
+
+## Required Next Step
+
+Step 2-6 planning is complete. The next gate is human confirmation of the
+owner map, probe plan, checkpoint identity, target paths, and tiny formal-route
+command above. After confirmation, insert only the listed probes, run the exact
+`MODE=train` command, write results beside the source prints, and then stop for
+user review before any longer training.

@@ -199,8 +199,6 @@ class RslRlMOSAICAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """EMA cosine-similarity threshold that starts the decay (FrontRES has learned direction)."""
     supervised_rpy_loss_weight: float = 1.0
     """Weight for Δrpy component relative to Δpos in the supervised loss."""
-    supervised_conf_loss_weight: float = 0.05
-    """Small BCE weight for task-space confidence heads; keeps gates learnable before PPO signal is strong."""
 
 
 @configclass
@@ -237,8 +235,6 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """EMA cosine-similarity threshold that starts supervised weight decay."""
     supervised_rpy_loss_weight: float = 1.0
     """Weight for Δrpy component relative to Δpos in the supervised loss."""
-    supervised_conf_loss_weight: float = 0.05
-    """Small BCE weight for task-space confidence heads."""
     supervised_direction_loss_weight: float = 0.1
     """Cosine-direction loss weight on non-zero supervised targets."""
     supervised_valid_loss_weight: float = 4.0
@@ -249,12 +245,6 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Weight for penalizing corrections whose norm exceeds the clean target norm."""
     supervised_smooth_loss_weight: float = 0.0
     """Weight for matching temporal first differences of corrections to the target sequence."""
-    supervised_coeff_sparse_weight: float = 0.0
-    """L1 weight on inactive per-axis repair coefficients in basis_restore."""
-    supervised_coeff_miss_weight: float = 0.0
-    """Penalty for closing coefficients on active target axes in basis_restore."""
-    supervised_coeff_smooth_weight: float = 0.0
-    """Temporal smoothness weight for per-axis repair coefficients in basis_restore."""
     supervised_harm_loss_weight: float = 1.0
     """Explicit no-op penalty weight on rollout samples where FEMR is worse than noisy."""
     frontres_hsl_rollout_label_enabled: bool = False
@@ -295,14 +285,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Iterations used for cosine decay after warmup."""
     frontres_restore_debug_print_interval: int = 10
     """Iteration interval for low-frequency FrontRES restore consistency prints. <=0 disables prints."""
-    ppo_actor_warmup_iterations: int = 0
-    """Number of PPO iterations with actor surrogate disabled; critic and supervised loss still train."""
-    ppo_actor_ramp_iterations: int = 0
-    """Number of PPO iterations used to linearly ramp actor surrogate from 0 to 1."""
-    ppo_advantage_focal_power: float = 0.0
-    """Optional |advantage| focal exponent for actor surrogate. 0.0 gives standard PPO."""
-    frontres_training_objective: str = "hsl_hybrid"
-    """FrontRES update objective. Active FEMR uses 'hsl_hybrid' as HSL proposal plus acceptance training until the code path is renamed."""
+    frontres_training_objective: str = "supervised_restore"
+    """FrontRES update objective; formal Stage 3 overrides this with Segment Replay PPO."""
     frontres_segment_replay_enabled: bool = False
     """Enable the explicit Segment Replay HRL route. Contract-only until runner/PPO integration is wired."""
     frontres_segment_live_runner_enabled: bool = False
@@ -324,7 +308,13 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     frontres_segment_live_train_enabled: bool = False
     """Enable the dedicated live Segment Replay training loop instead of the legacy runner.learn path."""
     frontres_segment_live_update_steps: int = 4
-    """Number of live Segment Replay PPO update steps for the Step 18 update-loop sentinel."""
+    """Number of live Segment Replay PPO update steps per live iteration or sentinel."""
+    frontres_segment_critic_warmup_iterations: int = 0
+    """Stage 3 iterations that update only the Segment critic while holding actor/std fixed."""
+    frontres_segment_actor_warmup_iterations: int = 0
+    """Stage 3 iterations that linearly ramp the Segment PPO actor/entropy loss to full weight."""
+    frontres_formal_runtime_audit: bool = False
+    """Emit structured AUDIT-* snapshots on the official Stage 3 training route."""
     frontres_segment_periodic_eval_enabled: bool = False
     """Run periodic long-rollout Segment Replay evaluation during Stage 3 live training."""
     frontres_segment_periodic_eval_interval: int = 100
@@ -353,108 +343,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Sampling fraction for solved-segment review."""
     frontres_segment_reset_mode: str = "auto"
     """Segment reset mode: 'auto', 'direct', or 'preroll'."""
-    frontres_acceptance_preference_weight: float = 0.0
-    """Weight for rollout-preference supervision on hsl_hybrid acceptance coefficients."""
-    frontres_acceptance_preference_focal_gamma: float = 0.0
-    """Focal exponent for acceptance preference BCE; 0.0 gives plain BCE."""
-    frontres_acceptance_preference_balance_min: float = 1.0
-    """Lower clamp for minibatch class-balancing weights in acceptance preference loss."""
-    frontres_acceptance_preference_balance_max: float = 1.0
-    """Upper clamp for minibatch class-balancing weights in acceptance preference loss."""
-    frontres_state_alpha_weight: float = 0.0
-    """Weight for auxiliary State Router alpha BCE from Noisy/GMT rollout labels."""
-    frontres_state_alpha_enabled: bool = False
-    """Ablation-only auxiliary state-router alpha branch; disabled in active FEMR HSL+acceptance."""
-    frontres_state_alpha_route_enabled: bool = False
-    """Ablation-only live state-alpha routing; disabled in active FEMR HSL+acceptance."""
-    frontres_state_alpha_route_threshold: float = 0.70
-    """Threshold for hard state-alpha diagnostics or optional route switching."""
-    frontres_state_alpha_route_min_iteration: int = 0
-    """Minimum iteration before live state-alpha hard routing may activate."""
-    frontres_executable_floor_adaptive_enabled: bool = True
-    """Use GMT frontier evidence to calibrate the executable floor."""
-    frontres_executable_floor_score: float = 0.0
-    """Fixed score-space executable floor used before adaptive evidence is ready."""
-    frontres_executable_floor_safe_margin: float = 0.05
-    """Safety margin above the executable floor used for safe-state labels."""
-    frontres_executable_floor_min_samples: int = 32
-    """Minimum safe and broken frontier samples before adaptive floor is trusted."""
-    frontres_executable_floor_ema_alpha: float = 0.95
-    """EMA coefficient for adaptive executable-floor evidence."""
-    frontres_state_alpha_exec_floor: float = 0.0
-    """Fallback executable floor for state-alpha labels."""
-    frontres_state_alpha_safe_exec_floor: float = 0.05
-    """Fallback safe floor for state-alpha labels."""
-    frontres_state_alpha_temp: float = 0.08
-    """Temperature for soft state-alpha labels near the executable floor."""
-    frontres_structured_joint_rl_enabled: bool = False
-    """Use joint PPO-style alpha-rho advantage instead of detached rho/alpha BCE targets."""
-    frontres_structured_joint_rl_weight: float = 0.0
-    """Weight for structured joint alpha-rho policy-gradient loss."""
-    frontres_structured_joint_rl_adv_clip: float = 5.0
-    """Symmetric clip for raw structured-joint advantage before optional normalization."""
-    frontres_structured_joint_rl_normalize_advantage: bool = False
-    """Normalize structured-joint advantages over active samples in each minibatch."""
-    frontres_structured_joint_rl_loss_mode: str = "ppo_clipped"
-    """Structured rho update mode: 'ppo_clipped' keeps PPO ratio clipping; 'region_direct' matches the region-authority rho test."""
-    frontres_structured_joint_use_sample_weight: bool = False
-    """Use sample-selection weights for structured rho advantage learning."""
-    frontres_structured_joint_use_actor_gate_weight: bool = False
-    """Legacy alias for frontres_structured_joint_use_sample_weight."""
-    frontres_structured_joint_show_legacy_rho_diag: bool = False
-    """Print legacy rho target diagnostics during structured-rho training for ablation/debug only."""
-    frontres_structured_joint_rl_keep_legacy_bce: bool = False
-    """Keep legacy acceptance BCE active while structured joint RL is enabled."""
-    frontres_structured_joint_rl_disable_generic_ppo: bool = True
-    """Disable the old generic PPO actor surrogate when structured rho RL owns acceptance."""
-    frontres_structured_joint_exec_floor: float = 0.0
-    """Executable floor used by constrained repair-retention RL for rho."""
-    frontres_structured_joint_rho_retention_weight: float = 0.0
-    """Legacy absolute-retention weight; directional rho RL uses retention_prior instead."""
-    frontres_structured_joint_directional_weight: float = 1.0
-    """Weight for centered directional Candidate-vs-Projected rho advantage."""
-    frontres_structured_joint_underwrite_weight: float = 0.0
-    """Extra weight for accepted Candidate-vs-Projected underwrite evidence in rho advantage."""
-    frontres_structured_joint_repair_loss_kind: str = "current_rho_linear"
-    """Repairable-region rho loss: 'current_rho_linear' keeps the old post-sigmoid loss; 'bce_logit' trains the rho logit."""
-    frontres_structured_joint_repair_loss_scale: float = 1.0
-    """Multiplier for the repairable-region rho loss before boundary-prior loss is added."""
-    frontres_structured_joint_rho_center: float = 0.5
-    """Reference rho value used to center sampled rho for directional PPO updates."""
-    frontres_structured_joint_center_drive_deadzone: float = 0.10
-    """Linear deadzone for converting centered sampled rho into a sign-like PPO carrier."""
-    frontres_structured_joint_retention_prior_weight: float = 0.0
-    """Weak signed prior toward larger rho, applied through centered rho only."""
-    frontres_structured_joint_floor_penalty_weight: float = 5.0
-    """Penalty weight for projected references below the executable floor."""
-    frontres_structured_joint_full_repair_bonus_weight: float = 1.0
-    """Extra retention bonus when the full Repair proposal is executable."""
-    frontres_structured_joint_prior_loss_weight: float = 0.0
-    """Boundary-prior regularization weight for safe/deep-broken rho authority."""
-    frontres_authority_actor_critic_enabled: bool = False
-    """Enable proposal-conditioned authority actor-critic and disable legacy generic rho PPO."""
-    frontres_authority_actor_loss_weight: float = 0.0
-    """Ablation-only actor loss weight for retired authority actor-critic."""
-    frontres_authority_critic_loss_weight: float = 0.0
-    """Ablation-only critic loss weight for retired authority actor-critic."""
-    frontres_authority_actor_warmup_iterations: int = 0
-    """Stage-2 iterations with authority actor loss disabled while the authority critic warms up."""
-    frontres_authority_actor_ramp_iterations: int = 0
-    """Stage-2 iterations used to linearly ramp authority actor loss after warmup."""
-    frontres_authority_return_horizon: int = 1
-    """K-step horizon used by the proposal-conditioned authority critic target."""
     frontres_reward_compute_live_debug: bool = False
     """Print live formal Reward Compute payload/loss diagnostics during smoke tests."""
     frontres_cuda_memory_debug: bool = False
     """Print CUDA memory snapshots around FrontRES update stages for OOM diagnosis."""
-    frontres_structured_joint_weight_floor: float = 0.10
-    """Minimum structured-rho carrier weight for active executable samples."""
-    frontres_oracle_upper_bound_diag_enabled: bool = True
-    """Log an optimistic no-training oracle upper bound from noisy/projected/candidate/feasible scores."""
-    frontres_oracle_upper_bound_margin: float = 0.0
-    """Minimum executable-score gain over Noisy counted as an oracle-upper-bound pass."""
-    frontres_active_task_dims: list[int] | None = None
-    """Optional supervised-loss mask for task-space FrontRES correction dims."""
     diagnose_gradient_conflict: bool = True
     """Log cosine/norm diagnostics between PPO actor and supervised actor gradients."""
 
@@ -564,20 +456,10 @@ class RslRlFrontResidualActorCriticCfg(RslRlPpoActorCriticCfg):
     # Default 0 = use full policy obs (backward compatible).
     num_frontres_obs: int = 0
     """FrontRES observation subset dims. 0 = use full policy_obs (legacy). 320 = ref-only."""
-    frontres_split_acceptance_head: bool = False
-    """Use separate Stage-1 proposal and Stage-2 acceptance MLPs. Active FEMR enables this."""
-    frontres_authority_actor_critic: bool = False
-    """Ablation-only retired authority actor and proposal-conditioned authority critic."""
-    frontres_state_router_enabled: bool = False
-    """Ablation-only Stable/alpha state router; disabled in active FEMR HSL+acceptance."""
-    frontres_authority_hidden_dims: list[int] | None = None
-    """Hidden dimensions for the authority actor/critic. None reuses residual_hidden_dims."""
 
     # Task-space correction mode: replaces Δq+Δz with [Δpos(3), Δrpy(3)]
     num_task_corrections: int = 0
     """When >0, FrontRES outputs SE(3) anchor corrections instead of joint Δq. Set to 6."""
-    task_conf_dim: int = 2
-    """Confidence/coefficient dims: 2 legacy c_pos/c_rpy, 6 per-axis repair coefficients."""
     max_delta_pos: float = 0.3
     """tanh clip for position correction (metres). 0.3 m covers float/sink/slip artifacts."""
     max_delta_rpy: float = 0.3

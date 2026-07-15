@@ -1,58 +1,71 @@
-# FEMR Test Inventory
+# FEMR Current Test Inventory
 
-This file records reusable tests for all-module coordination. It maps tests to
-repo atlas blocks, test tiers, commands, and evidence classes.
+Updated: 2026-07-15
 
-## Tier Legend
+## Main Entries
 
-```text
-S0 Static: syntax/import/path/symbol/config/schema checks.
-S1 Module Semantic: local deterministic tiny/golden/metamorphic tests.
-S2 Offline Connectivity: fake env/runner/batch/storage/model chain.
-S3 Persistence / Semantic Object: stats, checkpoint, resume, export, eval.
-S4 Live Sentinel: minimal real runtime boundary.
-```
+| Test | Tier | Current ownership |
+| --- | --- | --- |
+| `frontres_segment_all_contract_suite.py` | S0-S3 aggregate | Runs 43 current Segment/observation/checkpoint/PPO/eval contracts. |
+| `frontres_segment_stage3_pseudo_suite.py` | S2 | Cheap formal Stage 3 route. |
+| `frontres_full6_no_active_mask_contract.py` | S0 | Rejects action-mask reintroduction on formal full-6D paths. |
+| `frontres_observation_layout_contract.py` | S1/S3 | 100D prefix + 770D GMT suffix + checkpoint stats. |
+| `frontres_balance_obs_cfg_contract.py` | S0/S1 | Balance/ZMP observation config. |
+| `frontres_balance_offline_connectivity_contract.py` | S2 | Balance observation reaches FrontRES actor path. |
+| `frontres_segment_cache_builder_contract.py` | S1/S2 | Stage 1 cache construction and resume semantics. |
+| `frontres_segment_sampler_contract.py` | S1 | Priority, state, trial planning, and 8/16/32/64 horizons. |
+| `frontres_segment_live_sampler_contract.py` | S1/S2 | Formal sampling, quartet budgeting, metadata, and evidence isolation. |
+| `frontres_segment_live_probe_contract.py` | S1/S2 | Reset, mixed-K rollout, legacy score boundary, and storage write; active route migration is covered by Step 6 tests. |
+| `frontres_segment_live_probe_ppo_contract.py` | S1/S2 | Policy/search row eligibility before PPO. |
+| `frontres_segment_storage_contract.py` | S1/S2 | Full-6D PPO tuple and per-row K returns. |
+| `frontres_segment_algorithm_contract.py` | S1/S2 | PPO formula, KL, ratio, detach, permutation, full-6D gradients. |
+| `frontres_actual_policy_distribution_contract.py` | S1 | Actual actor raw Gaussian mean, one bounded transform, inverse/Jacobian log-prob identity. |
+| `frontres_segment_live_single_update_contract.py` | S2 | Optimizer order, adaptive LR, post-KL, rollback, diagnostics. |
+| `frontres_segment_warmup_contract.py` | S1/S2 | DP-09 phase values and actor/critic gradient boundaries. |
+| `frontres_frozen_gmt_contract.py` | S1/S2 | GMT freeze, optimizer exclusion, and bitwise no-update boundary. |
+| `frontres_formal_runtime_audit_contract.py` | S1/S2 | Phase B flag, stable AUDIT labels, formal-owner hook connectivity, and silent-off behavior. |
+| `frontres_segment_checkpoint_contract.py` | S3 | Detached helper persistence compatibility tests; not the formal `OnPolicyRunner` owner. |
+| `frontres_segment_live_sampler_contract.py` | S3 | Formal `frontres_checkpointing.py` save/load, sampler persistence, Gain identity match/mismatch/missing-resume rejection. |
+| `frontres_segment_sequence_eval_contract.py` | S2 | Sequence grouping, reset/preroll/eval boundary, aggregation. |
+| `frontres_segment_live_training_pseudo_contract.py` | S2 | Periodic eval fresh sampling and state isolation. |
+| `frontres_segment_diagnostics_contract.py` | S1/S2 | Motion quality, K masks, saturation, canonical Gain decomposition, legacy-score isolation, and `UNCONFIRMED`. |
+| `frontres_segment_live_sentinel_contract.py` | S4 boundary | Minimal real-runtime contract entry. |
 
-## Existing Test Assets
+## Gain v001 Tests
 
-| Test asset | Tier | Covers | Command | Evidence | Notes |
-| --- | --- | --- | --- | --- | --- |
-| `python -m py_compile <changed python files>` | S0 | Any changed Python file | `python -m py_compile ...` | static-confirmed | Syntax only, not behavior. |
-| `note/architecture/auxiliary/atlas_app/check_viewer_import.mjs` | S0 | Atlas data/viewer contract, MAIN owner paths | `node check_viewer_import.mjs` from `note/architecture/auxiliary/atlas_app` | static-confirmed | Validates 01/02 layout contracts and concrete owner paths. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py` | S1/S2/S4 | MAIN-12, MAIN-22/29, MAIN-31/48, MAIN-41/47, MAIN-54 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py` | contract-confirmed | Main Segment Replay aggregate suite. Uses torch-capable python when needed. |
-| `source/rsl_rl/rsl_rl/tests/frontres_observation_layout_contract.py` | S1/S3 | MAIN-12, MAIN-20, M2C-04 | `python source/rsl_rl/rsl_rl/tests/frontres_observation_layout_contract.py` | contract-confirmed | Layout and stats boundary anchor. |
-| `source/rsl_rl/rsl_rl/tests/frontres_balance_margin_contract.py` | S1 | MAIN-11 | `python source/rsl_rl/rsl_rl/tests/frontres_balance_margin_contract.py` | contract-confirmed | Balance math fixture. |
-| `source/rsl_rl/rsl_rl/tests/frontres_balance_obs_cfg_contract.py` | S0/S1 | MAIN-05, MAIN-11 | `python source/rsl_rl/rsl_rl/tests/frontres_balance_obs_cfg_contract.py` | static-confirmed | Config-level balance observation coverage. |
-| `source/rsl_rl/rsl_rl/tests/frontres_balance_offline_connectivity_contract.py` | S2 | MAIN-10, MAIN-11, MAIN-36 | `python source/rsl_rl/rsl_rl/tests/frontres_balance_offline_connectivity_contract.py` | connectivity-confirmed | Offline observation/connectivity check. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_checkpoint_contract.py` | S3 | MAIN-20, MAIN-32, MAIN-48, M2C-19 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_checkpoint_contract.py` | persistence-confirmed | Segment checkpoint contract. |
-| `source/rsl_rl/rsl_rl/tests/frontres_stage3_noise_std_migration_contract.py` | S3 | MAIN-19, MAIN-32, MAIN-48 | `python source/rsl_rl/rsl_rl/tests/frontres_stage3_noise_std_migration_contract.py` | persistence-confirmed | Regression for legacy 12D checkpoint std not polluting current 6D Stage 3 policy std. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py` | S2/S4 | MAIN-40, M2C-20 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py` | connectivity-confirmed | Sequence eval owner and live-boundary probes. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py` | S2 | MAIN-37/40, MAIN-53 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py` | connectivity-confirmed | Cheap Stage 3 pseudo path. |
-| `source/rsl_rl/rsl_rl/tests/frontres_rollout_step_action_stats_contract.py` | S2 | MAIN-22, MAIN-33, MAIN-46 | `python source/rsl_rl/rsl_rl/tests/frontres_rollout_step_action_stats_contract.py` | connectivity-confirmed | Confirms rollout-step tuple same-source semantics: after execution masking, stored bounded Delta SE actions, old log-prob, old mean, and old sigma describe the same projected action representation. |
-| S<=3 contract pack | S0/S1/S2/S3 | MAIN-01/54 offline and persistence gate | Run the targeted FrontRES contract pack from the latest control-board sweep or `python source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py` | contract-confirmed / persistence-confirmed | Excludes S4 real live sentinel as a gate; includes pseudo/live-named offline contracts where they validate fake hooks or persistence. Step 8 confirms the aggregate suite passes with 43/43 contract markers after updating the stale Stage 1/3 entrypoint launcher contract. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_live_sentinel_contract.py` | S4 | MAIN-38/40, MAIN-54 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sentinel_contract.py` | runtime-confirmed | Minimal live sentinel contract. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py` | S1/S2 | MAIN-41/44, M2C-14/15 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py` | contract-confirmed | Storage field and batch boundary, including old_means/old_sigmas preservation into PPO batch. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py` | S1/S2 | MAIN-46/47, M2C-16/18 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py` | contract-confirmed | Segment algorithm update contract, including positive-advantage gradient direction toward stored 6D Delta SE actions, exact old-stat distribution KL, exact clipped surrogate cases, old-policy tensor detach, invalid-row isolation, row-permutation invariance, full-6D PPO support under rp-only perturbation metadata when execution mask is full 6D, advantage-dominance diagnostics, scale-only no-regret sign preservation, small-sigma KL sensitivity, ratio-source decomposition into raw action tail, per-dim sigma, per-dim mean delta, per-dim log-ratio contribution, tanh-Jacobian contribution, and execution-mask projection that prevents inactive executed dims from creating sixth-dim log-ratio spikes. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py` | S1/S2 | MAIN-28, MAIN-37/40 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py` | contract-confirmed | Live sampler contract and per-sample probes, including isolation of sampler priority evidence from post-update PPO diagnostics, policy-update-independent rollout evidence, fixed-row-budget trial expansion, quartet scorable-row budgeting, and optional trial-metadata compatibility for sequence-eval samples that intentionally contain only `segment_ids`. Missing `source_index/trial_index/horizon_k` does not fabricate metadata or crash batch construction. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py` | S1/S2 | MAIN-37/38, MAIN-44 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py` | contract-confirmed | Live probe/storage contract, including Step 5 multi-trial metadata visibility: `policy/search`, source index, trial index, and budget horizon reach reset requests, storage priority evidence, summaries, and printable `trial.*` logs. Step 5 also covers quartet scorable-row expansion: short `n_train` trial metadata, reset success mask, segment ids, and segment sources expand to the full env batch with paired candidate/noisy/clean rows marked `baseline`, and baseline rows are excluded from policy/search evidence counts and PPO-valid rows. Step 7 adds readable `ppo_boundary.*` diagnostics for evidence rows, policy/search rows, PPO-valid rows, search-only evidence rows, policy-invalid rows, and valid fractions. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_ppo_contract.py` | S1/S2 | MAIN-37/38, MAIN-44/46 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_ppo_contract.py` | contract-confirmed | Step 6 PPO-boundary contract: policy/search rows can share one segment id and both remain in priority evidence, but storage/PPO `valid_mask` keeps only policy rows valid so search evidence cannot silently become an on-policy PPO update row. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py` | S1 | MAIN-28 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py` | contract-confirmed | Sampler state, multi-trial evidence, and rollout-budget contract, including unknown/promising/frontier/delayed_regret/solved/hopeless transitions, state counts, state_dict round-trip, legacy solved/hopeless migration, fixed-policy trial aggregation, oracle_gap/confidence, last_* state updates, budget trial_count/horizon allocation, policy-first trial row expansion, and fixed env-row-budget sampling without marking unexecuted base segments as seen. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_diagnostics_contract.py` | S1/S2 | MAIN-19/37/38/40 diagnostics | `python source/rsl_rl/rsl_rl/tests/frontres_segment_diagnostics_contract.py` | contract-confirmed | Regression for live summary `replay_candidates` field alias, Motion Quality missing-position data reporting as `UNCONFIRMED`, Periodic Eval score/motion/action formatting, and raw action-distribution saturation health. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_live_reset_hook_contract.py` | S2/S4 | MAIN-29, MAIN-38 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_reset_hook_contract.py` | connectivity-confirmed | Reset/reference-window hook coverage. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py` | S2 | MAIN-39, MAIN-46 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_single_update_contract.py` | connectivity-confirmed | Live single-update contract, including default scale-only advantage normalization independent of base PPO flags, old-stat pre KL, bounded Delta SE log-prob source reconstruction, pre-step adaptive LR high-KL reduction without low-KL pre-step increase, post-update trust-region KL reporting, post-update mean-delta diagnostics, explicit pre/post raw-log-ratio and clamped-ratio diagnostics, optimizer parameter delta, and adaptive trust-region rollback of rejected post-KL steps. The adjacent live-probe contract now verifies printable ratio-source blocks. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py` | S2 | MAIN-38/39/46 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_update_loop_contract.py` | connectivity-confirmed | Live update loop wiring, including trust-region rejection aggregation, LR diagnostics, Motion Quality metric propagation from live probe summaries, and Step 7 aggregation of trial/evidence/PPO-boundary diagnostics across repeated update steps. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py` | S2 | MAIN-28/38/40 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py` | connectivity-confirmed | Pseudo live-training and periodic-eval contract. Periodic eval independently samples/builds/resets a batch, restores sampler `seen/staleness/RNG` and runner temporary fields, uses quartet-aware normalized Repair-vs-Noisy scores, and exposes motion IDs, start frames, perturbation family, and strength. Real IsaacLab reset/rollout remains S4. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_live_resume_pseudo_contract.py` | S3 | MAIN-32, MAIN-48 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_live_resume_pseudo_contract.py` | persistence-confirmed | Resume pseudo coverage. |
-| `source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py` | S0/S2 | MAIN-01, MAIN-04, MAIN-30 | `python source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py` | connectivity-confirmed | Stage entrypoint contract. |
-| `source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py` | S0 | MAIN-01, MAIN-04, MAIN-38 | `python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_launch_command_contract.py` | static-confirmed | Launch command/config contract, including sequence_eval smoke env overrides for sequence count, rollout steps, max preroll, and explicit Segment PPO schedule/LR argument pass-through. |
+| Needed test | Tier | Proves |
+| --- | --- | --- |
+| `frontres_gain_components_contract.py` | S1 | Hand-computed Style, Physics, Repair components, full-6D cost, mixed-K/done masking, Clean no-op, signs, scales, and missing-evidence behavior. |
+| `frontres_segment_motion_quality_capture_contract.py` | S1/S2 | Clean/Noisy/Repaired root-quaternion role pairing, origin-safe motion capture, and quartet contact-proxy pairing. |
+| `frontres_segment_gain_connectivity_contract.py` | S2 | Paired Gain replaces legacy score in storage rewards, K-step returns, valid policy rows, and PPO batch conversion; missing formal evidence rejects fallback. |
+| Extend `frontres_segment_live_probe_contract.py` | S1/S2 | Clean-target pairing, mixed-K decomposition, generic-reward isolation. |
+| Extend `frontres_segment_storage_contract.py` | S1/S2 | Accepted total Gain reaches per-row returns. |
+| `frontres_segment_live_sampler_contract.py` | S1/S2 | Formal Gain source/component propagation, missing/non-finite Gain rejection, legacy-score isolation at evidence boundary, priority/state diagnostic isolation, and single-owner connectivity. |
+| Extend periodic/sequence eval contracts | S2 | Periodic fresh-batch/state isolation plus sequence item/per-motion/aggregate canonical Gain routing are covered; S4 remains open. |
+| Extend diagnostics contract | S1/S2 | Raw values and separate gains print; missing values are `UNCONFIRMED`. |
+| Short live Gain sentinel | S4 | Real components are populated, diverse, and non-stale. |
 
-## Inventory Gaps
+## Remaining Gain Gaps
 
-| Gap | Affected blocks | Needed tier | Suggested next test |
-| --- | --- | --- | --- |
-| Segment PPO `action_mask` is confirmed not to reduce direct Delta SE PPO support; missing live-only proof remains for real simulator perturbation-family accumulation. | MAIN-19, MAIN-22, MAIN-33, MAIN-39, MAIN-44, MAIN-46 | S4 | Short live sentinel with local_rp curriculum should print full-6D action stats and post-update full-6D gradient/parameter-delta summaries. |
-| Export/play normalizer sink inventory is incomplete. | MAIN-03, MAIN-20, MAIN-50, M2C-21 | S3 | Fake checkpoint -> export/play loader -> assert expected normalizer dims and keys. |
-| Stage 3 checkpoint health is not yet live-gated before long training. | MAIN-19, MAIN-32, MAIN-38/40 | S3/S4 | Checkpoint load -> one batch policy forward -> fail/warn when raw mean is saturated before starting formal training. |
-| Env construction/reset coverage is mostly indirect. | MAIN-07/09, MAIN-29, MAIN-38 | S4 | Minimal live reset sentinel when env lifecycle changes. |
-| Base PPO/GMT-only path is not fully mapped in this matrix. | MAIN-21, MAIN-45 | S1/S2 | Existing non-FrontRES tests should be inventoried or added. |
-| Static stale-comment/stale-atlas scan is not yet scripted. | All MAIN/M2C | S0 | Add repo-local scan for old dimensions, legacy route names, and stale test references. |
+- Real runtime population of root-orientation, ZMP/support, and contact
+  components remains an S4 question; offline capture and Physics Gain wiring
+  are covered.
+- Executed-action Repair Cost and Clean no-op diagnostics are covered by S1/S2
+  tests; paired-K aggregation and storage connector are covered offline.
+- Step 6A/6B evidence-owner and sampler decision migration are covered offline
+  by E11/E12; periodic eval migration is covered by E15; sequence and final
+  cross-consumer offline closure are covered by E16.
+- S4 live Gain sentinel is still required.
+- Formal S3 checkpoint contracts pass offline; a real server checkpoint load and
+  post-resume eval remain unconfirmed.
+- Isolated retired authority-space/event modules and their dedicated tests were
+  removed in Step 10C-A; connected generic-runner legacy paths remain pending
+  separate migration.
+- Step 7 diagnostic routing is offline-covered; raw ZMP/contact decomposition
+  and non-stale live population remain unconfirmed.
+
+## Remaining General Gaps
+
+- Export/play normalizer sink coverage is incomplete.
+- Full-6D action identity still needs current S4 log proof.
+- Real dynamic reset and mixed-K execution remain S4 evidence.

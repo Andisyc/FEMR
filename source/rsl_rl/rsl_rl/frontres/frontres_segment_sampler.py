@@ -2,9 +2,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
+import importlib.util
+from pathlib import Path
 from typing import Any, Iterable
 
 import torch
+
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_probe_sampler",
+    Path(__file__).resolve().with_name("frontres_formal_runtime_probe.py"),
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
+emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
 
 
 class FrontRESSegmentState(IntEnum):
@@ -50,6 +61,11 @@ class FrontRESSegmentRolloutEvidence:
     action_norm: torch.Tensor
     valid_reward: torch.Tensor
     horizon_k: torch.Tensor
+    gain_total: torch.Tensor | None = None
+    gain_style: torch.Tensor | None = None
+    gain_physics: torch.Tensor | None = None
+    repair_cost: torch.Tensor | None = None
+    gain_source: str = "legacy"
 
 
 @dataclass(frozen=True)
@@ -200,6 +216,20 @@ class FrontRESSegmentSampler:
         self.last_confidence = torch.zeros(self.num_segments, dtype=torch.float32, device=self.device)
 
     def sample(self, batch_size: int, *, max_horizon_k: int = 8) -> FrontRESSegmentSample:
+        """按 replay mixture 选择 base segments 并附加 rollout budget.
+
+        函数名说明:
+            `sample` 是 base-segment selection owner, 选择 segment 和来源; 它不
+            展开多 trial 行, 正式 live row expansion 由 `sample_rollout_rows` 完成.
+
+        主链路:
+            上游: runner 给出 base batch size 和最大 K.
+            下游: 返回 segment id, source, priority, state 和初始 rollout budget.
+
+        语义:
+            sampling source 决定 global/replay/review 混合, segment state 决定后续
+            K/trial budget. 两者不能被 PPO post-update diagnostics 污染.
+        """
         if batch_size <= 0:
             raise ValueError(f"batch_size must be positive, got {batch_size}")
         valid_ids = self._valid_ids()
@@ -235,7 +265,22 @@ class FrontRESSegmentSampler:
         )
 
     def sample_rollout_rows(self, row_budget: int, *, max_horizon_k: int = 8) -> FrontRESSegmentSample:
-        """Sample executable live rows after expanding per-segment trial budgets."""
+        """展开 per-segment trial budget, 生成正式 live rollout rows.
+
+        函数名说明:
+            `sample_rollout_rows` 是 live row sampler, 把 base segment 变成固定行数
+            的 policy-first trials; 它不是 env reset 或 PPO batch builder.
+
+        主链路:
+            上游: live sampler helper 给出 split-env 可用 repair row budget.
+            下游: batch builder 按 `source_index/trial_index/trial_role` 构造 reset 和
+            rollout metadata.
+
+        语义:
+            返回行数服从 env row budget, 每行仍保留原 segment, K 和 trial 身份,
+            因而多个 trial 不得被误当成多个独立 segment.
+        """
+        # B1: 选择 base segments, 直到计划 trial rows 覆盖 live row budget.
         if row_budget <= 0:
             raise ValueError(f"row_budget must be positive, got {row_budget}")
         valid_ids = self._valid_ids()
@@ -263,7 +308,8 @@ class FrontRESSegmentSampler:
         self.staleness[torch.unique(row_ids)] = 0.0
         base_budget = self.plan_rollout_budget(base_segment_ids, max_horizon_k=max_horizon_k)
         source_rows = source_index.detach().cpu().tolist()
-        return FrontRESSegmentSample(
+        # B2: 物化带 source, K, role 和 trial identity 的 row-level sample.
+        sample = FrontRESSegmentSample(
             segment_ids=row_ids.detach().clone(),
             source=tuple(str(base_sources[int(row)]) for row in source_rows),
             priority=self.priority[row_ids].detach().clone(),
@@ -277,11 +323,37 @@ class FrontRESSegmentSampler:
             source_index=source_index.detach().clone(),
             trial_index=plan.trial_index[:keep].to(device=self.device, dtype=torch.long).detach().clone(),
         )
+        # B3: AUDIT-SAMPLER-01 截获 live batch builder 实际消费的 sample.
+        # Result: PENDING_LIVE.
+        emit_formal_runtime_probe(
+            "AUDIT-SAMPLER-01",
+            segment_ids=sample.segment_ids,
+            source=sample.source,
+            horizon_k=sample.horizon_k,
+            trial_role=sample.trial_role,
+        )
+        return sample
 
     def update(self, evidence: FrontRESSegmentRolloutEvidence) -> None:
         self.update_with_probe(evidence)
 
     def update_with_probe(self, evidence: FrontRESSegmentRolloutEvidence) -> FrontRESSegmentSamplerUpdateProbe:
+        """用 rollout-time evidence 更新 segment replay state 和 priority.
+
+        函数名说明:
+            `update_with_probe` 是 sampler state transaction owner, 同时返回可读的
+            update probe; 它不是 PPO update, 也不读取 post-update KL 或梯度.
+
+        主链路:
+            上游: live probe 提交带 segment/trial identity 的 paired rollout evidence.
+            下游: 更新 priority, solved/hopeless/state 和 curriculum history, 供下一次
+            sample/K planning 使用.
+
+        语义:
+            更新依据必须来自 policy update 前的 rollout evidence. 多 trial 先按
+            segment 聚合, 再改变持久 replay state.
+        """
+        # B1: 改变 replay state 前, 先按 segment 聚合 rollout-time evidence.
         row_ids = evidence.segment_ids.to(device=self.device, dtype=torch.long).flatten()
         self._validate_ids(row_ids)
         trial = self.aggregate_trial_evidence(evidence)
@@ -298,12 +370,13 @@ class FrontRESSegmentSampler:
         self.priority[ids] = torch.where(self.solved[ids] | self.hopeless[ids], self.priority[ids] * 0.25, self.priority[ids])
         priority_after = self.priority[ids]
         replay_candidates = (~self.invalid[ids]) & (~self.solved[ids]) & (~self.hopeless[ids]) & (priority_after >= self.min_replay_score)
-        return FrontRESSegmentSamplerUpdateProbe(
+        # B2: 将 rollout-time evidence 写入 priority 和持久 segment state.
+        update_probe = FrontRESSegmentSamplerUpdateProbe(
             count=int(row_ids.numel()),
             valid_count=int(trial.valid_trial_count.sum().item()),
             fall_count=int(fall_count.sum().item()),
-            gain_mean=float(evidence.gain_over_noisy.to(self.device).float().mean().item()) if row_ids.numel() > 0 else 0.0,
-            gain_pos_frac=float((evidence.gain_over_noisy.to(self.device).float() > 0.0).float().mean().item()) if row_ids.numel() > 0 else 0.0,
+            gain_mean=float(self._active_gain(evidence).mean().item()) if row_ids.numel() > 0 else 0.0,
+            gain_pos_frac=float((self._active_gain(evidence) > 0.0).float().mean().item()) if row_ids.numel() > 0 else 0.0,
             useful_mean=float(useful.mean().item()) if useful.numel() > 0 else 0.0,
             useful_max=float(useful.max().item()) if useful.numel() > 0 else 0.0,
             priority_before_mean=float(current.mean().item()) if current.numel() > 0 else 0.0,
@@ -317,16 +390,24 @@ class FrontRESSegmentSampler:
             oracle_gap_mean=float(trial.oracle_gap.mean().item()) if trial.oracle_gap.numel() > 0 else 0.0,
             confidence_mean=float(trial.confidence.mean().item()) if trial.confidence.numel() > 0 else 0.0,
         )
+        # B3: AUDIT-SAMPLER-01 同步截获该 transaction 完成后的 priority state.
+        # Result: PENDING_LIVE.
+        emit_formal_runtime_probe(
+            "AUDIT-SAMPLER-01",
+            priority_before=update_probe.priority_before_mean,
+            priority_after=update_probe.priority_after_mean,
+            valid_count=update_probe.valid_count,
+            trial_count=update_probe.trial_count,
+        )
+        return update_probe
 
     def aggregate_trial_evidence(self, evidence: FrontRESSegmentRolloutEvidence) -> FrontRESSegmentTrialEvidence:
         ids = evidence.segment_ids.to(device=self.device, dtype=torch.long).flatten()
         self._validate_ids(ids)
         unique_ids = torch.unique(ids, sorted=True)
-        gain = evidence.gain_over_noisy.to(self.device).float().flatten()
+        gain = self._active_gain(evidence)
         valid = evidence.reset_success.to(self.device).bool().flatten() & evidence.valid_reward.to(self.device).bool().flatten()
         fall = evidence.fall_repaired.to(self.device).bool().flatten() | (~valid)
-        noisy = evidence.score_noisy.to(self.device).float().flatten()
-        repaired = evidence.score_repaired.to(self.device).float().flatten()
         horizon = evidence.horizon_k.to(self.device).long().flatten()
 
         trial_count: list[int] = []
@@ -338,8 +419,6 @@ class FrontRESSegmentSampler:
         fall_frac: list[float] = []
         oracle_gap: list[float] = []
         confidence: list[float] = []
-        score_noisy: list[float] = []
-        score_repaired: list[float] = []
         horizon_k: list[int] = []
         valid_mask: list[bool] = []
 
@@ -349,8 +428,6 @@ class FrontRESSegmentSampler:
             row_gain = gain[mask]
             row_valid = valid[mask]
             row_fall = fall[mask]
-            row_noisy = noisy[mask]
-            row_repaired = repaired[mask]
             row_horizon = horizon[mask]
             valid_gain = row_gain[row_valid]
             valid_n = int(row_valid.sum().item())
@@ -372,8 +449,6 @@ class FrontRESSegmentSampler:
             fall_frac.append(fall_rate)
             oracle_gap.append(gap)
             confidence.append(conf)
-            score_noisy.append(float(row_noisy[row_valid].mean().item()) if valid_n else float(row_noisy.mean().item()))
-            score_repaired.append(float(row_repaired[row_valid].mean().item()) if valid_n else float(row_repaired.mean().item()))
             horizon_k.append(int(row_horizon.max().item()) if trial_n else 0)
             valid_mask.append(valid_n > 0)
 
@@ -388,8 +463,8 @@ class FrontRESSegmentSampler:
             fall_frac=torch.tensor(fall_frac, dtype=torch.float32, device=self.device),
             oracle_gap=torch.tensor(oracle_gap, dtype=torch.float32, device=self.device),
             confidence=torch.tensor(confidence, dtype=torch.float32, device=self.device),
-            score_noisy=torch.tensor(score_noisy, dtype=torch.float32, device=self.device),
-            score_repaired=torch.tensor(score_repaired, dtype=torch.float32, device=self.device),
+            score_noisy=torch.full((len(trial_count),), float("nan"), dtype=torch.float32, device=self.device),
+            score_repaired=torch.full((len(trial_count),), float("nan"), dtype=torch.float32, device=self.device),
             horizon_k=torch.tensor(horizon_k, dtype=torch.long, device=self.device),
             valid_mask=torch.tensor(valid_mask, dtype=torch.bool, device=self.device),
         )
@@ -400,7 +475,21 @@ class FrontRESSegmentSampler:
         *,
         max_horizon_k: int = 8,
     ) -> FrontRESSegmentRolloutBudget:
-        """Map selected segments to a pure rollout budget without touching env or PPO."""
+        """把 segment state 映射为纯 K-step rollout budget.
+
+        函数名说明:
+            `plan_rollout_budget` 是 K curriculum 的 pure planner, 只计算 horizon K,
+            trial count 和 reason; 它不触碰 env, storage 或 PPO.
+
+        主链路:
+            上游: sampler 提供选中 segment 及其持久 state/history.
+            下游: `expand_rollout_trials` 和 live batch builder 消费不可变 budget.
+
+        语义:
+            K 表示本次修复证据需要持续观察的时间窗. state 越接近 delayed regret,
+            越需要更长 horizon 或更多 trials, 但不得超过正式 max_horizon_k.
+        """
+        # B1: 读取拥有 curriculum progression 的持久 segment state.
         ids = self._ids_tensor(segment_ids)
         max_horizon = int(max_horizon_k)
         if max_horizon <= 0:
@@ -422,8 +511,7 @@ class FrontRESSegmentSampler:
             elif state == FrontRESSegmentState.FRONTIER:
                 trial_n = 6
                 use_long = (
-                    float(self.last_oracle_gap[segment_id].item()) > self.min_replay_score
-                    or float(self.last_success_frac[segment_id].item()) < 0.75
+                    float(self.last_success_frac[segment_id].item()) < 0.75
                     or int(self.last_trial_count[segment_id].item()) >= 2
                 )
                 preferred_horizon = 32 if use_long else 16
@@ -445,13 +533,25 @@ class FrontRESSegmentSampler:
             horizon_k[row] = self._bounded_horizon(preferred_horizon, max_horizon)
             reasons.append(reason)
 
-        return FrontRESSegmentRolloutBudget(
+        # B2: 物化每个 segment 的不可变 curriculum budget.
+        budget = FrontRESSegmentRolloutBudget(
             segment_ids=ids.clone(),
             trial_count=trial_count,
             horizon_k=horizon_k,
             segment_state=states,
             reason=tuple(reasons),
         )
+        # B3: AUDIT-KPLAN-01 截获 row expansion 前的 per-segment K 和 trial budget.
+        # Result: PENDING_LIVE.
+        emit_formal_runtime_probe(
+            "AUDIT-KPLAN-01",
+            segment_ids=budget.segment_ids,
+            segment_state=budget.segment_state,
+            trial_count=budget.trial_count,
+            horizon_k=budget.horizon_k,
+            reason=budget.reason,
+        )
+        return budget
 
     def expand_rollout_trials(
         self,
@@ -460,6 +560,21 @@ class FrontRESSegmentSampler:
         max_horizon_k: int = 8,
     ) -> FrontRESSegmentTrialPlan:
         """Expand per-segment budget into policy-first trial rows for future live wiring."""
+        """把 per-segment budget 展开为 policy-first trial rows.
+
+        函数名说明:
+            `expand_rollout_trials` 是 K plan 到 row layout 的转换 owner; 它不重新
+            规划 K, 也不改变 sampler priority.
+
+        主链路:
+            上游: `plan_rollout_budget` 提供 segment-level horizon 和 trial count.
+            下游: live sampler/reset 通过 source/trial index 消费 expanded rows.
+
+        语义:
+            每个 segment 的第 0 行必须是 policy trial. 后续 probe rows 共享同一 K
+            和 source segment, 使短窗和长窗 evidence 能按 trial identity 聚合.
+        """
+        # B1: 不改变 K, 将一个 budget row 展开为 policy-first trial rows.
         budget = self.plan_rollout_budget(segment_ids, max_horizon_k=max_horizon_k)
         expanded_ids: list[int] = []
         source_index: list[int] = []
@@ -475,7 +590,8 @@ class FrontRESSegmentSampler:
                 trial_index.append(trial_row)
                 horizon.append(horizon_value)
                 roles.append("policy" if trial_row == 0 else "search")
-        return FrontRESSegmentTrialPlan(
+        # B2: 保留 source/trial indexes, 物化 policy-first rows.
+        plan = FrontRESSegmentTrialPlan(
             segment_ids=torch.tensor(expanded_ids, dtype=torch.long, device=self.device),
             source_index=torch.tensor(source_index, dtype=torch.long, device=self.device),
             trial_index=torch.tensor(trial_index, dtype=torch.long, device=self.device),
@@ -484,6 +600,17 @@ class FrontRESSegmentSampler:
             base_segment_ids=budget.segment_ids.clone(),
             base_trial_count=budget.trial_count.clone(),
         )
+        # B3: AUDIT-KROLLOUT-01 截获 reset/rollout 实际消费的 expanded rows.
+        # Result: PENDING_LIVE.
+        emit_formal_runtime_probe(
+            "AUDIT-KROLLOUT-01",
+            segment_ids=plan.segment_ids,
+            source_index=plan.source_index,
+            trial_index=plan.trial_index,
+            horizon_k=plan.horizon_k,
+            trial_role=plan.trial_role,
+        )
+        return plan
 
     def mark_invalid(self, segment_ids: Iterable[int] | torch.Tensor, reason: str) -> None:
         ids = self._ids_tensor(segment_ids)
@@ -630,17 +757,27 @@ class FrontRESSegmentSampler:
         return torch.cat([normal, hopeless[:max_hopeless]], dim=0)
 
     def _learning_value(self, evidence: FrontRESSegmentRolloutEvidence) -> torch.Tensor:
-        gain = evidence.gain_over_noisy.to(self.device).float()
+        gain = self._active_gain(evidence)
         reset = evidence.reset_success.to(self.device).float()
         valid = evidence.valid_reward.to(self.device).float()
         contact = evidence.contact_consistency.to(self.device).float().clamp(0.0, 1.0)
         fall = evidence.fall_repaired.to(self.device).float()
-        repaired = evidence.score_repaired.to(self.device).float()
-        noisy = evidence.score_noisy.to(self.device).float()
-        need = (1.0 - noisy).clamp(0.0, 1.0)
-        unsolved = (1.0 - repaired).clamp(0.0, 1.0)
         improvement = gain.clamp_min(0.0)
-        return reset * valid * contact * (1.0 - fall) * (improvement + 0.25 * need * unsolved)
+        return reset * valid * contact * (1.0 - fall) * improvement
+
+    def _active_gain(self, evidence: FrontRESSegmentRolloutEvidence) -> torch.Tensor:
+        """Return finite canonical Gain consumed by sampler decisions."""
+
+        gain = evidence.gain_total
+        if not isinstance(gain, torch.Tensor):
+            raise ValueError("sampler priority/state requires canonical gain_total evidence")
+        gain = gain.to(self.device).float().flatten()
+        expected = int(evidence.segment_ids.numel())
+        if int(gain.numel()) != expected:
+            raise ValueError(f"gain_total must have {expected} rows, got {int(gain.numel())}")
+        if not bool(torch.isfinite(gain).all().item()):
+            raise ValueError("sampler priority/state requires finite gain_total evidence")
+        return gain
 
     def _mean_by_ids(self, ids: torch.Tensor, values: torch.Tensor, unique_ids: torch.Tensor) -> torch.Tensor:
         means = []
@@ -672,16 +809,16 @@ class FrontRESSegmentSampler:
         self._scatter_max(self.best_short_gain, ids, torch.where(trial.valid_mask & short_horizon, trial.best_gain, neg_inf))
         self._scatter_max(self.best_long_gain, ids, torch.where(trial.valid_mask & long_horizon, trial.best_gain, neg_inf))
 
-        solved = trial.valid_mask & (trial.score_repaired >= 0.9) & (trial.mean_gain.abs() < self.min_replay_score)
+        solved = trial.valid_mask & (trial.fall_frac <= 0.0) & (trial.mean_gain.abs() < self.min_replay_score)
         short_positive = self.best_short_gain[ids] > self.min_replay_score
         long_regret = long_horizon & short_positive & ((trial.mean_gain < 0.0) | (trial.fall_frac > 0.0) | (~trial.valid_mask))
         hopeless = (~trial.valid_mask) | (
             (trial.fall_frac >= 0.5) & (trial.best_gain <= 0.0)
-        ) | ((trial.score_noisy < 0.2) & (trial.score_repaired < 0.2) & (trial.best_gain <= 0.0))
+        )
         positive = trial.valid_mask & (trial.best_gain > self.min_replay_score)
         frontier = positive & (
             (self.evidence_count[ids] >= 2)
-            | ((trial.trial_count >= 2) & ((trial.oracle_gap > self.min_replay_score) | (trial.success_frac < 0.75)))
+            | ((trial.trial_count >= 2) & (trial.success_frac < 0.75))
         )
         promising = positive | ((self.segment_state[ids] == int(FrontRESSegmentState.PROMISING)) & (~frontier))
 
@@ -701,8 +838,6 @@ class FrontRESSegmentSampler:
         valid: torch.Tensor,
         fall: torch.Tensor,
         gain: torch.Tensor,
-        repaired: torch.Tensor,
-        noisy: torch.Tensor,
         horizon: torch.Tensor,
     ) -> None:
         if horizon.numel() != ids.numel():
@@ -723,10 +858,10 @@ class FrontRESSegmentSampler:
         self._scatter_max(self.best_short_gain, ids, torch.where(valid & short_horizon, gain, neg_inf))
         self._scatter_max(self.best_long_gain, ids, torch.where(valid & long_horizon, gain, neg_inf))
 
-        solved = valid & (~fall) & (repaired >= 0.9) & (gain.abs() < self.min_replay_score)
+        solved = valid & (~fall) & (gain.abs() < self.min_replay_score)
         short_positive = self.best_short_gain[ids] > self.min_replay_score
         long_regret = long_horizon & short_positive & ((gain < 0.0) | fall | (~valid))
-        hopeless = (~valid) | (fall & (gain <= 0.0)) | ((noisy < 0.2) & (repaired < 0.2) & (gain <= 0.0))
+        hopeless = (~valid) | (fall & (gain <= 0.0))
         positive = valid & (~fall) & (gain > self.min_replay_score)
         frontier = positive & (self.evidence_count[ids] >= 2)
         promising = positive | ((self.segment_state[ids] == int(FrontRESSegmentState.PROMISING)) & (~frontier))

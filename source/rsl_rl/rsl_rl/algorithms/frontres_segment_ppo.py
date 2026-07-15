@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib.util
+from pathlib import Path
 from typing import Any
 
 import torch
+
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_probe_ppo",
+    Path(__file__).resolve().parents[1] / "frontres" / "frontres_formal_runtime_probe.py",
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
+emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
 
 
 @dataclass(frozen=True)
@@ -17,6 +28,7 @@ class FrontRESSegmentPPOConfig:
     advantage_normalization: str = "none"
     advantage_scale_epsilon: float = 1.0e-8
     max_log_ratio: float = 20.0
+    actor_loss_weight: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -29,7 +41,6 @@ class FrontRESSegmentPPOBatch:
     advantages: torch.Tensor
     valid_mask: torch.Tensor
     segment_ids: torch.Tensor | None = None
-    action_mask: torch.Tensor | None = None
     old_means: torch.Tensor | None = None
     old_sigmas: torch.Tensor | None = None
 
@@ -56,6 +67,7 @@ class FrontRESSegmentPPOResult:
     clip_frac: float
     approx_kl: float
     ratio_mean: float
+    actor_loss_weight: float = 1.0
     ratio_max: float = 0.0
     old_log_prob_mean: float = 0.0
     new_log_prob_mean: float = 0.0
@@ -132,6 +144,7 @@ class FrontRESSegmentPPOResult:
             "segment/ppo_clip_frac": self.clip_frac,
             "segment/ppo_approx_kl": self.approx_kl,
             "segment/ppo_ratio_mean": self.ratio_mean,
+            "segment/ppo_actor_loss_weight": self.actor_loss_weight,
             "segment/ppo_ratio_max": self.ratio_max,
             "segment/ppo_old_log_prob_mean": self.old_log_prob_mean,
             "segment/ppo_new_log_prob_mean": self.new_log_prob_mean,
@@ -179,22 +192,29 @@ def compute_frontres_segment_ppo_loss(
     batch: FrontRESSegmentPPOBatch,
     cfg: FrontRESSegmentPPOConfig | None = None,
 ) -> FrontRESSegmentPPOResult:
-    """Compute one direct Delta SE PPO loss on an already sampled Segment batch.
+    """计算一个 direct Delta SE(3) Segment PPO loss.
 
-    Status: active Segment Replay algorithm boundary.
-    Upstream: live runner/storage converts rollout evidence into FrontRESSegmentPPOBatch.
-    Downstream: runner uses total_loss for backward/step and diagnostics for KL/trust logs.
-    Evidence: contract-confirmed by frontres_segment_algorithm_contract.py and live single-update tests.
-    Gap: this pure loss does not prove IsaacLab live rollout quality.
+    函数名说明:
+        `compute_frontres_segment_ppo_loss` 是 algorithm loss owner, 在已采样 batch
+        上计算 clipped surrogate, value loss 和 diagnostics; 它不执行 optimizer
+        step, rollback 或 adaptive LR.
+
+    主链路:
+        上游: Segment storage 提供同源 action, old distribution, return 和 advantage.
+        下游: runner 对 `total_loss` backward/step, 再用同 batch 计算 post-update KL
+        和 trust-region decision.
+
+    语义:
+        PPO ratio 与 KL 必须比较同一个 raw full-6D distribution. Old tensors 全部
+        detach, 梯度只进入当前 FrontRES actor/critic; frozen GMT 不在该图中.
     """
+    # B1: 验证同源 old action/distribution/advantage tuple 并选择 valid rows.
     cfg = FrontRESSegmentPPOConfig() if cfg is None else cfg
     _validate_batch(batch)
     policy_eval = _evaluate_policy(policy, batch)
-    policy_eval = _project_policy_eval_to_action_mask(policy_eval, batch)
     _validate_policy_eval(policy_eval, batch)
 
-    # B1: Build the valid training rows. Old policy tensors are detached below,
-    # so gradients only flow through the current policy evaluation.
+    # Old policy tensors 在下方 detach, 梯度只流经 current policy evaluation.
     finite = (
         torch.isfinite(policy_eval.log_prob)
         & torch.isfinite(policy_eval.value)
@@ -237,6 +257,7 @@ def compute_frontres_segment_ppo_loss(
             clip_frac=0.0,
             approx_kl=0.0,
             ratio_mean=0.0,
+            actor_loss_weight=float(cfg.actor_loss_weight),
         )
 
     log_prob = policy_eval.log_prob[valid]
@@ -247,8 +268,7 @@ def compute_frontres_segment_ppo_loss(
     advantages = batch.advantages[valid].detach()
     advantages, advantage_scale, advantage_sign_flip_count = _prepare_advantages(advantages, cfg)
 
-    # B2: PPO ratio path. raw_log_ratio is kept for diagnosis; log_ratio is
-    # clamped only before exp() to keep the surrogate finite.
+    # B2: 构造 PPO ratio/surrogate/value path, 保留 raw log-ratio 供诊断.
     raw_log_ratio = log_prob - old_log_prob
     log_ratio = raw_log_ratio.clamp(-abs(float(cfg.max_log_ratio)), abs(float(cfg.max_log_ratio)))
     ratio = torch.exp(log_ratio)
@@ -264,11 +284,14 @@ def compute_frontres_segment_ppo_loss(
         value_loss = 0.5 * (value - returns).square().mean()
 
     entropy = _masked_entropy(policy_eval.entropy, valid, log_prob)
-    total_loss = actor_loss + cfg.value_loss_coef * value_loss - cfg.entropy_coef * entropy
+    actor_loss_weight = max(0.0, min(1.0, float(cfg.actor_loss_weight)))
+    total_loss = (
+        actor_loss_weight * actor_loss
+        + cfg.value_loss_coef * value_loss
+        - actor_loss_weight * cfg.entropy_coef * entropy
+    )
     with torch.no_grad():
-        # B3: Diagnostics are measured on this exact forward pass. The runner
-        # later reuses these fields as pre-update values, and runs a second
-        # forward after optimizer.step for post-update values.
+        # B3: 在同一次 forward 截获 pre-update diagnostics; runner 在 step 后用同 batch 复算.
         clip_frac = ((ratio - 1.0).abs() > cfg.clip_param).float().mean().item()
         logprob_approx_kl = (old_log_prob - log_prob).mean().item()
         distribution_kl_mean = (
@@ -337,6 +360,19 @@ def compute_frontres_segment_ppo_loss(
                 log_jacobian_dim_mean = _dim_mean_tuple(log_jacobian)
                 log_jacobian_abs_dim_max = _dim_max_tuple(log_jacobian.abs())
 
+    # AUDIT-PPO-01 截获 backward 实际消费的 pre-update loss/distribution state.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-PPO-01",
+        actions=batch.actions,
+        old_means=batch.old_means,
+        old_sigmas=batch.old_sigmas,
+        advantages=advantages,
+        valid_mask=valid,
+        total_loss=total_loss,
+        ratio=ratio,
+        distribution_kl_mean=distribution_kl_mean,
+    )
     return FrontRESSegmentPPOResult(
         total_loss=total_loss,
         actor_loss=actor_loss,
@@ -347,6 +383,7 @@ def compute_frontres_segment_ppo_loss(
         clip_frac=float(clip_frac),
         approx_kl=float(approx_kl),
         ratio_mean=float(ratio_mean),
+        actor_loss_weight=float(actor_loss_weight),
         ratio_max=float(ratio_max),
         old_log_prob_mean=float(old_log_prob_mean),
         new_log_prob_mean=float(new_log_prob_mean),
@@ -449,43 +486,6 @@ def _evaluate_policy(policy: Any, batch: FrontRESSegmentPPOBatch) -> FrontRESSeg
     raise TypeError(f"unsupported policy evaluation output: {type(value)!r}")
 
 
-def _project_policy_eval_to_action_mask(
-    policy_eval: FrontRESSegmentPolicyEval,
-    batch: FrontRESSegmentPPOBatch,
-) -> FrontRESSegmentPolicyEval:
-    """Align current policy stats with the executed Delta SE action cone."""
-
-    if (
-        batch.action_mask is None
-        or batch.old_means is None
-        or batch.old_sigmas is None
-        or policy_eval.mean is None
-        or policy_eval.sigma is None
-        or policy_eval.raw_actions is None
-        or policy_eval.log_jacobian_contrib is None
-    ):
-        return policy_eval
-    mask = batch.action_mask.to(device=policy_eval.mean.device, dtype=torch.bool)
-    if bool(mask.all().item()):
-        return policy_eval
-    old_mean = batch.old_means.to(device=policy_eval.mean.device, dtype=policy_eval.mean.dtype).detach()
-    old_sigma = batch.old_sigmas.to(device=policy_eval.sigma.device, dtype=policy_eval.sigma.dtype).detach()
-    mean = torch.where(mask, policy_eval.mean, old_mean)
-    sigma = torch.where(mask, policy_eval.sigma, old_sigma)
-    raw_actions = policy_eval.raw_actions.to(device=mean.device, dtype=mean.dtype).detach()
-    log_j = policy_eval.log_jacobian_contrib.to(device=mean.device, dtype=mean.dtype).detach()
-    log_prob = (torch.distributions.Normal(mean, sigma).log_prob(raw_actions) - log_j).sum(dim=-1)
-    return FrontRESSegmentPolicyEval(
-        log_prob=log_prob,
-        value=policy_eval.value,
-        entropy=policy_eval.entropy,
-        mean=mean,
-        sigma=sigma,
-        raw_actions=policy_eval.raw_actions,
-        log_jacobian_contrib=policy_eval.log_jacobian_contrib,
-    )
-
-
 def _masked_entropy(entropy: torch.Tensor | None, valid: torch.Tensor, like: torch.Tensor) -> torch.Tensor:
     if entropy is None:
         return like.new_zeros(())
@@ -522,8 +522,6 @@ def _validate_batch(batch: FrontRESSegmentPPOBatch) -> None:
         _require_vector(name, getattr(batch, name), batch_size)
     if batch.segment_ids is not None:
         _require_vector("segment_ids", batch.segment_ids, batch_size)
-    if batch.action_mask is not None and tuple(batch.action_mask.shape) != (batch_size, 6):
-        raise ValueError(f"action_mask must have shape [B, 6], got {tuple(batch.action_mask.shape)}")
     if (batch.old_means is None) != (batch.old_sigmas is None):
         raise ValueError("old_means and old_sigmas must be provided together")
     if batch.old_means is not None and tuple(batch.old_means.shape) != (batch_size, 6):

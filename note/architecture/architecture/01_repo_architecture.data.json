@@ -1,390 +1,555 @@
 {
-  "title": "01 Repo Mainline Atlas",
-  "subtitle": "仓库主运行链路. 左侧子框给 owner path, 右侧给单职责解释; 先用这张图判断问题属于哪个阶段和测试范围.",
-  "layout": "repo_tree",
-  "root": "FEMR",
-  "showLegend": false,
-  "showConceptBadges": false,
-  "files": [
+  "title": "FEMR Repository Reading Atlas",
+  "subtitle": "从左到右阅读正式 runtime 系统, 每张卡按职责 -> 先读 -> 重点函数 -> 核心对象 -> 模块内部主路径展开",
+  "layout": "repository_reading_atlas",
+  "canvasWidth": 7700,
+  "defaultZoom": 1.0,
+  "runtimeOrder": [
+    "MOD-ENTRY",
+    "MOD-CONFIG",
+    "MOD-RUNNER",
+    "MOD-REFERENCE",
+    "MOD-OBS",
+    "MOD-PERTURB",
+    "MOD-CACHE",
+    "MOD-SAMPLER",
+    "MOD-RESET",
+    "MOD-POLICY",
+    "MOD-CORRECTION",
+    "MOD-STAGE3-LOOP",
+    "MOD-GAIN",
+    "MOD-STORAGE",
+    "MOD-PPO",
+    "MOD-CHECKPOINT",
+    "MOD-EVAL",
+    "MOD-DIAGNOSTICS"
+  ],
+  "supportOrder": ["MOD-ENV-REWARD", "MOD-TESTS"],
+  "systems": [
     {
-      "group": "01 Launch Entry",
-      "summary": "把一次命令变成具体运行模式, 是训练、回放、导出、评估路径的入口.",
+      "id": "SYS-ENTRY",
+      "title": "Entrypoints & Config",
+      "summary": "把实验意图转换成正式训练、评估与回放入口",
       "color": "#2563eb",
-      "blocks": [
+      "modules": [
         {
-          "id": "MAIN-01",
-          "path": "scripts/rsl_rl/train.py",
-          "role": "训练入口: 解析 task、device、checkpoint、headless 等启动参数."
+          "id": "MOD-ENTRY",
+          "title": "Launch Entry",
+          "summary": "解析命令并选择正式运行模式",
+          "owns": "CLI 参数、task、device、checkpoint 与 mode 路由",
+          "mustNot": "不定义 FrontRES reward、action 或 PPO 语义",
+          "objects": ["CLI args", "task id", "run mode", "checkpoint path"],
+          "files": [
+            {"id": "MAIN-01", "path": "scripts/rsl_rl/train.py", "role": "正式训练入口", "functions": ["main()"]},
+            {"id": "MAIN-02", "path": "scripts/rsl_rl/cli_args.py", "role": "CLI 参数定义", "functions": ["add_rsl_rl_args()", "parse_rsl_rl_cfg()"]},
+            {"id": "MAIN-03", "path": "scripts/rsl_rl/play.py", "role": "回放入口", "functions": ["main()"]}
+          ],
+      "mainRoute": [
+        "B1 train.py::main(): CLI args -> launch context",
+        "B2 cli_args.py::parse_rsl_rl_cfg(): launch context -> runner/task config",
+        "B3 train.py::main(): task config -> env + OnPolicyRunner"
+      ],
+      "mainRouteTitles": ["解析启动参数", "组合运行配置", "创建正式训练对象"],
+          "review": ["确认正式 train mode 与 probe/eval mode 不混用", "确认 CLI 参数真正进入训练 config"],
+          "tests": ["S0 T-connect entrypoint contract"],
+          "gap": "具体命令的动态分支需要 Runtime Atlas"
         },
         {
-          "id": "MAIN-02",
-          "path": "scripts/rsl_rl/cli_args.py",
-          "role": "命令参数定义: 把 CLI 选项暴露给 train/play 等脚本."
-        },
-        {
-          "id": "MAIN-03",
-          "path": "scripts/rsl_rl/play.py",
-          "role": "回放入口: 用已保存 policy 启动环境并执行 policy rollout."
+          "id": "MOD-CONFIG",
+          "title": "Training Config",
+          "summary": "组合 environment、runner、policy 与 algorithm 配置",
+          "owns": "训练对象类型、默认参数和阶段配置",
+          "mustNot": "不在配置层重写运行时张量",
+          "objects": ["runner cfg", "policy cfg", "algorithm cfg", "task cfg"],
+          "files": [
+            {"id": "MAIN-04", "path": "source/rsl_rl/rsl_rl/modules/rsl_rl_cfg.py", "role": "RSL-RL 配置对象", "functions": []},
+            {"id": "MAIN-05", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/", "role": "机器人和实验 preset", "functions": []},
+            {"id": "MAIN-06", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py", "role": "环境配置骨架", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 rsl_rl_cfg.py: base schema -> policy/algorithm/runner config",
+        "B2 tracking/config/: experiment preset -> task config",
+        "B3 tracking_env_cfg.py: task config -> environment construction contract"
+      ],
+      "mainRouteTitles": ["建立配置结构", "加载实验 Preset", "生成环境配置"],
+          "review": ["检查 Stage 1/2/3 默认值", "检查 debug override 是否覆盖正式设置"],
+          "tests": ["S0 config/schema", "S2 official-entry connectivity"],
+          "gap": "运行时最终 compose 值需要正式命令证明"
         }
       ]
     },
     {
-      "group": "02 Training Config",
-      "summary": "把实验意图落成可运行配置, 决定 runner、algorithm、policy、FrontRES 阶段参数.",
-      "color": "#3b82f6",
-      "blocks": [
-        {
-          "id": "MAIN-04",
-          "path": "source/rsl_rl/rsl_rl/modules/rsl_rl_cfg.py",
-          "role": "RSL-RL 配置对象: 定义 runner、algorithm、policy 的训练参数."
-        },
-        {
-          "id": "MAIN-05",
-          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/",
-          "role": "任务配置包: 选择 robot、motion source、observation group 和 reward scale."
-        },
-        {
-          "id": "MAIN-06",
-          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py",
-          "role": "环境配置骨架: 组合 scene、command、MDP term 和 simulation 参数."
-        }
-      ]
-    },
-    {
-      "group": "03 Env Construction",
-      "summary": "创建 IsaacLab tracking 环境, 决定 command manager、observation manager、reward manager 如何接入.",
+      "id": "SYS-ENV",
+      "title": "IsaacLab Task Environment",
+      "summary": "创建 tracking task 并管理 reference、reset、termination 与环境 reward",
       "color": "#059669",
-      "blocks": [
+      "modules": [
         {
-          "id": "MAIN-07",
-          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py",
-          "role": "运动命令入口: 提供 reference motion、phase、root/body target 等环境侧状态."
+          "id": "MOD-REFERENCE",
+          "title": "Motion Command",
+          "summary": "向环境提供 reference motion、phase 与 body target",
+          "owns": "reference motion state 和 command 生命周期",
+          "mustNot": "不决定 Segment PPO credit",
+          "objects": ["motion id", "phase", "root target", "body target"],
+          "files": [
+            {"id": "MAIN-07", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "motion command owner", "functions": []},
+            {"id": "MAIN-08", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/events.py", "role": "reset 与随机化事件", "functions": []},
+            {"id": "MAIN-09", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py", "role": "episode termination", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 commands.py: motion dataset + phase -> reference command state",
+        "B2 events.py: reset request -> initialized command/dynamic state",
+        "B3 terminations.py: stepped state -> done/survival facts"
+      ],
+      "mainRouteTitles": ["读取 Reference Motion", "初始化动态状态", "产生终止事实"],
+          "review": ["阅读 command state 如何跨 reset 保存", "确认 done 与部分 reset 的 row domain"],
+          "tests": ["S2 lifecycle", "S4 reset/step sentinel"],
+          "gap": "IsaacLab contact 与 reset 时序属于 live boundary"
         },
         {
-          "id": "MAIN-08",
-          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/events.py",
-          "role": "环境事件入口: 管理 reset、随机化和 episode 生命周期事件."
-        },
-        {
-          "id": "MAIN-09",
-          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py",
-          "role": "终止条件入口: 判定 rollout 何时 done 或被安全边界截断."
+          "id": "MOD-ENV-REWARD",
+          "title": "GMT Environment Reward",
+          "summary": "评价基础 GMT tracking 与机器人运动质量",
+          "owns": "tracking task 的 environment reward terms",
+          "mustNot": "不得作为 Segment repair Gain 或 PPO return fallback",
+          "objects": ["tracking reward", "termination", "episode stats"],
+          "files": [
+            {"id": "MAIN-16", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/rewards.py", "role": "环境 reward terms", "functions": []},
+            {"id": "MAIN-09", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py", "role": "fall/done 判定", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 rewards.py: robot state + command target -> tracking terms",
+        "B2 terminations.py: robot state -> fall/done facts",
+        "B3 environment manager: terms + done -> GMT reward diagnostics"
+      ],
+      "mainRouteTitles": ["计算 Tracking Terms", "判断 Fall / Done", "汇总 GMT Reward"],
+          "review": ["明确区分 env reward 与 FrontRES Gain", "检查 fall/survival 原始事实如何暴露"],
+          "tests": ["S1 reward term", "S2 isolation from Segment Gain"],
+          "gap": "物理量真实性需要 live environment"
         }
       ]
     },
     {
-      "group": "04 Observation Path",
-      "summary": "把仿真状态、参考运动和 FrontRES 所需信号变成 actor/critic 输入.",
+      "id": "SYS-OBS",
+      "title": "Observation & Perturbation",
+      "summary": "构造 870D policy observation 并注入 reference artifact",
       "color": "#0f766e",
-      "blocks": [
+      "modules": [
         {
-          "id": "MAIN-10",
-          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/observations.py",
-          "role": "观测项定义: 产出 policy、critic、history、reference 相关观测张量."
+          "id": "MOD-OBS",
+          "title": "Observation Layout",
+          "summary": "组合 balance/ZMP prefix 与 frozen GMT suffix",
+          "owns": "观测来源、字段顺序、prefix/suffix 与 normalizer 边界",
+          "mustNot": "不把 Clean oracle 或未来 rollout outcome 放进 deployable input",
+          "objects": ["870D obs", "100D prefix", "GMT suffix", "mean/std"],
+          "files": [
+            {"id": "MAIN-10", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/observations.py", "role": "tracking observation terms", "functions": []},
+            {"id": "MAIN-11", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/balance.py", "role": "ZMP/support signals", "functions": []},
+            {"id": "MAIN-12", "path": "source/rsl_rl/rsl_rl/modules/frontres_observation_layout.py", "role": "FrontRES/GMT split contract", "functions": ["split_frontres_policy_obs()"]},
+            {"id": "MAIN-20", "path": "source/rsl_rl/rsl_rl/modules/normalizer.py", "role": "running statistics", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 observations.py + balance.py: env/reference state -> observation terms",
+        "B2 frontres_observation_layout.py::split_frontres_policy_obs(): terms -> 100D prefix + GMT suffix",
+        "B3 normalizer.py: 870D observation -> normalized policy input"
+      ],
+      "mainRouteTitles": ["构造观测项", "组合 870D Layout", "归一化 Policy Input"],
+          "review": ["逐字段确认 shape、顺序、单位和 privilege", "检查 Stage 2 checkpoint 是否保存 prefix stats"],
+          "tests": ["S1 T-shape/order", "S3 T-persist normalizer"],
+          "gap": "真实 observation 数值尺度需要 runtime probe"
         },
         {
-          "id": "MAIN-11",
-          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/balance.py",
-          "role": "平衡观测定义: 产出 ZMP、support、margin 等可执行性相关信号."
-        },
-        {
-          "id": "MAIN-12",
-          "path": "source/rsl_rl/rsl_rl/modules/frontres_observation_layout.py",
-          "role": "观测布局定义: 记录 GMT suffix、FrontRES prefix 和 split/compose 规则."
+          "id": "MOD-PERTURB",
+          "title": "Perturbation Data",
+          "summary": "生成并传递 reference-frame corruption",
+          "owns": "family、strength、schedule 与 perturbation payload",
+          "mustNot": "perturbation family 不得缩窄 full-6D repair output",
+          "objects": ["local_rp", "strength", "family", "perturbation payload"],
+          "files": [
+            {"id": "MAIN-13", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py", "role": "环境扰动生成", "functions": []},
+            {"id": "MAIN-14", "path": "source/rsl_rl/rsl_rl/frontres/frontres_dr_curriculum.py", "role": "扰动课程", "functions": []},
+            {"id": "MAIN-15", "path": "source/rsl_rl/rsl_rl/frontres/perturbation_runtime.py", "role": "runner payload adapter", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 frontres_dr_curriculum.py: training progress -> family/strength schedule",
+        "B2 motion_perturbations.py: clean reference + schedule -> corrupted reference",
+        "B3 perturbation_runtime.py: corruption metadata -> runner payload"
+      ],
+      "mainRouteTitles": ["分配扰动课程", "生成 Noisy Reference", "传递扰动元数据"],
+          "review": ["确认 family 与 action dimensions 解耦", "确认 strength 在 sampler、batch、reset 中同源"],
+          "tests": ["S1 T-dist", "S2 T-connect"],
+          "gap": "正式训练的 family/strength 分布需要 live evidence"
         }
       ]
     },
     {
-      "group": "05 Perturbation Path",
-      "summary": "把参考帧错误注入训练样本, 是 FrontRES 学习 repair signal 的数据来源.",
-      "color": "#16a34a",
-      "blocks": [
-        {
-          "id": "MAIN-13",
-          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py",
-          "role": "环境扰动项: 在 tracking task 内生成 reference artifact."
-        },
-        {
-          "id": "MAIN-14",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_dr_curriculum.py",
-          "role": "扰动课程采样: 决定 planar、yaw、z、rp 等 family 的采样分布."
-        },
-        {
-          "id": "MAIN-15",
-          "path": "source/rsl_rl/rsl_rl/frontres/perturbation_runtime.py",
-          "role": "运行期扰动载体: 把扰动参数转成 runner 可消费的 batch payload."
-        }
-      ]
-    },
-    {
-      "group": "06 Reward Path",
-      "summary": "把跟踪误差、平衡状态和 FrontRES repair gain 转成训练标量.",
-      "color": "#65a30d",
-      "blocks": [
-        {
-          "id": "MAIN-16",
-          "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/rewards.py",
-          "role": "环境 reward 项: 提供 GMT tracking 和基础运动质量标量."
-        },
-        {
-          "id": "MAIN-17",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reward.py",
-          "role": "Segment reward: 计算 Stage 3 segment 样本的 repair gain."
-        },
-        {
-          "id": "MAIN-18",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_reward_diagnostics.py",
-          "role": "Reward 诊断: 汇总 gain、harm、safe/broken 等训练解释量."
-        }
-      ]
-    },
-    {
-      "group": "07 Policy Model",
-      "summary": "把观测变成 robot action, 同时承载 FrontRES residual head 和 stats 边界.",
+      "id": "SYS-POLICY",
+      "title": "Policy & Repair",
+      "summary": "把 observation 转换为 full-6D Delta SE(3) 并写入 frozen GMT reference",
       "color": "#7c3aed",
-      "blocks": [
+      "modules": [
         {
-          "id": "MAIN-19",
-          "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py",
-          "role": "FrontRES policy: 在冻结 GMT 前产生 task-space residual action."
+          "id": "MOD-POLICY",
+          "title": "FrontRES Policy",
+          "summary": "同一个 6D actor 连接 HSL 初始化与 Stage 3 PPO",
+          "owns": "actor/critic、action distribution、mean/std 与 inference boundary",
+          "mustNot": "不追加 confidence、rho、authority 或 active-dim action columns",
+          "objects": ["policy obs", "6D mean", "6D sigma", "Delta SE(3)"],
+          "files": [
+            {"id": "MAIN-19", "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "role": "FrontRES actor/critic", "functions": ["update_distribution()", "act()", "evaluate_segment_actions()"]},
+            {"id": "MAIN-21", "path": "source/rsl_rl/rsl_rl/modules/actor_critic.py", "role": "基础 RSL-RL policy interface", "functions": []},
+            {"id": "MAIN-20", "path": "source/rsl_rl/rsl_rl/modules/normalizer.py", "role": "policy stats dependency", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 front_residual_actor_critic.py::update_distribution(): 870D obs -> 6D mean/sigma",
+        "B2 front_residual_actor_critic.py::act(): distribution -> sampled Delta SE(3)",
+        "B3 evaluate_segment_actions(): stored action -> log_prob/value/entropy"
+      ],
+      "mainRouteTitles": ["建立 6D 分布", "采样 Repair Action", "重算 PPO Statistics"],
+          "review": ["检查输出始终为 6D", "检查 sampled action、mean、sigma、log_prob 同源"],
+          "tests": ["S1 T-shape/grad", "S2 action representation", "S3 checkpoint"],
+          "gap": "真实 policy distribution 需要 Phase B probe"
         },
         {
-          "id": "MAIN-20",
-          "path": "source/rsl_rl/rsl_rl/modules/normalizer.py",
-          "role": "观测归一化: 维护 mean/std 并影响 train、resume、eval、export."
-        },
-        {
-          "id": "MAIN-21",
-          "path": "source/rsl_rl/rsl_rl/modules/actor_critic.py",
-          "role": "基础 policy: 提供 RSL-RL 默认 actor/critic 接口."
+          "id": "MOD-CORRECTION",
+          "title": "Task-Space Correction",
+          "summary": "将 policy residual 应用到 reference 后交给 frozen GMT",
+          "owns": "Delta SE(3) 解析、执行安全边界与 reference write",
+          "mustNot": "不按 specialist family mask policy distribution",
+          "objects": ["raw action", "bounded correction", "written reference", "GMT action"],
+          "files": [
+            {"id": "MAIN-22", "path": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py", "role": "task-space write owner", "functions": []},
+            {"id": "MAIN-23", "path": "source/rsl_rl/rsl_rl/frontres/frontres_action_cone.py", "role": "物理执行边界", "functions": []},
+            {"id": "MAIN-33", "path": "source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py", "role": "rollout action connector", "functions": ["prepare_frontres_rollout_step()"]},
+            {"id": "MAIN-19", "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "role": "frozen GMT consumer bridge", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 frontres_rollout_step.py::prepare_frontres_rollout_step(): policy action -> rollout action tuple",
+        "B2 task_space_correction.py: raw action -> bounded Delta SE(3)",
+        "B3 task_space_correction.py: correction + noisy reference -> written reference",
+        "B4 frozen GMT: written reference -> robot action"
+      ],
+      "mainRouteTitles": ["接收 Policy Action", "约束 Task-Space Correction", "写入 Repaired Reference", "交给 Frozen GMT"],
+          "review": ["区分 raw distribution 与 executed correction", "检查 upward dz 安全约束不是 action mask"],
+          "tests": ["S1 T-transform/cone", "S2 rollout tuple identity"],
+          "gap": "实际 written reference 与 robot action 需要 live trace"
         }
       ]
     },
     {
-      "group": "08 FrontRES Method Core",
-      "summary": "定义 FrontRES 能修什么、怎么修、哪些样本允许更新 actor.",
-      "color": "#9333ea",
-      "blocks": [
+      "id": "SYS-SEGMENT",
+      "title": "Segment Replay",
+      "summary": "把长序列组织为可重置、可重放、可分配 K 的局部 RL task",
+      "color": "#c2410c",
+      "modules": [
         {
-          "id": "MAIN-22",
-          "path": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py",
-          "role": "Task-space correction: 把 residual 表达为 Delta SE(3) 修正."
+          "id": "MOD-CACHE",
+          "title": "Segment Cache",
+          "summary": "保存 replayable dynamic state 和 motion identity",
+          "owns": "cache schema、manifest、shard、build signature 与 resume",
+          "mustNot": "不决定 PPO loss 或 sampler priority",
+          "objects": ["segment_id", "dynamic state", "manifest", "build signature"],
+          "files": [
+            {"id": "MAIN-26", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py", "role": "cache build orchestration", "functions": []},
+            {"id": "MAIN-27", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_schema.py", "role": "cache schema", "functions": []},
+            {"id": "MAIN-27A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py", "role": "shard IO", "functions": []},
+            {"id": "MAIN-27B", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py", "role": "dataset access", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 frontres_segment_cache_builder.py: motion sequence -> replayable segment",
+        "B2 frontres_segment_cache_schema.py: segment -> validated dynamic-state record",
+        "B3 frontres_segment_cache_io.py: records -> shard/manifest",
+        "B4 frontres_segment_dataset.py: segment_id -> cached reset sample"
+      ],
+      "mainRouteTitles": ["切分动态片段", "验证 Cache Record", "写入 Shard / Manifest", "按 Segment ID 读取"],
+          "review": ["确认 reset state 不只是静态 pose", "检查 cache identity 与 motion/start frame 同源"],
+          "tests": ["S1 schema/IO", "S3 cache resume"],
+          "gap": "真实 dynamic state fidelity 需要 live reset"
         },
         {
-          "id": "MAIN-23",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_action_cone.py",
-          "role": "Action cone: 约束当前 active dims 能修复的扰动方向."
+          "id": "MOD-SAMPLER",
+          "title": "Segment Sampler",
+          "summary": "从 global/replay/review source 选择片段并分配 horizon K",
+          "owns": "source、priority、replay budget、horizon_k 与 segment state",
+          "mustNot": "不读取 post-update KL 或改变 PPO credit",
+          "objects": ["segment_id", "source", "priority", "horizon_k", "rollout evidence"],
+          "files": [
+            {"id": "MAIN-28", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "sampler state 与 priority owner", "functions": ["sample()", "update_with_probe()"]},
+            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "正式 sampler connector", "functions": ["run_frontres_segment_sampler_step()", "_build_current_segment_batch()"]},
+            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "train/eval orchestration", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 frontres_segment_sampler.py::sample(): global/replay state -> segment_id/source/horizon_k",
+        "B2 frontres_segment_live_sampler.py::_build_current_segment_batch(): sample -> segment batch + trial plan",
+        "B3 frontres_segment_live_training.py: trial plan -> K-step rollout evidence",
+        "B4 frontres_segment_sampler.py::update_with_probe(): rollout evidence -> priority/replay state"
+      ],
+      "mainRouteTitles": ["选择 Segment", "构造训练 Batch", "执行 Segment", "回写 Replay Evidence"],
+          "review": ["K 是否真正进入正式 rollout", "priority 是否只读 rollout-time evidence", "search rows 是否错误获得 PPO credit"],
+          "tests": ["S1 T-dist/role", "S2 T-connect", "S4 K/source distribution"],
+          "gap": "正式 live source/K 分布尚需运行证据"
         },
         {
-          "id": "MAIN-24",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_executable_floor.py",
-          "role": "Executable floor: 给 repair 是否可执行提供下界信号."
-        },
-        {
-          "id": "MAIN-25",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_alpha_rho_bridge.py",
-          "role": "Alpha/rho bridge: 连接 acceptance、authority 和 structured rho 信号."
+          "id": "MOD-RESET",
+          "title": "Trial Plan & Reset",
+          "summary": "构造 paired rows 并恢复匹配的动态起点",
+          "owns": "trial roles、row domain、reset request、preroll 与 success mask",
+          "mustNot": "不把 num_envs 直接当作 train rows",
+          "objects": ["trial role", "source index", "reset mask", "preroll", "start frame"],
+          "files": [
+            {"id": "MAIN-29", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reset.py", "role": "reset request/result domain", "functions": []},
+            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "trial plan construction", "functions": ["_attach_frontres_segment_trial_plan()"]},
+            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "paired rollout capture", "functions": ["run_frontres_segment_live_probe()"]}
+          ],
+      "mainRoute": [
+        "B1 _attach_frontres_segment_trial_plan(): segment sample -> paired row roles",
+        "B2 frontres_segment_reset.py: row roles + cache state -> reset request",
+        "B3 run_frontres_segment_live_probe(): reset/preroll -> aligned rollout start",
+        "B4 live probe capture: aligned start -> Clean/Noisy/Repaired capture"
+      ],
+      "mainRouteTitles": ["分配 Paired Roles", "构造 Reset Request", "恢复动态起点", "采集 Paired Rollouts"],
+          "review": ["检查 quartet row identity", "检查 reset mask 与 capture batch row domain", "确认 preroll 不进入 score"],
+          "tests": ["S1 T-role/order", "S2 reset connectivity", "S4 dynamic reset"],
+          "gap": "simulator dynamic reset fidelity 是 live-only"
         }
       ]
     },
     {
-      "group": "09 Segment Data",
-      "summary": "把长序列切成可训练 segment, 管理 cache、dataset、sampler 和 reset 边界.",
-      "color": "#a855f7",
-      "blocks": [
-        {
-          "id": "MAIN-26",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py",
-          "role": "Cache builder: 从 rollout 或 motion source 生成 segment cache."
-        },
-        {
-          "id": "MAIN-27",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py",
-          "role": "Segment dataset: 读取 cache 并暴露可采样样本."
-        },
-        {
-          "id": "MAIN-28",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py",
-          "role": "Segment sampler: 决定每次更新使用哪些 segment."
-        },
-        {
-          "id": "MAIN-29",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reset.py",
-          "role": "Segment reset: 把环境放回 segment 起点状态."
-        }
-      ]
-    },
-    {
-      "group": "10 Runner Setup",
-      "summary": "把 env、policy、algorithm、storage、checkpoint 组装成一次可训练运行.",
+      "id": "SYS-RUNNER",
+      "title": "Runner Orchestration",
+      "summary": "组装环境、policy、algorithm、rollout、训练阶段和正式分支",
       "color": "#d97706",
-      "blocks": [
+      "modules": [
         {
-          "id": "MAIN-30",
-          "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py",
-          "role": "Runner 骨架: 持有 env、alg、storage 并驱动 learn loop."
+          "id": "MOD-RUNNER",
+          "title": "OnPolicyRunner",
+          "summary": "正式训练对象与生命周期总入口",
+          "owns": "env/policy/algorithm/storage 组装和 learn lifecycle",
+          "mustNot": "不重新实现 domain math、Gain 或 PPO formula",
+          "objects": ["runner", "env", "policy", "algorithm", "storage"],
+          "files": [
+            {"id": "MAIN-30", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "runner public boundary", "functions": ["__init__()", "learn()"]},
+            {"id": "MAIN-31", "path": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py", "role": "FrontRES setup connector", "functions": []},
+            {"id": "MAIN-40", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_runner_boundary.py", "role": "Stage 3 mode boundary", "functions": ["from_train_cfg()", "assert_live_runner_ready()"]}
+          ],
+      "mainRoute": [
+        "B1 OnPolicyRunner::__init__(): env + config -> policy/algorithm/storage",
+        "B2 frontres_training_setup.py: runner state -> FrontRES stage setup",
+        "B3 frontres_segment_runner_boundary.py::from_train_cfg(): stage config -> formal Stage 3 boundary",
+        "B4 OnPolicyRunner::learn(): formal boundary -> training lifecycle"
+      ],
+      "mainRouteTitles": ["组装训练对象", "安装 FrontRES Setup", "确认 Stage 3 Boundary", "进入 Learn Lifecycle"],
+          "review": ["确认正式 train 分支而非 probe 分支", "检查 helper 只做 orchestration"],
+          "tests": ["S2 official-route connectivity", "S4 formal sentinel"],
+          "gap": "具体正式命令的 branch reachability 需要 Phase B"
         },
         {
-          "id": "MAIN-31",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py",
-          "role": "FrontRES setup: 初始化 FrontRES 训练所需 helper 和运行状态."
-        },
-        {
-          "id": "MAIN-32",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py",
-          "role": "Runner checkpoint 接线: 在 runner 层接入 load/resume/save 逻辑."
+          "id": "MOD-STAGE3-LOOP",
+          "title": "Stage 3 Live Loop",
+          "summary": "执行 sampler、paired rollout、PPO update、priority update 与 eval",
+          "owns": "Stage 3 调用顺序和一次训练迭代边界",
+          "mustNot": "不改变 owner 模块中的 action、Gain 或 optimizer 语义",
+          "objects": ["sample", "capture", "segment storage", "PPO result", "sampler evidence"],
+          "files": [
+            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "sampler step", "functions": ["run_frontres_segment_sampler_step()"]},
+            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "training/eval loop", "functions": []},
+            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "rollout capture/storage builder", "functions": ["run_frontres_segment_live_probe()", "build_live_segment_storage()"]},
+            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "train/eval console formatting", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 run_frontres_segment_sampler_step(): runner state -> sampled segment batch",
+        "B2 run_frontres_segment_live_probe(): batch -> paired K-step capture",
+        "B3 build_live_segment_storage(): capture -> policy-row storage",
+        "B4 live training loop: storage -> PPO update -> sampler evidence update"
+      ],
+      "mainRouteTitles": ["采样 Segment", "执行 Paired Rollout", "构造 Segment Storage", "更新 Policy 与 Replay"],
+          "review": ["检查 sampler evidence 与 PPO diagnostics 隔离", "检查 update 次数和顺序", "检查 eval 不污染 training state"],
+          "tests": ["S2 T-connect/update-order", "S4 live train"],
+          "gap": "完整正式迭代仍需 tiny live command"
         }
       ]
     },
     {
-      "group": "11 Rollout Runtime",
-      "summary": "执行 env step 前后的在线路径, 决定 action、target、mask、transition 如何生成.",
-      "color": "#f59e0b",
-      "blocks": [
+      "id": "SYS-LEARNING",
+      "title": "Learning & Credit",
+      "summary": "构造 paired Gain、storage batch、advantage 和 PPO 参数更新",
+      "color": "#65a30d",
+      "modules": [
         {
-          "id": "MAIN-33",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py",
-          "role": "Rollout step: 生成 FrontRES action 并写入 env action."
+          "id": "MOD-GAIN",
+          "title": "Repair Gain",
+          "summary": "比较 Clean/Noisy/Repaired frozen-GMT execution",
+          "owns": "Style Gain、Physics Gain、Repair Cost 与 gain_total",
+          "mustNot": "不读取 generic environment reward 作为 fallback",
+          "objects": ["style_gain", "physics_gain", "repair_cost", "gain_total"],
+          "files": [
+            {"id": "MAIN-17", "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "role": "single active Gain owner", "functions": []},
+            {"id": "MAIN-17A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reward.py", "role": "Segment reward API surface", "functions": []},
+            {"id": "MAIN-18", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "role": "Gain diagnostics", "functions": ["summarize_segment_batch()"]}
+          ],
+      "mainRoute": [
+        "B1 frontres_gain.py: paired capture -> Style components",
+        "B2 frontres_gain.py: paired execution -> Physics components",
+        "B3 frontres_gain.py: executed correction -> Repair Cost",
+        "B4 Gain aggregation: components -> gain_total + shared decomposition"
+      ],
+      "mainRouteTitles": ["计算 Style Gain", "计算 Physics Gain", "计算 Repair Cost", "汇总 Repair Gain"],
+          "review": ["检查所有 consumer 使用同一 owner", "检查 pairing、K mask、done semantics", "检查 unavailable 不静默为 0"],
+          "tests": ["S1 T-value/meta", "S2 cross-consumer connectivity", "S4 metric population"],
+          "gap": "真实 ZMP/contact component population 需要 live evidence"
         },
         {
-          "id": "MAIN-34",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_post_step_connector.py",
-          "role": "Post-step connector: 把 env.step 返回值转成 transition payload."
+          "id": "MOD-STORAGE",
+          "title": "Segment Storage",
+          "summary": "保存同源 policy transition 并产生 PPO batch",
+          "owns": "transition schema、valid rows、returns、advantages 与 minibatch tuple",
+          "mustNot": "不重新计算 action representation 或 Gain 语义",
+          "objects": ["actions", "old_log_probs", "old_means", "old_sigmas", "returns", "advantages"],
+          "files": [
+            {"id": "MAIN-41", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "Segment storage owner", "functions": ["to_ppo_batch()"]},
+            {"id": "MAIN-42", "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py", "role": "base RSL-RL storage", "functions": []},
+            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "storage writer", "functions": ["build_live_segment_storage()"]}
+          ],
+      "mainRoute": [
+        "B1 build_live_segment_storage(): policy-row capture -> transition fields",
+        "B2 frontres_segment_storage.py: transitions + K/done -> returns/advantages",
+        "B3 frontres_segment_storage.py::to_ppo_batch(): valid rows -> PPO batch"
+      ],
+      "mainRouteTitles": ["写入 Transition", "计算 Returns / Advantages", "生成 PPO Batch"],
+          "review": ["逐字段确认 row/order/shape", "检查 action/mean/sigma/log_prob 同源", "检查 invalid/search rows 不获 PPO credit"],
+          "tests": ["S1 T-shape/order/mask", "S2 storage->PPO", "S3 resume if persisted"],
+          "gap": "live valid-row 分布需要 runtime evidence"
         },
         {
-          "id": "MAIN-35",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_hsl_rollout_target.py",
-          "role": "HSL rollout target: 生成 supervised target 和有效 mask."
-        },
-        {
-          "id": "MAIN-36",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py",
-          "role": "Runtime correction: 管理部署/评估时的 correction 写入路径."
+          "id": "MOD-PPO",
+          "title": "Segment PPO",
+          "summary": "对 full-6D policy distribution 执行 direct Delta SE PPO update",
+          "owns": "clipped objective、value loss、advantage scaling、KL、optimizer 与 rollback",
+          "mustNot": "不更新 retired rho/acceptance 或按 family mask inactive dims",
+          "objects": ["ratio", "advantage", "pre/post KL", "actor grad", "critic grad", "optimizer state"],
+          "files": [
+            {"id": "MAIN-43", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "Segment PPO formula", "functions": ["compute_frontres_segment_ppo_loss()"]},
+            {"id": "MAIN-44", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "FrontRES algorithm wrapper / Stage 2 HSL", "functions": []},
+            {"id": "MAIN-45", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "single update connector", "functions": []}
+            ,{"id": "MAIN-45A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "DP-09 phase owner", "functions": ["frontres_segment_warmup_phase()"]}
+          ],
+      "mainRoute": [
+        "B1 compute_frontres_segment_ppo_loss(): PPO batch -> ratio/actor/value losses",
+        "B2 frontres_unified.py: loss -> actor/critic gradients",
+        "B3 optimizer step: gradients -> updated policy distribution",
+        "B4 live probe connector: old/new stats -> post-update KL + trust decision"
+      ],
+      "mainRouteTitles": ["计算 PPO Loss", "反向传播梯度", "执行 Optimizer Step", "检查 Post-Update Trust"],
+          "review": ["检查 scale_only advantage", "检查 critic warmup 与 actor warmup 梯度边界", "检查 post-update KL 与 rollback 顺序"],
+          "tests": ["S1 T-clip/kl/grad/update-order/state", "S2 formal connector", "S4 trust diagnostics"],
+          "gap": "DP-09 offline S1-S3 alignment confirmed; live Phase B evidence remains pending"
         }
       ]
     },
     {
-      "group": "12 Stage 3 Live Loop",
-      "summary": "Stage 3 segment replay 的在线训练闭环, 覆盖采样、更新和序列评估.",
-      "color": "#ea580c",
-      "blocks": [
-        {
-          "id": "MAIN-37",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py",
-          "role": "Live sampler: 为 Stage 3 选择在线 segment batch."
-        },
-        {
-          "id": "MAIN-38",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
-          "role": "Live training: 驱动 Stage 3 segment replay 训练回合."
-        },
-        {
-          "id": "MAIN-39",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py",
-          "role": "Live update loop: 执行单次或多次 segment PPO update."
-        },
-        {
-          "id": "MAIN-40",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py",
-          "role": "Sequence eval: 按整段序列评估 reset、preroll、eval 边界."
-        }
-      ]
-    },
-    {
-      "group": "13 Storage Boundary",
-      "summary": "只负责保存和吐出训练 batch, 不应该重新解释 FrontRES 方法语义.",
-      "color": "#475569",
-      "blocks": [
-        {
-          "id": "MAIN-41",
-          "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py :: Transition",
-          "role": "Transition schema: 定义 rollout 写入 storage 的字段集合."
-        },
-        {
-          "id": "MAIN-42",
-          "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py :: add_transitions",
-          "role": "Transition write: 把 runner payload 复制到 rollout buffer."
-        },
-        {
-          "id": "MAIN-43",
-          "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py :: mini_batch_generator",
-          "role": "Batch generator: 产出 algorithm.update 消费的字段顺序和 shape."
-        },
-        {
-          "id": "MAIN-44",
-          "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py",
-          "role": "Segment storage: 保存 Stage 3 segment replay 的专用 batch 字段."
-        }
-      ]
-    },
-    {
-      "group": "14 Algorithm Update",
-      "summary": "把 storage batch 转成梯度更新, 是 loss、advantage、optimizer 的唯一 owner.",
-      "color": "#dc2626",
-      "blocks": [
-        {
-          "id": "MAIN-45",
-          "path": "source/rsl_rl/rsl_rl/algorithms/ppo.py",
-          "role": "Base PPO: 执行标准 PPO advantage、policy loss 和 value loss."
-        },
-        {
-          "id": "MAIN-46",
-          "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py",
-          "role": "Segment PPO: 执行 Stage 3 segment replay 的 PPO 更新, 包括 direct Delta SE clipped surrogate, distribution KL, 和默认 scale-only advantage scaling."
-        },
-        {
-          "id": "MAIN-47",
-          "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py",
-          "role": "FrontRES loss: 汇总 HSL、alpha、rho、acceptance 等方法损失."
-        }
-      ]
-    },
-    {
-      "group": "15 Artifacts",
-      "summary": "保存、恢复、导出和评估模型产物, 是 stat/checkpoint 漂移的高风险区.",
+      "id": "SYS-ARTIFACT",
+      "title": "Artifacts & Evaluation",
+      "summary": "保存可恢复训练状态并独立评价 policy quality",
       "color": "#0891b2",
-      "blocks": [
+      "modules": [
         {
-          "id": "MAIN-48",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_checkpointing.py",
-          "role": "Segment checkpoint: 保存和恢复 Stage 3 专用训练状态."
+          "id": "MOD-CHECKPOINT",
+          "title": "Checkpointing",
+          "summary": "保存和恢复 policy、stats、optimizer、sampler 与 contract identity",
+          "owns": "正式 OnPolicyRunner save/load payload 和兼容性检查",
+          "mustNot": "不静默跳过不兼容 actor head 或 observation stats",
+          "objects": ["policy state", "std", "normalizer", "optimizer", "sampler", "phase state"],
+          "files": [
+            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "正式 checkpoint owner", "functions": ["load_runner()"]},
+            {"id": "MAIN-50", "path": "source/whole_body_tracking/whole_body_tracking/utils/exporter.py", "role": "policy export", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 runner save: policy/stats/optimizer/sampler/phase -> checkpoint payload",
+        "B2 frontres_checkpointing.py::load_runner(): payload -> validated runtime state",
+        "B3 exporter.py: restored policy + stats -> deployment artifact"
+      ],
+      "mainRouteTitles": ["保存完整训练状态", "恢复并验证状态", "导出 Policy Artifact"],
+          "review": ["检查正式 owner 与 detached helper 区别", "检查 cold-start/resume identity", "检查 warmup phase state"],
+          "tests": ["S3 T-persist/order/diff", "S4 artifact resume"],
+          "gap": "真实服务器 checkpoint round-trip 未由静态图证明"
         },
         {
-          "id": "MAIN-49",
-          "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py",
-          "role": "DR sweep eval: 批量评估扰动强度下的模型表现."
-        },
-        {
-          "id": "MAIN-50",
-          "path": "source/whole_body_tracking/whole_body_tracking/utils/exporter.py",
-          "role": "Policy export: 把训练模型导出到部署/推理格式."
+          "id": "MOD-EVAL",
+          "title": "Evaluation",
+          "summary": "独立采样并评价 paired repair 与 long-sequence behavior",
+          "owns": "periodic eval、sequence eval、per-motion aggregation 与 state isolation",
+          "mustNot": "不更新 policy 或 replay priority",
+          "objects": ["motion id", "start frame", "perturbation", "paired metrics", "survival"],
+          "files": [
+            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "periodic/sequence eval route", "functions": ["run_frontres_segment_sequence_offline_eval()"]},
+            {"id": "MAIN-49", "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py", "role": "DR sweep", "functions": []},
+            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "eval formatting", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 live_training.py: checkpoint + eval request -> independent segment sample",
+        "B2 sequence eval: sample -> paired reset/preroll/rollout",
+        "B3 shared Gain owner: paired capture -> per-motion metrics",
+        "B4 eval aggregation: per-motion metrics -> sequence summary"
+      ],
+      "mainRouteTitles": ["独立采样 Eval Segment", "执行 Paired Evaluation", "计算 Per-Motion Metrics", "汇总 Sequence Result"],
+          "review": ["确认每次 eval 新采样", "检查 train/eval state isolation", "检查 Gain raw components 与 K coverage"],
+          "tests": ["S2 T-diff/meta/connect", "S4 repeated eval"],
+          "gap": "policy quality 和物理真实性只由 live eval 证明"
         }
       ]
     },
     {
-      "group": "16 Test Surface",
-      "summary": "把主链路变成可执行检查, 用于确认 shape、route、checkpoint、storage、update 没有漂移.",
+      "id": "SYS-TEST",
+      "title": "Tests & Diagnostics",
+      "summary": "把架构、语义和正式路径转换成可重复证据",
       "color": "#64748b",
-      "blocks": [
+      "modules": [
         {
-          "id": "MAIN-51",
-          "path": "source/rsl_rl/rsl_rl/tests/frontres_*_contract.py",
-          "role": "Contract tests: 检查单个模块接口和语义边界."
+          "id": "MOD-TESTS",
+          "title": "Contract Tests",
+          "summary": "使用 tiny/fake artifacts 验证 owner 语义和离线连接",
+          "owns": "S0-S3 contract、pseudo suite、regression 与 inventory",
+          "mustNot": "不得把 fake connectivity 报告为 simulator physics",
+          "objects": ["S tier", "T kind", "fixture", "evidence"],
+          "files": [
+            {"id": "MAIN-51", "path": "source/rsl_rl/rsl_rl/tests/frontres_*_contract.py", "role": "FrontRES contracts", "functions": []},
+            {"id": "MAIN-52", "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_*_contract.py", "role": "Segment contracts", "functions": []},
+            {"id": "MAIN-53", "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py", "role": "aggregate pseudo suite", "functions": []},
+            {"id": "MAIN-54", "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_live_sentinel_contract.py", "role": "sentinel contract", "functions": []}
+          ],
+      "mainRoute": [
+        "B1 contract test: owner contract -> tiny semantic fixture",
+        "B2 connectivity test: official entry/config -> cross-owner route",
+        "B3 pseudo suite: selected tests -> S/T evidence summary",
+        "B4 test inventory: evidence summary -> governed coverage state"
+      ],
+      "mainRouteTitles": ["验证 Owner 语义", "验证正式离线连接", "运行聚合 Suite", "更新 Test Inventory"],
+          "review": ["检查每个 test 真正覆盖的 S/T 边界", "检查 Gate A 与 Gate B 没有混报"],
+          "tests": ["self-describing S/T inventory"],
+          "gap": "测试库存可能随代码变更而过期"
         },
         {
-          "id": "MAIN-52",
-          "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_*_contract.py",
-          "role": "Segment tests: 检查 Stage 3 cache、reset、storage、update 路径."
-        },
-        {
-          "id": "MAIN-53",
-          "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py",
-          "role": "Pseudo suite: 用轻量假对象覆盖昂贵运行路径的关键事实."
-        },
-        {
-          "id": "MAIN-54",
-          "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_live_sentinel_contract.py",
-          "role": "Live sentinel: 用最小真实边界验证在线路径仍可执行."
+          "id": "MOD-DIAGNOSTICS",
+          "title": "Runtime Diagnostics",
+          "summary": "输出正式路径的 branch、shape、value、gradient 和 evidence facts",
+          "owns": "结构化日志和可搜索 sentinel labels",
+          "mustNot": "不重新计算或替代 owner semantic object",
+          "objects": ["branch flags", "shape/value", "role counts", "KL", "Gain components"],
+          "files": [
+            {"id": "MAIN-18", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "role": "Segment summary", "functions": ["summarize_segment_batch()"]},
+            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "console formatter", "functions": []},
+            {"id": "MAIN-40", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_runner_boundary.py", "role": "mode sentinel", "functions": ["sentinel_log()", "probe_log()", "train_log()"]}
+          ],
+      "mainRoute": [
+        "B1 owner result: semantic object -> structured summary fields",
+        "B2 frontres_segment_diagnostics.py: fields -> canonical diagnostics",
+        "B3 live_training.py: diagnostics -> searchable console blocks",
+        "B4 runner boundary logs: branch facts -> audit evidence"
+      ],
+      "mainRouteTitles": ["接收 Owner 结果", "生成 Canonical Diagnostics", "输出可检索日志", "记录 Formal Branch Evidence"],
+          "review": ["缺数据必须显示 UNCONFIRMED", "诊断字段必须与 owner 同源", "检查重复 render path"],
+          "tests": ["S1 T-oracle", "S2 diagnostic connectivity", "S4 runtime facts"],
+          "gap": "日志存在不等于算法效果正确"
         }
       ]
     }

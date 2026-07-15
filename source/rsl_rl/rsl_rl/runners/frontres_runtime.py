@@ -3,11 +3,26 @@
 Task-space correction and temporal reference cache helpers live under
 ``rsl_rl.frontres``. This runner module keeps inference wrapping and the
 normalizer bridge used by ``OnPolicyRunner``.
+
+Status: active. Upstream: OnPolicyRunner inference/export entrypoints.
+Downstream: full-6D task correction and GMT action consumer.
+Evidence: code-confirmed and contract-confirmed. Gap: real deployment runtime.
 """
 
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
 import torch
+
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_probe_runtime",
+    Path(__file__).resolve().parents[1] / "frontres" / "frontres_formal_runtime_probe.py",
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
+emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
 
 from rsl_rl.modules import FrontRESActorCritic
 from rsl_rl.modules.frontres_observation_layout import split_frontres_policy_obs
@@ -31,14 +46,6 @@ def get_inference_policy_runner(self, device=None):
             with torch.inference_mode():
                 raw_obs = x.to(self.device)
                 norm_obs = self._apply_obs_normalizer(raw_obs) if self.cfg["empirical_normalization"] else raw_obs
-                if (
-                    bool(self.cfg.get("frontres_state_alpha_enabled", True))
-                    and hasattr(self.alg.policy, "get_state_router_alpha")
-                ):
-                    alpha_obs = norm_obs
-                    self._frontres_state_alpha_prob_next = (
-                        self.alg.policy.get_state_router_alpha(alpha_obs).view(-1).detach()
-                    )
                 correction = self.alg.policy.get_task_correction_inference(norm_obs)
                 self._apply_frontres_task_corrections(correction, correction.shape[0], allow_oracle=False)
                 obs_corr, extras_corr = self.env.get_observations()
@@ -56,12 +63,23 @@ def get_inference_policy_runner(self, device=None):
     return policy
 
 def apply_obs_normalizer(self, obs: torch.Tensor) -> torch.Tensor:
-    """Apply obs_normalizer, with partial pass-through for FrontRES task-space mode.
+    """分别归一化 FrontRES prefix 和 frozen-GMT suffix.
 
-    IsaacLab 会把 optional obs term 放在 regular term 前面.
-    因此 FrontRES-only 信息位于前缀, 最后 gmt_dim 维保持 GMT-compatible suffix.
-    这里只用 frozen GMT normalizer 归一化 suffix, prefix 使用 FrontRES 自己的统计值.
+    函数名说明:
+        `apply_obs_normalizer` 是 Stage 2/3 observation normalization adapter,
+        负责组合两套持久统计; 它不是 observation builder, 也不更新 frozen GMT
+        normalizer.
+
+    主链路:
+        上游: runner 从 env 取得 870D policy observation.
+        下游: normalized observation 直接进入 FrontRES actor, 其中最后 gmt_dim
+        维保持 GMT-compatible normalization.
+
+    语义:
+        IsaacLab 把 optional FrontRES terms 放在前缀. prefix 必须使用 Stage 2
+        保存的 FrontRES stats, suffix 必须沿用 frozen GMT stats; 两者不可混用.
     """
+    # B1: 将 policy observation 分为 FrontRES prefix 和 frozen-GMT suffix.
     extra, gmt_obs = split_frontres_policy_obs(obs, self._frontres_gmt_obs_dim)
     if extra is not None:
         num_extra = extra.shape[-1]
@@ -76,5 +94,17 @@ def apply_obs_normalizer(self, obs: torch.Tensor) -> torch.Tensor:
             extra_normalizer = getattr(self, "_frontres_extra_normalizer", None)
             if extra_normalizer is not None:
                 extra = extra_normalizer(extra)
-        return torch.cat([extra, gmt_part], dim=-1)
-    return self.obs_normalizer(obs)
+        # B2: 使用各自持久统计归一化 prefix 和 suffix, 再恢复原布局.
+        normalized = torch.cat([extra, gmt_part], dim=-1)
+    else:
+        normalized = self.obs_normalizer(obs)
+    # B3: AUDIT-OBS-01 截获 actor 实际消费的 normalized tensor.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-OBS-01",
+        raw_obs=obs,
+        frontres_prefix=extra,
+        gmt_suffix=gmt_obs,
+        normalized_obs=normalized,
+    )
+    return normalized

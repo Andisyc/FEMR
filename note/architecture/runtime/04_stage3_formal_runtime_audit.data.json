@@ -1,0 +1,1680 @@
+{
+  "title": "04 Stage 3 Formal Runtime Audit",
+  "subtitle": "20 个重要 Owner 边界的正式训练插桩阅读图. 每个 B 子框解释为什么测这里、截获什么以及失败归属.",
+  "layout": "repository_reading_atlas",
+  "canvasWidth": 16900,
+  "defaultZoom": 0.18,
+  "runtimeOrder": [
+    "AUDIT-ROUTE-01",
+    "AUDIT-PERTURB-01",
+    "AUDIT-PERTURB-02",
+    "AUDIT-SEGDATA-01",
+    "AUDIT-SAMPLER-01",
+    "AUDIT-KPLAN-01",
+    "AUDIT-KROLLOUT-01",
+    "AUDIT-OBS-01",
+    "AUDIT-ACTION-01",
+    "AUDIT-APPLY-01",
+    "AUDIT-GMT-01",
+    "AUDIT-PAIR-01",
+    "AUDIT-PAIR-EVIDENCE-01",
+    "AUDIT-GAIN-01",
+    "AUDIT-RETURN-01",
+    "AUDIT-HSL-LOAD-01",
+    "AUDIT-WARMUP-01",
+    "AUDIT-PPO-01",
+    "AUDIT-PERSIST-01",
+    "AUDIT-DIAG-01"
+  ],
+  "supportOrder": [],
+  "systems": [
+    {
+      "id": "SYS-FORMAL-AUDIT",
+      "title": "Stage 3 Formal Runtime Audit",
+      "summary": "Concept Figure -> owner -> probe -> formal consumer",
+      "color": "#0f766e",
+      "modules": [
+        {
+          "id": "AUDIT-ROUTE-01",
+          "title": "Probe 01 | 正式 Stage 3 路由",
+          "summary": "正式 train 身份进入 live update loop",
+          "cardKind": "runtime_probe",
+          "owns": "验证 正式 train 身份进入 live update loop",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-03, M-05, SR-01",
+            "stage/task/mode/checkpoint",
+            "live_train/alternate_modes",
+            "iteration/update loop"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-ROUTE-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "run_frontres_segment_live_training_loop()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 run_frontres_segment_live_training_loop(): upstream state -> owner input",
+            "B2 run_frontres_segment_live_training_loop(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1681 :: run_frontres_segment_live_training_loop() 入口/调用前",
+              "capture": "stage/task/mode/checkpoint",
+              "whyHere": "命令刚完成 Stage 3 preset, 这里能确认本次运行身份而不受 runner 后续状态影响",
+              "failureOwner": "失败归属: CLI 参数或 Stage 3 preset",
+              "sourceLine": 1681,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1681"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1857 :: run_frontres_segment_live_training_loop() 产物边界",
+              "capture": "live_train/alternate_modes",
+              "whyHere": "formal guard 在这里首次排除 sentinel/eval/update_loop 等替代路径",
+              "failureOwner": "失败归属: runner route guard 或 boundary config",
+              "sourceLine": 1857,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1857"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1859 :: 正式 consumer 接收前",
+              "capture": "iteration/update loop",
+              "whyHere": "进入 live update loop 前是正式训练承诺点, 再晚只能看到训练结果",
+              "failureOwner": "失败归属: train dispatch 到 live loop 的连接",
+              "sourceLine": 1859,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1859"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py::run_frontres_segment_live_training_loop()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "stage/task/mode/checkpoint",
+              "live_train/alternate_modes",
+              "iteration/update loop"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-PERTURB-01",
+          "title": "Probe 02 | 扰动配置",
+          "summary": "specialist family 与 DR scale 进入正式训练",
+          "cardKind": "runtime_probe",
+          "owns": "验证 specialist family 与 DR scale 进入正式训练",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-02",
+            "specialist_mode",
+            "family config",
+            "DR scale/schedule"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-PERTURB-01-SRC",
+              "path": "scripts/rsl_rl/train.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "_configure_frontres_motion_perturbations()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 _configure_frontres_motion_perturbations(): upstream state -> owner input",
+            "B2 _configure_frontres_motion_perturbations(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "scripts/rsl_rl/train.py:874 :: _configure_frontres_motion_perturbations() 入口/调用前",
+              "capture": "specialist_mode",
+              "whyHere": "specialist mode 与 DR 参数尚未写入 alg config, 可隔离 CLI 来源错误",
+              "failureOwner": "失败归属: CLI/preset 输入",
+              "sourceLine": 874,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=874"
+            },
+            {
+              "location": "scripts/rsl_rl/train.py:877 :: _configure_frontres_motion_perturbations() 产物边界",
+              "capture": "family config",
+              "whyHere": "这里首次形成正式训练使用的 canonical perturbation config",
+              "failureOwner": "失败归属: Stage 3 perturbation configuration",
+              "sourceLine": 877,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=877"
+            },
+            {
+              "location": "scripts/rsl_rl/train.py:883 :: 正式 consumer 接收前",
+              "capture": "DR scale/schedule",
+              "whyHere": "sampler/rollout 读取前检查可发现配置存在但未透传的旁路",
+              "failureOwner": "失败归属: alg config 到 runtime owner 的转发",
+              "sourceLine": 883,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=883"
+            }
+          ],
+          "probe": {
+            "owner": "scripts/rsl_rl/train.py::_configure_frontres_motion_perturbations()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "specialist_mode",
+              "family config",
+              "DR scale/schedule"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-PERTURB-02",
+          "title": "Probe 03 | 实际扰动",
+          "summary": "实际 rollout 行收到预期 local_rp 扰动",
+          "cardKind": "runtime_probe",
+          "owns": "验证 实际 rollout 行收到预期 local_rp 扰动",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-02, Q-PAIR",
+            "family row mask",
+            "applied root-position delta",
+            "DR scale/finite stats"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-PERTURB-02-SRC",
+              "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "MotionPerturber.apply_perturbations()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 MotionPerturber.apply_perturbations(): upstream state -> owner input",
+            "B2 MotionPerturber.apply_perturbations(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py:349 :: MotionPerturber.apply_perturbations() 入口/调用前",
+              "capture": "family row mask",
+              "whyHere": "干净参考与 per-row family/DR mask 同时可见, 可先证明扰动选择正确",
+              "failureOwner": "失败归属: family mask 或 DR scale 来源",
+              "sourceLine": 349,
+              "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fmotion_perturbations.py&line=349"
+            },
+            {
+              "location": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py:381 :: MotionPerturber.apply_perturbations() 产物边界",
+              "capture": "applied root-position delta",
+              "whyHere": "OU、artifact、IID 合成后 applied delta 第一次完整成立",
+              "failureOwner": "失败归属: MotionPerturber.apply_perturbations",
+              "sourceLine": 381,
+              "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fmotion_perturbations.py&line=381"
+            },
+            {
+              "location": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py:382 :: 正式 consumer 接收前",
+              "capture": "DR scale/finite stats",
+              "whyHere": "paired execution 消费前检查可发现正确扰动被覆盖或错分配到 role",
+              "failureOwner": "失败归属: perturbation 到 command/paired rollout 的连接",
+              "sourceLine": 382,
+              "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fmotion_perturbations.py&line=382"
+            }
+          ],
+          "probe": {
+            "owner": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py::MotionPerturber.apply_perturbations()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "family row mask",
+              "applied root-position delta",
+              "DR scale/finite stats"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-SEGDATA-01",
+          "title": "Probe 04 | Segment 数据身份",
+          "summary": "cache source 与 sampled segment 身份可追溯",
+          "cardKind": "runtime_probe",
+          "owns": "验证 cache source 与 sampled segment 身份可追溯",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: SR-01",
+            "sampled segment ids",
+            "state/reference/K/family batch",
+            "sampler batch consumer"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-SEGDATA-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "FrontRESSegmentDataset.get_segments()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 FrontRESSegmentDataset.get_segments(): upstream state -> owner input",
+            "B2 FrontRESSegmentDataset.get_segments(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py:270 :: FrontRESSegmentDataset.get_segments() 入口/调用前",
+              "capture": "sampled segment ids",
+              "whyHere": "sampled ids 刚进入 dataset, 可确认 sampler 请求的 segment 身份",
+              "failureOwner": "失败归属: sampler 产生的 segment ids",
+              "sourceLine": 270,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_dataset.py&line=270"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py:273 :: FrontRESSegmentDataset.get_segments() 产物边界",
+              "capture": "state/reference/K/family batch",
+              "whyHere": "state、reference、K、family 在 batch.validate 后首次构成完整 Segment 数据对象",
+              "failureOwner": "失败归属: FrontRESSegmentDataset.get_segments",
+              "sourceLine": 273,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_dataset.py&line=273"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py:293 :: 正式 consumer 接收前",
+              "capture": "sampler batch consumer",
+              "whyHere": "sampler batch builder 读取前检查可发现 batch 身份被重新索引",
+              "failureOwner": "失败归属: dataset batch 到 live sampler connector",
+              "sourceLine": 293,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_dataset.py&line=293"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py::FrontRESSegmentDataset.get_segments()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "sampled segment ids",
+              "state/reference/K/family batch",
+              "sampler batch consumer"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-SAMPLER-01",
+          "title": "Probe 05 | Segment Replay 事务",
+          "summary": "sample、rollout evidence 与 priority update 同源",
+          "cardKind": "runtime_probe",
+          "owns": "验证 sample、rollout evidence 与 priority update 同源",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: SR-01",
+            "sample state",
+            "rollout evidence",
+            "priority before/after"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-SAMPLER-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "sample()/update_with_probe()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 sample()/update_with_probe(): upstream state -> owner input",
+            "B2 sample()/update_with_probe(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:283 :: sample()/update_with_probe() 入口/调用前",
+              "capture": "sample state",
+              "whyHere": "采样前的 priority/state 是 source 选择的唯一依据",
+              "failureOwner": "失败归属: sampler persistent state",
+              "sourceLine": 283,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=283"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:311 :: sample()/update_with_probe() 产物边界",
+              "capture": "rollout evidence",
+              "whyHere": "sample 返回时 segment/source/K/trial role 首次绑定为同一事务",
+              "failureOwner": "失败归属: sample_rollout_rows",
+              "sourceLine": 311,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=311"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:326 :: 正式 consumer 接收前",
+              "capture": "priority before/after",
+              "whyHere": "priority update 后检查可证明更新使用同一次 rollout evidence",
+              "failureOwner": "失败归属: update_with_probe 或 evidence wiring",
+              "sourceLine": 326,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=326"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py::sample()/update_with_probe()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "sample state",
+              "rollout evidence",
+              "priority before/after"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-KPLAN-01",
+          "title": "Probe 06 | K-step 计划",
+          "summary": "curriculum K 被展开为 per-row rollout budget",
+          "cardKind": "runtime_probe",
+          "owns": "验证 curriculum K 被展开为 per-row rollout budget",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-06, SR-01",
+            "curriculum max K",
+            "per-row horizon_k",
+            "expanded trial rows"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-KPLAN-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "plan_rollout_budget()/expand_rollout_trials()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 plan_rollout_budget()/expand_rollout_trials(): upstream state -> owner input",
+            "B2 plan_rollout_budget()/expand_rollout_trials(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:492 :: plan_rollout_budget()/expand_rollout_trials() 入口/调用前",
+              "capture": "curriculum max K",
+              "whyHere": "persistent segment state 与 max K 同时可见, 能验证 curriculum 输入",
+              "failureOwner": "失败归属: segment state 或 max_horizon config",
+              "sourceLine": 492,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=492"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:536 :: plan_rollout_budget()/expand_rollout_trials() 产物边界",
+              "capture": "per-row horizon_k",
+              "whyHere": "trial_count、horizon_k、reason 在 budget 返回前首次完整对应",
+              "failureOwner": "失败归属: plan_rollout_budget",
+              "sourceLine": 536,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=536"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:544 :: 正式 consumer 接收前",
+              "capture": "expanded trial rows",
+              "whyHere": "trial expansion 前检查可发现 budget 正确但未被采用",
+              "failureOwner": "失败归属: budget 到 expansion 的连接",
+              "sourceLine": 544,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=544"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py::plan_rollout_budget()/expand_rollout_trials()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "curriculum max K",
+              "per-row horizon_k",
+              "expanded trial rows"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-KROLLOUT-01",
+          "title": "Probe 07 | K-step 执行",
+          "summary": "expanded trial rows 将同一 K 交给 reset 和 rollout",
+          "cardKind": "runtime_probe",
+          "owns": "验证 expanded trial rows 将同一 K 交给 reset 和 rollout",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-06, Q-PAIR",
+            "base segment budget",
+            "expanded source/trial/K rows",
+            "reset/rollout consumer rows"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-KROLLOUT-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "expand_rollout_trials()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 expand_rollout_trials(): upstream state -> owner input",
+            "B2 expand_rollout_trials(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:577 :: expand_rollout_trials() 入口/调用前",
+              "capture": "base segment budget",
+              "whyHere": "base budget 进入 expansion 时可验证每个 source segment 的 K",
+              "failureOwner": "失败归属: K plan 输出",
+              "sourceLine": 577,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=577"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:593 :: expand_rollout_trials() 产物边界",
+              "capture": "expanded source/trial/K rows",
+              "whyHere": "source_index/trial_index/role/K 在 expanded plan 中首次逐行对齐",
+              "failureOwner": "失败归属: expand_rollout_trials",
+              "sourceLine": 593,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=593"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:603 :: 正式 consumer 接收前",
+              "capture": "reset/rollout consumer rows",
+              "whyHere": "reset/rollout 消费前检查可发现 expanded rows 被截断或重排",
+              "failureOwner": "失败归属: trial plan 到 reset/rollout connector",
+              "sourceLine": 603,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=603"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py::expand_rollout_trials()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "base segment budget",
+              "expanded source/trial/K rows",
+              "reset/rollout consumer rows"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-OBS-01",
+          "title": "Probe 08 | 870D Observation",
+          "summary": "100D balance prefix 与 770D GMT suffix 保持布局",
+          "cardKind": "runtime_probe",
+          "owns": "验证 100D balance prefix 与 770D GMT suffix 保持布局",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-04, M-10",
+            "raw obs[*,870]",
+            "prefix100/suffix770",
+            "normalized finite obs"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-OBS-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "apply_obs_normalizer()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 apply_obs_normalizer(): upstream state -> owner input",
+            "B2 apply_obs_normalizer(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py:82 :: apply_obs_normalizer() 入口/调用前",
+              "capture": "raw obs[*,870]",
+              "whyHere": "raw 870D obs 尚未归一化, 可先验证 100D+770D 布局来源",
+              "failureOwner": "失败归属: environment observation construction",
+              "sourceLine": 82,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=82"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py:97 :: apply_obs_normalizer() 产物边界",
+              "capture": "prefix100/suffix770",
+              "whyHere": "prefix/suffix 分别归一化后首次形成 actor 实际输入",
+              "failureOwner": "失败归属: apply_obs_normalizer 或 persisted stats",
+              "sourceLine": 97,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=97"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py:101 :: 正式 consumer 接收前",
+              "capture": "normalized finite obs",
+              "whyHere": "actor 调用前检查可发现 normalized obs 被替换或再次处理",
+              "failureOwner": "失败归属: normalizer 到 policy connector",
+              "sourceLine": 101,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=101"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py::apply_obs_normalizer()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "raw obs[*,870]",
+              "prefix100/suffix770",
+              "normalized finite obs"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-ACTION-01",
+          "title": "Probe 09 | Full-6D Actor",
+          "summary": "mean、sigma 与 sampled action 保持 full-6D 同源",
+          "cardKind": "runtime_probe",
+          "owns": "验证 mean、sigma 与 sampled action 保持 full-6D 同源",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-04",
+            "policy obs",
+            "mean/sigma[*,6]",
+            "sampled action[*,6]"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-ACTION-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "update_distribution()/act()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 update_distribution()/act(): upstream state -> owner input",
+            "B2 update_distribution()/act(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:798 :: update_distribution()/act() 入口/调用前",
+              "capture": "policy obs",
+              "whyHere": "policy obs 刚进入 actor, 可把 observation 错误与 actor 错误分开",
+              "failureOwner": "失败归属: observation/normalizer upstream",
+              "sourceLine": 798,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=798"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:868 :: update_distribution()/act() 产物边界",
+              "capture": "mean/sigma[*,6]",
+              "whyHere": "Normal(mean,sigma) 建立后 full-6D distribution 语义第一次完整成立",
+              "failureOwner": "失败归属: actor head、std 或 distribution construction",
+              "sourceLine": 868,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=868"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:930 :: 正式 consumer 接收前",
+              "capture": "sampled action[*,6]",
+              "whyHere": "act 返回前首次完成 raw sample 到 bounded Delta SE(3) action 的转换",
+              "failureOwner": "失败归属: sampling、bounding 或 action representation",
+              "sourceLine": 930,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=930"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py::update_distribution()/act()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "policy obs",
+              "mean/sigma[*,6]",
+              "sampled action[*,6]"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-APPLY-01",
+          "title": "Probe 10 | Delta SE(3) 应用",
+          "summary": "完整 6D repair 写入 repaired reference",
+          "cardKind": "runtime_probe",
+          "owns": "验证 完整 6D repair 写入 repaired reference",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-04, M-10",
+            "raw Delta SE(3)",
+            "task correction",
+            "repaired reference"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-APPLY-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "apply_frontres_task_corrections()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 apply_frontres_task_corrections(): upstream state -> owner input",
+            "B2 apply_frontres_task_corrections(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py:96 :: apply_frontres_task_corrections() 入口/调用前",
+              "capture": "raw Delta SE(3)",
+              "whyHere": "full-6D task action 尚未写入 command, 可验证执行输入与 actor 输出同源",
+              "failureOwner": "失败归属: actor 到 task-correction connector",
+              "sourceLine": 96,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=96"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py:113 :: apply_frontres_task_corrections() 产物边界",
+              "capture": "task correction",
+              "whyHere": "position/rotation correction 写入 command buffer 后执行语义首次成立",
+              "failureOwner": "失败归属: apply_frontres_task_corrections",
+              "sourceLine": 113,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=113"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py:132 :: 正式 consumer 接收前",
+              "capture": "repaired reference",
+              "whyHere": "GMT 刷新参考前检查可发现 buffer 被清零、截断或 role 错位",
+              "failureOwner": "失败归属: command correction 到 GMT execution",
+              "sourceLine": 132,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=132"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py::apply_frontres_task_corrections()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "raw Delta SE(3)",
+              "task correction",
+              "repaired reference"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-GMT-01",
+          "title": "Probe 11 | Frozen GMT",
+          "summary": "GMT 执行 repaired reference 且参数保持冻结",
+          "cardKind": "runtime_probe",
+          "owns": "验证 GMT 执行 repaired reference 且参数保持冻结",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-10",
+            "GMT observation",
+            "requires_grad/optimizer exclusion",
+            "GMT execution/checksum"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-GMT-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "get_env_action()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 get_env_action(): upstream state -> owner input",
+            "B2 get_env_action(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:989 :: get_env_action() 入口/调用前",
+              "capture": "GMT observation",
+              "whyHere": "GMT policy obs 与 FrontRES correction 同时可见, 可确认 repaired path 输入",
+              "failureOwner": "失败归属: repaired reference 或 GMT observation",
+              "sourceLine": 989,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=989"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:995 :: get_env_action() 产物边界",
+              "capture": "requires_grad/optimizer exclusion",
+              "whyHere": "no_grad GMT 调用后可直接检查冻结执行与 robot action",
+              "failureOwner": "失败归属: frozen GMT invocation",
+              "sourceLine": 995,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=995"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:930 :: 正式 consumer 接收前",
+              "capture": "GMT execution/checksum",
+              "whyHere": "env.step 前检查可发现 GMT 输出被旧 action 或其他分支覆盖",
+              "failureOwner": "失败归属: GMT output 到 environment action connector",
+              "sourceLine": 930,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=930"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py::get_env_action()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "GMT observation",
+              "requires_grad/optimizer exclusion",
+              "GMT execution/checksum"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-PAIR-01",
+          "title": "Probe 12 | Quartet Role 布局",
+          "summary": "Clean/Noisy/Repaired/Train 行身份与 reset 对齐",
+          "cardKind": "runtime_probe",
+          "owns": "验证 Clean/Noisy/Repaired/Train 行身份与 reset 对齐",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: Q-PAIR, SR-01",
+            "pair layout",
+            "trial role rows",
+            "reset/valid role counts"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-PAIR-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "configure_frontres_pair_layout()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 configure_frontres_pair_layout(): upstream state -> owner input",
+            "B2 configure_frontres_pair_layout(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py:172 :: configure_frontres_pair_layout() 入口/调用前",
+              "capture": "pair layout",
+              "whyHere": "env 总行数与 quartet 开关刚进入布局 owner, 可验证分区依据",
+              "failureOwner": "失败归属: pair-layout config",
+              "sourceLine": 172,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=172"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py:201 :: configure_frontres_pair_layout() 产物边界",
+              "capture": "trial role rows",
+              "whyHere": "n_train/n_candidate/n_base/n_clean 首次成为 motion-command baseline",
+              "failureOwner": "失败归属: configure_frontres_pair_layout",
+              "sourceLine": 201,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=201"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py:245 :: 正式 consumer 接收前",
+              "capture": "reset/valid role counts",
+              "whyHere": "reset/capture 前检查可发现 role counts 未同步到 command owner",
+              "failureOwner": "失败归属: pair layout 到 reset/capture wiring",
+              "sourceLine": 245,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=245"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py::configure_frontres_pair_layout()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "pair layout",
+              "trial role rows",
+              "reset/valid role counts"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-PAIR-EVIDENCE-01",
+          "title": "Probe 13 | Paired Execution Evidence",
+          "summary": "同 segment/K 的 Noisy 与 Repaired 证据可比较",
+          "cardKind": "runtime_probe",
+          "owns": "验证 同 segment/K 的 Noisy 与 Repaired 证据可比较",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: Q-PAIR, Q-01",
+            "shared segment/K",
+            "Noisy/Repaired execution",
+            "paired style/physics evidence"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-PAIR-EVIDENCE-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "_capture_motion_quality_frame()/_capture_physics_frame()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 _capture_motion_quality_frame()/_capture_physics_frame(): upstream state -> owner input",
+            "B2 _capture_motion_quality_frame()/_capture_physics_frame(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2549 :: _capture_motion_quality_frame()/_capture_physics_frame() 入口/调用前",
+              "capture": "shared segment/K",
+              "whyHere": "同一 quartet frame 的 Clean/Repaired/Noisy 行尚未聚合, 可验证配对身份",
+              "failureOwner": "失败归属: role slicing 或 motion/frame alignment",
+              "sourceLine": 2549,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2549"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2568 :: _capture_motion_quality_frame()/_capture_physics_frame() 产物边界",
+              "capture": "Noisy/Repaired execution",
+              "whyHere": "style 与 physics frame 完成后首次具备 canonical Gain 所需配对语义",
+              "failureOwner": "失败归属: motion/physics capture owners",
+              "sourceLine": 2568,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2568"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2017 :: 正式 consumer 接收前",
+              "capture": "paired style/physics evidence",
+              "whyHere": "Gain 调用前检查可发现 evidence 被跨 motion、跨 K 或跨 role 混合",
+              "failureOwner": "失败归属: paired capture 到 Gain connector",
+              "sourceLine": 2017,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2017"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py::_capture_motion_quality_frame()/_capture_physics_frame()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "shared segment/K",
+              "Noisy/Repaired execution",
+              "paired style/physics evidence"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-GAIN-01",
+          "title": "Probe 14 | Canonical Repair Gain",
+          "summary": "Style、Physics、Repair Cost 合成为 Total Gain",
+          "cardKind": "runtime_probe",
+          "owns": "验证 Style、Physics、Repair Cost 合成为 Total Gain",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: Q-01",
+            "style_gain",
+            "physics_gain/repair_cost",
+            "gain_total"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-GAIN-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "compute_segment_gain()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 compute_segment_gain(): upstream state -> owner input",
+            "B2 compute_segment_gain(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:406 :: compute_segment_gain() 入口/调用前",
+              "capture": "style_gain",
+              "whyHere": "Style、Physics、Repair 输入尚未加权, 可分别确认可观测性与行对齐",
+              "failureOwner": "失败归属: paired evidence 或 repair action history",
+              "sourceLine": 406,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=406"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:334 :: compute_segment_gain() 产物边界",
+              "capture": "physics_gain/repair_cost",
+              "whyHere": "gain_total 形成后是 accepted Gain 公式的唯一语义承诺点",
+              "failureOwner": "失败归属: compute_segment_gain",
+              "sourceLine": 334,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=334"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:468 :: 正式 consumer 接收前",
+              "capture": "gain_total",
+              "whyHere": "storage/sampler 消费前检查可发现 canonical Gain 被旧 score 替代",
+              "failureOwner": "失败归属: Gain 到 reward/sampler evidence wiring",
+              "sourceLine": 468,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=468"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py::compute_segment_gain()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "style_gain",
+              "physics_gain/repair_cost",
+              "gain_total"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-RETURN-01",
+          "title": "Probe 15 | Gain 到 PPO Return",
+          "summary": "canonical Gain 成为 storage reward、return 和 advantage",
+          "cardKind": "runtime_probe",
+          "owns": "验证 canonical Gain 成为 storage reward、return 和 advantage",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: Q-01, M-05",
+            "gain reward",
+            "returns/advantages",
+            "PPO batch"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-RETURN-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "compute_returns_and_advantages()/to_ppo_batch()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 compute_returns_and_advantages()/to_ppo_batch(): upstream state -> owner input",
+            "B2 compute_returns_and_advantages()/to_ppo_batch(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:68 :: compute_returns_and_advantages()/to_ppo_batch() 入口/调用前",
+              "capture": "gain reward",
+              "whyHere": "per-step Gain reward 与 per-row K 同时可见, 可验证 return 输入",
+              "failureOwner": "失败归属: Gain reward construction 或 horizon forwarding",
+              "sourceLine": 68,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=68"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:69 :: compute_returns_and_advantages()/to_ppo_batch() 产物边界",
+              "capture": "returns/advantages",
+              "whyHere": "done/K-aware accumulation 后 returns/advantages 第一次完整成立",
+              "failureOwner": "失败归属: compute_returns_and_advantages",
+              "sourceLine": 69,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=69"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:82 :: 正式 consumer 接收前",
+              "capture": "PPO batch",
+              "whyHere": "PPO batch 构造时检查可发现 return、advantage、valid rows 错位",
+              "failureOwner": "失败归属: storage to_ppo_batch conversion",
+              "sourceLine": 82,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=82"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py::compute_returns_and_advantages()/to_ppo_batch()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "gain reward",
+              "returns/advantages",
+              "PPO batch"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-HSL-LOAD-01",
+          "title": "Probe 16 | HSL 到 Stage 3",
+          "summary": "Stage 2 actor 与 observation normalizer 正确进入 Stage 3",
+          "cardKind": "runtime_probe",
+          "owns": "验证 Stage 2 actor 与 observation normalizer 正确进入 Stage 3",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-03, M-04",
+            "checkpoint identity",
+            "actor/normalizer state",
+            "Stage 3 live policy"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-HSL-LOAD-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "load_runner()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 load_runner(): upstream state -> owner input",
+            "B2 load_runner(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:384 :: load_runner() 入口/调用前",
+              "capture": "checkpoint identity",
+              "whyHere": "checkpoint path 与 payload identity 刚读取, 可确认实际加载的 Stage 2 artifact",
+              "failureOwner": "失败归属: launch checkpoint path 或 torch.load payload",
+              "sourceLine": 384,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=384"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:389 :: load_runner() 产物边界",
+              "capture": "actor/normalizer state",
+              "whyHere": "actor 与 normalizer state 映射完成后首次形成 Stage 3 初始化状态",
+              "failureOwner": "失败归属: load_runner state mapping",
+              "sourceLine": 389,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=389"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:727 :: 正式 consumer 接收前",
+              "capture": "Stage 3 live policy",
+              "whyHere": "首次 live policy 使用前检查可发现加载后又被重置或漏传",
+              "failureOwner": "失败归属: checkpoint load 到 Stage 3 runner initialization",
+              "sourceLine": 727,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=727"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py::load_runner()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "checkpoint identity",
+              "actor/normalizer state",
+              "Stage 3 live policy"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-WARMUP-01",
+          "title": "Probe 17 | Actor/Critic Warmup",
+          "summary": "critic-only、actor ramp 与 joint phase 按 iteration 生效",
+          "cardKind": "runtime_probe",
+          "owns": "验证 critic-only、actor ramp 与 joint phase 按 iteration 生效",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-05",
+            "persisted iteration",
+            "phase/actor weight",
+            "loss gradient boundary"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-WARMUP-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "frontres_segment_warmup_phase()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 frontres_segment_warmup_phase(): upstream state -> owner input",
+            "B2 frontres_segment_warmup_phase(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py:52 :: frontres_segment_warmup_phase() 入口/调用前",
+              "capture": "persisted iteration",
+              "whyHere": "persisted iteration 与两个 warmup boundary 同时可见, 可验证 phase 输入",
+              "failureOwner": "失败归属: resume iteration 或 warmup config",
+              "sourceLine": 52,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=52"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py:53 :: frontres_segment_warmup_phase() 产物边界",
+              "capture": "phase/actor weight",
+              "whyHere": "phase 与 actor_loss_weight 形成后首次决定允许哪些梯度",
+              "failureOwner": "失败归属: frontres_segment_warmup_phase",
+              "sourceLine": 53,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=53"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py:75 :: 正式 consumer 接收前",
+              "capture": "loss gradient boundary",
+              "whyHere": "PPO loss 读取前检查可发现 phase 正确但权重未生效",
+              "failureOwner": "失败归属: warmup phase 到 PPO config wiring",
+              "sourceLine": 75,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=75"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py::frontres_segment_warmup_phase()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "persisted iteration",
+              "phase/actor weight",
+              "loss gradient boundary"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-PPO-01",
+          "title": "Probe 18 | Segment PPO 更新",
+          "summary": "old tuple 到 accepted post-update policy 形成闭环",
+          "cardKind": "runtime_probe",
+          "owns": "验证 old tuple 到 accepted post-update policy 形成闭环",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-05, M-04, Q-01",
+            "old stats/action/advantage",
+            "loss/backward/optimizer step",
+            "post-KL/trust decision"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-PPO-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "compute_frontres_segment_ppo_loss()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 compute_frontres_segment_ppo_loss(): upstream state -> owner input",
+            "B2 compute_frontres_segment_ppo_loss(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py:211 :: compute_frontres_segment_ppo_loss() 入口/调用前",
+              "capture": "old stats/action/advantage",
+              "whyHere": "old action/logprob/mean/sigma/advantage 同时可见, 可验证 rollout tuple 同源性",
+              "failureOwner": "失败归属: storage/PPO batch source",
+              "sourceLine": 211,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=211"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py:271 :: compute_frontres_segment_ppo_loss() 产物边界",
+              "capture": "loss/backward/optimizer step",
+              "whyHere": "loss、ratio、KL 在同一次 forward 后首次具备 PPO 更新语义",
+              "failureOwner": "失败归属: compute_frontres_segment_ppo_loss",
+              "sourceLine": 271,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=271"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py:294 :: 正式 consumer 接收前",
+              "capture": "post-KL/trust decision",
+              "whyHere": "optimizer/rollback 后检查可区分计算正确但提交状态错误",
+              "failureOwner": "失败归属: optimizer step、post-KL 或 trust rollback",
+              "sourceLine": 294,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=294"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py::compute_frontres_segment_ppo_loss()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "old stats/action/advantage",
+              "loss/backward/optimizer step",
+              "post-KL/trust decision"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-PERSIST-01",
+          "title": "Probe 19 | Checkpoint 写盘",
+          "summary": "完整 Stage 3 训练语义写入 model_N.pt",
+          "cardKind": "runtime_probe",
+          "owns": "验证 完整 Stage 3 训练语义写入 model_N.pt",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: M-03, SR-01, M-05, Q-01",
+            "base policy payload",
+            "normalizer/sampler/Gain/warmup",
+            "required-key assert/torch.save"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-PERSIST-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "save_runner()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 save_runner(): upstream state -> owner input",
+            "B2 save_runner(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:252 :: save_runner() 入口/调用前",
+              "capture": "base policy payload",
+              "whyHere": "policy/optimizer/iteration state 刚进入 save owner, 可确认写盘来源",
+              "failureOwner": "失败归属: runner training state",
+              "sourceLine": 252,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=252"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:355 :: save_runner() 产物边界",
+              "capture": "normalizer/sampler/Gain/warmup",
+              "whyHere": "normalizer/sampler/Gain/warmup 合并后 payload 语义首次完整",
+              "failureOwner": "失败归属: save_runner payload construction",
+              "sourceLine": 355,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=355"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:356 :: 正式 consumer 接收前",
+              "capture": "required-key assert/torch.save",
+              "whyHere": "torch.save 前检查能证明真实写盘对象而非 logger 推断",
+              "failureOwner": "失败归属: required-key validation 或 filesystem save boundary",
+              "sourceLine": 356,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=356"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py::save_runner()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "base policy payload",
+              "normalizer/sampler/Gain/warmup",
+              "required-key assert/torch.save"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        },
+        {
+          "id": "AUDIT-DIAG-01",
+          "title": "Probe 20 | 正式 Diagnostics",
+          "summary": "日志读取 canonical summary 且缺失值不伪装为零",
+          "cardKind": "runtime_probe",
+          "owns": "验证 日志读取 canonical summary 且缺失值不伪装为零",
+          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "objects": [
+            "Design: Q-01, M-05",
+            "canonical live summary",
+            "diagnostic scalars",
+            "terminal/logger consumer"
+          ],
+          "files": [
+            {
+              "id": "AUDIT-DIAG-01-SRC",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py",
+              "role": "被检查的正式 owner 边界",
+              "functions": [
+                "repair_effect_summary_to_scalars()"
+              ]
+            }
+          ],
+          "mainRoute": [
+            "B1 repair_effect_summary_to_scalars(): upstream state -> owner input",
+            "B2 repair_effect_summary_to_scalars(): owner input -> semantic object",
+            "B3 downstream consumer: semantic object -> formal consumer"
+          ],
+          "mainRouteTitles": [
+            "进入 Owner",
+            "检查 Owner 产物",
+            "确认下游消费"
+          ],
+          "probeSteps": [
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py:117 :: repair_effect_summary_to_scalars() 入口/调用前",
+              "capture": "canonical live summary",
+              "whyHere": "canonical live summary 尚未格式化, 可确认日志字段真实来源",
+              "failureOwner": "失败归属: live summary aggregation",
+              "sourceLine": 117,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=117"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py:83 :: repair_effect_summary_to_scalars() 产物边界",
+              "capture": "diagnostic scalars",
+              "whyHere": "diagnostic scalars 形成后可检查缺失值是否仍为 UNCONFIRMED/NaN",
+              "failureOwner": "失败归属: repair_effect_summary_to_scalars",
+              "sourceLine": 83,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=83"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py:135 :: 正式 consumer 接收前",
+              "capture": "terminal/logger consumer",
+              "whyHere": "terminal/logger 消费前检查可发现正确 scalar 被旧字段覆盖",
+              "failureOwner": "失败归属: diagnostics formatting 或 logger wiring",
+              "sourceLine": 135,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=135"
+            }
+          ],
+          "probe": {
+            "owner": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py::repair_effect_summary_to_scalars()",
+            "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
+            "capture": [
+              "canonical live summary",
+              "diagnostic scalars",
+              "terminal/logger consumer"
+            ],
+            "failIf": [
+              "关键对象缺失、非有限或 shape/role 不符",
+              "owner 产物未到达正式 consumer"
+            ]
+          },
+          "review": [
+            "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
+            "live 前保持 Result=PENDING_LIVE"
+          ],
+          "tests": [
+            "S2 official-route connectivity",
+            "S4 formal live snapshot"
+          ],
+          "gap": "Result=PENDING_LIVE"
+        }
+      ]
+    }
+  ]
+}

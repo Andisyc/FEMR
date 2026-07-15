@@ -360,7 +360,7 @@ def frontres_dynamic_balance_margin_proxy(
 
     主链路:
         上游: review/eval/probe 代码显式调用; FrontRES 训练主线在
-        `frontres_reward_window.py` 中对四分支 rollout 计算同一类 margin.
+        `rsl_rl.frontres.frontres_balance.py` 中对四分支 rollout 计算同一类 margin.
         内部: 读取 `MotionCommand` 的 root/foot 状态, 调用
         `frontres_balance_context_from_feet`.
         下游: 输出 min(root_margin, capture_margin), 供 Clean/Noisy/Repaired
@@ -422,7 +422,7 @@ def frontres_no_regret_balance_reward_candidate(
         的 balance margin.
         内部: 调用 `frontres_no_regret_balance_reward`.
         下游: 输出 Clean-relative no-regret reward; 正式训练主线由
-        `frontres_reward_window.py` 在四分支 rollout 内接入.
+        当前正式 Segment Gain 路径在四分支 rollout 内接入.
 
     语义:
         Repaired 移除 Noisy 在 Clean 下界以下的额外风险时为正.

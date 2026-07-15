@@ -75,7 +75,11 @@ def _summary(
     ppo_clip_frac: float,
     env_reward_mean: float | None = None,
     train_reward_mean: float | None = None,
-    score_gain_mean: float = 0.0,
+    gain_style_mean: float | None = None,
+    gain_physics_mean: float | None = None,
+    gain_repair_cost_mean: float | None = None,
+    gain_total_mean: float | None = None,
+    gain_total_pos_frac: float | None = None,
     sampler_update_gain_mean: float = 0.0,
     sampler_update_gain_pos_frac: float = 0.0,
     sampler_update_useful_mean: float = 0.0,
@@ -112,7 +116,11 @@ def _summary(
         "reward_mean": reward_mean,
         "env_reward_mean": reward_mean if env_reward_mean is None else env_reward_mean,
         "train_reward_mean": reward_mean if train_reward_mean is None else train_reward_mean,
-        "score_gain_mean": score_gain_mean,
+        "gain_style_mean": gain_style_mean,
+        "gain_physics_mean": gain_physics_mean,
+        "gain_repair_cost_mean": gain_repair_cost_mean,
+        "gain_total_mean": gain_total_mean,
+        "gain_total_pos_frac": gain_total_pos_frac,
         "sampler_update_gain_mean": sampler_update_gain_mean,
         "sampler_update_gain_pos_frac": sampler_update_gain_pos_frac,
         "sampler_update_useful_mean": sampler_update_useful_mean,
@@ -509,7 +517,7 @@ def test_live_update_loop_reports_train_env_and_gain_rewards_separately() -> Non
                 reward_mean=-0.5,
                 env_reward_mean=-0.5,
                 train_reward_mean=0.25,
-                score_gain_mean=0.10,
+                gain_total_mean=0.10,
                 storage_valid_frac=1.0,
                 ppo_total_loss=1.0,
                 ppo_actor_loss=1.0,
@@ -523,7 +531,7 @@ def test_live_update_loop_reports_train_env_and_gain_rewards_separately() -> Non
                 reward_mean=-0.25,
                 env_reward_mean=-0.25,
                 train_reward_mean=0.75,
-                score_gain_mean=0.30,
+                gain_total_mean=0.30,
                 storage_valid_frac=1.0,
                 ppo_total_loss=1.0,
                 ppo_actor_loss=1.0,
@@ -543,17 +551,17 @@ def test_live_update_loop_reports_train_env_and_gain_rewards_separately() -> Non
         "[probe step3] update_loop_reward_semantics: "
         f"reward_mean={result['reward_mean']} "
         f"env_reward_mean={result['env_reward_mean']} "
-        f"score_gain_mean={result['score_gain_mean']}",
+        f"gain_total_mean={result['gain_total_mean']}",
         flush=True,
     )
 
     assert result["reward_mean"] == 0.5
     assert result["train_reward_mean"] == 0.5
     assert result["env_reward_mean"] == -0.375
-    assert abs(result["score_gain_mean"] - 0.20) < 1e-8
+    assert abs(result["gain_total_mean"] - 0.20) < 1e-8
     assert "train_reward=0.500000" in output
     assert "env_reward=-0.375000" in output
-    assert "gain=0.200000" in output
+    assert "gain_total=0.200000" in output
 
 
 def test_live_update_loop_reports_sampler_evidence_update_metrics() -> None:

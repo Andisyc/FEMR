@@ -10,6 +10,14 @@ from typing import Any
 
 import torch
 
+_FORMAL_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_audit_sampler", Path(__file__).resolve().with_name("frontres_formal_runtime_audit.py")
+)
+_FORMAL_AUDIT_MODULE = importlib.util.module_from_spec(_FORMAL_AUDIT_SPEC)
+assert _FORMAL_AUDIT_SPEC.loader is not None
+_FORMAL_AUDIT_SPEC.loader.exec_module(_FORMAL_AUDIT_MODULE)
+print_sampler_audit = _FORMAL_AUDIT_MODULE.print_sampler_audit
+
 _SAMPLER_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_sampler.py"
 _SAMPLER_SPEC = importlib.util.spec_from_file_location(
     "frontres_segment_sampler_live_module",
@@ -252,6 +260,9 @@ def run_frontres_segment_sampler_step(
         }
     )
     summary.update(sampler_summary)
+    # AUDIT-SAMPLER-01: 检查 Segment Replay 与 per-row K, 位于 rollout evidence -> sampler summary.
+    # Result: PENDING_LIVE.
+    print_sampler_audit(runner, update_step=update_step, sample=sample, batch=batch, summary=summary)
     if detail_log:
         _print_sampler_summary(update_step, sampler_summary)
     return summary
@@ -302,11 +313,10 @@ def _build_stage3_index_perturbation_plan(runner: Any, batch: Any, *, update_ste
     if not _index_only_segment_batch(batch):
         return None
     n = int(getattr(batch, "batch_size", int(batch.segment_ids.numel())))
-    active_dims = _runner_cfg_get(runner, "frontres_active_task_dims", None)
     cfg = getattr(runner, "cfg", None) or getattr(runner, "alg_cfg", None) or {}
     seq_idx = int(getattr(runner, "current_learning_iteration", 0) or 0) * 100000 + int(update_step)
     progress = _stage3_index_progress(runner, update_step)
-    mix_plan = sample_perturbation_mix(cfg, active_dims, progress, seq_idx, n, is_frontres=True)
+    mix_plan = sample_perturbation_mix(cfg, None, progress, seq_idx, n, is_frontres=True)
     frontier_scale = _stage3_index_frontier_scale(runner)
     dr_min = float(_runner_cfg_get(runner, "dr_min_scale", 0.0))
     dr_max = float(_runner_cfg_get(runner, "dr_max_scale", max(4.0, frontier_scale)))
@@ -452,6 +462,14 @@ def build_live_sampler_evidence(
     reset_result: Any | None = None,
     print_probe: bool = True,
 ) -> FrontRESSegmentRolloutEvidence:
+    """Construct sampler evidence from the formal paired Gain summary.
+
+    Status: active formal evidence boundary; legacy score fields are compatibility
+    payload only and cannot affect active sampler decisions.
+    Upstream: live probe summary. Downstream: Segment sampler evidence update.
+    Evidence: contract-confirmed by frontres_segment_live_sampler_contract.py.
+    Gap: real simulator Gain population remains an S4 boundary.
+    """
     ids = sample.segment_ids.detach().clone().long()
     row_count = _summary_int(summary, "evidence_row_count", int(ids.numel()))
     if 0 < row_count < int(ids.numel()):
@@ -495,24 +513,21 @@ def build_live_sampler_evidence(
         device=device,
         default=float("nan"),
     ).float()
-    explicit_gain = _summary_vector(
-        summary,
-        keys=("gain_over_noisy_per_sample", "score_gain_per_sample"),
-        n=n,
-        device=device,
-        default=float("nan"),
-    ).float()
+    gain_source = str(summary.get("gain_source", ""))
+    if gain_source != "FRS-GAIN-v001":
+        raise ValueError(
+            "sampler evidence requires gain_source=FRS-GAIN-v001; "
+            f"got {gain_source or 'UNCONFIRMED'}"
+        )
+    formal_gain = _required_gain_vector(summary, "gain_total_per_sample", n=n, device=device)
+    gain_style = _required_gain_vector(summary, "gain_style_per_sample", n=n, device=device)
+    gain_physics = _required_gain_vector(summary, "gain_physics_per_sample", n=n, device=device)
+    repair_cost = _required_gain_vector(summary, "gain_repair_cost_per_sample", n=n, device=device)
     has_real_scores = torch.isfinite(score_noisy).all() and torch.isfinite(score_repaired).all()
     if has_real_scores:
-        gain = explicit_gain if torch.isfinite(explicit_gain).all() else score_repaired - score_noisy
         score_noisy = score_noisy.clamp(0.0, 1.0)
         score_repaired = score_repaired.clamp(0.0, 1.0)
-        score_source = str(summary.get("score_source", "summary_scores"))
-    else:
-        gain = reward.clamp(-1.0, 1.0)
-        score_repaired = (0.5 + 0.5 * gain).clamp(0.0, 1.0)
-        score_noisy = (score_repaired - gain).clamp(0.0, 1.0)
-        score_source = "synthetic_reward"
+    gain = formal_gain
     valid_reward = rollout_valid & reset_success
     if print_probe:
         _print_evidence_probe(
@@ -525,7 +540,7 @@ def build_live_sampler_evidence(
             gain,
             score_noisy=score_noisy,
             score_repaired=score_repaired,
-            score_source=score_source,
+            evidence_source=gain_source,
         )
     return FrontRESSegmentRolloutEvidence(
         segment_ids=ids,
@@ -539,6 +554,11 @@ def build_live_sampler_evidence(
         action_norm=torch.ones(n, dtype=torch.float32, device=device),
         valid_reward=valid_reward,
         horizon_k=horizon,
+        gain_total=formal_gain,
+        gain_style=gain_style,
+        gain_physics=gain_physics,
+        repair_cost=repair_cost,
+        gain_source=gain_source,
     )
 
 
@@ -711,6 +731,26 @@ def _as_bool_tensor(value: object, *, device: torch.device) -> torch.Tensor | No
     return None
 
 
+def _required_gain_vector(
+    summary: dict[str, object],
+    key: str,
+    *,
+    n: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Read one finite FRS-GAIN-v001 vector; never synthesize missing evidence."""
+
+    if key not in summary:
+        raise ValueError(f"sampler evidence requires {key}")
+    value = _as_float_tensor(summary.get(key), device=device)
+    if value is None or int(value.numel()) != n:
+        got = 0 if value is None else int(value.numel())
+        raise ValueError(f"{key} must have {n} rows, got {got}")
+    if not bool(torch.isfinite(value).all().item()):
+        raise ValueError(f"{key} contains non-finite values")
+    return value.detach()
+
+
 def _print_evidence_probe(
     ids: torch.Tensor,
     reward: torch.Tensor,
@@ -722,7 +762,7 @@ def _print_evidence_probe(
     *,
     score_noisy: torch.Tensor,
     score_repaired: torch.Tensor,
-    score_source: str,
+    evidence_source: str,
 ) -> None:
     print(
         _log_block(
@@ -731,7 +771,7 @@ def _print_evidence_probe(
                 "evidence",
                 {
                     "ids": _id_summary(ids),
-                    "source": score_source,
+                    "source": evidence_source,
                     "reset_valid": int(reset_success.bool().sum().detach().cpu().item()),
                     "rollout_valid": int(rollout_valid.bool().sum().detach().cpu().item()),
                     "valid_reward": int(valid_reward.bool().sum().detach().cpu().item()),

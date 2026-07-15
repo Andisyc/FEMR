@@ -556,8 +556,6 @@ def main() -> int:
     parser.add_argument("--frontres_history_length", type=int, default=5)
     parser.add_argument("--frontres_max_delta_pos", type=float, default=0.3)
     parser.add_argument("--frontres_max_delta_rpy", type=float, default=0.4)
-    parser.add_argument("--frontres_active_task_dims", type=int, nargs="+", default=[2, 3, 4, 6, 7],
-                        help="Task-space output dims enabled for FEMR. Default matches rp_z specialist.")
     parser.add_argument("--frontres_allow_upward_dz", action="store_true")
     parser.add_argument("--frontres_ignore_conf", action="store_true")
     parser.add_argument("--frontres_subtract_zero_error_bias", action="store_true",
@@ -646,7 +644,6 @@ def main() -> int:
         "frontres_history_length": args.frontres_history_length,
         "frontres_max_delta_pos": args.frontres_max_delta_pos,
         "frontres_max_delta_rpy": args.frontres_max_delta_rpy,
-        "frontres_active_task_dims": args.frontres_active_task_dims,
         "frontres_allow_upward_dz": args.frontres_allow_upward_dz,
         "frontres_ignore_conf": args.frontres_ignore_conf,
         "frontres_subtract_zero_error_bias": args.frontres_subtract_zero_error_bias,
@@ -684,7 +681,6 @@ def main() -> int:
                 max_delta_rpy=args.frontres_max_delta_rpy,
                 allow_upward_dz=args.frontres_allow_upward_dz,
                 ignore_conf=args.frontres_ignore_conf,
-                active_task_dims=args.frontres_active_task_dims,
                 subtract_zero_error_bias=args.frontres_subtract_zero_error_bias,
             )
             print(

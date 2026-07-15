@@ -17,9 +17,20 @@ dr_scale controls IID magnitude same as OU magnitude.
 
 from __future__ import annotations
 
+import importlib.util
 import math
+from pathlib import Path
 
 import torch
+
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_probe_perturbation",
+    Path(__file__).resolve().parents[5] / "rsl_rl" / "rsl_rl" / "frontres" / "frontres_formal_runtime_probe.py",
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
+emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
 from isaaclab.utils import configclass
 
 
@@ -147,10 +158,10 @@ class MotionPerturber:
         self._artifact_xy = torch.zeros(num_envs, 2, device=device)
         self._artifact_yaw = torch.zeros(num_envs, device=device)
 
-        # Shared IID temporal event state for FrontRES authority learning.  When
-        # enabled, all IID jump channels are sampled at the same event boundary
-        # and held for the event duration, so one authority decision can own the
-        # corrupted-reference event.
+        # Shared IID temporal event state for Segment Replay. When enabled, all
+        # IID jump channels are sampled at the same event boundary and held for
+        # the event duration, so one replayed segment owns a consistent
+        # corrupted-reference window.
         self._iid_event_steps_remaining = torch.zeros(num_envs, dtype=torch.long, device=device)
         self._iid_event_duration = torch.zeros(num_envs, dtype=torch.long, device=device)
         self._iid_event_step = torch.zeros(num_envs, dtype=torch.long, device=device)
@@ -320,17 +331,22 @@ class MotionPerturber:
         left_foot_pos_ref: torch.Tensor,
         right_foot_pos_ref: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Apply X/Y/Z OU perturbations to the reference root position.
+        """生成当前 step 的 root-position reference artifact.
 
-        Args:
-            root_pos_ref: Reference root position of shape (num_envs, 3).
-            left_foot_pos_ref: (unused, kept for API compatibility)
-            right_foot_pos_ref: (unused, kept for API compatibility)
+        函数名说明:
+            `apply_perturbations` 是位置扰动执行 owner, 组合 OU drift, local
+            artifact 和 IID jump; 它不是 FrontRES correction, 也不修改策略输出.
 
-        Returns:
-            Perturbed root position tensor of shape (num_envs, 3).
+        主链路:
+            上游: motion command 传入 Clean root 和双脚 reference position.
+            下游: 返回 `[num_envs, 3]` perturbed root, 供 Noisy/Repaired 分支共用
+            同源 corruption state.
+
+        语义:
+            family mask 决定哪类 corruption 被施加. 输出与 Clean reference 的
+            差值才是实际扰动, 配置概率本身不能证明扰动已经发生.
         """
+        # B1: 从 Clean reference 开始, 读取每行 family mask 和 DR scale.
         perturbed = root_pos_ref.clone()
         self._begin_iid_temporal_step(root_pos_ref.shape[0])
 
@@ -362,6 +378,16 @@ class MotionPerturber:
         perturbed = self._apply_iid_xy(perturbed)
         perturbed = self._apply_iid_z(perturbed)
 
+        # B2: 合并 OU drift, local artifact 和 IID jump, 产出 perturbed reference.
+        # B3: AUDIT-PERTURB-02 截获实际 reference delta, 而不是只记录配置意图.
+        # Result: PENDING_LIVE.
+        emit_formal_runtime_probe(
+            "AUDIT-PERTURB-02",
+            root_pos_before=root_pos_ref,
+            root_pos_after=perturbed,
+            applied_delta=perturbed - root_pos_ref,
+            dr_scale=self._scale_vector(perturbed.shape[0]),
+        )
         return perturbed
 
     def apply_quat_perturbation(self, root_quat: torch.Tensor) -> torch.Tensor:
@@ -656,22 +682,6 @@ class MotionPerturber:
         if env_mask is not None:
             value = value * env_mask[:num_envs].to(self.device, dtype=value.dtype)
         return value
-
-    def frontres_authority_event_state(self, num_envs: int | None = None) -> dict[str, torch.Tensor]:
-        """Expose the current perturbation event for runner-side authority learning."""
-        count = self.num_envs if num_envs is None else int(num_envs)
-        artifact_active = self._artifact_steps[:count] > 0
-        artifact_step = torch.where(
-            artifact_active,
-            (self._artifact_duration[:count] - self._artifact_steps[:count]).clamp(min=0),
-            torch.zeros_like(self._artifact_steps[:count]),
-        )
-        return {
-            "event_start": (self._iid_event_start[:count] | self._artifact_start[:count]).clone(),
-            "event_active": (self._iid_event_active[:count] | artifact_active).clone(),
-            "event_step": torch.maximum(self._iid_event_step[:count], artifact_step).clone(),
-            "event_duration": torch.maximum(self._iid_event_duration[:count], self._artifact_duration[:count]).clone(),
-        }
 
     def _update_local_root_artifact(
         self,

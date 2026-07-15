@@ -7,7 +7,9 @@ thin wrappers so training loops and external scripts keep the same API.
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
+from pathlib import Path
 import shutil
 
 import torch
@@ -18,6 +20,69 @@ from rsl_rl.modules.frontres_observation_layout import (
     extract_frontres_extra_norm_stats,
     frontres_extra_norm_stats_for_save,
 )
+_FORMAL_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_audit_checkpoint", Path(__file__).resolve().with_name("frontres_formal_runtime_audit.py")
+)
+_FORMAL_AUDIT_MODULE = importlib.util.module_from_spec(_FORMAL_AUDIT_SPEC)
+assert _FORMAL_AUDIT_SPEC.loader is not None
+_FORMAL_AUDIT_SPEC.loader.exec_module(_FORMAL_AUDIT_MODULE)
+print_checkpoint_payload_audit = _FORMAL_AUDIT_MODULE.print_checkpoint_payload_audit
+emit_formal_runtime_probe = _FORMAL_AUDIT_MODULE.emit_formal_runtime_probe
+configure_formal_runtime_probe = _FORMAL_AUDIT_MODULE.configure_formal_runtime_probe
+
+
+_FRONTRES_GAIN_CONFIG_FIELDS = (
+    ("style_weight", "frontres_gain_style_weight", 1.0),
+    ("physics_weight", "frontres_gain_physics_weight", 1.0),
+    ("repair_weight", "frontres_gain_repair_weight", 0.15),
+    ("mpjpe_scale", "frontres_gain_mpjpe_scale", 0.10),
+    ("velocity_scale", "frontres_gain_velocity_scale", 1.0),
+    ("acceleration_scale", "frontres_gain_acceleration_scale", 1.0),
+    ("root_orientation_scale", "frontres_gain_root_orientation_scale", 1.0),
+    ("repair_norm_scale", "frontres_gain_repair_norm_scale", 1.0),
+    ("repair_temporal_scale", "frontres_gain_repair_temporal_scale", 1.0),
+)
+
+
+def _frontres_gain_config_payload(cfg) -> dict[str, object]:
+    """Serialize the active FRS-GAIN-v001 scales for checkpoint identity."""
+    values = {}
+    for serialized_name, cfg_name, default in _FRONTRES_GAIN_CONFIG_FIELDS:
+        if isinstance(cfg, dict):
+            value = cfg.get(cfg_name, default)
+        else:
+            value = getattr(cfg, cfg_name, default)
+        values[serialized_name] = float(value)
+    return {
+        "contract_id": "FRS-GAIN-v001",
+        "values": values,
+    }
+
+
+def _validate_frontres_gain_config_resume(runner, checkpoint, *, is_full_resume: bool) -> None:
+    """Reject full resume when the active Gain scale identity is absent or mismatched."""
+    if str(getattr(runner, "training_type", "")) != "frontres":
+        return
+    checkpoint_config = checkpoint.get("frontres_gain_config")
+    if checkpoint_config is None:
+        if is_full_resume:
+            raise RuntimeError(
+                "full FrontRES resume requires frontres_gain_config in the checkpoint; "
+                "refusing to resume with ambiguous Gain scales"
+            )
+        print(
+            "[Runner] WARNING: checkpoint has no frontres_gain_config; "
+            "using current config for Stage 2 -> Stage 3 initialization.",
+            flush=True,
+        )
+        return
+    expected = _frontres_gain_config_payload(getattr(runner, "cfg", None))
+    if checkpoint_config != expected:
+        raise RuntimeError(
+            "FrontRES Gain config mismatch on resume: "
+            f"checkpoint={checkpoint_config!r} current={expected!r}"
+        )
+    print("[Runner] Verified FRS-GAIN-v001 config identity on checkpoint resume.", flush=True)
 
 
 # Full-resume diagnostic helper; uncomment with the probe prints below when needed.
@@ -36,49 +101,6 @@ from rsl_rl.modules.frontres_observation_layout import (
 #         f"groups={len(groups)} state_entries={len(state)} "
 #         f"group_param_counts={param_counts} group_lrs={lrs}"
 #     )
-
-
-def _numeric_module_keys(state_dict: dict, suffix: str) -> list[str]:
-    keys = [key for key in state_dict if key.endswith(suffix) and key.split(".", 1)[0].isdigit()]
-    return sorted(keys, key=lambda key: int(key.split(".", 1)[0]))
-
-
-def _load_split_proposal_from_two_head_residual(proposal_actor, residual_state: dict) -> bool:
-    """Load Stage-1 two-head residual weights into a Stage-2 proposal-only actor."""
-
-    if not residual_state:
-        return False
-    if not any(key.startswith("proposal_head.") for key in residual_state):
-        return False
-
-    target_state = proposal_actor.state_dict()
-    target_weight_keys = _numeric_module_keys(target_state, ".weight")
-    if not target_weight_keys:
-        return False
-
-    last_weight = target_weight_keys[-1]
-    last_bias = last_weight.replace(".weight", ".bias")
-    new_state = dict(target_state)
-    copied_any = False
-
-    for key, value in target_state.items():
-        if key == last_weight:
-            src = residual_state.get("proposal_head.weight")
-        elif key == last_bias:
-            src = residual_state.get("proposal_head.bias")
-        else:
-            src = residual_state.get(f"trunk.{key}")
-        if src is None:
-            continue
-        if src.shape != value.shape:
-            return False
-        new_state[key] = src.clone()
-        copied_any = True
-
-    if not copied_any:
-        return False
-    proposal_actor.load_state_dict(new_state, strict=True)
-    return True
 
 
 def _copy_policy_noise_state(policy, model_state: dict) -> bool:
@@ -213,21 +235,27 @@ def record_frontres_checkpoint_probe(self, locs: dict, checkpoint_path: str) -> 
         )
 
 def save_runner(self, path: str, infos=None):
+    """保存可恢复 Stage 2/3 语义的完整 runner checkpoint.
+
+    函数名说明:
+        `save_runner` 是 FrontRES persistence write owner, 汇总 policy, optimizer,
+        normalizer, sampler 和 curriculum state; 它不是模型导出或 eval snapshot.
+
+    主链路:
+        上游: periodic/final checkpoint trigger 提供目标 path 和当前 runner state.
+        下游: `torch.save` 写盘, `load_runner` 按相同 semantic keys 恢复.
+
+    语义:
+        Stage 2 -> Stage 3 必须保存同一个 full-6D actor 和 FrontRES prefix stats.
+        Resume-only optimizer/sampler state 也必须与 iteration identity 同源.
+    """
+    # B1: 汇总 policy, optimizer, iteration 和 active Stage 3 owner state.
     # Check if using ResidualActorCritic (special handling)
     if isinstance(self.alg.policy, (ResidualActorCritic, FrontRESActorCritic)):
         # Save only residual network + critic (GMT is frozen, no need to save)
         model_state_dict = {
             'residual_actor': self.alg.policy.residual_actor.state_dict(),
             'critic': self.alg.policy.critic.state_dict(),}
-        if getattr(self.alg.policy, "acceptance_actor", None) is not None:
-            model_state_dict['acceptance_actor'] = self.alg.policy.acceptance_actor.state_dict()
-        if getattr(self.alg.policy, "state_router_head", None) is not None:
-            model_state_dict['state_router_head'] = self.alg.policy.state_router_head.state_dict()
-        if getattr(self.alg.policy, "authority_actor", None) is not None:
-            model_state_dict['authority_actor'] = self.alg.policy.authority_actor.state_dict()
-        if getattr(self.alg.policy, "authority_critic", None) is not None:
-            model_state_dict['authority_critic'] = self.alg.policy.authority_critic.state_dict()
-        
         # Save noise std parameter
         if hasattr(self.alg.policy, 'std'):
             model_state_dict['std'] = self.alg.policy.std
@@ -243,6 +271,11 @@ def save_runner(self, path: str, infos=None):
         "optimizer_state_dict": self.alg.optimizer.state_dict(),
         "iter": self.current_learning_iteration,
         "infos": infos,}
+    if getattr(self.alg, "frontres_training_objective", "") == "segment_replay_hrl":
+        saved_dict["frontres_segment_warmup_config"] = {
+            "critic_warmup_iterations": int(getattr(self.alg, "frontres_segment_critic_warmup_iterations", 0)),
+            "actor_warmup_iterations": int(getattr(self.alg, "frontres_segment_actor_warmup_iterations", 0)),
+        }
 
     # Persist adaptive DR state so resume picks up at the correct scale.
     if hasattr(self, '_dr_scale'):
@@ -278,6 +311,8 @@ def save_runner(self, path: str, infos=None):
         saved_dict["frontres_exec_floor_source_last"] = self._frontres_exec_floor_source_last
     if hasattr(self, '_frontres_warmup_complete'):
         saved_dict["frontres_warmup_complete"] = bool(self._frontres_warmup_complete)
+    if str(getattr(self, "training_type", "")) == "frontres":
+        saved_dict["frontres_gain_config"] = _frontres_gain_config_payload(getattr(self, "cfg", None))
     segment_sampler = getattr(self, "_frontres_segment_sampler", None)
     if segment_sampler is not None and hasattr(segment_sampler, "state_dict"):
         saved_dict["frontres_segment_sampler_state_dict"] = segment_sampler.state_dict()
@@ -317,6 +352,10 @@ def save_runner(self, path: str, infos=None):
     #     flush=True,
     # )
 
+    # B2: Validate the complete payload after all semantic owners have contributed state.
+    # B3: AUDIT-PERSIST-01 records the exact payload passed to torch.save.
+    # Result: PENDING_LIVE.
+    print_checkpoint_payload_audit(self, path=path, payload=saved_dict)
     # save model
     torch.save(saved_dict, path)
 
@@ -327,7 +366,27 @@ def save_runner(self, path: str, infos=None):
         writer.save_model(path, self.current_learning_iteration)
 
 def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool = True):
+    """按 cold-start/resume 语义恢复 FrontRES runner checkpoint.
+
+    函数名说明:
+        `load_runner` 是 FrontRES persistence read owner, 区分 HSL 初始化和完整
+        Stage 3 resume; 它不是宽松的 shape-compatible state loader.
+
+    主链路:
+        上游: train/eval entrypoint 提供 checkpoint path 和 load flags.
+        下游: 恢复 full-6D actor, normalizer, optimizer, sampler, warmup 和 iteration
+        state, 供 rollout/PPO 立即消费.
+
+    语义:
+        checkpoint identity 决定哪些状态允许恢复. Actor head 和 prefix stats
+        不能漏载或错载, resume 状态也不能污染 Stage 2 -> Stage 3 cold start.
+    """
+    # B1: 映射 HSL actor/normalizer 前先读取 checkpoint identity.
+    configure_formal_runtime_probe(
+        bool(getattr(getattr(self, "alg", None), "frontres_formal_runtime_audit", False))
+    )
     loaded_dict = torch.load(path, weights_only=False)
+    # B2: 从同一 payload 恢复 sampler, actor, normalizer, optimizer, Gain 和 warmup identity.
     self._frontres_last_loaded_checkpoint_path = os.path.abspath(path)
     segment_sampler = getattr(self, "_frontres_segment_sampler", None)
     if (
@@ -351,6 +410,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     if not is_full_resume:
         load_optimizer = False   # 权重迁移模式：强制跳过优化器，从零初始化 Adam
         load_critic = self._frontres_warmup_complete
+    _validate_frontres_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
     # Full-resume diagnostic probe; uncomment when checking checkpoint reloads.
     # print(
     #     "[FrontRES Resume Probe] "
@@ -367,98 +427,14 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
 
     # Check if using ResidualActorCritic (special handling)
     if isinstance(self.alg.policy, (ResidualActorCritic, FrontRESActorCritic)):
-        # 智能映射：尝试从阶段一 (SuperviseLearning) 提取 student 权重
+        # Stage 2 -> Stage 3 uses the same full-6D residual actor contract.
         if isinstance(self.alg.policy, FrontRESActorCritic) and "student.0.weight" in loaded_dict["model_state_dict"]:
             mapped_dict = {k.replace("student.", ""): v for k, v in loaded_dict["model_state_dict"].items() if k.startswith("student.")}
-            try:
-                self.alg.policy.residual_actor.load_state_dict(mapped_dict, strict=True)
-                print("[Runner] Success: Auto-mapped Stage 1 'student' weights to Stage 2 'residual_actor'!")
-            except RuntimeError:
-                migrated = False
-                if hasattr(self.alg.policy, "initialize_two_head_from_legacy_state"):
-                    migrated = self.alg.policy.initialize_two_head_from_legacy_state(mapped_dict)
-                if migrated:
-                    print("[Runner] Migrated Stage 1 'student' weights into FrontRES two-head actor.")
-                else:
-                    raise
+            self.alg.policy.residual_actor.load_state_dict(mapped_dict, strict=True)
+            print("[Runner] Loaded Stage 2 student weights into the full-6D residual actor.")
         else:
             residual_state = loaded_dict["model_state_dict"]["residual_actor"]
-            try:
-                self.alg.policy.residual_actor.load_state_dict(residual_state, strict=True)
-            except RuntimeError as exc:
-                checkpoint_is_two_head = any(
-                    key.startswith(("trunk.", "proposal_head.", "acceptance_head."))
-                    for key in residual_state
-                )
-                if checkpoint_is_two_head:
-                    migrated = _load_split_proposal_from_two_head_residual(
-                        self.alg.policy.residual_actor,
-                        residual_state,
-                    )
-                    if migrated:
-                        print("[Runner] Migrated Stage 1 two-head residual_actor into split Stage 2 proposal actor.")
-                    else:
-                        raise RuntimeError(
-                            "Checkpoint residual_actor is a FrontRESTwoHeadActor, but it cannot be "
-                            "mapped into the active Stage 2 proposal actor. Check "
-                            "frontres_split_acceptance_head, hidden dims, and task correction dims."
-                        ) from exc
-                else:
-                    migrated = False
-                    if hasattr(self.alg.policy, "initialize_two_head_from_legacy_state"):
-                        migrated = self.alg.policy.initialize_two_head_from_legacy_state(residual_state)
-                    if migrated:
-                        print("[Runner] Migrated legacy residual_actor weights into FrontRES two-head actor.")
-                    else:
-                        raise
-        if getattr(self.alg.policy, "acceptance_actor", None) is not None:
-            if "acceptance_actor" in loaded_dict["model_state_dict"]:
-                self.alg.policy.acceptance_actor.load_state_dict(loaded_dict["model_state_dict"]["acceptance_actor"])
-                print("[Runner] Loaded split FrontRES acceptance_actor from checkpoint.")
-            else:
-                migrated = False
-                if hasattr(self.alg.policy, "initialize_acceptance_from_residual_state"):
-                    migrated = self.alg.policy.initialize_acceptance_from_residual_state(
-                        loaded_dict["model_state_dict"].get("residual_actor", {})
-                    )
-                if migrated:
-                    print("[Runner] Initialized split acceptance_actor from legacy residual_actor rho rows.")
-                else:
-                    print("[Runner] No split acceptance_actor weights found; initialized acceptance head from scratch.")
-        elif "acceptance_actor" in loaded_dict["model_state_dict"]:
-            print("[Runner] Ignoring split acceptance_actor weights because the active config uses the single two-head FrontRES actor.")
-        if getattr(self.alg.policy, "state_router_head", None) is not None:
-            if "state_router_head" in loaded_dict["model_state_dict"]:
-                self.alg.policy.state_router_head.load_state_dict(
-                    loaded_dict["model_state_dict"]["state_router_head"],
-                    strict=True,
-                )
-                print("[Runner] Loaded FrontRES state_router_head from checkpoint.")
-            else:
-                print("[Runner] No state_router_head weights found; initialized alpha head from scratch.")
-        if getattr(self.alg.policy, "authority_actor", None) is not None:
-            if "authority_actor" in loaded_dict["model_state_dict"]:
-                self.alg.policy.authority_actor.load_state_dict(
-                    loaded_dict["model_state_dict"]["authority_actor"],
-                    strict=True,
-                )
-                print("[Runner] Loaded FrontRES authority_actor from checkpoint.")
-            else:
-                print("[Runner] No authority_actor weights found; initialized authority actor from scratch.")
-        elif "authority_actor" in loaded_dict["model_state_dict"]:
-            print("[Runner] Ignoring authority_actor weights because authority actor-critic is disabled.")
-        if getattr(self.alg.policy, "authority_critic", None) is not None:
-            if "authority_critic" in loaded_dict["model_state_dict"]:
-                self.alg.policy.authority_critic.load_state_dict(
-                    loaded_dict["model_state_dict"]["authority_critic"],
-                    strict=True,
-                )
-                print("[Runner] Loaded FrontRES authority_critic from checkpoint.")
-            else:
-                print("[Runner] No authority_critic weights found; initialized authority critic from scratch.")
-        elif "authority_critic" in loaded_dict["model_state_dict"]:
-            print("[Runner] Ignoring authority_critic weights because authority actor-critic is disabled.")
-
+            self.alg.policy.residual_actor.load_state_dict(residual_state, strict=True)
         if load_critic:
             if "critic" in loaded_dict["model_state_dict"]:
                 self.alg.policy.critic.load_state_dict(loaded_dict["model_state_dict"]["critic"])
@@ -606,6 +582,17 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
             if hasattr(self.alg, "rnd") and self.alg.rnd:
                 self.alg.rnd_optimizer.load_state_dict(loaded_dict["rnd_optimizer_state_dict"])
     # -- load current learning iteration
+    if resumed_training and is_full_resume and "frontres_segment_warmup_config" in loaded_dict:
+        saved_warmup = loaded_dict["frontres_segment_warmup_config"]
+        runtime_warmup = {
+            "critic_warmup_iterations": int(getattr(self.alg, "frontres_segment_critic_warmup_iterations", 0)),
+            "actor_warmup_iterations": int(getattr(self.alg, "frontres_segment_actor_warmup_iterations", 0)),
+        }
+        if saved_warmup != runtime_warmup:
+            raise ValueError(
+                "Stage 3 warmup config changed across full resume: "
+                f"checkpoint={saved_warmup}, runtime={runtime_warmup}."
+            )
     if resumed_training:
         if is_full_resume:
             self.current_learning_iteration = loaded_dict["iter"]
@@ -737,4 +724,14 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
               f"dr_scale_init={_dr_init:.4f} (ignoring checkpoint value "
               f"{loaded_dict.get('dr_scale', 0.0):.4f})")
 
+    # B3: AUDIT-HSL-LOAD-01 records the actual loaded actor/normalizer boundary.
+    # Result: PENDING_LIVE.
+    emit_formal_runtime_probe(
+        "AUDIT-HSL-LOAD-01",
+        checkpoint_path=self._frontres_last_loaded_checkpoint_path,
+        checkpoint_iter=loaded_dict.get("iter", "missing"),
+        residual_actor=type(getattr(getattr(self.alg, "policy", None), "residual_actor", None)).__name__,
+        obs_normalizer=type(getattr(self, "obs_normalizer", None)).__name__,
+        full_resume=bool(is_full_resume),
+    )
     return loaded_dict["infos"]

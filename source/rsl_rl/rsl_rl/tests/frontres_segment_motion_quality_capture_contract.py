@@ -82,6 +82,46 @@ class _Runner:
         self.env = types.SimpleNamespace(unwrapped=env)
 
 
+class _PhysicsRunner:
+    def __init__(self, command):
+        env = types.SimpleNamespace(
+            command_manager=_CommandManager(command),
+            scene=types.SimpleNamespace(env_origins=torch.zeros(4, 3)),
+        )
+        self.env = types.SimpleNamespace(unwrapped=env)
+        self.cfg = {
+            "frontres_balance_contact_height": 0.08,
+            "frontres_balance_foot_body_names": ["left_ankle_roll_link", "right_ankle_roll_link"],
+        }
+
+
+def test_height_contact_proxy_preserves_quartet_row_identity() -> None:
+    module = _load_live_probe_module()
+    command = types.SimpleNamespace(
+        cfg=types.SimpleNamespace(body_names=["left_ankle_roll_link", "right_ankle_roll_link"]),
+        body_pos_w=torch.tensor(
+            [
+                [[0.0, 0.0, 0.02], [0.0, 0.0, 0.20]],
+                [[0.0, 0.0, 0.20], [0.0, 0.0, 0.20]],
+                [[0.0, 0.0, 0.02], [0.0, 0.0, 0.02]],
+                [[0.0, 0.0, 0.02], [0.0, 0.0, 0.02]],
+            ]
+        ),
+        robot_body_pos_w=torch.tensor(
+            [
+                [[0.0, 0.0, 0.02], [0.0, 0.0, 0.20]],
+                [[0.0, 0.0, 0.20], [0.0, 0.0, 0.20]],
+                [[0.0, 0.0, 0.02], [0.0, 0.0, 0.02]],
+                [[0.0, 0.0, 0.02], [0.0, 0.0, 0.02]],
+            ]
+        ),
+    )
+    layout = types.SimpleNamespace(n_train=1, n_candidate=0, n_base=1, n_clean=1)
+    repaired, noisy = module._height_contact_consistency_pair(_PhysicsRunner(command), command, layout, 1)
+    torch.testing.assert_close(repaired, torch.tensor([0.5]))
+    torch.testing.assert_close(noisy, torch.tensor([0.0]))
+
+
 def test_motion_quality_capture_removes_role_origin_offsets() -> None:
     module = _load_live_probe_module()
     local_body = torch.tensor(
@@ -119,8 +159,31 @@ def test_motion_quality_capture_removes_role_origin_offsets() -> None:
     assert torch.allclose(clean, noisy)
 
 
+def test_root_orientation_capture_uses_clean_target_and_paired_robot_rows() -> None:
+    module = _load_live_probe_module()
+    identity = torch.tensor([1.0, 0.0, 0.0, 0.0])
+    robot_quat = identity.repeat(4, 1)
+    robot_quat[0] = torch.tensor([0.9950042, 0.0, 0.0998334, 0.0])
+    robot_quat[1] = identity
+    robot_quat[2] = torch.tensor([0.9987503, 0.0, 0.0499792, 0.0])
+    robot_quat[3] = identity
+    command = types.SimpleNamespace(
+        anchor_quat_w_original=identity.repeat(4, 1),
+        robot_anchor_quat_w=robot_quat,
+    )
+
+    clean, repaired, noisy = module._capture_root_orientation_frame(_Runner(command), _PairLayout())
+
+    assert clean is not None and repaired is not None and noisy is not None
+    assert tuple(clean.shape) == (1, 4)
+    torch.testing.assert_close(repaired, robot_quat[:1])
+    torch.testing.assert_close(noisy, robot_quat[2:3])
+
+
 def main() -> None:
+    test_height_contact_proxy_preserves_quartet_row_identity()
     test_motion_quality_capture_removes_role_origin_offsets()
+    test_root_orientation_capture_uses_clean_target_and_paired_robot_rows()
     print("result: PASS")
 
 

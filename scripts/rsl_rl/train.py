@@ -70,7 +70,7 @@ parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
     "--frontres_stage",
     type=str,
-    choices=("stage1_segment_cache", "stage1_hsl", "stage2_hsl_warmup", "stage2_acceptance", "stage3_segment_hrl"),
+    choices=("stage1_segment_cache", "stage1_hsl", "stage2_hsl_warmup", "stage3_segment_hrl"),
     default=None,
     help=(
         "Apply a FrontRES staged-training preset after Hydra config loading. "
@@ -176,10 +176,10 @@ parser.add_argument(
     help="For Stage 1 only: deterministic curriculum sequence index used for cache bank sampling.",
 )
 parser.add_argument(
-    "--frontres_segment_cache_curriculum_active_dims",
+    "--frontres_segment_cache_curriculum_perturbation_bases",
     type=str,
-    default="0,1,2,3,4,5",
-    help="For Stage 1 only: comma-separated active Delta SE dims allowed to generate perturbation families.",
+    default="planar,yaw,global_z,local_rp",
+    help="For Stage 1 only: comma-separated perturbation families to include in the cache bank.",
 )
 parser.add_argument(
     "--frontres_segment_cache_curriculum_include_hard_as_train",
@@ -280,6 +280,12 @@ parser.add_argument(
     help="For Stage 3 only: run periodic long-rollout evaluation inside live Segment Replay training.",
 )
 parser.add_argument(
+    "--frontres_formal_runtime_audit",
+    action="store_true",
+    default=False,
+    help="Emit compact AUDIT-* snapshots on the official Stage 3 live-training route.",
+)
+parser.add_argument(
     "--frontres_segment_periodic_eval_interval",
     type=int,
     default=100,
@@ -314,6 +320,18 @@ parser.add_argument(
     type=int,
     default=8,
     help="For Stage 3 only: maximum number of Stage 1 payload shards held by the lazy dataset LRU.",
+)
+parser.add_argument(
+    "--frontres_segment_critic_warmup_iterations",
+    type=int,
+    default=200,
+    help="For Stage 3: critic-only Segment PPO iterations before actor updates begin.",
+)
+parser.add_argument(
+    "--frontres_segment_actor_warmup_iterations",
+    type=int,
+    default=500,
+    help="For Stage 3: iterations used to linearly ramp Segment PPO actor loss to full weight.",
 )
 parser.add_argument(
     "--supervised_warmup_iterations",
@@ -545,12 +563,29 @@ def _sanitize_env_cfg_for_training(env_cfg) -> None:
 
 
 def _configure_frontres_motion_perturbations(env_cfg, agent_cfg) -> None:
-    """Align motion perturbation channels with the FrontRES action mask."""
+    """把实验扰动配置写入环境侧 MotionPerturber.
+
+    函数名说明:
+        `_configure_frontres_motion_perturbations` 是 config adapter, 只决定输入
+        corruption family 和强度; 它不是 action mask, 也不缩窄 FrontRES 的
+        full-6D Delta SE(3) 输出.
+
+    主链路:
+        上游: `train.py` 读取 Stage 2/3 agent config.
+        下游: 修改 `env_cfg.motion_perturbations`, 由 MotionPerturber 在 reset/step
+        时实际生成 reference artifact.
+
+    语义:
+        specialist mode 限制训练扰动分布, 不限制修复维度. `rp` 模式仍允许
+        actor 输出完整 6D correction.
+    """
+    # B1: 读取 env perturbation owner 和 agent-side family selection.
     if not hasattr(env_cfg, "motion_perturbations"):
         return
     mode = str(getattr(agent_cfg, "frontres_perturbation_channels", "all")).lower()
     pt = env_cfg.motion_perturbations
 
+    # B2: 将选中 family 的参数写入环境配置, 不改变 full-6D policy output.
     if mode in ("all", "composite", "full"):
         # Explicitly mirror the agent-side full-output test settings into the
         # environment perturbation config.  Without this, "all" silently falls
@@ -587,6 +622,7 @@ def _configure_frontres_motion_perturbations(env_cfg, agent_cfg) -> None:
         for name in ("local_root_artifact_min_steps", "local_root_artifact_max_steps"):
             if hasattr(agent_cfg, name) and hasattr(pt, name):
                 setattr(pt, name, int(getattr(agent_cfg, name)))
+        # B3: 打印最终 environment perturbation config, 证明该 branch 已完成写入.
         print(
             "[INFO] FrontRES perturbation alignment: all "
             f"(float={pt.float_prob}/{pt.float_ratio}, sink={pt.sink_prob}/{pt.sink_ratio}, "
@@ -649,6 +685,7 @@ def _configure_frontres_motion_perturbations(env_cfg, agent_cfg) -> None:
             agent_cfg, "local_root_artifact_xy_std", getattr(pt, "local_root_artifact_xy_std", 0.0)))
         pt.local_root_artifact_yaw_std = float(getattr(
             agent_cfg, "local_root_artifact_yaw_std", getattr(pt, "local_root_artifact_yaw_std", 0.0)))
+        # B3: 打印最终 environment perturbation config, 证明该 branch 已完成写入.
         print(
             "[INFO] FrontRES perturbation alignment: xy_yaw "
             f"(iid_xy={pt.iid_prob_xy}/{pt.iid_std_xy}, iid_yaw={pt.iid_prob_ya}/{pt.iid_std_ya}; "
@@ -667,6 +704,7 @@ def _configure_frontres_motion_perturbations(env_cfg, agent_cfg) -> None:
         pt.root_tilt_max_rad = float(getattr(agent_cfg, "root_tilt_max_rad", 0.05))
         pt.iid_prob_rp = float(getattr(agent_cfg, "iid_prob_rp", pt.iid_prob_rp))
         pt.iid_std_rp = float(getattr(agent_cfg, "iid_std_rp", pt.iid_std_rp))
+        # B3: 打印最终 environment perturbation config, 证明该 branch 已完成写入.
         print(
             "[INFO] FrontRES perturbation alignment: rp "
             f"(root_tilt={pt.root_tilt_prob}/{pt.root_tilt_max_rad}, "
@@ -676,8 +714,8 @@ def _configure_frontres_motion_perturbations(env_cfg, agent_cfg) -> None:
         )
         return
 
-    # Z/Roll/Pitch experiment: only vertical float/sink and root tilt/IID
-    # perturbations are enabled, matching active dims [dz, droll, dpitch].
+    # Z/Roll/Pitch perturbation preset: this selects corruption channels only;
+    # the FrontRES policy remains a full-6D repair policy.
     pt.float_prob = float(getattr(agent_cfg, "float_prob", 0.3))
     pt.float_ratio = float(getattr(agent_cfg, "float_ratio", 0.05))
     pt.sink_prob = float(getattr(agent_cfg, "sink_prob", 0.3))
@@ -688,6 +726,7 @@ def _configure_frontres_motion_perturbations(env_cfg, agent_cfg) -> None:
     pt.iid_std_z = float(getattr(agent_cfg, "iid_std_z", pt.iid_std_z))
     pt.iid_prob_rp = float(getattr(agent_cfg, "iid_prob_rp", pt.iid_prob_rp))
     pt.iid_std_rp = float(getattr(agent_cfg, "iid_std_rp", pt.iid_std_rp))
+    # B3: 打印最终 environment perturbation config, 证明该 branch 已完成写入.
     print(
         "[INFO] FrontRES perturbation alignment: z_rp "
         f"(float={pt.float_prob}/{pt.float_ratio}, sink={pt.sink_prob}/{pt.sink_ratio}, "
@@ -747,41 +786,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_training_objective", "supervised_restore")
         _set_if_present(alg_cfg, "lambda_supervised", 1.0)
         _set_if_present(alg_cfg, "lambda_supervised_min", 1.0)
-        _set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)
-        _set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 0.0)
-        _set_if_present(policy_cfg, "frontres_authority_actor_critic", False)
         _set_if_present(agent_cfg, "critic_warmup_iterations", 0)
-        _set_if_present(agent_cfg, "ppo_actor_warmup_iterations", 1_000_000)
-        _set_if_present(agent_cfg, "ppo_actor_ramp_iterations", 0)
-    elif stage == "stage2_acceptance":
-        if getattr(args_cli, "experiment_name", None) is None:
-            agent_cfg.experiment_name = "g1_flat_frontres_stage2_acceptance"
-        if getattr(args_cli, "is_full_resume", None) is None:
-            agent_cfg.is_full_resume = False
-        _set_if_present(agent_cfg, "frontres_stage1_exit_after_warmup", False)
-        agent_cfg.supervised_warmup_iterations = 0
-        _set_if_present(alg_cfg, "frontres_training_objective", "hsl_hybrid")
-        _set_if_present(alg_cfg, "lambda_supervised", 0.20)
-        _set_if_present(alg_cfg, "lambda_supervised_min", 0.20)
-        _set_if_present(alg_cfg, "lambda_supervised_decay", 1.0)
-        _set_if_present(alg_cfg, "frontres_acceptance_preference_weight", 1.0)
-        _set_if_present(alg_cfg, "frontres_state_alpha_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)
-        _set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_structured_joint_rl_enabled", False)
-        _set_if_present(alg_cfg, "frontres_structured_joint_rl_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_structured_joint_prior_loss_weight", 0.0)
-        _set_if_present(policy_cfg, "frontres_split_acceptance_head", True)
-        _set_if_present(policy_cfg, "frontres_authority_actor_critic", False)
-        _set_if_present(policy_cfg, "frontres_state_router_enabled", False)
-        _set_if_present(agent_cfg, "critic_warmup_iterations", 0)
-        _set_if_present(agent_cfg, "ppo_actor_warmup_iterations", 0)
-        _set_if_present(agent_cfg, "ppo_actor_ramp_iterations", 0)
-        _set_if_present(agent_cfg, "frontres_perturbation_temporal_mode", "single")
-        _set_if_present(agent_cfg, "frontres_perturbation_burst_min_steps", 1)
-        _set_if_present(agent_cfg, "frontres_perturbation_burst_max_steps", 1)
     elif stage == "stage3_segment_hrl":
         if getattr(args_cli, "experiment_name", None) is None:
             agent_cfg.experiment_name = "g1_flat_frontres_stage3_segment_hrl"
@@ -858,6 +863,35 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)
         _set_if_present(
             alg_cfg,
+            "frontres_segment_critic_warmup_iterations",
+            max(0, int(getattr(args_cli, "frontres_segment_critic_warmup_iterations", 200))),
+        )
+        _set_if_present(
+            alg_cfg,
+            "frontres_segment_actor_warmup_iterations",
+            max(0, int(getattr(args_cli, "frontres_segment_actor_warmup_iterations", 500))),
+        )
+        # B1: Configure module-local audit probes before Stage 3 owners execute.
+        formal_audit_enabled = bool(getattr(args_cli, "frontres_formal_runtime_audit", False))
+        __import__("os").environ["FRONTRES_FORMAL_RUNTIME_AUDIT_ACTIVE"] = "1" if formal_audit_enabled else "0"
+        # B2: Persist the same audit flag in the algorithm config consumed by the runner.
+        _set_if_present(
+            alg_cfg,
+            "frontres_formal_runtime_audit",
+            formal_audit_enabled,
+        )
+        # B3: AUDIT-PERTURB-01 records the config that formal sampler/rollout owners will consume.
+        # Result: PENDING_LIVE.
+        if formal_audit_enabled:
+            print(
+                "[AUDIT-PERTURB-01] "
+                f"specialist_mode={getattr(alg_cfg, 'frontres_specialist_mode', 'missing')} "
+                f"dr_scale={getattr(alg_cfg, 'frontres_dr_scale', 'missing')} "
+                f"max_horizon_k={getattr(alg_cfg, 'frontres_segment_max_horizon_k', 'missing')}",
+                flush=True,
+            )
+        _set_if_present(
+            alg_cfg,
             "frontres_segment_periodic_eval_enabled",
             bool(getattr(args_cli, "frontres_segment_periodic_eval_enabled", False)),
         )
@@ -868,6 +902,8 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         )
         _set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)
         _set_if_present(alg_cfg, "frontres_segment_k", 8)
+        _set_if_present(alg_cfg, "frontres_segment_max_horizon_k", 64)
+        _set_if_present(alg_cfg, "frontres_segment_advantage_normalization", "scale_only")
         segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"
         shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))
         _set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))
@@ -877,21 +913,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_segment_sampler_replay_frac", 0.5)
         _set_if_present(alg_cfg, "frontres_segment_sampler_review_frac", 0.1)
         _set_if_present(alg_cfg, "frontres_segment_reset_mode", "auto")
-        _set_if_present(alg_cfg, "frontres_acceptance_preference_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_state_alpha_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)
-        _set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_structured_joint_rl_enabled", False)
-        _set_if_present(alg_cfg, "frontres_structured_joint_rl_weight", 0.0)
-        _set_if_present(alg_cfg, "frontres_structured_joint_prior_loss_weight", 0.0)
-        _set_if_present(policy_cfg, "task_conf_dim", 0)
-        _set_if_present(policy_cfg, "frontres_split_acceptance_head", False)
-        _set_if_present(policy_cfg, "frontres_authority_actor_critic", False)
-        _set_if_present(policy_cfg, "frontres_state_router_enabled", False)
         _set_if_present(agent_cfg, "critic_warmup_iterations", 0)
-        _set_if_present(agent_cfg, "ppo_actor_warmup_iterations", 0)
-        _set_if_present(agent_cfg, "ppo_actor_ramp_iterations", 0)
 
     print(f"[FrontRES Stage] Applied preset: {stage}", flush=True)
     print(
@@ -908,11 +930,11 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         f"segment_sequence_eval={getattr(alg_cfg, 'frontres_segment_sequence_offline_eval_only', 'n/a')}, "
         f"segment_train={getattr(alg_cfg, 'frontres_segment_live_train_enabled', 'n/a')}, "
         f"segment_update_steps={getattr(alg_cfg, 'frontres_segment_live_update_steps', 'n/a')}, "
+        f"segment_critic_warmup={getattr(alg_cfg, 'frontres_segment_critic_warmup_iterations', 'n/a')}, "
+        f"segment_actor_warmup={getattr(alg_cfg, 'frontres_segment_actor_warmup_iterations', 'n/a')}, "
+        f"formal_runtime_audit={getattr(alg_cfg, 'frontres_formal_runtime_audit', 'n/a')}, "
         f"segment_k={getattr(alg_cfg, 'frontres_segment_k', 'n/a')}, "
         f"segment_shard_cache_size={getattr(alg_cfg, 'frontres_segment_shard_cache_size', 'n/a')}, "
-        f"authority={getattr(alg_cfg, 'frontres_authority_actor_critic_enabled', 'n/a')}, "
-        f"structured_joint={getattr(alg_cfg, 'frontres_structured_joint_rl_enabled', 'n/a')}/"
-        f"{getattr(alg_cfg, 'frontres_structured_joint_rl_weight', 'n/a')}, "
         f"max_iterations={getattr(agent_cfg, 'max_iterations', 'n/a')}, "
         f"supervised_warmup={getattr(agent_cfg, 'supervised_warmup_iterations', 'n/a')}, "
         f"is_full_resume={getattr(agent_cfg, 'is_full_resume', 'n/a')}",
@@ -964,26 +986,25 @@ def _parse_frontres_segment_cache_strengths(value: str) -> list[float]:
     return strengths
 
 
-def _parse_frontres_segment_cache_active_dims(value: str) -> tuple[int, ...] | None:
+def _parse_frontres_segment_cache_perturbation_bases(value: str) -> tuple[str, ...] | None:
     raw = str(value).strip()
     if raw.lower() in {"", "none", "all"}:
         return None
-    dims: list[int] = []
+    bases: list[str] = []
+    allowed = {"planar", "yaw", "global_z", "local_rp"}
     for item in raw.split(","):
         item = item.strip()
         if not item:
             continue
-        dim = int(item)
-        if dim < 0 or dim > 5:
+        if item not in allowed:
             raise ValueError(
-                "--frontres_segment_cache_curriculum_active_dims must contain Delta SE dims in [0, 5], "
-                f"got {dim}"
+                "--frontres_segment_cache_curriculum_perturbation_bases contains an unknown family: "
+                f"{item}"
             )
-        dims.append(dim)
-    if not dims:
+        bases.append(item)
+    if not bases:
         return None
-    unique_dims = tuple(sorted(set(dims)))
-    return unique_dims
+    return tuple(dict.fromkeys(bases))
 
 
 def _parse_frontres_segment_cache_limit(value, *, name: str) -> int | None:
@@ -1120,8 +1141,12 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
     strengths = _parse_frontres_segment_cache_strengths(
         getattr(args_cli, "frontres_segment_cache_perturbation_strengths", "0.0,0.25,0.5,0.75,1.0")
     )
-    curriculum_active_dims = _parse_frontres_segment_cache_active_dims(
-        getattr(args_cli, "frontres_segment_cache_curriculum_active_dims", "0,1,2,3,4,5")
+    curriculum_perturbation_bases = _parse_frontres_segment_cache_perturbation_bases(
+        getattr(
+            args_cli,
+            "frontres_segment_cache_curriculum_perturbation_bases",
+            "planar,yaw,global_z,local_rp",
+        )
     )
     curriculum_bank_size = max(1, int(getattr(args_cli, "frontres_segment_cache_curriculum_bank_size", 16)))
     curriculum_frontier_scale = float(getattr(args_cli, "frontres_segment_cache_curriculum_frontier_scale", 2.0))
@@ -1159,7 +1184,7 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
         f"curriculum_dr_max={curriculum_dr_max} "
         f"curriculum_progress={curriculum_progress} "
         f"curriculum_seq_idx={curriculum_seq_idx} "
-        f"curriculum_active_dims={curriculum_active_dims} "
+        f"curriculum_perturbation_bases={curriculum_perturbation_bases} "
         f"curriculum_include_hard_as_train={curriculum_include_hard_as_train} "
         f"curriculum_temporal_mode={curriculum_temporal_mode} "
         f"curriculum_burst_min_steps={curriculum_burst_min_steps} "
@@ -1198,7 +1223,7 @@ def _run_frontres_stage1_segment_cache(env, args_cli, log_dir: str) -> None:
             curriculum_dr_max=curriculum_dr_max,
             curriculum_progress=curriculum_progress,
             curriculum_seq_idx=curriculum_seq_idx,
-            curriculum_active_dims=curriculum_active_dims,
+            curriculum_perturbation_bases=curriculum_perturbation_bases,
             curriculum_include_hard_as_train=curriculum_include_hard_as_train,
             curriculum_temporal_mode=curriculum_temporal_mode,
             curriculum_burst_min_steps=curriculum_burst_min_steps,

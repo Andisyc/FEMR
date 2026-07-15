@@ -1,0 +1,3641 @@
+# FrontRES Segment Replay Engineering Contract
+Date: 2026-06-27
+
+This note is Step 3 after `note/frontres_segment_replay/references/external_code_reuse_map.md`.
+It defines the FEMR module contract before code implementation.
+
+The core method is:
+
+```text
+motion segment
+ -> dynamic reset
+ -> noisy baseline
+ -> HRL Delta SE(3) repair
+ -> K-step rollout
+ -> executable gain over Noisy
+ -> PPO update
+ -> prioritized segment replay update
+```
+
+HSL is initialization.  It is not the final training target.  The old
+acceptance head remains an ablation path and must not run silently in Segment
+Replay HRL.
+
+## 1. Live Stage Contract
+
+Add a new explicit stage:
+
+```text
+frontres_stage = stage3_segment_hrl
+frontres_training_objective = segment_replay_hrl
+```
+
+Required stage defaults:
+
+- `frontres_segment_replay_enabled=True`;
+- `frontres_acceptance_preference_weight=0.0`;
+- `frontres_split_acceptance_head=False` unless an ablation explicitly enables
+  the old path;
+- `frontres_authority_actor_critic_enabled=False` for the first implementation;
+- `frontres_hsl_init_enabled=True`;
+- `frontres_segment_k` set by config;
+- `frontres_segment_sampler_global_frac`;
+- `frontres_segment_sampler_replay_frac`;
+- `frontres_segment_sampler_review_frac`;
+- `frontres_segment_reset_mode=auto`.
+
+Required live-path sentinel:
+
+```text
+FrontRES Segment HRL active: stage=stage3_segment_hrl objective=segment_replay_hrl k=...
+```
+
+Stop if:
+
+- `stage2_acceptance` logging appears during `stage3_segment_hrl`;
+- acceptance target/mask storage is written as the main HRL signal;
+- the policy output is interpreted as acceptance instead of 6D repair.
+
+## 2. Module Layout
+
+New modules should live under:
+
+```text
+source/rsl_rl/rsl_rl/frontres/
+```
+
+Required modules:
+
+- `frontres_segment_dataset.py`;
+- `frontres_segment_sampler.py`;
+- `frontres_segment_reset.py`;
+- `frontres_segment_reward.py`;
+- `frontres_hrl_action.py`;
+- `frontres_segment_diagnostics.py`.
+
+Optional module:
+
+- `frontres_segment_storage.py`.
+
+Runner connector should be thin and may live under:
+
+```text
+source/rsl_rl/rsl_rl/runners/frontres_segment_replay.py
+```
+
+Do not place dataset, sampler, reset, reward, or priority logic inside
+`on_policy_runner.py`.
+
+## 3. Shared Data Objects
+
+### `FrontRESSegmentState`
+
+Owner:
+
+- `frontres_segment_dataset.py`.
+
+Meaning:
+
+- one batched dynamic state that can reset the simulator.
+
+Fields:
+
+- `root_pos`: tensor `[B, 3]`;
+- `root_quat`: tensor `[B, 4]`, wxyz convention;
+- `root_lin_vel`: tensor `[B, 3]`;
+- `root_ang_vel`: tensor `[B, 3]`;
+- `dof_pos`: tensor `[B, D]`;
+- `dof_vel`: tensor `[B, D]`;
+- `key_body_pos`: optional tensor `[B, K, 3]`;
+- `key_body_quat`: optional tensor `[B, K, 4]`;
+- `device`: torch device.
+
+Invariant:
+
+- pose and velocity are both required.
+
+Stop if:
+
+- reset can be built from `root_pos`, `root_quat`, and `dof_pos` only.
+
+### `FrontRESSegmentSpec`
+
+Owner:
+
+- `frontres_segment_dataset.py`.
+
+Meaning:
+
+- one replayable training item.
+
+Fields:
+
+- `segment_id`: int;
+- `motion_id`: int or string;
+- `start_frame`: int or `start_time`: float;
+- `phase`: float in `[0, 1]`;
+- `horizon_k`: int;
+- `perturbation_family`: string;
+- `perturbation_strength`: float or tensor;
+- `reset_mode_hint`: `direct`, `preroll`, or `auto`;
+- `valid_for_training`: bool.
+
+Invariant:
+
+- `segment_id` is stable across sampler, reward, diagnostics, and checkpoint.
+
+### `FrontRESSegmentBatch`
+
+Owner:
+
+- `frontres_segment_dataset.py`.
+
+Fields:
+
+- `segment_ids`: tensor `[B]`;
+- `specs`: list or structured metadata;
+- `clean_state`: `FrontRESSegmentState`;
+- `reference_window`: tensor or adapter object for GMT reference;
+- `phase`: tensor `[B]`;
+- `horizon_k`: int or tensor `[B]`;
+- `perturbation_family`: list or encoded tensor;
+- `perturbation_strength`: tensor.
+
+Invariant:
+
+- batch object contains enough data for reset without going back to global
+  runner state.
+
+## 4. `frontres_segment_dataset.py`
+
+Primary class:
+
+```text
+FrontRESSegmentDataset
+```
+
+Constructor inputs:
+
+- `motion_source`;
+- `dt`;
+- `default_horizon_k`;
+- `device`;
+- `cache_policy`;
+- optional `motion_normalizer`;
+- optional `reference_builder`.
+
+Required methods:
+
+- `num_segments() -> int`;
+- `sample_global(batch_size, generator=None) -> FrontRESSegmentBatch`;
+- `get_segments(segment_ids) -> FrontRESSegmentBatch`;
+- `build_clean_cache() -> None`;
+- `validate_batch(batch) -> FrontRESSegmentValidation`;
+- `state_dict() -> dict`;
+- `load_state_dict(state) -> None`.
+
+Optional methods:
+
+- `write_noisy_baseline(segment_ids, evidence) -> None`;
+- `read_noisy_baseline(segment_ids) -> evidence | None`;
+- `update_validity(segment_ids, flags) -> None`.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_dataset_contract.py
+```
+
+Test cases:
+
+- tiny fake motion with two clips and nonzero velocities;
+- global sampling returns stable `segment_id`;
+- `get_segments()` returns same state for same id;
+- dynamic state includes root and dof velocities;
+- reference window length covers `horizon_k`;
+- invalid segment is excluded from global sampling.
+
+Pass condition:
+
+- dataset can be tested without IsaacLab and without GMT.
+
+## 5. `frontres_segment_reset.py`
+
+Primary class:
+
+```text
+FrontRESSegmentResetAdapter
+```
+
+Data objects:
+
+- `FrontRESSegmentResetRequest`;
+- `FrontRESSegmentResetResult`.
+
+Required methods:
+
+- `build_request(batch, mode="auto") -> FrontRESSegmentResetRequest`;
+- `apply(env, request) -> FrontRESSegmentResetResult`;
+- `validate_after_reset(obs, infos, request) -> FrontRESSegmentResetResult`;
+- `needs_preroll(batch) -> tensor[bool]`.
+
+`FrontRESSegmentResetRequest` fields:
+
+- `segment_ids`;
+- `root_pos`;
+- `root_quat`;
+- `root_lin_vel`;
+- `root_ang_vel`;
+- `dof_pos`;
+- `dof_vel`;
+- `reference_window`;
+- `mode`;
+- `preroll_steps`;
+- `valid_mask`.
+
+`FrontRESSegmentResetResult` fields:
+
+- `success_mask`;
+- `direct_reset_mask`;
+- `preroll_mask`;
+- `invalid_static_reset_mask`;
+- `fall_at_reset_mask`;
+- `contact_mismatch_mask`;
+- `velocity_mismatch`;
+- `diagnostics`.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_reset_contract.py
+```
+
+Test cases:
+
+- fake env receives velocity fields;
+- dynamic segment rejects static-pose-only request;
+- `auto` mode chooses pre-roll for flagged unstable phases;
+- partial batch failure returns masks, not an exception;
+- diagnostics expose direct/pre-roll/failure counts.
+
+Pass condition:
+
+- reset adapter can be tested with a fake env before IsaacLab integration.
+
+## 6. `frontres_segment_sampler.py`
+
+Primary class:
+
+```text
+FrontRESSegmentSampler
+```
+
+Data objects:
+
+- `FrontRESSegmentSample`;
+- `FrontRESSegmentRolloutEvidence`;
+- `FrontRESSegmentSamplerStats`.
+
+Constructor inputs:
+
+- `num_segments`;
+- `global_frac`;
+- `replay_frac`;
+- `review_frac`;
+- `priority_mode`;
+- `staleness_weight`;
+- `min_replay_score`;
+- `max_hopeless_replay_frac`;
+- `seed`.
+
+Required methods:
+
+- `sample(batch_size) -> FrontRESSegmentSample`;
+- `update(evidence: FrontRESSegmentRolloutEvidence) -> None`;
+- `mark_invalid(segment_ids, reason) -> None`;
+- `stats() -> FrontRESSegmentSamplerStats`;
+- `state_dict() -> dict`;
+- `load_state_dict(state) -> None`.
+
+`FrontRESSegmentSample` fields:
+
+- `segment_ids`;
+- `source`: global, replay, or review;
+- `priority`;
+- `staleness`;
+- `valid_mask`.
+
+`FrontRESSegmentRolloutEvidence` fields:
+
+- `segment_ids`;
+- `reset_success`;
+- `score_noisy`;
+- `score_repaired`;
+- `score_clean`;
+- `gain_over_noisy`;
+- `fall_repaired`;
+- `contact_consistency`;
+- `action_norm`;
+- `valid_reward`;
+- `horizon_k`;
+
+Priority rule:
+
+- high priority means useful learning signal;
+- high priority does not mean simply hard.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py
+```
+
+Test cases:
+
+- unseen segments are sampled before replay dominates;
+- useful unsolved segments receive higher replay probability;
+- solved segments move to review instead of disappearing;
+- hopeless segments are capped;
+- stale segments re-enter sampling;
+- `state_dict()` restores sampling state.
+
+Pass condition:
+
+- sampler can be tested as a pure Python module.
+
+## 7. `frontres_segment_reward.py`
+
+Primary class:
+
+```text
+FrontRESSegmentReward
+```
+
+Data objects:
+
+- `FrontRESSegmentScoreWindow`;
+- `FrontRESSegmentRewardResult`.
+
+Constructor inputs:
+
+- executable scorer or score function;
+- reward weights;
+- fall penalty;
+- contact weight;
+- valid score bounds;
+- `use_full_env_reward=False`.
+
+Required methods:
+
+- `score_window(rollout, role) -> FrontRESSegmentScoreWindow`;
+- `compute(noisy, repaired, clean, reset_result=None) -> FrontRESSegmentRewardResult`;
+- `priority_evidence(result) -> FrontRESSegmentRolloutEvidence`.
+
+`FrontRESSegmentRewardResult` fields:
+
+- `reward`;
+- `score_noisy`;
+- `score_repaired`;
+- `score_clean`;
+- `gain_over_noisy`;
+- `clean_gap`;
+- `fall_flag`;
+- `contact_consistency`;
+- `valid_mask`;
+- `solved_mask`;
+- `hopeless_mask`;
+- `diagnostics`.
+
+Reward rule:
+
+- main reward is improvement over Noisy;
+- Clean is diagnostic and normalization reference;
+- full environment reward is not the main signal.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_reward_contract.py
+```
+
+Test cases:
+
+- repaired better than Noisy gives positive reward;
+- repaired worse than Noisy gives negative reward;
+- Noisy already good becomes low learning value;
+- both Noisy and repaired fail becomes hopeless;
+- invalid reset masks reward out;
+- full env reward is ignored unless explicitly enabled.
+
+Pass condition:
+
+- reward can be tested from synthetic score tensors.
+
+## 8. `frontres_hrl_action.py`
+
+Primary class:
+
+```text
+FrontRESHRLActionProjector
+```
+
+Data objects:
+
+- `FrontRESRepairAction`;
+- `FrontRESHRLActionStats`.
+
+Constructor inputs:
+
+- `FrontRESActionCone`;
+- active task dims;
+- action scale;
+- upward `dz` rule;
+- optional HSL initialization mode.
+
+Required methods:
+
+- `project(raw_action, mode_groups=None) -> FrontRESRepairAction`;
+- `apply_to_reference(command, repair_action) -> command`;
+- `mask_for_segment(batch) -> tensor`;
+- `stats(repair_action) -> FrontRESHRLActionStats`.
+
+`FrontRESRepairAction` fields:
+
+- `delta_se`: tensor `[B, 6]`;
+- `active_mask`: tensor `[B, 6]`;
+- `projected_delta_se`: tensor `[B, 6]`;
+- `action_norm`: tensor `[B]`;
+- `per_dim_norm`: tensor `[6]`.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_hrl_action_contract.py
+```
+
+Test cases:
+
+- active dimension mask is respected;
+- per-mode mask is respected;
+- upward `dz` is constrained;
+- output remains 6D Delta SE(3);
+- no acceptance probability/logit is produced;
+- HSL actor weights can initialize the 6D repair actor without an acceptance
+  actor.
+
+Pass condition:
+
+- action projector can be tested without env rollout.
+
+## 9. `frontres_segment_diagnostics.py`
+
+Primary functions:
+
+- `summarize_segment_batch(sample, reward_result, reset_result, action_stats)`;
+- `format_segment_replay_log(summary) -> str`;
+- `segment_summary_to_scalars(summary) -> dict[str, float]`.
+
+Required diagnostics:
+
+- `segment/global_frac`;
+- `segment/replay_frac`;
+- `segment/review_frac`;
+- `segment/replay_pool_size`;
+- `segment/priority_mean`;
+- `segment/priority_p90`;
+- `segment/solved_frac`;
+- `segment/active_frac`;
+- `segment/hopeless_frac`;
+- `segment/reset_success_frac`;
+- `segment/preroll_frac`;
+- `segment/k`;
+- `segment/score_noisy`;
+- `segment/score_repaired`;
+- `segment/score_clean`;
+- `segment/gain_over_noisy`;
+- `segment/fall_frac`;
+- `segment/contact_consistency`;
+- `segment/action_norm`;
+- `segment/action_norm_dx`;
+- `segment/action_norm_dy`;
+- `segment/action_norm_dz`;
+- `segment/action_norm_droll`;
+- `segment/action_norm_dpitch`;
+- `segment/action_norm_dyaw`.
+
+Forbidden primary diagnostics:
+
+- `acceptance_gt`;
+- `acceptance_mask`;
+- `acceptance_margin`;
+- `acceptance_prob`.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_diagnostics_contract.py
+```
+
+Test cases:
+
+- fake batch produces all required scalar keys;
+- old acceptance keys are absent;
+- partial invalid batch still logs reset and valid-mask statistics;
+- log string includes stage, objective, K, sampler mix, and gain.
+
+Pass condition:
+
+- one log line can prove Segment Replay HRL is active.
+
+## 10. Optional `frontres_segment_storage.py`
+
+Create this only if current `RolloutStorage` cannot hold the tuple cleanly.
+
+Primary class:
+
+```text
+FrontRESSegmentRolloutStorage
+```
+
+Required fields:
+
+- observations;
+- privileged observations if used;
+- `segment_ids`;
+- `segment_source`;
+- 6D repair actions;
+- log-probs;
+- values;
+- rewards;
+- returns;
+- advantages;
+- valid masks;
+- reset masks;
+- priority evidence.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py
+```
+
+Stop if:
+
+- the old acceptance storage tuple is expanded before this storage decision is
+  made.
+
+Step 12 implementation result:
+- chose an independent Stage 3 storage instead of extending legacy
+  `RolloutStorage`;
+- reason: legacy `RolloutStorage` already carries supervised, acceptance, rho,
+  state-alpha, and authority fields, so adding Segment HRL there would risk
+  reintroducing old acceptance paths;
+- `source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py` defines
+  `FrontRESSegmentRolloutStorage`;
+- storage fields are observations, optional privileged observations,
+  `segment_ids`, `segment_source`, 6D repair actions, log-probs, values,
+  rewards, returns, advantages, valid masks, reset masks, action masks, and
+  detached priority evidence;
+- segment returns default to K-step reward and advantages default to
+  `return - value`;
+- connector writes are accepted only when policy log-prob, value, and
+  observations are present; missing PPO fields fail fast;
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py` verifies
+  6D action shape, invalid-mask removal, PPO batch conversion, state round-trip,
+  overflow rejection, and connector payload validation;
+- this is still a fake storage contract and does not enable live Stage 3
+  training.
+
+## 11. Thin Runner Connector
+
+Candidate file:
+
+```text
+source/rsl_rl/rsl_rl/runners/frontres_segment_replay.py
+```
+
+Primary class:
+
+```text
+FrontRESSegmentReplayConnector
+```
+
+Responsibilities:
+
+- request segment ids from sampler;
+- fetch segment batch from dataset;
+- call reset adapter;
+- get HRL repair action from policy;
+- run K-step rollout;
+- call segment reward;
+- write PPO transition or segment storage;
+- update sampler priority;
+- emit diagnostics.
+
+Non-responsibilities:
+
+- no priority formula;
+- no reward formula;
+- no reset-state construction;
+- no action-cone math;
+- no acceptance label construction.
+
+Required live-path test:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_replay_toy_chain.py
+```
+
+Test case:
+
+- fake dataset;
+- fake sampler;
+- fake reset adapter;
+- fake policy action;
+- fake K-step rollout;
+- fake reward;
+- verify call order and written transition fields.
+
+Pass condition:
+
+- toy chain proves the new path is connected without IsaacLab.
+
+Step 13 implementation result:
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_replay.py` accepts policy
+  outputs that are either a raw 6D tensor or a dict/object containing `action`,
+  `observations`, `log_prob`, `value`, optional `mean`, and optional `sigma`;
+- connector writes both `raw_action` and `policy_output` into the transition
+  payload, so `FrontRESSegmentRolloutStorage` can build a PPO tuple without
+  touching legacy `RolloutStorage`;
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_runner_lifecycle_contract.py`
+  verifies the fake lifecycle:
+  segment sampling -> reset -> policy action/log-prob/value -> K-step rollout
+  -> Noisy-relative reward -> sampler update -> segment storage write -> PPO
+  batch -> optimizer step;
+- the old tensor-only connector toy test remains valid;
+- this remains a fake runner lifecycle and does not enable live Stage 3
+  training.
+
+Step 14 live runner sentinel:
+
+- `frontres_segment_live_sentinel_only` is an explicit startup-proof flag, not a
+  training flag;
+- default Stage 3 keeps `frontres_segment_live_runner_enabled=False`;
+- passing `--frontres_segment_live_sentinel_only` sets both
+  `frontres_segment_live_runner_enabled=True` and
+  `frontres_segment_live_sentinel_only=True`;
+- `FrontRESSegmentRunnerBoundary.assert_live_runner_ready()` allows only this
+  sentinel case through;
+- `on_policy_runner.py` prints `[FrontRES Segment Live Sentinel] ...` with
+  objective, K, reset mode, independent storage, 6D Delta SE(3) action, and
+  `training_update=disabled`;
+- `FrontRESUnified.update()` still raises if the sentinel reaches training,
+  proving this step does not enable PPO/live learning.
+
+Step 14 stop condition:
+
+- the real Stage 3 startup boundary has a visible one-line proof;
+- non-sentinel live runner still fails fast;
+- update/training remains disabled until the actual live rollout/PPO connector
+  is implemented.
+
+Step 15 live rollout probe:
+
+- `frontres_segment_live_probe_only` is an explicit live rollout probe flag, not
+  a training flag;
+- passing `--frontres_segment_live_probe_only` sets
+  `frontres_segment_live_runner_enabled=True` and
+  `frontres_segment_live_probe_only=True`;
+- sentinel and probe flags are mutually exclusive;
+- `train.py` forces `max_iterations=0`, constructs the real env and runner,
+  loads the requested checkpoint if provided, then calls
+  `runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)` and
+  exits before `runner.learn()`;
+- `run_frontres_segment_live_probe()` reuses the normal runner observation
+  split, normalizers, FrontRES pair layout, `prepare_frontres_rollout_step()`,
+  and `env.step()` for K steps;
+- the probe prints `[FrontRES Segment Live Probe] ...` with obs shape, 6D action
+  shape, env-action shape, valid fraction, K, reward mean, done fraction,
+  `storage_write=False`, and `ppo_update=False`;
+- it does not call `alg.process_env_step()`, does not write Segment Replay
+  storage, and does not call `alg.update()`.
+
+Step 15 stop condition:
+
+- the real env can execute K live probe steps through the Stage 3 runner path;
+- the log proves policy action and env action shapes;
+- storage and PPO remain disabled until Step 16/17.
+
+Step 16 live storage write:
+
+- `frontres_segment_live_storage_write_only` is an explicit live storage probe
+  flag, not a training flag;
+- passing `--frontres_segment_live_storage_write_only` sets
+  `frontres_segment_live_runner_enabled=True` and
+  `frontres_segment_live_storage_write_only=True`;
+- sentinel, probe, and storage-write flags are mutually exclusive;
+- `train.py` forces `max_iterations=0`, constructs the real env and runner,
+  loads the requested checkpoint if provided, then reuses
+  `runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)` and exits
+  before `runner.learn()`;
+- the first live policy step supplies the PPO tuple:
+  observation, privileged observation, 6D Delta SE(3) action, log-prob, value,
+  optional mean/sigma, and segment ids;
+- the following K-step live rollout accumulates the segment reward and done
+  mask;
+- formal training treats K as per-row sampler metadata: unknown/promising/
+  frontier/delayed-regret states request `8/16/32/64`, paired quartet rows share
+  K, and the vectorized env runs to the largest K in the current batch;
+- the runner writes one `FrontRESSegmentTransition` into independent
+  `FrontRESSegmentRolloutStorage`;
+- the probe prints storage evidence:
+  `storage_write=True`, `storage_size`, `storage_valid_frac`, and
+  `storage_reward_mean`;
+- it still does not call `alg.process_env_step()` and does not call
+  `alg.update()`.
+
+Step 16 stop condition:
+
+- live env produces a valid 6D PPO tuple;
+- independent Segment Replay storage accepts the live transition;
+- PPO/update remains disabled until Step 17.
+
+Step 17 live single-batch PPO update:
+
+- `frontres_segment_live_single_update_only` is an explicit update sentinel,
+  not the full Stage 3 training loop;
+- passing `--frontres_segment_live_single_update_only` sets
+  `frontres_segment_live_runner_enabled=True` and
+  `frontres_segment_live_single_update_only=True`;
+- sentinel, probe, storage-write, and single-update flags are mutually
+  exclusive;
+- `train.py` forces `max_iterations=0`, constructs the real env and runner,
+  loads the requested checkpoint if provided, then reuses
+  `runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)` and exits
+  before `runner.learn()`;
+- the runner first follows the Step 16 path: live K-step rollout, first-step
+  6D Delta SE(3) PPO tuple, independent `FrontRESSegmentRolloutStorage`;
+- after storage write, the runner builds one
+  `FrontRESSegmentPPOBatch`, re-evaluates the stored actions under the current
+  FrontRES policy, computes `compute_frontres_segment_ppo_loss`, and performs
+  exactly one optimizer step when `valid_count > 0`;
+- critic evaluation uses the stored privileged observations when available,
+  not the actor observation by default;
+- `FrontRESUnified.update()` remains guarded for this mode; entering the full
+  update loop is an error;
+- the probe prints update evidence:
+  `single_update=True`, `ppo_update`, `ppo_valid_count`, `ppo_total_loss`,
+  `ppo_actor_loss`, `ppo_value_loss`, `ppo_approx_kl`, and `ppo_clip_frac`.
+
+Step 17 stop condition:
+
+- live storage can become a PPO batch;
+- the current policy can re-evaluate stored 6D actions with gradients enabled;
+- one optimizer step can run from the live segment batch;
+- the command still exits before the expensive training loop.
+
+Step 18 live short PPO update loop:
+
+- `frontres_segment_live_update_loop_only` is an explicit short-loop sentinel,
+  not the full Stage 3 training loop;
+- `frontres_segment_live_update_steps` controls the number of live segment PPO
+  updates and defaults to 4;
+- passing `--frontres_segment_live_update_loop_only` sets
+  `frontres_segment_live_runner_enabled=True`,
+  `frontres_segment_live_update_loop_only=True`, and
+  `frontres_segment_live_update_steps=N`;
+- sentinel, probe, storage-write, single-update, and update-loop flags are
+  mutually exclusive;
+- `train.py` forces `max_iterations=0`, constructs the real env and runner,
+  loads the requested checkpoint if provided, runs
+  `runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)`,
+  and exits before `runner.learn()`;
+- each loop iteration reuses the Step 17 path:
+  live K-step segment rollout, independent segment storage, PPO batch,
+  policy re-evaluation, one masked PPO optimizer step when `valid_count > 0`;
+- the first loop iteration may randomize episode length; later iterations
+  continue from the live env state instead of resetting through the training
+  lifecycle;
+- the loop prints per-segment Step 17 evidence plus one summary line:
+  `[FrontRES Segment Live Update Loop]`, `update_steps`, `update_count`,
+  `ppo_valid_count`, mean rewards/losses/KL/clip fraction, and
+  `runner_learn=False`;
+- `FrontRESUnified.update()` remains guarded for this mode; entering the full
+  update loop is an error.
+
+Step 18 stop condition:
+
+- consecutive live segment batches can update the same policy without entering
+  the normal runner training loop;
+- update statistics are scalar-detached and printed once at the loop boundary;
+- the command remains short enough to use as a server-side live smoke test.
+
+Step 19 dedicated live training loop:
+
+- `frontres_segment_live_train_enabled` is the explicit Stage 3 live training
+  flag;
+- when `--frontres_stage stage3_segment_hrl` is used without a sentinel flag,
+  the Stage 3 preset sets `frontres_segment_live_train_enabled=True`;
+- `train.py` constructs the real env and runner, loads the requested checkpoint
+  if provided, then calls
+  `runner.learn_frontres_segment_live(num_learning_iterations=max_iterations)`;
+- this path still does not call the legacy `runner.learn()` and still does not
+  call `FrontRESUnified.update()`;
+- each training iteration reuses the Step 18 loop:
+  `frontres_segment_live_update_steps` live segment PPO updates, scalar
+  diagnostics, and detached storage;
+- the runner prints `[FrontRES Segment Live Train]` with iteration, update
+  count, valid sample count, reward mean, loss mean, and `runner_learn=True`;
+- checkpoint saving uses the runner checkpoint helpers at the Segment Replay
+  iteration boundary.
+
+Step 19 stop condition:
+
+- Stage 3 has a normal training entrypoint that can run for
+  `max_iterations > 0`;
+- the live path is still isolated from the legacy FrontRES update path;
+- a server-side short command can prove the first real training iteration by
+  observing `[FrontRES Segment Live Train] ... runner_learn=True`.
+
+Step 19 pseudo-parameter contract:
+
+- before server-side live smoke tests, the Stage 3 train loop must pass a fake
+  parameter test without IsaacLab;
+- the train loop is owned by
+  `runners/frontres_segment_live_training.py`, not embedded directly in
+  `on_policy_runner.py`;
+- the fake runner supplies:
+  `frontres_segment_live_train_enabled=True`, fake update summaries, fake
+  checkpoint functions, and fake log paths;
+- the test verifies:
+  first iteration uses `init_at_random_ep_len=True`, later iterations use
+  `False`, `runner_learn=True` reaches the update loop, checkpoints are named
+  `model_{iteration}.pt`, and checkpoint probes receive the scalar summary;
+- incomplete update summaries must fail before a real server run.
+
+Required pseudo test:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py
+```
+
+Step 20 live training diagnostics and fail-fast contract:
+
+- live Stage 3 training must not silently continue when the update loop returns
+  an unusable summary;
+- each live training iteration requires scalar diagnostics for:
+  update steps, update count, valid PPO sample count, reward mean, storage valid
+  fraction, total loss, actor loss, value loss, approximate KL, and clip
+  fraction;
+- `frontres_segment_live_fail_on_invalid_update=True` by default, so
+  `update_count=0` fails before checkpointing;
+- `frontres_segment_live_min_valid_count=1` by default, so a live iteration with
+  no valid PPO samples fails before the next iteration;
+- `frontres_segment_live_fail_on_nonfinite=True` by default, so NaN/Inf reward,
+  loss, KL, or clip diagnostics fail immediately;
+- the guards can be disabled explicitly for diagnosis, but the default server
+  run should fail early rather than waste a long training job;
+- the fake runner contract covers missing summary keys, non-finite diagnostics,
+  zero update count, too few valid PPO samples, and disabled guards.
+
+Step 20 stop condition:
+
+- local pseudo-parameter tests catch bad live update summaries without IsaacLab;
+- Stage 3 live train prints enough scalar evidence to judge whether the update
+  path is actually doing PPO work;
+- a server-side live run should now be used only after these local contracts
+  pass.
+
+Step 21 short training resumability contract:
+
+- run a short server-side Stage 3 live train after Step 20 passes;
+- confirm a checkpoint is saved into the FEMR run directory, not an old MOSAIC
+  path or missing fallback path;
+- resume from that checkpoint and confirm the resumed path still calls
+  `runner.learn_frontres_segment_live(...)`;
+- the resumed run must not fall back to legacy `runner.learn(...)`;
+- checkpoint diagnostics must print the saved checkpoint path, loaded checkpoint
+  path, resumed iteration, and `runner_learn=True`.
+
+Step 21 stop condition:
+
+- Stage 3 can save a live training checkpoint;
+- Stage 3 can resume from that checkpoint;
+- both cold-start and resume paths stay on `learn_frontres_segment_live`.
+
+Step 21 implementation result:
+
+- `frontres_segment_live_training.py` now prints a live checkpoint sentinel
+  when Stage 3 saves a checkpoint: saved path, whether it is inside `log_dir`,
+  iteration, and `runner_learn=True`;
+- `frontres_checkpointing.py` records `_frontres_last_loaded_checkpoint_path`
+  during `runner.load(...)`, so a resumed Stage 3 live run can print the loaded
+  checkpoint path before training continues;
+- `frontres_segment_live_training.py` prints a resume sentinel when a loaded
+  checkpoint path is present: loaded path, resumed iteration,
+  `runner_learn=True`, and `legacy_runner_learn=False`;
+- `frontres_segment_live_resume_pseudo_contract.py` constructs a fake
+  cold-start short train, resumes from the saved checkpoint path, and verifies
+  the resumed runner advances from iteration 1 to 2 without calling legacy
+  `runner.learn(...)`;
+- the contract is included in both `frontres_segment_stage3_pseudo_suite.py`
+  and `frontres_segment_all_contract_suite.py`.
+
+Step 22 sampler strategy integration contract:
+
+- only start after the live loop can run and resume stably;
+- replace the temporary live path behavior of mostly current-env continuous
+  probing with the Segment Replay sampler contract;
+- connect global sampling, replay sampling, review sampling, and priority
+  updates to the live Stage 3 loop;
+- keep the sampler owner in `frontres_segment_sampler.py` and the live runner
+  connector thin;
+- print sampler boundary facts: sampled source counts, replay pool size,
+  priority mean, solved fraction, hopeless fraction, and stale review count.
+
+Step 22 stop condition:
+
+- live Stage 3 batches are selected by the sampler, not by implicit continuous
+  env progression only;
+- rollout evidence updates sampler priority after each live update loop;
+- sampler state can be saved and resumed with the Stage 3 checkpoint;
+- the live loop remains stable after sampler integration.
+
+Step 22 implementation result:
+
+- `frontres_segment_live_sampler.py` owns the live sampler connector:
+  initializes `FrontRESSegmentSampler`, samples `segment_ids/source` before
+  each live probe, converts the detached live summary into sampler evidence,
+  updates priority, and prints `[FrontRES Segment Sampler]`;
+- `frontres_segment_live_update_loop.py` now calls the sampler connector for
+  each update step and aggregates sampler diagnostics into the update-loop
+  summary: source counts, replay pool size, priority mean, solved fraction,
+  hopeless fraction, and stale review count;
+- `frontres_segment_live_probe.py` writes sampled `segment_ids` and
+  `segment_source` into independent Segment Replay storage instead of always
+  using `arange(batch_size)`;
+- `frontres_checkpointing.py` saves and restores
+  `frontres_segment_sampler_state_dict` in the real runner checkpoint path;
+- `frontres_segment_live_sampler_contract.py` verifies four local boundaries:
+  live summary to sampler evidence, live update loop to priority update,
+  sampled ids/source to storage, and checkpoint save/load of sampler state;
+- `frontres_segment_stage3_pseudo_suite.py` and
+  `frontres_segment_all_contract_suite.py` include the Step 22 contract.
+
+Step 22 limitation:
+
+- this step connects sampler strategy and priority persistence to the live
+  Stage 3 loop, but it does not yet perform true motion-segment dynamic reset
+  from an offline segment dataset.  The current live probe still executes on
+  the current environment state; the sampled segment id now owns storage,
+  priority, and checkpoint identity.  True dataset/reset-driven segment
+  execution remains the next live-boundary integration.
+
+Step 14 per-sample rollout evidence:
+
+- scope: convert live rollout evidence from batch-level scalar summaries into
+  per-sample evidence before sampler priority update;
+- non-scope: no PPO loss change, no reference-window command injection, no
+  training-command change;
+- core parameter path:
+  `segment_id -> reset_success/done_any/reward -> per_sample_evidence ->
+  sampler priority`;
+- `frontres_segment_live_probe.py` now exports detached list payloads for
+  `reward_per_sample`, `done_any_per_sample`,
+  `storage_reward_per_sample`, `storage_valid_mask_per_sample`, and
+  `storage_segment_ids`;
+- `frontres_segment_live_sampler.py` now builds
+  `FrontRESSegmentRolloutEvidence` from those per-sample payloads before
+  falling back to scalar means;
+- failed reset and invalid rollout rows are masked at `valid_reward`, so they
+  do not create useful replay priority;
+- `[probe step14] evidence_path` prints compact boundary facts: sample count,
+  segment id range, reward min/max, reset-valid count, rollout-valid count,
+  valid-reward count, fall count, and gain mean;
+- `frontres_segment_live_sampler_contract.py` includes a semantic two-sample
+  test where one segment has positive valid reward and the other has negative
+  done/reset-failed evidence, proving the batch mean is not copied to both
+  segments.
+
+Step 14 stop condition:
+
+- two segment rows can carry different reward, fall, reset, and valid masks;
+- sampler evidence preserves those row-level facts;
+- pseudo and all-contract suites explicitly check `[probe step14]`.
+
+Step 15 reference-window reset hook:
+
+- scope: carry the sampled `reference_window` from the segment batch into the
+  reset request and through a command-owned optional reference hook;
+- non-scope: no PPO loss change, no sampler priority formula change, no real
+  motion-loader time-step rewrite, and no training-command change;
+- core parameter path:
+  `segment_id -> batch.reference_window -> reset_request.reference_window ->
+  env command reference hook -> reset diagnostics`;
+- `frontres_segment_reset.py` now calls a command hook when available:
+  `set_frontres_reference_window`, `apply_frontres_reference_window`, or
+  `set_segment_reference_window`;
+- if the command has no hook, dynamic state reset still works and
+  `reference_window_applied_frac=0.0` exposes the missing boundary instead of
+  silently pretending the reference was aligned;
+- if the command hook exists, it receives the full batched tensor
+  `[B, K+1, ...]` and the reset `env_ids`;
+- `frontres_segment_live_probe.py` prints
+  `segment_reference_window_applied_frac` in the live reset summary;
+- `frontres_segment_live_reset_hook_contract.py` verifies a semantic fake
+  command where two segment rows carry different reference-window values and
+  both are written to the command hook.
+
+Step 15 stop condition:
+
+- `request.reference_window` and command-stored reference window match exactly
+  in the fake contract;
+- reset diagnostics expose `reference_window_applied_frac`;
+- pseudo and all-contract suites explicitly check `[probe step15]`.
+
+Step 16 MotionCommand reference consumer:
+
+- scope: make the real `MultiMotionCommand` consume the Stage 3 segment
+  `reference_window` after the reset hook passes it into the command;
+- non-scope: no PPO loss change, no sampler priority change, no runner training
+  loop change, and no server launch command change;
+- core parameter path:
+  `dataset.reference_window -> reset_request.reference_window ->
+  MultiMotionCommand.set_frontres_reference_window -> command joint_pos/joint_vel
+  gather override -> cursor advance -> clear/expire`;
+- `frontres_segment_dataset.py` now builds the default `reference_window` from
+  joint command payload `[joint_pos, joint_vel]`, not root position;
+- `MultiMotionCommand` owns the override buffer, active mask, and per-env cursor;
+- `command` remains the consumer boundary: `_gather_future_by_motion("joint_pos")`
+  and `_gather_future_by_motion("joint_vel")` apply active overrides before GMT
+  sees the flattened command tensor;
+- `_update_command()` advances the cursor by one frame; `_resample_command()`
+  clears active overrides for reset envs; exhausted windows expire automatically;
+- `frontres_segment_motion_command_reference_contract.py` traces the same tensor
+  through dataset payload construction, command first read, cursor advance,
+  partial clear, and expiration.
+
+Step 16 stop condition:
+
+- contract prints `[probe step16] dataset.reference_window`,
+  `[probe step16] command.first_read`, `[probe step16] command.after_advance`,
+  `[probe step16] command.after_partial_clear`, and
+  `[probe step16] reference_window_lifecycle`;
+- contract ends with `frontres_segment_motion_command_reference_contract: ok`;
+- pseudo and all-contract suites include the Step 16 command-consumer contract.
+
+Step 17 local runner closed loop:
+
+- scope: verify the local runner interface path after Step 16, using one segment,
+  one env, and a two-step rollout;
+- non-scope: no IsaacLab server launch, no PPO update, no training-performance
+  claim, and no sampler formula change;
+- core parameter path:
+  `sampler.sample -> dataset.get_segments -> batch.reference_window ->
+  reset request -> command reference hook -> K-step live probe -> segment storage
+  -> rollout evidence -> sampler.update`;
+- `frontres_segment_live_closed_loop_contract.py` uses the real
+  `run_frontres_segment_sampler_step()` and the real
+  `run_frontres_segment_live_probe()` with a semantic fake env;
+- the fake env returns `reference_window_applied=True`, two rollout rewards, and
+  no done flag, so storage writes one valid segment reward and evidence updates
+  sampler priority.
+
+Step 17 stop condition:
+
+- contract prints `[probe step17] sampled.segment_ids`,
+  `[probe step17] batch.reference_window`,
+  `[probe step17] command.reference_window`,
+  `[probe step17] sampler.seen`, `[probe step17] sampler.invalid`,
+  `[probe step17] sampler.priority`, and
+  `[probe step17] closed_loop_summary`;
+- the closed-loop summary proves `reference_applied_frac=1.0`,
+  `storage_segment_ids=[0]`, `storage_reward=[2.0]`,
+  `storage_valid=[True]`, and positive sampler priority;
+- pseudo and all-contract suites include the Step 17 local closed-loop contract.
+
+## 12. Algorithm Contract
+
+First implementation should reuse PPO only after segment reward and action tuple
+are stable.
+
+Required algorithm behavior:
+
+- actor action is 6D Delta SE(3);
+- value predicts segment return;
+- return is K-step repair reward;
+- mixed-horizon batches compute each row's return only through its sampled K;
+- invalid reset/reward samples are masked out;
+- HSL initialization may initialize actor weights;
+- acceptance loss is off;
+- old acceptance tensors are not required.
+
+Required gradient boundary:
+
+- reward evidence is detached;
+- sampler priority update is detached;
+- diagnostics receive scalars or detached CPU tensors;
+- HSL initialization does not keep Stage 1 graph alive.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py
+```
+
+Test cases:
+
+- fake rollout batch updates actor on valid segment samples;
+- invalid samples produce zero actor contribution;
+- old acceptance loss is not called;
+- PPO log-prob/value/advantage fields match 6D action shape.
+
+Step 10 implementation result:
+- `source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py` defines the pure
+  Segment HRL PPO tuple and loss;
+- tuple fields are `observations`, 6D `actions`, `old_log_probs`,
+  `old_values`, `returns`, `advantages`, and sample-level `valid_mask`;
+- `segment_ids` and `[B, 6] action_mask` are optional metadata, not the main
+  loss signal;
+- invalid samples are removed from actor/value/entropy loss, not merely
+  down-weighted after the loss is built;
+- the module has no dependency on old acceptance labels, masks, logits, or
+  probability heads;
+- this is still a fake-batch algorithm contract and does not enable live
+  Stage 3 training.
+
+Step 10.1 PPO update semantic alignment:
+- Stage 3 Segment live update remains isolated from legacy `runner.learn()`,
+  `PPO.update()`, and `FrontRESUnified.update()`;
+- the Segment path must still preserve the mature PPO distribution contract:
+  `old_log_prob`, `old_means`, `old_sigmas`, current mean/sigma, ratio, clipped
+  surrogate, distribution KL, adaptive LR, optimizer.step, and post-step
+  diagnostics;
+- schedule=`adaptive` LR is applied before optimizer.step from the pre-step
+  old/new distribution KL, matching the MOSAIC/RSL-RL PPO update ordering;
+- post-update KL is a Segment live diagnostic and trust-region rejection check,
+  not the primary MOSAIC adaptive-LR signal;
+- rejected post-KL steps may rollback and retry inside the Segment path, but
+  this does not change the full-6D Delta SE action semantics and must not touch
+  legacy PPO branches.
+
+## 13. Checkpoint Contract
+
+Checkpoint behavior for `stage3_segment_hrl`:
+
+- load Stage 1 HSL residual actor into 6D repair actor when requested;
+- do not require `acceptance_actor`;
+- reset optimizer unless config explicitly resumes optimizer;
+- load normalizers normally;
+- save sampler state if replay priority is persistent;
+- save dataset cache metadata if cache ids must be reproducible.
+
+Required tests:
+
+```text
+source/rsl_rl/rsl_rl/tests/frontres_segment_checkpoint_contract.py
+```
+
+Stop if:
+
+- Stage 3 load fails because a Stage 2 acceptance actor is missing.
+
+Step 11 implementation result:
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_checkpointing.py` defines the
+  Stage 3 checkpoint contract;
+- Stage 1 HSL residual actor can initialize the 6D Stage 3 repair actor;
+- Stage 1 two-head checkpoints map `trunk.*` and `proposal_head.*` into the
+  6D repair actor and ignore `acceptance_head.*`;
+- Stage 3 does not require `acceptance_actor`;
+- optimizer state is reset by default and loaded only when explicitly requested;
+- observation normalizers are restored when present;
+- sampler state and dataset cache metadata are included in the Stage 3 payload
+  when the runner exposes them;
+- this remains a fake checkpoint contract and does not enable live Stage 3
+  training.
+
+## 14. Implementation Ladder
+
+Implement in this order:
+
+1. pure data objects and dataset toy test;
+2. pure sampler and priority toy test;
+3. action projector toy test;
+4. reward toy test;
+5. reset adapter fake-env test;
+6. diagnostics toy test;
+7. thin runner toy chain;
+8. stage entrypoint contract;
+9. algorithm contract;
+10. checkpoint contract;
+11. short live-path sentinel only after all above pass.
+
+Do not start live training before steps 1-10 pass.
+
+## 15. Stage 3 Stop Conditions
+
+Stop and report mismatch if:
+
+- static reset is used for dynamic phases;
+- velocity fields are absent from segment state;
+- sampler cannot explain replay choice;
+- reward is absolute full env reward instead of Noisy-relative gain;
+- Clean is used as direct supervised HRL target;
+- HRL action is reduced to a scalar strength;
+- HRL action is acceptance over HSL proposal;
+- old acceptance diagnostics are the main Stage 3 diagnostics;
+- runner owns dataset/sampler/reward internals;
+- segment id is not stable across dataset, sampler, reward, diagnostics, and
+  checkpoint;
+- tests require IsaacLab for pure modules;
+- stage flag can accidentally run old `stage2_acceptance`.
+
+## 16. Step 3 Result
+
+Step 3 turns the method into an implementation contract:
+
+- new stage: `stage3_segment_hrl`;
+- new objective: `segment_replay_hrl`;
+- new module boundary under `rsl_rl.frontres`;
+- toy-test-first implementation order;
+- explicit separation from old acceptance training;
+- exact stop conditions before any expensive run.
+
+Next step:
+
+- Step 4: implement `frontres_segment_dataset.py` and
+  `frontres_segment_sampler.py` as pure modules with toy tests.
+
+## 17. Stage 1/3 Cache IO Optimization Contract
+
+Date: 2026-06-30
+
+This section records the current Stage 1/3 cache IO contract after the Segment
+Replay implementation reached the offline-cache path.  It is an engineering
+contract, not a paper-method description.
+
+### Problem
+
+Stage 1 can generate a large cache.  Keeping all Clean/Noisy rollout states in
+memory until the end is wrong.  Stage 3 should also not eagerly expand the whole
+cache into memory before training.
+
+The correct immediate contract is:
+
+- Stage 1 writes payload shards during generation;
+- Stage 1 writes final manifest and metadata only after generation completes;
+- Stage 3 loads manifest records first and reads shard rows lazily;
+- Stage 3 bounds repeated shard reads with an LRU cache;
+- live server tests must still prove the IsaacLab path reaches these boundaries.
+
+### Scope
+
+This contract covers:
+
+- Stage 1 Clean/Noisy cache payload writing;
+- Stage 1 status/progress observability;
+- Stage 3 lazy cache loading;
+- Stage 3 Segment Replay sampler use of cached segments;
+- local contract tests and live sentinel evidence required before formal runs.
+
+### Non-Scope
+
+This contract does not claim:
+
+- HDF5, Zarr, mmap, or true partial-row storage;
+- server-side IsaacLab verification;
+- training quality improvement;
+- final Stage 3 performance tuning;
+- removal of all legacy/eager compatibility paths.
+
+### Core Parameter Path
+
+```text
+cache_chunk_size
+  -> clean_buffer / noisy_buffer
+  -> write_*_chunked_shard(...)
+  -> shards/.../*.pt payload file
+  -> manifest record {path, row, segment, descriptor}
+  -> metadata cache_storage_backend=torch_chunked_shard
+
+frontres_segment_cache_dir
+  -> load_stage1_cache_dataset(lazy=True)
+  -> build_stage1_cache_lazy_records(...)
+  -> segment_id -> manifest_record
+  -> read_noisy_variant_record(cache_dir, record, shard_cache)
+  -> FrontRESSegmentBatch
+  -> sampler / storage / PPO update
+
+shard_cache_size
+  -> FrontRESSegmentShardLRU(max_shards=...)
+  -> resident shard bound
+  -> load_count / hit_count probe
+```
+
+### File Responsibility Map
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py`
+
+- owns Stage 1 orchestration;
+- owns `cache_chunk_size`;
+- owns Clean/Noisy buffer flushing policy;
+- owns status/progress event emission;
+- must not own Stage 3 lazy dataset semantics.
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py`
+
+- owns on-disk cache format;
+- owns chunked payload shard writers;
+- owns manifest record writers/readers;
+- owns `FrontRESSegmentShardLRU`;
+- must preserve backward compatibility with legacy per-file shard manifests
+  until old caches are intentionally dropped.
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py`
+
+- owns eager `FrontRESSegmentDataset`;
+- owns lazy `FrontRESStage1LazyCacheDataset`;
+- owns `segment_id -> manifest record -> shard row -> batch` conversion;
+- owns runtime invalidity filtering in `sample_global`;
+- must not silently eager-load all Noisy payloads in the Stage 3 default path.
+
+`source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py`
+
+- owns Stage 3 runner-side dataset loading and sampler connection;
+- must call `load_stage1_cache_dataset(..., lazy=True)` by default;
+- must print cache-load facts including lazy mode and shard-cache probe.
+
+`scripts/rsl_rl/train.py`
+
+- owns CLI/config routing only;
+- should expose `cache_chunk_size` and `shard_cache_size` as explicit knobs;
+- must not define cache format or lazy-read behavior.
+
+`run/run_frontres_stage1_segment_cache.sh`
+
+- owns user-facing Stage 1 command defaults;
+- should pass `CACHE_CHUNK_SIZE` after the CLI flag exists.
+
+`run/run_frontres_stage3_segment_hrl.sh`
+
+- owns user-facing Stage 3 command defaults;
+- should pass `SHARD_CACHE_SIZE` after the CLI flag exists.
+
+### Invariants
+
+- Stage 1 payload shards may appear before the build is complete.
+- Stage 1 manifest and metadata are complete-build artifacts.
+- A partial Stage 1 cache must not be treated as a valid Stage 3 training
+  dataset unless a future explicit partial-cache mode is designed.
+- `progress.jsonl` is runtime observability, not the canonical manifest.
+- `metadata.json` is the completion boundary for normal Stage 3 cache loading.
+- Stage 3 default cache loading must be lazy.
+- Lazy dataset initialization must not load Noisy payload shards.
+- `update_validity(..., False)` must remove a segment from future global
+  sampling in both eager and lazy datasets.
+- Boundary diagnostic samples may be present on disk, but are excluded from
+  trainable Stage 3 dataset loading unless explicitly requested.
+- Contract tests prove local semantics; only server logs prove IsaacLab live
+  lifecycle.
+
+### Current Evidence
+
+Local contract evidence already exists for:
+
+- chunked Stage 1 payload paths under `shards/...`;
+- `build_status.json` and `progress.jsonl`;
+- lazy records pointing to `{path, row}`;
+- lazy LRU probe with `load_count` and `hit_count`;
+- lazy runtime invalidity exclusion from `sample_global`;
+- Stage 3 sampler fake path loading the lazy dataset.
+
+Current evidence does not yet prove:
+
+- live IsaacLab Stage 1 writes shard files while the process is running;
+- live IsaacLab Stage 3 reads a large cache without memory pressure;
+- final throughput is acceptable for a full AMASS cache.
+
+### Known Gaps
+
+- `cache_chunk_size` currently has a code default but no CLI/run-script knob.
+- `shard_cache_size` currently has a code default but no CLI/run-script knob.
+- `torch_chunked_shard` still loads a full shard file per cache miss.
+- Lazy `get_segments()` currently loops records row-by-row instead of grouping
+  sampled rows by shard path.
+- The eager compatibility function remains available and must not be used as
+  the Stage 3 production path.
+
+### Required Next Steps
+
+1. Expose `cache_chunk_size` through CLI and Stage 1 run script.
+2. Expose `shard_cache_size` through CLI/config and Stage 3 run script.
+3. Strengthen the Stage 1 contract test so chunk flush visibility is asserted
+   at the writer boundary, not only after the full build.
+4. Strengthen the Stage 3 lazy-read contract so `segment_id`, `path`, `row`,
+   LRU probes, and batch semantics are checked together.
+5. Run a server-side Stage 1 live sentinel and inspect shard files while the
+   process is still running.
+6. Run a server-side Stage 3 tiny update loop and inspect lazy cache logs plus
+   PPO valid-count logs.
+
+### Stop Conditions Before Formal Full Stage 1
+
+Do not recommend full Stage 1 cache generation until:
+
+- CLI prints the effective `cache_chunk_size`;
+- Stage 1 progress logs include non-empty `flushed_shard_path`;
+- shard files are visible during a live server run before process exit;
+- validator passes after completion.
+
+### Stop Conditions Before Formal Stage 3
+
+Do not recommend full Stage 3 training until:
+
+- CLI prints the effective `shard_cache_size`;
+- Stage 3 logs show `lazy=True`;
+- shard-cache probe starts with `load_count=0`;
+- a tiny update loop reaches `ppo_update=True` and `ppo_valid_count > 0`;
+- sampler evidence updates priority from per-sample rollout evidence.
+
+## 18. Step 7 Server Stage 1 Sentinel Contract
+
+Date: 2026-06-30
+
+Step 7 is a live sentinel step.  It does not prove full-cache throughput.  It
+only proves that the real IsaacLab Stage 1 path reaches the streaming cache
+boundaries and exits cleanly.
+
+### Scope
+
+- use the repository Stage 1 wrapper instead of hand-written command fragments;
+- run one or a few motions with a small segment count;
+- write to a disposable sentinel cache directory;
+- require validator after completion;
+- inspect live progress and shard files before recommending a formal run.
+
+### Non-Scope
+
+- no formal full AMASS cache generation;
+- no Stage 2 or Stage 3 training;
+- no claim about final throughput;
+- no acceptance/old Stage 2 path.
+
+### Command
+
+From `/hdd1/cyx/FEMR` on the server:
+
+```text
+CUDA_VISIBLE_DEVICES=0 \
+RUN_FOREGROUND=1 \
+LOG_PATH=/hdd1/cyx/FEMR/train_stage1_segment_cache_sentinel.txt \
+MAX_MOTIONS=1 \
+MAX_SEGMENTS=4 \
+CACHE_CHUNK_SIZE=2 \
+VARIANTS_PER_STRENGTH=1 \
+VALIDATION_MIN_SEGMENTS=1 \
+VALIDATION_MIN_NOISY=1 \
+bash run_stage1.sh \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  1 \
+  4 \
+  /hdd1/cyx/AMASS_G1Segment_sentinel
+```
+
+Before launching IsaacLab, the command can be checked without side effects:
+
+```text
+FRONTRES_STAGE1_PREFLIGHT_ONLY=1 \
+MAX_MOTIONS=1 \
+MAX_SEGMENTS=4 \
+CACHE_CHUNK_SIZE=2 \
+bash run/run_frontres_stage1_segment_cache.sh \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  1 \
+  4 \
+  /hdd1/cyx/AMASS_G1Segment_sentinel
+```
+
+Expected preflight log:
+
+```text
+[FrontRES Stage1 startup preflight] PASS
+```
+
+### Required Runtime Probes
+
+The Stage 1 sentinel log must include:
+
+- `[FrontRES Stage1 Segment Cache] live_sentinel`;
+- `cache_chunk_size=2`;
+- `[FrontRES Stage1 Segment Cache] stage1_cfg_probe`;
+- `[FrontRES Stage1 Segment Cache] motion_loader_probe`;
+- `[FrontRES Stage1 Segment Cache] index_source`;
+- `[FrontRES Stage1 Segment Cache] perturbation_plan`;
+- `[FrontRES Stage1 Segment Cache] cache_readback`;
+- `[FrontRES Stage1 Segment Cache] auto_exit`;
+- validator `PASS`.
+
+The disposable cache directory must include:
+
+- `build_status.json`;
+- `progress.jsonl`;
+- `metadata.json`;
+- `segment_index.jsonl`;
+- `shards/clean_states/shard_000000.pt`;
+- at least one `shards/noisy_variants/*/shard_000000.pt`;
+- `manifests/clean_states/shard_000000.pt`;
+- at least one `manifests/noisy_variants/*/shard_000000.pt`.
+
+### Stop Condition
+
+Step 7 is complete only when the server log and cache directory show the
+runtime probes above.  Local contract tests only prove the command contract;
+they do not replace the server sentinel.
+
+## 19. Step 8 Server Stage 3 Tiny Update-Loop Contract
+
+Date: 2026-06-30
+
+Step 8 is a live sentinel step for Stage 3.  It uses a tiny Stage 1 cache and
+an HSL checkpoint only to prove the real Stage 3 update-loop path reaches lazy
+cache loading, sampler batching, rollout evidence, and PPO update.
+
+### Scope
+
+- use the repository Stage 3 wrapper;
+- load a real HSL checkpoint;
+- use the disposable Stage 1 sentinel cache;
+- run `MODE=update_loop`;
+- keep `NUM_ENVS`, `MAX_ITERS`, and `UPDATE_STEPS` tiny;
+- inspect Stage 3 logs for lazy cache and PPO-valid evidence.
+
+### Non-Scope
+
+- no formal Stage 3 training;
+- no reward-quality conclusion;
+- no full AMASS cache;
+- no old acceptance training path.
+
+### Command
+
+From `/hdd1/cyx/FEMR` on the server:
+
+```text
+CUDA_VISIBLE_DEVICES=0 \
+RUN_FOREGROUND=1 \
+LOG_PATH=/hdd1/cyx/FEMR/train_stage3_segment_hrl_tiny_update_loop.txt \
+CACHE_DIR=/hdd1/cyx/AMASS_G1Segment_sentinel \
+SHARD_CACHE_SIZE=2 \
+bash run_stage3.sh \
+  /hdd1/cyx/FEMR/model/model_warmup.pt \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  8 \
+  1 \
+  3 \
+  update_loop
+```
+
+Before launching IsaacLab, the command can be checked without side effects:
+
+```text
+FRONTRES_STAGE_PREFLIGHT_ONLY=1 \
+CACHE_DIR=/hdd1/cyx/AMASS_G1Segment_sentinel \
+SHARD_CACHE_SIZE=2 \
+bash run_stage3.sh \
+  /hdd1/cyx/FEMR/model/model_warmup.pt \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  8 \
+  1 \
+  3 \
+  update_loop
+```
+
+Expected preflight log:
+
+```text
+[FrontRES Stage3 startup preflight] PASS mode=update_loop
+```
+
+### Required Runtime Probes
+
+The Stage 3 tiny update-loop log must include:
+
+- `stage=stage3_segment_hrl`;
+- `objective=segment_replay_hrl`;
+- `segment_cache_dir=/hdd1/cyx/AMASS_G1Segment_sentinel`;
+- `segment_shard_cache_size=2`;
+- `[FrontRES Segment Dataset] cache_load`;
+- `lazy=True shard_cache_size=2`;
+- `[FrontRES Segment Dataset Ready]`;
+- `shard_cache`;
+- `[FrontRES Segment Sampler Ready]`;
+- `[probe step22] sample`;
+- `[FrontRES Segment Batch]`;
+- `[FrontRES Segment Live Probe]`;
+- `ppo_update=True`;
+- `ppo_valid_count=` with a value greater than zero;
+- `[probe step14] evidence_path`;
+- `[FrontRES Segment Sampler]`;
+- `[FrontRES Segment Live Update Loop]`;
+- `runner_learn=False`.
+
+### Stop Condition
+
+Step 8 is complete only when the server log proves:
+
+- Stage 3 uses the sentinel cache path;
+- lazy cache loading is active;
+- the sampler supplies a batch from cache;
+- at least one PPO-valid sample is produced;
+- the update loop exits through the sentinel path rather than normal training.
+
+Local command contract tests only prove startup wiring.  They do not replace
+the server tiny update-loop run.
+
+## 20. Stage 1 Resumable Cache Contract
+
+Date: 2026-06-30
+
+This section defines the required design before a formal full-AMASS Stage 1
+cache run.  The current Stage 1 code already has chunked payload writes,
+`build_status.json`, and `progress.jsonl`.  That is not enough for true
+checkpoint resume.  A resumable cache must treat each committed shard plus its
+manifest record as the smallest recoverable unit.
+
+### Problem
+
+Stage 1 may run for a long time and may be interrupted by job timeout, server
+restart, manual stop, or IsaacLab failure.  Restarting from zero wastes rollout
+time.  Reusing a partially written cache without validation is also unsafe.
+
+The current safe contract should be:
+
+- a finished shard is committed atomically;
+- a manifest row is the source of truth for resume;
+- `progress.jsonl` is only an observability log;
+- incomplete temp shards must be ignored;
+- already committed Clean/Noisy records must be skipped on rerun;
+- incomplete or corrupt records must be regenerated;
+- Stage 3 must only consume a complete cache unless an explicit partial-cache
+  mode is added later.
+
+### Non-Scope
+
+This contract does not require:
+
+- HDF5, Zarr, mmap, or row-level random write;
+- distributed writers;
+- parallel IsaacLab workers;
+- Stage 3 training from a partial cache;
+- changing Segment Replay reward, sampler, or PPO semantics;
+- using `progress.jsonl` as the canonical resume ledger.
+
+### Mature Design Adaptation
+
+The adapted pattern is the standard dataset-build pattern used by mature data
+pipelines:
+
+- write output to a temporary file first;
+- validate the file before it becomes visible as a committed artifact;
+- atomically rename temporary output to final output;
+- record committed rows in a manifest or index;
+- on rerun, scan committed manifest/shard pairs and rebuild only missing work;
+- optionally compare a build signature so stale caches are not reused under a
+  different configuration.
+
+For FEMR, the unit is not a whole dataset.  The unit is:
+
+```text
+Clean: segment_key -> clean shard row -> clean manifest row
+Noisy: segment_key + perturbation_key -> noisy shard row -> noisy manifest row
+```
+
+### Core Parameter Path
+
+Clean resume path:
+
+```text
+FrontRESSegmentIndex
+-> segment_key = (motion_rel_path, start_frame, end_frame)
+-> clean capture
+-> temp clean shard
+-> shard validation
+-> atomic rename to final clean shard
+-> clean manifest row {path, row, segment}
+-> resume scan completed_clean_keys
+-> builder skips completed clean segment on rerun
+```
+
+Noisy resume path:
+
+```text
+FrontRESPerturbationDescriptor
+-> noisy_key = (segment_key, perturbation_id, strength, seed, family_group, role)
+-> noisy capture
+-> temp noisy shard
+-> shard validation
+-> atomic rename to final noisy shard
+-> noisy manifest row {path, row, segment, perturbation}
+-> resume scan completed_noisy_keys
+-> builder skips completed noisy variant on rerun
+```
+
+Build signature path:
+
+```text
+amass_root + horizon_k + frame_stride + loaded_motion_paths
++ perturbation curriculum config + cache schema version
+-> build_signature
+-> cache resume allowed only when signature matches
+```
+
+### File Responsibility Map
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py`
+
+- owns atomic shard write helpers;
+- owns manifest read/write helpers;
+- owns committed Clean/Noisy key extraction;
+- must ignore `.tmp` files during resume scans;
+- must expose a compact probe with committed row counts and shard counts.
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py`
+
+- owns builder-level resume policy;
+- scans existing committed records before rollout;
+- computes pending Clean/Noisy work;
+- skips completed work;
+- writes resume probes before the expensive env loop starts;
+- must not trust progress logs as completion evidence.
+
+`source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_validator.py`
+
+- owns complete/partial/corrupt classification;
+- verifies manifest rows point to existing final shards;
+- verifies row indexes are readable;
+- verifies expected Clean/Noisy counts after a complete build.
+
+`scripts/rsl_rl/check_frontres_stage1_segment_cache_completion.py`
+
+- owns server-side completion check against the expected AMASS segment set;
+- should report missing, extra, partial, and corrupt counts separately.
+
+`scripts/rsl_rl/train.py` and `run_stage1.sh`
+
+- own user-facing resume/force-rebuild flags only;
+- must pass explicit config into the builder;
+- must not implement manifest parsing or skip logic.
+
+### Invariants
+
+- `progress.jsonl` never decides whether a segment is complete.
+- A final shard path without a manifest row is not resumable.
+- A manifest row whose shard is missing or unreadable is corrupt, not complete.
+- Temporary shard files are ignored by resume and may be cleaned later.
+- Rerunning Stage 1 with the same signature should not overwrite committed
+  shard rows.
+- Rerunning Stage 1 with a different signature must fail fast unless
+  `force_rebuild=True`.
+- Resume scan must print:
+  `completed_clean`, `completed_noisy`, `pending_clean`, `pending_noisy`,
+  `ignored_tmp`, and `corrupt_count`.
+- A partial cache may become complete after rerun.
+- A corrupt cache must be regenerated for the corrupt rows or rejected; it must
+  not silently train Stage 3.
+- Stage 3 default loading still requires `metadata.json` with complete status.
+
+### Runtime Probes
+
+Before the first env rollout, Stage 1 must print a resume probe:
+
+```text
+[FrontRES Stage1 Resume Probe]
+signature_match=True
+completed_clean=...
+completed_noisy=...
+pending_clean=...
+pending_noisy=...
+ignored_tmp=...
+corrupt_count=...
+resume_enabled=True
+force_rebuild=False
+```
+
+After each shard commit, Stage 1 must print or log a compact commit event:
+
+```text
+[FrontRES Stage1 Shard Commit]
+kind=clean/noisy
+shard_path=...
+row_count=...
+manifest_path=...
+committed_total=...
+```
+
+These probes are live sentinels.  They prove the real IsaacLab path reaches the
+resume boundary.  They do not prove training quality.
+
+### Tests Required Before Code Is Considered Complete
+
+Local semantic tests:
+
+1. temp shard exists but no manifest row -> resume scan reports zero completed;
+2. final shard exists with manifest row -> resume scan reports completed key;
+3. manifest row points to missing shard -> corrupt_count increases;
+4. partial cache with two completed segments -> builder rerun only requests
+   the remaining segments;
+5. changed build signature -> resume fails unless force rebuild is set.
+
+Server sentinel tests:
+
+1. run Stage 1 tiny cache with small `CACHE_CHUNK_SIZE`;
+2. interrupt after at least one shard commit;
+3. rerun the same command;
+4. confirm log shows completed keys and fewer pending keys;
+5. confirm final validator passes.
+
+### Stop Conditions Before Formal Full Stage 1
+
+Do not recommend full Stage 1 cache generation until:
+
+- resume scan is implemented and covered by a semantic local test;
+- shard commit uses a temp path plus final commit boundary;
+- committed manifest rows are written during generation, not only at the end;
+- rerun skips already committed Clean and Noisy records;
+- corrupt/missing shard rows are not treated as complete;
+- a server tiny run proves interruption and rerun behavior.
+
+### Next Step
+
+Step 2 should implement cache IO resume primitives first.  It should not touch
+IsaacLab runner logic.  The owner module is
+`frontres_segment_cache_io.py`, and the test target is a semantic fake cache
+with temp, committed, missing, and corrupt shard cases.
+
+## 21. Step 2 Result: Cache IO Resume Primitives
+
+Date: 2026-06-30
+
+Step 2 implemented only the IO-layer primitives.  It did not connect resume to
+the Stage 1 builder or live IsaacLab path.
+
+### Implemented
+
+`frontres_segment_cache_io.py` now owns:
+
+- `FrontRESStage1CacheResumeScan`;
+- `clean_resume_key(...)`;
+- `noisy_resume_key(...)`;
+- `scan_stage1_cache_resume_state(...)`;
+- `write_clean_state_chunked_shard_atomic(...)`;
+- `write_noisy_variant_chunked_shard_atomic(...)`.
+
+### Verified Core Path
+
+The semantic contract test checks:
+
+```text
+tmp shard + progress log only
+-> completed_clean=0
+-> completed_noisy=0
+-> ignored_tmp=1
+
+final shard + manifest rows
+-> completed_clean=2
+-> completed_noisy=2
+-> corrupt_count=0
+
+manifest row pointing to missing shard
+-> corrupt_count=1
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+```
+
+Observed probe:
+
+```text
+[cache_io resume trace] tmp_only={'completed_clean': 0, 'completed_noisy': 0,
+'ignored_tmp': 1, 'corrupt_count': 0, ...}
+[cache_io resume trace] committed ... probe={'completed_clean': 2,
+'completed_noisy': 2, 'ignored_tmp': 1, 'corrupt_count': 0, ...}
+[cache_io resume trace] corrupt={'completed_clean': 2, 'completed_noisy': 2,
+'ignored_tmp': 1, 'corrupt_count': 1, ...}
+PASS: FrontRES Segment cache IO round-trips clean states and noisy variants.
+```
+
+### Remaining Gap
+
+Stage 1 builder still does not call the resume scanner and still does not skip
+completed work.  That belongs to Step 3.
+
+## 22. Step 3 Result: Builder Resume Planner
+
+Date: 2026-06-30
+
+Step 3 connected the IO-layer resume scan to the Stage 1 builder.  It still
+does not implement the final live IsaacLab interruption sentinel.
+
+### Implemented
+
+`frontres_segment_cache_builder.py` now:
+
+- calls `scan_stage1_cache_resume_state(cache_dir)` after indexing and
+  perturbation-plan construction;
+- builds expected Clean keys from planned segments;
+- builds expected Noisy keys from planned descriptors;
+- loads committed Clean/Noisy manifest rows that match the current plan;
+- starts new payload shard ids after the committed shard ids;
+- reuses cached Clean state when Clean is already committed;
+- skips a whole segment when Clean and all planned Noisy variants are already
+  committed;
+- writes a `[FrontRES Stage1 Resume Probe]` before the expensive env loop.
+
+### Verified Core Path
+
+The builder contract test performs:
+
+```text
+run 1: max_segments=1
+-> completed_clean=1
+-> completed_noisy=2
+
+run 2: same cache dir, max_segments=2
+-> resume scan sees completed_clean=1 and completed_noisy=2
+-> builder only prepares segment 1
+-> builder only captures Noisy variants for segment 1
+-> final manifest contains segment 0 and segment 1
+```
+
+Observed probe:
+
+```text
+[FrontRES Stage1 Resume Probe] ... completed_clean=1 completed_noisy=2
+pending_clean=1 pending_noisy=2 ...
+[cache_builder resume trace] prepare_calls=[(1, 2, [0])]
+perturb_calls=[(1, 2, 0.0, [0]), (1, 3, 0.5, [0])]
+clean_ids=[0, 1]
+zero_ids=[(0, 0), (1, 2)]
+half_ids=[(0, 1), (1, 3)]
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+```
+
+All passed.
+
+### Remaining Gap
+
+Committed payload shards are resumable, and final manifests preserve old plus
+new rows after rerun.  However, the builder still writes the canonical manifest
+at the end of the run.  The next step should make shard commits immediately
+visible through manifest records during generation, so an interruption after a
+flush can be resumed without waiting for final metadata.
+
+## 23. Step 4 Result: Flush-Visible Manifest Commit
+
+Date: 2026-06-30
+
+Step 4 made each Stage 1 shard flush immediately visible to resume scan.  It
+still does not prove a live IsaacLab interruption; that remains a server
+sentinel step.
+
+### Implemented
+
+`frontres_segment_cache_io.py` now writes Clean and Noisy manifest payloads via
+the same temp-file plus atomic-replace primitive used by payload shards.
+
+`frontres_segment_cache_builder.py` now commits the canonical manifest after
+each buffer flush:
+
+```text
+buffer
+-> atomic payload shard
+-> append records in memory
+-> atomic manifest rewrite
+-> [FrontRES Stage1 Shard Commit]
+```
+
+The manifest remains the resume source of truth.  `progress.jsonl` remains only
+observability.
+
+### Verified Core Path
+
+The builder contract now simulates:
+
+```text
+run 1:
+  segment 0 Clean + Noisy flush
+  crash before segment 1 prepare
+
+resume scan after crash:
+  completed_clean=1
+  completed_noisy=2
+  corrupt_count=0
+
+run 2:
+  resume scan sees segment 0 committed
+  builder prepares only segment 1
+  final manifest contains segment 0 and segment 1
+```
+
+Observed probe:
+
+```text
+[cache_builder crash_resume trace] after_crash
+probe={'completed_clean': 1, 'completed_noisy': 2, 'ignored_tmp': 0,
+'corrupt_count': 0, 'clean_manifest_count': 1, 'noisy_manifest_count': 2}
+
+[cache_builder crash_resume trace] after_rerun
+probe={'completed_clean': 2, 'completed_noisy': 4, ...}
+prepare_calls=[(1, 2, [0])]
+baseline_calls=[(1, 2, [0]), (1, 3, [0])]
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+```
+
+All passed.
+
+### Remaining Gap
+
+The local fake env proves the commit/resume contract.  The next required proof
+is a server-side live Stage 1 sentinel:
+
+```text
+small CACHE_CHUNK_SIZE
+-> observe [FrontRES Stage1 Shard Commit]
+-> interrupt after at least one commit
+-> rerun same command
+-> observe completed_clean/completed_noisy > 0 before rollout
+-> final validator passes
+```
+
+## 24. Step 5 Result: Build Signature Guard
+
+Date: 2026-06-30
+
+Step 5 added the smallest resume-safety guard: a cache can only resume when
+the current Stage 1 build signature matches the signature stored by the cache.
+
+### Implemented
+
+`frontres_segment_cache_builder.py` now computes:
+
+```text
+amass_root
++ motion source
++ loaded motion paths when present
++ horizon_k
++ frame_stride
++ perturbation curriculum mode and levels
++ variants_per_strength
++ base_seed
++ curriculum active dims
+-> stable JSON
+-> sha256 build_signature.hash
+```
+
+The builder stores `build_signature` in:
+
+- `build_status.json` after indexing;
+- final `metadata.json`;
+- final complete status.
+
+Before resume scan, the builder compares the current signature with the
+previous `metadata.json` signature, or with the previous `build_status.json`
+signature when the cache was interrupted before final metadata.
+
+### Verified Core Path
+
+The builder contract now checks:
+
+```text
+run 1:
+  horizon_k=2
+  complete one segment
+
+run 2:
+  same cache_dir
+  horizon_k=3
+  signature mismatch
+  fail before env prepare
+```
+
+Observed probe:
+
+```text
+[FrontRES Stage1 Resume Probe] signature_match=False
+existing_hash=...
+current_hash=...
+resume_enabled=False
+force_rebuild=False
+
+[cache_builder signature trace]
+status=signature_mismatch
+prepare_calls=[]
+```
+
+The test also verifies that `segment_index.jsonl` is not rewritten on mismatch.
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+```
+
+All passed.
+
+### Deliberate Non-Scope
+
+No `force_rebuild` implementation was added in this step.  That should only be
+added when we decide the exact destructive behavior, because it may delete or
+quarantine existing cache files.
+
+## 25. Step 6 Result: CLI And Run-Script Knob Audit
+
+Date: 2026-06-30
+
+Step 6 checked whether the Stage 1/Stage 3 runtime knobs already exist before
+adding more code.  They do exist, so no implementation change was needed.
+
+### Verified Path
+
+Stage 1 chunking path:
+
+```text
+CACHE_CHUNK_SIZE
+-> run/run_frontres_stage1_segment_cache.sh
+-> --frontres_segment_cache_chunk_size
+-> scripts/rsl_rl/train.py
+-> FrontRESStage1CacheBuilderConfig.cache_chunk_size
+-> live sentinel prints cache_chunk_size
+```
+
+Stage 3 lazy shard cache path:
+
+```text
+SHARD_CACHE_SIZE
+-> run/run_frontres_stage3_segment_hrl.sh
+-> --frontres_segment_shard_cache_size
+-> scripts/rsl_rl/train.py
+-> alg_cfg.frontres_segment_shard_cache_size
+-> FrontRESSegmentDataset lazy shard cache
+```
+
+### Test Class
+
+This is a secondary contract path.  It routes simple scalar config values, not
+a tensor parameter transformed across formulas or masks.  Semantic asserts and
+the existing sampler probe are sufficient.
+
+### Evidence
+
+Fresh local commands:
+
+```text
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py
+```
+
+Observed facts:
+
+```text
+PASS: FrontRES Stage 1/2 live presets and Stage 3 Segment Replay contract are explicit.
+[probe step23] shard_cache_size: alg_value=1 metadata=... 'shard_cache': {'max_shards': 1, ...}
+frontres_segment_live_sampler_contract: ok
+```
+
+### Stop Condition
+
+The run scripts, train entrypoint, algorithm config, and lazy dataset path all
+expose the required knobs.  Step 6 is complete without new code.
+
+## 26. Step 7 Local Result: Stage 1 Sentinel Preflight
+
+Date: 2026-06-30
+
+Step 7 is a live sentinel path, so local execution can only verify the startup
+contract.  It cannot replace the server IsaacLab run.
+
+### Test Class
+
+Live sentinel path.  The required live facts are the Stage 1 cache log, shard
+files, manifest files, and validator result produced on the server.
+
+### Local Evidence
+
+Fresh local preflight commands:
+
+```text
+FRONTRES_STAGE1_PREFLIGHT_ONLY=1 \
+MAX_MOTIONS=1 \
+MAX_SEGMENTS=4 \
+CACHE_CHUNK_SIZE=2 \
+VARIANTS_PER_STRENGTH=1 \
+VALIDATION_MIN_SEGMENTS=1 \
+VALIDATION_MIN_NOISY=1 \
+bash run/run_frontres_stage1_segment_cache.sh \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  1 \
+  4 \
+  /hdd1/cyx/AMASS_G1Segment_sentinel
+
+FRONTRES_STAGE1_PREFLIGHT_ONLY=1 \
+RUN_FOREGROUND=1 \
+LOG_PATH=/private/tmp/femr_stage1_step7_preflight.txt \
+MAX_MOTIONS=1 \
+MAX_SEGMENTS=4 \
+CACHE_CHUNK_SIZE=2 \
+VARIANTS_PER_STRENGTH=1 \
+VALIDATION_MIN_SEGMENTS=1 \
+VALIDATION_MIN_NOISY=1 \
+bash run_stage1.sh \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  1 \
+  4 \
+  /hdd1/cyx/AMASS_G1Segment_sentinel
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py
+```
+
+Observed facts:
+
+```text
+[FrontRES Stage1 startup preflight] PASS
+--frontres_stage stage1_segment_cache
+--frontres_segment_cache_max_motions 1
+--frontres_segment_cache_max_segments 4
+--frontres_segment_cache_chunk_size 2
+--frontres_segment_cache_dir /hdd1/cyx/AMASS_G1Segment_sentinel
+[FrontRES Stage1 validator preflight] enabled cache_dir=/hdd1/cyx/AMASS_G1Segment_sentinel expect_mode=hrl_curriculum_bank min_segments=1 min_noisy=1
+PASS: FrontRES Stage 1/2 live presets and Stage 3 Segment Replay contract are explicit.
+```
+
+### Server Stop Condition
+
+Step 7 is not fully complete until the server run shows:
+
+- `[FrontRES Stage1 Resume Probe]`;
+- `[FrontRES Stage1 Shard Commit]`;
+- `[FrontRES Stage1 Segment Cache] cache_readback`;
+- `[FrontRES Stage1 Segment Cache] auto_exit`;
+- validator PASS;
+- committed shard and manifest files under the disposable cache directory.
+
+## 27. Stage 1 Full-AMASS Streaming Builder Plan
+
+Date: 2026-06-30
+
+The full Stage 1 run must not build the entire AMASS segment index before the
+first shard is written.  The current eager path is:
+
+```text
+loaded_motion_paths
+-> read every motion metadata
+-> materialize all segment records
+-> build all perturbation descriptors
+-> write segment_index
+-> start Clean/Noisy capture
+```
+
+This is the wrong ownership boundary for full AMASS.  It delays all disk
+commits until after the largest indexing step and makes the run look frozen.
+
+The mature design is a streaming builder:
+
+```text
+loaded_motion_paths
+-> one motion or bounded motion batch
+-> bounded segment chunk
+-> append segment_index rows
+-> build perturbation descriptors for this chunk
+-> resume-skip committed Clean/Noisy rows
+-> capture Clean/Noisy
+-> atomic shard commit + manifest commit
+-> next chunk
+```
+
+### Scope
+
+- Stage 1 cache generation only.
+- Keep the existing torch shard + manifest backend.
+- Keep the existing Clean/Noisy capture hooks.
+- Keep resume source of truth as committed manifest rows.
+- Add bounded streaming around index, perturbation plan, resume planning, and
+  shard flush.
+
+### Non-Scope
+
+- Do not add HDF5, Zarr, LMDB, WebDataset, or a new dependency.
+- Do not redesign Stage 2 or Stage 3 training.
+- Do not change the perturbation curriculum semantics.
+- Do not make Stage 1 load AMASS segment data into memory beyond the current
+  chunk.
+
+### Core Parameter Path
+
+```text
+motion_path
+-> motion metadata
+-> segment_id / motion_rel_path / start_frame
+-> perturbation descriptor
+-> clean_resume_key / noisy_resume_key
+-> clean/noisy shard row
+-> manifest row
+-> resume scan
+```
+
+This is a core parameter path.  Each step must expose compact probe facts:
+
+```text
+chunk_id
+motion_count
+segment_id_min / segment_id_max
+segment_count
+descriptor_count
+completed_clean
+completed_noisy
+pending_clean
+pending_noisy
+clean_buffer_count
+noisy_buffer_count
+committed_shard_count
+```
+
+### Required Live Probes
+
+Before each chunk capture:
+
+```text
+[FrontRES Stage1 Index Chunk]
+chunk_id=...
+motion_count=...
+segment_count=...
+segment_id_min=...
+segment_id_max=...
+descriptor_count=...
+```
+
+Before env work for that chunk:
+
+```text
+[FrontRES Stage1 Chunk Resume Probe]
+chunk_id=...
+completed_clean=...
+completed_noisy=...
+pending_clean=...
+pending_noisy=...
+corrupt_count=...
+```
+
+After each shard commit, keep the existing:
+
+```text
+[FrontRES Stage1 Shard Commit]
+```
+
+### Step Plan
+
+Step 1: record this contract and confirm the current eager boundary.
+
+- Files: this note only.
+- Test class: secondary contract path.
+- Command: `git diff --check -- note/frontres_segment_replay/contracts/engineering_contract.md`.
+- Stop condition: note names the wrong eager boundary and the streaming target.
+
+Step 2: add a pure streaming index iterator.
+
+- Owner module: `frontres_segment_cache_indexer.py`.
+- Add `iter_amass_segment_index_chunks_from_paths(...)`.
+- It reads one motion at a time and yields bounded segment chunks.
+- It must keep stable global `segment_id`.
+- Test: fake AMASS motions, chunk size 2, max segments 5.
+- Stop condition: first chunk is available without materializing later chunks.
+
+Step 3: add append-only segment index writes.
+
+- Owner module: `frontres_segment_cache_indexer.py`.
+- Add append function for `segment_index.jsonl`.
+- Keep existing `read_amass_segment_index`.
+- Test: append two chunks, read combined index, assert ids and order.
+- Stop condition: segment index appears on disk after the first chunk.
+
+Step 4: connect builder chunk loop without changing env hooks.
+
+- Owner module: `frontres_segment_cache_builder.py`.
+- Replace the full-run eager loop with:
+  index chunk -> perturbation chunk -> resume chunk -> capture chunk -> flush.
+- Keep the old small eager path only if needed by existing tests.
+- Test: fake env with 5 segments and `cache_chunk_size=2`.
+- Stop condition: fake builder commits a shard before all source motions are
+  exhausted.
+
+Step 5: make resume chunk-local.
+
+- Owner module: `frontres_segment_cache_builder.py`.
+- For each chunk, compute only that chunk's expected Clean/Noisy keys.
+- Reuse existing manifest scan and record loaders.
+- Test: crash after first chunk, rerun, assert only remaining chunks are
+  captured.
+- Stop condition: rerun skips committed chunk rows and continues.
+
+Step 6: shrink build signature metadata for full AMASS.
+
+- Owner module: `frontres_segment_cache_builder.py`.
+- Do not store all loaded motion paths in full metadata.
+- Store count, first path, last path, and a path-list hash.
+- Test: same path list gives same hash; changed path list fails resume.
+- Stop condition: resume guard stays strict without huge metadata.
+
+Step 7: server tiny streaming sentinel.
+
+- Command shape:
+
+```text
+MAX_MOTIONS=3 MAX_SEGMENTS=all CACHE_CHUNK_SIZE=4 bash run_stage1.sh ...
+```
+
+- Required log facts:
+  `[FrontRES Stage1 Index Chunk]`, `[FrontRES Stage1 Chunk Resume Probe]`,
+  `[FrontRES Stage1 Shard Commit]`, validator PASS.
+- Stop condition: shard files appear before all chunks finish.
+
+Step 8: full Stage 1 run.
+
+- Command: `bash run_stage1.sh` with full defaults.
+- Monitor:
+
+```text
+tail -f /hdd1/cyx/FEMR/train_stage1_segment_cache_full.txt
+tail -n 20 /hdd1/cyx/AMASS_G1Segment/progress.jsonl
+find /hdd1/cyx/AMASS_G1Segment -name 'shard_*.pt' | wc -l
+```
+
+- Stop condition: chunk logs advance and shard count increases during the run.
+
+### Current Full-Run Rule
+
+Do not run `MAX_MOTIONS=all MAX_SEGMENTS=all` on the current eager builder.
+It can stall before the first useful cache artifact.  Run only sentinel-sized
+Stage 1 commands until Step 7 passes.
+
+## 28. Step 2 Result: Streaming Index Iterator
+
+Date: 2026-06-30
+
+Step 2 added only the pure indexer iterator.  It did not touch the Stage 1
+builder, cache writer, resume planner, IsaacLab hooks, or run scripts.
+
+### Implemented
+
+`frontres_segment_cache_indexer.py` now owns:
+
+- `FrontRESAMASSSegmentIndexChunk`;
+- `iter_amass_segment_index_chunks_from_paths(...)`.
+
+The iterator reads motion metadata one motion at a time and yields bounded
+segment chunks with stable global `segment_id`.
+
+### Verified Core Path
+
+The contract test now checks:
+
+```text
+good motion
+-> first chunk emitted
+-> later bad motion is not read until iteration continues
+```
+
+Observed probe:
+
+```text
+[cache_indexer trace] streaming_first_chunk
+{'chunk_id': 0, 'chunk_segment_count': 2, 'motion_count': 1,
+ 'segment_count': 2, 'segment_id_min': 0, 'segment_id_max': 1}
+
+[cache_indexer trace] streaming_late_reject=BBB/bad_motion.npz:
+joint_vel shape (4, 29) must match joint_pos (5, 29)
+```
+
+The test also checks chunk sizes and stable ids:
+
+```text
+chunk_segment_count=[3, 3, 1]
+segment_ids=[0, 1, 2, 3, 4, 5, 6]
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_indexer.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_indexer_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_indexer_contract.py
+```
+
+Both passed.
+
+### Remaining Gap
+
+The Stage 1 builder still calls the old eager index path.  Step 3 should add
+append-only `segment_index.jsonl` writes before Step 4 connects the builder
+chunk loop.
+
+## 29. Step 3 Result: Append-Only Segment Index Writes
+
+Date: 2026-06-30
+
+Step 3 added only the index-file append primitive.  It did not connect the
+Stage 1 builder, resume planner, cache writer, IsaacLab hooks, or run scripts.
+
+### Implemented
+
+`frontres_segment_cache_indexer.py` now owns:
+
+- `append_amass_segment_index(...)`.
+
+The function appends validated `FrontRESSegmentIndex` rows to
+`segment_index.jsonl` using the existing JSONL record format.  It rejects empty
+append calls, because an empty append would create misleading progress.
+
+### Verified Core Path
+
+The contract test now checks:
+
+```text
+streaming chunk 0
+-> append segment_index rows
+-> immediately read segment_index.jsonl
+-> segment ids [0, 1] are visible
+
+streaming chunk 1
+-> append segment_index rows
+-> read segment_index.jsonl
+-> segment ids [0, 1, 2, 3] are visible in order
+```
+
+Observed probe:
+
+```text
+[cache_indexer trace] append_index
+path_exists=True first_ids=[0, 1] final_ids=[0, 1, 2, 3]
+
+[cache_indexer trace] append_empty_reject=
+segments must be non-empty when appending segment_index
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_indexer.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_indexer_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_indexer_contract.py
+```
+
+Both passed.
+
+### Remaining Gap
+
+The append primitive is not used by the Stage 1 builder yet.  Step 4 should
+connect the builder chunk loop:
+
+```text
+streaming index chunk
+-> append segment_index rows
+-> build perturbation descriptors for that chunk
+-> resume-skip committed rows
+-> capture Clean/Noisy
+-> flush shard
+```
+
+## 30. Step 4 Result: Builder Streaming Chunk Loop
+
+Date: 2026-06-30
+
+Step 4 connected a streaming chunk loop to the Stage 1 builder for full runs.
+It did not implement streaming resume, signature metadata compression, or the
+server live sentinel.
+
+### Implemented
+
+`frontres_segment_cache_builder.py` now routes:
+
+```text
+max_segments is None
+-> streaming index chunks
+-> append segment_index.jsonl
+-> build perturbation descriptors for the chunk
+-> capture Clean/Noisy for the chunk
+-> flush shard + manifest
+-> next chunk
+```
+
+Runs with `max_segments` still use the old eager path.  This preserves the old
+balanced max-segment sampling behavior.
+
+The streaming path prints:
+
+```text
+[FrontRES Stage1 Index Chunk]
+[FrontRES Stage1 Chunk Resume Probe]
+[FrontRES Stage1 Shard Commit]
+```
+
+### Verified Core Path
+
+The complete fake run checks:
+
+```text
+two loaded motions
+-> chunk 0 writes segment ids [0, 1]
+-> chunk 1 writes segment ids [2, 3]
+-> final cache has 4 Clean and 4 Noisy rows
+```
+
+Observed probe:
+
+```text
+[cache_builder streaming trace] complete
+index_ids=[0, 1, 2, 3]
+events=['started', 'index_chunk', ..., 'index_chunk', ..., 'complete']
+resume_probe={'completed_clean': 4, 'completed_noisy': 4, ...}
+```
+
+The partial fake run checks the actual failure case:
+
+```text
+good motion first
+-> first chunk committed
+-> later bad motion raises shape error
+-> first chunk remains readable from disk
+```
+
+Observed probe:
+
+```text
+[cache_builder streaming trace] partial_commit
+index_ids=[0, 1]
+events=['started', 'index_chunk', 'clean_done', 'noisy_done', ...]
+resume_probe={'completed_clean': 2, 'completed_noisy': 2, ...}
+```
+
+This proves Stage 1 no longer needs to finish full AMASS indexing before the
+first useful cache artifact appears.
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+```
+
+Both passed.
+
+### Deliberate Non-Scope
+
+Streaming resume is still disabled when an existing Stage 1 signature is
+present.  Step 5 must make resume chunk-local before formal full Stage 1 is
+safe after interruption.
+
+## 31. Step 5 Result: Streaming Chunk-Local Resume
+
+Step 5 fixes interrupted Stage 1 streaming cache generation.
+
+### Scope
+
+Only the Stage 1 streaming builder changed:
+
+```text
+existing segment_index.jsonl
+-> existing clean/noisy manifests
+-> chunk resume scan
+-> skip committed chunk rows
+-> append only missing chunk rows
+```
+
+No live IsaacLab path, Stage 2, or Stage 3 behavior changed.
+
+### Core Parameter Path
+
+The traced parameters are:
+
+```text
+segment key
+perturbation key
+manifest record path
+next clean/noisy shard id
+```
+
+The important bug found during Step 5 was simple: after loading committed
+manifest records, the streaming branch still wrote new shards from
+`shard_000000.pt`. That could overwrite old committed payloads. The fix refreshes
+the next clean/noisy shard id after each chunk resume scan.
+
+### Verified Runtime Facts
+
+The resume pseudo-test now proves:
+
+```text
+first run commits segment ids [0, 1]
+second run skips segment ids [0, 1]
+second run only prepares segment ids [2, 3]
+segment_index.jsonl remains [0, 1, 2, 3]
+Clean rows become [0, 1, 2, 3]
+Noisy rows become [(0, 0), (1, 1), (2, 2), (3, 3)]
+```
+
+Observed probe:
+
+```text
+[cache_builder streaming resume trace]
+index_ids=[0, 1, 2, 3]
+resume_probe={'completed_clean': 4, 'completed_noisy': 4, ...}
+resume_prepare_calls=[(2, 0, [0]), (3, 2, [0])]
+resume_events=[resume_skip_segment for segment_id 0 and 1]
+```
+
+The shard overwrite boundary is also checked:
+
+```text
+old chunk -> shard_000000.pt
+resumed chunk -> shard_000001.pt
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+```
+
+Both passed.
+
+### Remaining Boundary
+
+This step validates interrupted streaming resume before final metadata exists.
+Complete-cache rerun/signature policy is still a separate boundary and should
+be handled as a small follow-up, not mixed into the chunk-local resume fix.
+
+## 32. Step 6 Result: Compact Build Signature Metadata
+
+Step 6 shrinks the Stage 1 build signature payload for full-AMASS runs.
+
+### Scope
+
+Only the build signature metadata changed:
+
+```text
+loaded_motion_paths
+-> loaded_motion_count
+-> first_loaded_motion
+-> last_loaded_motion
+-> loaded_motion_paths_hash
+-> build_signature.hash
+```
+
+The full path list is no longer stored inside `build_signature.payload`.
+
+### Non-Scope
+
+This step does not change:
+
+- streaming chunk generation;
+- Clean/Noisy capture;
+- shard or manifest format;
+- resume scan;
+- live IsaacLab behavior;
+- Stage 2 or Stage 3.
+
+### Test Class
+
+Secondary contract path.  This routes metadata scalars and a stable hash, not a
+tensor or rollout parameter.
+
+### Verified Facts
+
+The builder contract now checks:
+
+```text
+same loaded motion path order -> same build_signature.hash
+changed loaded motion path order -> different build_signature.hash
+payload has no loaded_motion_paths list
+payload keeps count, first path, last path, and path-list hash
+```
+
+Observed probe:
+
+```text
+[cache_builder signature summary trace]
+loaded_motion_count=2
+first_loaded_motion=motion_a.npz
+last_loaded_motion=motion_b.npz
+same_hash=True
+changed_hash=True
+```
+
+### Evidence
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+```
+
+Both passed.
+
+### Remaining Boundary
+
+Complete-cache rerun policy is still separate.  This step only prevents full
+AMASS metadata from containing thousands of loaded motion paths while keeping
+the resume guard strict.
+
+## 33. Step 7 Local Result: Tiny Streaming Sentinel Preflight
+
+Step 7 is a live sentinel path.  Local execution can only verify the command
+contract; the actual IsaacLab cache build must run on the server.
+
+### Scope
+
+Verify the tiny streaming Stage 1 command:
+
+```text
+MAX_MOTIONS=3
+MAX_SEGMENTS=all
+CACHE_CHUNK_SIZE=4
+```
+
+`MAX_SEGMENTS` must be `all` here because the current builder routes
+`max_segments is None` to the streaming path.  A numeric `MAX_SEGMENTS=20`
+would test the small eager path, not the streaming builder.
+
+### Non-Scope
+
+This step does not change builder logic, cache IO, Stage 2, Stage 3, or live
+IsaacLab behavior.
+
+### Test Class
+
+Live sentinel path.  Local evidence only proves startup routing.  Server
+evidence must prove real chunk logs and shard files.
+
+### Local Evidence
+
+Fresh local preflight command:
+
+```text
+FRONTRES_STAGE1_PREFLIGHT_ONLY=1 \
+RUN_FOREGROUND=1 \
+LOG_PATH=/private/tmp/femr_stage1_step7_streaming_preflight.txt \
+MAX_MOTIONS=3 \
+MAX_SEGMENTS=all \
+CACHE_CHUNK_SIZE=4 \
+VARIANTS_PER_STRENGTH=1 \
+VALIDATION_MIN_SEGMENTS=1 \
+VALIDATION_MIN_NOISY=1 \
+bash run_stage1.sh \
+  /hdd1/cyx/AMASS_G1NPZ_Final \
+  1 \
+  4 \
+  /hdd1/cyx/AMASS_G1Segment_streaming_sentinel
+```
+
+Observed facts:
+
+```text
+[FrontRES Stage1 startup preflight] PASS
+--frontres_segment_cache_max_motions 3
+--frontres_segment_cache_max_segments all
+--frontres_segment_cache_chunk_size 4
+--frontres_segment_cache_dir /hdd1/cyx/AMASS_G1Segment_streaming_sentinel
+[FrontRES Stage1 validator preflight] enabled
+```
+
+The entrypoint contract also passed:
+
+```text
+PASS: FrontRES Stage 1/2 live presets and Stage 3 Segment Replay contract are explicit.
+```
+
+### Server Stop Condition
+
+Run the same command without `FRONTRES_STAGE1_PREFLIGHT_ONLY=1` on the server.
+Step 7 is complete only when the server log shows:
+
+- `[FrontRES Stage1 Index Chunk]`;
+- `[FrontRES Stage1 Chunk Resume Probe]`;
+- `[FrontRES Stage1 Shard Commit]`;
+- `[FrontRES Stage1 Segment Cache] cache_readback`;
+- validator PASS;
+- shard files appear under `/hdd1/cyx/AMASS_G1Segment_streaming_sentinel`
+  before all chunks finish.
+
+## 34. Stage 1 Cache Layout Correction
+
+Date: 2026-06-30
+
+The previous streaming implementation used the correct manifest reader
+contract but the wrong payload layout.  It wrote chunk payloads under:
+
+```text
+shards/clean_states/...
+shards/noisy_variants/...
+```
+
+This did not preserve the original AMASS relative directory structure and made
+the generated cache harder to inspect against the source dataset.
+
+### Correct Contract
+
+Payload shards live under the original AMASS relative motion path without the
+`.npz` suffix:
+
+```text
+AMASS_G1Segment/
+  BioMotionLab_NTroje/
+    rub001/
+      amass_g1_0004_motorcycle_poses/
+        clean_states/shard_000000.pt
+        noisy_variants/strength_0/shard_000000.pt
+```
+
+The Stage 3 reader still uses manifest records:
+
+```text
+manifests/clean_states/shard_000000.pt
+manifests/noisy_variants/strength_x/shard_000000.pt
+```
+
+Each manifest row points to the AMASS-mirrored payload path.  This keeps Stage 3
+loading unchanged while making Stage 1 output match the source motion tree.
+
+### Safety Rule
+
+One payload shard must not mix multiple `motion_rel_path` values.  The builder
+flushes the current clean/noisy buffer before writing records from a new motion.
+The IO writer rejects mixed-motion shard payloads.
+
+### Tiny Command Correction
+
+The previous sentinel command was too large because it used several motions,
+small frame stride, and the HRL curriculum bank.  The root `run_stage1.sh`
+default is now intentionally tiny:
+
+```text
+MAX_MOTIONS=1
+MAX_SEGMENTS=all
+FRAME_STRIDE=100000
+CACHE_CHUNK_SIZE=1
+PERTURBATION_MODE=discrete_bank
+PERTURBATION_STRENGTHS=0.0
+CURRICULUM_BANK_SIZE=1
+```
+
+Formal full generation must be explicit:
+
+```text
+STAGE1_FULL=1 bash run_stage1.sh ...
+```
+
+### Verified Facts
+
+Fresh local commands:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py \
+  source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_io_contract.py
+
+/Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_cache_builder_contract.py
+
+FRONTRES_STAGE1_PREFLIGHT_ONLY=1 RUN_FOREGROUND=1 \
+LOG_PATH=/private/tmp/femr_stage1_tiny_preflight.txt \
+bash run_stage1.sh /hdd1/cyx/AMASS_G1NPZ_Final 1 4 \
+  /hdd1/cyx/AMASS_G1Segment_sentinel
+```
+
+Observed facts:
+
+```text
+[cache_io trace] mirror_paths
+clean=KIT/359/motion_a/clean_states/shard_000000.pt exists=True
+noisy=KIT/359/motion_a/noisy_variants/strength_0p5/shard_000000.pt exists=True
+
+[FrontRES Stage1 Shard Commit]
+kind=clean shard_path=.../AAA/motion_a/clean_states/shard_000000.pt
+
+[FrontRES Stage1 Shard Commit]
+kind=noisy shard_path=.../AAA/motion_a/noisy_variants/strength_0/shard_000000.pt
+
+[FrontRES Stage1 startup preflight] PASS
+--frontres_segment_cache_frame_stride 100000
+--frontres_segment_cache_max_motions 1
+--frontres_segment_cache_max_segments all
+--frontres_segment_cache_chunk_size 1
+--frontres_segment_cache_perturbation_mode discrete_bank
+--frontres_segment_cache_perturbation_strengths 0.0
+```
+
+## 35. Stage 3 Logging Contract
+
+Date: 2026-06-30
+
+Formal Stage 3 training must use summary logs by default.  Debug probes can
+print row-level values only when the batch is tiny or an explicit verbose flag
+is enabled.
+
+### Problem
+
+The tiny-run probes were left active during full Stage 3.  With
+`num_envs=12000`, printing `segment_ids`, `sources`, `motion_ids`, or
+`start_frames` as full Python lists makes the log unusable.
+
+### Scope
+
+This contract applies to Stage 3 Segment Replay live training logs:
+
+```text
+sample -> batch -> reset -> rollout -> storage -> PPO -> sampler update
+```
+
+### Non-Scope
+
+- Do not change sampling, reset, rollout, storage, PPO, or checkpoint behavior.
+- Do not remove diagnostics that prove the live path is running.
+- Do not add a new logging framework.
+
+### Core Parameter Path
+
+This is a live sentinel path.  Logs should expose compact facts:
+
+```text
+count
+id_min / id_max
+source_counts
+valid_count
+reward_mean
+done_frac
+storage_valid_frac
+ppo_valid_count
+ppo_loss / KL / clip
+checkpoint_path
+```
+
+No full per-sample lists in formal training logs.
+
+### Required Summary Format
+
+Sampler sample logs:
+
+```text
+[probe step22] sample update_step=... count=... id_min=... id_max=...
+source_counts={'global': ..., 'replay': ..., 'review': ...}
+priority_mean=... staleness_mean=... valid_count=...
+```
+
+Batch logs:
+
+```text
+[FrontRES Segment Batch] update_step=... count=... id_min=... id_max=...
+valid_count=... role_counts=... strength_min=... strength_max=...
+```
+
+Index reset logs:
+
+```text
+[FrontRES Segment Reset] mode=index_only count=...
+unique_motion_count=... start_min=... start_max=...
+horizon_min=... horizon_max=... success_frac=...
+```
+
+PPO and rollout logs can keep one-line summaries.  Shape traces such as
+`PPO Eval Trace` and `Live Probe Trace` should print once by default, or every
+time only in verbose debug mode.
+
+### Verbose Rule
+
+Full lists are allowed only when:
+
+```text
+batch_size <= 16
+or frontres_segment_verbose_probe=True
+```
+
+Examples of verbose-only values:
+
+```text
+segment_ids=[...]
+sources=[...]
+motion_ids=[...]
+start_frames=[...]
+```
+
+### Stop Condition
+
+Formal Stage 3 logs must not contain:
+
+```text
+sources=['global',
+segment_ids=[0, 1, 2,
+motion_ids=['
+```
+
+unless the run is explicitly verbose or tiny.
+
+The log must still contain:
+
+```text
+[FrontRES Segment Live Probe]
+[FrontRES Segment Sampler]
+[FrontRES Segment Live Update Loop]
+[FrontRES Segment Live Train]
+[FrontRES Segment Live Checkpoint]
+```
+
+These lines are the formal training sentinels and should stay visible.
+
+### Step 2 Result: Sampler Summary Logs
+
+Step 2 changed only `frontres_segment_live_sampler.py` and its contract test.
+It did not change sampling, dataset loading, reset, rollout, PPO, or
+checkpoint behavior.
+
+Implemented:
+
+- sampler sample probe now prints `count`, `id_min`, `id_max`,
+  `source_counts`, `priority_mean`, `staleness_mean`, and `valid_count`;
+- batch probe now prints `count`, `id_min`, `id_max`, `valid_count`,
+  `role_counts`, `strength_count`, `strength_min`, and `strength_max`;
+- full `segment_ids`, `sources`, `roles`, and `strength` lists are printed only
+  for tiny batches or when `frontres_segment_verbose_probe=True`.
+
+Verified with a 12000-row fake sample:
+
+```text
+[probe step22] large_log_summary:
+contains_count=True
+contains_sources_list=False
+contains_segment_ids_list=False
+contains_source_counts=True
+contains_role_counts=True
+```
+
+### Step 3 Result: Reset Summary Logs
+
+Step 3 changed only `frontres_segment_live_probe.py` reset printing and its
+contract test.  It did not change reset behavior, rollout, storage, PPO, or
+sampler behavior.
+
+Implemented:
+
+- normal segment reset logs now print `count`, `id_min`, `id_max`,
+  `mode_counts`, `valid_count`, and reset fractions;
+- index-only reset logs now print `count`, `id_min`, `id_max`,
+  `motion_count`, `unique_motion_count`, `first_motion`, `start_min/max`,
+  `horizon_min/max`, and `success_frac`;
+- full `segment_ids`, `motion_ids`, `start_frames`, and `horizon_k` lists are
+  printed only for tiny batches or when `frontres_segment_verbose_probe=True`.
+
+Verified with a 12000-row fake index reset:
+
+```text
+[probe step3] reset_log_summary:
+contains_count=True
+contains_motion_summary=True
+contains_start_range=True
+contains_horizon_range=True
+contains_segment_ids_list=False
+contains_motion_ids_list=False
+contains_start_frames_list=False
+contains_horizon_k_list=False
+```
+
+### Step 4 Result: Shape Trace Rate Limit
+
+Step 4 changed only the shape-trace print frequency in
+`frontres_segment_live_probe.py` and its contract test.  It did not change
+action selection, PPO evaluation, storage, rollout, reset, or sampler behavior.
+
+Implemented:
+
+- `[FrontRES Segment Live Probe Trace]` prints once per runner/alg lifecycle by
+  default;
+- `[FrontRES Segment PPO Eval Trace]` prints once per alg lifecycle by default;
+- both traces still print every call when `frontres_segment_verbose_probe=True`.
+
+Verified with repeated fake calls:
+
+```text
+[probe step4] live_probe_trace_rate: trace_count=1 verbose=False
+[probe step4] ppo_eval_trace_rate: trace_count=1 verbose=False
+```
+
+### Step 5 Result: Live Update Loop Log Rate Limit
+
+Step 5 changed only `[FrontRES Segment Live Update Loop]` summary print
+frequency and its contract test.  It did not change sampler, reset, rollout,
+storage, PPO, checkpoint, or training guard behavior.
+
+Implemented:
+
+- default live update-loop summaries print for the first 3 calls;
+- after that they print every
+  `frontres_segment_live_log_interval` calls, default `10`;
+- `frontres_segment_verbose_probe=True` keeps printing every call.
+
+Verified with repeated fake update-loop calls:
+
+```text
+[probe step5] update_loop_log_rate: default_count=4 call_count=12
+[probe step5] update_loop_log_verbose_rate: verbose_count=4 verbose=True
+```
+
+### Step 6 Result: Per-Step Detail Log Rate Limit
+
+Step 6 changed only per-step detail log frequency.  It did not change segment
+sampling, batch construction, reset behavior, rollout, storage, PPO, sampler
+priority, checkpoint, or training guard behavior.
+
+Implemented:
+
+- `[probe step22] sample`, `[FrontRES Segment Batch]`,
+  `[probe step14] evidence_path`, `[FrontRES Segment Sampler]`,
+  `[FrontRES Segment Reset]`, and `[FrontRES Segment Live Probe]` share one
+  detail-log gate;
+- default detail logs print for the first 3 sampler steps;
+- after that they print every `frontres_segment_live_log_interval` sampler
+  steps, default `10`;
+- `frontres_segment_verbose_probe=True` keeps detail logs on every step.
+
+Verified with repeated fake sampler/live-probe calls:
+
+```text
+[probe step6] live_detail_log_rate:
+sample_count=4 batch_count=4 evidence_count=4 sampler_count=4 call_count=12
+
+[probe step6] live_detail_log_verbose_rate:
+sample_count=4 sampler_count=4 verbose=True
+
+[probe step6] live_probe_detail_gate:
+reset_count=0 live_probe_count=0 success_count=2
+```
+
+## 36. Stage 3 Sequence Evaluation Contract
+
+Date: 2026-07-04
+
+### Problem
+
+The current `offline_eval` path is segment-local.  It samples segment ids,
+resets directly to each segment start frame, and begins scoring immediately.
+That does not answer the required question: can FrontRES/GMT survive a whole
+motion prefix and then repair the selected segment boundary?
+
+### Scope
+
+This contract defines the Stage 3 sequence-eval planning boundary:
+
+```text
+segment spec
+-> unique motion sequence
+-> reset_frame = 0
+-> preroll_steps = segment.start_frame
+-> eval_start_frame = segment.start_frame
+-> eval rollout metrics
+```
+
+### Non-Scope
+
+- no IsaacLab live reset change in this step;
+- no CLI mode change in this step;
+- no PPO, storage, sampler priority, checkpoint, or training behavior change.
+
+### Invariants
+
+- `requested_sequences` means unique motion sequences, not env rows;
+- at least 10 unique motions are required for formal evaluation;
+- a segment with `start_frame > 0` must not be evaluated by direct reset to
+  `start_frame`;
+- if env capacity is smaller than the requested sequence count, evaluation must
+  run in chunks instead of reducing the motion count;
+- paired B1 comparison uses 4 env rows per sequence when quartet layout is
+  active.
+
+### Step 2 Result
+
+Implemented the pure planning contract:
+
+- `frontres_segment_sequence_eval.py` builds a
+  `FrontRESSegmentSequenceEvalPlan` from segment specs;
+- each plan item records `reset_frame=0`, `preroll_steps=start_frame`,
+  `eval_start_frame=start_frame`, and `eval_end_frame`;
+- duplicate segment specs from the same motion are collapsed to one sequence;
+- `available_envs=8` with 10 requested sequences becomes 5 chunks, not 2
+  evaluated motions.
+
+Verified by:
+
+```text
+python -m py_compile \
+  source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+
+python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+```
+
+Observed probe:
+
+```text
+[probe step23] sequence_eval_contract reset_frame=0
+preroll_to_segment_start=True requested_sequences_not_env_count=True
+```
+
+### Next Step
+
+Step 3 should connect this plan to the offline eval owner without changing the
+existing training loop:
+
+```text
+sample candidate segments
+-> build sequence eval plan
+-> for each chunk: reset to frame 0
+-> preroll to eval_start_frame
+-> run eval window and score paired repaired/noisy/clean rows
+```
+
+### Step 3 Result
+
+Implemented the minimal live-owner connector without adding a CLI mode:
+
+- `run_frontres_segment_sequence_offline_eval(...)` lives in
+  `frontres_segment_live_training.py`;
+- it samples candidate segments until it has the requested number of unique
+  motion ids;
+- each evaluated sequence fills the current env batch with repeated copies of
+  that segment id, so the existing B1 role layout compares repaired/noisy/clean
+  rows for the same motion;
+- each sequence first resets through an index-only batch with `start_frame=0`;
+- it then prerolls for the original segment `start_frame`;
+- the preroll advances live env state without motion-quality frame capture;
+- only after preroll does it run the scoring rollout window with metric capture.
+
+Deliberate minimalism:
+
+- current Step 3 executes one sequence per eval pass.  This avoids staggered
+  metric windows when different motions have different `start_frame` values.
+  Grouping equal-preroll motions can be added later if eval speed matters.
+- no CLI flag or run script changed in this step.
+
+Verified by fake-runner contract:
+
+```text
+[probe step24] sequence_eval_live_owner
+reset_before_preroll=True preroll_no_capture=True preroll_before_eval=True
+eval_capture=True reset_trace_silenced=True role_envs_repeated=True
+```
+
+### Step 4 Result
+
+Connected the sequence-eval owner to explicit Stage 3 entrypoints:
+
+- `scripts/rsl_rl/train.py` adds
+  `--frontres_segment_sequence_offline_eval_only`;
+- `run/run_frontres_stage3_segment_hrl.sh` adds `MODE=sequence_eval`;
+- `OnPolicyRunner` exposes `run_frontres_segment_sequence_offline_eval(...)`;
+- `FrontRESSegmentRunnerBoundary` reports `mode=sequence_eval`;
+- `FrontRESUnified` and `rsl_rl_cfg.py` carry the config field so the runner
+  boundary receives the flag.
+
+Formal training remains unchanged:
+
+```text
+MODE=train
+-> no sequence eval flag
+-> live_train_enabled=True
+-> dedicated Stage 3 live train loop
+```
+
+Explicit evaluation mode:
+
+```text
+MODE=sequence_eval
+-> --frontres_segment_sequence_offline_eval_only
+-> --frontres_segment_sequence_eval_sequences ${OFFLINE_EVAL_SEQUENCES:-10}
+-> --frontres_segment_sequence_eval_max_preroll_steps ${OFFLINE_EVAL_MAX_PREROLL_STEPS:-2000}
+-> --frontres_segment_offline_eval_steps ${OFFLINE_EVAL_STEPS:-500}
+```
+
+Verified local boundary:
+
+```text
+python -m py_compile ...
+
+/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python \
+  source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+```
+
+Observed probes:
+
+```text
+[probe step23] sequence_eval_contract ...
+[probe step24] sequence_eval_live_owner ...
+```
+
+### Step 5 Result
+
+Added a smoke-test preroll cap for sequence eval:
+
+- `run/run_frontres_stage3_segment_hrl.sh` defaults
+  `OFFLINE_EVAL_MAX_PREROLL_STEPS=2000` in `MODE=sequence_eval`;
+- `scripts/rsl_rl/train.py`, `OnPolicyRunner`, and
+  `run_frontres_segment_sequence_offline_eval(...)` route the cap into the
+  sequence plan builder;
+- `build_frontres_sequence_eval_plan(...)` filters sampled specs whose
+  `start_frame` is deeper than the cap before choosing unique motions;
+- `OFFLINE_EVAL_MAX_PREROLL_STEPS=0` disables the cap for unbounded formal full
+  evaluation.
+
+This keeps the full-sequence meaning intact while preventing quick tests from
+spending an hour prerolling into very deep sampled segments.
+
+### Step 6 Result
+
+Fixed sequence-eval result logging:
+
+- the old sequence formatter printed only success/fall/survival and
+  noisy/repaired/gain;
+- `_offline_eval_summary(...)` was already computing motion-quality scalars and
+  per-motion rows, but `_format_sequence_offline_eval_log(...)` did not expose
+  them;
+- sequence eval now prints per-motion rows plus mean
+  `mpjpe_repaired`, `mpjpe_noisy`, `vel_err`, `acc_err`, and
+  `delta_se_norm`;
+- `frontres_segment_sequence_eval_contract.py` asserts those fields are present
+  in the log text.
+
+### Step 7 Result
+
+Fixed sequence-eval item diagnostics and perturbation preservation:
+
+- each `[FrontRES Segment Sequence Eval Item]` now prints a multi-line block
+  with sequence boundary, result, score, motion-quality metrics, and
+  perturbation summary;
+- `build_frontres_sequence_eval_reset_batch(...)` preserves dynamic
+  `stage3_index_perturbation_family`, `stage3_index_perturbation_strength`, and
+  `stage3_index_perturbation_plan` when rewriting dataclass specs to
+  `start_frame=0`;
+- the sequence item log exposes `family_counts`, `strength_min/mean/max`,
+  `local_rp_frac`, and `non_rp_frac`, so a run can prove whether the test is
+  using `local_rp` instead of planar/yaw/z/mixed perturbations;
+- the contract test asserts the frame0 reset batch keeps `local_rp` and the
+  item log prints `local_rp_frac=100.0%`.
+
+### Step 8 Result
+
+Made the Stage 3 perturbation preset explicit at launch:
+
+- `run_stage3.sh` defaults `FRONTRES_SPECIALIST_MODE=rp`;
+- `run/run_frontres_stage3_segment_hrl.sh` passes
+  `--frontres_specialist_mode ${FRONTRES_SPECIALIST_MODE}` for train,
+  offline eval, and sequence eval;
+- `scripts/rsl_rl/train.py` accepts `--frontres_specialist_mode` and maps rp
+  modes to `frontres_perturbation_channels=rp`;
+- launch preflight now proves the expanded command contains
+  `--frontres_specialist_mode rp`;
+- sequence eval item logs remain the live proof that the actual reset batch
+  used `family_counts={'local_rp': ...}` and `local_rp_frac=100.0%`.
+
+## 37. Segment PPO Advantage Scaling Contract
+
+Date: 2026-07-09
+
+Stage 3 direct Delta SE PPO treats positive Segment gain as no-regret evidence:
+
+```text
+score_repaired > score_noisy
+-> sampled Delta SE helped relative to the Noisy baseline
+-> actor should still be encouraged toward that sampled action
+```
+
+Therefore default Segment PPO must not use standard mean-centered advantage
+normalization as a silent stabilizer.  Standard PPO normalization is allowed as
+an explicit ablation, but the live Stage 3 Segment path defaults to
+sign-preserving scale-only advantage scaling.
+
+Required live default:
+
+```text
+frontres_segment_advantage_normalization = scale_only
+```
+
+Algorithm owner:
+
+```text
+source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py
+```
+
+Runner connector owner:
+
+```text
+source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py
+```
+
+Required contracts:
+
+```text
+frontres_segment_algorithm_contract.py
+  scale_only preserves all-positive advantage signs;
+  standard mode is still testable and shows the semantic difference.
+
+frontres_segment_live_single_update_contract.py
+  live single-update uses scale_only independent of base PPO normalize flags.
+```
+
+Non-scope:
+
+- no change to full-6D Delta SE action support;
+- no change to old_means/old_sigmas KL source;
+- no change to adaptive LR or post-update rollback;
+- no change to sampler priority evidence;
+- no change to Stage 2 observation/normalizer requirements.

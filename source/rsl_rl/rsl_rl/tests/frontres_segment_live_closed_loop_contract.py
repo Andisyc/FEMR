@@ -248,10 +248,23 @@ class FakeRunner:
         *,
         init_at_random_ep_len: bool,
     ):
-        return run_frontres_segment_live_probe(
+        summary = run_frontres_segment_live_probe(
             self,
             init_at_random_ep_len=init_at_random_ep_len,
         )
+        # S2 连接夹具: 伪生命周期没有 simulator motion tensors, 因此在此提供一行可手算的 formal Gain.
+        summary.update(
+            {
+                "gain_source": "FRS-GAIN-v001",
+                "gain_style_per_sample": [0.25],
+                "gain_physics_per_sample": [0.15],
+                "gain_repair_cost_per_sample": [0.05],
+                "gain_total_per_sample": [0.35],
+                "score_noisy_per_sample": [0.20],
+                "score_repaired_per_sample": [0.50],
+            }
+        )
+        return summary
 
 
 def _dataset() -> FrontRESSegmentDataset:

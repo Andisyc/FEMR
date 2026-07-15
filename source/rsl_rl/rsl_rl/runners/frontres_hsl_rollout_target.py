@@ -25,7 +25,12 @@ def build_frontres_hsl_rollout_target(
     n_clean: int,
     quat_to_rotvec_wxyz: Any,
 ) -> None:
-    """Build and write HSL supervised labels from Clean/Noisy/FEMR rollout states."""
+    """Build and write one mixed full-6D HSL target from rollout anchor states.
+
+    Status: active. Upstream: standard FrontRES rollout after env.step.
+    Downstream: FrontRESUnified supervised target storage. Evidence:
+    code-confirmed and contract-confirmed. Gap: real Stage 2 runtime.
+    """
 
     if not bool(runner.cfg.get("frontres_hsl_rollout_label_enabled", False)):
         return
@@ -93,13 +98,6 @@ def build_frontres_hsl_rollout_target(
     eta = float(runner.cfg.get("frontres_hsl_rollout_eta", 1.0))
     label = current + eta * sim_residual
     label = runner._frontres_action_cone.project_task_target(command, label)
-    if bool(runner.cfg.get("frontres_per_mode_supervised_mask", True)):
-        mode_groups = list(getattr(
-            runner,
-            "_frontres_curriculum_env_mode_groups",
-            [tuple(getattr(runner, "_frontres_curriculum_active_modes", ()))] * n,
-        ))[:n]
-        label = runner._frontres_action_cone.apply_per_mode_supervised_mask(label, mode_groups, n)
 
     rot_scale = float(runner.cfg.get("frontres_hsl_rot_error_scale", 0.25))
     noisy_err = (
@@ -128,23 +126,14 @@ def build_frontres_hsl_rollout_target(
     noop_w = safe_scale * safe_w + broken_scale * broken_w + harm_scale * harm_w
     denom = (repair_w + noop_w).clamp(min=1e-6)
 
-    objective = str(getattr(runner.alg, "frontres_training_objective", "")).lower()
-    task_conf_dim = int(getattr(getattr(runner.alg, "policy", None), "task_conf_dim", 2))
-    acceptance_hybrid = objective == "hsl_hybrid" and task_conf_dim == 6
-
     target_full = torch.zeros(runner.env.num_envs, 6, device=device, dtype=dtype)
     weight_full = torch.zeros(runner.env.num_envs, 1, device=device, dtype=dtype)
     harm_weight_full = torch.zeros(runner.env.num_envs, 1, device=device, dtype=dtype)
     max_weight = float(runner.cfg.get("frontres_hsl_max_sample_weight", 4.0))
-    if acceptance_hybrid:
-        target_full[:n] = label
-        weight_full[:n, 0] = repair_w.clamp(max=max_weight) * valid_rollout
-        harm_weight_full[:n, 0] = noop_w.clamp(max=max_weight) * valid_rollout
-    else:
-        mixed_label = label * (repair_w / denom).unsqueeze(-1)
-        target_full[:n] = mixed_label
-        weight_full[:n, 0] = denom.clamp(max=max_weight) * valid_rollout
-        harm_weight_full[:n, 0] = harm_w * valid_rollout
+    mixed_label = label * (repair_w / denom).unsqueeze(-1)
+    target_full[:n] = mixed_label
+    weight_full[:n, 0] = denom.clamp(max=max_weight) * valid_rollout
+    harm_weight_full[:n, 0] = harm_w * valid_rollout
     runner.alg.transition.supervised_target = target_full
     runner.alg.transition.supervised_weight = weight_full
     runner.alg.transition.supervised_harm_weight = harm_weight_full

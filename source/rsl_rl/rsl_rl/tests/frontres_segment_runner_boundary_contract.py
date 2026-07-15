@@ -22,17 +22,7 @@ boundary_module = _load(
     "frontres_segment_runner_boundary",
     ROOT / "rsl_rl" / "runners" / "frontres_segment_runner_boundary.py",
 )
-connector_module = _load(
-    "frontres_segment_replay",
-    ROOT / "rsl_rl" / "runners" / "frontres_segment_replay.py",
-)
-
 FrontRESSegmentRunnerBoundary = boundary_module.FrontRESSegmentRunnerBoundary
-FrontRESSegmentReplayConnector = connector_module.FrontRESSegmentReplayConnector
-
-
-class FakeConnectorDep:
-    pass
 
 
 def _stage3_cfg(
@@ -59,6 +49,7 @@ def _stage3_cfg(
             "frontres_segment_live_train_enabled": train,
             "frontres_segment_live_update_steps": 4,
             "frontres_segment_k": 8,
+            "frontres_segment_max_horizon_k": 64,
             "frontres_segment_reset_mode": "auto",
         }
     }
@@ -68,6 +59,7 @@ def test_stage3_boundary_rejects_live_runner_by_default() -> None:
     boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(_stage3_cfg(live=False))
     assert boundary.requested
     assert boundary.segment_k == 8
+    assert boundary.max_horizon_k == 64
     try:
         boundary.assert_live_runner_ready()
     except NotImplementedError as exc:
@@ -94,6 +86,7 @@ def test_stage3_boundary_allows_live_sentinel_only() -> None:
     assert "FrontRES Segment Live Sentinel" in log
     assert "objective=segment_replay_hrl" in log
     assert "segment_k=8" in log
+    assert "max_horizon_k=64" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
     assert "sentinel_only=True" in log
@@ -110,6 +103,7 @@ def test_stage3_boundary_allows_live_probe_only() -> None:
     assert "FrontRES Segment Live Probe Ready" in log
     assert "objective=segment_replay_hrl" in log
     assert "segment_k=8" in log
+    assert "max_horizon_k=64" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
     assert "probe_only=True" in log
@@ -125,6 +119,7 @@ def test_stage3_boundary_allows_live_storage_write_only() -> None:
     assert "FrontRES Segment Live Probe Ready" in log
     assert "objective=segment_replay_hrl" in log
     assert "segment_k=8" in log
+    assert "max_horizon_k=64" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
     assert "probe_only=True" in log
@@ -140,6 +135,7 @@ def test_stage3_boundary_allows_live_single_update_only() -> None:
     assert "FrontRES Segment Live Probe Ready" in log
     assert "objective=segment_replay_hrl" in log
     assert "segment_k=8" in log
+    assert "max_horizon_k=64" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
     assert "probe_only=True" in log
@@ -155,6 +151,7 @@ def test_stage3_boundary_allows_live_update_loop_only() -> None:
     assert "FrontRES Segment Live Probe Ready" in log
     assert "objective=segment_replay_hrl" in log
     assert "segment_k=8" in log
+    assert "max_horizon_k=64" in log
     assert "update_steps=4" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
@@ -182,28 +179,13 @@ def test_stage3_boundary_allows_live_train_enabled() -> None:
     assert "FrontRES Segment Live Train Ready" in log
     assert "objective=segment_replay_hrl" in log
     assert "segment_k=8" in log
+    assert "max_horizon_k=64" in log
     assert "update_steps=4" in log
     assert "reset_mode=auto" in log
     assert "live_runner=True" in log
     assert "runner_learn=True" in log
     assert "storage=independent" in log
     assert "ppo_action=delta_se3_6d" in log
-
-
-def test_stage3_boundary_builds_fake_connector() -> None:
-    boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(_stage3_cfg(live=False))
-    connector = boundary.build_fake_connector(
-        dataset=FakeConnectorDep(),
-        sampler=FakeConnectorDep(),
-        reset_adapter=FakeConnectorDep(),
-        action_projector=FakeConnectorDep(),
-        reward=FakeConnectorDep(),
-        rollout_fn=lambda **kwargs: kwargs,
-        connector_cls=FrontRESSegmentReplayConnector,
-    )
-    assert connector.stage == "stage3_segment_hrl"
-    assert connector.objective == "segment_replay_hrl"
-    assert connector.reset_mode == "auto"
 
 
 def test_on_policy_runner_calls_stage3_boundary() -> None:
@@ -231,7 +213,6 @@ def main() -> None:
     test_stage3_boundary_allows_live_update_loop_only()
     test_stage3_boundary_allows_sequence_eval_only()
     test_stage3_boundary_allows_live_train_enabled()
-    test_stage3_boundary_builds_fake_connector()
     test_on_policy_runner_calls_stage3_boundary()
     print("result: PASS")
 

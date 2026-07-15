@@ -205,7 +205,7 @@ class FrontRESExecutabilityScorer:
         count: int,
         return_components: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """Executability score after the best correction allowed by the active action cone."""
+        """Executability score after a bounded full-6D oracle correction."""
         if count <= 0:
             return torch.empty(0, device=self.device)
 
@@ -235,35 +235,25 @@ class FrontRESExecutabilityScorer:
         max_delta_pos = float(getattr(getattr(self.alg, "policy", None), "max_delta_pos", 0.3))
         max_delta_rpy = float(getattr(getattr(self.alg, "policy", None), "max_delta_rpy", 0.1))
 
-        active_dims = getattr(self.alg, "frontres_active_task_dims", self.cfg.get("frontres_active_task_dims", None))
-        active_set = None if active_dims is None else {int(dim) for dim in active_dims}
-
-        def _active(dim: int) -> bool:
-            return active_set is None or dim in active_set
-
         oracle_pos = torch.zeros_like(raw_pos)
         dpos_clean = clean_pos - raw_pos
-        if _active(0):
-            oracle_pos[:, 0] = dpos_clean[:, 0].clamp(-max_delta_pos, max_delta_pos)
-        if _active(1):
-            oracle_pos[:, 1] = dpos_clean[:, 1].clamp(-max_delta_pos, max_delta_pos)
+        oracle_pos[:, 0] = dpos_clean[:, 0].clamp(-max_delta_pos, max_delta_pos)
+        oracle_pos[:, 1] = dpos_clean[:, 1].clamp(-max_delta_pos, max_delta_pos)
         dz_clean = clean_pos[:, 2] - raw_pos[:, 2]
         z_upper = torch.zeros_like(dz_clean)
         if hasattr(command, "jump_degree") and hasattr(command, "anchor_penetration_depth"):
             jump_degree = command.jump_degree[env_slice].to(raw_pos.device).to(raw_pos.dtype).clamp(0.0, 1.0)
             penetration = command.anchor_penetration_depth[env_slice].to(raw_pos.device).to(raw_pos.dtype)
             z_upper = (jump_degree * penetration).clamp(max=max_delta_pos)
-        if _active(2):
-            z_lower = torch.full_like(dz_clean, -max_delta_pos)
-            oracle_pos[:, 2] = torch.minimum(torch.maximum(dz_clean, z_lower), z_upper)
+        z_lower = torch.full_like(dz_clean, -max_delta_pos)
+        oracle_pos[:, 2] = torch.minimum(torch.maximum(dz_clean, z_lower), z_upper)
 
         correction_quat = quat_mul(quat_inv(raw_quat), clean_quat)
         correction_rotvec = quat_to_rotvec_wxyz(correction_quat)
         oracle_rotvec = torch.zeros_like(correction_rotvec)
         for dim in (3, 4, 5):
-            if _active(dim):
-                axis = dim - 3
-                oracle_rotvec[:, axis] = correction_rotvec[:, axis].clamp(-max_delta_rpy, max_delta_rpy)
+            axis = dim - 3
+            oracle_rotvec[:, axis] = correction_rotvec[:, axis].clamp(-max_delta_rpy, max_delta_rpy)
         oracle_quat = rotvec_to_quat_wxyz(oracle_rotvec)
 
         saved_pos = command._frontres_pos_correction[env_slice].clone()
@@ -324,27 +314,19 @@ class FrontRESExecutabilityScorer:
         count: int,
         mode_groups: list[tuple[str, ...]] | tuple[tuple[str, ...], ...] | None = None,
         active_modes: tuple[str, ...] = (),
+        *,
+        include_task: bool = True,
     ) -> torch.Tensor:
-        """Select executable score components that match each sample's repair cone."""
+        """Select executable score components matching each perturbation family.
+
+        Segment Replay gain passes ``include_task=False`` so generic task or
+        velocity tracking terms cannot enter the repair-specific score.
+        """
         if count <= 0:
             return torch.empty(0, device=self.device)
         if mode_groups is None:
             if not active_modes:
-                active_dims = getattr(self.alg, "frontres_active_task_dims", self.cfg.get("frontres_active_task_dims", None))
-                if active_dims is None:
-                    active_modes = ("planar", "yaw", "global_z", "local_rp")
-                else:
-                    dims = {int(dim) for dim in active_dims}
-                    inferred = []
-                    if 0 in dims or 1 in dims:
-                        inferred.append("planar")
-                    if 5 in dims:
-                        inferred.append("yaw")
-                    if 2 in dims:
-                        inferred.append("global_z")
-                    if 3 in dims or 4 in dims:
-                        inferred.append("local_rp")
-                    active_modes = tuple(inferred) if inferred else ("planar", "yaw", "global_z", "local_rp")
+                active_modes = ("planar", "yaw", "global_z", "local_rp")
             mode_groups = [tuple(active_modes)] * count
 
         xy = components.get("xy", components["planar"])[start:start + count]
@@ -359,7 +341,7 @@ class FrontRESExecutabilityScorer:
         yaw_weight = float(self.cfg.get("frontres_exec_cone_yaw_weight", planar_weight))
         vertical_weight = float(self.cfg.get("frontres_exec_cone_vertical_weight", 1.0))
         rp_weight = float(self.cfg.get("frontres_exec_cone_rp_weight", vertical_weight))
-        task_weight = float(self.cfg.get("frontres_exec_cone_task_weight", 0.0))
+        task_weight = float(self.cfg.get("frontres_exec_cone_task_weight", 0.0)) if include_task else 0.0
         for idx, modes in enumerate(mode_groups[:count]):
             mode_set = set(modes)
             if "planar" in mode_set:

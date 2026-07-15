@@ -1,0 +1,594 @@
+# Evidence Ledger: FRS-GAIN-v001 Integration
+
+Date: 2026-07-13
+Scope: Stage 3 Segment Replay paired Gain implementation and formal policy-row
+return connectivity.
+Contract: `note/frontres_core/contracts/active/reward/FRS-GAIN-v001-style-physics-repair.md`
+
+## E1: Shared Gain Owner
+
+Evidence:
+- `source/rsl_rl/rsl_rl/frontres/frontres_gain.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py`
+
+Facts:
+- Style compares Repaired and Noisy body positions against the same Clean
+  positions.
+- Physics has paired success/fall, survival, ZMP/support margin, and a
+  documented foot-height contact-consistency proxy.
+- Repair cost uses full-6D action magnitude and temporal action change.
+- Missing root orientation, ZMP/support, contact, or unavailable temporal data
+  remains NaN and is formatted as `UNCONFIRMED`; it is not silently zeroed.
+
+Observed result:
+- `frontres_gain_components_contract.py`: PASS.
+
+Limitation:
+- Real IsaacLab population of the captured runtime fields remains an S4
+  question. Contact consistency is a foot-height support proxy, not force
+  sensor data.
+
+## E2: Formal Policy-Row Connectivity
+
+Evidence:
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_gain_connectivity_contract.py`
+
+Facts:
+- Live capture stores per-step full-6D actions.
+- Paired policy rows use shared `gain_total` in `storage.rewards`.
+- K-step return construction uses per-step Gain evidence for policy rows.
+- Legacy `repair_score_accum` and generic environment reward are not used for
+  those formal policy rows when Gain evidence is present.
+
+Observed result:
+- `frontres_segment_gain_connectivity_contract.py`: PASS.
+- Existing `frontres_segment_live_probe_contract.py`: PASS.
+
+## E3: Configuration And Diagnostics
+
+Evidence:
+- `source/rsl_rl/rsl_rl/modules/rsl_rl_cfg.py`
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
+
+Facts:
+- Gain weights and named scales are explicit configuration fields.
+- Live probe exposes a decomposed Gain block with source, Style, Physics,
+  repair cost, total, and component diagnostics.
+- Missing component values are rendered as `UNCONFIRMED`.
+
+Open risks:
+- Sampler priority still consumes the legacy score summary.
+- Periodic and sequence evaluation still need formula identity with the shared
+  Gain owner.
+- S4 live evidence is not yet available.
+
+Next:
+- Revalidate paired K-step aggregation with the accepted component and action
+  mask semantics, then connect sampler evidence, periodic eval, and sequence
+  eval to `frontres_gain.py`.
+
+## E4: Step 1 Style Completion
+
+Evidence:
+- `source/rsl_rl/rsl_rl/frontres/frontres_gain.py`
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_motion_quality_capture_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+
+Facts:
+- Root orientation uses Clean/Repaired/Noisy root quaternion roles and a
+  geodesic error difference against Clean.
+- Capture reads `anchor_quat_w_original` for Clean and paired
+  `robot_anchor_quat_w` rows for Repaired/Noisy.
+- The full style fixture, root-role capture fixture, live probe regression, and
+  aggregate suite pass.
+
+Observed result:
+- Gain S1: PASS.
+- Root orientation capture S1: PASS.
+- Live probe regression: PASS.
+- Aggregate suite: `44/44`, failed `0`.
+
+Limitation:
+- This proves deterministic code and offline route wiring. It does not prove
+  that a real IsaacLab run populates finite root-orientation values.
+
+Decision:
+- Step 1 / 11 is complete. Step 2 / 11 is complete for S1/S2 offline
+  implementation and connection. Step 3 / 11 is complete offline. Step 4 /
+  11 is next and has not started.
+
+## E5: Step 2 Physics Completion
+
+Evidence:
+- `source/rsl_rl/rsl_rl/frontres/frontres_gain.py`
+- `source/rsl_rl/rsl_rl/frontres/frontres_reward_window.py`
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_motion_quality_capture_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+
+Facts:
+- Physics Gain averages paired success, survival, ZMP/support margin, and
+  contact consistency without importing generic environment reward.
+- ZMP uses the existing balance/capture-margin owner for train and baseline
+  rows with the same quartet offsets.
+- Contact consistency compares Clean foot support state with repaired/noisy
+  robot foot support state. It is a height-based support proxy, not a contact
+  force measurement.
+- Missing Physics evidence remains NaN and is rendered as `UNCONFIRMED`.
+
+Observed result:
+- Gain component contract: PASS.
+- Motion-quality/contact pairing contract: PASS.
+- Gain connectivity and live-probe contracts: PASS.
+- Aggregate suite: `44/44`, failed `0`.
+
+Limitation:
+- No IsaacLab S4 sentinel was run in this step. Real contact/ZMP population
+  and metric diversity remain unconfirmed until a live run.
+
+Decision:
+- Step 2 / 11 is complete for S1/S2 offline implementation and connection.
+- Step 3 / 11 is next and has not been started.
+
+## E6: Step 3 Repair Cost Completion
+
+Evidence:
+- `source/rsl_rl/rsl_rl/frontres/frontres_gain.py`
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_gain_connectivity_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+
+Facts:
+- Repair Cost reads the post-override transition action, not the raw policy
+  action, so baseline and Clean rows retain their executed zero action.
+- The full six Delta SE dimensions are used for magnitude and temporal cost.
+- The action-valid mask is `horizon` plus `not done before this step`; the
+  action that causes done remains included because it was executed.
+- Clean-row norm/temporal/cost are exposed separately and are unavailable when
+  no valid Clean action row exists.
+
+Observed result:
+- Repair component contract: PASS.
+- Executed-action live-probe contract: PASS.
+- Gain connectivity contract: PASS.
+- Aggregate suite: `44/44`, failed `0`.
+
+Limitation:
+- This is a pure tensor and fake-runner boundary. It proves action source,
+  shape, masking, and aggregation, but not real simulator action diversity.
+
+Decision:
+- Step 3 / 11 is complete for S1/S2 offline implementation and connection.
+- Step 4 / 11 is next and has not been started.
+
+## E7: Step 4 Paired K-Step Gain Completion
+
+Evidence:
+- `source/rsl_rl/rsl_rl/frontres/frontres_gain.py`
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_gain_connectivity_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+
+Facts:
+- Mixed per-row K and done masks are applied before Repair Cost and temporal
+  component aggregation.
+- Quartet rows preserve their own Clean/Repaired/Noisy pairing under row
+  permutation; the hand fixture checks the resulting `gain_total` by role.
+- The total formula uses the same named Style, Physics, and Repair components
+  with the configured weights.
+- Storage connector tests preserve the per-step Gain trace and do not replace
+  it with the legacy environment/RP score.
+
+Observed result:
+- Mixed-K/component golden fixture: PASS.
+- Segment storage contract: PASS.
+- Gain connectivity and live-probe contracts: PASS.
+- Aggregate suite: `44/44`, failed `0`.
+
+Limitation:
+- This is offline evidence. The real runtime still needs S4 proof that
+  per-step component values are finite and non-stale across actual rollouts.
+
+Decision:
+- Step 4 / 11 is complete for S1/S2 offline implementation and connection.
+- Step 5 / 11 is next and has not been started.
+
+## E8: Step 5 Formal Training Return Completion
+
+Evidence:
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`
+- `source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_gain_connectivity_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py`
+- `source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`
+
+Facts:
+- With `gain_config` active, formal policy rows use paired `gain_total` for
+  storage rewards and `gain_steps` for K-step returns.
+- `compute_returns_and_advantages()` receives the same per-row horizon and done
+  trace, then produces returns and advantages consumed by the PPO batch.
+- Policy-row validity survives storage and `to_ppo_batch()`; baseline rows are
+  retained as evidence rows but are excluded from PPO policy updates.
+- If formal Gain evidence is unavailable, the route raises instead of silently
+  reusing legacy `repair_score`.
+
+Observed result:
+- Formal Gain -> storage -> PPO batch contract: PASS.
+- Legacy fallback rejection contract: PASS.
+- Storage and PPO contracts: PASS.
+- Aggregate suite: `44/44`, failed `0`.
+
+Limitation:
+- This proves the offline formal route only. It does not prove a real live
+  rollout produces finite Gain traces or that long-run learning improves.
+
+Decision:
+- Step 5 / 11 is complete for S1/S2 offline implementation and connection.
+- Step 6 / 11 is partial/blocked: formal Gain source selection and
+  post-update diagnostic isolation pass, but legacy score consumption remains
+  in sampler priority/state logic.
+
+## E9 - Step 6 Sampler Priority Boundary (2026-07-13)
+
+- `build_live_sampler_evidence()` now selects finite
+  `gain_total_per_sample` when `gain_source=FRS-GAIN-v001`, even if the
+  summary also contains a conflicting legacy `gain_over_noisy_per_sample`.
+- The sampler contract test proves that extreme
+  `ppo_post_update_distribution_kl_mean`, post-update ratios, and
+  `ppo_param_delta_l2` do not change priority when formal Gain evidence is
+  unchanged.
+- Verification passed:
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`;
+  aggregate `frontres_segment_all_contract_suite.py` reported
+  `contract_count=44 failed_count=0 total_marker_count=44`;
+  `git diff --check`; Python compile of the changed sampler and contract test.
+- Remaining blocker: `frontres_segment_sampler.py` still reads
+  `score_noisy/score_repaired` in `_learning_value()` and segment state
+  transitions. Therefore Step 6 is partial/blocked, not accepted as a
+  Gain-only priority contract. No PPO formula or live route was changed.
+
+## E10 - Single Active Gain Owner Decision (2026-07-13)
+
+- Confirmed design decision: `frontres_gain.py` is the only active owner of
+  paired Style/Physics/Repair Gain calculation.
+- `gain_total` and its component decomposition must feed PPO reward, sampler
+  evidence/priority, diagnostics, periodic evaluation, and sequence evaluation.
+- The former family-specific executability score is legacy and must not remain
+  active through sampler difficulty heuristics, fallback reward paths,
+  diagnostics, or evaluation.
+- Step 6 is ready for ordered implementation gates 6A evidence owner, 6B
+  sampler state migration, and 6C cross-consumer acceptance. This entry records
+  the decision only; no Python implementation claim is made.
+
+## E11 - Step 6A Formal Sampler Evidence Boundary (2026-07-13)
+
+- `build_live_sampler_evidence()` now requires
+  `gain_source=FRS-GAIN-v001`, finite per-row total Gain, and finite
+  Style/Physics/Repair component vectors with matching row counts.
+- Missing or non-finite formal Gain now fails closed; generic environment
+  reward and legacy score differences cannot construct active sampler Gain.
+- The evidence payload carries canonical total/component fields and retains
+  old score fields only as compatibility data for the pending 6B migration.
+- The S2 closed-loop fixture supplies one hand-checkable formal row
+  (`0.25 + 0.15 - 0.05 = 0.35`) because its fake lifecycle has no simulator
+  motion tensors; this is connector evidence, not S4 physics evidence.
+- Verification passed:
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`;
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py`;
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_closed_loop_contract.py`;
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py`;
+  aggregate `frontres_segment_all_contract_suite.py` reported
+  `contract_count=44 failed_count=0 total_marker_count=44`;
+  Python compile and `git diff --check` passed.
+- Confirmed: Step 6A implementation and S2 offline connector boundary.
+- Open: `frontres_segment_sampler.py` still consumes compatibility
+  `score_noisy/score_repaired` in useful/state logic; Step 6 remains
+  partial/blocked until 6B and 6C are executed.
+
+## E12 - Step 6B Gain-Only Sampler Decisions (2026-07-13)
+
+- `frontres_segment_sampler.py` now traces canonical
+  `FrontRESSegmentRolloutEvidence.gain_total` through aggregation, useful
+  value, state transitions, priority updates, and frontier horizon selection.
+- `score_noisy`, `score_repaired`, and `gain_over_noisy` remain compatibility
+  fields but are not read by active sampler decisions; aggregate trial score
+  fields are retained as unavailable compatibility diagnostics.
+- Solved, hopeless, positive, and delayed-regret transitions now use Gain,
+  validity/reset, fall, and effective horizon; contact gates useful value.
+- A differential fixture changed legacy scores from zero to one while keeping
+  canonical Gain fixed; priority and segment state remained identical:
+  `[probe sampler_gain_only] clean_priority=[0.04, 0.0]`
+  and `poisoned_priority=[0.04, 0.0]`, states `[1, 5]` in both paths.
+- Frontier budget selection no longer uses `last_oracle_gap`; it uses active
+  success/fall evidence and trial count while preserving K curriculum behavior.
+- Verification passed:
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py`;
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`;
+  closed-loop and Stage 3 pseudo suites;
+  aggregate `frontres_segment_all_contract_suite.py` reported
+  `contract_count=44 failed_count=0 total_marker_count=44`;
+  Python compile and `git diff --check` passed.
+- Confirmed: Step 6B implementation and S2 offline connectivity.
+- Open: Step 6C must audit every currently wired consumer; real sampler
+  distribution and simulator behavior remain unconfirmed S4 evidence.
+
+## E13 - Step 6C Cross-Consumer Gain Owner Audit (2026-07-13)
+
+- Audit boundary: `frontres_gain.py` -> live capture summary -> formal PPO
+  storage, sampler evidence/priority/state, diagnostics, periodic eval, and
+  sequence eval.
+- Confirmed formal consumers: `_segment_storage_rewards()` and
+  `_segment_storage_reward_steps()` call the shared paired Gain path when the
+  active configuration is present; Step 6A/6B sampler evidence and decision
+  tests remain passing.
+- Blocked consumer: `frontres_segment_live_probe.py` lines 2679-2750 still
+  constructs train-effect `score_*` fields from `_paired_score_summary()`;
+  `_paired_gain_summary()` is additive and does not replace those fields.
+- Blocked consumer: `frontres_segment_live_training.py` lines 1215-1373 use
+  `capture.reward_accum` in `_offline_eval_score_summary()` and
+  `_offline_eval_per_motion_summary()` for periodic/sequence repaired/noisy
+  values and gain, instead of the shared Gain owner.
+- Blocked consumer: `frontres_segment_diagnostics.py` lines 60-63,
+  90-107, and 180-195 still read/format legacy score fields.
+- False-positive test evidence: the current pseudo training and sequence tests
+  pass, but their fixtures assert `reward_accum`/`score_*` behavior and
+  contain no Gain-owner identity or legacy-score poisoning test for these
+  consumers.
+- Commands passed: Gain connectivity, sampler, live sampler, live-training
+  pseudo, sequence-eval, diagnostics, and aggregate contract suite; aggregate
+  reported `contract_count=44 failed_count=0`.
+- Conclusion: Step 6C is `partial/blocked`; do not treat the new Gain route as
+  cross-consumer accepted. The next safe implementation boundary is to migrate
+  diagnostics, periodic eval, and sequence eval in their ordered Step 7-9
+  steps, then add owner/isolation tests before live training.
+
+## E14 - Step 7 Canonical Train Diagnostics Migration (2026-07-13)
+
+- Boundary: `capture` -> `_paired_gain_summary` -> live probe summary ->
+  update-loop aggregation -> train-effect formatter.
+- Changed active diagnostic keys to `gain_style_mean`, `gain_physics_mean`,
+  `gain_repair_cost_mean`, `gain_total_mean`, and `gain_total_pos_frac`.
+- Removed old `score_noisy_mean`, `score_repaired_mean`, `score_gain_mean`, and
+  `score_gain_pos_frac` from the active live summary/update-loop diagnostic
+  path. Per-row legacy score vectors remain only as explicitly documented
+  sampler compatibility evidence.
+- Missing Gain components now render as `UNCONFIRMED` instead of numeric zero.
+- Regression evidence: diagnostics poisoning fixture changes legacy score
+  fields to extreme values without changing canonical train-effect output;
+  live-probe connectivity fixture changes `reward_accum` to `-999` without
+  changing `gain_total_mean` and asserts `score_gain_mean` is absent.
+- Verification passed:
+  `frontres_segment_diagnostics_contract.py`,
+  `frontres_segment_live_update_loop_contract.py`,
+  `frontres_segment_live_probe_contract.py`,
+  `frontres_segment_gain_connectivity_contract.py`,
+  `frontres_segment_live_training_pseudo_contract.py`, and aggregate suite
+  `contract_count=44 failed_count=0`; Python compile and `git diff --check`
+  passed.
+- Status: Step 7 is `partial/offline`; raw ZMP/contact diagnostic exposure and
+  real S4 population remain open. Step 8/9 periodic/sequence legacy consumers
+  remain blocked by E13.
+
+## E15 - Step 8 Periodic Evaluation Gain Migration (2026-07-13)
+
+- Boundary: independent sampler -> eval batch/reset -> paired capture ->
+  `_capture_paired_gain` -> periodic summary -> periodic formatter.
+- Periodic evaluation no longer calls `_offline_eval_summary`; its accepted
+  Gain fields come only from `FRS-GAIN-v001` Style / Physics / Repair / total
+  components. `reward_accum` is not read for periodic accepted Gain.
+- Missing Gain evidence is represented as `gain_source=UNCONFIRMED` and the
+  formatter prints `UNCONFIRMED`, while motion-quality diagnostics remain
+  independently visible.
+- Regression evidence: periodic pseudo test changes `reward_accum` to extreme
+  values while injecting canonical Gain and confirms the reported total is
+  unchanged; the all-fall fixture confirms missing Gain is not converted to 0.
+- Verification passed:
+  `frontres_segment_diagnostics_contract.py`,
+  `frontres_segment_live_training_pseudo_contract.py`, aggregate
+  `contract_count=44 failed_count=0`, Python compile, and `git diff --check`.
+- Status: Step 8 is `partial/offline`; S2 periodic routing is covered, real S4
+  component population remains open, and sequence evaluation is intentionally
+  deferred to Step 9.
+
+## E16 - Step 9 Sequence Evaluation Gain Migration (2026-07-13)
+
+- Boundary: sequence item capture -> shared Gain owner -> per-motion grouping
+  -> sequence aggregate -> item/aggregate/differential logs.
+- Sequence evaluation no longer calls a reward-derived score summary. Item and
+  per-motion summaries expose `FRS-GAIN-v001` Style / Physics / Repair / total
+  fields; aggregate averaging uses finite numeric values only and preserves
+  `UNCONFIRMED` when evidence is unavailable.
+- The real/zero-policy differential compares canonical `gain_total_mean`; the
+  former `reward_accum` is only printed as labeled raw debug data and is not a
+  metric source.
+- Regression evidence: sequence pseudo captures inject canonical Gain while
+  carrying legacy reward values; per-motion Gain remains role-scoped and the
+  aggregate preserves component identity. Sequence planner, reset/preroll,
+  motion grouping, action visibility, and differential tests remain passing.
+- Verification passed: sequence eval contract, live-training pseudo contract,
+  aggregate `contract_count=44 failed_count=0`, Python compile, and
+  `git diff --check`.
+- Status: Step 9 is `partial/offline`; Step 6C cross-consumer S2 acceptance is
+  closed, while S4 real Gain population and Step 10 persistence remain open.
+
+## E17 - Step 10A Formal Checkpoint/Resume Audit (2026-07-13)
+
+- Boundary: `OnPolicyRunner.save/load` ->
+  `source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py` -> model/std,
+  optimizer, normalizer, sampler, and Gain configuration identity.
+- Owner finding: `frontres_segment_checkpointing.py` is only imported by
+  `frontres_segment_checkpoint_contract.py`; it is not the formal runner save/
+  load owner. Earlier S3 evidence was therefore insufficient for the active
+  path.
+- The formal owner now persists `frontres_gain_config` with contract id
+  `FRS-GAIN-v001` and the named Style/Physics/Repair scales.
+- Full FrontRES resume rejects a checkpoint with missing or mismatched Gain
+  identity; explicit non-full Stage 2 -> Stage 3 initialization is allowed and
+  emits a warning because it intentionally uses the current Stage 3 config.
+- Regression probes:
+  `[probe step10a] gain_config_mismatch_rejected` and
+  `[probe step10a] missing_gain_config_rejected`.
+
+Correction recorded by Step 10C-C1: the detached
+`frontres_segment_checkpointing.py` helper and its focused two-head migration
+test were subsequently deleted; the commands below are historical E17 evidence,
+not current runnable paths. Current checkpoint evidence is the formal
+`frontres_checkpointing.py` contract exercised through the active Segment suite.
+- Verification passed:
+  `frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`;
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py`;
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_checkpoint_contract.py`;
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py`;
+  aggregate `contract_count=44 failed_count=0 total_marker_count=44`;
+  `git diff --check`.
+- Status: Step 10A is `partial/offline`; formal S3 contract coverage is
+  confirmed, while actual server artifact resume, S4 runtime persistence, and
+  Step 11 live acceptance remain open.
+
+## E18 - Current Note State Reconciliation (2026-07-13)
+
+- Reconciled current views after the E14/E15/E16 migrations and E17 checkpoint
+  audit.
+- Current status: Step 6A/6B/6C is `completed/offline` for S2; Steps 7/8/9 are
+  `partial/offline` because real S4 population remains open; Step 10A is
+  `partial/offline`; Step 11 is not started.
+- E13 remains unchanged as historical evidence of the pre-migration blocked
+  state and is not a current blocker.
+- Updated current plan, checklist, control board, and Architecture view to
+  reference E14/E15/E16/E17 instead of treating E13 as active state.
+
+## E19 - Method-Code Alignment Audit Baseline (2026-07-13)
+
+- Audit boundary: active contracts -> Stage 3 config/entrypoint -> perturbation
+  and K curriculum -> full-6D actor/action -> rollout/log-prob -> storage/
+  returns -> PPO -> sampler/Gain -> checkpoint/eval/diagnostics.
+- Code-confirmed: formal sampler budget planning supports `8/16/32/64`; active
+  algorithm config exposes `frontres_segment_max_horizon_k=64`; live capture and
+  storage returns consume per-row horizon vectors.
+- Code-confirmed: active G1 FrontRES preset sets
+  `num_task_corrections=6`, `task_conf_dim=0`, disables split acceptance,
+  authority, and state-router branches; live Segment storage/PPO require 6D.
+- Blocker found: `FrontRESActorCritic.update_distribution()` puts bounded
+  `tanh` outputs in `distribution.mean`; `act()` samples from that Normal and
+  applies `tanh` again, while Segment log-prob reconstructs raw actions with
+  `atanh` and evaluates them against the bounded mean. The sampled action,
+  stored mean, and log-prob are not proven to share one distribution space.
+- Gap found: live Segment advantage mode defaults through an implicit
+  `getattr(..., "scale_only")` fallback rather than an explicit active
+  algorithm config field.
+- Existing tests cover fake policy distribution formulas and full-6D/K
+  contracts, but do not instantiate the actual FrontRES actor to prove the
+  raw/bounded distribution identity.
+- Status: Step 10B is `partial/blocked`; no live test or long training should
+  start until the direct Delta SE PPO distribution parameterization is confirmed
+  and its actual-policy contract is added.
+
+## E20 - Current-Code Method Alignment Recheck (2026-07-13)
+
+- Rechecked the previous E19 blocker against the current source after the
+  active-design updates; E19 remains a historical audit observation, not the
+  current state.
+- Actual policy path is now code-confirmed as one raw Gaussian distribution:
+  `FrontRESActorCritic.update_distribution()` stores raw actor logits as
+  `distribution.mean`; `act()` samples once and applies one bounded `tanh`; the
+  actor and Segment log-prob helpers invert that transform with `atanh` and the
+  matching Jacobian.
+- Added `frontres_actual_policy_distribution_contract.py`, which exercises the
+  actual actor methods without a simulator and checks mean space, action bounds,
+  manual transformed log-prob, and per-dimension log-prob summation.
+- Made `frontres_segment_advantage_normalization="scale_only"` explicit in the
+  algorithm config and Stage 3 preset; made `frontres_segment_max_horizon_k=64`
+  explicit in the Stage 3 preset. Stage-entrypoint pseudo coverage now asserts
+  both values.
+- Verification passed: actual-policy contract; Stage 3 entrypoint pseudo
+  contract; Python compile; `git diff --check`; aggregate
+  `contract_count=45 failed_count=0 total_marker_count=45`.
+- Current status: Step 10B is `partial/offline`, not blocked on a semantic
+  decision. Offline method/code alignment is confirmed for K, full-6D action,
+  policy distribution, explicit advantage mode, and Gain consumers.
+- Remaining limitation: no S4 live evidence yet for finite/diverse action,
+  per-row K distribution, raw motion/ZMP/contact metrics, or long-run learning;
+  live test remains intentionally paused.
+
+## E21 - Isolated Retired Authority Cleanup (2026-07-13)
+
+- Boundary: package export/import surface -> production caller scan -> dedicated
+  test inventory.
+- `frontres_authority_space.py` and `frontres_authority_event.py` had no
+  production callers beyond `frontres/__init__.py`; their only remaining
+  references were dedicated tests and historical notes.
+- Removed those two modules, their package exports, and three dedicated tests.
+  The perturbation runtime method `frontres_authority_event_state()` was not
+  removed because it is still read by the connected generic rollout helper;
+  that path is explicitly outside this bounded step.
+- Verification passed: import scan found no active source reference to the
+  removed modules; package Python compile; aggregate
+  `contract_count=45 failed_count=0 total_marker_count=45`; `git diff --check`.
+- Status: Step 10C-A completed offline. Connected acceptance/rho/authority
+  code remains a separate pending deletion/migration step and is not claimed
+  removed.
+
+## E22 - Direct Retired-Path Cleanup (2026-07-13)
+
+- Removed the retired `stage2_acceptance` entrypoint, fake Segment Replay
+  connector/projector, authority rollout action/event bridge, authority return
+  and target modules, transition alpha/rho payload modules, authority policy
+  head/config fields, and dedicated tests.
+- Removed the generic runner's authority/acceptance payload write and
+  authority-return diagnostic path; formal Stage 3 continues through the
+  dedicated Segment runner and full-6D Delta SE(3) PPO.
+- Verification passed: Stage 3 pseudo entrypoint, stage entrypoint contract,
+  Python compile, `git diff --check`, and aggregate
+  `contract_count=41 failed_count=0 total_marker_count=41`.
+- Remaining cleanup is explicitly bounded: generic `RolloutStorage` fields,
+  old acceptance/structured-rho compatibility in `FrontRESUnified`, and
+  legacy diagnostic formatter helpers still require removal or an unreachable
+  path proof; they are not claimed deleted by E22.
+
+## E23 - Retired Compatibility Surface Cleanup (2026-07-14)
+
+- Boundary: retired design symbols -> config/defaults -> package exports ->
+  negative entrypoint tests -> Segment contract suite.
+- Removed the remaining generic PPO optimizer branch for the retired
+  `acceptance_actor` surface, stale `ppo_hrl` defaults, unused oracle/floor
+  configuration, the unused oracle module/export, and the obsolete Stage 2
+  authority wrapper and dedicated authority/legacy tests.
+- Updated the active comments and negative entrypoint contract so deletion is
+  represented as absence, rather than requiring a legacy wrapper to remain.
+- Evidence: `frontres_segment_all_contract_suite.py` passed with
+  `contract_count=40 failed_count=0 total_marker_count=40`; targeted full-6D,
+  Segment PPO, diagnostics, Stage 3 pseudo, and stage-entrypoint contracts
+  passed; `py_compile` and `git diff --check` passed.
+- Static residual search now finds only negative assertions and historical
+  contract-status text for retired names; no active production caller remains
+  for the removed compatibility surface.
+- Limitation: no S4 live runtime or checkpoint-artifact resume was run in this
+  cleanup step.
+
+## E24 - Common Runner Retired-Field Sweep (2026-07-14)
+
+- Boundary: common runner logging/update injection -> active Stage 2 HSL and
+  Stage 3 Segment Replay consumers.
+- Removed the unused `rho_advantage`, `alpha_groundtruth`, and
+  `alpha_groundtruth_mask` log payload entries. Removed the common-runner
+  `oracle_mix` injection and the two unused oracle-mixing config thresholds.
+  The standalone `MOSAIC` algorithm implementation remains unchanged.
+- Production residual scan is empty for retired acceptance/authority/rho,
+  active-dimension, actor-takeover, oracle/floor, and old PPO-actor symbols;
+  remaining matches are negative regression assertions only.
+- Verification passed: full source/script `compileall`,
+  `frontres_segment_all_contract_suite.py` with `40/40`, Stage entrypoint
+  contract, Stage 3 pseudo entrypoint contract, and `git diff --check`.
+- Limitation: this is offline evidence only. No S4 live runtime or checkpoint
+  artifact resume was run.

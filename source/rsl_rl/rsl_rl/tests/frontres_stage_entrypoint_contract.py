@@ -28,14 +28,13 @@ def main() -> None:
     stage1_cache = _read("run/run_frontres_stage1_segment_cache.sh")
     stage1_cache_validator = _read("run/validate_frontres_stage1_segment_cache.sh")
     stage1 = _read("run/run_frontres_stage1_hsl.sh")
-    stage2 = _read("run/run_frontres_stage2_acceptance.sh")
     stage3 = _read("run/run_frontres_stage3_segment_hrl.sh")
     root_stage1 = _read("run_stage1.sh")
     root_stage2 = _read("run_stage2.sh")
     root_stage3 = _read("run_stage3.sh")
     frontres_policy = _read("source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py")
 
-    assert 'choices=("stage1_segment_cache", "stage1_hsl", "stage2_hsl_warmup", "stage2_acceptance", "stage3_segment_hrl")' in train
+    assert 'choices=("stage1_segment_cache", "stage1_hsl", "stage2_hsl_warmup", "stage3_segment_hrl")' in train
     assert '"--frontres_segment_cache_dir"' in train
     assert '"--frontres_segment_cache_k"' in train
     assert '"--frontres_segment_cache_frame_stride"' in train
@@ -53,7 +52,7 @@ def main() -> None:
     assert "if not residual_hidden_dims and legacy_actor_hidden_dims:" in frontres_policy
     assert '"--frontres_segment_cache_curriculum_progress"' in train
     assert '"--frontres_segment_cache_curriculum_seq_idx"' in train
-    assert '"--frontres_segment_cache_curriculum_active_dims"' in train
+    assert '"--frontres_segment_cache_curriculum_perturbation_bases"' in train
     assert '"--frontres_segment_cache_curriculum_include_hard_as_train"' in train
     assert '"--frontres_segment_cache_curriculum_temporal_mode"' in train
     assert '"--frontres_segment_cache_curriculum_burst_min_steps"' in train
@@ -72,7 +71,6 @@ def main() -> None:
     assert "Stage 3 live sentinel/probe/storage/update flags require --frontres_stage stage3_segment_hrl" in train
     assert 'if stage == "stage1_segment_cache":' in train
     assert 'elif stage in ("stage1_hsl", "stage2_hsl_warmup"):' in train
-    assert 'elif stage == "stage2_acceptance":' in train
     assert 'elif stage == "stage3_segment_hrl":' in train
     assert 'FEMR_LOG_ROOT' in train
     assert 'os.path.dirname(__file__)' in train
@@ -125,13 +123,13 @@ def main() -> None:
     assert "FrontRESStage1EnvAdapter" in train
     assert "_frontres_stage1_motion_loader_probe(adapter, requested_max_motions=max_motions)" in train
     assert "build_stage1_segment_cache" in train
-    assert "def _parse_frontres_segment_cache_active_dims(value: str) -> tuple[int, ...] | None:" in train
+    assert "def _parse_frontres_segment_cache_perturbation_bases(value: str) -> tuple[str, ...] | None:" in train
     assert 'choices=("hrl_curriculum_bank", "discrete_bank")' in train
     assert 'perturbation_mode={perturbation_mode}' in train
     assert 'legacy_perturbation_strengths={strengths}' in train
     assert 'curriculum_bank_size={curriculum_bank_size}' in train
     assert 'curriculum_frontier_scale={curriculum_frontier_scale}' in train
-    assert 'curriculum_active_dims={curriculum_active_dims}' in train
+    assert 'curriculum_perturbation_bases={curriculum_perturbation_bases}' in train
     assert 'cache_chunk_size={cache_chunk_size}' in train
     assert "perturbation_curriculum_mode=perturbation_mode" in train
     assert "curriculum_bank_size=curriculum_bank_size" in train
@@ -140,7 +138,7 @@ def main() -> None:
     assert "curriculum_dr_max=curriculum_dr_max" in train
     assert "curriculum_progress=curriculum_progress" in train
     assert "curriculum_seq_idx=curriculum_seq_idx" in train
-    assert "curriculum_active_dims=curriculum_active_dims" in train
+    assert "curriculum_perturbation_bases=curriculum_perturbation_bases" in train
     assert "curriculum_include_hard_as_train=curriculum_include_hard_as_train" in train
     assert "curriculum_temporal_mode=curriculum_temporal_mode" in train
     assert "curriculum_burst_min_steps=curriculum_burst_min_steps" in train
@@ -164,39 +162,6 @@ def main() -> None:
     assert stage1_runtime_block.index("_run_frontres_stage1_segment_cache(env, args_cli, log_dir)") < stage1_runtime_block.index(
         "_exit_frontres_stage1_segment_cache(env)"
     )
-
-    stage2_block = _between(train, 'elif stage == "stage2_acceptance":', '    print(f"[FrontRES Stage]')
-    required = [
-        'agent_cfg.experiment_name = "g1_flat_frontres_stage2_acceptance"',
-        'agent_cfg.is_full_resume = False',
-        'agent_cfg.supervised_warmup_iterations = 0',
-        '_set_if_present(alg_cfg, "frontres_training_objective", "hsl_hybrid")',
-        '_set_if_present(alg_cfg, "frontres_acceptance_preference_weight", 1.0)',
-        '_set_if_present(policy_cfg, "frontres_split_acceptance_head", True)',
-        '_set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)',
-        '_set_if_present(alg_cfg, "frontres_authority_actor_loss_weight", 0.0)',
-        '_set_if_present(alg_cfg, "frontres_authority_critic_loss_weight", 0.0)',
-        '_set_if_present(alg_cfg, "frontres_structured_joint_rl_enabled", False)',
-        '_set_if_present(alg_cfg, "frontres_structured_joint_rl_weight", 0.0)',
-        '_set_if_present(alg_cfg, "frontres_structured_joint_prior_loss_weight", 0.0)',
-        '_set_if_present(policy_cfg, "frontres_authority_actor_critic", False)',
-        '_set_if_present(policy_cfg, "frontres_state_router_enabled", False)',
-    ]
-    for needle in required:
-        assert needle in stage2_block, needle
-    forbidden = [
-        'frontres_authority_actor_critic_enabled", True',
-        'frontres_authority_actor_loss_weight", 1.0',
-        'frontres_authority_critic_loss_weight", 1.0',
-        'frontres_structured_joint_enabled"',
-        'frontres_structured_joint_prior_weight"',
-        'frontres_structured_joint_rl_enabled", True',
-        'frontres_structured_joint_rl_weight", 1.0',
-        'frontres_authority_return_horizon", 8',
-        'frontres_perturbation_temporal_mode", "burst"',
-    ]
-    for needle in forbidden:
-        assert needle not in stage2_block, needle
 
     stage3_block = _between(train, 'elif stage == "stage3_segment_hrl":', '    print(f"[FrontRES Stage]')
     stage3_required = [
@@ -235,23 +200,12 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_segment_sampler_replay_frac", 0.5)',
         '_set_if_present(alg_cfg, "frontres_segment_sampler_review_frac", 0.1)',
         '_set_if_present(alg_cfg, "frontres_segment_reset_mode", "auto")',
-        '_set_if_present(alg_cfg, "frontres_acceptance_preference_weight", 0.0)',
-        '_set_if_present(policy_cfg, "task_conf_dim", 0)',
-        '_set_if_present(policy_cfg, "frontres_split_acceptance_head", False)',
-        '_set_if_present(alg_cfg, "frontres_authority_actor_critic_enabled", False)',
-        '_set_if_present(alg_cfg, "frontres_structured_joint_rl_enabled", False)',
     ]
     for needle in stage3_required:
         assert needle in stage3_block, needle
-    stage3_forbidden = [
-        'frontres_acceptance_preference_weight", 1.0',
-        'frontres_split_acceptance_head", True',
-        'frontres_authority_actor_critic_enabled", True',
-        'frontres_structured_joint_rl_enabled", True',
-    ]
-    for needle in stage3_forbidden:
-        assert needle not in stage3_block, needle
-
+    assert '_set_if_present(policy_cfg, "task_conf_dim", 0)' not in stage3_block
+    assert '_set_if_present(policy_cfg, "frontres_split_acceptance_head", False)' not in stage3_block
+    assert '_set_if_present(policy_cfg, "frontres_state_router_enabled", False)' not in stage3_block
     algorithm_cfg = _read("source/rsl_rl/rsl_rl/modules/rsl_rl_cfg.py")
     task_cfg = _read("source/whole_body_tracking/whole_body_tracking/utils/rsl_rl_cfg.py")
     algorithm_impl = _read("source/rsl_rl/rsl_rl/algorithms/frontres_unified.py")
@@ -362,7 +316,7 @@ def main() -> None:
     assert 'CURRICULUM_DR_MAX="${CURRICULUM_DR_MAX:-4.5}"' in stage1_cache
     assert 'CURRICULUM_PROGRESS="${CURRICULUM_PROGRESS:-0.8}"' in stage1_cache
     assert 'CURRICULUM_SEQ_IDX="${CURRICULUM_SEQ_IDX:-17}"' in stage1_cache
-    assert 'CURRICULUM_ACTIVE_DIMS="${CURRICULUM_ACTIVE_DIMS:-0,1,2,3,4,5}"' in stage1_cache
+    assert 'CURRICULUM_PERTURBATION_BASES="${CURRICULUM_PERTURBATION_BASES:-planar,yaw,global_z,local_rp}"' in stage1_cache
     assert 'CURRICULUM_TEMPORAL_MODE="${CURRICULUM_TEMPORAL_MODE:-single}"' in stage1_cache
     assert 'CURRICULUM_BURST_MIN_STEPS="${CURRICULUM_BURST_MIN_STEPS:-4}"' in stage1_cache
     assert 'CURRICULUM_BURST_MAX_STEPS="${CURRICULUM_BURST_MAX_STEPS:-8}"' in stage1_cache
@@ -375,7 +329,7 @@ def main() -> None:
     assert '--frontres_segment_cache_curriculum_dr_max "${CURRICULUM_DR_MAX}"' in stage1_cache
     assert '--frontres_segment_cache_curriculum_progress "${CURRICULUM_PROGRESS}"' in stage1_cache
     assert '--frontres_segment_cache_curriculum_seq_idx "${CURRICULUM_SEQ_IDX}"' in stage1_cache
-    assert '--frontres_segment_cache_curriculum_active_dims "${CURRICULUM_ACTIVE_DIMS}"' in stage1_cache
+    assert '--frontres_segment_cache_curriculum_perturbation_bases "${CURRICULUM_PERTURBATION_BASES}"' in stage1_cache
     assert '--frontres_segment_cache_curriculum_temporal_mode "${CURRICULUM_TEMPORAL_MODE}"' in stage1_cache
     assert '--frontres_segment_cache_curriculum_burst_min_steps "${CURRICULUM_BURST_MIN_STEPS}"' in stage1_cache
     assert '--frontres_segment_cache_curriculum_burst_max_steps "${CURRICULUM_BURST_MAX_STEPS}"' in stage1_cache
@@ -405,11 +359,6 @@ def main() -> None:
     assert 'CMD+=(--require-boundary-diagnostic)' in stage1_cache_validator
     assert '--frontres_stage stage1_hsl' in stage1
     assert 'authority' not in stage1.lower()
-    assert '--frontres_stage stage2_acceptance' in stage2
-    assert '--resume_student_checkpoint "${STAGE1_CHECKPOINT}"' in stage2
-    assert '--is_full_resume False' in stage2
-    assert 'g1_flat_frontres_stage2_acceptance' in stage2
-    assert 'stage2_authority' not in stage2
     assert 'STAGE1_BUILD_ROLLOUT_CACHE="${STAGE1_BUILD_ROLLOUT_CACHE:-0}"' in root_stage1
     assert 'if [[ "${STAGE1_BUILD_ROLLOUT_CACHE}" != "1" ]]; then' in root_stage1
     assert 'STAGE1_MODE="index"' in root_stage1
@@ -472,8 +421,7 @@ def main() -> None:
     assert '"/hdd1/cyx/MOSAIC/"' not in stage3
     assert not (ROOT / 'run/run_frontres_stage2_authority.sh').exists()
     legacy = ROOT / 'run/legacy/run_frontres_stage2_authority.sh'
-    assert legacy.exists()
-    assert 'Legacy ablation entrypoint' in legacy.read_text()
+    assert not legacy.exists()
     print("PASS: FrontRES Stage 1/2 live presets and Stage 3 Segment Replay contract are explicit.")
 
 

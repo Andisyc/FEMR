@@ -69,22 +69,18 @@ def choice_hash(seq_idx: int) -> int:
     return value
 
 
-def allowed_perturbation_bases(active_dims: Any = None) -> tuple[str, ...]:
-    """Map active FrontRES task dimensions to repairable perturbation families."""
-    if active_dims is None:
+def allowed_perturbation_bases(perturbation_bases: Any = None) -> tuple[str, ...]:
+    """Normalize an explicit perturbation-family allowlist."""
+    if perturbation_bases is None:
         return PERTURBATION_BASES
-
-    dims = {int(idx) for idx in active_dims}
-    bases: list[str] = []
-    if 0 in dims or 1 in dims:
-        bases.append("planar")
-    if 5 in dims:
-        bases.append("yaw")
-    if 2 in dims:
-        bases.append("global_z")
-    if 3 in dims or 4 in dims:
-        bases.append("local_rp")
-    return tuple(bases) if bases else PERTURBATION_BASES
+    if isinstance(perturbation_bases, str):
+        values = tuple(item.strip() for item in perturbation_bases.split(",") if item.strip())
+    else:
+        values = tuple(str(item) for item in perturbation_bases)
+    unknown = tuple(item for item in values if item not in PERTURBATION_BASES)
+    if unknown:
+        raise ValueError(f"unknown perturbation families: {unknown}")
+    return tuple(dict.fromkeys(values)) or PERTURBATION_BASES
 
 
 def mode_complexity(modes: tuple[str, ...], fallback: str | None = None) -> str:
@@ -123,14 +119,14 @@ def _canonical_groups(bases: tuple[str, ...]) -> tuple[
 
 def choose_perturbation_choices(
     cfg: Any,
-    active_dims: Any,
+    perturbation_bases: Any,
     progress: float,
     seq_idx: int,
     *,
     boundary_stats: dict[str, float] | None = None,
     is_frontres: bool = True,
 ) -> tuple[list[tuple[str, ...]], str]:
-    bases = allowed_perturbation_bases(active_dims)
+    bases = allowed_perturbation_bases(perturbation_bases)
     specialist_mode = str(_cfg_get(cfg, "frontres_specialist_mode", "") or "").lower()
     if specialist_mode in ("rp", "local_rp", "rp_only", "strong_rp"):
         return [("local_rp",)], "single"
@@ -201,7 +197,7 @@ def choose_perturbation_choices(
 
 def sample_perturbation_mix(
     cfg: Any,
-    active_dims: Any,
+    perturbation_bases: Any,
     progress: float,
     seq_idx: int,
     n_train: int,
@@ -211,7 +207,7 @@ def sample_perturbation_mix(
 ) -> PerturbationMixPlan:
     choices, phase_complexity = choose_perturbation_choices(
         cfg,
-        active_dims,
+        perturbation_bases,
         progress,
         seq_idx,
         boundary_stats=boundary_stats,
@@ -222,7 +218,7 @@ def sample_perturbation_mix(
         for env_i in range(max(int(n_train), 0))
     ]
     if not groups:
-        groups = [tuple(allowed_perturbation_bases(active_dims))]
+        groups = [tuple(allowed_perturbation_bases(perturbation_bases))]
     active_modes = tuple(sorted({mode for group in groups for mode in group}))
     complexities = {mode_complexity(group) for group in groups}
     complexity = next(iter(complexities)) if len(complexities) == 1 else "mixed"
@@ -233,12 +229,12 @@ def sample_perturbation_mix(
 
 def warmup_perturbation_mode_groups(
     cfg: Any,
-    active_dims: Any,
+    perturbation_bases: Any,
     seq_idx: int,
     *,
     current_active_modes: tuple[str, ...] | None = None,
 ) -> list[tuple[str, ...]]:
-    bases = allowed_perturbation_bases(active_dims)
+    bases = allowed_perturbation_bases(perturbation_bases)
     mode = str(_cfg_get(
         cfg,
         "frontres_warmup_perturbation_schedule",

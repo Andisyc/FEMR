@@ -1,124 +1,112 @@
-# FrontRES Engineering Plan
+# FrontRES Current Engineering Plan
 
-Status update, 2026-06-27:
+Status: Phase B probe insertion completed; tiny formal live run pending
+Updated: 2026-07-15
+Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
-The acceptance-only HSL+HRL engineering plan below is no longer the preferred
-next research direction.  The current concept is recorded in
-`note/frontres_segment_replay/plans/hrl_method_design.md`:
+## Objective
 
-- slice long motions into dynamic segments;
-- use HSL as initialization, not as the final proposal to accept/reject;
-- train HRL to output full 6D Delta SE repair with segment-level PPO;
-- coordinate global coverage and repeated rollout through prioritized segment
-  replay.
-
-The older acceptance plan remains useful as historical implementation context
-until a new engineering plan replaces it.
-
-This document is the engineering plan for turning the active FEMR design
-contract into code.  It is not a history log.  When Dr. Cheng says "write the
-code modification plan into ./note", update this file unless the request is
-only about research concept or checklist status.
-
-## 1. Active Engineering Goal
-
-Implement the simplified FEMR HSL+HRL acceptance design:
+Align the formal Stage 3 code with `FRS-TRAIN-v003`:
 
 ```text
-corrupted reference
-  -> Stage 1 HSL Clean-oriented Delta SE proposal
-  -> Stage 2 HRL / acceptance decision
-  -> Delta SE_exec = accept * Delta SE_HSL
-  -> frozen GMT execution
+HSL actor checkpoint
+-> critic_only: value update, actor update weight = 0
+-> actor_warmup: Segment PPO actor weight rises from 0 to 1
+-> joint: ordinary direct full-6D Segment PPO
 ```
 
-This replaces the active Authority Actor-Critic path.  The older authority
-critic, continuous rho actor, structured-rho advantage, and alpha-rho branches
-are ablation/history only unless a future plan explicitly revives them.
+This restores optimization protection for the same direct full-6D repair
+actor. It does not restore confidence, rho, authority, acceptance, active-dim
+masks, generic runner PPO, or supervised loss inside Stage 3.
 
-## 2. Fixed Design Decisions
+## Source Comparison
 
-```text
-Stage 1:
-  owns continuous Delta SE proposal magnitude and direction.
-  trained by supervised/HSL evidence from clean/noisy reference pairs.
+The pre-modification `HEAD` contains the reusable schedule idea in
+`frontres/training_schedule.py::frontres_ppo_actor_weight_for_iter` and applies
+it in the generic `OnPolicyRunner.learn()` loop. The current formal Stage 3
+route instead dispatches to `learn_frontres_segment_live()` and
+`run_frontres_segment_single_update()`. Therefore the schedule semantics must
+be ported to the Segment PPO owner rather than copying the old generic loop.
 
-Stage 2:
-  owns admissibility of the proposal.
-  receives observation + detached Stage-1 proposal.
-  trained from Noisy-vs-Candidate rollout comparison.
+## Step Map
 
-Execution:
-  Delta SE_exec = accept * Delta SE_HSL.
-  accept may be binary or a probability used as near-binary confidence.
+### Step 1 / 4: Segment Warmup Phase Owner
 
-Forbidden active path:
-  no authority critic Q(s, d, rho);
-  no actor update by maximizing Q;
-  no continuous rho advantage as main objective;
-  no alpha/rho legacy payload in the active training loss.
-```
+Objective: implement a pure, deterministic Stage 3 phase schedule and weighted
+Segment PPO objective.
 
-## 3. Step Plan
+Scope: phase config, iteration-to-phase mapping, critic-only actor weight 0,
+actor warmup monotonic ramp, joint weight 1.
 
-| Step | Goal | Main Modules | Required Test |
-| --- | --- | --- | --- |
-| 1 | Rewrite method contract and checklist | `note/*.md` | `frontres_design_contract_sentinel.py` |
-| 2 | Config cleanup | `rsl_rl_mosaic_cfg.py`, `rsl_rl_cfg.py` | `frontres_config_hsl_acceptance.py` |
-| 3 | Policy surface cleanup | `front_residual_actor_critic.py` | `frontres_hsl_acceptance_policy.py` |
-| 4 | Rollout evidence and labels | `frontres_rollout_step.py`, `frontres_post_step_connector.py`, `frontres_rollout_evidence.py` | `frontres_acceptance_label_from_rollout.py` |
-| 5 | Storage contract | `rollout_storage.py` | `frontres_acceptance_storage_contract.py` |
-| 6 | Algorithm loss | `frontres_unified.py` | `frontres_acceptance_algorithm_loss.py` |
-| 7 | Runner live path cleanup | `on_policy_runner.py`, `frontres_training_setup.py` | `frontres_runner_hsl_acceptance_path.py` |
-| 8 | Diagnostics cleanup | `frontres_diagnostics.py`, `frontres_reward_diagnostics.py`, `frontres_runner_logging.py` | `frontres_hsl_acceptance_diagnostics.py` |
-| 9 | Entrypoint scripts | `run/run_frontres_stage1_hsl.sh`, `run/run_frontres_stage2_acceptance.sh` | `frontres_stage_entrypoint_contract.py` |
-| 10 | Full toy chain | tests only | `frontres_hsl_acceptance_full_chain.py` |
-| 11 | Legacy active-path audit | all active files | `frontres_no_legacy_active_path.py` |
-| 12 | Training readiness suite | tests/checklist | `frontres_hsl_acceptance_training_readiness.py` |
+Non-scope: runner wiring, checkpoint IO, live environment, perturbation/K/Gain.
 
-## 4. Acceptance Label Contract
+Owner files/modules:
+- `frontres/frontres_segment_warmup.py`: phase calculation.
+- `algorithms/frontres_segment_ppo.py`: actor-weighted PPO objective.
+- focused S1 contract test.
 
-Stage 2 must be trained by a direct rollout comparison:
+Expected evidence: S1 `T-value`, `T-grad`, and boundary tests for all phases.
 
-```text
-margin = Candidate_exec_score - Noisy_exec_score
+Stop condition: critic-only produces actor/std gradients, value loss is
+disabled, actor weight is non-monotonic, or full-6D action semantics change.
 
-if margin > positive_margin:
-  accept_gt = 1
-  accept_mask = 1
-elif margin < negative_margin:
-  accept_gt = 0
-  accept_mask = 1
-else:
-  accept_mask = 0 or low weight
-```
+### Step 2 / 4: Formal Stage 3 Integration
 
-The label says whether the Stage-1 proposal should be written.  It does not ask
-Stage 2 to discover the exact continuous write strength.
+Objective: propagate the phase through the official Stage 3 train branch.
 
-## 5. Required Diagnostics
+Scope: Stage 3 preset, live training iteration, single-update config,
+production diagnostics.
 
-The active log should expose:
+Non-scope: changing sampler, rollout roles, K, Gain, trust-region, or eval.
 
-```text
-proposal magnitude
-acceptance probability / rate
-accept_gt rate
-accept_mask rate
-Candidate-Noisy margin
-accepted-beneficial fraction
-accepted-harmful fraction
-rejected-harmful fraction
-authority actor-critic disabled sentinel
-```
+Owner files/modules:
+- `scripts/rsl_rl/train.py`: production defaults.
+- `runners/frontres_segment_live_training.py`: phase selection per iteration.
+- `runners/frontres_segment_live_probe.py`: pass actor weight to Segment PPO.
+- `runners/frontres_segment_live_update_loop.py`: phase diagnostics.
+- focused S2 connectivity test.
 
-Old authority diagnostics such as `authority Q`, `authority actor ready`,
-`rho near0/near1`, and `authority critic loss` must not appear in the active
-FEMR log except under an explicit ablation name.
+Expected evidence: official Stage 3 preset reaches every phase; actor parameters
+stay unchanged in critic-only while critic parameters change; actor delta
+appears during actor warmup/joint.
 
-## 6. Test Discipline
+Stop condition: formal train bypasses the schedule, alternate probe-only
+branches are used as proof, or diagnostics report a phase different from the
+loss weight.
 
-Every step must add or update a cheap test before recommending a training run.
-The test should prove the local contract and, when possible, the route into the
-next module.  A short live run is allowed only after the active path can be
-proven by static tests and diagnostic sentinels.
+### Step 3 / 4: Persistence And Frozen GMT
+
+Objective: prove resume phase identity and frozen-GMT optimizer isolation.
+
+Scope: checkpointed iteration/config identity, recomputed phase after resume,
+GMT `requires_grad=False`, GMT exclusion from optimizer, zero GMT parameter
+delta after one Segment update.
+
+Non-scope: saving frozen GMT weights or changing GMT execution behavior.
+
+Owner files/modules:
+- `runners/frontres_checkpointing.py` and Stage 3 checkpoint contracts.
+- `algorithms/frontres_unified.py` optimizer construction.
+- S2/S3 `T-connect`, `T-grad`, `T-persist`, `T-state` tests.
+
+Expected evidence: resume at the same iteration selects the same phase and
+actor weight; one Segment update cannot change GMT parameters.
+
+Stop condition: phase state depends on an unsaved mutable counter, optimizer
+contains GMT parameters, or GMT parameter delta is nonzero.
+
+### Step 4 / 4: Cross-File Acceptance
+
+Objective: close offline alignment and prepare, but do not run, Phase B live
+audit.
+
+Scope: impacted tests, aggregate suite, Architecture current-state refresh,
+test inventory/control board/evidence/checklist consistency.
+
+Non-scope: live IsaacLab execution or long training.
+
+Expected evidence: S0-S3 tests pass with fresh counts; all documentation uses
+`FRS-TRAIN-v003`; remaining S4 facts are explicit.
+
+Stop condition: any DP-09 owner is only locally implemented, stale test counts
+remain, or Architecture still describes the missing route as active.

@@ -44,6 +44,20 @@ offline_eval_summary = live_training_module._offline_eval_summary
 sequence_offline_eval_summary = live_training_module._sequence_offline_eval_summary
 
 
+def _fake_paired_gain(capture):
+    sequence_id = float(getattr(capture, "sequence_id", 1))
+    total = torch.tensor([sequence_id, sequence_id + 1.0])
+    return SimpleNamespace(
+        style_gain=total + 0.1,
+        physics_gain=total + 0.2,
+        repair_cost=torch.full((2,), 0.1),
+        gain_total=total,
+    )
+
+
+live_training_module._capture_paired_gain = _fake_paired_gain
+
+
 @dataclass(frozen=True)
 class FakeSpec:
     segment_id: int
@@ -183,9 +197,12 @@ def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
             "success_rate": 0.5,
             "fall_rate": 0.5,
             "mean_survival_steps": 25.0,
-            "score_noisy": 0.1,
-            "score_repaired": 0.2,
-            "continuous_rollout_gain": 0.1,
+            "gain_source": "FRS-GAIN-v001",
+            "gain_style_mean": 0.25,
+            "gain_physics_mean": 0.35,
+            "gain_repair_cost_mean": 0.05,
+            "gain_total_mean": 0.1,
+            "gain_total_pos_frac": 1.0,
             "segment/motion_mpjpe_repaired_clean": 0.03,
             "segment/motion_mpjpe_noisy_clean": 0.05,
             "segment/motion_vel_error_repaired_clean": 0.07,
@@ -199,9 +216,12 @@ def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
                     "success_rate": 1.0,
                     "fall_rate": 0.0,
                     "mean_survival_steps": 50.0,
-                    "score_noisy": 0.1,
-                    "score_repaired": 0.2,
-                    "continuous_rollout_gain": 0.1,
+                    "gain_source": "FRS-GAIN-v001",
+                    "gain_style_mean": 0.25,
+                    "gain_physics_mean": 0.35,
+                    "gain_repair_cost_mean": 0.05,
+                    "gain_total_mean": 0.1,
+                    "gain_total_pos_frac": 1.0,
                     "segment/motion_mpjpe_repaired_clean": 0.03,
                     "segment/motion_mpjpe_noisy_clean": 0.05,
                     "segment/motion_vel_error_repaired_clean": 0.07,
@@ -229,9 +249,12 @@ def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
             "success_rate": 0.5,
             "fall_rate": 0.5,
             "mean_survival_steps": 25.0,
-            "score_noisy": 0.1,
-            "score_repaired": 0.2,
-            "continuous_rollout_gain": 0.1,
+            "gain_source": "FRS-GAIN-v001",
+            "gain_style_mean": 0.25,
+            "gain_physics_mean": 0.35,
+            "gain_repair_cost_mean": 0.05,
+            "gain_total_mean": 0.1,
+            "gain_total_pos_frac": 1.0,
             "segment/motion_mpjpe_repaired_clean": 0.03,
             "segment/motion_mpjpe_noisy_clean": 0.05,
             "segment/motion_vel_error_repaired_clean": 0.07,
@@ -285,6 +308,7 @@ class FakeRunner:
 class FakeCapture:
     def __init__(self, *, rollout_k: int = 50, sequence_id: int = 0) -> None:
         self.rollout_k = int(rollout_k)
+        self.sequence_id = int(sequence_id)
         self.reward_mean = 0.0
         self.done_frac = 0.0
         self.last_obs_shape = (8, 29)
@@ -405,7 +429,7 @@ def test_sequence_eval_debug_log_prints_key_runtime_parameters() -> None:
         "reset_request:",
         "reset_result:",
         "capture_shapes:",
-        "capture_reward_pairs:",
+        "capture_legacy_reward_accum_raw:",
         "raw_policy_action:",
         "segment_transition_actions:",
         "policy_anti_rp_alignment:",
@@ -628,7 +652,7 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
     assert summary["motion_ids"] == ("motion_0", "motion_1")
     assert captured_plan_kwargs["max_preroll_steps"] == 10
     per_motion = {row["motion_id"]: row for row in summary["per_motion"]}
-    assert per_motion["motion_0"]["score_repaired"] != per_motion["motion_1"]["score_repaired"]
+    assert per_motion["motion_0"]["gain_total_mean"] != per_motion["motion_1"]["gain_total_mean"]
     assert per_motion["motion_0"]["mean_survival_steps"] != per_motion["motion_1"]["mean_survival_steps"]
     assert per_motion["motion_0"]["segment/motion_delta_se_norm"] != per_motion["motion_1"][
         "segment/motion_delta_se_norm"
@@ -650,8 +674,8 @@ def test_sequence_offline_eval_owner_orders_reset_preroll_eval() -> None:
     )
     print(
         "[probe step5] rollout_state_isolation "
-        f"motion_0_repaired={per_motion['motion_0']['score_repaired']:.6f} "
-        f"motion_1_repaired={per_motion['motion_1']['score_repaired']:.6f} "
+        f"motion_0_gain={per_motion['motion_0']['gain_total_mean']:.6f} "
+        f"motion_1_gain={per_motion['motion_1']['gain_total_mean']:.6f} "
         f"motion_0_survival={per_motion['motion_0']['mean_survival_steps']:.1f} "
         f"motion_1_survival={per_motion['motion_1']['mean_survival_steps']:.1f} "
         f"motion_0_delta={per_motion['motion_0']['segment/motion_delta_se_norm']:.6f} "
@@ -715,11 +739,13 @@ def test_sequence_eval_per_motion_uses_item_scope_for_repeated_motion_roles() ->
     row = summary["per_motion"][0]
     assert row["motion_id"] == "same_motion"
     assert row["sample_count"] == 4.0
+    assert row["gain_source"] == "FRS-GAIN-v001"
+    assert row["gain_total_mean"] == 4.5
     for key in (
         "success_rate",
         "fall_rate",
         "mean_survival_steps",
-        "continuous_rollout_gain",
+        "gain_total_mean",
         "segment/motion_delta_se_norm",
     ):
         assert abs(float(row[key]) - float(summary[key])) < 1e-6

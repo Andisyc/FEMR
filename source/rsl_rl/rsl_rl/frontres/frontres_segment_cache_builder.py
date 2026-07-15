@@ -129,7 +129,7 @@ class FrontRESStage1CacheBuilderConfig:
     curriculum_dr_max: float = 4.5
     curriculum_progress: float = 0.8
     curriculum_seq_idx: int = 17
-    curriculum_active_dims: tuple[int, ...] | None = (0, 1, 2, 3, 4, 5)
+    curriculum_perturbation_bases: tuple[str, ...] | None = None
     curriculum_include_hard_as_train: bool = False
     curriculum_temporal_mode: str = "single"
     curriculum_burst_min_steps: int = 4
@@ -1183,7 +1183,7 @@ def build_stage1_perturbation_plan(
             n_train=int(cfg.curriculum_bank_size),
             progress=float(cfg.curriculum_progress),
             seq_idx=int(cfg.curriculum_seq_idx),
-            active_dims=cfg.curriculum_active_dims,
+            perturbation_bases=cfg.curriculum_perturbation_bases,
             boundary_stats=_stage1_boundary_stats(),
             include_hard_as_train=bool(cfg.curriculum_include_hard_as_train),
         ),
@@ -1365,9 +1365,9 @@ def _stage1_build_signature(
         "perturbation_curriculum_mode": str(perturbation_metadata["perturbation_curriculum_mode"]),
         "perturbation_levels": perturbation_metadata["perturbation_levels"],
         "curriculum_temporal_mode": str(cfg.curriculum_temporal_mode),
-        "curriculum_active_dims": None
-        if cfg.curriculum_active_dims is None
-        else [int(item) for item in cfg.curriculum_active_dims],
+        "curriculum_perturbation_bases": None
+        if cfg.curriculum_perturbation_bases is None
+        else [str(item) for item in cfg.curriculum_perturbation_bases],
         "indexed_motion_count": int(index_summary.motion_count),
     }
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)

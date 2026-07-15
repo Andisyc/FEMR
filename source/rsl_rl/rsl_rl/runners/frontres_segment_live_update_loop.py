@@ -47,7 +47,11 @@ def _loop_status(total_loss: float, actor_loss: float, approx_kl: float, clip_fr
 
 
 def _mean_optional_metric(metrics: list[dict[str, Any]], key: str) -> float:
-    values = [float(item[key]) for item in metrics if key in item and math.isfinite(float(item[key]))]
+    values = [
+        float(item[key])
+        for item in metrics
+        if key in item and item[key] is not None and math.isfinite(float(item[key]))
+    ]
     if not values:
         return float("nan")
     return sum(values) / float(len(values))
@@ -114,10 +118,11 @@ def run_frontres_segment_live_update_loop(
     valid_count = sum(int(item["ppo_valid_count"]) for item in metrics)
     env_reward_mean = sum(float(item.get("env_reward_mean", item["reward_mean"])) for item in metrics) / float(update_steps)
     train_reward_mean = sum(float(item.get("train_reward_mean", item["reward_mean"])) for item in metrics) / float(update_steps)
-    score_noisy_mean = sum(float(item.get("score_noisy_mean", 0.0)) for item in metrics) / float(update_steps)
-    score_repaired_mean = sum(float(item.get("score_repaired_mean", 0.0)) for item in metrics) / float(update_steps)
-    score_gain_mean = sum(float(item.get("score_gain_mean", 0.0)) for item in metrics) / float(update_steps)
-    score_gain_pos_frac = sum(float(item.get("score_gain_pos_frac", 0.0)) for item in metrics) / float(update_steps)
+    gain_style_mean = _mean_optional_metric(metrics, "gain_style_mean")
+    gain_physics_mean = _mean_optional_metric(metrics, "gain_physics_mean")
+    gain_repair_cost_mean = _mean_optional_metric(metrics, "gain_repair_cost_mean")
+    gain_total_mean = _mean_optional_metric(metrics, "gain_total_mean")
+    gain_total_pos_frac = _mean_optional_metric(metrics, "gain_total_pos_frac")
     done_frac = sum(float(item.get("done_frac", 0.0)) for item in metrics) / float(update_steps)
     motion_delta_se_norm = sum(float(item.get("motion_delta_se_norm", 0.0)) for item in metrics) / float(update_steps)
     motion_delta_z_up_frac = sum(float(item.get("motion_delta_z_up_frac", 0.0)) for item in metrics) / float(update_steps)
@@ -149,6 +154,12 @@ def run_frontres_segment_live_update_loop(
     value_loss_mean = sum(float(item["ppo_value_loss"]) for item in metrics) / float(update_steps)
     approx_kl_mean = sum(float(item["ppo_approx_kl"]) for item in metrics) / float(update_steps)
     clip_frac_mean = sum(float(item["ppo_clip_frac"]) for item in metrics) / float(update_steps)
+    warmup_phase_set = {str(item.get("ppo_warmup_phase", "joint")) for item in metrics}
+    if len(warmup_phase_set) != 1:
+        raise RuntimeError(f"Segment PPO update steps crossed warmup phases: {sorted(warmup_phase_set)}")
+    warmup_phase = next(iter(warmup_phase_set))
+    warmup_phase_iteration = int(metrics[0].get("ppo_warmup_phase_iteration", 0))
+    actor_loss_weight = float(metrics[0].get("ppo_actor_loss_weight", 1.0))
     trust_region_rejected_count = sum(int(item.get("ppo_trust_region_rejected_count", 0)) for item in metrics)
     trust_region_accepted_min = min(int(item.get("ppo_trust_region_accepted", 1)) for item in metrics)
     trust_region_rollback_enabled_min = min(
@@ -211,7 +222,7 @@ def run_frontres_segment_live_update_loop(
                     f"valid_frac={_fmt_pct(storage_valid_frac)} "
                     f"train_reward={_fmt_num(train_reward_mean)} "
                     f"env_reward={_fmt_num(env_reward_mean)} "
-                    f"gain={_fmt_num(score_gain_mean)}",
+                    f"gain_total={_fmt_num(gain_total_mean)}",
                     "  trial: "
                     f"policy={trial_policy_count} "
                     f"search={trial_search_count} "
@@ -222,6 +233,8 @@ def run_frontres_segment_live_update_loop(
                     f"valid_policy={_fmt_pct(ppo_boundary_valid_policy_frac)} "
                     f"valid_evidence={_fmt_pct(ppo_boundary_valid_evidence_frac)}",
                     "  ppo: "
+                    f"phase={warmup_phase} phase_iter={warmup_phase_iteration} "
+                    f"actor_weight={_fmt_num(actor_loss_weight)} "
                     f"loss_total={_fmt_num(total_loss_mean)} "
                     f"actor={_fmt_num(actor_loss_mean)} "
                     f"value={_fmt_num(value_loss_mean)} "
@@ -277,10 +290,11 @@ def run_frontres_segment_live_update_loop(
         "reward_mean": train_reward_mean,
         "train_reward_mean": train_reward_mean,
         "env_reward_mean": env_reward_mean,
-        "score_noisy_mean": score_noisy_mean,
-        "score_repaired_mean": score_repaired_mean,
-        "score_gain_mean": score_gain_mean,
-        "score_gain_pos_frac": score_gain_pos_frac,
+        "gain_style_mean": gain_style_mean,
+        "gain_physics_mean": gain_physics_mean,
+        "gain_repair_cost_mean": gain_repair_cost_mean,
+        "gain_total_mean": gain_total_mean,
+        "gain_total_pos_frac": gain_total_pos_frac,
         "done_frac": done_frac,
         "motion_delta_se_norm": motion_delta_se_norm,
         "motion_delta_z_up_frac": motion_delta_z_up_frac,
@@ -304,6 +318,9 @@ def run_frontres_segment_live_update_loop(
         "ppo_value_loss_mean": value_loss_mean,
         "ppo_approx_kl_mean": approx_kl_mean,
         "ppo_clip_frac_mean": clip_frac_mean,
+        "ppo_warmup_phase": warmup_phase,
+        "ppo_warmup_phase_iteration": warmup_phase_iteration,
+        "ppo_actor_loss_weight": actor_loss_weight,
         "ppo_trust_region_rejected_count_sum": trust_region_rejected_count,
         "ppo_trust_region_accepted_min": trust_region_accepted_min,
         "ppo_trust_region_rollback_enabled_min": trust_region_rollback_enabled_min,

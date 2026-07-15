@@ -375,7 +375,6 @@ def test_live_probe_adapter_evaluates_6d_actions_against_12d_policy_distribution
             returns=torch.ones(2),
             advantages=torch.ones(2),
             valid_mask=torch.tensor([True, True]),
-            action_mask=torch.ones(2, 6, dtype=torch.bool),
         ),
         FrontRESSegmentPPOConfig(entropy_coef=0.0),
     )

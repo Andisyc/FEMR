@@ -39,7 +39,7 @@ class FrontRESStage1CurriculumBankConfig:
     n_train: int
     progress: float
     seq_idx: int
-    active_dims: Sequence[int] | None = None
+    perturbation_bases: Sequence[str] | None = None
     boundary_stats: dict[str, float] | None = None
     include_hard_as_train: bool = False
 
@@ -110,10 +110,10 @@ def build_stage1_curriculum_bank(
     bank_cfg: FrontRESStage1CurriculumBankConfig,
 ) -> FrontRESStage1CurriculumBank:
     bank_cfg.validate()
-    allowed_bases = allowed_perturbation_bases(bank_cfg.active_dims)
+    allowed_bases = allowed_perturbation_bases(bank_cfg.perturbation_bases)
     mix_plan = sample_perturbation_mix(
         cfg,
-        bank_cfg.active_dims,
+        bank_cfg.perturbation_bases,
         float(bank_cfg.progress),
         int(bank_cfg.seq_idx),
         int(bank_cfg.n_train),

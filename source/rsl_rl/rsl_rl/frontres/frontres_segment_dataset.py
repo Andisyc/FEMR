@@ -9,6 +9,15 @@ from typing import Any, Callable, Iterable, Sequence
 
 import torch
 
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_probe_dataset",
+    Path(__file__).resolve().with_name("frontres_formal_runtime_probe.py"),
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
+emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
+
 
 _LOG_SEPARATOR = "-" * 80
 
@@ -243,8 +252,25 @@ class FrontRESSegmentDataset:
         return self.get_segments(pool[idx])
 
     def get_segments(self, segment_ids: Iterable[int] | torch.Tensor) -> FrontRESSegmentBatch:
+        """把 segment id 解析为可 reset 和 rollout 的不可变 batch.
+
+        函数名说明:
+            `get_segments` 是 Segment Dataset 的 materialization owner, 负责从 id
+            取出状态和 reference window; 它不是 sampler, 不改变 replay priority.
+
+        主链路:
+            上游: Segment Sampler 提供选中的 `segment_ids`.
+            下游: batch builder 使用 Clean state, reference window, horizon K 和
+            perturbation identity 构造 split-env trial rows.
+
+        语义:
+            同一个 segment id 必须稳定映射到同一段 Clean 动态状态和 reference
+            window. Dataset 只提供证据素材, 不决定该 segment 的学习价值.
+        """
+        # B1: 把 sampled ids 解析为不可变 segment specifications.
         ids = self._ids_tensor(segment_ids)
         specs = tuple(self._spec_by_id[int(segment_id)] for segment_id in ids.tolist())
+        # B2: 物化 reset state, reference window, K 和 perturbation identity.
         clean_state = self._state_for_specs(specs)
         phase = torch.tensor([float(spec.phase) for spec in specs], dtype=torch.float32, device=self.device)
         horizon_k = torch.tensor([int(spec.horizon_k) for spec in specs], dtype=torch.long, device=self.device)
@@ -264,6 +290,15 @@ class FrontRESSegmentDataset:
             perturbation_role=tuple(spec.perturbation_role for spec in specs),
         )
         batch.validate()
+        # B3: AUDIT-SEGDATA-01 截获 sampler/batch builder 消费前的 dataset product.
+        # Result: PENDING_LIVE.
+        emit_formal_runtime_probe(
+            "AUDIT-SEGDATA-01",
+            segment_ids=batch.segment_ids,
+            horizon_k=batch.horizon_k,
+            perturbation_family=batch.perturbation_family,
+            reference_window=batch.reference_window,
+        )
         return batch
 
     def build_clean_cache(self) -> None:

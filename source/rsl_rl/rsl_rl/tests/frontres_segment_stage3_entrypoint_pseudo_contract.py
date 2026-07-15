@@ -8,6 +8,18 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[4]
 TRAIN_PATH = ROOT / "scripts" / "rsl_rl" / "train.py"
+MOSAIC_CFG_PATH = (
+    ROOT
+    / "source"
+    / "whole_body_tracking"
+    / "whole_body_tracking"
+    / "tasks"
+    / "tracking"
+    / "config"
+    / "g1"
+    / "agents"
+    / "rsl_rl_mosaic_cfg.py"
+)
 
 
 def _load_stage_preset():
@@ -53,20 +65,17 @@ def _alg_cfg() -> SimpleNamespace:
         frontres_segment_sequence_offline_eval_only=False,
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_steps=4,
+        frontres_segment_critic_warmup_iterations=0,
+        frontres_segment_actor_warmup_iterations=0,
+        frontres_formal_runtime_audit=False,
         frontres_hsl_init_enabled=False,
         frontres_segment_k=0,
+        frontres_segment_max_horizon_k=0,
+        frontres_segment_advantage_normalization="standard",
         frontres_segment_sampler_global_frac=0.0,
         frontres_segment_sampler_replay_frac=0.0,
         frontres_segment_sampler_review_frac=0.0,
         frontres_segment_reset_mode="unset",
-        frontres_acceptance_preference_weight=1.0,
-        frontres_state_alpha_weight=1.0,
-        frontres_authority_actor_critic_enabled=True,
-        frontres_authority_actor_loss_weight=1.0,
-        frontres_authority_critic_loss_weight=1.0,
-        frontres_structured_joint_rl_enabled=True,
-        frontres_structured_joint_rl_weight=1.0,
-        frontres_structured_joint_prior_loss_weight=1.0,
         schedule="fixed",
         learning_rate=1.0e-4,
     )
@@ -74,10 +83,7 @@ def _alg_cfg() -> SimpleNamespace:
 
 def _policy_cfg() -> SimpleNamespace:
     return SimpleNamespace(
-        task_conf_dim=6,
-        frontres_split_acceptance_head=True,
-        frontres_authority_actor_critic=True,
-        frontres_state_router_enabled=True,
+        num_task_corrections=6,
     )
 
 
@@ -90,8 +96,6 @@ def _agent_cfg() -> SimpleNamespace:
         frontres_stage1_exit_after_warmup=True,
         supervised_warmup_iterations=99,
         critic_warmup_iterations=99,
-        ppo_actor_warmup_iterations=99,
-        ppo_actor_ramp_iterations=99,
         max_iterations=11,
     )
 
@@ -106,6 +110,9 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_live_update_loop_only": False,
         "frontres_segment_sequence_offline_eval_only": False,
         "frontres_segment_live_update_steps": 6,
+        "frontres_segment_critic_warmup_iterations": 200,
+        "frontres_segment_actor_warmup_iterations": 500,
+        "frontres_formal_runtime_audit": False,
         "frontres_segment_ppo_schedule": None,
         "frontres_segment_ppo_lr": None,
         "experiment_name": None,
@@ -135,9 +142,7 @@ def _probe_stage3_config(name: str, agent_cfg: SimpleNamespace) -> None:
         f"sequence_eval={alg.frontres_segment_sequence_offline_eval_only} "
         f"update_steps={alg.frontres_segment_live_update_steps} "
         f"hsl_init={alg.frontres_hsl_init_enabled} "
-        f"acceptance_weight={alg.frontres_acceptance_preference_weight} "
-        f"task_conf_dim={policy.task_conf_dim} "
-        f"split_acceptance_head={policy.frontres_split_acceptance_head}",
+        f"task_corrections={policy.num_task_corrections}",
         flush=True,
     )
 
@@ -149,7 +154,10 @@ def _probe_exception(name: str, exc: Exception) -> None:
 def test_stage3_default_enters_live_train_config_without_zeroing_iterations() -> None:
     agent_cfg = _agent_cfg()
 
-    _apply_frontres_stage_preset(agent_cfg, _args(frontres_segment_live_update_steps=7))
+    _apply_frontres_stage_preset(
+        agent_cfg,
+        _args(frontres_segment_live_update_steps=7, frontres_formal_runtime_audit=True),
+    )
     _probe_stage3_config("stage3_default_live_train", agent_cfg)
 
     alg = agent_cfg.algorithm
@@ -162,10 +170,37 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
     assert alg.frontres_segment_live_runner_enabled is True
     assert alg.frontres_segment_live_train_enabled is True
     assert alg.frontres_segment_live_update_steps == 7
+    assert alg.frontres_segment_critic_warmup_iterations == 200
+    assert alg.frontres_segment_actor_warmup_iterations == 500
+    assert alg.frontres_formal_runtime_audit is True
     assert alg.frontres_hsl_init_enabled is True
-    assert alg.frontres_acceptance_preference_weight == 0.0
-    assert agent_cfg.policy.task_conf_dim == 0
-    assert agent_cfg.policy.frontres_split_acceptance_head is False
+    assert alg.frontres_segment_k == 8
+    assert alg.frontres_segment_max_horizon_k == 64
+    assert alg.frontres_segment_advantage_normalization == "scale_only"
+    assert agent_cfg.policy.num_task_corrections == 6
+    assert not hasattr(agent_cfg.policy, "task_conf_dim")
+    assert not hasattr(agent_cfg.policy, "frontres_split_acceptance_head")
+
+
+def test_stage2_hsl_warmup_constructs_proposal_only_6d_policy() -> None:
+    agent_cfg = _agent_cfg()
+
+    _apply_frontres_stage_preset(
+        agent_cfg,
+        _args(frontres_stage="stage2_hsl_warmup"),
+    )
+
+    assert agent_cfg.algorithm.frontres_training_objective == "supervised_restore"
+    assert agent_cfg.policy.num_task_corrections == 6
+    assert not hasattr(agent_cfg.policy, "task_conf_dim")
+    assert not hasattr(agent_cfg.policy, "frontres_split_acceptance_head")
+def test_default_frontres_policy_config_is_proposal_only_6d() -> None:
+    config = MOSAIC_CFG_PATH.read_text(encoding="utf-8")
+
+    assert "num_task_corrections   = 6" in config
+    assert "task_conf_dim" not in config
+    assert "frontres_split_acceptance_head" not in config
+    assert "bounded correction proposal = [Δpos(3), Δrpy(3)]" in config
 
 
 def test_stage3_sentinel_zeroes_iterations_and_disables_live_train() -> None:
@@ -216,7 +251,7 @@ def test_stage3_ppo_schedule_override_rejects_non_stage3() -> None:
     try:
         _apply_frontres_segment_ppo_schedule_override(
             agent_cfg,
-            _args(frontres_stage="stage2_acceptance", frontres_segment_ppo_schedule="adaptive"),
+            _args(frontres_stage="stage1_hsl", frontres_segment_ppo_schedule="adaptive"),
         )
     except ValueError as exc:
         _probe_exception("rejects_ppo_schedule_without_stage3", exc)
@@ -240,7 +275,7 @@ def test_stage3_ppo_lr_override_rejects_non_stage3() -> None:
     try:
         _apply_frontres_segment_ppo_lr_override(
             agent_cfg,
-            _args(frontres_stage="stage2_acceptance", frontres_segment_ppo_lr=1.0e-6),
+            _args(frontres_stage="stage1_hsl", frontres_segment_ppo_lr=1.0e-6),
         )
     except ValueError as exc:
         _probe_exception("rejects_ppo_lr_without_stage3", exc)
@@ -282,7 +317,7 @@ def test_live_sentinel_flags_require_stage3() -> None:
     try:
         _apply_frontres_stage_preset(
             agent_cfg,
-            _args(frontres_stage="stage2_acceptance", frontres_segment_live_probe_only=True),
+            _args(frontres_stage="stage1_hsl", frontres_segment_live_probe_only=True),
         )
     except ValueError as exc:
         _probe_exception("rejects_live_sentinel_without_stage3", exc)
@@ -337,6 +372,8 @@ def test_train_dispatch_orders_stage3_live_path_before_legacy_learn() -> None:
 
 if __name__ == "__main__":
     test_stage3_default_enters_live_train_config_without_zeroing_iterations()
+    test_stage2_hsl_warmup_constructs_proposal_only_6d_policy()
+    test_default_frontres_policy_config_is_proposal_only_6d()
     test_stage3_sentinel_zeroes_iterations_and_disables_live_train()
     test_stage3_sequence_eval_zeroes_iterations_and_disables_live_train()
     test_stage3_ppo_schedule_override_is_explicit_parse_arg()

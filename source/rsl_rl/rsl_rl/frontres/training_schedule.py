@@ -7,6 +7,10 @@
 
 This module keeps the pure schedule/phase/weight computations out of the runner
 state-mutation layer. It should not write into runner/env/alg objects.
+
+Status: active. Upstream: FrontRES runner setup and iteration controller.
+Downstream: perturbation curriculum and full-6D supervised/PPO phase state.
+Evidence: code-confirmed and contract-confirmed. Gap: real training runtime.
 """
 
 from __future__ import annotations
@@ -79,7 +83,6 @@ class FrontRESDRIterationPlan:
     dr_mix_mode: str | None
     mix_diag: dict[str, float] | None
     critic_warmup: bool
-    actor_takeover_active: bool
     hsl_boundary_available: bool
     use_boundary: bool
     gmt_frontier_score: float | None
@@ -94,15 +97,10 @@ def resolve_frontres_mode_state(runner: Any, policy_cls: type) -> FrontRESModeSt
     training_objective = str(getattr(
         runner.alg,
         "frontres_training_objective",
-        runner.cfg.get("frontres_training_objective", "ppo_hrl"),
+        runner.cfg.get("frontres_training_objective", "supervised_restore"),
     )).lower()
-    supervised_restore = (
-        is_frontres and training_objective in ("supervised_restore", "basis_restore")
-    )
-    hsl_restore = (
-        is_frontres
-        and training_objective in ("supervised_restore", "basis_restore", "hsl_hybrid")
-    )
+    supervised_restore = is_frontres and training_objective == "supervised_restore"
+    hsl_restore = supervised_restore
     is_task_space_mode = (
         is_frontres and getattr(runner.alg.policy, "num_task_corrections", 0) > 0
     )
@@ -116,40 +114,10 @@ def resolve_frontres_mode_state(runner: Any, policy_cls: type) -> FrontRESModeSt
     )
 
 
-def frontres_ppo_actor_weight_for_iter(
-    runner: Any,
-    *,
-    iteration: int,
-    is_frontres: bool,
-    supervised_restore: bool,
-) -> float:
-    """Linear supervised-to-PPO takeover schedule for the current iteration."""
-
-    if not (is_frontres and hasattr(runner.alg, "ppo_actor_weight")):
-        return 1.0
-    if supervised_restore:
-        return 0.0
-    actor_warmup = int(runner.alg_cfg.get(
-        "ppo_actor_warmup_iterations",
-        runner.cfg.get("ppo_actor_warmup_iterations", 0),
-    ))
-    actor_ramp = int(runner.alg_cfg.get(
-        "ppo_actor_ramp_iterations",
-        runner.cfg.get("ppo_actor_ramp_iterations", 0),
-    ))
-    phase_iter = max(0, iteration)
-    if phase_iter < actor_warmup:
-        return 0.0
-    if actor_ramp > 0 and phase_iter < actor_warmup + actor_ramp:
-        weight = (phase_iter - actor_warmup + 1) / float(actor_ramp)
-        return max(0.0, min(1.0, weight))
-    return 1.0
-
-
 def frontres_curriculum_allowed_bases(runner: Any) -> tuple[str, ...]:
-    """Map the active FrontRES output dimensions to repairable perturbation families."""
+    """Return perturbation families independently of the full-6D repair output."""
 
-    return allowed_perturbation_bases(runner.cfg.get("frontres_active_task_dims", None))
+    return allowed_perturbation_bases(None)
 
 
 def frontres_curriculum_choices(
@@ -164,7 +132,7 @@ def frontres_curriculum_choices(
         stats = getattr(runner, "_last_frontres_boundary_stats", None)
     return choose_perturbation_choices(
         runner.cfg,
-        runner.cfg.get("frontres_active_task_dims", None),
+        None,
         progress,
         seq_idx,
         boundary_stats=stats,
@@ -181,7 +149,7 @@ def frontres_warmup_perturbation_mode_groups(
 
     return warmup_perturbation_mode_groups(
         runner.cfg,
-        runner.cfg.get("frontres_active_task_dims", None),
+        None,
         seq_idx,
         current_active_modes=tuple(getattr(runner, "_frontres_curriculum_active_modes", ())),
     )
@@ -323,7 +291,6 @@ __all__ = [
     "frontres_curriculum_choices",
     "frontres_mixed_dr_scale",
     "frontres_mixed_dr_scale_env",
-    "frontres_ppo_actor_weight_for_iter",
     "frontres_warmup_perturbation_mode_groups",
     "mode_complexity",
     "resolve_frontres_mode_state",

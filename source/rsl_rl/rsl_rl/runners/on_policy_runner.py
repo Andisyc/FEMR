@@ -10,10 +10,10 @@ import time
 import torch
 from collections.abc import Mapping
 from collections import deque
+from types import SimpleNamespace
 
 import rsl_rl
 from rsl_rl.algorithms import PPO, Distillation, MOSAIC, FrontRESUnified
-from rsl_rl.frontres.frontres_alpha_rho_bridge import FrontRESAlphaRhoBridge
 from rsl_rl.frontres.frontres_action_cone import FrontRESActionCone
 from rsl_rl.runners.frontres_checkpointing import (
     load_runner,
@@ -21,10 +21,8 @@ from rsl_rl.runners.frontres_checkpointing import (
     save_runner,
 )
 from rsl_rl.runners.frontres_episode_bookkeeping import update_episode_bookkeeping
-from rsl_rl.frontres.frontres_executable_floor import resolve_runner_executable_floor
 from rsl_rl.frontres.frontres_executability import FrontRESExecutabilityScorer
 from rsl_rl.runners.frontres_dr_sweep_eval import evaluate_frontres_dr_sweep as run_frontres_dr_sweep_eval
-from rsl_rl.frontres.frontres_metrics import frontres_boundary_stats
 from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
 from rsl_rl.runners.frontres_hsl_rollout_target import build_frontres_hsl_rollout_target
 from rsl_rl.runners.frontres_segment_runner_boundary import FrontRESSegmentRunnerBoundary
@@ -42,36 +40,15 @@ from rsl_rl.runners.frontres_segment_live_training import (
     run_frontres_segment_live_training_loop,
     run_frontres_segment_periodic_eval as run_frontres_segment_periodic_eval_helper,
 )
-from rsl_rl.frontres.task_space_correction import (
-    apply_frontres_task_corrections,
-    mask_frontres_task_actions,
-)
-from rsl_rl.frontres.temporal_reference_cache import frontres_invalidate_temporal_reference_cache
+from rsl_rl.frontres.task_space_correction import apply_frontres_task_corrections
 from rsl_rl.runners.frontres_runtime import (
     apply_obs_normalizer,
     get_inference_policy_runner,
     maybe_print_frontres_restore_debug,
 )
-from rsl_rl.frontres.frontres_reward_window import (
-    compute_frontres_training_truth,
-)
-from rsl_rl.frontres.frontres_reward_diagnostics import (
-    initialize_frontres_reward_diagnostic_sums,
-    materialize_frontres_reward_diagnostic_means,
-)
-from rsl_rl.runners.frontres_post_step_connector import (
-    compute_frontres_reward,
-    finalize_frontres_authority_k_step_returns,
-)
 from rsl_rl.runners.frontres_runner_logging import log_runner
-from rsl_rl.frontres.frontres_transition_payload import (
-    write_alpha_groundtruth,
-    write_rho_update_weight,
-    write_rho_advantage,
-)
 from rsl_rl.frontres.training_schedule import (
     frontres_curriculum_allowed_bases,
-    frontres_ppo_actor_weight_for_iter,
     frontres_warmup_perturbation_mode_groups,
     resolve_frontres_mode_state,
 )
@@ -79,13 +56,11 @@ from rsl_rl.runners.frontres_training_setup import (
     apply_frontres_debug_training_overrides,
     apply_frontres_dr_scale,
     apply_frontres_iteration_dr_controller,
-    build_frontres_task_action_mask,
     configure_frontres_pair_layout,
     initialize_frontres_dr_setup,
     maybe_print_frontres_perturbation_curriculum,
     set_frontres_curriculum_modes,
     set_frontres_perturbation_curriculum,
-    update_frontres_supervised_controller,
 )
 from rsl_rl.runners.frontres_warmup import (
     resolve_frontres_warmup_iterations,
@@ -113,9 +88,6 @@ from isaaclab.utils.math import (
     quat_error_magnitude,
     quat_from_euler_xyz,
     quat_rotate_inverse,
-    euler_xyz_from_quat,
-    quat_mul,
-    quat_inv,
 )
 
 
@@ -136,13 +108,9 @@ _FRONTRES_LOG_SKIP_KEYS = {
     "step_plan",
     "frontres_truth",
     "frontres_reward",
-    "rho_advantage",
-    "alpha_groundtruth",
-    "alpha_groundtruth_mask",
     "_frontres_stats_locs",
     "_frontres_log_locs",
     "_frontres_diag_sums",
-    "_frontres_prev_delta_q",
     "_hsl_pos_snapshot",
     "_hsl_quat_snapshot",
 }
@@ -238,40 +206,26 @@ class OnPolicyRunner:
             return
         mode = str(self.cfg.get("frontres_specialist_mode", "") or "").lower()
         if mode in ("rp", "local_rp", "rp_only", "strong_rp"):
-            task_conf_dim = int(self.policy_cfg.get("task_conf_dim", 2))
-            active_dims = [3, 4] if task_conf_dim == 0 else (
-                [0, 1, 2, 3, 4, 5, 6] if task_conf_dim == 1 else
-                [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] if task_conf_dim == 6 else [3, 4, 7]
-            )
             self.cfg["frontres_specialist_mode"] = "rp"
-            self.cfg["frontres_active_task_dims"] = active_dims
             self.cfg["frontres_perturbation_channels"] = "rp"
             self.cfg["frontres_exec_task_weight"] = 0.0
             self.cfg["frontres_exec_cone_task_weight"] = 0.0
-            self.alg_cfg["frontres_active_task_dims"] = active_dims
             print(
                 "[Runner] FrontRES specialist mode enabled: rp "
-                f"(local_rp only; active dims={active_dims})",
+                "(local_rp perturbation; full-6D repair)",
                 flush=True,
             )
             return
         if mode not in ("rp_z", "z_rp", "vertical_contact"):
             return
 
-        task_conf_dim = int(self.policy_cfg.get("task_conf_dim", 2))
-        active_dims = [2, 3, 4] if task_conf_dim == 0 else (
-            [0, 1, 2, 3, 4, 5, 6] if task_conf_dim == 1 else
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] if task_conf_dim == 6 else [2, 3, 4, 6, 7]
-        )
         self.cfg["frontres_specialist_mode"] = "rp_z"
-        self.cfg["frontres_active_task_dims"] = active_dims
         self.cfg["frontres_perturbation_channels"] = "rp_z"
         self.cfg["frontres_exec_task_weight"] = 0.0
         self.cfg["frontres_exec_cone_task_weight"] = 0.0
-        self.alg_cfg["frontres_active_task_dims"] = active_dims
         print(
             "[Runner] FrontRES specialist mode enabled: rp_z "
-            f"(global_z + local_rp; active dims={active_dims})",
+            "(global_z + local_rp perturbation; full-6D repair)",
             flush=True,
         )
 
@@ -431,9 +385,6 @@ class OnPolicyRunner:
             device=self.device,
             **self.alg_cfg,
             multi_gpu_cfg=self.multi_gpu_cfg,)
-        self._sync_frontres_algorithm_state_to_runner_cfg()
-        self._validate_frontres_active_hsl_acceptance_path()
-        self._frontres_alpha_rho_bridge = FrontRESAlphaRhoBridge()
         self._frontres_action_cone = FrontRESActionCone(self.cfg, self.alg)
         self._frontres_executability = FrontRESExecutabilityScorer(self.cfg, self.alg, self.device)
         self._frontres_segment_sampler = None
@@ -604,75 +555,6 @@ class OnPolicyRunner:
         self.tot_time = 0
         self.current_learning_iteration = 0
         self.git_status_repos = [rsl_rl.__file__]
-
-    def _frontres_executable_floor_values(self) -> tuple[float, float, str]:
-        """Return the unified executable floor used by alpha, rho, and diagnostics.
-
-        GMT frontier search finds the boundary in DR-strength space.  This helper
-        exposes the corresponding score-space floor.  Until both safe and broken
-        GMT score evidence are available, it deliberately falls back to the fixed
-        historical threshold for resume stability.
-        """
-        return resolve_runner_executable_floor(self)
-
-    def _frontres_structured_joint_effective_enabled(self) -> bool:
-        """Mirror the algorithm-side structured-rho enable gate in the runner."""
-        enabled = getattr(getattr(self, "alg", None), "_structured_joint_rl_enabled", None)
-        if callable(enabled):
-            return bool(enabled())
-        return (
-            bool(self.cfg.get("frontres_structured_joint_rl_enabled", False))
-            and float(self.cfg.get("frontres_structured_joint_rl_weight", 0.0)) > 0.0
-            and str(self.cfg.get("frontres_training_objective", "")).lower() == "hsl_hybrid"
-        )
-
-    def _sync_frontres_algorithm_state_to_runner_cfg(self) -> None:
-        """Keep runner-side rollout/log gates aligned with the algorithm config."""
-        if self.training_type != "frontres":
-            return
-        mirror_keys = (
-            "frontres_training_objective",
-            "frontres_acceptance_preference_weight",
-            "frontres_state_alpha_weight",
-            "frontres_structured_joint_rl_enabled",
-            "frontres_structured_joint_rl_weight",
-            "frontres_structured_joint_prior_loss_weight",
-            "frontres_authority_actor_critic_enabled",
-            "frontres_authority_actor_loss_weight",
-            "frontres_authority_critic_loss_weight",
-            "frontres_active_task_dims",
-        )
-        for key in mirror_keys:
-            if hasattr(self.alg, key):
-                self.cfg[key] = getattr(self.alg, key)
-                self.alg_cfg[key] = getattr(self.alg, key)
-
-    def _validate_frontres_active_hsl_acceptance_path(self) -> None:
-        """Fail before rollout if active Stage 2 would be masked by legacy branches."""
-        if self.training_type != "frontres":
-            return
-        active_enabled = getattr(self.alg, "_active_hsl_acceptance_loss_enabled", None)
-        if not callable(active_enabled) or not bool(active_enabled()):
-            return
-        if self._frontres_structured_joint_effective_enabled():
-            raise ValueError(
-                "Invalid FEMR Stage 2 config: active HSL acceptance is enabled, "
-                "but structured-joint rho is still effective."
-            )
-        if bool(getattr(self.alg, "_authority_actor_critic_enabled", lambda: False)()):
-            raise ValueError(
-                "Invalid FEMR Stage 2 config: active HSL acceptance is enabled, "
-                "but authority actor-critic is still effective."
-            )
-        print(
-            "[Runner] FrontRES active HSL acceptance path verified: "
-            f"objective={getattr(self.alg, 'frontres_training_objective', 'n/a')}, "
-            f"acceptance_weight={getattr(self.alg, 'frontres_acceptance_preference_weight', 'n/a')}, "
-            f"structured_joint={getattr(self.alg, 'frontres_structured_joint_rl_enabled', 'n/a')}/"
-            f"{getattr(self.alg, 'frontres_structured_joint_rl_weight', 'n/a')}, "
-            f"authority={getattr(self.alg, 'frontres_authority_actor_critic_enabled', 'n/a')}",
-            flush=True,
-        )
 
     def evaluate_frontres_dr_sweep(
         self,
@@ -982,14 +864,6 @@ class OnPolicyRunner:
                     return
             print(f"{prefix} section={label} step={step_text}", flush=True)
 
-        def _frontres_ppo_actor_weight_for_iter(iteration: int) -> float:
-            return frontres_ppo_actor_weight_for_iter(
-                self,
-                iteration=iteration,
-                is_frontres=_is_frontres,
-                supervised_restore=_frontres_supervised_restore,
-            )
-
         # 四分支 rollout 布局：Train / Candidate / Noisy-GMT / Clean-GMT 的 env 区间在这里确定。
         _frontres_pair_layout = configure_frontres_pair_layout(self, is_frontres=_is_frontres)
         _use_quartet_reward = _frontres_pair_layout.use_quartet_reward
@@ -998,14 +872,6 @@ class OnPolicyRunner:
         N_base = _frontres_pair_layout.n_base
         N_clean = _frontres_pair_layout.n_clean
         cur_reward_sum_gmt = _frontres_pair_layout.cur_reward_sum_gmt
-
-        _frontres_task_action_mask = build_frontres_task_action_mask(
-            self,
-            is_task_space_mode=_is_task_space_mode,
-        )
-
-        def _mask_frontres_task_actions(_actions: torch.Tensor) -> torch.Tensor:
-            return self._mask_frontres_task_actions(_actions)
 
         # DR curriculum 初值：后续每个 iteration 会基于这一组状态更新 perturbation 强度。
         _frontres_dr_setup = initialize_frontres_dr_setup(self, is_frontres=_is_frontres)
@@ -1068,13 +934,8 @@ class OnPolicyRunner:
             start = time.time()
             self.alg.current_learning_iteration = it
             _frontres_pipeline_section("iteration_start")
-            # Iteration controller：本轮的 actor 权重、DR scale、frontier/boundary 状态都在 rollout 前确定。
-            _ppo_actor_weight_current = _frontres_ppo_actor_weight_for_iter(it)
-            if _is_frontres and hasattr(self.alg, "ppo_actor_weight"):
-                # Set before collection as well as before update so diagnostics,
-                # curriculum gates, and PPO loss all see the same phase.
-                self.alg.ppo_actor_weight = _ppo_actor_weight_current
-            
+            # Iteration controller: DR scale and frontier/boundary state are
+            # fixed before rollout collection.
             # ------------------- Update Curriculum -------------------
 
             _dr_iter_plan = apply_frontres_iteration_dr_controller(
@@ -1084,7 +945,6 @@ class OnPolicyRunner:
                 frontres_hsl_restore=_frontres_hsl_restore,
                 perturb_target=_perturb_target,
                 critic_warmup_iters=critic_warmup_iters,
-                ppo_actor_weight_current=_ppo_actor_weight_current,
                 dr_scale=_dr_scale,
                 dr_scale_init=_dr_scale_init,
                 dr_min=_dr_min,
@@ -1105,23 +965,10 @@ class OnPolicyRunner:
             _frontres_dr_mix_mode = _dr_iter_plan.dr_mix_mode
             _mix_diag = _dr_iter_plan.mix_diag
             _critic_warmup = _dr_iter_plan.critic_warmup
-            _actor_takeover_active = _dr_iter_plan.actor_takeover_active
             _hsl_boundary_available = _dr_iter_plan.hsl_boundary_available
             _use_boundary = _dr_iter_plan.use_boundary
             _gmt_frontier_score = _dr_iter_plan.gmt_frontier_score
             _gmt_frontier_decision = _dr_iter_plan.gmt_frontier_decision
-
-            # FrontRES reward-shaping state: reset at the start of each rollout.
-            _frontres_prev_delta_q: torch.Tensor | None = None  # [N, A] residual action for smoothness penalty
-            # Accumulators for wandb logging (per iteration, divided by shaping steps)
-            _frontres_diag_sums = initialize_frontres_reward_diagnostic_sums()
-            # Termination tracking for training envs (used to compute survival_rate this rollout)
-            _frontres_term_count: int = 0
-            _frontres_step_count: int = 0
-            # reg_penalty activates once dr_scale ≥ 1.0 (base values fully applied).
-            # Before that, reg pushing corrections→0 reinforces the no-op shortcut trap.
-            _lambda_reg = getattr(self.alg, 'lambda_reg_current', 0.0) if _is_frontres else 0.0
-            _dr_done    = _is_frontres and (_dr_scale >= 1.0)
 
             # ------------------- Update Curriculum -------------------
 
@@ -1174,9 +1021,6 @@ class OnPolicyRunner:
 
                     # Move to device
                     rewards, dones = rewards.to(self.device), dones.to(self.device)
-                    if _is_frontres and _is_task_space_mode:
-                        frontres_invalidate_temporal_reference_cache(self, dones)
-
                     if (
                         _is_frontres
                         and _is_task_space_mode
@@ -1231,122 +1075,27 @@ class OnPolicyRunner:
                     # Anchor error is the ONLY thing FrontRES directly controls. Using it as the
                     # intrinsic reward decouples FrontRES credit from GMT behaviour.
 
-                    # FrontRES reward/evidence window：四分支 rollout 转成 gap/gain 等HRL参数
+                    # Stage 2 is supervised-only: HSL target storage is the training signal.
                     if _is_frontres: 
-                        if _pipeline_step_sentinel:
-                            _frontres_pipeline_section("reward_compute_before", rollout_step=_rollout_step)
-                        
-                        # 确定四个分支在Env中的位置
-                        _candidate_start = N_train
-                        _candidate_end = _candidate_start + N_candidate
-                        _base_start = _candidate_end
-                        _base_end = _base_start + N_base
-                        _clean_start = _base_end
-                        _clean_end = _clean_start + N_clean
-
-                        # 整理四分支 rollout，得到后续真值和 reward 计算所需的 FrontRES 训练事实。
-                        frontres_truth = compute_frontres_training_truth(
-                            self,
-                            rewards=rewards,
-                            dones=dones,
-                            infos=infos,
-                            actions=actions,
-                            n_train=N_train,
-                            n_candidate=N_candidate,
-                            n_base=N_base,
-                            n_clean=N_clean,
-                            is_task_space_mode=_is_task_space_mode,
-                            dr_scale=_dr_scale,
-                            ppo_actor_weight_current=_ppo_actor_weight_current,
-                            quat_to_rotvec_wxyz=_quat_to_rotvec_wxyz,
-                            quat_mul_fn=quat_mul,
-                            quat_inv_fn=quat_inv,
-                            euler_xyz_from_quat_fn=euler_xyz_from_quat,
-                            device=self.device,
-                        )
-
-                        if frontres_truth is None and _is_task_space_mode:
+                        if not _frontres_supervised_restore:
                             raise RuntimeError(
-                                "FrontRES task-space reward/evidence requires clean anchor evidence "
-                                "(anchor_pos_w_original and anchor_quat_w_original)."
+                                "Standard FrontRES rollout reached the retired reward connector; "
+                                "use the dedicated Segment Replay route."
                             )
-                        
-                        rho_advantage = None
-                        _authority_actor_critic_active = (
-                            hasattr(self.alg, "_authority_actor_critic_enabled")
-                            and self.alg._authority_actor_critic_enabled()
-                        )
-                        _structured_rho_active = (
-                            hasattr(self.alg, "_structured_joint_rl_enabled")
-                            and self.alg._structured_joint_rl_enabled()
-                        )
-                        if (
-                            frontres_truth is not None
-                            and _structured_rho_active
-                            and not _authority_actor_critic_active
-                        ):
-
-                            # 双 Sigmoid 连续区域分数派生出的 rho 更新权重；它不是部署时的 gate。
-                            write_rho_update_weight(
-                                self,
-                                n_exec=frontres_truth.n_exec,
-                                rho_update_weight=frontres_truth.reward_window.rho_update_weight,
-                            )
-
-                            # 构造 alpha groundtruth
-                            alpha_groundtruth, alpha_groundtruth_mask = write_alpha_groundtruth(
-                                self,
-                                n_exec=frontres_truth.n_exec,
-                                exec_perturbed=frontres_truth.exec_perturbed,
-                                dones=dones,
-                                infos=infos,
-                                base_start=frontres_truth.base_start,
-                            )
-
-                            # 构造 rho advantage：由 Noisy / FrontRES / Candidate 偏好比较得到。
-                            rho_advantage = write_rho_advantage(
-                                self,
-                                actions=actions,
-                                reward_context=frontres_truth,
-                                state_alpha_target=alpha_groundtruth,
-                                state_alpha_mask=alpha_groundtruth_mask,
-                                quat_to_rotvec_wxyz=_quat_to_rotvec_wxyz,
-                                quat_mul_fn=quat_mul,
-                                quat_inv_fn=quat_inv,
-                            )
-                        
-                        # 计算∆_reward并累积日志诊断
-                        _frontres_reward_locs = {
-                            "N_train": N_train,
-                            "N_candidate": N_candidate,
-                            "N_base": N_base,
-                            "N_clean": N_clean,
-                            "_base_start": _base_start,
-                            "_base_end": _base_end,
-                            "_is_task_space_mode": _is_task_space_mode,
-                            "_lambda_reg": _lambda_reg,
-                            "_dr_done": _dr_done,
-                        }
-                        frontres_reward = compute_frontres_reward(
-                            self,
-                            locs=_frontres_reward_locs,
-                            reward_context=frontres_truth,
-                            accept_payload=rho_advantage,
+                        rewards = torch.zeros_like(rewards)
+                        frontres_reward = SimpleNamespace(
                             rewards=rewards,
-                            dones=dones,
-                            actions=actions,
-                            diagnostic_sums=_frontres_diag_sums,
-                            prev_delta_q=_frontres_prev_delta_q,
-                            term_count=_frontres_term_count,
-                            step_count=_frontres_step_count,
+                            reward_window=None,
+                            r_raw_gmt=None,
+                            r_candidate_gmt=None,
+                            r_clean_gmt=None,
+                            prev_delta_q=actions.clone(),
+                            term_count=_frontres_term_count + int(dones[:N_train].sum().item()),
+                            step_count=_frontres_step_count + N_train,
                         )
-
-                        rewards = frontres_reward.rewards
                         _frontres_prev_delta_q = frontres_reward.prev_delta_q
                         _frontres_term_count = frontres_reward.term_count
                         _frontres_step_count = frontres_reward.step_count
-                        if _pipeline_step_sentinel:
-                            _frontres_pipeline_section("reward_compute_after", rollout_step=_rollout_step)
                     
                     # ------------------- Reward Compute -------------------
 
@@ -1433,78 +1182,21 @@ class OnPolicyRunner:
                 # Return / advantage：rollout 收集完成后，用 critic 观测计算 GAE/returns。
                 if self.training_type in ["rl", "mosaic", "frontres"]:
                     _frontres_pipeline_section("compute_returns_before")
-                    if _is_frontres:
-                        finalize_frontres_authority_k_step_returns(self, n_train=N_train)
                     self.alg.compute_returns(privileged_obs)
                     _frontres_pipeline_section("compute_returns_after")
 
-            # Algorithm update：唯一真正反向传播更新参数的位置；FrontRES 的 HSL/rho/alpha/PPO loss 都在 alg.update() 内汇合。
-            # Pass current iteration to algorithm for logging (needed by MOSAIC)
+            # Algorithm update is the only parameter-update boundary.
+            # Pass the current iteration to algorithms that use it for logging.
             self.alg.current_learning_iteration = it
-            if _is_frontres and hasattr(self.alg, "ppo_actor_weight"):
-                self.alg.ppo_actor_weight = _ppo_actor_weight_current
-            # Pass oracle_mix so MOSAIC scales surrogate by (1 - oracle_mix):
-            # PPO contribution ∝ FrontRES causal share of the correction applied.
-            self.alg.oracle_mix = getattr(self, '_oracle_mix', 0.0)
             _frontres_pipeline_section("algorithm_update_before")
             loss_dict = self.alg.update() # 调用mosaic.py中的update()函数进行权重更新
             _frontres_pipeline_section("algorithm_update_after")
-            if _is_frontres:
-                _authority_live = getattr(self, "_frontres_authority_live_last", {})
-                if isinstance(_authority_live, Mapping):
-                    for _key in (
-                        "return_k_horizon",
-                        "event_count",
-                        "event_active_frac",
-                        "event_mask_frac",
-                        "event_duration_mean",
-                        "return_k_mean",
-                        "query_frac",
-                    ):
-                        if _key in _authority_live:
-                            loss_dict[f"authority_{_key}"] = float(_authority_live[_key])
-                    authority_temporal_mode = str(
-                        self.cfg.get("frontres_perturbation_temporal_mode", "legacy")
-                    )
-                    loss_dict["authority_temporal_mode"] = authority_temporal_mode
-                    loss_dict["authority_burst_min_steps"] = float(
-                        self.cfg.get("frontres_perturbation_burst_min_steps", 1)
-                    )
-                    loss_dict["authority_burst_max_steps"] = float(
-                        self.cfg.get("frontres_perturbation_burst_max_steps", 1)
-                    )
 
             stop = time.time()
             learn_time = stop - start
             self.current_learning_iteration = it
 
-            # Iteration diagnostics：把 rollout 期间累积的 FrontRES reward/evidence 统计转成可打印均值。
-            _frontres_diag_means = materialize_frontres_reward_diagnostic_means(
-                _frontres_diag_sums,
-                is_frontres=_is_frontres,
-                is_task_space_mode=_is_task_space_mode,
-                term_count=_frontres_term_count,
-                step_count=_frontres_step_count,
-            )
-            frontres_rdelta_mean = _frontres_diag_means["frontres_rdelta_mean"]
-            frontres_positive_gain_frac_mean = _frontres_diag_means["frontres_positive_gain_frac_mean"]
-            frontres_harm_rate_mean = _frontres_diag_means["frontres_harm_rate_mean"]
-
-            # Store r_delta mean for next iteration's PI controller update.
-            if frontres_rdelta_mean is not None:
-                self._last_r_delta_mean = frontres_rdelta_mean
-            _frontres_boundary_stats = frontres_boundary_stats(_frontres_diag_means)
-            if _frontres_boundary_stats is not None:
-                self._last_frontres_boundary_stats = _frontres_boundary_stats
-
             if _is_frontres:
-                if not _frontres_supervised_restore:
-                    update_frontres_supervised_controller(
-                        self,
-                        loss_dict=loss_dict,
-                        positive_gain_frac=frontres_positive_gain_frac_mean,
-                        harm_rate=frontres_harm_rate_mean,
-                    )
                 if hasattr(self.alg, "lambda_supervised"):
                     loss_dict["lambda_supervised"] = float(self.alg.lambda_supervised)
 
@@ -1529,7 +1221,7 @@ class OnPolicyRunner:
             # Phase flags for diagnostics (exposed to log() via locals())
             _supervised_warmup_active = False  # runs before main loop, always False here
             _critic_warmup_active     = _critic_warmup
-            _frontres_log_locs = _frontres_build_safe_log_locs(locals(), _frontres_diag_means)
+            _frontres_log_locs = _frontres_build_safe_log_locs(locals())
 
             # Log / checkpoint：打印本轮训练状态，并按 save_interval 保存模型。
             if self.log_dir is not None and not self.disable_logs:
@@ -1585,9 +1277,6 @@ class OnPolicyRunner:
 
     def _apply_obs_normalizer(self, obs: torch.Tensor) -> torch.Tensor:
         return apply_obs_normalizer(self, obs)
-
-    def _mask_frontres_task_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        return mask_frontres_task_actions(self, actions)
 
     def _apply_frontres_task_corrections(
         self,

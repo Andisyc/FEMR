@@ -44,12 +44,12 @@ class FakePolicy:
         return log_prob - log_j
 
 
-def test_masked_task_action_rewrites_old_distribution_stats() -> None:
-    """Masked PPO actions and stored old distribution stats must describe the same tuple."""
+def test_full6_task_action_preserves_sampled_distribution_tuple() -> None:
+    """Stored full-6D actions and old distribution stats must remain same-source."""
 
     policy = FakePolicy()
     runner = SimpleNamespace(
-        cfg={"frontres_active_task_dims": [0, 1, 2, 3, 4]},
+        cfg={},
         alg=SimpleNamespace(
             policy=policy,
             transition=SimpleNamespace(
@@ -58,8 +58,9 @@ def test_masked_task_action_rewrites_old_distribution_stats() -> None:
             ),
         )
     )
-    masked_actions = torch.zeros(1, 6)
-    rollout_step._rewrite_task_space_log_prob(runner, masked_actions)
+    scales = torch.tensor([[0.2, 0.2, 0.2, 0.4, 0.4, 0.4]])
+    sampled_actions = torch.tanh(policy.action_mean) * scales
+    rollout_step._rewrite_task_space_log_prob(runner, sampled_actions)
 
     stored_actions = runner.alg.transition.actions
     stored_mean = runner.alg.transition.action_mean
@@ -68,7 +69,7 @@ def test_masked_task_action_rewrites_old_distribution_stats() -> None:
     raw_action_old_mean = raw_actions - stored_mean
 
     print(
-        "[probe rollout_masked_action_stats] "
+        "[probe rollout_full6_action_stats] "
         f"action_dim6={float(stored_actions[0, 5]):.6f} "
         f"old_mean_dim6={float(stored_mean[0, 5]):.6f} "
         f"sigma_dim6={float(stored_sigma[0, 5]):.6f} "
@@ -77,14 +78,14 @@ def test_masked_task_action_rewrites_old_distribution_stats() -> None:
         flush=True,
     )
 
-    assert float(stored_actions[0, 5]) == 0.0
-    assert abs(float(stored_mean[0, 5])) < 1e-6
+    assert abs(float(stored_actions[0, 5])) > 0.3
+    assert abs(float(stored_mean[0, 5]) + 1.946) < 1e-6
     assert abs(float(stored_sigma[0, 5]) - 0.01) < 1e-8
     assert abs(float(raw_action_old_mean[0, 5])) < 1e-6
 
 
 def main() -> None:
-    test_masked_task_action_rewrites_old_distribution_stats()
+    test_full6_task_action_preserves_sampled_distribution_tuple()
     print("frontres_rollout_step_action_stats_contract: ok")
 
 

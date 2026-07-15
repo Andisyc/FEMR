@@ -475,20 +475,14 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Now handled by λ_supervised in the PPO loss space (anchors μ directly),
     # which is cleaner — no credit-assignment distortion in the action space.
     oracle_curriculum              = False
-    oracle_mix_cos_low             = 0.3    # below this: pure oracle
-    oracle_mix_cos_high            = 0.85   # above this: pure FrontRES
 
     # ── Fix 2: Low-pass filter on anchor corrections ──────────────────────────
     correction_smooth_alpha        = 0.4
 
-    # ── FrontRES rp demo specialist ───────────────────────────────────────────
-    # Task-space action layout with task_conf_dim=6:
-    #   [dx, dy, dz, droll, dpitch, dyaw, rho_x, rho_y, rho_z, rho_r, rho_p, rho_yaw]
-    # Local-rp perturbations may require root-position compensation at high
-    # strength.  HSL owns the clean-oriented ΔSE(3) proposal; PPO owns only the
-    # per-axis dynamics-aware acceptance vector over that proposal.
+    # ── FrontRES rp specialist ────────────────────────────────────────────────
+    # The perturbation family is local-rp only. The repair policy remains full
+    # 6D because coupled root-position compensation may still be necessary.
     frontres_specialist_mode       = "rp"
-    frontres_active_task_dims      = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     frontres_perturbation_channels = "rp"
 
     # "More executable" reward:
@@ -606,21 +600,6 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         "left_ankle_roll_link",
         "right_ankle_roll_link",
     ]
-    frontres_acceptance_preference_enabled = True
-    frontres_acceptance_preference_margin = 0.003
-    frontres_acceptance_calibration_step = 0.5
-    frontres_acceptance_direct_target_enabled = False
-    frontres_acceptance_need_min_error = 0.01
-    frontres_acceptance_admissibility_temp = 0.20
-    frontres_acceptance_regret_target_enabled = True
-    frontres_acceptance_regret_soft_mask_floor = 1.0
-    frontres_acceptance_regret_per_mode_soft_floor = 1.0
-    frontres_acceptance_regret_oracle_trust_floor = 0.25
-    frontres_inertial_preference_enabled = False
-    frontres_inertial_preference_weight = 0.0
-    frontres_inertial_preference_margin = 0.05
-    frontres_inertial_preference_ang_weight = 0.5
-    frontres_per_mode_acceptance_preference_mask = True
     frontres_min_effective_gain = 0.008
     frontres_effective_gain_bonus_weight = 0.0
     frontres_safe_cost_weight = 1.0
@@ -633,7 +612,6 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_family_gain_ema_alpha = 0.05
     frontres_family_gain_initial_std = 0.01
     frontres_family_gain_min_std = 0.002
-    frontres_per_mode_supervised_mask = False
     frontres_adaptive_perturb_curriculum_enabled = True
     frontres_mixed_dr_strength_enabled = True
     frontres_mixed_dr_strength_per_env = True
@@ -652,71 +630,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_mixed_dr_easy_factor = 0.75
     frontres_mixed_dr_frontier_factor = 1.00
     frontres_mixed_dr_hard_factor = 1.08
-    # Minimal repair-authority formulation: rho owns how much of the
-    # Clean-oriented proposal is written.  Stable/alpha fallback is kept in the
-    # codebase as an ablation path, but disabled on the live training path until
-    # admissible recovery anchors are a separate method object.
-    frontres_stable_route_enabled = False
-    # "tri_anchor" uses alpha as fallback direction between Noisy and Stable.
-    # "stable_to_repair" keeps the older Stable-to-Repair ablation.
-    frontres_rho_space = "noisy_to_repair"
-    frontres_state_alpha_enabled = False
-    frontres_state_alpha_route_enabled = False
-    frontres_state_alpha_route_threshold = 0.70
-    frontres_state_alpha_route_min_iteration = 0
-    # Unified executable floor.  GMT frontier search discovers the perturbation
-    # boundary; this adaptive score-space floor is shared by Candidate
-    # diagnostics, alpha labels, and rho constrained-retention penalties.
-    frontres_executable_floor_adaptive_enabled = True
-    frontres_executable_floor_score = 0.0
-    frontres_executable_floor_safe_margin = 0.05
-    frontres_executable_floor_min_samples = 32
-    frontres_executable_floor_ema_alpha = 0.95
-    frontres_state_alpha_exec_floor = 0.0
-    frontres_state_alpha_safe_exec_floor = 0.05
-    frontres_state_alpha_temp = 0.08
-    # FEMR active route: HSL proposal + HRL/acceptance.  Authority actor-critic
-    # is retired from the live path and kept only as an explicit ablation.
-    frontres_authority_actor_critic_enabled = False
-    frontres_authority_actor_loss_weight = 0.0
-    frontres_authority_critic_loss_weight = 0.0
-    frontres_structured_joint_rl_enabled = False
-    frontres_structured_joint_rl_disable_generic_ppo = True
-    frontres_structured_joint_weight_floor = 0.10
-    frontres_structured_joint_use_sample_weight = False
-    frontres_structured_joint_use_actor_gate_weight = False  # legacy alias
-    frontres_structured_joint_show_legacy_rho_diag = False
-    frontres_structured_joint_exec_floor = 0.0
-    frontres_structured_joint_rho_retention_weight = 0.0
-    frontres_structured_joint_directional_weight = 1.0
-    frontres_structured_joint_underwrite_weight = 0.25
-    frontres_structured_joint_repair_loss_kind = "bce_logit"
-    frontres_structured_joint_repair_loss_scale = 1.0
-    frontres_structured_joint_rho_center = 0.5
-    # Evidence strength comes from Candidate/Fallback/Projected utility.  The
-    # sampled rho center term only tells PPO whether the sample is on the
-    # high-rho or low-rho side; it should not shrink the utility evidence.
-    frontres_structured_joint_center_drive_deadzone = 0.10
-    frontres_structured_joint_retention_prior_weight = 0.0
-    frontres_structured_joint_floor_penalty_weight = 5.0
-    frontres_structured_joint_full_repair_bonus_weight = 1.0
-    frontres_structured_joint_prior_loss_weight = 0.0
+    # Executable evidence diagnostics. The active Segment Replay path does not
+    # use a learned alpha/rho floor or acceptance penalty.
     frontres_reward_compute_live_debug = False
-    # Legacy joint-utility shaping knobs.  Kept for checkpoint/config
-    # compatibility; split alpha/rho advantage no longer consumes them.
-    frontres_structured_joint_candidate_weight = 0.25
-    frontres_structured_joint_projection_weight = 0.25
-    # Diagnostic-only upper bound: tells whether existing rollout evidence
-    # contains any better-than-Noisy option before changing alpha/rho training.
-    frontres_oracle_upper_bound_diag_enabled = True
-    frontres_oracle_upper_bound_margin = 0.0
-    frontres_acceptance_rho_target_temp = 0.08
-    # Keep rho as a 6D acceptance vector, but construct its tri-anchor target
-    # from grouped executable evidence instead of copying one scalar target to
-    # all axes.  The groups are planar(dx/dy/yaw), rp(roll/pitch), and z.
-    frontres_grouped_rho_target_enabled = True
-    frontres_stable_route_repair_gate_threshold = 0.25
-    frontres_stable_route_broken_gate_max = 0.70
+    # Diagnostic-only upper bound for paired rollout evidence.
     frontres_warmup_energy_loss_weight = 1.0
     # Demo restoration reward:
     #   r_restore = ||noisy - clean|| - ||corrected - clean||
@@ -738,8 +655,6 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_clean_bound_side_weight = 0.1
     frontres_min_restore_ratio = 0.6
     frontres_under_repair_weight = 0.2
-    frontres_oracle_clean_gap_tau = 0.05
-    frontres_oracle_clean_gap_threshold = 1.0e9
     frontres_restore_eval_min_error = 0.01
 
     # ── Fast debug mode: shortens the feedback loop for reward/DR tuning ─────
@@ -750,14 +665,11 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     debug_supervised_warmup_iterations = 200
     debug_supervised_warmup_diag_interval = 40
     debug_critic_warmup_iterations = 50
-    debug_ppo_actor_warmup_iterations = 50
-    debug_ppo_actor_ramp_iterations = 100
     debug_dr_scale_init            = 1.0
     debug_dr_min_scale             = 0.3
     debug_dr_ema_alpha             = 0.90
     debug_dr_p_gain                = 0.20
     debug_dr_i_gain                = 0.03
-    debug_dr_start_ppo_actor_weight = 1.0
     debug_frontres_safe_gap_per_step = 0.003
     debug_frontres_broken_gap_per_step = 0.08
     debug_frontres_gap_gate_temp   = 0.005
@@ -772,7 +684,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     supervised_warmup_steps_per_iter = 8
     supervised_warmup_max_envs_per_step = 4096
     # Stage 1 is a proposal-only job: save model_warmup.pt, then exit before
-    # PPO/authority rollout. scripts/rsl_rl/train.py enables this for
+    # Segment Replay PPO. scripts/rsl_rl/train.py enables this for
     # --frontres_stage stage1_hsl and disables it for Stage 2.
     frontres_stage1_exit_after_warmup = False
     supervised_warmup_dr_scale_start = 0.35  # curriculum start: easy enough for stable direction learning
@@ -792,9 +704,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     dr_max_scale                   = 4.50   # RobotBridge rp eps 0.35 -> 0.35/0.08=4.375
     dr_min_scale                   = 1.25   # supervised rp starts at eps≈0.10 before ramping up
     dr_ema_alpha                   = 0.95   # r_delta EMA smoothing
-    dr_start_ppo_actor_weight      = 1.0    # marks the actor-takeover phase for DR scheduling
     frontres_boundary_dr_enabled   = True
-    frontres_boundary_dr_during_actor_takeover = True
     frontres_boundary_dr_ema_alpha = 0.90
     frontres_boundary_dr_step      = 0.03
     frontres_boundary_safe_high    = 0.45
@@ -836,14 +746,10 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     frontres_curriculum_two_late_prob = 0.40
     frontres_curriculum_three_prob = 0.10
     frontres_curriculum_full_prob = 0.05
-    # Authority learning uses perturbation events as the credit unit.  IID
-    # reference jumps are therefore held for a short burst so one Stage-2 rho
-    # decision owns a coherent corrupted-reference window.
     frontres_perturbation_temporal_mode = "single"
     frontres_perturbation_burst_min_steps = 4
     frontres_perturbation_burst_max_steps = 8
     frontres_perturbation_persistent_refresh_steps = 16
-    frontres_authority_return_horizon = 1
 
     # ── Task-space correction ramp ────────────────────────────────────────────
     # Alpha must be 1.0 from the start so task-space corrections reach the
@@ -924,7 +830,6 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         noise_std_type         = "scalar",
         # ── Task-space SE(3) correction mode ─────────────────────────────────
         num_task_corrections   = 6,        # bounded correction proposal = [Δpos(3), Δrpy(3)]
-        task_conf_dim          = 6,        # per-axis rho: authority actor-critic execution authority
         max_delta_pos          = 0.3,      # tanh clip (metres)
         max_delta_rpy          = 0.4,      # tanh clip (rad); needed to repair RobotBridge rp eps up to 0.35
         # ── GMT (frozen) ─────────────────────────────────────────────────────
@@ -933,10 +838,6 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         # ── Observation layout ───────────────────────────────────────────────
         q_ref_start_idx        = 232,      # q_ref offset in 800-dim policy obs
         num_frontres_obs       = 0,        # 0 = shared FEMR trunk sees full obs
-        frontres_split_acceptance_head = True,   # active FEMR: Stage 2 sees full obs + detached Stage-1 proposal
-        frontres_authority_actor_critic = False,  # retired mainline; authority critic is ablation-only
-        frontres_state_router_enabled = False,    # retired alpha/stable router is ablation-only
-        frontres_authority_hidden_dims = [512, 256, 128],
         # ── Δq / Δz unused in task-space mode ────────────────────────────────
         num_z_outputs          = 0,
         max_delta_q            = 0.5,
@@ -965,57 +866,18 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         max_grad_norm        = 0.5,
 
         # ── Supervised auxiliary loss (λ_sup schedule) ────────────────────────
-        frontres_training_objective  = "hsl_hybrid",  # active FEMR HSL proposal + acceptance mode
-        frontres_acceptance_preference_weight = 1.0,
-        frontres_acceptance_preference_focal_gamma = 1.0,
-        frontres_acceptance_preference_balance_min = 0.5,
-        frontres_acceptance_preference_balance_max = 3.0,
-        frontres_state_alpha_weight      = 0.0,
-        frontres_authority_actor_critic_enabled = False,
-        frontres_authority_actor_loss_weight = 0.0,
-        frontres_authority_critic_loss_weight = 0.0,
-        frontres_authority_actor_warmup_iterations = 0,
-        frontres_authority_actor_ramp_iterations = 0,
-        frontres_structured_joint_rl_enabled = False,
-        frontres_structured_joint_rl_weight = 0.0,
-        frontres_structured_joint_rl_adv_clip = 5.0,
-        frontres_structured_joint_rl_normalize_advantage = False,
-        frontres_structured_joint_rl_loss_mode = "region_direct",
-        frontres_structured_joint_use_sample_weight = False,
-        frontres_structured_joint_use_actor_gate_weight = False,  # legacy alias
-        frontres_structured_joint_show_legacy_rho_diag = False,
-        frontres_structured_joint_rl_keep_legacy_bce = False,
-        frontres_structured_joint_rl_disable_generic_ppo = True,
-        frontres_structured_joint_exec_floor = 0.0,
-        frontres_structured_joint_rho_retention_weight = 0.0,
-        frontres_structured_joint_directional_weight = 1.0,
-        frontres_structured_joint_underwrite_weight = 0.25,
-        frontres_structured_joint_repair_loss_kind = "bce_logit",
-        frontres_structured_joint_repair_loss_scale = 1.0,
-        frontres_structured_joint_rho_center = 0.5,
-        frontres_structured_joint_retention_prior_weight = 0.0,
-        frontres_structured_joint_floor_penalty_weight = 5.0,
-        frontres_structured_joint_full_repair_bonus_weight = 1.0,
-        frontres_structured_joint_prior_loss_weight = 0.0,
         frontres_reward_compute_live_debug = False,
         frontres_cuda_memory_debug = False,
-        frontres_authority_return_horizon = 1,
-        frontres_oracle_upper_bound_diag_enabled = True,
-        frontres_oracle_upper_bound_margin = 0.0,
         lambda_supervised             = 1.0,   # initial weight
         lambda_supervised_min         = 0.20,  # HSL remains an anchor while PPO explores repair strength
         lambda_supervised_decay       = 0.995, # HSL direction anchor can decay once rollout advantage is useful
         supervised_trigger_cosine_sim = 0.85,  # EMA threshold to start decay
         supervised_rpy_loss_weight    = 1.0,
-        supervised_conf_loss_weight   = 0.0,   # hsl_hybrid uses rho as PPO acceptance, not supervised confidence
         supervised_direction_loss_weight = 0.03,
         supervised_valid_loss_weight     = 4.0,
         supervised_magnitude_loss_weight = 0.5,
         supervised_over_loss_weight      = 0.2,
         supervised_smooth_loss_weight    = 0.05,
-        supervised_coeff_sparse_weight   = 0.0,  # acceptance is learned by PPO, not axis-wise BCE-style labels
-        supervised_coeff_miss_weight     = 0.0,
-        supervised_coeff_smooth_weight   = 0.0,
         supervised_harm_loss_weight      = 1.0,
         frontres_hsl_rollout_label_enabled = True,
         frontres_hsl_rollout_eta        = 1.0,
@@ -1036,13 +898,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         frontres_supervised_lr_warmup_iters = 50,
         frontres_supervised_lr_cosine_iters = 1550,
         frontres_restore_debug_print_interval = 0,
-        # HSL anchors the proposal; acceptance training owns admissibility.
-        # Old PPO/rho schedule values remain ablation-only until the live
-        # acceptance loss is fully isolated in Step 6.
-        ppo_actor_warmup_iterations   = 200,
-        ppo_actor_ramp_iterations     = 500,
-        ppo_advantage_focal_power     = 0.0,
-        frontres_active_task_dims      = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+        # HSL anchors the proposal; Segment Replay PPO owns executable repair.
         diagnose_gradient_conflict    = True,
 
         # ── Misc ─────────────────────────────────────────────────────────────

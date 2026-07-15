@@ -20,14 +20,11 @@ def _build_policy() -> FrontRESActorCritic:
     policy = FrontRESActorCritic.__new__(FrontRESActorCritic)
     nn.Module.__init__(policy)
     policy.num_task_corrections = 6
-    policy.task_conf_dim = 0
     policy.total_output_dim = 6
     policy.max_delta_pos = 0.30
     policy.max_delta_rpy = 0.40
     policy.noise_std_type = "scalar"
     policy.residual_actor = nn.Linear(4, 6, bias=False)
-    policy.acceptance_actor = None
-    policy.authority_actor = None
     policy.register_buffer("std", torch.full((6,), 0.05))
     policy._parse_observations = lambda observations: (observations, None, None)
     with torch.no_grad():

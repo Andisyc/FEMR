@@ -1,10 +1,14 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const atlasRoot = path.resolve(__dirname, "../..");
+const repoRoot = path.resolve(atlasRoot, "../..");
+const vscodeCli = process.env.VSCODE_CLI_PATH
+  || "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code";
 const port = Number(process.env.PORT || 8765);
 const clients = new Set();
 
@@ -48,6 +52,53 @@ function safeResolve(urlPath) {
 }
 
 const server = http.createServer((req, res) => {
+  const requestUrl = new URL(req.url || "/", "http://127.0.0.1");
+  if (requestUrl.pathname === "/open-source") {
+    const relativePath = requestUrl.searchParams.get("path") || "";
+    const line = Number.parseInt(requestUrl.searchParams.get("line") || "1", 10);
+    const absolutePath = path.resolve(repoRoot, relativePath);
+    const insideRepo = absolutePath === repoRoot || absolutePath.startsWith(`${repoRoot}${path.sep}`);
+    if (
+      !insideRepo
+      || !Number.isInteger(line)
+      || line < 1
+      || !fs.existsSync(absolutePath)
+      || !fs.statSync(absolutePath).isFile()
+    ) {
+      res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Invalid source location");
+      return;
+    }
+    const gotoTarget = `${absolutePath}:${line}:1`;
+    console.log(`[Atlas Source Link] path=${relativePath} line=${line} dry_run=${requestUrl.searchParams.get("dry_run") === "1"}`);
+    if (requestUrl.searchParams.get("dry_run") === "1") {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ absolutePath, line, gotoTarget }));
+      return;
+    }
+    // The VS Code CLI forwards --goto to an already-running editor instance.
+    // macOS `open -a ... --args` may only focus that instance and drop --goto.
+    if (!fs.existsSync(vscodeCli)) {
+      console.error(`[Atlas Source Link] VS Code CLI not found: ${vscodeCli}`);
+      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end(`VS Code CLI not found: ${vscodeCli}`);
+      return;
+    }
+    const opener = spawn(vscodeCli, ["--goto", gotoTarget], {
+      detached: true,
+      stdio: "ignore",
+    });
+    opener.once("error", (error) => {
+      console.error(`[Atlas Source Link] launch failed: ${error.message}`);
+    });
+    opener.once("exit", (code) => {
+      console.log(`[Atlas Source Link] VS Code CLI exit=${code}`);
+    });
+    opener.unref();
+    res.writeHead(204, { "Cache-Control": "no-store" });
+    res.end();
+    return;
+  }
   if (req.url === "/events") {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",

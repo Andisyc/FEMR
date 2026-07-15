@@ -76,7 +76,6 @@ def _transition() -> FrontRESSegmentTransition:
         segment_source=("global", "replay", "review"),
         old_means=torch.zeros(3, 6),
         old_sigmas=torch.ones(3, 6),
-        action_mask=torch.ones(3, 6),
         priority_evidence=FakeEvidence(segment_ids=torch.tensor([4, 5, 6]), priority=torch.tensor([0.1, 0.2, 0.3])),
     )
 
@@ -196,7 +195,7 @@ def test_connector_writer_requires_policy_log_prob_and_value() -> None:
     payload = {
         "sample": SimpleNamespace(source=("global", "replay")),
         "batch": SimpleNamespace(segment_ids=torch.tensor([0, 1])),
-        "repair_action": SimpleNamespace(projected_delta_se=torch.zeros(2, 6), active_mask=torch.ones(2, 6)),
+        "repair_action": SimpleNamespace(projected_delta_se=torch.zeros(2, 6)),
         "reward_result": SimpleNamespace(
             reward=torch.ones(2),
             valid_mask=torch.tensor([True, True]),

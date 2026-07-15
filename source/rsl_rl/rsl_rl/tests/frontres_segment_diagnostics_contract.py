@@ -147,19 +147,21 @@ def test_segment_log_contains_live_path_sentinel() -> None:
 
 def test_repair_effect_summary_formats_training_fit_metrics() -> None:
     summary = {
-        "score_noisy_mean": -0.04,
-        "score_repaired_mean": 0.01,
-        "score_gain_mean": 0.05,
-        "score_gain_pos_frac": 0.75,
+        "gain_style_mean": 0.02,
+        "gain_physics_mean": 0.04,
+        "gain_repair_cost_mean": 0.01,
+        "gain_total_mean": 0.05,
+        "gain_total_pos_frac": 0.75,
         "done_frac": 0.1,
         "storage_valid_frac": 0.25,
         "sampler_replay_pool_size": 32,
         "sampler_replay_candidates": 12,
     }
     scalars = repair_effect_summary_to_scalars(summary)
-    assert scalars["segment/train_effect_noisy"] == -0.04
-    assert scalars["segment/train_effect_repaired"] == 0.01
-    assert scalars["segment/train_effect_gain"] == 0.05
+    assert scalars["segment/train_effect_gain_style"] == 0.02
+    assert scalars["segment/train_effect_gain_physics"] == 0.04
+    assert scalars["segment/train_effect_repair_cost"] == 0.01
+    assert scalars["segment/train_effect_gain_total"] == 0.05
     assert scalars["segment/train_effect_gain_pos_frac"] == 0.75
     assert scalars["segment/train_effect_fall_rate"] == 0.1
     assert scalars["segment/train_effect_valid_frac"] == 0.25
@@ -167,9 +169,10 @@ def test_repair_effect_summary_formats_training_fit_metrics() -> None:
     assert scalars["segment/train_effect_replay_pool_size"] == 32.0
     log = format_segment_train_effect_log(summary)
     assert "[FrontRES Segment Train Effect]" in log
-    assert "noisy=-0.040000" in log
-    assert "repaired=0.010000" in log
-    assert "gain=0.050000" in log
+    assert "style=0.020000" in log
+    assert "physics=0.040000" in log
+    assert "repair_cost=0.010000" in log
+    assert "total=0.050000" in log
     assert "gain_pos=75.0%" in log
     assert "fall=10.0%" in log
     assert "pool=32" in log
@@ -177,10 +180,11 @@ def test_repair_effect_summary_formats_training_fit_metrics() -> None:
 
 def test_repair_effect_summary_uses_live_sampler_candidate_field() -> None:
     summary = {
-        "score_noisy_mean": -0.04,
-        "score_repaired_mean": 0.01,
-        "score_gain_mean": 0.05,
-        "score_gain_pos_frac": 0.75,
+        "gain_style_mean": 0.02,
+        "gain_physics_mean": 0.04,
+        "gain_repair_cost_mean": 0.01,
+        "gain_total_mean": 0.05,
+        "gain_total_pos_frac": 0.75,
         "done_frac": 0.1,
         "storage_valid_frac": 0.25,
         "sampler_replay_pool_size": 32,
@@ -191,6 +195,38 @@ def test_repair_effect_summary_uses_live_sampler_candidate_field() -> None:
     assert scalars["segment/train_effect_replay_candidates"] == 8347.0
     log = format_segment_train_effect_log(summary)
     assert "candidates=8347" in log
+
+
+def test_train_effect_ignores_legacy_score_fields_and_marks_missing_gain() -> None:
+    canonical = {
+        "gain_style_mean": 0.02,
+        "gain_physics_mean": 0.04,
+        "gain_repair_cost_mean": 0.01,
+        "gain_total_mean": 0.05,
+        "gain_total_pos_frac": 0.75,
+        "done_frac": 0.1,
+        "storage_valid_frac": 0.25,
+        "sampler_replay_pool_size": 32,
+        "sampler_update_replay_candidate_count": 12,
+        "score_noisy_mean": -999.0,
+        "score_repaired_mean": 999.0,
+        "score_gain_mean": 999.0,
+    }
+    log = format_segment_train_effect_log(canonical)
+    assert "total=0.050000" in log
+    assert "999.000000" not in log
+    missing = format_segment_train_effect_log(
+        {
+            "done_frac": 0.0,
+            "storage_valid_frac": 1.0,
+            "sampler_replay_pool_size": 0,
+            "sampler_update_replay_candidate_count": 0,
+        }
+    )
+    assert "style=UNCONFIRMED" in missing
+    assert "physics=UNCONFIRMED" in missing
+    assert "repair_cost=UNCONFIRMED" in missing
+    assert "total=UNCONFIRMED" in missing
 
 
 def test_motion_quality_summary_measures_pose_velocity_and_delta_se() -> None:
@@ -224,6 +260,29 @@ def test_motion_quality_summary_measures_pose_velocity_and_delta_se() -> None:
     assert "mpjpe_repaired=0.100000" in log
     assert "vel_err=0.000000" in log
     assert "dz_up=0.0%" in log
+
+
+def test_motion_quality_summary_respects_per_row_horizon_mask() -> None:
+    clean = torch.zeros((2, 4, 1, 3))
+    repaired = clean.clone()
+    repaired[0, 1:, 0, 0] = 100.0
+    repaired[1, :2, 0, 0] = 2.0
+    repaired[1, 2:, 0, 0] = 100.0
+
+    scalars = motion_quality_summary_to_scalars(
+        clean_positions=clean,
+        repaired_positions=repaired,
+        noisy_positions=clean,
+        valid_mask=torch.tensor([True, True]),
+        temporal_mask=torch.tensor(
+            [
+                [True, False, False, False],
+                [True, True, False, False],
+            ]
+        ),
+    )
+
+    assert abs(scalars["segment/motion_mpjpe_repaired_clean"] - (4.0 / 3.0)) < 1e-6
 
 
 def test_motion_quality_missing_positions_are_unconfirmed_not_zero() -> None:
@@ -278,9 +337,12 @@ def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
         "success_rate": 0.7,
         "fall_rate": 0.2,
         "mean_survival_steps": 430,
-        "continuous_rollout_gain": 0.12,
-        "score_noisy": -0.08,
-        "score_repaired": 0.04,
+        "gain_source": "FRS-GAIN-v001",
+        "gain_style_mean": 0.08,
+        "gain_physics_mean": 0.06,
+        "gain_repair_cost_mean": 0.02,
+        "gain_total_mean": 0.12,
+        "gain_total_pos_frac": 0.75,
         "segment/motion_mpjpe_repaired_clean": 0.11,
         "segment/motion_mpjpe_noisy_clean": 0.44,
         "segment/motion_vel_error_repaired_clean": 0.02,
@@ -293,17 +355,20 @@ def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
     assert scalars["segment/eval_success_rate"] == 0.7
     assert scalars["segment/eval_fall_rate"] == 0.2
     assert scalars["segment/eval_mean_survival_steps"] == 430.0
-    assert scalars["segment/eval_continuous_rollout_gain"] == 0.12
-    assert scalars["segment/eval_score_noisy"] == -0.08
-    assert scalars["segment/eval_score_repaired"] == 0.04
+    assert scalars["segment/eval_gain_style"] == 0.08
+    assert scalars["segment/eval_gain_physics"] == 0.06
+    assert scalars["segment/eval_gain_repair_cost"] == 0.02
+    assert scalars["segment/eval_gain_total"] == 0.12
+    assert scalars["segment/eval_gain_total_pos_frac"] == 0.75
     log = format_segment_periodic_eval_log(summary)
     assert "[FrontRES Segment Periodic Eval]" in log
     assert "episode_length=500.0" in log
     assert "survival=430.0" in log
     assert "success=70.0%" in log
     assert "fall=20.0%" in log
-    assert "gain=0.120000" in log
-    assert "score: noisy=-0.080000 repaired=0.040000" in log
+    assert "source=FRS-GAIN-v001" in log
+    assert "style=0.080000 physics=0.060000 repair_cost=0.020000 total=0.120000 positive=75.0%" in log
+    assert "score:" not in log
     assert "mpjpe_repaired=0.110000" in log
     assert "mpjpe_noisy=0.440000" in log
     assert "vel_err=0.020000" in log
@@ -346,6 +411,7 @@ def main() -> None:
     test_repair_effect_summary_formats_training_fit_metrics()
     test_repair_effect_summary_uses_live_sampler_candidate_field()
     test_motion_quality_summary_measures_pose_velocity_and_delta_se()
+    test_motion_quality_summary_respects_per_row_horizon_mask()
     test_motion_quality_missing_positions_are_unconfirmed_not_zero()
     test_motion_quality_keeps_action_diagnostics_when_all_samples_fall()
     test_periodic_eval_summary_formats_long_rollout_metrics()

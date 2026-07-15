@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib.util
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 import torch
+
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "frontres_formal_runtime_probe_storage",
+    Path(__file__).resolve().with_name("frontres_formal_runtime_probe.py"),
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
+emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
 
 
 @dataclass(frozen=True)
@@ -22,7 +33,6 @@ class FrontRESSegmentTransition:
     old_sigmas: torch.Tensor | None = None
     returns: torch.Tensor | None = None
     advantages: torch.Tensor | None = None
-    action_mask: torch.Tensor | None = None
     priority_evidence: Any | None = None
 
 
@@ -36,13 +46,28 @@ class FrontRESSegmentStorageBatch:
     advantages: torch.Tensor
     valid_mask: torch.Tensor
     segment_ids: torch.Tensor
-    action_mask: torch.Tensor | None = None
     privileged_observations: torch.Tensor | None = None
     old_means: torch.Tensor | None = None
     old_sigmas: torch.Tensor | None = None
 
     def to_ppo_batch(self, batch_cls: Callable[..., Any]) -> Any:
-        return batch_cls(
+        """把 finalized Segment storage 转换为 PPO batch contract.
+
+        函数名说明:
+            `to_ppo_batch` 是 storage-to-algorithm adapter, 只搬运已冻结字段; 它不
+            重算 action, log_prob, return 或 advantage.
+
+        主链路:
+            上游: K-aware return computation 完成 storage tuple.
+            下游: `compute_frontres_segment_ppo_loss` 消费同一 row order 的 batch.
+
+        语义:
+            actions, old log-prob, old mean/sigma 和 advantage 必须来自同一个
+            rollout tuple. 转换时不得改变 action representation 或 row identity.
+        """
+        # B1: 读取 K-aware return 已完成的 finalized storage tuple.
+        # B2: 不改变 row order/action representation, 转换 storage fields.
+        batch = batch_cls(
             observations=self.observations,
             actions=self.actions,
             old_log_probs=self.old_log_probs,
@@ -51,10 +76,19 @@ class FrontRESSegmentStorageBatch:
             advantages=self.advantages,
             valid_mask=self.valid_mask,
             segment_ids=self.segment_ids,
-            action_mask=self.action_mask,
             old_means=self.old_means,
             old_sigmas=self.old_sigmas,
         )
+        # B3: AUDIT-RETURN-01 截获 PPO 实际消费的 return/advantage tuple.
+        # Result: PENDING_LIVE.
+        emit_formal_runtime_probe(
+            "AUDIT-RETURN-01",
+            returns=self.returns,
+            advantages=self.advantages,
+            valid_mask=self.valid_mask,
+            segment_ids=self.segment_ids,
+        )
+        return batch
 
 
 @dataclass(frozen=True)
@@ -112,7 +146,6 @@ class FrontRESSegmentRolloutStorage:
         self.valid_mask = torch.zeros(self.capacity, dtype=torch.bool, device=self.device)
         self.reset_mask = torch.zeros(self.capacity, dtype=torch.bool, device=self.device)
         self.segment_ids = torch.zeros(self.capacity, dtype=torch.long, device=self.device)
-        self.action_mask = torch.ones(self.capacity, 6, device=self.device)
 
     def add_transition(self, transition: FrontRESSegmentTransition) -> None:
         transition = self._normalize_transition(transition)
@@ -140,8 +173,6 @@ class FrontRESSegmentRolloutStorage:
             self.old_means[sl].copy_(transition.old_means)
         if transition.old_sigmas is not None:
             self.old_sigmas[sl].copy_(transition.old_sigmas)
-        if transition.action_mask is not None:
-            self.action_mask[sl].copy_(transition.action_mask)
         self.segment_source.extend(transition.segment_source or ("unknown",) * batch_size)
         if transition.priority_evidence is not None:
             self.priority_evidence.append(_detach_evidence(transition.priority_evidence))
@@ -175,7 +206,6 @@ class FrontRESSegmentRolloutStorage:
             privileged_observations=_optional_attr_or_key(policy_output, "privileged_observations"),
             old_means=old_means,
             old_sigmas=old_sigmas,
-            action_mask=getattr(repair_action, "active_mask", None),
             priority_evidence=payload.get("priority_evidence"),
         )
 
@@ -184,13 +214,28 @@ class FrontRESSegmentRolloutStorage:
         *,
         reward_steps: torch.Tensor | None = None,
         done_steps: torch.Tensor | None = None,
-        horizon: int | None = None,
+        horizon: int | torch.Tensor | None = None,
         gamma: float = 1.0,
     ) -> None:
-        active = slice(0, self.step)
+        """按每行 K 和 done 边界累计 Segment return/advantage.
+
+        函数名说明:
+            `compute_returns_and_advantages` 是 Segment temporal-credit owner, 从
+            canonical per-step Gain 构造 PPO 学习信号; 它不是 Gain 公式或 PPO loss.
+
+        主链路:
+            上游: rollout capture 提供 `[T, B]` Gain, done 和 per-row horizon K.
+            下游: finalized returns/advantages 经 `to_ppo_batch` 进入 PPO.
+
+        语义:
+            每行只累计 alive 且 `offset < K` 的 paired Gain. Advantage 保持
+            `return - old_value`, 不混入 full environment reward.
+        """
+        # B1: 读取 canonical per-step Gain 和每行 effective K.
+        storage_slice = slice(0, self.step)
         if reward_steps is None:
-            self.returns[active].copy_(self.rewards[active])
-            self.advantages[active].copy_(self.returns[active] - self.old_values[active])
+            self.returns[storage_slice].copy_(self.rewards[storage_slice])
+            self.advantages[storage_slice].copy_(self.returns[storage_slice] - self.old_values[storage_slice])
             return
 
         if reward_steps.ndim != 2:
@@ -201,24 +246,35 @@ class FrontRESSegmentRolloutStorage:
             raise ValueError(f"done_steps shape {tuple(done_steps.shape)} must match reward_steps {tuple(reward_steps.shape)}")
 
         step_count = int(reward_steps.shape[0])
-        return_horizon = min(step_count, max(1, int(horizon if horizon is not None else step_count)))
+        if isinstance(horizon, torch.Tensor):
+            horizon_k = horizon.to(device=self.device, dtype=torch.long).reshape(-1)
+            if int(horizon_k.numel()) != self.step:
+                raise ValueError(f"horizon must have {self.step} rows, got {int(horizon_k.numel())}")
+            horizon_k = horizon_k.clamp(min=1, max=step_count)
+        else:
+            scalar_horizon = min(step_count, max(1, int(horizon if horizon is not None else step_count)))
+            horizon_k = torch.full((self.step,), scalar_horizon, dtype=torch.long, device=self.device)
+        return_horizon = int(horizon_k.max().item())
         rewards = reward_steps[:return_horizon, : self.step].to(device=self.device, dtype=torch.float32)
         if done_steps is None:
             dones = torch.zeros_like(rewards, dtype=torch.bool)
         else:
             dones = done_steps[:return_horizon, : self.step].to(device=self.device).bool()
 
+        # B2: 仅在每行仍 alive 且位于 K 内时累计 discounted Gain.
         returns = torch.zeros(self.step, device=self.device, dtype=torch.float32)
         alive = torch.ones(self.step, device=self.device, dtype=torch.float32)
         discount = 1.0
         gamma_value = float(gamma)
         for offset in range(return_horizon):
-            returns = returns + (discount * alive * rewards[offset])
-            alive = alive * (~dones[offset]).float()
+            horizon_active = offset < horizon_k
+            returns = returns + (discount * alive * horizon_active.float() * rewards[offset])
+            alive = alive * (~(dones[offset] & horizon_active)).float()
             discount *= gamma_value
 
-        self.returns[active].copy_(returns)
-        self.advantages[active].copy_(self.returns[active] - self.old_values[active])
+        self.returns[storage_slice].copy_(returns)
+        self.advantages[storage_slice].copy_(self.returns[storage_slice] - self.old_values[storage_slice])
+        # B3: finalized returns/advantages 已准备好进入 PPO batch conversion.
 
     def mini_batch_generator(
         self,
@@ -278,7 +334,6 @@ class FrontRESSegmentRolloutStorage:
             "valid_mask": self.valid_mask[active].detach().cpu(),
             "reset_mask": self.reset_mask[active].detach().cpu(),
             "segment_ids": self.segment_ids[active].detach().cpu(),
-            "action_mask": self.action_mask[active].detach().cpu(),
             "segment_source": tuple(self.segment_source),
             "priority_evidence": tuple(self.priority_evidence),
         }
@@ -303,7 +358,6 @@ class FrontRESSegmentRolloutStorage:
             "valid_mask",
             "reset_mask",
             "segment_ids",
-            "action_mask",
         ):
             getattr(self, name)[active].copy_(state[name].to(self.device))
         if self.privileged_observations is not None and state.get("privileged_observations") is not None:
@@ -325,7 +379,6 @@ class FrontRESSegmentRolloutStorage:
             advantages=self.advantages[idx],
             valid_mask=self.valid_mask[idx],
             segment_ids=self.segment_ids[idx],
-            action_mask=self.action_mask[idx],
         )
 
     def _normalize_transition(self, transition: FrontRESSegmentTransition) -> FrontRESSegmentTransition:
@@ -339,7 +392,7 @@ class FrontRESSegmentRolloutStorage:
             raise ValueError("segment_source length must match batch size")
         if transition.privileged_observations is not None:
             _require_batch("privileged_observations", transition.privileged_observations, batch_size)
-        for name in ("old_means", "old_sigmas", "action_mask"):
+        for name in ("old_means", "old_sigmas"):
             value = getattr(transition, name)
             if value is not None and tuple(value.shape) != (batch_size, 6):
                 raise ValueError(f"{name} must have shape [B, 6], got {tuple(value.shape)}")
@@ -364,7 +417,6 @@ class FrontRESSegmentRolloutStorage:
             old_sigmas=transition.old_sigmas.to(self.device).detach() if transition.old_sigmas is not None else None,
             returns=transition.returns.to(self.device).detach() if transition.returns is not None else None,
             advantages=transition.advantages.to(self.device).detach() if transition.advantages is not None else None,
-            action_mask=transition.action_mask.to(self.device).detach() if transition.action_mask is not None else None,
             priority_evidence=transition.priority_evidence,
         )
 

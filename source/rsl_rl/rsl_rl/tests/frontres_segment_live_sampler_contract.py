@@ -250,6 +250,13 @@ class FakeRunner:
 
 def _summary(reward: float, valid_count: int = 2) -> dict:
     return {
+        "gain_source": "FRS-GAIN-v001",
+        "gain_style_per_sample": [reward, reward],
+        "gain_physics_per_sample": [0.0, 0.0],
+        "gain_repair_cost_per_sample": [0.0, 0.0],
+        "gain_total_per_sample": [reward, reward],
+        "score_noisy_per_sample": [0.5, 0.5],
+        "score_repaired_per_sample": [0.5, 0.5],
         "ppo_update": valid_count > 0,
         "ppo_valid_count": valid_count,
         "reward_mean": reward,
@@ -273,6 +280,13 @@ def _summary_per_sample(
     assert len(rewards) == len(storage_valid) == len(done_any)
     valid_count = sum(1 for item in storage_valid if item)
     return {
+        "gain_source": "FRS-GAIN-v001",
+        "gain_style_per_sample": list(rewards),
+        "gain_physics_per_sample": [0.0 for _ in rewards],
+        "gain_repair_cost_per_sample": [0.0 for _ in rewards],
+        "gain_total_per_sample": list(rewards),
+        "score_noisy_per_sample": [0.5 for _ in rewards],
+        "score_repaired_per_sample": [0.5 for _ in rewards],
         "ppo_update": valid_count > 0,
         "ppo_valid_count": valid_count,
         "reward_mean": float(sum(rewards) / max(1, len(rewards))),
@@ -484,7 +498,7 @@ def test_live_sampler_evidence_preserves_per_sample_rollout_facts() -> None:
     torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.8, -0.2]))
 
 
-def test_live_sampler_evidence_prefers_real_noisy_repaired_scores() -> None:
+def test_live_sampler_evidence_ignores_legacy_scores_when_formal_gain_is_present() -> None:
     sampler = FrontRESSegmentSampler(4, seed=13)
     sample = sampler.sample(2)
     summary = _summary_per_sample(
@@ -509,10 +523,11 @@ def test_live_sampler_evidence_prefers_real_noisy_repaired_scores() -> None:
     )
     torch.testing.assert_close(evidence.score_noisy, torch.tensor([0.2, 0.6]))
     torch.testing.assert_close(evidence.score_repaired, torch.tensor([0.7, 0.4]))
-    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.5, -0.2]))
+    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.9, 0.9]))
+    torch.testing.assert_close(evidence.gain_total, torch.tensor([0.9, 0.9]))
 
 
-def test_live_sampler_evidence_prefers_explicit_gain_when_scores_are_raw_rewards() -> None:
+def test_live_sampler_evidence_rejects_missing_formal_gain() -> None:
     sampler = FrontRESSegmentSampler(4, seed=15)
     sample = sampler.sample(2)
     summary = _summary_per_sample(
@@ -520,27 +535,111 @@ def test_live_sampler_evidence_prefers_explicit_gain_when_scores_are_raw_rewards
         storage_valid=[True, True],
         done_any=[False, False],
     )
-    summary.update(
+    for key in (
+        "gain_source",
+        "gain_style_per_sample",
+        "gain_physics_per_sample",
+        "gain_repair_cost_per_sample",
+        "gain_total_per_sample",
+    ):
+        summary.pop(key)
+    try:
+        build_live_sampler_evidence(sample, summary, horizon_k=4)
+    except ValueError as exc:
+        assert "FRS-GAIN-v001" in str(exc) or "gain_" in str(exc)
+    else:
+        raise AssertionError("missing formal Gain must fail closed")
+
+
+def test_live_sampler_evidence_prefers_formal_gain_total_over_legacy_score_gain() -> None:
+    """FRS-GAIN-v001 must be the sampler's canonical paired evidence source."""
+    sample = FrontRESSegmentSample(
+        segment_ids=torch.tensor([10, 11]),
+        source=("global", "replay"),
+        priority=torch.zeros(2),
+        staleness=torch.zeros(2),
+        valid_mask=torch.ones(2, dtype=torch.bool),
+    )
+    summary = {
+        "gain_source": "FRS-GAIN-v001",
+        "gain_total_per_sample": [0.70, -0.40],
+        "gain_style_per_sample": [0.10, -0.10],
+        "gain_physics_per_sample": [0.50, -0.20],
+        "gain_repair_cost_per_sample": [0.10, -0.10],
+        "gain_over_noisy_per_sample": [0.01, 0.01],
+        "score_noisy_per_sample": [0.20, 0.20],
+        "score_repaired_per_sample": [0.21, 0.21],
+        "storage_valid_per_sample": [True, True],
+        "rollout_valid_per_sample": [True, True],
+        "reward_per_sample": [0.0, 0.0],
+    }
+    evidence = build_live_sampler_evidence(sample, summary, horizon_k=4)
+    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.70, -0.40]))
+    torch.testing.assert_close(evidence.gain_total, torch.tensor([0.70, -0.40]))
+    torch.testing.assert_close(evidence.gain_style, torch.tensor([0.10, -0.10]))
+    torch.testing.assert_close(evidence.gain_physics, torch.tensor([0.50, -0.20]))
+    torch.testing.assert_close(evidence.repair_cost, torch.tensor([0.10, -0.10]))
+    assert evidence.gain_source == "FRS-GAIN-v001"
+
+
+def test_live_sampler_evidence_rejects_nonfinite_formal_gain() -> None:
+    sampler = FrontRESSegmentSampler(4, seed=18)
+    sample = sampler.sample(2)
+    summary = _summary_per_sample(
+        rewards=[0.2, 0.1],
+        storage_valid=[True, True],
+        done_any=[False, False],
+    )
+    summary["gain_total_per_sample"] = [0.2, float("nan")]
+    try:
+        build_live_sampler_evidence(sample, summary, horizon_k=4)
+    except ValueError as exc:
+        assert "non-finite" in str(exc)
+    else:
+        raise AssertionError("non-finite formal Gain must fail closed")
+
+
+def test_formal_gain_priority_isolated_from_post_update_diagnostics() -> None:
+    sample = FrontRESSegmentSample(
+        segment_ids=torch.tensor([10, 11]),
+        source=("global", "replay"),
+        priority=torch.zeros(2),
+        staleness=torch.zeros(2),
+        valid_mask=torch.ones(2, dtype=torch.bool),
+    )
+    base = {
+        "gain_source": "FRS-GAIN-v001",
+        "gain_total_per_sample": [0.70, -0.40],
+        "gain_style_per_sample": [0.10, -0.10],
+        "gain_physics_per_sample": [0.50, -0.20],
+        "gain_repair_cost_per_sample": [0.10, -0.10],
+        "gain_over_noisy_per_sample": [0.01, 0.01],
+        "score_noisy_per_sample": [0.20, 0.20],
+        "score_repaired_per_sample": [0.21, 0.21],
+        "storage_valid_per_sample": [True, True],
+        "rollout_valid_per_sample": [True, True],
+        "reward_per_sample": [0.0, 0.0],
+    }
+    clean = dict(base)
+    poisoned = dict(base)
+    poisoned.update(
         {
-            "score_noisy_per_sample": [-0.10, -0.07],
-            "score_repaired_per_sample": [-0.08, -0.02],
-            "gain_over_noisy_per_sample": [0.02, 0.05],
-            "score_source": "b1_paired_env_rewards",
+            "ppo_post_update_distribution_kl_mean": 1.0e9,
+            "ppo_post_update_ratio_mean": 1.0e9,
+            "ppo_post_update_ratio_max": 1.0e9,
+            "ppo_param_delta_l2": 1.0e9,
         }
     )
-    evidence = build_live_sampler_evidence(sample, summary, horizon_k=4)
-    update = sampler.update_with_probe(evidence)
-    print(
-        "[probe step2] evidence-explicit-gain: "
-        f"noisy={evidence.score_noisy.tolist()} "
-        f"repaired={evidence.score_repaired.tolist()} "
-        f"gain={evidence.gain_over_noisy.tolist()} "
-        f"gain_mean={update.gain_mean:.6f}",
-        flush=True,
+    clean_sampler = FrontRESSegmentSampler(12, seed=17)
+    poisoned_sampler = FrontRESSegmentSampler(12, seed=17)
+    clean_update = clean_sampler.update_with_probe(build_live_sampler_evidence(sample, clean, horizon_k=4))
+    poisoned_update = poisoned_sampler.update_with_probe(
+        build_live_sampler_evidence(sample, poisoned, horizon_k=4)
     )
-    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.02, 0.05]))
-    assert update.gain_mean > 0.0
-    assert update.gain_pos_frac == 1.0
+    torch.testing.assert_close(
+        torch.tensor(clean_update.priority_after_mean),
+        torch.tensor(poisoned_update.priority_after_mean),
+    )
 
 
 def test_live_sampler_evidence_ignores_post_update_ppo_diagnostics() -> None:
@@ -573,7 +672,7 @@ def test_live_sampler_evidence_ignores_post_update_ppo_diagnostics() -> None:
         flush=True,
     )
     assert evidence.valid_reward.tolist() == [True, False]
-    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.30, -0.60]))
+    torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.30, -0.40]))
     torch.testing.assert_close(evidence.score_noisy, torch.tensor([0.10, 0.80]))
     torch.testing.assert_close(evidence.score_repaired, torch.tensor([0.40, 0.20]))
     assert update.valid_count == 1
@@ -589,13 +688,18 @@ def test_live_sampler_evidence_uses_actor_owned_paired_rows_only() -> None:
     )
     summary = {
         "evidence_row_count": 2,
+        "gain_source": "FRS-GAIN-v001",
+        "gain_style_per_sample": [0.3, 0.2],
+        "gain_physics_per_sample": [0.1, 0.2],
+        "gain_repair_cost_per_sample": [0.0, 0.0],
+        "gain_total_per_sample": [0.5, 0.4],
         "evidence_reward_per_sample": [0.7, 0.9],
         "evidence_valid_mask_per_sample": [True, False],
         "evidence_done_any_per_sample": [False, True],
         "score_noisy_per_sample": [0.2, 0.5],
         "score_repaired_per_sample": [0.7, 0.9],
         "score_clean_per_sample": [1.0, 1.0],
-        "score_source": "b1_paired_env_rewards",
+        "score_source": "repair_executability",
     }
     reset_result = SimpleNamespace(success_mask=torch.tensor([True, True, True, True]))
     stream = io.StringIO()
@@ -607,7 +711,7 @@ def test_live_sampler_evidence_uses_actor_owned_paired_rows_only() -> None:
         f"ids={evidence.segment_ids.tolist()} "
         f"valid={evidence.valid_reward.tolist()} "
         f"gain={evidence.gain_over_noisy.tolist()} "
-        f"source_logged={'evidence.source: b1_paired_env_rewards' in output}",
+        f"source_logged={'evidence.source: repair_executability' in output}",
         flush=True,
     )
     assert evidence.segment_ids.tolist() == [10, 11]
@@ -615,7 +719,7 @@ def test_live_sampler_evidence_uses_actor_owned_paired_rows_only() -> None:
     torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.5, 0.4]))
     assert "[FrontRES Segment Evidence]" in output
     assert "evidence.ids: count=2 id_min=10 id_max=11" in output
-    assert "evidence.source: b1_paired_env_rewards" in output
+    assert "evidence.source: FRS-GAIN-v001" in output
     assert "score.gain: 0.450000" in output
 
 
@@ -944,7 +1048,6 @@ def test_stage3_index_only_perturbation_plan_uses_dr_curriculum() -> None:
         runner.current_learning_iteration = 2
         runner._dr_scale = 2.0
         runner.cfg = {
-            "frontres_active_task_dims": [0, 1, 5],
             "frontres_adaptive_perturb_curriculum_enabled": False,
             "dr_scale_init": 2.0,
             "dr_min_scale": 1.0,
@@ -968,7 +1071,8 @@ def test_stage3_index_only_perturbation_plan_uses_dr_curriculum() -> None:
             f"mix_mode={plan.mix_mode}",
             flush=True,
         )
-        assert set(plan.perturbation_family).issubset({"planar", "yaw", "planar+yaw"})
+        allowed = {"planar", "yaw", "global_z", "local_rp"}
+        assert all(set(str(family).split("+")).issubset(allowed) for family in plan.perturbation_family)
         assert torch.all(plan.perturbation_strength > 0.0)
         assert tuple(batch.perturbation_family) == ("index_only",)
 
@@ -1219,6 +1323,72 @@ def test_runner_checkpoint_saves_and_restores_sampler_state() -> None:
         assert resumed.current_learning_iteration == 3
 
 
+def test_formal_checkpoint_persists_and_validates_gain_config_identity() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = str(Path(tmp) / "model_gain_config.pt")
+        gain_cfg = {
+            "is_full_resume": True,
+            "frontres_gain_style_weight": 1.25,
+            "frontres_gain_physics_weight": 0.75,
+            "frontres_gain_repair_weight": 0.20,
+        }
+        policy = torch.nn.Linear(1, 1)
+        runner = SimpleNamespace(
+            alg=SimpleNamespace(policy=policy, optimizer=torch.optim.Adam(policy.parameters(), lr=1e-3)),
+            current_learning_iteration=7,
+            cfg=gain_cfg,
+            empirical_normalization=False,
+            training_type="frontres",
+            logger_type="",
+            disable_logs=True,
+            writer=None,
+            device="cpu",
+            _frontres_segment_sampler=FrontRESSegmentSampler(2, seed=9),
+        )
+        save_runner(runner, path)
+        saved = torch.load(path, weights_only=False)
+        assert saved["frontres_gain_config"]["contract_id"] == "FRS-GAIN-v001"
+        assert saved["frontres_gain_config"]["values"]["style_weight"] == 1.25
+
+        resumed_policy = torch.nn.Linear(1, 1)
+        resumed = SimpleNamespace(
+            alg=SimpleNamespace(policy=resumed_policy, optimizer=torch.optim.Adam(resumed_policy.parameters(), lr=1e-3)),
+            current_learning_iteration=0,
+            cfg=dict(gain_cfg),
+            empirical_normalization=False,
+            training_type="frontres",
+            logger_type="",
+            disable_logs=True,
+            writer=None,
+            device="cpu",
+            _frontres_segment_sampler=FrontRESSegmentSampler(2, seed=10),
+        )
+        load_runner(resumed, path, load_optimizer=False)
+        assert resumed.current_learning_iteration == 7
+
+        mismatched = dict(gain_cfg)
+        mismatched["frontres_gain_style_weight"] = 9.0
+        resumed.cfg = mismatched
+        try:
+            load_runner(resumed, path, load_optimizer=False)
+        except RuntimeError as exc:
+            assert "Gain config mismatch" in str(exc)
+            print(f"[probe step10a] gain_config_mismatch_rejected: {exc}", flush=True)
+        else:
+            raise AssertionError("resume accepted a mismatched FRS-GAIN-v001 configuration")
+
+        legacy_path = str(Path(tmp) / "model_without_gain_config.pt")
+        legacy_payload = {key: value for key, value in saved.items() if key != "frontres_gain_config"}
+        torch.save(legacy_payload, legacy_path)
+        try:
+            load_runner(resumed, legacy_path, load_optimizer=False)
+        except RuntimeError as exc:
+            assert "requires frontres_gain_config" in str(exc)
+            print(f"[probe step10a] missing_gain_config_rejected: {exc}", flush=True)
+        else:
+            raise AssertionError("full FrontRES resume accepted a checkpoint without Gain identity")
+
+
 def test_runner_checkpoint_save_does_not_require_logger_type() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = str(Path(tmp) / "model_no_logger_type.pt")
@@ -1293,12 +1463,23 @@ def test_trial_plan_attachment_accepts_sequence_eval_sample_without_optional_met
     assert not hasattr(batch, "frontres_segment_budget_horizon_k")
 
 
+def test_formal_live_sampler_uses_configured_curriculum_ceiling() -> None:
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(frontres_segment_k=8, frontres_segment_max_horizon_k=64),
+    )
+
+    assert live_sampler_module._resolve_live_max_horizon_k(runner) == 64
+
+
 def main() -> None:
     test_live_summary_becomes_sampler_evidence()
     test_live_sampler_evidence_carries_partial_reset_failure()
     test_live_sampler_evidence_preserves_per_sample_rollout_facts()
-    test_live_sampler_evidence_prefers_real_noisy_repaired_scores()
-    test_live_sampler_evidence_prefers_explicit_gain_when_scores_are_raw_rewards()
+    test_live_sampler_evidence_ignores_legacy_scores_when_formal_gain_is_present()
+    test_live_sampler_evidence_rejects_missing_formal_gain()
+    test_live_sampler_evidence_rejects_nonfinite_formal_gain()
+    test_live_sampler_evidence_prefers_formal_gain_total_over_legacy_score_gain()
+    test_formal_gain_priority_isolated_from_post_update_diagnostics()
     test_live_sampler_evidence_ignores_post_update_ppo_diagnostics()
     test_live_sampler_evidence_uses_actor_owned_paired_rows_only()
     test_large_sampler_probe_uses_summary_not_full_lists()
@@ -1317,9 +1498,11 @@ def main() -> None:
     test_live_storage_uses_sampled_segment_ids_and_sources()
     test_missing_dataset_probe_reports_cache_and_sampler_state()
     test_runner_checkpoint_saves_and_restores_sampler_state()
+    test_formal_checkpoint_persists_and_validates_gain_config_identity()
     test_runner_checkpoint_save_does_not_require_logger_type()
     test_runner_checkpoint_save_skips_missing_external_writer()
     test_trial_plan_attachment_accepts_sequence_eval_sample_without_optional_metadata()
+    test_formal_live_sampler_uses_configured_curriculum_ceiling()
     print("frontres_segment_live_sampler_contract: ok")
 
 

@@ -1,186 +1,249 @@
 {
-  "title": "02 Method to Code Atlas",
-  "subtitle": "FrontRES 方法设计到主流程模块和具体代码位置的链路图. 左侧按 01 Repo Mainline 的阶段分组, 右侧只保留方法职责和代码锚点.",
-  "layout": "repo_tree",
-  "root": "FrontRES Method",
-  "showLegend": false,
-  "showConceptBadges": false,
-  "files": [
+  "title": "FrontRES Method-to-Code Reading Atlas",
+  "subtitle": "按 Concept Figure 设计点从左到右阅读方法对应的 owner 模块, 每张卡展示职责, 先读文件, 重点函数, 核心对象与模块内部主路径",
+  "layout": "repository_reading_atlas",
+  "canvasWidth": 4300,
+  "defaultZoom": 1.0,
+  "runtimeOrder": [
+    "DP-PERTURB",
+    "DP-HSL",
+    "DP-SEGMENT",
+    "DP-KSTEP",
+    "DP-WARMUP",
+    "DP-REPAIR",
+    "DP-GMT",
+    "DP-PAIRED",
+    "DP-GAIN"
+  ],
+  "supportOrder": [],
+  "systems": [
     {
-      "group": "MAIN-10/18 Observation + Perturbation + Reward",
-      "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/",
-      "color": "#059669",
-      "blocks": [
+      "id": "METHOD-DATA",
+      "title": "Method Data",
+      "summary": "构造扰动并把动态片段送入训练",
+      "color": "#2563eb",
+      "modules": [
         {
-          "id": "M2C-01",
-          "role": "观测入口: 原始 tracking observation, balance observation, anchor/history 等信号从 MDP 进入 policy 输入.",
-          "lines": "observations.py; balance.py"
+          "id": "DP-PERTURB",
+          "title": "Perturbation Data",
+          "summary": "构造参考动作扰动, 当前实验使用 local_rp",
+          "owns": "扰动 family, strength, schedule 与运行时注入",
+          "mustNot": "不按扰动 family 缩窄 full-6D repair output",
+          "objects": ["M-02", "local_rp", "strength", "perturbed reference"],
+          "files": [
+            {"id": "M2C-P01", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py", "role": "运行时扰动 owner", "functions": []},
+            {"id": "M2C-P02", "path": "source/rsl_rl/rsl_rl/frontres/frontres_dr_curriculum.py", "role": "扰动和 DR curriculum", "functions": []},
+            {"id": "M2C-P03", "path": "scripts/rsl_rl/train.py", "role": "specialist mode 与正式配置入口", "functions": ["_configure_frontres_motion_perturbations()"]}
+          ],
+          "mainRoute": [
+            "B1 train.py::_configure_frontres_motion_perturbations(): specialist config -> local_rp plan",
+            "B2 frontres_dr_curriculum.py: iteration state -> perturbation family + strength",
+            "B3 motion_perturbations.py: clean reference -> perturbed reference"
+          ],
+          "mainRouteTitles": ["选择扰动分布", "调度扰动强度", "写入 Noisy Reference"],
+          "review": ["确认 family 只描述 corruption", "确认 full-6D actor 不读取 active mask"],
+          "tests": ["S1 perturbation contract", "S4 AUDIT-SAMPLER-01"],
+          "gap": "真实 family/strength 分布等待 live log"
         },
         {
-          "id": "M2C-02",
-          "role": "扰动和 reward 入口: reference artifact, motion perturbation, tracking/reward 项决定 FrontRES 要修什么和如何评分.",
-          "lines": "motion_perturbations.py; rewards.py; commands.py"
+          "id": "DP-SEGMENT",
+          "title": "Segment Replay",
+          "summary": "采样并重放可恢复的动态片段",
+          "owns": "global/replay/review sampling, priority, segment state 与 trial planning",
+          "mustNot": "不读取 post-update KL 或 logger state 计算 priority",
+          "objects": ["SR-01", "segment_id", "source", "priority", "trial roles"],
+          "files": [
+            {"id": "M2C-S01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "Segment sampler owner", "functions": ["FrontRESSegmentSampler.sample()", "FrontRESSegmentSampler.update_with_probe()"]},
+            {"id": "M2C-S02", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py", "role": "replayable dynamic state dataset", "functions": []},
+            {"id": "M2C-S03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "正式 sampler connector", "functions": ["run_frontres_segment_sampler_step()", "build_live_sampler_evidence()"]}
+          ],
+          "mainRoute": [
+            "B1 frontres_segment_sampler.py::sample(): sampler state -> selected segments",
+            "B2 frontres_segment_live_sampler.py::run_frontres_segment_sampler_step(): segments -> trial/reset/rollout batch",
+            "B3 FrontRESSegmentSampler.update_with_probe(): rollout Gain evidence -> updated priority"
+          ],
+          "mainRouteTitles": ["选择 Segment", "构造正式 Trial", "更新 Replay Priority"],
+          "review": ["检查 segment/source/role 行域", "检查 rollout-time evidence isolation"],
+          "tests": ["S1 sampler contract", "S2 live sampler contract", "S4 AUDIT-SAMPLER-01"],
+          "gap": "真实 source/priority 分布等待 live log"
+        },
+        {
+          "id": "DP-KSTEP",
+          "title": "K-step Curriculum",
+          "summary": "用 8/16/32/64 步窗口观察即时修复与延迟后果",
+          "owns": "per-row K assignment, horizon forwarding 与 K-step returns",
+          "mustNot": "不把所有行静默固定为 K=8",
+          "objects": ["M-06", "horizon_k", "valid steps", "returns", "delayed regret"],
+          "files": [
+            {"id": "M2C-K01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "K curriculum assignment", "functions": ["plan_rollout_budget()", "expand_rollout_trials()"]},
+            {"id": "M2C-K02", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "K-step return owner", "functions": ["compute_returns_and_advantages()"]},
+            {"id": "M2C-K03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "K rollout 与 storage forwarding", "functions": ["_run_live_rollout_capture()", "build_live_segment_storage()"]}
+          ],
+          "mainRoute": [
+            "B1 frontres_segment_sampler.py::plan_rollout_budget(): curriculum state -> per-row K",
+            "B2 frontres_segment_live_probe.py::_run_live_rollout_capture(): per-row K -> valid rollout steps",
+            "B3 frontres_segment_storage.py::compute_returns_and_advantages(): valid steps -> K-step return"
+          ],
+          "mainRouteTitles": ["分配 Per-row K", "执行不同 Horizon", "构造 K-step Return"],
+          "review": ["对比 sampled/effective/storage K", "检查 done 后的 step mask"],
+          "tests": ["S1 curriculum contract", "S2 storage contract", "S4 AUDIT-SAMPLER-01"],
+          "gap": "真实 effective-K 分布等待 live log"
         }
       ]
     },
     {
-      "group": "MAIN-12/20 Observation Layout + Policy Stats",
-      "path": "source/rsl_rl/rsl_rl/modules/",
-      "color": "#0f766e",
-      "blocks": [
-        {
-          "id": "M2C-03",
-          "role": "Delta SE(3) proposal: actor 输出 task-space repair direction, 不是重新学习 GMT tracker.",
-          "lines": "front_residual_actor_critic.py; frontres/task_space_correction.py"
-        },
-        {
-          "id": "M2C-04",
-          "role": "Observation layout/stats: 区分 FrontRES prefix, GMT suffix, combined actor payload, privileged obs 和 checkpoint normalizer.",
-          "lines": "frontres_observation_layout.py; normalizer.py; front_residual_actor_critic.py"
-        }
-      ]
-    },
-    {
-      "group": "MAIN-14/25 FrontRES Method Core",
-      "path": "source/rsl_rl/rsl_rl/frontres/",
-      "color": "#7c3aed",
-      "blocks": [
-        {
-          "id": "M2C-05",
-          "role": "Perturbation curriculum: warmup/RL 阶段如何采样可修复 artifact family, 并服从 active task dims.",
-          "lines": "training_schedule.py; perturbation_runtime.py; frontres_dr_curriculum.py"
-        },
-        {
-          "id": "M2C-06",
-          "role": "Action cone: 限制 dx/dy/dz/rpy/yaw 的可修复范围, 尤其约束 upward dz 和 contact 相关风险.",
-          "lines": "frontres_action_cone.py; task_space_correction.py"
-        },
-        {
-          "id": "M2C-07",
-          "role": "Executable floor: 把 GMT frontier 和 rollout outcome 转成 safe/adapt/broken 边界和可训练 mask.",
-          "lines": "frontres_executable_floor.py; frontres_executability.py"
-        },
-        {
-          "id": "M2C-08",
-          "role": "Alpha/Rho route: alpha 判断状态风险, rho 表示 repair-retention 强度, 两者不重新生成 repair direction.",
-          "lines": "frontres_alpha_router.py; frontres_structured_rho.py; frontres_alpha_rho_bridge.py"
-        }
-      ]
-    },
-    {
-      "group": "MAIN-26/29 Segment Data",
-      "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_*.py",
-      "color": "#d97706",
-      "blocks": [
-        {
-          "id": "M2C-09",
-          "role": "Segment cache/dataset/sampler: Stage 3 的 motion segment 从 cache 到 batch 的采样和过滤路径.",
-          "lines": "frontres_segment_cache_*.py; frontres_segment_dataset.py; frontres_segment_sampler.py"
-        },
-        {
-          "id": "M2C-10",
-          "role": "Segment reset/reward/storage: reset 生命周期, per-segment reward, transition payload 进入训练字段.",
-          "lines": "frontres_segment_reset.py; frontres_segment_reward.py; frontres_segment_storage.py; frontres_transition_payload.py"
-        }
-      ]
-    },
-    {
-      "group": "MAIN-30/40 Runner Runtime",
-      "path": "source/rsl_rl/rsl_rl/runners/",
-      "color": "#d97706",
-      "blocks": [
-        {
-          "id": "M2C-11",
-          "role": "Four-branch rollout: 构造 Noisy, Candidate/HSL, Projected/FrontRES written, Clean/GMT reference 四类运行分支.",
-          "lines": "frontres_training_setup.py; frontres_rollout_step.py; frontres_reward_window.py"
-        },
-        {
-          "id": "M2C-12",
-          "role": "Runtime write: 把 proposal, action cone, alpha/rho, temporal reference cache 合成真正写给 GMT 的 reference.",
-          "lines": "frontres_runtime.py; frontres_post_step_connector.py; temporal_reference_cache.py"
-        },
-        {
-          "id": "M2C-13",
-          "role": "Live Stage 3 loop: sampler, reset hook, live probe, PPO update loop, sequence eval 的真实接线位置.",
-          "lines": "frontres_segment_live_sampler.py; frontres_segment_live_probe.py; frontres_segment_live_update_loop.py; frontres_segment_live_training.py"
-        }
-      ]
-    },
-    {
-      "group": "MAIN-41/44 Storage Boundary",
-      "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py",
-      "color": "#475569",
-      "blocks": [
-        {
-          "id": "M2C-14",
-          "role": "Training payload: FrontRES targets, masks, floor, alpha/rho, diagnostics 必须按稳定字段写入 transition.",
-          "lines": "Transition fields; add_transitions"
-        },
-        {
-          "id": "M2C-15",
-          "role": "Batch contract: algorithm update 依赖 minibatch tuple 的字段顺序, shape, dtype, device 和 mask 语义.",
-          "lines": "mini_batch_generator"
-        }
-      ]
-    },
-    {
-      "group": "MAIN-45/47 Algorithm Update",
-      "path": "source/rsl_rl/rsl_rl/algorithms/",
+      "id": "METHOD-TRAIN",
+      "title": "Initialization And Optimization",
+      "summary": "从 supervised actor 过渡到受保护的 Segment PPO",
       "color": "#dc2626",
-      "blocks": [
+      "modules": [
         {
-          "id": "M2C-16",
-          "role": "HSL supervised loss: 学 repair proposal direction, 由 valid target/mask 控制, 不承担动态 acceptance.",
-          "lines": "frontres_unified.py HSL loss"
+          "id": "DP-HSL",
+          "title": "HSL Warmup",
+          "summary": "用 task-space target 初始化同一个 full-6D actor",
+          "owns": "Stage 2 target, supervised actor update 与 model_warmup checkpoint",
+          "mustNot": "不训练 confidence/rho/authority head",
+          "objects": ["M-03", "870D obs", "6D target", "model_warmup.pt"],
+          "files": [
+            {"id": "M2C-H01", "path": "source/rsl_rl/rsl_rl/runners/frontres_warmup.py", "role": "HSL training loop", "functions": ["run_frontres_joint_warmup()"]},
+            {"id": "M2C-H02", "path": "source/rsl_rl/rsl_rl/runners/frontres_hsl_rollout_target.py", "role": "full-6D target construction", "functions": []},
+            {"id": "M2C-H03", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "supervised restore loss owner", "functions": []}
+          ],
+          "mainRoute": [
+            "B1 frontres_hsl_rollout_target.py: Clean/Noisy rollout -> full-6D repair target",
+            "B2 frontres_unified.py: actor output + repair target -> supervised loss",
+            "B3 frontres_warmup.py::run_frontres_joint_warmup(): updated actor -> model_warmup.pt"
+          ],
+          "mainRouteTitles": ["构造 6D Target", "更新 HSL Actor", "保存 Stage 2 Artifact"],
+          "review": ["确认 Stage 2/3 actor head identity", "确认 870D normalizer stats 持久化"],
+          "tests": ["S2 HSL target connectivity", "S3 checkpoint contract"],
+          "gap": "具体 Stage 2 artifact identity 由运行命令确认"
         },
         {
-          "id": "M2C-17",
-          "role": "Alpha/Rho losses: alpha 用 state-risk target, rho 用 repair-retention advantage, 共同接入 FrontRES update.",
-          "lines": "frontres_unified.py; frontres_segment_ppo.py"
-        },
-        {
-          "id": "M2C-18",
-          "role": "PPO/K-step scale: advantage normalization, reward scale, update count 等训练行为在算法层确认.",
-          "lines": "frontres_segment_ppo.py; ppo.py"
+          "id": "DP-WARMUP",
+          "title": "Actor & Critic Warmup",
+          "summary": "先训练 critic, 再线性释放 HSL actor, 最后 joint PPO",
+          "owns": "critic_only, actor_warmup, joint phase 与 actor loss weight",
+          "mustNot": "不恢复 retired authority/rho 或 generic PPO route",
+          "objects": ["M-05", "phase", "actor_loss_weight", "critic grad", "actor grad"],
+          "files": [
+            {"id": "M2C-W01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "phase owner", "functions": ["frontres_segment_warmup_phase()"]},
+            {"id": "M2C-W02", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "actor-weighted PPO loss", "functions": ["compute_frontres_segment_ppo_loss()"]},
+            {"id": "M2C-W03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "gradient/update connector", "functions": ["run_frontres_segment_single_update()"]}
+          ],
+          "mainRoute": [
+            "B1 frontres_segment_warmup.py::frontres_segment_warmup_phase(): persisted iteration -> phase + actor weight",
+            "B2 frontres_segment_ppo.py::compute_frontres_segment_ppo_loss(): PPO terms + actor weight -> total loss",
+            "B3 frontres_segment_live_probe.py::run_frontres_segment_single_update(): loss -> protected actor/critic update"
+          ],
+          "mainRouteTitles": ["解析 Warmup Phase", "组合 Weighted PPO Loss", "执行受保护更新"],
+          "review": ["critic_only actor/std 必须不变", "resume 必须选择同一 phase"],
+          "tests": ["S1/S2 warmup contracts", "S4 AUDIT-PPO-01"],
+          "gap": "真实 phase/gradient 证据等待 live log"
         }
       ]
     },
     {
-      "group": "MAIN-03/48/50 Artifact + Eval",
-      "path": "checkpoint, sequence_eval, export, play",
-      "color": "#0891b2",
-      "blocks": [
+      "id": "METHOD-EXEC",
+      "title": "Repair And Execution",
+      "summary": "输出完整修复并交给冻结 GMT 执行",
+      "color": "#0f766e",
+      "modules": [
         {
-          "id": "M2C-19",
-          "role": "Checkpoint stats: 770D GMT suffix, 100D FrontRES prefix, 870D payload, privileged stats 的保存和恢复.",
-          "lines": "frontres_checkpointing.py; frontres_segment_checkpointing.py"
+          "id": "DP-REPAIR",
+          "title": "FrontRES 6D Repair",
+          "summary": "从 870D observation 输出完整 Delta SE(3) 修复",
+          "owns": "actor distribution, bounded full-6D action 与 repaired reference write",
+          "mustNot": "不替代 GMT, 不按 local_rp mask action dims",
+          "objects": ["M-04", "870D obs", "mean/sigma", "Delta SE(3)", "repaired reference"],
+          "files": [
+            {"id": "M2C-R01", "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "role": "FrontRES actor 与 distribution", "functions": ["update_distribution()", "act()"]},
+            {"id": "M2C-R02", "path": "source/rsl_rl/rsl_rl/frontres/frontres_action_cone.py", "role": "full-6D safety projection", "functions": ["project_task_target()"]},
+            {"id": "M2C-R03", "path": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py", "role": "task-space reference write", "functions": ["apply_frontres_task_corrections()"]}
+          ],
+          "mainRoute": [
+            "B1 front_residual_actor_critic.py::update_distribution(): 870D obs -> 6D mean/sigma",
+            "B2 frontres_action_cone.py::project_task_target(): sampled 6D action -> executable correction",
+            "B3 task_space_correction.py::apply_frontres_task_corrections(): correction -> repaired reference"
+          ],
+          "mainRouteTitles": ["生成 6D Distribution", "投影可执行修复", "写入 Repaired Reference"],
+          "review": ["检查 raw/bounded/stored action 同源", "检查 upward dz 约束不是 active mask"],
+      "tests": ["S1 distribution contract", "S2 action/storage contract", "S4 AUDIT-OBS-01/AUDIT-ACTION-01/AUDIT-APPLY-01"],
+          "gap": "真实 observation/action stats 等待 live log"
         },
         {
-          "id": "M2C-20",
-          "role": "Sequence eval: 从 motion frame 0 reset, preroll 不采集, eval window 才捕获 metrics.",
-          "lines": "frontres_segment_sequence_eval.py; frontres_segment_live_training.py"
-        },
-        {
-          "id": "M2C-21",
-          "role": "Export/play sinks: deployment 和 ONNX/export/play 路径可能消费不同 normalizer, 必须单独审计.",
-          "lines": "whole_body_tracking/utils/exporter.py; utils/my_on_policy_runner.py"
+          "id": "DP-GMT",
+          "title": "Frozen GMT",
+          "summary": "执行 repaired reference, 参数保持冻结",
+          "owns": "GMT action inference 与 GMT-compatible observation suffix",
+          "mustNot": "不进入 FrontRES optimizer, 不接收 gradient update",
+          "objects": ["M-10", "GMT suffix", "GMT action", "frozen parameters"],
+          "files": [
+            {"id": "M2C-G01", "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "role": "GMT load/freeze/inference", "functions": []},
+            {"id": "M2C-G02", "path": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py", "role": "FrontRES/GMT observation normalization", "functions": ["apply_obs_normalizer()"]},
+            {"id": "M2C-G03", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "optimizer parameter selection", "functions": ["_collect_trainable_params()"]}
+          ],
+          "mainRoute": [
+            "B1 frontres_runtime.py::apply_obs_normalizer(): actor observation -> GMT-compatible suffix",
+            "B2 front_residual_actor_critic.py: repaired reference + GMT obs -> GMT action",
+            "B3 frontres_unified.py::_collect_trainable_params(): policy params -> actor/critic optimizer without GMT"
+          ],
+          "mainRouteTitles": ["保持 GMT Obs Contract", "执行 Frozen Tracker", "隔离 GMT Gradient"],
+          "review": ["确认 requires_grad=False", "确认 optimizer 不含 GMT params"],
+          "tests": ["S1/S2 frozen GMT contract", "S4 AUDIT-PPO-01"],
+          "gap": "真实 update 中 GMT isolation 等待 live log"
         }
       ]
     },
     {
-      "group": "MAIN-51/54 Test Surface",
-      "path": "source/rsl_rl/rsl_rl/tests/",
-      "color": "#64748b",
-      "blocks": [
+      "id": "METHOD-SIGNAL",
+      "title": "Paired Evidence And Gain",
+      "summary": "比较 Clean/Noisy/Repaired 执行并反馈 PPO 与 replay",
+      "color": "#65a30d",
+      "modules": [
         {
-          "id": "M2C-22",
-          "role": "方法级 contract tests: observation layout, checkpoint, storage, segment lifecycle, sequence eval, live sentinel.",
-          "lines": "frontres_observation_layout_contract.py; frontres_segment_*_contract.py"
+          "id": "DP-PAIRED",
+          "title": "Paired Rollouts",
+          "summary": "在同一 segment/K 下构造 Clean, Noisy, Repaired 执行证据",
+          "owns": "quartet roles, reset alignment, paired motion/physics capture",
+          "mustNot": "不跨 motion/frame/K 错配比较对象",
+          "objects": ["Q-PAIR", "policy/search/noisy/clean roles", "motion quality", "physics facts"],
+          "files": [
+            {"id": "M2C-QP1", "path": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py", "role": "4-split layout owner", "functions": ["configure_frontres_pair_layout()"]},
+            {"id": "M2C-QP2", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "paired rollout capture", "functions": ["_run_live_rollout_capture()", "_capture_motion_quality_frame()", "_capture_physics_frame()"]},
+            {"id": "M2C-QP3", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reset.py", "role": "dynamic reset alignment", "functions": []}
+          ],
+          "mainRoute": [
+            "B1 frontres_training_setup.py::configure_frontres_pair_layout(): env rows -> explicit trial roles",
+            "B2 frontres_segment_reset.py: segment dynamic state -> aligned role reset",
+            "B3 frontres_segment_live_probe.py::_run_live_rollout_capture(): aligned roles -> paired execution evidence"
+          ],
+          "mainRouteTitles": ["建立 4-split Roles", "恢复匹配动态状态", "采集 Paired Execution"],
+          "review": ["检查 policy/search credit boundary", "检查 Clean/Noisy/Repaired 的 segment/K identity"],
+      "tests": ["S2 reset/role contracts", "S4 AUDIT-PAIR-01/AUDIT-PAIR-EVIDENCE-01"],
+          "gap": "真实 role/reset/physics population 等待 live log"
         },
         {
-          "id": "M2C-23",
-          "role": "下一步测试控制面板应从这里接入: 每个 M2C block 对应测试类型, 参数形态, 命令和验证等级.",
-          "lines": "planned Test Control Board linkage"
+          "id": "DP-GAIN",
+          "title": "Repair Gain",
+          "summary": "将 Style, Physics 与 Repair Cost 合成为统一训练信号",
+          "owns": "canonical Gain components, total Gain 与 PPO/replay consumers",
+          "mustNot": "不回退到 environment reward 或 legacy RP score",
+          "objects": ["Q-01", "style_gain", "physics_gain", "repair_cost", "gain_total"],
+          "files": [
+            {"id": "M2C-Q01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "role": "Gain semantic owner", "functions": ["compute_paired_style_gain()", "compute_paired_physics_gain()", "compute_repair_cost()", "compute_segment_gain()"]},
+            {"id": "M2C-Q02", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "live Gain capture/storage return", "functions": ["_capture_paired_gain()", "_segment_storage_rewards()"]},
+            {"id": "M2C-Q03", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "Gain return consumer", "functions": ["compute_frontres_segment_ppo_loss()"]}
+          ],
+          "mainRoute": [
+            "B1 frontres_gain.py: paired rollout facts -> Style/Physics/Repair components",
+            "B2 frontres_gain.py::compute_segment_gain(): components -> gain_total",
+            "B3 live_probe.py + frontres_segment_ppo.py: gain_total -> storage return -> PPO and sampler feedback"
+          ],
+          "mainRouteTitles": ["计算 Gain Components", "组合 Total Gain", "反馈 PPO 与 Replay"],
+          "review": ["检查所有消费者使用同一 owner", "检查 missing component 不静默写 0"],
+      "tests": ["S1 Gain golden fixtures", "S2 consumer connectivity", "S4 AUDIT-GAIN-01/AUDIT-RETURN-01"],
+          "gap": "真实 Gain component population 等待 live log"
         }
       ]
     }
