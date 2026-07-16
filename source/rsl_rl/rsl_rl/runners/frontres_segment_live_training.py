@@ -104,9 +104,46 @@ _EVAL_GAIN_COMPONENTS = (
     "repair_clean_cost",
 )
 
+_EVAL_GAIN_PUBLIC_ALIASES = {
+    "style_gain": "style",
+    "physics_gain": "physics",
+    "repair_cost": "repair_cost",
+    "gain_total": "total",
+    "style_mpjpe_gain": "style_mpjpe",
+    "style_velocity_gain": "style_velocity",
+    "style_acceleration_gain": "style_acceleration",
+    "style_root_orientation_gain": "style_root_orientation",
+    "physics_success_gain": "physics_success",
+    "physics_survival_gain": "physics_survival",
+    "physics_zmp_gain": "physics_zmp",
+    "physics_contact_gain": "physics_contact",
+    "repair_norm": "repair_norm",
+    "repair_temporal_change": "repair_temporal",
+    "repair_clean_cost": "repair_clean_cost",
+}
+
+
+def _add_public_gain_component_aliases(summary: dict[str, Any]) -> None:
+    """Expose one stable log field for every canonical Gain component."""
+
+    # B2: 将 GainResult 的内部字段名映射为评估日志公开字段名.
+    # 该映射必须同时服务 sequence, periodic 和 per-motion summary.
+    for component, public_name in _EVAL_GAIN_PUBLIC_ALIASES.items():
+        summary[f"gain_{public_name}_mean"] = summary.get(
+            f"gain_{component}_mean",
+            float("nan"),
+        )
+
 
 def _capture_eval_gain_summary(capture: Any) -> tuple[Any | None, dict[str, Any]]:
-    """Adapt the paired Gain owner output to any evaluation summary."""
+    """Adapt canonical paired Gain output to the evaluation summary contract.
+
+    Status: active diagnostic adapter, not the Gain formula owner.
+    Upstream: ``frontres_gain.compute_segment_gain`` via paired capture.
+    Downstream: periodic/sequence/per-motion formatters.
+    Evidence: code-confirmed; live component freshness remains S4.
+    Gap: a fresh server run must show finite, non-stale component values.
+    """
     result = _capture_paired_gain(capture)
     summary: dict[str, Any] = {
         "gain_source": "UNCONFIRMED",
@@ -131,14 +168,7 @@ def _capture_eval_gain_summary(capture: Any) -> tuple[Any | None, dict[str, Any]
         value = getattr(result, component, None)
         summary[f"gain_{component}_per_sample"] = _float_values(value)
         summary[f"gain_{component}_mean"] = _finite_tensor_mean(value)
-    summary.update(
-        {
-            "gain_style_mean": summary["gain_style_gain_mean"],
-            "gain_physics_mean": summary["gain_physics_gain_mean"],
-            "gain_repair_cost_mean": summary["gain_repair_cost_mean"],
-            "gain_total_mean": summary["gain_gain_total_mean"],
-        }
-    )
+    _add_public_gain_component_aliases(summary)
     return result, summary
 
 
@@ -1460,14 +1490,11 @@ def _gain_result_row_summary(result: Any, index: int) -> dict[str, float]:
             continue
         item = value.detach().float().reshape(-1)[index]
         row[f"gain_{component}_mean"] = float(item.cpu().item()) if bool(torch.isfinite(item).item()) else float("nan")
+    _add_public_gain_component_aliases(row)
     row.update(
         {
             "gain_source": "FRS-GAIN-v001",
-            "gain_style_mean": row["gain_style_gain_mean"],
-            "gain_physics_mean": row["gain_physics_gain_mean"],
-            "gain_repair_cost_mean": row["gain_repair_cost_mean"],
-            "gain_total_mean": row["gain_gain_total_mean"],
-            "gain_total_pos_frac": 1.0 if row["gain_gain_total_mean"] > 0.0 else 0.0,
+            "gain_total_pos_frac": 1.0 if row["gain_total_mean"] > 0.0 else 0.0,
         }
     )
     return row

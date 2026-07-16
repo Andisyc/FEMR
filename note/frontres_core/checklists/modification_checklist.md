@@ -66,7 +66,7 @@ runtime reachability fact.
 | Observation/full-6D repair/application | S4 `T-shape/T-source/T-value` | runtime-observed | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01`, E39: finite full-6D action and delta norm |
 | Frozen GMT | S4 `T-grad/T-state` | runtime-observed | `AUDIT-GMT-01`, `E37`: gmt_training=False, trainable=0, in_optimizer=0 |
 | Paired roles/execution evidence | S4 `T-role/T-source` | runtime-observed | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01`, E39: policy=8/baseline=24, valid=7 |
-| Gain/returns | S4 `T-value/T-forward` | runtime-observed | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`, E39: finite reward/return/advantage and canonical Gain |
+| Gain/returns | S4 `T-value/T-forward` | partial: aggregate route observed; component display fix pending live rerun | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`, E39, E50: canonical Gain route exists; fresh S4 component values still required |
 | HSL Stage2-to-Stage3 load | S4 `T-persist/T-source` | runtime-observed | `AUDIT-HSL-LOAD-01`, `E37`: model_warmup actor and EmpiricalNormalization loaded |
 | Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | runtime-observed | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01`, `E39`: actor_warmup weight=0.5, valid=7, post KL=0.005442, trust accepted |
 | Checkpoint payload identity | S4 `T-persist` | runtime-observed | `AUDIT-PERSIST-01`, `E41`: model_2.pt includes model/optimizer/normalizer/sampler/Gain/warmup |

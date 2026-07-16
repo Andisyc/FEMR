@@ -274,6 +274,41 @@ def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
     assert "non_rp_frac=0.0%" in item_log
 
 
+def test_gain_component_aliases_reach_sequence_log() -> None:
+    result = SimpleNamespace(
+        style_gain=torch.tensor([0.10]),
+        physics_gain=torch.tensor([0.20]),
+        repair_cost=torch.tensor([0.03]),
+        gain_total=torch.tensor([0.295]),
+        style_mpjpe_gain=torch.tensor([0.11]),
+        style_velocity_gain=torch.tensor([0.12]),
+        style_acceleration_gain=torch.tensor([0.13]),
+        style_root_orientation_gain=torch.tensor([0.14]),
+        physics_success_gain=torch.tensor([0.21]),
+        physics_survival_gain=torch.tensor([0.22]),
+        physics_zmp_gain=torch.tensor([0.23]),
+        physics_contact_gain=torch.tensor([0.24]),
+        repair_norm=torch.tensor([0.01]),
+        repair_temporal_change=torch.tensor([0.02]),
+        repair_clean_cost=torch.tensor([0.0]),
+    )
+    previous = live_training_module._capture_paired_gain
+    live_training_module._capture_paired_gain = lambda _capture: result
+    try:
+        _, summary = live_training_module._capture_eval_gain_summary(object())
+    finally:
+        live_training_module._capture_paired_gain = previous
+
+    log = live_training_module._format_eval_gain_line(summary, indent="    ")
+    assert "success=0.210000" in log
+    assert "survival=0.220000" in log
+    assert "zmp=0.230000" in log
+    assert "contact=0.240000" in log
+    row = live_training_module._gain_result_row_summary(result, 0)
+    assert row["gain_physics_success_mean"] == 0.21
+    assert row["gain_physics_contact_mean"] == 0.24
+
+
 class FakeSampler:
     def __init__(self):
         self.calls: list[int] = []
@@ -777,6 +812,7 @@ def main() -> None:
     test_sequence_eval_can_cap_smoke_preroll_depth()
     test_sequence_eval_reset_batch_rewrites_start_only()
     test_sequence_eval_log_prints_motion_quality_metrics()
+    test_gain_component_aliases_reach_sequence_log()
     test_sequence_eval_debug_log_prints_key_runtime_parameters()
     test_sequence_eval_policy_target_scaling_diagnostic_contract()
     test_sequence_eval_differential_log_compares_real_and_zero_policy()

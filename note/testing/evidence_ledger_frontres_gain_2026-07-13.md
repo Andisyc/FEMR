@@ -1064,3 +1064,46 @@ not current runnable paths. Current checkpoint evidence is the formal
   systematic or a two-motion sample effect.
 - Evidence level: S1/S2 Gain-owner and diagnostic audit PASS; S4 component
   correlation and method-quality decision pending.
+
+## E49 - Gain Audit Rerun Boundary (2026-07-16)
+
+- Four pulled logs were inspected. The files named `seed20260716` and
+  `seed20260717` all print the internal runtime seed `20260716`, the same
+  `seq_idx=2026071600000`, and the same eight motion IDs. Thus only one matched
+  seed was actually run; the second seed is missing, not a second result.
+- The valid `20260716` pair improves aggregate survival from `101.3` to
+  `105.1` and reduces fall from `31.2%` to `25.0%`, but total Gain decreases
+  from `-0.510026` to `-0.946795`. This is a valid mixed result, but it cannot
+  complete the two-seed variance audit.
+- All four logs print `physics_components=(success=UNCONFIRMED,
+  survival=UNCONFIRMED, zmp=UNCONFIRMED, contact=UNCONFIRMED)`. The local
+  diagnostic patch is therefore not present in this server run; aggregate
+  Physics cannot yet be decomposed.
+- Status: Step I-B partial. Next action is to synchronize the two diagnostic
+  owner files, run the true `20260717` pair, and verify the log header itself
+  before comparing results.
+
+## E50 - Gain Component Diagnostic Alias Fix (2026-07-16)
+
+- The local source audit found a concrete formatter boundary defect. The
+  sequence/periodic summary builder created internal keys such as
+  `gain_physics_success_gain_mean`, while `_format_eval_gain_line()` read
+  `gain_physics_success_mean`. The same mismatch affected per-motion rows.
+- This explains the observed combination of finite aggregate `gain_physics`
+  and `physics_components=(... UNCONFIRMED ...)` without changing the Gain
+  formula or proving that the underlying Physics tensors were missing.
+- `frontres_segment_live_training.py` now centralizes the internal-to-public
+  Gain component aliases for sequence, periodic, and per-motion summaries.
+  The sequence contract includes a finite four-component pseudo Gain fixture
+  and asserts the rendered success/survival/ZMP/contact values.
+- Fresh local verification: both modified Python files compile and `git diff
+  --check` passes. The targeted torch contract could not run on this machine
+  because the available Python environments do not provide `torch`.
+- Evidence level: code-confirmed diagnostic root cause; S1/S2 static/compile
+  verification; S4 live component population and freshness remain pending.
+
+Next:
+- Upload the two modified source/test files, rerun the same matched sequence
+  evaluation with `--frontres_formal_runtime_audit`, and require both
+  `[AUDIT-GAIN-01]` output and finite `physics_components` values before using
+  Gain to rank checkpoints.
