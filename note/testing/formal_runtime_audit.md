@@ -926,9 +926,10 @@ command is accepted as live evidence.
 
 ## Required Next Step
 
-Phase A, probe insertion, Atlas synchronization, and the first actor-warmup
-formal run are complete. The next bounded step is a matched offline evaluation
-of `model_200.pt` and `model_201.pt` from the same actor probe run. `model_200.pt`
-is the pre-actor-update boundary; `model_201.pt` is the first actor-weighted
-update boundary. Use identical motions, start frames, perturbation family,
-effective K, and seed. Do not begin longer training until this pair is read.
+Phase A, probe insertion, the first actor-warmup formal run, and one matched
+two-sequence evaluation are complete. The two-sequence result is mixed and is
+not a quality decision. The next bounded step is a larger matched evaluation
+of the same `model_200.pt` / `model_201.pt` pair using at least eight fixed
+motions and two matched seeds. Keep motions, start frames, perturbation family,
+strengths, effective K, and seeds identical between checkpoints. Do not begin
+longer training until this broader pair is read.

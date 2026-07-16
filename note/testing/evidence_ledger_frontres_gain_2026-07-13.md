@@ -1348,3 +1348,24 @@ Next:
   executed locally and no policy-quality claim is made from this audit.
 - Evidence level: checkpoint-structure-confirmed and contract-confirmed;
   physical offline evaluation remains runtime-unconfirmed.
+
+## E60 - Matched Actor Boundary Offline Evaluation (2026-07-16)
+
+- Fresh logs: `eval_actor_probe_model_200.txt` and
+  `eval_actor_probe_model_201.txt`. Both use seed `20260716`, the same two
+  motion IDs, the same reset/preroll/eval frames, the same `local_rp`
+  perturbation strengths, and the same effective K=4. Checkpoint replay state
+  is explicitly ignored.
+- Aggregate result over two sequences: success and survival remain identical
+  at `50%` and `80.8` respectively. `gain_total` changes from `-0.088949`
+  (model_200) to `-0.095243` (model_201), while Style changes
+  `-0.043280 -> -0.049838`, Physics changes `-0.023619 -> -0.023569`, and
+  repair cost changes `0.147002 -> 0.145581`.
+- The first motion remains a failure and worsens in Gain
+  `-0.188393 -> -0.203621`; the second motion remains successful and improves
+  in Gain `0.010495 -> 0.013134`. MPJPE and real-vs-zero diagnostics are mixed.
+- Both policies produce non-zero 6D segment actions, so the actor update did
+  not create a no-op. The two-motion sample is too small to claim actor
+  improvement or degradation as a general result.
+- Evidence level: matched offline runtime-confirmed; policy-quality decision
+  remains open pending a larger fixed-motion pair evaluation.
