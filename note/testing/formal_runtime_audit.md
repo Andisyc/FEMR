@@ -1,13 +1,14 @@
 # Formal Runtime Audit
 
-Status: `phase-b-gain-v002-instrumentation-ready-formal-rerun-required`
+Status: `phase-b-gain-v002-actor-warmup-runtime-observed-quality-gate-open`
 
 Current C boundary 2026-07-16: the active reward contract is now
 `FRS-GAIN-v002`. The formal audit was updated to expose raw survival steps,
 per-row effective K, repaired/noisy survival quality, normalized survival Gain,
 and the equality between per-step survival Gain sum and final survival Gain.
-No new S4 runtime evidence exists yet; all prior v001 live Gain/return claims
-are stale for this boundary.
+The v002 formal route is now runtime-observed through the first actor-warmup
+update. Representative actor learning and long-run quality are still open; all
+prior v001 live Gain/return claims remain stale for this boundary.
 
 Correction 2026-07-15: the first 20-card Atlas revision pointed many cards at
 owner functions while emitting their labels only from five runner summaries.
@@ -925,9 +926,9 @@ command is accepted as live evidence.
 
 ## Required Next Step
 
-Phase A, probe insertion, Atlas synchronization, and human review are complete.
-The next bounded step is to deploy the inspected worktree, confirm the Stage 2
-checkpoint and target paths, run the exact `MODE=train` command above, and pull
-the named log. Then write observed facts beside the same source probes, update
-the Runtime Audit Atlas/checklist/evidence ledger, and stop for user review
-before any longer training.
+Phase A, probe insertion, Atlas synchronization, and the first actor-warmup
+formal run are complete. The next bounded step is a matched offline evaluation
+of `model_200.pt` and `model_201.pt` from the same actor probe run. `model_200.pt`
+is the pre-actor-update boundary; `model_201.pt` is the first actor-weighted
+update boundary. Use identical motions, start frames, perturbation family,
+effective K, and seed. Do not begin longer training until this pair is read.

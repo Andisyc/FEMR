@@ -420,7 +420,8 @@ Owner files/modules:
 - `note/testing/formal_runtime_audit.md`: current C v002 live gate.
 
 Expected evidence: formal audit contract PASS; Atlas source-line identity PASS;
-fresh live run still required and must show `gain_source=FRS-GAIN-v002`.
+fresh actor-warmup live evidence must show `actor_weight>0`, non-zero policy
+mean delta, accepted trust-region update, and `gain_source=FRS-GAIN-v002`.
 
-Status: implementation and offline formal-route contract PASS; S4 live gate
-remains open.
+Status: v002 formal route and first actor-warmup update are runtime-confirmed;
+representative actor learning and quality evidence remain open.

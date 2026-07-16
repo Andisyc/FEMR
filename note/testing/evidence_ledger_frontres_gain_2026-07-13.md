@@ -1310,3 +1310,41 @@ Next:
   pass.
 - Evidence level: code-confirmed and contract-confirmed. The formal `MODE=train`
   runtime gate remains open and must be rerun after deployment.
+
+## E58 - Formal Actor Warmup Runtime Probe (2026-07-16)
+
+- Fresh log: `formal_runtime_audit_actor_probe_20260716.txt`.
+- The official route reached iteration 201 with `phase=actor_warmup`,
+  `actor_weight=0.002`, `valid=8`, and `update_observed=1`.
+- The first actor-weighted update produced `post_mean_delta_l2=8.528e-04`,
+  `post_mean_delta_max=0.001053`, `post_kl=0.004131`, and
+  `trust_accepted=1`. GMT remained frozen with
+  `gmt_trainable=0` and `gmt_in_optimizer=0`.
+- `AUDIT-GAIN-01` and `AUDIT-RETURN-01` remained populated with finite v002
+  survival fields, rewards, returns, and advantages. The final checkpoint
+  `model_201.pt` saved with model, optimizer, normalizer, sampler, Gain config,
+  and warmup payloads.
+- The full-quartet `gain_steps` diagnostic still reports `finite=0` because
+  non-policy quartet rows are intentionally NaN; the policy-row v002 survival
+  trace and PPO tensors are finite. This is a diagnostic readability gap, not
+  evidence of invalid policy rewards.
+- Evidence level: runtime-confirmed for the first actor-warmup update and
+  v002 return wiring. It does not prove long-run actor quality or final policy
+  superiority.
+
+## E59 - Local Actor Checkpoint Pair Audit (2026-07-16)
+
+- Local artifacts: `model_200.pt` (892M, `iter=200`) and `model_201.pt`
+  (897M, `iter=201`). Both contain model, optimizer, warmup, Gain, sampler,
+  observation-normalizer, and privileged-normalizer payloads.
+- The local `./frontres` environment loaded both checkpoints sequentially.
+  Matching `residual_actor` tensors are finite and every actor layer changed
+  between the pair; `model_state_dict.std` and both normalizer `_std` tensors
+  are unchanged. This is consistent with `model_200 -> model_201` being the
+  first actor-weighted update boundary.
+- The local environment passes the sequence-eval contract, but it has no
+  importable `isaaclab` package and no local `AMASS_G1NPZ_Final` or
+  `AMASS_G1Segment` directory. Therefore no physical matched sequence eval was
+  executed locally and no policy-quality claim is made from this audit.
+- Evidence level: checkpoint-structure-confirmed and contract-confirmed;
+  physical offline evaluation remains runtime-unconfirmed.

@@ -46,18 +46,18 @@ runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: valid=8, critic-only update o
 runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "runtime-observed: all quartet roles start aligned and survive every K=8 step without termination (E37)";
 runtimeStatus["AUDIT-ANCHOR-Z-01"] = "runtime-observed: first-call raw/clean/robot z align, max abs error=0.0201m, anchor_pos=0 for all roles (E37)";
 runtimeStatus["AUDIT-DIAG-01"] = "runtime-observed: canonical Gain, valid fraction, warmup, PPO and trust diagnostics are populated (E37)";
-runtimeStatus["AUDIT-PERSIST-01"] = "runtime-observed: model_1.pt saved with model, optimizer, normalizer, sampler, Gain and warmup payloads (E37)";
-runtimeStatus["AUDIT-WARMUP-01"] = "runtime-observed: critic-only -> actor-warmup(0.5), finite accepted update (E39)";
-runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: actor-warmup valid=7, post KL=0.005442, trust accepted (E39)";
+runtimeStatus["AUDIT-PERSIST-01"] = "runtime-observed: model_201.pt saved with model, optimizer, normalizer, sampler, Gain and warmup payloads (E58)";
+runtimeStatus["AUDIT-WARMUP-01"] = "runtime-observed: critic-only -> actor-warmup(0.002), finite accepted update (E58)";
+runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: actor-warmup valid=8, post KL=0.004131, trust accepted (E58)";
 runtimeStatus["AUDIT-KROLLOUT-01"] = "runtime-observed: reset_success_frac=1.0 and valid=7/8 are populated (E39)";
 runtimeStatus["AUDIT-APPLY-01"] = "runtime-observed: finite full-6D action and delta_norm=0.016680 (E39)";
 runtimeStatus["AUDIT-PAIR-01"] = "runtime-observed: roles policy=8/baseline=24 and valid=7 (E39)";
 runtimeStatus["AUDIT-RETURN-01"] = "runtime-observed: reward/return/advantage tensors are finite and populated (E39)";
 runtimeStatus["AUDIT-PERTURB-01"] = "runtime-observed: rp, dr_scale=1.25 and max_horizon_k=64 are populated (E41)";
 runtimeStatus["AUDIT-PERTURB-02"] = "runtime-observed: local_rp=8 with finite strength min/mean/max (E41)";
-runtimeStatus["AUDIT-GAIN-01"] = "stale-rerun-required: FRS-GAIN-v002 survival unit fields were added after prior live evidence";
-runtimeStatus["AUDIT-RETURN-01"] = "stale-rerun-required: K-normalized per-step survival Gain requires new formal-route evidence";
-runtimeStatus["AUDIT-DIAG-01"] = "stale-rerun-required: v002 survival quality fields require new formal diagnostics evidence";
+runtimeStatus["AUDIT-GAIN-01"] = "runtime-observed: FRS-GAIN-v002 raw/K/quality/step-sum fields are finite with zero sum error (E58)";
+runtimeStatus["AUDIT-RETURN-01"] = "runtime-observed: K-normalized survival Gain, rewards, returns, and advantages are finite (E58)";
+runtimeStatus["AUDIT-DIAG-01"] = "runtime-observed: v002 Gain decomposition, valid fraction, warmup, PPO, and trust diagnostics are populated (E58)";
 
 const probeRationales = {
   "AUDIT-ROUTE-01": [

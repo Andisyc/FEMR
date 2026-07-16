@@ -1346,7 +1346,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: FRS-GAIN-v002 survival unit fields were added after prior live evidence"
+          "gap": "runtime-observed: FRS-GAIN-v002 raw/K/quality/step-sum fields are finite with zero sum error (E58)"
         },
         {
           "id": "AUDIT-RETURN-01",
@@ -1428,7 +1428,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: K-normalized per-step survival Gain requires new formal-route evidence"
+          "gap": "runtime-observed: K-normalized survival Gain, rewards, returns, and advantages are finite (E58)"
         },
         {
           "id": "AUDIT-HSL-LOAD-01",
@@ -1592,7 +1592,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: critic-only -> actor-warmup(0.5), finite accepted update (E39)"
+          "gap": "runtime-observed: critic-only -> actor-warmup(0.002), finite accepted update (E58)"
         },
         {
           "id": "AUDIT-PPO-01",
@@ -1674,7 +1674,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: actor-warmup valid=7, post KL=0.005442, trust accepted (E39)"
+          "gap": "runtime-observed: actor-warmup valid=8, post KL=0.004131, trust accepted (E58)"
         },
         {
           "id": "AUDIT-PERSIST-01",
@@ -1756,7 +1756,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: model_1.pt saved with model, optimizer, normalizer, sampler, Gain and warmup payloads (E37)"
+          "gap": "runtime-observed: model_201.pt saved with model, optimizer, normalizer, sampler, Gain and warmup payloads (E58)"
         },
         {
           "id": "AUDIT-DIAG-01",
@@ -1838,7 +1838,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "stale-rerun-required: v002 survival quality fields require new formal diagnostics evidence"
+          "gap": "runtime-observed: v002 Gain decomposition, valid fraction, warmup, PPO, and trust diagnostics are populated (E58)"
         }
       ]
     }
