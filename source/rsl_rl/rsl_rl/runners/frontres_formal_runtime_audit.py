@@ -36,6 +36,19 @@ def _tensor_stats(value: Any) -> str:
     return stats
 
 
+def _policy_gain_steps_for_audit(capture: Any, n_train: int) -> torch.Tensor | None:
+    """Return only policy-owned Gain steps for the Card 17 audit snapshot."""
+
+    gain_steps = getattr(capture, "gain_steps", None)
+    if not isinstance(gain_steps, torch.Tensor) or gain_steps.ndim != 2:
+        return gain_steps
+    if int(gain_steps.shape[1]) < int(n_train):
+        return gain_steps
+    # B2: quartet evidence contains non-policy rows that may be NaN by design;
+    # Card 17 must inspect the same policy-row domain consumed by storage.
+    return gain_steps[:, : int(n_train)]
+
+
 def _summary_value(summary: Mapping[str, Any], key: str) -> str:
     value = summary.get(key, "missing")
     if isinstance(value, float) and not math.isfinite(value):
@@ -421,7 +434,7 @@ def print_rollout_storage_audit(
         effective_horizon_k=_tensor_stats(effective_horizon_k[:n_train]),
         survival_gain_steps=_tensor_stats(policy_survival_gain_steps),
         survival_gain_step_sum=_tensor_stats(policy_survival_gain_sum),
-        gain_steps=_tensor_stats(getattr(capture, "gain_steps", None)),
+        gain_steps=_tensor_stats(_policy_gain_steps_for_audit(capture, n_train)),
         rewards=_tensor_stats(getattr(storage_batch, "rewards", None)),
         returns=_tensor_stats(getattr(storage_batch, "returns", None)),
         advantages=_tensor_stats(getattr(storage_batch, "advantages", None)),

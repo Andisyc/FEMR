@@ -1483,3 +1483,25 @@ Next:
 - Verification: formal audit contract and `git diff --check` are required;
   the next live command remains blocked until source/checkpoint identity is
   confirmed and the user approves the tiny official `MODE=train` run.
+
+## E66 - Card 17 Policy-Row Gain-Step Diagnostic Repair (2026-07-17)
+
+- Live finding: the official run reached Cards 15/16/17/22 with one shared
+  transaction, but `AUDIT-RETURN-01` printed full `[T,32]` quartet
+  `gain_steps`; the 24 non-policy rows are intentionally NaN, while the
+  policy slice and actual returns/advantages were finite.
+- Root cause: the audit formatter read `capture.gain_steps` before applying the
+  same `n_train` policy-row boundary already used by the reward owner.
+- Fix: `_policy_gain_steps_for_audit()` now reports only `[T,:n_train]` for
+  Card 17. No reward, storage, returns, advantage, PPO, or quartet semantics
+  changed.
+- Offline evidence: py_compile and
+  `frontres_formal_runtime_audit_contract.py` passed, including a `[T,32]`
+  fixture with `[T,24]` non-policy NaNs and a finite `[T,8]` policy slice.
+- Status: the 20260717 live log is valid evidence for transaction identity,
+  but Card 17's old full-row diagnostic is stale-rerun-required. A fresh
+  official run is required before source comments or Atlas status can be
+  promoted.
+- The next formal command uses the unique
+  `formal_runtime_audit_gain_identity_rerun_20260717.txt` log and matching run
+  name; the original 20260717 log remains preserved as raw evidence.

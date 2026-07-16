@@ -35,6 +35,7 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
     policy = SimpleNamespace(
         gmt_policy=nn.Linear(3, 3),
     )
+
     for param in policy.gmt_policy.parameters():
         param.requires_grad = False
     actor_param = nn.Parameter(torch.ones(1))
@@ -66,6 +67,18 @@ def _runner(enabled: bool = True) -> SimpleNamespace:
         _frontres_segment_replay_boundary=boundary,
         current_learning_iteration=3,
     )
+
+
+def test_return_audit_uses_policy_gain_rows_only() -> None:
+    policy_gain_steps = torch.ones(8, 8)
+    non_policy_gain_steps = torch.full((8, 24), float("nan"))
+    capture = SimpleNamespace(gain_steps=torch.cat((policy_gain_steps, non_policy_gain_steps), dim=1))
+
+    selected = audit._policy_gain_steps_for_audit(capture, 8)
+
+    assert selected is not None
+    assert tuple(selected.shape) == (8, 8)
+    assert bool(torch.isfinite(selected).all().item())
 
 
 def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
@@ -457,6 +470,7 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
 
 
 if __name__ == "__main__":
+    test_return_audit_uses_policy_gain_rows_only()
     test_structured_phase_b_snapshots_cover_all_formal_boundaries()
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
     test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()

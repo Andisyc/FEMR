@@ -78,9 +78,10 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
   within K=8 and exposed the reset/episode/done mismatch. Step A/B and E37
   closed that boundary with role-aware reset evidence and dynamic-state repair.
   The rerun3 facts remain historical evidence and are not the current blocker.
-- Current gate: E64 closed offline transaction propagation for Cards 15/16/17
-  and Card 22 aggregate classification. A current-revision official run still
-  must prove the real capture transaction and numeric Gain-to-return equality.
+- Current gate: E66 closed offline transaction propagation and Card 17's
+  policy-row Gain-step diagnostic slice. A current-revision official run still
+  must prove the real capture transaction and numeric Gain-to-return equality;
+  the prior live run's full quartet `gain_steps` NaN diagnostic is stale.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
@@ -920,9 +921,9 @@ storage-only, update-loop-only, or offline-eval branch.
 ```bash
 CUDA_VISIBLE_DEVICES=2 \
 CACHE_DIR=/hdd1/cyx/AMASS_G1Segment \
-LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_gain_identity_20260717.txt \
+LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_gain_identity_rerun_20260717.txt \
 PERIODIC_EVAL_ENABLED=0 \
-RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_GAIN_IDENTITY_20260717 \
+RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_GAIN_IDENTITY_RERUN_20260717 \
 HYDRA_FULL_ERROR=1 \
 bash /hdd1/cyx/FEMR/run_stage3.sh \
   /hdd1/cyx/FEMR/model/model_warmup.pt \
