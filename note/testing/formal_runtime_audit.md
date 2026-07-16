@@ -78,13 +78,12 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
   within K=8 and exposed the reset/episode/done mismatch. Step A/B and E37
   closed that boundary with role-aware reset evidence and dynamic-state repair.
   The rerun3 facts remain historical evidence and are not the current blocker.
-- Current gate: E67 closed the current-revision single-capture transaction and
-  numeric Gain-to-return identity for Cards 15/16/17/22. The official log now
-  reports the policy-row `gain_steps` slice as finite `[T,8]`, with the same
-  transaction and batch identity across paired evidence, canonical Gain,
-  returns, and update-loop diagnostics. Remaining S4 work is population/mixed-K
-  coverage, actor-update evidence, and checkpoint-resume evidence; this run
-  does not claim those properties.
+- Current gate: E68 extends E67 with current-revision mixed-K and actor-warmup
+  evidence. The official route reached `iter=220/220`, sampled effective
+  `K=8..64`, and entered actor warmup with `actor_weight=0.002..0.040`; the
+  policy-row Gain-step slice remained finite and transaction-local. Remaining
+  S4 work is full actor/joint-RL coverage and checkpoint-resume evidence; this
+  run does not claim those properties.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current

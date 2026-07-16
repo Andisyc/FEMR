@@ -293,16 +293,16 @@ def print_sampler_audit(runner: Any, *, update_step: int, sample: Any, batch: An
         source_index=_tensor_stats(getattr(sample, "source_index", None)),
     )
     # AUDIT-KPLAN-01: 检查 per-row K 与 rollout budget, 位于 sampler plan -> trial expansion.
-    # Result: E67 LIVE PASS for one sampled plan: effective horizon K=8 and
-    # trial_role=policy for all eight sampled rows.
+    # Result: E68 LIVE OBSERVED: effective horizon K spans 8..64 in the
+    # formal route; each sampled plan remains policy-owned.
     _emit_owner_snapshot(
         "AUDIT-KPLAN-01",
         horizon_k=_tensor_stats(horizon_k),
         trial_roles=getattr(batch, "frontres_segment_trial_role", "missing"),
     )
     # AUDIT-KROLLOUT-01: 检查 reset/preroll/valid horizon, 位于 expanded trials -> scored rollout.
-    # Result: E67 LIVE PASS for one capture: reset_success_frac=1 and
-    # effective horizon K=8 for all eight policy rows.
+    # Result: E68 LIVE OBSERVED: mixed-K formal captures remain finite and
+    # policy-owned; reset/valid evidence is emitted for each transaction.
     _emit_owner_snapshot(
         "AUDIT-KROLLOUT-01",
         reset_success_frac=_summary_value(summary, "segment_reset_success_frac"),
@@ -409,8 +409,8 @@ def print_rollout_storage_audit(
         audit_identity_state=_summary_value(summary, "audit_identity_state"),
     )
     # AUDIT-GAIN-01: 检查 v002 Gain 分解和 survival unit, 位于 paired evidence -> storage reward.
-    # Result: E67 LIVE PASS for one K=8 capture: Gain components are finite and
-    # canonical total is forwarded with the same transaction/batch identity.
+    # Result: E68 LIVE PASS: mixed-K Gain components are finite and canonical
+    # total is forwarded with the same transaction/batch identity.
     _emit_owner_snapshot(
         "AUDIT-GAIN-01",
         contract="FRS-GAIN-v002",
@@ -432,8 +432,8 @@ def print_rollout_storage_audit(
         audit_identity_state=_summary_value(summary, "audit_identity_state"),
     )
     # AUDIT-RETURN-01: 检查 Gain -> reward -> returns, 位于 storage write -> PPO batch.
-    # Result: E67 LIVE PASS for one K=8 capture: policy-row gain_steps is finite
-    # [T,8], survival step-sum error is 0, and returns/advantages are finite.
+    # Result: E68 LIVE PASS: mixed-K gain_steps is finite [T,8], survival
+    # step-sum error is 0, and returns/advantages are finite.
     _emit_owner_snapshot(
         "AUDIT-RETURN-01",
         raw_survival_steps=_tensor_stats(raw_survival_steps[:n_train]),
@@ -464,7 +464,8 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
     assert bool(torch.isfinite(result.total_loss).all().item())
     assert all(not param.requires_grad and id(param) not in optimizer_ids for param in gmt_params)
     # AUDIT-WARMUP-01: 检查 critic-only/actor-ramp/joint phase, 位于 warmup owner -> PPO loss.
-    # Result: PENDING_LIVE.
+    # Result: E68 LIVE OBSERVED: actor_warmup ramps from weight=0.002 to 0.040;
+    # full actor/joint-RL behavior remains open.
     _emit_owner_snapshot(
         "AUDIT-WARMUP-01",
         phase=getattr(result, "warmup_phase", "missing"),
@@ -472,8 +473,8 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
         actor_weight=getattr(result, "actor_loss_weight", "missing"),
     )
     # AUDIT-DIAG-01: 检查 diagnostics 来自最终 accepted update, 位于 PPO result -> live summary.
-    # Result: E67 LIVE OBSERVED: Card 22 reports one transaction/batch; actor
-    # learning and population claims remain open.
+    # Result: E68 LIVE OBSERVED: actor_weight ramps 0.002..0.040 with accepted
+    # updates; full actor/joint-RL and population claims remain open.
     _emit_owner_snapshot(
         "AUDIT-DIAG-01",
         valid=valid_count,

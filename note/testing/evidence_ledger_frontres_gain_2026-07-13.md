@@ -1535,3 +1535,30 @@ Next:
 - Status: Phase B single-capture Gain-consumer identity is `S4 observed`; do
   not promote long-training readiness. Mixed-K population, actor-update, and
   resume gates remain open.
+
+## E68 - Actor-Warmup And Mixed-K Formal Sentinel (2026-07-17)
+
+- Raw evidence: `formal_runtime_audit_actor_sentinel_20260717.txt`, completed
+  at `iter=220/220` through the official `MODE=train` Segment route with
+  `formal_runtime_audit=1`, 32 environments, and one update step per loop.
+- Warmup: the route stayed `critic_only` through the configured 200 critic
+  iterations, then entered `actor_warmup` at `phase_iter=0` with
+  `actor_weight=0.002`, reaching `0.040` at the final iteration. Actor
+  parameter updates were nonzero; this proves the ramp entry, not full actor
+  weight or joint-RL behavior.
+- PPO/trust: actor-warmup updates report finite loss/gradient/parameter delta,
+  `trust_accepted=1`, `rejected=0`, and post-update KL below the configured
+  `desired_kl=0.01` in the observed actor-warmup samples. Frozen GMT remains
+  outside the optimizer (`gmt_trainable=0`, `gmt_in_optimizer=0`).
+- Mixed K: later formal captures report effective `K` from `8` through `64`;
+  `gain_steps=shape=(64,8), finite=1`, survival step-sum error remains `0.0`,
+  and returns/advantages remain finite. Each update-loop diagnostic still
+  reports one transaction and one batch with `same_transaction=True`.
+- Persistence: `model_100.pt`, `model_200.pt`, and `model_220.pt` each report
+  model, optimizer, normalizer, sampler, Gain config, and warmup payloads.
+- Runtime status: no formal audit `finite=0`, `missing`, `NaN`, `Inf`,
+  traceback, or uncaught exception was observed. Isaac Sim emitted a
+  non-fatal `DriverShaderCacheManager` shutdown warning during teardown.
+- Status: actor-warmup and mixed-K integration are `S4 observed`. Full actor
+  weight/joint-RL, checkpoint resume, and post-training quality remain open;
+  long training is not promoted by this sentinel alone.

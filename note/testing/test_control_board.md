@@ -23,7 +23,7 @@ claims additionally require S4.
 | Surface | Current evidence | Status | Limitation |
 | --- | --- | --- | --- |
 | Segment aggregate suite | 44/44 contract markers, 2026-07-15 | covered S0-S3/S4-named offline contracts | Does not prove real simulator quality. |
-| Survival Gain v002 suite | Gain owner, connectivity, live probe/training/sequence/diagnostic/sampler contracts, 2026-07-17 | passed | E67 confirms one official K=8 capture: same transaction/batch, finite policy-row Gain steps, K-normalized survival, and returns/advantages. Mixed-K population, actor learning, and long-run quality remain separate gates. |
+| Survival Gain v002 suite | Gain owner, connectivity, live probe/training/sequence/diagnostic/sampler contracts, 2026-07-17 | passed | E67 confirms transaction/batch identity; E68 confirms mixed K=8..64, finite policy-row Gain steps, returns/advantages, and actor-warmup entry. Full actor/joint RL, resume, and long-run quality remain separate gates. |
 | Architecture viewer | JSON valid; viewer imports; 62 owner paths exist; Runtime Audit Atlas has 20 owner cards | covered S0 | Does not prove runtime routing. |
 | Full-6D/no active mask | dedicated static contract plus rollout/PPO tuple tests | covered S0-S2 | S4 full-6D log proof remains. |
 | K curriculum | 8/16/32/64 implementation, explicit Stage 3 max horizon, and formal-route connectivity | covered S1-S2 | Live horizon distribution remains S4. |

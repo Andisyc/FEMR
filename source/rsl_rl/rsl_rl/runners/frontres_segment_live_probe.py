@@ -2317,7 +2317,8 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
     diagnostics.update(lr_diagnostics)
     _attach_ppo_update_diagnostics(ppo_result, diagnostics)
     # AUDIT-PPO-01: 检查 warmup/PPO/KL/Frozen GMT, 位于 optimizer diagnostics -> live summary.
-    # Result: PENDING_LIVE.
+    # Result: E68 LIVE OBSERVED: actor_warmup weight=0.002..0.040, accepted
+    # updates, finite post-update KL, and frozen GMT ownership.
     print_ppo_audit(runner, result=ppo_result)
     runner.eval_mode()
     return ppo_result
