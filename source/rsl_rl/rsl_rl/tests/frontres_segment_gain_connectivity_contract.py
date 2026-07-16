@@ -195,13 +195,35 @@ def test_formal_gain_reaches_storage_and_ppo_batch() -> None:
     assert batch.valid_mask.tolist() == [True, False, False, False]
 
     class _PPOBatch:
-        def __init__(self, **kwargs):
-            self.__dict__.update(kwargs)
+        def __init__(
+            self,
+            observations,
+            actions,
+            old_log_probs,
+            old_values,
+            returns,
+            advantages,
+            valid_mask,
+            segment_ids=None,
+            old_means=None,
+            old_sigmas=None,
+        ):
+            self.observations = observations
+            self.actions = actions
+            self.old_log_probs = old_log_probs
+            self.old_values = old_values
+            self.returns = returns
+            self.advantages = advantages
+            self.valid_mask = valid_mask
+            self.segment_ids = segment_ids
+            self.old_means = old_means
+            self.old_sigmas = old_sigmas
 
     ppo_batch = batch.to_ppo_batch(_PPOBatch)
     torch.testing.assert_close(ppo_batch.returns, batch.returns)
     torch.testing.assert_close(ppo_batch.advantages, batch.advantages)
     torch.testing.assert_close(ppo_batch.valid_mask, batch.valid_mask)
+    assert not hasattr(ppo_batch, "audit_transaction_id")
 
 
 def test_fall_keeps_prefall_style_evidence_but_blocks_ppo_row() -> None:
@@ -316,11 +338,82 @@ def test_formal_gain_route_rejects_legacy_score_fallback() -> None:
         probe._gain_module = original_gain_module
 
 
+def test_rollout_identity_reaches_storage_and_rejects_mixed_transactions() -> None:
+    probe, _ = _load_live_probe()
+    runner = types.SimpleNamespace(
+        current_learning_iteration=7,
+        _frontres_segment_live_current_batch=types.SimpleNamespace(
+            segment_ids=torch.tensor([11, 12]),
+            frontres_segment_trial_role=("policy", "search"),
+        ),
+        _frontres_segment_live_current_reset_request=types.SimpleNamespace(
+            motion_ids=("motion_a", "motion_b"),
+            start_frames=torch.tensor([3, 4]),
+        ),
+    )
+    identity = probe._new_live_audit_identity(
+        runner,
+        pair_layout=types.SimpleNamespace(rollout_k=4),
+        batch_size=2,
+        horizon_k=torch.tensor([3, 4]),
+    )
+    assert identity["audit_identity_state"] == "complete"
+    assert identity["audit_row_count"] == 2
+    assert identity["audit_batch_signature"]
+
+    storage = probe.FrontRESSegmentRolloutStorage(
+        capacity=4,
+        obs_shape=(3,),
+        privileged_obs_shape=(3,),
+        device="cpu",
+    )
+    transition = probe.FrontRESSegmentTransition(
+        observations=torch.zeros(2, 3),
+        privileged_observations=torch.zeros(2, 3),
+        actions=torch.zeros(2, 6),
+        old_log_probs=torch.zeros(2),
+        values=torch.zeros(2),
+        rewards=torch.ones(2),
+        valid_mask=torch.ones(2, dtype=torch.bool),
+        reset_mask=torch.ones(2, dtype=torch.bool),
+        segment_ids=torch.tensor([11, 12]),
+        audit_transaction_id=identity["audit_transaction_id"],
+        audit_batch_signature=identity["audit_batch_signature"],
+        audit_identity_state=identity["audit_identity_state"],
+    )
+    storage.add_transition(transition)
+    batch = storage.full_batch()
+    assert batch.audit_transaction_id == identity["audit_transaction_id"]
+    assert batch.audit_batch_signature == identity["audit_batch_signature"]
+
+    mixed = probe.FrontRESSegmentTransition(
+        observations=torch.zeros(1, 3),
+        privileged_observations=torch.zeros(1, 3),
+        actions=torch.zeros(1, 6),
+        old_log_probs=torch.zeros(1),
+        values=torch.zeros(1),
+        rewards=torch.ones(1),
+        valid_mask=torch.ones(1, dtype=torch.bool),
+        reset_mask=torch.ones(1, dtype=torch.bool),
+        segment_ids=torch.tensor([13]),
+        audit_transaction_id="iter7:capture-other",
+        audit_batch_signature="different",
+        audit_identity_state="complete",
+    )
+    try:
+        storage.add_transition(mixed)
+    except ValueError as exc:
+        assert "different rollout transactions" in str(exc)
+    else:
+        raise AssertionError("storage accepted rows from a different rollout transaction")
+
+
 def main() -> None:
     test_paired_gain_replaces_old_training_score()
     test_formal_gain_reaches_storage_and_ppo_batch()
     test_fall_keeps_prefall_style_evidence_but_blocks_ppo_row()
     test_formal_gain_route_rejects_legacy_score_fallback()
+    test_rollout_identity_reaches_storage_and_rejects_mixed_transactions()
     print("frontres_segment_gain_connectivity_contract: ok")
 
 

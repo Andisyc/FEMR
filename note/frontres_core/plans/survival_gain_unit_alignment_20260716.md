@@ -1,8 +1,10 @@
 # C: Survival Gain Unit Alignment
 
-Status: C implementation complete offline; formal/live evidence remains open.
+Status: C implementation complete offline; formal consumer alignment remains open.
 Origin: main-conversation decision on 2026-07-16, based on the side proposal.
-Evidence status: E55 offline owner/connectivity evidence; no new live run yet.
+Evidence status: E55 offline owner/connectivity evidence; E58 confirms the
+formal route reaches v002 rewards/returns, but same-transaction diagnostic and
+training Gain equality is not yet recorded. Quality comparisons are deferred.
 Related contract: `FRS-GAIN-v002-style-physics-repair`.
 Related design points: `FRS-DP-06` Paired Rollouts, `FRS-DP-07` Repair Gain.
 
@@ -70,5 +72,7 @@ with the short K-step Segment Gain.
 
 Offline stop condition passed: the owner rejects missing K as unconfirmed, the
 K=1/4/8 values match hand calculation, and per-step alive-increment Gain sums
-to the final K-normalized survival Gain. Formal Stage 3 and long-sequence
-runtime evidence remain a separate later gate.
+to the final K-normalized survival Gain. The remaining formal step is to show
+that one paired transaction feeds the same component values into diagnostics,
+per-step reward, returns, and advantages. Model-pair quality and long-sequence
+runtime evidence are separate post-training observations.

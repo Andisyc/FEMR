@@ -38,7 +38,8 @@ Updated: 2026-07-15
 | --- | --- | --- |
 | `frontres_gain_components_contract.py` | S1 | Hand-computed Style, Physics, Repair components, full-6D cost, mixed-K/done masking, K=1/4/8 survival quality, per-step-to-final aggregation, missing-K fail-closed behavior, Clean no-op, signs, scales, and missing-evidence behavior. |
 | `frontres_segment_motion_quality_capture_contract.py` | S1/S2 | Clean/Noisy/Repaired root-quaternion role pairing, origin-safe motion capture, and quartet contact-proxy pairing. |
-| `frontres_segment_gain_connectivity_contract.py` | S2 | Paired Gain replaces legacy score in storage rewards, K-step returns, valid policy rows, and PPO batch conversion; missing formal evidence rejects fallback. |
+| `frontres_segment_gain_connectivity_contract.py` | S1/S2 | Paired Gain replaces legacy score in storage rewards, K-step returns, valid policy rows, and PPO batch conversion; missing formal evidence rejects fallback; rollout transaction identity reaches the storage batch and mixed-transaction rows are rejected. |
+| `frontres_segment_live_update_loop_contract.py` | S2 | Update-loop diagnostics classify one transaction as `single` and multiple transactions as `aggregate`. |
 | Extend `frontres_segment_live_probe_contract.py` | S1/S2 | Clean-target pairing, mixed-K decomposition, generic-reward isolation. |
 | Extend `frontres_segment_storage_contract.py` | S1/S2 | Accepted total Gain reaches per-row returns. |
 | `frontres_segment_live_sampler_contract.py` | S1/S2 | Formal Gain source/component propagation, missing/non-finite Gain rejection, legacy-score isolation at evidence boundary, priority/state diagnostic isolation, and single-owner connectivity. |
@@ -57,6 +58,9 @@ Updated: 2026-07-15
   by E11/E12; periodic eval migration is covered by E15; sequence and final
   cross-consumer offline closure are covered by E16.
 - S4 live Gain sentinel is still required.
+- Formal runtime identity equality for Cards 15/16/17 and aggregate
+classification for Card 22 remain an S4 evidence gap; local identity
+propagation and mixed-transaction rejection are covered offline.
 - Formal S3 checkpoint contracts pass offline; a real server checkpoint load and
   post-resume eval remain unconfirmed.
 - Isolated retired authority-space/event modules and their dedicated tests were

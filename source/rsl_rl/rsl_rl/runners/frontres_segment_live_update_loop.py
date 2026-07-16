@@ -57,6 +57,37 @@ def _mean_optional_metric(metrics: list[dict[str, Any]], key: str) -> float:
     return sum(values) / float(len(values))
 
 
+def _aggregate_audit_identity(metrics: list[dict[str, Any]]) -> dict[str, Any]:
+    """Classify whether the update-loop summary is single-capture or aggregate."""
+
+    transaction_ids = tuple(
+        str(item["audit_transaction_id"])
+        for item in metrics
+        if item.get("audit_transaction_id") not in (None, "", "UNCONFIRMED")
+    )
+    batch_signatures = tuple(
+        str(item["audit_batch_signature"])
+        for item in metrics
+        if item.get("audit_batch_signature") not in (None, "", "UNCONFIRMED")
+    )
+    unique_transactions = tuple(dict.fromkeys(transaction_ids))
+    unique_batches = tuple(dict.fromkeys(batch_signatures))
+    if not unique_transactions:
+        mode = "UNCONFIRMED"
+    elif len(unique_transactions) == 1 and len(unique_batches) == 1:
+        mode = "single"
+    else:
+        mode = "aggregate"
+    return {
+        "audit_identity_mode": mode,
+        "audit_transaction_count": len(unique_transactions),
+        "audit_transaction_ids": unique_transactions,
+        "audit_batch_signature_count": len(unique_batches),
+        "audit_batch_signatures": unique_batches,
+        "audit_same_transaction": mode == "single",
+    }
+
+
 def _min_optional_metric(metrics: list[dict[str, Any]], key: str) -> float:
     values = [float(item[key]) for item in metrics if key in item and math.isfinite(float(item[key]))]
     if not values:
@@ -114,6 +145,7 @@ def run_frontres_segment_live_update_loop(
                 update_step=update_step,
             )
         )
+    audit_identity = _aggregate_audit_identity(metrics)
     update_count = sum(1 for item in metrics if bool(item["ppo_update"]))
     valid_count = sum(int(item["ppo_valid_count"]) for item in metrics)
     env_reward_mean = sum(float(item.get("env_reward_mean", item["reward_mean"])) for item in metrics) / float(update_steps)
@@ -223,6 +255,11 @@ def run_frontres_segment_live_update_loop(
                     f"train_reward={_fmt_num(train_reward_mean)} "
                     f"env_reward={_fmt_num(env_reward_mean)} "
                     f"gain_total={_fmt_num(gain_total_mean)}",
+                    "  audit: "
+                    f"mode={audit_identity['audit_identity_mode']} "
+                    f"transactions={audit_identity['audit_transaction_count']} "
+                    f"batches={audit_identity['audit_batch_signature_count']} "
+                    f"same_transaction={audit_identity['audit_same_transaction']}",
                     "  trial: "
                     f"policy={trial_policy_count} "
                     f"search={trial_search_count} "
@@ -352,4 +389,5 @@ def run_frontres_segment_live_update_loop(
         "sampler_update_replay_candidate_count": sampler_update_replay_candidate_count,
         "sampler_update_priority_before_mean": sampler_update_priority_before_mean,
         "sampler_update_priority_after_mean": sampler_update_priority_after_mean,
+        **audit_identity,
     }

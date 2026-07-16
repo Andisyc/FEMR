@@ -1,14 +1,43 @@
 # Formal Runtime Audit
 
-Status: `phase-b-gain-v002-actor-warmup-runtime-observed-quality-gate-open`
+Status: `phase-b-gain-v002-consumer-alignment-open`
 
 Current C boundary 2026-07-16: the active reward contract is now
 `FRS-GAIN-v002`. The formal audit was updated to expose raw survival steps,
 per-row effective K, repaired/noisy survival quality, normalized survival Gain,
 and the equality between per-step survival Gain sum and final survival Gain.
 The v002 formal route is now runtime-observed through the first actor-warmup
-update. Representative actor learning and long-run quality are still open; all
-prior v001 live Gain/return claims remain stale for this boundary.
+update. The current Phase B gate is now Gain consumer alignment: the diagnostic
+Gain and the training Gain must be shown to use the same paired rows, effective
+K, done mask, and Style/Physics/Repair components. A model-200/model-201 pair
+comparison and multi-seed quality evaluation are optional post-training
+evidence, not a prerequisite for formal training. All prior v001 live
+Gain/return claims remain stale for this boundary.
+
+Control decision 2026-07-16: a single actor update is not expected to prove
+long-run RL improvement. The double-layer Segment Replay design supplies the
+repeated segment evidence and PPO updates needed for learning. Phase B must
+first prove the semantic path
+`paired capture -> diagnostic Gain -> per-step reward -> returns/advantages`
+before any quality claim is interpreted. The four exploratory matched-eval
+logs remain raw evidence only; their cross-check is not the active audit gate.
+
+Mainline handoff clarification 2026-07-17: `AUDIT-GAIN-01` and
+`AUDIT-RETURN-01` are emitted from the same formal rollout capture and the
+same policy-row batch. The source route is
+`run_frontres_segment_live_probe()` -> `build_live_segment_storage()`:
+the diagnostic reads the paired capture, while storage derives reward steps,
+done steps, horizon K, returns, and advantages from that same capture. The
+remaining Phase B boundary is therefore numeric consumer alignment in one
+official log: the same paired rows must show the same effective K, done mask,
+Style/Physics/Repair components, and per-step Gain sum. This is a runtime
+correctness check, not a requirement that one PPO update improve quality.
+Identity clarification 2026-07-17: Cards 15/16/17 are single-capture owner
+boundaries and must carry the same `audit_transaction_id` and policy-row batch
+signature. Card 22 is downstream of the update-loop aggregator, so it may
+consume multiple capture transactions. Its log must explicitly report
+`single` versus `aggregate`, transaction count, and batch-signature count; it
+must never present an aggregate as one rollout batch.
 
 Correction 2026-07-15: the first 20-card Atlas revision pointed many cards at
 owner functions while emitting their labels only from five runner summaries.
@@ -45,10 +74,13 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
   deployed source snapshot must match this worktree before live evidence is accepted.
 - Checkpoint identity: must be supplied and printed by the upcoming formal run.
 - Official command: locked below under `Tiny Formal-Route Command`.
-- Current gate: the 32-environment rerun3 executed, but all 32 quartet rows
-  terminated within K=8, including all eight policy rows. PPO correctly had no
-  eligible row. Reset/episode/done ownership must be audited before another
-  formal run.
+- Historical reset gate: the 32-environment rerun3 terminated all quartet rows
+  within K=8 and exposed the reset/episode/done mismatch. Step A/B and E37
+  closed that boundary with role-aware reset evidence and dynamic-state repair.
+  The rerun3 facts remain historical evidence and are not the current blocker.
+- Current gate: E64 closed offline transaction propagation for Cards 15/16/17
+  and Card 22 aggregate classification. A current-revision official run still
+  must prove the real capture transaction and numeric Gain-to-return equality.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
@@ -888,9 +920,9 @@ storage-only, update-loop-only, or offline-eval branch.
 ```bash
 CUDA_VISIBLE_DEVICES=2 \
 CACHE_DIR=/hdd1/cyx/AMASS_G1Segment \
-LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_gain_v002_20260716.txt \
+LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_gain_identity_20260717.txt \
 PERIODIC_EVAL_ENABLED=0 \
-RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_GAIN_V002_20260716 \
+RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_GAIN_IDENTITY_20260717 \
 HYDRA_FULL_ERROR=1 \
 bash /hdd1/cyx/FEMR/run_stage3.sh \
   /hdd1/cyx/FEMR/model/model_warmup.pt \
@@ -926,10 +958,16 @@ command is accepted as live evidence.
 
 ## Required Next Step
 
-Phase A, probe insertion, the first actor-warmup formal run, and one matched
-two-sequence evaluation are complete. The two-sequence result is mixed and is
-not a quality decision. The next bounded step is a larger matched evaluation
-of the same `model_200.pt` / `model_201.pt` pair using at least eight fixed
-motions and two matched seeds. Keep motions, start frames, perturbation family,
-strengths, effective K, and seeds identical between checkpoints. Do not begin
-longer training until this broader pair is read.
+Phase A, probe insertion, the first actor-warmup formal run, and the local Gain
+consumer pseudo-data gate are complete. The local gate confirms the
+implementation path:
+`Gain components -> canonical gain_total -> Segment storage -> K-step
+returns/advantages -> training summary`.
+
+The next bounded step is a tiny official `MODE=train` runtime comparison of
+`AUDIT-GAIN-01` and `AUDIT-RETURN-01` on the same transaction. It must verify
+paired rows, effective K, done mask, Style/Physics/Repair components, and
+per-step survival Gain sum against the training return. It is not required to
+show that a single PPO update improves behavior. Model-pair quality evaluation
+and long training remain deferred until this formal consumer comparison is
+closed.

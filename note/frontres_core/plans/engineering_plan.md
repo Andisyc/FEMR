@@ -1,10 +1,29 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B Step E integrated-live; sampled-frame command-cache defect closed by E37
-Updated: 2026-07-15
+Status: Phase B Gain-consumer alignment; reset recovery and command-cache defects closed by E37
+Updated: 2026-07-17
 Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
 
-Current bounded recovery step: `AUDIT-RESET-LIFECYCLE-01` observes reset-before/randomized/after episode buffers, quartet root/joint state pairing, and per-step role-aware done/timeout/termination/survival. It does not modify reset behavior, PPO eligibility, Gain, or fail-fast guards.
+Current bounded step: align the active `FRS-GAIN-v002` diagnostic and training
+consumers on one paired transaction. The step covers Style/Physics/Repair
+component values, effective-K survival units, done masks, per-step reward,
+returns, and advantages on the official route. It does not require a
+model-200/model-201 quality comparison, multi-seed evaluation, reward-weight
+changes, or long training.
+
+Current clarification 2026-07-17: the diagnostic and training consumers
+already share one rollout capture and one policy-row batch in the formal code
+route (E63). The remaining work is only to expose and compare the carried
+numeric fields in one official log; it is not a new sampler, Gain, PPO, or
+quality-improvement task.
+Card 22 clarification 2026-07-17: the training diagnostics formatter consumes
+the update-loop aggregate. It must report whether its input is a single
+transaction or an aggregate of multiple capture transactions; it is not
+required to share one batch with Cards 15/16/17 when `update_steps > 1`.
+
+Reset recovery is historical completed evidence: `AUDIT-RESET-LIFECYCLE-01`
+and the sampled-frame command-cache fix reached E37. Do not reopen reset,
+PPO eligibility, or fail-fast guards unless fresh evidence contradicts E37.
 
 ### Reset Recovery Step B / 2: Quartet Dynamic-State Reset
 
@@ -226,12 +245,15 @@ Expected evidence: S0-S3 tests pass with fresh counts; all documentation uses
 `FRS-TRAIN-v003`; remaining S4 facts are explicit. The current aggregate is
 `44/44` with `failed_count=0` after adding the task-space correction contract.
 
+Historical Phase B attempts before the reset repair:
+
 The second Phase B attempt reached canonical Gain and exposed a separate
 integration mismatch: final `done_any` erased the full Style row instead of
 truncating its trajectory at the fall. Gain capture now reuses the per-step
 horizon/alive mask for body and root-orientation Style, while storage keeps
 terminal PPO eligibility unchanged. The focused regression and aggregate suite
-pass; the current source still requires rerun3 before any S4 promotion.
+pass; at that historical point the current source still required rerun3 before
+any S4 promotion.
 
 The third Phase B attempt confirmed finite Gain and returns but sampled zero
 PPO-eligible policy rows. Production PPO correctly selected a no-update result;
@@ -241,7 +263,7 @@ uses 32 environments to provide eight policy rows and improve the chance of
 observing a real optimizer step. The entire worktree, including
 `scripts/rsl_rl/train.py`, must be synchronized before that run.
 
-The fourth attempt did not satisfy this plan: the simulator reported 8 envs,
+The fourth historical attempt did not satisfy this plan: the simulator reported 8 envs,
 quartet policy count 2, and stale startup audit ordering. Both policy rows fell,
 so the required live-training guard rejected `update_count=0`. No production
 guard or PPO rule should change; the next action remains the exact synchronized
@@ -309,10 +331,15 @@ Status: S4 runtime-observed in E41. The official route shows
 `max_horizon_k=64`, `family_counts={'local_rp': 8}`, finite strength
 min/mean/max, and no audit `missing`.
 
-### Step I: Method-Quality Sentinel
+### Step I: Post-Training Method-Quality Observation (deferred)
+Current interpretation: this is a post-training observation, not a Phase B
+prerequisite. One PPO update is not expected to improve every metric; the
+double-layer Segment Replay route supplies repeated evidence and updates.
 
-Objective: decide whether the actor-warmup policy improves paired executable
-Gain after an accepted actor update.
+Objective: observe whether repeated Segment Replay training improves paired
+executable Gain after the formal Gain-consumer alignment boundary is closed.
+This is not a Phase B prerequisite and does not require every PPO update to
+improve.
 
 Scope: a short sequential or fixed-sequence comparison that evaluates policy
 behavior after the actor update, with the same perturbation family and reported
@@ -337,7 +364,14 @@ nearly unchanged on the other, while aggregate Gain decreases. Broader fixed
 sequence coverage and Gain/survival alignment are still required for method
 quality acceptance.
 
-### Step I-B: Gain Decomposition Audit
+### Step I-B: Gain Consumer Alignment Audit
+Current interpretation: this is the active Phase B boundary. First prove the
+same paired transaction, effective K, done mask, and Style/Physics/Repair
+components reach both diagnostic Gain and training reward/returns/advantages.
+Use local pseudo data before any additional live quality comparison.
+
+The older fixed-checkpoint comparison scope below is retained as historical
+context only; it is not the current Phase B gate.
 
 Objective: determine whether the observed Gain/survival tension is caused by a
 component implementation defect, a metric-definition mismatch, or two-motion

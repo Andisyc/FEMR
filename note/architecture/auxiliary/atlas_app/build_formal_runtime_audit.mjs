@@ -19,14 +19,14 @@ const specs = [
   ["AUDIT-APPLY-01", "Delta SE(3) 应用", "M-04, M-10", "完整 6D repair 写入 repaired reference", "source/rsl_rl/rsl_rl/frontres/task_space_correction.py", "apply_frontres_task_corrections()", ["raw Delta SE(3)", "task correction", "repaired reference"]],
   ["AUDIT-GMT-01", "Frozen GMT", "M-10", "GMT 执行 repaired reference 且参数保持冻结", "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "get_env_action()", ["GMT observation", "requires_grad/optimizer exclusion", "GMT execution/checksum"]],
   ["AUDIT-PAIR-01", "Quartet Role 布局", "Q-PAIR, SR-01", "Clean/Noisy/Repaired/Train 行身份与 reset 对齐", "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py", "configure_frontres_pair_layout()", ["pair layout", "trial role rows", "reset/valid role counts"]],
-  ["AUDIT-PAIR-EVIDENCE-01", "Paired Execution Evidence", "Q-PAIR, Q-01", "同 segment/K 的 Noisy 与 Repaired 证据可比较", "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "_capture_motion_quality_frame()/_capture_physics_frame()", ["shared segment/K", "Noisy/Repaired execution", "paired style/physics evidence"]],
-  ["AUDIT-GAIN-01", "Canonical Repair Gain v002", "Q-01", "raw survival、effective K、survival quality 与 Style/Physics/Repair 合成为 Total Gain", "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "compute_segment_gain()", ["raw survival_steps + effective_horizon_K", "survival_quality repaired/noisy + physics_survival_gain", "survival_gain_step_sum + gain_total"]],
-  ["AUDIT-RETURN-01", "Gain 到 PPO Return v002", "Q-01, M-05", "canonical Gain 与 K-normalized survival Gain 成为 storage reward、return 和 advantage", "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "compute_returns_and_advantages()/to_ppo_batch()", ["survival_gain_steps + effective K", "survival_gain_step_sum + returns/advantages", "PPO batch"]],
+  ["AUDIT-PAIR-EVIDENCE-01", "Paired Execution Evidence", "Q-PAIR, Q-01", "同 segment/K 且同 audit transaction 的 Noisy 与 Repaired 证据可比较", "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "_capture_motion_quality_frame()/_capture_physics_frame()", ["shared segment/K", "Noisy/Repaired execution", "paired style/physics evidence", "audit transaction/batch signature"]],
+  ["AUDIT-GAIN-01", "Canonical Repair Gain v002", "Q-01", "同一 capture identity 下 raw survival、effective K、survival quality 与 Style/Physics/Repair 合成为 Total Gain", "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "compute_segment_gain()", ["raw survival_steps + effective_horizon_K", "survival_quality repaired/noisy + physics_survival_gain", "survival_gain_step_sum + gain_total", "same capture transaction/batch signature"]],
+  ["AUDIT-RETURN-01", "Gain 到 PPO Return v002", "Q-01, M-05", "同一 capture identity 的 canonical Gain 与 K-normalized survival Gain 成为 storage reward、return 和 advantage", "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "compute_returns_and_advantages()/to_ppo_batch()", ["survival_gain_steps + effective K", "survival_gain_step_sum + returns/advantages", "PPO batch", "same capture transaction/batch signature"]],
   ["AUDIT-HSL-LOAD-01", "HSL 到 Stage 3", "M-03, M-04", "Stage 2 actor 与 observation normalizer 正确进入 Stage 3", "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "load_runner()", ["checkpoint identity", "actor/normalizer state", "Stage 3 live policy"]],
   ["AUDIT-WARMUP-01", "Actor/Critic Warmup", "M-05", "critic-only、actor ramp 与 joint phase 按 iteration 生效", "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "frontres_segment_warmup_phase()", ["persisted iteration", "phase/actor weight", "loss gradient boundary"]],
   ["AUDIT-PPO-01", "Segment PPO 更新", "M-05, M-04, Q-01", "old tuple 到 accepted post-update policy 形成闭环", "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "compute_frontres_segment_ppo_loss()", ["old stats/action/advantage", "loss/backward/optimizer step", "post-KL/trust decision"]],
   ["AUDIT-PERSIST-01", "Checkpoint 写盘", "M-03, SR-01, M-05, Q-01", "完整 Stage 3 训练语义写入 model_N.pt", "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "save_runner()", ["base policy payload", "normalizer/sampler/Gain/warmup", "required-key assert/torch.save"]],
-  ["AUDIT-DIAG-01", "正式 Diagnostics", "Q-01, M-05", "日志读取 canonical summary 且缺失值不伪装为零", "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "repair_effect_summary_to_scalars()", ["canonical live summary", "diagnostic scalars", "terminal/logger consumer"]],
+  ["AUDIT-DIAG-01", "正式 Diagnostics", "Q-01, M-05", "日志读取 canonical summary, 明确 single transaction 或 update-loop aggregate, 且缺失值不伪装为零", "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "repair_effect_summary_to_scalars()", ["canonical live summary", "single/aggregate transaction identity", "diagnostic scalars", "terminal/logger consumer"]],
 ];
 
 const rerun3Reached = new Set([
@@ -56,8 +56,10 @@ runtimeStatus["AUDIT-RETURN-01"] = "runtime-observed: reward/return/advantage te
 runtimeStatus["AUDIT-PERTURB-01"] = "runtime-observed: rp, dr_scale=1.25 and max_horizon_k=64 are populated (E41)";
 runtimeStatus["AUDIT-PERTURB-02"] = "runtime-observed: local_rp=8 with finite strength min/mean/max (E41)";
 runtimeStatus["AUDIT-GAIN-01"] = "runtime-observed: FRS-GAIN-v002 raw/K/quality/step-sum fields are finite with zero sum error (E58)";
-runtimeStatus["AUDIT-RETURN-01"] = "runtime-observed: K-normalized survival Gain, rewards, returns, and advantages are finite (E58)";
-runtimeStatus["AUDIT-DIAG-01"] = "runtime-observed: v002 Gain decomposition, valid fraction, warmup, PPO, and trust diagnostics are populated (E58)";
+runtimeStatus["AUDIT-PAIR-EVIDENCE-01"] = "offline-confirmed: one capture emits transaction and batch signatures; formal same-capture log equality remains open (E64)";
+runtimeStatus["AUDIT-GAIN-01"] = "offline-confirmed: FRS-GAIN-v002 preserves transaction and batch identity; formal equality remains open (E64)";
+runtimeStatus["AUDIT-RETURN-01"] = "offline-confirmed: storage/returns preserve transaction and batch identity; formal equality remains open (E64)";
+runtimeStatus["AUDIT-DIAG-01"] = "offline-confirmed: update-loop diagnostics classify single/aggregate transactions; formal log remains open (E64)";
 
 const probeRationales = {
   "AUDIT-ROUTE-01": [
@@ -133,17 +135,17 @@ const probeRationales = {
   "AUDIT-PAIR-EVIDENCE-01": [
     ["同一 quartet frame 的 Clean/Repaired/Noisy 行尚未聚合, 可验证配对身份", "失败归属: role slicing 或 motion/frame alignment"],
     ["style 与 physics frame 完成后首次具备 canonical Gain 所需配对语义", "失败归属: motion/physics capture owners"],
-    ["Gain 调用前检查可发现 evidence 被跨 motion、跨 K 或跨 role 混合", "失败归属: paired capture 到 Gain connector"],
+    ["Gain 调用前检查可发现 transaction/batch signature 不一致或 evidence 被跨 motion、跨 K 或跨 role 混合", "失败归属: paired capture 到 Gain connector"],
   ],
   "AUDIT-GAIN-01": [
     ["raw survival_steps 与 effective_horizon_K 首次同时进入 Gain owner, 可确认原始单位和每行 K 没有错位", "失败归属: paired capture 或 horizon forwarding"],
     ["survival_quality repaired/noisy 与 physics_survival_gain 在 owner 产物边界同时成立, 可确认没有回退到 raw step difference", "失败归属: compute_paired_physics_gain 或 survival unit conversion"],
-    ["逐步 survival Gain 累计与最终 gain_total 交给正式 consumer 前同时可见, 可发现旧 score 或旧单位旁路", "失败归属: Gain 到 storage/sampler evidence wiring"],
+    ["同一 transaction 的逐步 survival Gain 累计与最终 gain_total 交给正式 consumer 前同时可见, 可发现旧 score、旧单位或跨 batch 旁路", "失败归属: Gain 到 storage/sampler evidence wiring"],
   ],
   "AUDIT-RETURN-01": [
     ["per-step survival_gain_steps 与 per-row K 同时可见, 可验证 PPO reward 输入的单位", "失败归属: Gain reward construction 或 horizon forwarding"],
     ["survival_gain_step_sum 与 returns/advantages 同时成立, 可验证逐步 Gain 没有被累计或折扣路径重复放大", "失败归属: compute_returns_and_advantages"],
-    ["PPO batch 构造时检查可发现 return、advantage、valid rows 错位", "失败归属: storage to_ppo_batch conversion"],
+    ["PPO batch 构造时检查可发现 transaction/batch signature、return、advantage、valid rows 错位", "失败归属: storage to_ppo_batch conversion"],
   ],
   "AUDIT-HSL-LOAD-01": [
     ["checkpoint path 与 payload identity 刚读取, 可确认实际加载的 Stage 2 artifact", "失败归属: launch checkpoint path 或 torch.load payload"],
@@ -168,7 +170,7 @@ const probeRationales = {
   "AUDIT-DIAG-01": [
     ["canonical live summary 尚未格式化, 可确认日志字段真实来源", "失败归属: live summary aggregation"],
     ["diagnostic scalars 形成后可检查缺失值是否仍为 UNCONFIRMED/NaN", "失败归属: repair_effect_summary_to_scalars"],
-    ["terminal/logger 消费前检查可发现正确 scalar 被旧字段覆盖", "失败归属: diagnostics formatting 或 logger wiring"],
+    ["terminal/logger 消费前检查可发现 aggregate 是否误报为 single transaction, 或正确 scalar 被旧字段覆盖", "失败归属: diagnostics formatting 或 logger wiring"],
   ],
 };
 

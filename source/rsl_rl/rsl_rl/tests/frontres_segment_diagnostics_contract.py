@@ -156,6 +156,12 @@ def test_repair_effect_summary_formats_training_fit_metrics() -> None:
         "storage_valid_frac": 0.25,
         "sampler_replay_pool_size": 32,
         "sampler_replay_candidates": 12,
+        "audit_identity_mode": "aggregate",
+        "audit_transaction_count": 2,
+        "audit_transaction_ids": ("iter1:capture1", "iter1:capture2"),
+        "audit_batch_signature_count": 2,
+        "audit_batch_signatures": ("batch-a", "batch-b"),
+        "audit_same_transaction": False,
     }
     scalars = repair_effect_summary_to_scalars(summary)
     assert scalars["segment/train_effect_gain_style"] == 0.02
@@ -176,6 +182,9 @@ def test_repair_effect_summary_formats_training_fit_metrics() -> None:
     assert "gain_pos=75.0%" in log
     assert "fall=10.0%" in log
     assert "pool=32" in log
+    assert "mode=aggregate" in log
+    assert "transactions=2" in log
+    assert "same_transaction=False" in log
 
 
 def test_repair_effect_summary_uses_live_sampler_candidate_field() -> None:

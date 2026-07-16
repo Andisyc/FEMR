@@ -630,6 +630,24 @@ def test_live_update_loop_reports_sampler_evidence_update_metrics() -> None:
     assert "replay_candidates=8" in output
 
 
+def test_update_loop_marks_single_vs_aggregate_audit_identity() -> None:
+    single = update_loop_module._aggregate_audit_identity(
+        [{"audit_transaction_id": "t1", "audit_batch_signature": "b1"}]
+    )
+    assert single["audit_identity_mode"] == "single"
+    assert single["audit_same_transaction"] is True
+
+    aggregate = update_loop_module._aggregate_audit_identity(
+        [
+            {"audit_transaction_id": "t1", "audit_batch_signature": "b1"},
+            {"audit_transaction_id": "t2", "audit_batch_signature": "b2"},
+        ]
+    )
+    assert aggregate["audit_identity_mode"] == "aggregate"
+    assert aggregate["audit_transaction_count"] == 2
+    assert aggregate["audit_same_transaction"] is False
+
+
 if __name__ == "__main__":
     test_live_update_loop_aggregates_probe_metrics_and_init_flag()
     test_live_update_loop_sigma_summary_ignores_invalid_distribution_steps()
@@ -639,5 +657,6 @@ if __name__ == "__main__":
     test_live_update_loop_summary_print_rate_default_and_verbose()
     test_live_update_loop_log_formats_large_loss_readably()
     test_live_update_loop_reports_train_env_and_gain_rewards_separately()
-    test_live_update_loop_reports_sampler_evidence_update_metrics()
-    print("frontres_segment_live_update_loop_contract: ok")
+test_live_update_loop_reports_sampler_evidence_update_metrics()
+test_update_loop_marks_single_vs_aggregate_audit_identity()
+print("frontres_segment_live_update_loop_contract: ok")

@@ -82,3 +82,10 @@ paired roles, shared Gain components, aggregation, metadata, `UNCONFIRMED`.
 
 Required: S1 formatting/aggregation; S2 fresh-route and state isolation; S4
 non-stale motion/perturbation/component evidence.
+
+## Rollout Transaction Identity Change
+Expand to: paired capture -> Gain -> storage/returns -> update-loop summary
+-> diagnostics.
+Required: S1 `T-value/T-role/T-connect`, S2 `T-connect/T-meta/T-oracle`; S4
+only when proving real capture identity in the formal log. The identity is
+diagnostic metadata and must not enter reward, action, or PPO math.

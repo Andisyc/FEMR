@@ -1,6 +1,6 @@
 # FrontRES Current Change Checklist
 
-Updated: 2026-07-16
+Updated: 2026-07-17
 Scope: `FRS-DP-09` Stage 3 Actor/Critic warmup, `FRS-DP-05` Frozen GMT evidence,
 and `FRS-DP-07` normalized survival Gain alignment.
 
@@ -49,7 +49,9 @@ runtime reachability fact.
 - [x] Frozen GMT optimizer isolation is contract-confirmed.
 - [x] Aggregate S0-S3 suite passes: 44/44 on 2026-07-15.
 - [x] Architecture and task evidence are current for this change.
-- [x] Offline gate passed; Phase B tiny formal live run is now the remaining evidence boundary.
+- [x] Offline gate passed; Phase B Gain consumer alignment remains the active
+      formal boundary. Long-run actor quality is a post-training observation,
+      not a pre-training gate.
 
 ## Phase B Formal Runtime Audit
 
@@ -67,9 +69,9 @@ runtime reachability fact.
 | Observation/full-6D repair/application | S4 `T-shape/T-source/T-value` | runtime-observed | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01`, E39: finite full-6D action and delta norm |
 | Frozen GMT | S4 `T-grad/T-state` | runtime-observed | `AUDIT-GMT-01`, `E37`: gmt_training=False, trainable=0, in_optimizer=0 |
 | Paired roles/execution evidence | S4 `T-role/T-source` | runtime-observed | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01`, E39: policy=8/baseline=24, valid=7 |
-| Gain/returns | S4 `T-value/T-forward` | partial: v002 path live-confirmed; representative quality and long-run actor behavior remain open | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`, E55, E56, E58: K-normalized survival trace, rewards, returns, and advantages are finite in formal route |
-| Formal v002 audit instrumentation | S1/S2/S4 `T-connect/T-unit/T-K/T-step-sum/T-live` | actor-warmup runtime-observed; long-run S4 gate open | `frontres_formal_runtime_audit_contract.py`, Runtime Atlas GAIN/RETURN cards, E58: actor route reaches v002 fields and checkpoint boundary |
-| Survival Gain unit alignment | S1/S2 `T-unit/T-K` | implemented offline; S4 open | `FRS-GAIN-v002`, `plans/survival_gain_unit_alignment_20260716.md`, E55: raw steps report-only, quality uses effective K |
+| Gain/returns | S4 `T-value/T-forward` | identity propagation offline-confirmed; formal numeric consumer comparison open; actor quality deferred to post-training | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`, E62/E63/E64: shared capture route, transaction/batch identity, local K-normalized survival trace, canonical gain_total forwarding, returns, and advantages |
+| Formal v002 audit instrumentation | S1/S2/S4 `T-connect/T-unit/T-K/T-step-sum/T-live` | runtime path reached; Gain consumer alignment open | `frontres_formal_runtime_audit_contract.py`, Runtime Atlas GAIN/RETURN cards, E58 |
+| Survival Gain unit alignment | S1/S2 `T-unit/T-K` | implementation/offline complete; formal consumer comparison open | `FRS-GAIN-v002`, `plans/survival_gain_unit_alignment_20260716.md`, E55 |
 | Survival units/K aggregation | S1/S2 `T-value/T-forward` | contract-confirmed | `frontres_gain_components_contract.py:test_survival_unit_and_k_aggregation_probe`, E55: K=1/4/8 and per-step sum match final K=4 Gain |
 | HSL Stage2-to-Stage3 load | S4 `T-persist/T-source` | runtime-observed | `AUDIT-HSL-LOAD-01`, `E37`: model_warmup actor and EmpiricalNormalization loaded |
 | Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | runtime-observed | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01`, `E39`: actor_warmup weight=0.5, valid=7, post KL=0.005442, trust accepted |

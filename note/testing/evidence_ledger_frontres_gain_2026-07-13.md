@@ -1369,3 +1369,117 @@ Next:
   improvement or degradation as a general result.
 - Evidence level: matched offline runtime-confirmed; policy-quality decision
   remains open pending a larger fixed-motion pair evaluation.
+
+## E61 - Phase B Gain Consumer Alignment Reclassification (2026-07-16)
+
+- The active Phase B objective is the semantic consumer path, not proof that a
+  single actor update improves behavior:
+  `paired capture -> diagnostic Gain -> per-step reward -> returns/advantages`.
+- The required boundary is same-transaction identity of paired rows, effective
+  K, done mask, and Style/Physics/Repair components. Local K/unit contracts
+  pass; formal consumer comparison remains open.
+- The four matched model-200/model-201 sequence logs remain raw exploratory
+  quality evidence. They are not promoted to a training gate and do not
+  establish long-run RL improvement.
+- Model-pair and multi-seed quality evaluation is deferred until after formal
+  consumer alignment. The double-layer Segment Replay design supplies repeated
+  segment evidence and PPO updates; one update is not expected to improve every
+  metric.
+- Evidence level: workflow decision confirmed by active contracts and formal
+  audit scope; formal same-transaction consumer equality remains unconfirmed.
+
+Next:
+- Run the smallest local component/consumer pseudo test, then expose the same
+  values in one official formal-route update. Do not change Gain weights or PPO
+  semantics and do not start a model-pair quality rerun for this boundary.
+
+## E62 - Local Gain Consumer Pseudo-Data Gate (2026-07-16)
+
+- Scope: local implementation/consumer path only; no simulator physics, policy
+  quality, or single-update improvement claim.
+- Commands and results:
+  - `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py` -> `ok`.
+  - `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_gain_connectivity_contract.py` -> `ok`.
+  - `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py` -> `ok`.
+  - `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py` -> `result: PASS`.
+- Observed facts:
+  - `K=1/4/8` survival quality uses the same raw step counts with the
+    expected inverse-K normalization; the K=4 per-step survival Gain sum
+    matches final survival Gain.
+  - canonical `gain_total` reaches Segment storage and K-step returns; an
+    extreme unrelated environment reward does not replace it.
+  - paired action, done mask, reset validity, returns, and advantages retain
+    their declared shapes and role masks in the pseudo consumer route.
+  - the training pseudo route reports `gain_total=0.750000` while
+    `env_reward=-0.500000` and rejects incomplete/non-finite/zero-update/too-
+    few-valid summaries.
+- Limitation: some weak pseudo fixtures intentionally print
+  `gain.source=UNCONFIRMED` because they do not contain physical four-role
+  evidence. This is not formal live Gain evidence.
+- Evidence level: implementation and offline consumer confirmed; formal
+  same-transaction runtime comparison remains open.
+
+Next:
+- Run the smallest official `MODE=train` runtime update and compare
+  `AUDIT-GAIN-01` with `AUDIT-RETURN-01` for the same paired transaction.
+  Do not change Gain weights, PPO semantics, or start long training.
+
+## E63 - Same-Rollout Gain Consumer Boundary (2026-07-17)
+
+- Scope: preserve the current Phase B boundary while handing the work back to
+  the main conversation. This entry records source-level ownership, not a new
+  quality claim.
+- Code fact: `AUDIT-GAIN-01` and `AUDIT-RETURN-01` are not independent
+  samples. The official route passes one `FrontRESSegmentLiveRolloutCapture`
+  through `run_frontres_segment_live_probe()` into
+  `build_live_segment_storage()`. The Gain diagnostic reads the paired
+  capture; storage reads its reward steps, done steps, and horizon K before
+  computing returns and advantages for PPO.
+- Confirmed boundary: both diagnostics refer to the same rollout and the same
+  policy-row batch. The remaining check is the values carried by those rows:
+  effective K, done mask, Style/Physics/Repair components, and the equality
+  between per-step survival Gain sum and final survival Gain.
+- Evidence class: source/code-confirmed plus local consumer pseudo-data
+  confirmed by E62. A single PPO update improving behavior is not required and
+  is not used as a Phase B acceptance target.
+- Open: one official `MODE=train` log must expose the above values together so
+  the formal runtime claim can be marked closed. Do not change Gain weights,
+  PPO semantics, or start long training for this boundary.
+
+## E64 - Rollout Transaction Identity Offline Repair (2026-07-17)
+
+- Problem: Cards 15/16/17 had no explicit shared runtime identity, while Card
+  22 consumed update-loop summaries without stating whether they represented a
+  single capture or an aggregate.
+- Fix: one capture now creates `audit_transaction_id` and
+  `audit_batch_signature` from the ordered row tuple
+  `(segment_id, role, motion_id, start_frame, effective_K)`. Gain, storage,
+  returns, and formal probes preserve the identity. Storage rejects mixed
+  transactions. The PPO adapter intentionally strips this diagnostic metadata
+  before constructing `FrontRESSegmentPPOBatch`. The update loop and
+  diagnostics classify `single` versus `aggregate` and report transaction/batch
+  counts.
+- Offline evidence: `py_compile`; gain connectivity; live update-loop;
+  diagnostics; formal runtime audit; Gain component; live probe; live training
+  pseudo; and Stage 3 pseudo contracts passed after the repair.
+- Evidence level: implementation and offline identity propagation confirmed;
+  equality in a real formal runtime log remains S4 open. No reward, action,
+  PPO, or Gain formula was changed.
+- Next: only a tiny official `MODE=train` run may close S4 identity equality;
+  do not start long training for this boundary.
+
+## E65 - Current-State Stale Text Cleanup (2026-07-17)
+
+- Problem: the current audit header and engineering plan used old rerun3 reset
+  language as if reset ownership were still the active blocker.
+- Correction: rerun3 termination facts remain preserved as historical evidence;
+  the current Phase B gate is the post-E64 real transaction identity and
+  numeric Gain-to-return comparison.
+- The locked formal command now uses the unique
+  `formal_runtime_audit_gain_identity_20260717.txt` log and matching run name,
+  so the next raw evidence cannot overwrite the 20260716 artifact.
+- Scope: governance/document wording only. No source behavior, probe location,
+  reward, action, PPO, sampler, or checkpoint behavior changed.
+- Verification: formal audit contract and `git diff --check` are required;
+  the next live command remains blocked until source/checkpoint identity is
+  confirmed and the user approves the tiny official `MODE=train` run.

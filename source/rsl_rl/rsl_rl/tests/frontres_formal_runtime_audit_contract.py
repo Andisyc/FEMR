@@ -433,8 +433,8 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
             assert 1 <= source_line <= len(owner_lines)
             assert f"# B{step_index}:" in owner_lines[source_line - 1]
     assert modules["AUDIT-PPO-01"]["gap"].startswith("runtime-observed:")
-    assert "actor-warmup valid=7" in modules["AUDIT-PPO-01"]["gap"]
-    assert "post KL=0.005442" in modules["AUDIT-PPO-01"]["gap"]
+    assert "actor-warmup valid=8" in modules["AUDIT-PPO-01"]["gap"]
+    assert "post KL=0.004131" in modules["AUDIT-PPO-01"]["gap"]
     assert modules["AUDIT-PERSIST-01"]["gap"].startswith("runtime-observed:")
     assert len(why_here_texts) == 66
     assert len(set(why_here_texts)) == 66, "whyHere must not be a shared template across probe boundaries"

@@ -98,6 +98,9 @@ class FrontRESSegmentGainResult:
     repair_clean_norm: torch.Tensor
     repair_clean_temporal_change: torch.Tensor
     repair_clean_cost: torch.Tensor
+    audit_transaction_id: str | None = None
+    audit_batch_signature: str | None = None
+    audit_identity_state: str = "UNCONFIRMED"
 
     @property
     def available(self) -> torch.Tensor:
@@ -437,6 +440,9 @@ def compute_segment_gain(
     noisy_root_quaternions: torch.Tensor | None = None,
     temporal_mask: torch.Tensor | None = None,
     valid_mask: torch.Tensor | None = None,
+    audit_transaction_id: str | None = None,
+    audit_batch_signature: str | None = None,
+    audit_identity_state: str = "UNCONFIRMED",
 ) -> FrontRESSegmentGainResult:
     """计算一个 paired capture 的 canonical Segment Gain.
 
@@ -518,6 +524,9 @@ def compute_segment_gain(
         repair_clean_norm=repair["clean_norm"],
         repair_clean_temporal_change=repair["clean_temporal"],
         repair_clean_cost=repair["clean_cost"],
+        audit_transaction_id=audit_transaction_id,
+        audit_batch_signature=audit_batch_signature,
+        audit_identity_state=audit_identity_state,
     )
     # B3: AUDIT-GAIN-01 截获 storage/sampler 消费前的 canonical Gain result.
     # Result: PENDING_LIVE.
@@ -528,6 +537,9 @@ def compute_segment_gain(
         repair_cost=result.repair_cost,
         gain_total=result.gain_total,
         available=result.available,
+        audit_transaction_id=result.audit_transaction_id or "UNCONFIRMED",
+        audit_batch_signature=result.audit_batch_signature or "UNCONFIRMED",
+        audit_identity_state=result.audit_identity_state,
     )
     return result
 

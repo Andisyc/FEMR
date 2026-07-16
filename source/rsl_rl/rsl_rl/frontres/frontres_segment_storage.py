@@ -34,6 +34,9 @@ class FrontRESSegmentTransition:
     returns: torch.Tensor | None = None
     advantages: torch.Tensor | None = None
     priority_evidence: Any | None = None
+    audit_transaction_id: str | None = None
+    audit_batch_signature: str | None = None
+    audit_identity_state: str = "UNCONFIRMED"
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,9 @@ class FrontRESSegmentStorageBatch:
     privileged_observations: torch.Tensor | None = None
     old_means: torch.Tensor | None = None
     old_sigmas: torch.Tensor | None = None
+    audit_transaction_id: str | None = None
+    audit_batch_signature: str | None = None
+    audit_identity_state: str = "UNCONFIRMED"
 
     def to_ppo_batch(self, batch_cls: Callable[..., Any]) -> Any:
         """把 finalized Segment storage 转换为 PPO batch contract.
@@ -70,6 +76,8 @@ class FrontRESSegmentStorageBatch:
         """
         # B1: 读取 K-aware return 已完成的 finalized storage tuple.
         # B2: 不改变 row order/action representation, 转换 storage fields.
+        # B2: audit transaction identity stays on StorageBatch for the formal audit;
+        # it is diagnostic metadata and must not enter the PPO batch contract.
         batch = batch_cls(
             observations=self.observations,
             actions=self.actions,
@@ -131,6 +139,9 @@ class FrontRESSegmentRolloutStorage:
         self.step = 0
         self.segment_source: list[str] = []
         self.priority_evidence: list[Any] = []
+        self.audit_transaction_id: str | None = None
+        self.audit_batch_signature: str | None = None
+        self.audit_identity_state = "UNCONFIRMED"
 
         self.observations = torch.zeros(self.capacity, *self.obs_shape, device=self.device)
         self.privileged_observations = (
@@ -153,6 +164,19 @@ class FrontRESSegmentRolloutStorage:
     def add_transition(self, transition: FrontRESSegmentTransition) -> None:
         transition = self._normalize_transition(transition)
         batch_size = int(transition.actions.shape[0])
+        identity = (
+            transition.audit_transaction_id,
+            transition.audit_batch_signature,
+            transition.audit_identity_state,
+        )
+        if self.step == 0:
+            self.audit_transaction_id, self.audit_batch_signature, self.audit_identity_state = identity
+        elif identity != (self.audit_transaction_id, self.audit_batch_signature, self.audit_identity_state):
+            raise ValueError(
+                "Segment storage received rows from different rollout transactions: "
+                f"existing={(self.audit_transaction_id, self.audit_batch_signature, self.audit_identity_state)!r} "
+                f"incoming={identity!r}"
+            )
         if self.step + batch_size > self.capacity:
             raise OverflowError("FrontRESSegmentRolloutStorage overflow; call clear() before adding more transitions")
         sl = slice(self.step, self.step + batch_size)
@@ -210,6 +234,9 @@ class FrontRESSegmentRolloutStorage:
             old_means=old_means,
             old_sigmas=old_sigmas,
             priority_evidence=payload.get("priority_evidence"),
+            audit_transaction_id=payload.get("audit_transaction_id"),
+            audit_batch_signature=payload.get("audit_batch_signature"),
+            audit_identity_state=str(payload.get("audit_identity_state", "UNCONFIRMED")),
         )
 
     def compute_returns_and_advantages(
@@ -317,6 +344,9 @@ class FrontRESSegmentRolloutStorage:
         self.step = 0
         self.segment_source.clear()
         self.priority_evidence.clear()
+        self.audit_transaction_id = None
+        self.audit_batch_signature = None
+        self.audit_identity_state = "UNCONFIRMED"
 
     def state_dict(self) -> dict[str, Any]:
         active = slice(0, self.step)
@@ -383,6 +413,9 @@ class FrontRESSegmentRolloutStorage:
             advantages=self.advantages[idx],
             valid_mask=self.valid_mask[idx],
             segment_ids=self.segment_ids[idx],
+            audit_transaction_id=self.audit_transaction_id,
+            audit_batch_signature=self.audit_batch_signature,
+            audit_identity_state=self.audit_identity_state,
         )
 
     def _normalize_transition(self, transition: FrontRESSegmentTransition) -> FrontRESSegmentTransition:
@@ -422,6 +455,9 @@ class FrontRESSegmentRolloutStorage:
             returns=transition.returns.to(self.device).detach() if transition.returns is not None else None,
             advantages=transition.advantages.to(self.device).detach() if transition.advantages is not None else None,
             priority_evidence=transition.priority_evidence,
+            audit_transaction_id=transition.audit_transaction_id,
+            audit_batch_signature=transition.audit_batch_signature,
+            audit_identity_state=transition.audit_identity_state,
         )
 
 

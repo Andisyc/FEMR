@@ -71,6 +71,14 @@ Clean/Noisy/Repaired paired states
 -> decomposed diagnostics
 ```
 
+## Rollout Transaction Identity
+`audit_transaction_id` and `audit_batch_signature` are diagnostic evidence
+metadata, not reward, action, or PPO features. One capture creates them from
+the ordered row tuple `(segment_id, role, motion_id, start_frame, effective_K)`.
+Cards 15/16/17 must preserve the same pair; storage rejects a mixed transaction.
+Card 22 reports the set/count of transactions after update-loop aggregation and
+must distinguish `single` from `aggregate`.
+
 ## PPO Tuple
 
 The Segment PPO tuple contains full-6D action, old log-prob, old mean/sigma,

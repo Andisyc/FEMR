@@ -132,9 +132,18 @@ def repair_effect_summary_to_scalars(summary: dict[str, Any]) -> dict[str, float
     }
     for key in FORBIDDEN_ACCEPTANCE_KEYS:
         scalars.pop(key, None)
-    # B3: AUDIT-DIAG-01 截获 terminal/logger formatter 实际消费的 scalars.
+    # B3: AUDIT-DIAG-01 截获 terminal/logger formatter 实际消费的 scalars 和 transaction 聚合状态.
     # Result: PENDING_LIVE.
-    emit_formal_runtime_probe("AUDIT-DIAG-01", scalars=scalars)
+    emit_formal_runtime_probe(
+        "AUDIT-DIAG-01",
+        scalars=scalars,
+        audit_identity_mode=summary.get("audit_identity_mode", "UNCONFIRMED"),
+        audit_transaction_count=summary.get("audit_transaction_count", 0),
+        audit_transaction_ids=summary.get("audit_transaction_ids", ()),
+        audit_batch_signature_count=summary.get("audit_batch_signature_count", 0),
+        audit_batch_signatures=summary.get("audit_batch_signatures", ()),
+        audit_same_transaction=summary.get("audit_same_transaction", False),
+    )
     return scalars
 
 
@@ -143,6 +152,15 @@ def format_segment_train_effect_log(summary: dict[str, Any]) -> str:
     return "\n".join(
         (
             "[FrontRES Segment Train Effect]",
+            (
+                "  audit: "
+                f"mode={summary.get('audit_identity_mode', 'UNCONFIRMED')} "
+                f"transactions={summary.get('audit_transaction_count', 0)} "
+                f"batches={summary.get('audit_batch_signature_count', 0)} "
+                f"same_transaction={summary.get('audit_same_transaction', False)} "
+                f"transaction_ids={summary.get('audit_transaction_ids', ())} "
+                f"batch_signatures={summary.get('audit_batch_signatures', ())}"
+            ),
             (
                 "  gain: "
                 f"style={_fmt_motion_scalar(scalars, 'segment/train_effect_gain_style')} "

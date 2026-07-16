@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, deque
 import copy
 from dataclasses import dataclass
+import hashlib
 import importlib.util
 import math
 from pathlib import Path
@@ -204,6 +205,13 @@ class FrontRESSegmentLiveRolloutCapture:
     max_delta_rpy: float | None = None
     repair_score_accum: torch.Tensor | None = None
     repair_score_steps: torch.Tensor | None = None
+    audit_transaction_id: str | None = None
+    audit_batch_signature: str | None = None
+    audit_role_signature: str | None = None
+    audit_k_signature: str | None = None
+    audit_segment_signature: str | None = None
+    audit_row_count: int = 0
+    audit_identity_state: str = "UNCONFIRMED"
     transition_action_steps: torch.Tensor | None = None
     gain_steps: torch.Tensor | None = None
     survival_gain_steps: torch.Tensor | None = None
@@ -237,6 +245,124 @@ def _id_summary(segment_ids: torch.Tensor) -> str:
     if count == 0:
         return "count=0 id_min=None id_max=None"
     return f"count={count} id_min={int(ids.min().item())} id_max={int(ids.max().item())}"
+
+
+_AUDIT_IDENTITY_KEYS = (
+    "audit_transaction_id",
+    "audit_batch_signature",
+    "audit_role_signature",
+    "audit_k_signature",
+    "audit_segment_signature",
+    "audit_row_count",
+    "audit_identity_state",
+)
+
+
+def _audit_identity_kwargs(identity: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the compact identity fields shared by cards 15-17."""
+
+    if not isinstance(identity, dict):
+        return {
+            "audit_transaction_id": "UNCONFIRMED",
+            "audit_batch_signature": "UNCONFIRMED",
+            "audit_role_signature": "UNCONFIRMED",
+            "audit_k_signature": "UNCONFIRMED",
+            "audit_segment_signature": "UNCONFIRMED",
+            "audit_row_count": 0,
+            "audit_identity_state": "UNCONFIRMED",
+        }
+    return {key: identity.get(key, "UNCONFIRMED") for key in _AUDIT_IDENTITY_KEYS}
+
+
+def _capture_audit_identity_kwargs(capture: FrontRESSegmentLiveRolloutCapture) -> dict[str, Any]:
+    return _audit_identity_kwargs(
+        {
+            "audit_transaction_id": capture.audit_transaction_id,
+            "audit_batch_signature": capture.audit_batch_signature,
+            "audit_role_signature": capture.audit_role_signature,
+            "audit_k_signature": capture.audit_k_signature,
+            "audit_segment_signature": capture.audit_segment_signature,
+            "audit_row_count": capture.audit_row_count,
+            "audit_identity_state": capture.audit_identity_state,
+        }
+    )
+
+
+def _audit_identity_tuple(value: Any, batch_size: int, default: Any) -> tuple[Any, ...]:
+    if isinstance(value, torch.Tensor):
+        value = value.detach().reshape(-1).cpu().tolist()
+    try:
+        items = tuple(value)
+    except TypeError:
+        items = ()
+    if len(items) == batch_size:
+        return items
+    if len(items) > 0 and batch_size % len(items) == 0:
+        return items * (batch_size // len(items))
+    return (default,) * batch_size
+
+
+def _new_live_audit_identity(
+    runner: Any,
+    *,
+    pair_layout: Any,
+    batch_size: int,
+    horizon_k: torch.Tensor,
+) -> dict[str, Any]:
+    """Create one stable row identity for the current rollout capture.
+
+    Status: active evidence identity owner.
+    Upstream: current segment batch/reset request and rollout horizon.
+    Downstream: paired Gain, Segment storage/returns, and diagnostics.
+    Evidence: offline identity contract; live equality remains to be observed.
+    """
+
+    counter = int(getattr(runner, "_frontres_segment_audit_transaction_counter", 0)) + 1
+    runner._frontres_segment_audit_transaction_counter = counter
+    iteration = int(getattr(runner, "current_learning_iteration", 0))
+    transaction_id = f"iter{iteration}:capture{counter}"
+    current_batch = getattr(runner, "_frontres_segment_live_current_batch", None)
+    sample = getattr(runner, "_frontres_segment_live_current_sample", None)
+    raw_segment_ids = getattr(current_batch, "segment_ids", None)
+    if raw_segment_ids is None:
+        raw_segment_ids = getattr(sample, "segment_ids", None)
+    segment_ids = _audit_identity_tuple(raw_segment_ids, batch_size, -1)
+    raw_roles = getattr(current_batch, "frontres_segment_trial_role", None)
+    if raw_roles is None:
+        raw_roles = getattr(sample, "trial_role", None)
+    roles = tuple(str(item) for item in _audit_identity_tuple(raw_roles, batch_size, "UNCONFIRMED"))
+    request = getattr(runner, "_frontres_segment_live_current_reset_request", None)
+    motion_ids = tuple(
+        str(item)
+        for item in _audit_identity_tuple(getattr(request, "motion_ids", None), batch_size, "UNCONFIRMED")
+    )
+    start_frames = tuple(
+        int(item)
+        for item in _audit_identity_tuple(getattr(request, "start_frames", None), batch_size, -1)
+    )
+    horizon = tuple(int(item) for item in horizon_k.detach().long().reshape(-1).cpu().tolist())
+    if len(horizon) != batch_size:
+        horizon = (int(max(1, int(getattr(pair_layout, "rollout_k", 1)))),) * batch_size
+    rows = tuple(zip(segment_ids, roles, motion_ids, start_frames, horizon))
+    batch_signature = hashlib.sha1(repr(rows).encode("utf-8")).hexdigest()[:16]
+    identity_state = (
+        "complete"
+        if all(item != "UNCONFIRMED" for item in motion_ids)
+        and all(item >= 0 for item in start_frames)
+        and all(item != "UNCONFIRMED" for item in roles)
+        else "partial"
+    )
+    identity = {
+        "audit_transaction_id": transaction_id,
+        "audit_batch_signature": batch_signature,
+        "audit_role_signature": "|".join(roles),
+        "audit_k_signature": ",".join(str(item) for item in horizon),
+        "audit_segment_signature": ",".join(str(item) for item in segment_ids),
+        "audit_row_count": batch_size,
+        "audit_identity_state": identity_state,
+    }
+    runner._frontres_segment_live_audit_identity = identity
+    return identity
 
 
 def _tensor_range_summary(name: str, value: torch.Tensor) -> str:
@@ -1624,6 +1750,9 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
             segment_source=segment_source,
             old_means=capture.transition_means,
             old_sigmas=capture.transition_sigmas,
+            audit_transaction_id=capture.audit_transaction_id,
+            audit_batch_signature=capture.audit_batch_signature,
+            audit_identity_state=capture.audit_identity_state,
             priority_evidence=_trial_metadata_priority_evidence(
                 runner,
                 batch_size=batch_size,
@@ -1743,6 +1872,9 @@ def _capture_paired_gain(capture: FrontRESSegmentLiveRolloutCapture) -> Any | No
         noisy_contact=noisy_contact,
         action_steps=capture.transition_action_steps[:, :n],
         config=capture.gain_config,
+        audit_transaction_id=capture.audit_transaction_id,
+        audit_batch_signature=capture.audit_batch_signature,
+        audit_identity_state=capture.audit_identity_state,
         action_step_mask=action_valid_steps[:, :n] if action_valid_steps is not None else None,
         clean_action_steps=clean_action_steps,
         clean_action_step_mask=clean_action_step_mask,
@@ -2327,6 +2459,12 @@ def _run_live_rollout_capture(
         metadata = _current_trial_metadata(runner, batch_size=batch_size, device=runner.device)
         horizon_k = metadata.horizon_k.clamp_min(1)
         rollout_k = int(horizon_k.max().item())
+    audit_identity = _new_live_audit_identity(
+        runner,
+        pair_layout=pair_layout,
+        batch_size=batch_size,
+        horizon_k=horizon_k,
+    )
     vel_est_error_buffer = deque(maxlen=1)
     reward_accum = None
     repair_score_accum = None
@@ -2665,6 +2803,13 @@ def _run_live_rollout_capture(
         transition_perturbation_rp=transition_perturbation_rp,
         transition_supervised_target=transition_supervised_target,
         max_delta_rpy=max_delta_rpy,
+        audit_transaction_id=audit_identity["audit_transaction_id"],
+        audit_batch_signature=audit_identity["audit_batch_signature"],
+        audit_role_signature=audit_identity["audit_role_signature"],
+        audit_k_signature=audit_identity["audit_k_signature"],
+        audit_segment_signature=audit_identity["audit_segment_signature"],
+        audit_row_count=audit_identity["audit_row_count"],
+        audit_identity_state=audit_identity["audit_identity_state"],
     )
 
 
@@ -2746,6 +2891,7 @@ def _capture_motion_quality_frame(
         clean_positions=frame[0],
         repaired_positions=frame[1],
         noisy_positions=frame[2],
+        **_audit_identity_kwargs(getattr(runner, "_frontres_segment_live_audit_identity", None)),
     )
     return frame
 
@@ -2842,6 +2988,7 @@ def _capture_physics_frame(
         zmp_noisy=frame[1],
         contact_repaired=frame[2],
         contact_noisy=frame[3],
+        **_audit_identity_kwargs(getattr(runner, "_frontres_segment_live_audit_identity", None)),
     )
     return frame
 
@@ -2965,6 +3112,7 @@ def _initial_live_probe_summary(
         else float("nan")
     )
     summary = {
+        **_capture_audit_identity_kwargs(capture),
         "rollout_k": capture.rollout_k,
         "rollout_horizon_summary": _tensor_range_summary("horizon", capture.horizon_k)
         if isinstance(capture.horizon_k, torch.Tensor)
@@ -3096,8 +3244,9 @@ def _paired_score_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[st
 def _paired_gain_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[str, object]:
     result = _capture_paired_gain(capture)
     if result is None:
-        return {"gain_source": "UNCONFIRMED"}
+        return {**_capture_audit_identity_kwargs(capture), "gain_source": "UNCONFIRMED"}
     return {
+        **_capture_audit_identity_kwargs(capture),
         "gain_source": "FRS-GAIN-v002",
         "gain_style_per_sample": _float_list(result.style_gain),
         "gain_physics_per_sample": _float_list(result.physics_gain),

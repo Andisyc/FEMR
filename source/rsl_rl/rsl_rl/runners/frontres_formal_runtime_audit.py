@@ -382,7 +382,15 @@ def print_rollout_storage_audit(
     _emit_owner_snapshot("AUDIT-PAIR-01", roles=_summary_value(summary, "trial_role_counts"), valid=_summary_value(summary, "ppo_valid_count"))
     # AUDIT-PAIR-EVIDENCE-01: 检查同 segment/K 的 paired evidence, 位于 rollout capture -> Gain.
     # Result: PENDING_LIVE.
-    _emit_owner_snapshot("AUDIT-PAIR-EVIDENCE-01", noisy=_summary_value(summary, "score_noisy"), repaired=_summary_value(summary, "score_repaired"), gain=_summary_value(summary, "score_gain"))
+    _emit_owner_snapshot(
+        "AUDIT-PAIR-EVIDENCE-01",
+        noisy=_summary_value(summary, "score_noisy"),
+        repaired=_summary_value(summary, "score_repaired"),
+        gain=_summary_value(summary, "score_gain"),
+        audit_transaction_id=_summary_value(summary, "audit_transaction_id"),
+        audit_batch_signature=_summary_value(summary, "audit_batch_signature"),
+        audit_identity_state=_summary_value(summary, "audit_identity_state"),
+    )
     # AUDIT-GAIN-01: 检查 v002 Gain 分解和 survival unit, 位于 paired evidence -> storage reward.
     # Result: PENDING_LIVE.
     _emit_owner_snapshot(
@@ -401,6 +409,9 @@ def print_rollout_storage_audit(
         physics=_summary_value(summary, "gain_physics_mean"),
         repair=_summary_value(summary, "gain_repair_cost_mean"),
         total=_summary_value(summary, "gain_total_mean"),
+        audit_transaction_id=_summary_value(summary, "audit_transaction_id"),
+        audit_batch_signature=_summary_value(summary, "audit_batch_signature"),
+        audit_identity_state=_summary_value(summary, "audit_identity_state"),
     )
     # AUDIT-RETURN-01: 检查 Gain -> reward -> returns, 位于 storage write -> PPO batch.
     # Result: PENDING_LIVE.
@@ -414,6 +425,9 @@ def print_rollout_storage_audit(
         rewards=_tensor_stats(getattr(storage_batch, "rewards", None)),
         returns=_tensor_stats(getattr(storage_batch, "returns", None)),
         advantages=_tensor_stats(getattr(storage_batch, "advantages", None)),
+        audit_transaction_id=getattr(storage_batch, "audit_transaction_id", "UNCONFIRMED"),
+        audit_batch_signature=getattr(storage_batch, "audit_batch_signature", "UNCONFIRMED"),
+        audit_identity_state=getattr(storage_batch, "audit_identity_state", "UNCONFIRMED"),
     )
 def print_ppo_audit(runner: Any, *, result: Any) -> None:
     if not formal_runtime_audit_enabled(runner):
