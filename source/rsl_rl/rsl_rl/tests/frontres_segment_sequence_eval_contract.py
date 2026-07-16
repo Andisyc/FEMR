@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import sys
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -305,8 +306,8 @@ def test_gain_component_aliases_reach_sequence_log() -> None:
     assert "zmp=0.230000" in log
     assert "contact=0.240000" in log
     row = live_training_module._gain_result_row_summary(result, 0)
-    assert row["gain_physics_success_mean"] == 0.21
-    assert row["gain_physics_contact_mean"] == 0.24
+    assert math.isclose(row["gain_physics_success_mean"], 0.21, rel_tol=1e-6, abs_tol=1e-6)
+    assert math.isclose(row["gain_physics_contact_mean"], 0.24, rel_tol=1e-6, abs_tol=1e-6)
 
 
 class FakeSampler:
