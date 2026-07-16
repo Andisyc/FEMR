@@ -96,6 +96,8 @@ _EVAL_GAIN_COMPONENTS = (
     "style_acceleration_gain",
     "style_root_orientation_gain",
     "physics_success_gain",
+    "physics_survival_quality_repaired",
+    "physics_survival_quality_noisy",
     "physics_survival_gain",
     "physics_zmp_gain",
     "physics_contact_gain",
@@ -114,6 +116,8 @@ _EVAL_GAIN_PUBLIC_ALIASES = {
     "style_acceleration_gain": "style_acceleration",
     "style_root_orientation_gain": "style_root_orientation",
     "physics_success_gain": "physics_success",
+    "physics_survival_quality_repaired": "physics_survival_quality_repaired",
+    "physics_survival_quality_noisy": "physics_survival_quality_noisy",
     "physics_survival_gain": "physics_survival",
     "physics_zmp_gain": "physics_zmp",
     "physics_contact_gain": "physics_contact",
@@ -160,7 +164,7 @@ def _capture_eval_gain_summary(capture: Any) -> tuple[Any | None, dict[str, Any]
         return result, summary
     summary.update(
         {
-            "gain_source": "FRS-GAIN-v001",
+            "gain_source": "FRS-GAIN-v002",
             "gain_total_pos_frac": float((total[finite] > 0.0).float().mean().cpu().item()),
         }
     )
@@ -559,8 +563,8 @@ def _sequence_offline_eval_summary(
             "motion_ids": tuple(getattr(plan, "motion_ids", ())),
             "per_motion": per_motion,
             "gain_source": (
-                "FRS-GAIN-v001"
-                if all(summary.get("gain_source") == "FRS-GAIN-v001" for summary in summaries)
+                "FRS-GAIN-v002"
+                if all(summary.get("gain_source") == "FRS-GAIN-v002" for summary in summaries)
                 else "UNCONFIRMED"
             ),
         }
@@ -1170,7 +1174,9 @@ def _format_eval_gain_line(summary: Mapping[str, Any], *, indent: str) -> str:
         f"style={_fmt_eval_value(summary.get('gain_style_mean'))} "
         f"physics={_fmt_eval_value(summary.get('gain_physics_mean'))} "
         f"physics_components=(success={_fmt_eval_value(summary.get('gain_physics_success_mean'))} "
-        f"survival={_fmt_eval_value(summary.get('gain_physics_survival_mean'))} "
+        f"survival_quality=(repaired={_fmt_eval_value(summary.get('gain_physics_survival_quality_repaired_mean'))} "
+        f"noisy={_fmt_eval_value(summary.get('gain_physics_survival_quality_noisy_mean'))} "
+        f"gain={_fmt_eval_value(summary.get('gain_physics_survival_mean'))}) "
         f"zmp={_fmt_eval_value(summary.get('gain_physics_zmp_mean'))} "
         f"contact={_fmt_eval_value(summary.get('gain_physics_contact_mean'))}) "
         f"repair_cost={_fmt_eval_value(summary.get('gain_repair_cost_mean'))} "
@@ -1493,7 +1499,7 @@ def _gain_result_row_summary(result: Any, index: int) -> dict[str, float]:
     _add_public_gain_component_aliases(row)
     row.update(
         {
-            "gain_source": "FRS-GAIN-v001",
+            "gain_source": "FRS-GAIN-v002",
             "gain_total_pos_frac": 1.0 if row["gain_total_mean"] > 0.0 else 0.0,
         }
     )

@@ -54,7 +54,7 @@ gain_total   = w_style * style_gain + w_physics * physics_gain
 ```
 
 Owner contract:
-`frontres_core/contracts/active/reward/FRS-GAIN-v001-style-physics-repair.md`.
+`frontres_core/contracts/active/reward/FRS-GAIN-v002-style-physics-repair.md`.
 
 Current code status: formal Segment live scoring is RP-only and therefore does
 not implement this semantic object.

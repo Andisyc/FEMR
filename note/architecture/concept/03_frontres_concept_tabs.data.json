@@ -67,7 +67,7 @@
     {
       "id": "Q-PAIR",
       "title": "Paired Rollouts",
-      "summary": "Clean / Noisy / Repaired",
+      "summary": "同一 Segment 的 Clean / Noisy / Repaired",
       "concept": "C-SIGNAL",
       "x": 1180,
       "y": 150,
@@ -89,7 +89,7 @@
       "title": "HSL Warmup",
       "summary": "监督初始化 6D Actor",
       "concept": "C-TRAIN",
-      "x": 620,
+      "x": 295,
       "y": 470,
       "w": 230,
       "h": 100
@@ -97,9 +97,9 @@
     {
       "id": "M-05",
       "title": "Actor & Critic Warmup",
-      "summary": "预热 Actor 与 Critic",
+      "summary": "控制 Critic-only / Actor ramp / Joint",
       "concept": "C-TRAIN",
-      "x": 920,
+      "x": 575,
       "y": 470,
       "w": 230,
       "h": 100
@@ -107,15 +107,14 @@
   ],
   "edges": [
     {"from": "M-02", "to": "SR-01", "label": "生成片段", "concept": "C-DATA"},
-    {"from": "M-06", "to": "SR-01", "label": "分配 K", "concept": "C-CURRICULUM", "fromAnchor": "right", "toAnchor": "bottom", "via": [[290, 380], [290, 290], [430, 290]]},
+    {"from": "M-06", "to": "SR-01", "label": "分配 K", "concept": "C-CURRICULUM", "fromAnchor": "right", "toAnchor": "bottom", "via": [[400, 380], [400, 250]]},
     {"from": "SR-01", "to": "M-04", "label": "训练样本", "concept": "C-DATA"},
     {"from": "M-04", "to": "M-10", "label": "修复参考", "concept": "C-ARCH"},
     {"from": "M-10", "to": "Q-PAIR", "label": "执行", "concept": "C-EXTERNAL"},
-    {"from": "SR-01", "to": "Q-PAIR", "label": "构造对照", "concept": "C-SIGNAL", "fromAnchor": "bottom", "toAnchor": "bottom", "via": [[430, 310], [1295, 310]]},
     {"from": "Q-PAIR", "to": "Q-01", "label": "执行结果", "concept": "C-SIGNAL"},
-    {"from": "M-03", "to": "M-05", "label": "初始化", "concept": "C-TRAIN"},
-    {"from": "M-05", "to": "M-04", "label": "完成预热", "concept": "C-TRAIN", "fromAnchor": "top", "toAnchor": "bottom", "via": [[1035, 390], [735, 390]]},
-    {"from": "Q-01", "to": "M-04", "label": "更新策略", "concept": "C-TRAIN", "fromAnchor": "bottom", "toAnchor": "bottom", "via": [[1595, 420], [735, 420]]},
+    {"from": "M-03", "to": "M-05", "label": "进入 RL", "concept": "C-TRAIN"},
+    {"from": "M-05", "to": "M-04", "label": "控制更新阶段", "concept": "C-TRAIN", "fromAnchor": "top", "toAnchor": "bottom", "toOffset": -45, "labelX": 755, "labelY": 360},
+    {"from": "Q-01", "to": "M-04", "label": "PPO 学习信号", "concept": "C-TRAIN", "fromAnchor": "bottom", "toAnchor": "bottom", "toOffset": 45, "via": [[1595, 420], [880, 420], [880, 300], [780, 300]]},
     {"from": "Q-01", "to": "SR-01", "label": "重放优先级", "concept": "C-SIGNAL", "fromAnchor": "top", "toAnchor": "top", "via": [[1595, 60], [430, 60]]}
   ],
   "callouts": [],

@@ -24,7 +24,7 @@ Updated: 2026-07-15
 | `frontres_segment_live_single_update_contract.py` | S2 | Optimizer order, adaptive LR, post-KL, rollback, diagnostics. |
 | `frontres_segment_warmup_contract.py` | S1/S2 | DP-09 phase values and actor/critic gradient boundaries. |
 | `frontres_frozen_gmt_contract.py` | S1/S2 | GMT freeze, optimizer exclusion, and bitwise no-update boundary. |
-| `frontres_formal_runtime_audit_contract.py` | S1/S2 | Phase B flag, stable AUDIT labels, formal-owner hook connectivity, and silent-off behavior. |
+| `frontres_formal_runtime_audit_contract.py` | S1/S2 | Phase B flag, stable AUDIT labels, v002 raw/K/quality/step-sum fields, formal-owner hook connectivity, and silent-off behavior. |
 | `frontres_segment_checkpoint_contract.py` | S3 | Detached helper persistence compatibility tests; not the formal `OnPolicyRunner` owner. |
 | `frontres_segment_live_sampler_contract.py` | S3 | Formal `frontres_checkpointing.py` save/load, sampler persistence, Gain identity match/mismatch/missing-resume rejection. |
 | `frontres_segment_sequence_eval_contract.py` | S2 | Sequence grouping, reset/preroll/eval boundary, aggregation. |
@@ -32,11 +32,11 @@ Updated: 2026-07-15
 | `frontres_segment_diagnostics_contract.py` | S1/S2 | Motion quality, K masks, saturation, canonical Gain decomposition, legacy-score isolation, and `UNCONFIRMED`. |
 | `frontres_segment_live_sentinel_contract.py` | S4 boundary | Minimal real-runtime contract entry. |
 
-## Gain v001 Tests
+## Gain v002 Tests
 
 | Needed test | Tier | Proves |
 | --- | --- | --- |
-| `frontres_gain_components_contract.py` | S1 | Hand-computed Style, Physics, Repair components, full-6D cost, mixed-K/done masking, Clean no-op, signs, scales, and missing-evidence behavior. |
+| `frontres_gain_components_contract.py` | S1 | Hand-computed Style, Physics, Repair components, full-6D cost, mixed-K/done masking, K=1/4/8 survival quality, per-step-to-final aggregation, missing-K fail-closed behavior, Clean no-op, signs, scales, and missing-evidence behavior. |
 | `frontres_segment_motion_quality_capture_contract.py` | S1/S2 | Clean/Noisy/Repaired root-quaternion role pairing, origin-safe motion capture, and quartet contact-proxy pairing. |
 | `frontres_segment_gain_connectivity_contract.py` | S2 | Paired Gain replaces legacy score in storage rewards, K-step returns, valid policy rows, and PPO batch conversion; missing formal evidence rejects fallback. |
 | Extend `frontres_segment_live_probe_contract.py` | S1/S2 | Clean-target pairing, mixed-K decomposition, generic-reward isolation. |

@@ -1,6 +1,13 @@
 # Formal Runtime Audit
 
-Status: `phase-b-rerun3-blocked-all-quartet-rows-done-reset-lifecycle-audit-required`
+Status: `phase-b-gain-v002-instrumentation-ready-formal-rerun-required`
+
+Current C boundary 2026-07-16: the active reward contract is now
+`FRS-GAIN-v002`. The formal audit was updated to expose raw survival steps,
+per-row effective K, repaired/noisy survival quality, normalized survival Gain,
+and the equality between per-step survival Gain sum and final survival Gain.
+No new S4 runtime evidence exists yet; all prior v001 live Gain/return claims
+are stale for this boundary.
 
 Correction 2026-07-15: the first 20-card Atlas revision pointed many cards at
 owner functions while emitting their labels only from five runner summaries.
@@ -32,6 +39,7 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
 
 - Active method contract: `FRS-METHOD-v011-segment-replay`
 - Active training contract: `FRS-TRAIN-v003-segment-replay-warmup`
+- Active reward contract: `FRS-GAIN-v002-style-physics-repair`
 - Code revision inspected: `2ff791e` plus the current dirty worktree; the
   deployed source snapshot must match this worktree before live evidence is accepted.
 - Checkpoint identity: must be supplied and printed by the upcoming formal run.
@@ -51,7 +59,11 @@ The audit will prove the official formal Stage 3 route only:
 
 `config -> scripts/rsl_rl/train.py -> OnPolicyRunner -> Segment sampler ->`
 `reset/preroll -> full-6D Delta SE(3) rollout -> Segment storage -> paired`
-`Gain -> direct Segment PPO -> sampler/diagnostics -> checkpoint boundary`
+`Gain v002 -> direct Segment PPO -> sampler/diagnostics -> checkpoint boundary`
+
+C-specific evidence path:
+`raw survival_steps + effective_horizon_K -> survival_quality_repaired/noisy
+-> physics_survival_gain -> per-step survival_gain_steps -> returns/advantages`.
 
 Cost reductions may use a tiny environment count, short iteration count, and
 small sampled workload. The audit must not change branch selection, action
@@ -844,10 +856,10 @@ facts before the live run.
 | OBS-01 | S1, S3, S4 | `T-shape`, `T-order`, `T-finite`, `T-persist`, `T-live` | 870D layout and Stage 2 normalizer/checkpoint identity are high-risk | export/play are out of this training sentinel |
 | K-01 | S2, S4 | `T-connect`, `T-order`, `T-mask`, `T-live` | implementation already supports K; live must show multiple effective K | long-horizon quality and 64-step statistics are not claimed from one run |
 | ACT-01 | S1, S2, S4 | `T-shape`, `T-order`, `T-cone`, `T-scale`, `T-connect`, `T-live` | full-6D actor -> executed correction -> stored action is a core identity | no action-mask ablation; it is forbidden by the active contract |
-| GAIN-01 | S1, S2, S4 | `T-value`, `T-sign`, `T-pair`, `T-connect`, `T-single-owner`, `T-no-legacy-score`, `T-live` | Gain is the method's executable evidence and must populate in IsaacLab | no generic reward comparison; it is outside the active method |
+| GAIN-01 | S1, S2, S4 | `T-value`, `T-unit`, `T-K`, `T-step-sum`, `T-sign`, `T-pair`, `T-connect`, `T-single-owner`, `T-no-legacy-score`, `T-live` | v002 must show raw steps separately, normalize by each K, and preserve paired Gain semantics in IsaacLab | no generic reward comparison; it is outside the active method |
 | PPO-01 | S1, S2, S4 | `T-clip`, `T-KL-exact`, `T-detach`, `T-permute`, `T-advantage-sign`, `T-update-order`, `T-state`, `T-connect`, `T-live` | update semantics and direct full-6D policy update are high-risk | no new algorithm change is authorized by this audit |
 | PERSIST-01 | S3, S4 | `T-persist`, `T-order`, `T-diff`, `T-live` | one-iteration formal loop saves a checkpoint; identity must be logged | full resume migration is a separate S3/S4 run |
-| DIAG-01 | S1, S2, S4 | `T-unconfirmed`, `T-nonstale`, `T-decompose`, `T-live` | required live metrics must be populated or explicitly unconfirmed | long-run quality and periodic/sequence eval are separate gates |
+| DIAG-01 | S1, S2, S4 | `T-unconfirmed`, `T-nonstale`, `T-decompose`, `T-unit`, `T-live` | raw survival, quality, normalized Gain, and missing-state behavior must be separately visible | long-run quality and periodic/sequence eval are separate gates |
 
 Existing S0-S3 contract evidence is reused as implementation evidence, not
 promoted to live evidence: the aggregate suite, full-6D/no-mask, actual policy
@@ -860,11 +872,14 @@ The authoritative probe inventory is the 20-owner table above and the Runtime
 Audit Atlas. Every owner contains its matching default-off `AUDIT-*` emission,
 adjacent B1/B2/B3 reading comments, and `Result: PENDING_LIVE`. The prior
 seven-probe planning projection is retired and must not be used for live
-acceptance.
+acceptance. `AUDIT-GAIN-01` now captures raw survival steps, effective K,
+repaired/noisy quality, normalized survival Gain, and step-sum error.
+`AUDIT-RETURN-01` captures the same K and per-step survival Gain trace beside
+storage reward, returns, and advantages.
 
 ## Tiny Formal-Route Command
 
-This is the locked command for the first live audit. It uses the official
+This is the locked command for the C v002 live audit. It uses the official
 wrapper and `MODE=train`; `--frontres_formal_runtime_audit` only enables
 default-off observations and does not select a sentinel, probe-only,
 storage-only, update-loop-only, or offline-eval branch.
@@ -872,9 +887,9 @@ storage-only, update-loop-only, or offline-eval branch.
 ```bash
 CUDA_VISIBLE_DEVICES=2 \
 CACHE_DIR=/hdd1/cyx/AMASS_G1Segment \
-LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_20260715_rerun3.txt \
+LOG_PATH=/hdd1/cyx/FEMR/formal_runtime_audit_gain_v002_20260716.txt \
 PERIODIC_EVAL_ENABLED=0 \
-RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_20260715_RERUN3 \
+RUN_NAME=FEMR_FORMAL_RUNTIME_AUDIT_GAIN_V002_20260716 \
 HYDRA_FULL_ERROR=1 \
 bash /hdd1/cyx/FEMR/run_stage3.sh \
   /hdd1/cyx/FEMR/model/model_warmup.pt \
@@ -902,6 +917,10 @@ command is accepted as live evidence.
 - Stop if the active `FRS-TRAIN-v003` warmup route or its printed phase/weight
   disagrees with the deployed code and checkpoint identity.
 - Stop if an owner does not receive the expected shape/count/value relation.
+- Stop if `AUDIT-GAIN-01` reports missing raw survival, K, quality, or step-sum
+  fields, or if `survival_gain_sum_abs_error` is not within the offline
+  contract tolerance.
+- Stop if `gain_source` is not `FRS-GAIN-v002`.
 - Do not convert offline contract PASS into formal-route or live PASS.
 
 ## Required Next Step

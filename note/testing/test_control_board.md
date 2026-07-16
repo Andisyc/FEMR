@@ -23,6 +23,7 @@ claims additionally require S4.
 | Surface | Current evidence | Status | Limitation |
 | --- | --- | --- | --- |
 | Segment aggregate suite | 44/44 contract markers, 2026-07-15 | covered S0-S3/S4-named offline contracts | Does not prove real simulator quality. |
+| Survival Gain v002 offline suite | Gain owner, connectivity, live probe/training/sequence/diagnostic/sampler contracts, 2026-07-16 | passed | Formal mixed-K runtime and long-sequence evidence remain open. |
 | Architecture viewer | JSON valid; viewer imports; 62 owner paths exist; Runtime Audit Atlas has 20 owner cards | covered S0 | Does not prove runtime routing. |
 | Full-6D/no active mask | dedicated static contract plus rollout/PPO tuple tests | covered S0-S2 | S4 full-6D log proof remains. |
 | K curriculum | 8/16/32/64 implementation, explicit Stage 3 max horizon, and formal-route connectivity | covered S1-S2 | Live horizon distribution remains S4. |
@@ -57,7 +58,7 @@ claims additionally require S4.
 
 ```text
 formal policy-row Gain route: implemented and offline-connected
-active FRS-GAIN-v001: Physics/Repair/sampler/eval formal route is
+active FRS-GAIN-v002: Physics/Repair/sampler/eval formal route is
 offline-complete; tiny official-route S4 audit is authorized, while long
 full-Gain training remains BLOCKED pending reviewed S4 evidence
 single active Gain owner: confirmed design; sampler 6A/6B migration offline-complete

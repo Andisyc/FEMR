@@ -82,6 +82,10 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         transition_means=torch.zeros(2, 6),
         transition_sigmas=torch.ones(2, 6) * 0.01,
         transition_perturbation_rp=torch.tensor([[0.1, -0.1], [0.2, -0.2]]),
+        survival_steps=torch.tensor([4.0, 3.0]),
+        horizon_k=torch.tensor([4, 4]),
+        gain_steps=torch.tensor([[0.1, 0.0], [0.1, 0.0]]),
+        survival_gain_steps=torch.tensor([[0.1, 0.0], [0.1, 0.0]]),
         n_train=1,
         n_candidate=1,
         n_base=0,
@@ -119,6 +123,10 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         "perturbation_strength_max": 0.75,
         "gain_style_mean": 0.3,
         "gain_physics_mean": 0.2,
+        "gain_physics_survival_quality_repaired_per_sample": [1.0],
+        "gain_physics_survival_quality_noisy_per_sample": [0.8],
+        "gain_physics_survival_per_sample": [0.2],
+        "gain_physics_survival_mean": 0.2,
         "gain_repair_cost_mean": 0.1,
         "gain_total_mean": 0.4,
         "sampler_update_priority_before_mean": 0.5,
@@ -171,6 +179,20 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "missing" not in perturb_line
     assert "reset_success_frac=1.0" in output
     assert "delta_norm=0.125" in output
+    gain_line = next(line for line in output.splitlines() if line.startswith("[AUDIT-GAIN-01]"))
+    assert "contract=FRS-GAIN-v002" in gain_line
+    assert "raw_survival_steps=shape=(1,)" in gain_line
+    assert "effective_horizon_k=shape=(1,)" in gain_line
+    assert "survival_quality_repaired=[1.0]" in gain_line
+    assert "survival_quality_noisy=[0.8]" in gain_line
+    assert "physics_survival_gain=[0.2]" in gain_line
+    assert "final_survival_gain_mean=0.2" in gain_line
+    assert "survival_gain_sum_abs_error=" in gain_line
+    sum_error = float(gain_line.split("survival_gain_sum_abs_error=", 1)[1].split()[0])
+    assert sum_error < 1e-5
+    return_line = next(line for line in output.splitlines() if line.startswith("[AUDIT-RETURN-01]"))
+    assert "survival_gain_steps=shape=(2, 1)" in return_line
+    assert "survival_gain_step_sum=shape=(1,)" in return_line
     assert "roles={'policy': 1, 'candidate': 1}" in output
     assert "rewards=shape=(2,)" in output
     for label in ("AUDIT-KROLLOUT-01", "AUDIT-APPLY-01", "AUDIT-PAIR-01", "AUDIT-RETURN-01"):

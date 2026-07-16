@@ -337,7 +337,7 @@ def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
         "success_rate": 0.7,
         "fall_rate": 0.2,
         "mean_survival_steps": 430,
-        "gain_source": "FRS-GAIN-v001",
+        "gain_source": "FRS-GAIN-v002",
         "gain_style_mean": 0.08,
         "gain_physics_mean": 0.06,
         "gain_repair_cost_mean": 0.02,
@@ -366,7 +366,7 @@ def test_periodic_eval_summary_formats_long_rollout_metrics() -> None:
     assert "survival=430.0" in log
     assert "success=70.0%" in log
     assert "fall=20.0%" in log
-    assert "source=FRS-GAIN-v001" in log
+    assert "source=FRS-GAIN-v002" in log
     assert "style=0.080000 physics=0.060000 repair_cost=0.020000 total=0.120000 positive=75.0%" in log
     assert "score:" not in log
     assert "mpjpe_repaired=0.110000" in log

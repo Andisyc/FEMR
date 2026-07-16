@@ -43,6 +43,14 @@ def _summary_value(summary: Mapping[str, Any], key: str) -> str:
     return str(value)
 
 
+def _finite_tensor_mean(value: Any) -> float | None:
+    if not isinstance(value, torch.Tensor) or value.numel() == 0:
+        return None
+    flat = value.detach().float().reshape(-1)
+    flat = flat[torch.isfinite(flat)]
+    return float(flat.mean().item()) if flat.numel() else None
+
+
 def _config_value(owner: Any, key: str, default: Any = "missing") -> Any:
     if isinstance(owner, Mapping):
         return owner.get(key, default)
@@ -310,11 +318,30 @@ def print_rollout_storage_audit(
         return
     observations = getattr(capture, "transition_obs", None)
     actions = getattr(capture, "transition_actions", None)
+    raw_survival_steps = getattr(capture, "survival_steps", None)
+    effective_horizon_k = getattr(capture, "horizon_k", None)
+    survival_gain_steps = getattr(capture, "survival_gain_steps", None)
     obs_prefix = observations[..., :100] if isinstance(observations, torch.Tensor) and observations.shape[-1] >= 100 else None
     obs_suffix = observations[..., 100:] if isinstance(observations, torch.Tensor) and observations.shape[-1] >= 100 else None
     assert isinstance(observations, torch.Tensor) and observations.shape[-1] == 870
     assert isinstance(actions, torch.Tensor) and actions.shape[-1] == 6
     assert storage_batch is not None and getattr(storage_batch, "actions", None).shape[-1] == 6
+    assert isinstance(raw_survival_steps, torch.Tensor)
+    assert isinstance(effective_horizon_k, torch.Tensor)
+    assert isinstance(survival_gain_steps, torch.Tensor)
+    assert bool(torch.isfinite(raw_survival_steps.float()).all().item())
+    assert bool(torch.isfinite(effective_horizon_k.float()).all().item())
+    n_train = int(getattr(capture, "n_train", 0))
+    if survival_gain_steps.ndim != 2 or int(survival_gain_steps.shape[1]) < n_train:
+        raise ValueError("formal Gain audit requires [T,B] survival_gain_steps with policy rows")
+    policy_survival_gain_steps = survival_gain_steps[:, :n_train]
+    assert bool(torch.isfinite(policy_survival_gain_steps.float()).all().item())
+    policy_survival_gain_sum = policy_survival_gain_steps.float().sum(dim=0)
+    step_sum_mean = _finite_tensor_mean(policy_survival_gain_sum)
+    final_survival_gain_mean = summary.get("gain_physics_survival_mean")
+    sum_abs_error: float | str = "missing"
+    if step_sum_mean is not None and isinstance(final_survival_gain_mean, (int, float)) and math.isfinite(float(final_survival_gain_mean)):
+        sum_abs_error = abs(step_sum_mean - float(final_survival_gain_mean))
     for value in (
         observations,
         actions,
@@ -356,12 +383,38 @@ def print_rollout_storage_audit(
     # AUDIT-PAIR-EVIDENCE-01: 检查同 segment/K 的 paired evidence, 位于 rollout capture -> Gain.
     # Result: PENDING_LIVE.
     _emit_owner_snapshot("AUDIT-PAIR-EVIDENCE-01", noisy=_summary_value(summary, "score_noisy"), repaired=_summary_value(summary, "score_repaired"), gain=_summary_value(summary, "score_gain"))
-    # AUDIT-GAIN-01: 检查 canonical Gain 分解, 位于 paired evidence -> storage reward.
+    # AUDIT-GAIN-01: 检查 v002 Gain 分解和 survival unit, 位于 paired evidence -> storage reward.
     # Result: PENDING_LIVE.
-    _emit_owner_snapshot("AUDIT-GAIN-01", style=_summary_value(summary, "gain_style_mean"), physics=_summary_value(summary, "gain_physics_mean"), repair=_summary_value(summary, "gain_repair_cost_mean"), total=_summary_value(summary, "gain_total_mean"))
+    _emit_owner_snapshot(
+        "AUDIT-GAIN-01",
+        contract="FRS-GAIN-v002",
+        raw_survival_steps=_tensor_stats(raw_survival_steps[:n_train]),
+        effective_horizon_k=_tensor_stats(effective_horizon_k[:n_train]),
+        survival_quality_repaired=_summary_value(summary, "gain_physics_survival_quality_repaired_per_sample"),
+        survival_quality_noisy=_summary_value(summary, "gain_physics_survival_quality_noisy_per_sample"),
+        physics_survival_gain=_summary_value(summary, "gain_physics_survival_per_sample"),
+        survival_gain_step_sum=_tensor_stats(policy_survival_gain_sum),
+        survival_gain_sum_mean=step_sum_mean if step_sum_mean is not None else "missing",
+        final_survival_gain_mean=_summary_value(summary, "gain_physics_survival_mean"),
+        survival_gain_sum_abs_error=sum_abs_error,
+        style=_summary_value(summary, "gain_style_mean"),
+        physics=_summary_value(summary, "gain_physics_mean"),
+        repair=_summary_value(summary, "gain_repair_cost_mean"),
+        total=_summary_value(summary, "gain_total_mean"),
+    )
     # AUDIT-RETURN-01: 检查 Gain -> reward -> returns, 位于 storage write -> PPO batch.
     # Result: PENDING_LIVE.
-    _emit_owner_snapshot("AUDIT-RETURN-01", rewards=_tensor_stats(getattr(storage_batch, "rewards", None)), returns=_tensor_stats(getattr(storage_batch, "returns", None)), advantages=_tensor_stats(getattr(storage_batch, "advantages", None)))
+    _emit_owner_snapshot(
+        "AUDIT-RETURN-01",
+        raw_survival_steps=_tensor_stats(raw_survival_steps[:n_train]),
+        effective_horizon_k=_tensor_stats(effective_horizon_k[:n_train]),
+        survival_gain_steps=_tensor_stats(policy_survival_gain_steps),
+        survival_gain_step_sum=_tensor_stats(policy_survival_gain_sum),
+        gain_steps=_tensor_stats(getattr(capture, "gain_steps", None)),
+        rewards=_tensor_stats(getattr(storage_batch, "rewards", None)),
+        returns=_tensor_stats(getattr(storage_batch, "returns", None)),
+        advantages=_tensor_stats(getattr(storage_batch, "advantages", None)),
+    )
 def print_ppo_audit(runner: Any, *, result: Any) -> None:
     if not formal_runtime_audit_enabled(runner):
         return

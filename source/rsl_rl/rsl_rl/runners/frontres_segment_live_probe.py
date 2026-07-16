@@ -206,6 +206,7 @@ class FrontRESSegmentLiveRolloutCapture:
     repair_score_steps: torch.Tensor | None = None
     transition_action_steps: torch.Tensor | None = None
     gain_steps: torch.Tensor | None = None
+    survival_gain_steps: torch.Tensor | None = None
     gain_config: Any | None = None
 
 
@@ -1735,6 +1736,7 @@ def _capture_paired_gain(capture: FrontRESSegmentLiveRolloutCapture) -> Any | No
         noisy_success=(~capture.done_any[base_start : base_start + n]).reshape(-1),
         repaired_survival=capture.survival_steps[:n].reshape(-1),
         noisy_survival=capture.survival_steps[base_start : base_start + n].reshape(-1),
+        effective_horizon_k=horizon,
         repaired_zmp_margin=repaired_zmp,
         noisy_zmp_margin=noisy_zmp,
         repaired_contact=repaired_contact,
@@ -1807,7 +1809,7 @@ def _segment_storage_rewards(
     """选择正式 policy-row reward, 不把 legacy score 当作 Gain.
 
     Status: active.
-    Upstream: paired live capture and FRS-GAIN-v001 component owner.
+    Upstream: paired live capture and FRS-GAIN-v002 component owner.
     Downstream: FrontRESSegmentRolloutStorage.rewards.
     Evidence: contract-confirmed by the formal Gain connectivity test.
     Gap: real rollout population remains live-only.
@@ -2332,6 +2334,7 @@ def _run_live_rollout_capture(
     reward_frames = []
     repair_score_frames = []
     gain_step_frames = []
+    survival_gain_step_frames = []
     action_step_frames = []
     done_frames = []
     survival_steps = None
@@ -2537,8 +2540,16 @@ def _run_live_rollout_capture(
                         train_success = (~done_any[:n_pair]).detach()
                         base_start = int(pair_layout.n_train) + int(pair_layout.n_candidate)
                         base_success = (~done_any[base_start : base_start + n_pair]).detach()
-                        train_survival = survival_steps[:n_pair] / float(rollout_step + 1)
-                        base_survival = survival_steps[base_start : base_start + n_pair] / float(rollout_step + 1)
+                        # B4: 逐步路径传入本步 alive increment, 由 Gain owner 用每行
+                        # effective K 转成 survival quality increment. 累计这些增量后,
+                        # 才与最终 raw survival_steps / K 的 Segment Gain 同源.
+                        train_survival = score_active[:n_pair].float()
+                        base_survival = score_active[base_start : base_start + n_pair].float()
+                        step_horizon = (
+                            capture.horizon_k[:n_pair]
+                            if isinstance(capture.horizon_k, torch.Tensor)
+                            else None
+                        )
                         step_result = gain_module.compute_segment_gain_step(
                             clean_position=clean_body[:n_pair],
                             repaired_position=repaired_body[:n_pair],
@@ -2560,6 +2571,7 @@ def _run_live_rollout_capture(
                             noisy_success=base_success,
                             repaired_survival=train_survival,
                             noisy_survival=base_survival,
+                            effective_horizon_k=step_horizon,
                             action=executed_actions[:n_pair],
                             previous_action=previous_action,
                             config=gain_config,
@@ -2572,6 +2584,14 @@ def _run_live_rollout_capture(
                         )
                         full_step_gain[:n_pair] = step_result.gain_total
                         gain_step_frames.append(full_step_gain)
+                        full_step_survival_gain = torch.full(
+                            (batch_size,),
+                            float("nan"),
+                            device=runner.device,
+                            dtype=step_result.physics_survival_gain.dtype,
+                        )
+                        full_step_survival_gain[:n_pair] = step_result.physics_survival_gain
+                        survival_gain_step_frames.append(full_step_survival_gain)
                     previous_previous_clean_body = previous_clean_body
                     previous_previous_repaired_body = previous_repaired_body
                     previous_previous_noisy_body = previous_noisy_body
@@ -2583,6 +2603,7 @@ def _run_live_rollout_capture(
                     previous_noisy_root_quat = noisy_root_quat
             elif int(pair_layout.n_train) > 0:
                 gain_step_frames.append(torch.full((batch_size,), float("nan"), device=runner.device))
+                survival_gain_step_frames.append(torch.full((batch_size,), float("nan"), device=runner.device))
             previous_action = executed_actions
 
             obs, privileged_obs, teacher_obs, ref_vel_estimator_obs = _read_step_observations(runner, obs, infos)
@@ -2616,6 +2637,11 @@ def _run_live_rollout_capture(
         repair_score_accum=repair_score_accum,
         repair_score_steps=torch.stack(repair_score_frames, dim=0) if repair_score_frames else None,
         gain_steps=torch.stack(gain_step_frames, dim=0) if gain_step_frames else None,
+        survival_gain_steps=(
+            torch.stack(survival_gain_step_frames, dim=0)
+            if survival_gain_step_frames
+            else None
+        ),
         gain_config=gain_config,
         done_steps=torch.stack(done_frames, dim=0) if done_frames else None,
         horizon_k=horizon_k.detach().clone(),
@@ -3072,7 +3098,7 @@ def _paired_gain_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[str
     if result is None:
         return {"gain_source": "UNCONFIRMED"}
     return {
-        "gain_source": "FRS-GAIN-v001",
+        "gain_source": "FRS-GAIN-v002",
         "gain_style_per_sample": _float_list(result.style_gain),
         "gain_physics_per_sample": _float_list(result.physics_gain),
         "gain_repair_cost_per_sample": _float_list(result.repair_cost),
@@ -3086,6 +3112,11 @@ def _paired_gain_summary(capture: FrontRESSegmentLiveRolloutCapture) -> dict[str
         "gain_style_acceleration_mean": _finite_mean(result.style_acceleration_gain),
         "gain_style_root_orientation_mean": _finite_mean(result.style_root_orientation_gain),
         "gain_physics_success_mean": _finite_mean(result.physics_success_gain),
+        "gain_physics_survival_quality_repaired_per_sample": _float_list(result.physics_survival_quality_repaired),
+        "gain_physics_survival_quality_noisy_per_sample": _float_list(result.physics_survival_quality_noisy),
+        "gain_physics_survival_per_sample": _float_list(result.physics_survival_gain),
+        "gain_physics_survival_quality_repaired_mean": _finite_mean(result.physics_survival_quality_repaired),
+        "gain_physics_survival_quality_noisy_mean": _finite_mean(result.physics_survival_quality_noisy),
         "gain_physics_survival_mean": _finite_mean(result.physics_survival_gain),
         "gain_physics_zmp_mean": _finite_mean(result.physics_zmp_gain),
         "gain_physics_contact_mean": _finite_mean(result.physics_contact_gain),
@@ -3224,7 +3255,9 @@ def _print_live_probe_summary(
                     "acceleration": _fmt_metric(summary.get("gain_style_acceleration_mean")),
                     "root_orientation": _fmt_metric(summary.get("gain_style_root_orientation_mean")),
                     "success": _fmt_metric(summary.get("gain_physics_success_mean")),
-                    "survival": _fmt_metric(summary.get("gain_physics_survival_mean")),
+                    "survival_quality_repaired": _fmt_metric(summary.get("gain_physics_survival_quality_repaired_mean")),
+                    "survival_quality_noisy": _fmt_metric(summary.get("gain_physics_survival_quality_noisy_mean")),
+                    "survival_quality": _fmt_metric(summary.get("gain_physics_survival_mean")),
                     "zmp": _fmt_metric(summary.get("gain_physics_zmp_mean")),
                     "contact": _fmt_metric(summary.get("gain_physics_contact_mean")),
                     "repair_norm": _fmt_metric(summary.get("gain_repair_norm_mean")),

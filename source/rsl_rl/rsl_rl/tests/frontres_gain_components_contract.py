@@ -54,10 +54,11 @@ def test_physics_gain_uses_paired_success_and_survival_only() -> None:
         torch.tensor([4.0, 1.0]),
         torch.tensor([2.0, 1.0]),
         config=MODULE.FrontRESSegmentGainConfig(),
+        effective_horizon_k=4,
     )
     torch.testing.assert_close(result["success"], torch.tensor([1.0, 0.0]))
-    torch.testing.assert_close(result["survival"], torch.tensor([2.0, 0.0]))
-    torch.testing.assert_close(result["physics"], torch.tensor([1.5, 0.0]))
+    torch.testing.assert_close(result["survival"], torch.tensor([0.5, 0.0]))
+    torch.testing.assert_close(result["physics"], torch.tensor([0.75, 0.0]))
 
 
 def test_physics_gain_includes_optional_zmp_and_contact_components() -> None:
@@ -71,10 +72,11 @@ def test_physics_gain_includes_optional_zmp_and_contact_components() -> None:
         repaired_contact=torch.tensor([1.0, 0.5]),
         noisy_contact=torch.tensor([0.5, 0.5]),
         config=MODULE.FrontRESSegmentGainConfig(),
+        effective_horizon_k=4,
     )
     torch.testing.assert_close(result["zmp"], torch.tensor([0.2, 0.0]))
     torch.testing.assert_close(result["contact"], torch.tensor([0.5, 0.0]))
-    torch.testing.assert_close(result["physics"], torch.tensor([3.7 / 4.0, 0.0]))
+    torch.testing.assert_close(result["physics"], torch.tensor([2.2 / 4.0, 0.0]))
 
 
 def test_repair_cost_is_full_six_d_and_has_temporal_term() -> None:
@@ -160,6 +162,7 @@ def test_segment_gain_preserves_mixed_k_pairing_and_row_permutation() -> None:
             action_step_mask=action_mask[:, order],
             temporal_mask=temporal_mask[order],
             config=config,
+            effective_horizon_k=1,
         )
 
     result = compute(torch.tensor([0, 1]))
@@ -183,6 +186,7 @@ def test_missing_style_or_temporal_evidence_is_not_zero() -> None:
         noisy_survival=torch.tensor([0.5]),
         action_steps=torch.ones(1, 1, 6),
         config=MODULE.FrontRESSegmentGainConfig(),
+        effective_horizon_k=1,
     )
     assert torch.isnan(result.style_gain).all()
     assert torch.isnan(result.repair_temporal_change).all()
@@ -211,7 +215,7 @@ def test_step_gain_uses_current_full6d_action_and_shared_signs() -> None:
         repaired_success=torch.tensor([True, True]),
         noisy_success=torch.tensor([False, True]),
         repaired_survival=torch.tensor([1.0, 1.0]),
-        noisy_survival=torch.tensor([0.5, 1.0]),
+        noisy_survival=torch.tensor([0.0, 1.0]),
         action=torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0]]),
         previous_action=None,
         config=MODULE.FrontRESSegmentGainConfig(
@@ -219,11 +223,87 @@ def test_step_gain_uses_current_full6d_action_and_shared_signs() -> None:
             repair_norm_scale=1.0,
             repair_temporal_scale=1.0,
         ),
+        effective_horizon_k=2,
     )
     assert bool((result.style_gain > 0.0).all())
     assert bool((result.physics_gain >= 0.0).all())
     assert bool((result.repair_norm > 0.0).all())
     assert bool(torch.isfinite(result.gain_total).all())
+
+
+def test_survival_unit_and_k_aggregation_probe() -> None:
+    """Prove raw reporting, K quality, and per-step-to-final aggregation."""
+
+    config = MODULE.FrontRESSegmentGainConfig()
+    k4 = MODULE.compute_paired_physics_gain(
+        repaired_success=torch.tensor([True]),
+        noisy_success=torch.tensor([True]),
+        repaired_survival=torch.tensor([4.0]),
+        noisy_survival=torch.tensor([2.0]),
+        config=config,
+        effective_horizon_k=4,
+    )
+    k1 = MODULE.compute_paired_physics_gain(
+        repaired_success=torch.tensor([True]),
+        noisy_success=torch.tensor([True]),
+        repaired_survival=torch.tensor([1.0]),
+        noisy_survival=torch.tensor([0.0]),
+        config=config,
+        effective_horizon_k=1,
+    )
+    k8 = MODULE.compute_paired_physics_gain(
+        repaired_success=torch.tensor([True]),
+        noisy_success=torch.tensor([True]),
+        repaired_survival=torch.tensor([4.0]),
+        noisy_survival=torch.tensor([2.0]),
+        config=config,
+        effective_horizon_k=8,
+    )
+
+    repaired_steps = torch.tensor([1.0, 1.0, 1.0, 1.0])
+    noisy_steps = torch.tensor([1.0, 1.0, 0.0, 0.0])
+    per_step = torch.stack(
+        [
+            MODULE.compute_paired_physics_gain(
+                repaired_success=torch.tensor([True]),
+                noisy_success=torch.tensor([True]),
+                repaired_survival=repaired_steps[index].reshape(1),
+                noisy_survival=noisy_steps[index].reshape(1),
+                config=config,
+                effective_horizon_k=4,
+            )["survival"].reshape(())
+            for index in range(4)
+        ]
+    )
+
+    torch.testing.assert_close(k1["survival"], torch.tensor([1.0]))
+    torch.testing.assert_close(k4["survival"], torch.tensor([0.5]))
+    torch.testing.assert_close(k8["survival"], torch.tensor([0.25]))
+    torch.testing.assert_close(per_step, torch.tensor([0.0, 0.0, 0.25, 0.25]))
+    torch.testing.assert_close(per_step.sum().reshape(1), k4["survival"])
+
+    print(
+        "[probe survival-unit] "
+        "raw_steps_repaired=4.0 raw_steps_noisy=2.0 "
+        f"k1_quality_gain={float(k1['survival'][0]):.6f} "
+        f"k4_quality_gain={float(k4['survival'][0]):.6f} "
+        f"k8_quality_gain={float(k8['survival'][0]):.6f} "
+        f"per_step_delta={per_step.tolist()} per_step_sum={float(per_step.sum()):.6f} k=4",
+        flush=True,
+    )
+
+
+def test_missing_effective_k_does_not_fallback_to_raw_steps() -> None:
+    result = MODULE.compute_paired_physics_gain(
+        repaired_success=torch.tensor([True]),
+        noisy_success=torch.tensor([True]),
+        repaired_survival=torch.tensor([4.0]),
+        noisy_survival=torch.tensor([2.0]),
+        config=MODULE.FrontRESSegmentGainConfig(),
+        effective_horizon_k=None,
+    )
+    assert torch.isnan(result["survival"]).all()
+    assert not torch.equal(result["survival"], torch.tensor([2.0]))
 
 
 def main() -> None:
@@ -236,6 +316,8 @@ def main() -> None:
     test_segment_gain_preserves_mixed_k_pairing_and_row_permutation()
     test_missing_style_or_temporal_evidence_is_not_zero()
     test_step_gain_uses_current_full6d_action_and_shared_signs()
+    test_survival_unit_and_k_aggregation_probe()
+    test_missing_effective_k_does_not_fallback_to_raw_steps()
     print("frontres_gain_components_contract: ok")
 
 

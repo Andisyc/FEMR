@@ -250,7 +250,7 @@ class FakeRunner:
 
 def _summary(reward: float, valid_count: int = 2) -> dict:
     return {
-        "gain_source": "FRS-GAIN-v001",
+        "gain_source": "FRS-GAIN-v002",
         "gain_style_per_sample": [reward, reward],
         "gain_physics_per_sample": [0.0, 0.0],
         "gain_repair_cost_per_sample": [0.0, 0.0],
@@ -280,7 +280,7 @@ def _summary_per_sample(
     assert len(rewards) == len(storage_valid) == len(done_any)
     valid_count = sum(1 for item in storage_valid if item)
     return {
-        "gain_source": "FRS-GAIN-v001",
+        "gain_source": "FRS-GAIN-v002",
         "gain_style_per_sample": list(rewards),
         "gain_physics_per_sample": [0.0 for _ in rewards],
         "gain_repair_cost_per_sample": [0.0 for _ in rewards],
@@ -546,13 +546,13 @@ def test_live_sampler_evidence_rejects_missing_formal_gain() -> None:
     try:
         build_live_sampler_evidence(sample, summary, horizon_k=4)
     except ValueError as exc:
-        assert "FRS-GAIN-v001" in str(exc) or "gain_" in str(exc)
+        assert "FRS-GAIN-v002" in str(exc) or "gain_" in str(exc)
     else:
         raise AssertionError("missing formal Gain must fail closed")
 
 
 def test_live_sampler_evidence_prefers_formal_gain_total_over_legacy_score_gain() -> None:
-    """FRS-GAIN-v001 must be the sampler's canonical paired evidence source."""
+    """FRS-GAIN-v002 must be the sampler's canonical paired evidence source."""
     sample = FrontRESSegmentSample(
         segment_ids=torch.tensor([10, 11]),
         source=("global", "replay"),
@@ -561,7 +561,7 @@ def test_live_sampler_evidence_prefers_formal_gain_total_over_legacy_score_gain(
         valid_mask=torch.ones(2, dtype=torch.bool),
     )
     summary = {
-        "gain_source": "FRS-GAIN-v001",
+        "gain_source": "FRS-GAIN-v002",
         "gain_total_per_sample": [0.70, -0.40],
         "gain_style_per_sample": [0.10, -0.10],
         "gain_physics_per_sample": [0.50, -0.20],
@@ -579,7 +579,7 @@ def test_live_sampler_evidence_prefers_formal_gain_total_over_legacy_score_gain(
     torch.testing.assert_close(evidence.gain_style, torch.tensor([0.10, -0.10]))
     torch.testing.assert_close(evidence.gain_physics, torch.tensor([0.50, -0.20]))
     torch.testing.assert_close(evidence.repair_cost, torch.tensor([0.10, -0.10]))
-    assert evidence.gain_source == "FRS-GAIN-v001"
+    assert evidence.gain_source == "FRS-GAIN-v002"
 
 
 def test_live_sampler_evidence_rejects_nonfinite_formal_gain() -> None:
@@ -608,7 +608,7 @@ def test_formal_gain_priority_isolated_from_post_update_diagnostics() -> None:
         valid_mask=torch.ones(2, dtype=torch.bool),
     )
     base = {
-        "gain_source": "FRS-GAIN-v001",
+        "gain_source": "FRS-GAIN-v002",
         "gain_total_per_sample": [0.70, -0.40],
         "gain_style_per_sample": [0.10, -0.10],
         "gain_physics_per_sample": [0.50, -0.20],
@@ -688,7 +688,7 @@ def test_live_sampler_evidence_uses_actor_owned_paired_rows_only() -> None:
     )
     summary = {
         "evidence_row_count": 2,
-        "gain_source": "FRS-GAIN-v001",
+        "gain_source": "FRS-GAIN-v002",
         "gain_style_per_sample": [0.3, 0.2],
         "gain_physics_per_sample": [0.1, 0.2],
         "gain_repair_cost_per_sample": [0.0, 0.0],
@@ -719,7 +719,7 @@ def test_live_sampler_evidence_uses_actor_owned_paired_rows_only() -> None:
     torch.testing.assert_close(evidence.gain_over_noisy, torch.tensor([0.5, 0.4]))
     assert "[FrontRES Segment Evidence]" in output
     assert "evidence.ids: count=2 id_min=10 id_max=11" in output
-    assert "evidence.source: FRS-GAIN-v001" in output
+    assert "evidence.source: FRS-GAIN-v002" in output
     assert "score.gain: 0.450000" in output
 
 
@@ -1357,7 +1357,7 @@ def test_formal_checkpoint_persists_and_validates_gain_config_identity() -> None
         )
         save_runner(runner, path)
         saved = torch.load(path, weights_only=False)
-        assert saved["frontres_gain_config"]["contract_id"] == "FRS-GAIN-v001"
+        assert saved["frontres_gain_config"]["contract_id"] == "FRS-GAIN-v002"
         assert saved["frontres_gain_config"]["values"]["style_weight"] == 1.25
 
         resumed_policy = torch.nn.Linear(1, 1)
@@ -1385,7 +1385,7 @@ def test_formal_checkpoint_persists_and_validates_gain_config_identity() -> None
             assert "Gain config mismatch" in str(exc)
             print(f"[probe step10a] gain_config_mismatch_rejected: {exc}", flush=True)
         else:
-            raise AssertionError("resume accepted a mismatched FRS-GAIN-v001 configuration")
+            raise AssertionError("resume accepted a mismatched FRS-GAIN-v002 configuration")
 
         legacy_path = str(Path(tmp) / "model_without_gain_config.pt")
         legacy_payload = {key: value for key, value in saved.items() if key != "frontres_gain_config"}

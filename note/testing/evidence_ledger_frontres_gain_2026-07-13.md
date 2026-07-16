@@ -1107,3 +1107,189 @@ Next:
   evaluation with `--frontres_formal_runtime_audit`, and require both
   `[AUDIT-GAIN-01]` output and finite `physics_components` values before using
   Gain to rank checkpoints.
+
+## E51 - Live Gain Component Population And Unit Boundary (2026-07-16)
+
+- All four refreshed matched-evaluation logs set `formal_runtime_audit=True`
+  and emit `AUDIT-PAIR-EVIDENCE-01` plus `AUDIT-GAIN-01`. The captured Style,
+  ZMP, contact, repair cost, and total Gain tensors are finite. Sequence logs
+  now print finite `success`, `survival`, `zmp`, and `contact` components.
+- Reset/evaluation oracles are true for the sampled rows: frame-zero reset,
+  evaluation start frame, motion identity, RP-only family, role alignment,
+  metric shapes, reset success, and summary motion alignment. No Python fatal
+  marker appears in the four logs.
+- The two checkpoint pairs are now genuinely matched by seed. Seed 20260716
+  changes model 1 -> model 2 from success `68.8%` to `75.0%` and survival
+  `101.3` to `105.1`, but total Gain falls `-0.510026` to `-0.946795` and
+  positive fraction falls `87.5%` to `62.5%`. Seed 20260717 keeps survival at
+  `115.6`, while total Gain is nearly unchanged (`0.011984` to `0.011943`)
+  and positive fraction falls `75.0%` to `50.0%`. This is mixed checkpoint
+  behavior, not a universal improvement claim.
+- The negative Gain is not evidence that Physics fields are missing. It is a
+  paired result: `physics_survival_gain` compares Repaired survival against
+  Noisy survival, not Repaired survival against zero. In seed 20260716 the
+  printed survival component is `-2.5` for model 1 and `-4.0` for model 2.
+- New code-confirmed risk: `_capture_paired_gain()` passes raw survival steps
+  into `compute_segment_gain()`, while the per-step training path passes
+  survival divided by the current rollout step into
+  `compute_segment_gain_step()`. The active contract requires shared units and
+  scales across training and evaluation; this normalization boundary is not
+  yet contract- or live-confirmed.
+- Evidence level: S4 paired Physics/Style/Repair population and diagnostic
+  freshness PASS; training-return/evaluation unit alignment remains partial.
+
+Next:
+- Audit survival units and K aggregation offline and through the formal
+  training-return route. Do not silently add a scale or change the Gain
+  formula until the accepted contract decides whether survival is raw horizon
+  difference or normalized horizon quality.
+
+## E55 - Normalized Survival Gain Alignment (2026-07-16)
+
+Scope:
+- Activated `FRS-GAIN-v002-style-physics-repair.md`, superseding v001.
+- `frontres_gain.py` now owns `survival_quality = survival_steps / K` and
+  rejects missing or shape-incompatible K as non-finite evidence.
+- Final paired Gain consumes cumulative raw survival steps with per-row K.
+- Per-step Segment PPO Gain consumes the current alive increment with the same
+  K, so its survival component sums to the final K-normalized difference.
+- Evaluation keeps raw `mean_survival_steps` separate and prints repaired,
+  noisy, and Gain survival quality. Long sequence survival remains separate.
+
+Commands and results:
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py`
+  PASS: `k1_quality_gain=1.000000`, `k4_quality_gain=0.500000`,
+  `k8_quality_gain=0.250000`, per-step `[0, 0, 0.25, 0.25]`, sum `0.5`.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_gain_connectivity_contract.py`
+  PASS.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py`
+  PASS; active diagnostic source is `FRS-GAIN-v002`.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py`
+  PASS after updating the log contract to show
+  `survival_quality=(repaired=... noisy=... gain=...)`.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_diagnostics_contract.py`
+  PASS.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+  PASS.
+
+Evidence level: S1/S2 contract and consumer connectivity confirmed offline.
+Limitation: no new IsaacLab formal runtime was run in this step; live
+population, mixed-K behavior, sampler evidence, and 120-step sequence output
+remain S4 evidence boundaries.
+
+Next:
+- Run one minimal formal Stage 3 sentinel with mixed effective K and inspect
+  raw survival steps, repaired/noisy survival quality, per-step return, and
+  `gain_source=FRS-GAIN-v002` before any training decision.
+
+## E56 - Formal Audit v002 Instrumentation (2026-07-16)
+
+Scope:
+- Live capture now retains the already-computed per-step
+  `physics_survival_gain` beside `gain_steps`.
+- `AUDIT-GAIN-01` prints raw policy-row survival steps, policy-row effective K,
+  repaired/noisy survival quality, normalized survival Gain, per-step survival
+  Gain sum, final survival Gain mean, and their absolute difference.
+- `AUDIT-RETURN-01` prints the same K and survival Gain trace beside Gain
+  steps, storage rewards, returns, and advantages.
+- Runtime Atlas GAIN/RETURN cards now explain these v002 objects and mark the
+  previous E37 live status as `stale-rerun-required`.
+
+Verification:
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_formal_runtime_audit_contract.py`
+  PASS; the fixture reports v002 fields and step-sum error below `1e-5`.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py`
+  PASS.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py`
+  PASS.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_gain_connectivity_contract.py`
+  PASS.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py`
+  PASS.
+- Runtime Atlas generator:
+  `/Users/chengyuxuan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node note/architecture/auxiliary/atlas_app/build_formal_runtime_audit.mjs`
+  PASS; generated 22 owner cards.
+
+Evidence level: S1/S2 code and formal-route contract-confirmed. No live
+IsaacLab run was started in this step. The C v002 S4 gate remains open until a
+fresh official `MODE=train` run emits these fields with
+`gain_source=FRS-GAIN-v002`.
+
+## E52-SIDE-PROPOSAL - Side-Conversation Survival Design Proposal (2026-07-16)
+
+- This entry records a temporary side-conversation result for planning in the
+  main conversation. It is not an active contract decision and does not
+  authorize a code change.
+- The external-code review confirms that Level Replay supplies prioritized
+  level-score aggregation, not a survival-Gain formula. Its score functions
+  operate on rollout-derived quantities and partial scores are merged with
+  step-count weighting. The official reference is
+  `https://github.com/facebookresearch/level-replay`.
+- The local MOSAIC reference uses normalized `frontres_survival_rate` for
+  quality diagnostics and normalizes episode length by a reference horizon for
+  frontier scoring. FEMR's own external reuse map says K-step repair reward is
+  FEMR-specific and should not be copied from Level Replay.
+- Planning candidate: preserve raw survival steps as a diagnostic, define a
+  K-normalized survival quality for paired Physics Gain, and keep long-sequence
+  survival separate from short K-step Gain. This remains a proposal until the
+  main conversation confirms the semantic choice.
+- Next main-conversation action: decide raw versus normalized semantics, then
+  create the smallest deterministic K=1/4/8 contract before considering any
+  live run or training.
+
+## E52-OFFLINE-PROBE - Survival Unit And K Aggregation Offline Probe (2026-07-16)
+
+- Added `test_survival_unit_and_k_aggregation_probe()` to the existing Gain
+  component contract. It reuses `compute_paired_physics_gain()` and prints the
+  same paired survival evidence as raw steps, fixed-K normalized steps, and
+  per-step normalized values over `K=4`; it does not change the Gain owner or
+  formula.
+- The hand-checkable fixture is `repaired=[1,2,3,4]` and
+  `noisy=[1,2,2,2]`. Its expected values are raw final delta `2.0`, fixed-K
+  delta `0.5`, per-step deltas `[0,0,1/3,1/2]`, and per-step sum `5/6`.
+  These are contract expectations, not live observations yet.
+- Fresh local verification: the modified contract compiles and `git diff
+  --check` passes. Executing the contract is blocked on this machine because
+  no available Python environment provides `torch`.
+- Evidence level: code-confirmed probe path and static verification;
+  contract execution and formal training-return comparison remain pending.
+
+Next:
+- Run the Gain contract in the server `mosaic` environment, then compare its
+  output with `AUDIT-RETURN-01` from one minimal formal Stage 3 update. Do not
+  change survival units before those two paths are visible side by side.
+
+## E53 - Local Survival Unit Probe Execution (2026-07-16)
+
+- The local `./frontres` environment is usable: Python `3.13`, torch `2.12.1`,
+  and the repository `rsl_rl` package import successfully.
+- Fresh command:
+  `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py`
+- Observed result: `raw_delta=2.000000`, `fixed_k_delta=0.500000`,
+  `per_step_delta=[0.0, 0.0, 0.3333333134651184, 0.5]`,
+  `per_step_sum=0.833333`, followed by
+  `frontres_gain_components_contract: ok`.
+- This contract confirms the numerical difference between raw, fixed-K, and
+  per-step normalized survival paths. It does not select the method's accepted
+  survival unit and does not prove the formal PPO return route uses the same
+  path.
+- Evidence level: contract-confirmed offline numerical audit; formal
+  training-return comparison remains open.
+
+## E54 - Survival Design Document Governance Review (2026-07-16)
+
+- The side-conversation document
+  `plans/survival_gain_unit_alignment_20260716.md` is correctly classified as
+  a proposal. It does not alter `FRS-GAIN-v001` and does not authorize code or
+  training changes.
+- Its mature-practice claim is currently `note-confirmed`: the note records
+  normalized survival diagnostics in MOSAIC and distinguishes Level Replay's
+  score aggregation from FEMR's survival-Gain semantics. Those external
+  claims still require independent reference review if they become the basis
+  for an active contract.
+- The evidence ledger previously contained two `E52` headings. They are now
+  disambiguated as `E52-SIDE-PROPOSAL` and `E52-OFFLINE-PROBE`; `E53` remains
+  the local executed contract result.
+- No Concept Figure or active contract update is appropriate before the main
+  conversation confirms raw versus normalized survival semantics and the
+  effective-K owner.

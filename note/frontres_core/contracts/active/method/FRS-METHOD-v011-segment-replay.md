@@ -161,7 +161,7 @@ Style is evaluated against immutable Clean motion. Physics is evaluated from
 paired frozen-GMT execution. Generic environment, teleoperation,
 velocity-command, task, or unrelated tracking reward must not enter PPO return
 or sampler priority. The exact decomposition belongs to
-`../reward/FRS-GAIN-v001-style-physics-repair.md`.
+`../reward/FRS-GAIN-v002-style-physics-repair.md`.
 
 Segment priority and PPO have separate owners:
 
@@ -221,6 +221,6 @@ ownership, interfaces, runtime routing, or diagnostics.
 ## Owned Subcontracts
 
 - Formal Stage 3 training route: `../training/FRS-TRAIN-v003-segment-replay-warmup.md`.
-- Paired reward semantics: `../reward/FRS-GAIN-v001-style-physics-repair.md`.
+- Paired reward semantics: `../reward/FRS-GAIN-v002-style-physics-repair.md`.
 - PPO advantage semantics: `../optimization/FRS-PPO-v001-sign-preserving-advantage-scaling.md`.
 - Periodic and sequence evaluation: `../evaluation/FRS-EVAL-v002-segment-evaluation.md`.

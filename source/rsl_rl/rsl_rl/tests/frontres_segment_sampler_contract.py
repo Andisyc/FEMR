@@ -55,7 +55,7 @@ def _evidence(
         gain_style=torch.tensor(gain, dtype=torch.float32),
         gain_physics=torch.zeros(n, dtype=torch.float32),
         repair_cost=torch.zeros(n, dtype=torch.float32),
-        gain_source="FRS-GAIN-v001",
+        gain_source="FRS-GAIN-v002",
     )
 
 

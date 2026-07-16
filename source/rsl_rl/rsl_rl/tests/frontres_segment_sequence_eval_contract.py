@@ -198,7 +198,7 @@ def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
             "success_rate": 0.5,
             "fall_rate": 0.5,
             "mean_survival_steps": 25.0,
-            "gain_source": "FRS-GAIN-v001",
+            "gain_source": "FRS-GAIN-v002",
             "gain_style_mean": 0.25,
             "gain_physics_mean": 0.35,
             "gain_repair_cost_mean": 0.05,
@@ -217,7 +217,7 @@ def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
                     "success_rate": 1.0,
                     "fall_rate": 0.0,
                     "mean_survival_steps": 50.0,
-                    "gain_source": "FRS-GAIN-v001",
+                    "gain_source": "FRS-GAIN-v002",
                     "gain_style_mean": 0.25,
                     "gain_physics_mean": 0.35,
                     "gain_repair_cost_mean": 0.05,
@@ -250,7 +250,7 @@ def test_sequence_eval_log_prints_motion_quality_metrics() -> None:
             "success_rate": 0.5,
             "fall_rate": 0.5,
             "mean_survival_steps": 25.0,
-            "gain_source": "FRS-GAIN-v001",
+            "gain_source": "FRS-GAIN-v002",
             "gain_style_mean": 0.25,
             "gain_physics_mean": 0.35,
             "gain_repair_cost_mean": 0.05,
@@ -286,6 +286,8 @@ def test_gain_component_aliases_reach_sequence_log() -> None:
         style_acceleration_gain=torch.tensor([0.13]),
         style_root_orientation_gain=torch.tensor([0.14]),
         physics_success_gain=torch.tensor([0.21]),
+        physics_survival_quality_repaired=torch.tensor([0.80]),
+        physics_survival_quality_noisy=torch.tensor([0.58]),
         physics_survival_gain=torch.tensor([0.22]),
         physics_zmp_gain=torch.tensor([0.23]),
         physics_contact_gain=torch.tensor([0.24]),
@@ -302,7 +304,7 @@ def test_gain_component_aliases_reach_sequence_log() -> None:
 
     log = live_training_module._format_eval_gain_line(summary, indent="    ")
     assert "success=0.210000" in log
-    assert "survival=0.220000" in log
+    assert "survival_quality=(repaired=0.800000 noisy=0.580000 gain=0.220000)" in log
     assert "zmp=0.230000" in log
     assert "contact=0.240000" in log
     row = live_training_module._gain_result_row_summary(result, 0)
@@ -779,7 +781,7 @@ def test_sequence_eval_per_motion_uses_item_scope_for_repeated_motion_roles() ->
     row = summary["per_motion"][0]
     assert row["motion_id"] == "same_motion"
     assert row["sample_count"] == 4.0
-    assert row["gain_source"] == "FRS-GAIN-v001"
+    assert row["gain_source"] == "FRS-GAIN-v002"
     assert row["gain_total_mean"] == 4.5
     for key in (
         "success_rate",

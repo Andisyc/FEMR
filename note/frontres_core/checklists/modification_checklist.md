@@ -1,7 +1,8 @@
 # FrontRES Current Change Checklist
 
-Updated: 2026-07-15
-Scope: `FRS-DP-09` Stage 3 Actor/Critic warmup and `FRS-DP-05` Frozen GMT evidence.
+Updated: 2026-07-16
+Scope: `FRS-DP-09` Stage 3 Actor/Critic warmup, `FRS-DP-05` Frozen GMT evidence,
+and `FRS-DP-07` normalized survival Gain alignment.
 
 ## Step Status
 
@@ -66,7 +67,10 @@ runtime reachability fact.
 | Observation/full-6D repair/application | S4 `T-shape/T-source/T-value` | runtime-observed | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01`, E39: finite full-6D action and delta norm |
 | Frozen GMT | S4 `T-grad/T-state` | runtime-observed | `AUDIT-GMT-01`, `E37`: gmt_training=False, trainable=0, in_optimizer=0 |
 | Paired roles/execution evidence | S4 `T-role/T-source` | runtime-observed | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01`, E39: policy=8/baseline=24, valid=7 |
-| Gain/returns | S4 `T-value/T-forward` | partial: aggregate route observed; component display fix pending live rerun | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`, E39, E50: canonical Gain route exists; fresh S4 component values still required |
+| Gain/returns | S4 `T-value/T-forward` | partial: v002 audit instrumentation offline-confirmed; formal runtime still required | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`, E39, E50, E51, E55, E56: final/per-step paths and audit fields use v002 K semantics offline |
+| Formal v002 audit instrumentation | S1/S2/S4 `T-connect/T-unit/T-K/T-step-sum/T-live` | implemented offline; S4 open | `frontres_formal_runtime_audit_contract.py`, Runtime Atlas GAIN/RETURN cards, E56: raw/K/quality/step-sum fields are captured; live log pending |
+| Survival Gain unit alignment | S1/S2 `T-unit/T-K` | implemented offline; S4 open | `FRS-GAIN-v002`, `plans/survival_gain_unit_alignment_20260716.md`, E55: raw steps report-only, quality uses effective K |
+| Survival units/K aggregation | S1/S2 `T-value/T-forward` | contract-confirmed | `frontres_gain_components_contract.py:test_survival_unit_and_k_aggregation_probe`, E55: K=1/4/8 and per-step sum match final K=4 Gain |
 | HSL Stage2-to-Stage3 load | S4 `T-persist/T-source` | runtime-observed | `AUDIT-HSL-LOAD-01`, `E37`: model_warmup actor and EmpiricalNormalization loaded |
 | Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | runtime-observed | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01`, `E39`: actor_warmup weight=0.5, valid=7, post KL=0.005442, trust accepted |
 | Checkpoint payload identity | S4 `T-persist` | runtime-observed | `AUDIT-PERSIST-01`, `E41`: model_2.pt includes model/optimizer/normalizer/sampler/Gain/warmup |

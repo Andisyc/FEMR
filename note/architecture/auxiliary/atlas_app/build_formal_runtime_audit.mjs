@@ -20,8 +20,8 @@ const specs = [
   ["AUDIT-GMT-01", "Frozen GMT", "M-10", "GMT 执行 repaired reference 且参数保持冻结", "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "get_env_action()", ["GMT observation", "requires_grad/optimizer exclusion", "GMT execution/checksum"]],
   ["AUDIT-PAIR-01", "Quartet Role 布局", "Q-PAIR, SR-01", "Clean/Noisy/Repaired/Train 行身份与 reset 对齐", "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py", "configure_frontres_pair_layout()", ["pair layout", "trial role rows", "reset/valid role counts"]],
   ["AUDIT-PAIR-EVIDENCE-01", "Paired Execution Evidence", "Q-PAIR, Q-01", "同 segment/K 的 Noisy 与 Repaired 证据可比较", "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "_capture_motion_quality_frame()/_capture_physics_frame()", ["shared segment/K", "Noisy/Repaired execution", "paired style/physics evidence"]],
-  ["AUDIT-GAIN-01", "Canonical Repair Gain", "Q-01", "Style、Physics、Repair Cost 合成为 Total Gain", "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "compute_segment_gain()", ["style_gain", "physics_gain/repair_cost", "gain_total"]],
-  ["AUDIT-RETURN-01", "Gain 到 PPO Return", "Q-01, M-05", "canonical Gain 成为 storage reward、return 和 advantage", "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "compute_returns_and_advantages()/to_ppo_batch()", ["gain reward", "returns/advantages", "PPO batch"]],
+  ["AUDIT-GAIN-01", "Canonical Repair Gain v002", "Q-01", "raw survival、effective K、survival quality 与 Style/Physics/Repair 合成为 Total Gain", "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "compute_segment_gain()", ["raw survival_steps + effective_horizon_K", "survival_quality repaired/noisy + physics_survival_gain", "survival_gain_step_sum + gain_total"]],
+  ["AUDIT-RETURN-01", "Gain 到 PPO Return v002", "Q-01, M-05", "canonical Gain 与 K-normalized survival Gain 成为 storage reward、return 和 advantage", "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "compute_returns_and_advantages()/to_ppo_batch()", ["survival_gain_steps + effective K", "survival_gain_step_sum + returns/advantages", "PPO batch"]],
   ["AUDIT-HSL-LOAD-01", "HSL 到 Stage 3", "M-03, M-04", "Stage 2 actor 与 observation normalizer 正确进入 Stage 3", "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "load_runner()", ["checkpoint identity", "actor/normalizer state", "Stage 3 live policy"]],
   ["AUDIT-WARMUP-01", "Actor/Critic Warmup", "M-05", "critic-only、actor ramp 与 joint phase 按 iteration 生效", "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "frontres_segment_warmup_phase()", ["persisted iteration", "phase/actor weight", "loss gradient boundary"]],
   ["AUDIT-PPO-01", "Segment PPO 更新", "M-05, M-04, Q-01", "old tuple 到 accepted post-update policy 形成闭环", "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "compute_frontres_segment_ppo_loss()", ["old stats/action/advantage", "loss/backward/optimizer step", "post-KL/trust decision"]],
@@ -55,6 +55,9 @@ runtimeStatus["AUDIT-PAIR-01"] = "runtime-observed: roles policy=8/baseline=24 a
 runtimeStatus["AUDIT-RETURN-01"] = "runtime-observed: reward/return/advantage tensors are finite and populated (E39)";
 runtimeStatus["AUDIT-PERTURB-01"] = "runtime-observed: rp, dr_scale=1.25 and max_horizon_k=64 are populated (E41)";
 runtimeStatus["AUDIT-PERTURB-02"] = "runtime-observed: local_rp=8 with finite strength min/mean/max (E41)";
+runtimeStatus["AUDIT-GAIN-01"] = "stale-rerun-required: FRS-GAIN-v002 survival unit fields were added after prior live evidence";
+runtimeStatus["AUDIT-RETURN-01"] = "stale-rerun-required: K-normalized per-step survival Gain requires new formal-route evidence";
+runtimeStatus["AUDIT-DIAG-01"] = "stale-rerun-required: v002 survival quality fields require new formal diagnostics evidence";
 
 const probeRationales = {
   "AUDIT-ROUTE-01": [
@@ -133,13 +136,13 @@ const probeRationales = {
     ["Gain 调用前检查可发现 evidence 被跨 motion、跨 K 或跨 role 混合", "失败归属: paired capture 到 Gain connector"],
   ],
   "AUDIT-GAIN-01": [
-    ["Style、Physics、Repair 输入尚未加权, 可分别确认可观测性与行对齐", "失败归属: paired evidence 或 repair action history"],
-    ["gain_total 形成后是 accepted Gain 公式的唯一语义承诺点", "失败归属: compute_segment_gain"],
-    ["storage/sampler 消费前检查可发现 canonical Gain 被旧 score 替代", "失败归属: Gain 到 reward/sampler evidence wiring"],
+    ["raw survival_steps 与 effective_horizon_K 首次同时进入 Gain owner, 可确认原始单位和每行 K 没有错位", "失败归属: paired capture 或 horizon forwarding"],
+    ["survival_quality repaired/noisy 与 physics_survival_gain 在 owner 产物边界同时成立, 可确认没有回退到 raw step difference", "失败归属: compute_paired_physics_gain 或 survival unit conversion"],
+    ["逐步 survival Gain 累计与最终 gain_total 交给正式 consumer 前同时可见, 可发现旧 score 或旧单位旁路", "失败归属: Gain 到 storage/sampler evidence wiring"],
   ],
   "AUDIT-RETURN-01": [
-    ["per-step Gain reward 与 per-row K 同时可见, 可验证 return 输入", "失败归属: Gain reward construction 或 horizon forwarding"],
-    ["done/K-aware accumulation 后 returns/advantages 第一次完整成立", "失败归属: compute_returns_and_advantages"],
+    ["per-step survival_gain_steps 与 per-row K 同时可见, 可验证 PPO reward 输入的单位", "失败归属: Gain reward construction 或 horizon forwarding"],
+    ["survival_gain_step_sum 与 returns/advantages 同时成立, 可验证逐步 Gain 没有被累计或折扣路径重复放大", "失败归属: compute_returns_and_advantages"],
     ["PPO batch 构造时检查可发现 return、advantage、valid rows 错位", "失败归属: storage to_ppo_batch conversion"],
   ],
   "AUDIT-HSL-LOAD-01": [

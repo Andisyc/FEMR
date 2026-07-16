@@ -119,7 +119,7 @@ def test_paired_gain_replaces_old_training_score() -> None:
     rewards = probe._segment_storage_rewards(capture, batch_size=4, device=torch.device("cpu"))
     reward_steps = probe._segment_storage_reward_steps(capture, batch_size=4, device=torch.device("cpu"))
     summary = probe._initial_live_probe_summary(capture, storage_write=True, single_update=False)
-    assert summary["gain_source"] == "FRS-GAIN-v001"
+    assert summary["gain_source"] == "FRS-GAIN-v002"
     assert "score_gain_mean" not in summary
     assert torch.isfinite(torch.tensor(float(summary["gain_total_mean"])))
     canonical_gain = float(summary["gain_total_mean"])

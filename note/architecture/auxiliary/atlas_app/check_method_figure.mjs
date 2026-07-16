@@ -119,17 +119,21 @@ for (let i = 0; i < nodeList.length; i += 1) {
   }
 }
 
-function anchor(node, side) {
-  if (side === "left") return [node.x, node.y + node.h / 2];
-  if (side === "right") return [node.x + node.w, node.y + node.h / 2];
-  if (side === "top") return [node.x + node.w / 2, node.y];
-  if (side === "bottom") return [node.x + node.w / 2, node.y + node.h];
+function anchor(node, side, offset = 0) {
+  const delta = Number.isFinite(Number(offset)) ? Number(offset) : 0;
+  if (side === "left") return [node.x, node.y + node.h / 2 + delta];
+  if (side === "right") return [node.x + node.w, node.y + node.h / 2 + delta];
+  if (side === "top") return [node.x + node.w / 2 + delta, node.y];
+  if (side === "bottom") return [node.x + node.w / 2 + delta, node.y + node.h];
   return [node.x + node.w / 2, node.y + node.h / 2];
 }
 
 function edgeAnchors(from, to, edge) {
   if (edge.fromAnchor || edge.toAnchor) {
-    return [anchor(from, edge.fromAnchor || "right"), anchor(to, edge.toAnchor || "left")];
+    return [
+      anchor(from, edge.fromAnchor || "right", edge.fromOffset),
+      anchor(to, edge.toAnchor || "left", edge.toOffset),
+    ];
   }
   const dx = to.x + to.w / 2 - (from.x + from.w / 2);
   const dy = to.y + to.h / 2 - (from.y + from.h / 2);
@@ -166,6 +170,11 @@ for (const edge of data.edges || []) {
   if (edge.label && textUnits(edge.label) > 18) {
     throw new Error(`${edge.from}->${edge.to} label exceeds the cognitive-load budget`);
   }
+  for (const field of ["fromOffset", "toOffset"]) {
+    if (field in edge && !Number.isFinite(Number(edge[field]))) {
+      throw new Error(`${edge.from}->${edge.to} has invalid ${field}`);
+    }
+  }
   const from = nodes.get(edge.from);
   const to = nodes.get(edge.to);
   const [start, end] = edgeAnchors(from, to, edge);
@@ -180,6 +189,40 @@ for (const edge of data.edges || []) {
   }
 }
 
+function collinearOverlapLength(a, b, c, d) {
+  const ab = [b[0] - a[0], b[1] - a[1]];
+  const cd = [d[0] - c[0], d[1] - c[1]];
+  const cross = (u, v) => u[0] * v[1] - u[1] * v[0];
+  const offset = [c[0] - a[0], c[1] - a[1]];
+  if (Math.abs(cross(ab, cd)) > 1e-6 || Math.abs(cross(ab, offset)) > 1e-6) return 0;
+  const axis = Math.abs(ab[0]) >= Math.abs(ab[1]) ? 0 : 1;
+  const first = [Math.min(a[axis], b[axis]), Math.max(a[axis], b[axis])];
+  const second = [Math.min(c[axis], d[axis]), Math.max(c[axis], d[axis])];
+  return Math.max(0, Math.min(first[1], second[1]) - Math.max(first[0], second[0]));
+}
+
+const edgeRoutes = (data.edges || []).map((edge) => {
+  const from = nodes.get(edge.from);
+  const to = nodes.get(edge.to);
+  const [start, end] = edgeAnchors(from, to, edge);
+  return { edge, points: [start, ...(edge.via || []), end] };
+});
+for (let firstIndex = 0; firstIndex < edgeRoutes.length; firstIndex += 1) {
+  for (let secondIndex = firstIndex + 1; secondIndex < edgeRoutes.length; secondIndex += 1) {
+    const first = edgeRoutes[firstIndex];
+    const second = edgeRoutes[secondIndex];
+    for (let a = 1; a < first.points.length; a += 1) {
+      for (let b = 1; b < second.points.length; b += 1) {
+        if (collinearOverlapLength(first.points[a - 1], first.points[a], second.points[b - 1], second.points[b]) > 2) {
+          throw new Error(
+            `method connectors overlap: ${first.edge.from}->${first.edge.to} and ${second.edge.from}->${second.edge.to}`,
+          );
+        }
+      }
+    }
+  }
+}
+
 const edgePairs = new Set((data.edges || []).map((edge) => `${edge.from}->${edge.to}`));
 for (const pair of [
   "M-02->SR-01",
@@ -187,7 +230,6 @@ for (const pair of [
   "SR-01->M-04",
   "M-04->M-10",
   "M-10->Q-PAIR",
-  "SR-01->Q-PAIR",
   "Q-PAIR->Q-01",
   "M-03->M-05",
   "M-05->M-04",

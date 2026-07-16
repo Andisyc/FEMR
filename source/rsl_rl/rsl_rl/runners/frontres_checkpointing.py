@@ -45,7 +45,7 @@ _FRONTRES_GAIN_CONFIG_FIELDS = (
 
 
 def _frontres_gain_config_payload(cfg) -> dict[str, object]:
-    """Serialize the active FRS-GAIN-v001 scales for checkpoint identity."""
+    """Serialize the active FRS-GAIN-v002 scales for checkpoint identity."""
     values = {}
     for serialized_name, cfg_name, default in _FRONTRES_GAIN_CONFIG_FIELDS:
         if isinstance(cfg, dict):
@@ -54,7 +54,7 @@ def _frontres_gain_config_payload(cfg) -> dict[str, object]:
             value = getattr(cfg, cfg_name, default)
         values[serialized_name] = float(value)
     return {
-        "contract_id": "FRS-GAIN-v001",
+        "contract_id": "FRS-GAIN-v002",
         "values": values,
     }
 
@@ -82,7 +82,7 @@ def _validate_frontres_gain_config_resume(runner, checkpoint, *, is_full_resume:
             "FrontRES Gain config mismatch on resume: "
             f"checkpoint={checkpoint_config!r} current={expected!r}"
         )
-    print("[Runner] Verified FRS-GAIN-v001 config identity on checkpoint resume.", flush=True)
+    print("[Runner] Verified FRS-GAIN-v002 config identity on checkpoint resume.", flush=True)
 
 
 # Full-resume diagnostic helper; uncomment with the probe prints below when needed.

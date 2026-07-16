@@ -8,7 +8,7 @@ This registry is the only default entrypoint for FrontRES contracts.
 | --- | --- | --- |
 | Method | `active/method/FRS-METHOD-v011-segment-replay.md` | active |
 | Training | `active/training/FRS-TRAIN-v003-segment-replay-warmup.md` | active |
-| Reward | `active/reward/FRS-GAIN-v001-style-physics-repair.md` | active |
+| Reward | `active/reward/FRS-GAIN-v002-style-physics-repair.md` | active |
 | Optimization | `active/optimization/FRS-PPO-v001-sign-preserving-advantage-scaling.md` | active |
 | Evaluation | `active/evaluation/FRS-EVAL-v002-segment-evaluation.md` | active |
 
@@ -25,8 +25,8 @@ Concept Figure. Canonical names and block IDs come from
 | `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v011` / `K-Step Curriculum` | `M-06` | formal multi-K live evidence remains required |
 | `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v011` / `Action Semantics` | `M-04` | full-6D runtime evidence remains required |
 | `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v011` / `Method Boundary` | `M-10` | frozen-parameter runtime evidence remains required |
-| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v001` / `Pairing And Time` | `Q-PAIR` | all paired components require S4 population evidence |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v001` / `Core Decision` | `Q-01` | all active consumers require shared-owner S4 evidence |
+| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v002` / `Pairing And Time` | `Q-PAIR` | all paired components require S4 population evidence |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v002` / `Core Decision` | `Q-01` | all active consumers require shared-owner S4 evidence |
 | `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v003` / `HSL Warmup` | `M-03` | checkpoint identity and Stage 3 load evidence remain required |
 | `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v003` / `Actor And Critic Warmup` | `M-05` | formal-route connectivity and live phase evidence remain required |
 

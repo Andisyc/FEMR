@@ -126,7 +126,7 @@ policy logits must not affect sampler priority.
 
 For paired Segment rows, PPO returns, sampler evidence, periodic evaluation,
 and sequence evaluation must use the same style/physics/repair decomposition
-defined by `../reward/FRS-GAIN-v001-style-physics-repair.md`. Generic environment
+defined by `../reward/FRS-GAIN-v002-style-physics-repair.md`. Generic environment
 reward has no fallback authority when a component is missing. Missing data is
 `UNCONFIRMED` and blocks the corresponding acceptance claim.
 

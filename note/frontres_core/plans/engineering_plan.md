@@ -363,3 +363,64 @@ correlation is noisy, keep the Gain contract and report the variance boundary.
 
 Status: component diagnostic implementation complete in E48; broader paired
 component evidence pending.
+
+### Step C: Survival Gain Unit Alignment
+
+Objective: make the paired survival component use one explicit K-normalized
+unit across final Gain, per-step Segment PPO return, sampler evidence, and
+evaluation.
+
+Scope: `frontres_gain.py` owns `survival_steps / effective_horizon_K`; the
+final path receives cumulative raw survival steps, the per-step path receives
+the current alive increment, and reports keep raw survival steps separate
+from survival quality. Activate `FRS-GAIN-v002` and refresh active consumer
+identity.
+
+Non-scope: termination, `done_any`, K curriculum assignment, PPO optimizer,
+action semantics, Gain weights, perturbation, sampler priority, long training,
+and checkpoint selection.
+
+Owner files/modules:
+- `source/rsl_rl/rsl_rl/frontres/frontres_gain.py`: normalized survival owner.
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`: final and
+  per-step K forwarding.
+- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py`: raw versus
+  quality diagnostic adapter.
+- `source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py`: K and
+  aggregation oracle.
+
+Expected evidence: K=1/4/8 hand-checkable values, per-step alive increments
+sum to the final K-normalized survival Gain, active connectivity remains
+finite, and no current active code path identifies `FRS-GAIN-v001`.
+
+Status: implementation and focused offline contracts pass; no active code path
+identifies v001. Formal Stage 3
+runtime and 120-step sequence evidence remain open.
+
+### Step A: Formal Audit v002 Evidence Alignment
+
+Objective: make the official formal audit visibly prove the C v002 survival
+unit path before any live run.
+
+Scope: retain per-step `physics_survival_gain` in live capture; print raw
+survival steps, effective K, repaired/noisy quality, normalized survival Gain,
+step-sum error, rewards, returns, and advantages in `AUDIT-GAIN-01` and
+`AUDIT-RETURN-01`; synchronize the Runtime Atlas and formal audit document.
+
+Non-scope: reward formula, PPO, termination, sampler, K assignment, live
+execution, checkpoint selection, and long training.
+
+Owner files/modules:
+- `runners/frontres_segment_live_probe.py`: capture already-computed per-step
+  survival Gain for read-only audit evidence.
+- `runners/frontres_formal_runtime_audit.py`: v002 structured snapshots.
+- `tests/frontres_formal_runtime_audit_contract.py`: field and sum-error oracle.
+- `note/architecture/auxiliary/atlas_app/build_formal_runtime_audit.mjs` and
+  generated Runtime Atlas data: readable owner cards and stale-live status.
+- `note/testing/formal_runtime_audit.md`: current C v002 live gate.
+
+Expected evidence: formal audit contract PASS; Atlas source-line identity PASS;
+fresh live run still required and must show `gain_source=FRS-GAIN-v002`.
+
+Status: implementation and offline formal-route contract PASS; S4 live gate
+remains open.

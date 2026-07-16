@@ -221,7 +221,7 @@ class FakeRunner:
             "success_rate": 0.75,
             "fall_rate": 0.25,
             "mean_survival_steps": 28,
-            "gain_source": "FRS-GAIN-v001",
+            "gain_source": "FRS-GAIN-v002",
             "gain_style_mean": 0.20,
             "gain_physics_mean": 0.40,
             "gain_repair_cost_mean": 0.15,
@@ -666,7 +666,7 @@ def test_periodic_eval_uses_independent_batch_and_restores_training_state() -> N
     assert runner.train_mode_calls == 1
     assert summary["eval_batch_source"] == "independent_sampler"
     assert summary["eval_reset_applied"] is True
-    assert summary["gain_source"] == "FRS-GAIN-v001"
+    assert summary["gain_source"] == "FRS-GAIN-v002"
     assert summary["gain_style_mean"] == 2.0
     assert summary["gain_physics_mean"] == 3.0
     assert summary["gain_repair_cost_mean"] == 0.75
@@ -776,14 +776,14 @@ def test_pseudo_offline_eval_summary_uses_canonical_gain() -> None:
     assert summary["episode_length"] == 5.0
     assert round(summary["success_rate"], 6) == round(2.0 / 3.0, 6)
     assert round(summary["fall_rate"], 6) == round(1.0 / 3.0, 6)
-    assert summary["gain_source"] == "FRS-GAIN-v001"
+    assert summary["gain_source"] == "FRS-GAIN-v002"
     assert round(summary["gain_style_mean"], 6) == 2.0
     assert round(summary["gain_physics_mean"], 6) == 3.0
     assert round(summary["gain_repair_cost_mean"], 6) == 0.75
     assert round(summary["gain_total_mean"], 6) == 4.25
     log = format_offline_eval_log(summary)
     assert "[FrontRES Segment Offline Eval / Per Motion]" in log
-    assert "gain: source=FRS-GAIN-v001" in log
+    assert "gain: source=FRS-GAIN-v002" in log
     assert "score:" not in log
     assert "[FrontRES Segment Offline Eval / Mean]" in log
     assert "id=motion_a.npz samples=1" in log

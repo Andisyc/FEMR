@@ -524,9 +524,9 @@ def build_live_sampler_evidence(
         default=float("nan"),
     ).float()
     gain_source = str(summary.get("gain_source", ""))
-    if gain_source != "FRS-GAIN-v001":
+    if gain_source != "FRS-GAIN-v002":
         raise ValueError(
-            "sampler evidence requires gain_source=FRS-GAIN-v001; "
+            "sampler evidence requires gain_source=FRS-GAIN-v002; "
             f"got {gain_source or 'UNCONFIRMED'}"
         )
     formal_gain = _required_gain_vector(summary, "gain_total_per_sample", n=n, device=device)
@@ -748,7 +748,7 @@ def _required_gain_vector(
     n: int,
     device: torch.device,
 ) -> torch.Tensor:
-    """Read one finite FRS-GAIN-v001 vector; never synthesize missing evidence."""
+    """Read one finite FRS-GAIN-v002 vector; never synthesize missing evidence."""
 
     if key not in summary:
         raise ValueError(f"sampler evidence requires {key}")

@@ -88,6 +88,8 @@ class FrontRESSegmentGainResult:
     style_acceleration_gain: torch.Tensor
     style_root_orientation_gain: torch.Tensor
     physics_success_gain: torch.Tensor
+    physics_survival_quality_repaired: torch.Tensor
+    physics_survival_quality_noisy: torch.Tensor
     physics_survival_gain: torch.Tensor
     physics_zmp_gain: torch.Tensor
     physics_contact_gain: torch.Tensor
@@ -162,12 +164,23 @@ def compute_paired_physics_gain(
     noisy_survival: torch.Tensor | None,
     *,
     config: FrontRESSegmentGainConfig,
+    effective_horizon_k: torch.Tensor | float | int | None,
     repaired_zmp_margin: torch.Tensor | None = None,
     noisy_zmp_margin: torch.Tensor | None = None,
     repaired_contact: torch.Tensor | None = None,
     noisy_contact: torch.Tensor | None = None,
 ) -> dict[str, torch.Tensor]:
-    """Return paired frozen-GMT physics gains without task/teleoperation reward."""
+    """Return paired frozen-GMT physics gains with K-normalized survival quality.
+
+    `survival_steps` remains a raw rollout diagnostic. It enters this owner only
+    after conversion to `survival_steps / effective_horizon_k`; missing K is
+    unconfirmed and therefore cannot silently become a raw-step Gain.
+
+    Status: active, FRS-GAIN-v002 owner.
+    Upstream: paired frozen-GMT capture with raw survival steps and per-row K.
+    Downstream: final Gain composition, per-step Gain, and evaluation summaries.
+    Evidence: S1/S2 contract-confirmed; S4 live mixed-K population remains open.
+    """
 
     like = _first_tensor(
         repaired_success,
@@ -181,15 +194,43 @@ def compute_paired_physics_gain(
     )
     if like is None:
         empty = torch.empty(0)
-        return {key: empty for key in ("success", "survival", "zmp", "contact", "physics")}
+        return {
+            key: empty
+            for key in (
+                "success",
+                "survival_quality_repaired",
+                "survival_quality_noisy",
+                "survival",
+                "zmp",
+                "contact",
+                "physics",
+            )
+        }
+
+    repaired_survival_quality = _survival_quality(
+        repaired_survival,
+        effective_horizon_k,
+        like,
+    )
+    noisy_survival_quality = _survival_quality(
+        noisy_survival,
+        effective_horizon_k,
+        like,
+    )
 
     result = {
         "success": _pair_difference(repaired_success, noisy_success, like),
-        "survival": _pair_difference(repaired_survival, noisy_survival, like),
+        "survival_quality_repaired": repaired_survival_quality,
+        "survival_quality_noisy": noisy_survival_quality,
+        "survival": _pair_difference(repaired_survival_quality, noisy_survival_quality, like),
         "zmp": _pair_difference(repaired_zmp_margin, noisy_zmp_margin, like),
         "contact": _pair_difference(repaired_contact, noisy_contact, like),
     }
-    result["physics"] = _available_mean(tuple(result.values()))
+    # B2: quality 的 repaired/noisy 两侧只用于诊断, 不能再次作为 Physics
+    # component 参与平均; physics 只聚合四个 paired difference.
+    result["physics"] = _available_mean(
+        (result["success"], result["survival"], result["zmp"], result["contact"])
+    )
     return result
 
 
@@ -295,12 +336,17 @@ def compute_segment_gain_step(
     action: torch.Tensor | None,
     previous_action: torch.Tensor | None,
     config: FrontRESSegmentGainConfig,
+    effective_horizon_k: torch.Tensor | float | int | None,
     repaired_zmp_margin: torch.Tensor | None = None,
     noisy_zmp_margin: torch.Tensor | None = None,
     repaired_contact: torch.Tensor | None = None,
     noisy_contact: torch.Tensor | None = None,
 ) -> FrontRESSegmentGainResult:
-    """Compute one K-step reward using the same components as final Gain."""
+    """Compute one K-step reward using the same components as final Gain.
+
+    The survival inputs are the current alive increments, not cumulative steps;
+    the caller supplies the same effective K used by the final paired owner.
+    """
 
     style = _step_style_gain(
         clean_position,
@@ -323,6 +369,7 @@ def compute_segment_gain_step(
         repaired_survival,
         noisy_survival,
         config=config,
+        effective_horizon_k=effective_horizon_k,
         repaired_zmp_margin=repaired_zmp_margin,
         noisy_zmp_margin=noisy_zmp_margin,
         repaired_contact=repaired_contact,
@@ -353,6 +400,8 @@ def compute_segment_gain_step(
         style_acceleration_gain=style["acceleration"],
         style_root_orientation_gain=style["root_orientation"],
         physics_success_gain=physics["success"],
+        physics_survival_quality_repaired=physics["survival_quality_repaired"],
+        physics_survival_quality_noisy=physics["survival_quality_noisy"],
         physics_survival_gain=physics["survival"],
         physics_zmp_gain=physics["zmp"],
         physics_contact_gain=physics["contact"],
@@ -375,6 +424,7 @@ def compute_segment_gain(
     noisy_survival: torch.Tensor | None,
     action_steps: torch.Tensor | None,
     config: FrontRESSegmentGainConfig,
+    effective_horizon_k: torch.Tensor | float | int | None,
     repaired_zmp_margin: torch.Tensor | None = None,
     noisy_zmp_margin: torch.Tensor | None = None,
     repaired_contact: torch.Tensor | None = None,
@@ -422,6 +472,7 @@ def compute_segment_gain(
         repaired_survival,
         noisy_survival,
         config=config,
+        effective_horizon_k=effective_horizon_k,
         repaired_zmp_margin=repaired_zmp_margin,
         noisy_zmp_margin=noisy_zmp_margin,
         repaired_contact=repaired_contact,
@@ -457,6 +508,8 @@ def compute_segment_gain(
         style_acceleration_gain=style["acceleration"],
         style_root_orientation_gain=style["root_orientation"],
         physics_success_gain=physics["success"],
+        physics_survival_quality_repaired=physics["survival_quality_repaired"],
+        physics_survival_quality_noisy=physics["survival_quality_noisy"],
         physics_survival_gain=physics["survival"],
         physics_zmp_gain=physics["zmp"],
         physics_contact_gain=physics["contact"],
@@ -692,6 +745,33 @@ def _pair_difference(repaired: torch.Tensor | None, noisy: torch.Tensor | None, 
     if repaired.shape != noisy.shape:
         return torch.full_like(like, float("nan"))
     return repaired.to(device=like.device, dtype=like.dtype).reshape(-1) - noisy.to(device=like.device, dtype=like.dtype).reshape(-1)
+
+
+def _survival_quality(
+    survival_steps: torch.Tensor | None,
+    effective_horizon_k: torch.Tensor | float | int | None,
+    like: torch.Tensor,
+) -> torch.Tensor:
+    """将 raw survival steps 转成当前 segment 的 K-normalized quality."""
+
+    if not isinstance(survival_steps, torch.Tensor):
+        return torch.full_like(like, float("nan"))
+    survival = survival_steps.to(device=like.device, dtype=like.dtype).reshape(-1)
+    if survival.numel() != like.numel():
+        return torch.full_like(like, float("nan"))
+    if isinstance(effective_horizon_k, torch.Tensor):
+        horizon = effective_horizon_k.to(device=like.device, dtype=like.dtype).reshape(-1)
+    elif effective_horizon_k is None:
+        return torch.full_like(like, float("nan"))
+    else:
+        horizon = torch.full_like(like, float(effective_horizon_k))
+    if horizon.numel() == 1 and like.numel() != 1:
+        horizon = horizon.expand_as(like)
+    if horizon.numel() != like.numel():
+        return torch.full_like(like, float("nan"))
+    valid = torch.isfinite(survival) & torch.isfinite(horizon) & horizon.gt(0.0)
+    quality = survival / horizon.clamp_min(1.0)
+    return torch.where(valid, quality, torch.full_like(quality, float("nan")))
 
 
 def _match(value: torch.Tensor, like: torch.Tensor) -> torch.Tensor:

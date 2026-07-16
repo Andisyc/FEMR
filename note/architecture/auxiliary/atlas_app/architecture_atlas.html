@@ -841,19 +841,23 @@
       drawLegend(data, 1520, 150);
     }
 
-    function methodAnchor(node, anchor) {
+    function methodAnchor(node, anchor, offset = 0) {
       const cx = node.x + node.w / 2;
       const cy = node.y + node.h / 2;
-      if (anchor === "left") return [node.x, cy];
-      if (anchor === "right") return [node.x + node.w, cy];
-      if (anchor === "top") return [cx, node.y];
-      if (anchor === "bottom") return [cx, node.y + node.h];
+      const delta = Number.isFinite(Number(offset)) ? Number(offset) : 0;
+      if (anchor === "left") return [node.x, cy + delta];
+      if (anchor === "right") return [node.x + node.w, cy + delta];
+      if (anchor === "top") return [cx + delta, node.y];
+      if (anchor === "bottom") return [cx + delta, node.y + node.h];
       return [cx, cy];
     }
 
     function methodEdgeAnchors(from, to, edge) {
       if (edge.fromAnchor || edge.toAnchor) {
-        return [methodAnchor(from, edge.fromAnchor || "right"), methodAnchor(to, edge.toAnchor || "left")];
+        return [
+          methodAnchor(from, edge.fromAnchor || "right", edge.fromOffset),
+          methodAnchor(to, edge.toAnchor || "left", edge.toOffset),
+        ];
       }
       const dx = (to.x + to.w / 2) - (from.x + from.w / 2);
       const dy = (to.y + to.h / 2) - (from.y + from.h / 2);

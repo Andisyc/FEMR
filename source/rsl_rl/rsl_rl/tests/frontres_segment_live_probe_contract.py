@@ -1482,7 +1482,7 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
         "ppo_advantage_min": -0.2,
         "ppo_advantage_max": 0.4,
         "evidence_row_count": 2,
-        "gain_source": "FRS-GAIN-v001",
+        "gain_source": "FRS-GAIN-v002",
         "evidence_valid_mask_per_sample": [True, False],
         "trial_role_counts": {"policy": 1, "search": 1},
         "trial_policy_count": 1,
@@ -1534,7 +1534,7 @@ def test_live_probe_summary_uses_readable_metric_blocks() -> None:
     assert "rollout.policy_dim: 6" in output
     assert "rollout.env_reward: 0.500000" in output
     assert "rollout.segment_delta_se_6d: True" in output
-    assert "gain.source: FRS-GAIN-v001" in output
+    assert "gain.source: FRS-GAIN-v002" in output
     assert "gain.total: 0.400000" in output
     assert "trial.policy: 1" in output
     assert "trial.search: 1" in output
@@ -1628,7 +1628,7 @@ def test_live_probe_summary_requires_separate_pre_and_post_ratio_blocks() -> Non
         "ppo_advantage_min": -0.2,
         "ppo_advantage_max": 0.4,
         "evidence_row_count": 2,
-        "gain_source": "FRS-GAIN-v001",
+        "gain_source": "FRS-GAIN-v002",
         "evidence_valid_mask_per_sample": [True, True],
     }
     stream = io.StringIO()

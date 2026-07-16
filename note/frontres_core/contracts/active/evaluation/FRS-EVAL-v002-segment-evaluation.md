@@ -45,9 +45,11 @@ separate, explicitly named review protocol is active.
 - Preserve paired Noisy/Repaired comparability.
 - Aggregate per-motion results before the global summary.
 - Report style quality, physics quality, repair cost, and their paired gains
-  using `../reward/FRS-GAIN-v001-style-physics-repair.md`.
+using `../reward/FRS-GAIN-v002-style-physics-repair.md`.
 - Print raw MPJPE, root-orientation, velocity, acceleration, success/fall,
-  survival, ZMP/support, contact, Delta SE norm, and temporal repair change.
+  survival steps, ZMP/support, contact, Delta SE norm, and temporal repair
+  change. Print repaired/noisy survival quality and normalized survival Gain
+  separately, using the segment's effective K.
 - Report unavailable quantities as `UNCONFIRMED`, not zero.
 
 For quartet layouts, row identity and offsets must come from the attached trial
@@ -56,8 +58,10 @@ plan rather than raw `num_envs` assumptions.
 ## Interpretation
 
 Positive short-window total gain does not prove long-sequence stability. Style
-gain, physics gain, and repair cost remain separately visible. K coverage must
-remain visible so delayed regret is not hidden by one fixed short horizon.
+gain, physics gain, repair cost, raw survival steps, and survival quality
+remain separately visible. A 120-step sequence survival report is independent
+of short-window K normalization. K coverage must remain visible so delayed
+regret is not hidden by one fixed short horizon.
 
 ## Acceptance Gates
 

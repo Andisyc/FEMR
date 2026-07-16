@@ -255,7 +255,7 @@ class FakeRunner:
         # S2 连接夹具: 伪生命周期没有 simulator motion tensors, 因此在此提供一行可手算的 formal Gain.
         summary.update(
             {
-                "gain_source": "FRS-GAIN-v001",
+                "gain_source": "FRS-GAIN-v002",
                 "gain_style_per_sample": [0.25],
                 "gain_physics_per_sample": [0.15],
                 "gain_repair_cost_per_sample": [0.05],

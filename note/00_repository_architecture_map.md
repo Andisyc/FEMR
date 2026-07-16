@@ -142,7 +142,7 @@ gain_total   = w_style * style_gain + w_physics * physics_gain
   route and is no longer a formal Gain owner.
 - `frontres_segment_reward.py`: legacy/general score-window API retained only
   for compatibility; it is excluded from the active Gain route.
-- `contracts/active/reward/FRS-GAIN-v001-style-physics-repair.md`: accepted
+- `contracts/active/reward/FRS-GAIN-v002-style-physics-repair.md`: accepted
   style/physics/repair semantics.
 
 Generic environment reward, teleoperation reward, velocity-command reward, and
@@ -168,7 +168,7 @@ before this route is training-ready.
   sign-preserving scale-only advantage scaling.
 - `frontres_segment_sampler.py`: rollout-evidence priority and persistent replay
   state. `frontres_segment_live_sampler.py` now requires the shared
-  `FRS-GAIN-v001` result at the evidence boundary, and useful/state/priority
+  `FRS-GAIN-v002` result at the evidence boundary, and useful/state/priority
   consumers now use canonical Gain plus validity/fall/contact/horizon facts;
   cross-consumer S2 acceptance is closed by E14/E15/E16; the remaining boundary
   is real S4 population.
