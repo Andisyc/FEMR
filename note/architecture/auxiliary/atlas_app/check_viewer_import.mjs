@@ -98,10 +98,46 @@ if (!html.includes("function renderRepositoryReadingAtlas(data)")) {
 if (!html.includes('layout === "repository_reading_atlas"')) {
   throw new Error("architecture_atlas.html does not route repository_reading_atlas");
 }
+if (
+  !html.includes('window.location.protocol === "file:"')
+  || !html.includes('http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html')
+) {
+  throw new Error("architecture_atlas.html must redirect file opens to the HTTP source-link origin");
+}
+const serverPath = path.resolve(process.cwd(), "serve_architecture.mjs");
+const serverSource = fs.readFileSync(serverPath, "utf8");
+if (!serverSource.includes('["--reuse-window", "--goto", gotoTarget]')) {
+  throw new Error("source-link server must focus the current VS Code window through --reuse-window --goto");
+}
+if (!serverSource.includes('if (code === 0)')) {
+  throw new Error("source-link server must wait for a successful VS Code CLI exit before returning success");
+}
 
 const repoRoot = path.resolve(process.cwd(), "../../../..");
 const checkedRepoPaths = [];
 const missingRepoPaths = [];
+const checkReadingCardSourceLinks = (atlas, atlasLabel) => {
+  for (const module of (atlas.systems || []).flatMap((system) => system.modules || [])) {
+    for (const block of module.files || []) {
+      if (block.path.endsWith("/") || block.path.includes("*")) continue;
+      if (!Number.isInteger(block.sourceLine) || block.sourceLine < 1) {
+        throw new Error(`${atlasLabel} ${block.id} must include a positive sourceLine`);
+      }
+      const expectedHref = `/open-source?path=${encodeURIComponent(block.path)}&line=${block.sourceLine}`;
+      if (block.sourceHref !== expectedHref) {
+        throw new Error(`${atlasLabel} ${block.id} has stale sourceHref`);
+      }
+      const sourcePath = path.resolve(repoRoot, block.path);
+      const sourceLineCount = fs.readFileSync(sourcePath, "utf8").split(/\r?\n/).length;
+      if (block.sourceLine > sourceLineCount) {
+        throw new Error(`${atlasLabel} ${block.id} sourceLine exceeds ${block.path}`);
+      }
+    }
+  }
+};
+
+checkReadingCardSourceLinks(repoMap, "01 repository atlas");
+checkReadingCardSourceLinks(flowMap, "02 method-to-code atlas");
 for (const system of repoMap.systems || []) {
   for (const module of system.modules || []) {
     for (const block of module.files || []) {

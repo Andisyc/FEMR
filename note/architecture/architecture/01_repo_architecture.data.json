@@ -40,9 +40,9 @@
           "mustNot": "不定义 FrontRES reward、action 或 PPO 语义",
           "objects": ["CLI args", "task id", "run mode", "checkpoint path"],
           "files": [
-            {"id": "MAIN-01", "path": "scripts/rsl_rl/train.py", "role": "正式训练入口", "functions": ["main()"]},
-            {"id": "MAIN-02", "path": "scripts/rsl_rl/cli_args.py", "role": "CLI 参数定义", "functions": ["add_rsl_rl_args()", "parse_rsl_rl_cfg()"]},
-            {"id": "MAIN-03", "path": "scripts/rsl_rl/play.py", "role": "回放入口", "functions": ["main()"]}
+            {"id": "MAIN-01", "path": "scripts/rsl_rl/train.py", "role": "正式训练入口", "functions": ["main()"], "sourceLine": 1289, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1289"},
+            {"id": "MAIN-02", "path": "scripts/rsl_rl/cli_args.py", "role": "CLI 参数定义", "functions": ["add_rsl_rl_args()","parse_rsl_rl_cfg()"], "sourceLine": 10, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Fcli_args.py&line=10"},
+            {"id": "MAIN-03", "path": "scripts/rsl_rl/play.py", "role": "回放入口", "functions": ["main()"], "sourceLine": 121, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Fplay.py&line=121"}
           ],
       "mainRoute": [
         "B1 train.py::main(): CLI args -> launch context",
@@ -62,9 +62,9 @@
           "mustNot": "不在配置层重写运行时张量",
           "objects": ["runner cfg", "policy cfg", "algorithm cfg", "task cfg"],
           "files": [
-            {"id": "MAIN-04", "path": "source/rsl_rl/rsl_rl/modules/rsl_rl_cfg.py", "role": "RSL-RL 配置对象", "functions": []},
+            {"id": "MAIN-04", "path": "source/rsl_rl/rsl_rl/modules/rsl_rl_cfg.py", "role": "RSL-RL 配置对象", "functions": [], "sourceLine": 7, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Frsl_rl_cfg.py&line=7"},
             {"id": "MAIN-05", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/", "role": "机器人和实验 preset", "functions": []},
-            {"id": "MAIN-06", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py", "role": "环境配置骨架", "functions": []}
+            {"id": "MAIN-06", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py", "role": "环境配置骨架", "functions": [], "sourceLine": 53, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Ftracking_env_cfg.py&line=53"}
           ],
       "mainRoute": [
         "B1 rsl_rl_cfg.py: base schema -> policy/algorithm/runner config",
@@ -92,9 +92,9 @@
           "mustNot": "不决定 Segment PPO credit",
           "objects": ["motion id", "phase", "root target", "body target"],
           "files": [
-            {"id": "MAIN-07", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "motion command owner", "functions": []},
-            {"id": "MAIN-08", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/events.py", "role": "reset 与随机化事件", "functions": []},
-            {"id": "MAIN-09", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py", "role": "episode termination", "functions": []}
+            {"id": "MAIN-07", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "motion command owner", "functions": [], "sourceLine": 33, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=33"},
+            {"id": "MAIN-08", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/events.py", "role": "reset 与随机化事件", "functions": [], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fevents.py&line=15"},
+            {"id": "MAIN-09", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py", "role": "episode termination", "functions": [], "sourceLine": 31, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fterminations.py&line=31"}
           ],
       "mainRoute": [
         "B1 commands.py: motion dataset + phase -> reference command state",
@@ -114,8 +114,8 @@
           "mustNot": "不得作为 Segment repair Gain 或 PPO return fallback",
           "objects": ["tracking reward", "termination", "episode stats"],
           "files": [
-            {"id": "MAIN-16", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/rewards.py", "role": "环境 reward terms", "functions": []},
-            {"id": "MAIN-09", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py", "role": "fall/done 判定", "functions": []}
+            {"id": "MAIN-16", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/rewards.py", "role": "环境 reward terms", "functions": [], "sourceLine": 20, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Frewards.py&line=20"},
+            {"id": "MAIN-09", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py", "role": "fall/done 判定", "functions": [], "sourceLine": 31, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fterminations.py&line=31"}
           ],
       "mainRoute": [
         "B1 rewards.py: robot state + command target -> tracking terms",
@@ -143,10 +143,10 @@
           "mustNot": "不把 Clean oracle 或未来 rollout outcome 放进 deployable input",
           "objects": ["870D obs", "100D prefix", "GMT suffix", "mean/std"],
           "files": [
-            {"id": "MAIN-10", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/observations.py", "role": "tracking observation terms", "functions": []},
-            {"id": "MAIN-11", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/balance.py", "role": "ZMP/support signals", "functions": []},
-            {"id": "MAIN-12", "path": "source/rsl_rl/rsl_rl/modules/frontres_observation_layout.py", "role": "FrontRES/GMT split contract", "functions": ["split_frontres_policy_obs()"]},
-            {"id": "MAIN-20", "path": "source/rsl_rl/rsl_rl/modules/normalizer.py", "role": "running statistics", "functions": []}
+            {"id": "MAIN-10", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/observations.py", "role": "tracking observation terms", "functions": [], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fobservations.py&line=15"},
+            {"id": "MAIN-11", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/balance.py", "role": "ZMP/support signals", "functions": [], "sourceLine": 6, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fbalance.py&line=6"},
+            {"id": "MAIN-12", "path": "source/rsl_rl/rsl_rl/modules/frontres_observation_layout.py", "role": "FrontRES/GMT split contract", "functions": ["split_frontres_policy_obs()"], "sourceLine": 8, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffrontres_observation_layout.py&line=8"},
+            {"id": "MAIN-20", "path": "source/rsl_rl/rsl_rl/modules/normalizer.py", "role": "running statistics", "functions": [], "sourceLine": 14, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Fnormalizer.py&line=14"}
           ],
       "mainRoute": [
         "B1 observations.py + balance.py: env/reference state -> observation terms",
@@ -166,9 +166,9 @@
           "mustNot": "perturbation family 不得缩窄 full-6D repair output",
           "objects": ["local_rp", "strength", "family", "perturbation payload"],
           "files": [
-            {"id": "MAIN-13", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py", "role": "环境扰动生成", "functions": []},
-            {"id": "MAIN-14", "path": "source/rsl_rl/rsl_rl/frontres/frontres_dr_curriculum.py", "role": "扰动课程", "functions": []},
-            {"id": "MAIN-15", "path": "source/rsl_rl/rsl_rl/frontres/perturbation_runtime.py", "role": "runner payload adapter", "functions": []}
+            {"id": "MAIN-13", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/motion_perturbations.py", "role": "环境扰动生成", "functions": [], "sourceLine": 38, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fmotion_perturbations.py&line=38"},
+            {"id": "MAIN-14", "path": "source/rsl_rl/rsl_rl/frontres/frontres_dr_curriculum.py", "role": "扰动课程", "functions": [], "sourceLine": 11, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_dr_curriculum.py&line=11"},
+            {"id": "MAIN-15", "path": "source/rsl_rl/rsl_rl/frontres/perturbation_runtime.py", "role": "runner payload adapter", "functions": [], "sourceLine": 16, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Fperturbation_runtime.py&line=16"}
           ],
       "mainRoute": [
         "B1 frontres_dr_curriculum.py: training progress -> family/strength schedule",
@@ -196,9 +196,9 @@
           "mustNot": "不追加 confidence、rho、authority 或 active-dim action columns",
           "objects": ["policy obs", "6D mean", "6D sigma", "Delta SE(3)"],
           "files": [
-            {"id": "MAIN-19", "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "role": "FrontRES actor/critic", "functions": ["update_distribution()", "act()", "evaluate_segment_actions()"]},
-            {"id": "MAIN-21", "path": "source/rsl_rl/rsl_rl/modules/actor_critic.py", "role": "基础 RSL-RL policy interface", "functions": []},
-            {"id": "MAIN-20", "path": "source/rsl_rl/rsl_rl/modules/normalizer.py", "role": "policy stats dependency", "functions": []}
+            {"id": "MAIN-19", "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "role": "FrontRES actor/critic", "functions": ["update_distribution()","act()","evaluate_segment_actions()"], "sourceLine": 861, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=861"},
+            {"id": "MAIN-21", "path": "source/rsl_rl/rsl_rl/modules/actor_critic.py", "role": "基础 RSL-RL policy interface", "functions": [], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Factor_critic.py&line=15"},
+            {"id": "MAIN-20", "path": "source/rsl_rl/rsl_rl/modules/normalizer.py", "role": "policy stats dependency", "functions": [], "sourceLine": 14, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Fnormalizer.py&line=14"}
           ],
       "mainRoute": [
         "B1 front_residual_actor_critic.py::update_distribution(): 870D obs -> 6D mean/sigma",
@@ -218,10 +218,10 @@
           "mustNot": "不按 specialist family mask policy distribution",
           "objects": ["raw action", "bounded correction", "written reference", "GMT action"],
           "files": [
-            {"id": "MAIN-22", "path": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py", "role": "task-space write owner", "functions": []},
-            {"id": "MAIN-23", "path": "source/rsl_rl/rsl_rl/frontres/frontres_action_cone.py", "role": "物理执行边界", "functions": []},
-            {"id": "MAIN-33", "path": "source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py", "role": "rollout action connector", "functions": ["prepare_frontres_rollout_step()"]},
-            {"id": "MAIN-19", "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "role": "frozen GMT consumer bridge", "functions": []}
+            {"id": "MAIN-22", "path": "source/rsl_rl/rsl_rl/frontres/task_space_correction.py", "role": "task-space write owner", "functions": [], "sourceLine": 24, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=24"},
+            {"id": "MAIN-23", "path": "source/rsl_rl/rsl_rl/frontres/frontres_action_cone.py", "role": "物理执行边界", "functions": [], "sourceLine": 13, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_action_cone.py&line=13"},
+            {"id": "MAIN-33", "path": "source/rsl_rl/rsl_rl/runners/frontres_rollout_step.py", "role": "rollout action connector", "functions": ["prepare_frontres_rollout_step()"], "sourceLine": 228, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_rollout_step.py&line=228"},
+            {"id": "MAIN-19", "path": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py", "role": "frozen GMT consumer bridge", "functions": [], "sourceLine": 36, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=36"}
           ],
       "mainRoute": [
         "B1 frontres_rollout_step.py::prepare_frontres_rollout_step(): policy action -> rollout action tuple",
@@ -250,10 +250,10 @@
           "mustNot": "不决定 PPO loss 或 sampler priority",
           "objects": ["segment_id", "dynamic state", "manifest", "build signature"],
           "files": [
-            {"id": "MAIN-26", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py", "role": "cache build orchestration", "functions": []},
-            {"id": "MAIN-27", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_schema.py", "role": "cache schema", "functions": []},
-            {"id": "MAIN-27A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py", "role": "shard IO", "functions": []},
-            {"id": "MAIN-27B", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py", "role": "dataset access", "functions": []}
+            {"id": "MAIN-26", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_builder.py", "role": "cache build orchestration", "functions": [], "sourceLine": 14, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_cache_builder.py&line=14"},
+            {"id": "MAIN-27", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_schema.py", "role": "cache schema", "functions": [], "sourceLine": 10, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_cache_schema.py&line=10"},
+            {"id": "MAIN-27A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_cache_io.py", "role": "shard IO", "functions": [], "sourceLine": 35, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_cache_io.py&line=35"},
+            {"id": "MAIN-27B", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py", "role": "dataset access", "functions": [], "sourceLine": 25, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_dataset.py&line=25"}
           ],
       "mainRoute": [
         "B1 frontres_segment_cache_builder.py: motion sequence -> replayable segment",
@@ -274,9 +274,9 @@
           "mustNot": "不读取 post-update KL 或改变 PPO credit",
           "objects": ["segment_id", "source", "priority", "horizon_k", "rollout evidence"],
           "files": [
-            {"id": "MAIN-28", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "sampler state 与 priority owner", "functions": ["sample()", "update_with_probe()"]},
-            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "正式 sampler connector", "functions": ["run_frontres_segment_sampler_step()", "_build_current_segment_batch()"]},
-            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "train/eval orchestration", "functions": []}
+            {"id": "MAIN-28", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "sampler state 与 priority owner", "functions": ["sample()","update_with_probe()"], "sourceLine": 241, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=241"},
+            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "正式 sampler connector", "functions": ["run_frontres_segment_sampler_step()","_build_current_segment_batch()"], "sourceLine": 197, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=197"},
+            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "train/eval orchestration", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"}
           ],
       "mainRoute": [
         "B1 frontres_segment_sampler.py::sample(): global/replay state -> segment_id/source/horizon_k",
@@ -297,9 +297,9 @@
           "mustNot": "不把 num_envs 直接当作 train rows",
           "objects": ["trial role", "source index", "reset mask", "preroll", "start frame"],
           "files": [
-            {"id": "MAIN-29", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reset.py", "role": "reset request/result domain", "functions": []},
-            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "trial plan construction", "functions": ["_attach_frontres_segment_trial_plan()"]},
-            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "paired rollout capture", "functions": ["run_frontres_segment_live_probe()"]}
+            {"id": "MAIN-29", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reset.py", "role": "reset request/result domain", "functions": [], "sourceLine": 10, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_reset.py&line=10"},
+            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "trial plan construction", "functions": ["_attach_frontres_segment_trial_plan()"], "sourceLine": 371, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=371"},
+            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "paired rollout capture", "functions": ["run_frontres_segment_live_probe()"], "sourceLine": 790, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=790"}
           ],
       "mainRoute": [
         "B1 _attach_frontres_segment_trial_plan(): segment sample -> paired row roles",
@@ -328,9 +328,9 @@
           "mustNot": "不重新实现 domain math、Gain 或 PPO formula",
           "objects": ["runner", "env", "policy", "algorithm", "storage"],
           "files": [
-            {"id": "MAIN-30", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "runner public boundary", "functions": ["__init__()", "learn()"]},
-            {"id": "MAIN-31", "path": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py", "role": "FrontRES setup connector", "functions": []},
-            {"id": "MAIN-40", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_runner_boundary.py", "role": "Stage 3 mode boundary", "functions": ["from_train_cfg()", "assert_live_runner_ready()"]}
+            {"id": "MAIN-30", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "runner public boundary", "functions": ["__init__()","learn()"], "sourceLine": 232, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Fon_policy_runner.py&line=232"},
+            {"id": "MAIN-31", "path": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py", "role": "FrontRES setup connector", "functions": [], "sourceLine": 51, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=51"},
+            {"id": "MAIN-40", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_runner_boundary.py", "role": "Stage 3 mode boundary", "functions": ["from_train_cfg()","assert_live_runner_ready()"], "sourceLine": 28, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_runner_boundary.py&line=28"}
           ],
       "mainRoute": [
         "B1 OnPolicyRunner::__init__(): env + config -> policy/algorithm/storage",
@@ -351,10 +351,10 @@
           "mustNot": "不改变 owner 模块中的 action、Gain 或 optimizer 语义",
           "objects": ["sample", "capture", "segment storage", "PPO result", "sampler evidence"],
           "files": [
-            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "sampler step", "functions": ["run_frontres_segment_sampler_step()"]},
-            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "training/eval loop", "functions": []},
-            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "rollout capture/storage builder", "functions": ["run_frontres_segment_live_probe()", "build_live_segment_storage()"]},
-            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "train/eval console formatting", "functions": []}
+            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "sampler step", "functions": ["run_frontres_segment_sampler_step()"], "sourceLine": 197, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=197"},
+            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "training/eval loop", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"},
+            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "rollout capture/storage builder", "functions": ["run_frontres_segment_live_probe()","build_live_segment_storage()"], "sourceLine": 790, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=790"},
+            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "train/eval console formatting", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"}
           ],
       "mainRoute": [
         "B1 run_frontres_segment_sampler_step(): runner state -> sampled segment batch",
@@ -383,9 +383,9 @@
           "mustNot": "不读取 generic environment reward 作为 fallback",
           "objects": ["style_gain", "physics_gain", "repair_cost", "gain_total"],
           "files": [
-            {"id": "MAIN-17", "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "role": "single active Gain owner", "functions": []},
-            {"id": "MAIN-17A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reward.py", "role": "Segment reward API surface", "functions": []},
-            {"id": "MAIN-18", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "role": "Gain diagnostics", "functions": ["summarize_segment_batch()"]}
+            {"id": "MAIN-17", "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "role": "single active Gain owner", "functions": [], "sourceLine": 28, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=28"},
+            {"id": "MAIN-17A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_reward.py", "role": "Segment reward API surface", "functions": [], "sourceLine": 10, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_reward.py&line=10"},
+            {"id": "MAIN-18", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "role": "Gain diagnostics", "functions": ["summarize_segment_batch()"], "sourceLine": 36, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=36"}
           ],
       "mainRoute": [
         "B1 frontres_gain.py: paired capture -> Style components",
@@ -406,9 +406,9 @@
           "mustNot": "不重新计算 action representation 或 Gain 语义",
           "objects": ["actions", "old_log_probs", "old_means", "old_sigmas", "returns", "advantages"],
           "files": [
-            {"id": "MAIN-41", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "Segment storage owner", "functions": ["to_ppo_batch()"]},
-            {"id": "MAIN-42", "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py", "role": "base RSL-RL storage", "functions": []},
-            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "storage writer", "functions": ["build_live_segment_storage()"]}
+            {"id": "MAIN-41", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "Segment storage owner", "functions": ["to_ppo_batch()"], "sourceLine": 56, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=56"},
+            {"id": "MAIN-42", "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py", "role": "base RSL-RL storage", "functions": [], "sourceLine": 13, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fstorage%2Frollout_storage.py&line=13"},
+            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "storage writer", "functions": ["build_live_segment_storage()"], "sourceLine": 1551, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=1551"}
           ],
       "mainRoute": [
         "B1 build_live_segment_storage(): policy-row capture -> transition fields",
@@ -428,10 +428,10 @@
           "mustNot": "不更新 retired rho/acceptance 或按 family mask inactive dims",
           "objects": ["ratio", "advantage", "pre/post KL", "actor grad", "critic grad", "optimizer state"],
           "files": [
-            {"id": "MAIN-43", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "Segment PPO formula", "functions": ["compute_frontres_segment_ppo_loss()"]},
-            {"id": "MAIN-44", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "FrontRES algorithm wrapper / Stage 2 HSL", "functions": []},
-            {"id": "MAIN-45", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "single update connector", "functions": []}
-            ,{"id": "MAIN-45A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "DP-09 phase owner", "functions": ["frontres_segment_warmup_phase()"]}
+            {"id": "MAIN-43", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "Segment PPO formula", "functions": ["compute_frontres_segment_ppo_loss()"], "sourceLine": 190, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=190"},
+            {"id": "MAIN-44", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "FrontRES algorithm wrapper / Stage 2 HSL", "functions": [], "sourceLine": 14, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_unified.py&line=14"},
+            {"id": "MAIN-45", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "single update connector", "functions": [], "sourceLine": 63, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=63"}
+            ,{"id": "MAIN-45A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "DP-09 phase owner", "functions": ["frontres_segment_warmup_phase()"], "sourceLine": 27, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=27"}
           ],
       "mainRoute": [
         "B1 compute_frontres_segment_ppo_loss(): PPO batch -> ratio/actor/value losses",
@@ -460,8 +460,8 @@
           "mustNot": "不静默跳过不兼容 actor head 或 observation stats",
           "objects": ["policy state", "std", "normalizer", "optimizer", "sampler", "phase state"],
           "files": [
-            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "正式 checkpoint owner", "functions": ["load_runner()"]},
-            {"id": "MAIN-50", "path": "source/whole_body_tracking/whole_body_tracking/utils/exporter.py", "role": "policy export", "functions": []}
+            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "正式 checkpoint owner", "functions": ["load_runner()"], "sourceLine": 368, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=368"},
+            {"id": "MAIN-50", "path": "source/whole_body_tracking/whole_body_tracking/utils/exporter.py", "role": "policy export", "functions": [], "sourceLine": 18, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Futils%2Fexporter.py&line=18"}
           ],
       "mainRoute": [
         "B1 runner save: policy/stats/optimizer/sampler/phase -> checkpoint payload",
@@ -481,9 +481,9 @@
           "mustNot": "不更新 policy 或 replay priority",
           "objects": ["motion id", "start frame", "perturbation", "paired metrics", "survival"],
           "files": [
-            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "periodic/sequence eval route", "functions": ["run_frontres_segment_sequence_offline_eval()"]},
-            {"id": "MAIN-49", "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py", "role": "DR sweep", "functions": []},
-            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "eval formatting", "functions": []}
+            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "periodic/sequence eval route", "functions": ["run_frontres_segment_sequence_offline_eval()"], "sourceLine": 311, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=311"},
+            {"id": "MAIN-49", "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py", "role": "DR sweep", "functions": [], "sourceLine": 20, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_dr_sweep_eval.py&line=20"},
+            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "eval formatting", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"}
           ],
       "mainRoute": [
         "B1 live_training.py: checkpoint + eval request -> independent segment sample",
@@ -514,8 +514,8 @@
           "files": [
             {"id": "MAIN-51", "path": "source/rsl_rl/rsl_rl/tests/frontres_*_contract.py", "role": "FrontRES contracts", "functions": []},
             {"id": "MAIN-52", "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_*_contract.py", "role": "Segment contracts", "functions": []},
-            {"id": "MAIN-53", "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py", "role": "aggregate pseudo suite", "functions": []},
-            {"id": "MAIN-54", "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_live_sentinel_contract.py", "role": "sentinel contract", "functions": []}
+            {"id": "MAIN-53", "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_stage3_pseudo_suite.py", "role": "aggregate pseudo suite", "functions": [], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ftests%2Ffrontres_segment_stage3_pseudo_suite.py&line=15"},
+            {"id": "MAIN-54", "path": "source/rsl_rl/rsl_rl/tests/frontres_segment_live_sentinel_contract.py", "role": "sentinel contract", "functions": [], "sourceLine": 21, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ftests%2Ffrontres_segment_live_sentinel_contract.py&line=21"}
           ],
       "mainRoute": [
         "B1 contract test: owner contract -> tiny semantic fixture",
@@ -536,9 +536,9 @@
           "mustNot": "不重新计算或替代 owner semantic object",
           "objects": ["branch flags", "shape/value", "role counts", "KL", "Gain components"],
           "files": [
-            {"id": "MAIN-18", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "role": "Segment summary", "functions": ["summarize_segment_batch()"]},
-            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "console formatter", "functions": []},
-            {"id": "MAIN-40", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_runner_boundary.py", "role": "mode sentinel", "functions": ["sentinel_log()", "probe_log()", "train_log()"]}
+            {"id": "MAIN-18", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "role": "Segment summary", "functions": ["summarize_segment_batch()"], "sourceLine": 36, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=36"},
+            {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "console formatter", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"},
+            {"id": "MAIN-40", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_runner_boundary.py", "role": "mode sentinel", "functions": ["sentinel_log()","probe_log()","train_log()"], "sourceLine": 78, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_runner_boundary.py&line=78"}
           ],
       "mainRoute": [
         "B1 owner result: semantic object -> structured summary fields",

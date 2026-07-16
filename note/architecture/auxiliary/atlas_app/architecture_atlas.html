@@ -4,6 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MOSAIC Architecture Atlas</title>
+  <script>
+    // Source links require the local Atlas server; direct file opens must join
+    // the same HTTP origin before rendering any repository-reading card.
+    if (window.location.protocol === "file:") {
+      const atlasUrl = new URL("http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html");
+      atlasUrl.search = window.location.search;
+      atlasUrl.hash = window.location.hash;
+      window.location.replace(atlasUrl.href);
+    }
+  </script>
   <style>
     :root {
       --ink: #1f2933;
@@ -1223,9 +1233,20 @@
           const shortPath = (value) => String(value || "").replace(/\/$/, "").split("/").pop();
           const sourceHrefFor = (file) => {
             if (file.sourceHref) return file.sourceHref;
-            if (!file.path || String(file.path).endsWith("/")) return "";
+            if (!file.path || String(file.path).endsWith("/") || String(file.path).includes("*")) return "";
             const sourcePath = String(file.path).split("::")[0].trim();
             return `/open-source?path=${encodeURIComponent(sourcePath)}&line=${file.sourceLine || 1}`;
+          };
+          const sourceFileForOwner = (owner) => {
+            const ownerText = String(owner || "");
+            const pathMatch = files.find((file) => ownerText.includes(shortPath(file.path)));
+            if (pathMatch) return pathMatch;
+            const functionMatch = files.find((file) => (file.functions || []).some((fn) => {
+              const symbol = String(fn).match(/([A-Za-z_]\w*)\s*\(/)?.[1];
+              return symbol && ownerText.includes(symbol);
+            }));
+            if (functionMatch) return functionMatch;
+            return files.length === 1 ? files[0] : null;
           };
           const functionItems = [];
           files.forEach((file) => {
@@ -1295,6 +1316,8 @@
           (module.mainRoute || []).forEach((step, stepIndex) => {
             const route = parseRoute(step, (module.mainRouteTitles || [])[stepIndex]);
             const probeStep = (module.probeSteps || [])[stepIndex] || {};
+            const routeSourceFile = isRuntimeProbe ? null : sourceFileForOwner(route.owner);
+            const routeSourceHref = routeSourceFile ? sourceHrefFor(routeSourceFile) : "";
             if (stepIndex > 0) addText("↓", contentX + 22, cursorY - 7, { size: 18, weight: 500, fill: color });
             const routeY = cursorY + (stepIndex > 0 ? 5 : 0);
             const routeBox = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -1318,8 +1341,22 @@
             }
             wrapText(isRuntimeProbe ? (probeStep.whyHere || "PENDING") : route.owner, contentX + (isRuntimeProbe ? 112 : 16), routeY + 47, contentWidth - (isRuntimeProbe ? 128 : 32), {
               size: 14, lineHeight: 18, charWidth: 7.2, maxLines: 2,
-              weight: 500, code: !isRuntimeProbe, fill: "#485563",
+              weight: 500, code: !isRuntimeProbe, fill: routeSourceHref ? "#0b63b6" : "#485563",
             });
+            if (routeSourceHref) {
+              const routeSourceArrow = addText("↗", contentX + contentWidth - 16, routeY + 47, {
+                size: 15, weight: 700, anchor: "end", fill: "#0b63b6",
+              });
+              attachSourceLink(
+                routeSourceHref,
+                `${route.owner} -> ${routeSourceFile.path}:${routeSourceFile.sourceLine || 1}`,
+                contentX + 8,
+                routeY + 29,
+                contentWidth - 16,
+                44,
+                routeSourceArrow,
+              );
+            }
             const routeColumnWidth = (contentWidth - 24) / 2;
             const boundaryY = routeY + (isRuntimeProbe ? 112 : 96);
             addText(isRuntimeProbe ? "插桩位置" : "input", contentX + 16, boundaryY, { size: 13, weight: 600, code: true, fill: color });

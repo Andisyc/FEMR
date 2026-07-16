@@ -84,19 +84,27 @@ const server = http.createServer((req, res) => {
       res.end(`VS Code CLI not found: ${vscodeCli}`);
       return;
     }
-    const opener = spawn(vscodeCli, ["--goto", gotoTarget], {
-      detached: true,
+    const opener = spawn(vscodeCli, ["--reuse-window", "--goto", gotoTarget], {
       stdio: "ignore",
     });
     opener.once("error", (error) => {
       console.error(`[Atlas Source Link] launch failed: ${error.message}`);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end(`VS Code CLI launch failed: ${error.message}`);
+      }
     });
     opener.once("exit", (code) => {
       console.log(`[Atlas Source Link] VS Code CLI exit=${code}`);
+      if (res.headersSent) return;
+      if (code === 0) {
+        res.writeHead(204, { "Cache-Control": "no-store" });
+        res.end();
+      } else {
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end(`VS Code CLI exited with code ${code}`);
+      }
     });
-    opener.unref();
-    res.writeHead(204, { "Cache-Control": "no-store" });
-    res.end();
     return;
   }
   if (req.url === "/events") {
