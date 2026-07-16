@@ -2546,8 +2546,8 @@ def _run_live_rollout_capture(
                         train_survival = score_active[:n_pair].float()
                         base_survival = score_active[base_start : base_start + n_pair].float()
                         step_horizon = (
-                            capture.horizon_k[:n_pair]
-                            if isinstance(capture.horizon_k, torch.Tensor)
+                            horizon_k[:n_pair]
+                            if isinstance(horizon_k, torch.Tensor)
                             else None
                         )
                         step_result = gain_module.compute_segment_gain_step(

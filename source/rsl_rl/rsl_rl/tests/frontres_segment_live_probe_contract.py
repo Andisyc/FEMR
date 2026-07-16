@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+import inspect
 
 import contextlib
 import io
@@ -1869,6 +1870,13 @@ def test_reset_summary_preserves_consumed_perturbation_distribution() -> None:
     assert summary["perturbation_strength_max"] == 0.75
 
 
+
+def test_live_rollout_step_gain_reads_local_horizon_before_capture_exists() -> None:
+    source = inspect.getsource(live_probe._run_live_rollout_capture)
+    assert "horizon_k[:n_pair]" in source
+    assert "capture.horizon_k[:n_pair]" not in source
+
+
 if __name__ == "__main__":
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_uses_b1_paired_gain_when_available()
@@ -1902,4 +1910,5 @@ if __name__ == "__main__":
     test_action_valid_steps_counts_done_producing_action_and_masks_tail()
     test_reset_role_env_ids_expand_sources_in_quartet_order()
     test_reset_summary_preserves_consumed_perturbation_distribution()
+    test_live_rollout_step_gain_reads_local_horizon_before_capture_exists()
     print("frontres_segment_live_probe_contract: ok")

@@ -97,7 +97,7 @@
     {
       "id": "M-05",
       "title": "Actor & Critic Warmup",
-      "summary": "控制 Critic-only / Actor ramp / Joint",
+      "summary": "预热 Actor 与 Critic",
       "concept": "C-TRAIN",
       "x": 575,
       "y": 470,
@@ -107,14 +107,14 @@
   ],
   "edges": [
     {"from": "M-02", "to": "SR-01", "label": "生成片段", "concept": "C-DATA"},
-    {"from": "M-06", "to": "SR-01", "label": "分配 K", "concept": "C-CURRICULUM", "fromAnchor": "right", "toAnchor": "bottom", "via": [[400, 380], [400, 250]]},
+    {"from": "M-06", "to": "SR-01", "label": "分配 K", "concept": "C-CURRICULUM", "fromAnchor": "right", "toAnchor": "bottom", "via": [[430, 380]]},
     {"from": "SR-01", "to": "M-04", "label": "训练样本", "concept": "C-DATA"},
     {"from": "M-04", "to": "M-10", "label": "修复参考", "concept": "C-ARCH"},
     {"from": "M-10", "to": "Q-PAIR", "label": "执行", "concept": "C-EXTERNAL"},
     {"from": "Q-PAIR", "to": "Q-01", "label": "执行结果", "concept": "C-SIGNAL"},
     {"from": "M-03", "to": "M-05", "label": "进入 RL", "concept": "C-TRAIN"},
-    {"from": "M-05", "to": "M-04", "label": "控制更新阶段", "concept": "C-TRAIN", "fromAnchor": "top", "toAnchor": "bottom", "toOffset": -45, "labelX": 755, "labelY": 360},
-    {"from": "Q-01", "to": "M-04", "label": "PPO 学习信号", "concept": "C-TRAIN", "fromAnchor": "bottom", "toAnchor": "bottom", "toOffset": 45, "via": [[1595, 420], [880, 420], [880, 300], [780, 300]]},
+    {"from": "M-05", "to": "M-04", "label": "预热", "concept": "C-TRAIN", "fromAnchor": "top", "toAnchor": "bottom", "toOffset": -45, "labelX": 730, "labelY": 360},
+    {"from": "Q-01", "to": "M-04", "label": "PPO 学习信号", "concept": "C-TRAIN", "fromAnchor": "bottom", "toAnchor": "bottom", "toOffset": 45, "via": [[1595, 300], [780, 300]]},
     {"from": "Q-01", "to": "SR-01", "label": "重放优先级", "concept": "C-SIGNAL", "fromAnchor": "top", "toAnchor": "top", "via": [[1595, 60], [430, 60]]}
   ],
   "callouts": [],

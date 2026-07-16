@@ -1293,3 +1293,20 @@ Next:
 - No Concept Figure or active contract update is appropriate before the main
   conversation confirms raw versus normalized survival semantics and the
   effective-K owner.
+
+## E57 - Formal Audit Horizon Scope Regression Fix (2026-07-16)
+
+- The first v002 formal-route attempt reached
+  `frontres_segment_live_probe.py::_run_live_rollout_capture` and failed before
+  the per-step Gain call because the new step-Gain instrumentation referenced
+  `capture.horizon_k` before the `capture` object was constructed.
+- The owner already had the effective per-row window in the local
+  `horizon_k` tensor. The fix uses `horizon_k[:n_pair]` for the step-Gain call;
+  no K assignment, Gain formula, action representation, or PPO behavior was
+  changed.
+- Regression coverage now checks that the pre-capture owner reads the local
+  horizon. Fresh local results: Python compilation, live probe contract,
+  formal audit contract, Gain component contract, and `git diff --check` all
+  pass.
+- Evidence level: code-confirmed and contract-confirmed. The formal `MODE=train`
+  runtime gate remains open and must be rerun after deployment.

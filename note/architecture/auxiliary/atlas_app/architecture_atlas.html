@@ -1133,6 +1133,47 @@
       setCanvas(width, height);
       const rc = rough.svg(svg);
 
+      const attachSourceLink = (href, label, x, y, width, height, indicator) => {
+        if (!href) return;
+        const sourceLink = document.createElementNS("http://www.w3.org/2000/svg", "a");
+        sourceLink.setAttribute("href", href);
+        sourceLink.dataset.sourceLink = "true";
+        sourceLink.addEventListener("mousedown", (event) => event.stopPropagation());
+        sourceLink.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (indicator) indicator.textContent = "…";
+          fetch(href, { method: "POST" })
+            .then((response) => {
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              if (indicator) {
+                indicator.textContent = "✓";
+                indicator.setAttribute("fill", "#287a45");
+              }
+            })
+            .catch((error) => {
+              if (indicator) {
+                indicator.textContent = "!";
+                indicator.setAttribute("fill", "#b42318");
+              }
+              console.error("Failed to open source location", error);
+            });
+        });
+        const hitArea = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        hitArea.setAttribute("x", x);
+        hitArea.setAttribute("y", y);
+        hitArea.setAttribute("width", width);
+        hitArea.setAttribute("height", height);
+        hitArea.setAttribute("fill", "transparent");
+        hitArea.setAttribute("pointer-events", "all");
+        hitArea.style.cursor = "pointer";
+        const linkTitle = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        linkTitle.textContent = `打开源码 ${label}`;
+        sourceLink.appendChild(linkTitle);
+        sourceLink.appendChild(hitArea);
+        svg.appendChild(sourceLink);
+      };
+
       wrapText(data.subtitle || "", left, 62, width - left * 2, {
         size: 15,
         lineHeight: 20,
@@ -1180,6 +1221,12 @@
 
           const files = module.files || [];
           const shortPath = (value) => String(value || "").replace(/\/$/, "").split("/").pop();
+          const sourceHrefFor = (file) => {
+            if (file.sourceHref) return file.sourceHref;
+            if (!file.path || String(file.path).endsWith("/")) return "";
+            const sourcePath = String(file.path).split("::")[0].trim();
+            return `/open-source?path=${encodeURIComponent(sourcePath)}&line=${file.sourceLine || 1}`;
+          };
           const functionItems = [];
           files.forEach((file) => {
             (file.functions || []).forEach((fn) => functionItems.push(`${fn}  <-  ${shortPath(file.path)}`));
@@ -1191,7 +1238,30 @@
           const halfGap = 26;
           const halfWidth = (contentWidth - halfGap) / 2;
           const columnStartY = cursorY;
-          const readHeight = section("先读", readingList(files.map((file) => shortPath(file.path))), contentX, halfWidth, 6, true);
+          addText("先读", contentX, cursorY, { size: 15, weight: 600, fill: color });
+          let readLineCount = 0;
+          files.slice(0, 6).forEach((file, fileIndex) => {
+            const href = sourceHrefFor(file);
+            const rowY = cursorY + 24 + readLineCount * 22;
+            const label = `${fileIndex + 1}. ${shortPath(file.path)}`;
+            const usedLines = wrapText(label, contentX, rowY, halfWidth - 24, {
+              size: 14,
+              lineHeight: 22,
+              charWidth: 7.2,
+              maxLines: 2,
+              weight: 500,
+              code: true,
+              fill: href ? "#0b63b6" : "#3f4a55",
+            });
+            if (href) {
+              const indicator = addText("↗", contentX + halfWidth - 8, rowY, {
+                size: 15, weight: 700, anchor: "end", fill: "#0b63b6",
+              });
+              attachSourceLink(href, `${file.path}:${file.sourceLine || 1}`, contentX - 4, rowY - 17, halfWidth, Math.max(1, usedLines) * 22, indicator);
+            }
+            readLineCount += Math.max(1, usedLines);
+          });
+          const readHeight = 36 + readLineCount * 22;
           cursorY = columnStartY;
           const functionHeight = section("重点函数", readingList(functionItems), contentX + halfWidth + halfGap, halfWidth, 6, true);
           cursorY = columnStartY + Math.max(readHeight, functionHeight) + 8;
@@ -1261,41 +1331,15 @@
               const sourceArrow = addText("↗", contentX + routeColumnWidth - 16, boundaryY, {
                 size: 15, weight: 700, fill: "#0b63b6",
               });
-              const sourceLink = document.createElementNS("http://www.w3.org/2000/svg", "a");
-              sourceLink.setAttribute("href", probeStep.sourceHref);
-              sourceLink.dataset.sourceLink = "true";
-              sourceLink.addEventListener("mousedown", (event) => {
-                event.stopPropagation();
-              });
-              sourceLink.addEventListener("click", (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                sourceArrow.textContent = "…";
-                fetch(probeStep.sourceHref, { method: "POST" })
-                  .then((response) => {
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    sourceArrow.textContent = "✓";
-                    sourceArrow.setAttribute("fill", "#287a45");
-                  })
-                  .catch((error) => {
-                    sourceArrow.textContent = "!";
-                    sourceArrow.setAttribute("fill", "#b42318");
-                    console.error("Failed to open source location", error);
-                  });
-              });
-              const hitArea = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-              hitArea.setAttribute("x", contentX + 8);
-              hitArea.setAttribute("y", boundaryY - 18);
-              hitArea.setAttribute("width", routeColumnWidth - 8);
-              hitArea.setAttribute("height", 44);
-              hitArea.setAttribute("fill", "transparent");
-              hitArea.setAttribute("pointer-events", "all");
-              hitArea.style.cursor = "pointer";
-              const linkTitle = document.createElementNS("http://www.w3.org/2000/svg", "title");
-              linkTitle.textContent = `打开源码 ${probeStep.location}`;
-              sourceLink.appendChild(linkTitle);
-              sourceLink.appendChild(hitArea);
-              svg.appendChild(sourceLink);
+              attachSourceLink(
+                probeStep.sourceHref,
+                probeStep.location,
+                contentX + 8,
+                boundaryY - 18,
+                routeColumnWidth - 8,
+                44,
+                sourceArrow,
+              );
             }
             const outputX = contentX + routeColumnWidth + 24;
             addText(isRuntimeProbe ? "截获对象" : "output", outputX, boundaryY, { size: 13, weight: 600, code: true, fill: color });
