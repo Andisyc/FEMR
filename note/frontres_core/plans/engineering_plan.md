@@ -13,8 +13,8 @@ changes, or long training.
 
 Current clarification 2026-07-17: the diagnostic and training consumers
 already share one rollout capture and one policy-row batch in the formal code
-route (E63/E64). Card 17's diagnostic now also uses the policy-row Gain-step
-slice (E66). The remaining work is only to expose and compare the carried
+route (E63/E64/E67). Card 17's diagnostic now also uses the policy-row Gain-step
+slice (E66, live-confirmed by E67). The remaining work is only to expose and compare the carried
 numeric fields in one fresh official log; it is not a new sampler, Gain, PPO,
 or quality-improvement task.
 Card 22 clarification 2026-07-17: the training diagnostics formatter consumes

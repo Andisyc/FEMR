@@ -2885,7 +2885,8 @@ def _capture_motion_quality_frame(
         _root_relative_body_pos(robot_pos[base_start : base_start + n]),
     )
     # AUDIT-PAIR-EVIDENCE-01: Record style evidence before canonical Gain consumes it.
-    # Result: PENDING_LIVE.
+    # Result: E67 LIVE PASS for one capture; style evidence shares the
+    # canonical transaction/batch identity.
     emit_formal_runtime_probe(
         "AUDIT-PAIR-EVIDENCE-01",
         clean_positions=frame[0],
@@ -2981,7 +2982,8 @@ def _capture_physics_frame(
     # B2: 对齐 Repaired/Noisy ZMP 和 contact evidence, 产出 canonical Physics 输入.
     frame = (zmp_repaired, zmp_noisy, contact_repaired, contact_noisy)
     # AUDIT-PAIR-EVIDENCE-01: Record physics evidence beside style evidence.
-    # Result: PENDING_LIVE.
+    # Result: E67 LIVE PASS for one capture; physics evidence shares the
+    # canonical transaction/batch identity.
     emit_formal_runtime_probe(
         "AUDIT-PAIR-EVIDENCE-01",
         zmp_repaired=frame[0],

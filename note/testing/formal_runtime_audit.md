@@ -78,10 +78,13 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
   within K=8 and exposed the reset/episode/done mismatch. Step A/B and E37
   closed that boundary with role-aware reset evidence and dynamic-state repair.
   The rerun3 facts remain historical evidence and are not the current blocker.
-- Current gate: E66 closed offline transaction propagation and Card 17's
-  policy-row Gain-step diagnostic slice. A current-revision official run still
-  must prove the real capture transaction and numeric Gain-to-return equality;
-  the prior live run's full quartet `gain_steps` NaN diagnostic is stale.
+- Current gate: E67 closed the current-revision single-capture transaction and
+  numeric Gain-to-return identity for Cards 15/16/17/22. The official log now
+  reports the policy-row `gain_steps` slice as finite `[T,8]`, with the same
+  transaction and batch identity across paired evidence, canonical Gain,
+  returns, and update-loop diagnostics. Remaining S4 work is population/mixed-K
+  coverage, actor-update evidence, and checkpoint-resume evidence; this run
+  does not claim those properties.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
@@ -434,7 +437,10 @@ Human control surface: open `note/architecture/04_stage3_formal_runtime_audit.ht
 | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01` | M-05 | warmup, accepted PPO state, diagnostics |
 | `AUDIT-PERSIST-01` | M-03, SR-01, M-05, Q-01 | formal checkpoint payload |
 
-All 21 Atlas cards remain `PENDING_LIVE`. Offline contracts prove insertion and synchronization only.
+The Atlas cards remain `PENDING_LIVE` for population, mixed-K, actor-update, or
+resume claims. E67 is the recorded single-capture live observation for the
+reached transaction/Gain/return/diagnostic cards; it does not promote every
+card to a general PASS.
 
 ## Method Semantics Extracted (Dr.Cheng)
 

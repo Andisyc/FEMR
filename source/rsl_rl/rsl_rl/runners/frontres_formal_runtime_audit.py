@@ -285,21 +285,24 @@ def print_sampler_audit(runner: Any, *, update_step: int, sample: Any, batch: An
     assert isinstance(horizon_k, torch.Tensor) and horizon_k.numel() == segment_ids.numel()
     assert bool((horizon_k > 0).all().item())
     # AUDIT-SEGDATA-01: 检查 cache/source/segment 身份, 位于 dataset lookup -> sampler sample.
-    # Result: PENDING_LIVE.
+    # Result: E67 LIVE OBSERVED for one sample: cache_horizon_k=4 is the Stage 1
+    # cache window; effective training K=8 is reported by K plan/rollout.
     _emit_owner_snapshot(
         "AUDIT-SEGDATA-01",
         segment_ids=_tensor_stats(segment_ids),
         source_index=_tensor_stats(getattr(sample, "source_index", None)),
     )
     # AUDIT-KPLAN-01: 检查 per-row K 与 rollout budget, 位于 sampler plan -> trial expansion.
-    # Result: PENDING_LIVE.
+    # Result: E67 LIVE PASS for one sampled plan: effective horizon K=8 and
+    # trial_role=policy for all eight sampled rows.
     _emit_owner_snapshot(
         "AUDIT-KPLAN-01",
         horizon_k=_tensor_stats(horizon_k),
         trial_roles=getattr(batch, "frontres_segment_trial_role", "missing"),
     )
     # AUDIT-KROLLOUT-01: 检查 reset/preroll/valid horizon, 位于 expanded trials -> scored rollout.
-    # Result: PENDING_LIVE.
+    # Result: E67 LIVE PASS for one capture: reset_success_frac=1 and
+    # effective horizon K=8 for all eight policy rows.
     _emit_owner_snapshot(
         "AUDIT-KROLLOUT-01",
         reset_success_frac=_summary_value(summary, "segment_reset_success_frac"),
@@ -394,7 +397,8 @@ def print_rollout_storage_audit(
     # Result: PENDING_LIVE.
     _emit_owner_snapshot("AUDIT-PAIR-01", roles=_summary_value(summary, "trial_role_counts"), valid=_summary_value(summary, "ppo_valid_count"))
     # AUDIT-PAIR-EVIDENCE-01: 检查同 segment/K 的 paired evidence, 位于 rollout capture -> Gain.
-    # Result: PENDING_LIVE.
+    # Result: E67 LIVE PASS for one capture: paired evidence shares
+    # iter0:capture1 and batch b21ee717d66475f3.
     _emit_owner_snapshot(
         "AUDIT-PAIR-EVIDENCE-01",
         noisy=_summary_value(summary, "score_noisy"),
@@ -405,7 +409,8 @@ def print_rollout_storage_audit(
         audit_identity_state=_summary_value(summary, "audit_identity_state"),
     )
     # AUDIT-GAIN-01: 检查 v002 Gain 分解和 survival unit, 位于 paired evidence -> storage reward.
-    # Result: PENDING_LIVE.
+    # Result: E67 LIVE PASS for one K=8 capture: Gain components are finite and
+    # canonical total is forwarded with the same transaction/batch identity.
     _emit_owner_snapshot(
         "AUDIT-GAIN-01",
         contract="FRS-GAIN-v002",
@@ -427,7 +432,8 @@ def print_rollout_storage_audit(
         audit_identity_state=_summary_value(summary, "audit_identity_state"),
     )
     # AUDIT-RETURN-01: 检查 Gain -> reward -> returns, 位于 storage write -> PPO batch.
-    # Result: PENDING_LIVE.
+    # Result: E67 LIVE PASS for one K=8 capture: policy-row gain_steps is finite
+    # [T,8], survival step-sum error is 0, and returns/advantages are finite.
     _emit_owner_snapshot(
         "AUDIT-RETURN-01",
         raw_survival_steps=_tensor_stats(raw_survival_steps[:n_train]),
@@ -466,7 +472,8 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
         actor_weight=getattr(result, "actor_loss_weight", "missing"),
     )
     # AUDIT-DIAG-01: 检查 diagnostics 来自最终 accepted update, 位于 PPO result -> live summary.
-    # Result: PENDING_LIVE.
+    # Result: E67 LIVE OBSERVED: Card 22 reports one transaction/batch; actor
+    # learning and population claims remain open.
     _emit_owner_snapshot(
         "AUDIT-DIAG-01",
         valid=valid_count,

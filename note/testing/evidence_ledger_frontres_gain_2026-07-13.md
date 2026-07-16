@@ -1498,10 +1498,40 @@ Next:
 - Offline evidence: py_compile and
   `frontres_formal_runtime_audit_contract.py` passed, including a `[T,32]`
   fixture with `[T,24]` non-policy NaNs and a finite `[T,8]` policy slice.
-- Status: the 20260717 live log is valid evidence for transaction identity,
-  but Card 17's old full-row diagnostic is stale-rerun-required. A fresh
-  official run is required before source comments or Atlas status can be
-  promoted.
-- The next formal command uses the unique
-  `formal_runtime_audit_gain_identity_rerun_20260717.txt` log and matching run
-  name; the original 20260717 log remains preserved as raw evidence.
+- Status: superseded by E67 below for the current-revision official rerun.
+
+## E67 - Official Gain Identity Rerun (2026-07-17)
+
+- Raw evidence: `/Users/chengyuxuan/ArtiIntComVis/formal_runtime_audit_gain_identity_20260717.txt`,
+  809 lines, modified after the E66 source fix. The filename retained the
+  original run name, but its runtime output is the post-fix rerun.
+- Official route: `AUDIT-ROUTE-01` reports
+  `objective=segment_replay_hrl`, `live_train=1`, `alternate_modes=0`,
+  `iterations=1`; Stage 3 uses `model_warmup.pt` with the active 6D actor.
+- Card 15/16/17 identity: paired evidence, canonical Gain, and returns all
+  report `audit_transaction_id=iter0:capture1`,
+  `audit_batch_signature=b21ee717d66475f3`, and
+  `audit_identity_state=complete`. Card 22 reports
+  `mode=single`, `transactions=1`, `batches=1`, `same_transaction=True`.
+- Card 17 repair is live-confirmed: `AUDIT-RETURN-01` reports policy-row
+  `gain_steps=shape=(8,8), finite=1`; raw survival steps and effective K are
+  `[8]`, the per-step survival sum error is `0.0`, and returns/advantages are
+  finite. The previous `[T,32] finite=0` output was the stale formatter path.
+- Gain values are finite under `FRS-GAIN-v002`: style `0.002784`, physics
+  `0.001231`, repair cost `0.073285`, total `-0.006978`. The negative total is
+  a one-batch quality observation, not a Phase B consumer failure.
+- K interpretation: `cache_horizon_k=4` is the Stage 1 reference-cache
+  window, while the sampled/effective training horizon is `K=8`; the log and
+  current documentation treat these as distinct owners.
+- PPO limitation: the single update is `phase=critic_only`,
+  `actor_weight=0`, so it proves finite critic/update diagnostics and frozen
+  GMT ownership, not actor learning or post-training improvement. The run
+  still saved `model_1.pt` with model, optimizer, normalizer, sampler, Gain
+  config, and warmup payloads.
+- Migration warning retained: `model_warmup.pt` has no Gain config and carries
+  a legacy 12D noise-std tensor; the active 6D runtime explicitly resets std
+  to `0.01`. This did not prevent the formal route from completing, but it
+  remains a checkpoint-migration risk to audit separately.
+- Status: Phase B single-capture Gain-consumer identity is `S4 observed`; do
+  not promote long-training readiness. Mixed-K population, actor-update, and
+  resume gates remain open.
