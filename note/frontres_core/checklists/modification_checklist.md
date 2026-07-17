@@ -23,7 +23,7 @@ and `FRS-DP-07` normalized survival Gain alignment.
 | Live loop propagation | live training/update loop | S2 `T-connect`, `T-state` | confirmed offline | Stage 3 pseudo suite |
 | Update gradient boundary | `frontres_segment_live_probe.py` | S1/S2 `T-grad`, `T-update-order` | confirmed offline | single-update contract |
 | Diagnostics | update loop/live formatter | S1/S2 `T-oracle`, `T-connect` | confirmed offline | pseudo suite logs phase/weight |
-| Checkpoint/resume phase | `frontres_checkpointing.py` | S3 `T-persist`, `T-state` | confirmed offline | iteration persistence + warmup config mismatch guard |
+| Checkpoint/resume phase | `frontres_checkpointing.py` | S3/S4 `T-persist`, `T-state`, `T-live` | live-confirmed | E69: model_220 iter=220 restored optimizer/normalizer/sampler/Gain/warmup/std/DR, then model_221 saved after 4/4 updates |
 
 ## Frozen GMT Test Profile
 
@@ -69,7 +69,7 @@ runtime reachability fact.
 | Observation/full-6D repair/application | S4 `T-shape/T-source/T-value` | runtime-observed | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01`, E39: finite full-6D action and delta norm |
 | Frozen GMT | S4 `T-grad/T-state` | runtime-observed | `AUDIT-GMT-01`, `E37`: gmt_training=False, trainable=0, in_optimizer=0 |
 | Paired roles/execution evidence | S4 `T-role/T-source` | runtime-observed | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01`, E39: policy=8/baseline=24, valid=7 |
-| Gain/returns | S4 `T-value/T-forward` | single-capture identity plus mixed-K policy-row diagnostics live-confirmed by E67/E68; full actor quality and resume remain open | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`, E62/E63/E64/E66/E67/E68: shared capture route, transaction/batch identity, policy-row Gain steps, local K-normalized survival trace, canonical gain_total forwarding, returns, and advantages |
+| Gain/returns | S4 `T-value/T-forward` | single-capture identity, mixed-K policy rows, actor-warmup, and resume continuity live-confirmed by E67/E68/E69; full actor quality remains open | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`, E62/E63/E64/E66/E67/E68/E69: shared capture route, transaction/batch identity, policy-row Gain steps, local K-normalized survival trace, canonical gain_total forwarding, returns, advantages, and resumed updates |
 | Formal v002 audit instrumentation | S1/S2/S4 `T-connect/T-unit/T-K/T-step-sum/T-live` | runtime path reached; Gain consumer alignment open | `frontres_formal_runtime_audit_contract.py`, Runtime Atlas GAIN/RETURN cards, E58 |
 | Survival Gain unit alignment | S1/S2 `T-unit/T-K` | implementation/offline complete; formal consumer comparison open | `FRS-GAIN-v002`, `plans/survival_gain_unit_alignment_20260716.md`, E55 |
 | Survival units/K aggregation | S1/S2 `T-value/T-forward` | contract-confirmed | `frontres_gain_components_contract.py:test_survival_unit_and_k_aggregation_probe`, E55: K=1/4/8 and per-step sum match final K=4 Gain |

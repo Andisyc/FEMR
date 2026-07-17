@@ -354,7 +354,8 @@ def save_runner(self, path: str, infos=None):
 
     # B2: Validate the complete payload after all semantic owners have contributed state.
     # B3: AUDIT-PERSIST-01 records the exact payload passed to torch.save.
-    # Result: PENDING_LIVE.
+    # Result: E69 LIVE PASS. model_221 保存 model/optimizer/normalizer/sampler/
+    # Gain config/warmup payload, 与恢复后的 absolute iter 221 一致.
     print_checkpoint_payload_audit(self, path=path, payload=saved_dict)
     # save model
     torch.save(saved_dict, path)
@@ -738,7 +739,8 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
               f"{loaded_dict.get('dr_scale', 0.0):.4f})")
 
     # B3: AUDIT-HSL-LOAD-01 records the actual loaded actor/normalizer boundary.
-    # Result: PENDING_LIVE.
+    # Result: E69 LIVE PASS. model_220 full-resume 恢复 actor/critic/optimizer,
+    # prefix normalizer, sampler, Gain config, warmup phase, std 和 DR scale.
     emit_formal_runtime_probe(
         "AUDIT-HSL-LOAD-01",
         checkpoint_path=self._frontres_last_loaded_checkpoint_path,

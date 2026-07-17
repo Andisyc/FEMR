@@ -46,9 +46,11 @@ runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: valid=8, critic-only update o
 runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "runtime-observed: all quartet roles start aligned and survive every K=8 step without termination (E37)";
 runtimeStatus["AUDIT-ANCHOR-Z-01"] = "runtime-observed: first-call raw/clean/robot z align, max abs error=0.0201m, anchor_pos=0 for all roles (E37)";
 runtimeStatus["AUDIT-DIAG-01"] = "runtime-observed: canonical Gain, valid fraction, warmup, PPO and trust diagnostics are populated (E37)";
-runtimeStatus["AUDIT-PERSIST-01"] = "runtime-observed: model_201.pt saved with model, optimizer, normalizer, sampler, Gain and warmup payloads (E58)";
-runtimeStatus["AUDIT-WARMUP-01"] = "runtime-observed: critic-only -> actor-warmup(0.002), finite accepted update (E58)";
-runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: actor-warmup valid=8, post KL=0.004131, trust accepted (E58)";
+runtimeStatus["AUDIT-ROUTE-01"] = "runtime-observed: model_220 full-resume continued absolute iter 220 -> 221 and completed 4/4 updates (E69)";
+runtimeStatus["AUDIT-HSL-LOAD-01"] = "runtime-observed: model_220 full-resume restored actor/normalizer identity at absolute iter 220 (E69)";
+runtimeStatus["AUDIT-PERSIST-01"] = "runtime-observed: model_220 full-resume restored training state and model_221 saved complete payload after 4/4 updates (E69)";
+runtimeStatus["AUDIT-WARMUP-01"] = "runtime-observed: actor-warmup reached weight 0.040 (E68), then resumed at phase_iter=20 weight=0.042 without restart (E69)";
+runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: four resumed actor-warmup updates had valid=16/16/14/15, nonzero parameter delta and accepted post-KL (E69)";
 runtimeStatus["AUDIT-KROLLOUT-01"] = "runtime-observed: reset_success_frac=1.0 and valid=7/8 are populated (E39)";
 runtimeStatus["AUDIT-APPLY-01"] = "runtime-observed: finite full-6D action and delta_norm=0.016680 (E39)";
 runtimeStatus["AUDIT-PAIR-01"] = "runtime-observed: roles policy=8/baseline=24 and valid=7 (E39)";
@@ -56,10 +58,10 @@ runtimeStatus["AUDIT-RETURN-01"] = "runtime-observed: reward/return/advantage te
 runtimeStatus["AUDIT-PERTURB-01"] = "runtime-observed: rp, dr_scale=1.25 and max_horizon_k=64 are populated (E41)";
 runtimeStatus["AUDIT-PERTURB-02"] = "runtime-observed: local_rp=8 with finite strength min/mean/max (E41)";
 runtimeStatus["AUDIT-GAIN-01"] = "runtime-observed: FRS-GAIN-v002 raw/K/quality/step-sum fields are finite with zero sum error (E58)";
-runtimeStatus["AUDIT-PAIR-EVIDENCE-01"] = "offline-confirmed: one capture emits transaction and batch signatures; formal same-capture log equality remains open (E64)";
-runtimeStatus["AUDIT-GAIN-01"] = "offline-confirmed: FRS-GAIN-v002 preserves transaction and batch identity; formal equality remains open (E64)";
-runtimeStatus["AUDIT-RETURN-01"] = "offline-confirmed: storage/returns preserve transaction and batch identity; formal equality remains open (E64)";
-runtimeStatus["AUDIT-DIAG-01"] = "offline-confirmed: update-loop diagnostics classify single/aggregate transactions; formal log remains open (E64)";
+runtimeStatus["AUDIT-PAIR-EVIDENCE-01"] = "runtime-observed: paired evidence shares one complete transaction/batch identity with Gain and returns (E67); E68 confirms mixed-K captures";
+runtimeStatus["AUDIT-GAIN-01"] = "runtime-observed: FRS-GAIN-v002 components and total share the capture transaction/batch identity (E67/E68)";
+runtimeStatus["AUDIT-RETURN-01"] = "runtime-observed: policy-row Gain steps, returns and advantages are finite and transaction-local for K=8..64 (E67/E68)";
+runtimeStatus["AUDIT-DIAG-01"] = "runtime-observed: resumed four-capture loop reports aggregate identity with four complete transaction/batch pairs (E69)";
 
 const probeRationales = {
   "AUDIT-ROUTE-01": [

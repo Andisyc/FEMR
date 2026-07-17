@@ -1562,3 +1562,35 @@ Next:
 - Status: actor-warmup and mixed-K integration are `S4 observed`. Full actor
   weight/joint-RL, checkpoint resume, and post-training quality remain open;
   long training is not promoted by this sentinel alone.
+
+## E69 - Full-Resume Formal Sentinel (2026-07-17)
+- Raw evidence: `formal_runtime_audit_resume_sentinel_20260717.txt`, produced
+  by the official `MODE=train` route with 64 environments, four update steps,
+  `formal_runtime_audit=1`, and `is_full_resume=True`.
+- Load identity: the runner loaded `model_220.pt` at checkpoint iteration 220,
+  verified `FRS-GAIN-v002`, and restored the residual actor, critic, optimizer,
+  prefix normalizer, Segment sampler, warmup config, noise std `0.01`, and DR
+  scale `1.25`. GMT remained frozen.
+- Schedule continuity: the resumed route reported `phase=actor_warmup`,
+  `phase_iter=20`, and `actor_weight=0.042`; warmup did not restart at zero.
+- Update continuity: four PPO updates consumed 16/16/14/15 valid policy rows.
+  Every observed update had finite loss, nonzero parameter delta, accepted
+  trust-region status, and post-update KL below `desired_kl=0.01`.
+- Save identity: the loop completed `updates=4/4` and wrote `model_221.pt`
+  with model, optimizer, observation normalizer, sampler, Gain config, and
+  warmup payloads at absolute iteration 221.
+- Diagnostic defect found: the old progress formatter printed `iter=221/1`
+  by mixing absolute checkpoint iteration with this command's local iteration
+  budget. The formatter now reports `absolute_iter=221 local=1/1`; an offline
+  regression contract protects this display-only distinction.
+- Fresh local verification: Python compilation passed; the live-training
+  pseudo contract passed including the resume-progress fixture; the formal
+  Runtime Atlas contract passed; the aggregate suite reported `44/44` with
+  zero failures; Runtime Atlas rebuilt 22 owner cards; `git diff --check`
+  passed.
+- Quality boundary: aggregate `gain_total=-0.015758` and repaired MPJPE was
+  worse than noisy MPJPE in this sentinel. These are quality observations, not
+  resume-connectivity failures. E69 does not prove full actor weight, long-run
+  learning quality, or policy superiority.
+- Status: checkpoint/full-resume continuity is `S4 observed`. Full actor-weight
+  joint RL and policy-quality evaluation remain open.

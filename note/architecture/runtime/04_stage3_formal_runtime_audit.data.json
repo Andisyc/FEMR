@@ -71,28 +71,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1744 :: run_frontres_segment_live_training_loop() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1746 :: run_frontres_segment_live_training_loop() 入口/调用前",
               "capture": "stage/task/mode/checkpoint",
               "whyHere": "命令刚完成 Stage 3 preset, 这里能确认本次运行身份而不受 runner 后续状态影响",
               "failureOwner": "失败归属: CLI 参数或 Stage 3 preset",
-              "sourceLine": 1744,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1744"
+              "sourceLine": 1746,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1746"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1920 :: run_frontres_segment_live_training_loop() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1922 :: run_frontres_segment_live_training_loop() 产物边界",
               "capture": "live_train/alternate_modes",
               "whyHere": "formal guard 在这里首次排除 sentinel/eval/update_loop 等替代路径",
               "failureOwner": "失败归属: runner route guard 或 boundary config",
-              "sourceLine": 1920,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1920"
+              "sourceLine": 1922,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1922"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1922 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1924 :: 正式 consumer 接收前",
               "capture": "iteration/update loop",
               "whyHere": "进入 live update loop 前是正式训练承诺点, 再晚只能看到训练结果",
               "failureOwner": "失败归属: train dispatch 到 live loop 的连接",
-              "sourceLine": 1922,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1922"
+              "sourceLine": 1924,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1924"
             }
           ],
           "probe": {
@@ -116,7 +116,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
+          "gap": "runtime-observed: model_220 full-resume continued absolute iter 220 -> 221 and completed 4/4 updates (E69)"
         },
         {
           "id": "AUDIT-PERTURB-01",
@@ -1266,7 +1266,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "offline-confirmed: one capture emits transaction and batch signatures; formal same-capture log equality remains open (E64)"
+          "gap": "runtime-observed: paired evidence shares one complete transaction/batch identity with Gain and returns (E67); E68 confirms mixed-K captures"
         },
         {
           "id": "AUDIT-GAIN-01",
@@ -1350,7 +1350,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "offline-confirmed: FRS-GAIN-v002 preserves transaction and batch identity; formal equality remains open (E64)"
+          "gap": "runtime-observed: FRS-GAIN-v002 components and total share the capture transaction/batch identity (E67/E68)"
         },
         {
           "id": "AUDIT-RETURN-01",
@@ -1434,7 +1434,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "offline-confirmed: storage/returns preserve transaction and batch identity; formal equality remains open (E64)"
+          "gap": "runtime-observed: policy-row Gain steps, returns and advantages are finite and transaction-local for K=8..64 (E67/E68)"
         },
         {
           "id": "AUDIT-HSL-LOAD-01",
@@ -1471,28 +1471,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:384 :: load_runner() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:385 :: load_runner() 入口/调用前",
               "capture": "checkpoint identity",
               "whyHere": "checkpoint path 与 payload identity 刚读取, 可确认实际加载的 Stage 2 artifact",
               "failureOwner": "失败归属: launch checkpoint path 或 torch.load payload",
-              "sourceLine": 384,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=384"
+              "sourceLine": 385,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=385"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:389 :: load_runner() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:390 :: load_runner() 产物边界",
               "capture": "actor/normalizer state",
               "whyHere": "actor 与 normalizer state 映射完成后首次形成 Stage 3 初始化状态",
               "failureOwner": "失败归属: load_runner state mapping",
-              "sourceLine": 389,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=389"
+              "sourceLine": 390,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=390"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:740 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:741 :: 正式 consumer 接收前",
               "capture": "Stage 3 live policy",
               "whyHere": "首次 live policy 使用前检查可发现加载后又被重置或漏传",
               "failureOwner": "失败归属: checkpoint load 到 Stage 3 runner initialization",
-              "sourceLine": 740,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=740"
+              "sourceLine": 741,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=741"
             }
           ],
           "probe": {
@@ -1516,7 +1516,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: 32-env formal run reached this owner and all quartet rows survived K=8 (E37)"
+          "gap": "runtime-observed: model_220 full-resume restored actor/normalizer identity at absolute iter 220 (E69)"
         },
         {
           "id": "AUDIT-WARMUP-01",
@@ -1598,7 +1598,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: critic-only -> actor-warmup(0.002), finite accepted update (E58)"
+          "gap": "runtime-observed: actor-warmup reached weight 0.040 (E68), then resumed at phase_iter=20 weight=0.042 without restart (E69)"
         },
         {
           "id": "AUDIT-PPO-01",
@@ -1680,7 +1680,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: actor-warmup valid=8, post KL=0.004131, trust accepted (E58)"
+          "gap": "runtime-observed: four resumed actor-warmup updates had valid=16/16/14/15, nonzero parameter delta and accepted post-KL (E69)"
         },
         {
           "id": "AUDIT-PERSIST-01",
@@ -1762,7 +1762,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: model_201.pt saved with model, optimizer, normalizer, sampler, Gain and warmup payloads (E58)"
+          "gap": "runtime-observed: model_220 full-resume restored training state and model_221 saved complete payload after 4/4 updates (E69)"
         },
         {
           "id": "AUDIT-DIAG-01",
@@ -1846,7 +1846,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "offline-confirmed: update-loop diagnostics classify single/aggregate transactions; formal log remains open (E64)"
+          "gap": "runtime-observed: resumed four-capture loop reports aggregate identity with four complete transaction/batch pairs (E69)"
         }
       ]
     }

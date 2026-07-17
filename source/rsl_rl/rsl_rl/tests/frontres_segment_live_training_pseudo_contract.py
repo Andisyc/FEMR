@@ -475,7 +475,7 @@ def test_pseudo_live_training_log_formats_large_loss_readably() -> None:
     assert lines[header_idx + 7].startswith("  scale:")
     assert lines[header_idx + 8] == ""
     assert lines[header_idx + 9] != "-" * 80
-    assert "  progress: iter=1/1 updates=4/4 runner_learn=True" in output
+    assert "  progress: absolute_iter=1 local=1/1 updates=4/4 runner_learn=True" in output
     assert "  data: valid=8 valid_frac=100.0% train_reward=0.250000 env_reward=-0.500000 gain_total=0.750000" in output
     assert "  trial: policy=12 search=4 evidence=16 ppo_valid=8 search_evidence_only=4 policy_invalid=4 valid_policy=66.7% valid_evidence=50.0%" in output
     assert "  sampler: gain=0.300000 gain_pos=60.0% useful=0.400000 replay_candidates=5 priority=0.070000 pool=11 hopeless=20.0%" in output
@@ -826,6 +826,25 @@ def test_pseudo_offline_eval_capture_exposes_motion_quality_tensors() -> None:
     assert scalars["segment/motion_acc_error_repaired_clean"] > 0.0
 
 
+def test_resume_progress_separates_absolute_and_local_iterations() -> None:
+    """Resume 日志必须区分 checkpoint 绝对迭代与本次命令局部进度."""
+
+    runner = FakeRunner()
+    runner.current_learning_iteration = 221
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        live_training_module._print_live_train_summary(
+            runner,
+            local_iteration=1,
+            num_learning_iterations=1,
+            summary=_full_summary(),
+        )
+    output = buffer.getvalue()
+    print(f"[probe resume_progress] {output.splitlines()[3]}", flush=True)
+    assert "progress: absolute_iter=221 local=1/1" in output
+    assert "iter=221/1" not in output
+
+
 def main() -> None:
     test_pseudo_live_training_runs_two_iterations_and_saves_checkpoints()
     test_pseudo_live_training_zero_iterations_does_not_touch_update_loop()
@@ -844,6 +863,7 @@ def main() -> None:
     test_pseudo_live_training_periodic_eval_requires_hook()
     test_pseudo_offline_eval_summary_uses_canonical_gain()
     test_pseudo_offline_eval_capture_exposes_motion_quality_tensors()
+    test_resume_progress_separates_absolute_and_local_iterations()
     print("result: PASS")
 
 

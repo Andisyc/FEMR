@@ -73,7 +73,8 @@ def frontres_segment_warmup_phase(
                 actor_loss_weight=1.0,
             )
     # B3: AUDIT-WARMUP-01 截获 PPO loss weighting 实际消费的 phase.
-    # Result: PENDING_LIVE.
+    # Result: E68/E69 LIVE PASS. resume 后 absolute iter 220 对应 actor_warmup
+    # phase_iter=20, actor_weight=0.042, 没有重启 warmup schedule.
     emit_formal_runtime_probe(
         "AUDIT-WARMUP-01",
         iteration=iteration,

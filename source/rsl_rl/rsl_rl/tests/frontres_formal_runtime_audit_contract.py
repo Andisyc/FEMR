@@ -430,7 +430,11 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
         elif audit_id == "AUDIT-ANCHOR-Z-01":
             assert "all quartet anchor_pos=0" in owner_text
         else:
-            assert "Result: PENDING_LIVE." in owner_text, f"{audit_id} owner lacks a PENDING_LIVE comment"
+            has_pending = "Result: PENDING_LIVE." in owner_text
+            has_runtime_evidence = "Result: E" in owner_text and "LIVE" in owner_text
+            assert has_pending or has_runtime_evidence, (
+                f"{audit_id} owner lacks an explicit pending or runtime-evidence result"
+            )
         for block_id in ("B1", "B2", "B3"):
             assert f"# {block_id}:" in owner_text, f"{audit_id} owner lacks human-readable {block_id} comments"
         for step_index, step in enumerate(module["probeSteps"], start=1):
@@ -446,8 +450,10 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
             assert 1 <= source_line <= len(owner_lines)
             assert f"# B{step_index}:" in owner_lines[source_line - 1]
     assert modules["AUDIT-PPO-01"]["gap"].startswith("runtime-observed:")
-    assert "actor-warmup valid=8" in modules["AUDIT-PPO-01"]["gap"]
-    assert "post KL=0.004131" in modules["AUDIT-PPO-01"]["gap"]
+    assert "valid=16/16/14/15" in modules["AUDIT-PPO-01"]["gap"]
+    assert "E69" in modules["AUDIT-PPO-01"]["gap"]
+    assert "model_221" in modules["AUDIT-PERSIST-01"]["gap"]
+    assert "accepted post-KL" in modules["AUDIT-PPO-01"]["gap"]
     assert modules["AUDIT-PERSIST-01"]["gap"].startswith("runtime-observed:")
     assert len(why_here_texts) == 66
     assert len(set(why_here_texts)) == 66, "whyHere must not be a shared template across probe boundaries"

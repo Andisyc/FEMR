@@ -1,8 +1,8 @@
 # Formal Runtime Audit
 
-Status: `phase-b-gain-v002-consumer-alignment-open`
+Status: `phase-b-runtime-closure-partial`
 
-Current C boundary 2026-07-16: the active reward contract is now
+Current boundary 2026-07-17: the active reward contract is
 `FRS-GAIN-v002`. The formal audit was updated to expose raw survival steps,
 per-row effective K, repaired/noisy survival quality, normalized survival Gain,
 and the equality between per-step survival Gain sum and final survival Gain.
@@ -44,7 +44,8 @@ owner functions while emitting their labels only from five runner summaries.
 That projection was invalid. Each current card is now accepted only when its
 declared owner file contains the same `AUDIT-*` ID, a real default-off emit or
 print boundary, adjacent `B1/B2/B3` reading comments, and `Result:
-PENDING_LIVE.`. The contract test enforces this source-to-Atlas identity.
+`PENDING_LIVE` or an `E* LIVE` result. The contract test enforces this
+source-to-Atlas identity.
 
 Human selection rationale 2026-07-15: every B1/B2/B3 boundary now records
 `whyHere` and `failureOwner` beside its source location and captured object.
@@ -78,12 +79,17 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
   within K=8 and exposed the reset/episode/done mismatch. Step A/B and E37
   closed that boundary with role-aware reset evidence and dynamic-state repair.
   The rerun3 facts remain historical evidence and are not the current blocker.
-- Current gate: E68 extends E67 with current-revision mixed-K and actor-warmup
-  evidence. The official route reached `iter=220/220`, sampled effective
+- Current gate: E69 extends E68 with a real full-resume sentinel. The official
+  route loaded `model_220.pt` at absolute iteration 220, restored optimizer,
+  normalizer, sampler, Gain config, warmup phase, std, and DR scale, completed
+  four accepted actor-warmup updates, and saved `model_221.pt`. E68 already
+  established current-revision mixed-K and actor-warmup evidence: it reached
+  `iter=220/220` and sampled effective
   `K=8..64`, and entered actor warmup with `actor_weight=0.002..0.040`; the
   policy-row Gain-step slice remained finite and transaction-local. Remaining
-  S4 work is full actor/joint-RL coverage and checkpoint-resume evidence; this
-  run does not claim those properties.
+  Remaining S4 work is full actor-weight/joint-RL coverage and policy-quality
+  evaluation. Checkpoint-resume continuity is closed by E69; neither E68 nor
+  E69 claims long-training quality or policy superiority.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
@@ -402,7 +408,7 @@ timestamp 2026-07-15 22:32.
 
 ## Phase B Probe Ownership
 
-Human control surface: open `note/architecture/04_stage3_formal_runtime_audit.html`. Every row below has a matching Atlas reading block and a `PENDING_LIVE` source comment at the real owner location.
+Human control surface: open `note/architecture/04_stage3_formal_runtime_audit.html`. Every row below has a matching Atlas reading block and an explicit pending or evidence-backed live result at the real owner location.
 
 | Audit ID | Parent design points | Formal owner | Runtime question |
 | --- | --- | --- | --- |
@@ -436,10 +442,10 @@ Human control surface: open `note/architecture/04_stage3_formal_runtime_audit.ht
 | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01` | M-05 | warmup, accepted PPO state, diagnostics |
 | `AUDIT-PERSIST-01` | M-03, SR-01, M-05, Q-01 | formal checkpoint payload |
 
-The Atlas cards remain `PENDING_LIVE` for population, mixed-K, actor-update, or
-resume claims. E67 is the recorded single-capture live observation for the
-reached transaction/Gain/return/diagnostic cards; it does not promote every
-card to a general PASS.
+The Atlas cards now distinguish observed owner boundaries from still-open
+claims. E67 proves single-capture identity, E68 proves mixed-K and actor-warmup,
+and E69 proves full-resume continuity. These entries do not promote full actor
+weight, long-training quality, or policy superiority to PASS.
 
 ## Method Semantics Extracted (Dr.Cheng)
 
@@ -909,7 +915,8 @@ already cover the local boundaries.
 
 The authoritative probe inventory is the 20-owner table above and the Runtime
 Audit Atlas. Every owner contains its matching default-off `AUDIT-*` emission,
-adjacent B1/B2/B3 reading comments, and `Result: PENDING_LIVE`. The prior
+adjacent B1/B2/B3 reading comments, and an explicit `Result: PENDING_LIVE` or
+evidence-backed `Result: E* LIVE` status. The prior
 seven-probe planning projection is retired and must not be used for live
 acceptance. `AUDIT-GAIN-01` now captures raw survival steps, effective K,
 repaired/noisy quality, normalized survival Gain, and step-sum error.

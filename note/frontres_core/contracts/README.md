@@ -20,15 +20,15 @@ Concept Figure. Canonical names and block IDs come from
 
 | Design ID | Canonical human name | Active contract section | Figure block ID | Current code/evidence gap |
 | --- | --- | --- | --- | --- |
-| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v011` / `Perturbation Data` | `M-02` | formal family/strength runtime evidence remains required |
-| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v011` / `Segment Replay Design` | `SR-01` | live source/priority evidence remains required |
-| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v011` / `K-Step Curriculum` | `M-06` | formal multi-K live evidence remains required |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v011` / `Action Semantics` | `M-04` | full-6D runtime evidence remains required |
-| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v011` / `Method Boundary` | `M-10` | frozen-parameter runtime evidence remains required |
-| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v002` / `Pairing And Time` | `Q-PAIR` | all paired components require S4 population evidence |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v002` / `Core Decision` | `Q-01` | all active consumers require shared-owner S4 evidence |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v003` / `HSL Warmup` | `M-03` | checkpoint identity and Stage 3 load evidence remain required |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v003` / `Actor And Critic Warmup` | `M-05` | formal-route connectivity and live phase evidence remain required |
+| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v011` / `Perturbation Data` | `M-02` | E68/E69 live-confirm `rp`, strength/DR scale, and K=8..64; composite families remain out of scope. |
+| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v011` / `Segment Replay Design` | `SR-01` | E67-E69 live-confirm formal sampler/update connectivity; long-run distribution quality remains open. |
+| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v011` / `K-Step Curriculum` | `M-06` | E68 live-confirms mixed effective K=8..64 and finite policy-row returns. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v011` / `Action Semantics` | `M-04` | E39/E68/E69 live-confirm finite full-6D actions; policy quality remains open. |
+| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v011` / `Method Boundary` | `M-10` | E68/E69 live-confirm GMT trainable=0 and in_optimizer=0 across actor updates and resume. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v002` / `Pairing And Time` | `Q-PAIR` | E67/E68 live-confirm transaction-local paired components and mixed-K policy rows. |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v002` / `Core Decision` | `Q-01` | E67/E68/E69 live-confirm shared Gain-to-return consumer route; long-run quality remains open. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v003` / `HSL Warmup` | `M-03` | E69 live-confirms model_220 actor/normalizer checkpoint identity on full resume. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v003` / `Actor And Critic Warmup` | `M-05` | E68/E69 live-confirm critic-to-actor transition and resumed phase continuity; full actor weight remains open. |
 
 Entrypoints, configuration, storage, checkpointing, diagnostics, probes, and
 tests are implementation objects under these design points. They are not

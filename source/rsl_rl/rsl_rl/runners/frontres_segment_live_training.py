@@ -1646,6 +1646,7 @@ def _live_train_status(summary: Mapping[str, Any]) -> str:
 def _print_live_train_summary(
     runner: Any,
     *,
+    local_iteration: int,
     num_learning_iterations: int,
     summary: Mapping[str, Any],
 ) -> None:
@@ -1674,7 +1675,8 @@ def _print_live_train_summary(
                 "",
                 "[FrontRES Segment Live Train]",
                 "  progress: "
-                f"iter={runner.current_learning_iteration}/{num_learning_iterations} "
+                f"absolute_iter={runner.current_learning_iteration} "
+                f"local={local_iteration}/{num_learning_iterations} "
                 f"updates={int(summary['update_count'])}/{int(summary['update_steps'])} "
                 "runner_learn=True",
                 "  data: "
@@ -1921,7 +1923,8 @@ def run_frontres_segment_live_training_loop(
     num_learning_iterations = max(0, int(num_learning_iterations))
     # B3: 首次正式 update iteration 前截获 route identity.
     # AUDIT-ROUTE-01: 检查正式 Stage 3 路由, 位于 train dispatch -> live iteration loop.
-    # Result: PENDING_LIVE.
+    # Result: E69 LIVE PASS. model_220 full-resume 从 absolute iter 220 继续到 221,
+    # 并完成 4/4 次 optimizer update; local progress 由独立计数显示.
     print_formal_route_audit(runner, num_learning_iterations=num_learning_iterations)
     if num_learning_iterations == 0:
         print(
@@ -1948,7 +1951,12 @@ def run_frontres_segment_live_training_loop(
             fail_on_nonfinite=fail_on_nonfinite,
         )
         runner.current_learning_iteration += 1
-        _print_live_train_summary(runner, num_learning_iterations=num_learning_iterations, summary=summary)
+        _print_live_train_summary(
+            runner,
+            local_iteration=local_iteration + 1,
+            num_learning_iterations=num_learning_iterations,
+            summary=summary,
+        )
         _maybe_print_periodic_eval(runner, summary)
         if (
             runner.log_dir is not None

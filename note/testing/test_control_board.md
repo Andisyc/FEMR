@@ -43,7 +43,7 @@ claims additionally require S4.
 | Single Gain owner / sampler evidence | `frontres_gain.py` + live sampler/sampler | S2 | T-single-owner, T-formal-gain-source, T-no-legacy-score, T-evidence-isolation, T-priority, T-state | 6A/6B plus all eval consumers offline covered; S4 remains; E14/E15/E16 |
 | Periodic eval | live training eval owner | S2/S4 | T-fresh-sample, T-state, T-same-formula, T-owner-isolation, T-live | S2 offline covered by E15; S4 live population open |
 | Sequence eval | sequence eval owner | S2/S4 | T-preroll, T-motion, T-K, T-same-formula, T-owner-isolation, T-live | S2 offline covered by E16; S4 live population open |
-| Checkpoint/resume | `frontres_checkpointing.py` formal runner owner | S3 | T-state, T-version, T-scale, T-missing-identity | offline covered by E17; actual server artifact resume remains open |
+| Checkpoint/resume | `frontres_checkpointing.py` formal runner owner | S3/S4 | T-state, T-version, T-scale, T-missing-identity, T-live | live-confirmed by E69: model_220 full-resume restored training state and saved model_221 after 4/4 updates |
 | Diagnostics | Segment diagnostics/logging | S1/S2/S4 | T-unconfirmed, T-nonstale, T-decompose, T-legacy-isolation, T-live | canonical train-effect route and isolation offline-covered; raw ZMP/contact and S4 live evidence open |
 
 ## Required Gain Test Order
