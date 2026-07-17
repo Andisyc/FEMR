@@ -209,28 +209,33 @@ class _RouteCapture:
         return step_result
 
     def compute_gain(self) -> Any:
-        stack = lambda values: torch.stack(values, dim=0) if values else None
+        # Style/orientation owners consume batch-major trajectories [B, T, ...],
+        # while repair cost consumes action history [T, B, 6]. Route capture
+        # appends one [B, ...] frame per step, so preserve both canonical layouts
+        # explicitly instead of letting K masquerade as the paired-sample batch.
+        stack_trajectory = lambda values: torch.stack(values, dim=1) if values else None
+        stack_action_steps = lambda values: torch.stack(values, dim=0) if values else None
         mean_frames = lambda values: torch.stack(values, dim=0).float().mean(dim=0) if values else None
         n_pair = int(self.pair_layout.n_train)
         effective_k = torch.full((n_pair,), self.horizon_k, dtype=torch.float32, device=self.runner.device)
         self.last_gain = compute_segment_gain(
-            clean_positions=stack(self.clean_positions),
-            repaired_positions=stack(self.repaired_positions),
-            noisy_positions=stack(self.noisy_positions),
+            clean_positions=stack_trajectory(self.clean_positions),
+            repaired_positions=stack_trajectory(self.repaired_positions),
+            noisy_positions=stack_trajectory(self.noisy_positions),
             repaired_success=~self.repaired_done,
             noisy_success=~self.noisy_done,
             repaired_survival=self.repaired_survival,
             noisy_survival=self.noisy_survival,
-            action_steps=stack(self.actions),
+            action_steps=stack_action_steps(self.actions),
             config=FrontRESSegmentGainConfig.from_mapping(getattr(self.runner, "cfg", None)),
             effective_horizon_k=effective_k,
             repaired_zmp_margin=mean_frames(self.repaired_zmp),
             noisy_zmp_margin=mean_frames(self.noisy_zmp),
             repaired_contact=mean_frames(self.repaired_contact),
             noisy_contact=mean_frames(self.noisy_contact),
-            clean_root_quaternions=stack(self.clean_root_quat),
-            repaired_root_quaternions=stack(self.repaired_root_quat),
-            noisy_root_quaternions=stack(self.noisy_root_quat),
+            clean_root_quaternions=stack_trajectory(self.clean_root_quat),
+            repaired_root_quaternions=stack_trajectory(self.repaired_root_quat),
+            noisy_root_quaternions=stack_trajectory(self.noisy_root_quat),
         )
         return self.last_gain
 

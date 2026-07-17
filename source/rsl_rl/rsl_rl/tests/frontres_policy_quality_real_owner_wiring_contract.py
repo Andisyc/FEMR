@@ -138,7 +138,15 @@ def main() -> None:
 
     def counted_gain(**kwargs):
         calls["gain"] += 1
-        return original_gain(**kwargs)
+        assert kwargs["clean_positions"].shape[:2] == (1, 3)
+        assert kwargs["repaired_positions"].shape[:2] == (1, 3)
+        assert kwargs["noisy_positions"].shape[:2] == (1, 3)
+        assert kwargs["action_steps"].shape[:2] == (3, 1)
+        result = original_gain(**kwargs)
+        for key in ("style_gain", "physics_gain", "repair_cost", "gain_total"):
+            value = getattr(result, key)
+            assert value.shape == (1,), (key, value.shape)
+        return result
 
     formal.compute_segment_gain = counted_gain
     original_observe = formal._RouteCapture.observe
