@@ -290,6 +290,43 @@ different world origins while keeping local dynamics/cache matched. Focused
 owner and Atlas contracts pass. The next action is one rerun of the same Q1-F
 manifest; no reset, Gain, PPO, or checkpoint parameter changes are permitted.
 
+Closure result: Q-E11 closes Q1-F on the real simulator. The three routes share
+one manifest signature and one scoring-state hash. Policy/noisy local root,
+root pose/velocity, joint state, and cached perturbation deltas are zero within
+floating precision; the 40 m world-root difference is exactly the env-origin
+difference. Policy/clean cached quaternion delta `0.061488` proves the local_rp
+corruption is present. The zero route defines an observed eight-step paired-env
+noise floor `0.007556`. On this item HSL-Zero is `0.041726`, Policy-Zero is
+`0.041802`, and Policy-HSL is only `0.000076`; therefore both repair routes beat
+zero, but PPO improvement over HSL is unconfirmed. The next bounded step is Q2:
+one immutable bank with at least 8 motions and 2 matched seeds. No code or Gain
+change is authorized before that matched bank is reviewed.
+
+### Step Q2 / 7: Counterfactual Oracle Bank
+
+Status: manifest accepted; independent offline reporter implemented.
+
+Objective: determine whether HSL and model_701 beat explicit zero across a
+fixed 8-motion x 2-seed bank, and whether Policy-HSL exceeds each item's own
+zero-route noise floor.
+
+Scope, thresholds, item bank, cost, stop conditions, and the independent
+offline reporting gap are defined in
+`note/frontres_core/plans/policy_quality_q2_counterfactual_plan.md`. Proposed
+manifest: `note/testing/manifests/frontres_policy_quality_q2_bank_v1.json`.
+
+Non-scope: live execution before human approval, training-code changes,
+checkpoint trajectory, PPO/Gain tuning, and long training.
+
+Expected evidence: S1/S2 manifest and report contracts, followed only after
+offline closure by S4 `Q-matched/Q-causal` per-item evidence. The reporter
+preserves every item and separates technical corruption from a valid negative
+scientific result.
+
+Stop condition: identity/schema failure, non-finite or non-scalar route Gain,
+role corruption failure, or HSL positive-control failure on both seeds for at
+least 3 motions.
+
 ## Planned Step Order
 
 ```text
@@ -301,6 +338,7 @@ Q1-0 governance
 -> Q1-E Atlas/offline integration
 -> user approval
 -> Q1-F one live sentinel
+-> Q2 reviewed 8-motion x 2-seed counterfactual bank
 ```
 
 No step starts before the previous Step End Report is reviewed. A `partial` or

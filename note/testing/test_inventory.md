@@ -8,6 +8,7 @@ Updated: 2026-07-17
 | --- | --- | --- |
 | `frontres_segment_all_contract_suite.py` | S0-S3 aggregate | Runs current Segment/observation/checkpoint/PPO/eval/quality-identity contracts. |
 | `frontres_policy_quality_manifest_contract.py` | S1 | Immutable Q1 manifest, canonical hash, permutation, schema fail-closed, and checkpoint/sampler isolation. |
+| `frontres_policy_quality_q2_report_contract.py` | S1/S2 | Q2 exact 8-motion x 2-seed coverage, per-item zero noise floors and route deltas, two-seed motion classification, permutation invariance, identity/role/Gain fail-closed behavior, and separation of technical validity from negative scientific outcomes. |
 | `frontres_policy_quality_state_contract.py` | S1/S2 | Zero-policy preroll plus root/joint/origin/lifecycle/role/command-cache/perturber/RNG capture, restore, hash, and mismatch rejection. |
 | `frontres_policy_quality_eval_contract.py` | S2 | Matched zero/frozen-HSL/policy action sources, explicit observation/normalizer identity, canonical owner callbacks, and training-state isolation. |
 | `frontres_policy_quality_entrypoint_contract.py` | S0/S2 | Dedicated CLI/MODE/lazy runner dispatch, required-path validation, full-resume rejection, and zero calls into old eval/training branches. |

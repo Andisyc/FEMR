@@ -384,3 +384,80 @@ Limit and next:
   persistence only. Real Isaac values remain S4-unconfirmed.
 - Upload the current code and rerun the unchanged immutable Q1-F command once.
   Stop after reading B4; do not tune or start a broader quality bank first.
+
+## Q-E11 - Q1-F Real Role Identity Closure
+
+Date: 2026-07-17
+
+Scope: classify the real simulator policy/noisy role identity and close or
+reject Q1 before any broader policy-quality claim.
+
+Raw evidence:
+
+- Log: `policy_quality_q1f_single_v1.txt`, updated 2026-07-17 18:15.
+- Result: `policy_quality_q1f_single_v1_result.json`, updated 2026-07-17 18:15.
+- Manifest signature:
+  `4c7122e5278c2371d2917659e0ac5944ac1dd8579de94cc99811bdf95dd5eee0`.
+- Shared zero/HSL/policy initial-state hash:
+  `f171fc08e51881ddf30cb9964c87dae636a673184bd082804d5f96afeaedcd1f`.
+
+Runtime facts:
+
+- Policy/noisy world-root and env-origin max deltas are both 40 m. After origin
+  removal, local-root max delta is `9.536743e-7` m.
+- Root quaternion, linear/angular velocity, joint position/velocity, cached
+  perturbed position, and cached perturbed quaternion deltas are all exactly 0.
+- Policy/clean cached position delta is 0 and cached quaternion delta is
+  `0.061487824`, matching the active local_rp corruption semantics.
+- Zero uses exact zero actions and reports Gain `0.007556424`; this is the
+  observed eight-step paired-environment noise floor for this item, not a reset
+  or cache identity failure.
+- HSL Gain is `0.049282383`; Policy Gain is `0.049358435`. Relative to zero,
+  HSL excess is `0.041725960` and Policy excess is `0.041802011`.
+  Policy-HSL is only `0.000076052`, below the observed zero noise floor.
+- Policy differs from HSL in action space (max element delta `0.0140344`, L2
+  delta `0.0465331`) but this item cannot resolve a behavioral improvement.
+
+Evidence class: Q-matched S4 plus single-item Q-causal precursor.
+
+Decision:
+
+- Q1 matched comparison identity is closed.
+- This item rejects the no-op hypothesis locally because HSL and Policy both
+  exceed zero after accounting for the zero control.
+- It does not prove that PPO improves HSL, generalizes, or permits long
+  training. Q2 must use at least 8 fixed motions and 2 matched seeds, preserving
+  zero/HSL/policy routes and reporting per-item zero noise floors.
+
+## Q-E12 - Q2 Offline Reporter Closure
+
+Date: 2026-07-17
+
+Scope: freeze the governed Q2 bank and close deterministic reporting before
+requesting another simulator run.
+
+Implementation and evidence:
+
+- Accepted manifest:
+  `note/testing/manifests/frontres_policy_quality_q2_bank_v1.json`, containing
+  8 fixed motions x seeds 42/43, local_rp, DR scale 1.25, and K=8.
+- `frontres_policy_quality_q2_report.py` validates exact manifest/result/item
+  signatures, complete 16-row coverage, shared per-route state hashes,
+  policy/noisy local-state and cache identity, corruption presence, one stable
+  checkpoint per route, and finite scalar route Gain.
+- Every item retains `abs(Gain_zero)` as its own noise floor and reports
+  HSL-Zero, Policy-Zero, and Policy-HSL before motion or bank aggregation.
+- Motion classification requires two distinct seeds. Scientific failure is a
+  report verdict; only structural identity/schema corruption raises.
+- The focused pseudo-data contract passes, including permutation invariance,
+  missing-row/signature/non-scalar/non-finite/role/state rejection, and a
+  deliberately negative HSL/Policy outcome that remains technically valid.
+- `py_compile` passes for the report owner and contract; the aggregate Segment
+  suite passes `53/53` with `failed_count=0`.
+
+Evidence class: S1/S2 `T-schema/T-matched/T-oracle/T-bucket/T-seed/T-permute`.
+
+Boundary:
+
+- No training, PPO, Gain, reset, perturbation mask, or existing evaluator code
+  changed. S4 Q2 collection remains pending and long training remains blocked.

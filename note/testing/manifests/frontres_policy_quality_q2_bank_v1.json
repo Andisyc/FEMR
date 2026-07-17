@@ -1,0 +1,24 @@
+{
+  "schema_version": "frontres_policy_quality_manifest_v1",
+  "environment_revision": "FEMR-QE11-role-identity-closed",
+  "config_revision": "FRS-METHOD-v011+FRS-GAIN-v002+specialist-rp+K8+dr1.25",
+  "evaluator_version": "frontres-policy-quality-qe11-q2-v1",
+  "items": [
+    {"item_id":"q2-kit572-wave-right02-f163-s42","motion_id":"KIT/572/amass_g1_wave_right02_poses_reflect.npz","start_frame":163,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":42},
+    {"item_id":"q2-kit572-wave-right02-f163-s43","motion_id":"KIT/572/amass_g1_wave_right02_poses_reflect.npz","start_frame":163,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":43},
+    {"item_id":"q2-bml-rub003-catch-throw-f93-s42","motion_id":"BioMotionLab_NTroje/rub003/amass_g1_0017_catching_and_throwing_poses.npz","start_frame":93,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":42},
+    {"item_id":"q2-bml-rub003-catch-throw-f93-s43","motion_id":"BioMotionLab_NTroje/rub003/amass_g1_0017_catching_and_throwing_poses.npz","start_frame":93,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":43},
+    {"item_id":"q2-ejd-hamada-walk-look-f432-s42","motion_id":"Eyes_Japan_Dataset/hamada/amass_g1_walk-28-look up-hamada_poses.npz","start_frame":432,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":42},
+    {"item_id":"q2-ejd-hamada-walk-look-f432-s43","motion_id":"Eyes_Japan_Dataset/hamada/amass_g1_walk-28-look up-hamada_poses.npz","start_frame":432,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":43},
+    {"item_id":"q2-kit674-wash-head-f385-s42","motion_id":"KIT/674/amass_g1_wash_head01_poses.npz","start_frame":385,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":42},
+    {"item_id":"q2-kit674-wash-head-f385-s43","motion_id":"KIT/674/amass_g1_wash_head01_poses.npz","start_frame":385,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":43},
+    {"item_id":"q2-kit3-912-3-07-f26-s42","motion_id":"KIT/3/amass_g1_912_3_07_poses.npz","start_frame":26,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":42},
+    {"item_id":"q2-kit3-912-3-07-f26-s43","motion_id":"KIT/3/amass_g1_912_3_07_poses.npz","start_frame":26,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":43},
+    {"item_id":"q2-bml-rub036-rom-f487-s42","motion_id":"BioMotionLab_NTroje/rub036/amass_g1_0033_rom_poses.npz","start_frame":487,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":42},
+    {"item_id":"q2-bml-rub036-rom-f487-s43","motion_id":"BioMotionLab_NTroje/rub036/amass_g1_0033_rom_poses.npz","start_frame":487,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":43},
+    {"item_id":"q2-kit3-walking-run05-f69-s42","motion_id":"KIT/3/amass_g1_walking_run05_poses_reflect.npz","start_frame":69,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":42},
+    {"item_id":"q2-kit3-walking-run05-f69-s43","motion_id":"KIT/3/amass_g1_walking_run05_poses_reflect.npz","start_frame":69,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":43},
+    {"item_id":"q2-kit424-parkour03-f465-s42","motion_id":"KIT/424/amass_g1_parkour03_poses.npz","start_frame":465,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":42},
+    {"item_id":"q2-kit424-parkour03-f465-s43","motion_id":"KIT/424/amass_g1_parkour03_poses.npz","start_frame":465,"perturbation_family":"local_rp","perturbation_parameters":[["dr_scale",1.25]],"effective_horizon_k":8,"seed":43}
+  ]
+}

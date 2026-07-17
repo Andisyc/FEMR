@@ -130,7 +130,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-    "gap": "Q-E9 offline schema pass; one Q1-F rerun must populate B4 real simulator deltas"
+    "gap": "Q-E11 runtime pass; Q1 matched identity closed, next gate is Q2 multi-motion matched oracle"
         },
         {
           "id": "QUALITY-DATA-01",

@@ -251,6 +251,13 @@ CONTRACTS = (
         requires_torch=False,
     ),
     ContractTarget(
+        name="policy_quality_q2_report",
+        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_q2_report_contract.py",
+        expected_marker="PASS: Q2 report preserves per-item noise floors and separates technical validity from science.",
+        path_class="secondary_contract_path",
+        requires_torch=False,
+    ),
+    ContractTarget(
         name="policy_quality_scoring_state",
         path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_state_contract.py",
         expected_marker="PASS: policy-quality scoring state capture and restore are closed offline.",

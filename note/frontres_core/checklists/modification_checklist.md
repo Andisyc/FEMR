@@ -20,7 +20,8 @@ sequence eval are protected non-scope.
 | Q1-C Counterfactual routes | quality evaluator + frozen HSL adapter | S2 `T-counterfactual/T-frozen/T-source/T-shape/T-forward/T-isolation/T-metamorphic` | completed | Q-E3 focused pass; aggregate 47/47; formal wiring remains Q1-D |
 | Q1-D Entry/isolation | CLI, `train.py`, `on_policy_runner.py` | S0/S2 `T-route/T-import/T-mode/T-no-call/T-state` | completed | Q-E4 focused pass; aggregate 48/48 |
 | Q1-E Atlas/preflight | Quality Atlas + focused/aggregate suites | S0-S2 `T-connect/T-link/T-schema/T-isolation` | completed | Q-E6: official entry installs six real owner adapters; aggregate 51/51 |
-| Q1-F Live identity | quality evaluator real simulator boundary | S4 `T-live/T-state/T-identity/T-frozen/T-isolation` | instrumented offline; one live rerun ready | Q-E10: B4 role snapshot schema/Atlas/fake pass; same immutable manifest must classify local-state/cache deltas and zero noise floor |
+| Q1-F Live identity | quality evaluator real simulator boundary | S4 `T-live/T-state/T-identity/T-frozen/T-isolation` | completed | Q-E11: comparison signature and three state hashes match; policy/noisy local dynamics and cached perturbation match; local_rp corruption is present |
+| Q2 Counterfactual bank | zero/HSL/policy matched quality evaluator | S1/S2 then S4 `T-schema/T-matched/T-oracle/T-bucket/T-seed` | offline reporter complete; S4 pending | Accepted immutable 8 motions x 2 seeds; independent reporter preserves per-item noise floors/deltas, validates role/state identity, and does not turn negative science into a technical failure |
 
 ## Phase B Runtime Closure Index
 
@@ -107,9 +108,7 @@ generalization, or long-training readiness.
 
 ## Current Decision
 
-Q1-0 through Q1-E are complete. Q-E6 proves the official dedicated entry
-installs a production `FrontRESPolicyQualityFormalOwnerBundle`, reaches all six
-lower-level owner adapters, and preserves optimizer/sampler/warmup state
-offline. Q-E7 freezes the single-item Q1-F input and signatures. Q1-F remains
-blocked pending human review plus server checkpoint existence/SHA-256;
-no live quality or policy-superiority claim has been made.
+Q1 is closed by Q-E11. The single matched item rejects local no-op but cannot
+resolve Policy-HSL above its zero-route noise floor. Q2 is now the active gate:
+an 8-motion x 2-seed immutable bank is proposed for review. No live run,
+training-code change, PPO/Gain edit, or long-training decision is authorized.
