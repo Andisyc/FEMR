@@ -265,6 +265,27 @@ CONTRACTS = (
         requires_torch=True,
     ),
     ContractTarget(
+        name="policy_quality_hsl_magnitude_audit",
+        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_hsl_magnitude_audit_contract.py",
+        expected_marker="PASS: HSL magnitude audit separates scale losses and gradients.",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
+        name="policy_quality_q2d",
+        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_q2d_contract.py",
+        expected_marker="PASS: Q2-D scale sweep and controlled mean-direction contracts are closed offline.",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
+        name="policy_quality_q2d_wiring",
+        path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_q2d_wiring_contract.py",
+        expected_marker="PASS: isolated Q2-D evaluator reaches canonical owners without modifying old eval control flow.",
+        path_class="secondary_contract_path",
+        requires_torch=False,
+    ),
+    ContractTarget(
         name="policy_quality_scoring_state",
         path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_state_contract.py",
         expected_marker="PASS: policy-quality scoring state capture and restore are closed offline.",

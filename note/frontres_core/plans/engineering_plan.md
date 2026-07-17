@@ -381,6 +381,94 @@ training-write gate are now separate: formal training retains the original
 default, while the dedicated evaluator computes without transition mutation.
 S1/S2 flag-off regression evidence passes; S4 remains pending.
 
+Closure result: Q-E17 completes Q2-B on the real matched bank. All 16 items
+contain K=8 canonical targets. Model_200 action directions are usually aligned
+with those targets (item-level cosine median 0.910), but action norms remain in
+a narrow 0.133-0.149 range while target norms span 0.006-0.116. The median
+action/target norm ratio is 10.65x and the maximum is 23.29x. The first quality
+failure localizes an HSL initialization defect in Stage 2 magnitude
+calibration; it does not explain why Stage 3 HRL retained that defect instead
+of correcting it. Reset identity and action direction are excluded at this
+boundary, but PPO quality causality and Gain-to-credit correction are not.
+Q3 and long training remain blocked.
+
+### Step Q2-C1 / Q2-C2: Stage 2 Magnitude Calibration Audit
+
+Status: Q2-C1 partial; Q2-C2 completed by Q-E18.
+
+Objective: localize whether Q2-B over-correction comes from unprovable
+checkpoint lineage, the observed HSL target scale, or ineffective supervised
+loss/gradient balance.
+
+Q2-C1 audits checkpoint iteration, source lineage, training objective, and
+effective supervised-loss configuration. Q2-C2 replays the active supervised
+formula on persisted Q2-B action/target/sample/harm evidence and reports every
+raw/weighted loss component and proposal-gradient contribution. The Q2-B bank
+is held-out target evidence, not the complete Stage 2 training distribution.
+
+Owner modules: `frontres_checkpointing.py`, `frontres_unified.py`, and a
+dedicated offline policy-quality audit module. Required evidence: S1
+`T-schema/T-lineage/T-value/T-gradient/T-scale/T-metamorphic`. Stop when the
+first contradicted boundary is identified or the only remaining gap requires
+the original Stage 2 log/checkpoint artifact. No live run, PPO/Gain change,
+retraining, Q3, or long training is authorized by this step.
+
+Observed result: the held-out Q2-B bank contains 128 valid K-step rows. Under
+the active current weights, position-direction loss contributes proposal-level
+gradient L2 `1.157e3`; magnitude and over contribute `0.00619` and `0.00494`.
+Direction is therefore `1.04e5x` their combined scale gradient before the
+shared global gradient clip. This is the first deterministic formula-level
+contradiction and explains why direction can improve while magnitude remains
+poorly calibrated. Q2-C1 remains partial because the local checkout has no
+model_200/model_warmup artifact, and `save_runner()` does not persist the
+effective supervised config or source-checkpoint identity. Do not infer the
+old model's training config from the current runtime print.
+
+### Step Q2-D: Stage 3 Over-Amplitude Correction Causality
+
+Status: Q2-D1/Q2-D2 offline implementation completed by Q-E20; Q2-D3 pending user-approved tiny live evidence.
+
+Objective: determine why Stage 3 HRL did not correct the over-amplitude HSL
+initialization exposed by Q-E17/Q-E18.
+
+Scope: reuse fixed Q2 motion/seed/observation evidence; sweep scaled versions of
+the same HSL action; identify the locally Gain-preferred magnitude; then trace
+that same sample through Gain -> return/advantage -> one controlled PPO update
+-> policy mean. Non-scope: changing HSL/PPO/Gain weights, retraining Stage 2,
+starting Q3, or long training.
+
+Reason for split: previous PPO contracts prove the generic update mechanism can
+change parameters, while Q-E17/Q-E18 prove an erroneous HSL starting point.
+Neither proves that real over-amplitude samples receive corrective credit or
+move the policy mean toward a better magnitude.
+
+Required evidence: Q-formula action-scale sweep, Q-causal credit-sign trace,
+and Q-causal one-batch mean-direction test on the same matched evidence. Stop at
+the first contradiction: Gain sensitivity, advantage construction, PPO update
+direction, or training-distribution weighting.
+
+Step split:
+
+- Q2-D1: independent scaled-HSL route executor and immutable result schema for
+  `0/0.25/0.5/0.75/1/1.25x`; it reuses only lower-level state restore,
+  observation, action application, rollout, Gain, and execution owners.
+- Q2-D2: offline credit/update-direction oracle. It records Gain/return/
+  advantage identity and evaluates the Gaussian score-gradient
+  `advantage * (raw_action - old_mean) / sigma^2`, then checks whether a cloned
+  one-update mean delta projects toward the Gain-preferred action.
+- Q2-D3: one bounded real execution only after D1/D2 contracts pass. It is the
+  sole owner of physical Gain ordering and real-batch update direction.
+
+Offline result: the independent evaluator restores one state before each of six
+scaled-HSL routes and calls the existing observation/action/rollout/Gain/
+execution owners without installing or modifying the old quality evaluator.
+The credit oracle exposes the Gaussian score direction
+`E[A*(raw_action-old_mean)/sigma^2]`; the controlled-update oracle runs the
+canonical Segment PPO loss on a policy clone and verifies mean projection while
+leaving the source policy unchanged. These contracts prove instrumentation and
+formula direction only. They do not establish which scale wins physical Gain
+or what direction the failed real Stage 3 batch supplies.
+
 ## Planned Step Order
 
 ```text

@@ -33,7 +33,13 @@ def main() -> None:
         assert card["parentDesignPoint"]
         assert card["question"]
         assert card["failureOwner"]
-        expected_blocks = 4 if card["id"] in ("QUALITY-ID-01", "QUALITY-ACTION-01") else 3
+        expected_blocks = (
+            6
+            if card["id"] == "QUALITY-ACTION-01"
+            else 4
+            if card["id"] in ("QUALITY-ID-01", "QUALITY-CREDIT-01", "QUALITY-UPDATE-01")
+            else 3
+        )
         assert len(card["files"]) == expected_blocks
         assert len(card["probeSteps"]) == expected_blocks
         assert len(card["mainRoute"]) == expected_blocks

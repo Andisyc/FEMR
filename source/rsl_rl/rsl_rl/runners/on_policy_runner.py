@@ -633,6 +633,30 @@ class OnPolicyRunner:
             result_path=result_path,
         )
 
+    def run_frontres_policy_quality_q2d_eval(
+        self,
+        *,
+        manifest_path: str,
+        hsl_checkpoint_path: str,
+        policy_checkpoint_path: str,
+        result_path: str,
+    ):
+        """Thin connector for the isolated Q2-D scale evaluator."""
+        from rsl_rl.runners.frontres_policy_quality_eval import build_frontres_policy_quality_eval_request
+        from rsl_rl.runners.frontres_policy_quality_q2d_eval import run_frontres_policy_quality_q2d_scale_eval
+
+        request = build_frontres_policy_quality_eval_request(
+            manifest_path=manifest_path,
+            hsl_checkpoint_path=hsl_checkpoint_path,
+            policy_checkpoint_path=policy_checkpoint_path,
+            result_path=result_path,
+        )
+        return run_frontres_policy_quality_q2d_scale_eval(
+            self,
+            request=request,
+            result_path=result_path,
+        )
+
     def run_frontres_segment_sequence_offline_eval(
         self,
         *,

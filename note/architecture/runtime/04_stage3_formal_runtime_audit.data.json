@@ -153,28 +153,28 @@
           ],
           "probeSteps": [
             {
-              "location": "scripts/rsl_rl/train.py:897 :: _configure_frontres_motion_perturbations() 入口/调用前",
+              "location": "scripts/rsl_rl/train.py:899 :: _configure_frontres_motion_perturbations() 入口/调用前",
               "capture": "specialist_mode",
               "whyHere": "specialist mode 与 DR 参数尚未写入 alg config, 可隔离 CLI 来源错误",
               "failureOwner": "失败归属: CLI/preset 输入",
-              "sourceLine": 897,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=897"
+              "sourceLine": 899,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=899"
             },
             {
-              "location": "scripts/rsl_rl/train.py:900 :: _configure_frontres_motion_perturbations() 产物边界",
+              "location": "scripts/rsl_rl/train.py:902 :: _configure_frontres_motion_perturbations() 产物边界",
               "capture": "family config",
               "whyHere": "这里首次形成正式训练使用的 canonical perturbation config",
               "failureOwner": "失败归属: Stage 3 perturbation configuration",
-              "sourceLine": 900,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=900"
+              "sourceLine": 902,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=902"
             },
             {
-              "location": "scripts/rsl_rl/train.py:920 :: 正式 consumer 接收前",
+              "location": "scripts/rsl_rl/train.py:922 :: 正式 consumer 接收前",
               "capture": "DR scale/schedule",
               "whyHere": "sampler/rollout 读取前检查可发现配置存在但未透传的旁路",
               "failureOwner": "失败归属: alg config 到 runtime owner 的转发",
-              "sourceLine": 920,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=920"
+              "sourceLine": 922,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=922"
             }
           ],
           "probe": {

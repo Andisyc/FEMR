@@ -332,6 +332,8 @@ parser.add_argument("--frontres_policy_quality_manifest", type=str, default=None
 parser.add_argument("--frontres_policy_quality_hsl_checkpoint", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_policy_checkpoint", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_result", type=str, default=None)
+parser.add_argument("--frontres_policy_quality_q2d_eval_only", action="store_true", default=False)
+parser.add_argument("--frontres_policy_quality_q2d_result", type=str, default=None)
 parser.add_argument(
     "--frontres_segment_shard_cache_size",
     type=int,
@@ -1441,6 +1443,41 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     if args_cli.frontres_segment_live_update_loop_only:
         runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)
+        env.close()
+        return
+
+    if bool(getattr(args_cli, "frontres_policy_quality_q2d_eval_only", False)):
+        conflicting_modes = [
+            name
+            for name in (
+                "frontres_policy_quality_eval_only",
+                "frontres_segment_offline_eval_only",
+                "frontres_segment_sequence_offline_eval_only",
+                "frontres_segment_live_sentinel_only",
+                "frontres_segment_live_probe_only",
+                "frontres_segment_live_storage_write_only",
+                "frontres_segment_live_single_update_only",
+                "frontres_segment_live_update_loop_only",
+            )
+            if bool(getattr(args_cli, name, False))
+        ]
+        if conflicting_modes:
+            raise ValueError(f"policy_quality_q2d_eval is exclusive with other Stage 3 modes: {conflicting_modes}")
+        required = {
+            "--frontres_policy_quality_manifest": args_cli.frontres_policy_quality_manifest,
+            "--frontres_policy_quality_hsl_checkpoint": args_cli.frontres_policy_quality_hsl_checkpoint,
+            "--frontres_policy_quality_policy_checkpoint": args_cli.frontres_policy_quality_policy_checkpoint,
+            "--frontres_policy_quality_q2d_result": args_cli.frontres_policy_quality_q2d_result,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError(f"policy_quality_q2d_eval missing required arguments: {missing}")
+        runner.run_frontres_policy_quality_q2d_eval(
+            manifest_path=args_cli.frontres_policy_quality_manifest,
+            hsl_checkpoint_path=args_cli.frontres_policy_quality_hsl_checkpoint,
+            policy_checkpoint_path=args_cli.frontres_policy_quality_policy_checkpoint,
+            result_path=args_cli.frontres_policy_quality_q2d_result,
+        )
         env.close()
         return
 

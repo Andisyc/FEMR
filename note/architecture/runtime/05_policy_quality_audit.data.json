@@ -240,7 +240,9 @@
             "requested bounded Delta SE(3)",
             "contact-consistent applied correction",
             "command/GMT action identity",
-            "HSL action / canonical supervised target alignment"
+            "HSL action / canonical supervised target alignment",
+            "HSL direction-vs-scale gradient competition",
+            "matched scaled-HSL action routes"
           ],
           "files": [
             {
@@ -270,13 +272,29 @@
               "role": "B4: HSL action / canonical supervised target alignment",
               "sourceLine": 165,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_hsl_rollout_target.py&line=165"
+            },
+            {
+              "id": "QUALITY-ACTION-01-B5",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_hsl_magnitude_audit.py",
+              "role": "B5: HSL direction-vs-scale gradient competition",
+              "sourceLine": 64,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_hsl_magnitude_audit.py&line=64"
+            },
+            {
+              "id": "QUALITY-ACTION-01-B6",
+              "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_q2d_eval.py",
+              "role": "B6: matched scaled-HSL action routes",
+              "sourceLine": 50,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_q2d_eval.py&line=50"
             }
           ],
           "mainRoute": [
             "B1 requested bounded Delta SE(3)",
             "B2 contact-consistent applied correction",
             "B3 command/GMT action identity",
-            "B4 HSL action / canonical supervised target alignment"
+            "B4 HSL action / canonical supervised target alignment",
+            "B5 HSL direction-vs-scale gradient competition",
+            "B6 matched scaled-HSL action routes"
           ],
           "probeSteps": [
             {
@@ -310,6 +328,22 @@
               "failureOwner": "失败归属: HSL target construction / proposal alignment / executability assumption",
               "sourceLine": 165,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_hsl_rollout_target.py&line=165"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_hsl_magnitude_audit.py:64 :: supervised_component_audit() B5",
+              "capture": "base/magnitude/over/direction/harm raw loss, weighted loss and proposal-gradient L2",
+              "whyHere": "同一 Q2-B action/target 已冻结, 可在不进入 optimizer 的情况下重放监督公式并定位 grad clip 前的首个竞争边界",
+              "failureOwner": "失败归属: Stage 2 supervised direction/scale loss balance or checkpoint lineage",
+              "sourceLine": 64,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_hsl_magnitude_audit.py&line=64"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_q2d_eval.py:50 :: run_frontres_policy_quality_q2d_scale_eval() B6",
+              "capture": "0/0.25/0.5/0.75/1/1.25x HSL actions under one restored state",
+              "whyHere": "每个 scale action 已形成且尚未进入 canonical task-space application/Gain owner",
+              "failureOwner": "失败归属: action-scale route identity or state restore",
+              "sourceLine": 50,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_q2d_eval.py&line=50"
             }
           ],
           "probe": {
@@ -319,7 +353,9 @@
               "requested bounded Delta SE(3)",
               "contact-consistent applied correction",
               "command/GMT action identity",
-              "HSL action / canonical supervised target alignment"
+              "HSL action / canonical supervised target alignment",
+              "HSL direction-vs-scale gradient competition",
+              "matched scaled-HSL action routes"
             ],
             "failIf": [
               "comparison identity 不一致",
@@ -328,14 +364,16 @@
           },
           "review": [
             "先读问题与可证伪关系",
-            "再按 B1/B2/B3/B4 打开源码并确认 failure owner"
+            "再按 B1/B2/B3/B4/B5/B6 打开源码并确认 failure owner"
           ],
           "tests": [
             "offline deterministic quality contract",
             "matched live evidence only when gate permits",
-            "Q2-B canonical HSL target golden and owner-wiring contracts"
+            "Q2-B canonical HSL target golden and owner-wiring contracts",
+            "Q2-C HSL loss-gradient and checkpoint-lineage contract",
+            "Q2-D scaled-action isolation contract"
           ],
-          "gap": "Q2-B offline target wiring complete; real model_200 action-target alignment pending one matched live result"
+          "gap": "Q-E18 proves an over-amplitude HSL initialization mechanism, not final HRL root-cause closure. Q-E19 requires the same failed samples to cross action-scale Gain -> advantage -> controlled policy-mean correction; full Stage 2 distribution and checkpoint lineage also remain unconfirmed"
         },
         {
           "id": "QUALITY-GAIN-01",
@@ -444,7 +482,8 @@
             "Parent: FRS-DP-07/09 | Q-01/M-05",
             "policy-row Gain steps + K",
             "returns/advantages + valid mask",
-            "sign and bucket dominance"
+            "sign and bucket dominance",
+            "sampled-action score-gradient direction"
           ],
           "files": [
             {
@@ -467,12 +506,20 @@
               "role": "B3: sign and bucket dominance",
               "sourceLine": 254,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=254"
+            },
+            {
+              "id": "QUALITY-CREDIT-01-B4",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_q2d.py",
+              "role": "B4: sampled-action score-gradient direction",
+              "sourceLine": 111,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=111"
             }
           ],
           "mainRoute": [
             "B1 policy-row Gain steps + K",
             "B2 returns/advantages + valid mask",
-            "B3 sign and bucket dominance"
+            "B3 sign and bucket dominance",
+            "B4 sampled-action score-gradient direction"
           ],
           "probeSteps": [
             {
@@ -498,6 +545,14 @@
               "failureOwner": "失败归属: storage/return/advantage scaling",
               "sourceLine": 254,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=254"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_q2d.py:111 :: gaussian_mean_score_gradient() B4",
+              "capture": "raw action, old mean/sigma, advantage, valid mask and six-dimensional score direction",
+              "whyHere": "advantage 已形成, 可在 PPO loss 前判断 on-policy 样本是否提供缩小 mean 的统计方向",
+              "failureOwner": "失败归属: sampled-action/advantage covariance or credit assignment",
+              "sourceLine": 111,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=111"
             }
           ],
           "probe": {
@@ -506,7 +561,8 @@
             "capture": [
               "policy-row Gain steps + K",
               "returns/advantages + valid mask",
-              "sign and bucket dominance"
+              "sign and bucket dominance",
+              "sampled-action score-gradient direction"
             ],
             "failIf": [
               "comparison identity 不一致",
@@ -515,13 +571,13 @@
           },
           "review": [
             "先读问题与可证伪关系",
-            "再按 B1/B2/B3 打开源码并确认 failure owner"
+            "再按 B1/B2/B3/B4 打开源码并确认 failure owner"
           ],
           "tests": [
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "pending: Q4/Q6 credit evidence"
+          "gap": "Q2-D offline score-gradient oracle implemented; real failed-sample action/advantage covariance pending one bounded artifact"
         },
         {
           "id": "QUALITY-UPDATE-01",
@@ -537,7 +593,8 @@
             "Parent: FRS-DP-09 | M-05",
             "old stats + advantage sign",
             "backward/step/post-KL",
-            "accepted delta + held-out direction"
+            "accepted delta + held-out direction",
+            "isolated clone mean projection"
           ],
           "files": [
             {
@@ -560,12 +617,20 @@
               "role": "B3: accepted delta + held-out direction",
               "sourceLine": 2202,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2202"
+            },
+            {
+              "id": "QUALITY-UPDATE-01-B4",
+              "path": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_q2d.py",
+              "role": "B4: isolated clone mean projection",
+              "sourceLine": 162,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=162"
             }
           ],
           "mainRoute": [
             "B1 old stats + advantage sign",
             "B2 backward/step/post-KL",
-            "B3 accepted delta + held-out direction"
+            "B3 accepted delta + held-out direction",
+            "B4 isolated clone mean projection"
           ],
           "probeSteps": [
             {
@@ -591,6 +656,14 @@
               "failureOwner": "失败归属: PPO/detach/optimizer/trust",
               "sourceLine": 2202,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2202"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_q2d.py:162 :: run_isolated_controlled_update() B4",
+              "capture": "before/after mean, preferred-action projection and source-policy hash",
+              "whyHere": "一次 update 只发生在 clone, 可直接判定 mean delta 是否朝 Gain-preferred action 移动且不污染正式策略",
+              "failureOwner": "失败归属: PPO update direction or action representation",
+              "sourceLine": 162,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=162"
             }
           ],
           "probe": {
@@ -599,7 +672,8 @@
             "capture": [
               "old stats + advantage sign",
               "backward/step/post-KL",
-              "accepted delta + held-out direction"
+              "accepted delta + held-out direction",
+              "isolated clone mean projection"
             ],
             "failIf": [
               "comparison identity 不一致",
@@ -608,13 +682,13 @@
           },
           "review": [
             "先读问题与可证伪关系",
-            "再按 B1/B2/B3 打开源码并确认 failure owner"
+            "再按 B1/B2/B3/B4 打开源码并确认 failure owner"
           ],
           "tests": [
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "pending: Q6 local-update evidence"
+          "gap": "Q2-D clone-update oracle implemented; real failed-sample PPO batch and trust result remain pending"
         },
         {
           "id": "QUALITY-EXEC-01",

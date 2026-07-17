@@ -164,6 +164,8 @@ def build_frontres_hsl_rollout_target(
     )
     # B4: 训练默认写 transition; dedicated quality audit 只读同一 canonical
     # 结果, 避免 evaluator 污染 storage/optimizer/warmup 状态.
+    # Result: Q-E17 LIVE, model_200 direction median cosine=0.910, 但 action/target
+    # norm ratio median=10.65x, 首个质量失败归属 HSL magnitude calibration.
     if write_transition:
         runner.alg.transition.supervised_target = result.target
         runner.alg.transition.supervised_weight = result.weight

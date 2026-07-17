@@ -617,3 +617,162 @@ Fix and regression evidence:
 
 Decision: this was a dedicated evaluator integration defect, not a checkpoint,
 HSL formula, or training-config defect. Rerun the same bounded Q2-B command.
+
+## Q-E17 - Q2-B Real HSL Action-Target Alignment
+
+Date: 2026-07-17
+
+Raw evidence:
+
+- Log: `policy_quality_q2b_hsl_target_v1.txt`.
+- Result: `policy_quality_q2b_hsl_target_v1_result.json`.
+- Derived report: `policy_quality_q2b_hsl_target_v1_report.json`, generated with
+  `--require-hsl-supervision`.
+
+Identity and schema facts:
+
+- All 16 manifest items complete without traceback.
+- Every item contains exactly K=8 HSL targets, sample/harm weights, nonzero
+  masks, action-target L2/cosine, and six-dimensional sign agreement.
+- All targets are nonzero and the existing matched state/role/corruption
+  identity remains valid.
+
+Observed alignment:
+
+- Item-level mean action norm ranges 0.1326-0.1493, median 0.1429.
+- Item-level mean target norm ranges 0.00627-0.1158, median 0.01326.
+- Action/target norm ratio ranges 1.29x-23.29x, median 10.65x.
+- Item-level mean action-target cosine ranges 0.390-0.990, median 0.910.
+- The two wave items with larger targets have ratios 2.97x and 1.29x and both
+  improve over zero. Many failed wash-head, parkour, 912, ROM, and catch items
+  have ratios around 8x-23x.
+
+Decision:
+
+- Model_200 generally captures the repair direction but does not scale action
+  magnitude with the dynamic HSL target. Its action norm is nearly constant
+  while target difficulty spans almost twentyfold.
+- This explains the Q2 pattern: large-target items can benefit, while small
+  targets are over-corrected and lose Style/Physics before Repair Cost.
+- The first failed owner is Stage 2 HSL magnitude calibration. Do not modify
+  PPO, Gain weights, reset, masks, or action bounds, and do not begin Q3 or long
+  training.
+- Next: audit the Stage 2 target magnitude distribution, effective
+  magnitude/over-loss configuration, and model_200 training diagnostics or
+  checkpoint lineage. Retraining is not yet authorized.
+
+## Q-E18 - Q2-C Stage 2 Magnitude And Lineage Audit
+
+Date: 2026-07-17
+
+Evidence:
+
+- Derived artifact: `policy_quality_q2c_hsl_magnitude_audit_v1.json`.
+- Owner: `frontres_policy_quality_hsl_magnitude_audit.py` replays the active
+  supervised formula on Q2-B action/target/sample/harm tensors without runner,
+  optimizer, or environment mutation.
+- Contract: `frontres_policy_quality_hsl_magnitude_audit_contract.py`.
+
+Facts:
+
+- The artifact contains 128 valid held-out Q2-B rows. This is not the complete
+  Stage 2 training distribution.
+- Action/target norm ratio has median `10.669`; target norm median is `0.01167`.
+- Weighted loss values are direction-pos `0.01983`, direction-rpy `0.00432`,
+  magnitude `0.00462`, over `0.00367`, base-rot `0.00335`, harm `0.00403`.
+- Proposal-gradient L2 is direction-pos `1157.31`, direction-rpy `0.02281`,
+  magnitude `0.00619`, and over `0.00494`. Direction is `1.04e5x` the combined
+  magnitude/over gradient before the shared `clip_grad_norm_(..., 0.5)`.
+- The singular owner is the position cosine term when proposal position is
+  near zero but the canonical target position is nonzero. It can consume the
+  shared clipped gradient budget while providing no magnitude calibration.
+- `save_runner()` persists actor/critic/optimizer/iteration and Gain config,
+  but not the effective supervised config, training objective, or source
+  checkpoint identity. Current runtime weights cannot prove model_200's
+  historical training weights.
+- No local model_200/model_warmup checkpoint or original Stage 2 log exists in
+  this checkout, so checkpoint lineage and the full training target
+  distribution remain unconfirmed.
+
+Decision:
+
+- Q2-C2 is complete: Stage 2 has deterministic supervised
+  direction-versus-scale gradient competition and can produce an erroneous
+  over-amplitude initialization.
+- Q2-C1 remains partial. Do not retrain or alter PPO/Gain. The next bounded
+  audit is not a Stage 2 repair. It must first test whether Stage 3 gives the
+  failed real samples corrective Gain/advantage and moves policy mean toward a
+  better magnitude.
+
+## Q-E19 - Governance Correction: HSL Defect Is Not HRL Root-Cause Closure
+
+Date: 2026-07-17
+
+Evidence:
+
+- User review: HSL is a warmup initializer; Stage 3 HRL is expected to correct
+  an imperfect proposal through executable Gain.
+- Q-E17/Q-E18: model_200 is over-amplitude and Stage 2 contains severe
+  direction-versus-scale gradient competition.
+- Earlier generic PPO contracts prove update mechanics and parameter change,
+  but do not exercise the same Q2 over-amplitude samples end to end.
+
+Facts and limitations:
+
+- Q-E17/Q-E18 explain the bad starting point, not why the final HRL policy
+  remains close to HSL.
+- The real-sample relation `over-amplitude action -> Gain -> advantage -> policy
+  mean correction` remains unconfirmed.
+- Therefore Stage 2 must not be recorded as the complete root cause of final
+  Stage 3 quality failure, and neither HSL retraining nor PPO/Gain changes are
+  authorized yet.
+
+Next:
+
+- Execute bounded Q2-D offline causality: action-scale Gain sweep, credit-sign
+  trace, and one controlled update-direction check on identical Q2 evidence.
+
+## Q-E20 - Q2-D Offline Scale/Credit/Update Preflight
+
+Date: 2026-07-17
+
+Scope:
+
+- Implement the independent Q2-D evaluator and controlled-update oracle without
+  changing existing online/offline/sequence or zero/HSL/policy evaluator flows.
+
+Evidence:
+
+- `frontres_policy_quality_q2d.py` owns immutable scales, scaled-HSL execution,
+  Gaussian score-gradient direction, and clone-only mean projection.
+- `frontres_policy_quality_q2d_eval.py` restores the same scoring state for
+  `0/0.25/0.5/0.75/1/1.25x` routes and calls the existing formal owner bundle.
+- Dedicated `policy_quality_q2d_eval` shell mode, CLI flag, and thin runner
+  connector are wired without importing Q2-D from the old evaluator.
+- `frontres_policy_quality_q2d_contract.py` and
+  `frontres_policy_quality_q2d_wiring_contract.py` pass.
+
+Confirmed:
+
+- Every scale route is sorted, unique, full-6D, state-matched, and training-state
+  isolated.
+- The old policy-quality evaluator does not import or call the Q2-D evaluator.
+- For Gaussian PPO, the local mean direction is controlled by
+  `advantage * (raw_action - old_mean) / sigma^2`, not by counterfactual Gain
+  ordering alone.
+- A canonical `compute_frontres_segment_ppo_loss()` update on a policy clone
+  moves mean toward a positive-advantage sampled action and leaves the source
+  policy unchanged.
+
+Unconfirmed:
+
+- Existing Q2-B artifacts contain only the executed 1.0x HSL route; alternate
+  scales change GMT dynamics, so their Gain cannot be reconstructed offline.
+- No persisted failed real Stage 3 PPO batch currently supplies raw actions,
+  old means/sigmas, returns, advantages, and valid mask to the new oracle.
+
+Decision:
+
+- Q2-D1/D2 offline preflight is complete. Q2-D3 is the only next gate: one tiny
+  matched live scale sweep plus capture of the corresponding real Stage 3
+  credit tuple. No PPO/Gain/HSL modification or long training is authorized.
