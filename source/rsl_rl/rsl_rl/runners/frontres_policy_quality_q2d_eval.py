@@ -6,28 +6,15 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
-import torch
-
 from rsl_rl.frontres.frontres_policy_quality_q2d import Q2D_SCALE_FACTORS, run_q2d_scale_sweep
 from rsl_rl.runners.frontres_policy_quality_eval import (
     FrontRESPolicyQualityEvalRequest,
     restore_frontres_policy_quality_state,
 )
 from rsl_rl.runners.frontres_policy_quality_formal_owners import (
+    _json_value as _formal_json_value,
     build_frontres_policy_quality_formal_owner_bundle,
 )
-
-
-def _json_value(value: Any) -> Any:
-    if isinstance(value, torch.Tensor):
-        return value.detach().cpu().tolist()
-    if isinstance(value, dict):
-        return {str(key): _json_value(item) for key, item in value.items()}
-    if isinstance(value, (tuple, list)):
-        return [_json_value(item) for item in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    raise TypeError(f"Q2-D result contains unsupported value: {type(value).__name__}")
 
 
 def run_frontres_policy_quality_q2d_scale_eval(
@@ -73,9 +60,9 @@ def run_frontres_policy_quality_q2d_scale_eval(
                     result.route: {
                         "scale": result.scale,
                         "initial_state_hash": result.initial_state_hash,
-                        "actions": _json_value(result.actions),
-                        "gain": _json_value(result.gain),
-                        "execution": _json_value(result.execution),
+                        "actions": _formal_json_value(result.actions),
+                        "gain": _formal_json_value(result.gain),
+                        "execution": _formal_json_value(result.execution),
                     }
                     for result in results
                 },

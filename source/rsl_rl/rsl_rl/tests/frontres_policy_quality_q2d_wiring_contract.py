@@ -19,6 +19,8 @@ def main() -> None:
     shell_source = SHELL.read_text()
     assert "def run_frontres_policy_quality_q2d_scale_eval(" in source
     assert "build_frontres_policy_quality_formal_owner_bundle" in source
+    assert "_json_value as _formal_json_value" in source
+    assert '"gain": _formal_json_value(result.gain)' in source
     assert "restore_frontres_policy_quality_state" in source
     assert "run_q2d_scale_sweep(" in source
     assert "hooks.compute_gain" in source and "hooks.capture_execution" in source

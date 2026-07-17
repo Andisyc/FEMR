@@ -776,3 +776,19 @@ Decision:
 - Q2-D1/D2 offline preflight is complete. Q2-D3 is the only next gate: one tiny
   matched live scale sweep plus capture of the corresponding real Stage 3
   credit tuple. No PPO/Gain/HSL modification or long training is authorized.
+
+## Q-E21 - Q2-D Canonical Gain Serialization Fix
+
+Date: 2026-07-17
+
+Evidence:
+
+- Live traceback: Q2-D local serializer rejected `FrontRESSegmentGainResult`.
+- Fix: Q2-D now reuses the existing formal quality owner's dataclass-aware
+  `_json_value` serializer for actions, Gain, and execution payloads.
+- Focused Q2-D wiring and real-owner contracts pass; `py_compile` and
+  `git diff --check` pass.
+
+Decision: this was a Q2-D result serialization defect only. Canonical Gain
+calculation, scaled actions, state restoration, and old evaluator flows are
+unchanged. Rerun the same command.
