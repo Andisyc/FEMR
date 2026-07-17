@@ -78,6 +78,11 @@ def apply_frontres_task_corrections(
     allow_oracle: bool = False,
     n_candidate: int = 0,
 ) -> torch.Tensor | None:
+    # QUALITY-ACTION-01: 检查 actor full-6D action -> task-space application buffers.
+    # Result: Q-E3 OFFLINE SOURCE/SHAPE PASS; real application identity pending Q1-F.
+    # B1: application 前保留 zero/HSL/policy raw bounded 6D action.
+    # B2: contact-consistent correction 后记录真正写入的 pos/rpy correction.
+    # B3: command/GMT 消费前比较 requested 与 executed action identity.
     """把 full-6D FrontRES correction 写入 motion command buffers.
 
     函数名说明:

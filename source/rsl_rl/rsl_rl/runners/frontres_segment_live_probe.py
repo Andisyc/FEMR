@@ -2195,6 +2195,11 @@ def _current_reset_success_mask(runner: Any, *, batch_size: int, device: torch.d
 
 
 def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> object:
+    # QUALITY-UPDATE-01: 检查 advantage/log-prob -> optimizer step -> accepted policy delta.
+    # Result: PENDING_Q_EVIDENCE.
+    # B1: step 前冻结 old/new distribution、advantage sign 与 held-out identity.
+    # B2: backward/optimizer/trust 顺序记录 parameter 与 per-dim mean delta.
+    # B3: accepted/rollback 后比较正负 advantage log-prob 方向.
     """Run one Stage 3 Segment PPO update on the isolated live Segment path.
 
     Status: active Segment Replay update boundary.
@@ -2846,6 +2851,11 @@ def _capture_motion_quality_frame(
     runner: Any,
     pair_layout: Any,
 ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+    # QUALITY-EXEC-01: 检查 applied repair -> frozen-GMT physical execution evidence.
+    # Result: PENDING_Q_EVIDENCE; Q-E3 only proves execution callback connectivity.
+    # B1: env.step 后 role states 尚在时捕获 success/fall/survival 与 action identity.
+    # B2: 同帧记录 ZMP/contact/MPJPE/velocity/acceleration evidence.
+    # B3: Gain/sequence aggregator 前保留 short-K 与 long-sequence metric boundary.
     """截获同一 quartet frame 的 Clean/Repaired/Noisy Style evidence.
 
     函数名说明:

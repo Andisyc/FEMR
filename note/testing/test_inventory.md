@@ -6,7 +6,15 @@ Updated: 2026-07-15
 
 | Test | Tier | Current ownership |
 | --- | --- | --- |
-| `frontres_segment_all_contract_suite.py` | S0-S3 aggregate | Runs 44 current Segment/observation/checkpoint/PPO/eval contracts. |
+| `frontres_segment_all_contract_suite.py` | S0-S3 aggregate | Runs current Segment/observation/checkpoint/PPO/eval/quality-identity contracts. |
+| `frontres_policy_quality_manifest_contract.py` | S1 | Immutable Q1 manifest, canonical hash, permutation, schema fail-closed, and checkpoint/sampler isolation. |
+| `frontres_policy_quality_state_contract.py` | S1/S2 | Zero-policy preroll plus root/joint/origin/lifecycle/role/command-cache/perturber/RNG capture, restore, hash, and mismatch rejection. |
+| `frontres_policy_quality_eval_contract.py` | S2 | Matched zero/frozen-HSL/policy action sources, explicit observation/normalizer identity, canonical owner callbacks, and training-state isolation. |
+| `frontres_policy_quality_entrypoint_contract.py` | S0/S2 | Dedicated CLI/MODE/lazy runner dispatch, required-path validation, full-resume rejection, and zero calls into old eval/training branches. |
+| `frontres_policy_quality_executor_contract.py` | S1/S2 | Formal manifest iteration, six named owner callbacks, Q1-C route reuse, atomic result artifact, and optimizer/sampler/warmup isolation. |
+| `frontres_policy_quality_real_owner_wiring_contract.py` | S2 | Official `policy_quality_eval` entry installs the production bundle, reaches reset/observation/action/rollout/canonical-Gain/execution adapters, and preserves optimizer/sampler/warmup state. Prevents the Q-E5 implemented-only regression. |
+| `frontres_policy_quality_q1f_input_contract.py` | S1 | Q1-F single-item manifest identity, motion/frame/family/strength/K/seed freeze, comparison signatures, checkpoint-path review surface, and explicit server-hash blocker. |
+| `frontres_policy_quality_atlas_contract.py` | S0/S1 | Eight causal quality owners, Concept Figure mapping, B1/B2/B3 source links, and human-readable failure ownership. |
 | `frontres_segment_stage3_pseudo_suite.py` | S2 | Cheap formal Stage 3 route. |
 | `frontres_full6_no_active_mask_contract.py` | S0 | Rejects action-mask reintroduction on formal full-6D paths. |
 | `frontres_task_space_correction_contract.py` | S1 | Per-row contact-consistent XY scaling and dynamic `dz` lower/upper bounds. |

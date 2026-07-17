@@ -5,7 +5,7 @@ if [[ $# -lt 2 ]]; then
   echo "Usage: bash run/run_frontres_stage3_segment_hrl.sh HSL_CHECKPOINT MOTION_PATH [NUM_ENVS] [MAX_ITERS] [UPDATE_STEPS] [MODE] [TRAIN_ARGS...]"
   echo
   echo "Stage 3 loads an HSL Delta SE proposal checkpoint and trains Segment Replay HRL."
-  echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval, sequence_eval."
+  echo "MODE can be: train, sentinel, probe, storage, single_update, update_loop, offline_eval, sequence_eval, policy_quality_eval."
   echo "SHARD_CACHE_SIZE controls the lazy Stage 1 cache LRU size."
  echo "offline_eval loads the checkpoint, samples NUM_ENVS indexed segments, runs OFFLINE_EVAL_STEPS rollout steps, and exits."
  echo "sequence_eval loads the checkpoint, evaluates OFFLINE_EVAL_SEQUENCES unique motions from frame 0 to sampled segment starts, and exits."
@@ -80,6 +80,22 @@ case "${MODE}" in
       --frontres_segment_sequence_eval_sequences "${OFFLINE_EVAL_SEQUENCES:-10}"
       --frontres_segment_sequence_eval_max_preroll_steps "${OFFLINE_EVAL_MAX_PREROLL_STEPS:-2000}"
       --frontres_segment_offline_eval_steps "${OFFLINE_EVAL_STEPS:-500}"
+    )
+    ;;
+  policy_quality_eval)
+    : "${POLICY_QUALITY_MANIFEST:?Set POLICY_QUALITY_MANIFEST for policy_quality_eval}"
+    : "${POLICY_QUALITY_HSL_CHECKPOINT:?Set POLICY_QUALITY_HSL_CHECKPOINT for policy_quality_eval}"
+    : "${POLICY_QUALITY_POLICY_CHECKPOINT:?Set POLICY_QUALITY_POLICY_CHECKPOINT for policy_quality_eval}"
+    : "${POLICY_QUALITY_RESULT:?Set POLICY_QUALITY_RESULT for policy_quality_eval}"
+    # Quality selection is manifest-owned; never restore checkpoint sampler,
+    # optimizer, or warmup state into the runner used for evaluation.
+    STAGE3_IS_FULL_RESUME=0
+    MODE_ARGS=(
+      --frontres_policy_quality_eval_only
+      --frontres_policy_quality_manifest "${POLICY_QUALITY_MANIFEST}"
+      --frontres_policy_quality_hsl_checkpoint "${POLICY_QUALITY_HSL_CHECKPOINT}"
+      --frontres_policy_quality_policy_checkpoint "${POLICY_QUALITY_POLICY_CHECKPOINT}"
+      --frontres_policy_quality_result "${POLICY_QUALITY_RESULT}"
     )
     ;;
   *)

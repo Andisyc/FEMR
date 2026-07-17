@@ -1923,8 +1923,9 @@ def run_frontres_segment_live_training_loop(
     num_learning_iterations = max(0, int(num_learning_iterations))
     # B3: 首次正式 update iteration 前截获 route identity.
     # AUDIT-ROUTE-01: 检查正式 Stage 3 路由, 位于 train dispatch -> live iteration loop.
-    # Result: E69 LIVE PASS. model_220 full-resume 从 absolute iter 220 继续到 221,
-    # 并完成 4/4 次 optimizer update; local progress 由独立计数显示.
+    # Result: E70 LIVE PASS. 正式路径从 model_200 进入 absolute iter 700 joint
+    # phase, actor_weight=1.0, 完成 4/4 accepted update 并保存 model_701;
+    # GMT 仍冻结. 该证据只关闭 runtime connectivity, 不证明 policy quality.
     print_formal_route_audit(runner, num_learning_iterations=num_learning_iterations)
     if num_learning_iterations == 0:
         print(

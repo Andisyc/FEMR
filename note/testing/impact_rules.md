@@ -83,6 +83,12 @@ paired roles, shared Gain components, aggregation, metadata, `UNCONFIRMED`.
 Required: S1 formatting/aggregation; S2 fresh-route and state isolation; S4
 non-stale motion/perturbation/component evidence.
 
+For a new dedicated evaluator, also trace official CLI/runner entry -> formal
+owner-bundle installation -> every lower-level owner -> result artifact. A
+helper/executor tested only with manually installed fake callbacks is
+`implemented-only`; require an S2 official-entry wiring contract before calling
+it integrated.
+
 ## Rollout Transaction Identity Change
 Expand to: paired capture -> Gain -> storage/returns -> update-loop summary
 -> diagnostics.

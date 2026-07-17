@@ -444,6 +444,11 @@ def compute_segment_gain(
     audit_batch_signature: str | None = None,
     audit_identity_state: str = "UNCONFIRMED",
 ) -> FrontRESSegmentGainResult:
+    # QUALITY-GAIN-01: 检查 matched execution evidence -> canonical Gain components/total.
+    # Result: PENDING_Q_EVIDENCE; Q-E3 only proves shared callback connectivity.
+    # B1: canonical owner 入口校验同 motion/K/available mask 的 paired evidence.
+    # B2: Style/Physics/Repair Cost 按 FRS-GAIN-v002 唯一公式合成.
+    # B3: return 前保留 component、per-step、effective K 与 finite identity.
     """计算一个 paired capture 的 canonical Segment Gain.
 
     函数名说明:

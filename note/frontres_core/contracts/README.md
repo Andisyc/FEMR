@@ -21,14 +21,14 @@ Concept Figure. Canonical names and block IDs come from
 | Design ID | Canonical human name | Active contract section | Figure block ID | Current code/evidence gap |
 | --- | --- | --- | --- | --- |
 | `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v011` / `Perturbation Data` | `M-02` | E68/E69 live-confirm `rp`, strength/DR scale, and K=8..64; composite families remain out of scope. |
-| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v011` / `Segment Replay Design` | `SR-01` | E67-E69 live-confirm formal sampler/update connectivity; long-run distribution quality remains open. |
+| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v011` / `Segment Replay Design` | `SR-01` | E67-E70 live-confirm formal sampler/update connectivity through full-weight joint PPO; long-run distribution quality remains open. |
 | `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v011` / `K-Step Curriculum` | `M-06` | E68 live-confirms mixed effective K=8..64 and finite policy-row returns. |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v011` / `Action Semantics` | `M-04` | E39/E68/E69 live-confirm finite full-6D actions; policy quality remains open. |
-| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v011` / `Method Boundary` | `M-10` | E68/E69 live-confirm GMT trainable=0 and in_optimizer=0 across actor updates and resume. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v011` / `Action Semantics` | `M-04` | E39/E68-E70 live-confirm finite full-6D actions through full-weight joint PPO; policy quality remains open. |
+| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v011` / `Method Boundary` | `M-10` | E68-E70 live-confirm GMT trainable=0 and in_optimizer=0 through full-weight joint updates. |
 | `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v002` / `Pairing And Time` | `Q-PAIR` | E67/E68 live-confirm transaction-local paired components and mixed-K policy rows. |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v002` / `Core Decision` | `Q-01` | E67/E68/E69 live-confirm shared Gain-to-return consumer route; long-run quality remains open. |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v002` / `Core Decision` | `Q-01` | E67-E70 live-confirm shared Gain-to-return consumer route through joint PPO; long-run quality remains open. |
 | `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v003` / `HSL Warmup` | `M-03` | E69 live-confirms model_220 actor/normalizer checkpoint identity on full resume. |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v003` / `Actor And Critic Warmup` | `M-05` | E68/E69 live-confirm critic-to-actor transition and resumed phase continuity; full actor weight remains open. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v003` / `Actor And Critic Warmup` | `M-05` | E68/E69 live-confirm critic-to-actor transition and resume; E70 confirms joint phase at actor_weight=1.0. |
 
 Entrypoints, configuration, storage, checkpointing, diagnostics, probes, and
 tests are implementation objects under these design points. They are not

@@ -247,6 +247,11 @@ class FrontRESSegmentRolloutStorage:
         horizon: int | torch.Tensor | None = None,
         gamma: float = 1.0,
     ) -> None:
+        # QUALITY-CREDIT-01: 检查 canonical Gain steps -> returns/advantages -> PPO batch.
+        # Result: PENDING_Q_EVIDENCE.
+        # B1: policy-row effective K 与 Gain steps 在 return aggregation 前冻结.
+        # B2: sign-preserving credit 与 valid mask 决定每行 advantage.
+        # B3: to_ppo_batch 前统计 sign、bucket contribution 与 dominance.
         """按每行 K 和 done 边界累计 Segment return/advantage.
 
         函数名说明:

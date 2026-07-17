@@ -1,0 +1,22 @@
+{
+  "schema_version": "frontres_policy_quality_manifest_v1",
+  "environment_revision": "FEMR-git-41c497c111f2ab05f16106a5d51bad10088089f3-qe6-worktree",
+  "config_revision": "FRS-METHOD-v011+FRS-GAIN-v002+specialist-rp+K8+dr1.25",
+  "evaluator_version": "frontres-policy-quality-qe6-v1",
+  "items": [
+    {
+      "item_id": "q1f-kit572-wave-right02-frame163-rp-k8-seed42",
+      "motion_id": "KIT/572/amass_g1_wave_right02_poses_reflect.npz",
+      "start_frame": 163,
+      "perturbation_family": "local_rp",
+      "perturbation_parameters": [
+        [
+          "dr_scale",
+          1.25
+        ]
+      ],
+      "effective_horizon_k": 8,
+      "seed": 42
+    }
+  ]
+}

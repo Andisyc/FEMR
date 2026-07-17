@@ -8,6 +8,7 @@ const repoMap = JSON.parse(fs.readFileSync("../../architecture/01_repo_architect
 const flowMap = JSON.parse(fs.readFileSync("../../runtime/02_frontres_flow.data.json", "utf8"));
 const conceptTabs = JSON.parse(fs.readFileSync("../../concept/03_frontres_concept_tabs.data.json", "utf8"));
 const formalAuditMap = JSON.parse(fs.readFileSync("../../runtime/04_stage3_formal_runtime_audit.data.json", "utf8"));
+const qualityAuditMap = JSON.parse(fs.readFileSync("../../runtime/05_policy_quality_audit.data.json", "utf8"));
 
 if (typeof rough.svg !== "function") {
   throw new Error("roughjs import succeeded but rough.svg is missing");
@@ -138,6 +139,7 @@ const checkReadingCardSourceLinks = (atlas, atlasLabel) => {
 
 checkReadingCardSourceLinks(repoMap, "01 repository atlas");
 checkReadingCardSourceLinks(flowMap, "02 method-to-code atlas");
+checkReadingCardSourceLinks(qualityAuditMap, "05 policy quality atlas");
 for (const system of repoMap.systems || []) {
   for (const module of system.modules || []) {
     for (const block of module.files || []) {
@@ -261,6 +263,35 @@ const formalAuditWhyHere = formalAuditModules.flatMap((module) => module.probeSt
 const expectedWhyHereCount = formalAuditIds.length * 3;
 if (formalAuditWhyHere.length !== expectedWhyHereCount || new Set(formalAuditWhyHere).size !== expectedWhyHereCount) {
   throw new Error(`formal runtime audit requires ${expectedWhyHereCount} non-template whyHere decisions`);
+}
+
+const qualityAuditIds = [
+  "QUALITY-ID-01", "QUALITY-DATA-01", "QUALITY-ACTION-01", "QUALITY-GAIN-01",
+  "QUALITY-CREDIT-01", "QUALITY-UPDATE-01", "QUALITY-EXEC-01", "QUALITY-TRAJECTORY-01",
+];
+if (
+  qualityAuditMap.layout !== "repository_reading_atlas"
+  || qualityAuditMap.runtimeOrder?.join(",") !== qualityAuditIds.join(",")
+) {
+  throw new Error("policy quality atlas must expose the eight causal owners in audit order");
+}
+const qualityAuditModules = (qualityAuditMap.systems || []).flatMap((system) => system.modules || []);
+if (qualityAuditModules.length !== qualityAuditIds.length) {
+  throw new Error("policy quality atlas must contain exactly eight reading cards");
+}
+for (const module of qualityAuditModules) {
+  if (module.cardKind !== "quality_probe" || !module.parentDesignPoint || !module.question) {
+    throw new Error(`policy quality card ${module.id} must map a design point to a falsifiable question`);
+  }
+  if (!module.probe?.owner || !module.probe?.insertion || !(module.probe.capture || []).length) {
+    throw new Error(`policy quality card ${module.id} must expose owner, insertion, and captures`);
+  }
+  if (!module.failureOwner || !Array.isArray(module.probeSteps) || module.probeSteps.length !== 3) {
+    throw new Error(`policy quality card ${module.id} must expose one failure owner and B1/B2/B3`);
+  }
+  if (module.probeSteps.some((step) => !step.whyHere || !step.failureOwner || !step.sourceHref || !step.sourceLine)) {
+    throw new Error(`policy quality card ${module.id} has an unreadable B-step`);
+  }
 }
 const atlasServerSource = fs.readFileSync("serve_architecture.mjs", "utf8");
 if (

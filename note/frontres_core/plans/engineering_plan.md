@@ -1,462 +1,287 @@
 # FrontRES Current Engineering Plan
 
-Status: Phase B Gain-consumer alignment; reset recovery and command-cache defects closed by E37
+Status: `Q1-policy-quality-evaluator-planned`
 Updated: 2026-07-17
-Scope: restore `FRS-DP-09` Actor/Critic warmup on the formal Stage 3 Segment PPO route and close the minimal `FRS-DP-05` Frozen GMT evidence gap.
-
-Current bounded step: align the active `FRS-GAIN-v002` diagnostic and training
-consumers on one paired transaction. The step covers Style/Physics/Repair
-component values, effective-K survival units, done masks, per-step reward,
-returns, and advantages on the official route. It does not require a
-model-200/model-201 quality comparison, multi-seed evaluation, reward-weight
-changes, or long training.
-
-Current clarification 2026-07-17: the diagnostic and training consumers
-already share one rollout capture and one policy-row batch in the formal code
-route (E63/E64/E67). Card 17's diagnostic now also uses the policy-row Gain-step
-slice (E66, live-confirmed by E67). The remaining work is only to expose and compare the carried
-numeric fields in one fresh official log; it is not a new sampler, Gain, PPO,
-or quality-improvement task.
-Card 22 clarification 2026-07-17: the training diagnostics formatter consumes
-the update-loop aggregate. It must report whether its input is a single
-transaction or an aggregate of multiple capture transactions; it is not
-required to share one batch with Cards 15/16/17 when `update_steps > 1`.
-
-Reset recovery is historical completed evidence: `AUDIT-RESET-LIFECYCLE-01`
-and the sampled-frame command-cache fix reached E37. Do not reopen reset,
-PPO eligibility, or fail-fast guards unless fresh evidence contradicts E37.
-
-### Reset Recovery Step B / 2: Quartet Dynamic-State Reset
-
-Objective: expand each sampled policy reset row to its corresponding
-Policy/Candidate/Noisy/Clean environment rows before rollout.
-
-Scope: establish pair layout before reset; attach explicit role env IDs to the
-index-reset request; write one motion/frame-derived root and joint dynamic state
-to all four roles; reset their episode-length lifecycle.
-
-Non-scope: perturbation-family semantics, FrontRES full-6D action, Gain, PPO,
-valid masks, termination thresholds, or zero-update guards.
-
-Owner files/modules:
-- `runners/frontres_segment_live_probe.py`: layout-to-reset connector.
-- `frontres/frontres_segment_stage1_env_hooks.py`: simulator reset owner.
-- focused lifecycle and role-pairing contracts.
-
-Expected evidence: S1/S2 `T-role/T-state/T-forward/T-timeout`; all role rows
-share motion/frame, origin-relative root, joint pose/velocity, and zero episode
-length while perturbation scale/mask remains policy-owned.
-
-Stop condition: any baseline role remains stale, perturbation leaks into Clean,
-sample-level reset result changes from eight rows to 32 rows, or existing
-index-reset and aggregate contracts regress.
-
-### Reset Recovery Step C / 3: Termination Term Localization
-
-Objective: identify the exact IsaacLab termination term that kills all aligned
-quartet rows at rollout step 0.
-
-Scope: read current-step term masks from `TerminationManager.get_term()` after
-`env.step`; summarize every active term by Policy/Candidate/Noisy/Clean role.
-
-Non-scope: termination thresholds/functions, reset, action, Gain, PPO, valid
-masks, and fail-fast behavior.
-
-Owner files/modules:
-- `runners/frontres_formal_runtime_audit.py`: compact per-term role summary.
-- `runners/frontres_segment_live_probe.py`: post-step observation connector.
-- formal runtime audit contract.
-
-Expected evidence: S2 `T-role/T-source/T-value` and S4 one-run term identity.
-
-Stop condition: the probe changes done behavior, active term names cannot be
-read, or a live term mask cannot be reconciled with the returned done mask.
-
-Step result: completed by `E33`. At rollout step 0, `anchor_pos` is true for
-all 8 Policy, 8 Candidate, 8 Noisy, and 8 Clean rows. Every other active term
-is false. The returned done mask therefore reconciles exactly with the active
-term masks.
-
-### Reset Recovery Step D / 4: Anchor Position Value Localization
-
-Objective: identify why `bad_anchor_pos_z_only()` sees an error above `0.5 m`
-immediately after an otherwise aligned quartet reset.
-
-Scope: observe role-aware reference anchor z, robot torso z, signed/absolute z
-error, threshold, command time step, and cached-reference identity immediately
-before termination computation at rollout step 0.
-
-Non-scope: threshold changes, termination suppression, command update order,
-reset writes, PPO, Gain, valid masks, and fail-fast behavior.
-
-Owner files/modules:
-- `tracking/mdp/terminations.py`: `bad_anchor_pos_z_only()` value owner.
-- `tracking/mdp/commands.py`: cached reference anchor and robot anchor owners.
-- `runners/frontres_segment_live_probe.py`: role-aware formal-route connector.
-
-Expected evidence: S2 `T-source/T-value/T-frame/T-role` plus one S4 snapshot.
-
-Stop condition: the first mismatched object is identified among cached
-reference frame/time, reference anchor z, robot torso z, or threshold routing.
-Insertion status: user-reviewed and inserted as `AUDIT-ANCHOR-Z-01`. The probe
-is default-off and does not change the returned termination mask. S4 value
-provenance is live-confirmed by `E35`.
-
-Step result: completed by `E35`. On the first termination call, clean reference
-and robot anchor z both average about `0.79 m`, while raw/final reference z is
-still near the environment-origin height (`0..0.03 m`). The resulting absolute
-error averages about `0.776 m` and alone exceeds the `0.5 m` threshold for all
-roles. On the second call, raw and clean reference z agree and error falls below
-`0.014 m`, but the first done mask is already sticky for the rollout.
-
-### Reset Recovery Step E / 5: Sampled-Frame Command Cache Initialization
-
-Objective: initialize the command's cached perturbed reference from the sampled
-motion/frame before the first termination evaluation, without advancing the
-frame or changing perturbation semantics.
-
-Scope: add one command-owned current-frame cache refresh boundary; call it from
-the index-reset adapter after motion/frame and perturbation role state are set,
-then write the robot from that same frame/cache identity.
-
-Non-scope: calling the full `_update_command()` from reset, changing time-step
-order, suppressing done, raising the threshold, PPO, Gain, or valid masks.
-
-Expected evidence: S1/S2 `T-frame/T-role/T-state/T-forward` proving
-raw-reference z equals current-frame perturbed reference for all roles before
-the first step; S4 proving step-0 `anchor_pos=0` without bypassing termination.
-
-Stop condition: cache refresh advances `time_steps`, draws perturbation twice,
-changes Clean semantics, or first-step raw/clean/robot identity remains broken.
-
-Implementation result: `MultiMotionCommand` now owns
-`refresh_frontres_reference_cache_current_frame()`. Both ordinary command
-updates and index reset call the same cache construction; only ordinary updates
-advance `time_steps`. The index-reset adapter invokes it after motion/frame and
-role perturbation setup and before robot write/first termination. Offline
-offline evidence is `E36`; live evidence is `E37`.
-
-Live result: completed by `E37`. First-call raw/clean/robot anchor z align,
-maximum absolute error is `0.020011 m`, all quartet roles survive all eight
-steps, `valid=8`, one critic-only PPO update is accepted, and `model_1.pt` is
-saved. No termination threshold or done handling was changed.
 
 ## Objective
 
-Align the formal Stage 3 code with `FRS-TRAIN-v003`:
+Build an isolated Policy Quality evaluator that compares zero, frozen HSL, and
+tested policy actions from one immutable manifest and one identical scoring
+state, without changing formal training, periodic online eval, existing offline
+eval, or sequence eval behavior.
 
-```text
-HSL actor checkpoint
--> critic_only: value update, actor update weight = 0
--> actor_warmup: Segment PPO actor weight rises from 0 to 1
--> joint: ordinary direct full-6D Segment PPO
-```
+## Governance Identity
 
-This restores optimization protection for the same direct full-6D repair
-actor. It does not restore confidence, rho, authority, acceptance, active-dim
-masks, generic runner PPO, or supervised loss inside Stage 3.
+- Concept Figure: `note/architecture/concept/03_frontres_concept_tabs.data.json`.
+- Design points: `FRS-DP-02/03/04/05/06/07/08/09` remain unchanged.
+- Active contracts: `FRS-METHOD-v011`, `FRS-TRAIN-v003`, `FRS-GAIN-v002`,
+  `FRS-PPO-v001`, and `FRS-EVAL-v002` remain active.
+- Change class: diagnostic/evaluation tooling; no method-semantic or reward
+  migration and therefore no new contract version.
+- Current runtime prerequisite: the joint sentinel log reached
+  `phase=joint`, `actor_weight=1`, and saved `model_701.pt`; governance sync as
+  E70 is required before quality runtime evidence is accepted.
 
-## Source Comparison
+## Non-Scope
 
-The pre-modification `HEAD` contains the reusable schedule idea in
-`frontres/training_schedule.py::frontres_ppo_actor_weight_for_iter` and applies
-it in the generic `OnPolicyRunner.learn()` loop. The current formal Stage 3
-route instead dispatches to `learn_frontres_segment_live()` and
-`run_frontres_segment_single_update()`. Therefore the schedule semantics must
-be ported to the Segment PPO owner rather than copying the old generic loop.
+- No edits to existing periodic, offline, or sequence evaluator behavior.
+- No changes to Segment sampler, Gain, PPO, action projection, warmup, GMT,
+  checkpoint format, or formal Stage 3 defaults.
+- No policy-quality claim from offline fixtures.
+- No long training or checkpoint trajectory run in implementation steps.
+- No execution of privileged `supervised_target` as the HSL baseline.
+
+## Source-Of-Truth Table
+
+| Object | Active owner | Consumers | Isolation rule | Evidence gate |
+| --- | --- | --- | --- | --- |
+| Quality manifest | new `frontres_policy_quality_manifest.py` | quality evaluator only | checkpoint and sampler cannot mutate it | S1/S2 manifest contract |
+| Comparison signature | manifest owner | result rows/trajectory aggregator | unmatched rows fail closed | S1 hash/metamorphic test |
+| Scoring state | new quality runner owner + existing env reset APIs | zero/HSL/policy routes | capture once; restore before every route | S2 fake lifecycle + S4 sentinel |
+| Zero baseline | quality runner owner | canonical rollout/Gain | fixed zero FrontRES action | S2 route contract + S4 execution |
+| HSL baseline | frozen actor-only model_200 adapter | canonical rollout/Gain | inference-only; no optimizer/sampler/warmup load | S2 frozen/checkpoint contract + S4 execution |
+| Tested policy | current runner policy | canonical rollout/Gain | cannot alter manifest or HSL actor | S2 isolation + S4 execution |
+| Quality result | quality runner owner | offline trajectory aggregator | JSON/schema only; no training feedback | S1 schema/aggregation |
+| Existing eval paths | existing owners | current users | no imports/calls into new quality owner | S0/S2 isolation regression |
+
+## Why The Work Is Split
+
+The manifest is pure deterministic data, scoring-state control touches the env
+lifecycle, counterfactual execution touches checkpoint inference and rollout,
+entrypoint wiring touches formal dispatch, and real state equality is live-only.
+Combining them would make failures impossible to localize and would risk
+silently changing existing evaluators.
 
 ## Step Map
 
-### Step 1 / 4: Segment Warmup Phase Owner
+### Step Q1-0 / 7: Governance And Runtime Prerequisite - Completed
 
-Objective: implement a pure, deterministic Stage 3 phase schedule and weighted
-Segment PPO objective.
+Objective: close the Phase B document state before Q implementation.
 
-Scope: phase config, iteration-to-phase mapping, critic-only actor weight 0,
-actor warmup monotonic ramp, joint weight 1.
+Scope:
+- record the joint sentinel as E70;
+- update formal audit status, source comments, Runtime Atlas, checklist, and
+  Design Point Register;
+- state that policy quality remains unproven.
 
-Non-scope: runner wiring, checkpoint IO, live environment, perturbation/K/Gain.
-
-Owner files/modules:
-- `frontres/frontres_segment_warmup.py`: phase calculation.
-- `algorithms/frontres_segment_ppo.py`: actor-weighted PPO objective.
-- focused S1 contract test.
-
-Expected evidence: S1 `T-value`, `T-grad`, and boundary tests for all phases.
-
-Stop condition: critic-only produces actor/std gradients, value loss is
-disabled, actor weight is non-monotonic, or full-6D action semantics change.
-
-### Step 2 / 4: Formal Stage 3 Integration
-
-Objective: propagate the phase through the official Stage 3 train branch.
-
-Scope: Stage 3 preset, live training iteration, single-update config,
-production diagnostics.
-
-Non-scope: changing sampler, rollout roles, K, Gain, trust-region, or eval.
+Non-scope: evaluator code and quality claims.
 
 Owner files/modules:
-- `scripts/rsl_rl/train.py`: production defaults.
-- `runners/frontres_segment_live_training.py`: phase selection per iteration.
-- `runners/frontres_segment_live_probe.py`: pass actor weight to Segment PPO.
-- `runners/frontres_segment_live_update_loop.py`: phase diagnostics.
-- focused S2 connectivity test.
+- formal runtime evidence ledger and audit document;
+- Runtime Audit Atlas builder/data;
+- source audit comments and governed registers.
 
-Expected evidence: official Stage 3 preset reaches every phase; actor parameters
-stay unchanged in critic-only while critic parameters change; actor delta
-appears during actor warmup/joint.
+Expected evidence: documentation consistency contract, Runtime Atlas rebuild,
+`git diff --check`.
 
-Stop condition: formal train bypasses the schedule, alternate probe-only
-branches are used as proof, or diagnostics report a phase different from the
-loss weight.
+Stop condition: model/checkpoint/iteration identity differs across any current
+artifact, or E70 is promoted to quality evidence.
 
-### Step 3 / 4: Persistence And Frozen GMT
+Step result: E70 records joint `actor_weight=1.0`, four accepted updates with
+valid rows, frozen GMT, and complete `model_701.pt`. Runtime closure is distinct
+from policy-quality evidence. Next executable step is Q1-A.
 
-Objective: prove resume phase identity and frozen-GMT optimizer isolation.
+### Step Q1-A / 7: Immutable Manifest And Signature - Completed
 
-Scope: checkpointed iteration/config identity, recomputed phase after resume,
-GMT `requires_grad=False`, GMT exclusion from optimizer, zero GMT parameter
-delta after one Segment update.
+Objective: implement the pure comparison-identity owner.
 
-Non-scope: saving frozen GMT weights or changing GMT execution behavior.
+Scope:
+- create immutable manifest/item/state-identity/result-route data objects;
+- canonical serialization and deterministic comparison signature;
+- validate motion/frame/perturbation/K/seed/checkpoint-independent identity;
+- reject missing, mutable, duplicate, or mismatched rows.
 
-Owner files/modules:
-- `runners/frontres_checkpointing.py` and Stage 3 checkpoint contracts.
-- `algorithms/frontres_unified.py` optimizer construction.
-- S2/S3 `T-connect`, `T-grad`, `T-persist`, `T-state` tests.
-
-Expected evidence: resume at the same iteration selects the same phase and
-actor weight; one Segment update cannot change GMT parameters.
-
-Stop condition: phase state depends on an unsaved mutable counter, optimizer
-contains GMT parameters, or GMT parameter delta is nonzero.
-
-### Step 4 / 4: Cross-File Acceptance
-
-Objective: close offline alignment and prepare, but do not run, Phase B live
-audit.
-
-Scope: impacted tests, aggregate suite, Architecture current-state refresh,
-test inventory/control board/evidence/checklist consistency.
-
-Non-scope: live IsaacLab execution or long training.
-
-Expected evidence: S0-S3 tests pass with fresh counts; all documentation uses
-`FRS-TRAIN-v003`; remaining S4 facts are explicit. The current aggregate is
-`44/44` with `failed_count=0` after adding the task-space correction contract.
-
-Historical Phase B attempts before the reset repair:
-
-The second Phase B attempt reached canonical Gain and exposed a separate
-integration mismatch: final `done_any` erased the full Style row instead of
-truncating its trajectory at the fall. Gain capture now reuses the per-step
-horizon/alive mask for body and root-orientation Style, while storage keeps
-terminal PPO eligibility unchanged. The focused regression and aggregate suite
-pass; at that historical point the current source still required rerun3 before
-any S4 promotion.
-
-The third Phase B attempt confirmed finite Gain and returns but sampled zero
-PPO-eligible policy rows. Production PPO correctly selected a no-update result;
-the formal audit helper incorrectly asserted that every batch must update. The
-helper now reports `update_observed=0` without changing control flow. Rerun3
-uses 32 environments to provide eight policy rows and improve the chance of
-observing a real optimizer step. The entire worktree, including
-`scripts/rsl_rl/train.py`, must be synchronized before that run.
-
-The fourth historical attempt did not satisfy this plan: the simulator reported 8 envs,
-quartet policy count 2, and stale startup audit ordering. Both policy rows fell,
-so the required live-training guard rejected `update_count=0`. No production
-guard or PPO rule should change; the next action remains the exact synchronized
-32-env rerun3.
-
-The later 32-env rerun3 satisfied the cost configuration but still produced
-zero valid rows: all 32 quartet rows terminated within K=8. The next bounded
-step is no longer another PPO rerun. It is a reset-lifecycle audit covering
-per-step timeout/termination, survival step, quartet role, episode-length state,
-and whether index reset writes all four paired dynamic states. PPO, Gain, and
-the zero-update guard are non-scope until this owner closes.
-
-Stop condition: any DP-09 owner is only locally implemented, stale test counts
-remain, or Architecture still describes the missing route as active.
-
-### Step F: Formal Diagnostic Tuple Closure
-
-Objective: close the four compact `missing` fields observed in E37 without
-changing Stage 3 training semantics.
-
-Scope: correct live-summary aliases for reset success, applied correction norm,
-and quartet roles; retain canonical reward in the read-only storage batch;
-refresh contracts and Runtime Atlas.
-
-Non-scope: reset/cache behavior, Gain calculation, PPO batch/loss, optimizer,
-or warmup schedule.
-
-Status: integrated-offline in E38. The next official formal run must verify the
-four values and enter actor warmup before this step receives S4 closure.
-
-### Step G: Actor-Warmup Formal Sentinel
-
-Objective: observe one critic-only iteration followed by one actor-warmup
-iteration on the official Stage 3 route while rechecking the E38 fields.
-
-Scope: 32 environments, two learning iterations, one update per iteration,
-formal probes enabled, periodic evaluation disabled. Audit-only warmup
-boundaries are critic=1 and actor=2, so iteration 0 has actor weight 0 and
-iteration 1 has actor weight 0.5.
-
-Non-scope: long training, production warmup defaults (200/500), reward tuning,
-or checkpoint promotion.
-
-Expected evidence: `AUDIT-WARMUP-01` transitions from `critic_only` to
-`actor_warmup`; the actor-warmup update has finite loss/gradient/parameter
-delta and valid trust diagnostics; K rollout, apply, pair, and return rows no
-longer contain `missing`.
-
-Status: S4 runtime-observed in E39. The two-iteration sentinel reached
-critic-only and actor-warmup, and all four E38 fields were populated.
-
-### Step H: Perturbation Audit Alias Closure
-
-Objective: remove the final duplicate `missing` values without changing the
-perturbation or K-step training paths.
-
-Scope: add max-horizon and advantage-normalization fields to the formal task
-config owner; copy consumed reset-request family counts and strength
-distribution into the live summary; update the formal probe contract.
-
-Non-scope: perturbation sampling/application, K curriculum, Gain, PPO, or
-training defaults.
-
-Status: S4 runtime-observed in E41. The official route shows
-`max_horizon_k=64`, `family_counts={'local_rp': 8}`, finite strength
-min/mean/max, and no audit `missing`.
-
-### Step I: Post-Training Method-Quality Observation (deferred)
-Current interpretation: this is a post-training observation, not a Phase B
-prerequisite. One PPO update is not expected to improve every metric; the
-double-layer Segment Replay route supplies repeated evidence and updates.
-
-Objective: observe whether repeated Segment Replay training improves paired
-executable Gain after the formal Gain-consumer alignment boundary is closed.
-This is not a Phase B prerequisite and does not require every PPO update to
-improve.
-
-Scope: a short sequential or fixed-sequence comparison that evaluates policy
-behavior after the actor update, with the same perturbation family and reported
-K distribution.
-
-Checkpoint prerequisite: run the official route with
-`--frontres_checkpoint_interval 1` and two iterations so the same run produces
-`model_1.pt` after critic-only and `model_2.pt` after actor-warmup. Then use
-both checkpoints on the same fixed offline-eval sequence.
-
-Non-scope: further audit instrumentation, reward redesign, or formal long
-training.
-
-Status: checkpoint prerequisite satisfied in E42 and sequence-selection
-reproducibility guard satisfied in E43, eval-only checkpoint loading fixed
-in E44, checkpoint-independent perturbation control fixed in E46, and valid
-paired comparison completed in E47. E41 proves integration, but its second
-rollout precedes that iteration's optimizer step and has Gain `-0.325550`,
-Physics Gain `-0.281932`, and repaired MPJPE `0.095913 > 0.072490` noisy MPJPE.
-The paired result is mixed: model 2 improves survival on one motion and is
-nearly unchanged on the other, while aggregate Gain decreases. Broader fixed
-sequence coverage and Gain/survival alignment are still required for method
-quality acceptance.
-
-### Step I-B: Gain Consumer Alignment Audit
-Current interpretation: this is the active Phase B boundary. First prove the
-same paired transaction, effective K, done mask, and Style/Physics/Repair
-components reach both diagnostic Gain and training reward/returns/advantages.
-Use local pseudo data before any additional live quality comparison.
-
-The older fixed-checkpoint comparison scope below is retained as historical
-context only; it is not the current Phase B gate.
-
-Objective: determine whether the observed Gain/survival tension is caused by a
-component implementation defect, a metric-definition mismatch, or two-motion
-variance.
-
-Scope: expose and compare Physics success/survival/ZMP/contact components,
-Style components, Repair Cost, zero-policy differential, and survival/fall on
-the same fixed checkpoint pairs.
-
-Non-scope: changing Gain weights/formula, changing PPO, adding action clamps,
-or starting formal long training.
-
-Owner files/modules: `frontres_gain.py`, paired capture in
-`frontres_segment_live_probe.py`, sequence formatting in
-`frontres_segment_live_training.py`.
-
-Expected evidence: component-level paired logs for at least 8 fixed motions
-and two matched seeds, with identical motion/frame/family/strength conditions.
-
-Stop condition: if a component is mathematically or operationally wrong, open
-a semantic decision gate before editing it; if components are correct but
-correlation is noisy, keep the Gain contract and report the variance boundary.
-
-Status: component diagnostic implementation complete in E48; broader paired
-component evidence pending.
-
-### Step C: Survival Gain Unit Alignment
-
-Objective: make the paired survival component use one explicit K-normalized
-unit across final Gain, per-step Segment PPO return, sampler evidence, and
-evaluation.
-
-Scope: `frontres_gain.py` owns `survival_steps / effective_horizon_K`; the
-final path receives cumulative raw survival steps, the per-step path receives
-the current alive increment, and reports keep raw survival steps separate
-from survival quality. Activate `FRS-GAIN-v002` and refresh active consumer
-identity.
-
-Non-scope: termination, `done_any`, K curriculum assignment, PPO optimizer,
-action semantics, Gain weights, perturbation, sampler priority, long training,
-and checkpoint selection.
+Non-scope: runner, env, checkpoint loading, rollout, Gain, and CLI.
 
 Owner files/modules:
-- `source/rsl_rl/rsl_rl/frontres/frontres_gain.py`: normalized survival owner.
-- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py`: final and
-  per-step K forwarding.
-- `source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py`: raw versus
-  quality diagnostic adapter.
-- `source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py`: K and
-  aggregation oracle.
+- create `source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_manifest.py`;
+- create `source/rsl_rl/rsl_rl/tests/frontres_policy_quality_manifest_contract.py`.
 
-Expected evidence: K=1/4/8 hand-checkable values, per-step alive increments
-sum to the final K-normalized survival Gain, active connectivity remains
-finite, and no current active code path identifies `FRS-GAIN-v001`.
+Expected evidence: S1 `T-schema/T-hash/T-permute/T-missing/T-immutable` with a
+hand-checkable manifest fixture.
 
-Status: implementation and focused offline contracts pass; no active code path
-identifies v001. Formal Stage 3
-runtime and 120-step sequence evidence remain open.
+Stop condition: the same semantic item hashes differently, a changed control
+variable retains the same signature, or checkpoint/sampler state enters the
+manifest identity.
 
-### Step A: Formal Audit v002 Evidence Alignment
+Step result: Q-E1 confirms canonical immutable serialization, order-stable
+comparison signatures, control-variable sensitivity, duplicate/missing-field
+rejection, and checkpoint/sampler isolation. No runner or evaluator path was
+changed. Next executable step is Q1-B.
 
-Objective: make the official formal audit visibly prove the C v002 survival
-unit path before any live run.
+### Step Q1-B / 7: Scoring-State Capture And Restore - Completed
 
-Scope: retain per-step `physics_survival_gain` in live capture; print raw
-survival steps, effective K, repaired/noisy quality, normalized survival Gain,
-step-sum error, rewards, returns, and advantages in `AUDIT-GAIN-01` and
-`AUDIT-RETURN-01`; synchronize the Runtime Atlas and formal audit document.
+Objective: establish a checkpoint-independent scoring start state.
 
-Non-scope: reward formula, PPO, termination, sampler, K assignment, live
-execution, checkpoint selection, and long training.
+Scope:
+- define the exact dynamic-state fields required at eval start;
+- run zero-FrontRES/GMT-only preroll once;
+- capture state after preroll and restore it before each route;
+- hash root/joint pose and velocity, command/reference/correction caches,
+  episode lifecycle, origin, frame/K/perturbation, and relevant RNG state.
+
+Non-scope: HSL loading, tested policy comparison, Gain, trajectory aggregation,
+and old evaluator changes.
 
 Owner files/modules:
-- `runners/frontres_segment_live_probe.py`: capture already-computed per-step
-  survival Gain for read-only audit evidence.
-- `runners/frontres_formal_runtime_audit.py`: v002 structured snapshots.
-- `tests/frontres_formal_runtime_audit_contract.py`: field and sum-error oracle.
-- `note/architecture/auxiliary/atlas_app/build_formal_runtime_audit.mjs` and
-  generated Runtime Atlas data: readable owner cards and stale-live status.
-- `note/testing/formal_runtime_audit.md`: current C v002 live gate.
+- create `source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py` with
+  state capture/restore helpers only in this step;
+- create `source/rsl_rl/rsl_rl/tests/frontres_policy_quality_state_contract.py`.
 
-Expected evidence: formal audit contract PASS; Atlas source-line identity PASS;
-fresh actor-warmup live evidence must show `actor_weight>0`, non-zero policy
-mean delta, accepted trust-region update, and `gain_source=FRS-GAIN-v002`.
+Expected evidence: S1/S2 `T-state/T-role/T-frame/T-cache/T-RNG/T-restore` using
+a semantically complete fake env lifecycle.
 
-Status: v002 formal route and first actor-warmup update are runtime-confirmed;
-representative actor learning and quality evidence remain open.
+Stop condition: any restored field differs, preroll reads the tested policy,
+or implementation requires modifying existing eval owners.
+
+Step result: Q-E2 confirms exact zero-action preroll and offline capture/
+restore of robot, lifecycle, reference/correction cache, per-env perturber, and
+RNG state under one `initial_state_hash`. Existing evaluators remain untouched;
+real simulator equality remains reserved for Q1-F. Next executable step is Q1-C.
+
+### Step Q1-C / 7: Zero, Frozen-HSL, And Policy Execution - Completed
+
+Objective: execute three counterfactual routes from the identical captured
+state through existing rollout and canonical Gain owners.
+
+Scope:
+- load model_200 residual actor as an inference-only HSL adapter;
+- verify observation layout and normalizer identity explicitly;
+- execute zero/HSL/policy routes after state restore;
+- emit `QUALITY-ID-01`, `QUALITY-ACTION-01`, `QUALITY-GAIN-01`, and
+  `QUALITY-EXEC-01` result objects;
+- fail closed on state/signature mismatch.
+
+Non-scope: training optimizer, sampler, warmup state, PPO update, trajectory
+comparison, and changes to canonical Gain/action application.
+
+Owner files/modules:
+- extend `runners/frontres_policy_quality_eval.py`;
+- create `tests/frontres_policy_quality_eval_contract.py`.
+
+Expected evidence: S2 `T-counterfactual/T-frozen/T-source/T-shape/T-forward/
+T-isolation/T-metamorphic`; zero action remains zero, HSL is frozen, policy is
+independent, and all routes preserve one comparison signature.
+
+Stop condition: HSL requires privileged target execution, runner load mutates
+optimizer/sampler/warmup, or route identity differs.
+
+Step result: Q-E3 closes offline zero/frozen-HSL/policy orchestration under one
+restored state, explicit observation/normalizer identity, full-6D bounds, and
+training-state isolation. Canonical owner callbacks are shared but not yet
+wired to the formal runner; that integration is Q1-D. Next executable step is
+Q1-D.
+
+### Step Q1-D / 7: Thin Entry And Old-Path Isolation - Completed
+
+Objective: expose a dedicated `policy_quality_eval` mode without changing old
+runtime behavior.
+
+Scope:
+- add CLI/config parsing for manifest, HSL checkpoint, tested checkpoint, and
+  result path;
+- add a thin `OnPolicyRunner` connector and `train.py` dispatch;
+- old modes must never import/call the quality evaluator at runtime;
+- quality mode must not call sampler sampling or optimizer update.
+
+Non-scope: editing old evaluator functions, changing Stage 3 presets/defaults,
+or sharing a quality flag with sequence/offline/periodic eval.
+
+Owner files/modules:
+- modify `scripts/rsl_rl/train.py`, CLI owner, and
+  `runners/on_policy_runner.py` only as thin connectors;
+- add `tests/frontres_policy_quality_entrypoint_contract.py` and isolation
+  assertions to the aggregate suite.
+
+Expected evidence: S0/S2 `T-route/T-import/T-mode/T-no-call/T-state`; all old
+modes have zero quality-owner calls and quality mode has zero old-eval calls.
+
+Stop condition: an old mode changes output/call order, quality mode enters
+training, or connector owns evaluation logic.
+
+Step result: Q-E4 closes dedicated CLI/MODE dispatch, lazy runner delegation,
+request validation, cold-start checkpoint isolation, and zero calls into old
+eval/training branches. Missing formal executor fails closed. Q1-E must prove
+that executor's real owner wiring offline before Atlas/live work.
+
+### Step Q1-E / 7: Quality Atlas And Offline Preflight
+
+Objective: make instrumentation human-readable and prove the complete offline
+quality route before live execution.
+
+Scope:
+- assemble the formal manifest executor from current observation,
+  task-space-application, rollout, canonical Gain, and execution owners;
+- prove executor isolation with fake owner adapters before any simulator run;
+- create a Quality Audit Atlas in the existing reading-atlas viewer;
+- add eight planned `QUALITY-*` cards, while Q1 runtime initially populates
+  ID/ACTION/GAIN/EXEC and marks DATA/CREDIT/UPDATE/TRAJECTORY pending;
+- synchronize source comments, checklist, test inventory, and evidence ledger;
+- run manifest, state, evaluator, entrypoint, isolation, and aggregate suites.
+
+Non-scope: simulator quality claims and checkpoint trajectory.
+
+Owner files/modules:
+- `note/architecture/runtime/*quality*.data.json` and builder/view entry;
+- quality source comments, current checklist, test control board, evidence
+  ledger, and aggregate suite.
+
+Expected evidence: S0-S2 Atlas/source/checklist identity, 8 cards with valid
+links, all focused contracts PASS, aggregate suite PASS, `git diff --check`.
+
+Stop condition: source/Atlas/checklist IDs disagree, an old eval path imports
+the quality owner, or any offline identity/isolation contract fails.
+
+Step result: completed by Q-E6. Q-E5 alone proved executor order/schema with
+fake owners and was insufficient. The corrected official entry now installs a
+production `FrontRESPolicyQualityFormalOwnerBundle` and reaches canonical
+reset, observation, action, rollout, Gain, and execution adapters through an
+independent control flow. The S2 official-entry contract observes all six
+owners and unchanged optimizer/sampler/warmup state; the aggregate suite passes
+`51/51`. Q1-F remains blocked pending explicit user authorization.
+
+### Step Q1-F / 7: Live State-Identity Sentinel
+
+Objective: prove the real simulator restores one scoring state for
+zero/HSL/policy without contaminating existing eval/training state.
+
+Scope:
+- one immutable manifest item, one seed, one checkpoint, minimal env count;
+- print state hashes before each route and compact quality snapshot;
+- verify optimizer/sampler/warmup are unchanged;
+- write observed facts beside source probes and into quality evidence.
+
+Non-scope: checkpoint trajectory, generalization, reward/PPO tuning, or long
+training admission.
+
+Owner files/modules:
+- independent quality evaluator and its Quality Atlas/evidence rows only.
+
+Expected evidence: S4 `T-live/T-state/T-identity/T-frozen/T-isolation`; all
+three pre-rollout state hashes and comparison signatures match.
+
+Stop condition: any hash differs, HSL/policy checkpoint identity is ambiguous,
+old eval/training state changes, or a route cannot execute canonical Gain.
+
+Preparation result: Q-E7 freezes one reviewable item at
+`note/testing/manifests/frontres_policy_quality_q1f_single_v1.json`, using the
+actor-update-free `model_200.pt` HSL baseline, resumed-lineage `model_701.pt`
+policy, KIT/572 frame 163, local_rp at DR 1.25, K=8, and seed 42. Item and
+manifest signatures pass S1 identity checks. Live remains blocked until human
+review and server checkpoint existence/SHA-256 preflight.
+
+## Planned Step Order
+
+```text
+Q1-0 governance
+-> Q1-A pure manifest
+-> Q1-B state capture/restore
+-> Q1-C counterfactual execution
+-> Q1-D isolated entrypoint
+-> Q1-E Atlas/offline integration
+-> user approval
+-> Q1-F one live sentinel
+```
+
+No step starts before the previous Step End Report is reviewed. A `partial` or
+`blocked` step returns control to the user.

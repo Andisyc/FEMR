@@ -46,11 +46,11 @@ runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: valid=8, critic-only update o
 runtimeStatus["AUDIT-RESET-LIFECYCLE-01"] = "runtime-observed: all quartet roles start aligned and survive every K=8 step without termination (E37)";
 runtimeStatus["AUDIT-ANCHOR-Z-01"] = "runtime-observed: first-call raw/clean/robot z align, max abs error=0.0201m, anchor_pos=0 for all roles (E37)";
 runtimeStatus["AUDIT-DIAG-01"] = "runtime-observed: canonical Gain, valid fraction, warmup, PPO and trust diagnostics are populated (E37)";
-runtimeStatus["AUDIT-ROUTE-01"] = "runtime-observed: model_220 full-resume continued absolute iter 220 -> 221 and completed 4/4 updates (E69)";
+runtimeStatus["AUDIT-ROUTE-01"] = "runtime-observed: official route reached absolute iter 700 joint phase at actor_weight=1.0 and completed 4/4 accepted updates (E70)";
 runtimeStatus["AUDIT-HSL-LOAD-01"] = "runtime-observed: model_220 full-resume restored actor/normalizer identity at absolute iter 220 (E69)";
-runtimeStatus["AUDIT-PERSIST-01"] = "runtime-observed: model_220 full-resume restored training state and model_221 saved complete payload after 4/4 updates (E69)";
-runtimeStatus["AUDIT-WARMUP-01"] = "runtime-observed: actor-warmup reached weight 0.040 (E68), then resumed at phase_iter=20 weight=0.042 without restart (E69)";
-runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: four resumed actor-warmup updates had valid=16/16/14/15, nonzero parameter delta and accepted post-KL (E69)";
+runtimeStatus["AUDIT-PERSIST-01"] = "runtime-observed: model_701 saved complete model/optimizer/normalizer/sampler/Gain/warmup payload at iter 701 (E70)";
+runtimeStatus["AUDIT-WARMUP-01"] = "runtime-observed: critic and actor warmup progressed into joint phase_iter=0 with actor_weight=1.0 (E68-E70)";
+runtimeStatus["AUDIT-PPO-01"] = "runtime-observed: joint batches valid=13/14/16/16 had nonzero parameter delta, accepted trust, and frozen GMT (E70)";
 runtimeStatus["AUDIT-KROLLOUT-01"] = "runtime-observed: reset_success_frac=1.0 and valid=7/8 are populated (E39)";
 runtimeStatus["AUDIT-APPLY-01"] = "runtime-observed: finite full-6D action and delta_norm=0.016680 (E39)";
 runtimeStatus["AUDIT-PAIR-01"] = "runtime-observed: roles policy=8/baseline=24 and valid=7 (E39)";

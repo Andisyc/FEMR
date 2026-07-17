@@ -614,6 +614,25 @@ class OnPolicyRunner:
             rollout_steps=rollout_steps,
         )
 
+    def run_frontres_policy_quality_eval(
+        self,
+        *,
+        manifest_path: str,
+        hsl_checkpoint_path: str,
+        policy_checkpoint_path: str,
+        result_path: str,
+    ):
+        # QUALITY-ID-01: thin connector uses a lazy import so old modes never import quality evaluation.
+        from rsl_rl.runners.frontres_policy_quality_eval import run_frontres_policy_quality_eval
+
+        return run_frontres_policy_quality_eval(
+            self,
+            manifest_path=manifest_path,
+            hsl_checkpoint_path=hsl_checkpoint_path,
+            policy_checkpoint_path=policy_checkpoint_path,
+            result_path=result_path,
+        )
+
     def run_frontres_segment_sequence_offline_eval(
         self,
         *,

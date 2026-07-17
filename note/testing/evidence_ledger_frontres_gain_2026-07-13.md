@@ -1593,4 +1593,25 @@ Next:
   resume-connectivity failures. E69 does not prove full actor weight, long-run
   learning quality, or policy superiority.
 - Status: checkpoint/full-resume continuity is `S4 observed`. Full actor-weight
-  joint RL and policy-quality evaluation remain open.
+joint RL and policy-quality evaluation remain open.
+
+## E70 - Full Actor-Weight Joint-RL Formal Sentinel (2026-07-17)
+- Raw evidence: `formal_runtime_audit_joint_resume_20260717.txt`, produced by
+  the official `MODE=train` route after full resume from `model_200.pt`.
+- Joint boundary: at absolute iteration 700 the warmup owner emitted
+  `phase=joint`, `phase_iter=0`, and `actor_weight=1.0`.
+- Update evidence: the four joint-phase PPO batches contained
+  `valid=13/14/16/16`; every batch reported nonzero actor parameter delta and
+  `trust_accepted=1`. Post-update KL remained below the configured
+  `desired_kl=0.01` for these four batches.
+- Frozen GMT boundary: every joint-phase update reported `gmt_trainable=0`
+  and `gmt_in_optimizer=0`.
+- Persistence: `model_701.pt` was saved at iteration 701 with model,
+  optimizer, observation normalizer, sampler, Gain config, and warmup payloads
+  present.
+- Limitation: E70 proves formal joint-phase connectivity, full actor weight,
+  frozen-GMT gradient ownership, accepted PPO updates, and checkpoint
+  persistence. It does not prove that the learned policy beats zero/HSL,
+  improves Gain, avoids no-op, or generalizes.
+- Status: Phase B formal runtime closure is `S4 observed`; policy efficacy is
+  transferred to the independent Policy Quality Audit Q gates.

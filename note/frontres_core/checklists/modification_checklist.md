@@ -1,78 +1,115 @@
 # FrontRES Current Change Checklist
 
+Status: `Q1-policy-quality-evaluator-planned`
 Updated: 2026-07-17
-Scope: `FRS-DP-09` Stage 3 Actor/Critic warmup, `FRS-DP-05` Frozen GMT evidence,
-and `FRS-DP-07` normalized survival Gain alignment.
+Plan: `note/frontres_core/plans/engineering_plan.md`
 
-## Step Status
+## Scope
 
-| Step | Scope | Status | Evidence / blocker |
-| --- | --- | --- | --- |
-| 1 | Segment warmup phase owner | completed | `frontres_segment_warmup_contract.py` |
-| 2 | Formal Stage 3 integration | completed | entrypoint + single-update contracts |
-| 3 | Persistence and Frozen GMT | completed offline | checkpoint config guard + Frozen GMT contract |
-| 4 | Cross-file acceptance | completed offline | aggregate suite 44/44 after pre-fall Style and zero-valid audit regressions; live rerun3 remains separate |
+Independent Policy Quality evaluator for matched zero/frozen-HSL/policy
+comparison. Existing formal training, periodic online eval, offline eval, and
+sequence eval are protected non-scope.
 
-## DP-09 Acceptance Matrix
+## Step Acceptance
 
-| Boundary | Owner | Required S/T | Status | Evidence |
+| Step | Owner | Required S/T | Status | Evidence / blocker |
 | --- | --- | --- | --- | --- |
-| Phase schedule | `frontres_segment_warmup.py` | S1 `T-value`, `T-meta` | implemented | warmup contract |
-| Weighted Segment objective | `frontres_segment_ppo.py` | S1 `T-grad`, `T-value` | implemented | warmup contract |
-| Official Stage 3 preset | `scripts/rsl_rl/train.py` | S0/S2 `T-connect`, `T-oracle` | confirmed offline | Stage 3 entrypoint contract |
-| Live loop propagation | live training/update loop | S2 `T-connect`, `T-state` | confirmed offline | Stage 3 pseudo suite |
-| Update gradient boundary | `frontres_segment_live_probe.py` | S1/S2 `T-grad`, `T-update-order` | confirmed offline | single-update contract |
-| Diagnostics | update loop/live formatter | S1/S2 `T-oracle`, `T-connect` | confirmed offline | pseudo suite logs phase/weight |
-| Checkpoint/resume phase | `frontres_checkpointing.py` | S3/S4 `T-persist`, `T-state`, `T-live` | live-confirmed | E69: model_220 iter=220 restored optimizer/normalizer/sampler/Gain/warmup/std/DR, then model_221 saved after 4/4 updates |
+| Q1-0 Governance | formal audit/evidence/Atlas/register | S0 `T-doc/T-identity` | completed | E70: joint actor_weight=1.0, valid accepted updates, frozen GMT, complete model_701; no quality claim |
+| Q1-A Manifest | `frontres_policy_quality_manifest.py` | S1 `T-schema/T-hash/T-permute/T-missing/T-immutable` | completed | Q-E1 focused and aggregate contracts pass |
+| Q1-B State restore | `frontres_policy_quality_eval.py` state helpers | S1/S2 `T-state/T-role/T-frame/T-cache/T-RNG/T-restore` | completed | Q-E2 focused pass; aggregate 46/46 |
+| Q1-C Counterfactual routes | quality evaluator + frozen HSL adapter | S2 `T-counterfactual/T-frozen/T-source/T-shape/T-forward/T-isolation/T-metamorphic` | completed | Q-E3 focused pass; aggregate 47/47; formal wiring remains Q1-D |
+| Q1-D Entry/isolation | CLI, `train.py`, `on_policy_runner.py` | S0/S2 `T-route/T-import/T-mode/T-no-call/T-state` | completed | Q-E4 focused pass; aggregate 48/48 |
+| Q1-E Atlas/preflight | Quality Atlas + focused/aggregate suites | S0-S2 `T-connect/T-link/T-schema/T-isolation` | completed | Q-E6: official entry installs six real owner adapters; aggregate 51/51 |
+| Q1-F Live identity | quality evaluator real simulator boundary | S4 `T-live/T-state/T-identity/T-frozen/T-isolation` | input prepared; blocked pending review/hash | Q-E7 manifest frozen; server checkpoint existence/SHA-256 and user authorization required |
 
-## Frozen GMT Test Profile
+## Phase B Runtime Closure Index
 
-Module type: algorithm/optimizer plus frozen downstream policy dependency.
+E70 closes the formal runtime prerequisite without making a quality claim.
+The permanent Runtime Atlas retains these synchronized owner IDs:
 
-Required proof:
-- [x] S1 `T-grad`: GMT parameters have `requires_grad=False`.
-- [x] S2 `T-connect`: formal FrontRES optimizer excludes every GMT parameter.
-- [x] S2 `T-grad/T-diff`: one Segment-style update changes permitted actor/critic
-  parameters but leaves all GMT parameters bitwise unchanged.
+`AUDIT-ROUTE-01`, `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02`,
+`AUDIT-SEGDATA-01`, `AUDIT-SAMPLER-01`, `AUDIT-KPLAN-01`,
+`AUDIT-RESET-LIFECYCLE-01`, `AUDIT-ANCHOR-Z-01`, `AUDIT-KROLLOUT-01`,
+`AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01`, `AUDIT-GMT-01`,
+`AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01`, `AUDIT-GAIN-01`,
+`AUDIT-RETURN-01`, `AUDIT-HSL-LOAD-01`, `AUDIT-WARMUP-01`,
+`AUDIT-PPO-01`, `AUDIT-PERSIST-01`, and `AUDIT-DIAG-01`.
 
-No S4 test is required merely to prove optimizer isolation. Phase B may later
-confirm that frozen GMT executes the repaired reference, but that is a separate
-runtime reachability fact.
+Current acceptance: E67-E70 establish transaction identity, mixed-K and
+warmup behavior, resume continuity, full-weight joint PPO, frozen GMT, and
+complete persistence. Policy efficacy remains unconfirmed and begins at Q1.
 
-## Training Gate
+## Hard Isolation Gates
 
-- [x] Critic-only changes critic parameters and not actor/std parameters.
-- [x] Actor warmup weight is monotonic and bounded in `[0, 1]`.
-- [x] Joint phase uses actor weight `1`.
-- [x] Formal Stage 3 entry reaches the same phase reported by diagnostics.
-- [x] Resume selects phase from persisted iteration and rejects warmup-config drift.
-- [x] Frozen GMT optimizer isolation is contract-confirmed.
-- [x] Aggregate S0-S3 suite passes: 44/44 on 2026-07-15.
-- [x] Architecture and task evidence are current for this change.
-- [x] Offline gate passed; Phase B Gain consumer alignment remains the active
-      formal boundary. Long-run actor quality is a post-training observation,
-      not a pre-training gate.
+- [x] Existing periodic eval source behavior is untouched through Q1-E.
+- [x] Existing offline eval source behavior is untouched through Q1-E.
+- [x] Existing sequence eval source behavior is untouched through Q1-E.
+- [x] Existing `train`, `sequence_eval`, and offline modes never call the new
+  quality owner through Q1-E.
+- [x] Quality mode never calls Segment sampler sampling or PPO optimizer step
+  through Q1-E; it calls only the dedicated named-owner executor.
+- [x] Quality evaluator does not restore checkpoint sampler/warmup/optimizer
+  state through Q1-E.
+- [x] No old evaluator imports the quality evaluator through Q1-E.
+- [x] Stage 3 defaults and checkpoint schema are unchanged through Q1-E.
 
-## Phase B Formal Runtime Audit
+## Q1-A Manifest Matrix
 
-| Boundary | S/T | Status | Evidence |
-| --- | --- | --- | --- |
-| Formal route | S4 `T-connect` | runtime-observed | `AUDIT-ROUTE-01`, `E37`: official train route, alternate_modes=0 |
-| Perturbation config/application | S2/S4 `T-config/T-value/T-source` | runtime-observed | `AUDIT-PERTURB-01`, `AUDIT-PERTURB-02`, E41: rp, max K=64, local_rp=8, finite strength distribution |
-| Segment data/sampler transaction | S4 `T-source/T-state` | runtime-observed | `AUDIT-SEGDATA-01`, `AUDIT-SAMPLER-01`, `E37`: 8 source rows, priority update observed |
-| K plan/executed horizon | S4 `T-shape/T-forward` | runtime-observed | `AUDIT-KPLAN-01`, `AUDIT-KROLLOUT-01`, `E37`: all quartet rows survive K=8; policy valid=8 |
-| Quartet reset lifecycle | S4 `T-role/T-state/T-timeout` | live-confirmed-aligned | episode=0, root max<=1.91e-6, joint max=0 for all roles; downstream step-0 termination remains |
-| Quartet reset repair | S1/S2/S4 `T-role/T-state/T-forward/T-timeout` | live-confirmed | 32 role rows reached adapter and robot/lifecycle state aligned; perturbation remains policy-owned |
-| Termination term localization | S2/S4 `T-role/T-source/T-value` | runtime-observed | `AUDIT-RESET-LIFECYCLE-01`, `E37`: all active terms remain zero for every role through K=8 |
-| Anchor-position value localization | S2/S4 `T-source/T-value/T-frame/T-role` | runtime-observed | `AUDIT-ANCHOR-Z-01`, `E37`: first raw/clean/robot z align, max abs error=0.020011m, all role masks zero |
-| Sampled-frame command-cache initialization | S1/S2/S4 `T-frame/T-role/T-state/T-forward` | integrated-live | `E36/E37`: one no-advance refresh offline; first-step cache/termination and K=8 survival live-confirmed |
-| Observation/full-6D repair/application | S4 `T-shape/T-source/T-value` | runtime-observed | `AUDIT-OBS-01`, `AUDIT-ACTION-01`, `AUDIT-APPLY-01`, E39: finite full-6D action and delta norm |
-| Frozen GMT | S4 `T-grad/T-state` | runtime-observed | `AUDIT-GMT-01`, `E37`: gmt_training=False, trainable=0, in_optimizer=0 |
-| Paired roles/execution evidence | S4 `T-role/T-source` | runtime-observed | `AUDIT-PAIR-01`, `AUDIT-PAIR-EVIDENCE-01`, E39: policy=8/baseline=24, valid=7 |
-| Gain/returns | S4 `T-value/T-forward` | single-capture identity, mixed-K policy rows, actor-warmup, and resume continuity live-confirmed by E67/E68/E69; full actor quality remains open | `AUDIT-GAIN-01`, `AUDIT-RETURN-01`, E62/E63/E64/E66/E67/E68/E69: shared capture route, transaction/batch identity, policy-row Gain steps, local K-normalized survival trace, canonical gain_total forwarding, returns, advantages, and resumed updates |
-| Formal v002 audit instrumentation | S1/S2/S4 `T-connect/T-unit/T-K/T-step-sum/T-live` | runtime path reached; Gain consumer alignment open | `frontres_formal_runtime_audit_contract.py`, Runtime Atlas GAIN/RETURN cards, E58 |
-| Survival Gain unit alignment | S1/S2 `T-unit/T-K` | implementation/offline complete; formal consumer comparison open | `FRS-GAIN-v002`, `plans/survival_gain_unit_alignment_20260716.md`, E55 |
-| Survival units/K aggregation | S1/S2 `T-value/T-forward` | contract-confirmed | `frontres_gain_components_contract.py:test_survival_unit_and_k_aggregation_probe`, E55: K=1/4/8 and per-step sum match final K=4 Gain |
-| HSL Stage2-to-Stage3 load | S4 `T-persist/T-source` | runtime-observed | `AUDIT-HSL-LOAD-01`, `E37`: model_warmup actor and EmpiricalNormalization loaded |
-| Warmup/PPO/trust/diagnostics | S4 `T-grad/T-update-order/T-state` | runtime-observed | `AUDIT-WARMUP-01`, `AUDIT-PPO-01`, `AUDIT-DIAG-01`, `E39`: actor_warmup weight=0.5, valid=7, post KL=0.005442, trust accepted |
-| Checkpoint payload identity | S4 `T-persist` | runtime-observed | `AUDIT-PERSIST-01`, `E41`: model_2.pt includes model/optimizer/normalizer/sampler/Gain/warmup |
+| Invariant | Test kind | Status |
+| --- | --- | --- |
+| same semantic item -> same signature | S1 `T-hash` | completed, Q-E1 |
+| motion/frame/perturbation/K/seed change -> signature changes | S1 `T-metamorphic` | completed, Q-E1 |
+| row permutation preserves keyed result identity | S1 `T-permute` | completed, Q-E1 |
+| manifest is immutable after creation/load | S1 `T-immutable` | completed, Q-E1 |
+| checkpoint/sampler state cannot alter manifest selection | S2 `T-isolation` | completed, Q-E1 |
+| missing or duplicate identity fails closed | S1 `T-missing/T-schema` | completed, Q-E1 |
+
+## Q1-B State Matrix
+
+| Invariant | Test kind | Status |
+| --- | --- | --- |
+| preroll uses zero FrontRES, not tested policy | S2 `T-route` | completed, Q-E2 |
+| scoring state includes root/joint pose and velocity | S1/S2 `T-state` | completed, Q-E2 |
+| command/reference/correction caches are captured | S2 `T-cache` | completed, Q-E2 |
+| episode lifecycle, origin, frame/K/perturbation are captured | S2 `T-role/T-frame` | completed, Q-E2 |
+| restore reproduces all fields and state hash | S2 `T-restore` | completed, Q-E2 |
+| relevant RNG state is restored or explicitly isolated | S2 `T-RNG` | completed, Q-E2 |
+
+## Q1-C Counterfactual Matrix
+
+| Invariant | Test kind | Status |
+| --- | --- | --- |
+| zero route executes exact 6D zero action | S1/S2 `T-value/T-shape` | completed, Q-E3 |
+| HSL route uses frozen model_200 actor, not supervised target | S2 `T-source/T-frozen` | completed, Q-E3 payload contract |
+| policy route uses tested checkpoint actor | S2 `T-source/T-persist` | completed, Q-E3 payload contract |
+| observation layout/normalizer identity is explicit | S2 `T-layout/T-persist` | completed, Q-E3 |
+| all routes start from identical state/signature | S2 `T-identity/T-restore` | completed, Q-E3 |
+| canonical action application and Gain owners are reused | S2 `T-forward/T-connect` | callback contract complete Q-E3; formal wiring Q1-D |
+| optimizer/sampler/warmup state is unchanged | S2 `T-isolation/T-state` | completed, Q-E3 |
+
+## Q1-D/E Integration Matrix
+
+| Invariant | Test kind | Status |
+| --- | --- | --- |
+| dedicated `policy_quality_eval` dispatch only | S0/S2 `T-route/T-mode` | completed, Q-E4 |
+| old modes have zero quality-owner calls | S2 `T-no-call` | completed, Q-E4 |
+| quality mode has zero old-eval/training calls | S2 `T-no-call/T-isolation` | completed, Q-E4 |
+| thin connectors contain no evaluation logic | S0 `T-static` | completed, Q-E4 |
+| 8 Quality Atlas cards map to source/checklist IDs | S0/S2 `T-link/T-schema` | completed, Q-E5 |
+| focused contracts and aggregate suite pass | S2 `T-regression` | completed, Q-E6; 51/51 includes formal real-owner installation |
+
+## Live Gate
+
+No live command may be issued until Q1-A through Q1-E are complete and
+user-reviewed. The first live run proves only state/signature equality and
+route isolation. It does not prove policy superiority, Gain correctness,
+generalization, or long-training readiness.
+
+## Current Decision
+
+Q1-0 through Q1-E are complete. Q-E6 proves the official dedicated entry
+installs a production `FrontRESPolicyQualityFormalOwnerBundle`, reaches all six
+lower-level owner adapters, and preserves optimizer/sampler/warmup state
+offline. Q-E7 freezes the single-item Q1-F input and signatures. Q1-F remains
+blocked pending human review plus server checkpoint existence/SHA-256;
+no live quality or policy-superiority claim has been made.

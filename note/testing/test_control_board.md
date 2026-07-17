@@ -22,9 +22,9 @@ claims additionally require S4.
 
 | Surface | Current evidence | Status | Limitation |
 | --- | --- | --- | --- |
-| Segment aggregate suite | 44/44 contract markers, 2026-07-15 | covered S0-S3/S4-named offline contracts | Does not prove real simulator quality. |
-| Survival Gain v002 suite | Gain owner, connectivity, live probe/training/sequence/diagnostic/sampler contracts, 2026-07-17 | passed | E67 confirms transaction/batch identity; E68 confirms mixed K=8..64, finite policy-row Gain steps, returns/advantages, and actor-warmup entry. Full actor/joint RL, resume, and long-run quality remain separate gates. |
-| Architecture viewer | JSON valid; viewer imports; 62 owner paths exist; Runtime Audit Atlas has 20 owner cards | covered S0 | Does not prove runtime routing. |
+| Segment aggregate suite | 52/52 contract markers, 2026-07-17 | covered S0-S3/S4-named offline contracts, including Q1-E wiring and Q1-F input freeze | Does not prove real simulator quality or checkpoint existence. |
+| Survival Gain v002 suite | Gain owner, connectivity, live probe/training/sequence/diagnostic/sampler contracts, 2026-07-17 | passed | E67 confirms transaction/batch identity; E68 confirms mixed K=8..64 and actor-warmup entry; E69 confirms resume; E70 confirms full-weight joint updates with frozen GMT. Policy quality remains a separate Q gate. |
+| Architecture viewer | JSON valid; viewer imports; 62 owner paths exist; Runtime Audit Atlas has 22 cards and Quality Audit Atlas has 8 source-linked cards | covered S0 | Does not prove runtime routing or policy quality. |
 | Full-6D/no active mask | dedicated static contract plus rollout/PPO tuple tests | covered S0-S2 | S4 full-6D log proof remains. |
 | K curriculum | 8/16/32/64 implementation, explicit Stage 3 max horizon, and formal-route connectivity | covered S1-S2 | Live horizon distribution remains S4. |
 | Segment PPO | clipped surrogate, exact KL, raw-Gaussian/tanh log-prob identity, ratio source, scale-only advantage, rollback | covered S1-S2 | Gain consumer alignment remains S4; long-run learning quality is deferred until after training. |
@@ -44,6 +44,7 @@ claims additionally require S4.
 | Periodic eval | live training eval owner | S2/S4 | T-fresh-sample, T-state, T-same-formula, T-owner-isolation, T-live | S2 offline covered by E15; S4 live population open |
 | Sequence eval | sequence eval owner | S2/S4 | T-preroll, T-motion, T-K, T-same-formula, T-owner-isolation, T-live | S2 offline covered by E16; S4 live population open |
 | Checkpoint/resume | `frontres_checkpointing.py` formal runner owner | S3/S4 | T-state, T-version, T-scale, T-missing-identity, T-live | live-confirmed by E69: model_220 full-resume restored training state and saved model_221 after 4/4 updates |
+| Full-weight joint PPO | warmup owner -> Segment PPO -> checkpoint owner | S4 | T-phase, T-gradient-boundary, T-trust, T-persist | live-confirmed by E70: joint actor_weight=1.0, valid=13/14/16/16, accepted updates, frozen GMT, complete model_701 |
 | Diagnostics | Segment diagnostics/logging | S1/S2/S4 | T-unconfirmed, T-nonstale, T-decompose, T-legacy-isolation, T-live | canonical train-effect route and isolation offline-covered; raw ZMP/contact and S4 live evidence open |
 
 ## Required Gain Test Order

@@ -16,6 +16,7 @@ same Code Block ID
 - `architecture/01_repo_architecture.data.json`: editable source data for the ultra-wide Repository Reading Atlas.
 - `runtime/02_frontres_flow.data.json`: editable source data for the Concept Figure-driven Method-to-Code Reading Atlas.
 - `runtime/04_stage3_formal_runtime_audit.data.json`: permanent Runtime Audit Atlas for the Concept Figure-mapped Stage 3 Phase B probe route.
+- `runtime/05_policy_quality_audit.data.json`: Policy Quality Audit Atlas for the eight `QUALITY-*` causal owners and their Q evidence status.
 - `concept/03_frontres_concept_tabs.data.json`: editable source data for the paper-style FrontRES method figure.
 - `auxiliary/atlas_app/`: current helper viewer, local server, checks, and JS dependencies.
 - `auxiliary/legacy/`: retired viewer/render helpers kept outside the active app.

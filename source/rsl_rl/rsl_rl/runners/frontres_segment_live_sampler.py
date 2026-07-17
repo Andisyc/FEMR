@@ -114,6 +114,15 @@ def initialize_frontres_segment_live_sampler(runner: Any) -> None:
     )
 
 
+def ensure_frontres_policy_quality_reset_support(runner: Any) -> None:
+    """Install only cache-backed index reset support; never create or sample a replay sampler."""
+    sampler_before = getattr(runner, "_frontres_segment_sampler", None)
+    _ensure_stage1_cache_dataset(runner)
+    _ensure_stage1_index_reset_hook(runner)
+    if getattr(runner, "_frontres_segment_sampler", None) is not sampler_before:
+        raise RuntimeError("policy-quality reset support must not create or replace the Segment sampler")
+
+
 def _ensure_stage1_index_reset_hook(runner: Any) -> None:
     dataset = getattr(runner, "_frontres_segment_dataset", None)
     metadata = dataset.cache_metadata() if dataset is not None and hasattr(dataset, "cache_metadata") else None
@@ -369,6 +378,11 @@ def _attach_stage3_index_perturbation_plan(batch: Any, plan: Any | None) -> Any:
 
 
 def _attach_frontres_segment_trial_plan(batch: Any, sample: FrontRESSegmentSample) -> Any:
+    # QUALITY-DATA-01: 检查 sampled segment -> policy/search role -> gradient-bearing rows.
+    # Result: PENDING_Q_EVIDENCE.
+    # B1: sample source/global-replay-review identity 在 trial expansion 前可见.
+    # B2: policy/search role 与 K/difficulty 在这里首次绑定到 batch rows.
+    # B3: storage/PPO 消费前可统计 unique/repeat/staleness 与 valid policy rows.
     roles = tuple(getattr(sample, "trial_role", ()) or ())
     if roles and len(roles) == int(sample.segment_ids.numel()):
         object.__setattr__(batch, "frontres_segment_trial_role", roles)

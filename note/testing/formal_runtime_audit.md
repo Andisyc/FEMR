@@ -1,6 +1,6 @@
 # Formal Runtime Audit
 
-Status: `phase-b-runtime-closure-partial`
+Status: `phase-b-runtime-closed-quality-open`
 
 Current boundary 2026-07-17: the active reward contract is
 `FRS-GAIN-v002`. The formal audit was updated to expose raw survival steps,
@@ -87,9 +87,11 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
   `iter=220/220` and sampled effective
   `K=8..64`, and entered actor warmup with `actor_weight=0.002..0.040`; the
   policy-row Gain-step slice remained finite and transaction-local. Remaining
-  Remaining S4 work is full actor-weight/joint-RL coverage and policy-quality
-  evaluation. Checkpoint-resume continuity is closed by E69; neither E68 nor
-  E69 claims long-training quality or policy superiority.
+  E70 then reached `phase=joint`, `actor_weight=1.0`, completed four accepted
+  updates with valid rows and frozen GMT, and saved complete `model_701.pt`.
+  Phase B runtime connectivity is closed. Policy-quality evaluation remains a
+  separate Q gate; E68-E70 do not claim long-training quality or policy
+  superiority.
 - Runtime Audit Atlas: `note/architecture/04_stage3_formal_runtime_audit.html` backed by `runtime/04_stage3_formal_runtime_audit.data.json`, using the same `repository_reading_atlas` card layout as 01.
 - Prior offline evidence: retained in
   `note/testing/evidence_ledger_frontres_gain_2026-07-13.md` and the current
@@ -444,8 +446,9 @@ Human control surface: open `note/architecture/04_stage3_formal_runtime_audit.ht
 
 The Atlas cards now distinguish observed owner boundaries from still-open
 claims. E67 proves single-capture identity, E68 proves mixed-K and actor-warmup,
-and E69 proves full-resume continuity. These entries do not promote full actor
-weight, long-training quality, or policy superiority to PASS.
+E69 proves full-resume continuity, and E70 proves full actor-weight joint PPO
+with frozen GMT and complete persistence. None of these entries promotes
+long-training quality or policy superiority to PASS.
 
 ## Method Semantics Extracted (Dr.Cheng)
 
