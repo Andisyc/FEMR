@@ -273,3 +273,33 @@ Limit and blocker:
   artifact-verified.
 - Q1-F remains blocked until Dr. Cheng reviews the freeze and server preflight
   records both hashes. No live command has been issued.
+
+## Q-E8 - Q1-F Inference-Tensor Restore Defect
+
+Date: 2026-07-17
+
+Scope: first Q1-F live attempt and deterministic restore-owner repair. The run
+did not reach matched route execution and is not Q1 evidence.
+
+Observed facts:
+
+- The canonical index reset reached motion KIT/572 frame 163 with four roles;
+  policy-only local_rp strength was 1.25 and the other role strengths were zero.
+- The first scoring-state restore failed at `_restore_rows()` because an Isaac
+  command cache created under `torch.inference_mode()` rejected an out-of-mode
+  in-place `index_copy_`.
+- The restore owner now preserves tensor object identity and performs the
+  in-place row copy inside `torch.inference_mode()`.
+- A regression fixture creates an actual PyTorch inference tensor and proves
+  indexed restoration outside the caller's inference context.
+- Focused state and real-owner wiring contracts pass; `py_compile` passes;
+  aggregate suite remains `52/52`; `git diff --check` passes.
+
+Evidence class: S1/S2 plus failed S4 boundary,
+`T-state/T-live/T-regression/T-connect`.
+
+Limit:
+
+- Q1-F remains unconfirmed and must rerun the same immutable manifest. No
+  comparison-signature, three-route state-hash, Gain, or policy-quality claim
+  follows from the failed run.

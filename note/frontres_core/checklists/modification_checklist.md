@@ -20,7 +20,7 @@ sequence eval are protected non-scope.
 | Q1-C Counterfactual routes | quality evaluator + frozen HSL adapter | S2 `T-counterfactual/T-frozen/T-source/T-shape/T-forward/T-isolation/T-metamorphic` | completed | Q-E3 focused pass; aggregate 47/47; formal wiring remains Q1-D |
 | Q1-D Entry/isolation | CLI, `train.py`, `on_policy_runner.py` | S0/S2 `T-route/T-import/T-mode/T-no-call/T-state` | completed | Q-E4 focused pass; aggregate 48/48 |
 | Q1-E Atlas/preflight | Quality Atlas + focused/aggregate suites | S0-S2 `T-connect/T-link/T-schema/T-isolation` | completed | Q-E6: official entry installs six real owner adapters; aggregate 51/51 |
-| Q1-F Live identity | quality evaluator real simulator boundary | S4 `T-live/T-state/T-identity/T-frozen/T-isolation` | input prepared; blocked pending review/hash | Q-E7 manifest frozen; server checkpoint existence/SHA-256 and user authorization required |
+| Q1-F Live identity | quality evaluator real simulator boundary | S4 `T-live/T-state/T-identity/T-frozen/T-isolation` | repair verified offline; live rerun required | Q-E8 fixed inference-tensor restore; same immutable manifest must rerun |
 
 ## Phase B Runtime Closure Index
 

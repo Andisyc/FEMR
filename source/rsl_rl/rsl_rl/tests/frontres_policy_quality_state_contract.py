@@ -168,8 +168,19 @@ def test_restore_rejects_comparison_mismatch_and_missing_cache() -> None:
         raise AssertionError("missing command cache must fail closed")
 
 
+def test_restore_rows_supports_isaac_inference_tensors() -> None:
+    with torch.inference_mode():
+        target = torch.zeros((4, 2), dtype=torch.float32)
+    image = state_module._TensorImage.capture(torch.tensor([[1.0, 2.0], [3.0, 4.0]]))
+
+    state_module._restore_rows(target, torch.tensor([1, 3]), image)
+
+    assert target.tolist() == [[0.0, 0.0], [1.0, 2.0], [0.0, 0.0], [3.0, 4.0]]
+
+
 if __name__ == "__main__":
     test_zero_preroll_has_no_policy_route()
     test_complete_scoring_state_round_trip_restores_hash_and_rng()
     test_restore_rejects_comparison_mismatch_and_missing_cache()
+    test_restore_rows_supports_isaac_inference_tensors()
     print("PASS: policy-quality scoring state capture and restore are closed offline.")

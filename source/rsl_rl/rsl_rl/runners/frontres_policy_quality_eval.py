@@ -743,4 +743,7 @@ def _restore_rows(target: torch.Tensor, ids: torch.Tensor, image: _TensorImage) 
     expected = (int(target_ids.numel()), *tuple(target.shape[1:]))
     if tuple(values.shape) != expected:
         raise ValueError(f"snapshot shape {tuple(values.shape)} does not match restore target {expected}")
-    target.index_copy_(0, target_ids, values.to(dtype=target.dtype))
+    # Isaac command caches may be inference tensors. Preserve their object identity
+    # and restore rows inside the mode that created them.
+    with torch.inference_mode():
+        target.index_copy_(0, target_ids, values.to(dtype=target.dtype))
