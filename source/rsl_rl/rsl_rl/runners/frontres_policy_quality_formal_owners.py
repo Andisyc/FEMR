@@ -25,6 +25,10 @@ from rsl_rl.runners.frontres_policy_quality_eval import (
     ZeroFrontRESTaskActor,
     capture_frontres_policy_quality_state,
 )
+from rsl_rl.runners.frontres_hsl_rollout_target import (
+    build_frontres_hsl_rollout_target,
+    quat_to_rotvec_wxyz,
+)
 from rsl_rl.runners.frontres_segment_live_probe import (
     _capture_motion_quality_frame,
     _capture_physics_frame,
@@ -126,9 +130,17 @@ class _RouteCapture:
         self.repaired_done = torch.zeros(int(pair_layout.n_train), dtype=torch.bool, device=runner.device)
         self.noisy_done = torch.zeros(int(pair_layout.n_train), dtype=torch.bool, device=runner.device)
         self.last_gain: Any = None
+        self.current_route: str | None = None
+        self.hsl_command: Any = None
+        self.hsl_pos_snapshot: torch.Tensor | None = None
+        self.hsl_quat_snapshot: torch.Tensor | None = None
+        self.hsl_targets: list[torch.Tensor] = []
+        self.hsl_weights: list[torch.Tensor] = []
+        self.hsl_harm_weights: list[torch.Tensor] = []
 
     def begin_route(self, route: str) -> None:
         """Clear route-local evidence after the shared scoring state is restored."""
+        self.current_route = route
         self.raw_obs = None
         self.pending_action = None
         self.actions.clear()
@@ -147,6 +159,12 @@ class _RouteCapture:
         self.repaired_done.zero_()
         self.noisy_done.zero_()
         self.last_gain = None
+        self.hsl_command = None
+        self.hsl_pos_snapshot = None
+        self.hsl_quat_snapshot = None
+        self.hsl_targets.clear()
+        self.hsl_weights.clear()
+        self.hsl_harm_weights.clear()
 
     def observe(self) -> torch.Tensor:
         obs, extras = self.runner.env.get_observations()
@@ -166,6 +184,19 @@ class _RouteCapture:
             allow_oracle=False,
             n_candidate=0,
         )
+        if self.current_route == "hsl":
+            env = self.runner.env.unwrapped if hasattr(self.runner.env, "unwrapped") else self.runner.env
+            manager = getattr(env, "command_manager", None)
+            terms = getattr(manager, "_terms", {}) if manager is not None else {}
+            for command in terms.values():
+                if hasattr(command, "_frontres_pos_correction") and hasattr(command, "_frontres_quat_correction"):
+                    n_train = int(self.pair_layout.n_train)
+                    self.hsl_command = command
+                    self.hsl_pos_snapshot = command._frontres_pos_correction[:n_train].detach().clone()
+                    self.hsl_quat_snapshot = command._frontres_quat_correction[:n_train].detach().clone()
+                    break
+            if self.hsl_command is None:
+                raise RuntimeError("quality HSL target audit could not find the task-space command owner")
 
     def step(self) -> Any:
         if self.pending_action is None:
@@ -181,6 +212,27 @@ class _RouteCapture:
         step_result = self.runner.env.step(env_action.to(self.runner.env.device))
         _, _, dones, _ = step_result
         dones = dones.to(self.runner.device).bool()
+        if self.current_route == "hsl":
+            target_result = build_frontres_hsl_rollout_target(
+                self.runner,
+                command=self.hsl_command,
+                actions=self.pending_action,
+                dones=dones,
+                current_pos_correction=self.hsl_pos_snapshot,
+                current_quat_correction=self.hsl_quat_snapshot,
+                n_train=int(self.pair_layout.n_train),
+                n_candidate=int(self.pair_layout.n_candidate),
+                n_base=int(self.pair_layout.n_base),
+                n_clean=int(self.pair_layout.n_clean),
+                quat_to_rotvec_wxyz=quat_to_rotvec_wxyz,
+                write_transition=False,
+            )
+            if target_result is None:
+                raise RuntimeError("quality HSL target audit did not receive a canonical target")
+            n_train = int(self.pair_layout.n_train)
+            self.hsl_targets.append(target_result.target[:n_train].detach().clone())
+            self.hsl_weights.append(target_result.weight[:n_train].detach().clone())
+            self.hsl_harm_weights.append(target_result.harm_weight[:n_train].detach().clone())
         n_pair = int(self.pair_layout.n_train)
         base_start = int(self.pair_layout.n_train) + int(self.pair_layout.n_candidate)
         self.repaired_survival += (~self.repaired_done).float()
@@ -241,12 +293,34 @@ class _RouteCapture:
         return self.last_gain
 
     def capture_execution(self) -> Mapping[str, Any]:
-        return {
+        result = {
             "repaired_success": (~self.repaired_done).detach().clone(),
             "noisy_success": (~self.noisy_done).detach().clone(),
             "repaired_survival_steps": self.repaired_survival.detach().clone(),
             "noisy_survival_steps": self.noisy_survival.detach().clone(),
         }
+        if self.current_route == "hsl":
+            if len(self.hsl_targets) != self.horizon_k or len(self.actions) != self.horizon_k:
+                raise RuntimeError("quality HSL target audit must cover every rollout step")
+            targets = torch.stack(self.hsl_targets, dim=0)
+            actions = torch.stack(self.actions, dim=0)
+            weights = torch.stack(self.hsl_weights, dim=0)
+            harm_weights = torch.stack(self.hsl_harm_weights, dim=0)
+            target_norm = targets.norm(dim=-1)
+            action_norm = actions.norm(dim=-1)
+            cosine = (actions * targets).sum(dim=-1) / (action_norm * target_norm).clamp_min(1.0e-8)
+            target_nonzero = target_norm.gt(1.0e-8)
+            cosine = torch.where(target_nonzero, cosine, torch.zeros_like(cosine))
+            result["hsl_supervision"] = {
+                "targets": targets,
+                "sample_weights": weights,
+                "harm_weights": harm_weights,
+                "target_nonzero": target_nonzero,
+                "action_target_l2": (actions - targets).norm(dim=-1),
+                "action_target_cosine": cosine,
+                "sign_agree_per_dim": ((actions * targets) > 0.0).float(),
+            }
+        return result
 
 
 def _training_state_signature(runner: Any) -> str:
@@ -352,6 +426,11 @@ def build_frontres_policy_quality_formal_owner_bundle(
     request: FrontRESPolicyQualityEvalRequest,
 ) -> FrontRESPolicyQualityFormalOwnerBundle:
     """Build the production bundle from canonical lower-level Stage 3 owners."""
+    if not bool(getattr(runner, "cfg", {}).get("frontres_hsl_rollout_label_enabled", False)):
+        raise RuntimeError(
+            "policy-quality Q2-B requires frontres_hsl_rollout_label_enabled=True "
+            "to expose the canonical post-step supervised target"
+        )
     ensure_frontres_policy_quality_reset_support(runner)
     pair_layout = configure_frontres_pair_layout(runner, is_frontres=True)
     if int(runner.env.num_envs) != sum(

@@ -55,6 +55,17 @@ class _Env:
     num_envs = 4
     device = torch.device("cpu")
 
+    def __init__(self) -> None:
+        command = SimpleNamespace(
+            _frontres_pos_correction=torch.zeros(4, 3),
+            _frontres_quat_correction=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(4, 1),
+        )
+        self.command_manager = SimpleNamespace(_terms={"motion": command})
+
+    @property
+    def unwrapped(self):
+        return self
+
     def get_observations(self):
         return torch.ones((4, 4)), {"observations": {"policy": torch.ones((4, 4))}}
 
@@ -84,7 +95,7 @@ def main() -> None:
         policy_obs_type="policy",
         obs_normalizer=nn.Identity(),
         _frontres_gmt_obs_dim=4,
-        cfg={},
+        cfg={"frontres_hsl_rollout_label_enabled": True},
         current_learning_iteration=9,
         alg=SimpleNamespace(policy=policy, optimizer=torch.optim.SGD([parameter], lr=0.1)),
         _frontres_segment_sampler=SimpleNamespace(state_dict=lambda: {"priority": torch.tensor([1.0])}),
@@ -166,6 +177,20 @@ def main() -> None:
         return noisy_zmp + repair_effect, noisy_zmp, torch.ones(1), torch.ones(1)
 
     formal._capture_physics_frame = physics_capture
+    hsl_target_calls = []
+
+    def fake_hsl_target(_runner, **kwargs):
+        hsl_target_calls.append(kwargs)
+        assert kwargs["write_transition"] is False
+        target = torch.zeros((4, 6))
+        target[0] = kwargs["actions"][0] + 0.05
+        weight = torch.zeros((4, 1))
+        weight[0] = 1.25
+        harm_weight = torch.zeros((4, 1))
+        harm_weight[0] = 0.2
+        return SimpleNamespace(target=target, weight=weight, harm_weight=harm_weight)
+
+    formal.build_frontres_hsl_rollout_target = fake_hsl_target
     original_gain = formal.compute_segment_gain
 
     def counted_gain(**kwargs):
@@ -265,6 +290,14 @@ def main() -> None:
         assert zero_route["actions"] == [[[0.0] * 6] * 4] * 3
         for key in ("style_gain", "physics_gain", "repair_cost", "gain_total"):
             torch.testing.assert_close(torch.tensor(zero_route["gain"][key]), torch.zeros(1), atol=1.0e-7, rtol=0.0)
+        assert len(hsl_target_calls) == 3
+        assert "hsl_supervision" not in zero_route["execution"]
+        assert "hsl_supervision" not in payload["rows"][0]["routes"]["policy"]["execution"]
+        supervision = payload["rows"][0]["routes"]["hsl"]["execution"]["hsl_supervision"]
+        assert len(supervision["targets"]) == 3
+        torch.testing.assert_close(torch.tensor(supervision["sample_weights"]), torch.full((3, 1, 1), 1.25))
+        torch.testing.assert_close(torch.tensor(supervision["harm_weights"]), torch.full((3, 1, 1), 0.2))
+        assert supervision["target_nonzero"] == [[True], [True], [True]]
 
     print("PASS: official policy-quality entry installs and reaches all six real owner adapters offline.")
 

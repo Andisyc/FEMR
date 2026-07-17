@@ -5,10 +5,31 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import torch
 from isaaclab.utils.math import quat_inv, quat_mul
+
+
+@dataclass(frozen=True)
+class FrontRESHSLRolloutTargetResult:
+    """Canonical full-env HSL target and its supervised sample weights."""
+
+    target: torch.Tensor
+    weight: torch.Tensor
+    harm_weight: torch.Tensor
+
+
+def quat_to_rotvec_wxyz(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Map wxyz unit quaternions to shortest-path rotation vectors."""
+    q = q / q.norm(dim=-1, keepdim=True).clamp(min=eps)
+    q = torch.where(q[..., :1] < 0.0, -q, q)
+    xyz = q[..., 1:]
+    xyz_norm = xyz.norm(dim=-1, keepdim=True)
+    angle = 2.0 * torch.atan2(xyz_norm, q[..., :1].clamp(min=eps))
+    scale = torch.where(xyz_norm > eps, angle / xyz_norm.clamp(min=eps), 2.0 * torch.ones_like(xyz_norm))
+    return xyz * scale
 
 
 def build_frontres_hsl_rollout_target(
@@ -24,7 +45,8 @@ def build_frontres_hsl_rollout_target(
     n_base: int,
     n_clean: int,
     quat_to_rotvec_wxyz: Any,
-) -> None:
+    write_transition: bool = True,
+) -> FrontRESHSLRolloutTargetResult | None:
     """Build and write one mixed full-6D HSL target from rollout anchor states.
 
     Status: active. Upstream: standard FrontRES rollout after env.step.
@@ -134,6 +156,15 @@ def build_frontres_hsl_rollout_target(
     target_full[:n] = mixed_label
     weight_full[:n, 0] = denom.clamp(max=max_weight) * valid_rollout
     harm_weight_full[:n, 0] = harm_w * valid_rollout
-    runner.alg.transition.supervised_target = target_full
-    runner.alg.transition.supervised_weight = weight_full
-    runner.alg.transition.supervised_harm_weight = harm_weight_full
+    result = FrontRESHSLRolloutTargetResult(
+        target=target_full,
+        weight=weight_full,
+        harm_weight=harm_weight_full,
+    )
+    # B4: 训练默认写 transition; dedicated quality audit 只读同一 canonical
+    # 结果, 避免 evaluator 污染 storage/optimizer/warmup 状态.
+    if write_transition:
+        runner.alg.transition.supervised_target = result.target
+        runner.alg.transition.supervised_weight = result.weight
+        runner.alg.transition.supervised_harm_weight = result.harm_weight
+    return result

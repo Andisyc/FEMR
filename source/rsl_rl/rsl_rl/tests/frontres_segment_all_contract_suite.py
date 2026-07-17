@@ -258,6 +258,13 @@ CONTRACTS = (
         requires_torch=False,
     ),
     ContractTarget(
+        name="hsl_rollout_target_audit",
+        path="source/rsl_rl/rsl_rl/tests/frontres_hsl_rollout_target_contract.py",
+        expected_marker="PASS: canonical HSL rollout target supports non-mutating quality audit capture.",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
         name="policy_quality_scoring_state",
         path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_state_contract.py",
         expected_marker="PASS: policy-quality scoring state capture and restore are closed offline.",

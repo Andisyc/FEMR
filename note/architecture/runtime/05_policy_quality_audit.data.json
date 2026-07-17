@@ -64,8 +64,8 @@
         "id": "QUALITY-ID-01-B4",
         "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_formal_owners.py",
         "role": "B4: reset 后 paired role local-state/cache identity snapshot",
-        "sourceLine": 412,
-        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_formal_owners.py&line=412"
+        "sourceLine": 491,
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_formal_owners.py&line=491"
       }
           ],
           "mainRoute": [
@@ -100,12 +100,12 @@
         "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=260"
       },
       {
-        "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_formal_owners.py:412 :: prepare_item() QUALITY-ID-01",
+        "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_formal_owners.py:491 :: prepare_item() QUALITY-ID-01",
         "capture": "policy/noisy local root, pose, velocity, joint and cached perturbation deltas; policy/clean corruption delta",
         "whyHere": "canonical reset 已完成且 scoring state 已冻结, 但 zero/HSL/policy 尚未分叉",
         "failureOwner": "失败归属: reset role identity, env origin handling, or cache synchronization",
-        "sourceLine": 412,
-        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_formal_owners.py&line=412"
+        "sourceLine": 491,
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_formal_owners.py&line=491"
       }
           ],
           "probe": {
@@ -239,7 +239,8 @@
             "Parent: FRS-DP-04 | M-04",
             "requested bounded Delta SE(3)",
             "contact-consistent applied correction",
-            "command/GMT action identity"
+            "command/GMT action identity",
+            "HSL action / canonical supervised target alignment"
           ],
           "files": [
             {
@@ -262,12 +263,20 @@
               "role": "B3: command/GMT action identity",
               "sourceLine": 85,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=85"
+            },
+            {
+              "id": "QUALITY-ACTION-01-B4",
+              "path": "source/rsl_rl/rsl_rl/runners/frontres_hsl_rollout_target.py",
+              "role": "B4: HSL action / canonical supervised target alignment",
+              "sourceLine": 164,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_hsl_rollout_target.py&line=164"
             }
           ],
           "mainRoute": [
             "B1 requested bounded Delta SE(3)",
             "B2 contact-consistent applied correction",
-            "B3 command/GMT action identity"
+            "B3 command/GMT action identity",
+            "B4 HSL action / canonical supervised target alignment"
           ],
           "probeSteps": [
             {
@@ -293,6 +302,14 @@
               "failureOwner": "失败归属: actor/checkpoint/projection/application",
               "sourceLine": 85,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ftask_space_correction.py&line=85"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_hsl_rollout_target.py:164 :: build_frontres_hsl_rollout_target() B4",
+              "capture": "HSL action, projected target, sample/harm weight, cosine, L2 and per-dim sign agreement",
+              "whyHere": "canonical target 已由 post-step Clean/Noisy/Repaired 动态状态形成, 且尚未写入训练 transition 或质量结果",
+              "failureOwner": "失败归属: HSL target construction / proposal alignment / executability assumption",
+              "sourceLine": 164,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_hsl_rollout_target.py&line=164"
             }
           ],
           "probe": {
@@ -301,7 +318,8 @@
             "capture": [
               "requested bounded Delta SE(3)",
               "contact-consistent applied correction",
-              "command/GMT action identity"
+              "command/GMT action identity",
+              "HSL action / canonical supervised target alignment"
             ],
             "failIf": [
               "comparison identity 不一致",
@@ -310,13 +328,14 @@
           },
           "review": [
             "先读问题与可证伪关系",
-            "再按 B1/B2/B3 打开源码并确认 failure owner"
+            "再按 B1/B2/B3/B4 打开源码并确认 failure owner"
           ],
           "tests": [
             "offline deterministic quality contract",
-            "matched live evidence only when gate permits"
+            "matched live evidence only when gate permits",
+            "Q2-B canonical HSL target golden and owner-wiring contracts"
           ],
-          "gap": "offline source/shape observed: Q-E3; real application pending Q1-F"
+          "gap": "Q2-B offline target wiring complete; real model_200 action-target alignment pending one matched live result"
         },
         {
           "id": "QUALITY-GAIN-01",

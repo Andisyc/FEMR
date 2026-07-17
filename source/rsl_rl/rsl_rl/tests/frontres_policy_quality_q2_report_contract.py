@@ -90,12 +90,29 @@ def _result(manifest: object) -> dict[str, object]:
             ("hsl", "model_200:hash", hsl),
             ("policy", "model_701:hash", policy),
         ):
+            actions = [[[0.08] * 6] + [[0.0] * 6 for _ in range(3)] for _ in range(8)]
+            execution = {}
+            if route == "hsl":
+                execution["hsl_supervision"] = {
+                    "targets": [[[0.1] * 6] for _ in range(8)],
+                    "sample_weights": [[[1.0]] for _ in range(8)],
+                    "harm_weights": [[[0.2]] for _ in range(8)],
+                    "target_nonzero": [[True] for _ in range(8)],
+                    "action_target_l2": [[(6.0 * 0.02**2) ** 0.5] for _ in range(8)],
+                    "action_target_cosine": [[1.0] for _ in range(8)],
+                    "sign_agree_per_dim": [[[1.0] * 6] for _ in range(8)],
+                }
             routes[route] = {
                 "checkpoint_identity": checkpoint,
                 "initial_state_hash": state_hash,
-                "gain": {"gain_total": [gain]},
-                "actions": [],
-                "execution": {},
+                "gain": {
+                    "gain_total": [gain],
+                    "style_gain": [gain + (0.015 if route != "zero" else 0.0)],
+                    "physics_gain": [0.0],
+                    "repair_cost": [0.1 if route != "zero" else 0.0],
+                },
+                "actions": actions,
+                "execution": execution,
             }
         rows.append(
             {
@@ -133,6 +150,11 @@ def test_per_item_noise_floor_delta_and_permutation() -> None:
     assert abs(first["delta"]["hsl_zero"] - 0.03) < 1.0e-12
     assert abs(first["delta"]["policy_hsl"] - 0.02) < 1.0e-12
     assert first["classification"]["policy_hsl"] == "positive"
+    assert abs(report["inferred_repair_weight"] - 0.15) < 1.0e-12
+    assert first["failure_owner"]["hsl_zero"] == "resolved_improvement"
+    assert first["hsl_target_alignment"]["shape"] == [8, 1, 6]
+    assert first["hsl_target_alignment"]["action_target_cosine_mean_active"] == 1.0
+    assert first["hsl_target_alignment"]["sign_agree_per_dim_mean_active"] == [1.0] * 6
 
     shuffled = deepcopy(result)
     random.Random(7).shuffle(shuffled["rows"])
@@ -146,11 +168,14 @@ def test_negative_scientific_outcome_is_a_report_not_an_exception() -> None:
         zero = row["routes"]["zero"]["gain"]["gain_total"][0]
         row["routes"]["hsl"]["gain"]["gain_total"] = [zero - 0.03]
         row["routes"]["policy"]["gain"]["gain_total"] = [zero - 0.04]
+        row["routes"]["hsl"]["gain"]["style_gain"] = [zero - 0.015]
+        row["routes"]["policy"]["gain"]["style_gain"] = [zero - 0.025]
     report = build_report(manifest, result)
     assert report["technical_pass"] is True
     assert report["verdict"]["oracle_valid"] is False
     assert report["verdict"]["method_review_required"] is True
     assert report["verdict"]["ppo_regression_supported"] is False
+    assert report["failure_owner_counts"]["hsl_zero"]["execution_degradation_before_cost"] == 16
 
 
 def test_identity_schema_gain_and_role_fail_closed() -> None:
@@ -179,6 +204,15 @@ def test_identity_schema_gain_and_role_fail_closed() -> None:
     state = _result(manifest)
     state["rows"][0]["routes"]["policy"]["initial_state_hash"] = "f" * 64
     _must_fail(manifest, state, "initial_state_hash")
+
+    missing_supervision = _result(manifest)
+    del missing_supervision["rows"][0]["routes"]["hsl"]["execution"]["hsl_supervision"]
+    try:
+        build_report(manifest, missing_supervision, require_hsl_supervision=True)
+    except ValueError as exc:
+        assert "missing required Q2-B" in str(exc)
+    else:
+        raise AssertionError("Q2-B report must reject missing HSL supervision")
 
 
 if __name__ == "__main__":

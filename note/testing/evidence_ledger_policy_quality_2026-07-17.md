@@ -461,3 +461,125 @@ Boundary:
 
 - No training, PPO, Gain, reset, perturbation mask, or existing evaluator code
   changed. S4 Q2 collection remains pending and long training remains blocked.
+
+## Q-E13 - Q2 Counterfactual Oracle Result
+
+Date: 2026-07-17
+
+Raw evidence:
+
+- Log: `policy_quality_q2_bank_v1.txt`.
+- Result: `policy_quality_q2_bank_v1_result.json`.
+- Derived report: `policy_quality_q2_bank_v1_report.json`.
+- Manifest signature:
+  `b80831fe0bd2aa25c98487b863550af7c943d188809b2c1eb534c4163d63ac4b`.
+
+Technical result:
+
+- All 16 manifest items are present. Every item has zero/HSL/policy routes,
+  one shared route state hash, matched policy/noisy local dynamics and caches,
+  and nonzero policy/clean local_rp corruption.
+- The independent Q2 reporter returns `technical_pass=true`; no simulator
+  traceback or result-schema corruption was found.
+
+Scientific result:
+
+- HSL-Zero motion classes: positive 1, negative 4, unresolved 1, mixed 2.
+- Policy-Zero motion classes: positive 0, negative 4, mixed 4.
+- Policy-HSL motion classes: positive 1, negative 1, unresolved 3, mixed 3;
+  per-item median is `0.001159566`.
+- Therefore `oracle_valid=false`, `policy_useful=false`,
+  `ppo_improvement_supported=false`, and `method_review_required=true`.
+- Repair Cost is consistently nonzero for HSL/Policy (roughly 0.128-0.160 in
+  this bank, weighted by 0.15), and can dominate small Style/Physics benefits.
+  It is not the sole cause: several items also show negative Style or Physics
+  changes before cost, so the HSL proposal itself is not uniformly executable.
+- The walking-run items have unusually large zero noise floors (about 0.164
+  and 0.209), making K=8 route differences on that motion poorly resolvable.
+
+Decision:
+
+- Q2 collection is complete but fails its positive-control quality gate.
+- The first divergence is HSL versus zero, before PPO. Do not modify PPO and do
+  not begin Q3, checkpoint trajectory evaluation, or long training.
+- Next bounded step is an offline HSL/Gain learnability audit: separate
+  pre-cost Style+Physics ordering from Repair Cost, verify model_200 proposal
+  authority against its supervised target, and classify motion/seed failures.
+
+## Q-E14 - Q2-A Gain Learnability Decomposition
+
+Date: 2026-07-17
+
+Scope: use only the matched Q2 result to locate whether HSL failures arise
+before or after Repair Cost, without modifying the active Gain formula.
+
+Evidence:
+
+- `frontres_policy_quality_q2_report.py` now reconstructs the effective Repair
+  weight from each persisted component tuple and rejects inconsistent rows.
+- Observed shared weight: `0.150000006`, matching the active 0.15 contract.
+- For each item it records pre-cost `Style+Physics`, route differences, and one
+  failure owner relative to that item's zero noise floor.
+- HSL-Zero item owners across 16 items: 5 execution degradation before cost,
+  1 Repair Cost dominance, 3 insufficient pre-cost margin after cost, 4
+  unresolved at zero noise floor, and 3 resolved improvements.
+- The walking-run zero route has large negative Physics Gain in both seeds,
+  producing zero noise floors about 0.164 and 0.209. This is paired-execution
+  sensitivity at K=8, not action regularization because zero Repair Cost is 0.
+- Focused golden/metamorphic Q2 reporter contract passes and verifies the
+  reconstructed weight and failure-owner classification.
+
+Decision:
+
+- Do not remove, clip, or retune Repair Cost: cost dominance explains only one
+  HSL item and is not the first common failure.
+- The earliest unresolved owner is HSL proposal-to-execution quality. The next
+  step must compare model_200 output to its canonical dynamic supervised target.
+- Existing Q2 artifacts cannot answer that question because they do not store
+  post-step HSL target/weight. Q2-B therefore remains a separate dedicated
+  evaluator instrumentation step followed by one bounded S4 rerun.
+
+## Q-E15 - Q2-B HSL Target Alignment Offline Preflight
+
+Date: 2026-07-17
+
+Scope: expose the canonical dynamic HSL supervised target inside only the
+dedicated policy-quality evaluator, without changing training semantics or any
+existing evaluator.
+
+Implementation:
+
+- `build_frontres_hsl_rollout_target()` returns one immutable target/weight/
+  harm-weight object. Its default `write_transition=True` preserves the formal
+  Stage 2 behavior; `False` is a non-mutating audit mode.
+- `_RouteCapture` snapshots the applied task-space correction, calls the same
+  owner after `env.step` only for the HSL route, and persists K-step target,
+  weights, nonzero mask, action-target L2/cosine, and per-dimension sign
+  agreement under `execution.hsl_supervision`.
+- The dedicated owner fails early unless the canonical rollout-label config is
+  enabled. Zero and policy routes never receive HSL supervision fields.
+- The independent Q2 reporter supports `--require-hsl-supervision` and rejects
+  missing, ragged, non-finite, or shape-inconsistent target evidence.
+- QUALITY-ACTION-01 Atlas B4 links the canonical target write boundary and
+  names HSL target/proposal/executability as the failure owner.
+
+Offline evidence:
+
+- S1 golden target contract passes hand-computed position residual,
+  safe/broken/repair/harm weights, projection, full-env zeros, and mutating vs
+  non-mutating behavior.
+- S2 real-owner wiring contract reaches exactly K target captures on HSL,
+  preserves zero/policy isolation, and leaves optimizer/sampler/warmup state
+  unchanged.
+- Reporter schema/golden/metamorphic contract and Atlas source-link contract
+  pass.
+- `py_compile` passes for all modified Python owners/tests; the aggregate
+  Segment suite passes `54/54` with `failed_count=0`, and `git diff --check`
+  passes.
+
+Boundary and next:
+
+- This proves implementation and formal dedicated-route wiring offline. Real
+  model_200 action-target alignment remains S4-unconfirmed.
+- Run the unchanged Q2 bank once with the new result schema, then invoke the
+  reporter with `--require-hsl-supervision`. Do not start Q3 or long training.

@@ -327,6 +327,54 @@ Stop condition: identity/schema failure, non-finite or non-scalar route Gain,
 role corruption failure, or HSL positive-control failure on both seeds for at
 least 3 motions.
 
+Closure result: Q-E13 passes the technical matched-comparison gate for all 16
+items but triggers the scientific stop condition. HSL-Zero is negative on both
+seeds for 4/8 motions and positive on only 1/8. Policy-HSL has no stable bank
+advantage. The first divergence is HSL/proposal versus canonical Gain, before
+PPO. Q3 and long training remain blocked; the next bounded step is an offline
+HSL/Gain learnability decomposition, not another live run.
+
+### Step Q2-A: Offline Gain Learnability Decomposition
+
+Status: completed by Q-E14.
+
+Objective: distinguish HSL execution degradation from Repair Cost dominance
+and paired-env zero noise without changing the active Gain formula.
+
+Scope: infer the runtime Repair weight from persisted Style/Physics/Cost/total,
+compute pre-cost route differences, and classify each item before aggregation.
+Non-scope: weight tuning, PPO, target reconstruction, and simulator reruns.
+
+Closure: the effective Repair weight reconstructs as 0.15. Only 1/16 HSL
+items is a clear Repair-Cost-dominance failure; 5/16 already degrade
+Style+Physics before cost. Therefore removing or weakening Repair Cost is not a
+supported root-cause fix. Walking-run zero noise is dominated by paired Physics
+divergence and remains unsuitable for resolving K=8 route differences.
+
+### Step Q2-B: HSL Output-To-Target Alignment
+
+Status: integrated offline by Q-E15; S4 evidence pending.
+
+Objective: compare model_200 full-6D output with the canonical post-step HSL
+supervised target on the failed Q2 items.
+
+Scope: reuse `frontres_hsl_rollout_target.py` semantics inside only the
+dedicated policy-quality evaluator, persist target/weight/action alignment, and
+add S1/S2 contracts before one bounded rerun. Non-scope: existing online,
+offline, sequence eval, training, Gain, or PPO control flow.
+
+Reason for split: the target depends on post-`env.step` Clean/Noisy/FEMR root
+states and action-cone projection. It is absent from the Q2 result and cannot
+be reconstructed honestly from model_200 or the persisted action trajectory.
+
+Offline implementation: the canonical HSL owner now returns its target/weight
+object while retaining the training-default transition write. The dedicated
+quality evaluator calls it with `write_transition=False` only for the HSL
+route and persists K-step target, sample/harm weight, nonzero mask, cosine, L2,
+and per-dimension sign agreement. The Q2 reporter can require this schema with
+`--require-hsl-supervision`. Existing online/offline/sequence evaluators and
+training control flow are unchanged.
+
 ## Planned Step Order
 
 ```text
