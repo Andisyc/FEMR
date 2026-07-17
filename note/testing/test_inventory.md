@@ -1,6 +1,6 @@
 # FEMR Current Test Inventory
 
-Updated: 2026-07-15
+Updated: 2026-07-17
 
 ## Main Entries
 
@@ -12,9 +12,10 @@ Updated: 2026-07-15
 | `frontres_policy_quality_eval_contract.py` | S2 | Matched zero/frozen-HSL/policy action sources, explicit observation/normalizer identity, canonical owner callbacks, and training-state isolation. |
 | `frontres_policy_quality_entrypoint_contract.py` | S0/S2 | Dedicated CLI/MODE/lazy runner dispatch, required-path validation, full-resume rejection, and zero calls into old eval/training branches. |
 | `frontres_policy_quality_executor_contract.py` | S1/S2 | Formal manifest iteration, six named owner callbacks, Q1-C route reuse, atomic result artifact, and optimizer/sampler/warmup isolation. |
-| `frontres_policy_quality_real_owner_wiring_contract.py` | S2 | Official `policy_quality_eval` entry installs the production bundle, reaches reset/observation/action/rollout/canonical-Gain/execution adapters, and preserves optimizer/sampler/warmup state. Prevents the Q-E5 implemented-only regression. |
+| `frontres_policy_quality_real_owner_wiring_contract.py` | S2 | Official entry reaches all six owners, preserves training state, enforces Gain layouts, proves the zero-action oracle, and validates B4 role identity with different world origins but matched local dynamics/cache. |
+| `frontres_segment_stage1_env_hooks_contract.py` | S1/S2 | Canonical index reset and quartet lifecycle, plus source-level proof that one sampled policy perturbation realization is copied to noisy/base while clean is restored unperturbed. |
 | `frontres_policy_quality_q1f_input_contract.py` | S1 | Q1-F single-item manifest identity, motion/frame/family/strength/K/seed freeze, comparison signatures, checkpoint-path review surface, and explicit server-hash blocker. |
-| `frontres_policy_quality_atlas_contract.py` | S0/S1 | Eight causal quality owners, Concept Figure mapping, B1/B2/B3 source links, and human-readable failure ownership. |
+| `frontres_policy_quality_atlas_contract.py` | S0/S1 | Eight causal quality owners and source links; QUALITY-ID-01 additionally owns B4 reset-to-route role identity instrumentation. |
 | `frontres_segment_stage3_pseudo_suite.py` | S2 | Cheap formal Stage 3 route. |
 | `frontres_full6_no_active_mask_contract.py` | S0 | Rejects action-mask reintroduction on formal full-6D paths. |
 | `frontres_task_space_correction_contract.py` | S1 | Per-row contact-consistent XY scaling and dynamic `dz` lower/upper bounds. |

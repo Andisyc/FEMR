@@ -684,11 +684,17 @@ def test_production_cache_refresh_owner_does_not_advance_frame() -> None:
     }
     refresh = ast.get_source_segment(source, functions["refresh_frontres_reference_cache_current_frame"])
     update = ast.get_source_segment(source, functions["_update_command"])
-    assert refresh is not None and update is not None
+    sync_pairs = ast.get_source_segment(source, functions["_sync_frontres_pairs"])
+    assert refresh is not None and update is not None and sync_pairs is not None
     assert "time_steps +=" not in refresh
     assert refresh.count("apply_perturbations(") == 1
     assert refresh.count("apply_quat_perturbation(") == 1
     assert refresh.count("_sync_frontres_pairs(sync_perturbation=True)") == 1
+    assert "self._cached_perturbed_pos[base_ids] = self._cached_perturbed_pos[train_ids]" in sync_pairs
+    assert "self._cached_perturbed_quat[base_ids] = self._cached_perturbed_quat[train_ids]" in sync_pairs
+    assert "self._dr_supervised_target[base_ids] = self._dr_supervised_target[train_ids]" in sync_pairs
+    assert "self._cached_perturbed_pos[clean_ids] = pos_data" in sync_pairs
+    assert "self._dr_supervised_target[clean_ids] = 0.0" in sync_pairs
     assert update.count("refresh_frontres_reference_cache_current_frame()") == 1
     assert update.index("self.time_steps += 1") < update.index("refresh_frontres_reference_cache_current_frame()")
     print(

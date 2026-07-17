@@ -270,6 +270,26 @@ policy, KIT/572 frame 163, local_rp at DR 1.25, K=8, and seed 42. Item and
 manifest signatures pass S1 identity checks. Live remains blocked until human
 review and server checkpoint existence/SHA-256 preflight.
 
+Runtime result: Q-E9 records one completed three-route run. The immutable
+signature and all three initial-state hashes match, and the corrected canonical
+Gain tensors are one value per paired item. The first interpretation that a
+zero mask on the noisy role meant missing corruption was rejected after reading
+the active command owner: one policy-row realization is copied to the noisy
+base row by `_sync_frontres_pairs(sync_perturbation=True)`, while clean is reset
+to the unperturbed reference. Q1-F remains partial because the current artifact
+does not persist local-coordinate robot-state deltas or cached quaternion deltas
+for the policy/noisy pair; zero-route Gain `0.007556` is therefore an observed
+noise floor, not yet classified as simulator divergence or identity failure.
+
+Instrumentation result: Q-E10 adds `QUALITY-ID-01` B4 at the exact boundary
+after canonical reset and scoring-state capture but before any counterfactual
+route. It persists and prints policy/noisy world-root, env-origin, local-root,
+root pose/velocity, joint, and cached perturbation deltas, plus policy/clean
+cache deltas proving corruption presence. A semantic fake deliberately uses
+different world origins while keeping local dynamics/cache matched. Focused
+owner and Atlas contracts pass. The next action is one rerun of the same Q1-F
+manifest; no reset, Gain, PPO, or checkpoint parameter changes are permitted.
+
 ## Planned Step Order
 
 ```text

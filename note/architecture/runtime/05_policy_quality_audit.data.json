@@ -53,18 +53,26 @@
               "sourceLine": 259,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=259"
             },
-            {
-              "id": "QUALITY-ID-01-B3",
+      {
+        "id": "QUALITY-ID-01-B3",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
               "role": "B3: comparison/state/checkpoint/owner identity",
               "sourceLine": 260,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=260"
-            }
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=260"
+      },
+      {
+        "id": "QUALITY-ID-01-B4",
+        "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_formal_owners.py",
+        "role": "B4: reset 后 paired role local-state/cache identity snapshot",
+        "sourceLine": 412,
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_formal_owners.py&line=412"
+      }
           ],
           "mainRoute": [
             "B1 validated request + real-owner installation",
             "B2 matched manifest execution",
-            "B3 comparison/state/checkpoint/owner identity"
+    "B3 comparison/state/checkpoint/owner identity",
+    "B4 paired role local-state/cache identity"
           ],
           "probeSteps": [
             {
@@ -83,22 +91,31 @@
               "sourceLine": 259,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=259"
             },
-            {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:260 :: run_frontres_policy_quality_eval() B3",
+      {
+        "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:260 :: run_frontres_policy_quality_eval() B3",
               "capture": "comparison/state/checkpoint/owner identity",
               "whyHere": "正式 consumer 接收前最后一次可判定失败归属",
               "failureOwner": "失败归属: manifest/reset/evaluator",
-              "sourceLine": 260,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=260"
-            }
+        "sourceLine": 260,
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=260"
+      },
+      {
+        "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_formal_owners.py:412 :: prepare_item() QUALITY-ID-01",
+        "capture": "policy/noisy local root, pose, velocity, joint and cached perturbation deltas; policy/clean corruption delta",
+        "whyHere": "canonical reset 已完成且 scoring state 已冻结, 但 zero/HSL/policy 尚未分叉",
+        "failureOwner": "失败归属: reset role identity, env origin handling, or cache synchronization",
+        "sourceLine": 412,
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_formal_owners.py&line=412"
+      }
           ],
           "probe": {
             "owner": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py::run_frontres_policy_quality_eval()",
             "insertion": "B1/B2/B3 source-linked quality boundaries",
             "capture": [
-              "validated request + real-owner installation",
-              "matched manifest execution",
-              "comparison/state/checkpoint/owner identity"
+      "validated request + real-owner installation",
+      "matched manifest execution",
+      "comparison/state/checkpoint/owner identity",
+      "paired role local-state/cache identity"
             ],
             "failIf": [
               "comparison identity 不一致",
@@ -113,7 +130,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "integrated-offline: Q-E6; real simulator equality pending Q1-F"
+    "gap": "Q-E9 offline schema pass; one Q1-F rerun must populate B4 real simulator deltas"
         },
         {
           "id": "QUALITY-DATA-01",

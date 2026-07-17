@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import fields
 import hashlib
 import io
+import json
 import math
 import random
 from types import SimpleNamespace
@@ -285,6 +286,50 @@ def _json_value(value: Any) -> Any:
     return str(value)
 
 
+def _role_identity_snapshot(snapshot: Any) -> Mapping[str, Any]:
+    """Summarize paired role deltas from the immutable scoring-start snapshot."""
+    roles = tuple(snapshot.role_layout)
+    role_rows = {role: [index for index, value in enumerate(roles) if value == role] for role in set(roles)}
+    policy_rows = role_rows.get("policy", [])
+    noisy_rows = role_rows.get("noisy", [])
+    clean_rows = role_rows.get("clean", [])
+    if not policy_rows or len(policy_rows) != len(noisy_rows) or len(policy_rows) != len(clean_rows):
+        raise ValueError(f"quality role identity requires equal policy/noisy/clean rows, got {role_rows}")
+
+    root = snapshot.root_state_w.restore(device="cpu").float()
+    origins = snapshot.env_origins.restore(device="cpu").float()
+    joint_pos = snapshot.joint_pos.restore(device="cpu").float()
+    joint_vel = snapshot.joint_vel.restore(device="cpu").float()
+    command = {name: image.restore(device="cpu").float() for name, image in snapshot.command_state}
+    policy = torch.tensor(policy_rows, dtype=torch.long)
+    noisy = torch.tensor(noisy_rows, dtype=torch.long)
+    clean = torch.tensor(clean_rows, dtype=torch.long)
+
+    def max_abs_delta(value: torch.Tensor, lhs: torch.Tensor, rhs: torch.Tensor) -> float:
+        return float((value.index_select(0, lhs) - value.index_select(0, rhs)).abs().max().item())
+
+    local_root = root[:, :3] - origins
+    return {
+        "role_rows": {role: rows for role, rows in sorted(role_rows.items())},
+        "policy_noisy": {
+            "world_root_pos_max_abs": max_abs_delta(root[:, :3], policy, noisy),
+            "env_origin_max_abs": max_abs_delta(origins, policy, noisy),
+            "local_root_pos_max_abs": max_abs_delta(local_root, policy, noisy),
+            "root_quat_max_abs": max_abs_delta(root[:, 3:7], policy, noisy),
+            "root_lin_vel_max_abs": max_abs_delta(root[:, 7:10], policy, noisy),
+            "root_ang_vel_max_abs": max_abs_delta(root[:, 10:13], policy, noisy),
+            "joint_pos_max_abs": max_abs_delta(joint_pos, policy, noisy),
+            "joint_vel_max_abs": max_abs_delta(joint_vel, policy, noisy),
+            "cached_perturbed_pos_max_abs": max_abs_delta(command["_cached_perturbed_pos"], policy, noisy),
+            "cached_perturbed_quat_max_abs": max_abs_delta(command["_cached_perturbed_quat"], policy, noisy),
+        },
+        "corruption_present": {
+            "policy_clean_cached_pos_max_abs": max_abs_delta(command["_cached_perturbed_pos"], policy, clean),
+            "policy_clean_cached_quat_max_abs": max_abs_delta(command["_cached_perturbed_quat"], policy, clean),
+        },
+    }
+
+
 def _serialize_result(item: Any, results: tuple[FrontRESPolicyQualityRouteResult, ...]) -> Mapping[str, Any]:
     return {
         "item": item.to_dict(),
@@ -348,6 +393,7 @@ def build_frontres_policy_quality_formal_owner_bundle(
             gmt_obs_dim=gmt_dim,
         ),
     )
+    role_identity_by_signature: dict[str, Mapping[str, Any]] = {}
 
     def prepare_item(active_runner: Any, item: Any, active_request: FrontRESPolicyQualityEvalRequest):
         if active_request is not request:
@@ -363,6 +409,15 @@ def build_frontres_policy_quality_formal_owner_bundle(
             comparison_signature=item.comparison_signature,
             role_layout=_role_layout(pair_layout),
         )
+        # B4: QUALITY-ID-01 在 reset 后、任一 route 前只读取 frozen scoring state.
+        # Result: PENDING_Q_EVIDENCE; 区分 world origin 与 local dynamic/cache mismatch.
+        role_identity = _role_identity_snapshot(snapshot)
+        role_identity_by_signature[item.comparison_signature] = role_identity
+        print(
+            "[QUALITY-ID-01 Role Identity] "
+            + json.dumps(_json_value(role_identity), sort_keys=True, separators=(",", ":")),
+            flush=True,
+        )
         capture = _RouteCapture(active_runner, pair_layout, item.effective_horizon_k)
         hooks = FrontRESPolicyQualityRouteHooks(
             observe=capture.observe,
@@ -374,9 +429,14 @@ def build_frontres_policy_quality_formal_owner_bundle(
         )
         return snapshot, adapters, hooks
 
+    def serialize_result(item: Any, results: tuple[FrontRESPolicyQualityRouteResult, ...]) -> Mapping[str, Any]:
+        payload = dict(_serialize_result(item, results))
+        payload["role_identity"] = role_identity_by_signature[item.comparison_signature]
+        return payload
+
     return FrontRESPolicyQualityFormalOwnerBundle(
         owner_identity=_OWNER_IDENTITY,
         prepare_item=prepare_item,
         isolation_state=_training_state_signature,
-        serialize_result=_serialize_result,
+        serialize_result=serialize_result,
     )

@@ -33,9 +33,10 @@ def main() -> None:
         assert card["parentDesignPoint"]
         assert card["question"]
         assert card["failureOwner"]
-        assert len(card["files"]) == 3
-        assert len(card["probeSteps"]) == 3
-        assert len(card["mainRoute"]) == 3
+        expected_blocks = 4 if card["id"] == "QUALITY-ID-01" else 3
+        assert len(card["files"]) == expected_blocks
+        assert len(card["probeSteps"]) == expected_blocks
+        assert len(card["mainRoute"]) == expected_blocks
         for index, (file_block, probe_step) in enumerate(zip(card["files"], card["probeSteps"]), start=1):
             assert file_block["id"] == f"{card['id']}-B{index}"
             assert file_block["sourceLine"] == probe_step["sourceLine"]

@@ -303,3 +303,84 @@ Limit:
 - Q1-F remains unconfirmed and must rerun the same immutable manifest. No
   comparison-signature, three-route state-hash, Gain, or policy-quality claim
   follows from the failed run.
+
+## Q-E9 - Q1-F Gain Axis Closure And Pair-Sync Reassessment
+
+Date: 2026-07-17
+
+Scope: inspect the successful Q1-F rerun, repair the deterministic canonical
+Gain axis defect, and test the first suspected paired-corruption boundary.
+
+Observed evidence:
+
+- Raw log: `policy_quality_q1f_single_v1.txt`; result:
+  `policy_quality_q1f_single_v1_result.json`.
+- Manifest signature is
+  `4c7122e5278c2371d2917659e0ac5944ac1dd8579de94cc99811bdf95dd5eee0`;
+  zero, HSL model_200, and policy model_701 share initial-state hash
+  `f171fc08e51881ddf30cb9964c87dae636a673184bd082804d5f96afeaedcd1f`.
+- The old Q1 evaluator stacked motion frames as `[T,B,...]`, causing eight
+  style/total Gain rows for one paired item. The corrected owner uses
+  `[B,T,...]` for style/orientation and preserves `[T,B,6]` for repair cost.
+  All four canonical components now serialize as one value per item.
+- The live reset trace prints perturbation mask/strength only on policy. Code
+  inspection shows this is the random-sampling owner, not proof that noisy is
+  clean: `refresh_frontres_reference_cache_current_frame()` calls
+  `_sync_frontres_pairs(sync_perturbation=True)`, which copies cached perturbed
+  position, quaternion, supervised target, and perturbation states from policy
+  to noisy/base, then restores clean to raw motion.
+- The proposed change that independently enabled the noisy perturbation mask
+  was withdrawn before completion because it would add a second random draw
+  and violate the single-realization owner.
+- Offline regressions now assert canonical Gain axis semantics, a semantic
+  zero-action Gain of zero, and the production policy-to-noisy cache copy plus
+  clean reset. Focused contracts pass; aggregate suite passes `52/52`.
+
+Evidence class: Q-formula plus S1/S2
+`T-shape/T-metamorphic/T-connect/T-regression` and partial Q-matched live
+evidence.
+
+Limit and next boundary:
+
+- The real zero route reports Gain `0.007556` although its 192 action scalars
+  are exactly zero. This may be paired-environment numerical/terrain-origin
+  divergence; the current artifact does not persist policy/noisy local root,
+  joint, cached-position, or cached-quaternion deltas needed to classify it.
+- Q1-F remains partial. Do not change reset masks, Gain, or PPO. The next
+  bounded live fact is one role-aware identity snapshot after reset and before
+  rollout, using local coordinates and synced cache deltas.
+
+## Q-E10 - Q1-F Role Identity Snapshot Preflight
+
+Date: 2026-07-17
+
+Scope: instrument the sole remaining Q1-F simulator-only identity boundary
+without changing reset, rollout, Gain, PPO, or any existing evaluator.
+
+Implementation and evidence:
+
+- `frontres_policy_quality_formal_owners.py::_role_identity_snapshot()` reads
+  only the immutable scoring-start snapshot captured after reset.
+- `prepare_item()` emits one `[QUALITY-ID-01 Role Identity]` block before the
+  zero/HSL/policy branch and stores the same mapping as `row.role_identity` in
+  the result JSON.
+- The snapshot separates world root from `root_state_w - env_origins`, then
+  records policy/noisy deltas for local root, root quaternion, linear/angular
+  velocity, joint position/velocity, cached perturbed position/quaternion. It
+  separately records policy/clean cache deltas as the corruption-presence
+  oracle.
+- The semantic fake sets policy/noisy world origins 20 m apart while keeping
+  local state and cache identical. Observed snapshot reports world/origin delta
+  20, all local dynamic/cache deltas 0, and nonzero policy/clean cache deltas.
+- `QUALITY-ID-01` Atlas card now contains source-linked B4; its contract allows
+  four blocks only for this card and keeps the other seven at three blocks.
+- Focused real-owner and Atlas contracts pass.
+
+Evidence class: S1/S2 `T-schema/T-role/T-origin/T-cache/T-connect`.
+
+Limit and next:
+
+- This preflight proves schema, coordinate semantics, insertion order, and
+  persistence only. Real Isaac values remain S4-unconfirmed.
+- Upload the current code and rerun the unchanged immutable Q1-F command once.
+  Stop after reading B4; do not tune or start a broader quality bank first.
