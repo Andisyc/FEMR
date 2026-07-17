@@ -93,6 +93,29 @@ def test_target_math_and_non_mutating_audit_mode() -> None:
     torch.testing.assert_close(result.target[1:], torch.zeros(3, 6))
     assert vars(runner.alg.transition) == {"sentinel": "unchanged"}
 
+    # The training flag gates transition writes, not formula availability for
+    # the dedicated non-mutating quality audit.
+    runner.cfg["frontres_hsl_rollout_label_enabled"] = False
+    audited = owner.build_frontres_hsl_rollout_target(
+        runner,
+        command=runner.command,
+        actions=actions,
+        dones=torch.zeros(4, dtype=torch.bool),
+        current_pos_correction=current_pos,
+        current_quat_correction=current_quat,
+        n_train=1,
+        n_candidate=1,
+        n_base=1,
+        n_clean=1,
+        quat_to_rotvec_wxyz=owner.quat_to_rotvec_wxyz,
+        write_transition=False,
+        enforce_training_enable_flag=False,
+    )
+    assert audited is not None
+    torch.testing.assert_close(audited.target, result.target)
+    assert vars(runner.alg.transition) == {"sentinel": "unchanged"}
+
+    runner.cfg["frontres_hsl_rollout_label_enabled"] = True
     written = owner.build_frontres_hsl_rollout_target(
         runner,
         command=runner.command,

@@ -556,8 +556,9 @@ Implementation:
   owner after `env.step` only for the HSL route, and persists K-step target,
   weights, nonzero mask, action-target L2/cosine, and per-dimension sign
   agreement under `execution.hsl_supervision`.
-- The dedicated owner fails early unless the canonical rollout-label config is
-  enabled. Zero and policy routes never receive HSL supervision fields.
+- The dedicated owner computes the canonical formula in non-mutating audit
+  mode even when the Stage 2 transition-write flag is disabled. Zero and
+  policy routes never receive HSL supervision fields.
 - The independent Q2 reporter supports `--require-hsl-supervision` and rejects
   missing, ragged, non-finite, or shape-inconsistent target evidence.
 - QUALITY-ACTION-01 Atlas B4 links the canonical target write boundary and
@@ -583,3 +584,36 @@ Boundary and next:
   model_200 action-target alignment remains S4-unconfirmed.
 - Run the unchanged Q2 bank once with the new result schema, then invoke the
   reporter with `--require-hsl-supervision`. Do not start Q3 or long training.
+
+## Q-E16 - Q2-B Training-Flag / Audit-Availability Fix
+
+Date: 2026-07-17
+
+Symptom:
+
+- Live log `policy_quality_q2b_hsl_target_v1.txt` stopped before the first
+  manifest item with `frontres_hsl_rollout_label_enabled=False`.
+
+Root cause:
+
+- `frontres_hsl_rollout_label_enabled` owns whether Stage 2 writes supervised
+  targets into the training transition. Q2-B incorrectly reused it as a gate
+  for whether the dedicated evaluator may compute the same formula without
+  writing training state.
+
+Fix and regression evidence:
+
+- `build_frontres_hsl_rollout_target()` now separates
+  `enforce_training_enable_flag` from `write_transition`; both default to the
+  original formal-training behavior.
+- Q2-B passes `write_transition=False` and
+  `enforce_training_enable_flag=False`. It computes the canonical diagnostic
+  target without enabling Stage 2 supervision or mutating transition state.
+- The S1 target contract proves flag-off audit computation equals the flag-on
+  target and leaves transition state unchanged.
+- The S2 real-owner contract now runs with the flag explicitly False and still
+  captures exactly K HSL targets while preserving zero/policy and training
+  state isolation.
+
+Decision: this was a dedicated evaluator integration defect, not a checkpoint,
+HSL formula, or training-config defect. Rerun the same bounded Q2-B command.

@@ -375,6 +375,12 @@ and per-dimension sign agreement. The Q2 reporter can require this schema with
 `--require-hsl-supervision`. Existing online/offline/sequence evaluators and
 training control flow are unchanged.
 
+Live correction: Q-E16 found that the first Q2-B attempt incorrectly required
+the Stage 2 transition-write flag to be enabled. The audit availability and
+training-write gate are now separate: formal training retains the original
+default, while the dedicated evaluator computes without transition mutation.
+S1/S2 flag-off regression evidence passes; S4 remains pending.
+
 ## Planned Step Order
 
 ```text

@@ -46,6 +46,7 @@ def build_frontres_hsl_rollout_target(
     n_clean: int,
     quat_to_rotvec_wxyz: Any,
     write_transition: bool = True,
+    enforce_training_enable_flag: bool = True,
 ) -> FrontRESHSLRolloutTargetResult | None:
     """Build and write one mixed full-6D HSL target from rollout anchor states.
 
@@ -54,7 +55,7 @@ def build_frontres_hsl_rollout_target(
     code-confirmed and contract-confirmed. Gap: real Stage 2 runtime.
     """
 
-    if not bool(runner.cfg.get("frontres_hsl_rollout_label_enabled", False)):
+    if enforce_training_enable_flag and not bool(runner.cfg.get("frontres_hsl_rollout_label_enabled", False)):
         return
     if (
         command is None

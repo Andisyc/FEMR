@@ -226,6 +226,7 @@ class _RouteCapture:
                 n_clean=int(self.pair_layout.n_clean),
                 quat_to_rotvec_wxyz=quat_to_rotvec_wxyz,
                 write_transition=False,
+                enforce_training_enable_flag=False,
             )
             if target_result is None:
                 raise RuntimeError("quality HSL target audit did not receive a canonical target")
@@ -426,11 +427,6 @@ def build_frontres_policy_quality_formal_owner_bundle(
     request: FrontRESPolicyQualityEvalRequest,
 ) -> FrontRESPolicyQualityFormalOwnerBundle:
     """Build the production bundle from canonical lower-level Stage 3 owners."""
-    if not bool(getattr(runner, "cfg", {}).get("frontres_hsl_rollout_label_enabled", False)):
-        raise RuntimeError(
-            "policy-quality Q2-B requires frontres_hsl_rollout_label_enabled=True "
-            "to expose the canonical post-step supervised target"
-        )
     ensure_frontres_policy_quality_reset_support(runner)
     pair_layout = configure_frontres_pair_layout(runner, is_frontres=True)
     if int(runner.env.num_envs) != sum(

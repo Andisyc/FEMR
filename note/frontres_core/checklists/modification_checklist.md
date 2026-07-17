@@ -23,7 +23,7 @@ sequence eval are protected non-scope.
 | Q1-F Live identity | quality evaluator real simulator boundary | S4 `T-live/T-state/T-identity/T-frozen/T-isolation` | completed | Q-E11: comparison signature and three state hashes match; policy/noisy local dynamics and cached perturbation match; local_rp corruption is present |
 | Q2 Counterfactual bank | zero/HSL/policy matched quality evaluator | S1/S2 then S4 `T-schema/T-matched/T-oracle/T-bucket/T-seed` | completed; quality gate failed | Q-E13: technical identity passes 16/16, but HSL-Zero is positive on only 1/8 motions and negative on 4/8; first divergence is HSL/Gain before PPO |
 | Q2-A Gain learnability decomposition | independent Q2 reporter + canonical component artifact | S1/S2 `T-value/T-diff/T-oracle/T-meta` | completed | Q-E14: inferred Repair weight 0.15; among 16 HSL items, 5 degrade Style+Physics before cost, 1 is cost-dominated, 3 have insufficient pre-cost margin, 4 are noise-floor unresolved, 3 improve |
-| Q2-B HSL output-target alignment | HSL rollout target owner + dedicated policy-quality evaluator | S1/S2 then S4 `T-transform/T-oracle/T-live` | integrated offline; S4 pending | Q-E15: canonical owner supports non-mutating capture; dedicated HSL route persists K target/weight/alignment steps; zero/policy isolation and training-state isolation pass |
+| Q2-B HSL output-target alignment | HSL rollout target owner + dedicated policy-quality evaluator | S1/S2 then S4 `T-transform/T-oracle/T-live` | integration defect fixed; S4 pending | Q-E15/Q-E16: audit computation is independent of the Stage 2 transition-write flag; flag-off regression captures K targets without mutating training state |
 
 ## Phase B Runtime Closure Index
 

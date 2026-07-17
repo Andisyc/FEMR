@@ -95,7 +95,7 @@ def main() -> None:
         policy_obs_type="policy",
         obs_normalizer=nn.Identity(),
         _frontres_gmt_obs_dim=4,
-        cfg={"frontres_hsl_rollout_label_enabled": True},
+        cfg={"frontres_hsl_rollout_label_enabled": False},
         current_learning_iteration=9,
         alg=SimpleNamespace(policy=policy, optimizer=torch.optim.SGD([parameter], lr=0.1)),
         _frontres_segment_sampler=SimpleNamespace(state_dict=lambda: {"priority": torch.tensor([1.0])}),
@@ -182,6 +182,7 @@ def main() -> None:
     def fake_hsl_target(_runner, **kwargs):
         hsl_target_calls.append(kwargs)
         assert kwargs["write_transition"] is False
+        assert kwargs["enforce_training_enable_flag"] is False
         target = torch.zeros((4, 6))
         target[0] = kwargs["actions"][0] + 0.05
         weight = torch.zeros((4, 1))
