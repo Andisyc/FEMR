@@ -137,6 +137,7 @@ class _RouteCapture:
         self.hsl_targets: list[torch.Tensor] = []
         self.hsl_weights: list[torch.Tensor] = []
         self.hsl_harm_weights: list[torch.Tensor] = []
+        self.audit_identity: dict[str, str] = {}
 
     def begin_route(self, route: str) -> None:
         """Clear route-local evidence after the shared scoring state is restored."""
@@ -165,6 +166,13 @@ class _RouteCapture:
         self.hsl_targets.clear()
         self.hsl_weights.clear()
         self.hsl_harm_weights.clear()
+        self.audit_identity.clear()
+
+    def set_audit_identity(self, identity: Mapping[str, str]) -> None:
+        required = {"audit_transaction_id", "audit_batch_signature", "audit_identity_state"}
+        if set(identity) != required or any(not str(identity[key]).strip() for key in required):
+            raise ValueError("quality route audit identity must provide complete transaction/batch/state fields")
+        self.audit_identity = {key: str(identity[key]) for key in required}
 
     def observe(self) -> torch.Tensor:
         obs, extras = self.runner.env.get_observations()
@@ -290,6 +298,9 @@ class _RouteCapture:
             clean_root_quaternions=stack_trajectory(self.clean_root_quat),
             repaired_root_quaternions=stack_trajectory(self.repaired_root_quat),
             noisy_root_quaternions=stack_trajectory(self.noisy_root_quat),
+            audit_transaction_id=self.audit_identity.get("audit_transaction_id"),
+            audit_batch_signature=self.audit_identity.get("audit_batch_signature"),
+            audit_identity_state=self.audit_identity.get("audit_identity_state", "UNCONFIRMED"),
         )
         return self.last_gain
 
@@ -501,6 +512,7 @@ def build_frontres_policy_quality_formal_owner_bundle(
             compute_gain=capture.compute_gain,
             capture_execution=capture.capture_execution,
             begin_route=capture.begin_route,
+            set_audit_identity=capture.set_audit_identity,
         )
         return snapshot, adapters, hooks
 

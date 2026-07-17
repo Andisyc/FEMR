@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import types
+from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -60,6 +62,11 @@ def _install_import_stubs():
         ROOT / "rsl_rl" / "frontres" / "frontres_segment_warmup.py",
     )
     frontres_pkg.frontres_segment_warmup = warmup_module
+    q2d_module = _load(
+        "rsl_rl.frontres.frontres_policy_quality_q2d",
+        ROOT / "rsl_rl" / "frontres" / "frontres_policy_quality_q2d.py",
+    )
+    frontres_pkg.frontres_policy_quality_q2d = q2d_module
 
     training_schedule = types.ModuleType("rsl_rl.frontres.training_schedule")
     training_schedule.resolve_frontres_mode_state = lambda *_args, **_kwargs: None
@@ -254,6 +261,32 @@ def test_single_update_steps_optimizer_with_valid_segment() -> None:
     assert result.param_delta_max_abs > 0.0
     assert result.param_delta_l2 > 0.0
     assert result.param_grad_norm > 0.0
+
+
+def test_single_update_captures_real_credit_tuple_before_optimizer() -> None:
+    runner = FakeRunner()
+    result_path = ROOT / "rsl_rl" / "tests" / ".frontres_q2d_credit_tuple.json"
+    runner._frontres_policy_quality_q2d_credit_result = str(result_path)
+    storage_batch = replace(
+        _storage_batch(torch.tensor([True, False])),
+        audit_transaction_id="txn-live-1",
+        audit_batch_signature="batch-live-1",
+        audit_identity_state="complete",
+    )
+    before_rewards = storage_batch.rewards.detach().clone()
+    before_advantages = storage_batch.advantages.detach().clone()
+
+    run_frontres_segment_single_update(runner, storage_batch)
+    payload = json.loads(result_path.read_text())
+    result_path.unlink()
+
+    assert payload["schema_version"] == "frontres_policy_quality_q2d_credit_v1"
+    assert payload["audit_transaction_id"] == "txn-live-1"
+    assert payload["audit_batch_signature"] == "batch-live-1"
+    assert payload["row_count"] == 2
+    assert len(payload["raw_actions"]) == len(payload["old_means"]) == 2
+    torch.testing.assert_close(storage_batch.rewards, before_rewards)
+    torch.testing.assert_close(storage_batch.advantages, before_advantages)
 
 
 def test_dp09_critic_only_phase_holds_actor_and_updates_critic() -> None:
@@ -591,6 +624,7 @@ def test_single_update_requires_separate_pre_and_post_ratio_diagnostics() -> Non
 
 if __name__ == "__main__":
     test_single_update_steps_optimizer_with_valid_segment()
+    test_single_update_captures_real_credit_tuple_before_optimizer()
     test_dp09_critic_only_phase_holds_actor_and_updates_critic()
     test_dp09_actor_warmup_phase_uses_linear_actor_weight()
     test_segment_live_update_uses_scale_only_advantages_independent_of_base_ppo_flag()

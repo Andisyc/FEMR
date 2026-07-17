@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable
@@ -51,6 +52,19 @@ def run_frontres_policy_quality_q2d_scale_eval(
             compute_gain=hooks.compute_gain,
             capture_execution=hooks.capture_execution,
             isolation_state=lambda: owners.isolation_state(runner),
+            set_audit_identity=(
+                lambda route, scale, state_hash: hooks.set_audit_identity(
+                    {
+                        "audit_transaction_id": f"q2d:{item.comparison_signature[:12]}:{route}",
+                        "audit_batch_signature": hashlib.sha1(
+                            repr((item.comparison_signature, state_hash, route, scale, item.effective_horizon_k)).encode("utf-8")
+                        ).hexdigest()[:16],
+                        "audit_identity_state": "complete",
+                    }
+                )
+                if hooks.set_audit_identity is not None
+                else None
+            ),
         )
         rows.append(
             {

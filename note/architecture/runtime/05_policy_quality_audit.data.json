@@ -43,29 +43,29 @@
               "id": "QUALITY-ID-01-B1",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
               "role": "B1: validated request + real-owner installation",
-              "sourceLine": 258,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=258"
+              "sourceLine": 259,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=259"
             },
             {
               "id": "QUALITY-ID-01-B2",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
               "role": "B2: matched manifest execution",
-              "sourceLine": 259,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=259"
+              "sourceLine": 260,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=260"
             },
       {
         "id": "QUALITY-ID-01-B3",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
               "role": "B3: comparison/state/checkpoint/owner identity",
-              "sourceLine": 260,
-        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=260"
+        "sourceLine": 261,
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=261"
       },
       {
         "id": "QUALITY-ID-01-B4",
         "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_formal_owners.py",
         "role": "B4: reset 后 paired role local-state/cache identity snapshot",
-        "sourceLine": 487,
-        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_formal_owners.py&line=487"
+        "sourceLine": 498,
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_formal_owners.py&line=498"
       }
           ],
           "mainRoute": [
@@ -76,36 +76,36 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:258 :: run_frontres_policy_quality_eval() B1",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:259 :: run_frontres_policy_quality_eval() B1",
               "capture": "validated request + real-owner installation",
               "whyHere": "比较控制变量在任何 route 分叉前首次完整可见",
-              "failureOwner": "失败归属: manifest/reset/evaluator",
-              "sourceLine": 258,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=258"
-            },
-            {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:259 :: run_frontres_policy_quality_eval() B2",
-              "capture": "matched manifest execution",
-              "whyHere": "owner 已形成当前层产物且下游尚未聚合或覆盖",
               "failureOwner": "失败归属: manifest/reset/evaluator",
               "sourceLine": 259,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=259"
             },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:260 :: run_frontres_policy_quality_eval() B2",
+              "capture": "matched manifest execution",
+              "whyHere": "owner 已形成当前层产物且下游尚未聚合或覆盖",
+              "failureOwner": "失败归属: manifest/reset/evaluator",
+              "sourceLine": 260,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=260"
+            },
       {
-        "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:260 :: run_frontres_policy_quality_eval() B3",
+        "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:261 :: run_frontres_policy_quality_eval() B3",
               "capture": "comparison/state/checkpoint/owner identity",
               "whyHere": "正式 consumer 接收前最后一次可判定失败归属",
               "failureOwner": "失败归属: manifest/reset/evaluator",
-        "sourceLine": 260,
-        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=260"
+        "sourceLine": 261,
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=261"
       },
       {
-        "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_formal_owners.py:487 :: prepare_item() QUALITY-ID-01",
+        "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_formal_owners.py:498 :: prepare_item() QUALITY-ID-01",
         "capture": "policy/noisy local root, pose, velocity, joint and cached perturbation deltas; policy/clean corruption delta",
         "whyHere": "canonical reset 已完成且 scoring state 已冻结, 但 zero/HSL/policy 尚未分叉",
         "failureOwner": "失败归属: reset role identity, env origin handling, or cache synchronization",
-        "sourceLine": 487,
-        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_formal_owners.py&line=487"
+        "sourceLine": 498,
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_formal_owners.py&line=498"
       }
           ],
           "probe": {
@@ -284,8 +284,8 @@
               "id": "QUALITY-ACTION-01-B6",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_q2d_eval.py",
               "role": "B6: matched scaled-HSL action routes",
-              "sourceLine": 50,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_q2d_eval.py&line=50"
+              "sourceLine": 38,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_q2d_eval.py&line=38"
             }
           ],
           "mainRoute": [
@@ -338,12 +338,12 @@
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_hsl_magnitude_audit.py&line=64"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_q2d_eval.py:50 :: run_frontres_policy_quality_q2d_scale_eval() B6",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_q2d_eval.py:38 :: run_frontres_policy_quality_q2d_scale_eval() B6",
               "capture": "0/0.25/0.5/0.75/1/1.25x HSL actions under one restored state",
               "whyHere": "每个 scale action 已形成且尚未进入 canonical task-space application/Gain owner",
               "failureOwner": "失败归属: action-scale route identity or state restore",
-              "sourceLine": 50,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_q2d_eval.py&line=50"
+              "sourceLine": 38,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_q2d_eval.py&line=38"
             }
           ],
           "probe": {
@@ -510,16 +510,16 @@
             {
               "id": "QUALITY-CREDIT-01-B4",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_q2d.py",
-              "role": "B4: sampled-action score-gradient direction",
-              "sourceLine": 111,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=111"
+              "role": "B4: transaction-complete real PPO credit tuple and score direction",
+              "sourceLine": 141,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=141"
             }
           ],
           "mainRoute": [
             "B1 policy-row Gain steps + K",
             "B2 returns/advantages + valid mask",
             "B3 sign and bucket dominance",
-            "B4 sampled-action score-gradient direction"
+            "B4 transaction-complete real PPO credit tuple and score direction"
           ],
           "probeSteps": [
             {
@@ -547,12 +547,12 @@
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=254"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_q2d.py:111 :: gaussian_mean_score_gradient() B4",
-              "capture": "raw action, old mean/sigma, advantage, valid mask and six-dimensional score direction",
-              "whyHere": "advantage 已形成, 可在 PPO loss 前判断 on-policy 样本是否提供缩小 mean 的统计方向",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_q2d.py:141 :: write_q2d_credit_tuple() B4",
+              "capture": "同一 transaction 的 bounded/raw action, old mean/sigma, Gain, return, advantage, valid mask, segment ID 和六维 score direction",
+              "whyHere": "finalized storage 已转换为正式 PPO batch 且 optimizer 尚未 step, 可冻结真实 credit tuple 而不改变训练",
               "failureOwner": "失败归属: sampled-action/advantage covariance or credit assignment",
-              "sourceLine": 111,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=111"
+              "sourceLine": 141,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=141"
             }
           ],
           "probe": {
@@ -562,7 +562,7 @@
               "policy-row Gain steps + K",
               "returns/advantages + valid mask",
               "sign and bucket dominance",
-              "sampled-action score-gradient direction"
+              "transaction-complete real PPO credit tuple and score direction"
             ],
             "failIf": [
               "comparison identity 不一致",
@@ -577,7 +577,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "Q2-D offline score-gradient oracle implemented; real failed-sample action/advantage covariance pending one bounded artifact"
+          "gap": "Q-E23 closes offline transaction/credit wiring; real sampled-action/advantage covariance remains pending one bounded artifact"
         },
         {
           "id": "QUALITY-UPDATE-01",
@@ -622,8 +622,8 @@
               "id": "QUALITY-UPDATE-01-B4",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_q2d.py",
               "role": "B4: isolated clone mean projection",
-              "sourceLine": 162,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=162"
+              "sourceLine": 243,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=243"
             }
           ],
           "mainRoute": [
@@ -658,12 +658,12 @@
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2202"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_q2d.py:162 :: run_isolated_controlled_update() B4",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_policy_quality_q2d.py:243 :: run_isolated_controlled_update() B4",
               "capture": "before/after mean, preferred-action projection and source-policy hash",
               "whyHere": "一次 update 只发生在 clone, 可直接判定 mean delta 是否朝 Gain-preferred action 移动且不污染正式策略",
               "failureOwner": "失败归属: PPO update direction or action representation",
-              "sourceLine": 162,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=162"
+              "sourceLine": 243,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_policy_quality_q2d.py&line=243"
             }
           ],
           "probe": {
@@ -711,22 +711,22 @@
               "id": "QUALITY-EXEC-01-B1",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
               "role": "B1: success/fall/survival + action identity",
-              "sourceLine": 2856,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2856"
+              "sourceLine": 2885,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2885"
             },
             {
               "id": "QUALITY-EXEC-01-B2",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
               "role": "B2: ZMP/contact/MPJPE/dynamics",
-              "sourceLine": 2857,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2857"
+              "sourceLine": 2886,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2886"
             },
             {
               "id": "QUALITY-EXEC-01-B3",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
               "role": "B3: short-K versus long-sequence boundary",
-              "sourceLine": 2858,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2858"
+              "sourceLine": 2887,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2887"
             }
           ],
           "mainRoute": [
@@ -736,28 +736,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2856 :: _capture_motion_quality_frame() B1",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2885 :: _capture_motion_quality_frame() B1",
               "capture": "success/fall/survival + action identity",
               "whyHere": "比较控制变量在任何 route 分叉前首次完整可见",
               "failureOwner": "失败归属: application/GMT/metric authority",
-              "sourceLine": 2856,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2856"
+              "sourceLine": 2885,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2885"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2857 :: _capture_motion_quality_frame() B2",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2886 :: _capture_motion_quality_frame() B2",
               "capture": "ZMP/contact/MPJPE/dynamics",
               "whyHere": "owner 已形成当前层产物且下游尚未聚合或覆盖",
               "failureOwner": "失败归属: application/GMT/metric authority",
-              "sourceLine": 2857,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2857"
+              "sourceLine": 2886,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2886"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2858 :: _capture_motion_quality_frame() B3",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2887 :: _capture_motion_quality_frame() B3",
               "capture": "short-K versus long-sequence boundary",
               "whyHere": "正式 consumer 接收前最后一次可判定失败归属",
               "failureOwner": "失败归属: application/GMT/metric authority",
-              "sourceLine": 2858,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2858"
+              "sourceLine": 2887,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2887"
             }
           ],
           "probe": {
@@ -804,22 +804,22 @@
               "id": "QUALITY-TRAJECTORY-01-B1",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
               "role": "B1: ordered manifest/checkpoint axis",
-              "sourceLine": 170,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=170"
+              "sourceLine": 171,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=171"
             },
             {
               "id": "QUALITY-TRAJECTORY-01-B2",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
               "role": "B2: matched route result per item",
-              "sourceLine": 171,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=171"
+              "sourceLine": 172,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=172"
             },
             {
               "id": "QUALITY-TRAJECTORY-01-B3",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
               "role": "B3: atomic trajectory/result artifact",
-              "sourceLine": 172,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=172"
+              "sourceLine": 173,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=173"
             }
           ],
           "mainRoute": [
@@ -829,28 +829,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:170 :: install_frontres_policy_quality_manifest_executor() B1",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:171 :: install_frontres_policy_quality_manifest_executor() B1",
               "capture": "ordered manifest/checkpoint axis",
               "whyHere": "比较控制变量在任何 route 分叉前首次完整可见",
-              "failureOwner": "失败归属: trajectory/replay/curriculum/generalization",
-              "sourceLine": 170,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=170"
-            },
-            {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:171 :: install_frontres_policy_quality_manifest_executor() B2",
-              "capture": "matched route result per item",
-              "whyHere": "owner 已形成当前层产物且下游尚未聚合或覆盖",
               "failureOwner": "失败归属: trajectory/replay/curriculum/generalization",
               "sourceLine": 171,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=171"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:172 :: install_frontres_policy_quality_manifest_executor() B3",
-              "capture": "atomic trajectory/result artifact",
-              "whyHere": "正式 consumer 接收前最后一次可判定失败归属",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:172 :: install_frontres_policy_quality_manifest_executor() B2",
+              "capture": "matched route result per item",
+              "whyHere": "owner 已形成当前层产物且下游尚未聚合或覆盖",
               "failureOwner": "失败归属: trajectory/replay/curriculum/generalization",
               "sourceLine": 172,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=172"
+            },
+            {
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:173 :: install_frontres_policy_quality_manifest_executor() B3",
+              "capture": "atomic trajectory/result artifact",
+              "whyHere": "正式 consumer 接收前最后一次可判定失败归属",
+              "failureOwner": "失败归属: trajectory/replay/curriculum/generalization",
+              "sourceLine": 173,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=173"
             }
           ],
           "probe": {

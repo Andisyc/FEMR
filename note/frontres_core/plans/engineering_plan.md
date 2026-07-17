@@ -426,7 +426,7 @@ old model's training config from the current runtime print.
 
 ### Step Q2-D: Stage 3 Over-Amplitude Correction Causality
 
-Status: Q2-D1/Q2-D2 offline implementation completed by Q-E20; Q2-D3 pending user-approved tiny live evidence.
+Status: Q2-D1/Q2-D2 completed offline; Q2-D3 partial. The physical scale sweep exists, while transaction-complete Gain identity and the real official PPO credit artifact await one bounded rerun/update sentinel.
 
 Objective: determine why Stage 3 HRL did not correct the over-amplitude HSL
 initialization exposed by Q-E17/Q-E18.
@@ -468,6 +468,16 @@ canonical Segment PPO loss on a policy clone and verifies mean projection while
 leaving the source policy unchanged. These contracts prove instrumentation and
 formula direction only. They do not establish which scale wins physical Gain
 or what direction the failed real Stage 3 batch supplies.
+
+Q-E22/Q-E23 narrowed the remaining boundary. The first scale artifact shows
+that smaller HSL magnitudes often beat 1.0x, but its Gain transaction metadata
+was `UNCONFIRMED`; this result is diagnostic, not closure evidence. The Q2-D
+owner now injects a complete transaction/batch identity before canonical Gain,
+and the official Stage 3 single-update owner can atomically capture the exact
+pre-update bounded/raw action, old mean/sigma, Gain, return, advantage, valid
+mask, and segment ID tuple. Offline S1/S2 contracts prove fail-closed identity,
+row alignment, official-owner reachability, and no storage mutation. No Gain,
+PPO, sampler, or optimizer semantics changed.
 
 ## Planned Step Order
 

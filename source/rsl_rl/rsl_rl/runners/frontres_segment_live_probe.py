@@ -2231,6 +2231,35 @@ def run_frontres_segment_single_update(runner: Any, storage_batch: Any) -> objec
     )
     # B2: First forward is the pre-step loss and MOSAIC-style old/new KL source.
     ppo_result = compute_frontres_segment_ppo_loss(policy_adapter, ppo_batch, ppo_cfg)
+    credit_result_path = str(getattr(runner, "_frontres_policy_quality_q2d_credit_result", "") or "")
+    if credit_result_path and not Path(credit_result_path).exists():
+        from rsl_rl.frontres.frontres_policy_quality_q2d import write_q2d_credit_tuple
+
+        if ppo_batch.old_means is None or ppo_batch.old_sigmas is None:
+            raise ValueError("Q2-D credit capture requires rollout old_means and old_sigmas")
+        raw_actions = _segment_delta_se_log_prob_parts(
+            runner.alg.policy,
+            ppo_batch.actions,
+            ppo_batch.old_means,
+            ppo_batch.old_sigmas,
+        )["raw_actions"]
+        # QUALITY-CREDIT-01: capture the finalized Gain -> return -> advantage tuple
+        # at the last read-only boundary before the official PPO optimizer step.
+        write_q2d_credit_tuple(
+            result_path=credit_result_path,
+            raw_actions=raw_actions,
+            bounded_actions=ppo_batch.actions,
+            old_means=ppo_batch.old_means,
+            old_sigmas=ppo_batch.old_sigmas,
+            gains=storage_batch.rewards,
+            returns=ppo_batch.returns,
+            advantages=ppo_batch.advantages,
+            valid_mask=ppo_batch.valid_mask,
+            segment_ids=ppo_batch.segment_ids,
+            audit_transaction_id=storage_batch.audit_transaction_id,
+            audit_batch_signature=storage_batch.audit_batch_signature,
+            audit_identity_state=storage_batch.audit_identity_state,
+        )
     pre_step_lr_diagnostics = _apply_segment_adaptive_learning_rate(
         runner.alg,
         ppo_result,

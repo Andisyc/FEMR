@@ -334,6 +334,7 @@ parser.add_argument("--frontres_policy_quality_policy_checkpoint", type=str, def
 parser.add_argument("--frontres_policy_quality_result", type=str, default=None)
 parser.add_argument("--frontres_policy_quality_q2d_eval_only", action="store_true", default=False)
 parser.add_argument("--frontres_policy_quality_q2d_result", type=str, default=None)
+parser.add_argument("--frontres_policy_quality_q2d_credit_result", type=str, default=None)
 parser.add_argument(
     "--frontres_segment_shard_cache_size",
     type=int,
@@ -1397,6 +1398,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create runner from rsl-rl
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    runner._frontres_policy_quality_q2d_credit_result = args_cli.frontres_policy_quality_q2d_credit_result
     
     # write git state to logs
     runner.add_git_repo_to_log(__file__)

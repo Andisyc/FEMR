@@ -5,7 +5,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import io
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 import torch
@@ -69,6 +71,7 @@ def run_q2d_scale_sweep(
     compute_gain: Callable[[], Any],
     capture_execution: Callable[[], Mapping[str, Any]],
     isolation_state: Callable[[], str],
+    set_audit_identity: Callable[[str, float, str], None] | None = None,
 ) -> tuple[Q2DScaleRouteResult, ...]:
     """Run scaled HSL routes from one restored state through injected canonical owners."""
 
@@ -87,6 +90,8 @@ def run_q2d_scale_sweep(
         if state_hash != expected_state_hash:
             raise RuntimeError("Q2-D scale routes did not restore the same initial state")
         begin_route(adapter.route)
+        if set_audit_identity is not None:
+            set_audit_identity(adapter.route, scale, state_hash)
         actions = []
         for _ in range(horizon_k):
             value = adapter.action(observe())
@@ -132,6 +137,82 @@ def gaussian_mean_score_gradient(
     sigma = old_sigmas[valid].clamp_min(1e-8)
     score = advantages[valid, None] * (raw_actions[valid] - old_means[valid]) / sigma.square()
     return score.mean(dim=0)
+
+# B4: QUALITY-CREDIT-01 冻结正式 optimizer.step 前的 transaction-complete PPO tuple.
+def write_q2d_credit_tuple(
+    *,
+    result_path: str,
+    raw_actions: torch.Tensor,
+    bounded_actions: torch.Tensor,
+    old_means: torch.Tensor,
+    old_sigmas: torch.Tensor,
+    gains: torch.Tensor,
+    returns: torch.Tensor,
+    advantages: torch.Tensor,
+    valid_mask: torch.Tensor,
+    segment_ids: torch.Tensor,
+    audit_transaction_id: str | None,
+    audit_batch_signature: str | None,
+    audit_identity_state: str,
+) -> dict[str, Any]:
+    """Persist the exact pre-update PPO credit tuple without mutating training state."""
+
+    tensors = {
+        "raw_actions": raw_actions,
+        "bounded_actions": bounded_actions,
+        "old_means": old_means,
+        "old_sigmas": old_sigmas,
+    }
+    if any(value.ndim != 2 or value.shape[-1] != 6 for value in tensors.values()):
+        raise ValueError("Q2-D action/distribution tuple fields must be [batch, 6]")
+    row_count = int(raw_actions.shape[0])
+    if any(tuple(value.shape) != (row_count, 6) for value in tensors.values()):
+        raise ValueError("Q2-D action/distribution tuple fields must share shape")
+    vectors = {
+        "gains": gains,
+        "returns": returns,
+        "advantages": advantages,
+        "valid_mask": valid_mask,
+        "segment_ids": segment_ids,
+    }
+    if any(int(value.reshape(-1).numel()) != row_count for value in vectors.values()):
+        raise ValueError("Q2-D credit tuple vectors must match the PPO batch row count")
+    if audit_identity_state != "complete" or not audit_transaction_id or not audit_batch_signature:
+        raise ValueError("Q2-D credit tuple requires complete rollout transaction identity")
+    numeric = (*tensors.values(), gains, returns, advantages)
+    if not all(bool(torch.isfinite(value.detach()).all()) for value in numeric):
+        raise ValueError("Q2-D credit tuple must be finite")
+
+    score_direction = gaussian_mean_score_gradient(
+        raw_actions,
+        old_means,
+        old_sigmas,
+        advantages,
+        valid_mask,
+    )
+    payload = {
+        "schema_version": "frontres_policy_quality_q2d_credit_v1",
+        "audit_transaction_id": audit_transaction_id,
+        "audit_batch_signature": audit_batch_signature,
+        "audit_identity_state": audit_identity_state,
+        "row_count": row_count,
+        "raw_actions": raw_actions.detach().cpu().tolist(),
+        "bounded_actions": bounded_actions.detach().cpu().tolist(),
+        "old_means": old_means.detach().cpu().tolist(),
+        "old_sigmas": old_sigmas.detach().cpu().tolist(),
+        "gains": gains.detach().reshape(-1).cpu().tolist(),
+        "returns": returns.detach().reshape(-1).cpu().tolist(),
+        "advantages": advantages.detach().reshape(-1).cpu().tolist(),
+        "valid_mask": valid_mask.detach().bool().reshape(-1).cpu().tolist(),
+        "segment_ids": segment_ids.detach().long().reshape(-1).cpu().tolist(),
+        "mean_score_direction": score_direction.detach().cpu().tolist(),
+    }
+    destination = Path(result_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False))
+    temporary.replace(destination)
+    return payload
 
 
 def mean_correction_projection(

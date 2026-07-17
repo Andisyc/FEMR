@@ -792,3 +792,40 @@ Evidence:
 Decision: this was a Q2-D result serialization defect only. Canonical Gain
 calculation, scaled actions, state restoration, and old evaluator flows are
 unchanged. Rerun the same command.
+
+## Q-E22 - Q2-D Scale Sweep Diagnostic Result
+
+Date: 2026-07-17
+
+Evidence: `policy_quality_q2d_scale_v1.txt` and
+`policy_quality_q2d_scale_v1_result.json` contain all 16 Q2 items and six
+scales. Mean Gain is `-0.00655/-0.00105/-0.00775/-0.00713/-0.01274/-0.02430`
+for `0/0.25/0.5/0.75/1/1.25x`; 1.0x is best on only 1/16 items and is worse
+than zero on 11/16.
+
+Limit: every route reports `audit_identity_state=UNCONFIRMED` with no
+transaction ID. The ordering supports the over-amplitude hypothesis but cannot
+close matched Gain identity and must not be joined to a PPO tuple.
+
+## Q-E23 - Q2-D Transaction And Official Credit Wiring Repair
+
+Date: 2026-07-17
+
+Implementation and evidence:
+
+- The dedicated scale owner sets a route-specific transaction ID and batch
+  signature after state restore and before canonical Gain computation.
+- `run_frontres_segment_single_update()` optionally writes one atomic
+  `frontres_policy_quality_q2d_credit_v1` artifact after finalized storage is
+  converted to the official PPO batch and before `optimizer.step`.
+- The artifact preserves bounded/raw actions, old means/sigmas, canonical Gain
+  reward, returns, advantages, valid mask, segment IDs, and the six-dimensional
+  Gaussian mean score direction under one complete transaction identity.
+- Focused S1/S2 contracts pass and prove incomplete identity fails closed,
+  tensor rows align, the official owner installs the capture, and source
+  rewards/advantages remain unchanged.
+
+Decision: deterministic wiring is repaired without changing Gain, PPO,
+sampler, warmup, or optimizer semantics. Q2-D3 remains partial until bounded
+runtime artifacts confirm the identity and real sampled-action/advantage
+covariance. Do not repeat broad training.

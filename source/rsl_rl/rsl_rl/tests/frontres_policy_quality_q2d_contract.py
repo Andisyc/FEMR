@@ -1,6 +1,7 @@
 """Deterministic contracts for Q2-D scale and update causality."""
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 
@@ -57,6 +58,7 @@ def main() -> None:
     route = {"name": None, "actions": []}
     restores = []
     isolation = {"value": "unchanged"}
+    audit_identities = []
 
     def restore():
         restores.append(1)
@@ -75,11 +77,16 @@ def main() -> None:
         compute_gain=lambda: torch.tensor(float(torch.stack(route["actions"]).mean())),
         capture_execution=lambda: {"steps": len(route["actions"])},
         isolation_state=lambda: isolation["value"],
+        set_audit_identity=lambda route_name, scale, state_hash: audit_identities.append(
+            (route_name, scale, state_hash)
+        ),
     )
     assert len(results) == 6 and len(restores) == 6
     assert torch.equal(results[0].actions, torch.zeros_like(results[0].actions))
     assert torch.allclose(results[4].actions, torch.full_like(results[4].actions, 0.2))
     assert results[0].initial_state_hash == results[-1].initial_state_hash
+    assert len(audit_identities) == 6
+    assert all(identity[2] == "same-state" for identity in audit_identities)
 
     raw = torch.tensor([[-1.0] * 6, [1.0] * 6])
     means = torch.zeros_like(raw)
@@ -87,6 +94,37 @@ def main() -> None:
     advantages = torch.tensor([2.0, -1.0])
     score = MODULE.gaussian_mean_score_gradient(raw, means, sigmas, advantages, torch.ones(2, dtype=torch.bool))
     assert bool((score < 0).all())
+
+    credit_path = ROOT / "source/rsl_rl/rsl_rl/tests/.frontres_policy_quality_q2d_credit.json"
+    payload = MODULE.write_q2d_credit_tuple(
+        result_path=str(credit_path),
+        raw_actions=raw,
+        bounded_actions=raw * 0.1,
+        old_means=means,
+        old_sigmas=sigmas,
+        gains=torch.tensor([0.5, -0.25]),
+        returns=torch.tensor([0.4, -0.2]),
+        advantages=advantages,
+        valid_mask=torch.ones(2, dtype=torch.bool),
+        segment_ids=torch.tensor([11, 12]),
+        audit_transaction_id="txn-1",
+        audit_batch_signature="batch-1",
+        audit_identity_state="complete",
+    )
+    assert payload["row_count"] == 2
+    assert json.loads(credit_path.read_text())["audit_transaction_id"] == "txn-1"
+    credit_path.unlink()
+    try:
+        MODULE.write_q2d_credit_tuple(
+            result_path=str(credit_path), raw_actions=raw, bounded_actions=raw,
+            old_means=means, old_sigmas=sigmas, gains=torch.ones(2), returns=torch.ones(2),
+            advantages=advantages, valid_mask=torch.ones(2, dtype=torch.bool),
+            segment_ids=torch.arange(2), audit_transaction_id=None,
+            audit_batch_signature=None, audit_identity_state="UNCONFIRMED",
+        )
+        raise AssertionError("incomplete transaction identity must fail closed")
+    except ValueError as exc:
+        assert "complete rollout transaction identity" in str(exc)
 
     model = torch.nn.Linear(1, 1, bias=False)
     with torch.no_grad():

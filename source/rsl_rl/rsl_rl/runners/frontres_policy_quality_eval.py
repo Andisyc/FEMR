@@ -135,6 +135,7 @@ class FrontRESPolicyQualityRouteHooks:
     compute_gain: Callable[[], Any]
     capture_execution: Callable[[], Any]
     begin_route: Callable[[str], None] | None = None
+    set_audit_identity: Callable[[Mapping[str, str]], None] | None = None
 
 
 @dataclass(frozen=True)
