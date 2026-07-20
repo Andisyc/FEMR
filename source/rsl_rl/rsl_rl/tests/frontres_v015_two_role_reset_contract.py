@@ -338,6 +338,33 @@ def _local_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNamespace:
     )
 
 
+def _parallel_attempt_request(role_env_ids: dict[str, torch.Tensor]) -> SimpleNamespace:
+    request = _local_request(role_env_ids)
+    for name in (
+        "segment_ids",
+        "start_frames",
+        "horizon_k",
+        "frontres_local_scenario_current_root_artifact_t",
+        "frontres_local_scenario_intent_q29",
+        "frontres_local_scenario_clean_continuation",
+        "frontres_local_scenario_clean_continuation_lengths",
+        "frontres_local_scenario_clean_continuation_mask",
+    ):
+        value = getattr(request, name)
+        setattr(request, name, value.repeat_interleave(2, dim=0))
+    request.motion_ids = ("motion_a.npz", "motion_a.npz", "motion_a.npz", "motion_a.npz")
+    request.frontres_local_scenario_ids = ("scenario-a", "scenario-a", "scenario-b", "scenario-b")
+    request.frontres_local_scenario_hashes = ("hash-a", "hash-a", "hash-b", "hash-b")
+    request.frontres_local_scenario_x_t_identities = ("x_t-a", "x_t-a", "x_t-b", "x_t-b")
+    request.frontres_local_scenario_provenance = (
+        request.frontres_local_scenario_provenance[0],
+        request.frontres_local_scenario_provenance[0],
+        request.frontres_local_scenario_provenance[1],
+        request.frontres_local_scenario_provenance[1],
+    )
+    return request
+
+
 def _expect_error(exc_type, callback, contains: str) -> None:
     try:
         callback()
@@ -452,6 +479,93 @@ def test_t_state_and_identity(hooks, env, command, role_env_ids) -> None:
     )
 
 
+def test_t_parallel_m_attempt_role_balance(commands, hooks, setup) -> None:
+    robot = _FakeRobot(num_envs=8)
+    command = _make_command(commands, robot, num_envs=8)
+    env = _FakeEnv(command, robot, num_envs=8)
+    runner = SimpleNamespace(
+        env=env,
+        device=torch.device("cpu"),
+        cfg={"frontres_candidate_rollout_enabled": True},
+        alg=SimpleNamespace(frontres_future_offsets=(1, 2)),
+        _frontres_future_intent_layout=SimpleNamespace(version="frontres-v015-future-intent-q29-v1"),
+    )
+    layout = setup.configure_frontres_pair_layout(runner, is_frontres=True)
+    role_env_ids = runner._frontres_v015_two_role_env_ids
+    assert (layout.n_train, layout.n_base) == (4, 4)
+    assert role_env_ids["repair"].tolist() == [0, 1, 2, 3]
+    assert role_env_ids["noisy"].tolist() == [4, 5, 6, 7]
+
+    adapter = hooks.FrontRESStage1EnvAdapter(env=env, amass_root="/tmp", trace=False)
+    request = _parallel_attempt_request(role_env_ids)
+    result = adapter.apply_frontres_segment_index_reset(request)
+    assert result["reset_success"].tolist() == [True, True, True, True]
+    snapshot = command.frontres_local_scenario_snapshot(torch.arange(8))
+    assert snapshot["scenario_ids"] == (
+        "scenario-a",
+        "scenario-a",
+        "scenario-b",
+        "scenario-b",
+        "scenario-a",
+        "scenario-a",
+        "scenario-b",
+        "scenario-b",
+    )
+    assert snapshot["roles"] == ("repair", "repair", "repair", "repair", "noisy", "noisy", "noisy", "noisy")
+    expected_rows = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3], dtype=torch.long)
+    torch.testing.assert_close(
+        snapshot["current_root_artifact_t"],
+        request.frontres_local_scenario_current_root_artifact_t.index_select(0, expected_rows),
+    )
+    torch.testing.assert_close(
+        snapshot["intent_q29"],
+        request.frontres_local_scenario_intent_q29.index_select(0, expected_rows),
+    )
+    torch.testing.assert_close(
+        snapshot["clean_continuation"],
+        request.frontres_local_scenario_clean_continuation.index_select(0, expected_rows),
+    )
+
+    def install(candidate_command, *, intent_q29, roles):
+        return candidate_command.set_frontres_local_scenario(
+            current_root_artifact_t=snapshot["current_root_artifact_t"],
+            intent_q29=intent_q29,
+            clean_continuation=snapshot["clean_continuation"],
+            horizon_k=snapshot["horizon_k"],
+            continuation_lengths=snapshot["continuation_lengths"],
+            scenario_ids=snapshot["scenario_ids"],
+            noisy_segment_hashes=snapshot["noisy_segment_hashes"],
+            x_t_identities=snapshot["x_t_identities"],
+            provenance=snapshot["provenance"],
+            roles=roles,
+            env_ids=torch.arange(8),
+        )
+
+    unbalanced_roles = list(snapshot["roles"])
+    unbalanced_roles[5] = "repair"
+    _expect_error(
+        ValueError,
+        lambda: install(
+            _make_command(commands, _FakeRobot(num_envs=8), num_envs=8),
+            intent_q29=snapshot["intent_q29"],
+            roles=tuple(unbalanced_roles),
+        ),
+        "balanced",
+    )
+    mutated_intent = snapshot["intent_q29"].clone()
+    mutated_intent[5, 0, 0] += 1.0
+    _expect_error(
+        ValueError,
+        lambda: install(
+            _make_command(commands, _FakeRobot(num_envs=8), num_envs=8),
+            intent_q29=mutated_intent,
+            roles=snapshot["roles"],
+        ),
+        "immutable local scenario",
+    )
+    print("[T-2A-parallel-M] two scenarios x M=2 install balanced immutable Repair/Noisy rows", flush=True)
+
+
 def test_t_legacy_reject(hooks, env, role_env_ids) -> None:
     adapter = hooks.FrontRESStage1EnvAdapter(env=env, amass_root="/tmp", trace=False)
     legacy_roles = {"policy": role_env_ids["repair"], "noisy": role_env_ids["noisy"]}
@@ -464,6 +578,7 @@ def main() -> None:
     commands, hooks, setup = _load_owners()
     env, command, role_env_ids = test_t_role_layout(commands, setup)
     test_t_state_and_identity(hooks, env, command, role_env_ids)
+    test_t_parallel_m_attempt_role_balance(commands, hooks, setup)
     test_t_legacy_reject(hooks, env, role_env_ids)
     print("frontres_v015_two_role_reset_contract: ok", flush=True)
 

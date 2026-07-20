@@ -1556,7 +1556,7 @@ class MultiMotionCommand(CommandTerm):
         roles: Sequence[str],
         env_ids: torch.Tensor,
     ) -> torch.Tensor:
-        """Seal one local v015 scenario per Repair/Noisy pair without routing it."""
+        """Seal each local v015 scenario across balanced Repair/Noisy attempt rows."""
 
         env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
         batch_size = int(env_ids.numel())
@@ -1641,25 +1641,28 @@ class MultiMotionCommand(CommandTerm):
         for row, scenario_id in enumerate(scenario_ids):
             rows_by_scenario.setdefault(scenario_id, []).append(row)
         for scenario_id, rows in rows_by_scenario.items():
-            if len(rows) != 2 or {roles[row] for row in rows} != {"repair", "noisy"}:
+            repair_rows = [row for row in rows if roles[row] == "repair"]
+            noisy_rows = [row for row in rows if roles[row] == "noisy"]
+            if not repair_rows or len(repair_rows) != len(noisy_rows):
                 raise ValueError(
-                    "each v015 local scenario must occupy exactly one repair and one noisy row, "
+                    "each v015 local scenario must occupy balanced nonempty repair/noisy attempt rows, "
                     f"scenario={scenario_id!r}, roles={[roles[row] for row in rows]}"
                 )
-            left, right = rows
-            if (
-                noisy_segment_hashes[left] != noisy_segment_hashes[right]
-                or x_t_identities[left] != x_t_identities[right]
-                or not torch.equal(current_root_artifact_t[left], current_root_artifact_t[right])
-                or not torch.equal(intent_q29[left], intent_q29[right])
-                or not torch.equal(clean_continuation[left], clean_continuation[right])
-                or int(horizon[left].item()) != int(horizon[right].item())
-                or provenance_rows[left] != provenance_rows[right]
-            ):
-                raise ValueError(
-                    "v015 Repair/Noisy rows must reuse one immutable local scenario without mixed artifacts, "
-                    f"scenario={scenario_id!r}"
-                )
+            anchor = rows[0]
+            for row in rows[1:]:
+                if (
+                    noisy_segment_hashes[anchor] != noisy_segment_hashes[row]
+                    or x_t_identities[anchor] != x_t_identities[row]
+                    or not torch.equal(current_root_artifact_t[anchor], current_root_artifact_t[row])
+                    or not torch.equal(intent_q29[anchor], intent_q29[row])
+                    or not torch.equal(clean_continuation[anchor], clean_continuation[row])
+                    or int(horizon[anchor].item()) != int(horizon[row].item())
+                    or provenance_rows[anchor] != provenance_rows[row]
+                ):
+                    raise ValueError(
+                        "v015 Repair/Noisy attempts must reuse one immutable local scenario without mixed artifacts, "
+                        f"scenario={scenario_id!r}"
+                    )
 
         active = self._frontres_local_scenario_active
         if bool(self._frontres_fixed_noisy_tape_context_active.any()):
