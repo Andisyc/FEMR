@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, deque
+from collections.abc import Mapping
 import copy
 from dataclasses import dataclass
 import hashlib
@@ -1869,8 +1870,8 @@ def _attach_frontres_local_scenario_to_index_request(request: Any, batch: Any) -
         or len(provenance) != batch_size
     ):
         raise ValueError("v015 local reset request requires one aligned sealed artifact, q29 intent, Clean continuation, identity, and provenance row")
-    if any(not isinstance(value, dict) for value in provenance):
-        raise ValueError("v015 local reset request requires dict provenance for every local scenario row")
+    if any(not isinstance(value, Mapping) for value in provenance):
+        raise ValueError("v015 local reset request requires mapping provenance for every local scenario row")
     request.frontres_local_scenario_rows = rows
     request.frontres_local_scenario_current_root_artifact_t = artifact.detach().clone()
     request.frontres_local_scenario_intent_q29 = intent.detach().clone()

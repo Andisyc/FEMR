@@ -6,7 +6,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import torch
 
@@ -33,7 +33,18 @@ def _load_owners():
     return formal, candidate_contract, owners, live_sampler, live_probe
 
 
-def _local_batch() -> SimpleNamespace:
+def _kernel_provenance(live_sampler):
+    return live_sampler._SAMPLER_MODULE._freeze_local_scenario_provenance(
+        {
+            "current_root_artifact_provenance": "noisy_root_artifact_t",
+            "intent_q29_provenance": "deployment_noisy_q29",
+            "intent_q29_source": "motion_internal_q29",
+            "clean_continuation_provenance": "clean_gmt_only",
+        }
+    )
+
+
+def _local_batch(live_sampler) -> SimpleNamespace:
     lengths = torch.tensor([3, 2], dtype=torch.long)
     continuation = torch.arange(2 * 3 * 65, dtype=torch.float32).reshape(2, 3, 65)
     return SimpleNamespace(
@@ -49,27 +60,17 @@ def _local_batch() -> SimpleNamespace:
         frontres_local_scenario_hashes=("hash-0", "hash-1"),
         frontres_local_scenario_x_t_identities=("x-0", "x-1"),
         frontres_local_scenario_provenance=(
-            {
-                "current_root_artifact_provenance": "noisy_root_artifact_t",
-                "intent_q29_provenance": "deployment_noisy_q29",
-                "intent_q29_source": "motion_internal_q29",
-                "clean_continuation_provenance": "clean_gmt_only",
-            },
-            {
-                "current_root_artifact_provenance": "noisy_root_artifact_t",
-                "intent_q29_provenance": "deployment_noisy_q29",
-                "intent_q29_source": "motion_internal_q29",
-                "clean_continuation_provenance": "clean_gmt_only",
-            },
+            _kernel_provenance(live_sampler),
+            _kernel_provenance(live_sampler),
         ),
         frontres_future_offsets=(1, 2),
     )
 
 
 def test_t_local_carrier_replaces_fixed_tape_on_reset_request() -> None:
-    _formal, _candidate, owners, _sampler, live_probe = _load_owners()
+    _formal, _candidate, owners, live_sampler, live_probe = _load_owners()
     request = SimpleNamespace(segment_ids=torch.tensor([101, 202], dtype=torch.long))
-    live_probe._attach_frontres_local_scenario_to_index_request(request, _local_batch())
+    live_probe._attach_frontres_local_scenario_to_index_request(request, _local_batch(live_sampler))
 
     assert request.frontres_local_scenario_rows is not None
     assert not hasattr(request, "frontres_fixed_noisy_tape")
@@ -143,6 +144,80 @@ def test_t_sentinel_batch_materializes_local_scenario_not_legacy_tape() -> None:
     print("[T-materialize/T-no-tape] v015 sentinel batch selects the local-scenario materializer with its frozen transaction id", flush=True)
 
 
+def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
+    _formal, _candidate, _owners, live_sampler, _live_probe = _load_owners()
+    policy = torch.nn.Linear(2, 1)
+    base_sample = SimpleNamespace(
+        segment_ids=torch.tensor([101, 202], dtype=torch.long),
+        source=("global", "global"),
+        priority=torch.ones(2),
+        staleness=torch.zeros(2),
+        valid_mask=torch.ones(2, dtype=torch.bool),
+        segment_state=None,
+        rollout_trial_count=torch.tensor([2, 2], dtype=torch.long),
+        budget_reason=("cold_start", "cold_start"),
+    )
+    frozen_plan = SimpleNamespace(
+        segment_ids=torch.tensor([101, 101, 202, 202], dtype=torch.long),
+        source_index=torch.tensor([0, 0, 1, 1], dtype=torch.long),
+        trial_index=torch.tensor([0, 1, 0, 1], dtype=torch.long),
+        horizon_k=torch.tensor([3, 3, 3, 3], dtype=torch.long),
+        base_trial_count=torch.tensor([2, 2], dtype=torch.long),
+        trial_role=("policy", "policy", "policy", "policy"),
+    )
+    sampler = SimpleNamespace(
+        sample=lambda *_args, **_kwargs: base_sample,
+        plan_frozen_policy_transaction=lambda *_args, **_kwargs: frozen_plan,
+    )
+    runner = SimpleNamespace(
+        alg=SimpleNamespace(
+            policy=policy,
+            frontres_v015_local_sentinel_only=True,
+            frontres_segment_max_horizon_k=3,
+        ),
+        env=SimpleNamespace(num_envs=8),
+        _frontres_segment_sampler=sampler,
+        current_learning_iteration=0,
+    )
+    local_batch = _local_batch(live_sampler)
+    for name in (
+        "frontres_local_scenario_current_root_artifact_t",
+        "frontres_local_scenario_intent_q29",
+        "frontres_local_scenario_clean_continuation",
+        "frontres_local_scenario_clean_continuation_lengths",
+        "frontres_local_scenario_clean_continuation_mask",
+    ):
+        value = getattr(local_batch, name)
+        setattr(local_batch, name, value.repeat_interleave(2, dim=0))
+    local_batch.frontres_local_scenario_ids = ("scenario-0", "scenario-0", "scenario-1", "scenario-1")
+    local_batch.frontres_local_scenario_hashes = ("hash-0", "hash-0", "hash-1", "hash-1")
+    local_batch.frontres_local_scenario_x_t_identities = ("x-0", "x-0", "x-1", "x-1")
+    local_batch.frontres_local_scenario_provenance = (
+        local_batch.frontres_local_scenario_provenance[0],
+        local_batch.frontres_local_scenario_provenance[0],
+        local_batch.frontres_local_scenario_provenance[1],
+        local_batch.frontres_local_scenario_provenance[1],
+    )
+    local_batch.specs = (
+        SimpleNamespace(motion_id="motion-a", start_frame=12),
+        SimpleNamespace(motion_id="motion-a", start_frame=12),
+        SimpleNamespace(motion_id="motion-b", start_frame=24),
+        SimpleNamespace(motion_id="motion-b", start_frame=24),
+    )
+    original = live_sampler._build_current_segment_batch
+    live_sampler._build_current_segment_batch = lambda *_args, **_kwargs: local_batch
+    try:
+        prepared = live_sampler.prepare_frontres_v015_local_sentinel_batch(runner)
+    finally:
+        live_sampler._build_current_segment_batch = original
+
+    assert prepared.batch is local_batch
+    assert prepared.plan.intent_q29_provenance == "deployment_noisy_q29"
+    assert prepared.plan.intent_q29_source == "motion_internal_q29"
+    assert all(isinstance(value, MappingProxyType) for value in local_batch.frontres_local_scenario_provenance)
+    print("[T-immutable-provenance/T-prepare] kernel MappingProxy provenance reaches the sealed formal plan", flush=True)
+
+
 def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> None:
     formal, candidate_contract, owners, live_sampler, live_probe = _load_owners()
     fixture = formal._build_request(candidate_contract, owners, live_sampler)
@@ -154,7 +229,7 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
     for candidate_batch in fixture.request.candidate_batches:
         accumulator.append_candidate_batch(candidate_batch)
     complete_candidate = accumulator.seal()
-    local_batch = _local_batch()
+    local_batch = _local_batch(live_sampler)
     local_batch.frontres_local_scenario_current_root_artifact_t = local_batch.frontres_local_scenario_current_root_artifact_t.repeat_interleave(2, dim=0)
     local_batch.frontres_local_scenario_intent_q29 = local_batch.frontres_local_scenario_intent_q29.repeat_interleave(2, dim=0)
     local_batch.frontres_local_scenario_clean_continuation = local_batch.frontres_local_scenario_clean_continuation.repeat_interleave(2, dim=0)
@@ -274,6 +349,7 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
 def main() -> None:
     test_t_local_carrier_replaces_fixed_tape_on_reset_request()
     test_t_sentinel_batch_materializes_local_scenario_not_legacy_tape()
+    test_t_sentinel_prepare_accepts_kernel_immutable_provenance()
     test_t_real_builder_orders_local_reset_capture_and_candidate_adapter()
     test_t_sentinel_provider_is_collected_before_one_grouped_update()
     print("frontres_v015_local_sentinel_connectivity_contract: ok", flush=True)

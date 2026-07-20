@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 import hashlib
 import importlib.util
@@ -1736,7 +1737,7 @@ def prepare_frontres_v015_local_sentinel_batch(runner: Any) -> SimpleNamespace:
     row_count = int(expanded_sample.segment_ids.numel())
     if len(specs) != row_count or len(scenario_ids) != row_count or len(hashes) != row_count or len(x_t_identities) != row_count:
         raise RuntimeError("v015 local sentinel batch lost source-aligned local scenario identities")
-    if not provenance or any(not isinstance(value, dict) for value in provenance):
+    if not provenance or any(not isinstance(value, Mapping) for value in provenance):
         raise RuntimeError("v015 local sentinel batch lost local scenario provenance")
     intent_provenance = {str(value.get("intent_q29_provenance", "")) for value in provenance}
     intent_source = {str(value.get("intent_q29_source", "")) for value in provenance}
