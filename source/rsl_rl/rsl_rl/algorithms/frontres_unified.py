@@ -30,6 +30,36 @@ def validate_frontres_v015_stage3_supervision_config(
         )
 
 
+class FrontRESV015TrackedAdam(optim.Adam):
+    """Count every real v015 optimizer step in persisted optimizer state."""
+
+    _STEP_COUNT_KEY = "frontres_v015_step_count"
+
+    def __init__(self, params, *args, **kwargs):
+        super().__init__(params, *args, **kwargs)
+        for group in self.param_groups:
+            group[self._STEP_COUNT_KEY] = 0
+
+    @property
+    def frontres_v015_step_count(self) -> int:
+        counts = []
+        for group in self.param_groups:
+            value = group.get(self._STEP_COUNT_KEY)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise RuntimeError("v015 Adam state is missing a valid persisted optimizer step counter")
+            counts.append(value)
+        if not counts or len(set(counts)) != 1:
+            raise RuntimeError("v015 Adam parameter groups disagree on the optimizer step counter")
+        return counts[0]
+
+    def step(self, closure=None):
+        result = super().step(closure=closure)
+        next_count = self.frontres_v015_step_count + 1
+        for group in self.param_groups:
+            group[self._STEP_COUNT_KEY] = next_count
+        return result
+
+
 class FrontRESUnified:
     """FrontRES PPO plus legacy supervised ΔSE3 support.
 
@@ -166,7 +196,8 @@ class FrontRESUnified:
         self.policy = policy.to(self.device)
 
         trainable_params = self._collect_trainable_params(policy)
-        self.optimizer = optim.Adam(trainable_params, lr=learning_rate)
+        optimizer_type = FrontRESV015TrackedAdam if frontres_v015_formal_transaction_enabled else optim.Adam
+        self.optimizer = optimizer_type(trainable_params, lr=learning_rate)
 
         self.storage: RolloutStorage = None
         self.transition = RolloutStorage.Transition()
