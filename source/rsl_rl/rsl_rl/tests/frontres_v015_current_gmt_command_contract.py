@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -106,12 +107,73 @@ def test_t_continuation_and_mixed_route_isolation(helper, commands, hooks, setup
     print("[T-continuation-isolation/T-legacy-reject] Clean C remains K-only and mixed rows reject", flush=True)
 
 
+def test_t_local_and_legacy_command_clock_ownership(helper, commands, hooks, setup) -> None:
+    update_source = inspect.getsource(commands.MultiMotionCommand._update_command)
+    assert update_source.count("self._advance_frontres_command_clock()") == 1
+    assert "self.time_steps += 1" not in update_source
+
+    command, _request = _sealed_role_command(helper, commands, hooks, setup)
+    command.cfg = SimpleNamespace(motion_horizon=1, command_velocity=True)
+    command._global_sim_step = 0
+    time_t = command.time_steps.detach().clone()
+    artifact_t = command._cached_perturbed_pos.detach().clone()
+    current_t = command.command.detach().clone()
+
+    # A direct second install is still invalid, but IsaacLab's regular command
+    # compute must hold the explicit local reference instead of calling it.
+    _expect_error(RuntimeError, command.refresh_frontres_reference_cache_current_frame, "Step 2B")
+    branch = command._advance_frontres_command_clock()
+    assert branch == "local_current_hold"
+    assert command._global_sim_step == 1
+    torch.testing.assert_close(command.time_steps, time_t)
+    torch.testing.assert_close(command._cached_perturbed_pos, artifact_t)
+    torch.testing.assert_close(command.command, current_t)
+    assert bool((command._frontres_local_scenario_k_execution_cursor == -1).all())
+
+    command.begin_frontres_local_scenario_k_execution()
+    first_c = command.advance_frontres_local_scenario_k_execution()
+    cursor = command._frontres_local_scenario_k_execution_cursor.detach().clone()
+    cache_c = command._cached_perturbed_pos.detach().clone()
+    branch = command._advance_frontres_command_clock()
+    assert branch == "local_k_hold"
+    assert command._global_sim_step == 2
+    torch.testing.assert_close(command.time_steps, time_t)
+    torch.testing.assert_close(command._frontres_local_scenario_k_execution_cursor, cursor)
+    torch.testing.assert_close(command._cached_perturbed_pos, cache_c)
+    torch.testing.assert_close(command.command, first_c["continuation"][:, :58])
+    _expect_error(RuntimeError, command.refresh_frontres_reference_cache_current_frame, "Step 2B")
+    command.end_frontres_local_scenario_k_execution()
+
+    legacy_calls: list[str] = []
+    legacy = SimpleNamespace(
+        _global_sim_step=9,
+        time_steps=torch.tensor([3, 5], dtype=torch.long),
+        _frontres_local_scenario_active=torch.zeros(2, dtype=torch.bool),
+        _frontres_local_scenario_current_frame_ready=torch.zeros(2, dtype=torch.bool),
+        _frontres_local_scenario_k_execution_active=torch.zeros(2, dtype=torch.bool),
+        _advance_frontres_reference_window=lambda: legacy_calls.append("window"),
+        _advance_frontres_fixed_noisy_tape=lambda: legacy_calls.append("tape"),
+        refresh_frontres_reference_cache_current_frame=lambda: legacy_calls.append("refresh"),
+    )
+    branch = commands.MultiMotionCommand._advance_frontres_command_clock(legacy)
+    assert branch == "legacy_advance"
+    assert legacy._global_sim_step == 10
+    assert legacy.time_steps.tolist() == [4, 6]
+    assert legacy_calls == ["window", "tape", "refresh"]
+    print(
+        "[T-t-clock-hold/T-K-clock-hold/T-legacy-clock/T-duplicate-refresh-reject] "
+        "local reference clock is explicit while legacy clock still advances",
+        flush=True,
+    )
+
+
 def main() -> None:
     helper = _load("frontres_v015_current_gmt_command_helper", HELPER_PATH)
     commands, hooks, setup = helper._load_owners()
     test_t_current_command_shape_provenance_role_identity(helper, commands, hooks, setup)
     test_t_current_only_and_command_velocity(helper, commands, hooks, setup)
     test_t_continuation_and_mixed_route_isolation(helper, commands, hooks, setup)
+    test_t_local_and_legacy_command_clock_ownership(helper, commands, hooks, setup)
     print("frontres_v015_current_gmt_command_contract: ok", flush=True)
 
 

@@ -173,7 +173,7 @@ attempt, grouped mass, advantage sign/scale, and exact-one update.
 | S2B | one action -> frozen FEMR -> Clean GMT continuation | completed 2026-07-20 at candidate-only deterministic fake S1/S2 (`E-FI-9`); legacy formal collector rejects active v015 local scenarios |
 | S3 | intent/physics Gain storage and consumer connectivity | partially completed at candidate-only deterministic S1 (`E-FI-11`--`E-FI-13`): post-`t` q29 and sealed `I[t]` reach v003 return/priority evidence, local diagnostics, and a v015 metadata-bearing grouped candidate batch; legacy v002 evaluators and adapters reject v015. Sampler state, real evaluation, and runner connectivity remain pending |
 | S4 | transaction/grouped-PPO formal route and persistence | R5 offline S2 (`E-FI-23`) now connects actual command/observation/q29/normalizer/actor-GMT/K evidence for 2 Segment x 2 attempts to the unchanged grouped v003 exact-one owner; R4 S3 (`E-FI-22`) binds exact v2 persistence. Actual checkpoint cadence/resume, simulator, and live evidence remain blocked. |
-| S5 | bounded live identity sentinel | R6-S0 structured snapshot and read-only remote preflight completed (`E-FI-24`); the single SUST_Main_2 transaction remains blocked on explicit informed source-transfer authorization |
+| S5 | bounded live identity sentinel | R6-S0 snapshot/preflight and R6-F1 deterministic clock isolation completed (`E-FI-24`--`E-FI-25`); the repaired single SUST_Main_2 transaction has not been rerun |
 
 H1 changes only the local Stage-1/reject boundaries plus a CPU-only fake
 connector proof. R5 and R4 establish offline-S2 observation/update connectivity

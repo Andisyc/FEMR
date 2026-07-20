@@ -950,10 +950,27 @@ Stop condition:
 
 ### R6 / 7: Bounded Live Identity Sentinel
 
-Status: partial at R6-S0 (`E-FI-24`). Structured telemetry and the read-only
-SUST_Main_2 preflight pass, but the single S4 transaction is blocked until the
-user explicitly authorizes transferring the named local owner files to that
-remote host after the security warning.
+Status: partial after R6-F1 (`E-FI-25`). Structured telemetry, remote preflight,
+and deterministic command-clock isolation pass. The single S4 transaction has
+not been rerun; the updated `commands.py` must first be synchronized manually
+to SUST_Main_2.
+
+R6-F1 command-clock repair contract:
+
+- Status: completed at deterministic S1 (`E-FI-25`).
+
+- Objective: isolate the sealed local-scenario clock from the legacy automatic
+  `time_steps/reference/cache` clock during both the unique t transition and
+  every explicit Clean-C K transition.
+- Scope: `MultiMotionCommand` clock dispatch plus one deterministic lifecycle
+  regression in `frontres_v015_current_gmt_command_contract.py`.
+- Non-scope: reset semantics, q29/FEMR/GMT authority, K cursor definition,
+  Gain, storage, PPO, checkpoint, HSL, formal runner, simulator, or live run.
+- Expected evidence: S1 T-t-clock-hold/T-K-clock-hold/T-legacy-clock/
+  T-duplicate-refresh-reject.
+- Stop: local `_update_command` changes `time_steps`, current artifact, or C
+  cursor; legacy rows stop advancing; or the direct duplicate-refresh guard is
+  removed/bypassed.
 
 Objective:
 - run exactly one SUST_Main_2 transaction with a structured observation and
@@ -974,6 +991,8 @@ Stop condition:
   `770D`, a later FEMR action appears, or update delta is not one.
 - remote checkout is not synchronized to the locally verified R1--R6 owners;
   do not run the sentinel against stale source.
+- the R6-F1 deterministic command-clock regression has not passed; do not pay
+  for another live run while the IsaacLab callback remains unmodeled.
 
 ### Step 5B / 12: User-Gated Deployment Composition Evaluation
 
@@ -1004,10 +1023,10 @@ Stop condition:
 
 ## Current Plan Cursor
 
-R0--R5 / 7 are complete at `E-FI-18`--`E-FI-23`. The deterministic route now
-covers actual command history, role-aligned q29 append, `928 -> 158/770`
-normalization/consumption, post-advance Clean-C K observations, four policy
-attempts, grouped exact-one update, and v2 S3 persistence. R6 is the only next
-step and requires separate user authorization. Simulator/live timing, generic
-training, actual checkpoint cadence/resume, long training, policy quality, and
-deployment composition remain unconfirmed.
+R0--R5 / 7 are complete at `E-FI-18`--`E-FI-23`; R6-S0/F1 are complete at
+`E-FI-24`--`E-FI-25`. The deterministic route now also isolates the explicit
+local current/C clock from IsaacLab's legacy automatic command clock. The only
+next action is to synchronize the repaired owner and rerun the already
+authorized single R6 transaction. Simulator completion, generic training,
+actual checkpoint cadence/resume, long training, policy quality, and deployment
+composition remain unconfirmed.

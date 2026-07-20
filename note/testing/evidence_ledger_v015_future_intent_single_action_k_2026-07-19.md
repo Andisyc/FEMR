@@ -1806,3 +1806,85 @@ Unconfirmed / blocker:
 - The next action requires explicit informed authorization to transfer the
   named local owner files to trusted host SUST_Main_2, or an equivalent manual
   synchronization by the user.
+
+## E-FI-25: R6-F1 Local-vs-Legacy Command-Clock Isolation
+
+Date: 2026-07-21
+Tier: one failed S4 live boundary plus deterministic S1 lifecycle regression;
+no second simulator run, training, checkpoint, grouped-PPO, HSL, or method
+change
+
+Raw live evidence:
+
+- `v015_r6_live_sentinel.log` reached the exact v015 layout
+  `870 + 58 -> 928 -> 158/770`, selected two Segments with M=2, installed four
+  Repair plus four Noisy rows, preserved paired scenario hashes, and completed
+  reset with `success_frac=1.0`.
+- The unique actor action was prepared, then the first `runner.env.step()`
+  entered IsaacLab `command_manager.compute -> MultiMotionCommand._update_command`.
+- `_update_command()` unconditionally executed the legacy clock
+  `time_steps += 1 -> reference/tape advance -> current-cache refresh`.
+  `refresh_frontres_reference_cache_current_frame()` correctly rejected the
+  duplicate local-cache installation before the t transition returned.
+- K capture, Gain, storage, grouped PPO, and optimizer update were not reached.
+  CUDA/IOMMU/GLFW/shader-cache warnings were not the Python failure owner.
+
+Root cause:
+
+- The formal environment had two active reference clocks: IsaacLab's automatic
+  legacy command clock and Step 2B's explicit sealed current/C cursor. R5's
+  semantic CPU fixture did not execute the real command-manager callback, so
+  this simulator lifecycle boundary remained unmodeled.
+- The failing guard was the detector, not the writer. Removing it would allow
+  silent reference drift; the invalid operation was legacy clock advancement
+  while a transaction-wide local scenario owned the reference.
+
+Implementation:
+
+- `MultiMotionCommand._advance_frontres_command_clock()` is now the single
+  per-command-step dispatcher.
+- If a local scenario is active, it requires all rows active and current-ready,
+  rejects mixed current/K execution, increments only the global simulator step,
+  and holds either the sealed current reference or the explicitly installed
+  Clean-C offset.
+- If no local scenario is active, it preserves the original ordered legacy
+  path: `time_steps += 1`, reference-window advance, fixed-tape advance, then
+  one cache refresh.
+- `_update_command()` calls this owner exactly once. The direct duplicate local
+  refresh guard remains unchanged and fail-closed.
+
+RED/GREEN and regression evidence:
+
+- The new lifecycle test first failed with
+  `AttributeError: MultiMotionCommand has no attribute _advance_frontres_command_clock`,
+  proving the live command-clock boundary had no owner.
+- `frontres_v015_current_gmt_command_contract.py` then exited 0 and printed
+  T-t-clock-hold, T-K-clock-hold, T-legacy-clock, and
+  T-duplicate-refresh-reject.
+- `frontres_v015_two_role_reset_contract.py`,
+  `frontres_v015_one_action_k_contract.py`,
+  `frontres_v015_unmocked_observation_connectivity_contract.py`,
+  `frontres_v015_role_aligned_future_intent_contract.py`,
+  `frontres_segment_motion_command_reference_contract.py`, and
+  `frontres_v015_local_sentinel_connectivity_contract.py` exited 0.
+- The Stage-1 AST contract initially failed because it still required legacy
+  advancement directly inside `_update_command()`. After rebasing ownership to
+  `_advance_frontres_command_clock()`,
+  `frontres_segment_stage1_env_hooks_contract.py` exited 0 and reconfirmed one
+  legacy refresh, perturbation draw, and pair sync.
+- Python compilation, both Architecture JSON parses, and `git diff --check`
+  are required in the final R6-F1 verification gate.
+
+Confirmed:
+
+- Local t and K command computes no longer advance `time_steps`, mutate the
+  current artifact, or move the Clean-C cursor.
+- Legacy command rows retain their original clock behavior.
+- This repair does not suppress the duplicate-install detector and does not
+  change Clean x_t, q29 H, K, Gain, PPO, checkpoint, or HSL semantics.
+
+Unconfirmed / next:
+
+- The repaired path has not been rerun under IsaacLab. Synchronize the updated
+  `commands.py` and current-command contract to SUST_Main_2 before the one
+  remaining R6 live sentinel attempt.

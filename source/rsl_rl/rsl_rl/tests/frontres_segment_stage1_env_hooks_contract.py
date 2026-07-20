@@ -816,9 +816,10 @@ def test_production_cache_refresh_owner_does_not_advance_frame() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
     refresh = ast.get_source_segment(source, functions["refresh_frontres_reference_cache_current_frame"])
+    clock = ast.get_source_segment(source, functions["_advance_frontres_command_clock"])
     update = ast.get_source_segment(source, functions["_update_command"])
     sync_pairs = ast.get_source_segment(source, functions["_sync_frontres_pairs"])
-    assert refresh is not None and update is not None and sync_pairs is not None
+    assert refresh is not None and clock is not None and update is not None and sync_pairs is not None
     assert "time_steps +=" not in refresh
     assert refresh.count("apply_perturbations(") == 1
     assert refresh.count("apply_quat_perturbation(") == 1
@@ -828,11 +829,16 @@ def test_production_cache_refresh_owner_does_not_advance_frame() -> None:
     assert "self._dr_supervised_target[base_ids] = self._dr_supervised_target[train_ids]" in sync_pairs
     assert "self._cached_perturbed_pos[clean_ids] = pos_data" in sync_pairs
     assert "self._dr_supervised_target[clean_ids] = 0.0" in sync_pairs
-    assert update.count("refresh_frontres_reference_cache_current_frame()") == 1
-    assert update.index("self.time_steps += 1") < update.index("refresh_frontres_reference_cache_current_frame()")
+    assert update.count("self._advance_frontres_command_clock()") == 1
+    assert "self.time_steps += 1" not in update
+    assert "refresh_frontres_reference_cache_current_frame()" not in update
+    assert clock.count("refresh_frontres_reference_cache_current_frame()") == 1
+    assert clock.index("self.time_steps += 1") < clock.index("refresh_frontres_reference_cache_current_frame()")
+    assert '"local_current_hold"' in clock and '"local_k_hold"' in clock
+    assert 'return "legacy_advance"' in clock
     print(
         "[probe quartet_cache_owner] frame_advance_in_refresh=0 "
-        "position_draws=1 quaternion_draws=1 pair_sync=1 update_calls=1",
+        "position_draws=1 quaternion_draws=1 pair_sync=1 clock_owner_calls=1",
         flush=True,
     )
 

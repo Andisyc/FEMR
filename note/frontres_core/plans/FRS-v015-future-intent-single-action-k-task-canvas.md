@@ -17,7 +17,7 @@ continuation, and one-action K evidence.
 
 ## Current Step
 
-`R6 / 7 partial at E-FI-24; telemetry and remote preflight pass, source-transfer authorization is required before the single S4 transaction`
+`R6-F1 complete at E-FI-25; synchronize commands.py, then rerun the single R6 S4 transaction`
 
 Status: the earlier local scenario, one-action K, Gain, grouped transaction, and
 persistence evidence remains valid at its stated local/fake tiers. R1--R3 close
@@ -25,6 +25,10 @@ the deterministic current-command, role-aligned q29 append, and actor/GMT
 authority defects reopened by R0. R5 exercises the actual observation owner;
 R6-S0 adds a fail-closed structured live snapshot. No method or Concept Figure
 change is pending.
+
+R6-F1 now proves local scenario command steps hold the sealed t/C reference
+while legacy rows retain automatic clock advance. The next live run remains
+user-operated and requires the repaired owner to be synchronized first.
 
 Scope:
 - retain the completed proposal-only HSL boundary, sealed two-role reset,
@@ -199,9 +203,9 @@ Step 5A-S1 preflight boundary:
 
 ## Next Step
 
-After explicit informed authorization to transfer the named owner files to the
-trusted SUST_Main_2 host, run exactly one bounded v015 transaction with the
-structured identity/observation snapshot.
+Synchronize the repaired `commands.py` and its current-command contract to
+SUST_Main_2, then run exactly one bounded v015 transaction with the structured
+identity/observation snapshot.
 Require `870/58/928/158/770`, role/scenario/hash/q29/C identities, one FEMR
 action, post-advance Clean-C K order, four equal-mass attempts, and update delta
 one. Stop immediately on any missing identity, later FEMR action, mixed

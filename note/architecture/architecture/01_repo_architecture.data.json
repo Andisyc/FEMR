@@ -92,7 +92,7 @@
           "mustNot": "不决定 Segment PPO credit",
           "objects": ["motion id", "phase", "root target", "body target"],
           "files": [
-            {"id": "MAIN-07", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "motion command owner", "functions": [], "sourceLine": 33, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=33"},
+            {"id": "MAIN-07", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "motion command and local-vs-legacy reference-clock owner", "functions": ["_advance_frontres_command_clock()"], "sourceLine": 33, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=33"},
             {"id": "MAIN-08", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/events.py", "role": "reset 与随机化事件", "functions": [], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fevents.py&line=15"},
             {"id": "MAIN-09", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py", "role": "episode termination", "functions": [], "sourceLine": 31, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fterminations.py&line=31"}
           ],

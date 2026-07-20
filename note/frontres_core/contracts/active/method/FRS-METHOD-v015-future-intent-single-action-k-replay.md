@@ -2,7 +2,7 @@
 contract_id: FRS-METHOD-v015
 status: active
 effective_date: 2026-07-19
-updated_date: 2026-07-20
+updated_date: 2026-07-21
 supersedes: FRS-METHOD-v014
 scope: FrontRES Stage 3 local root-artifact repair with deployment-provenance future 29DoF intent, fixed-policy multi-attempt Segment Replay, one policy action per attempt, and single-action K-step frozen-GMT evidence
 ---
@@ -292,6 +292,15 @@ fresh GMT observation is read; actor H is not reopened and no later FEMR action
 occurs. Two fixed scenarios with two attempts each retain shared identity and
 produce four grouped rows followed by exactly one update. This is not
 simulator, live timing, training-quality, or deployment evidence.
+
+`E-FI-25` records the first R6 live stop and its bounded implementation repair.
+IsaacLab's automatic command callback had re-entered the legacy
+`time_steps/reference/cache` clock after the unique t action, conflicting with
+the explicit local-scenario current/C clock. `MultiMotionCommand` now owns one
+clock dispatcher: sealed local current and Clean-C rows hold through command
+compute, while non-local legacy rows keep their original ordered advance. The
+direct duplicate-cache-install guard remains active. This is deterministic S1
+evidence; the repaired S4 transaction remains unconfirmed.
 
 ## Forbidden Active-Path Assumptions
 

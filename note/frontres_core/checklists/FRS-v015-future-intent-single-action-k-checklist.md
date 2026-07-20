@@ -1,9 +1,9 @@
 # FRS-v015 Future-Intent / Single-Action K Acceptance Checklist
 
 Status: current, volatile acceptance surface. R0--R5 are complete at
-`E-FI-18`--`E-FI-23`; R6-S0 telemetry/preflight is complete at `E-FI-24`.
-The S4 transaction has not run because the security boundary requires explicit
-informed authorization before local owner files are transferred to SUST_Main_2.
+`E-FI-18`--`E-FI-23`; R6-S0 and R6-F1 are complete at `E-FI-24`--`E-FI-25`.
+The failed S4 transaction exposed and stopped at the command-clock conflict;
+the repaired owner has deterministic evidence but has not been rerun live.
 Updated: 2026-07-21.
 
 Plan: `../plans/FRS-v015-future-intent-single-action-k-engineering-plan.md`
@@ -147,8 +147,8 @@ unless a new test explicitly rebases it.
 | Pre-live v015 sentinel config and entrypoint isolation | config / runner boundary / `train.py` | S2 T-config/T-entrypoint/T-legacy-isolation | completed | `E-FI-16`; explicit H offsets and v015-only dispatch reject legacy modes before any live command |
 | Pre-live local scenario to transaction connector | live sampler / reset request / probe / grouped adapter | S2 T-state/T-order/T-mass | completed, observation excluded | `E-FI-16`; fake proves sealed grouped exact-one route, but stubs `_read_live_observations()` |
 | Formal command/observation connector | command / observation / runtime / actor | S2 T-command-connect/T-history-layout/T-role-tail/T-consumer | completed offline | `E-FI-23`; actual `_read_live_observations`, semantic `58/290/870 + 58 -> 928 -> 158/770`, role-aligned deployment q29 |
-| Bounded local runtime trace | formal Stage-3 route | S4 T-live/T-state/T-provenance/T-frozen | failed before actor; preserved | `v015_step5a_s1.log`; reset reaches 4 Repair + 4 Noisy, then command construction raises before action/update |
-| Runtime grouped update trace | PPO/diagnostics | S4 T-live/T-order/T-mass | pending R6 authorization | R5 proves offline grouped update delta one; R6 may run one bounded live transaction |
+| Bounded local runtime trace | formal Stage-3 route | S4 T-live/T-state/T-provenance/T-frozen | partial; rerun pending | `v015_r6_live_sentinel.log`/`E-FI-25`; reset and t action reached, command-clock conflict found and repaired deterministically |
+| Runtime grouped update trace | PPO/diagnostics | S4 T-live/T-order/T-mass | pending R6 rerun | R5 proves offline grouped update delta one; repaired live path has not yet reached K/storage/update |
 
 ## R0--R6 Formal Observation Remediation
 
@@ -160,7 +160,8 @@ unless a new test explicitly rebases it.
 | R3 FEMR/GMT authority split | config / runner / actor | S1 T-928-layout/T-158-actor/T-770-GMT/T-zero-reject | completed | `E-FI-21`; full `[B,928]`, FEMR prefix `[B,158]`, frozen GMT suffix `[B,770]`, fail-closed zero prefix |
 | R4 persistence revalidation | checkpoint / normalizer | S3 T-layout/T-prefix-stats/T-legacy-reject/T-atomicity | completed | `E-FI-22`; v2 binds `(1,2)`, `928/158/770`, full 158D prefix fingerprint, committed receipt, and rejects v1/full/zero/65D/unversioned/partial identities before mutation |
 | R5 unmocked formal connection | command / observation / runtime / actor / transaction | S2 T-connect/T-history-layout/T-consumer/T-one-action/T-exact-one-update | completed | `E-FI-23`; real `_read_live_observations`, semantic 58/290/870 + 58 -> 928 -> 158/770, post-advance C K, 2 Segment x 2 attempts, update delta one |
-| R6 bounded live sentinel | formal Stage-3 route | S4 T-live/T-identity/T-order/T-mass | partial: S0 ready, remote transfer blocked | `E-FI-24`; structured snapshot/fail-closed telemetry and remote assets pass, but no source transfer or transaction occurred |
+| R6-F1 command-clock isolation | `commands.py::MultiMotionCommand` | S1 T-t-clock-hold/T-K-clock-hold/T-legacy-clock/T-duplicate-refresh-reject | completed | `E-FI-25`; local current/C clocks hold across IsaacLab command compute, legacy rows retain ordered advance, duplicate direct refresh still rejects |
+| R6 bounded live sentinel | formal Stage-3 route | S4 T-live/T-identity/T-order/T-mass | partial: rerun pending | `E-FI-24`/`E-FI-25`; first S4 run stopped before K/storage/update at the now-repaired clock conflict; updated `commands.py` must be synchronized before one rerun |
 
 ## G5 / Step 5B: Deployment Composition Evaluation
 

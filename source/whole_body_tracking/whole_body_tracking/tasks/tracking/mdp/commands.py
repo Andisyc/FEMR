@@ -3399,8 +3399,28 @@ class MultiMotionCommand(CommandTerm):
         # B3: 将同一当前帧 cache 同步到 quartet, Clean 保持 clean/no-op 语义.
         self._sync_frontres_pairs(sync_perturbation=True)
 
-    def _update_command(self):
+    def _advance_frontres_command_clock(self) -> str:
+        """Advance the legacy reference clock or hold the explicit v015 clock.
+
+        Status: active R6-F1 command-clock owner. Local scenarios keep the
+        sealed current/C reference; only the Step 2B cursor may advance them.
+        """
+
         self._global_sim_step += 1
+        local_active = self._frontres_local_scenario_active
+        if bool(local_active.any()):
+            ready = self._frontres_local_scenario_current_frame_ready
+            execution = self._frontres_local_scenario_k_execution_active
+            if not bool(local_active.all()) or not bool(ready.all()):
+                raise RuntimeError(
+                    "v015 local command clock requires one transaction-wide active, current-frame-ready scenario"
+                )
+            if bool(execution.any()) and not bool(execution.all()):
+                raise RuntimeError("v015 local command clock cannot mix current and Clean-C execution rows")
+            # IsaacLab 在每次 env.step 后调用 command compute. 对 local scenario,
+            # t reference 和每个 C[offset] 都已由显式 owner 安装, 此处只能 hold.
+            return "local_k_hold" if bool(execution.all()) else "local_current_hold"
+
         self.time_steps += 1
         self._advance_frontres_reference_window()
         self._advance_frontres_fixed_noisy_tape()
@@ -3409,6 +3429,10 @@ class MultiMotionCommand(CommandTerm):
         # sample for the new frame. Index reset calls the same cache owner for
         # its explicitly selected current frame before the first termination.
         self.refresh_frontres_reference_cache_current_frame()
+        return "legacy_advance"
+
+    def _update_command(self):
+        self._advance_frontres_command_clock()
         # ─────────────────────────────────────────────────────────────────────
 
         # Per-motion episode end detection and resampling
