@@ -17,7 +17,7 @@ continuation, and one-action K evidence.
 
 ## Current Step
 
-`R6-F1 complete at E-FI-25; synchronize commands.py, then rerun the single R6 S4 transaction`
+`R6-F2 complete at E-FI-26; synchronize the repaired critic carrier, then rerun the single R6 S4 transaction`
 
 Status: the earlier local scenario, one-action K, Gain, grouped transaction, and
 persistence evidence remains valid at its stated local/fake tiers. R1--R3 close
@@ -26,9 +26,14 @@ authority defects reopened by R0. R5 exercises the actual observation owner;
 R6-S0 adds a fail-closed structured live snapshot. No method or Concept Figure
 change is pending.
 
-R6-F1 now proves local scenario command steps hold the sealed t/C reference
-while legacy rows retain automatic clock advance. The next live run remains
-user-operated and requires the repaired owner to be synchronized first.
+R6-F1 proves local scenario command steps hold the sealed t/C reference while
+legacy rows retain automatic clock advance. The synchronized S4 rerun then
+reached grouped PPO and exposed a distinct loss-side carrier gap: the 289D t
+critic observation was dropped, so the evaluator fell back to the 928D actor
+observation. R6-F2 now carries the t Repair critic rows through candidate
+storage and transaction ordering, rejects missing/misaligned critic input, and
+proves `928D actor / 289D critic / exact-one update` offline. The next live run
+remains user-operated and requires the repaired owners to be synchronized.
 
 Scope:
 - retain the completed proposal-only HSL boundary, sealed two-role reset,

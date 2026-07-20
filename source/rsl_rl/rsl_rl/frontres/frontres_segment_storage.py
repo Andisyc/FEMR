@@ -304,6 +304,7 @@ class FrontRESSegmentStorageBatch:
             "old_sigmas": self.old_sigmas,
         }
         if include_transaction_metadata:
+            payload["privileged_observations"] = self.privileged_observations
             payload["transaction_metadata"] = self.transaction_metadata
             payload["transaction_row_indices"] = _storage_batch_transaction_row_indices(self)
         return batch_cls(**payload)
@@ -319,6 +320,7 @@ class FrontRESV015OneActionKEvidence:
     """
 
     policy_observations: torch.Tensor
+    policy_privileged_observations: torch.Tensor
     policy_actions: torch.Tensor
     policy_log_probs: torch.Tensor
     policy_values: torch.Tensor
@@ -357,6 +359,12 @@ class FrontRESV015OneActionKEvidence:
             raise ValueError("v015 one-action evidence requires policy_actions [B,6]")
         if self.policy_observations.ndim != 2 or int(self.policy_observations.shape[0]) != policy_count:
             raise ValueError("v015 one-action evidence policy observations must align with Repair rows")
+        if (
+            self.policy_privileged_observations.ndim != 2
+            or int(self.policy_privileged_observations.shape[0]) != policy_count
+            or int(self.policy_privileged_observations.shape[1]) <= 0
+        ):
+            raise ValueError("v015 one-action evidence privileged observations must be non-empty [B,C]")
         vector_fields = {
             "policy_log_probs": self.policy_log_probs,
             "policy_values": self.policy_values,
@@ -456,6 +464,7 @@ class FrontRESV015OneActionKEvidence:
                 raise ValueError("v015 one-action evidence q29 target must retain deployment/Noisy provenance")
         tensors = (
             self.policy_observations,
+            self.policy_privileged_observations,
             self.policy_actions,
             self.policy_log_probs,
             self.policy_values,
@@ -842,6 +851,7 @@ def build_frontres_v015_grouped_candidate_storage(
     device = return_evidence.policy_actions.device
     storage_batch = FrontRESSegmentStorageBatch(
         observations=return_evidence.policy_observations.detach().clone(),
+        privileged_observations=one_action.policy_privileged_observations.detach().clone(),
         actions=return_evidence.policy_actions.detach().clone(),
         old_log_probs=return_evidence.policy_log_probs.detach().clone(),
         old_values=return_evidence.policy_values.detach().clone(),

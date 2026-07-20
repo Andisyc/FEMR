@@ -123,6 +123,15 @@ def _build_request(candidate_contract, owners, live_sampler):
         **common,
         trial_index=torch.tensor([1, 1], dtype=torch.long),
     )
+    critic_dim = int(attempt_zero.privileged_observations.shape[1])
+    attempt_zero = replace(
+        attempt_zero,
+        privileged_observations=torch.tensor([0.0, 10.0]).unsqueeze(1).expand(2, critic_dim).clone(),
+    )
+    attempt_one = replace(
+        attempt_one,
+        privileged_observations=torch.tensor([1.0, 11.0]).unsqueeze(1).expand(2, critic_dim).clone(),
+    )
     metadata = attempt_zero.transaction_metadata
     plan = live_sampler.FrontRESV015FormalTransactionPlan(
         snapshot=snapshot,
@@ -154,6 +163,17 @@ def _build_request(candidate_contract, owners, live_sampler):
 
 def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, live_sampler, live_update_loop) -> None:
     fixture = _build_request(candidate_contract, owners, live_sampler)
+    order_accumulator = live_sampler.FrontRESV015FormalTransactionAccumulator(
+        fixture.request.plan,
+        optimizer_step_count=lambda: fixture.optimizer.step_count,
+    )
+    order_accumulator.append_candidate_batch(fixture.request.candidate_batches[1])
+    order_accumulator.append_candidate_batch(fixture.request.candidate_batches[0])
+    ordered = order_accumulator.seal()
+    torch.testing.assert_close(
+        ordered.privileged_observations[:, 0],
+        torch.tensor([0.0, 1.0, 10.0, 11.0]),
+    )
     provider_steps: list[int] = []
 
     def provider():

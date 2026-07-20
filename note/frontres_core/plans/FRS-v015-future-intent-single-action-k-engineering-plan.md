@@ -950,10 +950,12 @@ Stop condition:
 
 ### R6 / 7: Bounded Live Identity Sentinel
 
-Status: partial after R6-F1 (`E-FI-25`). Structured telemetry, remote preflight,
-and deterministic command-clock isolation pass. The single S4 transaction has
-not been rerun; the updated `commands.py` must first be synchronized manually
-to SUST_Main_2.
+Status: partial after R6-F2 (`E-FI-26`). The synchronized S4 rerun passed reset,
+the unique t action, Clean-C K execution, and sealed candidate collection, then
+stopped before update because the formal evaluator routed the `[4,928]` actor
+observation into the frozen critic whose input contract is `[4,289]`. R6-F2
+now preserves the t critic observation through the sealed candidate path at
+deterministic S1/S2; the repaired S4 path has not been rerun.
 
 R6-F1 command-clock repair contract:
 
@@ -972,6 +974,27 @@ R6-F1 command-clock repair contract:
   cursor; legacy rows stop advancing; or the direct duplicate-refresh guard is
   removed/bypassed.
 
+R6-F2 critic-observation route contract:
+
+- Status: completed at deterministic S1/S2 (`E-FI-26`); S4 rerun pending.
+- Objective: preserve the t policy tuple's real privileged/critic observation
+  from role selection through one-action evidence and candidate storage, then
+  feed it to the frozen critic during the sealed formal evaluation.
+- Scope: `frontres_segment_live_probe.py` collection/request/evaluator boundary,
+  `frontres_segment_storage.py` evidence/storage carrier, and deterministic
+  regression contracts.
+- Non-scope: actor/GMT observation layout, q29 values or provenance, K/Gain,
+  grouped PPO formula, checkpoint, HSL, simulator, training, or live execution.
+- Core parameter path: t `transition.privileged_observations [8,289]` -> Repair
+  role selection `[4,289]` -> immutable one-action evidence -> candidate
+  storage -> sealed formal request -> critic; actor evaluation remains
+  `[4,928]`.
+- Expected evidence: S1/S2 T-critic-route/T-role-order/T-missing-reject/
+  T-shape-reject/T-exact-one-update.
+- Stop: the t transition lacks a real critic observation; critic rows cannot be
+  ordered identically to the sealed candidate rows; actor observations still
+  reach the critic; or any optimizer step occurs before the full transaction.
+
 Objective:
 - run exactly one SUST_Main_2 transaction with a structured observation and
   identity snapshot.
@@ -989,10 +1012,9 @@ Expected evidence:
 Stop condition:
 - any dimension/identity is absent, FEMR sees GMT-only fields, GMT is not
   `770D`, a later FEMR action appears, or update delta is not one.
-- remote checkout is not synchronized to the locally verified R1--R6 owners;
-  do not run the sentinel against stale source.
-- the R6-F1 deterministic command-clock regression has not passed; do not pay
-  for another live run while the IsaacLab callback remains unmodeled.
+- the R6-F2 deterministic critic route must be synchronized before another
+  live run; do not run against a checkout whose evaluator can still fall back
+  from missing privileged observations to the 928D actor observation.
 
 ### Step 5B / 12: User-Gated Deployment Composition Evaluation
 
@@ -1024,9 +1046,10 @@ Stop condition:
 ## Current Plan Cursor
 
 R0--R5 / 7 are complete at `E-FI-18`--`E-FI-23`; R6-S0/F1 are complete at
-`E-FI-24`--`E-FI-25`. The deterministic route now also isolates the explicit
-local current/C clock from IsaacLab's legacy automatic command clock. The only
-next action is to synchronize the repaired owner and rerun the already
-authorized single R6 transaction. Simulator completion, generic training,
-actual checkpoint cadence/resume, long training, policy quality, and deployment
-composition remain unconfirmed.
+`E-FI-24`--`E-FI-26`. The second S4 run runtime-confirms reset through grouped
+PPO entry and exposed the R6-F2 loss-side critic-observation carrier gap.
+R6-F2 now passes deterministic route, ordering, fail-closed, and exact-one
+tests. The next action is manual source synchronization followed by the one
+authorized S4 rerun. Simulator completion, generic
+training, actual checkpoint cadence/resume, long training, policy quality, and
+deployment composition remain unconfirmed.

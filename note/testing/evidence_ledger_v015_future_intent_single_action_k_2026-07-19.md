@@ -1888,3 +1888,80 @@ Unconfirmed / next:
 - The repaired path has not been rerun under IsaacLab. Synchronize the updated
   `commands.py` and current-command contract to SUST_Main_2 before the one
   remaining R6 live sentinel attempt.
+
+## E-FI-26: R6-F2 Sealed Critic-Observation Route
+
+Date: 2026-07-21
+Tier: one failed S4 loss boundary plus deterministic S1/S2 carrier,
+row-order, fail-closed, and exact-one-update evidence; no additional simulator,
+training, checkpoint mutation, grouped-PPO formula, HSL, or method change
+
+Raw live evidence:
+
+- `v015_r6_live_sentinel_gpu3.log` confirms R6-F1 succeeded: reset, the unique
+  t action, Clean-C K execution, Gain/candidate sealing, and grouped PPO entry
+  were reached for four policy attempts.
+- The loss-side trace then called the frozen critic with the actor observation:
+  `mat1 and mat2 shapes cannot be multiplied (4x928 and 289x1024)`.
+- No optimizer step occurred. CUDA-visible-device, IOMMU, GLFW, and shutdown
+  warnings were not the Python failure owner.
+
+Root cause:
+
+- `FrontRESUnified.act()` correctly stored both t tensors:
+  `transition.observations [8,928]` and
+  `transition.privileged_observations [8,289]`.
+- The v015 one-action carrier preserved only actor observations. Candidate
+  storage and the formal transaction therefore lost the Repair critic rows.
+- `FrontRESSegmentLivePolicyAdapter` received `None` for privileged
+  observations and fell back to actor observations. The critic layer detected
+  the mismatch; it was not the writer.
+
+Implementation:
+
+- `FrontRESV015OneActionKEvidence` now seals the Repair-role t critic rows as
+  detached `[B,C]` data alongside the actor tuple.
+- `build_frontres_v015_grouped_candidate_storage()` and the candidate PPO
+  schema carry the critic rows. `FrontRESV015FormalTransactionAccumulator`
+  concatenates and reorders them by the same `(source_index, trial_index)`
+  order as every actor/loss row.
+- The v015 formal evaluator consumes the sealed critic tensor and rejects a
+  missing, empty, row-misaligned, or conflicting request tensor. It no longer
+  falls back to actor observations. Generic legacy adapter behavior and the
+  grouped PPO formula are unchanged.
+- R6 telemetry now records `critic_observation_dim=289` and prints both actor
+  and critic evaluator shapes.
+
+RED/GREEN and regression evidence:
+
+- The strengthened unmocked S2 contract first reproduced the live failure as
+  `mat1 4x928 and 289x1` using a real `Linear(289,1)` critic.
+- After routing the sealed carrier, the same contract exited 0 and printed
+  `actor_obs_shape=(4, 928) critic_obs_shape=(4, 289)` plus
+  `step_delta=1`.
+- The contract also checks exact Repair-row values and rejects missing or
+  three-row critic tensors before loss.
+- `frontres_v015_grouped_candidate_adapter_contract.py` confirms candidate
+  critic equality; `frontres_v015_transaction_route_contract.py` confirms
+  multi-shard critic order `[source0/attempt0, source0/attempt1,
+  source1/attempt0, source1/attempt1]` and one update.
+- One-action K, Gain consumer, local sentinel connector, checkpoint/resume,
+  grouped PPO, legacy sampler/storage, local sentinel config, Python compile,
+  JSON parse, and `git diff --check` regression gates pass.
+
+Confirmed:
+
+- The deterministic formal path now keeps actor and critic authorities
+  separate: actor `[4,928]`, critic `[4,289]`, one policy row per attempt, and
+  exactly one optimizer update after the sealed transaction.
+- R6-F2 does not change Clean x_t, q29 H, Clean-C K, Gain, grouped reduction,
+  checkpoint identity, HSL, or Concept Figure semantics.
+
+Unconfirmed / next:
+
+- The repaired critic carrier has not yet been rerun in IsaacLab. Synchronize
+  the R6-F2 owner files to SUST_Main_2, then run the single authorized bounded
+  transaction again.
+- `frontres_segment_live_probe_ppo_contract.py` has a pre-existing import-stub
+  drift for `_append_future_intent_actor_context`; it fails before reaching
+  this critic route and is not evidence against R6-F2.

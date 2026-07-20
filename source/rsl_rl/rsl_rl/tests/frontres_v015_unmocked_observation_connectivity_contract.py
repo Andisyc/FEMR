@@ -29,6 +29,14 @@ CURRENT_COMMAND_TEST = TEST_ROOT / "frontres_v015_current_gmt_command_contract.p
 ACTOR_CONTEXT_TEST = TEST_ROOT / "frontres_future_intent_actor_context_contract.py"
 
 
+def _expect_error(error_type, fn) -> None:
+    try:
+        fn()
+    except error_type:
+        return
+    raise AssertionError(f"expected {error_type.__name__}")
+
+
 def _load(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
@@ -77,13 +85,17 @@ class _SemanticPolicy(torch.nn.Module):
     def __init__(self, command) -> None:
         super().__init__()
         self.log_prob_scale = torch.nn.Parameter(torch.tensor(0.0))
-        self.value_scale = torch.nn.Parameter(torch.tensor(0.0))
+        self.critic = torch.nn.Linear(289, 1, bias=False)
         self.command = command
         self.gmt_normalizer = SimpleNamespace(_mean=torch.zeros(1, 770))
         self.gmt_policy = _TrackingGMTPolicy()
         self.ref_vel_estimator = None
         self.actor_inputs: list[torch.Tensor] = []
+        self.critic_inputs: list[torch.Tensor] = []
         self.env_action_inputs: list[torch.Tensor] = []
+        self.action_mean = None
+        self.action_std = None
+        self.distribution = None
 
     def _parse_observations(self, observations: torch.Tensor):
         return ACTOR_PARSE(self, observations)
@@ -100,6 +112,19 @@ class _SemanticPolicy(torch.nn.Module):
         self.actor_inputs.append(prefix.detach().clone())
         assert tuple(prefix.shape[1:]) == (158,)
         return torch.zeros(observations.shape[0], 6, dtype=observations.dtype)
+
+    def act(self, observations: torch.Tensor) -> torch.Tensor:
+        self.actor_forward(observations)
+        mean = self.log_prob_scale.expand(observations.shape[0], 6)
+        std = torch.full_like(mean, 0.25)
+        self.action_mean = mean
+        self.action_std = std
+        self.distribution = torch.distributions.Normal(mean, std)
+        return mean
+
+    def evaluate(self, privileged_observations: torch.Tensor) -> torch.Tensor:
+        self.critic_inputs.append(privileged_observations.detach().clone())
+        return self.critic(privileged_observations)
 
     def get_actions_log_prob_per_dim_from_stats(self, actions, mean, sigma, dims):
         del mean, sigma, dims
@@ -196,7 +221,8 @@ class _SemanticEnv:
 
     def get_observations(self):
         raw = self._raw_observation()
-        return raw, {"observations": {}}
+        critic = torch.arange(self.num_envs * 289, dtype=raw.dtype).reshape(self.num_envs, 289) / 1000.0
+        return raw, {"observations": {"critic": critic}}
 
     def step(self, actions: torch.Tensor):
         self.actions.append(actions.detach().clone())
@@ -240,7 +266,7 @@ def _build_fixture():
         cfg={},
         current_learning_iteration=0,
         policy_obs_type=None,
-        privileged_obs_type=None,
+        privileged_obs_type="critic",
         teacher_obs_type=None,
         ref_vel_estimator_obs_type=None,
         _frontres_future_intent_layout=layout,
@@ -346,6 +372,9 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
         "trial_index": torch.tensor([0, 1, 0, 1], dtype=torch.long),
     }
     candidate = live_probe.build_frontres_v015_grouped_candidate_batch(evidence, **metadata_kwargs)
+    expected_critic_rows = torch.arange(8 * 289, dtype=torch.float32).reshape(8, 289)[:4] / 1000.0
+    torch.testing.assert_close(evidence.one_action.policy_privileged_observations, expected_critic_rows)
+    torch.testing.assert_close(candidate.privileged_observations, expected_critic_rows)
     metadata = candidate.transaction_metadata
     plan = fixture.live_sampler.FrontRESV015FormalTransactionPlan(
         snapshot=snapshot,
@@ -364,9 +393,11 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
     request = live_probe.FrontRESV015FormalTransactionRequest(
         plan=plan,
         candidate_batches=(candidate,),
-        policy_evaluator=fixture.policy,
     )
     result = live_probe.run_frontres_v015_formal_transaction_update(runner, request)
+    assert fixture.policy.critic_inputs and tuple(fixture.policy.critic_inputs[-1].shape) == (4, 289)
+    torch.testing.assert_close(fixture.policy.critic_inputs[-1], expected_critic_rows)
+    assert tuple(fixture.policy.actor_inputs[-1].shape) == (4, 158)
     assert fixture.optimizer.step_count == 1
     assert result.optimizer_step_delta == 1
     assert result.update_invocation_count == 1
@@ -380,6 +411,38 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
     )
 
 
+def test_t_critic_observation_route_fails_closed() -> None:
+    live_probe = _build_fixture().live_probe
+    request = SimpleNamespace(policy_evaluator=None, privileged_observations=None)
+    alg = SimpleNamespace()
+    missing = SimpleNamespace(
+        observations=torch.zeros(4, 928),
+        privileged_observations=None,
+    )
+    _expect_error(
+        RuntimeError,
+        lambda: live_probe._v015_formal_policy_evaluator(request, alg, missing),
+    )
+    request_only = SimpleNamespace(
+        policy_evaluator=None,
+        privileged_observations=torch.zeros(4, 289),
+    )
+    _expect_error(
+        RuntimeError,
+        lambda: live_probe._v015_formal_policy_evaluator(request_only, alg, missing),
+    )
+    wrong_rows = SimpleNamespace(
+        observations=torch.zeros(4, 928),
+        privileged_observations=torch.zeros(3, 289),
+    )
+    _expect_error(
+        ValueError,
+        lambda: live_probe._v015_formal_policy_evaluator(request, alg, wrong_rows),
+    )
+    print("[T-missing-reject/T-shape-reject] v015 formal critic route fails closed before loss", flush=True)
+
+
 if __name__ == "__main__":
     test_t_unmocked_observation_to_exact_one_update()
+    test_t_critic_observation_route_fails_closed()
     print("frontres_v015_unmocked_observation_connectivity_contract: ok", flush=True)

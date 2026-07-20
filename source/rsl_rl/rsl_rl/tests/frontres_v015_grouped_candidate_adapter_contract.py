@@ -143,6 +143,10 @@ def test_t_schema_row_metadata_and_legacy_reject(
     assert metadata.layout_version == "frontres-v015-local-scenario-v1"
     assert tuple(batch.actions.shape) == tuple(returned.policy_actions.shape) == (2, 6)
     torch.testing.assert_close(batch.actions, returned.policy_actions)
+    torch.testing.assert_close(
+        batch.privileged_observations,
+        candidate.one_action.policy_privileged_observations,
+    )
     torch.testing.assert_close(batch.returns, returned.return_k)
     torch.testing.assert_close(batch.advantages, returned.advantage_k)
     torch.testing.assert_close(batch.valid_mask, returned.policy_row_valid)

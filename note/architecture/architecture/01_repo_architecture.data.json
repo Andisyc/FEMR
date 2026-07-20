@@ -354,7 +354,7 @@
             {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "legacy sampler plus v015 immutable expected-row plan/accumulator", "functions": ["run_frontres_segment_sampler_step()","FrontRESV015FormalTransactionPlan","FrontRESV015FormalTransactionAccumulator"], "sourceLine": 193, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=193"},
             {"id": "MAIN-36A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", "role": "fake-S2 injected transaction dispatcher; legacy repeated update loop stays separate", "functions": ["run_frontres_v015_formal_transaction_update_loop()"], "sourceLine": 123, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_update_loop.py&line=123"},
             {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "training/eval loop", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"},
-            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "rollout capture/storage builder and fake-S2 exact-one-update owner", "functions": ["run_frontres_segment_live_probe()","build_live_segment_storage()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3338, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3338"},
+            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "rollout capture/storage builder, v015 row-aligned actor/critic evaluator connector, and exact-one-update owner", "functions": ["collect_frontres_v015_one_action_k_evidence()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3260, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3260"},
             {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "train/eval console formatting", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"}
           ],
       "mainRoute": [
@@ -402,24 +402,24 @@
         {
           "id": "MOD-STORAGE",
           "title": "Segment Storage",
-          "summary": "保存同源 policy transition，并把 v015 sealed local scenario 绑定为 candidate grouped PPO 的一行 metadata",
-          "owns": "transition schema、valid rows、returns、advantages、v015 local metadata、explicit metadata row mapping 与 minibatch tuple",
+          "summary": "保存同源 actor/critic policy transition，并把 v015 sealed local scenario 绑定为 candidate grouped PPO 的一行 metadata",
+          "owns": "actor/critic transition schema、valid rows、returns、advantages、v015 local metadata、explicit metadata row mapping 与 minibatch tuple",
           "mustNot": "不重新计算 action representation 或 Gain 语义",
-          "objects": ["actions", "old_log_probs", "old_means", "old_sigmas", "returns", "advantages", "v015 transaction/snapshot/motion/Segment/trial/scenario/hash/x_t/K/evidence metadata", "candidate transaction_row_indices"],
+          "objects": ["actor observations", "privileged/critic observations", "actions", "old_log_probs", "old_means", "old_sigmas", "returns", "advantages", "v015 transaction/snapshot/motion/Segment/trial/scenario/hash/x_t/K/evidence metadata", "candidate transaction_row_indices"],
           "files": [
             {"id": "MAIN-41", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "Segment storage owner and v015 immutable local-metadata/adapter owner", "functions": ["FrontRESV015GroupedCandidateMetadata","build_frontres_v015_grouped_candidate_storage()","FrontRESSegmentStorageBatch.to_grouped_ppo_candidate_batch()"], "sourceLine": 57, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=57"},
             {"id": "MAIN-42", "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py", "role": "base RSL-RL storage", "functions": [], "sourceLine": 13, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fstorage%2Frollout_storage.py&line=13"},
             {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "candidate v015 evidence-to-batch connector and fake-S2 exact-one-update owner", "functions": ["build_frontres_v015_grouped_candidate_batch()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3338, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3338"}
           ],
       "mainRoute": [
-        "B1 Step 3B evidence: one Repair policy tuple + q29/K evidence -> v003 return/advantage",
-        "B2 build_frontres_v015_grouped_candidate_storage(): return evidence + transaction rows -> immutable local metadata/storage",
-        "B3 to_grouped_ppo_candidate_batch(): complete v015 metadata -> candidate PPO batch; legacy adapter and fixed-tape metadata reject"
+        "B1 Step 3B evidence: one Repair actor/critic policy tuple + q29/K evidence -> v003 return/advantage",
+        "B2 build_frontres_v015_grouped_candidate_storage(): actor/critic tuple + return evidence + transaction rows -> immutable local metadata/storage",
+        "B3 to_grouped_ppo_candidate_batch(): complete v015 metadata and row-aligned critic input -> candidate PPO batch; legacy adapter and fixed-tape metadata reject"
       ],
       "mainRouteTitles": ["封存 One-row Evidence", "绑定 Local Metadata", "构造 Candidate Batch"],
           "review": ["逐字段确认 row/order/shape", "检查 action/mean/sigma/log_prob 同源", "检查 scenario/hash/x_t/q29/K/evidence metadata 与 partial batch fail-closed"],
           "tests": ["S1 v015 grouped candidate adapter", "S1 v003 grouped mass", "S2 transaction-complete/exact-one-update", "S3 resume if persisted"],
-          "gap": "E-FI-14 closes fake transaction-global order and one explicit update. Generic runner dispatch, resume, and live mass evidence remain pending"
+          "gap": "E-FI-26 closes deterministic v015 actor/critic row routing and exact-one update. Repaired S4 critic routing and live mass evidence remain pending"
         },
         {
           "id": "MOD-PPO",

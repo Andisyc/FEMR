@@ -277,6 +277,7 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
             "femr_visible_dim": 158,
             "gmt_suffix_dim": 770,
             "gmt_input_dim": 770,
+            "critic_observation_dim": 289,
             "post_advance_gmt_read_count": 2,
         }
         return object()

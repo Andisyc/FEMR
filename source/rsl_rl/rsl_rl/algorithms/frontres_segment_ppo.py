@@ -43,6 +43,9 @@ class FrontRESSegmentPPOBatch:
     segment_ids: torch.Tensor | None = None
     old_means: torch.Tensor | None = None
     old_sigmas: torch.Tensor | None = None
+    # Row-aligned critic input carried by the sealed v015 candidate path. The
+    # grouped loss does not inspect it; the formal policy adapter owns it.
+    privileged_observations: torch.Tensor | None = None
     # Sealed S1b provenance. It remains row-aligned through storage and is
     # consumed only by the candidate grouped-loss mode below.
     transaction_metadata: Any | None = None

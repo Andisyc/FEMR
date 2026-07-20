@@ -278,6 +278,8 @@ class FrontRESV015FormalTransactionRequest:
     plan: FrontRESV015FormalTransactionPlan
     candidate_batches: tuple[Any, ...]
     policy_evaluator: Any | None = None
+    # Optional compatibility cross-check only. It cannot replace the critic
+    # rows carried and reordered by the sealed candidate transaction.
     privileged_observations: torch.Tensor | None = None
 
     def __post_init__(self) -> None:
@@ -1285,7 +1287,9 @@ class FrontRESSegmentLivePolicyAdapter:
                 f"policy_action_mean_shape={tuple(action_mean.shape) if action_mean is not None else None} "
                 f"eval_mean_shape={tuple(mean_6d.shape) if mean_6d is not None else None} "
                 f"log_prob_shape={tuple(log_prob.shape)} "
-                "semantic=ppo_eval_uses_6d_delta_se",
+                f"actor_obs_shape={tuple(observations.shape)} "
+                f"critic_obs_shape={tuple(value_obs.shape)} "
+                "semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs",
                 flush=True,
             )
         return {
@@ -3303,6 +3307,7 @@ def collect_frontres_v015_one_action_k_evidence(
         transition = getattr(runner.alg, "transition", None)
         required = (
             "observations",
+            "privileged_observations",
             "actions_log_prob",
             "values",
             "action_mean",
@@ -3312,12 +3317,24 @@ def collect_frontres_v015_one_action_k_evidence(
             raise RuntimeError("v015 one-action K collector requires the t policy tuple before frozen GMT execution")
         policy_actions = t_plan.actions.index_select(0, repair_rows).detach().clone()
         policy_observations = transition.observations.index_select(0, repair_rows).detach().clone()
+        policy_privileged_observations = (
+            transition.privileged_observations.index_select(0, repair_rows).detach().clone()
+        )
         policy_log_probs = transition.actions_log_prob.index_select(0, repair_rows).detach().clone().reshape(-1)
         policy_values = transition.values.index_select(0, repair_rows).detach().clone().reshape(-1)
         policy_means = transition.action_mean.index_select(0, repair_rows).detach().clone()[:, :6]
         policy_sigmas = transition.action_sigma.index_select(0, repair_rows).detach().clone()[:, :6]
         if tuple(policy_actions.shape) != tuple(policy_means.shape) or tuple(policy_actions.shape) != tuple(policy_sigmas.shape):
             raise RuntimeError("v015 one-action K collector requires aligned full-6D old policy statistics")
+        if (
+            policy_privileged_observations.ndim != 2
+            or int(policy_privileged_observations.shape[0]) != n_repair
+            or int(policy_privileged_observations.shape[1]) <= 0
+        ):
+            raise RuntimeError("v015 one-action K collector requires one non-empty t critic observation per Repair row")
+        trace = dict(getattr(runner, "_frontres_v015_observation_route_trace", {}) or {})
+        trace["critic_observation_dim"] = int(policy_privileged_observations.shape[-1])
+        runner._frontres_v015_observation_route_trace = trace
 
         _raw_obs, _rewards, t_dones, _infos = runner.env.step(t_plan.env_actions.to(runner.env.device))
         t_dones = t_dones.to(runner.device).detach().bool().reshape(-1)
@@ -3376,6 +3393,7 @@ def collect_frontres_v015_one_action_k_evidence(
 
         evidence = FrontRESV015OneActionKEvidence(
             policy_observations=policy_observations,
+            policy_privileged_observations=policy_privileged_observations,
             policy_actions=policy_actions,
             policy_log_probs=policy_log_probs,
             policy_values=policy_values,
@@ -3594,13 +3612,33 @@ def _v015_formal_ppo_config(alg: Any) -> FrontRESSegmentPPOConfig:
 def _v015_formal_policy_evaluator(
     request: FrontRESV015FormalTransactionRequest,
     alg: Any,
+    ppo_batch: Any,
 ) -> Any:
     evaluator = request.policy_evaluator
     if evaluator is not None:
         if not callable(getattr(evaluator, "evaluate_segment_actions", None)):
             raise TypeError("v015 formal transaction policy_evaluator must expose evaluate_segment_actions")
         return evaluator
-    return FrontRESSegmentLivePolicyAdapter(alg, request.privileged_observations)
+    privileged_observations = getattr(ppo_batch, "privileged_observations", None)
+    request_privileged = request.privileged_observations
+    if not isinstance(privileged_observations, torch.Tensor):
+        raise RuntimeError("v015 formal transaction requires sealed t critic observations; actor-observation fallback is forbidden")
+    if request_privileged is not None:
+        if (
+            tuple(request_privileged.shape) != tuple(privileged_observations.shape)
+            or not torch.equal(
+                request_privileged.to(device=privileged_observations.device),
+                privileged_observations,
+            )
+        ):
+            raise ValueError("v015 formal transaction request critic observations disagree with sealed candidate rows")
+    if (
+        privileged_observations.ndim != 2
+        or int(privileged_observations.shape[0]) != int(ppo_batch.observations.shape[0])
+        or int(privileged_observations.shape[1]) <= 0
+    ):
+        raise ValueError("v015 formal transaction critic observations must be non-empty [policy_row, critic_feature]")
+    return FrontRESSegmentLivePolicyAdapter(alg, privileged_observations)
 
 
 def run_frontres_v015_formal_transaction_update(
@@ -3637,7 +3675,7 @@ def run_frontres_v015_formal_transaction_update(
     ppo_batch = accumulator.seal()
     _seal_frontres_v015_checkpoint_transaction_plan(runner, request.plan)
     request.plan.verify_policy(policy)
-    policy_evaluator = _v015_formal_policy_evaluator(request, alg)
+    policy_evaluator = _v015_formal_policy_evaluator(request, alg, ppo_batch)
     ppo_result = compute_frontres_segment_ppo_loss(
         policy_evaluator,
         ppo_batch,
@@ -3791,6 +3829,7 @@ def _build_frontres_v015_local_identity_sentinel_request(
             "femr_visible_dim": 158,
             "gmt_suffix_dim": 770,
             "gmt_input_dim": 770,
+            "critic_observation_dim": 289,
         }
         mismatched_trace = {
             key: (observation_trace.get(key), expected)

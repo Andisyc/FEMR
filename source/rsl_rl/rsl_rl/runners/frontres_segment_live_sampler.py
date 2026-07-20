@@ -562,6 +562,11 @@ class FrontRESV015FormalTransactionAccumulator:
                 if cat_optional_batch_tensor("old_sigmas") is None
                 else reorder_tensor(cat_optional_batch_tensor("old_sigmas"))
             ),
+            privileged_observations=(
+                None
+                if cat_optional_batch_tensor("privileged_observations") is None
+                else reorder_tensor(cat_optional_batch_tensor("privileged_observations"))
+            ),
             transaction_metadata=metadata,
             transaction_row_indices=torch.arange(total_rows, dtype=torch.long),
         )
