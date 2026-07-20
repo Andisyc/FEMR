@@ -1,9 +1,10 @@
 ---
 contract_id: FRS-GAIN-v002
-status: active
+status: superseded
 effective_date: 2026-07-16
 updated_date: 2026-07-16
 supersedes: FRS-GAIN-v001
+superseded_by: FRS-GAIN-v003
 scope: Stage 3 Segment Replay paired gain and evaluation decomposition
 ---
 

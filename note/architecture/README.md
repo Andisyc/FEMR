@@ -17,6 +17,7 @@ same Code Block ID
 - `runtime/02_frontres_flow.data.json`: editable source data for the Concept Figure-driven Method-to-Code Reading Atlas.
 - `runtime/04_stage3_formal_runtime_audit.data.json`: permanent Runtime Audit Atlas for the Concept Figure-mapped Stage 3 Phase B probe route.
 - `runtime/05_policy_quality_audit.data.json`: Policy Quality Audit Atlas for the eight `QUALITY-*` causal owners and their Q evidence status.
+- `runtime/06_frontres_design_point_review.data.json`: human-facing grouped two-column table of FrontRES design questions and atomic design points; detailed implementation material remains in the active contracts and other atlas views.
 - `concept/03_frontres_concept_tabs.data.json`: editable source data for the paper-style FrontRES method figure.
 - `auxiliary/atlas_app/`: current helper viewer, local server, checks, and JS dependencies.
 - `auxiliary/legacy/`: retired viewer/render helpers kept outside the active app.
@@ -55,6 +56,7 @@ http://127.0.0.1:8765/
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../architecture/01_repo_architecture.data.json
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../runtime/02_frontres_flow.data.json
 http://127.0.0.1:8765/04_stage3_formal_runtime_audit.html
+http://127.0.0.1:8765/06_frontres_design_point_review.html
 http://127.0.0.1:8765/auxiliary/atlas_app/architecture_atlas.html?data=../../concept/03_frontres_concept_tabs.data.json
 ```
 
@@ -105,6 +107,13 @@ The three main pages are data variants, not separate applications:
   - Purpose: Concept Figure design point -> coherent owner module family -> internal formal route.
   - Main schema: `runtimeOrder[]`, `supportOrder[]`, `systems[].modules[]`, matching the 01 reading-card layout.
   - Each card names one Concept Figure design point and exposes responsibility, read-first files, functions, objects, and B1/B2/B3 route.
+
+- Design Questions And Points uses `layout: "design_point_table"`.
+  - Source: `runtime/06_frontres_design_point_review.data.json`.
+  - Purpose: a minimal human index of the method, not a contract, code reader, or evidence audit.
+  - Conceptual parent headings locate atomic decisions; every visible row still contains only `设计问题` and `设计点`.
+  - No IDs, code paths, owner names, status, evidence or expandable technical detail are rendered.
+  - Active contracts and the other architecture maps remain the detailed reference material for agents and implementation review.
 
 - Concept uses `layout: "method_figure"`.
   - Source: `concept/03_frontres_concept_tabs.data.json`.

@@ -1115,6 +1115,123 @@
       return box;
     }
 
+    function designTableTextLayout(text, width, options = {}) {
+      const preferredSize = options.preferredSize || 17;
+      const minSize = options.minSize || 15.5;
+      const preferredMaxLines = options.preferredMaxLines || 3;
+      let size = preferredSize;
+      // textUnits() counts CJK glyphs as 1.85 units; retain a small safety margin for real browser glyph widths.
+      let charWidth = size / 1.8;
+      let lineCount = measuredLineCount(text, width, { charWidth });
+      while (lineCount > preferredMaxLines && size > minSize) {
+        size = Math.max(minSize, size - 0.5);
+        charWidth = size / 1.8;
+        lineCount = measuredLineCount(text, width, { charWidth });
+      }
+      return {
+        size,
+        charWidth,
+        lineHeight: Math.ceil(size * 1.55),
+        lineCount: Math.max(1, lineCount),
+      };
+    }
+
+    function renderDesignPointTable(data) {
+      const groups = Array.isArray(data.groups) ? data.groups : [];
+      const width = 1360;
+      const left = 54;
+      const gap = 24;
+      const questionWidth = 500;
+      const pointWidth = width - left * 2 - gap - questionWidth;
+      const headerHeight = 48;
+      const rowGap = 14;
+      const groupTitleHeight = 42;
+      const groupGap = 30;
+      const groupLayouts = groups.map((group) => {
+        const rows = Array.isArray(group.rows) ? group.rows : [];
+        const rowLayouts = rows.map((row) => {
+          const question = designTableTextLayout(row.question || "", questionWidth - 48, {
+            preferredSize: 17,
+            minSize: 16,
+            preferredMaxLines: 2,
+          });
+          const point = designTableTextLayout(row.point || "", pointWidth - 48, {
+            preferredSize: 17.5,
+            minSize: 16,
+            preferredMaxLines: 3,
+          });
+          const contentHeight = Math.max(
+            question.lineCount * question.lineHeight,
+            point.lineCount * point.lineHeight,
+          );
+          return { row, question, point, height: Math.max(84, 46 + contentHeight) };
+        });
+        return { parent: group.parent || "", rows: rowLayouts };
+      });
+      const tableHeight = groupLayouts.reduce((sum, group) => (
+        sum
+        + groupTitleHeight
+        + group.rows.reduce((rowSum, row) => rowSum + row.height, 0)
+        + rowGap * Math.max(0, group.rows.length - 1)
+      ), 0) + groupGap * Math.max(0, groupLayouts.length - 1);
+      const height = 26 + 92 + 48 + headerHeight + tableHeight + 112;
+      setCanvas(width, height);
+      const rc = drawHeader(data, "", width);
+      const tableTop = rc.headerBottom + 48;
+      const tableWidth = questionWidth + gap + pointWidth;
+      const questionHeaderFill = "rgba(246, 232, 206, 0.82)";
+      const pointHeaderFill = "rgba(216, 233, 243, 0.84)";
+      const groupFill = "rgba(229, 239, 232, 0.76)";
+      const questionCellFill = "rgba(255, 250, 240, 0.78)";
+      const pointCellFill = "rgba(239, 247, 251, 0.82)";
+      const tableHeadingFont = '"Kaiti SC", "STKaiti", "KaiTi", "Songti SC", serif';
+      const tableBodyFont = '"Kaiti SC", "STKaiti", "Songti SC", "STSong", serif';
+      svg.appendChild(rc.rectangle(left, tableTop, questionWidth, headerHeight, {
+        stroke: "#b99a71", strokeWidth: 1.0, roughness: 0.55, bowing: 0.3, fill: questionHeaderFill, fillStyle: "solid",
+      }));
+      svg.appendChild(rc.rectangle(left + questionWidth + gap, tableTop, pointWidth, headerHeight, {
+        stroke: "#7898ad", strokeWidth: 1.0, roughness: 0.55, bowing: 0.3, fill: pointHeaderFill, fillStyle: "solid",
+      }));
+      addText("设计问题", left + 24, tableTop + 31, { size: 18, weight: 680, fill: "#765638", family: tableHeadingFont });
+      addText("设计点", left + questionWidth + gap + 24, tableTop + 31, { size: 18, weight: 680, fill: "#2e5b75", family: tableHeadingFont });
+      let rowY = tableTop + headerHeight + 22;
+      groupLayouts.forEach((group, groupIndex) => {
+        svg.appendChild(rc.rectangle(left, rowY, tableWidth, groupTitleHeight, {
+          stroke: "#91a999", strokeWidth: 0.9, roughness: 0.45, bowing: 0.25,
+          fill: groupFill, fillStyle: "solid",
+        }));
+        addText(group.parent, left + 22, rowY + 28, { size: 17, weight: 680, fill: "#406150", family: tableHeadingFont });
+        rowY += groupTitleHeight + 14;
+        group.rows.forEach((layout) => {
+          const rowHeight = layout.height;
+          svg.appendChild(rc.rectangle(left, rowY, questionWidth, rowHeight, {
+            stroke: "#d9c6aa", strokeWidth: 0.9, roughness: 0.45, bowing: 0.25, fill: questionCellFill, fillStyle: "solid",
+          }));
+          svg.appendChild(rc.rectangle(left + questionWidth + gap, rowY, pointWidth, rowHeight, {
+            stroke: "#a9c2cf", strokeWidth: 0.9, roughness: 0.45, bowing: 0.25, fill: pointCellFill, fillStyle: "solid",
+          }));
+          wrapText(layout.row.question || "", left + 24, rowY + 34, questionWidth - 48, {
+            size: layout.question.size,
+            lineHeight: layout.question.lineHeight,
+            charWidth: layout.question.charWidth,
+            weight: 540,
+            fill: "#4d4033",
+            family: tableBodyFont,
+          });
+          wrapText(layout.row.point || "", left + questionWidth + gap + 24, rowY + 34, pointWidth - 48, {
+            size: layout.point.size,
+            lineHeight: layout.point.lineHeight,
+            charWidth: layout.point.charWidth,
+            weight: 580,
+            fill: "#29465c",
+            family: tableBodyFont,
+          });
+          rowY += rowHeight + rowGap;
+        });
+        if (groupIndex < groupLayouts.length - 1) rowY += groupGap - rowGap;
+      });
+    }
+
     function renderRepositoryReadingAtlas(data) {
       const systems = data.systems || [];
       const columnWidth = 840;
@@ -1425,6 +1542,8 @@
       const layout = data.layout || "tabs";
       if (layout === "repo_tree") {
         renderRepoTree(data);
+      } else if (layout === "design_point_table") {
+        renderDesignPointTable(data);
       } else if (layout === "repository_reading_atlas") {
         renderRepositoryReadingAtlas(data);
       } else if (layout === "flow_tree") {

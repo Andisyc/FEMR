@@ -1,11 +1,15 @@
 contract_id: FRS-PPO-v001
-status: active
+status: superseded
 effective_date: 2026-07-09
-updated_date: 2026-07-13
+updated_date: 2026-07-19
 supersedes: none
+superseded_by: FRS-PPO-v002
 scope: Stage 3 Segment PPO advantage scaling semantics
 
 # FrontRES Segment PPO Advantage Scaling Contract
+
+> Historical contract. Superseded by FRS-PPO-v002 on 2026-07-19; it preserves
+> the prior flat-row scale-only rule and must not override grouped aggregation.
 
 ## Design Delta
 

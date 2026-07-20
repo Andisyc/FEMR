@@ -33,6 +33,289 @@ class FrontRESSegmentReplaySummary:
     objective: str
 
 
+_V015_GAIN_SOURCE = "FRS-GAIN-v003-intent-physics-local-repair"
+_V015_LOCAL_EVALUATION_KIND = "local_k_candidate_only"
+_V015_COMPOSITION_EVALUATION_KIND = "deployment_composition_protocol"
+
+
+@dataclass(frozen=True)
+class FrontRESV015LocalEvaluationReport:
+    """Read-only v015 local-K diagnostic projection of sealed candidate evidence.
+
+    Status: candidate-only.
+    Upstream: Step 3B `FrontRESV015GainConsumerEvidence` after its v003 return
+    carrier has been sealed.
+    Downstream: terminal/diagnostic review only, never sampler, PPO, optimizer,
+    checkpoint, or formal evaluator state.
+    Evidence: deterministic S1 contract.
+    Gap: a real local evaluator and simulator timing remain a later gate.
+    """
+
+    scenario_ids: tuple[str, ...]
+    noisy_segment_hashes: tuple[str, ...]
+    x_t_identities: tuple[str, ...]
+    horizon_k: tuple[int, ...]
+    policy_row_count: int
+    valid_policy_row_count: int
+    intent_q29_provenance: str
+    intent_q29_source: str
+    intent_gain_mean: float
+    physics_gain_mean: float
+    repair_cost_mean: float
+    gain_total_mean: float
+    gain_total_pos_frac: float
+    evaluation_kind: str = _V015_LOCAL_EVALUATION_KIND
+    gain_source: str = _V015_GAIN_SOURCE
+    return_feedback: bool = False
+    priority_feedback: bool = False
+    ppo_feedback: bool = False
+
+    def validate(self) -> None:
+        """Reject non-v003, partial, or feedback-bearing local diagnostic reports."""
+
+        count = int(self.policy_row_count)
+        if (
+            count <= 0
+            or len(self.scenario_ids) != count
+            or len(self.noisy_segment_hashes) != count
+            or len(self.x_t_identities) != count
+            or len(self.horizon_k) != count
+            or any(not str(value) for value in self.scenario_ids)
+            or any(not str(value) for value in self.noisy_segment_hashes)
+            or any(not str(value) for value in self.x_t_identities)
+            or any(int(value) <= 0 for value in self.horizon_k)
+            or self.valid_policy_row_count < 0
+            or self.valid_policy_row_count > count
+            or self.evaluation_kind != _V015_LOCAL_EVALUATION_KIND
+            or self.gain_source != _V015_GAIN_SOURCE
+            or self.intent_q29_provenance != "deployment_noisy_q29"
+            or self.return_feedback
+            or self.priority_feedback
+            or self.ppo_feedback
+        ):
+            raise ValueError("v015 local evaluation report has invalid identity, Gain source, or feedback boundary")
+        source = self.intent_q29_source.lower()
+        if not source or any(token in source for token in ("clean", "root", "global")):
+            raise ValueError("v015 local evaluation report rejects non-deployment q29 provenance")
+        metrics = (
+            self.intent_gain_mean,
+            self.physics_gain_mean,
+            self.repair_cost_mean,
+            self.gain_total_mean,
+            self.gain_total_pos_frac,
+        )
+        if self.valid_policy_row_count > 0:
+            if not all(math.isfinite(float(value)) for value in metrics):
+                raise ValueError("v015 local evaluation report requires finite v003 diagnostics on valid rows")
+        elif not all(math.isnan(float(value)) for value in metrics):
+            raise ValueError("v015 local evaluation report keeps missing diagnostics UNCONFIRMED, never zero-filled")
+
+
+@dataclass(frozen=True)
+class FrontRESV015CompositionEvaluationProtocol:
+    """Separate deployment-composition protocol with no local-training feedback channel.
+
+    Status: protocol-only/candidate-only.
+    Upstream: an explicitly named deployment reference stream, not local return
+    evidence.
+    Downstream: a later dedicated sequence evaluator only.
+    Evidence: deterministic S1 isolation contract.
+    Gap: no sequence simulator execution or composition metric is claimed here.
+    """
+
+    reference_stream_id: str
+    reference_provenance: str
+    frame_count: int
+    femr_action_count: int
+    evaluation_kind: str = _V015_COMPOSITION_EVALUATION_KIND
+    return_feedback: bool = False
+    priority_feedback: bool = False
+    ppo_feedback: bool = False
+
+    def validate(self) -> None:
+        """Reject local-return reuse and invalid deployment-composition protocol facts."""
+
+        if (
+            not self.reference_stream_id
+            or self.reference_provenance != "deployment_reference_stream"
+            or self.frame_count <= 0
+            or self.femr_action_count < 0
+            or self.femr_action_count > self.frame_count
+            or self.evaluation_kind != _V015_COMPOSITION_EVALUATION_KIND
+            or self.return_feedback
+            or self.priority_feedback
+            or self.ppo_feedback
+        ):
+            raise ValueError("v015 composition protocol has invalid deployment identity or local-training feedback")
+
+
+def build_frontres_v015_local_evaluation_report(candidate_evidence: Any) -> FrontRESV015LocalEvaluationReport:
+    """Project one sealed v003 local candidate carrier into read-only diagnostic facts.
+
+    函数名说明:
+        `build_frontres_v015_local_evaluation_report` 是 local-K diagnostic
+        projection owner. 它不重算 Gain, 不读取 Clean global metric, 不写 return,
+        priority, PPO 或 sampler state.
+
+    主链路:
+        上游: Step 3B sealed candidate evidence.
+        下游: local evaluator formatter 与 deterministic review contract.
+
+    语义:
+        每个 scalar 仅在 valid Repair policy rows 上聚合. 没有 valid row 时保留
+        NaN/UNCONFIRMED, 绝不以 0 伪造诊断.
+    """
+
+    validate = getattr(candidate_evidence, "validate", None)
+    if not callable(validate):
+        raise TypeError("v015 local evaluation requires a validated Step 3B candidate carrier")
+    validate()
+    return_evidence = getattr(candidate_evidence, "return_evidence", None)
+    validate_return = getattr(return_evidence, "validate", None)
+    if not callable(validate_return):
+        raise TypeError("v015 local evaluation requires validated v003 return evidence")
+    validate_return()
+    if getattr(return_evidence, "gain_source", None) != _V015_GAIN_SOURCE:
+        raise ValueError("v015 local evaluation rejects legacy or unspecified Gain source")
+
+    # B1: 读取 sealed one-row policy metadata, 不读取 mutable sampler state.
+    valid = return_evidence.policy_row_valid.detach().bool().reshape(-1)
+    count = int(valid.numel())
+    if count <= 0:
+        raise ValueError("v015 local evaluation requires at least one policy row")
+    components = (
+        ("intent_gain", return_evidence.intent_gain),
+        ("physics_gain", return_evidence.physics_gain),
+        ("repair_cost", return_evidence.repair_cost),
+        ("gain_total", return_evidence.gain_total),
+    )
+    if any(not isinstance(value, torch.Tensor) or tuple(value.shape) != (count,) for _, value in components):
+        raise ValueError("v015 local evaluation requires row-aligned v003 decomposition tensors")
+
+    # B2: 仅在 valid rows 聚合 v003 component, invalid rows 保持 UNCONFIRMED.
+    component_mean = {name: _v015_masked_mean(value, valid) for name, value in components}
+    gain_total_pos_frac = _v015_masked_positive_fraction(return_evidence.gain_total, valid)
+    horizon = return_evidence.horizon_k.detach().to(device="cpu", dtype=torch.long).reshape(-1)
+    if int(horizon.numel()) != count:
+        raise ValueError("v015 local evaluation horizon_k must align with policy rows")
+
+    # B3: 构造 immutable report, 明确声明 evaluation 不反馈训练状态.
+    report = FrontRESV015LocalEvaluationReport(
+        scenario_ids=tuple(str(value) for value in return_evidence.scenario_ids),
+        noisy_segment_hashes=tuple(str(value) for value in return_evidence.noisy_segment_hashes),
+        x_t_identities=tuple(str(value) for value in return_evidence.x_t_identities),
+        horizon_k=tuple(int(value) for value in horizon.tolist()),
+        policy_row_count=count,
+        valid_policy_row_count=int(valid.sum().item()),
+        intent_q29_provenance=str(return_evidence.intent_q29_provenance),
+        intent_q29_source=str(return_evidence.intent_q29_source),
+        intent_gain_mean=component_mean["intent_gain"],
+        physics_gain_mean=component_mean["physics_gain"],
+        repair_cost_mean=component_mean["repair_cost"],
+        gain_total_mean=component_mean["gain_total"],
+        gain_total_pos_frac=gain_total_pos_frac,
+    )
+    report.validate()
+    return report
+
+
+def format_frontres_v015_local_evaluation_report(report: FrontRESV015LocalEvaluationReport) -> str:
+    """Format a v015 local-K report without legacy Style or Clean-global fields."""
+
+    report.validate()
+    return "\n".join(
+        (
+            "[FrontRES v015 Local-K Evaluation]",
+            (
+                "  identity: "
+                f"scenarios={report.scenario_ids} hashes={report.noisy_segment_hashes} "
+                f"x_t={report.x_t_identities} K={report.horizon_k}"
+            ),
+            (
+                "  intent: "
+                f"provenance={report.intent_q29_provenance} source={report.intent_q29_source} "
+                f"gain={_fmt_v015_eval_scalar(report.intent_gain_mean)}"
+            ),
+            f"  physics: gain={_fmt_v015_eval_scalar(report.physics_gain_mean)}",
+            f"  repair: cost={_fmt_v015_eval_scalar(report.repair_cost_mean)}",
+            (
+                "  total: "
+                f"gain={_fmt_v015_eval_scalar(report.gain_total_mean)} "
+                f"positive={_fmt_v015_eval_percent(report.gain_total_pos_frac)} "
+                f"valid_rows={report.valid_policy_row_count}/{report.policy_row_count}"
+            ),
+            "  boundary: candidate_only=1 return_feedback=0 priority_feedback=0 ppo_feedback=0",
+        )
+    )
+
+
+def build_frontres_v015_composition_evaluation_protocol(
+    *,
+    reference_stream_id: str,
+    frame_count: int,
+    femr_action_count: int,
+    reference_provenance: str = "deployment_reference_stream",
+) -> FrontRESV015CompositionEvaluationProtocol:
+    """Declare a separate deployment-composition evaluation without local feedback reuse."""
+
+    protocol = FrontRESV015CompositionEvaluationProtocol(
+        reference_stream_id=str(reference_stream_id),
+        reference_provenance=str(reference_provenance),
+        frame_count=int(frame_count),
+        femr_action_count=int(femr_action_count),
+    )
+    protocol.validate()
+    return protocol
+
+
+def format_frontres_v015_composition_evaluation_protocol(
+    protocol: FrontRESV015CompositionEvaluationProtocol,
+) -> str:
+    """Format the protocol boundary; no sequence execution is implied."""
+
+    protocol.validate()
+    return "\n".join(
+        (
+            "[FrontRES v015 Deployment Composition Protocol]",
+            f"  reference: id={protocol.reference_stream_id} provenance={protocol.reference_provenance}",
+            f"  execution: frames={protocol.frame_count} femr_actions={protocol.femr_action_count}",
+            "  boundary: local_return_feedback=0 replay_priority_feedback=0 ppo_feedback=0",
+        )
+    )
+
+
+def _v015_masked_mean(value: torch.Tensor, valid: torch.Tensor) -> float:
+    data = value.detach().float().reshape(-1)
+    if tuple(data.shape) != tuple(valid.shape):
+        raise ValueError("v015 diagnostic component mask must align with values")
+    selected = data[valid]
+    if selected.numel() == 0:
+        return float("nan")
+    if not bool(torch.isfinite(selected).all()):
+        raise ValueError("v015 diagnostic component is nonfinite on a valid policy row")
+    return float(selected.mean().cpu().item())
+
+
+def _v015_masked_positive_fraction(value: torch.Tensor, valid: torch.Tensor) -> float:
+    data = value.detach().float().reshape(-1)
+    if tuple(data.shape) != tuple(valid.shape):
+        raise ValueError("v015 diagnostic positivity mask must align with values")
+    selected = data[valid]
+    if selected.numel() == 0:
+        return float("nan")
+    if not bool(torch.isfinite(selected).all()):
+        raise ValueError("v015 diagnostic total Gain is nonfinite on a valid policy row")
+    return float((selected > 0.0).float().mean().cpu().item())
+
+
+def _fmt_v015_eval_scalar(value: float) -> str:
+    return f"{float(value):.6f}" if math.isfinite(float(value)) else "UNCONFIRMED"
+
+
+def _fmt_v015_eval_percent(value: float) -> str:
+    return f"{float(value) * 100.0:.1f}%" if math.isfinite(float(value)) else "UNCONFIRMED"
+
+
 def summarize_segment_batch(
     sample: Any,
     reward_result: Any,

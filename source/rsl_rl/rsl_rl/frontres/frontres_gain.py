@@ -107,6 +107,358 @@ class FrontRESSegmentGainResult:
         return torch.isfinite(self.gain_total)
 
 
+@dataclass(frozen=True)
+class FrontRESIntentPhysicsGainConfig:
+    """Explicit weights and scales for the active FRS-GAIN-v003 core.
+
+    This config intentionally has no Clean/global-style fields. It is a pure
+    calculation surface; Step 3B owns configuration routing and consumers.
+    """
+
+    intent_weight: float = 1.0
+    physics_weight: float = 1.0
+    repair_weight: float = 0.15
+    q29_scale: float = 1.0
+    qvel_scale: float = 1.0
+    qacc_scale: float = 1.0
+    repair_norm_scale: float = 1.0
+    repair_temporal_scale: float = 1.0
+
+
+_PhysicsCostConfig = FrontRESSegmentGainConfig | FrontRESIntentPhysicsGainConfig
+
+
+@dataclass(frozen=True)
+class FrontRESIntentPhysicsGainInput:
+    """Typed, root-free evidence consumed by the active local-repair Gain.
+
+    intent_q29 is the fixed deployment/Noisy internal-motion target. The type
+    deliberately has no Clean, root, global-position, or actor/PPO fields:
+    those objects cannot enter intent fidelity through this owner.
+    """
+
+    intent_q29: torch.Tensor
+    repaired_q29: torch.Tensor
+    noisy_q29: torch.Tensor
+    intent_q29_provenance: str
+    intent_q29_source: str
+    repair_action_steps: torch.Tensor
+    intent_valid_mask: torch.Tensor | None = None
+    intent_qvel: torch.Tensor | None = None
+    repaired_qvel: torch.Tensor | None = None
+    noisy_qvel: torch.Tensor | None = None
+    intent_qacc: torch.Tensor | None = None
+    repaired_qacc: torch.Tensor | None = None
+    noisy_qacc: torch.Tensor | None = None
+    repaired_success: torch.Tensor | None = None
+    noisy_success: torch.Tensor | None = None
+    repaired_survival: torch.Tensor | None = None
+    noisy_survival: torch.Tensor | None = None
+    effective_horizon_k: torch.Tensor | float | int | None = None
+    repaired_zmp_margin: torch.Tensor | None = None
+    noisy_zmp_margin: torch.Tensor | None = None
+    repaired_contact: torch.Tensor | None = None
+    noisy_contact: torch.Tensor | None = None
+    repair_action_valid_steps: torch.Tensor | None = None
+
+
+@dataclass(frozen=True)
+class FrontRESIntentPhysicsGainResult:
+    """Per-row FRS-GAIN-v003 decomposition.
+
+    Optional qvel/qacc and one-action temporal terms remain NaN when they are
+    not observable. They are never silently converted to zero.
+    """
+
+    intent_gain: torch.Tensor
+    physics_gain: torch.Tensor
+    repair_cost: torch.Tensor
+    gain_total: torch.Tensor
+    intent_q29_noisy_error: torch.Tensor
+    intent_q29_repaired_error: torch.Tensor
+    intent_q29_gain: torch.Tensor
+    intent_qvel_noisy_error: torch.Tensor
+    intent_qvel_repaired_error: torch.Tensor
+    intent_qvel_gain: torch.Tensor
+    intent_qacc_noisy_error: torch.Tensor
+    intent_qacc_repaired_error: torch.Tensor
+    intent_qacc_gain: torch.Tensor
+    physics_success_gain: torch.Tensor
+    physics_survival_quality_repaired: torch.Tensor
+    physics_survival_quality_noisy: torch.Tensor
+    physics_survival_gain: torch.Tensor
+    physics_zmp_gain: torch.Tensor
+    physics_contact_gain: torch.Tensor
+    repair_norm: torch.Tensor
+    repair_temporal_change: torch.Tensor
+    intent_q29_provenance: str
+    intent_q29_source: str
+
+    @property
+    def style_gain(self) -> torch.Tensor:
+        """Compatibility diagnostic alias for root-invariant intent realization."""
+
+        return self.intent_gain
+
+    @property
+    def available(self) -> torch.Tensor:
+        return torch.isfinite(self.gain_total)
+
+
+def compute_intent_physics_local_repair_gain(
+    evidence: FrontRESIntentPhysicsGainInput,
+    *,
+    config: FrontRESIntentPhysicsGainConfig,
+) -> FrontRESIntentPhysicsGainResult:
+    """Compute the active root-invariant FRS-GAIN-v003 local-repair Gain.
+
+    Both scored branches are compared to the same deployment/Noisy q29 target;
+    direct Repair-vs-Noisy similarity is never an intent component. This pure
+    owner has no rollout, storage, return, PPO, or diagnostic side effect.
+    """
+
+    _validate_v003_intent_provenance(evidence)
+    intent = _compute_v003_intent_components(evidence, config)
+    batch_size = int(intent["q29_gain"].numel())
+    _validate_v003_physics_batch_size(evidence, batch_size)
+    _validate_v003_repair_actions(evidence.repair_action_steps, batch_size)
+
+    physics = compute_paired_physics_gain(
+        evidence.repaired_success,
+        evidence.noisy_success,
+        evidence.repaired_survival,
+        evidence.noisy_survival,
+        config=config,
+        effective_horizon_k=evidence.effective_horizon_k,
+        repaired_zmp_margin=evidence.repaired_zmp_margin,
+        noisy_zmp_margin=evidence.noisy_zmp_margin,
+        repaired_contact=evidence.repaired_contact,
+        noisy_contact=evidence.noisy_contact,
+    )
+    repair = compute_repair_cost(
+        evidence.repair_action_steps,
+        config=config,
+        valid_steps=evidence.repair_action_valid_steps,
+    )
+    like = intent["intent"]
+    physics_gain = _match(physics["physics"], like)
+    repair_cost = _match(repair["cost"], like)
+    total = (
+        float(config.intent_weight) * intent["intent"]
+        + float(config.physics_weight) * physics_gain
+        - float(config.repair_weight) * repair_cost
+    )
+    total = torch.where(
+        torch.isfinite(intent["intent"]) & torch.isfinite(physics_gain) & torch.isfinite(repair_cost),
+        total,
+        torch.full_like(total, float("nan")),
+    )
+    return FrontRESIntentPhysicsGainResult(
+        intent_gain=intent["intent"],
+        physics_gain=physics_gain,
+        repair_cost=repair_cost,
+        gain_total=total,
+        intent_q29_noisy_error=intent["q29_noisy_error"],
+        intent_q29_repaired_error=intent["q29_repaired_error"],
+        intent_q29_gain=intent["q29_gain"],
+        intent_qvel_noisy_error=intent["qvel_noisy_error"],
+        intent_qvel_repaired_error=intent["qvel_repaired_error"],
+        intent_qvel_gain=intent["qvel_gain"],
+        intent_qacc_noisy_error=intent["qacc_noisy_error"],
+        intent_qacc_repaired_error=intent["qacc_repaired_error"],
+        intent_qacc_gain=intent["qacc_gain"],
+        physics_success_gain=_match(physics["success"], like),
+        physics_survival_quality_repaired=_match(physics["survival_quality_repaired"], like),
+        physics_survival_quality_noisy=_match(physics["survival_quality_noisy"], like),
+        physics_survival_gain=_match(physics["survival"], like),
+        physics_zmp_gain=_match(physics["zmp"], like),
+        physics_contact_gain=_match(physics["contact"], like),
+        repair_norm=_match(repair["norm"], like),
+        repair_temporal_change=_match(repair["temporal"], like),
+        intent_q29_provenance=evidence.intent_q29_provenance,
+        intent_q29_source=evidence.intent_q29_source,
+    )
+
+
+def _validate_v003_intent_provenance(evidence: FrontRESIntentPhysicsGainInput) -> None:
+    if evidence.intent_q29_provenance != "deployment_noisy_q29":
+        raise ValueError(
+            "FRS-GAIN-v003 requires intent_q29_provenance='deployment_noisy_q29', "
+            f"got {evidence.intent_q29_provenance!r}"
+        )
+    source = str(evidence.intent_q29_source).strip()
+    forbidden = ("clean", "root", "global")
+    if not source or any(token in source.lower() for token in forbidden):
+        raise ValueError(
+            "FRS-GAIN-v003 intent_q29_source must exclude Clean/root/global provenance, "
+            f"got {evidence.intent_q29_source!r}"
+        )
+
+
+def _compute_v003_intent_components(
+    evidence: FrontRESIntentPhysicsGainInput,
+    config: FrontRESIntentPhysicsGainConfig,
+) -> dict[str, torch.Tensor]:
+    q29_noisy, q29_repaired, q29_gain = _v003_intent_component(
+        name="q29",
+        intent=evidence.intent_q29,
+        repaired=evidence.repaired_q29,
+        noisy=evidence.noisy_q29,
+        scale=config.q29_scale,
+        valid_mask=evidence.intent_valid_mask,
+    )
+    qvel_noisy, qvel_repaired, qvel_gain = _v003_optional_intent_component(
+        name="qvel",
+        intent=evidence.intent_qvel,
+        repaired=evidence.repaired_qvel,
+        noisy=evidence.noisy_qvel,
+        scale=config.qvel_scale,
+        valid_mask=evidence.intent_valid_mask,
+        like=q29_gain,
+    )
+    qacc_noisy, qacc_repaired, qacc_gain = _v003_optional_intent_component(
+        name="qacc",
+        intent=evidence.intent_qacc,
+        repaired=evidence.repaired_qacc,
+        noisy=evidence.noisy_qacc,
+        scale=config.qacc_scale,
+        valid_mask=evidence.intent_valid_mask,
+        like=q29_gain,
+    )
+    return {
+        "q29_noisy_error": q29_noisy,
+        "q29_repaired_error": q29_repaired,
+        "q29_gain": q29_gain,
+        "qvel_noisy_error": qvel_noisy,
+        "qvel_repaired_error": qvel_repaired,
+        "qvel_gain": qvel_gain,
+        "qacc_noisy_error": qacc_noisy,
+        "qacc_repaired_error": qacc_repaired,
+        "qacc_gain": qacc_gain,
+        "intent": _available_mean((q29_gain, qvel_gain, qacc_gain)),
+    }
+
+
+def _v003_optional_intent_component(
+    *,
+    name: str,
+    intent: torch.Tensor | None,
+    repaired: torch.Tensor | None,
+    noisy: torch.Tensor | None,
+    scale: float,
+    valid_mask: torch.Tensor | None,
+    like: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    values = (intent, repaired, noisy)
+    if all(value is None for value in values):
+        missing = torch.full_like(like, float("nan"))
+        return missing.clone(), missing.clone(), missing.clone()
+    if not all(isinstance(value, torch.Tensor) for value in values):
+        raise ValueError(f"FRS-GAIN-v003 {name} must be supplied for intent, Repair, and Noisy together")
+    return _v003_intent_component(
+        name=name,
+        intent=intent,
+        repaired=repaired,
+        noisy=noisy,
+        scale=scale,
+        valid_mask=valid_mask,
+    )
+
+
+def _v003_intent_component(
+    *,
+    name: str,
+    intent: torch.Tensor,
+    repaired: torch.Tensor,
+    noisy: torch.Tensor,
+    scale: float,
+    valid_mask: torch.Tensor | None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if (
+        not _same_shape(intent, repaired, noisy)
+        or intent.ndim not in (2, 3)
+        or int(intent.shape[-1]) != 29
+        or int(intent.shape[0]) <= 0
+    ):
+        raise ValueError(
+            f"FRS-GAIN-v003 {name} must have identical [B,29] or [B,T,29] tensors, "
+            f"got intent={tuple(intent.shape)}, repaired={tuple(repaired.shape)}, noisy={tuple(noisy.shape)}"
+        )
+    if not float(scale) > 0.0:
+        raise ValueError(f"FRS-GAIN-v003 {name}_scale must be positive, got {scale!r}")
+    if intent.device != repaired.device or intent.device != noisy.device:
+        raise ValueError(f"FRS-GAIN-v003 {name} intent/Repair/Noisy tensors must share one device")
+
+    noisy_error_steps = torch.linalg.norm(noisy.float() - intent.float(), dim=-1)
+    repaired_error_steps = torch.linalg.norm(repaired.float() - intent.float(), dim=-1)
+    if intent.ndim == 2:
+        if valid_mask is None:
+            valid = torch.ones(intent.shape[0], device=intent.device, dtype=torch.bool)
+        else:
+            valid = valid_mask.to(device=intent.device, dtype=torch.bool)
+            if tuple(valid.shape) != tuple(intent.shape[:1]):
+                raise ValueError(
+                    f"FRS-GAIN-v003 {name} validity must be [B] for [B,29], got {tuple(valid.shape)}"
+                )
+        noisy_error = torch.where(valid, noisy_error_steps, torch.full_like(noisy_error_steps, float("nan")))
+        repaired_error = torch.where(
+            valid,
+            repaired_error_steps,
+            torch.full_like(repaired_error_steps, float("nan")),
+        )
+    else:
+        if valid_mask is None:
+            valid = torch.ones(intent.shape[:2], device=intent.device, dtype=torch.bool)
+        else:
+            valid = valid_mask.to(device=intent.device, dtype=torch.bool)
+            if tuple(valid.shape) != tuple(intent.shape[:2]):
+                raise ValueError(
+                    f"FRS-GAIN-v003 {name} validity must be [B,T] for [B,T,29], got {tuple(valid.shape)}"
+                )
+        noisy_error = _masked_temporal_mean(noisy_error_steps, valid)
+        repaired_error = _masked_temporal_mean(repaired_error_steps, valid)
+    gain = (noisy_error - repaired_error) / float(scale)
+    return noisy_error, repaired_error, gain
+
+
+def _validate_v003_physics_batch_size(evidence: FrontRESIntentPhysicsGainInput, batch_size: int) -> None:
+    for name in (
+        "repaired_success",
+        "noisy_success",
+        "repaired_survival",
+        "noisy_survival",
+        "repaired_zmp_margin",
+        "noisy_zmp_margin",
+        "repaired_contact",
+        "noisy_contact",
+    ):
+        value = getattr(evidence, name)
+        if isinstance(value, torch.Tensor) and value.numel() != batch_size:
+            raise ValueError(
+                f"FRS-GAIN-v003 {name} must have one scalar per q29 row, "
+                f"got {tuple(value.shape)} for B={batch_size}"
+            )
+    horizon = evidence.effective_horizon_k
+    if isinstance(horizon, torch.Tensor) and horizon.numel() not in (1, batch_size):
+        raise ValueError(
+            "FRS-GAIN-v003 effective_horizon_k must be scalar or one value per q29 row, "
+            f"got {tuple(horizon.shape)} for B={batch_size}"
+        )
+
+
+def _validate_v003_repair_actions(action_steps: torch.Tensor, batch_size: int) -> None:
+    if not isinstance(action_steps, torch.Tensor) or action_steps.numel() == 0:
+        raise ValueError("FRS-GAIN-v003 requires nonempty executed full-6D repair_action_steps")
+    if action_steps.ndim == 2 and tuple(action_steps.shape) == (batch_size, 6):
+        return
+    if action_steps.ndim == 3 and int(action_steps.shape[1]) == batch_size and int(action_steps.shape[2]) == 6:
+        return
+    raise ValueError(
+        "FRS-GAIN-v003 repair_action_steps must be [B,6] or [T,B,6] with the q29 batch size, "
+        f"got {tuple(action_steps.shape)} for B={batch_size}"
+    )
+
+
 def compute_paired_style_gain(
     clean_positions: torch.Tensor | None,
     repaired_positions: torch.Tensor | None,
@@ -166,7 +518,7 @@ def compute_paired_physics_gain(
     repaired_survival: torch.Tensor | None,
     noisy_survival: torch.Tensor | None,
     *,
-    config: FrontRESSegmentGainConfig,
+    config: _PhysicsCostConfig,
     effective_horizon_k: torch.Tensor | float | int | None,
     repaired_zmp_margin: torch.Tensor | None = None,
     noisy_zmp_margin: torch.Tensor | None = None,
@@ -179,10 +531,10 @@ def compute_paired_physics_gain(
     after conversion to `survival_steps / effective_horizon_k`; missing K is
     unconfirmed and therefore cannot silently become a raw-step Gain.
 
-    Status: active, FRS-GAIN-v002 owner.
+    Status: shared pure Physics primitive. Legacy FRS-GAIN-v002 callers and the
+    FRS-GAIN-v003 root-invariant owner retain this same paired decomposition.
     Upstream: paired frozen-GMT capture with raw survival steps and per-row K.
-    Downstream: final Gain composition, per-step Gain, and evaluation summaries.
-    Evidence: S1/S2 contract-confirmed; S4 live mixed-K population remains open.
+    Downstream: final Gain composition only; consumer routing remains separate.
     """
 
     like = _first_tensor(
@@ -240,12 +592,12 @@ def compute_paired_physics_gain(
 def compute_repair_cost(
     action_steps: torch.Tensor | None,
     *,
-    config: FrontRESSegmentGainConfig,
+    config: _PhysicsCostConfig,
     valid_steps: torch.Tensor | None = None,
     clean_action_steps: torch.Tensor | None = None,
     clean_valid_steps: torch.Tensor | None = None,
 ) -> dict[str, torch.Tensor]:
-    """Return executed full-6D cost with per-row K/done and Clean diagnostics.
+    """Return executed full-6D cost with per-row K/done and optional legacy diagnostics.
 
     ``valid_steps`` is true for actions executed before the row had already
     terminated and inside its effective K.  The action that produces ``done``
@@ -278,7 +630,7 @@ def _repair_cost_components(
     action_steps: torch.Tensor | None,
     valid_steps: torch.Tensor | None,
     *,
-    config: FrontRESSegmentGainConfig,
+    config: _PhysicsCostConfig,
 ) -> dict[str, torch.Tensor]:
     if not isinstance(action_steps, torch.Tensor) or action_steps.numel() == 0:
         empty = torch.empty(0)

@@ -2,7 +2,123 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any, Iterable, Mapping
+
 import torch
+
+
+FRONTRES_FUTURE_INTENT_LAYOUT_VERSION = "frontres-v015-future-intent-q29-v1"
+FRONTRES_FUTURE_INTENT_DIM = 29
+
+
+@dataclass(frozen=True)
+class FrontRESFutureIntentLayout:
+    """Versioned actor-only layout for future deployment-provenance q29 intent."""
+
+    version: str
+    future_offsets: tuple[int, ...]
+
+    @property
+    def intent_frame_count(self) -> int:
+        return max(self.future_offsets) + 1
+
+    @property
+    def actor_tail_dim(self) -> int:
+        return len(self.future_offsets) * FRONTRES_FUTURE_INTENT_DIM
+
+    def validate(self) -> None:
+        if self.version != FRONTRES_FUTURE_INTENT_LAYOUT_VERSION:
+            raise ValueError(
+                "FrontRES future-intent layout version must be "
+                f"{FRONTRES_FUTURE_INTENT_LAYOUT_VERSION!r}, got {self.version!r}"
+            )
+        if not self.future_offsets:
+            raise ValueError("FrontRES future-intent layout requires nonempty future offsets")
+        if any(int(offset) <= 0 for offset in self.future_offsets):
+            raise ValueError(f"FrontRES future-intent offsets must be positive, got {self.future_offsets}")
+        if tuple(sorted(set(int(offset) for offset in self.future_offsets))) != tuple(self.future_offsets):
+            raise ValueError(
+                "FrontRES future-intent offsets must be strictly ordered and unique, "
+                f"got {self.future_offsets}"
+            )
+
+
+def resolve_frontres_future_intent_layout(
+    future_offsets: Iterable[int] | torch.Tensor,
+    layout_version: str,
+) -> FrontRESFutureIntentLayout:
+    """Freeze the only accepted v015 actor-H tensor layout."""
+
+    if isinstance(future_offsets, torch.Tensor):
+        future_offsets = future_offsets.detach().cpu().tolist()
+    try:
+        offsets = tuple(int(value) for value in future_offsets)
+    except TypeError as exc:
+        raise ValueError("FrontRES future-intent offsets must be an iterable of integers") from exc
+    layout = FrontRESFutureIntentLayout(version=str(layout_version), future_offsets=offsets)
+    layout.validate()
+    return layout
+
+
+def build_frontres_future_intent_tail(
+    intent_q29: torch.Tensor,
+    *,
+    layout: FrontRESFutureIntentLayout,
+    provenance: Iterable[Mapping[str, Any]],
+) -> torch.Tensor:
+    """Select ordered future q29 offsets after rejecting non-deployment provenance."""
+
+    layout.validate()
+    if not isinstance(intent_q29, torch.Tensor) or intent_q29.ndim != 3:
+        raise ValueError(
+            "FrontRES future intent must have shape [B,H_max+1,29], "
+            f"got {getattr(intent_q29, 'shape', None)}"
+        )
+    if intent_q29.requires_grad or not torch.is_floating_point(intent_q29):
+        raise ValueError("FrontRES future intent must be detached floating-point scenario data")
+    if not bool(torch.isfinite(intent_q29).all().item()):
+        raise ValueError("FrontRES future intent contains non-finite values")
+    expected_shape = (layout.intent_frame_count, FRONTRES_FUTURE_INTENT_DIM)
+    if tuple(intent_q29.shape[1:]) != expected_shape:
+        raise ValueError(
+            "FrontRES future intent must have shape [B,H_max+1,29] with "
+            f"H_max+1={expected_shape[0]}, got {tuple(intent_q29.shape)}"
+        )
+    _validate_frontres_future_intent_provenance(provenance, batch_size=int(intent_q29.shape[0]))
+    return intent_q29[:, layout.future_offsets, :].reshape(intent_q29.shape[0], layout.actor_tail_dim).detach().clone()
+
+
+def _validate_frontres_future_intent_provenance(
+    provenance: Iterable[Mapping[str, Any]],
+    *,
+    batch_size: int,
+) -> None:
+    try:
+        rows = tuple(provenance)
+    except TypeError as exc:
+        raise ValueError("FrontRES future intent provenance must be row-aligned") from exc
+    if len(rows) != batch_size:
+        raise ValueError(
+            "FrontRES future intent provenance must have one mapping per actor row, "
+            f"got {len(rows)} for B={batch_size}"
+        )
+    for row, value in enumerate(rows):
+        if not isinstance(value, Mapping):
+            raise ValueError(f"FrontRES future intent provenance row {row} must be a mapping")
+        if value.get("intent_q29_provenance") != "deployment_noisy_q29":
+            raise ValueError(
+                "FrontRES actor future intent requires intent_q29_provenance="
+                f"'deployment_noisy_q29', row {row} has {value.get('intent_q29_provenance')!r}"
+            )
+        source = str(value.get("intent_q29_source", "")).lower()
+        if not source or "root" in source or "global" in source or "clean" in source:
+            raise ValueError(
+                "FrontRES actor future intent source must exclude root/global/Clean fields, "
+                f"row {row} has {value.get('intent_q29_source')!r}"
+            )
+        if value.get("clean_continuation_provenance") != "clean_gmt_only":
+            raise ValueError("FrontRES local scenario must retain a GMT-only Clean continuation")
 
 
 def split_frontres_policy_obs(obs: torch.Tensor, gmt_dim: int | None) -> tuple[torch.Tensor | None, torch.Tensor]:

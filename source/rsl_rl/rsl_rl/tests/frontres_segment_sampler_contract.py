@@ -21,6 +21,7 @@ FrontRESSegmentRolloutBudget = sampler_module.FrontRESSegmentRolloutBudget
 FrontRESSegmentSampler = sampler_module.FrontRESSegmentSampler
 FrontRESSegmentState = sampler_module.FrontRESSegmentState
 FrontRESSegmentTrialPlan = sampler_module.FrontRESSegmentTrialPlan
+FrontRESFrozenPolicyTransactionPlan = sampler_module.FrontRESFrozenPolicyTransactionPlan
 FrontRESSegmentTrialEvidence = sampler_module.FrontRESSegmentTrialEvidence
 
 
@@ -375,6 +376,76 @@ def test_sampler_trial_plan_expands_policy_first_roles() -> None:
     assert plan.horizon_k.tolist() == [16, 16, 16, 32, 32, 32, 32, 32, 32]
 
 
+def test_sampler_frozen_policy_transaction_plan_keeps_all_attempts_policy_sampled() -> None:
+    sampler = _sampler_with_all_budget_states()
+    priority_before = sampler.priority.clone()
+    staleness_before = sampler.staleness.clone()
+    seen_before = sampler.seen.clone()
+
+    plan = sampler.plan_frozen_policy_transaction(
+        torch.tensor([1, 2]),
+        transaction_id="txn-41",
+        policy_snapshot_id="snapshot-17",
+        max_horizon_k=32,
+    )
+    print(
+        "[probe frozen_policy_transaction_plan] "
+        f"transaction={plan.transaction_id} snapshot={plan.policy_snapshot_id} "
+        f"segment_ids={plan.segment_ids.tolist()} "
+        f"source_index={plan.source_index.tolist()} "
+        f"trial_index={plan.trial_index.tolist()} "
+        f"roles={plan.trial_role} horizon={plan.horizon_k.tolist()} "
+        f"counts={plan.base_trial_count.tolist()}",
+        flush=True,
+    )
+
+    assert isinstance(plan, FrontRESFrozenPolicyTransactionPlan)
+    assert plan.transaction_id == "txn-41"
+    assert plan.policy_snapshot_id == "snapshot-17"
+    assert plan.base_segment_ids.tolist() == [1, 2]
+    assert plan.base_trial_count.tolist() == [3, 6]
+    assert plan.segment_ids.tolist() == [1, 1, 1, 2, 2, 2, 2, 2, 2]
+    assert plan.source_index.tolist() == [0, 0, 0, 1, 1, 1, 1, 1, 1]
+    assert plan.trial_index.tolist() == [0, 1, 2, 0, 1, 2, 3, 4, 5]
+    assert plan.horizon_k.tolist() == [16, 16, 16, 32, 32, 32, 32, 32, 32]
+    assert plan.trial_role == ("policy",) * 9
+    assert torch.equal(sampler.priority, priority_before)
+    assert torch.equal(sampler.staleness, staleness_before)
+    assert torch.equal(sampler.seen, seen_before)
+
+
+def test_sampler_frozen_policy_transaction_plan_enforces_multiple_segments_and_attempts() -> None:
+    sampler = _sampler_with_all_budget_states()
+    plan = sampler.plan_frozen_policy_transaction(
+        torch.tensor([0, 4]),
+        transaction_id="txn-min-attempts",
+        policy_snapshot_id="snapshot-min-attempts",
+        max_horizon_k=32,
+    )
+    assert plan.base_trial_count.tolist() == [2, 2]
+    assert plan.segment_ids.tolist() == [0, 0, 4, 4]
+    assert plan.trial_index.tolist() == [0, 1, 0, 1]
+    assert plan.trial_role == ("policy",) * 4
+
+    for selected, transaction_id, snapshot_id in (
+        (torch.tensor([0]), "txn-one", "snapshot-one"),
+        (torch.tensor([0, 0]), "txn-duplicate", "snapshot-duplicate"),
+        (torch.tensor([0, 1]), "", "snapshot-missing-txn"),
+        (torch.tensor([0, 1]), "txn-missing-snapshot", ""),
+    ):
+        try:
+            sampler.plan_frozen_policy_transaction(
+                selected,
+                transaction_id=transaction_id,
+                policy_snapshot_id=snapshot_id,
+                max_horizon_k=32,
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("frozen transaction planner must reject malformed transaction identity or segment groups")
+
+
 def test_sampler_rollout_row_sampling_respects_fixed_env_budget() -> None:
     sampler = FrontRESSegmentSampler(2, global_frac=1.0, replay_frac=0.0, review_frac=0.0, seed=47)
     sampler.mark_invalid([1], "holdout")
@@ -440,6 +511,8 @@ def main() -> None:
     test_sampler_multi_trial_update_records_oracle_gap_without_policy_update()
     test_sampler_rollout_budget_allocates_trials_by_state_and_horizon_unlock()
     test_sampler_trial_plan_expands_policy_first_roles()
+    test_sampler_frozen_policy_transaction_plan_keeps_all_attempts_policy_sampled()
+    test_sampler_frozen_policy_transaction_plan_enforces_multiple_segments_and_attempts()
     test_sampler_rollout_row_sampling_respects_fixed_env_budget()
     test_sampler_review_and_staleness_keep_coverage()
     test_sampler_invalid_and_state_dict_restore()

@@ -26,6 +26,36 @@ class FrontRESRolloutStepPlan:
     hsl_quat_snapshot: torch.Tensor | None
 
 
+@dataclass(frozen=True)
+class FrontRESV015FrozenGMTStepPlan:
+    """One frozen-GMT action and its command-owned Clean-C evidence."""
+
+    env_actions: torch.Tensor
+    continuation: torch.Tensor
+    valid_mask: torch.Tensor
+    cursor: torch.Tensor
+
+
+def _append_future_intent_actor_context(runner: Any, obs: torch.Tensor) -> torch.Tensor:
+    """Route the actor-only v015 q29 tail without admitting the legacy 65D tape."""
+
+    append = getattr(runner, "_append_frontres_future_intent_context", None)
+    if callable(append):
+        return append(obs)
+    batch = getattr(runner, "_frontres_segment_live_current_batch", None)
+    if isinstance(getattr(batch, "frontres_local_scenario_intent_q29", None), torch.Tensor):
+        raise RuntimeError("v015 future-intent Segment Replay requires runner actor-context connectivity")
+    return obs
+
+
+def _uses_v015_future_intent_route(runner: Any) -> bool:
+    """Return whether this runner is configured for the v015 q29 actor interface."""
+
+    alg = getattr(runner, "alg", None)
+    offsets = tuple(int(value) for value in (getattr(alg, "frontres_future_offsets", ()) or ()))
+    return bool(offsets) or getattr(runner, "_frontres_future_intent_layout", None) is not None
+
+
 def _motion_groups_for_runner(runner: Any) -> torch.Tensor | None:
     env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
     if not (hasattr(env, "command_manager") and "motion" in env.command_manager._terms):
@@ -162,7 +192,8 @@ def _build_env_actions_from_policy_actions(
         obs_corr_dict = extras_corr.get("observations", {})
         if runner.policy_obs_type is not None and runner.policy_obs_type in obs_corr_dict:
             obs_corr = obs_corr_dict[runner.policy_obs_type]
-        obs_corr = runner._apply_obs_normalizer(obs_corr.to(runner.device))
+        obs_corr = _append_future_intent_actor_context(runner, obs_corr.to(runner.device))
+        obs_corr = runner._apply_obs_normalizer(obs_corr)
         task_actions = runner.alg.transition.actions if use_transition_actions_for_task_env_action else actions
         return runner.alg.policy.get_env_action(obs_corr, task_actions)
     if hasattr(runner.alg.policy, "get_env_action"):
@@ -179,6 +210,12 @@ def _write_supervised_target_before_step(
     is_task_space_mode: bool,
     n_train: int,
 ) -> None:
+    if is_task_space_mode and _uses_v015_future_intent_route(runner):
+        if float(getattr(runner.alg, "lambda_supervised", 0.0)) > 0.0:
+            raise RuntimeError(
+                "FRS-TRAIN-v007 forbids a nonzero Stage-3 online HSL target writer on the v015 route"
+            )
+        return
     if not (is_task_space_mode and getattr(runner.alg, "lambda_supervised", 0.0) > 0):
         return
     env_for_sup = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
@@ -210,6 +247,10 @@ def _capture_hsl_snapshot_before_step(
         and bool(runner.cfg.get("frontres_hsl_rollout_label_enabled", False))
     ):
         return None, None
+    if _uses_v015_future_intent_route(runner):
+        raise RuntimeError(
+            "FRS-TRAIN-v007 forbids legacy HSL rollout snapshots on the v015 Stage-3 route"
+        )
     env_for_hsl_pre = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
     if not hasattr(env_for_hsl_pre, "command_manager"):
         return None, None
@@ -243,6 +284,10 @@ def prepare_frontres_rollout_step(
     n_base: int,
     n_clean: int,
 ) -> FrontRESRolloutStepPlan:
+    if getattr(runner, "_frontres_v015_one_action_k_phase", None) == "frozen":
+        raise RuntimeError(
+            "v015 one-action K collection forbids a second actor sample; use prepare_frontres_v015_frozen_gmt_step()"
+        )
     actions = None
     if runner.training_type in ("mosaic", "frontres"):
         actions = runner.alg.act(
@@ -326,4 +371,120 @@ def prepare_frontres_rollout_step(
         env_actions=env_actions,
         hsl_pos_snapshot=hsl_pos_snapshot,
         hsl_quat_snapshot=hsl_quat_snapshot,
+    )
+
+
+def _frontres_motion_command(runner: Any) -> Any:
+    """Return the sole command owner used by the candidate-only K collector."""
+
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    manager = getattr(env, "command_manager", None)
+    get_term = getattr(manager, "get_term", None)
+    if callable(get_term):
+        command = get_term("motion")
+    else:
+        command = getattr(manager, "_terms", {}).get("motion") if manager is not None else None
+    if command is None:
+        raise RuntimeError("v015 one-action K collector requires env.command_manager motion command")
+    return command
+
+
+def prepare_frontres_v015_one_action_at_t(
+    runner: Any,
+    *,
+    obs: torch.Tensor,
+    privileged_obs: torch.Tensor | None,
+    teacher_obs: torch.Tensor | None,
+    ref_vel_estimator_obs: torch.Tensor | None,
+    iteration: int,
+    n_repair: int,
+    n_noisy: int,
+) -> FrontRESRolloutStepPlan:
+    """Sample the unique v015 Repair policy tuple at the local scenario start t."""
+
+    if n_repair <= 0 or n_noisy != n_repair or int(obs.shape[0]) != n_repair + n_noisy:
+        raise ValueError(
+            "v015 one-action K collector requires equal Repair/Noisy rows and an exact two-role observation batch"
+        )
+    if getattr(runner, "_frontres_v015_one_action_k_phase", None) is not None:
+        raise RuntimeError("v015 one-action K collector is already active on this runner")
+    runner._frontres_v015_one_action_k_phase = "acting"
+    try:
+        plan = prepare_frontres_rollout_step(
+            runner,
+            obs=obs,
+            privileged_obs=privileged_obs,
+            teacher_obs=teacher_obs,
+            ref_vel_estimator_obs=ref_vel_estimator_obs,
+            obs_raw_for_gmt=None,
+            vel_est_error_buffer=[],
+            iteration=iteration,
+            rollout_step=0,
+            is_frontres=True,
+            is_task_space_mode=True,
+            n_train=n_repair,
+            n_candidate=0,
+            n_base=n_noisy,
+            n_clean=0,
+        )
+    except Exception:
+        delattr(runner, "_frontres_v015_one_action_k_phase")
+        raise
+    if plan.actions is None or tuple(plan.actions.shape) != (n_repair + n_noisy, 6):
+        delattr(runner, "_frontres_v015_one_action_k_phase")
+        raise RuntimeError("v015 one-action K collector requires one full-6D policy action per scored role row")
+    runner._frontres_v015_one_action_k_phase = "frozen"
+    return plan
+
+
+def prepare_frontres_v015_frozen_gmt_step(
+    runner: Any,
+    *,
+    gmt_observations: torch.Tensor,
+) -> FrontRESV015FrozenGMTStepPlan:
+    """Advance Clean C and run frozen GMT without sampling or writing another repair."""
+
+    if getattr(runner, "_frontres_v015_one_action_k_phase", None) != "frozen":
+        raise RuntimeError("v015 frozen-GMT step requires the unique t action to be sampled first")
+    command = _frontres_motion_command(runner)
+    advance = getattr(command, "advance_frontres_local_scenario_k_execution", None)
+    if not callable(advance):
+        raise RuntimeError("v015 frozen-GMT step requires command Clean-continuation advancement")
+    continuation_state = advance()
+    continuation = continuation_state.get("continuation") if isinstance(continuation_state, dict) else None
+    valid_mask = continuation_state.get("valid_mask") if isinstance(continuation_state, dict) else None
+    cursor = continuation_state.get("cursor") if isinstance(continuation_state, dict) else None
+    batch_size = int(gmt_observations.shape[0])
+    if (
+        not isinstance(continuation, torch.Tensor)
+        or tuple(continuation.shape) != (batch_size, 65)
+        or not isinstance(valid_mask, torch.Tensor)
+        or tuple(valid_mask.shape) != (batch_size,)
+        or not isinstance(cursor, torch.Tensor)
+        or tuple(cursor.shape) != (batch_size,)
+    ):
+        raise RuntimeError("v015 frozen-GMT command advance must return [N,65] C, [N] valid mask, and [N] cursor")
+    policy = getattr(getattr(runner, "alg", None), "policy", None)
+    if (
+        policy is None
+        or not callable(getattr(policy, "_parse_observations", None))
+        or not callable(getattr(policy, "_run_gmt_direct", None))
+    ):
+        raise RuntimeError("v015 frozen-GMT step requires the direct frozen-GMT execution adapter")
+    action_dim = int(getattr(policy, "num_task_corrections", 0) or 6)
+    if action_dim != 6:
+        raise RuntimeError(f"v015 frozen-GMT step requires full-6D task-space FrontRES, got action_dim={action_dim}")
+    # Do not call get_env_action(zero): that path records another FrontRES
+    # correction state.  After t, only the command-owned C reference and the
+    # frozen GMT execution adapter are allowed to advance.
+    with torch.inference_mode():
+        policy_obs, ref_vel, ref_vel_estimator_obs = policy._parse_observations(gmt_observations)
+        env_actions = policy._run_gmt_direct(policy_obs, ref_vel, ref_vel_estimator_obs)
+    if not isinstance(env_actions, torch.Tensor) or int(env_actions.shape[0]) != batch_size:
+        raise RuntimeError("v015 frozen-GMT adapter must return one environment action per role row")
+    return FrontRESV015FrozenGMTStepPlan(
+        env_actions=env_actions.detach().clone(),
+        continuation=continuation.detach().clone(),
+        valid_mask=valid_mask.detach().bool().clone(),
+        cursor=cursor.detach().long().clone(),
     )

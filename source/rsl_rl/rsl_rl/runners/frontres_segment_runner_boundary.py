@@ -9,6 +9,7 @@ class FrontRESSegmentRunnerBoundary:
     requested: bool
     live_runner_enabled: bool
     live_sentinel_only: bool
+    v015_local_sentinel_only: bool
     live_probe_only: bool
     live_storage_write_only: bool
     live_single_update_only: bool
@@ -23,6 +24,8 @@ class FrontRESSegmentRunnerBoundary:
     segment_k: int
     max_horizon_k: int
     reset_mode: str
+    future_offsets: tuple[int, ...]
+    future_intent_layout_version: str
 
     @classmethod
     def from_train_cfg(cls, train_cfg: dict[str, Any]) -> "FrontRESSegmentRunnerBoundary":
@@ -33,6 +36,7 @@ class FrontRESSegmentRunnerBoundary:
             requested=requested,
             live_runner_enabled=bool(alg_cfg.get("frontres_segment_live_runner_enabled", False)),
             live_sentinel_only=bool(alg_cfg.get("frontres_segment_live_sentinel_only", False)),
+            v015_local_sentinel_only=bool(alg_cfg.get("frontres_v015_local_sentinel_only", False)),
             live_probe_only=bool(alg_cfg.get("frontres_segment_live_probe_only", False)),
             live_storage_write_only=bool(alg_cfg.get("frontres_segment_live_storage_write_only", False)),
             live_single_update_only=bool(alg_cfg.get("frontres_segment_live_single_update_only", False)),
@@ -50,6 +54,8 @@ class FrontRESSegmentRunnerBoundary:
                 int(alg_cfg.get("frontres_segment_max_horizon_k", 64)),
             ),
             reset_mode=str(alg_cfg.get("frontres_segment_reset_mode", "auto")).lower(),
+            future_offsets=tuple(int(value) for value in (alg_cfg.get("frontres_future_offsets", ()) or ())),
+            future_intent_layout_version=str(alg_cfg.get("frontres_future_intent_layout_version", "") or ""),
         )
 
     def assert_live_runner_ready(self) -> None:
@@ -60,6 +66,28 @@ class FrontRESSegmentRunnerBoundary:
                 "Stage 3 Segment Replay HRL is recognized, but live runner integration is disabled. "
                 "Use frontres_segment_replay_toy_chain.py and boundary tests until PPO/live rollout wiring is implemented."
             )
+        if self.v015_local_sentinel_only:
+            if (
+                not self.future_offsets
+                or any(value <= 0 for value in self.future_offsets)
+                or tuple(sorted(set(self.future_offsets))) != self.future_offsets
+                or self.future_intent_layout_version != "frontres-v015-future-intent-q29-v1"
+            ):
+                raise ValueError("v015 local sentinel requires explicit ordered q29 future offsets and the v015 layout")
+            if any(
+                (
+                    self.live_sentinel_only,
+                    self.live_probe_only,
+                    self.live_storage_write_only,
+                    self.live_single_update_only,
+                    self.live_update_loop_only,
+                    self.offline_eval_only,
+                    self.sequence_offline_eval_only,
+                    self.live_train_enabled,
+                )
+            ):
+                raise ValueError("v015 local sentinel rejects legacy Stage 3 live mode mixing")
+            return
         if (
             self.live_sentinel_only
             or self.live_probe_only
@@ -89,6 +117,19 @@ class FrontRESSegmentRunnerBoundary:
             "storage=independent "
             "ppo_action=delta_se3_6d "
             "training_update=disabled"
+        )
+
+    def v015_sentinel_log(self) -> str | None:
+        if not (self.requested and self.live_runner_enabled and self.v015_local_sentinel_only):
+            return None
+        return (
+            "[FrontRES v015 Local Sentinel] "
+            f"objective={self.objective} "
+            f"segment_k={self.segment_k} "
+            f"max_horizon_k={self.max_horizon_k} "
+            "v015_local_sentinel=True "
+            f"future_offsets={self.future_offsets} "
+            "legacy_modes=False"
         )
 
     def probe_log(self) -> str | None:

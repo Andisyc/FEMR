@@ -11,8 +11,10 @@ This folder contains the original FrontRES design and implementation notes.
 - `contracts/history/`: superseded, rejected, ablation, and migration records;
   never a default reading source.
 - `contracts/design_contract.md`: compatibility pointer to the registry.
-- `plans/engineering_plan.md`: replaceable current implementation plan.
-- `checklists/modification_checklist.md`: replaceable current acceptance state.
+- `plans/FRS-v015-future-intent-single-action-k-engineering-plan.md`: current
+  replaceable implementation plan.
+- `checklists/FRS-v015-future-intent-single-action-k-checklist.md`: current
+  replaceable acceptance state.
 - `paper/method_outline.md`: current paper-facing method view.
 - `logs/`: raw discussion or decision history.
 

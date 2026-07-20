@@ -103,6 +103,10 @@ def _install_live_probe_import_stubs():
         return SimpleNamespace(actions=actions, env_actions=actions.detach().clone())
 
     rollout_step.prepare_frontres_rollout_step = _prepare_frontres_rollout_step
+    rollout_step._append_future_intent_actor_context = lambda _runner, obs: obs
+    rollout_step._frontres_motion_command = lambda runner: runner.env.command_manager.get_term("motion")
+    rollout_step.prepare_frontres_v015_one_action_at_t = _unused_ppo_loss
+    rollout_step.prepare_frontres_v015_frozen_gmt_step = _unused_ppo_loss
     sys.modules[rollout_step.__name__] = rollout_step
     runners_pkg.frontres_rollout_step = rollout_step
 
@@ -168,6 +172,203 @@ def _capture(actions: torch.Tensor | None = None) -> FrontRESSegmentLiveRolloutC
         n_base=0,
         n_clean=0,
     )
+
+
+def _frozen_transaction_storage_fixture(
+    *,
+    trial_roles: tuple[str, ...] = ("policy", "policy", "policy", "policy"),
+    noisy_hashes: tuple[str, ...] = ("hash-a", "hash-a", "hash-b", "hash-b"),
+):
+    class _Metadata:
+        def __init__(self, policy: torch.nn.Module) -> None:
+            self.transaction_id = "tx-s2"
+            self.policy_snapshot_id = "tx-s2:pi-fixture"
+            self.policy_state_hash = "b" * 64
+            self.motion_ids = (
+                "KIT/359/motion_a.npz",
+                "KIT/359/motion_a.npz",
+                "KIT/359/motion_b.npz",
+                "KIT/359/motion_b.npz",
+            )
+            self.start_frames = torch.tensor([3, 3, 11, 11], dtype=torch.long)
+            self.segment_ids = torch.tensor([7, 7, 9, 9], dtype=torch.long)
+            self.source_index = torch.tensor([0, 0, 1, 1], dtype=torch.long)
+            self.trial_index = torch.tensor([0, 1, 0, 1], dtype=torch.long)
+            self.horizon_k = torch.tensor([2, 2, 2, 2], dtype=torch.long)
+            self.trial_role = tuple(trial_roles)
+            self.noisy_segment_hashes = tuple(noisy_hashes)
+            self.scenario_ids = ("scenario-a", "scenario-a", "scenario-b", "scenario-b")
+            self._policy = policy
+            self._state = {name: value.detach().clone() for name, value in policy.state_dict().items()}
+
+        @property
+        def batch_size(self) -> int:
+            return int(self.segment_ids.numel())
+
+        def validate(self) -> None:
+            assert self.batch_size == 4
+            assert len(self.trial_role) == self.batch_size
+            assert len(self.noisy_segment_hashes) == self.batch_size
+
+        def verify_policy(self, policy: torch.nn.Module) -> None:
+            assert policy is self._policy
+            for name, value in policy.state_dict().items():
+                torch.testing.assert_close(value, self._state[name])
+
+    policy = torch.nn.Linear(3, 6)
+    metadata = _Metadata(policy)
+    storage_module = sys.modules["rsl_rl.frontres.frontres_segment_storage"]
+    storage_batch = storage_module.FrontRESSegmentStorageBatch(
+        observations=torch.zeros(4, 3),
+        actions=torch.zeros(4, 6),
+        old_log_probs=torch.zeros(4),
+        old_values=torch.zeros(4),
+        rewards=torch.ones(4),
+        returns=torch.ones(4),
+        advantages=torch.ones(4),
+        valid_mask=torch.tensor([True, True, True, False]),
+        segment_ids=metadata.segment_ids.detach().clone(),
+        privileged_observations=torch.zeros(4, 2),
+        transaction_metadata=metadata,
+    )
+    return SimpleNamespace(alg=SimpleNamespace(policy=policy)), storage_batch, metadata
+
+
+def test_frozen_transaction_accumulator_defers_collection_update_until_single_finalize() -> None:
+    runner, storage_batch, metadata = _frozen_transaction_storage_fixture()
+    class _CountingSGD(torch.optim.SGD):
+        def __init__(self, params) -> None:
+            super().__init__(params, lr=0.1)
+            self.step_calls = 0
+
+        def step(self, closure=None):
+            self.step_calls += 1
+            return super().step(closure=closure)
+
+    optimizer = _CountingSGD(runner.alg.policy.parameters())
+    update_calls: list[object] = []
+    accumulator = live_probe.FrontRESFrozenPolicyTransactionAccumulator(
+        runner,
+        optimizer_step_count=lambda: optimizer.step_calls,
+    )
+
+    accumulator.append_storage_batch(storage_batch)
+
+    assert accumulator.update_invocation_count == 0
+    assert optimizer.step_calls == 0
+    assert accumulator.transaction_id == metadata.transaction_id
+
+    def _one_update(batch):
+        assert batch is storage_batch
+        update_calls.append(batch)
+        for parameter in runner.alg.policy.parameters():
+            parameter.grad = torch.ones_like(parameter)
+        optimizer.step()
+        return SimpleNamespace(should_step=True)
+
+    result = accumulator.finalize_one_update(_one_update)
+
+    assert update_calls == [storage_batch]
+    assert optimizer.step_calls == 1
+    assert result.optimizer_step_delta == 1
+    assert result.update_invocation_count == 1
+    assert result.segment_count == 2
+    assert result.policy_attempt_count == 4
+    assert result.valid_row_count == 3
+    try:
+        accumulator.finalize_one_update(_one_update)
+    except RuntimeError as exc:
+        assert "already finalized" in str(exc)
+    else:
+        raise AssertionError("one frozen transaction must not invoke its update callback twice")
+    print(
+        "[probe s2_frozen_transaction] "
+        f"transaction={result.transaction_id} segments={result.segment_count} "
+        f"attempts={result.policy_attempt_count} collection_steps=0 "
+        f"final_step_delta={result.optimizer_step_delta}",
+        flush=True,
+    )
+
+
+def test_frozen_transaction_accumulator_rejects_optimizer_step_during_collection() -> None:
+    runner, storage_batch, _ = _frozen_transaction_storage_fixture()
+    optimizer_steps = {"count": 4}
+    accumulator = live_probe.FrontRESFrozenPolicyTransactionAccumulator(
+        runner,
+        optimizer_step_count=lambda: optimizer_steps["count"],
+    )
+    optimizer_steps["count"] += 1
+
+    try:
+        accumulator.append_storage_batch(storage_batch)
+    except RuntimeError as exc:
+        assert "optimizer step occurred during frozen-policy transaction collection" in str(exc)
+    else:
+        raise AssertionError("collection must fail closed after any early optimizer step")
+    assert accumulator.state == "failed"
+
+
+def test_frozen_transaction_accumulator_rejects_nonunit_final_update_delta() -> None:
+    runner, storage_batch, _ = _frozen_transaction_storage_fixture()
+    optimizer_steps = {"count": 8}
+    accumulator = live_probe.FrontRESFrozenPolicyTransactionAccumulator(
+        runner,
+        optimizer_step_count=lambda: optimizer_steps["count"],
+    )
+    accumulator.append_storage_batch(storage_batch)
+
+    def _two_steps(_batch):
+        optimizer_steps["count"] += 2
+        return SimpleNamespace(should_step=True)
+
+    try:
+        accumulator.finalize_one_update(_two_steps)
+    except RuntimeError as exc:
+        assert "requires exactly one optimizer step" in str(exc)
+    else:
+        raise AssertionError("a transaction must reject an update callback with two optimizer steps")
+    assert accumulator.state == "failed"
+
+
+def test_frozen_transaction_accumulator_rejects_nonpolicy_attempt() -> None:
+    runner, storage_batch, _ = _frozen_transaction_storage_fixture(
+        trial_roles=("policy", "search", "policy", "policy"),
+    )
+    accumulator = live_probe.FrontRESFrozenPolicyTransactionAccumulator(
+        runner,
+        optimizer_step_count=lambda: 0,
+    )
+
+    try:
+        accumulator.append_storage_batch(storage_batch)
+    except ValueError as exc:
+        assert "only policy attempts" in str(exc)
+    else:
+        raise AssertionError("search attempts must not enter a frozen-policy transaction")
+
+
+def test_frozen_transaction_accumulator_rejects_mixed_noisy_identity() -> None:
+    runner, storage_batch, _ = _frozen_transaction_storage_fixture(
+        noisy_hashes=("hash-a", "mixed-hash", "hash-b", "hash-b"),
+    )
+    accumulator = live_probe.FrontRESFrozenPolicyTransactionAccumulator(
+        runner,
+        optimizer_step_count=lambda: 0,
+    )
+
+    try:
+        accumulator.append_storage_batch(storage_batch)
+    except ValueError as exc:
+        assert "mixed fixed Noisy identity" in str(exc)
+    else:
+        raise AssertionError("all M attempts for one source must retain one Noisy identity")
+
+
+def test_frozen_transaction_accumulator_stays_out_of_current_ppo_adapter() -> None:
+    source = inspect.getsource(live_probe.FrontRESFrozenPolicyTransactionAccumulator)
+    assert "to_ppo_batch(" not in source
+    assert "compute_frontres_segment_ppo_loss" not in source
+    assert "run_frontres_segment_single_update" not in source
 
 
 def test_build_live_segment_storage_preserves_first_step_tuple_trace() -> None:
@@ -1191,6 +1392,129 @@ def test_index_reset_request_carries_stage3_dynamic_perturbation() -> None:
     assert result.success_mask.tolist() == [True, True]
 
 
+def test_index_reset_request_carries_one_sealed_fixed_noisy_tape() -> None:
+    env = _FakeIndexResetLiveEnv()
+    batch = _index_only_reset_batch()
+    tape = torch.arange(2 * 3 * 65, dtype=torch.float32).reshape(2, 3, 65)
+    batch.frontres_fixed_noisy_tape = tape
+    batch.frontres_fixed_noisy_tape_lengths = torch.tensor([3, 3], dtype=torch.long)
+    batch.frontres_fixed_noisy_scenario_ids = ("scenario-a", "scenario-b")
+    batch.frontres_fixed_noisy_segment_hashes = ("hash-a", "hash-b")
+    batch.frontres_future_offsets = (1, 2)
+    runner = SimpleNamespace(
+        env=env,
+        alg=SimpleNamespace(frontres_segment_verbose_probe=False),
+        _frontres_segment_replay_boundary=SimpleNamespace(reset_mode="direct"),
+    )
+
+    result = live_probe._apply_index_only_segment_reset(runner, batch)
+    request = runner._frontres_segment_live_current_reset_request
+
+    assert result is not None
+    assert request.frontres_future_offsets == (1, 2)
+    assert request.frontres_fixed_noisy_tape.data_ptr() == tape.data_ptr()
+    torch.testing.assert_close(request.frontres_fixed_noisy_tape_lengths, torch.tensor([3, 3]))
+    assert request.frontres_fixed_noisy_scenario_ids == ("scenario-a", "scenario-b")
+    assert request.frontres_fixed_noisy_segment_hashes == ("hash-a", "hash-b")
+    print(
+        "[probe fixed_tape_request] "
+        f"tape_shape={tuple(request.frontres_fixed_noisy_tape.shape)} "
+        f"offsets={request.frontres_future_offsets} "
+        f"hashes={request.frontres_fixed_noisy_segment_hashes}",
+        flush=True,
+    )
+
+
+def test_frozen_transaction_metadata_reaches_clean_reset_storage_and_rejects_v015_candidate_adapter() -> None:
+    class _Metadata:
+        def __init__(self, policy: torch.nn.Module) -> None:
+            self.transaction_id = "tx-s1b-probe"
+            self.policy_snapshot_id = "tx-s1b-probe:pi-test"
+            self.policy_state_hash = "a" * 64
+            self.motion_ids = ("KIT/359/motion_a.npz", "KIT/359/motion_b.npz")
+            self.start_frames = torch.tensor([12, 24], dtype=torch.long)
+            self.segment_ids = torch.tensor([7, 9], dtype=torch.long)
+            self.source_index = torch.tensor([0, 1], dtype=torch.long)
+            self.trial_index = torch.tensor([0, 0], dtype=torch.long)
+            self.horizon_k = torch.tensor([2, 2], dtype=torch.long)
+            self.trial_role = ("policy", "policy")
+            self.noisy_segment_hashes = ("hash-a", "hash-b")
+            self._policy = policy
+            self.validate_calls = 0
+            self.verify_calls = 0
+
+        def validate(self) -> None:
+            self.validate_calls += 1
+            assert self.noisy_segment_hashes == ("hash-a", "hash-b")
+
+        def verify_policy(self, policy: torch.nn.Module) -> None:
+            self.verify_calls += 1
+            assert policy is self._policy
+
+    env = _FakeIndexResetLiveEnv()
+    policy = torch.nn.Linear(4, 6)
+    metadata = _Metadata(policy)
+    batch = _index_only_reset_batch()
+    batch.frontres_segment_trial_role = ("policy", "policy")
+    batch.frontres_segment_source_index = torch.tensor([0, 1], dtype=torch.long)
+    batch.frontres_segment_trial_index = torch.tensor([0, 0], dtype=torch.long)
+    batch.frontres_segment_budget_horizon_k = torch.tensor([2, 2], dtype=torch.long)
+    batch.frontres_fixed_noisy_tape = torch.zeros(2, 4, 65)
+    batch.frontres_fixed_noisy_tape_lengths = torch.tensor([4, 4], dtype=torch.long)
+    batch.frontres_fixed_noisy_scenario_ids = ("scenario-a", "scenario-b")
+    batch.frontres_fixed_noisy_segment_hashes = metadata.noisy_segment_hashes
+    batch.frontres_future_offsets = (1, 2)
+    batch.frontres_fixed_noisy_transaction_id = metadata.transaction_id
+    batch.frontres_segment_transaction_id = metadata.transaction_id
+    batch.frontres_segment_policy_snapshot_id = metadata.policy_snapshot_id
+    batch.frontres_segment_policy_state_hash = metadata.policy_state_hash
+    batch.frontres_segment_transaction_metadata = metadata
+    runner = SimpleNamespace(
+        env=env,
+        device=torch.device("cpu"),
+        _frontres_segment_live_current_batch=batch,
+        _frontres_segment_replay_boundary=SimpleNamespace(reset_mode="direct"),
+        alg=SimpleNamespace(frontres_segment_k=2, frontres_segment_verbose_probe=False, policy=policy),
+    )
+
+    result = live_probe._apply_index_only_segment_reset(runner, batch)
+    request = runner._frontres_segment_live_current_reset_request
+    storage = build_live_segment_storage(runner, _capture())
+    full_batch = storage.full_batch()
+
+    assert result is not None
+    assert request.frontres_segment_transaction_metadata is metadata
+    assert request.frontres_segment_transaction_id == metadata.transaction_id
+    assert request.frontres_segment_policy_snapshot_id == metadata.policy_snapshot_id
+    assert request.frontres_segment_policy_state_hash == metadata.policy_state_hash
+    assert request.frontres_segment_noisy_segment_hashes == metadata.noisy_segment_hashes
+    assert full_batch.transaction_metadata is metadata
+    assert metadata.validate_calls >= 2
+    assert metadata.verify_calls == 1
+    try:
+        full_batch.to_grouped_ppo_candidate_batch(SimpleNamespace)
+    except ValueError as exc:
+        assert "requires FrontRESV015GroupedCandidateMetadata" in str(exc)
+    else:
+        raise AssertionError("legacy fixed-tape metadata must not enter the v015 grouped candidate adapter")
+    legacy_ppo_batch = full_batch.to_ppo_batch(SimpleNamespace)
+    assert not hasattr(legacy_ppo_batch, "transaction_metadata")
+    batch.frontres_fixed_noisy_segment_hashes = ("mixed-hash", "hash-b")
+    try:
+        live_probe._apply_index_only_segment_reset(runner, batch)
+    except ValueError as exc:
+        assert "Noisy tape hash rows" in str(exc)
+    else:
+        raise AssertionError("mixed fixed-Noisy hashes must not reach a Clean reset request")
+    print(
+        "[probe frozen_transaction_carrier] "
+        f"transaction={metadata.transaction_id} reset_snapshot={request.frontres_segment_policy_snapshot_id} "
+        f"storage_has_metadata={full_batch.transaction_metadata is metadata} "
+        "v015_candidate_rejected=True",
+        flush=True,
+    )
+
+
 def test_live_probe_carries_multi_trial_metadata_through_reset_storage_and_summary() -> None:
     env = _FakeIndexResetLiveEnv()
     batch = _index_only_reset_batch()
@@ -1878,6 +2202,12 @@ def test_live_rollout_step_gain_reads_local_horizon_before_capture_exists() -> N
 
 
 if __name__ == "__main__":
+    test_frozen_transaction_accumulator_defers_collection_update_until_single_finalize()
+    test_frozen_transaction_accumulator_rejects_optimizer_step_during_collection()
+    test_frozen_transaction_accumulator_rejects_nonunit_final_update_delta()
+    test_frozen_transaction_accumulator_rejects_nonpolicy_attempt()
+    test_frozen_transaction_accumulator_rejects_mixed_noisy_identity()
+    test_frozen_transaction_accumulator_stays_out_of_current_ppo_adapter()
     test_build_live_segment_storage_preserves_first_step_tuple_trace()
     test_build_live_segment_storage_uses_b1_paired_gain_when_available()
     test_live_repair_score_excludes_generic_task_reward()
@@ -1898,6 +2228,8 @@ if __name__ == "__main__":
     test_live_probe_skips_dynamic_reset_for_index_only_segments()
     test_live_probe_applies_index_reset_for_index_only_segments_when_env_supports_it()
     test_index_reset_request_carries_stage3_dynamic_perturbation()
+    test_index_reset_request_carries_one_sealed_fixed_noisy_tape()
+    test_frozen_transaction_metadata_reaches_clean_reset_storage_and_rejects_v015_candidate_adapter()
     test_live_probe_carries_multi_trial_metadata_through_reset_storage_and_summary()
     test_live_probe_expands_scorable_trial_metadata_to_full_quartet_batch()
     test_live_probe_detail_gate_suppresses_reset_and_summary_logs()

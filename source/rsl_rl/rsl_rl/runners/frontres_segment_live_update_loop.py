@@ -120,6 +120,41 @@ def _should_print_update_loop_summary(runner: Any) -> bool:
     return count <= warmup or count % interval == 0
 
 
+def run_frontres_v015_formal_transaction_update_loop(runner: Any) -> Any:
+    """Dispatch an explicit v015 provider, never the legacy update loop.
+
+    The provider may be a CPU fake contract or the dedicated pre-live local
+    sentinel. It must return one complete sealed transaction after the barrier
+    opens; optimizer steps during collection fail before loss evaluation.
+    """
+
+    # 只在新 fake-S2 被显式调用时加载 probe owner, 保持 legacy static contracts
+    # 不需要构造 v015 formal dependency graph.
+    from rsl_rl.runners.frontres_segment_live_probe import (
+        _v015_formal_optimizer_step_count,
+        open_frontres_v015_checkpoint_transaction_barrier,
+        run_frontres_v015_formal_transaction_update,
+    )
+
+    alg = getattr(runner, "alg", None)
+    if alg is None or not bool(getattr(alg, "frontres_v015_formal_transaction_enabled", False)):
+        raise RuntimeError("v015 formal transaction update loop requires its explicit v015 transaction flag")
+    optimizer = getattr(alg, "optimizer", None)
+    before_provider = _v015_formal_optimizer_step_count(optimizer)
+    provider = getattr(runner, "_frontres_v015_formal_transaction_provider", None)
+    if not callable(provider):
+        raise RuntimeError("v015 formal transaction requires an injected request provider")
+    open_frontres_v015_checkpoint_transaction_barrier(runner)
+    request = provider()
+    after_provider = _v015_formal_optimizer_step_count(optimizer)
+    if after_provider != before_provider:
+        raise RuntimeError(
+            "optimizer step occurred while v015 formal transaction provider collected attempts: "
+            f"before={before_provider} after={after_provider}"
+        )
+    return run_frontres_v015_formal_transaction_update(runner, request)
+
+
 def run_frontres_segment_live_update_loop(
     runner: Any,
     init_at_random_ep_len: bool = True,

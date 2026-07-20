@@ -1,10 +1,11 @@
 ---
 contract_id: FRS-METHOD-v011
-status: active
+status: superseded
 effective_date: 2026-07-13
-updated_date: 2026-07-14
+updated_date: 2026-07-17
 supersedes: FRS-METHOD-v010
 scope: FrontRES Stage 3 Segment Replay HRL method semantics
+superseded_by: FRS-METHOD-v012
 ---
 
 # Segment Replay HRL Method Contract

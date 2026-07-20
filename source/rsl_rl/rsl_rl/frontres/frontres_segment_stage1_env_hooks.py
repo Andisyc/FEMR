@@ -115,21 +115,152 @@ class FrontRESStage1EnvAdapter:
         )
         return {"success": torch.ones(ids.numel(), dtype=torch.bool, device=ids.device)}
 
+    def materialize_frontres_fixed_noisy_tape(
+        self,
+        *,
+        motion_id: str,
+        start_frame: int,
+        frame_count: int,
+        perturbation_family: str,
+        perturbation_strength: float,
+    ) -> torch.Tensor:
+        """Route one selection-time scenario to the command-owned tape materializer."""
+
+        motion_index = self._motion_index_for_key(str(motion_id))
+        frame_index = self._frame_index_for_values(int(start_frame), motion_index)
+        materialize = getattr(self.command, "materialize_frontres_fixed_noisy_tape", None)
+        if not callable(materialize):
+            raise RuntimeError(
+                "fixed Noisy Segment requires MultiMotionCommand.materialize_frontres_fixed_noisy_tape()"
+            )
+        tape = materialize(
+            motion_index=motion_index,
+            start_frame=frame_index,
+            frame_count=int(frame_count),
+            perturbation_family=str(perturbation_family),
+            perturbation_strength=float(perturbation_strength),
+        )
+        if not isinstance(tape, torch.Tensor) or tape.ndim != 2:
+            raise RuntimeError(f"command fixed Noisy materializer returned invalid shape {getattr(tape, 'shape', None)}")
+        expected_dim_fn = getattr(self.command, "_frontres_fixed_noisy_tape_feature_dim", None)
+        expected_dim = int(expected_dim_fn()) if callable(expected_dim_fn) else 65
+        if (
+            tape.requires_grad
+            or not torch.is_floating_point(tape)
+            or not bool(torch.isfinite(tape).all().item())
+            or int(tape.shape[0]) != int(frame_count)
+            or int(tape.shape[1]) != expected_dim
+        ):
+            raise RuntimeError(
+                "command fixed Noisy materializer must return detached finite "
+                f"[L,{expected_dim}] tape, got {tuple(tape.shape)}"
+            )
+        return tape.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous()
+
+    def materialize_frontres_local_scenario(
+        self,
+        *,
+        motion_id: str,
+        start_frame: int,
+        horizon_k: int,
+        intent_horizon: int,
+        perturbation_family: str,
+        perturbation_strength: float,
+    ) -> dict[str, Any]:
+        """Route the v015 split local carrier to the command-owned materializer."""
+
+        motion_index = self._motion_index_for_key(str(motion_id))
+        frame_index = self._frame_index_for_values(int(start_frame), motion_index)
+        materialize = getattr(self.command, "materialize_frontres_local_scenario", None)
+        if not callable(materialize):
+            raise RuntimeError(
+                "v015 local scenario requires MultiMotionCommand.materialize_frontres_local_scenario()"
+            )
+        payload = materialize(
+            motion_index=motion_index,
+            start_frame=frame_index,
+            horizon_k=int(horizon_k),
+            intent_horizon=int(intent_horizon),
+            perturbation_family=str(perturbation_family),
+            perturbation_strength=float(perturbation_strength),
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"command local scenario materializer returned {type(payload)!r}, expected dict")
+        required = {
+            "current_root_artifact_t",
+            "intent_q29",
+            "clean_continuation",
+            "provenance",
+        }
+        if set(payload) != required:
+            raise RuntimeError(
+                "command local scenario materializer must return exactly "
+                f"{sorted(required)}, got {sorted(payload)}"
+            )
+        artifact = payload["current_root_artifact_t"]
+        intent = payload["intent_q29"]
+        continuation = payload["clean_continuation"]
+        provenance = payload["provenance"]
+        if (
+            not isinstance(artifact, torch.Tensor)
+            or not isinstance(intent, torch.Tensor)
+            or not isinstance(continuation, torch.Tensor)
+            or artifact.requires_grad
+            or intent.requires_grad
+            or continuation.requires_grad
+            or not torch.is_floating_point(artifact)
+            or not torch.is_floating_point(intent)
+            or not torch.is_floating_point(continuation)
+            or not bool(torch.isfinite(artifact).all().item())
+            or not bool(torch.isfinite(intent).all().item())
+            or not bool(torch.isfinite(continuation).all().item())
+            or tuple(artifact.shape) != (7,)
+            or tuple(intent.shape) != (int(intent_horizon) + 1, 29)
+            or tuple(continuation.shape) != (int(horizon_k), 65)
+        ):
+            raise RuntimeError(
+                "command local scenario materializer must return detached finite "
+                f"[7], [{int(intent_horizon) + 1},29], [{int(horizon_k)},65] payloads"
+            )
+        if not isinstance(provenance, dict):
+            raise RuntimeError("command local scenario provenance must be a dict")
+        return {
+            "current_root_artifact_t": artifact.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
+            "intent_q29": intent.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
+            "clean_continuation": continuation.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
+            "provenance": dict(provenance),
+        }
+
     def apply_frontres_segment_index_reset(self, request: Any) -> dict[str, torch.Tensor]:
         """将 sampled Segment 状态重置到显式配对的全部 split-env role.
 
-        状态: active Stage 1 index 与 Stage 3 quartet reset owner.
+        状态: active Stage 1 index、Stage 3 quartet reset 与 S2 sealed-tape reset owner.
         上游: live probe 从 pair layout 附加 `frontres_role_env_ids`.
         下游: frozen GMT rollout 消费 role-aligned robot 与 episode state.
-        证据: runtime-confirmed by E37.
-        缺口: none for quartet reset/cache alignment.
+        证据: E37 确认 legacy quartet lifecycle；S2 offline contracts 确认 sealed tape reset.
+        缺口: v013 actor/normalizer 尚无 live evidence。
         """
         segment_ids = getattr(request, "segment_ids")
         count = int(segment_ids.numel())
-        role_env_ids = self._normalize_frontres_role_env_ids(request, source_count=count)
-        source_ids = role_env_ids["policy"]
+        is_v015_local = getattr(request, "frontres_local_scenario_rows", None) is not None
+        role_env_ids = self._normalize_frontres_role_env_ids(
+            request,
+            source_count=count,
+            v015_local=is_v015_local,
+        )
+        source_ids = role_env_ids["repair"] if is_v015_local else role_env_ids["policy"]
         ids = torch.cat(tuple(role_env_ids.values()), dim=0)
         source_rows = torch.arange(count, device=ids.device, dtype=torch.long).repeat(len(role_env_ids))
+        local_scenario = self._v015_local_scenario_reset_payload(
+            request,
+            source_count=count,
+            device=ids.device,
+        )
+        fixed_noisy = None if local_scenario is not None else self._fixed_noisy_reset_payload(
+            request,
+            source_count=count,
+            device=ids.device,
+        )
         num_envs = int(getattr(self.base_env, "num_envs", getattr(self.command, "num_envs", count)) or count)
         if (
             int(ids.numel()) > num_envs
@@ -164,8 +295,84 @@ class FrontRESStage1EnvAdapter:
             if hasattr(self.command, "motion_end_buf"):
                 self.command.motion_end_buf[ids] = False
             # B2: role-specific reference 生效前, 所有 role 获得同源 dynamic start.
-            self._reset_frontres_command_state(ids)
-            perturbation_state = self._apply_index_reset_perturbation_request(request, source_ids)
+            self._reset_frontres_command_state(ids, reset_perturber=fixed_noisy is None and local_scenario is None)
+            if local_scenario is not None:
+                if int(ids.numel()) != int(getattr(self.command, "num_envs", ids.numel())):
+                    raise RuntimeError(
+                        "v015 local scenario reset requires all command rows so Repair/Noisy artifacts cannot mix"
+                    )
+                set_local_scenario = getattr(self.command, "set_frontres_local_scenario", None)
+                if not callable(set_local_scenario):
+                    raise RuntimeError("v015 local scenario reset requires command.set_frontres_local_scenario()")
+                applied = set_local_scenario(
+                    current_root_artifact_t=local_scenario["current_root_artifact_t"].index_select(0, source_rows),
+                    intent_q29=local_scenario["intent_q29"].index_select(0, source_rows),
+                    clean_continuation=local_scenario["clean_continuation"].index_select(0, source_rows),
+                    horizon_k=local_scenario["horizon_k"].index_select(0, source_rows),
+                    continuation_lengths=local_scenario["continuation_lengths"].index_select(0, source_rows),
+                    scenario_ids=tuple(local_scenario["scenario_ids"][int(row)] for row in source_rows.tolist()),
+                    noisy_segment_hashes=tuple(local_scenario["hashes"][int(row)] for row in source_rows.tolist()),
+                    x_t_identities=tuple(local_scenario["x_t_identities"][int(row)] for row in source_rows.tolist()),
+                    provenance=tuple(local_scenario["provenance"][int(row)] for row in source_rows.tolist()),
+                    roles=tuple(
+                        role
+                        for role, role_ids in role_env_ids.items()
+                        for _ in range(int(role_ids.numel()))
+                    ),
+                    env_ids=ids,
+                )
+                if not isinstance(applied, torch.Tensor) or not bool(applied.detach().bool().all()):
+                    raise RuntimeError("command rejected one or more v015 local scenario rows during index reset")
+                perturbation_state = {
+                    "strength": None,
+                    "family": tuple(),
+                    "family_masks": None,
+                    "local_scenario_hashes": local_scenario["hashes"],
+                }
+            elif fixed_noisy is None:
+                local_active = getattr(self.command, "_frontres_local_scenario_active", None)
+                if isinstance(local_active, torch.Tensor) and bool(local_active.any()):
+                    raise RuntimeError("legacy reset cannot overwrite an active v015 local scenario")
+                clear_fixed_tape = getattr(self.command, "clear_frontres_fixed_noisy_tape", None)
+                if callable(clear_fixed_tape):
+                    clear_fixed_tape(ids)
+                perturbation_state = self._apply_index_reset_perturbation_request(request, source_ids)
+            else:
+                if int(ids.numel()) != int(getattr(self.command, "num_envs", ids.numel())):
+                    raise RuntimeError(
+                        "fixed Noisy Segment reset requires all command rows so random and sealed references cannot mix"
+                    )
+                set_fixed_tape = getattr(self.command, "set_frontres_fixed_noisy_tape", None)
+                if not callable(set_fixed_tape):
+                    raise RuntimeError("fixed Noisy Segment reset requires command.set_frontres_fixed_noisy_tape()")
+                role_execution = torch.cat(
+                    [
+                        torch.full(
+                            (int(role_ids.numel()),),
+                            role != "clean",
+                            dtype=torch.bool,
+                            device=ids.device,
+                        )
+                        for role, role_ids in role_env_ids.items()
+                    ],
+                    dim=0,
+                )
+                applied = set_fixed_tape(
+                    fixed_noisy["tape"].index_select(0, source_rows),
+                    tape_lengths=fixed_noisy["tape_lengths"].index_select(0, source_rows),
+                    scenario_ids=tuple(fixed_noisy["scenario_ids"][int(row)] for row in source_rows.tolist()),
+                    noisy_segment_hashes=tuple(fixed_noisy["hashes"][int(row)] for row in source_rows.tolist()),
+                    execution_mask=role_execution,
+                    env_ids=ids,
+                )
+                if not isinstance(applied, torch.Tensor) or not bool(applied.detach().bool().all()):
+                    raise RuntimeError("command rejected one or more fixed Noisy tape rows during index reset")
+                perturbation_state = {
+                    "strength": None,
+                    "family": tuple(),
+                    "family_masks": None,
+                    "fixed_noisy_hashes": fixed_noisy["hashes"],
+                }
             refresh_reference_cache = getattr(
                 self.command,
                 "refresh_frontres_reference_cache_current_frame",
@@ -199,11 +406,192 @@ class FrontRESStage1EnvAdapter:
             cached_perturbed_pos=getattr(self.command, "_cached_perturbed_pos", None),
             perturber_dr_scale_env=getattr(getattr(self.command, "perturber", None), "_dr_scale_env", None),
             perturber_family_masks=getattr(getattr(self.command, "perturber", None), "_family_masks", None),
+            fixed_noisy_hashes=perturbation_state.get("fixed_noisy_hashes"),
+            local_scenario_hashes=perturbation_state.get("local_scenario_hashes"),
         )
         return {"reset_success": success, "velocity_mismatch": velocity}
 
-    def _normalize_frontres_role_env_ids(self, request: Any, *, source_count: int) -> dict[str, torch.Tensor]:
+    def _v015_local_scenario_reset_payload(
+        self,
+        request: Any,
+        *,
+        source_count: int,
+        device: torch.device,
+    ) -> dict[str, Any] | None:
+        if getattr(request, "frontres_local_scenario_rows", None) is None:
+            return None
+        if getattr(request, "frontres_fixed_noisy_tape", None) is not None:
+            raise ValueError("v015 local reset cannot mix a local scenario with a legacy fixed Noisy tape")
+        artifact = getattr(request, "frontres_local_scenario_current_root_artifact_t", None)
+        intent = getattr(request, "frontres_local_scenario_intent_q29", None)
+        continuation = getattr(request, "frontres_local_scenario_clean_continuation", None)
+        if not isinstance(artifact, torch.Tensor) or not isinstance(intent, torch.Tensor) or not isinstance(continuation, torch.Tensor):
+            raise ValueError("v015 local reset requires tensor artifact, q29 intent, and Clean continuation fields")
+        for name, value in (
+            ("current_root_artifact_t", artifact),
+            ("intent_q29", intent),
+            ("clean_continuation", continuation),
+        ):
+            if (
+                value.requires_grad
+                or not torch.is_floating_point(value)
+                or not bool(torch.isfinite(value).all().item())
+            ):
+                raise ValueError(f"v015 local {name} must be detached finite floating-point data")
+        offsets = tuple(int(value) for value in (getattr(request, "frontres_future_offsets", ()) or ()))
+        if not offsets or any(value <= 0 for value in offsets) or tuple(sorted(set(offsets))) != offsets:
+            raise ValueError(f"v015 local reset requires nonempty positive ordered future offsets, got {offsets}")
+        if (
+            tuple(artifact.shape) != (int(source_count), 7)
+            or intent.ndim != 3
+            or tuple(intent.shape) != (int(source_count), max(offsets) + 1, 29)
+            or continuation.ndim != 3
+            or int(continuation.shape[0]) != int(source_count)
+            or int(continuation.shape[1]) <= 0
+            or int(continuation.shape[2]) != 65
+        ):
+            raise ValueError(
+                "v015 local reset requires [B,7] current artifact, [B,H+1,29] q29 intent, and [B,K_max,65] Clean continuation"
+            )
+        horizon_k = torch.as_tensor(getattr(request, "horizon_k", None), device=device, dtype=torch.long).flatten()
+        lengths = torch.as_tensor(
+            getattr(request, "frontres_local_scenario_clean_continuation_lengths", None),
+            device=device,
+            dtype=torch.long,
+        ).flatten()
+        if (
+            int(horizon_k.numel()) != int(source_count)
+            or int(lengths.numel()) != int(source_count)
+            or bool((horizon_k <= 0).any())
+            or not torch.equal(horizon_k, lengths)
+            or bool((lengths > int(continuation.shape[1])).any())
+        ):
+            raise ValueError("v015 local horizon_k and continuation lengths must be equal positive [B] values")
+        continuation_mask = torch.as_tensor(
+            getattr(request, "frontres_local_scenario_clean_continuation_mask", None),
+            device=device,
+            dtype=torch.bool,
+        )
+        expected_mask = torch.arange(int(continuation.shape[1]), device=device).unsqueeze(0) < lengths.unsqueeze(1)
+        if tuple(continuation_mask.shape) != tuple(expected_mask.shape) or not torch.equal(continuation_mask, expected_mask):
+            raise ValueError("v015 local Clean continuation mask must exactly encode the sealed per-row K lengths")
+        scenario_ids = tuple(str(value) for value in (getattr(request, "frontres_local_scenario_ids", ()) or ()))
+        hashes = tuple(str(value) for value in (getattr(request, "frontres_local_scenario_hashes", ()) or ()))
+        x_t_identities = tuple(str(value) for value in (getattr(request, "frontres_local_scenario_x_t_identities", ()) or ()))
+        provenance_raw = tuple(getattr(request, "frontres_local_scenario_provenance", ()) or ())
+        if (
+            len(scenario_ids) != int(source_count)
+            or len(hashes) != int(source_count)
+            or len(x_t_identities) != int(source_count)
+            or len(provenance_raw) != int(source_count)
+            or any(not value for value in scenario_ids)
+            or any(not value for value in hashes)
+            or any(not value for value in x_t_identities)
+            or any(not isinstance(value, dict) for value in provenance_raw)
+        ):
+            raise ValueError("v015 local reset requires nonempty source-aligned identity and provenance metadata")
+        provenance = tuple(dict(value) for value in provenance_raw)
+        for row, value in enumerate(provenance):
+            if (
+                value.get("current_root_artifact_provenance") != "noisy_root_artifact_t"
+                or value.get("intent_q29_provenance") != "deployment_noisy_q29"
+                or value.get("clean_continuation_provenance") != "clean_gmt_only"
+            ):
+                raise ValueError(f"v015 local provenance row {row} violates the Noisy-q29/Clean-continuation boundary")
+            intent_source = str(value.get("intent_q29_source", "")).lower()
+            if not intent_source or "root" in intent_source or "global" in intent_source or "clean" in intent_source:
+                raise ValueError(f"v015 local q29 source row {row} may not carry Clean/root/global actor input")
+        return {
+            "current_root_artifact_t": artifact.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
+            "intent_q29": intent.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
+            "clean_continuation": continuation.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
+            "horizon_k": horizon_k.detach().clone(),
+            "continuation_lengths": lengths.detach().clone(),
+            "scenario_ids": scenario_ids,
+            "hashes": hashes,
+            "x_t_identities": x_t_identities,
+            "provenance": provenance,
+        }
+
+    def _fixed_noisy_reset_payload(self, request: Any, *, source_count: int, device: torch.device) -> dict[str, Any] | None:
+        tape = getattr(request, "frontres_fixed_noisy_tape", None)
+        if tape is None:
+            return None
+        if not isinstance(tape, torch.Tensor) or tape.ndim != 3:
+            raise ValueError(f"frontres_fixed_noisy_tape must have shape [B,L,65], got {getattr(tape, 'shape', None)}")
+        expected_dim_fn = getattr(self.command, "_frontres_fixed_noisy_tape_feature_dim", None)
+        expected_dim = int(expected_dim_fn()) if callable(expected_dim_fn) else 65
+        if (
+            tape.requires_grad
+            or not torch.is_floating_point(tape)
+            or not bool(torch.isfinite(tape).all().item())
+            or int(tape.shape[0]) != int(source_count)
+            or int(tape.shape[1]) <= 0
+            or int(tape.shape[2]) != expected_dim
+        ):
+            raise ValueError(
+                "frontres_fixed_noisy_tape must be detached finite "
+                f"[{source_count},L,{expected_dim}] data, got {tuple(tape.shape)}"
+            )
+        offsets = tuple(int(value) for value in (getattr(request, "frontres_future_offsets", ()) or ()))
+        if not offsets or any(value <= 0 for value in offsets) or tuple(sorted(set(offsets))) != offsets:
+            raise ValueError(f"frontres_future_offsets must be nonempty positive ordered offsets, got {offsets}")
+        horizon_k = torch.as_tensor(getattr(request, "horizon_k"), device=device, dtype=torch.long).flatten()
+        if int(horizon_k.numel()) != int(source_count) or bool((horizon_k <= 0).any()):
+            raise ValueError("fixed Noisy reset requires positive source-aligned horizon_k")
+        lengths = torch.as_tensor(
+            getattr(request, "frontres_fixed_noisy_tape_lengths", None), device=device, dtype=torch.long
+        ).flatten()
+        if (
+            int(lengths.numel()) != int(source_count)
+            or bool((lengths <= 0).any())
+            or bool((lengths > int(tape.shape[1])).any())
+            or bool((lengths < horizon_k + max(offsets)).any())
+        ):
+            raise ValueError("fixed Noisy tape lengths must cover K + max(H) for every source row")
+        scenario_ids = tuple(str(value) for value in (getattr(request, "frontres_fixed_noisy_scenario_ids", ()) or ()))
+        hashes = tuple(str(value) for value in (getattr(request, "frontres_fixed_noisy_segment_hashes", ()) or ()))
+        if (
+            len(scenario_ids) != int(source_count)
+            or len(hashes) != int(source_count)
+            or any(not value for value in scenario_ids)
+            or any(not value for value in hashes)
+        ):
+            raise ValueError("fixed Noisy reset requires nonempty source-aligned scenario ids and hashes")
+        return {
+            "tape": tape.detach().to(device=device, dtype=torch.float32).contiguous(),
+            "tape_lengths": lengths.detach().clone(),
+            "scenario_ids": scenario_ids,
+            "hashes": hashes,
+        }
+
+    def _normalize_frontres_role_env_ids(
+        self,
+        request: Any,
+        *,
+        source_count: int,
+        v015_local: bool = False,
+    ) -> dict[str, torch.Tensor]:
         raw = getattr(request, "frontres_role_env_ids", None)
+        if v015_local:
+            if not isinstance(raw, dict) or set(raw) != {"repair", "noisy"}:
+                raise ValueError(
+                    "v015 local reset requires exactly repair/noisy role rows; policy/candidate/clean roles are rejected"
+                )
+            result: dict[str, torch.Tensor] = {}
+            seen: set[int] = set()
+            for role in ("repair", "noisy"):
+                role_ids = self._normalize_env_ids(raw[role])
+                if int(role_ids.numel()) != int(source_count):
+                    raise ValueError(
+                        f"v015 local role {role} must have {source_count} rows, got {int(role_ids.numel())}"
+                    )
+                values = role_ids.detach().cpu().tolist()
+                if any(int(value) in seen for value in values):
+                    raise ValueError(f"v015 local role {role} overlaps another reset role")
+                seen.update(int(value) for value in values)
+                result[role] = role_ids
+            return result
         if raw is None:
             return {"policy": self._normalize_env_ids(range(source_count))}
         if not isinstance(raw, dict) or "policy" not in raw:
@@ -415,14 +803,14 @@ class FrontRESStage1EnvAdapter:
             self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
             self.robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
 
-    def _reset_frontres_command_state(self, env_ids: torch.Tensor) -> None:
+    def _reset_frontres_command_state(self, env_ids: torch.Tensor, *, reset_perturber: bool = True) -> None:
         with torch.inference_mode():
             if hasattr(self.command, "_frontres_pos_correction"):
                 self.command._frontres_pos_correction[env_ids] = 0.0
             if hasattr(self.command, "_frontres_quat_correction"):
                 self.command._frontres_quat_correction[env_ids] = 0.0
                 self.command._frontres_quat_correction[env_ids, 0] = 1.0
-            if hasattr(self.command, "perturber") and hasattr(self.command.perturber, "reset_envs"):
+            if reset_perturber and hasattr(self.command, "perturber") and hasattr(self.command.perturber, "reset_envs"):
                 self.command.perturber.reset_envs(env_ids)
 
     def _apply_index_reset_perturbation_request(self, request: Any, env_ids: torch.Tensor) -> dict[str, Any]:

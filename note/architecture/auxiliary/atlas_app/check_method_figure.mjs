@@ -63,7 +63,7 @@ function wrappedLineCount(text, width, charWidth) {
   return Math.max(1, lines.length);
 }
 for (const id of [
-  "M-02", "M-03", "M-04", "M-05", "M-06", "M-10",
+  "M-02", "M-03", "M-04", "M-05", "M-06", "M-10", "M-12",
   "Q-01", "Q-PAIR", "SR-01",
 ]) {
   if (!nodes.has(id)) throw new Error(`method figure missing node ${id}`);
@@ -225,9 +225,11 @@ for (let firstIndex = 0; firstIndex < edgeRoutes.length; firstIndex += 1) {
 
 const edgePairs = new Set((data.edges || []).map((edge) => `${edge.from}->${edge.to}`));
 for (const pair of [
-  "M-02->SR-01",
+  "M-02->M-12",
+  "M-12->SR-01",
   "M-06->SR-01",
-  "SR-01->M-04",
+  "SR-01->M-11",
+  "M-11->M-04",
   "M-04->M-10",
   "M-10->Q-PAIR",
   "Q-PAIR->Q-01",

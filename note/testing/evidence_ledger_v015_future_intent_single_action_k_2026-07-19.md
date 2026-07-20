@@ -1,0 +1,1193 @@
+# Evidence Ledger: FRS-v015 Future Intent And Single-Action K
+
+Date: 2026-07-19 through 2026-07-20
+Scope: Accepted semantic migration and bounded deterministic implementation
+evidence, including CPU-only formal-route and persistence contracts. It contains
+no real simulator, training, or live-run evidence.
+
+## E-FI-0: Confirmed Conceptual Decision
+
+Evidence:
+
+- Current conversation, 2026-07-19: the user confirmed that FEMR is a
+  Noisy-to-Executable local repair policy; q29 internal motion is the trusted
+  deployable motion intent; root/ground/global artifact is the repair target.
+- Current conversation, 2026-07-19: the user confirmed a two-role main
+  counterfactual, one FEMR action at the first K frame, frozen FEMR afterward,
+  and GMT execution through Clean continuation.
+- Current conversation, 2026-07-19: the user confirmed future context is
+  retained to resolve conflicting repair gradients, but it must be future
+  29DoF internal intent from Noisy/deployment provenance rather than future
+  raw root/global reference or Clean provenance.
+
+Facts:
+
+- x_t remains a Clean dynamic reset state and is not actor-visible Clean
+  reference.
+- The active local perturbation changes only the current root-level artifact.
+- The required invariant is:
+  
+  ```
+  Pi_internal(R^N[t:t+H]) = Pi_internal(R^C[t:t+H])
+  ```
+  
+  The actor reads the left-hand Noisy/deployment provenance even when the
+  values equal the Clean calibration source.
+- H is an actor-information horizon. K is a frozen-FEMR GMT evidence horizon.
+- The local K pair is:
+  
+  ```
+  Noisy: x_t -> uncorrected artifact at t -> GMT on common Clean continuation
+  Repair: x_t -> artifact + Delta SE(3)_t -> GMT on the same continuation
+  ```
+  
+  Clean is not a third scored rollout.
+- The active reward meaning is intent realization relative to the shared q29
+  intent plus paired physical executability minus repair cost.
+- Direct Repair-vs-Noisy similarity and full-Clean global rollout Style are
+  rejected as active actor reward semantics.
+
+Decisions:
+
+- Activate FRS-METHOD-v015, FRS-TRAIN-v006, FRS-GAIN-v003, and FRS-EVAL-v003.
+- Retain FRS-PPO-v003 because one-row grouped reduction and its mass semantics
+  do not change.
+- Treat the existing full-65D Noisy-tape route, legacy quartet layout, and
+  Clean-global Style code as contract-mismatch until a later bounded
+  implementation step proves migration or isolation.
+- Keep persistent full-sequence artifacts as a separate deployment composition
+  evaluation, not as later noise in the main first-action K return.
+
+Open risks:
+
+- The q29-preservation assumption is accepted semantics but not code- or
+  runtime-confirmed.
+- The current actor/command route still uses a superseded full-65D tape
+  interpretation.
+- Current HSL target semantics may contain a Clean-oriented path and require
+  a dedicated audit before HSL migration.
+- No two-role one-action/frozen-FEMR lifecycle, v003 Gain consumer route,
+  formal transaction route, checkpoint migration, or live sentinel has been
+  run under v015.
+
+Next:
+
+- Execute only Step 1A of the refined v015 plan after explicit user
+  authorization: materialize/seal the local-scenario kernel, prove its q29
+  invariant and immutable identity, then stop before actor wiring.
+
+## E-FI-1: Read-Only Owner Audit and Engineering Replan
+
+Date: 2026-07-19
+Scope: White-box source inspection used to split the v015 implementation route.
+No source modification, test execution, simulator, training, optimizer update,
+checkpoint operation, or live run occurred.
+
+Evidence:
+
+- Current-conversation CodeGraph read of
+  `source/rsl_rl/rsl_rl/frontres/frontres_segment_stage1_env_hooks.py::materialize_frontres_fixed_noisy_tape`
+  and `source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py`.
+- Current-conversation CodeGraph read of
+  `source/rsl_rl/rsl_rl/runners/frontres_runtime.py::append_frontres_fixed_noisy_future_context`
+  and `apply_obs_normalizer`.
+- Current-conversation CodeGraph read of
+  `source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py::set_frontres_quartet_baseline`,
+  `set_frontres_paired_baseline`, and `_sync_frontres_pairs`.
+- Current-conversation CodeGraph read of
+  `source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py::to_ppo_batch`,
+  `to_grouped_ppo_candidate_batch`,
+  `source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py`, and
+  `source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py::FrontRESFrozenPolicyTransactionAccumulator`.
+- Current-conversation CodeGraph read of
+  `source/rsl_rl/rsl_rl/runners/frontres_warmup.py::run_frontres_joint_warmup`
+  and `frontres_hsl_rollout_target.py::build_frontres_hsl_rollout_target`.
+
+Facts:
+
+- The current scenario materializer is named as a fixed Noisy tape owner; the
+  runtime actor helper requires a rank-2 `[B, |H|*65]` tail and labels the
+  resulting actor/normalizer surface as the legacy v013 layout.
+- `MultiMotionCommand` retains both paired and quartet synchronization. The
+  quartet exposes projected, candidate, Noisy/base, and Clean groups, so it is
+  not the accepted two-role local counterfactual.
+- Current storage has two different adapters: `to_ppo_batch()` intentionally
+  omits transaction metadata, whereas `to_grouped_ppo_candidate_batch()` keeps
+  it for candidate/offline grouped loss. Therefore formal grouped routing is a
+  separate integration task, not a consequence of the existing loss formula.
+- The frozen-policy transaction accumulator already rejects optimizer steps
+  during collection and requires exactly one injected update, but it declares
+  itself candidate-only/offline. It is not formal-route evidence.
+- Current HSL warmup obtains its target through
+  `get_supervision_target_task_space()` and directly processes raw observations;
+  its new future-intent interface and target semantics are not code-confirmed.
+- The current Gain capture/formula family remains a Clean-global Style path;
+  it cannot be treated as implementation evidence for v003 q29 intent Gain.
+
+Decisions:
+
+- Replace the coarse five-step implementation sequence with twelve bounded
+  steps and one read-only HSL decision gate.
+- Separate: scenario materialization (1A), actor H routing (1B), two-role reset
+  (2A), one-action K collection (2B), Gain core/consumers/evaluation
+  (3A/3B/3C), grouped metadata/formal route/persistence (4A/4B/4C), and
+  user-gated live local/composition evidence (5A/5B).
+- Use `G0`--`G5` for method migration gates and retain repository `S0`--`S4`
+  solely for evidence tiers in the rewritten plan/checklist.
+
+Open risks:
+
+- The exact q29 extraction/projection and current-artifact representation need
+  deterministic implementation evidence.
+- New actor layout changes normalizer/checkpoint identity, but persistence is
+  intentionally deferred to Step 4C.
+- HSL must remain disabled/isolated under v015 until Gate H0 and an explicit
+  user decision.
+
+Next:
+
+- Step 1A only, after explicit authorization; stop after local-scenario S1
+  evidence and a Step End Report.
+
+## E-FI-2: Step 1A Immutable Local-Scenario Kernel (S1)
+
+Date: 2026-07-19
+Scope: Deterministic local-module evidence only. No simulator, training,
+formal runner, optimizer update, checkpoint/resume operation, or live run was
+started.
+
+Implementation evidence:
+
+- `MultiMotionCommand.materialize_frontres_local_scenario()` now owns the
+  selection-time split payload: current root artifact `[7]`, dense q29 intent
+  `[H_max+1,29]`, and Clean continuation `[K,65]`.
+- The command materializer rejects non-q29 input and insufficient future frames
+  rather than clamping or carrying future root/global data into intent. It calls
+  the physical perturber only for the current root artifact and never calls the
+  joint-perturbation owner for q29 intent.
+- `FrontRESLocalScenario` seals the five semantic inputs plus request identity
+  and provenance into `noisy_segment_hash`; `FrontRESLocalScenarioLifecycle`
+  materializes once per selected source, reuses the same object for M rows, and
+  rejects rematerialization after close.
+- The new sampler-to-command attachment carries separate named tensors for root
+  artifact, q29 intent, and padded Clean continuation. It is intentionally not
+  attached to the formal runner yet: the formal batch builder retains the old
+  fixed-tape route until later authorized reset/actor/GMT work. The legacy
+  fixed-tape reset owner fails closed when it receives a v015 local scenario.
+
+Executed evidence:
+
+- `source/rsl_rl/rsl_rl/tests/frontres_local_scenario_kernel_contract.py`
+  passed all required deterministic checks:
+  `T-schema`, `T-invariant`, `T-hash`, `T-provenance`, `T-metamorphic`, and
+  `T-legacy-reject`.
+- `python -m py_compile` passed for the four Step 1A owners and the focused
+  contract test.
+
+Facts established:
+
+- The fixture proves `Pi_internal(Noisy) == Pi_internal(Clean)` numerically for
+  q29 while the current root artifact differs; q29 still carries explicit
+  `deployment_noisy_q29` provenance.
+- Hash changes when `x_t`, current artifact, q29 values/source/window, Clean
+  continuation, or K changes.
+- A returned intent accessor is a copy, so caller mutation cannot change the
+  sealed scenario; M rows reuse one scenario/hash and a closed identity cannot
+  be rematerialized.
+
+Open boundaries:
+
+- No actor q29-H bridge, observation layout, normalizer, or checkpoint identity
+  has been changed.
+- No reset role, one-action K executor, GMT continuation consumer, Gain,
+  PPO/transaction, formal runner, or live path has been connected.
+
+Next:
+
+- Stop at Step 1A. Step 1B remains pending explicit user authorization.
+
+## E-FI-3: Step 1B Future-Intent Actor Bridge (S1)
+
+Date: 2026-07-19
+Scope: Deterministic actor-layout, provenance, and normalizer evidence only.
+No simulator, training, formal runner, optimizer update, checkpoint/resume
+operation, or live run was started.
+
+Implementation evidence:
+
+- `frontres_observation_layout.py` owns the explicit
+  `frontres-v015-future-intent-q29-v1` layout: declared positive offsets map a
+  sealed `[B,H_max+1,29]` deployment-q29 carrier to ordered
+  `[B,|H|*29]` actor-tail values.
+- `frontres_runtime.py` owns the runtime bridge. It consumes only the local
+  scenario q29 carrier and its provenance; it does not read the current root
+  artifact, Clean continuation, raw 65D tape, future root/global data, noise
+  metadata, or perturbation timing.
+- `OnPolicyRunner` and both FrontRES configuration owners now allocate the
+  actor prefix from the versioned q29 layout rather than `|H|*65`. The rollout
+  helper calls the new q29 bridge.
+- `apply_obs_normalizer()` validates the selected layout and rejects
+  unversioned or incompatible checkpoint-like prefix statistics when local
+  future intent is active. Persistence of the new identity remains deferred to
+  Step 4C.
+
+Executed evidence:
+
+- `python -m py_compile` passed for all Step 1B owners, both configuration
+  owners, and the focused contract tests.
+- `source/rsl_rl/rsl_rl/tests/frontres_future_intent_actor_context_contract.py`
+  passed `T-shape`, `T-offset`, `T-provenance`, `T-clean-isolation`,
+  normalizer-layout rejection, and `T-legacy-reject`.
+- Existing deterministic regressions passed:
+  `frontres_observation_layout_contract.py`,
+  `frontres_fixed_noisy_actor_context_contract.py`, and the Step 1A
+  `frontres_local_scenario_kernel_contract.py`.
+
+Facts established:
+
+- The actor H tail is exactly the ordered q29 values of the declared offsets;
+  it contains neither future root/global values nor Clean continuation values.
+- Numeric q29 equality with a Clean calibration source is insufficient without
+  the required `deployment_noisy_q29` provenance; a Clean-labelled carrier is
+  rejected fail-closed.
+- A 65D carrier, absent local scenario, wrong layout version, or incompatible
+  normalizer statistics is rejected rather than adapted.
+- Clean `x_t` remains outside the actor reference carrier. The Step 1A sealed
+  scenario is read-only across attempts; this step adds no reset, K, Gain, or
+  PPO behavior.
+
+Open boundaries:
+
+- The formal batch/reset route is intentionally not connected to this offline
+  bridge; it must not silently supply the legacy full-tape field as v015 input.
+- Checkpoint serialization/resume does not yet persist the future-layout
+  identity; the runtime rejection above is a temporary safety boundary, not
+  Step 4C evidence.
+- HSL remains isolated. Its interface and target semantics require the separate
+  read-only H0 audit and a later user decision.
+
+Next:
+
+- Stop at Step 1B. Do not begin H0, Step 2A, formal-route integration,
+  checkpoint work, or a live run without explicit user authorization.
+
+## E-FI-4: Gate H0 HSL Interface and Target Audit (S0)
+
+Date: 2026-07-20
+Scope: Read-only source, layout, target, configuration, and checkpoint audit.
+No source or contract change, test execution, simulator, training, formal
+runner, optimizer update, checkpoint operation, or live run occurred.
+
+Concept and contract boundary:
+
+- `M-03` is HSL Warmup: it may initialize the 6D actor, but Training v006
+  requires its actor interface to match the deployable q29 future-intent
+  interface before re-enabling it.
+- HSL is not allowed to put Clean future provenance or a full-Clean rollout
+  target through the Stage 2 actor interface. Its target semantics were
+  deliberately left for this audit and a subsequent user decision.
+
+White-box chain:
+
+```text
+Stage-1 preset -> OnPolicyRunner.learn -> run_frontres_joint_warmup
+  -> raw policy obs -> _apply_obs_normalizer -> residual_actor
+  -> get_supervision_target_task_space -> supervised warmup loss
+
+standard FrontRES rollout -> env.step -> build_frontres_hsl_rollout_target
+  -> transition.supervised_target/weight/harm_weight -> RolloutStorage
+  -> FrontRESUnified._compute_supervised_loss -> optimizer step
+```
+
+Code-confirmed findings:
+
+- `run_frontres_joint_warmup()` never calls the v015
+  `append_frontres_future_intent_context()` bridge. It normalizes raw policy
+  observation and calls `residual_actor` directly. The v015 bridge, by contrast,
+  requires a sealed q29 scenario and prepends its ordered q29 tail.
+- With the current task-space configuration `num_frontres_obs=0`, a v015
+  segment-replay runner expands `num_actor_obs` by the q29-tail width while the
+  warmup tensor remains raw-width. The warmup fallback sets `_nfo` to the
+  enlarged actor width, but slicing cannot manufacture the missing tail. This
+  is a code-confirmed layout mismatch; no live exception was intentionally
+  triggered in this audit.
+- `get_supervision_target_task_space()` is a current-frame simulation-oracle
+  anti-DR label: it reads the current perturbation delta and quaternion
+  correction. It does not read a future q29/65D window or construct a
+  full-Clean rollout target. It is nevertheless privileged training evidence,
+  not deployment actor input or executable-return evidence.
+- `build_frontres_hsl_rollout_target()` is a separate active legacy route. It
+  reads FrontRES, Noisy, and Clean quartet root positions/orientations, forms a
+  FrontRES-to-Clean residual, and writes it to the supervised loss path. The
+  current agent configuration enables `frontres_hsl_rollout_label_enabled=True`;
+  the Stage-3 preset zeros direct warmup iterations but does not clear this
+  rollout-label flag.
+- The legacy rollout-label route therefore reintroduces exactly the prohibited
+  full-Clean/global supervision object. Its existing contract test proves that
+  quartet/Clean behavior; it is historical coverage, not v015 acceptance.
+- `load_runner()` restores the residual actor with `strict=True` and has no
+  future-intent layout identity in its checkpoint payload. A legacy HSL actor
+  has the old input first-layer shape, while v015 adds the q29 tail; v015
+  normalizer code also rejects unversioned legacy prefix statistics once local
+  future intent is active. No checkpoint was loaded here.
+
+Classification:
+
+- The current-frame anti-DR label is not itself a Clean-future leak. Whether it
+  remains an allowed proposal-only initializer is a human semantic decision.
+- The quartet Clean rollout label is a v015 contract mismatch and must remain
+  disabled/legacy; it cannot be silently carried into formal Stage 3 or HSL.
+- The existing HSL warmup and HSL checkpoint paths cannot initialize the v015
+  actor as implemented because they do not supply the q29 tail or its layout
+  identity.
+
+Decision required:
+
+- Decide whether to retain only the current-frame anti-DR oracle label as an
+  explicitly proposal-only HSL initializer after a future q29-interface
+  migration, or retire HSL from v015 entirely. No implementation action is
+  authorized by this audit.
+
+Open boundaries:
+
+- No v015 HSL observation bridge, target migration, checkpoint migration, or
+  formal-route isolation test exists.
+- No runtime evidence establishes behavior after a migrated HSL path; this is
+  S0 source evidence only.
+
+Next:
+
+- Stop at the H0 semantic decision. Do not re-enable HSL, modify its target,
+  migrate checkpoints, or start a formal/live route without explicit user
+  direction.
+
++## E-FI-5: H0-A Proposal-Only HSL Contract Closure
+
+Date: 2026-07-20
+Scope: User-confirmed semantic decision and governed document versioning only.
+No training source, simulator, training, formal runner, optimizer update,
+checkpoint/resume operation, or live run occurred.
+
+Decision evidence:
+
+- Current conversation, 2026-07-20: the user confirmed H0-A.
+- Retain HSL only as Stage-1 proposal-direction initialization.
+- Allow only the current-frame anti-DR oracle as a privileged training target.
+- Require the actor input to be current Noisy root artifact plus future
+  deployment/Noisy q29 intent.
+- Forbid Clean actor input, Clean future H context, Clean Stage-1 target, and
+  the quartet/Clean rollout label in Stage-3 storage, loss, PPO, or formal route.
+- Forbid direct legacy HSL checkpoint migration or compatibility loading.
+
+Governed contract result:
+
+- FRS-TRAIN-v007 is active and supersedes FRS-TRAIN-v006.
+- v006 is archived as superseded; the registry and Design Point Register map
+  M-03 and M-05 to v007 without changing the Concept Figure.
+- The v015 plan now records conditional HSL Migration Step H1 with explicit
+  S1/S2 evidence and a stop condition. H1 is not active and does not block
+  Step 2A when HSL remains disabled.
+
+Facts retained from H0:
+
+- The allowed current-frame target is privileged training evidence, not a
+  deployable actor input or executable-return target.
+- The existing rollout target is legacy Clean-quartet supervision and remains
+  a contract mismatch until H1 isolates it.
+- Old HSL checkpoints lack the v015 q29 layout identity and remain reject-only.
+
+Open boundaries:
+
+- No H1 source implementation, deterministic H1 test, offline connector,
+  checkpoint migration, formal route, or live evidence exists.
+- The current source remains legacy until a separately authorized H1
+  implementation proves every v007 isolation rule.
+
+Next:
+
+- Stop after H0-A documentation closure. Await explicit authorization for H1
+  before any training-source modification.
+
+## E-FI-6: H1-S1a Proposal-Only HSL Deterministic Implementation
+
+Date: 2026-07-20
+Scope: H1-S1a only. It implements Stage-1 q29 input/current anti-DR target and
+rejects Stage-3 legacy/direct HSL writes, nonzero v015 supervised loss, and
+legacy HSL checkpoint load. No simulator, training, formal runner, optimizer
+update, checkpoint/resume operation, or live run occurred.
+
+Evidence:
+
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s1_contract.py` exited 0 and printed all seven T-HSL checks.
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_rollout_target_contract.py` exited 0.
+- `frontres/bin/python -m py_compile` over all changed H1-S1a Python modules
+  exited 0.
+- Static consumer audit found the only remaining direct
+  `transition.supervised_target` assignment in `frontres_rollout_step.py`; its
+  v015 guard returns at zero lambda and raises at nonzero lambda. The generic
+  storage tensors remain zero defaults, not HSL evidence.
+
+Facts:
+
+- `frontres_warmup.py` prepends the sealed q29 context before normalizer/actor
+  use and validates a detached finite current anti-DR `[B,6]` target.
+- The legacy rollout-label owner now raises before reading source data or
+  mutating transition storage; the standard runner rejects its enabling flag.
+- `frontres_unified.py` rejects nonzero `lambda_supervised` or floor whenever
+  v015 future offsets are selected; the G1 config sets both to zero.
+- `frontres_checkpointing.py` rejects a legacy `frontres_warmup_complete`
+  payload before sampler, actor, normalizer, optimizer, or iteration restoration.
+
+Open risks:
+
+- S1 is deterministic/module-local only. It does not prove a real warmup has a
+  sealed scenario carrier, physics behavior, or policy quality.
+- The historical policy-quality/formal evaluator is explicitly out of H1-S1a;
+  its retired HSL label now fails closed, but its custom checkpoint route has
+  not been integrated or audited here.
+- No new checkpoint identity exists; that remains a separate persistence step.
+
+Next:
+
+- Stop after H1-S1a. Await explicit authorization for H1-S2 fake connectivity.
+
+## E-FI-7: H1-S2 Proposal-Only HSL Offline Connectivity
+
+Date: 2026-07-20
+Scope: CPU-only fake local-scenario connectivity for the already accepted H1
+semantics. It does not construct an environment, call `run_frontres_joint_warmup`,
+invoke PPO or an optimizer update, use a formal evaluator, load/save a
+checkpoint, or start simulator, training, or live execution.
+
+Evidence:
+
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s2_connectivity_contract.py` exited 0. It printed both owner traces.
+- The S1 v007 contract and retired-label reject regression both exited 0 after
+  the S2 test was added.
+- `frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s2_connectivity_contract.py` exited 0.
+- Static consumer audit still finds one direct `transition.supervised_target`
+  assignment, in the legacy branch of `frontres_rollout_step.py`; v015 returns
+  at zero lambda and raises at nonzero lambda. The historical formal-quality
+  caller reaches the retired label owner, which now raises before target output.
+
+Facts:
+
+- A semantic fake scenario carried detached `[2,4,29]` deployment-provenance
+  q29 intent and a `[2,2,65]` Clean-continuation sentinel. The real q29 owner
+  selected `[2,58]`, the real warmup owner passed `[2,63]` to the normalizer,
+  and the fake residual actor received the real `[2,60]` FrontRES prefix. The
+  Clean sentinel did not appear in either actor-facing tensor.
+- The real target validator accepted only the detached current anti-DR `[2,6]`
+  target. The fake actor prediction was compared to that target without an
+  optimizer or backward call.
+- The real v015 zero-lambda writer left all transition HSL fields `None`; the
+  real storage then exposed zero target/default weight tensors to its batch;
+  the real unified-loss helper returned scalar zero with no gradient and the
+  fake optimizer recorded zero step calls.
+
+Open risks:
+
+- This is an offline connector proof, not a simulator, real warmup, physics,
+  policy-quality, formal-route, checkpoint/resume, or live-runtime proof.
+- The formal policy-quality evaluator remains outside H1. Its HSL target call
+  fails closed, but no formal-route integration test has exercised that path.
+- A sealed scenario still has no authorized reset/lifecycle installation in a
+  real runner, and a new checkpoint identity is still undefined.
+
+Next:
+
+- H1 is complete. Stop and await explicit authorization for Step 2A, which
+  must retain HSL disabled and remain separate from formal/live work.
+
+## E-FI-8: Step 2A Two-Role Local Reset And Command Layout
+
+Date: 2026-07-20
+Scope: deterministic fake-reset implementation of the v015 Repair/Noisy layout
+and immutable local command carrier. It does not route actor H or GMT K, sample
+an action, execute a simulator, construct Gain/return/PPO, touch a checkpoint,
+invoke a formal runner, or start training/live execution.
+
+Evidence:
+
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_two_role_reset_contract.py` exited 0. It printed `T-2A-role`, `T-2A-scenario-identity`, `T-2A-state`, and `T-2A-legacy-reject`.
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_local_scenario_kernel_contract.py` exited 0 after its legacy assertion was rebased from the retired local-to-fixed-tape block to the active local/fixed-tape mixing rejection.
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_stage1_env_hooks_contract.py`, `frontres_segment_motion_command_reference_contract.py`, `frontres_hsl_v007_s1_contract.py`, and `frontres_hsl_v007_s2_connectivity_contract.py` exited 0 as bounded legacy/HSL regressions.
+- `frontres/bin/python -m py_compile` on the three Step 2A owners and the new deterministic contract exited 0; `git diff --check` exited 0.
+
+Facts:
+
+- `configure_frontres_pair_layout()` recognizes the frozen v015 q29 layout and installs only equal Repair and Noisy rows. Its legacy count carrier is `n_train=Repair`, `n_base=Noisy`, with candidate and Clean counts zero; explicit role IDs are retained separately.
+- `apply_frontres_segment_index_reset()` accepts a v015 local request only with exactly `repair` and `noisy` role names. It expands the same source row into both roles, restores the physical robot from the Clean replay motion/frame (`x_t` dynamics only), and installs the same detached artifact, q29 intent, Clean continuation, K/lengths, identities, provenance, and hash into command-owned storage.
+- `MultiMotionCommand.set_frontres_local_scenario()` clones the local carrier, requires every command row to be covered, requires one Repair plus one Noisy row per scenario, and rejects an active same-identity mutation. A retry with identical data reopens only the current-frame cache readiness; it does not call the perturber or rematerialize a scenario.
+- The current root artifact is copied to the command cache with a zero Stage-3 supervised target. q29 remains stored as deployment provenance; Clean continuation remains stored-only. A generic future command read, a second current-cache refresh, fixed-tape installation, or reference-window installation fails closed before Step 2B.
+
+Open risks:
+
+- This is a fake reset proof only. It does not prove the formal runner selects the v015 layout, that actor observation consumes q29, or that GMT consumes C.
+- Step 2A intentionally does not execute the K horizon, write an action, collect a policy row, calculate Gain/return, or reach transaction/PPO owners.
+- A later transaction-close owner must explicitly close the complete command carrier before a different scenario may replace it; this prevents an unsafe mixed replacement in the current bounded implementation.
+
+Next:
+
+- Stop at Step 2A. Step 2B requires separate authorization for the one-action,
+  frozen-FEMR, GMT-only Clean-continuation collector and its deterministic S1
+  contract; formal/checkpoint/live paths remain outside scope.
+
+## E-FI-9: Step 2B One-Action Frozen-FEMR Clean-C Collector (S1/S2)
+
+Date: 2026-07-20
+Scope: deterministic CPU fake reset-to-capture connectivity only. No simulator,
+training, formal runner, optimizer update, Gain/return/priority/PPO operation,
+checkpoint/resume operation, or live run was started.
+
+Implementation evidence:
+
+- `MultiMotionCommand` now owns an explicit candidate-only K execution phase.
+  It advances only the sealed `[K,65]` Clean continuation after t, routes its
+  q29/dq29/root fields to GMT command reads, zeros the one-time repair before
+  every later GMT action, and returns an exact per-row K-valid mask. It does
+  not route C before the actor action.
+- `frontres_rollout_step.py` owns the authorization split: one t call to
+  `alg.act()` can produce the full-6D Repair tuple; the frozen phase rejects a
+  second call through the normal rollout helper and directly invokes the frozen
+  GMT execution adapter without a later FrontRES correction write.
+- `FrontRESV015OneActionKEvidence` is an immutable candidate-only carrier. It
+  contains one Repair observation/action/log-prob/value/mean/sigma tuple per
+  local scenario plus `[K,N,65]` C, `[K,N]` exact masks, GMT actions, and
+  Repair/Noisy scenario/hash/x_t identities. It contains no reward, return,
+  advantage, optimizer, or legacy PPO adapter.
+- `collect_frontres_v015_one_action_k_evidence()` is deliberately separate from
+  the legacy live collector. The latter now rejects an active v015 local
+  scenario so it cannot silently repeat actor actions or enter formal storage.
+- Completing the K capture calls the command close method: only the K cursor
+  closes, while the sealed artifact/I/C/K/identity/hash remain intact for the
+  next Clean-reset M attempt.
+
+Executed evidence:
+
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_one_action_k_contract.py` exited 0. It printed
+  `T-action-count/T-frozen`, `T-continuation/T-row`, and
+  `T-K-metamorphic/T-legacy-reject`.
+- The deterministic fake chain used the real Step 2A reset hook and command
+  carrier: Clean `x_t` reset -> one t actor/repair write -> command C cursor ->
+  frozen GMT calls -> immutable evidence. It has no simulator or formal runner.
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_two_role_reset_contract.py` and
+  `source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py` exited
+  0 as focused reset and legacy-probe regressions.
+- `frontres/bin/python -m py_compile` passed for the four Step 2B owners and
+  the new contract test.
+
+Facts established:
+
+- For two scenarios with K=(3,2), exactly one actor sample and one command
+  repair write occur. The three frozen-GMT frames read C q29 values
+  `[1000,2000,1000,2000]`, `[1100,2100,1100,2100]`, and clamped final C with
+  exact valid mask `[T,F,T,F]`; no later actor or repair write occurs.
+- Changing K changes the number and validity of evidence frames, not the number
+  of policy tuples: both K fixtures store two Repair tuples for two scenarios.
+- The t GMT action sees deployment-q29 current intent, while every later GMT
+  action reads Clean C q29/dq29/root from the command owner. C never enters the
+  actor action at t.
+- Re-arming the same carrier after capture preserves artifact/I/C/K/scenario
+  hash without a perturber call or rematerialization; it requires a new Clean
+  reset/current-cache installation before the next actor action.
+
+Open boundaries:
+
+- This proof has no Gain, return/advantage, priority, grouped-PPO, transaction,
+  checkpoint, formal-route, simulator, training, or live evidence.
+- The candidate collector is not connected to `OnPolicyRunner` or the legacy
+  `run_frontres_segment_live_probe()` loop; that loop is intentionally
+  fail-closed for an active v015 local scenario.
+- Actual frozen GMT policy/physics execution is represented by the fake adapter
+  only; a later user-gated formal route and live sentinel must prove it with the
+  real policy/environment.
+
+Next:
+
+- Stop at Step 2B. Step 3A is separately authorizable only for the pure
+root-invariant q29 intent/physics/cost Gain core; it must not connect return,
+priority, PPO, checkpoint, formal route, simulator, training, or live work.
+
+## E-FI-10: Root-Invariant Intent Gain Core S1
+
+Date: 2026-07-20  
+Tier: S1 deterministic module semantics only  
+Authorization: user-authorized Step 3A.
+
+Implementation:
+
+- `frontres_gain.py::compute_intent_physics_local_repair_gain()` is the new
+  typed, side-effect-free FRS-GAIN-v003 calculation owner.
+- Its input has q29 intent/execution tensors shaped `[B,29]` or
+  `[B,T,29]`, a required `intent_q29_provenance=deployment_noisy_q29`,
+  a non-Clean/root/global q29 source string, paired scalar Physics facts, and
+  executed full-6D action evidence shaped `[B,6]` or `[T,B,6]`.
+- Its result is one `[B]` decomposition:
+  `intent_gain + physics_gain - repair_cost -> gain_total`. The
+  `style_gain` property is an explicit alias to `intent_gain`, not a
+  Clean-global Style metric.
+- qvel/qacc and one-action temporal terms stay `NaN` when unavailable;
+  a partially supplied derivative triple or invalid provenance fails closed.
+- The prior Physics and full-6D cost primitives are reused as shared pure
+  components without routing their legacy Clean-global composition into v003.
+
+Command evidence:
+
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/frontres/frontres_gain.py source/rsl_rl/rsl_rl/tests/frontres_intent_physics_gain_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_intent_physics_gain_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_gain_components_contract.py
+
+Observed output:
+
+- `[T-value/T-sign]`: fixed-I q29 error gives the expected signed
+  Noisy-to-Repair intent gain.
+- `[T-noop/T-invariant]`: equal Noisy/Repair execution gives zero intent
+  gain; changing I changes the result.
+- `[T-root-exclusion/T-provenance]`: there is no Clean/root/global typed
+  input channel, and prohibited provenance is rejected.
+- `[T-unconfirmed]`: missing qvel/qacc and one-action temporal values
+  remain `NaN`.
+- `[T-pair/T-full6]`: survival is K-normalized and all six Delta SE(3)
+  coordinates enter the repair cost.
+- `frontres_intent_physics_gain_contract: ok`; historical
+  `frontres_gain_components_contract: ok`.
+
+Facts established:
+
+- Direct Repair-vs-Noisy similarity cannot define the new intent component:
+  both execution branches are measured only against the same fixed q29 I.
+- Root translation/orientation, Clean positions, Clean root quaternions, and
+  global-body metrics are structurally absent from the v003 typed input.
+- Current one-action K evidence can later supply a finite magnitude cost even
+  when temporal action difference is not yet observable; the missing temporal
+  diagnostic is explicit rather than zero-filled.
+
+Open boundaries:
+
+- No actual q29 execution facts have been captured from the candidate collector.
+- No Gain output reaches return/advantage, priority, diagnostics, evaluator,
+  PPO, checkpoint, formal route, simulator, training, or live run.
+- The v002 `compute_segment_gain()` route remains isolated legacy code; its
+  preservation regression is not v003 consumer evidence.
+
+Next:
+
+- Stop at Step 3A. Step 3B requires separate authorization and must prove only
+  candidate capture -> v003 Gain -> return/priority provenance with v002
+  Clean-global rejection before any grouped PPO or formal-route work.
+
+## E-FI-11: Candidate Gain-to-Return and Priority Connectivity S1
+
+Date: 2026-07-20  
+Tier: S1 deterministic candidate-only consumer connectivity  
+Authorization: user-authorized Step 3B.
+
+Implementation:
+
+- `collect_frontres_v015_one_action_k_evidence()` now captures post-`t` robot
+  q29 from `command.robot_joint_pos` after the first action, records t/K done
+  and survival evidence, and retains the sealed deployment/Noisy q29 provenance.
+- `pair_frontres_v015_gain_facts()` pairs each Repair policy row with its same-
+  scenario Noisy row. Its intent target is only `I[:,0]`; H remains actor
+  context and Clean C remains GMT-only executable evidence.
+- `collect_frontres_v015_gain_return_priority_evidence()` invokes only
+  `compute_intent_physics_local_repair_gain()`, then creates one immutable
+  `return_k = gain_total`, `advantage_k = return_k - old_value` carrier and
+  scenario-keyed priority evidence with the same v003 decomposition.
+- Invalid post-t q29 rows remain invalid: the complete v003 decomposition,
+  return, and advantage are `NaN`, while priority remains evidence only. There
+  is no legacy storage batch,
+  sampler-state update, actor-loss mass, PPO loss, optimizer, checkpoint,
+  formal runner, simulator, training, or live entrypoint.
+
+Command evidence:
+
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_v015_gain_consumer_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_gain_consumer_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_one_action_k_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_intent_physics_gain_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sampler_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py
+
+Observed output:
+
+- `[T-provenance/T-consumer/T-no-v002-fallback]` proves that sealed `I[t]` and
+  post-t robot q29 reach v003 only, with `return=Gain`.
+- `[T-priority-isolation/T-invalid]` proves invalid q29 rows fail closed and a
+  priority artifact cannot mutate the return/loss carrier.
+- The Step 2B one-action/K, Step 3A Gain-core, legacy storage, sampler, and
+  legacy live-probe deterministic regressions all pass.
+
+Facts established:
+
+- Noisy and Repair executions are evaluated against the same fixed deployment/
+  Noisy q29 intent, never against each other or a Clean-global target.
+- Candidate return and priority preserve scenario id, noisy segment hash, x_t
+  identity, K, q29 provenance, v003 decomposition, and the fail-closed row mask.
+- The v002 `compute_segment_gain()` and `_capture_paired_gain()` paths are
+  monkeypatched to fail in the candidate contract and are not invoked.
+- Return and priority validators independently reject Clean/root/global q29
+  sources; no valid row can retain only a partial v003 decomposition.
+- Priority is a copied, scenario-keyed artifact rather than sampler state; it
+  cannot change an actor loss or update count.
+
+Open boundaries:
+
+- The proof uses a deterministic fake two-role reset/capture chain. It does not
+  prove real-policy robot timing, physical q29 accuracy, optional ZMP/contact
+  capture, or a formal Stage-3 execution route.
+- Candidate priority has no stable segment/trial identity and intentionally
+  performs no sampler-state update; a later transaction/metadata step owns that
+  connection.
+- Diagnostics, periodic/local evaluation, composition evaluation, grouped PPO,
+  checkpoint/resume, formal runner, simulator, training, and live evidence remain
+  outside this step.
+
+Next:
+
+- Stop at Step 3B. Step 3C is separately authorizable only for diagnostic and
+  evaluation isolation; it must not alter the sealed return/priority carrier or
+  enter grouped PPO, formal runner, checkpointing, simulator, training, or live
+  work.
+
+## E-FI-12: v003 Diagnostics And Evaluation Isolation S1
+
+Date: 2026-07-20  
+Tier: S1 deterministic candidate-only diagnostic/protocol connectivity  
+Authorization: user-authorized Step 3C.
+
+Implementation:
+
+- `frontres_segment_diagnostics.py::build_frontres_v015_local_evaluation_report()`
+  projects the sealed Step 3B `FrontRESV015GainConsumerEvidence` into an
+  immutable local-K report. It reads only v003 intent/physics/cost/total, q29
+  provenance/source, scenario/hash/x_t/K, and valid policy rows; it has explicit
+  false return/priority/PPO feedback flags.
+- Missing valid rows remain `NaN`/`UNCONFIRMED`; the report rejects partial
+  v003 decomposition, Clean/root/global q29 provenance, malformed identities,
+  or any feedback flag.
+- `FrontRESV015CompositionEvaluationProtocol` is a separately typed
+  deployment-stream protocol with frame/action counts and false local return,
+  replay-priority, and PPO feedback. It is not a sequence executor or metric.
+- The legacy periodic/offline/sequence evaluators now reject the explicit
+  `frontres-v015-future-intent-q29-*` layout before sampler access, reset,
+  legacy rollout, or `FRS-GAIN-v002` capture.
+
+Command evidence:
+
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py source/rsl_rl/rsl_rl/tests/frontres_v015_evaluation_isolation_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_evaluation_isolation_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_diagnostics_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_training_pseudo_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_sequence_eval_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_gain_consumer_contract.py
+
+Observed output:
+
+- `[T-diagnostic/T-evaluator/T-no-v002-fallback/T-no-zero-fill]` proves the
+  sealed v003 candidate carrier formats intent/physics/cost/source only, while
+  both legacy v002 functions are monkeypatched to fail and remain uncalled; an
+  all-invalid report remains NaN/UNCONFIRMED and rejects any zero-filled value.
+- `[T-composition-isolation]` proves the composition protocol cannot accept
+  local return evidence, all feedback flags fail closed, candidate return and
+  priority tensors remain unchanged, and all three legacy evaluators reject
+  v015 before capture.
+- Existing diagnostics, live-training pseudo, sequence-evaluation, and Step 3B
+  candidate-consumer regression contracts pass. These are deterministic tests,
+  not simulator or formal-route evidence.
+
+Facts established:
+
+- v015 local diagnostics have one active source: the sealed v003 candidate
+  decomposition, not Clean-global Style, a v002 fallback, or a newly computed
+  metric.
+- The composition question is recorded as a distinct deployment-stream protocol,
+  so it cannot silently alter local-K return, replay priority, PPO eligibility,
+  actor loss, or optimizer state.
+- Existing v002 evaluator APIs remain historical behavior for non-v015 inputs,
+  but are now explicit non-consumers for v015.
+
+Open boundaries:
+
+- No formal periodic evaluator is wired to the v015 report, and no real
+  full-sequence executor or composition metric has run.
+- The protocol does not prove robot timing, q29 tracking accuracy, persistent
+  artifact behavior, policy quality, checkpoint behavior, or live deployment.
+- Formal transaction metadata, grouped PPO, checkpoint/resume, runner wiring,
+  simulator, training, and live sentinel evidence remain outside this step.
+
+Next:
+
+- Stop at Step 3C. Step 4A is separately authorizable only for sealed
+  transaction metadata and the grouped candidate adapter; it must not connect
+  the formal runner, optimizer, checkpoint/resume, HSL, simulator, training,
+  or live work.
+
+## E-FI-13: Sealed Local Metadata And Grouped Candidate Adapter S1
+
+Date: 2026-07-20  
+Tier: S1 deterministic candidate-only storage/adapter connectivity  
+Authorization: user-authorized Step 4A.
+
+Implementation:
+
+- `frontres_segment_storage.py::FrontRESV015GroupedCandidateMetadata` seals
+  `transaction_id`, `policy_snapshot_id`, motion/start/Segment/source/trial,
+  scenario/hash/`x_t`, q29 provenance/source, `horizon_k`, and
+  `evidence_valid_step_count` for exactly one Repair policy row per attempt.
+  One source may contain M attempts, but all must share the same local scenario
+  identity and have unique trial indices.
+- `build_frontres_v015_gain_return_evidence()` derives the evidence-step count
+  from the Repair branch's actual frozen-GMT survival count and rejects a
+  non-integer, negative, or over-K count.
+- `build_frontres_v015_grouped_candidate_storage()` binds sealed Step 3B
+  evidence to the metadata-bearing one-row storage object. The live-probe
+  connector then creates a `FrontRESSegmentPPOBatch` only through
+  `to_grouped_ppo_candidate_batch()`; it invokes no loss, backward, or update.
+- `to_ppo_batch()` rejects v015 metadata rather than silently dropping it;
+  `to_grouped_ppo_candidate_batch()` rejects legacy fixed-tape metadata,
+  incomplete row sets, mixed local identities, and duplicate source/trial rows.
+
+Command evidence:
+
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/tests/frontres_v015_grouped_candidate_adapter_contract.py source/rsl_rl/rsl_rl/tests/frontres_segment_grouped_ppo_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_grouped_candidate_adapter_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_grouped_ppo_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_gain_consumer_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_evaluation_isolation_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_storage_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py
+
+Observed output:
+
+- `[T-schema/T-row/T-metadata/T-legacy-reject]` proves a sealed v003 carrier
+  becomes one `[B,6]` Repair-row candidate batch with scenario/hash/`x_t`/q29/
+  K/evidence identity, while the legacy adapter rejects it.
+- `[T-permute/T-scale/T-k-isolation/T-fail-closed]` proves row permutation and
+  changed K evidence metadata leave grouped actor mass unchanged; a partial
+  transaction fails before reduction.
+- The existing grouped-PPO contract re-proves equal motion -> Segment -> attempt
+  mass with v015 metadata, sign-preserving scale, and no sampling/replay loss
+  multiplier. Step 3B/3C, generic storage, and legacy fixed-tape isolation
+  regressions pass.
+
+Facts established:
+
+- `noisy_segment_hash` is now carried by active candidate metadata as the sealed
+  local-scenario identity; no Step 4A path treats it as a whole Noisy K tape.
+- K and actual evidence-step count are retained separately from policy rows and
+  are not read by the grouped reduction as actor-loss weights.
+- The old fixed-tape/S1b transaction object may remain for historical reset
+  tests, but it is an explicit non-consumer of the active v015 candidate adapter.
+
+Open boundaries:
+
+- No formal `on_policy_runner` caller selects this adapter, no real frozen
+  policy transaction collects all M attempts, and no optimizer step has run.
+- No checkpoint/resume identity, sampler-state mutation, simulator timing,
+  training, real evaluator, or live deployment evidence is established.
+- The live-sampler regression uses only fake callbacks and temporary fake
+  checkpoint identifiers; it is not checkpoint/resume or optimizer evidence.
+
+Next:
+
+- Stop at Step 4A. Step 4B is separately authorizable only for formal route
+  connection and exact-one update proof; it must not change grouped mathematics,
+  HSL, checkpoint/resume, simulator, training, or live work.
+
+## E-FI-14: Step 4B Fake Formal Transaction And Exact-One Update S2
+
+Date: 2026-07-20  
+Tier: CPU-only fake S2 formal-connectivity evidence  
+Authorization: user-authorized Step 4B extension limited to sealed transaction
+-> grouped PPO -> exact-one update. No simulator, real training/live run,
+checkpoint/resume, HSL change, or grouped-formula change.
+
+TDD evidence:
+
+- The new `frontres_v015_transaction_route_contract.py` was first run before
+  implementation and failed at the required missing owner:
+  `AttributeError: ... has no attribute FrontRESV015FormalTransactionPlan`.
+  This established that the test required a new v015 transaction owner rather
+  than silently exercising the historical S1b accumulator.
+- The first regression run exposed two unrelated legacy static-test stub import
+  failures. Root cause: the new v015 symbols were imported eagerly by modules
+  that historical tests load with minimal legacy stubs. The fix made the q29
+  route predicate local to the probe and deferred the new probe import until the
+  explicit fake-S2 dispatcher is called. The same legacy contracts then passed.
+
+Implementation:
+
+- `frontres_segment_live_sampler.py::FrontRESV015FormalTransactionPlan` seals
+  one frozen policy snapshot and every expected `(source_index, trial_index)`
+  row. It requires at least two selected sources and two contiguous policy
+  attempts per source, preserving motion/start/Segment/scenario/hash/`x_t`/K
+  identity and deployment-q29 provenance.
+- `FrontRESV015FormalTransactionAccumulator` accepts only grouped-candidate
+  adapter shards, rejects duplicate/foreign/mixed/partial rows, observes an
+  explicit optimizer counter during collection, canonicalizes the completed
+  candidate batch, and leaves optimizer ownership downstream.
+- `on_policy_runner.py` exposes an opt-in public fake-S2 connector; its dedicated
+  update-loop requires an injected provider and verifies no optimizer step before
+  or during provider collection. `frontres_segment_live_probe.py` then applies
+  unchanged v003 grouped PPO once and requires exactly one counter increment.
+- The v015 live observation route now chooses deployment-q29 context before its
+  normalizer and does not concatenate the historical 65D fixed tape. The fake
+  formal config rejects HSL/rollout labels, nonzero supervised loss, legacy
+  warmup, non-grouped normalization, and legacy live-update dispatch flags.
+
+Command evidence:
+
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_grouped_candidate_adapter_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s2_connectivity_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_one_action_k_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_future_intent_actor_context_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py
+
+Observed output:
+
+- `[T-connect/T-order/T-exact-one-update/T-no-legacy-route/T-diagnostic]`
+  reports a sealed `2 Segment x 2 attempt` transaction, grouped v003 reduction,
+  and optimizer counter delta exactly one.
+- `[T-partial/T-warmup-isolation/T-fail-closed]` proves incomplete transactions,
+  HSL initialization, and legacy `scale_only` reject before a step.
+- `[T-q29-route]` proves the v015 actor route excludes the legacy fixed tail and
+  appends q29 before normalizer use.
+- Existing grouped-candidate, HSL q29, one-action K, future-intent layout,
+  legacy live-probe, legacy live-sampler, and stage-entrypoint contracts pass.
+
+Facts established:
+
+- The only Step 4B update owner is the fake-S2 probe function after a complete
+  sealed plan/accumulator; neither `to_ppo_batch()` nor
+  `run_frontres_segment_single_update()` is on that route.
+- A `noisy_segment_hash` together with scenario/`x_t`/q29/K identity remains
+  fixed across all attempts of each source. K/evidence-step count is metadata,
+  not additional PPO loss mass.
+- The public runner method is not called by `train.py`, `learn_frontres_segment_live`,
+  or the legacy update loop. Its provider is intentionally absent outside the
+  CPU fake test.
+
+Open boundaries:
+
+- This is not a generic formal runner, simulator/reset, checkpoint/resume,
+  sampler-state, real training, evaluator, or live-runtime proof.
+- A real actor/critic privileged-observation carrier, formal selected-scenario
+  materialization, and ordinary train-entry dispatch remain separate work; they
+  must not be inferred from the injected fake provider.
+- Step 4C persistence must version future layout and reject partial transaction
+  resume before any later live gate.
+
+Next:
+
+- Stop after Step 4B. Await explicit authorization for Step 4C only.
+
+## E-FI-15: Step 4C Future-Intent Checkpoint Identity And Transaction Atomicity S3
+
+Date: 2026-07-20  
+Tier: CPU-only deterministic fake checkpoint/resume evidence  
+Authorization: user-authorized Step 4C-S1 persistence/atomicity only. No
+grouped-PPO formula or HSL change, generic formal dispatch, simulator, real
+training, or live run.
+
+Implementation:
+
+- `frontres_checkpointing.py` is the v015 persistence owner. Its envelope
+  records `FRS-METHOD-v015`, `FRS-TRAIN-v007`, `FRS-GAIN-v003`,
+  `FRS-PPO-v003`, exact future-intent H offsets/layout, one-row grouped-loss
+  identity, and a value-sensitive q29-prefix-normalizer fingerprint.
+- Before sampler, actor, normalizer, optimizer, or iteration mutation, v015
+  resume rejects a missing/unversioned identity, old `[H,65]` payload,
+  same-width but different H offsets, incompatible normalizer mode/shape, or a
+  tampered prefix statistic. A valid prefix restore records the exact layout
+  version for the runtime normalizer. The full v015 envelope is validated before
+  the old-HSL marker guard, so a valid Stage-3 resume may retain completed-HSL
+  history without turning a legacy HSL payload into a legal input.
+- `frontres_segment_live_update_loop.py` opens `collecting` before its injected
+  provider. `frontres_segment_live_probe.py` binds the immutable plan, changes
+  it to `sealed` after all expected attempts, and publishes a receipt only
+  after the unique optimizer-step delta equals one.
+- Checkpoint save rejects `collecting`, `sealed`, and `failed` states. Resume
+  accepts only `idle` or a metadata-only committed receipt; it records the
+  receipt as history and resets the runtime barrier to `idle`, without
+  reconstructing a provider request, candidate batch, or raw local scenario.
+
+TDD correction:
+
+- The first `T-v015-hsl-history` run failed because `load_runner()` applied the
+  legacy HSL marker guard before validating the new v015 envelope. That would
+  reject a legal post-warmup Stage-3 checkpoint. The fixed order validates an
+  active v015 envelope before the legacy guard; malformed/missing envelopes
+  still fail before state mutation, and the legacy HSL reject regression passes.
+
+Command evidence:
+
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python -m py_compile source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py source/rsl_rl/rsl_rl/tests/frontres_v015_checkpoint_resume_contract.py source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_checkpoint_resume_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_transaction_route_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_future_intent_actor_context_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s1_contract.py
+    /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py
+
+Observed output:
+
+- `[T-checkpoint/T-layout/T-commit-receipt]` proves the saved payload contains
+  the exact q29 layout, prefix statistics identity, and only an exact-one
+  committed transaction receipt.
+- `[T-resume/T-legacy-reject/T-normalizer]` proves bad H/legacy/tampered
+  payloads reject before a fake sampler or model is mutated, while a valid
+  committed resume restores only normalizer layout identity and receipt history.
+- `[T-v015-hsl-history]` proves `frontres_warmup_complete=True` is accepted
+  only when the complete v015 Stage-3 envelope validates; the separate legacy
+  HSL rejection contract still passes.
+- `[T-atomicity]` proves an in-flight save produces no checkpoint and a sealed
+  resume rejects. `[T-connect/T-order/T-exact-one-update/T-checkpoint-barrier]`
+  proves the provider observes `collecting`, then the completed fake route
+  publishes a committed receipt whose optimizer delta is one.
+
+Facts established:
+
+- No v015 checkpoint contains raw Clean continuation, q29 intent, root artifact,
+  `x_t`, or candidate batch as transaction-restart state. The only persisted
+  transaction result is a narrow immutable receipt.
+- `H=(1,3)` and `H=(1,2)` remain distinct even when their q29 tail widths are
+  equal, so resume cannot silently reinterpret future offsets.
+- The old 65D and legacy HSL checkpoint boundaries remain reject-only; this step
+  does not define a new Stage-1 HSL checkpoint format. A completed-HSL marker
+  is permitted only as history inside an already validated v015 Stage-3 resume.
+
+Open boundaries:
+
+- Evidence is a semantically complete CPU fake persistence path, not proof of
+  generic `train.py` / `learn_frontres_segment_live` dispatch, real checkpoint
+  cadence, environment reset, simulator timing, real training, or live resume.
+- The legacy formal runner and persistent sampler state remain separate owners;
+  neither becomes active merely because the fake transaction can persist its
+  receipt.
+
+Next:
+
+- Stop after Step 4C. Step 5A requires separate user authorization for one
+  bounded local live identity sentinel; it must not start long training or
+  deployment-composition evaluation.
+
+## E-FI-16: Step 5A-S0 Pre-Live Formal Sentinel Connectivity S2
+
+Date: 2026-07-20  
+Tier: CPU-only deterministic pre-live connectivity evidence  
+Authorization: explicit Step 5A-S0 only. No simulator, real training, live
+transaction, checkpoint/resume change, HSL change, or grouped-PPO/Gain formula
+change.
+
+Implementation:
+
+- `scripts/rsl_rl/train.py` exposes the opt-in
+  `--frontres_v015_local_sentinel_only` entrypoint. It requires explicit ordered
+  q29 H offsets, disables HSL/warmup and generic live modes, selects
+  `grouped_scale_only`, and exits after the dedicated sentinel owner.
+- `frontres_segment_live_sampler.py::prepare_frontres_v015_local_sentinel_batch`
+  selects two distinct Segment sources, seals the complete M-attempt plan with
+  one frozen old-policy snapshot, and materializes only the split local carrier
+  `{x_t, artifact[7], intent[H+1,29], Clean C[K,65], hash}`. A legacy 65D tape
+  is rejected; a Repair-row count different from the planned complete
+  transaction fails closed.
+- `frontres_segment_live_probe.py` routes the split carrier through two-role
+  reset, q29-before-normalizer actor input, one action plus frozen GMT K capture,
+  v003 candidate adapter, the sealed grouped transaction, and the existing
+  exact-one-update owner. It records x_t/scenario/hash, artifact norm, q29
+  provenance, Clean-C length, roles, action counters, K, group mass, and update
+  delta before closing the immutable scenario lifecycle.
+
+TDD and command evidence:
+
+- The new config contract first failed before the v015 config/entrypoint owner
+  existed; the connectivity contract then first failed at missing local reset
+  attachment, local batch materialization, and sentinel request builder owners.
+- The following CPU-only contracts passed:
+
+      /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_local_sentinel_config_contract.py
+      /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_local_sentinel_connectivity_contract.py
+      /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_one_action_k_contract.py
+      /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_future_intent_actor_context_contract.py
+      /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_runner_boundary_contract.py
+      /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_probe_contract.py
+      /Users/chengyuxuan/ArtiIntComVis/MOSAIC/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_live_sampler_contract.py
+
+Facts established:
+
+- The opt-in v015 route is mutually exclusive with legacy sentinel/probe/update
+  loops and cannot use `to_ppo_batch()` or an HSL writer.
+- The local reset request carries separated artifact, deployment-q29 intent, and
+  GMT-only Clean continuation; it never carries a full fixed Noisy tape.
+- The fake route proves provider collection occurs under the transaction barrier,
+  preserves `2 Segment x 2 attempt` group mass, and causes exactly one explicit
+  optimizer counter increment only after complete candidate sealing.
+
+Open boundaries and stop condition:
+
+- This does not prove a real environment reset, actor/GMT execution, actual
+  selected M cardinality, checkpoint cadence, simulator timing, or a live
+  optimizer update. The live preflight must reject an environment whose Repair
+  rows do not equal the selected complete transaction size.
+- Stop and report on any absent identity, legacy tape, Clean actor input, later
+  FEMR action, mixed scenario/hash, partial transaction, or update delta other
+  than one.
+
+Next:
+
+- Stop at Step 5A-S0. A single bounded actual local transaction requires new
+  user confirmation after an exact command/preflight is reported.
+
+## E-FI-17: Step 5A-S1 Runtime Parameter Preflight
+
+Date: 2026-07-20  
+Tier: read-only host/artifact/config preflight; no S4 live evidence  
+Authorization: user requested Step 5A-S1 execution. The preflight may inspect
+runtime and artifact identity, but the sole simulator transaction may start
+only on a host satisfying every required boundary.
+
+Observed host facts:
+
+- `uname -srm` returned `Darwin 25.5.0 arm64`.
+- `nvidia-smi` was absent. The configured FrontRES Python reported
+  `isaaclab_spec=None`; PyTorch was present.
+- `/hdd1/cyx/AMASS_G1Segment`, `/hdd1/cyx/AMASS_G1NPZ_Final`, and
+  `/hdd1/cyx/FEMR/model/model_warmup.pt` do not exist on this host.
+- The local FEMR and MOSAIC `model_27000.pt` files are byte-identical
+  (`sha256=3efcdb50df81465a1d3cbd0edb71cc9662e1e69f65e8f2e067f845607660c426`)
+  and contain only legacy model/optimizer/normalizer keys, with no v015
+  checkpoint identity. They are not legal v015 Stage-3 resume envelopes.
+
+Code-confirmed command boundary:
+
+- The active config auto-selects `/hdd1/cyx/MOSAIC/model/model_27000.pt` as the
+  frozen GMT checkpoint on SUST_Main_2. The v015 sentinel itself must cold-start
+  a fresh FrontRES policy and omit `--resume_student_checkpoint`; the existing
+  Stage-3 launcher is legacy because it requires an HSL checkpoint.
+- A fresh sampler begins with UNKNOWN Segment state. The planner assigns one
+  attempt, then the frozen transaction clamps it to minimum M=2. Two selected
+  Segments therefore require four Repair rows plus four Noisy rows, so the
+  bounded cold-start sentinel uses `--num_envs=8`.
+- Fresh CPU contracts passed for the sampler transaction plan, v015 checkpoint
+  rejection/identity boundary, and the dedicated sentinel config entrypoint.
+
+Prepared SUST_Main_2 command (not executed on this host):
+
+    cd /hdd1/cyx/FEMR
+    python scripts/rsl_rl/train.py --task=FrontRES-Unified-Tracking-Flat-G1-v0 --num_envs=8 --motion /hdd1/cyx/AMASS_G1NPZ_Final --headless --logger tensorboard --experiment_name g1_flat_frontres_stage3_v015_sentinel --run_name V015_LOCAL_SENTINEL_ONCE --max_iterations 0 --frontres_stage stage3_segment_hrl --frontres_specialist_mode rp --frontres_segment_cache_dir /hdd1/cyx/AMASS_G1Segment --frontres_segment_shard_cache_size 8 --frontres_v015_local_sentinel_only --frontres_v015_future_offsets 1,2
+
+Stop result:
+
+- The live transaction was not started. Running on Darwin without IsaacLab,
+  GPU, GMT path, cache, or motion data would not exercise the formal route.
+- The next execution requires the current dirty v015 worktree to be synchronized
+  to SUST_Main_2 without reverting user changes. Stop immediately if the server
+  lacks any required path, selects duplicate Segments, plans a row count other
+  than four Repair attempts, emits a later FEMR action, exposes Clean actor
+  input, or reports optimizer-step delta other than one.

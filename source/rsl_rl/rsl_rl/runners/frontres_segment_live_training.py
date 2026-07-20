@@ -139,14 +139,45 @@ def _add_public_gain_component_aliases(summary: dict[str, Any]) -> None:
         )
 
 
+def _reject_v015_legacy_evaluator(runner: Any, *, evaluator: str) -> None:
+    """Reject a v015 layout before any legacy evaluator can sample or capture v002 Gain.
+
+    函数名说明:
+        `_reject_v015_legacy_evaluator` 是 legacy-evaluation isolation gate,
+        不是 v015 evaluator owner. 它只阻止 quartet/repeated-actor/v002 route
+        被误认为 local-K 或 deployment-composition v015 evidence.
+
+    主链路:
+        上游: periodic, offline, sequence legacy evaluator entry.
+        下游: fail closed; v015 只能使用 candidate diagnostic projection 或后续
+        专属 composition evaluator.
+
+    语义:
+        只按 explicit v015 future-intent layout version 判定. 没有该 version 的
+        历史 route 保持历史行为, 但不能作为 v015 active consumer.
+    """
+
+    layout = getattr(runner, "_frontres_future_intent_layout", None)
+    if isinstance(layout, Mapping):
+        version = str(layout.get("version", ""))
+    else:
+        version = str(getattr(layout, "version", ""))
+    if version.startswith("frontres-v015-future-intent-q29-"):
+        raise RuntimeError(
+            f"{evaluator} is a legacy v002/quartet evaluator and rejects v015 future-intent layouts; "
+            "use the candidate-only v015 diagnostic projection until a separately authorized evaluator route exists"
+        )
+
+
 def _capture_eval_gain_summary(capture: Any) -> tuple[Any | None, dict[str, Any]]:
     """Adapt canonical paired Gain output to the evaluation summary contract.
 
-    Status: active diagnostic adapter, not the Gain formula owner.
-    Upstream: ``frontres_gain.compute_segment_gain`` via paired capture.
-    Downstream: periodic/sequence/per-motion formatters.
-    Evidence: code-confirmed; live component freshness remains S4.
-    Gap: a fresh server run must show finite, non-stale component values.
+    Status: legacy v002 diagnostic adapter, not the Gain formula owner.
+    Upstream: ``frontres_gain.compute_segment_gain`` via quartet paired capture.
+    Downstream: legacy periodic/sequence/per-motion formatters only.
+    Evidence: code-confirmed; v015 entry points reject before reaching it.
+    Gap: v015 uses the separate candidate-only diagnostic projection until a
+    later evaluator route is explicitly authorized.
     """
     result = _capture_paired_gain(capture)
     summary: dict[str, Any] = {
@@ -191,6 +222,7 @@ def run_frontres_segment_periodic_eval(
     train_summary: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Evaluate an independently sampled segment batch without changing training sampler state."""
+    _reject_v015_legacy_evaluator(runner, evaluator="periodic evaluation")
     sampler = getattr(runner, "_frontres_segment_sampler", None)
     if sampler is None:
         raise RuntimeError("periodic eval requires initialized FrontRES Segment sampler")
@@ -265,6 +297,7 @@ def run_frontres_segment_offline_eval(
     num_eval_segments: int,
     rollout_steps: int,
 ) -> dict[str, Any]:
+    _reject_v015_legacy_evaluator(runner, evaluator="offline evaluation")
     sampler = getattr(runner, "_frontres_segment_sampler", None)
     if sampler is None:
         raise RuntimeError("offline eval requires initialized FrontRES Segment sampler")
@@ -316,6 +349,7 @@ def run_frontres_segment_sequence_offline_eval(
     max_preroll_steps: int | None = None,
     sampler_seed: int | None = None,
 ) -> dict[str, Any]:
+    _reject_v015_legacy_evaluator(runner, evaluator="sequence evaluation")
     sampler = getattr(runner, "_frontres_segment_sampler", None)
     if sampler is None:
         raise RuntimeError("sequence offline eval requires initialized FrontRES Segment sampler")

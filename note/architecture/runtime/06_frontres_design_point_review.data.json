@@ -1,0 +1,98 @@
+{
+  "title": "FrontRES 设计问题与设计点",
+  "layout": "design_point_table",
+  "groups": [
+    {
+      "parent": "Perturbation Data",
+      "rows": [
+        {"question": "四个 perturbation family 如何划分？", "point": "planar(xy)、yaw、global_z(z)、local_rp(tilt) 覆盖 root/world-frame artifact 的四个低维主方向"},
+        {"question": "每个 family 各自制造什么 artifact？", "point": "planar 为 xy drift，yaw 为 heading jitter，global_z 为 float/sink，local_rp 为 root tilt"},
+        {"question": "vertical repair 的硬约束是什么？", "point": "禁止向上 dz 修复；根部上抬会制造动力学不连续，不能作为通用补偿"}
+      ]
+    },
+    {
+      "parent": "Perturbation Probing",
+      "rows": [
+        {"question": "Probing 本身要回答什么？", "point": "针对当前唯一启用的 local_rp，以 Frozen GMT 探测从 safe 到 broken 的强度边界，得到这一单类扰动的 executable frontier"},
+        {"question": "Curriculum 如何由 Probing 决定？", "point": "以已确认 frontier 作为 local_rp 强度采样的锚点；训练只调整这一类扰动的强度分布，不推进到 two、three 或 full 的多类组合"},
+        {"question": "四个 Block 如何分类？", "point": "以 frontier 为基准划分 low、mid、frontier、hard 四个强度 Block，分别覆盖其下、附近与其上方的难度区间"}
+      ]
+    },
+    {
+      "parent": "Segment Replay",
+      "rows": [
+        {"question": "Segment Replay 要解决的根本问题是什么？", "point": "把一个局部扰动时刻变成可反复试验的因果问题：比较不同修复动作的后果，而不是比较不同动作片段或不同扰动"},
+        {"question": "每个动作片段在哪里施加扰动？", "point": "只在 Segment 首帧 t 施加当前 root artifact；后续 K 步不再注入新扰动，GMT 在同一 Clean continuation 上观察首帧修复的后果"},
+        {"question": "为什么每次都从 Clean x_t reset？", "point": "Clean x_t 只固定可重复的动力学起点，使多次试验可比；它从不作为 actor 的 Clean reference"},
+        {"question": "M 次尝试如何只比较修复动作？", "point": "同一 x_t、首帧 artifact、future intent、Clean continuation、K 与冻结旧策略保持不变；M 次只改变 policy 采样出的首帧 full-6D 修复动作"},
+        {"question": "Probing 与 M 次尝试期间何时允许 PPO 更新？", "point": "均不允许更新 PPO；每个 selected Segment 的 M 次尝试必须先完整收集，不能让早期尝试改变后续尝试的策略"},
+        {"question": "何时才允许 PPO 学习这些尝试？", "point": "只有全部 selected Segment 的 M 次证据聚合为完整 transaction 后，才进行一次 PPO update；M 用于寻找和比较更优修复，而非让单次偶然结果立刻改写策略"}
+      ]
+    },
+    {
+      "parent": "Future Motion Context",
+      "rows": [
+        {"question": "未来窗口到底观测什么？", "point": "I[t:t+H] 是从 Noisy/deployment frames 得到的有序 29DoF 内部运动学姿态"},
+        {"question": "q29 如何保证来自正确的参考 carrier？", "point": "由唯一的 q29 提取边界从同一 Noisy/deployment carrier 读取，不能重新采样或变异"},
+        {"question": "q29 数值与 Clean calibration 相等时意味着什么？", "point": "这是 root-only perturbation 的 offline invariant，不授权 actor 读取 Clean provenance"},
+        {"question": "actor 绝不能从未来窗口看到什么？", "point": "future root/global、Clean future、noise label 与 perturbation timing 都被排除"},
+        {"question": "H 与 K 的职责如何分开？", "point": "H 提供 actor 的短期方向消歧；K 提供 GMT 的 Clean executable-evidence horizon"}
+      ]
+    },
+    {
+      "parent": "HSL Warmup",
+      "rows": [
+        {"question": "HSL 在 Stage-1 学什么？", "point": "只用当前-frame anti-DR oracle 初始化 6D proposal direction"},
+        {"question": "HSL 的 actor 输入采用什么信息？", "point": "当前 Noisy root artifact 与 future deployment/Noisy q29 intent，不输入 Clean future"},
+        {"question": "HSL 能否继续定义 Stage-3 目标？", "point": "不能；legacy quartet/Clean-global label、supervised write 与非零 Stage-3 supervised loss 均被拒绝"}
+      ]
+    },
+    {
+      "parent": "FrontRES 6D Repair",
+      "rows": [
+        {"question": "FrontRES 在何时输出什么？", "point": "每个 attempt 只在 t 输出一条 full-6D Delta SE(3) 修复动作"},
+        {"question": "K 内还能产生新的 FrontRES 动作吗？", "point": "不能；首个动作后 FEMR 冻结，后续 K 步只观察其 GMT 可执行后果"}
+      ]
+    },
+    {
+      "parent": "Frozen GMT",
+      "rows": [
+        {"question": "修复后的参考由谁执行？", "point": "Frozen GMT 是唯一执行器；FrontRES 不学习或替代一个新的 tracker"},
+        {"question": "Clean continuation 的允许用途是什么？", "point": "C[t+1:t+K] 只供 GMT 在首帧动作之后执行，绝不回流为 actor future context"}
+      ]
+    },
+    {
+      "parent": "K-step Curriculum",
+      "rows": [
+        {"question": "K 在 policy 语义中代表什么？", "point": "每个 attempt 只有一条 PPO policy/action row；K 只是 executable-evidence horizon"},
+        {"question": "K 的增长如何改变方法？", "point": "只逐步延长首帧修复的延迟后果评估，不把 K 变成额外 actor future frames 或 PPO rows"}
+      ]
+    },
+    {
+      "parent": "Paired Rollouts",
+      "rows": [
+        {"question": "应比较哪些因果角色？", "point": "只有 Noisy baseline 与 Repair 两个 scored roles，二者从同一 Clean x_t 和同一 sealed scenario 出发"},
+        {"question": "两个角色之间唯一允许的差异是什么？", "point": "Repair role 在 t 接收 FrontRES 的 6D 动作；其余 scenario identity 与执行证据必须配对"}
+      ]
+    },
+    {
+      "parent": "Repair Gain",
+      "rows": [
+        {"question": "Repair Gain 总体奖励什么？", "point": "只奖励既保持原动作意图、又提升 GMT 可执行性的修复，并扣除不必要的 full-6D 改动"},
+        {"question": "Style Gain 衡量什么？", "point": "比较 Repair 与 Noisy 对同一 29DoF 内部运动意图的实现质量；它不以 root/global 轨迹或 Clean 全局运动作为 actor target"},
+        {"question": "Physical Gain 衡量什么？", "point": "比较 Frozen GMT 在 Repair 与 Noisy 下的可执行性改善，包括平衡、存活、支撑与接触质量"},
+        {"question": "Repair Cost 为什么需要？", "point": "约束 full-6D 修复的幅值与突变，防止用过大或不连续的补偿换取短期收益"},
+        {"question": "三项如何合成？", "point": "总 Gain 按权重合成 Style Gain + Physical Gain − Repair Cost；有效修复必须同时符合动作意图与物理可执行性"}
+      ]
+    },
+    {
+      "parent": "Actor & Critic Warmup",
+      "rows": [
+        {"question": "为什么不能一进入 Stage-3 就让 actor 完全接管？", "point": "HSL 只提供初始 proposal；critic 尚未学到 paired executable return 时，立即施加完整 PPO actor gradient 会冲掉这一初始化"},
+        {"question": "Critic Warmup Curriculum 如何分段？", "point": "依次经历 critic-only、actor-warmup、joint：critic 始终学习，actor 的 PPO loss weight 则从 0 平滑升至 1"},
+        {"question": "Actor takeover 如何发生？", "point": "actor 从 HSL 初始化参数出发，随 PPO actor weight 增大逐步由 executable Gain 的策略梯度接管，而非突然切换或继续依赖 HSL target"},
+        {"question": "完成 takeover 后的联合训练是什么？", "point": "进入 joint PPO 后，actor 与 critic 共同使用同一 paired executable evidence；HSL 不再向 Stage-3 提供监督目标"}
+      ]
+    }
+  ]
+}

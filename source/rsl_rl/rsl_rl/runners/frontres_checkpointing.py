@@ -6,16 +6,21 @@ thin wrappers so training loops and external scripts keep the same API.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import importlib.util
 import os
 from pathlib import Path
 import shutil
+from typing import Any, Mapping
 
 import torch
 
 from rsl_rl.modules import FrontRESActorCritic, ResidualActorCritic
 from rsl_rl.modules.frontres_observation_layout import (
+    FRONTRES_FUTURE_INTENT_DIM,
+    FRONTRES_FUTURE_INTENT_LAYOUT_VERSION,
+    FrontRESFutureIntentLayout,
     compose_frontres_obs_norm_state,
     extract_frontres_extra_norm_stats,
     frontres_extra_norm_stats_for_save,
@@ -42,6 +47,300 @@ _FRONTRES_GAIN_CONFIG_FIELDS = (
     ("repair_norm_scale", "frontres_gain_repair_norm_scale", 1.0),
     ("repair_temporal_scale", "frontres_gain_repair_temporal_scale", 1.0),
 )
+
+_V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
+_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v1"
+_V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
+_V015_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
+_V015_LAST_RECEIPT_ATTR = "_frontres_v015_last_committed_transaction_receipt"
+
+
+def _v015_tensor_fingerprint(*values: torch.Tensor) -> str:
+    """返回 detached checkpoint tensor 的值敏感 identity."""
+
+    digest = hashlib.sha256()
+    for value in values:
+        if not isinstance(value, torch.Tensor):
+            raise TypeError("v015 checkpoint normalizer identity requires tensors")
+        cpu = value.detach().to(device="cpu").contiguous()
+        digest.update(str(tuple(cpu.shape)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(cpu.dtype).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(cpu.numpy().tobytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _uses_v015_formal_checkpoint_identity(runner: Any) -> bool:
+    """判断 runner 是否处于已确认的 v015 formal persistence route."""
+
+    layout = getattr(runner, "_frontres_future_intent_layout", None)
+    alg = getattr(runner, "alg", None)
+    return isinstance(layout, FrontRESFutureIntentLayout) and bool(
+        getattr(alg, "frontres_v015_formal_transaction_enabled", False)
+    )
+
+
+def _v015_checkpoint_layout_fields(runner: Any) -> dict[str, int | str | tuple[int, ...]]:
+    """在 persistence 或 restore 前读取精确 q29 actor/prefix shape."""
+
+    layout = getattr(runner, "_frontres_future_intent_layout", None)
+    if not isinstance(layout, FrontRESFutureIntentLayout):
+        raise RuntimeError("v015 checkpoint identity requires FrontRESFutureIntentLayout")
+    layout.validate()
+    if layout.version != FRONTRES_FUTURE_INTENT_LAYOUT_VERSION:
+        raise RuntimeError("v015 checkpoint identity has an incompatible future-intent layout version")
+    policy = getattr(getattr(runner, "alg", None), "policy", None)
+    actor_dim = getattr(policy, "num_actor_obs", None)
+    prefix_dim = getattr(policy, "num_frontres_obs", None)
+    gmt_dim = getattr(runner, "_frontres_gmt_obs_dim", None)
+    if actor_dim is None or prefix_dim is None or gmt_dim is None:
+        raise RuntimeError("v015 checkpoint identity requires actor, prefix, and GMT observation dimensions")
+    actor_dim = int(actor_dim)
+    prefix_dim = int(prefix_dim)
+    gmt_dim = int(gmt_dim)
+    if (
+        actor_dim <= 0
+        or prefix_dim < layout.actor_tail_dim
+        or gmt_dim <= 0
+        or actor_dim != prefix_dim + gmt_dim
+    ):
+        raise RuntimeError(
+            "v015 checkpoint actor layout is inconsistent: "
+            f"actor={actor_dim} prefix={prefix_dim} gmt={gmt_dim} tail={layout.actor_tail_dim}"
+        )
+    configured_tail = int(getattr(runner, "_frontres_future_intent_actor_context_dim", 0) or 0)
+    if configured_tail != layout.actor_tail_dim:
+        raise RuntimeError(
+            "v015 checkpoint actor tail disagrees with its resolved layout: "
+            f"configured={configured_tail} layout={layout.actor_tail_dim}"
+        )
+    return {
+        "layout_version": layout.version,
+        "future_offsets": tuple(int(value) for value in layout.future_offsets),
+        "intent_dim": FRONTRES_FUTURE_INTENT_DIM,
+        "actor_tail_dim": layout.actor_tail_dim,
+        "actor_dim": actor_dim,
+        "prefix_dim": prefix_dim,
+        "gmt_dim": gmt_dim,
+    }
+
+
+def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, Any]:
+    """校验可跨越 v015 checkpoint boundary 的 metadata-only receipt."""
+
+    if str(state.get("state", "")) != "committed":
+        raise RuntimeError("v015 checkpoint transaction must be idle or committed")
+    receipt = state.get("receipt")
+    if not isinstance(receipt, Mapping):
+        raise RuntimeError("v015 committed checkpoint transaction requires a receipt")
+    required = (
+        "transaction_id",
+        "policy_snapshot_id",
+        "plan_identity_hash",
+        "scenario_identity_hash",
+        "expected_policy_row_count",
+        "collected_policy_attempt_count",
+        "valid_policy_row_count",
+        "optimizer_step_before",
+        "optimizer_step_after",
+        "optimizer_step_delta",
+    )
+    if set(receipt) != set(required):
+        raise RuntimeError("v015 committed checkpoint receipt has an unexpected field set")
+    result = {name: receipt[name] for name in required}
+    for name in ("transaction_id", "policy_snapshot_id", "plan_identity_hash", "scenario_identity_hash"):
+        if not isinstance(result[name], str) or not result[name]:
+            raise RuntimeError(f"v015 committed checkpoint receipt has invalid {name}")
+    for name in (
+        "expected_policy_row_count",
+        "collected_policy_attempt_count",
+        "valid_policy_row_count",
+        "optimizer_step_before",
+        "optimizer_step_after",
+        "optimizer_step_delta",
+    ):
+        result[name] = int(result[name])
+    if (
+        result["expected_policy_row_count"] <= 0
+        or result["collected_policy_attempt_count"] != result["expected_policy_row_count"]
+        or result["valid_policy_row_count"] <= 0
+        or result["valid_policy_row_count"] > result["collected_policy_attempt_count"]
+        or result["optimizer_step_delta"] != 1
+        or result["optimizer_step_after"] != result["optimizer_step_before"] + 1
+    ):
+        raise RuntimeError("v015 committed checkpoint receipt is not an exact-one completed transaction")
+    return result
+
+
+def _v015_transaction_checkpoint_payload(runner: Any) -> dict[str, Any]:
+    """拒绝 in-flight work, 不序列化 partial candidate batch 或 reference."""
+
+    state = getattr(runner, _V015_TRANSACTION_STATE_ATTR, None)
+    if state is None:
+        return {"state": "idle"}
+    if not isinstance(state, Mapping):
+        raise RuntimeError("v015 checkpoint transaction state must be a mapping")
+    phase = str(state.get("state", ""))
+    if phase == "idle":
+        return {"state": "idle"}
+    if phase == "committed":
+        return {"state": "committed", "receipt": _v015_committed_transaction_receipt(state)}
+    if phase in {"collecting", "sealed", "failed"}:
+        raise RuntimeError(
+            "v015 checkpoint save rejects an in-flight formal transaction; "
+            f"state={phase}"
+        )
+    raise RuntimeError(f"v015 checkpoint transaction has unknown state={phase!r}")
+
+
+def _build_v015_checkpoint_identity(
+    runner: Any,
+    *,
+    obs_norm_state: Mapping[str, Any] | None,
+    extra_mean: torch.Tensor | None,
+    extra_std: torch.Tensor | None,
+) -> dict[str, Any]:
+    """从 active runner state 构造唯一允许的 v015 persistence identity."""
+
+    fields = _v015_checkpoint_layout_fields(runner)
+    alg = getattr(runner, "alg", None)
+    normalization_enabled = bool(getattr(runner, "empirical_normalization", False))
+    if str(getattr(alg, "frontres_segment_advantage_normalization", "")) != "grouped_scale_only":
+        raise RuntimeError("v015 checkpoint identity requires grouped_scale_only reduction")
+    if str(getattr(alg, "frontres_training_objective", "")) != "segment_replay_hrl":
+        raise RuntimeError("v015 checkpoint identity requires the segment_replay_hrl objective")
+    if normalization_enabled:
+        if not isinstance(extra_mean, torch.Tensor) or not isinstance(extra_std, torch.Tensor):
+            raise RuntimeError("v015 checkpoint identity requires exact q29-prefix normalizer statistics")
+        if int(extra_mean.shape[-1]) != fields["prefix_dim"] or int(extra_std.shape[-1]) != fields["prefix_dim"]:
+            raise RuntimeError("v015 checkpoint prefix normalizer shape disagrees with the actor layout")
+        if not isinstance(obs_norm_state, Mapping):
+            raise RuntimeError("v015 checkpoint identity requires persisted observation normalizer state")
+        norm_mean = obs_norm_state.get("_mean")
+        norm_std = obs_norm_state.get("_std")
+        expected_dim = int(fields["prefix_dim"]) + int(fields["gmt_dim"])
+        if (
+            not isinstance(norm_mean, torch.Tensor)
+            or not isinstance(norm_std, torch.Tensor)
+            or int(norm_mean.shape[-1]) != expected_dim
+            or int(norm_std.shape[-1]) != expected_dim
+        ):
+            raise RuntimeError("v015 checkpoint combined normalizer state has an incompatible layout")
+        normalizer = {
+            "mode": "empirical_prefix_plus_frozen_gmt",
+            "prefix_layout_version": fields["layout_version"],
+            "prefix_dim": int(fields["prefix_dim"]),
+            "combined_dim": expected_dim,
+            "prefix_stats_fingerprint": _v015_tensor_fingerprint(extra_mean, extra_std),
+        }
+    else:
+        normalizer = {
+            "mode": "disabled",
+            "prefix_layout_version": fields["layout_version"],
+            "prefix_dim": int(fields["prefix_dim"]),
+            "combined_dim": None,
+            "prefix_stats_fingerprint": None,
+        }
+    return {
+        "format": _V015_CHECKPOINT_FORMAT,
+        "method_contract_id": "FRS-METHOD-v015",
+        "training_contract_id": "FRS-TRAIN-v007",
+        "gain_contract_id": "FRS-GAIN-v003",
+        "ppo_contract_id": "FRS-PPO-v003",
+        "future_intent_layout": fields,
+        "normalizer": normalizer,
+        "grouped_loss": {
+            "advantage_normalization": "grouped_scale_only",
+            "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
+            "policy_rows_per_attempt": 1,
+        },
+        "transaction": _v015_transaction_checkpoint_payload(runner),
+    }
+
+
+def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any]) -> dict[str, Any] | None:
+    """在 sampler/actor/normalizer/optimizer restore 前校验 v015 identity."""
+
+    if not _uses_v015_formal_checkpoint_identity(runner):
+        return None
+    identity = checkpoint.get(_V015_CHECKPOINT_IDENTITY_KEY)
+    if not isinstance(identity, Mapping):
+        raise RuntimeError(
+            "v015 formal resume requires frontres_v015_checkpoint_identity; "
+            "legacy or unversioned checkpoints are forbidden"
+        )
+    if (
+        identity.get("format") != _V015_CHECKPOINT_FORMAT
+        or identity.get("method_contract_id") != "FRS-METHOD-v015"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v007"
+        or identity.get("gain_contract_id") != "FRS-GAIN-v003"
+        or identity.get("ppo_contract_id") != "FRS-PPO-v003"
+    ):
+        raise RuntimeError("v015 checkpoint has an incompatible contract or format identity")
+    fields = _v015_checkpoint_layout_fields(runner)
+    if identity.get("future_intent_layout") != fields:
+        raise RuntimeError(
+            "v015 checkpoint future-intent layout mismatch; refusing to reinterpret actor prefix or H offsets"
+        )
+    grouped = identity.get("grouped_loss")
+    if grouped != {
+        "advantage_normalization": "grouped_scale_only",
+        "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
+        "policy_rows_per_attempt": 1,
+    }:
+        raise RuntimeError("v015 checkpoint has an incompatible grouped-loss identity")
+    normalizer = identity.get("normalizer")
+    if not isinstance(normalizer, Mapping):
+        raise RuntimeError("v015 checkpoint has no normalizer identity")
+    normalization_enabled = bool(getattr(runner, "empirical_normalization", False))
+    if normalizer.get("prefix_layout_version") != fields["layout_version"] or int(
+        normalizer.get("prefix_dim", -1)
+    ) != int(fields["prefix_dim"]):
+        raise RuntimeError("v015 checkpoint prefix normalizer layout mismatch")
+    if normalization_enabled:
+        expected_combined_dim = int(fields["prefix_dim"]) + int(fields["gmt_dim"])
+        if (
+            normalizer.get("mode") != "empirical_prefix_plus_frozen_gmt"
+            or int(normalizer.get("combined_dim", -1)) != expected_combined_dim
+            or not isinstance(normalizer.get("prefix_stats_fingerprint"), str)
+        ):
+            raise RuntimeError("v015 checkpoint normalizer identity is incompatible or unversioned")
+        state = checkpoint.get("obs_norm_state_dict")
+        if not isinstance(state, Mapping):
+            raise RuntimeError("v015 checkpoint is missing observation normalizer state")
+        mean = state.get("_mean")
+        std = state.get("_std")
+        if (
+            not isinstance(mean, torch.Tensor)
+            or not isinstance(std, torch.Tensor)
+            or int(mean.shape[-1]) != expected_combined_dim
+            or int(std.shape[-1]) != expected_combined_dim
+        ):
+            raise RuntimeError("v015 checkpoint rejects legacy or incompatible normalizer statistics")
+        prefix_dim = int(fields["prefix_dim"])
+        observed_fingerprint = _v015_tensor_fingerprint(mean[..., :prefix_dim], std[..., :prefix_dim])
+        if observed_fingerprint != normalizer.get("prefix_stats_fingerprint"):
+            raise RuntimeError("v015 checkpoint prefix normalizer statistics do not match their identity")
+    elif normalizer.get("mode") != "disabled" or normalizer.get("prefix_stats_fingerprint") is not None:
+        raise RuntimeError("v015 checkpoint normalizer mode changed across resume")
+    transaction = identity.get("transaction")
+    if not isinstance(transaction, Mapping):
+        raise RuntimeError("v015 checkpoint has no transaction atomicity identity")
+    state = str(transaction.get("state", ""))
+    if state == "idle" and set(transaction) == {"state"}:
+        result = dict(identity)
+        result["transaction"] = {"state": "idle"}
+        return result
+    if state == "committed" and set(transaction) == {"state", "receipt"}:
+        result = dict(identity)
+        result["transaction"] = {
+            "state": "committed",
+            "receipt": _v015_committed_transaction_receipt(transaction),
+        }
+        return result
+    raise RuntimeError("v015 checkpoint resume rejects partial, failed, or malformed transactions")
 
 
 def _frontres_gain_config_payload(cfg) -> dict[str, object]:
@@ -83,6 +382,27 @@ def _validate_frontres_gain_config_resume(runner, checkpoint, *, is_full_resume:
             f"checkpoint={checkpoint_config!r} current={expected!r}"
         )
     print("[Runner] Verified FRS-GAIN-v002 config identity on checkpoint resume.", flush=True)
+
+
+def reject_legacy_frontres_hsl_checkpoint(runner, checkpoint: dict) -> None:
+    """Reject a legacy Stage-1 HSL payload before any v015 state restoration.
+
+    Status: active reject-only boundary. A v015 q29 actor layout has no accepted
+    HSL checkpoint identity yet, so a checkpoint marked as legacy warmup cannot
+    become a direct initialization or resume input.
+    """
+
+    layout = getattr(runner, "_frontres_future_intent_layout", None)
+    context_dim = int(getattr(runner, "_frontres_future_intent_actor_context_dim", 0) or 0)
+    if layout is None and context_dim <= 0:
+        return
+    if not isinstance(checkpoint, dict):
+        raise RuntimeError("v015 checkpoint payload must be a mapping before HSL identity validation")
+    if bool(checkpoint.get("frontres_warmup_complete", False)):
+        raise RuntimeError(
+            "FRS-TRAIN-v007 rejects a legacy HSL warmup checkpoint on the v015 q29 actor layout; "
+            "a separately authorized persistence step must define a new checkpoint identity"
+        )
 
 
 # Full-resume diagnostic helper; uncomment with the probe prints below when needed.
@@ -248,6 +568,12 @@ def save_runner(self, path: str, infos=None):
     语义:
         Stage 2 -> Stage 3 必须保存同一个 full-6D actor 和 FrontRES prefix stats.
         Resume-only optimizer/sampler state 也必须与 iteration identity 同源.
+
+    Status:
+        v015 branch 是 CPU fake-S3 persistence owner. 上游是显式 fake formal
+        transaction barrier, 下游是 `load_runner` 的 pre-mutation validation.
+        Evidence 是 code-confirmed 和 contract-confirmed; generic checkpoint
+        cadence, simulator, training, 和 live resume 尚未验证.
     """
     # B1: 汇总 policy, optimizer, iteration 和 active Stage 3 owner state.
     # Check if using ResidualActorCritic (special handling)
@@ -322,6 +648,11 @@ def save_runner(self, path: str, infos=None):
         saved_dict["rnd_state_dict"] = self.alg.rnd.state_dict()
         saved_dict["rnd_optimizer_state_dict"] = self.alg.rnd_optimizer.state_dict()
     
+    # B2: 先保存 normalizer, 再从其精确 state 构造 v015 identity.
+    obs_norm_state = None
+    extra_mean = None
+    extra_std = None
+
     # -- Save observation normalizer if used
     if self.empirical_normalization:
         extra_mean, extra_std = frontres_extra_norm_stats_for_save(
@@ -341,6 +672,15 @@ def save_runner(self, path: str, infos=None):
         if self.training_type == "mosaic" and hasattr(self, 'teacher_obs_normalizer'):
             if not isinstance(self.teacher_obs_normalizer, torch.nn.Identity):
                 saved_dict["teacher_obs_norm_state_dict"] = self.teacher_obs_normalizer.state_dict()
+
+    # B3: v015 不做 compatibility conversion, 仅保存精确 layout/normalizer identity 和 completed-or-idle receipt.
+    if _uses_v015_formal_checkpoint_identity(self):
+        saved_dict[_V015_CHECKPOINT_IDENTITY_KEY] = _build_v015_checkpoint_identity(
+            self,
+            obs_norm_state=obs_norm_state,
+            extra_mean=extra_mean,
+            extra_std=extra_std,
+        )
 
     # Full-resume diagnostic probe; uncomment when checking checkpoint payloads.
     # print(
@@ -381,12 +721,22 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     语义:
         checkpoint identity 决定哪些状态允许恢复. Actor head 和 prefix stats
         不能漏载或错载, resume 状态也不能污染 Stage 2 -> Stage 3 cold start.
+
+    Status:
+        v015 branch 只恢复 exact layout/normalizer identity 和 committed receipt
+        history. 它不重建 partial request 或 candidate batch. Evidence 是
+        code-confirmed 和 contract-confirmed; generic/live resume 尚未验证.
     """
-    # B1: 映射 HSL actor/normalizer 前先读取 checkpoint identity.
+    # B1: mutable restore 前先验证 v015 envelope. 只有没有 active v015 identity
+    # 的 payload 才能进入 legacy HSL reject boundary, 避免把新 Stage-3 history
+    # 误判为旧 HSL checkpoint.
     configure_formal_runtime_probe(
         bool(getattr(getattr(self, "alg", None), "frontres_formal_runtime_audit", False))
     )
     loaded_dict = torch.load(path, weights_only=False)
+    v015_resume_identity = _validate_v015_checkpoint_resume(self, loaded_dict)
+    if v015_resume_identity is None:
+        reject_legacy_frontres_hsl_checkpoint(self, loaded_dict)
     # B2: 从同一 payload 恢复 sampler, actor, normalizer, optimizer, Gain 和 warmup identity.
     self._frontres_last_loaded_checkpoint_path = os.path.abspath(path)
     segment_sampler = getattr(self, "_frontres_segment_sampler", None)
@@ -417,7 +767,14 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
     if not is_full_resume:
         load_optimizer = False   # 权重迁移模式：强制跳过优化器，从零初始化 Adam
         load_critic = self._frontres_warmup_complete
-    _validate_frontres_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
+    if v015_resume_identity is None:
+        _validate_frontres_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
+    else:
+        print(
+            "[Runner] Verified FRS-GAIN-v003 through the v015 checkpoint identity; "
+            "legacy FRS-GAIN-v002 checkpoint metadata is not the active v015 owner.",
+            flush=True,
+        )
     # Full-resume diagnostic probe; uncomment when checking checkpoint reloads.
     # print(
     #     "[FrontRES Resume Probe] "
@@ -490,11 +847,16 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
                 extra_stats = extract_frontres_extra_norm_stats(_s1_sd, obs_dim, gmt_dim, self.device)
                 if extra_stats is not None:
                     self._frontres_extra_mean, self._frontres_extra_std = extra_stats
+                    if v015_resume_identity is not None:
+                        self._frontres_extra_stats_layout_version = str(
+                            v015_resume_identity["future_intent_layout"]["layout_version"]
+                        )
                     print(f"[Runner] Loaded FrontRES prefix normalizer stats "
-                          f"(dims 0–{self._frontres_extra_mean.shape[-1]}) for FrontRES task-space.")
+                           f"(dims 0–{self._frontres_extra_mean.shape[-1]}) for FrontRES task-space.")
                 else:
                     self._frontres_extra_mean = None
                     self._frontres_extra_std = None
+                    self._frontres_extra_stats_layout_version = None
                     print("[Runner] Checkpoint has no compatible FrontRES prefix "
                           "normalizer stats; FrontRES prefix dims pass through unnormalized.")
 
@@ -622,6 +984,15 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         # )
 
     # ── 噪声 std 控制 ──────────────────────────────────────────────────────────
+    # B4: committed receipt 仅是 diagnostic history, resume 后绝不重建旧 request/candidate batch/partial transaction.
+    if v015_resume_identity is not None:
+        transaction = v015_resume_identity["transaction"]
+        if transaction["state"] == "committed":
+            setattr(self, _V015_LAST_RECEIPT_ATTR, dict(transaction["receipt"]))
+        elif hasattr(self, _V015_LAST_RECEIPT_ATTR):
+            delattr(self, _V015_LAST_RECEIPT_ATTR)
+        setattr(self, _V015_TRANSACTION_STATE_ATTR, {"state": "idle"})
+
     # is_full_resume=True:  保留 checkpoint 中已自然适应的 std（断点续训）
     # is_full_resume=False: 重置为 init_noise_std（Stage1→Stage2 冷启动）
     # 向后兼容：若 cfg 中显式设置了 reset_noise_std_on_resume，以其为准。

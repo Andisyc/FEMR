@@ -1,11 +1,15 @@
 contract_id: FRS-TRAIN-v003
-status: active
+status: superseded
 effective_date: 2026-07-14
-updated_date: 2026-07-14
+updated_date: 2026-07-19
 supersedes: FRS-TRAIN-v002
+superseded_by: FRS-TRAIN-v004
 scope: HSL initialization, Actor/Critic warmup, and formal Stage 3 Segment Replay training route
 
 # Segment Replay Training And Warmup Contract
+
+> Historical contract. Superseded by FRS-TRAIN-v004 on 2026-07-19; its route
+> describes the prior observation and transaction semantics only.
 
 ## Concept Figure Mapping
 
@@ -57,7 +61,7 @@ policy output.
 ## Ownership
 
 This contract owns how the active Segment Replay method reaches formal Stage 3
-training. Method semantics remain in `../method/FRS-METHOD-v011-segment-replay.md`.
+training. Method semantics remain in `../method/FRS-METHOD-v012-double-segment-replay.md`.
 The PPO objective remains owned by the algorithm module and its optimization
 contract. The sampler owns segment selection and replay evidence, not policy
 gradient semantics.

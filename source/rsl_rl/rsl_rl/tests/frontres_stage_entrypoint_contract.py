@@ -171,6 +171,7 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_training_objective", "segment_replay_hrl")',
         '_set_if_present(alg_cfg, "frontres_segment_replay_enabled", True)',
         'live_sentinel_only = live_sentinel_arg',
+        'v015_local_sentinel_only = v015_local_sentinel_arg',
         'live_probe_only = live_probe_arg',
         'live_storage_only = live_storage_arg',
         'live_single_update_only = live_single_update_arg',
@@ -182,6 +183,7 @@ def main() -> None:
         '"frontres_segment_live_runner_enabled",',
         'or live_train_enabled',
         '_set_if_present(alg_cfg, "frontres_segment_live_sentinel_only", live_sentinel_only)',
+        '_set_if_present(alg_cfg, "frontres_v015_local_sentinel_only", v015_local_sentinel_only)',
         '_set_if_present(alg_cfg, "frontres_segment_live_probe_only", live_probe_only)',
         '_set_if_present(alg_cfg, "frontres_segment_live_storage_write_only", live_storage_only)',
         '_set_if_present(alg_cfg, "frontres_segment_live_single_update_only", live_single_update_only)',
@@ -189,7 +191,7 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_segment_sequence_offline_eval_only", sequence_eval_only)',
         '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)',
         '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)',
-        '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)',
+        '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", not v015_local_sentinel_only)',
         '_set_if_present(alg_cfg, "frontres_segment_k", 8)',
         'segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"',
         'shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))',
@@ -216,6 +218,7 @@ def main() -> None:
         assert "frontres_segment_replay_enabled: bool = False" in cfg_text
         assert "frontres_segment_live_runner_enabled: bool = False" in cfg_text
         assert "frontres_segment_live_sentinel_only: bool = False" in cfg_text
+        assert "frontres_v015_local_sentinel_only: bool = False" in cfg_text
         assert "frontres_segment_live_probe_only: bool = False" in cfg_text
         assert "frontres_segment_live_storage_write_only: bool = False" in cfg_text
         assert "frontres_segment_live_single_update_only: bool = False" in cfg_text
@@ -244,6 +247,7 @@ def main() -> None:
     assert "live runner integration is disabled" in algorithm_impl
     assert "runner/PPO integration is not wired yet" in algorithm_impl
     assert "frontres_segment_live_sentinel_only" in algorithm_impl
+    assert "frontres_v015_local_sentinel_only" in algorithm_impl
     assert "frontres_segment_live_probe_only" in algorithm_impl
     assert "frontres_segment_live_storage_write_only" in algorithm_impl
     assert "frontres_segment_live_single_update_only" in algorithm_impl
@@ -263,9 +267,11 @@ def main() -> None:
     assert "PPO optimizer steps and exit" in algorithm_impl
     assert "PPO optimizer steps per iteration" in algorithm_impl
     assert "args_cli.frontres_segment_live_single_update_only" in train
+    assert 'getattr(args_cli, "frontres_v015_local_sentinel_only", False)' in train
     assert "args_cli.frontres_segment_live_update_loop_only" in train
     assert "args_cli.frontres_segment_sequence_offline_eval_only" in train
     assert "runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)" in train
+    assert "runner.run_frontres_v015_local_identity_sentinel(init_at_random_ep_len=True)" in train
     assert "runner.run_frontres_segment_sequence_offline_eval(" in train
     assert 'sampler_seed=getattr(args_cli, "frontres_segment_sequence_eval_seed", None)' in train
     assert "sampler_seed: int | None = None" in runner_impl
@@ -274,6 +280,7 @@ def main() -> None:
     assert "frontres_segment_live_train_enabled" in train
     assert "runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)" in train
     assert "run_frontres_segment_live_probe_helper(" in runner_impl
+    assert "run_frontres_v015_local_identity_sentinel_helper(" in runner_impl
     assert "FrontRESSegmentRolloutStorage" not in runner_impl
     assert "FrontRESSegmentTransition" not in runner_impl
     assert "compute_frontres_segment_ppo_loss" not in runner_impl

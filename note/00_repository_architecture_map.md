@@ -12,10 +12,10 @@ Stage 2 HSL
   -> initialize one full-6D Delta SE(3) repair actor
 Stage 3 Segment Replay
   -> sample global/replay/review segments
-  -> construct trial/quartet rows
+  -> construct Noisy/Repair local counterfactuals
   -> dynamic reset or faithful preroll
-  -> paired Noisy/Repaired K-step frozen-GMT rollout
-  -> paired style gain + physics gain - repair regularizer
+  -> one repair at t, then frozen-FEMR GMT Clean continuation
+  -> paired intent gain + physics gain - repair regularizer
   -> direct full-6D PPO update
   -> rollout-evidence-only segment-priority update
   -> checkpoint / periodic eval / sequence eval
@@ -49,8 +49,8 @@ route. A helper or test-only implementation is not an integrated feature.
 - `mdp/observations.py`: tracking observations.
 - `mdp/balance.py`: ZMP/support/balance context.
 - `mdp/motion_perturbations.py`: environment-side reference artifacts.
-- `rsl_rl/modules/frontres_observation_layout.py`: 100D FrontRES prefix, 770D
-  GMT suffix, and 870D actor layout.
+- `rsl_rl/modules/frontres_observation_layout.py`: legacy 870D actor layout;
+  v015 requires current Noisy root error plus future q29-intent augmentation.
 - `rsl_rl/frontres/frontres_dr_curriculum.py`: perturbation strength/family
   curriculum.
 - `rsl_rl/frontres/perturbation_runtime.py`: runtime perturbation payload.
@@ -69,12 +69,14 @@ statistics have separate checkpoint ownership.
 The cache stores replayable dynamic state, not only pose. Manifests are the
 reader contract and build signatures are the resume source of truth.
 
-## 5. Policy, Stage 2 HSL, And Runtime Write
+## 5. Policy, Proposal-Only HSL, And Runtime Write
 
 - `rsl_rl/modules/front_residual_actor_critic.py`: full-6D residual policy and
   distribution statistics.
-- `rsl_rl/runners/frontres_hsl_rollout_target.py`: full-6D supervised target.
-- `rsl_rl/algorithms/frontres_unified.py`: Stage 2 HSL update.
+- `rsl_rl/runners/frontres_warmup.py`: sealed q29 Stage-1 actor input and current anti-DR target validation.
+- `rsl_rl/runners/frontres_hsl_rollout_target.py`: legacy Stage-3 rollout label reject-only boundary.
+- `rsl_rl/algorithms/frontres_unified.py`: v015 rejects nonzero Stage-3 online HSL loss.
+- `rsl_rl/runners/frontres_rollout_step.py`: v015 rejects direct Stage-3 HSL target writes.
 - `rsl_rl/frontres/task_space_correction.py`: Delta SE(3) application.
 - `rsl_rl/frontres/frontres_action_cone.py`: named physical execution bounds,
   including upward-dz safety; it does not own family masks.
@@ -97,14 +99,17 @@ must use one representation.
 - `frontres_segment_sampler.py`: global/replay/review source selection,
   priority, segment state, trial planning, and `8/16/32/64` horizon assignment.
 
-The sampler owns row expansion and rollout budget. Policy rows may become PPO
-rows; search/counterfactual rows remain replay evidence. K-step curriculum is
-integrated only when assigned K reaches reset, rollout, return, sampler update,
-and live diagnostics.
+The sampler owns row expansion and rollout budget. Under v015, each local
+scenario seals x_t, one current root artifact, future q29 intent, and a Clean
+continuation. Policy rows may become PPO rows; search/counterfactual rows remain
+replay evidence. K measures one first action only and is integrated only when
+its frozen-FEMR lifecycle reaches reset, rollout, return, sampler update, and
+live diagnostics.
 
 ## 7. Formal Stage 3 Runner Route
 
-- `frontres_segment_live_sampler.py`: sample and trial/quartet batch assembly.
+- `frontres_segment_live_sampler.py`: current trial/quartet assembly; v015
+  requires two-role local-scenario assembly.
 - `frontres_segment_live_probe.py`: reset, per-row K rollout, paired score
   capture, valid-policy gate, Segment storage write, and evidence summary.
 - `frontres_segment_live_update_loop.py`: repeated probe/update orchestration.
@@ -112,24 +117,48 @@ and live diagnostics.
   periodic evaluation, and offline sequence-evaluation entry.
 - `on_policy_runner.py`: thin dispatch surface to these helpers.
 
+Step 4B adds a deliberately separate CPU fake path:
+
+```text
+OnPolicyRunner.run_frontres_v015_formal_transaction()
+-> injected request provider
+-> run_frontres_v015_formal_transaction_update_loop()
+-> sealed v015 plan/accumulator
+-> grouped v003 loss
+-> exactly one explicit optimizer step
+```
+
+`frontres_segment_live_sampler.py` owns that plan/accumulator and
+`frontres_segment_live_probe.py` owns the one update. The generic `learn`,
+live-training loop, checkpoint route, and simulator do not dispatch it.
+
+Step 4C adds a fake-S3 persistence boundary without changing that dispatch:
+`frontres_segment_live_update_loop.py` opens a `collecting` barrier before the
+injected provider; `frontres_segment_live_probe.py` publishes only a committed
+exact-one-update receipt; and `frontres_checkpointing.py` owns the versioned
+q29 H/prefix-normalizer/grouped-loss identity. In-flight work cannot be saved
+or resumed, and a committed resume restarts idle without raw scenario or batch
+state. This is CPU-fake S3 evidence, not generic checkpoint/live routing.
+
 Runner modules orchestrate. They do not own the priority formula or PPO loss.
 Trial metadata reaches reset/evidence/diagnostics but does not enter the PPO
 tuple.
 
 ## 8. Repair Quality And Gain
 
-The accepted design is:
+The active v015 design is:
 
 ```text
-style_gain   = style_quality(Repaired | Clean) - style_quality(Noisy | Clean)
+intent_gain  = internal_fidelity(Repaired | I_noisy)
+             - internal_fidelity(Noisy | I_noisy)
 physics_gain = physics_quality(Repaired)       - physics_quality(Noisy)
-gain_total   = w_style * style_gain + w_physics * physics_gain
+gain_total   = w_intent * intent_gain + w_physics * physics_gain
              - w_repair * repair_cost
 ```
 
-- `frontres_gain.py`: shared paired Style/Physics/Repair component owner and
-  named scales/weights. Style includes body MPJPE, velocity, acceleration, and
-  root-orientation geodesic error. Physics includes paired success/survival,
+- `frontres_gain.py`: required v003 paired Intent/Physics/Repair component
+  owner and named scales/weights. Intent uses root-invariant 29DoF articulated
+  fidelity rather than full Clean global motion. Physics includes paired success/survival,
   ZMP/support margin, and a documented foot-height contact proxy. Repair Cost
   uses executed full-6D actions with per-row K/done masks and optional Clean
   no-op diagnostics; missing runtime inputs remain `UNCONFIRMED`.
@@ -142,8 +171,8 @@ gain_total   = w_style * style_gain + w_physics * physics_gain
   route and is no longer a formal Gain owner.
 - `frontres_segment_reward.py`: legacy/general score-window API retained only
   for compatibility; it is excluded from the active Gain route.
-- `contracts/active/reward/FRS-GAIN-v002-style-physics-repair.md`: accepted
-  style/physics/repair semantics.
+- `contracts/active/reward/FRS-GAIN-v003-intent-physics-local-repair.md`:
+  accepted intent/physics/repair semantics.
 
 Generic environment reward, teleoperation reward, velocity-command reward, and
 unrelated task reward are excluded from the active Gain route by design. The
@@ -154,35 +183,46 @@ and evaluation, but the 2026-07-13 Step 6C audit found that diagnostics and
   debug input; it is not an accepted evaluation metric.
 
 Training and evaluation must share component functions, units, signs, scales,
-and K-step aggregation. Formal policy-row training, sampler priority/state, and
-periodic evaluation are connected to the shared decomposition and tested
-offline. Real component population and persistence still require later gates
-before this route is training-ready.
+and K-step aggregation. Current code still implements v002 Clean-global Style,
+the 65D tape route, and quartet roles; those paths are v015 contract-mismatch
+until later gates migrate or isolate them.
 
 ## 9. Storage, PPO, And Priority
 
 - `frontres_segment_storage.py`: independent Stage 3 PPO tuple, per-row K
-  returns, done masks, and valid mask.
+  returns/done/valid masks, plus the v015 immutable local metadata adapter. It
+  seals transaction/snapshot/motion/Segment/trial with scenario/hash/`x_t`/q29/K/
+  evidence identity; the legacy `to_ppo_batch()` explicitly rejects that v015
+  carrier.
+- `frontres_segment_live_sampler.py`: fake-S2 expected-row plan validates the
+  full multi-Segment x M identity before any update and aggregates only candidate
+  adapter shards.
+- `frontres_segment_live_probe.py`: fake-S2 validates q29/HSL/normalization
+  isolation, calls unchanged grouped v003 PPO once, and requires one explicit
+  optimizer counter increment. This is not the generic formal training route.
 - `frontres_segment_ppo.py`: direct full-6D clipped surrogate, exact old/new
   distribution KL, post-update trust-region diagnostics, optimizer step, and
   sign-preserving scale-only advantage scaling.
 - `frontres_segment_sampler.py`: rollout-evidence priority and persistent replay
-  state. `frontres_segment_live_sampler.py` now requires the shared
-  `FRS-GAIN-v002` result at the evidence boundary, and useful/state/priority
-  consumers now use canonical Gain plus validity/fall/contact/horizon facts;
-  cross-consumer S2 acceptance is closed by E14/E15/E16; the remaining boundary
-  is real S4 population.
+  state. `frontres_segment_live_sampler.py` must migrate to the shared
+  `FRS-GAIN-v003` result at the evidence boundary. Existing v002 consumer
+  evidence is historical only and cannot prove v015 semantics.
 
 PPO and sampler consume different roles of the same rollout-time Gain evidence.
 PPO consumes source-consistent policy tuples; sampler consumes the shared Gain
 result for priority. Post-update KL, parameter deltas, and logger state must
 not influence segment priority. The former score route is legacy and is
 excluded from the active route; migration isolation is covered by E14/E15/E16.
+`E-FI-14` and `E-FI-15` establish CPU-fake exact-one-update and persistence
+atomicity respectively. Generic formal dispatch, actual checkpoint cadence/
+resume, simulator, and live runtime remain separate gates.
 
 ## 10. Checkpoint, Evaluation, And Diagnostics
 
 - `frontres_checkpointing.py`: formal `OnPolicyRunner` Stage 2/GMT/FrontRES
-  policy, normalizer, optimizer, sampler, and Gain-identity save/load owner.
+  policy, normalizer, optimizer, sampler, and Gain-identity save/load owner;
+  under v015 fake-S3 it additionally owns exact q29 H/prefix-normalizer/
+  grouped-loss identity and rejects partial transaction persistence.
 - Detached Segment checkpoint compatibility helpers were removed in Step 10C-C1;
   the only active checkpoint owner is `frontres_checkpointing.py`.
 - `frontres_segment_sequence_eval.py`: sequence plan and preroll/eval boundary.

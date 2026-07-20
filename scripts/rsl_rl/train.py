@@ -212,6 +212,18 @@ parser.add_argument(
     help="For Stage 3 only: enter the minimal live Segment Replay sentinel path without enabling PPO training.",
 )
 parser.add_argument(
+    "--frontres_v015_local_sentinel_only",
+    action="store_true",
+    default=False,
+    help="For Stage 3 only: enter the explicit v015 local-scenario identity sentinel; legacy live modes are rejected.",
+)
+parser.add_argument(
+    "--frontres_v015_future_offsets",
+    type=str,
+    default=None,
+    help="Comma-separated positive q29 future offsets required by --frontres_v015_local_sentinel_only, for example '1,2'.",
+)
+parser.add_argument(
     "--frontres_segment_live_probe_only",
     action="store_true",
     default=False,
@@ -762,11 +774,23 @@ def _set_if_present(obj, name: str, value) -> None:
         setattr(obj, name, value)
 
 
+def _parse_frontres_v015_future_offsets(raw_offsets: str | None) -> tuple[int, ...]:
+    """Parse the explicit deployable q29 H layout required by the v015 sentinel."""
+
+    if raw_offsets is None:
+        raise ValueError("--frontres_v015_local_sentinel_only requires --frontres_v015_future_offsets")
+    values = tuple(int(token.strip()) for token in str(raw_offsets).split(",") if token.strip())
+    if not values or any(value <= 0 for value in values) or tuple(sorted(set(values))) != values:
+        raise ValueError("--frontres_v015_future_offsets must be ordered unique positive integers, for example '1,2'")
+    return values
+
+
 def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) -> None:
     """Apply FrontRES staged-training presets through Python config objects, not Hydra overrides."""
 
     stage = getattr(args_cli, "frontres_stage", None)
     live_sentinel_arg = bool(getattr(args_cli, "frontres_segment_live_sentinel_only", False))
+    v015_local_sentinel_arg = bool(getattr(args_cli, "frontres_v015_local_sentinel_only", False))
     live_probe_arg = bool(getattr(args_cli, "frontres_segment_live_probe_only", False))
     live_storage_arg = bool(getattr(args_cli, "frontres_segment_live_storage_write_only", False))
     live_single_update_arg = bool(getattr(args_cli, "frontres_segment_live_single_update_only", False))
@@ -775,6 +799,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     sequence_eval_arg = bool(getattr(args_cli, "frontres_segment_sequence_offline_eval_only", False))
     if (
         live_sentinel_arg
+        or v015_local_sentinel_arg
         or live_probe_arg
         or live_storage_arg
         or live_single_update_arg
@@ -821,6 +846,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(agent_cfg, "frontres_stage1_exit_after_warmup", False)
         agent_cfg.supervised_warmup_iterations = 0
         live_sentinel_only = live_sentinel_arg
+        v015_local_sentinel_only = v015_local_sentinel_arg
         live_probe_only = live_probe_arg
         live_storage_only = live_storage_arg
         live_single_update_only = live_single_update_arg
@@ -830,6 +856,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         live_update_steps = max(1, int(getattr(args_cli, "frontres_segment_live_update_steps", 4)))
         live_train_enabled = not (
             live_sentinel_only
+            or v015_local_sentinel_only
             or live_probe_only
             or live_storage_only
             or live_single_update_only
@@ -839,6 +866,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         )
         if sum((
             live_sentinel_only,
+            v015_local_sentinel_only,
             live_probe_only,
             live_storage_only,
             live_single_update_only,
@@ -848,12 +876,14 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         )) > 1:
             raise ValueError(
                 "Use only one of --frontres_segment_live_sentinel_only, "
+                "--frontres_v015_local_sentinel_only, "
                 "--frontres_segment_live_probe_only, --frontres_segment_live_storage_write_only, "
                 "--frontres_segment_live_single_update_only, --frontres_segment_live_update_loop_only, "
                 "--frontres_segment_offline_eval_only, or --frontres_segment_sequence_offline_eval_only."
             )
         if (
             live_sentinel_only
+            or v015_local_sentinel_only
             or live_probe_only
             or live_storage_only
             or live_single_update_only
@@ -869,6 +899,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             "frontres_segment_live_runner_enabled",
             (
                 live_sentinel_only
+                or v015_local_sentinel_only
                 or live_probe_only
                 or live_storage_only
                 or live_single_update_only
@@ -879,6 +910,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             ),
         )
         _set_if_present(alg_cfg, "frontres_segment_live_sentinel_only", live_sentinel_only)
+        _set_if_present(alg_cfg, "frontres_v015_local_sentinel_only", v015_local_sentinel_only)
         _set_if_present(alg_cfg, "frontres_segment_live_probe_only", live_probe_only)
         _set_if_present(alg_cfg, "frontres_segment_live_storage_write_only", live_storage_only)
         _set_if_present(alg_cfg, "frontres_segment_live_single_update_only", live_single_update_only)
@@ -890,12 +922,12 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(
             alg_cfg,
             "frontres_segment_critic_warmup_iterations",
-            max(0, int(getattr(args_cli, "frontres_segment_critic_warmup_iterations", 200))),
+            0 if v015_local_sentinel_only else max(0, int(getattr(args_cli, "frontres_segment_critic_warmup_iterations", 200))),
         )
         _set_if_present(
             alg_cfg,
             "frontres_segment_actor_warmup_iterations",
-            max(0, int(getattr(args_cli, "frontres_segment_actor_warmup_iterations", 500))),
+            0 if v015_local_sentinel_only else max(0, int(getattr(args_cli, "frontres_segment_actor_warmup_iterations", 500))),
         )
         # B1: Configure module-local audit probes before Stage 3 owners execute.
         formal_audit_enabled = bool(getattr(args_cli, "frontres_formal_runtime_audit", False))
@@ -916,10 +948,24 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             "frontres_segment_periodic_eval_interval",
             max(1, int(getattr(args_cli, "frontres_segment_periodic_eval_interval", 100))),
         )
-        _set_if_present(alg_cfg, "frontres_hsl_init_enabled", True)
+        _set_if_present(alg_cfg, "frontres_hsl_init_enabled", not v015_local_sentinel_only)
         _set_if_present(alg_cfg, "frontres_segment_k", 8)
         _set_if_present(alg_cfg, "frontres_segment_max_horizon_k", 64)
-        _set_if_present(alg_cfg, "frontres_segment_advantage_normalization", "scale_only")
+        _set_if_present(
+            alg_cfg,
+            "frontres_segment_advantage_normalization",
+            "grouped_scale_only" if v015_local_sentinel_only else "scale_only",
+        )
+        if v015_local_sentinel_only:
+            future_offsets = _parse_frontres_v015_future_offsets(
+                getattr(args_cli, "frontres_v015_future_offsets", None)
+            )
+            _set_if_present(alg_cfg, "frontres_v015_formal_transaction_enabled", True)
+            _set_if_present(alg_cfg, "frontres_future_offsets", future_offsets)
+            _set_if_present(alg_cfg, "frontres_future_intent_layout_version", "frontres-v015-future-intent-q29-v1")
+            _set_if_present(alg_cfg, "lambda_supervised", 0.0)
+            _set_if_present(alg_cfg, "lambda_supervised_min", 0.0)
+            _set_if_present(alg_cfg, "frontres_hsl_rollout_label_enabled", False)
         # B3: AUDIT-PERTURB-01 records the finalized preset consumed by sampler/rollout owners.
         # Result: PENDING_LIVE.
         if formal_audit_enabled:
@@ -950,6 +996,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         f"segment_replay={getattr(alg_cfg, 'frontres_segment_replay_enabled', 'n/a')}, "
         f"segment_live={getattr(alg_cfg, 'frontres_segment_live_runner_enabled', 'n/a')}, "
         f"segment_sentinel={getattr(alg_cfg, 'frontres_segment_live_sentinel_only', 'n/a')}, "
+        f"v015_local_sentinel={getattr(alg_cfg, 'frontres_v015_local_sentinel_only', 'n/a')}, "
         f"segment_probe={getattr(alg_cfg, 'frontres_segment_live_probe_only', 'n/a')}, "
         f"segment_storage={getattr(alg_cfg, 'frontres_segment_live_storage_write_only', 'n/a')}, "
         f"segment_single_update={getattr(alg_cfg, 'frontres_segment_live_single_update_only', 'n/a')}, "
@@ -961,6 +1008,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         f"segment_actor_warmup={getattr(alg_cfg, 'frontres_segment_actor_warmup_iterations', 'n/a')}, "
         f"formal_runtime_audit={getattr(alg_cfg, 'frontres_formal_runtime_audit', 'n/a')}, "
         f"segment_k={getattr(alg_cfg, 'frontres_segment_k', 'n/a')}, "
+        f"future_offsets={getattr(alg_cfg, 'frontres_future_offsets', 'n/a')}, "
         f"segment_shard_cache_size={getattr(alg_cfg, 'frontres_segment_shard_cache_size', 'n/a')}, "
         f"max_iterations={getattr(agent_cfg, 'max_iterations', 'n/a')}, "
         f"supervised_warmup={getattr(agent_cfg, 'supervised_warmup_iterations', 'n/a')}, "
@@ -1443,6 +1491,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env.close()
         return
 
+    if bool(getattr(args_cli, "frontres_v015_local_sentinel_only", False)):
+        runner.run_frontres_v015_local_identity_sentinel(init_at_random_ep_len=True)
+        env.close()
+        return
+
     if args_cli.frontres_segment_live_update_loop_only:
         runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)
         env.close()
@@ -1456,6 +1509,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "frontres_segment_offline_eval_only",
                 "frontres_segment_sequence_offline_eval_only",
                 "frontres_segment_live_sentinel_only",
+                "frontres_v015_local_sentinel_only",
                 "frontres_segment_live_probe_only",
                 "frontres_segment_live_storage_write_only",
                 "frontres_segment_live_single_update_only",
@@ -1490,6 +1544,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "frontres_segment_offline_eval_only",
                 "frontres_segment_sequence_offline_eval_only",
                 "frontres_segment_live_sentinel_only",
+                "frontres_v015_local_sentinel_only",
                 "frontres_segment_live_probe_only",
                 "frontres_segment_live_storage_write_only",
                 "frontres_segment_live_single_update_only",

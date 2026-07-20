@@ -67,6 +67,80 @@ def interpolate_warmup_scale(start: float, end: float, fraction: float) -> float
     return float(start) + (float(end) - float(start)) * float(fraction)
 
 
+def prepare_frontres_hsl_actor_observation(runner: Any, raw_obs: torch.Tensor) -> torch.Tensor:
+    """Build the sealed-q29 Stage-1 actor input before its normalizer consumes it.
+
+    Status: active Stage-1-only route. This helper has no raw-observation
+    fallback: the existing v015 bridge owns q29 provenance and fails closed when
+    a sealed local scenario is absent.
+    """
+
+    if not isinstance(raw_obs, torch.Tensor) or raw_obs.ndim != 2:
+        raise RuntimeError(f"HSL raw policy observation must be [B,D], got {getattr(raw_obs, 'shape', None)}")
+    append_context = getattr(runner, "_append_frontres_future_intent_context", None)
+    if not callable(append_context):
+        raise RuntimeError("v015 HSL requires the runner future-intent actor-context bridge")
+    augmented = append_context(raw_obs)
+    if not isinstance(augmented, torch.Tensor) or augmented.ndim != 2:
+        raise RuntimeError("v015 HSL actor-context bridge must return [B,D+|H|*29]")
+    expected_actor_dim = getattr(getattr(getattr(runner, "alg", None), "policy", None), "num_actor_obs", None)
+    if expected_actor_dim is None or int(augmented.shape[-1]) != int(expected_actor_dim):
+        raise RuntimeError(
+            "v015 HSL actor input dimension disagrees with the q29 policy layout: "
+            f"observed={tuple(augmented.shape)} expected_actor_dim={expected_actor_dim}"
+        )
+    apply_normalizer = getattr(runner, "_apply_obs_normalizer", None)
+    if not callable(apply_normalizer):
+        raise RuntimeError("v015 HSL requires the runner observation normalizer")
+    normalized = apply_normalizer(augmented)
+    if not isinstance(normalized, torch.Tensor) or tuple(normalized.shape) != tuple(augmented.shape):
+        raise RuntimeError("v015 HSL normalizer must preserve the q29-augmented actor shape")
+    return normalized
+
+
+def validate_frontres_hsl_current_frame_target(target: torch.Tensor, command: Any) -> torch.Tensor:
+    """Assert that a Stage-1 target is exactly the current anti-DR Delta SE(3)."""
+
+    delta_pos = getattr(command, "anchor_dr_delta_pos", None)
+    delta_quat = getattr(command, "anchor_dr_delta_quat_correction", None)
+    if (
+        not isinstance(target, torch.Tensor)
+        or target.ndim != 2
+        or target.shape[-1] != 6
+        or target.requires_grad
+        or not torch.is_floating_point(target)
+        or not bool(torch.isfinite(target).all().item())
+    ):
+        raise RuntimeError("Stage-1 HSL current-frame target must be detached finite [B,6]")
+    if (
+        not isinstance(delta_pos, torch.Tensor)
+        or not isinstance(delta_quat, torch.Tensor)
+        or tuple(delta_pos.shape) != (int(target.shape[0]), 3)
+        or tuple(delta_quat.shape) != (int(target.shape[0]), 4)
+    ):
+        raise RuntimeError("Stage-1 HSL target requires current command anti-DR [B,3] and [B,4] fields")
+    expected_pos = -delta_pos.to(device=target.device, dtype=target.dtype)
+    expected_pos[:, 2] = torch.clamp(expected_pos[:, 2], max=0.0)
+    quat = delta_quat.to(device=target.device, dtype=target.dtype)
+    w, x, y, z = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
+    expected_rpy = torch.stack(
+        [
+            torch.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y)),
+            torch.asin((2.0 * (w * y - z * x)).clamp(-1.0, 1.0)),
+            torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)),
+        ],
+        dim=-1,
+    )
+    expected = torch.cat([expected_pos, expected_rpy], dim=-1)
+    if not torch.allclose(target, expected, rtol=1.0e-5, atol=1.0e-6):
+        max_error = float((target - expected).abs().max().item())
+        raise RuntimeError(
+            "Stage-1 HSL target is not the current anti-DR Delta SE(3): "
+            f"max_abs_error={max_error:.6g}"
+        )
+    return target
+
+
 def run_frontres_joint_warmup(
     runner: Any,
     *,
@@ -195,7 +269,7 @@ def run_frontres_joint_warmup(
                 obs, extras = self.env.get_observations()
                 obs_dict = extras.get("observations", {})
                 _p_obs_raw = obs_dict.get(self.policy_obs_type, obs).to(self.device)
-                _p_obs = self._apply_obs_normalizer(_p_obs_raw)
+                _p_obs = prepare_frontres_hsl_actor_observation(self, _p_obs_raw)
 
                 env_actions = self.alg.policy.get_env_action(
                     _p_obs,
@@ -205,17 +279,21 @@ def run_frontres_joint_warmup(
                 obs, rewards_wu, dones, extras = self.env.step(env_actions.to(self.env.device))
                 obs_dict = extras.get("observations", {})
                 _p_obs_raw = obs_dict.get(self.policy_obs_type, obs).to(self.device)
-                _p_obs = self._apply_obs_normalizer(_p_obs_raw)
+                _p_obs = prepare_frontres_hsl_actor_observation(self, _p_obs_raw)
                 if self.privileged_obs_type is not None and self.privileged_obs_type in obs_dict:
                     _c_obs = self.privileged_obs_normalizer(
                         obs_dict[self.privileged_obs_type].to(self.device)
                     )
                 else:
                     _c_obs = _p_obs
-                _target = _get_warmup_target(_env_raw, "motion").to(self.device)
                 _mcmd_wu = _env_raw.command_manager._terms.get("motion")
-                if _mcmd_wu is not None:
-                    _target = self._frontres_action_cone.project_task_target(_mcmd_wu, _target)
+                if _mcmd_wu is None:
+                    raise RuntimeError("Stage-1 HSL requires the current motion command anti-DR owner")
+                _target = validate_frontres_hsl_current_frame_target(
+                    _get_warmup_target(_env_raw, "motion").to(self.device),
+                    _mcmd_wu,
+                )
+                _target = self._frontres_action_cone.project_task_target(_mcmd_wu, _target)
                 if n_train > 0 and n_base > 0 and n_clean > 0:
                     _n_energy = min(n_train, n_base, n_clean)
                     if _mcmd_wu is not None:

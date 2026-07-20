@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import contextlib
+from dataclasses import replace
 import io
 import sys
 import tempfile
@@ -92,7 +93,11 @@ def _install_import_stubs() -> None:
     modules_pkg.frontres_observation_layout = layout_module
 
     rollout_step = types.ModuleType("rsl_rl.runners.frontres_rollout_step")
+    rollout_step._append_future_intent_actor_context = lambda obs, *_args, **_kwargs: obs
+    rollout_step._frontres_motion_command = lambda *_args, **_kwargs: None
     rollout_step.prepare_frontres_rollout_step = lambda *_args, **_kwargs: None
+    rollout_step.prepare_frontres_v015_frozen_gmt_step = lambda *_args, **_kwargs: None
+    rollout_step.prepare_frontres_v015_one_action_at_t = lambda *_args, **_kwargs: None
     sys.modules[rollout_step.__name__] = rollout_step
     runners_pkg.frontres_rollout_step = rollout_step
 
@@ -144,6 +149,7 @@ stage1_hooks_contract = _load(
 FrontRESSegmentSampler = sampler_module.FrontRESSegmentSampler
 FrontRESSegmentSample = sampler_module.FrontRESSegmentSample
 FrontRESSegmentState = sampler_module.FrontRESSegmentState
+FrontRESFrozenPolicyTransactionPlan = sampler_module.FrontRESFrozenPolicyTransactionPlan
 initialize_frontres_segment_live_sampler = live_sampler_module.initialize_frontres_segment_live_sampler
 build_live_sampler_evidence = live_sampler_module.build_live_sampler_evidence
 run_frontres_segment_sampler_step = live_sampler_module.run_frontres_segment_sampler_step
@@ -197,6 +203,7 @@ class FakeRunner:
             frontres_segment_sampler_review_frac=0.1,
             frontres_segment_live_update_steps=3,
             frontres_segment_k=4,
+            frontres_future_offsets=(1, 2),
             frontres_segment_cache_dir=cache_dir,
             frontres_segment_shard_cache_size=shard_cache_size,
             frontres_segment_include_boundary_diagnostic=False,
@@ -1092,6 +1099,10 @@ def test_stage3_index_only_perturbation_plan_uses_dr_curriculum() -> None:
             priority=torch.zeros(1),
             staleness=torch.zeros(1),
             valid_mask=torch.ones(1, dtype=torch.bool),
+            horizon_k=torch.tensor([4], dtype=torch.long),
+            trial_role=("policy",),
+            source_index=torch.tensor([0], dtype=torch.long),
+            trial_index=torch.tensor([0], dtype=torch.long),
         )
         stream = io.StringIO()
         with contextlib.redirect_stdout(stream):
@@ -1109,6 +1120,342 @@ def test_stage3_index_only_perturbation_plan_uses_dr_curriculum() -> None:
         assert getattr(current_batch, "stage3_index_perturbation_family") == plan.perturbation_family
         assert torch.all(current_batch.perturbation_strength > 0.0)
         assert "batch.strength_nonzero_frac: 100.0%" in output
+
+
+def test_fixed_noisy_scenario_is_materialized_once_per_source_and_attached_to_batch() -> None:
+    class _Dataset:
+        def get_segments(self, segment_ids):
+            specs = tuple(
+                SimpleNamespace(motion_id="KIT/359/motion_a.npz", start_frame=3, horizon_k=2)
+                for _ in range(int(segment_ids.numel()))
+            )
+            return SimpleNamespace(
+                segment_ids=segment_ids.detach().clone(),
+                specs=specs,
+                perturbation_role=("train",) * int(segment_ids.numel()),
+                perturbation_family=("index_only",) * int(segment_ids.numel()),
+                perturbation_strength=torch.zeros(int(segment_ids.numel()), dtype=torch.float32),
+            )
+
+        def validate_batch(self, batch):
+            return SimpleNamespace(valid_mask=torch.ones_like(batch.segment_ids, dtype=torch.bool))
+
+    class _Materializer:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def materialize_frontres_fixed_noisy_tape(self, **kwargs):
+            self.calls.append(dict(kwargs))
+            value = 10.0 * len(self.calls)
+            return torch.full((int(kwargs["frame_count"]), 65), value, dtype=torch.float32)
+
+    materializer = _Materializer()
+    runner = SimpleNamespace(
+        device=torch.device("cpu"),
+        current_learning_iteration=1,
+        _dr_scale=1.0,
+        alg=SimpleNamespace(frontres_future_offsets=(1, 2)),
+        cfg={
+            "frontres_adaptive_perturb_curriculum_enabled": False,
+            "dr_scale_init": 1.0,
+            "dr_min_scale": 0.25,
+            "dr_max_scale": 2.0,
+            "max_iterations": 10,
+        },
+        env=SimpleNamespace(_frontres_segment_index_reset_adapter=materializer),
+        _frontres_segment_dataset=_Dataset(),
+    )
+    sample = FrontRESSegmentSample(
+        segment_ids=torch.tensor([7, 7], dtype=torch.long),
+        source=("global", "global"),
+        priority=torch.zeros(2),
+        staleness=torch.zeros(2),
+        valid_mask=torch.ones(2, dtype=torch.bool),
+        horizon_k=torch.tensor([2, 2], dtype=torch.long),
+        trial_role=("policy", "search"),
+        source_index=torch.tensor([0, 0], dtype=torch.long),
+        trial_index=torch.tensor([0, 1], dtype=torch.long),
+    )
+
+    batch = live_sampler_module._build_current_segment_batch(runner, sample, update_step=4, print_probe=False)
+
+    assert batch is not None
+    assert len(materializer.calls) == 1
+    assert materializer.calls[0]["frame_count"] == 4
+    assert tuple(batch.frontres_future_offsets) == (1, 2)
+    assert batch.frontres_fixed_noisy_tape.shape == (2, 4, 65)
+    torch.testing.assert_close(batch.frontres_fixed_noisy_tape[0], batch.frontres_fixed_noisy_tape[1])
+    assert batch.frontres_fixed_noisy_scenario_ids[0] == batch.frontres_fixed_noisy_scenario_ids[1]
+    assert batch.frontres_fixed_noisy_segment_hashes[0] == batch.frontres_fixed_noisy_segment_hashes[1]
+    assert batch.frontres_fixed_noisy_tape_lengths.tolist() == [4, 4]
+    assert not hasattr(batch, "frontres_segment_transaction_metadata")
+    live_sampler_module._close_fixed_noisy_scenarios(batch)
+    assert batch.frontres_fixed_noisy_closed_scenario_ids == (batch.frontres_fixed_noisy_scenario_ids[0],)
+    assert batch.frontres_fixed_noisy_lifecycle.closed_scenario(batch.frontres_fixed_noisy_scenario_ids[0]) is not None
+    print(
+        "[probe fixed_tape_selection] "
+        f"materialize_calls={len(materializer.calls)} "
+        f"tape_shape={tuple(batch.frontres_fixed_noisy_tape.shape)} "
+        f"scenario_ids={batch.frontres_fixed_noisy_scenario_ids} "
+        f"hashes={batch.frontres_fixed_noisy_segment_hashes} "
+        f"closed={batch.frontres_fixed_noisy_closed_scenario_ids}",
+        flush=True,
+    )
+
+
+def test_frozen_policy_snapshot_binds_one_all_policy_plan_to_one_fixed_noisy_transaction() -> None:
+    class _Dataset:
+        def get_segments(self, segment_ids):
+            specs = tuple(
+                SimpleNamespace(
+                    motion_id=("KIT/359/motion_a.npz" if int(segment_id) == 7 else "KIT/359/motion_b.npz"),
+                    start_frame=(3 if int(segment_id) == 7 else 11),
+                    horizon_k=2,
+                )
+                for segment_id in segment_ids.detach().cpu().tolist()
+            )
+            return SimpleNamespace(
+                segment_ids=segment_ids.detach().clone(),
+                specs=specs,
+                perturbation_role=("train",) * int(segment_ids.numel()),
+                perturbation_family=("index_only",) * int(segment_ids.numel()),
+                perturbation_strength=torch.zeros(int(segment_ids.numel()), dtype=torch.float32),
+            )
+
+        def validate_batch(self, batch):
+            return SimpleNamespace(valid_mask=torch.ones_like(batch.segment_ids, dtype=torch.bool))
+
+    class _Materializer:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+            self.last_reset_request = None
+
+        def materialize_frontres_fixed_noisy_tape(self, **kwargs):
+            self.calls.append(dict(kwargs))
+            return torch.full(
+                (int(kwargs["frame_count"]), 65),
+                float(len(self.calls)),
+                dtype=torch.float32,
+            )
+
+        def apply_frontres_segment_index_reset(self, request):
+            self.last_reset_request = request
+            return {
+                "success_mask": torch.ones(int(request.segment_ids.numel()), dtype=torch.bool),
+                "velocity_mismatch": torch.zeros(int(request.segment_ids.numel())),
+            }
+
+    materializer = _Materializer()
+    policy = torch.nn.Linear(4, 6)
+    runner = SimpleNamespace(
+        device=torch.device("cpu"),
+        current_learning_iteration=1,
+        _dr_scale=1.0,
+        alg=SimpleNamespace(frontres_future_offsets=(1, 2), policy=policy),
+        cfg={
+            "frontres_adaptive_perturb_curriculum_enabled": False,
+            "dr_scale_init": 1.0,
+            "dr_min_scale": 0.25,
+            "dr_max_scale": 2.0,
+            "max_iterations": 10,
+        },
+        env=SimpleNamespace(_frontres_segment_index_reset_adapter=materializer),
+        _frontres_segment_dataset=_Dataset(),
+    )
+    transaction_id = "tx-s1b"
+    snapshot = live_sampler_module.capture_frontres_frozen_policy_snapshot(
+        runner,
+        transaction_id=transaction_id,
+    )
+    plan = FrontRESFrozenPolicyTransactionPlan(
+        transaction_id=transaction_id,
+        policy_snapshot_id=snapshot.policy_snapshot_id,
+        segment_ids=torch.tensor([7, 7, 9, 9], dtype=torch.long),
+        source_index=torch.tensor([0, 0, 1, 1], dtype=torch.long),
+        trial_index=torch.tensor([0, 1, 0, 1], dtype=torch.long),
+        horizon_k=torch.tensor([2, 2, 2, 2], dtype=torch.long),
+        trial_role=("policy", "policy", "policy", "policy"),
+        base_segment_ids=torch.tensor([7, 9], dtype=torch.long),
+        base_trial_count=torch.tensor([2, 2], dtype=torch.long),
+        base_horizon_k=torch.tensor([2, 2], dtype=torch.long),
+        minimum_policy_attempts=2,
+    )
+    sample = FrontRESSegmentSample(
+        segment_ids=plan.segment_ids,
+        source=("global", "global", "replay", "replay"),
+        priority=torch.zeros(4),
+        staleness=torch.zeros(4),
+        valid_mask=torch.ones(4, dtype=torch.bool),
+        horizon_k=plan.horizon_k,
+        trial_role=plan.trial_role,
+        source_index=plan.source_index,
+        trial_index=plan.trial_index,
+    )
+    batch = runner._frontres_segment_dataset.get_segments(plan.segment_ids)
+    live_sampler_module._attach_frontres_segment_trial_plan(batch, sample)
+    try:
+        live_sampler_module.bind_frontres_frozen_policy_transaction(
+            runner,
+            batch,
+            plan=replace(plan, policy_snapshot_id="foreign-snapshot"),
+            snapshot=snapshot,
+        )
+    except ValueError as exc:
+        assert "policy_snapshot_id" in str(exc)
+    else:
+        raise AssertionError("a caller-declared snapshot id must not replace the real policy fingerprint")
+    live_sampler_module.bind_frontres_frozen_policy_transaction(
+        runner,
+        batch,
+        plan=plan,
+        snapshot=snapshot,
+    )
+    dynamic_plan = live_sampler_module._build_stage3_index_perturbation_plan(runner, batch, update_step=4)
+    live_sampler_module._attach_stage3_index_perturbation_plan(batch, dynamic_plan)
+    live_sampler_module._attach_fixed_noisy_scenarios(runner, batch, sample, update_step=4)
+    metadata = batch.frontres_segment_transaction_metadata
+
+    assert len(materializer.calls) == 2
+    assert batch.frontres_fixed_noisy_transaction_id == transaction_id
+    assert metadata.transaction_id == transaction_id
+    assert metadata.policy_snapshot_id == snapshot.policy_snapshot_id
+    assert metadata.policy_state_hash == snapshot.policy_state_hash
+    assert metadata.motion_ids == (
+        "KIT/359/motion_a.npz",
+        "KIT/359/motion_a.npz",
+        "KIT/359/motion_b.npz",
+        "KIT/359/motion_b.npz",
+    )
+    assert metadata.noisy_segment_hashes == batch.frontres_fixed_noisy_segment_hashes
+    assert metadata.noisy_segment_hashes[0] == metadata.noisy_segment_hashes[1]
+    assert metadata.noisy_segment_hashes[2] == metadata.noisy_segment_hashes[3]
+    assert metadata.noisy_segment_hashes[0] != metadata.noisy_segment_hashes[2]
+    runner.env = materializer
+    runner._frontres_segment_live_current_batch = batch
+    runner._frontres_segment_replay_boundary = SimpleNamespace(reset_mode="direct")
+    runner.alg.frontres_segment_k = 2
+    runner.alg.frontres_segment_verbose_probe = False
+    reset_result = live_probe_module._apply_index_only_segment_reset(runner, batch)
+    capture = FrontRESSegmentLiveRolloutCapture(
+        rollout_k=2,
+        reward_mean=0.0,
+        done_frac=0.0,
+        last_obs_shape=(4, 3),
+        action_shape=(4, 6),
+        env_action_shape=(4, 6),
+        transition_obs=torch.zeros(4, 3),
+        transition_privileged_obs=torch.zeros(4, 2),
+        transition_actions=torch.zeros(4, 6),
+        transition_log_probs=torch.zeros(4),
+        transition_values=torch.zeros(4),
+        transition_means=torch.zeros(4, 6),
+        transition_sigmas=torch.ones(4, 6),
+        reward_accum=torch.ones(4),
+        done_any=torch.zeros(4, dtype=torch.bool),
+    )
+    storage = build_live_segment_storage(runner, capture)
+    storage_batch = storage.full_batch()
+    assert reset_result is not None
+    assert materializer.last_reset_request.frontres_segment_transaction_metadata is metadata
+    assert storage_batch.transaction_metadata is metadata
+    try:
+        storage_batch.to_grouped_ppo_candidate_batch(SimpleNamespace)
+    except ValueError as exc:
+        assert "requires FrontRESV015GroupedCandidateMetadata" in str(exc)
+    else:
+        raise AssertionError("legacy fixed-tape transaction metadata must not enter the v015 grouped candidate adapter")
+    assert not hasattr(storage_batch.to_ppo_batch(SimpleNamespace), "transaction_metadata")
+    optimizer_steps = {"count": 0}
+    accumulator = live_probe_module.FrontRESFrozenPolicyTransactionAccumulator(
+        runner,
+        optimizer_step_count=lambda: optimizer_steps["count"],
+    )
+    accumulator.append_storage_batch(storage_batch)
+    update_batches: list[object] = []
+
+    def _one_transaction_update(received_batch):
+        assert received_batch is storage_batch
+        update_batches.append(received_batch)
+        optimizer_steps["count"] += 1
+        return SimpleNamespace(should_step=True)
+
+    transaction_result = accumulator.finalize_one_update(_one_transaction_update)
+    assert update_batches == [storage_batch]
+    assert transaction_result.transaction_id == transaction_id
+    assert transaction_result.policy_snapshot_id == snapshot.policy_snapshot_id
+    assert transaction_result.segment_count == 2
+    assert transaction_result.source_count == 2
+    assert transaction_result.policy_attempt_count == 4
+    assert transaction_result.optimizer_step_delta == 1
+    snapshot.verify_policy(policy)
+    with torch.no_grad():
+        policy.bias.add_(1.0)
+    try:
+        build_live_segment_storage(runner, capture)
+    except RuntimeError as exc:
+        assert "frozen policy snapshot mismatch" in str(exc)
+    else:
+        raise AssertionError("mutated policy must fail before a second storage write")
+    print(
+        "[probe frozen_snapshot_binding] "
+        f"transaction={metadata.transaction_id} snapshot={metadata.policy_snapshot_id} "
+        f"hashes={metadata.noisy_segment_hashes}",
+        flush=True,
+    )
+
+
+def test_fixed_noisy_scenario_closes_when_rollout_raises_before_evidence() -> None:
+    closed: list[str] = []
+
+    class _Lifecycle:
+        def close_scenario(self, scenario_id: str) -> None:
+            closed.append(str(scenario_id))
+
+    sample = SimpleNamespace(
+        segment_ids=torch.tensor([7], dtype=torch.long),
+        horizon_k=torch.tensor([2], dtype=torch.long),
+    )
+    batch = SimpleNamespace(
+        frontres_fixed_noisy_lifecycle=_Lifecycle(),
+        frontres_fixed_noisy_scenario_rows=SimpleNamespace(scenario_ids=("scenario-7",)),
+    )
+
+    def _raise_probe(*, init_at_random_ep_len: bool) -> dict[str, object]:
+        del init_at_random_ep_len
+        raise RuntimeError("synthetic fixed-tape rollout failure")
+
+    runner = SimpleNamespace(
+        _frontres_segment_sampler=object(),
+        _frontres_segment_live_detail_log_count=98,
+        alg=SimpleNamespace(frontres_segment_live_log_warmup=0, frontres_segment_live_log_interval=10),
+        env=SimpleNamespace(),
+        run_frontres_segment_live_probe=_raise_probe,
+    )
+    old_sample = live_sampler_module._sample_live_segment_rows
+    old_build = live_sampler_module._build_current_segment_batch
+    try:
+        live_sampler_module._sample_live_segment_rows = lambda _runner, _sampler: sample
+        live_sampler_module._build_current_segment_batch = (
+            lambda _runner, _sample, *, update_step, print_probe: batch
+        )
+        try:
+            live_sampler_module.run_frontres_segment_sampler_step(
+                runner,
+                init_at_random_ep_len=False,
+                update_step=1,
+            )
+        except RuntimeError as exc:
+            assert str(exc) == "synthetic fixed-tape rollout failure"
+        else:
+            raise AssertionError("synthetic rollout failure must propagate")
+    finally:
+        live_sampler_module._sample_live_segment_rows = old_sample
+        live_sampler_module._build_current_segment_batch = old_build
+
+    assert closed == ["scenario-7"]
+    assert batch.frontres_fixed_noisy_closed_scenario_ids == ("scenario-7",)
+    assert runner._frontres_segment_live_current_batch is None
+    print("[probe fixed_tape_failure_close] scenario=scenario-7 closed_after_rollout_error=True", flush=True)
 
 
 def test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset() -> None:
@@ -1501,6 +1848,9 @@ def main() -> None:
     test_live_sampler_installs_index_reset_hook_for_index_only_dataset()
     test_live_sampler_filters_index_dataset_to_loaded_motions_before_sampling()
     test_stage3_index_only_perturbation_plan_uses_dr_curriculum()
+    test_fixed_noisy_scenario_is_materialized_once_per_source_and_attached_to_batch()
+    test_frozen_policy_snapshot_binds_one_all_policy_plan_to_one_fixed_noisy_transaction()
+    test_fixed_noisy_scenario_closes_when_rollout_raises_before_evidence()
     test_live_sampler_passes_nondefault_shard_cache_size_to_lazy_dataset()
     test_live_sampler_builds_current_batch_before_probe()
     test_live_sampler_expands_trial_rows_before_probe_without_changing_ppo_semantics()

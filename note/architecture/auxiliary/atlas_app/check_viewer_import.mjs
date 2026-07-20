@@ -9,6 +9,7 @@ const flowMap = JSON.parse(fs.readFileSync("../../runtime/02_frontres_flow.data.
 const conceptTabs = JSON.parse(fs.readFileSync("../../concept/03_frontres_concept_tabs.data.json", "utf8"));
 const formalAuditMap = JSON.parse(fs.readFileSync("../../runtime/04_stage3_formal_runtime_audit.data.json", "utf8"));
 const qualityAuditMap = JSON.parse(fs.readFileSync("../../runtime/05_policy_quality_audit.data.json", "utf8"));
+const designQuestionTable = JSON.parse(fs.readFileSync("../../runtime/06_frontres_design_point_review.data.json", "utf8"));
 
 if (typeof rough.svg !== "function") {
   throw new Error("roughjs import succeeded but rough.svg is missing");
@@ -95,6 +96,47 @@ if (repoMap.layout !== "repository_reading_atlas") {
 }
 if (!html.includes("function renderRepositoryReadingAtlas(data)")) {
   throw new Error("architecture_atlas.html is missing repository reading renderer");
+}
+if (!html.includes("function renderDesignPointTable(data)")) {
+  throw new Error("architecture_atlas.html is missing the minimal design-question renderer");
+}
+if (!html.includes("Array.isArray(data.groups)")) {
+  throw new Error("architecture_atlas.html must render grouped atomic design-question rows");
+}
+if (!html.includes("function designTableTextLayout")) {
+  throw new Error("architecture_atlas.html must use a content-driven design-table text layout");
+}
+if (!html.includes("tableHeadingFont") || !html.includes("questionHeaderFill") || !html.includes("pointHeaderFill")) {
+  throw new Error("architecture_atlas.html must distinguish design-table typography and column backgrounds");
+}
+if (!html.includes("layout === \"design_point_table\"")) {
+  throw new Error("architecture_atlas.html does not route design_point_table");
+}
+if (designQuestionTable.layout !== "design_point_table" || !Array.isArray(designQuestionTable.groups)) {
+  throw new Error("runtime/06_frontres_design_point_review.data.json must use design_point_table with groups[]");
+}
+if (Object.keys(designQuestionTable).sort().join(",") !== "groups,layout,title") {
+  throw new Error("design-question table must contain only title, layout and groups");
+}
+if (designQuestionTable.groups.some((group) => (
+  Object.keys(group).sort().join(",") !== "parent,rows"
+  || typeof group.parent !== "string" || !group.parent.trim()
+  || !Array.isArray(group.rows) || !group.rows.length
+  || group.rows.some((row) => (
+    Object.keys(row).sort().join(",") !== "point,question"
+    || typeof row.question !== "string" || !row.question.trim()
+    || typeof row.point !== "string" || !row.point.trim()
+  ))
+))) {
+  throw new Error("each design-question group must contain only a parent and non-empty question/point rows");
+}
+const expectedDesignPoints = [
+  "Perturbation Data", "Perturbation Probing", "Segment Replay", "Future Motion Context",
+  "HSL Warmup", "FrontRES 6D Repair", "Frozen GMT", "K-step Curriculum",
+  "Paired Rollouts", "Repair Gain", "Actor & Critic Warmup",
+];
+if (designQuestionTable.groups.map((group) => group.parent).join(",") !== expectedDesignPoints.join(",")) {
+  throw new Error("design-question table must preserve the complete human design-point order");
 }
 if (!html.includes('layout === "repository_reading_atlas"')) {
   throw new Error("architecture_atlas.html does not route repository_reading_atlas");

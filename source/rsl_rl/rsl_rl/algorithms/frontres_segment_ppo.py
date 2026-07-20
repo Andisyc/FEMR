@@ -43,6 +43,10 @@ class FrontRESSegmentPPOBatch:
     segment_ids: torch.Tensor | None = None
     old_means: torch.Tensor | None = None
     old_sigmas: torch.Tensor | None = None
+    # Sealed S1b provenance. It remains row-aligned through storage and is
+    # consumed only by the candidate grouped-loss mode below.
+    transaction_metadata: Any | None = None
+    transaction_row_indices: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,24 @@ class FrontRESSegmentPPOResult:
     advantage_abs_top1_frac: float = 0.0
     advantage_scale: float = 1.0
     advantage_sign_flip_count: int = 0
+    grouped_reduction_active: bool = False
+    grouped_motion_count: int = 0
+    grouped_segment_count: int = 0
+    grouped_attempt_count: int = 0
+    grouped_valid_step_count: int = 0
+    grouped_transaction_advantage_rms: float = 0.0
+    grouped_segment_advantage_rms: tuple[float, ...] = ()
+    grouped_segment_advantage_scales: tuple[float, ...] = ()
+    grouped_motion_keys: tuple[str, ...] = ()
+    grouped_segment_keys: tuple[str, ...] = ()
+    grouped_attempt_keys: tuple[str, ...] = ()
+    grouped_motion_mass_shares: tuple[float, ...] = ()
+    grouped_segment_mass_shares: tuple[float, ...] = ()
+    grouped_attempt_mass_shares: tuple[float, ...] = ()
+    grouped_valid_step_row_indices: tuple[int, ...] = ()
+    grouped_valid_step_mass_shares: tuple[float, ...] = ()
+    grouped_missing_metadata_count: int = 0
+    grouped_nonfinite_group_count: int = 0
     logprob_approx_kl: float = 0.0
     distribution_kl_mean: float = 0.0
     distribution_kl_available: bool = False
@@ -164,6 +186,14 @@ class FrontRESSegmentPPOResult:
             "segment/ppo_advantage_abs_top1_frac": self.advantage_abs_top1_frac,
             "segment/ppo_advantage_scale": self.advantage_scale,
             "segment/ppo_advantage_sign_flip_count": float(self.advantage_sign_flip_count),
+            "segment/ppo_grouped_reduction_active": float(self.grouped_reduction_active),
+            "segment/ppo_grouped_motion_count": float(self.grouped_motion_count),
+            "segment/ppo_grouped_segment_count": float(self.grouped_segment_count),
+            "segment/ppo_grouped_attempt_count": float(self.grouped_attempt_count),
+            "segment/ppo_grouped_valid_step_count": float(self.grouped_valid_step_count),
+            "segment/ppo_grouped_transaction_advantage_rms": self.grouped_transaction_advantage_rms,
+            "segment/ppo_grouped_missing_metadata_count": float(self.grouped_missing_metadata_count),
+            "segment/ppo_grouped_nonfinite_group_count": float(self.grouped_nonfinite_group_count),
             "segment/ppo_logprob_approx_kl": self.logprob_approx_kl,
             "segment/ppo_distribution_kl_mean": self.distribution_kl_mean,
             "segment/ppo_distribution_kl_available": float(self.distribution_kl_available),
@@ -187,6 +217,37 @@ class FrontRESSegmentPPOResult:
         }
 
 
+@dataclass(frozen=True)
+class _FrontRESSegmentPPOTransactionRows:
+    transaction_id: str
+    policy_snapshot_id: str
+    motion_ids: tuple[str, ...]
+    segment_ids: torch.Tensor
+    source_index: torch.Tensor
+    trial_index: torch.Tensor
+    horizon_k: torch.Tensor
+    trial_role: tuple[str, ...]
+    noisy_segment_hashes: tuple[str, ...]
+    scenario_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _FrontRESSegmentPPOGroupedReduction:
+    hierarchy: tuple[tuple[tuple[tuple[int, ...], ...], ...], ...]
+    prepared_advantages: torch.Tensor
+    transaction_advantage_rms: float
+    segment_advantage_rms: tuple[float, ...]
+    segment_advantage_scales: tuple[float, ...]
+    motion_keys: tuple[str, ...]
+    segment_keys: tuple[str, ...]
+    attempt_keys: tuple[str, ...]
+    motion_mass_shares: tuple[float, ...]
+    segment_mass_shares: tuple[float, ...]
+    attempt_mass_shares: tuple[float, ...]
+    valid_step_row_indices: tuple[int, ...]
+    valid_step_mass_shares: tuple[float, ...]
+
+
 def compute_frontres_segment_ppo_loss(
     policy: Any,
     batch: FrontRESSegmentPPOBatch,
@@ -207,6 +268,10 @@ def compute_frontres_segment_ppo_loss(
     语义:
         PPO ratio 与 KL 必须比较同一个 raw full-6D distribution. Old tensors 全部
         detach, 梯度只进入当前 FrontRES actor/critic; frozen GMT 不在该图中.
+
+    状态: `grouped_scale_only` 是离线 candidate loss mode. 它要求一个完整 sealed
+        transaction carrier, 且不会自行激活 legacy runner, optimizer,
+        checkpoint, 或 simulator route.
     """
     # B1: 验证同源 old action/distribution/advantage tuple 并选择 valid rows.
     cfg = FrontRESSegmentPPOConfig() if cfg is None else cfg
@@ -241,7 +306,18 @@ def compute_frontres_segment_ppo_loss(
             & torch.isfinite(policy_eval.sigma).all(dim=-1)
             & (policy_eval.sigma > 0.0).all(dim=-1)
         )
-    valid = batch.valid_mask.bool() & finite
+    normalization_mode = _advantage_normalization_mode(cfg)
+    transaction_rows: _FrontRESSegmentPPOTransactionRows | None = None
+    if normalization_mode == "grouped_scale_only":
+        transaction_rows = _transaction_metadata_rows(batch)
+        policy_sampled = torch.tensor(
+            [role == "policy" for role in transaction_rows.trial_role],
+            device=batch.actions.device,
+            dtype=torch.bool,
+        )
+        valid = batch.valid_mask.bool() & finite & policy_sampled
+    else:
+        valid = batch.valid_mask.bool() & finite
     valid_count = int(valid.sum().item())
     valid_frac = float(valid.float().mean().item()) if valid.numel() else 0.0
     if valid_count == 0:
@@ -258,6 +334,7 @@ def compute_frontres_segment_ppo_loss(
             approx_kl=0.0,
             ratio_mean=0.0,
             actor_loss_weight=float(cfg.actor_loss_weight),
+            grouped_reduction_active=normalization_mode == "grouped_scale_only",
         )
 
     log_prob = policy_eval.log_prob[valid]
@@ -266,7 +343,15 @@ def compute_frontres_segment_ppo_loss(
     old_value = batch.old_values[valid].detach()
     returns = batch.returns[valid].detach()
     advantages = batch.advantages[valid].detach()
-    advantages, advantage_scale, advantage_sign_flip_count = _prepare_advantages(advantages, cfg)
+    grouped_reduction: _FrontRESSegmentPPOGroupedReduction | None = None
+    if normalization_mode == "grouped_scale_only":
+        assert transaction_rows is not None
+        grouped_reduction = _build_frontres_grouped_reduction(transaction_rows, valid, advantages)
+        advantages = grouped_reduction.prepared_advantages
+        advantage_scale = grouped_reduction.transaction_advantage_rms
+        advantage_sign_flip_count = 0
+    else:
+        advantages, advantage_scale, advantage_sign_flip_count = _prepare_advantages(advantages, cfg)
 
     # B2: 构造 PPO ratio/surrogate/value path, 保留 raw log-ratio 供诊断.
     raw_log_ratio = log_prob - old_log_prob
@@ -275,15 +360,26 @@ def compute_frontres_segment_ppo_loss(
     surrogate = ratio * advantages
     clipped_ratio = torch.clamp(ratio, 1.0 - cfg.clip_param, 1.0 + cfg.clip_param)
     clipped_surrogate = clipped_ratio * advantages
-    actor_loss = -torch.min(surrogate, clipped_surrogate).mean()
+    actor_row_loss = -torch.min(surrogate, clipped_surrogate)
 
     if cfg.use_clipped_value_loss:
         value_clipped = old_value + (value - old_value).clamp(-cfg.value_clip_param, cfg.value_clip_param)
-        value_loss = 0.5 * torch.max((value - returns).square(), (value_clipped - returns).square()).mean()
+        value_row_loss = 0.5 * torch.max((value - returns).square(), (value_clipped - returns).square())
     else:
-        value_loss = 0.5 * (value - returns).square().mean()
+        value_row_loss = 0.5 * (value - returns).square()
 
-    entropy = _masked_entropy(policy_eval.entropy, valid, log_prob)
+    if policy_eval.entropy is None:
+        entropy_rows = log_prob.new_zeros(log_prob.shape)
+    else:
+        entropy_rows = policy_eval.entropy[valid]
+    if grouped_reduction is None:
+        actor_loss = actor_row_loss.mean()
+        value_loss = value_row_loss.mean()
+        entropy = entropy_rows.mean()
+    else:
+        actor_loss = _reduce_frontres_grouped_rows(actor_row_loss, grouped_reduction.hierarchy)
+        value_loss = _reduce_frontres_grouped_rows(value_row_loss, grouped_reduction.hierarchy)
+        entropy = _reduce_frontres_grouped_rows(entropy_rows, grouped_reduction.hierarchy)
     actor_loss_weight = max(0.0, min(1.0, float(cfg.actor_loss_weight)))
     total_loss = (
         actor_loss_weight * actor_loss
@@ -403,6 +499,38 @@ def compute_frontres_segment_ppo_loss(
         advantage_abs_top1_frac=float(advantage_abs_top1_frac),
         advantage_scale=float(advantage_scale),
         advantage_sign_flip_count=int(advantage_sign_flip_count),
+        grouped_reduction_active=grouped_reduction is not None,
+        grouped_motion_count=0 if grouped_reduction is None else len(grouped_reduction.motion_keys),
+        grouped_segment_count=0 if grouped_reduction is None else len(grouped_reduction.segment_keys),
+        grouped_attempt_count=0 if grouped_reduction is None else len(grouped_reduction.attempt_keys),
+        grouped_valid_step_count=0 if grouped_reduction is None else len(grouped_reduction.valid_step_row_indices),
+        grouped_transaction_advantage_rms=(
+            0.0 if grouped_reduction is None else grouped_reduction.transaction_advantage_rms
+        ),
+        grouped_segment_advantage_rms=(
+            () if grouped_reduction is None else grouped_reduction.segment_advantage_rms
+        ),
+        grouped_segment_advantage_scales=(
+            () if grouped_reduction is None else grouped_reduction.segment_advantage_scales
+        ),
+        grouped_motion_keys=() if grouped_reduction is None else grouped_reduction.motion_keys,
+        grouped_segment_keys=() if grouped_reduction is None else grouped_reduction.segment_keys,
+        grouped_attempt_keys=() if grouped_reduction is None else grouped_reduction.attempt_keys,
+        grouped_motion_mass_shares=(
+            () if grouped_reduction is None else grouped_reduction.motion_mass_shares
+        ),
+        grouped_segment_mass_shares=(
+            () if grouped_reduction is None else grouped_reduction.segment_mass_shares
+        ),
+        grouped_attempt_mass_shares=(
+            () if grouped_reduction is None else grouped_reduction.attempt_mass_shares
+        ),
+        grouped_valid_step_row_indices=(
+            () if grouped_reduction is None else grouped_reduction.valid_step_row_indices
+        ),
+        grouped_valid_step_mass_shares=(
+            () if grouped_reduction is None else grouped_reduction.valid_step_mass_shares
+        ),
         logprob_approx_kl=float(logprob_approx_kl),
         distribution_kl_mean=float(distribution_kl_mean),
         distribution_kl_available=bool(has_distribution_stats),
@@ -437,18 +565,305 @@ def _dim_max_tuple(tensor: torch.Tensor) -> tuple[float, ...]:
     return tuple(float(item) for item in tensor.max(dim=0).values.detach().cpu().tolist())
 
 
+def _advantage_normalization_mode(cfg: FrontRESSegmentPPOConfig) -> str:
+    mode = str(cfg.advantage_normalization).lower()
+    if cfg.normalize_advantages and mode == "none":
+        mode = "standard"
+    if mode not in ("none", "standard", "scale_only", "grouped_scale_only"):
+        raise ValueError(
+            "advantage_normalization must be one of none, standard, scale_only, or grouped_scale_only; "
+            f"got {cfg.advantage_normalization!r}"
+        )
+    return mode
+
+
+def _transaction_metadata_batch_size(metadata: Any) -> int:
+    value = getattr(metadata, "batch_size", None)
+    if value is None:
+        segment_ids = getattr(metadata, "segment_ids", None)
+        if not isinstance(segment_ids, torch.Tensor):
+            raise ValueError("transaction metadata requires batch_size or segment_ids")
+        value = int(segment_ids.numel())
+    try:
+        size = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("transaction metadata batch_size must be an integer") from exc
+    if size <= 0:
+        raise ValueError("transaction metadata batch_size must be positive")
+    return size
+
+
+def _transaction_metadata_tensor(
+    metadata: Any,
+    *,
+    name: str,
+    metadata_size: int,
+    row_indices: torch.Tensor,
+    device: torch.device,
+) -> torch.Tensor:
+    value = getattr(metadata, name, None)
+    if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != metadata_size:
+        raise ValueError(f"transaction metadata {name} must be a rank-1 vector of size {metadata_size}")
+    if value.requires_grad:
+        raise ValueError(f"transaction metadata {name} must be detached")
+    return value.detach().to(device=device, dtype=torch.long)[row_indices.to(device=device)]
+
+
+def _transaction_metadata_tuple(
+    metadata: Any,
+    *,
+    name: str,
+    metadata_size: int,
+    row_indices: torch.Tensor,
+) -> tuple[str, ...]:
+    value = getattr(metadata, name, None)
+    if not isinstance(value, tuple) or len(value) != metadata_size or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"transaction metadata {name} must be a string tuple of size {metadata_size}")
+    selected = tuple(value[int(index)] for index in row_indices.detach().cpu().tolist())
+    if any(not item for item in selected):
+        raise ValueError(f"transaction metadata {name} must be non-empty")
+    return selected
+
+
+def _transaction_metadata_rows(batch: FrontRESSegmentPPOBatch) -> _FrontRESSegmentPPOTransactionRows:
+    metadata = batch.transaction_metadata
+    if metadata is None:
+        raise ValueError("grouped_scale_only requires sealed transaction metadata")
+    validate = getattr(metadata, "validate", None)
+    if not callable(validate):
+        raise ValueError("transaction metadata requires validate()")
+    validate()
+    batch_size = int(batch.actions.shape[0])
+    metadata_size = _transaction_metadata_batch_size(metadata)
+    raw_indices = batch.transaction_row_indices
+    if raw_indices is None:
+        if metadata_size != batch_size:
+            raise ValueError(
+                "transaction metadata requires explicit transaction_row_indices when storage rows are a subset"
+            )
+        row_indices = torch.arange(batch_size, dtype=torch.long)
+    else:
+        if not isinstance(raw_indices, torch.Tensor) or raw_indices.ndim != 1 or int(raw_indices.numel()) != batch_size:
+            raise ValueError("transaction_row_indices must have shape [B]")
+        if raw_indices.requires_grad:
+            raise ValueError("transaction_row_indices must be detached")
+        row_indices = raw_indices.detach().to(device="cpu", dtype=torch.long)
+        if bool((row_indices < 0).any()) or bool((row_indices >= metadata_size).any()):
+            raise ValueError("transaction_row_indices contain an out-of-range metadata row")
+    expected_rows = torch.arange(metadata_size, dtype=torch.long)
+    if batch_size != metadata_size or not torch.equal(torch.sort(row_indices).values, expected_rows):
+        raise ValueError("grouped_scale_only requires one transaction-complete set of metadata rows")
+    if batch.segment_ids is None:
+        raise ValueError("grouped_scale_only requires row-aligned segment_ids")
+    device = batch.actions.device
+    metadata_segment_ids = _transaction_metadata_tensor(
+        metadata,
+        name="segment_ids",
+        metadata_size=metadata_size,
+        row_indices=row_indices,
+        device=device,
+    )
+    batch_segment_ids = batch.segment_ids.detach().to(device=device, dtype=torch.long)
+    if not torch.equal(metadata_segment_ids, batch_segment_ids):
+        raise ValueError("transaction metadata segment_ids do not match the PPO batch rows")
+    transaction_id = str(getattr(metadata, "transaction_id", ""))
+    policy_snapshot_id = str(getattr(metadata, "policy_snapshot_id", ""))
+    if not transaction_id or not policy_snapshot_id:
+        raise ValueError("transaction metadata requires transaction_id and policy_snapshot_id")
+    rows = _FrontRESSegmentPPOTransactionRows(
+        transaction_id=transaction_id,
+        policy_snapshot_id=policy_snapshot_id,
+        motion_ids=_transaction_metadata_tuple(
+            metadata,
+            name="motion_ids",
+            metadata_size=metadata_size,
+            row_indices=row_indices,
+        ),
+        segment_ids=metadata_segment_ids,
+        source_index=_transaction_metadata_tensor(
+            metadata,
+            name="source_index",
+            metadata_size=metadata_size,
+            row_indices=row_indices,
+            device=device,
+        ),
+        trial_index=_transaction_metadata_tensor(
+            metadata,
+            name="trial_index",
+            metadata_size=metadata_size,
+            row_indices=row_indices,
+            device=device,
+        ),
+        horizon_k=_transaction_metadata_tensor(
+            metadata,
+            name="horizon_k",
+            metadata_size=metadata_size,
+            row_indices=row_indices,
+            device=device,
+        ),
+        trial_role=_transaction_metadata_tuple(
+            metadata,
+            name="trial_role",
+            metadata_size=metadata_size,
+            row_indices=row_indices,
+        ),
+        noisy_segment_hashes=_transaction_metadata_tuple(
+            metadata,
+            name="noisy_segment_hashes",
+            metadata_size=metadata_size,
+            row_indices=row_indices,
+        ),
+        scenario_ids=_transaction_metadata_tuple(
+            metadata,
+            name="scenario_ids",
+            metadata_size=metadata_size,
+            row_indices=row_indices,
+        ),
+    )
+    if bool((rows.source_index < 0).any()) or bool((rows.trial_index < 0).any()) or bool((rows.horizon_k <= 0).any()):
+        raise ValueError("transaction metadata has invalid source, trial, or horizon rows")
+    return rows
+
+
+def _build_frontres_grouped_reduction(
+    rows: _FrontRESSegmentPPOTransactionRows,
+    valid: torch.Tensor,
+    advantages: torch.Tensor,
+) -> _FrontRESSegmentPPOGroupedReduction:
+    valid_row_indices = tuple(int(index) for index in torch.nonzero(valid, as_tuple=False).reshape(-1).tolist())
+    if not valid_row_indices:
+        return _FrontRESSegmentPPOGroupedReduction(
+            hierarchy=(),
+            prepared_advantages=advantages,
+            transaction_advantage_rms=0.0,
+            segment_advantage_rms=(),
+            segment_advantage_scales=(),
+            motion_keys=(),
+            segment_keys=(),
+            attempt_keys=(),
+            motion_mass_shares=(),
+            segment_mass_shares=(),
+            attempt_mass_shares=(),
+            valid_step_row_indices=(),
+            valid_step_mass_shares=(),
+        )
+    if int(advantages.numel()) != len(valid_row_indices):
+        raise ValueError("grouped advantages must contain exactly the valid policy rows")
+    local_index_by_row = {row: local for local, row in enumerate(valid_row_indices)}
+    segment_rows: dict[tuple[str, int, int], list[int]] = {}
+    attempt_rows: dict[tuple[str, int, int, int], list[int]] = {}
+    motion_segments: dict[str, list[tuple[str, int, int]]] = {}
+    for row in valid_row_indices:
+        motion = rows.motion_ids[row]
+        segment_key = (motion, int(rows.segment_ids[row].item()), int(rows.source_index[row].item()))
+        attempt_key = (*segment_key, int(rows.trial_index[row].item()))
+        if segment_key not in segment_rows:
+            segment_rows[segment_key] = []
+            motion_segments.setdefault(motion, []).append(segment_key)
+        segment_rows[segment_key].append(local_index_by_row[row])
+        attempt_rows.setdefault(attempt_key, []).append(local_index_by_row[row])
+    transaction_rms_tensor = torch.sqrt(advantages.detach().square().mean())
+    if not bool(torch.isfinite(transaction_rms_tensor).item()):
+        raise ValueError("grouped_scale_only received a non-finite transaction advantage RMS")
+    prepared = advantages.clone()
+    segment_keys: list[str] = []
+    segment_rms: list[float] = []
+    segment_scales: list[float] = []
+    for motion, segments in motion_segments.items():
+        for segment_key in segments:
+            local_rows = segment_rows[segment_key]
+            index = torch.tensor(local_rows, device=advantages.device, dtype=torch.long)
+            group_rms = torch.sqrt(advantages[index].detach().square().mean())
+            denominator = torch.maximum(group_rms, transaction_rms_tensor).detach()
+            if not bool(torch.isfinite(denominator).item()):
+                raise ValueError("grouped_scale_only produced a non-finite Segment denominator")
+            prepared[index] = torch.where(
+                denominator > 0.0,
+                advantages[index] / denominator,
+                torch.zeros_like(advantages[index]),
+            )
+            segment_keys.append(f"{motion}|segment={segment_key[1]}|source={segment_key[2]}")
+            segment_rms.append(float(group_rms.detach().cpu().item()))
+            segment_scales.append(float(denominator.detach().cpu().item()))
+    hierarchy: list[tuple[tuple[tuple[int, ...], ...], ...]] = []
+    motion_keys: list[str] = []
+    attempt_keys: list[str] = []
+    motion_mass_shares: list[float] = []
+    segment_mass_shares: list[float] = []
+    attempt_mass_shares: list[float] = []
+    valid_step_rows: list[int] = []
+    valid_step_mass_shares: list[float] = []
+    motion_count = len(motion_segments)
+    for motion, segments in motion_segments.items():
+        motion_keys.append(motion)
+        motion_mass = 1.0 / float(motion_count)
+        motion_mass_shares.append(motion_mass)
+        segment_hierarchy: list[tuple[tuple[int, ...], ...]] = []
+        for segment_key in segments:
+            segment_mass = motion_mass / float(len(segments))
+            segment_mass_shares.append(segment_mass)
+            attempts = [key for key in attempt_rows if key[:3] == segment_key]
+            attempt_hierarchy: list[tuple[int, ...]] = []
+            for attempt_key in attempts:
+                local_rows = tuple(attempt_rows[attempt_key])
+                attempt_mass = segment_mass / float(len(attempts))
+                attempt_mass_shares.append(attempt_mass)
+                attempt_keys.append(f"{motion}|segment={segment_key[1]}|source={segment_key[2]}|trial={attempt_key[3]}")
+                attempt_hierarchy.append(local_rows)
+                step_mass = attempt_mass / float(len(local_rows))
+                for local_row in local_rows:
+                    valid_step_rows.append(valid_row_indices[local_row])
+                    valid_step_mass_shares.append(step_mass)
+            segment_hierarchy.append(tuple(attempt_hierarchy))
+        hierarchy.append(tuple(segment_hierarchy))
+    original = advantages
+    sign_rows = (original != 0.0) & (prepared != 0.0)
+    sign_flip_count = int((torch.sign(original[sign_rows]) != torch.sign(prepared[sign_rows])).sum().item())
+    if sign_flip_count:
+        raise RuntimeError("grouped_scale_only must preserve every nonzero advantage sign")
+    return _FrontRESSegmentPPOGroupedReduction(
+        hierarchy=tuple(hierarchy),
+        prepared_advantages=prepared,
+        transaction_advantage_rms=float(transaction_rms_tensor.detach().cpu().item()),
+        segment_advantage_rms=tuple(segment_rms),
+        segment_advantage_scales=tuple(segment_scales),
+        motion_keys=tuple(motion_keys),
+        segment_keys=tuple(segment_keys),
+        attempt_keys=tuple(attempt_keys),
+        motion_mass_shares=tuple(motion_mass_shares),
+        segment_mass_shares=tuple(segment_mass_shares),
+        attempt_mass_shares=tuple(attempt_mass_shares),
+        valid_step_row_indices=tuple(valid_step_rows),
+        valid_step_mass_shares=tuple(valid_step_mass_shares),
+    )
+
+
+def _reduce_frontres_grouped_rows(
+    row_values: torch.Tensor,
+    hierarchy: tuple[tuple[tuple[tuple[int, ...], ...], ...], ...],
+) -> torch.Tensor:
+    if not hierarchy:
+        return row_values.sum() * 0.0
+    motion_losses: list[torch.Tensor] = []
+    for segment_hierarchy in hierarchy:
+        segment_losses: list[torch.Tensor] = []
+        for attempt_hierarchy in segment_hierarchy:
+            attempt_losses = [
+                row_values[torch.tensor(local_rows, device=row_values.device, dtype=torch.long)].mean()
+                for local_rows in attempt_hierarchy
+            ]
+            segment_losses.append(torch.stack(attempt_losses).mean())
+        motion_losses.append(torch.stack(segment_losses).mean())
+    return torch.stack(motion_losses).mean()
+
+
 def _prepare_advantages(
     advantages: torch.Tensor,
     cfg: FrontRESSegmentPPOConfig,
 ) -> tuple[torch.Tensor, float, int]:
-    mode = str(cfg.advantage_normalization).lower()
-    if cfg.normalize_advantages and mode == "none":
-        mode = "standard"
-    if mode not in ("none", "standard", "scale_only"):
-        raise ValueError(
-            "advantage_normalization must be one of none, standard, or scale_only; "
-            f"got {cfg.advantage_normalization!r}"
-        )
+    mode = _advantage_normalization_mode(cfg)
+    if mode == "grouped_scale_only":
+        raise RuntimeError("grouped_scale_only must be prepared through sealed transaction metadata")
     if advantages.numel() <= 1 or mode == "none":
         return advantages, 1.0, 0
     original = advantages

@@ -182,6 +182,11 @@ class FakeCommand:
         self._dr_supervised_target = torch.zeros(self.num_envs, 6)
         self.cache_refresh_calls = 0
         self.perturber = FakePerturber()
+        self.fixed_tape_install_calls: list[dict[str, object]] = []
+        self.fixed_tape: torch.Tensor | None = None
+        self.fixed_tape_execution_mask = torch.zeros(self.num_envs, dtype=torch.bool)
+        self.fixed_tape_hashes: tuple[str, ...] = ()
+        self.materialize_calls: list[dict[str, object]] = []
         self.metrics = {
             "error_anchor_pos": torch.zeros(1),
             "error_anchor_rot": torch.zeros(1),
@@ -208,6 +213,49 @@ class FakeCommand:
         self._cached_perturbed_pos.copy_(body_pos[:, 0])
         self._cached_perturbed_quat.copy_(body_quat[:, 0])
         self._dr_supervised_target.zero_()
+        if self.fixed_tape is not None:
+            execution_ids = torch.nonzero(self.fixed_tape_execution_mask, as_tuple=False).flatten()
+            if int(execution_ids.numel()) > 0:
+                self._cached_perturbed_pos[execution_ids] = self.fixed_tape[execution_ids, 0, 58:61]
+                self._cached_perturbed_quat[execution_ids] = self.fixed_tape[execution_ids, 0, 61:65]
+
+    def set_frontres_fixed_noisy_tape(
+        self,
+        tape: torch.Tensor,
+        *,
+        tape_lengths: torch.Tensor,
+        scenario_ids: tuple[str, ...],
+        noisy_segment_hashes: tuple[str, ...],
+        execution_mask: torch.Tensor,
+        env_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        self.fixed_tape_install_calls.append(
+            {
+                "tape": tape.detach().clone(),
+                "tape_lengths": tape_lengths.detach().clone(),
+                "scenario_ids": tuple(scenario_ids),
+                "noisy_segment_hashes": tuple(noisy_segment_hashes),
+                "execution_mask": execution_mask.detach().clone(),
+                "env_ids": env_ids.detach().clone(),
+            }
+        )
+        self.fixed_tape = torch.zeros(self.num_envs, tape.shape[1], tape.shape[2])
+        self.fixed_tape[env_ids] = tape
+        self.fixed_tape_execution_mask[env_ids] = execution_mask
+        self.fixed_tape_hashes = tuple(noisy_segment_hashes)
+        return torch.ones(env_ids.numel(), dtype=torch.bool)
+
+    def clear_frontres_fixed_noisy_tape(self, env_ids: torch.Tensor) -> None:
+        if self.fixed_tape is not None:
+            self.fixed_tape[env_ids] = 0.0
+        self.fixed_tape_execution_mask[env_ids] = False
+
+    def materialize_frontres_fixed_noisy_tape(self, **kwargs) -> torch.Tensor:
+        self.materialize_calls.append(dict(kwargs))
+        frame_count = int(kwargs["frame_count"])
+        start_frame = float(kwargs["start_frame"])
+        strength = float(kwargs["perturbation_strength"])
+        return torch.full((frame_count, 65), start_frame + strength, dtype=torch.float32)
 
 
 class FakeCommandManager:
@@ -671,6 +719,91 @@ def test_index_reset_expands_sampled_rows_to_full_quartet_dynamic_state() -> Non
         )
 
 
+def test_index_reset_installs_fixed_noisy_tape_for_all_roles_without_resampling() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        _write_fake_amass(root / "KIT" / "359" / "motion_a.npz")
+        env = FakeGymEnv(root, num_envs=8)
+        adapter = FrontRESStage1EnvAdapter(env, amass_root=str(root), trace=False)
+        role_env_ids = {
+            "policy": torch.tensor([0, 1], dtype=torch.long),
+            "candidate": torch.tensor([2, 3], dtype=torch.long),
+            "noisy": torch.tensor([4, 5], dtype=torch.long),
+            "clean": torch.tensor([6, 7], dtype=torch.long),
+        }
+        source_tape = torch.zeros(2, 4, 65, dtype=torch.float32)
+        source_tape[0, :, :58] = 10.0
+        source_tape[1, :, :58] = 20.0
+        source_tape[0, :, 58:61] = torch.tensor([101.0, 102.0, 103.0])
+        source_tape[1, :, 58:61] = torch.tensor([201.0, 202.0, 203.0])
+        source_tape[:, :, 61] = 1.0
+
+        result = adapter.apply_frontres_segment_index_reset(
+            types.SimpleNamespace(
+                segment_ids=torch.tensor([5, 6], dtype=torch.long),
+                motion_ids=("KIT/359/motion_a.npz", "KIT/359/motion_a.npz"),
+                start_frames=torch.tensor([3, 4], dtype=torch.long),
+                horizon_k=torch.tensor([2, 2], dtype=torch.long),
+                frontres_fixed_noisy_tape=source_tape,
+                frontres_fixed_noisy_tape_lengths=torch.tensor([4, 4], dtype=torch.long),
+                frontres_fixed_noisy_scenario_ids=("scenario-a", "scenario-b"),
+                frontres_fixed_noisy_segment_hashes=("hash-a", "hash-b"),
+                frontres_future_offsets=(1, 2),
+                frontres_role_env_ids=role_env_ids,
+            )
+        )
+
+        command = env.unwrapped.command
+        assert result["reset_success"].tolist() == [True, True]
+        assert len(command.fixed_tape_install_calls) == 1
+        installed = command.fixed_tape_install_calls[0]
+        assert tuple(installed["tape"].shape) == (8, 4, 65)
+        assert installed["execution_mask"].tolist() == [True, True, True, True, True, True, False, False]
+        assert installed["noisy_segment_hashes"] == (
+            "hash-a", "hash-b", "hash-a", "hash-b", "hash-a", "hash-b", "hash-a", "hash-b"
+        )
+        assert env.unwrapped.command.perturber.reset_calls == []
+        torch.testing.assert_close(command._cached_perturbed_pos[:6, 0], torch.tensor([101.0, 201.0, 101.0, 201.0, 101.0, 201.0]))
+        torch.testing.assert_close(command._cached_perturbed_pos[6:, 0], torch.tensor([3.0, 4.0]))
+        torch.testing.assert_close(env.unwrapped.robot.data.joint_pos[:, 0], torch.tensor([3.0, 4.0, 3.0, 4.0, 3.0, 4.0, 3.0, 4.0]))
+        print(
+            "[probe fixed_tape_reset] "
+            f"installed_shape={tuple(installed['tape'].shape)} "
+            f"execution_mask={installed['execution_mask'].tolist()} "
+            f"hashes={installed['noisy_segment_hashes']} "
+            f"perturber_reset_calls={env.unwrapped.command.perturber.reset_calls}",
+            flush=True,
+        )
+
+
+def test_adapter_routes_selection_time_materialization_to_command_owner() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "AMASS_G1NPZ_Final"
+        _write_fake_amass(root / "KIT" / "359" / "motion_a.npz")
+        env = FakeGymEnv(root)
+        adapter = FrontRESStage1EnvAdapter(env, amass_root=str(root), trace=False)
+
+        tape = adapter.materialize_frontres_fixed_noisy_tape(
+            motion_id="KIT/359/motion_a.npz",
+            start_frame=3,
+            frame_count=4,
+            perturbation_family="local_rp",
+            perturbation_strength=0.5,
+        )
+
+        assert tuple(tape.shape) == (4, 65)
+        torch.testing.assert_close(tape, torch.full((4, 65), 3.5))
+        assert env.unwrapped.command.materialize_calls == [
+            {
+                "motion_index": 0,
+                "start_frame": 3,
+                "frame_count": 4,
+                "perturbation_family": "local_rp",
+                "perturbation_strength": 0.5,
+            }
+        ]
+
+
 def test_production_cache_refresh_owner_does_not_advance_frame() -> None:
     source = COMMANDS_PATH.read_text()
     module = ast.parse(source)
@@ -711,5 +844,7 @@ if __name__ == "__main__":
     test_stage1_index_reset_applies_dynamic_motion_perturbation_request()
     test_stage1_index_reset_applies_local_rp_only_perturbation_request()
     test_index_reset_expands_sampled_rows_to_full_quartet_dynamic_state()
+    test_index_reset_installs_fixed_noisy_tape_for_all_roles_without_resampling()
+    test_adapter_routes_selection_time_materialization_to_command_owner()
     test_production_cache_refresh_owner_does_not_advance_frame()
     print("PASS: FrontRES Stage 1 env adapter hooks trace motion, clean reset, perturbation, and baseline rollout.")

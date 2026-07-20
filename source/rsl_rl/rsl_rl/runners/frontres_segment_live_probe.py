@@ -9,7 +9,7 @@ import math
 from pathlib import Path
 import sys
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 import torch
 
@@ -22,6 +22,11 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
 from rsl_rl.frontres.frontres_segment_storage import (
     FrontRESSegmentRolloutStorage,
     FrontRESSegmentTransition,
+    FrontRESV015GainReturnEvidence,
+    FrontRESV015OneActionKEvidence,
+    build_frontres_v015_grouped_candidate_storage,
+    build_frontres_v015_gain_return_evidence,
+    pair_frontres_v015_gain_facts,
 )
 from rsl_rl.frontres.frontres_segment_reset import (
     FrontRESSegmentResetAdapter,
@@ -42,7 +47,38 @@ except ModuleNotFoundError:
 from rsl_rl.frontres.training_schedule import resolve_frontres_mode_state
 from rsl_rl.modules import FrontRESActorCritic
 from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout
-from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
+try:
+    from rsl_rl.runners.frontres_segment_live_sampler import (
+        _close_frontres_local_scenarios,
+        FrontRESV015FormalTransactionAccumulator,
+        FrontRESV015FormalTransactionPlan,
+        capture_frontres_frozen_policy_snapshot,
+        prepare_frontres_v015_local_sentinel_batch,
+    )
+except ModuleNotFoundError:
+    # 契约测试会按文件加载 probe; 此处保持与常规 package import 相同的 owner.
+    _V015_LIVE_SAMPLER_PATH = Path(__file__).resolve().with_name("frontres_segment_live_sampler.py")
+    _V015_LIVE_SAMPLER_SPEC = importlib.util.spec_from_file_location(
+        "rsl_rl.runners.frontres_segment_live_sampler",
+        _V015_LIVE_SAMPLER_PATH,
+    )
+    if _V015_LIVE_SAMPLER_SPEC is None or _V015_LIVE_SAMPLER_SPEC.loader is None:
+        raise RuntimeError(f"Could not load v015 formal transaction sampler from {_V015_LIVE_SAMPLER_PATH}.")
+    _V015_LIVE_SAMPLER_MODULE = importlib.util.module_from_spec(_V015_LIVE_SAMPLER_SPEC)
+    sys.modules[_V015_LIVE_SAMPLER_SPEC.name] = _V015_LIVE_SAMPLER_MODULE
+    _V015_LIVE_SAMPLER_SPEC.loader.exec_module(_V015_LIVE_SAMPLER_MODULE)
+    FrontRESV015FormalTransactionAccumulator = _V015_LIVE_SAMPLER_MODULE.FrontRESV015FormalTransactionAccumulator
+    FrontRESV015FormalTransactionPlan = _V015_LIVE_SAMPLER_MODULE.FrontRESV015FormalTransactionPlan
+    capture_frontres_frozen_policy_snapshot = _V015_LIVE_SAMPLER_MODULE.capture_frontres_frozen_policy_snapshot
+    _close_frontres_local_scenarios = _V015_LIVE_SAMPLER_MODULE._close_frontres_local_scenarios
+    prepare_frontres_v015_local_sentinel_batch = _V015_LIVE_SAMPLER_MODULE.prepare_frontres_v015_local_sentinel_batch
+from rsl_rl.runners.frontres_rollout_step import (
+    _append_future_intent_actor_context,
+    _frontres_motion_command,
+    prepare_frontres_rollout_step,
+    prepare_frontres_v015_frozen_gmt_step,
+    prepare_frontres_v015_one_action_at_t,
+)
 _FORMAL_AUDIT_SPEC = importlib.util.spec_from_file_location(
     "frontres_formal_runtime_audit_probe", Path(__file__).resolve().with_name("frontres_formal_runtime_audit.py")
 )
@@ -163,6 +199,220 @@ class FrontRESSegmentLiveObservations:
     ref_vel_estimator_obs: torch.Tensor | None
 
 
+@dataclass(frozen=True)
+class FrontRESV015GainConsumerEvidence:
+    """Candidate-only v003 consumer chain, 与 formal PPO 和 sampler state 隔离."""
+
+    one_action: FrontRESV015OneActionKEvidence
+    return_evidence: FrontRESV015GainReturnEvidence
+    priority_evidence: Any
+
+    def validate(self) -> None:
+        self.one_action.validate()
+        self.return_evidence.validate()
+        validate_priority = getattr(self.priority_evidence, "validate", None)
+        if not callable(validate_priority):
+            raise TypeError("v015 Gain consumer chain requires validated priority evidence")
+        validate_priority()
+        same_gain = (
+            tuple(self.return_evidence.gain_total.shape) == tuple(self.priority_evidence.gain_total.shape)
+            and torch.equal(
+                torch.isnan(self.return_evidence.gain_total),
+                torch.isnan(self.priority_evidence.gain_total),
+            )
+            and torch.equal(
+                torch.nan_to_num(self.return_evidence.gain_total, nan=0.0),
+                torch.nan_to_num(self.priority_evidence.gain_total, nan=0.0),
+            )
+        )
+        if (
+            not same_gain
+            or self.return_evidence.scenario_ids != self.priority_evidence.scenario_ids
+            or self.return_evidence.noisy_segment_hashes != self.priority_evidence.noisy_segment_hashes
+        ):
+            raise ValueError("v015 Gain consumer chain lost the shared Gain decomposition or scenario identity")
+        repair_rows = self.one_action.policy_row_indices.detach().to(dtype=torch.long)
+        if repair_rows.ndim != 1 or int(repair_rows.numel()) != int(self.return_evidence.policy_actions.shape[0]):
+            raise ValueError("v015 Gain consumer chain has misaligned Repair policy rows")
+        for name in (
+            "policy_observations",
+            "policy_actions",
+            "policy_log_probs",
+            "policy_values",
+            "policy_means",
+            "policy_sigmas",
+        ):
+            expected = getattr(self.one_action, name).detach()
+            actual = getattr(self.return_evidence, name).detach()
+            if not torch.equal(actual.to(device="cpu"), expected.to(device="cpu")):
+                raise ValueError(f"v015 Gain consumer chain lost the one-action {name} tuple")
+        expected_horizon = self.one_action.horizon_k.index_select(0, repair_rows)
+        expected_survival = self.one_action.survival_steps.index_select(0, repair_rows).detach().float()
+        expected_steps = expected_survival.to(dtype=torch.long)
+        if (
+            not torch.equal(expected_survival, expected_steps.to(dtype=expected_survival.dtype))
+            or not torch.equal(expected_horizon.to(device="cpu", dtype=torch.long), self.return_evidence.horizon_k.detach().to(device="cpu", dtype=torch.long))
+            or not torch.equal(
+                expected_steps.to(device="cpu"),
+                self.return_evidence.evidence_valid_step_count.detach().to(device="cpu", dtype=torch.long),
+            )
+            or tuple(self.one_action.scenario_ids[int(row)] for row in repair_rows.tolist()) != self.return_evidence.scenario_ids
+            or tuple(self.one_action.noisy_segment_hashes[int(row)] for row in repair_rows.tolist())
+            != self.return_evidence.noisy_segment_hashes
+            or tuple(self.one_action.x_t_identities[int(row)] for row in repair_rows.tolist())
+            != self.return_evidence.x_t_identities
+        ):
+            raise ValueError("v015 Gain consumer chain lost the one-action local scenario or K evidence identity")
+
+
+@dataclass(frozen=True)
+class FrontRESV015FormalTransactionRequest:
+    """Fake-S2-only request injected after all v015 candidate attempts are collected.
+
+    该 request 不会从 sampler/live runner 自动构造. 只有测试注入 owner 能提供
+    已封存的 plan 和 candidate shards, 因而本步骤不会意外启动真实训练.
+    """
+
+    plan: FrontRESV015FormalTransactionPlan
+    candidate_batches: tuple[Any, ...]
+    policy_evaluator: Any | None = None
+    privileged_observations: torch.Tensor | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "candidate_batches", tuple(self.candidate_batches))
+        if not isinstance(self.plan, FrontRESV015FormalTransactionPlan):
+            raise TypeError("v015 formal transaction request requires FrontRESV015FormalTransactionPlan")
+        self.plan.validate()
+        if not self.candidate_batches:
+            raise ValueError("v015 formal transaction request requires candidate batches")
+        if self.privileged_observations is not None and not isinstance(self.privileged_observations, torch.Tensor):
+            raise TypeError("v015 formal transaction privileged_observations must be a tensor or None")
+
+
+_V015_CHECKPOINT_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
+
+
+def _v015_checkpoint_plan_hash(plan: FrontRESV015FormalTransactionPlan, *, scenario_only: bool) -> str:
+    """只 hash immutable identity field, 不把 raw scenario reference 写入 receipt."""
+
+    digest = hashlib.sha256()
+    values = (
+        plan.scenario_ids,
+        plan.noisy_segment_hashes,
+        plan.x_t_identities,
+        tuple(int(value) for value in plan.horizon_k.tolist()),
+    )
+    if not scenario_only:
+        values = (
+            plan.transaction_id,
+            plan.policy_snapshot_id,
+            plan.intent_q29_provenance,
+            plan.intent_q29_source,
+            plan.motion_ids,
+            tuple(int(value) for value in plan.start_frames.tolist()),
+            tuple(int(value) for value in plan.segment_ids.tolist()),
+            tuple(int(value) for value in plan.source_index.tolist()),
+            tuple(int(value) for value in plan.trial_index.tolist()),
+            *values,
+        )
+    for value in values:
+        digest.update(repr(value).encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def open_frontres_v015_checkpoint_transaction_barrier(runner: Any) -> None:
+    """在 injected provider 收集 candidate evidence 前打开 save barrier."""
+
+    existing = getattr(runner, _V015_CHECKPOINT_TRANSACTION_STATE_ATTR, None)
+    phase = str(existing.get("state", "")) if isinstance(existing, dict) else ""
+    if phase in {"collecting", "sealed"}:
+        raise RuntimeError(f"v015 formal transaction checkpoint barrier is already active; state={phase}")
+    setattr(runner, _V015_CHECKPOINT_TRANSACTION_STATE_ATTR, {"state": "collecting", "phase": "provider"})
+
+
+def _bind_frontres_v015_checkpoint_transaction_plan(
+    runner: Any,
+    plan: FrontRESV015FormalTransactionPlan,
+) -> None:
+    """在 collection 仍禁止 checkpoint 时发布 immutable transaction identity."""
+
+    plan.validate()
+    existing = getattr(runner, _V015_CHECKPOINT_TRANSACTION_STATE_ATTR, None)
+    phase = str(existing.get("state", "")) if isinstance(existing, dict) else ""
+    if phase not in {"", "idle", "collecting", "committed"}:
+        raise RuntimeError(f"v015 formal transaction cannot bind checkpoint state={phase}")
+    setattr(
+        runner,
+        _V015_CHECKPOINT_TRANSACTION_STATE_ATTR,
+        {
+            "state": "collecting",
+            "transaction_id": plan.transaction_id,
+            "policy_snapshot_id": plan.policy_snapshot_id,
+            "plan_identity_hash": _v015_checkpoint_plan_hash(plan, scenario_only=False),
+            "expected_policy_row_count": plan.batch_size,
+        },
+    )
+
+
+def _seal_frontres_v015_checkpoint_transaction_plan(runner: Any, plan: FrontRESV015FormalTransactionPlan) -> None:
+    """标记全部 expected attempt 已到齐, 但 step 前仍禁止 persistence."""
+
+    state = getattr(runner, _V015_CHECKPOINT_TRANSACTION_STATE_ATTR, None)
+    if not isinstance(state, dict) or state.get("state") != "collecting":
+        raise RuntimeError("v015 formal transaction seal requires an active collecting checkpoint barrier")
+    sealed = dict(state)
+    sealed["state"] = "sealed"
+    sealed["collected_policy_attempt_count"] = plan.batch_size
+    setattr(runner, _V015_CHECKPOINT_TRANSACTION_STATE_ATTR, sealed)
+
+
+def _commit_frontres_v015_checkpoint_transaction(
+    runner: Any,
+    *,
+    plan: FrontRESV015FormalTransactionPlan,
+    valid_policy_row_count: int,
+    optimizer_step_before: int,
+    optimizer_step_after: int,
+) -> None:
+    """在唯一允许的 optimizer step 后发布 metadata-only receipt."""
+
+    state = getattr(runner, _V015_CHECKPOINT_TRANSACTION_STATE_ATTR, None)
+    if not isinstance(state, dict) or state.get("state") != "sealed":
+        raise RuntimeError("v015 formal transaction commit requires a sealed checkpoint barrier")
+    receipt = {
+        "transaction_id": plan.transaction_id,
+        "policy_snapshot_id": plan.policy_snapshot_id,
+        "plan_identity_hash": _v015_checkpoint_plan_hash(plan, scenario_only=False),
+        "scenario_identity_hash": _v015_checkpoint_plan_hash(plan, scenario_only=True),
+        "expected_policy_row_count": int(plan.batch_size),
+        "collected_policy_attempt_count": int(state["collected_policy_attempt_count"]),
+        "valid_policy_row_count": int(valid_policy_row_count),
+        "optimizer_step_before": int(optimizer_step_before),
+        "optimizer_step_after": int(optimizer_step_after),
+        "optimizer_step_delta": int(optimizer_step_after - optimizer_step_before),
+    }
+    setattr(runner, _V015_CHECKPOINT_TRANSACTION_STATE_ATTR, {"state": "committed", "receipt": receipt})
+
+
+@dataclass(frozen=True)
+class FrontRESV015FormalTransactionUpdateResult:
+    """One fake-S2 formal grouped update and its sealed diagnostics."""
+
+    transaction_id: str
+    policy_snapshot_id: str
+    segment_count: int
+    source_count: int
+    policy_attempt_count: int
+    valid_row_count: int
+    optimizer_step_before: int
+    optimizer_step_after: int
+    optimizer_step_delta: int
+    update_invocation_count: int
+    ppo_result: Any
+    diagnostics: dict[str, Any]
+
+
 @dataclass
 class FrontRESSegmentLiveRolloutCapture:
     rollout_k: int
@@ -216,6 +466,200 @@ class FrontRESSegmentLiveRolloutCapture:
     gain_steps: torch.Tensor | None = None
     survival_gain_steps: torch.Tensor | None = None
     gain_config: Any | None = None
+
+
+@dataclass(frozen=True)
+class FrontRESFrozenPolicyTransactionResult:
+    """Offline S2 proof emitted after one complete transaction reaches one update callback."""
+
+    transaction_id: str
+    policy_snapshot_id: str
+    segment_count: int
+    source_count: int
+    policy_attempt_count: int
+    valid_row_count: int
+    optimizer_step_before: int
+    optimizer_step_after: int
+    optimizer_step_delta: int
+    update_invocation_count: int
+    update_result: Any
+
+
+class FrontRESFrozenPolicyTransactionAccumulator:
+    """Gate one complete S1b storage batch before exactly one injected update.
+
+    Status: candidate-only/offline.
+    Upstream: S1b sealed storage batch and frozen transaction metadata.
+    Downstream: one future transaction-aware update callback.
+    Evidence: deterministic S2 contract only; no live runner is wired here.
+    Gap: grouped PPO and formal route integration remain separate steps.
+    """
+
+    def __init__(self, runner: Any, *, optimizer_step_count: Callable[[], int]) -> None:
+        if not callable(optimizer_step_count):
+            raise TypeError("optimizer_step_count must be callable")
+        self._runner = runner
+        self._optimizer_step_count = optimizer_step_count
+        self._optimizer_step_at_open = self._read_optimizer_step_count()
+        self._storage_batch: Any | None = None
+        self._metadata: Any | None = None
+        self._state = "collecting"
+        self._update_invocation_count = 0
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    @property
+    def transaction_id(self) -> str:
+        if self._metadata is None:
+            raise RuntimeError("frozen transaction has no sealed S1b metadata")
+        return str(self._metadata.transaction_id)
+
+    @property
+    def update_invocation_count(self) -> int:
+        return int(self._update_invocation_count)
+
+    def _read_optimizer_step_count(self) -> int:
+        try:
+            count = int(self._optimizer_step_count())
+        except Exception as exc:
+            raise RuntimeError("optimizer_step_count must return an integer") from exc
+        if count < 0:
+            raise ValueError("optimizer_step_count must be non-negative")
+        return count
+
+    def _require_no_optimizer_step_during_collection(self) -> int:
+        current = self._read_optimizer_step_count()
+        if current != self._optimizer_step_at_open:
+            self._state = "failed"
+            raise RuntimeError(
+                "optimizer step occurred during frozen-policy transaction collection: "
+                f"opened={self._optimizer_step_at_open} current={current}"
+            )
+        return current
+
+    @staticmethod
+    def _metadata_row_tensor(metadata: Any, name: str, *, batch_size: int) -> torch.Tensor:
+        value = getattr(metadata, name, None)
+        if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != int(batch_size):
+            raise ValueError(f"frozen transaction metadata {name} must be rank-1 [B]")
+        return value.detach().to(device="cpu", dtype=torch.long).contiguous()
+
+    def _validate_complete_s1b_storage_batch(self, storage_batch: Any) -> tuple[Any, int, int, int, int]:
+        metadata = getattr(storage_batch, "transaction_metadata", None)
+        if metadata is None:
+            raise ValueError("frozen transaction accumulator requires S1b transaction_metadata")
+        validate = getattr(metadata, "validate", None)
+        verify_policy = getattr(metadata, "verify_policy", None)
+        if not callable(validate) or not callable(verify_policy):
+            raise TypeError("S1b transaction_metadata must provide validate() and verify_policy()")
+        validate()
+        transaction_id = str(getattr(metadata, "transaction_id", ""))
+        policy_snapshot_id = str(getattr(metadata, "policy_snapshot_id", ""))
+        if not transaction_id or not policy_snapshot_id:
+            raise ValueError("S1b transaction metadata requires transaction_id and policy_snapshot_id")
+        segment_ids = getattr(storage_batch, "segment_ids", None)
+        valid_mask = getattr(storage_batch, "valid_mask", None)
+        if not isinstance(segment_ids, torch.Tensor) or segment_ids.ndim != 1:
+            raise ValueError("frozen transaction storage requires rank-1 segment_ids")
+        batch_size = int(segment_ids.numel())
+        if batch_size <= 0:
+            raise ValueError("frozen transaction storage must contain at least one row")
+        if not isinstance(valid_mask, torch.Tensor) or valid_mask.ndim != 1 or int(valid_mask.numel()) != batch_size:
+            raise ValueError("frozen transaction storage valid_mask must be rank-1 [B]")
+        metadata_batch_size = int(getattr(metadata, "batch_size", -1))
+        if metadata_batch_size != batch_size:
+            raise ValueError("S1b transaction metadata row count must equal storage rows")
+        metadata_segment_ids = self._metadata_row_tensor(metadata, "segment_ids", batch_size=batch_size)
+        if not torch.equal(segment_ids.detach().to(device="cpu", dtype=torch.long), metadata_segment_ids):
+            raise ValueError("storage segment_ids disagree with sealed S1b transaction metadata")
+        source_index = self._metadata_row_tensor(metadata, "source_index", batch_size=batch_size)
+        trial_index = self._metadata_row_tensor(metadata, "trial_index", batch_size=batch_size)
+        self._metadata_row_tensor(metadata, "horizon_k", batch_size=batch_size)
+        roles = tuple(str(value) for value in getattr(metadata, "trial_role", ()))
+        noisy_hashes = tuple(str(value) for value in getattr(metadata, "noisy_segment_hashes", ()))
+        scenario_ids = tuple(str(value) for value in getattr(metadata, "scenario_ids", ()))
+        if len(roles) != batch_size or len(noisy_hashes) != batch_size or len(scenario_ids) != batch_size:
+            raise ValueError("S1b transaction metadata role/hash/scenario rows must equal storage rows")
+        if any(role != "policy" for role in roles):
+            raise ValueError("frozen-policy transaction may contain only policy attempts")
+        unique_segments = torch.unique(metadata_segment_ids, sorted=True)
+        unique_sources = torch.unique(source_index, sorted=True)
+        if int(unique_segments.numel()) < 2 or int(unique_sources.numel()) < 2:
+            raise ValueError("frozen-policy transaction requires at least two distinct Segment sources")
+        for source in unique_sources.tolist():
+            rows = torch.nonzero(source_index == int(source), as_tuple=False).reshape(-1)
+            if int(rows.numel()) < 2:
+                raise ValueError(f"source_index={source} requires at least two policy attempts")
+            source_trials = sorted(int(value) for value in trial_index[rows].tolist())
+            if source_trials != list(range(len(source_trials))):
+                raise ValueError(f"source_index={source} trial_index must be contiguous from zero")
+            source_hashes = {noisy_hashes[int(row)] for row in rows.tolist()}
+            source_scenarios = {scenario_ids[int(row)] for row in rows.tolist()}
+            if len(source_hashes) != 1 or len(source_scenarios) != 1:
+                raise ValueError(f"source_index={source} has mixed fixed Noisy identity")
+        policy = getattr(getattr(self._runner, "alg", None), "policy", None)
+        verify_policy(policy)
+        return (
+            metadata,
+            int(unique_segments.numel()),
+            int(unique_sources.numel()),
+            batch_size,
+            int(valid_mask.detach().bool().sum().item()),
+        )
+
+    def append_storage_batch(self, storage_batch: Any) -> None:
+        if self._state != "collecting":
+            raise RuntimeError(f"frozen transaction is not collecting; state={self._state}")
+        if self._storage_batch is not None:
+            raise RuntimeError("frozen transaction already has its one complete S1b storage batch")
+        self._require_no_optimizer_step_during_collection()
+        metadata, _, _, _, _ = self._validate_complete_s1b_storage_batch(storage_batch)
+        self._require_no_optimizer_step_during_collection()
+        self._storage_batch = storage_batch
+        self._metadata = metadata
+
+    def finalize_one_update(self, update_callback: Callable[[Any], Any]) -> FrontRESFrozenPolicyTransactionResult:
+        if not callable(update_callback):
+            raise TypeError("update_callback must be callable")
+        if self._state == "finalized":
+            raise RuntimeError("frozen transaction is already finalized")
+        if self._state != "collecting" or self._storage_batch is None or self._metadata is None:
+            raise RuntimeError(f"frozen transaction is not ready to finalize; state={self._state}")
+        before_update = self._require_no_optimizer_step_during_collection()
+        metadata, segment_count, source_count, policy_attempt_count, valid_row_count = self._validate_complete_s1b_storage_batch(
+            self._storage_batch
+        )
+        self._state = "finalizing"
+        self._update_invocation_count += 1
+        try:
+            update_result = update_callback(self._storage_batch)
+        except Exception:
+            self._state = "failed"
+            raise
+        after_update = self._read_optimizer_step_count()
+        step_delta = after_update - before_update
+        if step_delta != 1:
+            self._state = "failed"
+            raise RuntimeError(
+                "frozen transaction finalization requires exactly one optimizer step: "
+                f"before={before_update} after={after_update} delta={step_delta}"
+            )
+        self._state = "finalized"
+        return FrontRESFrozenPolicyTransactionResult(
+            transaction_id=str(metadata.transaction_id),
+            policy_snapshot_id=str(metadata.policy_snapshot_id),
+            segment_count=segment_count,
+            source_count=source_count,
+            policy_attempt_count=policy_attempt_count,
+            valid_row_count=valid_row_count,
+            optimizer_step_before=before_update,
+            optimizer_step_after=after_update,
+            optimizer_step_delta=step_delta,
+            update_invocation_count=self._update_invocation_count,
+            update_result=update_result,
+        )
 
 
 def _gain_module() -> Any | None:
@@ -1174,13 +1618,17 @@ def _apply_current_segment_reset(
         )
     ).lower()
     request = adapter.build_request(batch, mode=reset_mode)
-    _attach_trial_metadata_to_request(
+    trial_metadata = _current_trial_metadata(
+        runner,
+        batch_size=int(request.segment_ids.numel()),
+        device=request.segment_ids.device,
+    )
+    _attach_trial_metadata_to_request(request, trial_metadata)
+    _attach_frozen_transaction_metadata_to_request(
         request,
-        _current_trial_metadata(
-            runner,
-            batch_size=int(request.segment_ids.numel()),
-            device=request.segment_ids.device,
-        ),
+        runner=runner,
+        batch=batch,
+        trial_metadata=trial_metadata,
     )
     if not _env_has_segment_reset_hook(runner.env):
         ensure_frontres_segment_live_reset_hook(
@@ -1271,13 +1719,25 @@ def _apply_index_only_segment_reset(
         perturbation_strength=perturbation_strength,
         valid_mask=torch.ones_like(batch.segment_ids, dtype=torch.bool),
     )
+    v015_local_scenario = getattr(batch, "frontres_local_scenario_rows", None) is not None
+    if v015_local_scenario:
+        _attach_frontres_local_scenario_to_index_request(request, batch)
+    else:
+        _attach_fixed_noisy_tape_to_index_request(request, batch)
     if pair_layout is not None:
         request.frontres_role_env_ids = _frontres_reset_role_env_ids(
             pair_layout,
             source_count=int(batch.segment_ids.numel()),
             device=batch.segment_ids.device,
+            v015_local=v015_local_scenario,
         )
     _attach_trial_metadata_to_request(request, trial_metadata)
+    _attach_frozen_transaction_metadata_to_request(
+        request,
+        runner=runner,
+        batch=batch,
+        trial_metadata=trial_metadata,
+    )
     hook = _index_segment_reset_hook(runner.env)
     if hook is None:
         runner._frontres_segment_live_current_reset_request = None
@@ -1335,19 +1795,113 @@ def _apply_index_only_segment_reset(
     return result
 
 
+def _attach_fixed_noisy_tape_to_index_request(request: Any, batch: Any) -> None:
+    tape = getattr(batch, "frontres_fixed_noisy_tape", None)
+    if tape is None:
+        return
+    if not isinstance(tape, torch.Tensor) or tape.ndim != 3:
+        raise ValueError(f"frontres_fixed_noisy_tape must be [B,L,65], got {getattr(tape, 'shape', None)}")
+    batch_size = int(request.segment_ids.numel())
+    if int(tape.shape[0]) != batch_size or int(tape.shape[-1]) != 65:
+        raise ValueError("frontres_fixed_noisy_tape must align with reset rows and use the 65D carrier")
+    offsets = tuple(int(value) for value in (getattr(batch, "frontres_future_offsets", ()) or ()))
+    if not offsets or any(value <= 0 for value in offsets) or tuple(sorted(set(offsets))) != offsets:
+        raise ValueError("frontres_future_offsets must be nonempty positive ordered offsets for fixed Noisy reset")
+    lengths = getattr(batch, "frontres_fixed_noisy_tape_lengths", None)
+    scenario_ids = tuple(str(value) for value in (getattr(batch, "frontres_fixed_noisy_scenario_ids", ()) or ()))
+    hashes = tuple(str(value) for value in (getattr(batch, "frontres_fixed_noisy_segment_hashes", ()) or ()))
+    if (
+        not isinstance(lengths, torch.Tensor)
+        or int(lengths.numel()) != batch_size
+        or len(scenario_ids) != batch_size
+        or len(hashes) != batch_size
+    ):
+        raise ValueError("fixed Noisy reset requires source-aligned tape lengths, scenario ids, and hashes")
+    request.frontres_fixed_noisy_tape = tape.detach()
+    request.frontres_fixed_noisy_tape_lengths = lengths.detach()
+    request.frontres_fixed_noisy_scenario_ids = scenario_ids
+    request.frontres_fixed_noisy_segment_hashes = hashes
+    request.frontres_future_offsets = offsets
+
+
+def _attach_frontres_local_scenario_to_index_request(request: Any, batch: Any) -> None:
+    """Attach only the v015 split local carrier to an index-reset request.
+
+    The request owns no actor-side Clean reference: q29 intent and the full 65D
+    continuation remain separate fields for the command/reset owner to route to
+    the actor and frozen GMT consumers respectively.
+    """
+
+    if getattr(batch, "frontres_fixed_noisy_tape", None) is not None:
+        raise ValueError("v015 local reset request cannot mix a sealed local scenario with a legacy fixed Noisy tape")
+    rows = getattr(batch, "frontres_local_scenario_rows", None)
+    artifact = getattr(batch, "frontres_local_scenario_current_root_artifact_t", None)
+    intent = getattr(batch, "frontres_local_scenario_intent_q29", None)
+    continuation = getattr(batch, "frontres_local_scenario_clean_continuation", None)
+    lengths = getattr(batch, "frontres_local_scenario_clean_continuation_lengths", None)
+    mask = getattr(batch, "frontres_local_scenario_clean_continuation_mask", None)
+    scenario_ids = tuple(str(value) for value in (getattr(batch, "frontres_local_scenario_ids", ()) or ()))
+    hashes = tuple(str(value) for value in (getattr(batch, "frontres_local_scenario_hashes", ()) or ()))
+    x_t_identities = tuple(str(value) for value in (getattr(batch, "frontres_local_scenario_x_t_identities", ()) or ()))
+    provenance = tuple(getattr(batch, "frontres_local_scenario_provenance", ()) or ())
+    offsets = tuple(int(value) for value in (getattr(batch, "frontres_future_offsets", ()) or ()))
+    batch_size = int(request.segment_ids.numel())
+    if (
+        rows is None
+        or not isinstance(artifact, torch.Tensor)
+        or not isinstance(intent, torch.Tensor)
+        or not isinstance(continuation, torch.Tensor)
+        or not isinstance(lengths, torch.Tensor)
+        or not isinstance(mask, torch.Tensor)
+        or not offsets
+        or any(value <= 0 for value in offsets)
+        or tuple(sorted(set(offsets))) != offsets
+        or tuple(artifact.shape) != (batch_size, 7)
+        or tuple(intent.shape) != (batch_size, max(offsets) + 1, 29)
+        or continuation.ndim != 3
+        or tuple(continuation.shape[:1]) != (batch_size,)
+        or int(continuation.shape[-1]) != 65
+        or tuple(lengths.shape) != (batch_size,)
+        or tuple(mask.shape) != tuple(continuation.shape[:2])
+        or len(scenario_ids) != batch_size
+        or len(hashes) != batch_size
+        or len(x_t_identities) != batch_size
+        or len(provenance) != batch_size
+    ):
+        raise ValueError("v015 local reset request requires one aligned sealed artifact, q29 intent, Clean continuation, identity, and provenance row")
+    if any(not isinstance(value, dict) for value in provenance):
+        raise ValueError("v015 local reset request requires dict provenance for every local scenario row")
+    request.frontres_local_scenario_rows = rows
+    request.frontres_local_scenario_current_root_artifact_t = artifact.detach().clone()
+    request.frontres_local_scenario_intent_q29 = intent.detach().clone()
+    request.frontres_local_scenario_clean_continuation = continuation.detach().clone()
+    request.frontres_local_scenario_clean_continuation_lengths = lengths.detach().clone()
+    request.frontres_local_scenario_clean_continuation_mask = mask.detach().clone()
+    request.frontres_local_scenario_ids = scenario_ids
+    request.frontres_local_scenario_hashes = hashes
+    request.frontres_local_scenario_x_t_identities = x_t_identities
+    request.frontres_local_scenario_provenance = tuple(dict(value) for value in provenance)
+    request.frontres_future_offsets = offsets
+
+
 def _frontres_reset_role_env_ids(
     pair_layout: Any,
     *,
     source_count: int,
     device: torch.device,
+    v015_local: bool = False,
 ) -> dict[str, torch.Tensor]:
     """将 sampled policy rows 映射到配对的 split-env role rows."""
     source_count = int(source_count)
     counts = (
-        ("policy", int(getattr(pair_layout, "n_train", 0))),
-        ("candidate", int(getattr(pair_layout, "n_candidate", 0))),
-        ("noisy", int(getattr(pair_layout, "n_base", 0))),
-        ("clean", int(getattr(pair_layout, "n_clean", 0))),
+        (("repair", int(getattr(pair_layout, "n_train", 0))), ("noisy", int(getattr(pair_layout, "n_base", 0))) )
+        if v015_local
+        else (
+            ("policy", int(getattr(pair_layout, "n_train", 0))),
+            ("candidate", int(getattr(pair_layout, "n_candidate", 0))),
+            ("noisy", int(getattr(pair_layout, "n_base", 0))),
+            ("clean", int(getattr(pair_layout, "n_clean", 0))),
+        )
     )
     active_counts = [count for _, count in counts if count > 0]
     if not active_counts or any(count != source_count for count in active_counts):
@@ -1595,6 +2149,131 @@ def _attach_trial_metadata_to_request(request: Any, metadata: SimpleNamespace) -
     object.__setattr__(request, "budget_horizon_k", metadata.horizon_k)
 
 
+def _frozen_transaction_vector_has_rows(value: Any, *, batch_size: int) -> bool:
+    return isinstance(value, torch.Tensor) and value.ndim == 1 and int(value.numel()) == int(batch_size)
+
+
+def _same_frozen_transaction_vector(left: Any, right: Any, *, batch_size: int) -> bool:
+    if not _frozen_transaction_vector_has_rows(left, batch_size=batch_size) or not _frozen_transaction_vector_has_rows(
+        right,
+        batch_size=batch_size,
+    ):
+        return False
+    return torch.equal(
+        left.detach().to(device="cpu", dtype=torch.long).reshape(-1),
+        right.detach().to(device="cpu", dtype=torch.long).reshape(-1),
+    ) and int(left.numel()) == int(batch_size)
+
+
+def _current_frozen_transaction_metadata(
+    runner: Any,
+    *,
+    batch_size: int,
+    trial_metadata: SimpleNamespace,
+) -> Any | None:
+    """Fail closed when a sealed S1b transaction carrier disagrees with the selected batch."""
+
+    batch = getattr(runner, "_frontres_segment_live_current_batch", None)
+    metadata = getattr(batch, "frontres_segment_transaction_metadata", None) if batch is not None else None
+    if metadata is None:
+        return None
+    validate = getattr(metadata, "validate", None)
+    verify_policy = getattr(metadata, "verify_policy", None)
+    if not callable(validate) or not callable(verify_policy):
+        raise TypeError("frozen transaction metadata must provide validate() and verify_policy()")
+    validate()
+    for name in (
+        "transaction_id",
+        "policy_snapshot_id",
+        "policy_state_hash",
+        "motion_ids",
+        "start_frames",
+        "segment_ids",
+        "source_index",
+        "trial_index",
+        "horizon_k",
+        "trial_role",
+        "noisy_segment_hashes",
+    ):
+        if not hasattr(metadata, name):
+            raise TypeError(f"frozen transaction metadata is missing {name}")
+    if not str(metadata.transaction_id) or not str(metadata.policy_snapshot_id) or not str(metadata.policy_state_hash):
+        raise ValueError("frozen transaction metadata identity must be non-empty")
+    if len(tuple(metadata.motion_ids)) != int(batch_size) or len(tuple(metadata.trial_role)) != int(batch_size):
+        raise ValueError("frozen transaction metadata row count does not match the reset/storage batch")
+    if len(tuple(metadata.noisy_segment_hashes)) != int(batch_size):
+        raise ValueError("frozen transaction metadata requires one Noisy hash per batch row")
+    for name in ("start_frames", "segment_ids", "source_index", "trial_index", "horizon_k"):
+        if not _frozen_transaction_vector_has_rows(getattr(metadata, name), batch_size=batch_size):
+            raise ValueError(f"frozen transaction metadata {name} must be [B]")
+    for name, expected, actual in (
+        ("segment_ids", metadata.segment_ids, getattr(batch, "segment_ids", None)),
+        ("source_index", metadata.source_index, trial_metadata.source_index),
+        ("trial_index", metadata.trial_index, trial_metadata.trial_index),
+        ("horizon_k", metadata.horizon_k, trial_metadata.horizon_k),
+    ):
+        if not _same_frozen_transaction_vector(expected, actual, batch_size=batch_size):
+            raise ValueError(f"frozen transaction metadata {name} disagrees with the selected batch")
+    if tuple(str(value) for value in metadata.trial_role) != tuple(trial_metadata.trial_role):
+        raise ValueError("frozen transaction metadata trial_role disagrees with the selected batch")
+    if getattr(batch, "frontres_segment_transaction_id", None) != metadata.transaction_id:
+        raise ValueError("batch transaction_id disagrees with frozen transaction metadata")
+    if getattr(batch, "frontres_segment_policy_snapshot_id", None) != metadata.policy_snapshot_id:
+        raise ValueError("batch policy_snapshot_id disagrees with frozen transaction metadata")
+    if getattr(batch, "frontres_segment_policy_state_hash", None) != metadata.policy_state_hash:
+        raise ValueError("batch policy_state_hash disagrees with frozen transaction metadata")
+    if getattr(batch, "frontres_fixed_noisy_transaction_id", None) != metadata.transaction_id:
+        raise ValueError("fixed Noisy tape transaction_id disagrees with frozen transaction metadata")
+    batch_hashes = tuple(str(value) for value in (getattr(batch, "frontres_fixed_noisy_segment_hashes", ()) or ()))
+    if batch_hashes != tuple(str(value) for value in metadata.noisy_segment_hashes):
+        raise ValueError("fixed Noisy tape hash rows disagree with frozen transaction metadata")
+    return metadata
+
+
+def _attach_frozen_transaction_metadata_to_request(
+    request: Any,
+    *,
+    runner: Any,
+    batch: Any,
+    trial_metadata: SimpleNamespace,
+) -> Any | None:
+    metadata = _current_frozen_transaction_metadata(
+        runner,
+        batch_size=int(request.segment_ids.numel()),
+        trial_metadata=trial_metadata,
+    )
+    if metadata is None:
+        return None
+    if not _same_frozen_transaction_vector(metadata.segment_ids, request.segment_ids, batch_size=int(request.segment_ids.numel())):
+        raise ValueError("frozen transaction metadata segment_ids disagree with reset request")
+    request_motion_ids = getattr(request, "motion_ids", None)
+    if request_motion_ids is not None and tuple(str(value) for value in request_motion_ids) != tuple(metadata.motion_ids):
+        raise ValueError("frozen transaction metadata motion_ids disagree with reset request")
+    request_start_frames = getattr(request, "start_frames", None)
+    if request_start_frames is not None and not _same_frozen_transaction_vector(
+        metadata.start_frames,
+        request_start_frames,
+        batch_size=int(request.segment_ids.numel()),
+    ):
+        raise ValueError("frozen transaction metadata start_frames disagree with reset request")
+    for name, value in (
+        ("frontres_segment_transaction_metadata", metadata),
+        ("frontres_segment_transaction_id", metadata.transaction_id),
+        ("frontres_segment_policy_snapshot_id", metadata.policy_snapshot_id),
+        ("frontres_segment_policy_state_hash", metadata.policy_state_hash),
+        ("frontres_segment_motion_ids", metadata.motion_ids),
+        ("frontres_segment_start_frames", metadata.start_frames),
+        ("frontres_segment_segment_ids", metadata.segment_ids),
+        ("frontres_segment_source_index", metadata.source_index),
+        ("frontres_segment_trial_index", metadata.trial_index),
+        ("frontres_segment_budget_horizon_k", metadata.horizon_k),
+        ("frontres_segment_trial_role", metadata.trial_role),
+        ("frontres_segment_noisy_segment_hashes", metadata.noisy_segment_hashes),
+    ):
+        object.__setattr__(request, name, value)
+    return metadata
+
+
 def _update_trial_metadata_summary(
     summary: dict[str, object],
     runner: Any,
@@ -1726,6 +2405,15 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
             )
     else:
         actor_update_mask = torch.ones(batch_size, device=runner.device, dtype=torch.bool)
+    trial_metadata = _current_trial_metadata(runner, batch_size=batch_size, device=runner.device)
+    frozen_transaction_metadata = _current_frozen_transaction_metadata(
+        runner,
+        batch_size=batch_size,
+        trial_metadata=trial_metadata,
+    )
+    if frozen_transaction_metadata is not None:
+        policy = getattr(getattr(runner, "alg", None), "policy", None)
+        frozen_transaction_metadata.verify_policy(policy)
     ppo_update_mask = _trial_metadata_ppo_update_mask(runner, batch_size=batch_size, device=runner.device)
     valid_mask = rollout_valid_mask & reset_mask & actor_update_mask & ppo_update_mask
     rewards = _segment_storage_rewards(capture, batch_size=batch_size, device=runner.device)
@@ -1758,6 +2446,7 @@ def build_live_segment_storage(runner: Any, capture: FrontRESSegmentLiveRolloutC
                 batch_size=batch_size,
                 device=runner.device,
             ),
+            transaction_metadata=frozen_transaction_metadata,
         )
     )
     reward_steps = _segment_storage_reward_steps(capture, batch_size=batch_size, device=runner.device)
@@ -2375,6 +3064,24 @@ def _resolve_probe_modes(runner: Any) -> tuple[bool, bool]:
     return single_update, storage_write
 
 
+def _append_fixed_noisy_actor_context(runner: Any, obs: torch.Tensor) -> torch.Tensor:
+    append = getattr(runner, "_append_frontres_fixed_noisy_future_context", None)
+    if callable(append):
+        return append(obs)
+    batch = getattr(runner, "_frontres_segment_live_current_batch", None)
+    if isinstance(getattr(batch, "frontres_fixed_noisy_tape", None), torch.Tensor):
+        raise RuntimeError("fixed Noisy Segment Replay requires runner actor-context connectivity")
+    return obs
+
+
+def _uses_v015_future_intent_route_local(runner: Any) -> bool:
+    """本地判定避免 legacy probe stub 依赖新的 rollout-step symbol."""
+
+    alg = getattr(runner, "alg", None)
+    offsets = tuple(int(value) for value in (getattr(alg, "frontres_future_offsets", ()) or ()))
+    return bool(offsets) or getattr(runner, "_frontres_future_intent_layout", None) is not None
+
+
 def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
     obs, extras = runner.env.get_observations()
     obs_dict = extras.get("observations", {})
@@ -2386,7 +3093,14 @@ def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
         teacher_obs = privileged_obs
     ref_vel_estimator_obs = obs_dict.get(runner.ref_vel_estimator_obs_type)
 
-    obs = runner._apply_obs_normalizer(obs.to(runner.device))
+    obs = obs.to(runner.device)
+    # v015 的 actor 只能看到 deployment-q29 intent. 旧 65D fixed tape 只保留给
+    # 历史路径, 两者不能在同一个 observation 中拼接.
+    if _uses_v015_future_intent_route_local(runner):
+        obs = _append_future_intent_actor_context(runner, obs)
+    else:
+        obs = _append_fixed_noisy_actor_context(runner, obs)
+    obs = runner._apply_obs_normalizer(obs)
     privileged_obs = runner.privileged_obs_normalizer(privileged_obs.to(runner.device))
     teacher_obs = runner.teacher_obs_normalizer(teacher_obs.to(runner.device))
     if ref_vel_estimator_obs is not None:
@@ -2397,6 +3111,676 @@ def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
         teacher_obs=teacher_obs,
         ref_vel_estimator_obs=ref_vel_estimator_obs,
     )
+
+
+def _read_v015_frozen_gmt_observations(runner: Any, obs: torch.Tensor, infos: dict[str, Any]) -> torch.Tensor:
+    """Prepare an execution observation without creating another actor input/action."""
+
+    obs_dict = infos.get("observations", {}) if isinstance(infos, dict) else {}
+    if runner.policy_obs_type is not None and runner.policy_obs_type in obs_dict:
+        obs = obs_dict[runner.policy_obs_type].to(runner.device)
+    else:
+        obs = obs.to(runner.device)
+    # The q29 tail is deployment provenance only.  Clean C is consumed solely
+    # by the command owner below, not appended to this execution observation.
+    obs = _append_future_intent_actor_context(runner, obs)
+    return runner._apply_obs_normalizer(obs)
+
+
+def _require_v015_one_action_k_layout(
+    runner: Any,
+    observations: FrontRESSegmentLiveObservations,
+    pair_layout: Any,
+) -> tuple[Any, dict[str, object], torch.Tensor]:
+    """Fail closed unless the candidate collector sees exactly the sealed two-role layout."""
+
+    n_repair = int(getattr(pair_layout, "n_train", 0))
+    n_noisy = int(getattr(pair_layout, "n_base", 0))
+    total = int(observations.obs.shape[0])
+    if (
+        n_repair <= 0
+        or n_noisy != n_repair
+        or int(getattr(pair_layout, "n_candidate", 0)) != 0
+        or int(getattr(pair_layout, "n_clean", 0)) != 0
+        or total != n_repair + n_noisy
+    ):
+        raise RuntimeError("v015 one-action K collector requires only equal Repair/Noisy role rows")
+    command = _frontres_motion_command(runner)
+    snapshot = command.frontres_local_scenario_snapshot(
+        torch.arange(total, device=observations.obs.device, dtype=torch.long)
+    )
+    roles = tuple(snapshot["roles"])
+    expected_roles = ("repair",) * n_repair + ("noisy",) * n_noisy
+    if roles != expected_roles:
+        raise RuntimeError(
+            "v015 one-action K collector requires Repair rows followed by Noisy rows; "
+            f"got roles={roles}"
+        )
+    repair_rows = torch.arange(n_repair, device=observations.obs.device, dtype=torch.long)
+    return command, snapshot, repair_rows
+
+
+def _capture_v015_post_t_executed_q29(command: Any, *, role_count: int, device: torch.device) -> torch.Tensor:
+    """读取 post-action robot articulation state, 绝不读取 command/reference q29."""
+
+    executed_q29 = getattr(command, "robot_joint_pos", None)
+    if not isinstance(executed_q29, torch.Tensor):
+        raise RuntimeError("v015 Gain capture requires command.robot_joint_pos after the t action")
+    executed_q29 = executed_q29.detach().to(device=device, dtype=torch.float32).clone()
+    if tuple(executed_q29.shape) != (role_count, 29):
+        raise RuntimeError(
+            "v015 Gain capture requires post-t robot joint state [N,29], "
+            f"got {tuple(executed_q29.shape)}"
+        )
+    return executed_q29
+
+
+def _v015_intent_provenance_rows(snapshot: dict[str, object], *, role_count: int) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """只从 sealed command snapshot 提取 deployment-q29 provenance."""
+
+    rows = snapshot.get("provenance")
+    if not isinstance(rows, tuple) or len(rows) != role_count:
+        raise RuntimeError("v015 Gain capture requires one sealed q29 provenance row per scored role")
+    provenance: list[str] = []
+    source_rows: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise RuntimeError("v015 Gain capture requires mapping-like q29 provenance")
+        value = str(row.get("intent_q29_provenance", ""))
+        source = str(row.get("intent_q29_source", ""))
+        lowered = source.lower()
+        if value != "deployment_noisy_q29" or not source or any(
+            token in lowered for token in ("clean", "root", "global")
+        ):
+            raise RuntimeError("v015 Gain capture rejects Clean/root/global q29 provenance")
+        provenance.append(value)
+        source_rows.append(source)
+    return tuple(provenance), tuple(source_rows)
+
+
+def collect_frontres_v015_one_action_k_evidence(
+    runner: Any,
+    observations: FrontRESSegmentLiveObservations,
+    *,
+    pair_layout: Any,
+) -> FrontRESV015OneActionKEvidence:
+    """Capture one action followed by frozen-GMT K evidence for v015.
+
+    This bypasses the legacy repeated-action loop. It is consumed by the
+    explicit pre-live sentinel and CPU contracts only; generic live training
+    and legacy storage/update paths remain isolated.
+    """
+
+    command, snapshot, repair_rows = _require_v015_one_action_k_layout(runner, observations, pair_layout)
+    n_repair = int(repair_rows.numel())
+    execution_started = False
+    actor_forward_count = 0
+    later_femr_action_count = 0
+    try:
+        t_plan = prepare_frontres_v015_one_action_at_t(
+            runner,
+            obs=observations.obs,
+            privileged_obs=observations.privileged_obs,
+            teacher_obs=observations.teacher_obs,
+            ref_vel_estimator_obs=observations.ref_vel_estimator_obs,
+            iteration=int(getattr(runner, "current_learning_iteration", 0)),
+            n_repair=n_repair,
+            n_noisy=int(getattr(pair_layout, "n_base", 0)),
+        )
+        actor_forward_count += 1
+        transition = getattr(runner.alg, "transition", None)
+        required = (
+            "observations",
+            "actions_log_prob",
+            "values",
+            "action_mean",
+            "action_sigma",
+        )
+        if transition is None or any(not isinstance(getattr(transition, name, None), torch.Tensor) for name in required):
+            raise RuntimeError("v015 one-action K collector requires the t policy tuple before frozen GMT execution")
+        policy_actions = t_plan.actions.index_select(0, repair_rows).detach().clone()
+        policy_observations = transition.observations.index_select(0, repair_rows).detach().clone()
+        policy_log_probs = transition.actions_log_prob.index_select(0, repair_rows).detach().clone().reshape(-1)
+        policy_values = transition.values.index_select(0, repair_rows).detach().clone().reshape(-1)
+        policy_means = transition.action_mean.index_select(0, repair_rows).detach().clone()[:, :6]
+        policy_sigmas = transition.action_sigma.index_select(0, repair_rows).detach().clone()[:, :6]
+        if tuple(policy_actions.shape) != tuple(policy_means.shape) or tuple(policy_actions.shape) != tuple(policy_sigmas.shape):
+            raise RuntimeError("v015 one-action K collector requires aligned full-6D old policy statistics")
+
+        raw_obs, _rewards, t_dones, infos = runner.env.step(t_plan.env_actions.to(runner.env.device))
+        t_dones = t_dones.to(runner.device).detach().bool().reshape(-1)
+        if int(t_dones.numel()) != int(t_plan.env_actions.shape[0]):
+            raise RuntimeError("v015 one-action K collector requires one t done flag per scored role")
+        executed_q29_t = _capture_v015_post_t_executed_q29(
+            command,
+            role_count=int(t_plan.env_actions.shape[0]),
+            device=runner.device,
+        )
+        survival_steps = torch.zeros_like(t_dones, dtype=torch.float32)
+        done_any = t_dones.detach().clone()
+        begin = getattr(command, "begin_frontres_local_scenario_k_execution", None)
+        if not callable(begin):
+            raise RuntimeError("v015 one-action K collector requires command Clean-continuation lifecycle ownership")
+        begin()
+        execution_started = True
+
+        continuation_frames: list[torch.Tensor] = []
+        valid_frames: list[torch.Tensor] = []
+        gmt_action_frames: list[torch.Tensor] = []
+        horizon_k = snapshot["horizon_k"].detach().long().clone()
+        for _offset in range(int(horizon_k.max().item())):
+            if getattr(runner, "_frontres_v015_one_action_k_phase", None) != "frozen":
+                raise RuntimeError("v015 one-action K collector lost its frozen-FEMR phase before GMT continuation")
+            gmt_obs = _read_v015_frozen_gmt_observations(runner, raw_obs, infos)
+            frozen_plan = prepare_frontres_v015_frozen_gmt_step(runner, gmt_observations=gmt_obs)
+            continuation_frames.append(frozen_plan.continuation)
+            valid_frames.append(frozen_plan.valid_mask)
+            gmt_action_frames.append(frozen_plan.env_actions)
+            raw_obs, _rewards, frozen_dones, infos = runner.env.step(frozen_plan.env_actions.to(runner.env.device))
+            frozen_dones = frozen_dones.to(runner.device).detach().bool().reshape(-1)
+            valid = frozen_plan.valid_mask.to(device=runner.device, dtype=torch.bool).reshape(-1)
+            if int(frozen_dones.numel()) != int(valid.numel()):
+                raise RuntimeError("v015 one-action K collector requires one frozen-GMT done flag per role")
+            alive = valid & (~done_any)
+            survival_steps = survival_steps + alive.to(dtype=survival_steps.dtype)
+            done_any = done_any | (frozen_dones & alive)
+
+        intent_q29_provenance, intent_q29_source = _v015_intent_provenance_rows(
+            snapshot,
+            role_count=int(t_plan.env_actions.shape[0]),
+        )
+
+        evidence = FrontRESV015OneActionKEvidence(
+            policy_observations=policy_observations,
+            policy_actions=policy_actions,
+            policy_log_probs=policy_log_probs,
+            policy_values=policy_values,
+            policy_means=policy_means,
+            policy_sigmas=policy_sigmas,
+            policy_row_indices=repair_rows.detach().clone(),
+            t_env_actions=t_plan.env_actions.detach().clone(),
+            continuation=torch.stack(continuation_frames, dim=0),
+            continuation_valid_mask=torch.stack(valid_frames, dim=0),
+            frozen_gmt_env_actions=torch.stack(gmt_action_frames, dim=0),
+            actor_forward_count=actor_forward_count,
+            later_femr_action_count=later_femr_action_count,
+            horizon_k=horizon_k,
+            scenario_ids=tuple(snapshot["scenario_ids"]),
+            noisy_segment_hashes=tuple(snapshot["noisy_segment_hashes"]),
+            x_t_identities=tuple(snapshot["x_t_identities"]),
+            roles=tuple(snapshot["roles"]),
+            intent_q29=snapshot["intent_q29"].detach().clone(),
+            intent_q29_provenance=intent_q29_provenance,
+            intent_q29_source=intent_q29_source,
+            executed_q29_t=executed_q29_t,
+            executed_q29_t_valid_mask=(~t_dones).detach().clone(),
+            done_any=done_any.detach().clone(),
+            survival_steps=survival_steps.detach().clone(),
+        )
+        evidence.validate()
+        return evidence
+    finally:
+        if execution_started:
+            end = getattr(command, "end_frontres_local_scenario_k_execution", None)
+            if not callable(end):
+                raise RuntimeError("v015 one-action K collector requires command Clean-continuation close ownership")
+            end()
+        if hasattr(runner, "_frontres_v015_one_action_k_phase"):
+            delattr(runner, "_frontres_v015_one_action_k_phase")
+
+
+def collect_frontres_v015_gain_return_priority_evidence(
+    runner: Any,
+    observations: FrontRESSegmentLiveObservations,
+    *,
+    pair_layout: Any,
+    gain_config: Any | None = None,
+) -> FrontRESV015GainConsumerEvidence:
+    """Run the v015 capture -> v003 Gain -> return/priority chain.
+
+    It consumes a sealed Repair/Noisy reset and one t policy action. The
+    explicit pre-live sentinel may pass its immutable result to the candidate
+    adapter; it does not mutate sampler state or invoke legacy Gain/storage.
+    """
+
+    one_action = collect_frontres_v015_one_action_k_evidence(
+        runner,
+        observations,
+        pair_layout=pair_layout,
+    )
+    facts = pair_frontres_v015_gain_facts(one_action)
+    gain_module = _gain_module()
+    if gain_module is None:
+        raise RuntimeError("v015 Gain consumer chain requires the frontres_gain owner")
+    config_cls = getattr(gain_module, "FrontRESIntentPhysicsGainConfig", None)
+    input_cls = getattr(gain_module, "FrontRESIntentPhysicsGainInput", None)
+    compute = getattr(gain_module, "compute_intent_physics_local_repair_gain", None)
+    if not callable(config_cls) or not callable(input_cls) or not callable(compute):
+        raise RuntimeError("v015 Gain consumer chain rejects the legacy Clean-global Gain owner")
+    config = config_cls() if gain_config is None else gain_config
+    gain_input = input_cls(
+        intent_q29=facts.intent_q29,
+        repaired_q29=facts.repaired_q29,
+        noisy_q29=facts.noisy_q29,
+        intent_q29_provenance=facts.intent_q29_provenance,
+        intent_q29_source=facts.intent_q29_source,
+        repair_action_steps=facts.policy_actions,
+        intent_valid_mask=facts.intent_valid_mask,
+        repaired_success=facts.repaired_success,
+        noisy_success=facts.noisy_success,
+        repaired_survival=facts.repaired_survival,
+        noisy_survival=facts.noisy_survival,
+        effective_horizon_k=facts.horizon_k,
+    )
+    gain_result = compute(gain_input, config=config)
+    return_evidence = build_frontres_v015_gain_return_evidence(facts, gain_result)
+    try:
+        from rsl_rl.frontres.frontres_segment_sampler import build_frontres_v015_priority_evidence
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("v015 Gain consumer chain requires the sampler priority-evidence owner") from exc
+    priority_evidence = build_frontres_v015_priority_evidence(return_evidence)
+    result = FrontRESV015GainConsumerEvidence(
+        one_action=one_action,
+        return_evidence=return_evidence,
+        priority_evidence=priority_evidence,
+    )
+    result.validate()
+    return result
+
+
+def build_frontres_v015_grouped_candidate_batch(
+    candidate_evidence: FrontRESV015GainConsumerEvidence,
+    *,
+    transaction_id: str,
+    policy_snapshot_id: str,
+    motion_ids: tuple[str, ...],
+    start_frames: torch.Tensor,
+    segment_ids: torch.Tensor,
+    source_index: torch.Tensor,
+    trial_index: torch.Tensor,
+) -> FrontRESSegmentPPOBatch:
+    """Connect sealed v015 candidate evidence to a grouped PPO batch.
+
+    函数名说明:
+        `build_frontres_v015_grouped_candidate_batch` 是 Step 4A candidate connector.
+        它不创建 frozen snapshot, 不调用 runner storage, 不执行 loss/backward/step,
+        也不触碰 priority 或 sampler state.
+
+    主链路:
+        上游: Step 3B v003 Gain return evidence 与显式 transaction row identity.
+        下游: explicit pre-live sentinel or CPU formal transaction provider.
+
+    语义:
+        每个 Repair policy attempt 只映射到一个 PPO row. `evidence_valid_step_count`
+        是 K-step executability metadata, 不参与 actor mass 或 grouped formula.
+    """
+
+    # B1: storage owner validates sealed local scenario and one-row policy tuple.
+    storage_batch = build_frontres_v015_grouped_candidate_storage(
+        candidate_evidence,
+        transaction_id=transaction_id,
+        policy_snapshot_id=policy_snapshot_id,
+        motion_ids=motion_ids,
+        start_frames=start_frames,
+        segment_ids=segment_ids,
+        source_index=source_index,
+        trial_index=trial_index,
+    )
+
+    # B2: only the explicit grouped candidate adapter may retain v015 metadata.
+    candidate_batch = storage_batch.to_grouped_ppo_candidate_batch(FrontRESSegmentPPOBatch)
+    metadata = candidate_batch.transaction_metadata
+    validate_metadata = getattr(metadata, "validate", None)
+    if not callable(validate_metadata):
+        raise TypeError("v015 grouped candidate connector lost sealed transaction metadata")
+    validate_metadata()
+
+    # B3: return a detached batch; the explicit transaction owner alone may evaluate loss or step.
+    return candidate_batch
+
+
+def _v015_formal_optimizer_step_count(optimizer: Any) -> int:
+    """Require an explicit step counter; unknown optimizer state is not evidence."""
+
+    for name in ("frontres_v015_step_count", "step_count"):
+        value = getattr(optimizer, name, None)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return int(value)
+    raise RuntimeError(
+        "v015 formal transaction fake S2 requires an explicit non-negative optimizer "
+        "frontres_v015_step_count or step_count"
+    )
+
+
+def _require_v015_formal_transaction_config(runner: Any) -> Any:
+    """Freeze the v015 isolation boundary before any batch, loss, or step."""
+
+    alg = getattr(runner, "alg", None)
+    if alg is None or not bool(getattr(alg, "frontres_v015_formal_transaction_enabled", False)):
+        raise RuntimeError("v015 formal transaction route requires frontres_v015_formal_transaction_enabled=True")
+    if str(getattr(alg, "frontres_segment_advantage_normalization", "")).lower() != "grouped_scale_only":
+        raise RuntimeError("v015 formal transaction route requires grouped_scale_only normalization")
+    if any(
+        float(getattr(alg, name, 0.0) or 0.0) != 0.0
+        for name in ("lambda_supervised", "lambda_supervised_min")
+    ):
+        raise RuntimeError("v015 formal transaction route rejects nonzero Stage-3 supervised loss")
+    if any(
+        bool(getattr(alg, name, False))
+        for name in ("frontres_hsl_init_enabled", "frontres_hsl_rollout_label_enabled")
+    ):
+        raise RuntimeError("v015 formal transaction route rejects implicit HSL initialization or rollout labels")
+    if any(
+        int(getattr(alg, name, 0) or 0) != 0
+        for name in ("frontres_segment_critic_warmup_iterations", "frontres_segment_actor_warmup_iterations")
+    ):
+        raise RuntimeError("v015 formal transaction route rejects legacy Stage-3 warmup phases")
+    if any(
+        bool(getattr(alg, name, False))
+        for name in (
+            "frontres_segment_live_train_enabled",
+            "frontres_segment_live_update_loop_only",
+            "frontres_segment_live_single_update_only",
+        )
+    ):
+        raise RuntimeError("v015 formal transaction fake S2 rejects legacy live-update dispatch flags")
+    offsets = tuple(int(value) for value in (getattr(alg, "frontres_future_offsets", ()) or ()))
+    if not offsets or any(value <= 0 for value in offsets):
+        raise RuntimeError("v015 formal transaction route requires positive deployment-q29 future offsets")
+    if str(getattr(alg, "frontres_future_intent_layout_version", "")) != "frontres-v015-future-intent-q29-v1":
+        raise RuntimeError("v015 formal transaction route requires the v015 q29 actor layout")
+    return alg
+
+
+def _v015_formal_ppo_config(alg: Any) -> FrontRESSegmentPPOConfig:
+    """复用 v003 公式参数, 仅选择已确认的 grouped reduction mode."""
+
+    return FrontRESSegmentPPOConfig(
+        clip_param=float(getattr(alg, "clip_param", 0.2)),
+        value_clip_param=float(getattr(alg, "clip_param", 0.2)),
+        value_loss_coef=float(getattr(alg, "value_loss_coef", 1.0)),
+        entropy_coef=float(getattr(alg, "entropy_coef", 0.0)),
+        use_clipped_value_loss=bool(getattr(alg, "use_clipped_value_loss", True)),
+        normalize_advantages=False,
+        advantage_normalization="grouped_scale_only",
+        actor_loss_weight=1.0,
+    )
+
+
+def _v015_formal_policy_evaluator(
+    request: FrontRESV015FormalTransactionRequest,
+    alg: Any,
+) -> Any:
+    evaluator = request.policy_evaluator
+    if evaluator is not None:
+        if not callable(getattr(evaluator, "evaluate_segment_actions", None)):
+            raise TypeError("v015 formal transaction policy_evaluator must expose evaluate_segment_actions")
+        return evaluator
+    return FrontRESSegmentLivePolicyAdapter(alg, request.privileged_observations)
+
+
+def run_frontres_v015_formal_transaction_update(
+    runner: Any,
+    request: FrontRESV015FormalTransactionRequest,
+) -> FrontRESV015FormalTransactionUpdateResult:
+    """Execute one sealed v015 fake-S2 grouped PPO update after all M attempts.
+
+    此函数是 Step 4B 的唯一 update owner, 也是 Step 4C 的 committed receipt
+    publisher. 它不调用 legacy `to_ppo_batch`, `run_frontres_segment_single_update`,
+    sampler state, checkpoint save/load, simulator 或 live loop.
+
+    Status: fake-S2/S3 only. Evidence 是 code-confirmed 和 contract-confirmed;
+    generic formal dispatch, checkpoint cadence, 和 live route 尚未验证.
+    """
+
+    if not isinstance(request, FrontRESV015FormalTransactionRequest):
+        raise TypeError("v015 formal transaction update requires FrontRESV015FormalTransactionRequest")
+    request.__post_init__()
+    _bind_frontres_v015_checkpoint_transaction_plan(runner, request.plan)
+    alg = _require_v015_formal_transaction_config(runner)
+    policy = getattr(alg, "policy", None)
+    optimizer = getattr(alg, "optimizer", None)
+    if policy is None or optimizer is None:
+        raise RuntimeError("v015 formal transaction update requires runner.alg policy and optimizer")
+    optimizer_step_before = _v015_formal_optimizer_step_count(optimizer)
+    request.plan.verify_policy(policy)
+    accumulator = FrontRESV015FormalTransactionAccumulator(
+        request.plan,
+        optimizer_step_count=lambda: _v015_formal_optimizer_step_count(optimizer),
+    )
+    for candidate_batch in request.candidate_batches:
+        accumulator.append_candidate_batch(candidate_batch)
+    ppo_batch = accumulator.seal()
+    _seal_frontres_v015_checkpoint_transaction_plan(runner, request.plan)
+    request.plan.verify_policy(policy)
+    policy_evaluator = _v015_formal_policy_evaluator(request, alg)
+    ppo_result = compute_frontres_segment_ppo_loss(
+        policy_evaluator,
+        ppo_batch,
+        _v015_formal_ppo_config(alg),
+    )
+    if not ppo_result.should_step:
+        raise RuntimeError("v015 formal transaction has no valid grouped PPO rows; refusing optimizer step")
+    zero_grad = getattr(optimizer, "zero_grad", None)
+    step = getattr(optimizer, "step", None)
+    if not callable(zero_grad) or not callable(step):
+        raise RuntimeError("v015 formal transaction optimizer must expose zero_grad() and step()")
+    try:
+        zero_grad(set_to_none=True)
+    except TypeError:
+        zero_grad()
+    ppo_result.total_loss.backward()
+    parameters = [
+        parameter
+        for group in getattr(optimizer, "param_groups", ())
+        for parameter in group.get("params", ())
+        if isinstance(parameter, torch.Tensor) and parameter.requires_grad
+    ]
+    if not parameters:
+        raise RuntimeError("v015 formal transaction optimizer has no trainable parameters")
+    torch.nn.utils.clip_grad_norm_(parameters, float(getattr(alg, "max_grad_norm", 1.0)))
+    step()
+    optimizer_step_after = _v015_formal_optimizer_step_count(optimizer)
+    optimizer_step_delta = optimizer_step_after - optimizer_step_before
+    if optimizer_step_delta != 1:
+        raise RuntimeError(
+            "v015 formal transaction requires exactly one optimizer step: "
+            f"before={optimizer_step_before} after={optimizer_step_after} delta={optimizer_step_delta}"
+        )
+    _commit_frontres_v015_checkpoint_transaction(
+        runner,
+        plan=request.plan,
+        valid_policy_row_count=int(ppo_result.valid_count),
+        optimizer_step_before=optimizer_step_before,
+        optimizer_step_after=optimizer_step_after,
+    )
+    metadata = ppo_batch.transaction_metadata
+    source_count = int(torch.unique(metadata.source_index.detach().to(dtype=torch.long)).numel())
+    segment_count = int(torch.unique(metadata.segment_ids.detach().to(dtype=torch.long)).numel())
+    diagnostics = {
+        "transaction_id": request.plan.transaction_id,
+        "policy_snapshot_id": request.plan.policy_snapshot_id,
+        "motion_ids": tuple(metadata.motion_ids),
+        "segment_ids": tuple(int(value) for value in metadata.segment_ids.tolist()),
+        "source_index": tuple(int(value) for value in metadata.source_index.tolist()),
+        "trial_index": tuple(int(value) for value in metadata.trial_index.tolist()),
+        "horizon_k": tuple(int(value) for value in metadata.horizon_k.tolist()),
+        "evidence_valid_step_count": tuple(int(value) for value in metadata.evidence_valid_step_count.tolist()),
+        "noisy_segment_hashes": tuple(metadata.noisy_segment_hashes),
+        "intent_q29_provenance": str(metadata.intent_q29_provenance),
+        "intent_q29_source": str(metadata.intent_q29_source),
+        "grouped_motion_mass_shares": tuple(ppo_result.grouped_motion_mass_shares),
+        "grouped_segment_mass_shares": tuple(ppo_result.grouped_segment_mass_shares),
+        "grouped_attempt_mass_shares": tuple(ppo_result.grouped_attempt_mass_shares),
+        "optimizer_step_delta": int(optimizer_step_delta),
+    }
+    print(
+        "[FrontRES v015 Formal Transaction] "
+        f"transaction={request.plan.transaction_id} sources={source_count} "
+        f"attempts={accumulator.collected_attempt_count} valid={ppo_result.valid_count} "
+        f"step_delta={optimizer_step_delta}",
+        flush=True,
+    )
+    return FrontRESV015FormalTransactionUpdateResult(
+        transaction_id=request.plan.transaction_id,
+        policy_snapshot_id=request.plan.policy_snapshot_id,
+        segment_count=segment_count,
+        source_count=source_count,
+        policy_attempt_count=accumulator.collected_attempt_count,
+        valid_row_count=int(ppo_result.valid_count),
+        optimizer_step_before=optimizer_step_before,
+        optimizer_step_after=optimizer_step_after,
+        optimizer_step_delta=optimizer_step_delta,
+        update_invocation_count=1,
+        ppo_result=ppo_result,
+        diagnostics=diagnostics,
+    )
+
+
+def _build_frontres_v015_local_identity_sentinel_request(
+    runner: Any,
+    *,
+    init_at_random_ep_len: bool,
+) -> FrontRESV015FormalTransactionRequest:
+    """Build the real local-scenario request for the opt-in v015 sentinel.
+
+    Keeping the request builder separate makes the collecting-barrier order
+    testable: no reset or policy attempt may occur before the formal update loop
+    has opened it.
+    """
+
+    del init_at_random_ep_len  # x_t reset owns the local dynamic start.
+    _require_v015_formal_transaction_config(runner)
+    prepared = prepare_frontres_v015_local_sentinel_batch(runner)
+    batch = prepared.batch
+    plan = prepared.plan
+    runner._frontres_segment_live_current_sample = prepared.sample
+    runner._frontres_segment_live_current_batch = batch
+    try:
+        frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
+        pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
+        policy_row_count = int(plan.batch_size)
+        if (
+            int(getattr(pair_layout, "n_train", 0)) != policy_row_count
+            or int(getattr(pair_layout, "n_base", 0)) != policy_row_count
+            or int(getattr(pair_layout, "n_candidate", 0)) != 0
+            or int(getattr(pair_layout, "n_clean", 0)) != 0
+        ):
+            raise RuntimeError("v015 local sentinel requires an exact Repair/Noisy two-role layout for every planned policy row")
+        reset_result = _apply_current_segment_reset(runner, pair_layout=pair_layout)
+        success_mask = getattr(reset_result, "success_mask", None)
+        if (
+            reset_result is None
+            or not isinstance(success_mask, torch.Tensor)
+            or int(success_mask.numel()) != policy_row_count
+            or not bool(success_mask.detach().bool().all())
+        ):
+            raise RuntimeError("v015 local sentinel requires every selected local scenario reset to succeed before actor evaluation")
+        observations = _read_live_observations(runner)
+        candidate_evidence = collect_frontres_v015_gain_return_priority_evidence(
+            runner,
+            observations,
+            pair_layout=pair_layout,
+        )
+        candidate_batch = build_frontres_v015_grouped_candidate_batch(
+            candidate_evidence,
+            transaction_id=plan.transaction_id,
+            policy_snapshot_id=plan.policy_snapshot_id,
+            motion_ids=plan.motion_ids,
+            start_frames=plan.start_frames,
+            segment_ids=plan.segment_ids,
+            source_index=plan.source_index,
+            trial_index=plan.trial_index,
+        )
+        artifact = getattr(batch, "frontres_local_scenario_current_root_artifact_t", None)
+        continuation_lengths = getattr(batch, "frontres_local_scenario_clean_continuation_lengths", None)
+        if not isinstance(artifact, torch.Tensor) or not isinstance(continuation_lengths, torch.Tensor):
+            raise RuntimeError("v015 local sentinel lost sealed root-artifact or Clean-continuation identity before storage")
+        runner._frontres_v015_local_sentinel_preupdate_diagnostics = {
+            "transaction_id": plan.transaction_id,
+            "policy_snapshot_id": plan.policy_snapshot_id,
+            "x_t_identities": tuple(plan.x_t_identities),
+            "scenario_ids": tuple(plan.scenario_ids),
+            "noisy_segment_hashes": tuple(plan.noisy_segment_hashes),
+            "root_artifact_l2": tuple(float(value) for value in artifact.norm(dim=1).detach().cpu().tolist()),
+            "intent_q29_provenance": plan.intent_q29_provenance,
+            "intent_q29_source": plan.intent_q29_source,
+            "clean_continuation_lengths": tuple(int(value) for value in continuation_lengths.detach().cpu().tolist()),
+            "roles": ("repair",) * policy_row_count + ("noisy",) * policy_row_count,
+            "policy_row_count": policy_row_count,
+            "actor_forward_count": int(candidate_evidence.one_action.actor_forward_count),
+            "later_femr_action_count": int(candidate_evidence.one_action.later_femr_action_count),
+            "horizon_k": tuple(int(value) for value in plan.horizon_k.tolist()),
+        }
+        runner._frontres_v015_local_sentinel_batch = batch
+        return FrontRESV015FormalTransactionRequest(
+            plan=plan,
+            candidate_batches=(candidate_batch,),
+        )
+    except Exception:
+        _close_frontres_local_scenarios(batch)
+        runner._frontres_segment_live_current_sample = None
+        runner._frontres_segment_live_current_batch = None
+        raise
+
+
+def run_frontres_v015_local_identity_sentinel(
+    runner: Any,
+    *,
+    init_at_random_ep_len: bool = True,
+) -> FrontRESV015FormalTransactionUpdateResult:
+    """Run one explicit v015 sentinel request through the existing exact-one update owner.
+
+    Status: pre-live connector.  The provider is invoked only after the formal
+    collecting barrier opens; legacy probe/storage/update loops are not called.
+    """
+
+    alg = _require_v015_formal_transaction_config(runner)
+    if not bool(getattr(alg, "frontres_v015_local_sentinel_only", False)):
+        raise RuntimeError("v015 local identity sentinel requires its explicit config flag")
+    from rsl_rl.runners.frontres_segment_live_update_loop import run_frontres_v015_formal_transaction_update_loop
+
+    def provider() -> FrontRESV015FormalTransactionRequest:
+        return _build_frontres_v015_local_identity_sentinel_request(
+            runner,
+            init_at_random_ep_len=init_at_random_ep_len,
+        )
+
+    if hasattr(runner, "_frontres_v015_formal_transaction_provider"):
+        raise RuntimeError("v015 local identity sentinel refuses an existing transaction provider")
+    runner._frontres_v015_formal_transaction_provider = provider
+    try:
+        result = run_frontres_v015_formal_transaction_update_loop(runner)
+        preupdate = getattr(runner, "_frontres_v015_local_sentinel_preupdate_diagnostics", None)
+        if isinstance(preupdate, dict):
+            telemetry = dict(preupdate)
+            telemetry.update(dict(getattr(result, "diagnostics", {}) or {}))
+            telemetry["optimizer_step_delta"] = int(getattr(result, "optimizer_step_delta", -1))
+            telemetry["exact_one_update"] = telemetry["optimizer_step_delta"] == 1
+            runner._frontres_v015_local_sentinel_telemetry = telemetry
+            print(
+                "[FrontRES v015 Local Sentinel] "
+                f"transaction={telemetry['transaction_id']} "
+                f"scenario_hashes={telemetry['noisy_segment_hashes']} "
+                f"x_t={telemetry['x_t_identities']} "
+                f"roles={telemetry['roles']} "
+                f"actor_forwards={telemetry['actor_forward_count']} "
+                f"later_femr_actions={telemetry['later_femr_action_count']} "
+                f"K={telemetry['horizon_k']} "
+                f"group_mass={telemetry.get('grouped_attempt_mass_shares', ())} "
+                f"step_delta={telemetry['optimizer_step_delta']}",
+                flush=True,
+            )
+        return result
+    finally:
+        if hasattr(runner, "_frontres_v015_formal_transaction_provider"):
+            delattr(runner, "_frontres_v015_formal_transaction_provider")
+        batch = getattr(runner, "_frontres_v015_local_sentinel_batch", None)
+        if batch is not None:
+            _close_frontres_local_scenarios(batch)
+            delattr(runner, "_frontres_v015_local_sentinel_batch")
+        runner._frontres_segment_live_current_sample = None
+        runner._frontres_segment_live_current_batch = None
 
 
 def _segment_repair_executability_scores(
@@ -2470,6 +3854,16 @@ def _run_live_rollout_capture(
     pair_layout: Any | None = None,
 ) -> FrontRESSegmentLiveRolloutCapture:
     # FRS3-EVAL-014: step the live env and optionally capture motion-quality frames.
+    try:
+        v015_command = _frontres_motion_command(runner)
+    except (RuntimeError, AttributeError):
+        v015_command = None
+    v015_local_active = getattr(v015_command, "_frontres_local_scenario_active", None)
+    if isinstance(v015_local_active, torch.Tensor) and bool(v015_local_active.any()):
+        raise RuntimeError(
+            "v015 local scenarios are forbidden on the legacy repeated-actor live rollout; "
+            "use collect_frontres_v015_one_action_k_evidence() until the formal-route gate is authorized"
+        )
     frontres_mode = resolve_frontres_mode_state(runner, FrontRESActorCritic)
     if pair_layout is None:
         pair_layout = configure_frontres_pair_layout(runner, is_frontres=frontres_mode.is_frontres)
@@ -2869,7 +4263,8 @@ def _zero_segment_env_actions(
         obs_corr_dict = extras_corr.get("observations", {})
         if runner.policy_obs_type is not None and runner.policy_obs_type in obs_corr_dict:
             obs_corr = obs_corr_dict[runner.policy_obs_type]
-        obs_corr = runner._apply_obs_normalizer(obs_corr.to(runner.device))
+        obs_corr = _append_fixed_noisy_actor_context(runner, obs_corr.to(runner.device))
+        obs_corr = runner._apply_obs_normalizer(obs_corr)
         return runner.alg.policy.get_env_action(obs_corr, actions)
     if hasattr(runner.alg.policy, "get_env_action"):
         return runner.alg.policy.get_env_action(obs, actions)
@@ -3114,6 +4509,7 @@ def _read_step_observations(runner: Any, obs: torch.Tensor, infos: dict[str, Any
         obs = obs_dict[runner.policy_obs_type].to(runner.device)
     else:
         obs = obs.to(runner.device)
+    obs = _append_fixed_noisy_actor_context(runner, obs)
     obs = runner._apply_obs_normalizer(obs)
     if runner.privileged_obs_type is not None and runner.privileged_obs_type in obs_dict:
         privileged_obs = runner.privileged_obs_normalizer(obs_dict[runner.privileged_obs_type].to(runner.device))

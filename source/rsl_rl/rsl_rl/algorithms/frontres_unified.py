@@ -11,13 +11,32 @@ import torch.optim as optim
 from rsl_rl.modules import ActorCritic, FrontRESActorCritic, ResidualActorCritic
 from rsl_rl.storage import RolloutStorage
 
+
+def validate_frontres_v015_stage3_supervision_config(
+    *,
+    future_offsets,
+    lambda_supervised: float,
+    lambda_supervised_min: float,
+) -> None:
+    """Reject online HSL loss whenever the v015 future-intent route is selected."""
+
+    offsets = tuple(int(value) for value in (future_offsets or ()))
+    if not offsets:
+        return
+    if abs(float(lambda_supervised)) > 1.0e-12 or abs(float(lambda_supervised_min)) > 1.0e-12:
+        raise ValueError(
+            "FRS-TRAIN-v007 requires lambda_supervised=0 and lambda_supervised_min=0 "
+            "for the v015 future-intent Stage-3 route; HSL is initialization-only"
+        )
+
+
 class FrontRESUnified:
-    """FrontRES PPO + supervised ΔSE3 training.
+    """FrontRES PPO plus legacy supervised ΔSE3 support.
 
     This class intentionally owns only the pieces FrontRES needs:
-    on-policy PPO, the online ΔSE3 supervised auxiliary loss, optional reference
-    velocity estimation, and the split-env FrontRES mask.  MOSAIC teacher BC and
-    off-policy expert BC are not implemented here by design.
+    on-policy PPO, optional legacy ΔSE3 supervision, reference velocity estimation,
+    and the split-env FrontRES mask. v015 future-intent Stage 3 rejects the
+    online supervision branch; Stage-1 HSL is handled by the warmup owner.
     """
 
     policy: ActorCritic
@@ -69,6 +88,7 @@ class FrontRESUnified:
         frontres_segment_replay_enabled: bool = False,
         frontres_segment_live_runner_enabled: bool = False,
         frontres_segment_live_sentinel_only: bool = False,
+        frontres_v015_local_sentinel_only: bool = False,
         frontres_segment_live_probe_only: bool = False,
         frontres_segment_live_storage_write_only: bool = False,
         frontres_segment_live_single_update_only: bool = False,
@@ -76,6 +96,7 @@ class FrontRESUnified:
         frontres_segment_offline_eval_only: bool = False,
         frontres_segment_sequence_offline_eval_only: bool = False,
         frontres_segment_live_train_enabled: bool = False,
+        frontres_v015_formal_transaction_enabled: bool = False,
         frontres_segment_live_update_steps: int = 4,
         frontres_segment_critic_warmup_iterations: int = 0,
         frontres_segment_actor_warmup_iterations: int = 0,
@@ -86,7 +107,10 @@ class FrontRESUnified:
         frontres_segment_live_min_valid_count: int = 1,
         frontres_segment_live_fail_on_nonfinite: bool = True,
         frontres_hsl_init_enabled: bool = False,
+        frontres_hsl_rollout_label_enabled: bool = False,
         frontres_segment_k: int = 8,
+        frontres_future_offsets: tuple[int, ...] = (),
+        frontres_future_intent_layout_version: str = "frontres-v015-future-intent-q29-v1",
         frontres_segment_max_horizon_k: int = 64,
         frontres_segment_advantage_normalization: str = "scale_only",
         frontres_segment_cache_dir: str = "",
@@ -184,6 +208,7 @@ class FrontRESUnified:
         self.frontres_segment_replay_enabled = bool(frontres_segment_replay_enabled)
         self.frontres_segment_live_runner_enabled = bool(frontres_segment_live_runner_enabled)
         self.frontres_segment_live_sentinel_only = bool(frontres_segment_live_sentinel_only)
+        self.frontres_v015_local_sentinel_only = bool(frontres_v015_local_sentinel_only)
         self.frontres_segment_live_probe_only = bool(frontres_segment_live_probe_only)
         self.frontres_segment_live_storage_write_only = bool(frontres_segment_live_storage_write_only)
         self.frontres_segment_live_single_update_only = bool(frontres_segment_live_single_update_only)
@@ -191,6 +216,7 @@ class FrontRESUnified:
         self.frontres_segment_offline_eval_only = bool(frontres_segment_offline_eval_only)
         self.frontres_segment_sequence_offline_eval_only = bool(frontres_segment_sequence_offline_eval_only)
         self.frontres_segment_live_train_enabled = bool(frontres_segment_live_train_enabled)
+        self.frontres_v015_formal_transaction_enabled = bool(frontres_v015_formal_transaction_enabled)
         self.frontres_segment_live_update_steps = max(1, int(frontres_segment_live_update_steps))
         self.frontres_segment_critic_warmup_iterations = max(0, int(frontres_segment_critic_warmup_iterations))
         self.frontres_segment_actor_warmup_iterations = max(0, int(frontres_segment_actor_warmup_iterations))
@@ -201,17 +227,53 @@ class FrontRESUnified:
         self.frontres_segment_live_min_valid_count = max(0, int(frontres_segment_live_min_valid_count))
         self.frontres_segment_live_fail_on_nonfinite = bool(frontres_segment_live_fail_on_nonfinite)
         self.frontres_hsl_init_enabled = bool(frontres_hsl_init_enabled)
+        self.frontres_hsl_rollout_label_enabled = bool(frontres_hsl_rollout_label_enabled)
         self.frontres_segment_k = max(1, int(frontres_segment_k))
+        self.frontres_future_offsets = tuple(int(value) for value in frontres_future_offsets)
+        self.frontres_future_intent_layout_version = str(frontres_future_intent_layout_version)
+        validate_frontres_v015_stage3_supervision_config(
+            future_offsets=self.frontres_future_offsets,
+            lambda_supervised=self.lambda_supervised,
+            lambda_supervised_min=self.lambda_supervised_min,
+        )
         self.frontres_segment_max_horizon_k = max(
             self.frontres_segment_k,
             int(frontres_segment_max_horizon_k),
         )
         self.frontres_segment_advantage_normalization = str(frontres_segment_advantage_normalization).lower()
-        if self.frontres_segment_advantage_normalization not in ("none", "scale_only", "standard"):
+        if self.frontres_segment_advantage_normalization not in ("none", "scale_only", "standard", "grouped_scale_only"):
             raise ValueError(
                 "frontres_segment_advantage_normalization must be one of "
-                "'none', 'scale_only', or 'standard'"
+                "'none', 'scale_only', 'standard', or 'grouped_scale_only'"
             )
+        if self.frontres_v015_formal_transaction_enabled:
+            if self.frontres_segment_advantage_normalization != "grouped_scale_only":
+                raise ValueError("v015 formal transaction requires grouped_scale_only normalization")
+            if (
+                self.lambda_supervised != 0.0
+                or self.lambda_supervised_min != 0.0
+                or self.frontres_hsl_init_enabled
+                or self.frontres_hsl_rollout_label_enabled
+                or self.frontres_segment_critic_warmup_iterations != 0
+                or self.frontres_segment_actor_warmup_iterations != 0
+            ):
+                raise ValueError("v015 formal transaction rejects HSL and legacy Stage-3 warmup")
+        if self.frontres_v015_local_sentinel_only:
+            if not self.frontres_v015_formal_transaction_enabled:
+                raise ValueError("v015 local sentinel requires frontres_v015_formal_transaction_enabled=True")
+            if any(
+                (
+                    self.frontres_segment_live_sentinel_only,
+                    self.frontres_segment_live_probe_only,
+                    self.frontres_segment_live_storage_write_only,
+                    self.frontres_segment_live_single_update_only,
+                    self.frontres_segment_live_update_loop_only,
+                    self.frontres_segment_offline_eval_only,
+                    self.frontres_segment_sequence_offline_eval_only,
+                    self.frontres_segment_live_train_enabled,
+                )
+            ):
+                raise ValueError("v015 local sentinel rejects legacy live mode mixing")
         self.frontres_segment_cache_dir = str(frontres_segment_cache_dir or "")
         self.frontres_segment_shard_cache_size = max(1, int(frontres_segment_shard_cache_size))
         self.frontres_segment_include_boundary_diagnostic = bool(frontres_segment_include_boundary_diagnostic)
@@ -229,7 +291,13 @@ class FrontRESUnified:
                     "segment_replay_hrl is recognized, but live runner integration is disabled. "
                     "Use Step 4-7 toy contract tests until the live Stage 3 connector is integrated."
                 )
-            if self.frontres_segment_live_sentinel_only:
+            if self.frontres_v015_local_sentinel_only:
+                print(
+                    "[FrontRESUnified] v015 local identity sentinel initialized; "
+                    "the dedicated formal route is opt-in and no legacy live mode is active.",
+                    flush=True,
+                )
+            elif self.frontres_segment_live_sentinel_only:
                 print(
                     "[FrontRESUnified] Segment Replay HRL live sentinel initialized; "
                     "PPO/update training remains disabled.",

@@ -24,14 +24,15 @@ from rsl_rl.runners.frontres_episode_bookkeeping import update_episode_bookkeepi
 from rsl_rl.frontres.frontres_executability import FrontRESExecutabilityScorer
 from rsl_rl.runners.frontres_dr_sweep_eval import evaluate_frontres_dr_sweep as run_frontres_dr_sweep_eval
 from rsl_rl.runners.frontres_rollout_step import prepare_frontres_rollout_step
-from rsl_rl.runners.frontres_hsl_rollout_target import build_frontres_hsl_rollout_target
 from rsl_rl.runners.frontres_segment_runner_boundary import FrontRESSegmentRunnerBoundary
 from rsl_rl.runners.frontres_segment_live_probe import (
+    run_frontres_v015_local_identity_sentinel as run_frontres_v015_local_identity_sentinel_helper,
     run_frontres_segment_live_probe as run_frontres_segment_live_probe_helper,
     run_frontres_segment_single_update,
 )
 from rsl_rl.runners.frontres_segment_live_update_loop import (
     run_frontres_segment_live_update_loop as run_frontres_segment_live_update_loop_helper,
+    run_frontres_v015_formal_transaction_update_loop as run_frontres_v015_formal_transaction_update_loop_helper,
 )
 from rsl_rl.runners.frontres_segment_live_sampler import initialize_frontres_segment_live_sampler
 from rsl_rl.runners.frontres_segment_live_training import (
@@ -43,9 +44,12 @@ from rsl_rl.runners.frontres_segment_live_training import (
 from rsl_rl.frontres.task_space_correction import apply_frontres_task_corrections
 from rsl_rl.runners.frontres_runtime import (
     apply_obs_normalizer,
+    append_frontres_future_intent_context,
+    append_frontres_fixed_noisy_future_context,
     get_inference_policy_runner,
     maybe_print_frontres_restore_debug,
 )
+from rsl_rl.modules.frontres_observation_layout import resolve_frontres_future_intent_layout
 from rsl_rl.runners.frontres_runner_logging import log_runner
 from rsl_rl.frontres.training_schedule import (
     frontres_curriculum_allowed_bases,
@@ -259,6 +263,9 @@ class OnPolicyRunner:
             frontres_segment_sentinel_log = self._frontres_segment_replay_boundary.sentinel_log()
             if frontres_segment_sentinel_log is not None:
                 print(frontres_segment_sentinel_log, flush=True)
+            frontres_v015_sentinel_log = self._frontres_segment_replay_boundary.v015_sentinel_log()
+            if frontres_v015_sentinel_log is not None:
+                print(frontres_v015_sentinel_log, flush=True)
             frontres_segment_probe_log = self._frontres_segment_replay_boundary.probe_log()
             if frontres_segment_probe_log is not None:
                 print(frontres_segment_probe_log, flush=True)
@@ -333,6 +340,36 @@ class OnPolicyRunner:
         # IMPORTANT: Keep num_obs unchanged for normalizer initialization!
         # IMPORTANT: For ResidualActorCritic, do NOT adjust num_actor_obs (it handles estimator internally)
         num_actor_obs = num_obs  # Start with policy obs dimension 动作维度
+        self._frontres_fixed_noisy_future_offsets: tuple[int, ...] = ()
+        self._frontres_fixed_noisy_actor_context_dim = 0
+        self._frontres_future_intent_layout = None
+        self._frontres_future_intent_layout_version: str | None = None
+        self._frontres_future_intent_actor_context_dim = 0
+        if self.training_type == "frontres" and self._frontres_segment_replay_boundary.requested:
+            raw_offsets = self.alg_cfg.get("frontres_future_offsets", None)
+            layout_version = self.alg_cfg.get("frontres_future_intent_layout_version", None)
+            if raw_offsets is None or isinstance(raw_offsets, (str, bytes)) or layout_version is None:
+                raise ValueError(
+                    "Segment Replay v015 requires explicit frontres_future_offsets and "
+                    "frontres_future_intent_layout_version; no legacy default is allowed"
+                )
+            try:
+                layout = resolve_frontres_future_intent_layout(raw_offsets, str(layout_version))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid v015 FrontRES future-intent layout: {exc}") from exc
+            self._frontres_future_intent_layout = layout
+            self._frontres_future_intent_layout_version = layout.version
+            self._frontres_future_intent_actor_context_dim = layout.actor_tail_dim
+            num_actor_obs += self._frontres_future_intent_actor_context_dim
+            configured_prefix = int(self.policy_cfg.get("num_frontres_obs", 0) or 0)
+            if configured_prefix > 0:
+                self.policy_cfg["num_frontres_obs"] = configured_prefix + self._frontres_future_intent_actor_context_dim
+            print(
+                "[Runner] FrontRES v015 future-intent actor layout: "
+                f"version={layout.version} H={layout.future_offsets} tail={self._frontres_future_intent_actor_context_dim} "
+                f"raw_obs={num_obs} actor_obs={num_actor_obs}",
+                flush=True,
+            )
 
         # evaluate the policy class (非常危险的做法)
         # eval会将字符串直接作为python代码执行, class_name="ResidualActorCritic"
@@ -404,6 +441,7 @@ class OnPolicyRunner:
         self._frontres_gmt_obs_dim: int | None = None
         self._frontres_extra_mean: torch.Tensor | None = None  # (1, K) Stage-1 mean for extra dims
         self._frontres_extra_std:  torch.Tensor | None = None  # (1, K) Stage-1 std  for extra dims
+        self._frontres_extra_stats_layout_version: str | None = None
         self._frontres_extra_normalizer: EmpiricalNormalization | None = None
 
         # Check if using ResidualActorCritic (special handling for GMT normalizer)
@@ -422,11 +460,12 @@ class OnPolicyRunner:
                         self._frontres_gmt_obs_dim = gmt_norm_dim
                         if self.empirical_normalization:
                             self._frontres_extra_normalizer = EmpiricalNormalization(
-                                shape=[num_obs - gmt_norm_dim],
+                                shape=[num_obs - gmt_norm_dim + self._frontres_future_intent_actor_context_dim],
                                 until=1.0e8,
                             ).to(self.device)
                         print(f"[Runner] FrontRES task-space obs layout: first "
-                              f"{num_obs - gmt_norm_dim} FrontRES-only dims use prefix stats or pass-through; "
+                              f"{num_obs - gmt_norm_dim + self._frontres_future_intent_actor_context_dim} "
+                              "FrontRES-only dims use prefix stats or pass-through; "
                               f"last {gmt_norm_dim} GMT dims normalized")
             else:
                 print("[Runner] WARNING: ResidualActorCritic has no GMT normalizer, using Identity")
@@ -591,6 +630,22 @@ class OnPolicyRunner:
             self,
             init_at_random_ep_len=init_at_random_ep_len,
             runner_learn=runner_learn,
+        )
+
+    def run_frontres_v015_formal_transaction(self) -> object:
+        """Step 4B fake-S2 public connector; generic learn/train never calls this method."""
+
+        return run_frontres_v015_formal_transaction_update_loop_helper(self)
+
+    def run_frontres_v015_local_identity_sentinel(
+        self,
+        init_at_random_ep_len: bool = True,
+    ) -> object:
+        """Run only the explicit v015 local-scenario sentinel, never a legacy live update path."""
+
+        return run_frontres_v015_local_identity_sentinel_helper(
+            self,
+            init_at_random_ep_len=init_at_random_ep_len,
         )
 
     def learn_frontres_segment_live(
@@ -785,6 +840,7 @@ class OnPolicyRunner:
 
         # Normalize initial observations (same as in training loop) 观测归一器
         print("[Runner] Applying obs normalizer...", flush=True)
+        obs = self._append_frontres_fixed_noisy_future_context(obs)
         obs = self._apply_obs_normalizer(obs) # 三种观测量分别使用不同观测归一器
         print("[Runner] Policy obs normalized.", flush=True)
 
@@ -1071,31 +1127,9 @@ class OnPolicyRunner:
                         and _is_task_space_mode
                         and bool(self.cfg.get("frontres_hsl_rollout_label_enabled", False))
                     ):
-                        # HSL rollout target：用实际执行后的 reference 证据构造 supervised Delta SE(3) target。
-                        _env_for_hsl = self.env.unwrapped if hasattr(self.env, "unwrapped") else self.env
-                        _cmd_hsl = None
-                        if hasattr(_env_for_hsl, "command_manager"):
-                            for _term_hsl in _env_for_hsl.command_manager._terms.values():
-                                if (
-                                    hasattr(_term_hsl, "_frontres_pos_correction")
-                                    and hasattr(_term_hsl, "_frontres_quat_correction")
-                                ):
-                                    _cmd_hsl = _term_hsl
-                                    break
-                        if _cmd_hsl is not None:
-                            build_frontres_hsl_rollout_target(
-                                self,
-                                command=_cmd_hsl,
-                                actions=actions,
-                                dones=dones,
-                                current_pos_correction=_hsl_pos_snapshot,
-                                current_quat_correction=_hsl_quat_snapshot,
-                                n_train=N_train,
-                                n_candidate=N_candidate,
-                                n_base=N_base,
-                                n_clean=N_clean,
-                                quat_to_rotvec_wxyz=_quat_to_rotvec_wxyz,
-                            )
+                        raise RuntimeError(
+                            "FRS-TRAIN-v007 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
+                        )
                     
                     # ------------------- Policy Rollout -------------------
 
@@ -1158,6 +1192,7 @@ class OnPolicyRunner:
                         obs_raw_for_gmt = obs.clone()
 
                     # perform normalization 对本次循环的观测量进行归一化, 用于计算下步动作
+                    obs = self._append_frontres_fixed_noisy_future_context(obs)
                     obs = self._apply_obs_normalizer(obs)
                     if self.privileged_obs_type is not None and self.privileged_obs_type in obs_dict:
                         privileged_obs = self.privileged_obs_normalizer(
@@ -1322,6 +1357,12 @@ class OnPolicyRunner:
 
     def _apply_obs_normalizer(self, obs: torch.Tensor) -> torch.Tensor:
         return apply_obs_normalizer(self, obs)
+
+    def _append_frontres_fixed_noisy_future_context(self, obs: torch.Tensor) -> torch.Tensor:
+        return append_frontres_fixed_noisy_future_context(self, obs)
+
+    def _append_frontres_future_intent_context(self, obs: torch.Tensor) -> torch.Tensor:
+        return append_frontres_future_intent_context(self, obs)
 
     def _apply_frontres_task_corrections(
         self,

@@ -1,8 +1,9 @@
 contract_id: FRS-EVAL-v002
-status: active
+status: superseded
 effective_date: 2026-07-13
 updated_date: 2026-07-13
 supersedes: FRS-EVAL-v001
+superseded_by: FRS-EVAL-v003
 scope: Segment Replay periodic and offline sequence evaluation
 
 # Segment Evaluation Contract

@@ -1,8 +1,8 @@
 # Formal Runtime Audit
 
-Status: `phase-b-runtime-closed-quality-open`
+Status: historical v002/v014 runtime evidence; not an active v015 acceptance gate
 
-Current boundary 2026-07-17: the active reward contract is
+Historical boundary 2026-07-17: the then-active reward contract was
 `FRS-GAIN-v002`. The formal audit was updated to expose raw survival steps,
 per-row effective K, repaired/noisy survival quality, normalized survival Gain,
 and the equality between per-step survival Gain sum and final survival Gain.
@@ -68,9 +68,9 @@ Audit type: official Stage 3 Segment Replay formal-route live sentinel
 
 ## Round Identity
 
-- Active method contract: `FRS-METHOD-v011-segment-replay`
-- Active training contract: `FRS-TRAIN-v003-segment-replay-warmup`
-- Active reward contract: `FRS-GAIN-v002-style-physics-repair`
+- Historical method contract: `FRS-METHOD-v011-segment-replay`
+- Historical training contract: `FRS-TRAIN-v003-segment-replay-warmup`
+- Historical reward contract: `FRS-GAIN-v002-style-physics-repair`
 - Code revision inspected: `2ff791e` plus the current dirty worktree; the
   deployed source snapshot must match this worktree before live evidence is accepted.
 - Checkpoint identity: must be supplied and printed by the upcoming formal run.

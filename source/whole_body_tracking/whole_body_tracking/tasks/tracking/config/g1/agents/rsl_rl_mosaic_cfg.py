@@ -432,17 +432,15 @@ class G1FlatMOSAICMultiTeacherResidualRunnerCfg(RslRlOnPolicyRunnerCfg):
 @configclass
 class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     """
-    Unified FrontRES training: supervised ΔSE3 warmup + B1 delta-reward RL in one run.
+    Legacy FrontRES configuration surface with proposal-only Stage-1 HSL.
 
     Architecture:
       FrontRES (trainable) → ΔSE3 [Δpos(3), Δrpy(3)]
       → patch anchor root pose → frozen GMT → robot actions
 
-    Loss:
-      L = L_PPO(B1 delta-reward) + λ_sup(t) * L_supervised(ΔSE3)
-
-    λ_sup decays from lambda_supervised → lambda_supervised_min once
-    cosine_similarity_ema(pred, target) ≥ supervised_trigger_cosine_sim.
+    FRS-TRAIN-v007 keeps anti-DR supervision inside Stage 1 initialization.
+    The v015 future-intent Stage-3 route rejects a nonzero online supervised
+    loss or legacy rollout label.
 
     Mandatory fields to fill before training:
       policy.gmt_checkpoint_path        — path to frozen GMT .pt checkpoint
@@ -868,9 +866,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         # ── Supervised auxiliary loss (λ_sup schedule) ────────────────────────
         frontres_reward_compute_live_debug = False,
         frontres_cuda_memory_debug = False,
-        lambda_supervised             = 1.0,   # initial weight
-        lambda_supervised_min         = 0.20,  # HSL remains an anchor while PPO explores repair strength
-        lambda_supervised_decay       = 0.995, # HSL direction anchor can decay once rollout advantage is useful
+        lambda_supervised             = 0.0,   # v007: HSL is Stage-1 initialization only
+        lambda_supervised_min         = 0.0,   # v015 rejects a nonzero online HSL floor
+        lambda_supervised_decay       = 0.995, # inert while both v007 supervised weights are zero
         supervised_trigger_cosine_sim = 0.85,  # EMA threshold to start decay
         supervised_rpy_loss_weight    = 1.0,
         supervised_direction_loss_weight = 0.03,
@@ -879,7 +877,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         supervised_over_loss_weight      = 0.2,
         supervised_smooth_loss_weight    = 0.05,
         supervised_harm_loss_weight      = 1.0,
-        frontres_hsl_rollout_label_enabled = True,
+        frontres_hsl_rollout_label_enabled = False,
         frontres_hsl_rollout_eta        = 1.0,
         frontres_hsl_rot_error_scale    = 0.25,
         frontres_hsl_safe_threshold     = 0.03,

@@ -150,6 +150,60 @@ def update_frontres_supervised_controller(
         setattr(runner.alg, "lambda_supervised", max(anchor, lam * factor))
 
 
+def _frontres_v015_two_role_layout_requested(runner: Any) -> bool:
+    """Return whether the runner has frozen the v015 q29 actor layout."""
+
+    layout = getattr(runner, "_frontres_future_intent_layout", None)
+    version = getattr(layout, "version", None)
+    return str(version) == "frontres-v015-future-intent-q29-v1"
+
+
+def _configure_frontres_v015_two_role_layout(runner: Any) -> FrontRESPairLayout:
+    """Install the v015 Repair/Noisy reset partition without legacy roles."""
+
+    total = int(runner.env.num_envs)
+    if total <= 0 or total % 2 != 0:
+        raise ValueError(
+            "v015 two-role layout requires a positive even env count for equal Repair/Noisy rows, "
+            f"got {total}"
+        )
+    n_repair = total // 2
+    n_noisy = n_repair
+    repair_ids = torch.arange(n_repair, device=runner.device, dtype=torch.long)
+    noisy_ids = torch.arange(n_repair, total, device=runner.device, dtype=torch.long)
+    runner._frontres_v015_two_role_env_ids = {
+        "repair": repair_ids,
+        "noisy": noisy_ids,
+    }
+    runner._frontres_v015_two_role_layout_active = True
+
+    env_pair = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    manager = getattr(env_pair, "command_manager", None)
+    get_term = getattr(manager, "get_term", None)
+    if not callable(get_term):
+        raise RuntimeError("v015 two-role layout requires env.command_manager.get_term('motion')")
+    motion_command = get_term("motion")
+    install = getattr(motion_command, "set_frontres_v015_two_role_baseline", None)
+    if not callable(install):
+        raise RuntimeError("v015 two-role layout requires command.set_frontres_v015_two_role_baseline()")
+    install(n_repair=n_repair, n_noisy=n_noisy)
+
+    if _frontres_layout_log_enabled(runner, ("v015_two_role", n_repair, n_noisy)):
+        print(
+            "[Runner] FrontRES v015 layout mode=two_role "
+            f"repair={n_repair} noisy={n_noisy} candidate=0 clean=0",
+            flush=True,
+        )
+    return FrontRESPairLayout(
+        use_quartet_reward=False,
+        n_train=n_repair,
+        n_candidate=0,
+        n_base=n_noisy,
+        n_clean=0,
+        cur_reward_sum_gmt=torch.zeros(n_noisy, dtype=torch.float, device=runner.device),
+    )
+
+
 def configure_frontres_pair_layout(runner: Any, *, is_frontres: bool) -> FrontRESPairLayout:
     """建立 FrontRES Repaired/Candidate/Noisy/Clean split-env 布局.
 
@@ -168,6 +222,9 @@ def configure_frontres_pair_layout(runner: Any, *, is_frontres: bool) -> FrontRE
 
     if not is_frontres:
         return FrontRESPairLayout(False, 0, 0, 0, 0, None)
+
+    if _frontres_v015_two_role_layout_requested(runner):
+        return _configure_frontres_v015_two_role_layout(runner)
 
     # B1: 在 paired reset/rollout 前划分每种语义角色的 env rows.
     runner.alg.state_supervised_controller_enabled = bool(

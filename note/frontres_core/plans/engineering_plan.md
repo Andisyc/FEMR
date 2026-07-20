@@ -1,7 +1,18 @@
-# FrontRES Current Engineering Plan
+# FrontRES Policy-Quality And Transaction-Audit Plan
 
-Status: `Q1-policy-quality-evaluator-planned`
-Updated: 2026-07-17
+Status: retained Q1/Q2 plan and audit evidence; not the current v015 implementation plan
+Updated: 2026-07-19
+
+## Current Method Route
+
+The active implementation surface is:
+
+    note/frontres_core/plans/FRS-v015-future-intent-single-action-k-engineering-plan.md
+
+It implements active FRS-METHOD-v015, FRS-TRAIN-v006, FRS-GAIN-v003, and FRS-PPO-v003. This
+file preserves the Q1/Q2 evidence and the Q-E24 mismatch that motivated that
+plan. It is not authorization to modify observation, sampler, storage, PPO,
+Gain, optimizer, or run a live job.
 
 ## Objective
 
@@ -10,14 +21,14 @@ tested policy actions from one immutable manifest and one identical scoring
 state, without changing formal training, periodic online eval, existing offline
 eval, or sequence eval behavior.
 
-## Governance Identity
+## Historical Governance Identity
 
 - Concept Figure: `note/architecture/concept/03_frontres_concept_tabs.data.json`.
-- Design points: `FRS-DP-02/03/04/05/06/07/08/09` remain unchanged.
-- Active contracts: `FRS-METHOD-v011`, `FRS-TRAIN-v003`, `FRS-GAIN-v002`,
-  `FRS-PPO-v001`, and `FRS-EVAL-v002` remain active.
-- Change class: diagnostic/evaluation tooling; no method-semantic or reward
-  migration and therefore no new contract version.
+- Historical audit scope: Q1/Q2 policy quality and transaction causality.
+- Current active contracts: `FRS-METHOD-v015`, `FRS-TRAIN-v006`,
+  `FRS-GAIN-v003`, `FRS-PPO-v003`, and `FRS-EVAL-v003`.
+- Current implementation plan and checklist own the semantic migration;
+  this historical document retains no competing active route.
 - Current runtime prerequisite: the joint sentinel log reached
   `phase=joint`, `actor_weight=1`, and saved `model_701.pt`; governance sync as
   E70 is required before quality runtime evidence is accepted.
@@ -478,6 +489,37 @@ pre-update bounded/raw action, old mean/sigma, Gain, return, advantage, valid
 mask, and segment ID tuple. Offline S1/S2 contracts prove fail-closed identity,
 row alignment, official-owner reachability, and no storage mutation. No Gain,
 PPO, sampler, or optimizer semantics changed.
+
+### Step Q2-E: Double Segment Replay Transaction Alignment
+
+Status: code-confirmed mismatch retained as the superseded v013 migration baseline.
+
+Objective: compare the accepted `FRS-METHOD-v012` transaction against the
+formal code path.
+
+Scope: trace sampler selection, trial expansion, fixed-policy identity,
+storage accumulation, PPO-batch construction, and `optimizer.step` timing.
+
+Non-scope: no sampler/PPO/Gain implementation change, no new live test, and no
+exploration-sigma decision.
+
+Expected evidence: code-confirmed call order and row roles, including attempts
+per Segment before each optimizer step and whether all eligible attempts share
+one old-policy snapshot.
+
+Stop condition: classify the formal path as aligned, partially aligned, or
+contract-mismatch and return control before implementation planning.
+
+Read-only result: `contract-mismatch`. `sample_rollout_rows()` expands each
+Segment into exactly one `policy` row followed by `search` rows. Storage masks
+out every `search` row, and `run_frontres_segment_live_probe()` immediately
+calls `run_frontres_segment_single_update()` for the current sampler step.
+`run_frontres_segment_live_update_loop()` repeats this complete sample ->
+rollout -> optimizer transaction for every configured `update_step`; it does
+  not accumulate repeated on-policy attempts under one fixed old policy before
+  the optimizer step. The v013 plan is superseded; the separate bounded v015
+  implementation plan is active. No implementation step has started from this
+  historical audit result.
 
 ## Planned Step Order
 

@@ -829,3 +829,76 @@ Decision: deterministic wiring is repaired without changing Gain, PPO,
 sampler, warmup, or optimizer semantics. Q2-D3 remains partial until bounded
 runtime artifacts confirm the identity and real sampled-action/advantage
 covariance. Do not repeat broad training.
+
+## Q-E24 - Double Segment Replay PPO Transaction Audit
+
+Date: 2026-07-17
+
+Accepted method:
+
+- `FRS-METHOD-v012` requires one frozen old-policy collection transaction:
+  repeated on-policy attempts per Segment, multiple Segments per batch, then
+  one PPO optimizer step.
+
+Code-confirmed facts:
+
+- `FrontRESSegmentSampler.sample_rollout_rows()` calls
+  `expand_rollout_trials()`, which labels only trial index 0 as `policy` and all
+  later trials for that Segment as `search`.
+- `_trial_metadata_ppo_update_mask()` admits only `role == "policy"`; search
+  trials remain sampler evidence and cannot enter PPO storage validity.
+- `run_frontres_segment_live_probe()` builds storage for the current sampler
+  step and immediately calls `run_frontres_segment_single_update()`.
+- `run_frontres_segment_live_update_loop()` repeats the whole sampler step for
+  every `update_step`; no accumulator holds repeated on-policy attempts under
+  one fixed old-policy snapshot before `optimizer.step`.
+
+Decision:
+
+- Formal Stage 3 is `contract-mismatch` against Double Segment Replay. It has
+  inner multi-trial evidence for sampler priority, but only one PPO-eligible
+  attempt per Segment and an immediate optimizer step per sampler step.
+- Pause live tests and Q2-D actor-update interpretation. The next action is a
+  human-reviewed implementation plan; no PPO/Gain/sigma change is authorized.
+
+Evidence class: code-confirmed. Runtime confirmation is unnecessary to prove
+this call order because the formal owners invoke each other directly.
+
+## Q-E25 - Method Redesign Reset: Future Context And Double Segment Replay
+
+Date: 2026-07-18
+
+Conceptual decision:
+
+- The current 870D FrontRES observation exposes current reference state and
+  short history but no explicit future reference.
+- Similar current states may require opposite repairs when their upcoming
+  motion intent differs; this ambiguity cannot be solved by MLP capacity alone.
+- FrontRES therefore needs deployable local future-motion context. The initial
+  method proposal uses sparse future references over approximately 0.5 seconds,
+  while preserving frozen GMT as the tracking/control owner.
+- Double Segment Replay must collect repeated on-policy attempts per Segment
+  under one frozen old policy, aggregate multiple Segments, and perform one PPO
+  update only after collection closes.
+
+Evidence:
+
+- Code: `MotionCommand.command` concatenates current-frame joint position and
+  velocity indexed by `self.time_steps`; the policy observation group carries a
+  five-frame history rather than explicit future targets.
+- External reference: GMT encodes the immediate target plus approximately two
+  seconds of future motion for general tracking. FEMR adopts the conceptual need
+  for future intent but proposes a shorter local window because FrontRES repairs
+  references rather than replacing GMT.
+- Q-E24 already establishes the current Double Segment Replay transaction
+  mismatch.
+
+Decision:
+
+- Return to Workflow Stage 1. Create the `FRS-METHOD-v013` proposal and expose
+  `FRS-DP-10 / M-11` in the Concept Figure.
+- Do not modify training code or run further live tests until future-context
+  contents/encoding and Double Segment Replay transaction budgets are resolved
+  and activated as a new contract.
+
+Evidence class: code-confirmed + user-confirmed concept + external-reference.

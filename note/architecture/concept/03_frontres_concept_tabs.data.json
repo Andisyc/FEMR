@@ -1,7 +1,7 @@
 {
   "title": "FrontRES Method Figure",
   "layout": "method_figure",
-  "figureWidth": 1760,
+  "figureWidth": 2280,
   "figureHeight": 640,
   "concepts": {
     "C-DATA": {"name": "Data", "color": "#2563eb"},
@@ -16,7 +16,7 @@
     {
       "id": "M-02",
       "title": "Perturbation Data",
-      "summary": "构造参考动作扰动",
+      "summary": "首帧 root artifact, 保留内部运动",
       "concept": "C-DATA",
       "x": 40,
       "y": 150,
@@ -24,9 +24,9 @@
       "h": 100
     },
     {
-      "id": "SR-01",
-      "title": "Segment Replay",
-      "summary": "采样并重放动态片段",
+      "id": "M-12",
+      "title": "Perturbation Probing",
+      "summary": "探测局部扰动的修复需求",
       "concept": "C-DATA",
       "x": 320,
       "y": 150,
@@ -34,9 +34,29 @@
       "h": 100
     },
     {
+      "id": "SR-01",
+      "title": "Segment Replay",
+      "summary": "同一局部情境 M 次 on-policy 尝试",
+      "concept": "C-DATA",
+      "x": 600,
+      "y": 150,
+      "w": 220,
+      "h": 100
+    },
+    {
+      "id": "M-11",
+      "title": "Future Motion Context",
+      "summary": "用未来 29DoF 意图辨识修复方向",
+      "concept": "C-ARCH",
+      "x": 880,
+      "y": 150,
+      "w": 230,
+      "h": 100
+    },
+    {
       "id": "M-06",
       "title": "K-step Curriculum",
-      "summary": "逐步延长修复窗口",
+      "summary": "首帧修复的 K-step GMT 证据",
       "concept": "C-CURRICULUM",
       "x": 40,
       "y": 330,
@@ -48,7 +68,7 @@
       "title": "FrontRES 6D Repair",
       "summary": "输出完整 Delta SE(3) 修复",
       "concept": "C-ARCH",
-      "x": 620,
+      "x": 1170,
       "y": 150,
       "w": 230,
       "h": 100
@@ -59,7 +79,7 @@
       "summary": "",
       "concept": "C-EXTERNAL",
       "kind": "external",
-      "x": 920,
+      "x": 1460,
       "y": 165,
       "w": 190,
       "h": 70
@@ -67,9 +87,9 @@
     {
       "id": "Q-PAIR",
       "title": "Paired Rollouts",
-      "summary": "同一 Segment 的 Clean / Noisy / Repaired",
+      "summary": "同一 x_t 的 Noisy / Repaired 局部反事实",
       "concept": "C-SIGNAL",
-      "x": 1180,
+      "x": 1710,
       "y": 150,
       "w": 230,
       "h": 100
@@ -77,9 +97,9 @@
     {
       "id": "Q-01",
       "title": "Repair Gain",
-      "summary": "衡量修复带来的执行改善",
+      "summary": "意图保持与物理可执行的配对增益",
       "concept": "C-SIGNAL",
-      "x": 1480,
+      "x": 2000,
       "y": 150,
       "w": 230,
       "h": 100
@@ -89,7 +109,7 @@
       "title": "HSL Warmup",
       "summary": "监督初始化 6D Actor",
       "concept": "C-TRAIN",
-      "x": 295,
+      "x": 575,
       "y": 470,
       "w": 230,
       "h": 100
@@ -99,23 +119,25 @@
       "title": "Actor & Critic Warmup",
       "summary": "预热 Actor 与 Critic",
       "concept": "C-TRAIN",
-      "x": 575,
+      "x": 855,
       "y": 470,
       "w": 230,
       "h": 100
     }
   ],
   "edges": [
-    {"from": "M-02", "to": "SR-01", "label": "生成片段", "concept": "C-DATA"},
-    {"from": "M-06", "to": "SR-01", "label": "分配 K", "concept": "C-CURRICULUM", "fromAnchor": "right", "toAnchor": "bottom", "via": [[430, 380]]},
-    {"from": "SR-01", "to": "M-04", "label": "训练样本", "concept": "C-DATA"},
+    {"from": "M-02", "to": "M-12", "label": "首帧 root artifact", "concept": "C-DATA"},
+    {"from": "M-12", "to": "SR-01", "label": "定位难例", "concept": "C-DATA"},
+    {"from": "M-06", "to": "SR-01", "label": "分配 K", "concept": "C-CURRICULUM", "fromAnchor": "right", "toAnchor": "bottom", "via": [[710, 380]]},
+    {"from": "SR-01", "to": "M-11", "label": "封存局部情境", "concept": "C-DATA"},
+    {"from": "M-11", "to": "M-04", "label": "未来意图", "concept": "C-ARCH"},
     {"from": "M-04", "to": "M-10", "label": "修复参考", "concept": "C-ARCH"},
     {"from": "M-10", "to": "Q-PAIR", "label": "执行", "concept": "C-EXTERNAL"},
-    {"from": "Q-PAIR", "to": "Q-01", "label": "执行结果", "concept": "C-SIGNAL"},
+    {"from": "Q-PAIR", "to": "Q-01", "label": "配对增益", "concept": "C-SIGNAL"},
     {"from": "M-03", "to": "M-05", "label": "进入 RL", "concept": "C-TRAIN"},
-    {"from": "M-05", "to": "M-04", "label": "预热", "concept": "C-TRAIN", "fromAnchor": "top", "toAnchor": "bottom", "toOffset": -45, "labelX": 730, "labelY": 360},
-    {"from": "Q-01", "to": "M-04", "label": "PPO 学习信号", "concept": "C-TRAIN", "fromAnchor": "bottom", "toAnchor": "bottom", "toOffset": 45, "via": [[1595, 300], [780, 300]]},
-    {"from": "Q-01", "to": "SR-01", "label": "重放优先级", "concept": "C-SIGNAL", "fromAnchor": "top", "toAnchor": "top", "via": [[1595, 60], [430, 60]]}
+    {"from": "M-05", "to": "M-04", "label": "预热", "concept": "C-TRAIN", "fromAnchor": "top", "toAnchor": "bottom", "via": [[970, 405], [1285, 405]], "labelX": 1127, "labelY": 397},
+    {"from": "Q-01", "to": "M-04", "label": "PPO 学习信号", "concept": "C-TRAIN", "fromAnchor": "bottom", "toAnchor": "bottom", "toOffset": 45, "via": [[2115, 300], [1330, 300]], "labelX": 1722, "labelY": 289},
+    {"from": "Q-01", "to": "SR-01", "label": "重放优先级", "concept": "C-SIGNAL", "fromAnchor": "top", "toAnchor": "top", "via": [[2115, 60], [710, 60]]}
   ],
   "callouts": [],
   "acceptance": []

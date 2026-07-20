@@ -1,18 +1,22 @@
 # FEMR Current Semantic Objects
 
-Updated: 2026-07-13
+Updated: 2026-07-19
 
 ## Observation Payload
 
 ```text
-100D FrontRES prefix + 770D frozen-GMT suffix = 870D actor observation
+current robot/balance/tracking state
++ current Noisy root/anchor artifact
++ future 29DoF internal-motion intent I[t:t+H]
+-> FrontRES actor observation
 ```
 
 Owners: `frontres_observation_layout.py`, `normalizer.py`,
 `front_residual_actor_critic.py`, checkpoint/eval/export loaders.
 
-Evidence: shape/order, prefix/suffix stats ownership, checkpoint identity, and
-all sink dimensions.
+The legacy 870D layout and full-65D future reference prefix are implementation
+mismatches until migrated. Evidence must prove actor provenance, q29 invariant,
+root exclusion, checkpoint identity, and all sink dimensions.
 
 ## Full-6D Repair Action
 
@@ -29,41 +33,45 @@ six dimensions.
 
 ## Segment Identity And Trial Role
 
-One replay case owns motion id, start frame, perturbation, dynamic reset state,
-source, trial role/index, horizon K, and rollout evidence.
+One local scenario owns motion id, start frame, dynamic reset x_t, one current
+root artifact, future intent I, Clean continuation C, horizon K, source, trial
+index, and rollout evidence.
 
-Policy rows may reach PPO. Search/counterfactual rows may reach sampler evidence
-but are invalid for PPO before the batch boundary.
+The two scored roles are Noisy and Repair. Candidate/search rows are not a third
+active scored role. Ordinary-valid Repair attempts may reach PPO; non-policy
+evidence remains invalid before the batch boundary.
 
 ## Effective Horizon K
 
-Sampler states may assign `8/16/32/64`. K must survive batch construction,
-quartet replication, reset, rollout accumulation, done masks, returns, sampler
-evidence, diagnostics, and eval.
+Sampler states may assign `8/16/32/64`. One FEMR action is authorized at t;
+FEMR is frozen for t+1...t+K while GMT consumes C. K must survive local-pair
+construction, reset, rollout accumulation, done masks, returns, sampler
+evidence, diagnostics, and evaluation.
 
 Implementation and formal-route integration are separate evidence claims.
 
 ## Gain Decomposition
 
 ```text
-style_gain   = style_quality(Repaired | Clean) - style_quality(Noisy | Clean)
+intent_gain  = internal_fidelity(Repaired | I_noisy)
+             - internal_fidelity(Noisy | I_noisy)
 physics_gain = physics_quality(Repaired)       - physics_quality(Noisy)
 repair_cost  = full6 magnitude + temporal change (+ valid Clean no-op cost)
-gain_total   = w_style * style_gain + w_physics * physics_gain
+gain_total   = w_intent * intent_gain + w_physics * physics_gain
              - w_repair * repair_cost
 ```
 
 Owner contract:
-`frontres_core/contracts/active/reward/FRS-GAIN-v002-style-physics-repair.md`.
+`frontres_core/contracts/active/reward/FRS-GAIN-v003-intent-physics-local-repair.md`.
 
-Current code status: formal Segment live scoring is RP-only and therefore does
-not implement this semantic object.
+Current code status: Clean-global Style, full-65D tape, and quartet scoring are
+contract-mismatch paths and do not implement this semantic object.
 
 Required lifecycle:
 
 ```text
-Clean/Noisy/Repaired paired states
--> shared raw components
+same x_t/current artifact/I/C/K in Noisy/Repair local roles
+-> root-invariant intent and paired physics components
 -> shared normalization/scales
 -> per-row K aggregation
 -> PPO return + sampler evidence
@@ -93,8 +101,10 @@ resume, evaluation, and export must agree on ownership and dimensions.
 
 ## Evaluation Evidence
 
-Evaluation is independent of policy update and sampler mutation. It reports raw
-Style metrics, raw Physics metrics, Repair cost, separate paired gains, total
-Gain, motion identity, perturbation, K, reset/preroll, and action evidence.
+Evaluation is independent of policy update and sampler mutation. Local K
+evaluation reports root-invariant intent metrics, Physics metrics, Repair cost,
+separate paired gains, total Gain, scenario identity, K, reset, continuation,
+and action evidence. Full-sequence composition evaluation remains separate and
+cannot enter a local PPO return.
 
 Missing evidence is `UNCONFIRMED`, never zero.

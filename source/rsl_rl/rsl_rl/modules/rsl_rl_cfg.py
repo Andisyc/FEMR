@@ -324,6 +324,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Allow OnPolicyRunner to enter the live Segment Replay route."""
     frontres_segment_live_sentinel_only: bool = False
     """Allow only the live Segment Replay startup sentinel, while keeping PPO/update training disabled."""
+    frontres_v015_local_sentinel_only: bool = False
+    """Enable only the explicit v015 local-scenario identity sentinel; legacy live modes are rejected."""
     frontres_segment_live_probe_only: bool = False
     """Run a short live Segment Replay rollout probe without storage writes or PPO updates."""
     frontres_segment_live_storage_write_only: bool = False
@@ -338,6 +340,8 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Load a checkpoint, evaluate unique motion sequences from frame 0 through sampled segment starts, then exit."""
     frontres_segment_live_train_enabled: bool = False
     """Enable the dedicated live Segment Replay training loop instead of the legacy runner.learn path."""
+    frontres_v015_formal_transaction_enabled: bool = False
+    """Enable the isolated v015 transaction owner for its CPU contract or opt-in pre-live sentinel; it does not enable generic training."""
     frontres_segment_live_update_steps: int = 4
     """Number of live Segment Replay PPO update steps per live training iteration or sentinel."""
     frontres_segment_critic_warmup_iterations: int = 0
@@ -360,6 +364,10 @@ class RslRlFrontRESUnifiedAlgorithmCfg(RslRlPpoAlgorithmCfg):
     """Initialize Stage 3 repair actor from Stage 1 HSL weights when loading checkpoints."""
     frontres_segment_k: int = 8
     """Default K-step horizon for unknown Segment Replay states."""
+    frontres_future_offsets: tuple[int, ...] = ()
+    """Required ordered H offsets for the v015 deployment-q29 future-intent actor tail; empty fails closed."""
+    frontres_future_intent_layout_version: str = "frontres-v015-future-intent-q29-v1"
+    """Exact version for the v015 q29 actor-tail and prefix-normalizer layout."""
     frontres_segment_max_horizon_k: int = 64
     """Maximum formal-training horizon for the 8/16/32/64 Segment Replay curriculum."""
     frontres_segment_advantage_normalization: str = "scale_only"

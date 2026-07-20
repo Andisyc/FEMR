@@ -1,14 +1,17 @@
-# FrontRES Current Change Checklist
+# FrontRES Policy-Quality Evidence Checklist
 
-Status: `Q1-policy-quality-evaluator-planned`
-Updated: 2026-07-17
-Plan: `note/frontres_core/plans/engineering_plan.md`
+Status: retained policy-quality evidence; not the current v015 implementation checklist
+Updated: 2026-07-19
+Historical plan: `note/frontres_core/plans/engineering_plan.md`
+Current v015 checklist: `note/frontres_core/checklists/FRS-v015-future-intent-single-action-k-checklist.md`
 
 ## Scope
 
-Independent Policy Quality evaluator for matched zero/frozen-HSL/policy
-comparison. Existing formal training, periodic online eval, offline eval, and
-sequence eval are protected non-scope.
+This file preserves the Q1/Q2 policy-quality and transaction-audit evidence.
+The current implementation acceptance surface is the K-A checklist linked
+above. Existing formal training, periodic online eval, offline eval, and
+sequence eval remain protected unless a later K-A plan step explicitly names
+their owner boundary.
 
 ## Step Acceptance
 
@@ -30,6 +33,9 @@ sequence eval are protected non-scope.
 | Q2-D1 Scale-sweep executor | dedicated Q2-D module + canonical lower-level quality owners | S1/S2 `T-scale/T-order/T-state/T-schema/T-isolation` | completed offline | Q-E20: six sorted scales restore identical state, reuse canonical owners, and remain isolated from old eval control flow |
 | Q2-D2 Credit/mean oracle | storage-derived advantage + Gaussian score-gradient + cloned update delta | S1/S2 `T-sign/T-source/T-gradient/T-direction/T-no-mutation` | completed offline | Q-E20: score-gradient sign and canonical Segment PPO clone update move mean toward preferred sampled action without source mutation |
 | Q2-D3 Real failed-sample causality | scaled-HSL physical Gain + real Stage 3 batch credit/update | S4 `T-live/T-gain/T-credit/T-update/T-identity` | partial | Scale ordering observed but old artifact identity was UNCONFIRMED; Q-E23 closes offline wiring, one transaction-complete scale route and one official credit artifact remain |
+| Q2-E Double Segment Replay transaction | fixed old policy -> repeated on-policy attempts per Segment -> cross-Segment batch -> one PPO step | S0/S2 `T-order/T-role/T-state/T-connect` | retained mismatch baseline | Q-E24: current path has one policy row per Segment and calls optimizer inside each sampler step; the K-A implementation plan supersedes this audit step |
+| Method v015 active semantics | future q29 intent + single first action + frozen-FEMR Clean-continuation K evidence | S0 `T-design/T-identity/T-boundary` | active semantic closure; implementation not started | `contracts/active/method/FRS-METHOD-v015-future-intent-single-action-k-replay.md` and v015 checklist |
+| Concept Figure, v015 intent | `FRS-DP-10 / M-11` Future Motion Context and `FRS-DP-06/07 / Q-PAIR/Q-01` two-role intent Gain | S0 `T-map/T-contract` | Concept Figure/runtime map synchronized; code is contract-mismatch | `architecture/concept/03_frontres_concept_tabs.data.json` and runtime/02_frontres_flow.data.json |
 
 ## Phase B Runtime Closure Index
 
@@ -116,7 +122,7 @@ generalization, or long-training readiness.
 
 ## Current Decision
 
-Q1 is closed by Q-E11. The single matched item rejects local no-op but cannot
-resolve Policy-HSL above its zero-route noise floor. Q2 is now the active gate:
-an 8-motion x 2-seed immutable bank is proposed for review. No live run,
-training-code change, PPO/Gain edit, or long-training decision is authorized.
+Q1/Q2 remain evidence history. Q-E24 is the code-confirmed baseline for the
+superseded v013 transaction migration. The active implementation gate is now
+the v015 plan/checklist pair; no code, test, live run, or long-training
+decision is authorized by this historical evidence checklist.

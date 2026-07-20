@@ -1242,6 +1242,28 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_pair_clean_ids = None
         self._sync_frontres_pairs(sync_perturbation=False)
 
+    def set_frontres_v015_two_role_baseline(self, *, n_repair: int, n_noisy: int) -> None:
+        """Install the only v015 reset layout: Repair rows paired with Noisy rows."""
+
+        n_repair = int(n_repair)
+        n_noisy = int(n_noisy)
+        if (
+            n_repair <= 0
+            or n_noisy <= 0
+            or n_repair != n_noisy
+            or n_repair + n_noisy != int(self.num_envs)
+        ):
+            raise ValueError(
+                "v015 two-role baseline requires equal positive Repair/Noisy counts covering all env rows, "
+                f"got repair={n_repair}, noisy={n_noisy}, num_envs={int(self.num_envs)}"
+            )
+        self._frontres_pair_train_ids = torch.arange(n_repair, device=self.device, dtype=torch.long)
+        self._frontres_pair_candidate_ids = None
+        self._frontres_pair_base_ids = torch.arange(n_repair, n_repair + n_noisy, device=self.device, dtype=torch.long)
+        self._frontres_pair_clean_ids = None
+        self._frontres_v015_two_role_layout_active = True
+        self._sync_frontres_pairs(sync_perturbation=False)
+
     def set_frontres_quartet_baseline(self, n_projected: int, n_candidate: int, n_base: int, n_clean: int) -> None:
         """Synchronize Projected, Candidate, Noisy, and Clean FrontRES env groups.
 
@@ -1473,8 +1495,876 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_reference_window_active = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._frontres_reference_window_cursor = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
+        # v013 fixed-Noisy carrier.  The legacy reference window is joint-only;
+        # this buffer is the command-owned carrier for q/dq plus the raw anchor
+        # pose that local-rp perturbs.
+        self._frontres_fixed_noisy_tape: torch.Tensor | None = None
+        self._frontres_fixed_noisy_tape_lengths = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._frontres_fixed_noisy_tape_cursor = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._frontres_fixed_noisy_tape_context_active = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+        self._frontres_fixed_noisy_tape_execution_active = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+        self._frontres_fixed_noisy_tape_scenario_ids: list[str | None] = [None] * self.num_envs
+        self._frontres_fixed_noisy_tape_hashes: list[str | None] = [None] * self.num_envs
+
+        # v015 local carrier.  Its three artifacts have separate authorities:
+        # current root artifact -> current reference cache; q29 -> later actor
+        # context; Clean continuation -> later GMT K executor.  This Step 2A
+        # owner stores them but deliberately does not route the latter two.
+        self._frontres_local_scenario_current_root_artifact_t: torch.Tensor | None = None
+        self._frontres_local_scenario_intent_q29: torch.Tensor | None = None
+        self._frontres_local_scenario_clean_continuation: torch.Tensor | None = None
+        self._frontres_local_scenario_horizon_k = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._frontres_local_scenario_continuation_lengths = torch.zeros(
+            self.num_envs, dtype=torch.long, device=self.device
+        )
+        self._frontres_local_scenario_active = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self._frontres_local_scenario_current_frame_ready = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+        # Step 2B owns this explicit, candidate-only cursor.  It is inactive
+        # during the current Noisy actor frame and never advances through the
+        # generic command update path; the K collector advances it only after
+        # the one repair action has been executed.
+        self._frontres_local_scenario_k_execution_active = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+        self._frontres_local_scenario_k_execution_cursor = torch.full(
+            (self.num_envs,), -1, dtype=torch.long, device=self.device
+        )
+        self._frontres_local_scenario_ids: list[str | None] = [None] * self.num_envs
+        self._frontres_local_scenario_hashes: list[str | None] = [None] * self.num_envs
+        self._frontres_local_scenario_x_t_identities: list[str | None] = [None] * self.num_envs
+        self._frontres_local_scenario_roles: list[str | None] = [None] * self.num_envs
+        self._frontres_local_scenario_provenance: list[dict[str, object] | None] = [None] * self.num_envs
+
+    def set_frontres_local_scenario(
+        self,
+        *,
+        current_root_artifact_t: torch.Tensor,
+        intent_q29: torch.Tensor,
+        clean_continuation: torch.Tensor,
+        horizon_k: torch.Tensor,
+        continuation_lengths: torch.Tensor,
+        scenario_ids: Sequence[str],
+        noisy_segment_hashes: Sequence[str],
+        x_t_identities: Sequence[str],
+        provenance: Sequence[dict[str, object]],
+        roles: Sequence[str],
+        env_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        """Seal one local v015 scenario per Repair/Noisy pair without routing it."""
+
+        env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
+        batch_size = int(env_ids.numel())
+        expected_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+        if (
+            batch_size != int(self.num_envs)
+            or int(torch.unique(env_ids).numel()) != batch_size
+            or not torch.equal(torch.sort(env_ids).values, expected_ids)
+        ):
+            raise ValueError("v015 local scenario install must cover every command row exactly once")
+        payloads = {
+            "current_root_artifact_t": current_root_artifact_t,
+            "intent_q29": intent_q29,
+            "clean_continuation": clean_continuation,
+        }
+        for name, value in payloads.items():
+            if (
+                not isinstance(value, torch.Tensor)
+                or value.requires_grad
+                or not torch.is_floating_point(value)
+                or not bool(torch.isfinite(value).all().item())
+            ):
+                raise ValueError(f"v015 {name} must be detached finite floating-point data")
+        if tuple(current_root_artifact_t.shape) != (batch_size, 7):
+            raise ValueError(
+                "v015 current_root_artifact_t must have shape "
+                f"[{batch_size},7], got {tuple(current_root_artifact_t.shape)}"
+            )
+        if intent_q29.ndim != 3 or tuple(intent_q29.shape[:1]) != (batch_size,) or int(intent_q29.shape[1]) < 2 or int(intent_q29.shape[2]) != 29:
+            raise ValueError(
+                "v015 intent_q29 must have shape [B,H+1,29] with H>=1, "
+                f"got {tuple(intent_q29.shape)}"
+            )
+        if clean_continuation.ndim != 3 or tuple(clean_continuation.shape[:1]) != (batch_size,) or int(clean_continuation.shape[1]) <= 0 or int(clean_continuation.shape[2]) != 65:
+            raise ValueError(
+                "v015 clean_continuation must have shape [B,K_max,65], "
+                f"got {tuple(clean_continuation.shape)}"
+            )
+        horizon = torch.as_tensor(horizon_k, device=self.device, dtype=torch.long).flatten()
+        lengths = torch.as_tensor(continuation_lengths, device=self.device, dtype=torch.long).flatten()
+        if (
+            int(horizon.numel()) != batch_size
+            or int(lengths.numel()) != batch_size
+            or bool((horizon <= 0).any())
+            or not torch.equal(horizon, lengths)
+            or bool((lengths > int(clean_continuation.shape[1])).any())
+        ):
+            raise ValueError("v015 horizon_k and continuation_lengths must be equal positive [B] values within K_max")
+        metadata = (scenario_ids, noisy_segment_hashes, x_t_identities, provenance, roles)
+        if any(len(value) != batch_size for value in metadata):
+            raise ValueError("v015 local scenario metadata must have one row per command env")
+        scenario_ids = tuple(str(value) for value in scenario_ids)
+        noisy_segment_hashes = tuple(str(value) for value in noisy_segment_hashes)
+        x_t_identities = tuple(str(value) for value in x_t_identities)
+        roles = tuple(str(value) for value in roles)
+        if (
+            any(not value for value in scenario_ids)
+            or any(not value for value in noisy_segment_hashes)
+            or any(not value for value in x_t_identities)
+            or any(value not in {"repair", "noisy"} for value in roles)
+        ):
+            raise ValueError("v015 local scenario requires nonempty identity metadata and only repair/noisy roles")
+        provenance_rows: tuple[dict[str, object], ...] = tuple(dict(value) for value in provenance)
+        for row, value in enumerate(provenance_rows):
+            if (
+                value.get("current_root_artifact_provenance") != "noisy_root_artifact_t"
+                or value.get("intent_q29_provenance") != "deployment_noisy_q29"
+                or value.get("clean_continuation_provenance") != "clean_gmt_only"
+            ):
+                raise ValueError(
+                    "v015 local scenario provenance must keep Noisy current/q29 and GMT-only Clean continuation, "
+                    f"row {row} is invalid"
+                )
+            intent_source = str(value.get("intent_q29_source", "")).lower()
+            if not intent_source or "root" in intent_source or "global" in intent_source or "clean" in intent_source:
+                raise ValueError(
+                    "v015 q29 intent provenance must exclude Clean/root/global actor input, "
+                    f"row {row} source={value.get('intent_q29_source')!r}"
+                )
+
+        rows_by_scenario: dict[str, list[int]] = {}
+        for row, scenario_id in enumerate(scenario_ids):
+            rows_by_scenario.setdefault(scenario_id, []).append(row)
+        for scenario_id, rows in rows_by_scenario.items():
+            if len(rows) != 2 or {roles[row] for row in rows} != {"repair", "noisy"}:
+                raise ValueError(
+                    "each v015 local scenario must occupy exactly one repair and one noisy row, "
+                    f"scenario={scenario_id!r}, roles={[roles[row] for row in rows]}"
+                )
+            left, right = rows
+            if (
+                noisy_segment_hashes[left] != noisy_segment_hashes[right]
+                or x_t_identities[left] != x_t_identities[right]
+                or not torch.equal(current_root_artifact_t[left], current_root_artifact_t[right])
+                or not torch.equal(intent_q29[left], intent_q29[right])
+                or not torch.equal(clean_continuation[left], clean_continuation[right])
+                or int(horizon[left].item()) != int(horizon[right].item())
+                or provenance_rows[left] != provenance_rows[right]
+            ):
+                raise ValueError(
+                    "v015 Repair/Noisy rows must reuse one immutable local scenario without mixed artifacts, "
+                    f"scenario={scenario_id!r}"
+                )
+
+        active = self._frontres_local_scenario_active
+        if bool(self._frontres_fixed_noisy_tape_context_active.any()):
+            raise RuntimeError("v015 local scenario cannot mix with a legacy fixed Noisy tape")
+        if bool(self._frontres_reference_window_active.any()):
+            raise RuntimeError("v015 local scenario cannot mix with a legacy reference window")
+        value_artifact = current_root_artifact_t.detach().to(device=self.device, dtype=torch.float32).contiguous()
+        value_intent = intent_q29.detach().to(device=self.device, dtype=torch.float32).contiguous()
+        value_continuation = clean_continuation.detach().to(device=self.device, dtype=torch.float32).contiguous()
+        if bool(active.any()):
+            if not bool(active.all()):
+                raise RuntimeError("v015 local scenario cannot replace a partially active command carrier")
+            if bool(self._frontres_local_scenario_k_execution_active.any()):
+                raise RuntimeError("v015 local scenario cannot reset while its K-step Clean continuation is executing")
+            existing = self.frontres_local_scenario_snapshot(env_ids)
+            if not (
+                torch.equal(existing["current_root_artifact_t"], value_artifact)
+                and torch.equal(existing["intent_q29"], value_intent)
+                and torch.equal(existing["clean_continuation"], value_continuation)
+                and torch.equal(existing["horizon_k"], horizon)
+                and torch.equal(existing["continuation_lengths"], lengths)
+                and existing["scenario_ids"] == scenario_ids
+                and existing["noisy_segment_hashes"] == noisy_segment_hashes
+                and existing["x_t_identities"] == x_t_identities
+                and existing["roles"] == roles
+                and existing["provenance"] == provenance_rows
+            ):
+                raise RuntimeError("v015 local scenario reset attempted to mutate an active sealed scenario")
+            self._frontres_local_scenario_current_frame_ready[env_ids] = False
+            self._frontres_local_scenario_k_execution_cursor[env_ids] = -1
+            return torch.ones(batch_size, dtype=torch.bool, device=self.device)
+
+        self._frontres_local_scenario_current_root_artifact_t = torch.empty(
+            self.num_envs, 7, dtype=torch.float32, device=self.device
+        )
+        self._frontres_local_scenario_intent_q29 = torch.empty(
+            self.num_envs, int(value_intent.shape[1]), 29, dtype=torch.float32, device=self.device
+        )
+        self._frontres_local_scenario_clean_continuation = torch.empty(
+            self.num_envs, int(value_continuation.shape[1]), 65, dtype=torch.float32, device=self.device
+        )
+        self._frontres_local_scenario_current_root_artifact_t[env_ids] = value_artifact.clone()
+        self._frontres_local_scenario_intent_q29[env_ids] = value_intent.clone()
+        self._frontres_local_scenario_clean_continuation[env_ids] = value_continuation.clone()
+        self._frontres_local_scenario_horizon_k[env_ids] = horizon
+        self._frontres_local_scenario_continuation_lengths[env_ids] = lengths
+        self._frontres_local_scenario_active[env_ids] = True
+        self._frontres_local_scenario_current_frame_ready[env_ids] = False
+        self._frontres_local_scenario_k_execution_active[env_ids] = False
+        self._frontres_local_scenario_k_execution_cursor[env_ids] = -1
+        for row, env_id in enumerate(env_ids.detach().cpu().tolist()):
+            self._frontres_local_scenario_ids[int(env_id)] = scenario_ids[row]
+            self._frontres_local_scenario_hashes[int(env_id)] = noisy_segment_hashes[row]
+            self._frontres_local_scenario_x_t_identities[int(env_id)] = x_t_identities[row]
+            self._frontres_local_scenario_roles[int(env_id)] = roles[row]
+            self._frontres_local_scenario_provenance[int(env_id)] = dict(provenance_rows[row])
+        return torch.ones(batch_size, dtype=torch.bool, device=self.device)
+
+    def clear_frontres_local_scenario(self, env_ids: torch.Tensor | None = None) -> None:
+        """Close a local carrier only as a whole transaction, never row by row."""
+
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+        ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
+        expected_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+        if int(ids.numel()) == 0:
+            return
+        if int(ids.numel()) != int(self.num_envs) or not torch.equal(torch.sort(ids).values, expected_ids):
+            raise ValueError("v015 local scenario close must cover every command row")
+        self._frontres_local_scenario_active[ids] = False
+        self._frontres_local_scenario_current_frame_ready[ids] = False
+        self._frontres_local_scenario_k_execution_active[ids] = False
+        self._frontres_local_scenario_k_execution_cursor[ids] = -1
+        self._frontres_local_scenario_horizon_k[ids] = 0
+        self._frontres_local_scenario_continuation_lengths[ids] = 0
+        for env_id in ids.detach().cpu().tolist():
+            self._frontres_local_scenario_ids[int(env_id)] = None
+            self._frontres_local_scenario_hashes[int(env_id)] = None
+            self._frontres_local_scenario_x_t_identities[int(env_id)] = None
+            self._frontres_local_scenario_roles[int(env_id)] = None
+            self._frontres_local_scenario_provenance[int(env_id)] = None
+
+    def frontres_local_scenario_snapshot(self, env_ids: torch.Tensor) -> dict[str, object]:
+        """Return cloned local-carrier evidence; this is not an actor or GMT route."""
+
+        ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
+        if (
+            int(ids.numel()) == 0
+            or not bool(self._frontres_local_scenario_active[ids].all())
+            or self._frontres_local_scenario_current_root_artifact_t is None
+            or self._frontres_local_scenario_intent_q29 is None
+            or self._frontres_local_scenario_clean_continuation is None
+        ):
+            raise RuntimeError("v015 local scenario snapshot requires active command rows")
+        scenario_ids = tuple(self._frontres_local_scenario_ids[int(env_id)] for env_id in ids.detach().cpu().tolist())
+        hashes = tuple(self._frontres_local_scenario_hashes[int(env_id)] for env_id in ids.detach().cpu().tolist())
+        x_t_identities = tuple(
+            self._frontres_local_scenario_x_t_identities[int(env_id)] for env_id in ids.detach().cpu().tolist()
+        )
+        roles = tuple(self._frontres_local_scenario_roles[int(env_id)] for env_id in ids.detach().cpu().tolist())
+        provenance = tuple(self._frontres_local_scenario_provenance[int(env_id)] for env_id in ids.detach().cpu().tolist())
+        if any(value is None for value in scenario_ids + hashes + x_t_identities + roles + provenance):
+            raise RuntimeError("active v015 local scenario is missing identity or provenance metadata")
+        return {
+            "current_root_artifact_t": self._frontres_local_scenario_current_root_artifact_t.index_select(0, ids).detach().clone(),
+            "intent_q29": self._frontres_local_scenario_intent_q29.index_select(0, ids).detach().clone(),
+            "clean_continuation": self._frontres_local_scenario_clean_continuation.index_select(0, ids).detach().clone(),
+            "horizon_k": self._frontres_local_scenario_horizon_k.index_select(0, ids).detach().clone(),
+            "continuation_lengths": self._frontres_local_scenario_continuation_lengths.index_select(0, ids).detach().clone(),
+            "scenario_ids": tuple(str(value) for value in scenario_ids),
+            "noisy_segment_hashes": tuple(str(value) for value in hashes),
+            "x_t_identities": tuple(str(value) for value in x_t_identities),
+            "roles": tuple(str(value) for value in roles),
+            "provenance": tuple(dict(value) for value in provenance if value is not None),
+        }
+
+    def begin_frontres_local_scenario_k_execution(self) -> None:
+        """Open the explicit GMT-only Clean-continuation phase after the one actor action.
+
+        This does not mutate the current Noisy root cache or the applied repair.
+        The candidate collector calls ``advance_frontres_local_scenario_k_execution``
+        only after its t-step environment transition, so the first C frame is
+        never visible to the actor action at t.
+        """
+
+        active = self._frontres_local_scenario_active
+        ready = self._frontres_local_scenario_current_frame_ready
+        execution = self._frontres_local_scenario_k_execution_active
+        if (
+            not bool(active.all())
+            or not bool(ready.all())
+            or self._frontres_local_scenario_clean_continuation is None
+        ):
+            raise RuntimeError("v015 K-step execution requires one active, current-frame-ready local scenario")
+        if bool(execution.any()):
+            raise RuntimeError("v015 K-step Clean continuation is already executing")
+        self._frontres_local_scenario_k_execution_cursor.fill_(-1)
+        execution[:] = True
+
+    def _frontres_local_scenario_continuation_rows(self, horizon: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return only Clean C rows for the active frozen-GMT executor."""
+
+        if horizon <= 0:
+            raise ValueError("v015 Clean continuation horizon must be positive")
+        active = self._frontres_local_scenario_active
+        execution = self._frontres_local_scenario_k_execution_active
+        continuation = self._frontres_local_scenario_clean_continuation
+        if (
+            not bool(active.all())
+            or not bool(execution.all())
+            or continuation is None
+            or not bool(self._frontres_local_scenario_current_frame_ready.all())
+        ):
+            raise RuntimeError("v015 Clean continuation rows require the explicit frozen-GMT execution phase")
+        cursor = self._frontres_local_scenario_k_execution_cursor
+        if bool((cursor < 0).any()):
+            raise RuntimeError("v015 Clean continuation has not advanced past the one actor action")
+        offsets = torch.arange(int(horizon), device=self.device, dtype=torch.long).view(1, -1)
+        requested = cursor.unsqueeze(1) + offsets
+        lengths = self._frontres_local_scenario_continuation_lengths.unsqueeze(1)
+        valid = requested < lengths
+        frame_ids = torch.minimum(requested, torch.clamp(lengths - 1, min=0))
+        rows = continuation[
+            torch.arange(self.num_envs, device=self.device, dtype=torch.long).unsqueeze(1),
+            frame_ids,
+        ]
+        return rows.detach().clone(), valid.detach().clone()
+
+    def advance_frontres_local_scenario_k_execution(self) -> dict[str, torch.Tensor]:
+        """Advance one C offset, clear repair, and expose the GMT-only 65D reference.
+
+        No actor, perturbation owner, or sampling path is reachable here.  Rows
+        past their per-scenario K remain clamped for environment shape safety but
+        are explicitly invalid in the returned mask.
+        """
+
+        active = self._frontres_local_scenario_active
+        execution = self._frontres_local_scenario_k_execution_active
+        if not bool(active.all()) or not bool(execution.all()):
+            raise RuntimeError("v015 Clean continuation advance requires every local command row in execution")
+        self._frontres_local_scenario_k_execution_cursor.add_(1)
+        rows, valid = self._frontres_local_scenario_continuation_rows(1)
+        current = rows[:, 0]
+        self._cached_perturbed_pos.copy_(current[:, 58:61])
+        self._cached_perturbed_quat.copy_(current[:, 61:65])
+        self._frontres_pos_correction.zero_()
+        self._frontres_quat_correction.zero_()
+        self._frontres_quat_correction[:, 0] = 1.0
+        self._dr_supervised_target.zero_()
+        return {
+            "continuation": current.detach().clone(),
+            "valid_mask": valid[:, 0].detach().clone(),
+            "cursor": self._frontres_local_scenario_k_execution_cursor.detach().clone(),
+        }
+
+    def end_frontres_local_scenario_k_execution(self) -> None:
+        """Close only the K executor so the sealed scenario can service the next M attempt.
+
+        The artifact, q29 intent, Clean continuation, identities, and hash stay
+        installed.  The following attempt must still perform its Clean x_t reset
+        and reinstall the same immutable carrier before another actor action.
+        """
+
+        active = self._frontres_local_scenario_active
+        execution = self._frontres_local_scenario_k_execution_active
+        if not bool(active.all()) or not bool(execution.all()):
+            raise RuntimeError("v015 K-step execution close requires one active execution across every command row")
+        execution[:] = False
+        self._frontres_local_scenario_k_execution_cursor.fill_(-1)
+        self._frontres_local_scenario_current_frame_ready[:] = False
+
+    def frontres_local_scenario_k_execution_snapshot(self) -> dict[str, torch.Tensor]:
+        """Return frozen-GMT C evidence without opening an actor route."""
+
+        rows, valid = self._frontres_local_scenario_continuation_rows(1)
+        return {
+            "continuation": rows[:, 0].detach().clone(),
+            "valid_mask": valid[:, 0].detach().clone(),
+            "cursor": self._frontres_local_scenario_k_execution_cursor.detach().clone(),
+        }
+
+    def _frontres_fixed_noisy_tape_feature_dim(self) -> int:
+        dof = int(self.motion_dir_loader.joint_pos.shape[-1])
+        return 2 * dof + 7
+
+    def extract_frontres_noisy_intent_q29(
+        self,
+        *,
+        motion_index: int,
+        start_frame: int,
+        intent_horizon: int,
+    ) -> torch.Tensor:
+        """从 deployment/Noisy carrier 提取 actor-only q29 future intent.
+
+        函数名说明:
+            这是 v015 Future Motion Context 的唯一 q29 extraction owner. ``Noisy``
+            表示 deployment carrier 的 provenance, 不表示向 articulated joints
+            注入物理扰动.
+
+        主链路:
+            上游: ``materialize_frontres_local_scenario`` 为 sealed local scenario
+            指定 motion, t 和 H.
+            下游: local scenario 的 ``intent_q29`` 由 actor H-window 消费.
+
+        语义:
+            返回 detached finite ``[H+1,29]`` internal-motion window. 该 owner
+            只读取 deployment carrier 的 ``joint_pos``; 不读取 root/global,
+            不读取 Clean reference, 不重采样或变异 perturbation.
+        """
+
+        motion_index = int(motion_index)
+        start_frame = int(start_frame)
+        intent_horizon = int(intent_horizon)
+        if motion_index < 0 or motion_index >= int(self.motion_lengths_minus_one.numel()):
+            raise ValueError(f"motion_index={motion_index} is outside the loaded motion range")
+        if start_frame < 0:
+            raise ValueError(f"start_frame must be nonnegative, got {start_frame}")
+        if intent_horizon <= 0:
+            raise ValueError(f"intent_horizon must be positive, got {intent_horizon}")
+        dof = int(self.motion_dir_loader.joint_pos.shape[-1])
+        if dof != 29:
+            raise RuntimeError(
+                "v015 Future Motion Context requires exactly q29 deployment intent; "
+                f"command motion carrier has {dof} DoF"
+            )
+        max_frame = int(self.motion_lengths_minus_one[motion_index].item())
+        if start_frame + intent_horizon > max_frame:
+            raise ValueError(
+                "q29 intent window cannot clamp future deployment frames: "
+                f"start={start_frame}, H={intent_horizon}, max_frame={max_frame}"
+            )
+
+        # B1: 构造同一 deployment carrier 上从 t 到 t+H 的有序 frame identity.
+        frame_count = intent_horizon + 1
+        motion_ids = torch.full((frame_count,), motion_index, dtype=torch.long, device=self.device)
+        frame_ids = torch.arange(
+            start_frame,
+            start_frame + frame_count,
+            dtype=torch.long,
+            device=self.device,
+        )
+
+        # B2: 只读取 root-invariant articulated q29, 不触达 root/global 或 Clean carrier.
+        with torch.no_grad():
+            intent_q29 = self.motion_dir_loader.gather(
+                "joint_pos",
+                motion_ids,
+                frame_ids,
+                out_device=self.device,
+            )
+        if (
+            tuple(intent_q29.shape) != (frame_count, 29)
+            or intent_q29.requires_grad
+            or not torch.is_floating_point(intent_q29)
+            or not bool(torch.isfinite(intent_q29).all().item())
+        ):
+            raise RuntimeError(
+                "Noisy q29 extractor must return detached finite "
+                f"[{frame_count},29] deployment intent, got {tuple(intent_q29.shape)}"
+            )
+
+        # B3: 复制为 scenario-local immutable input, 交给 sealed scenario lifecycle.
+        return intent_q29.detach().to(device=self.device, dtype=torch.float32).clone().contiguous()
+
+    def materialize_frontres_local_scenario(
+        self,
+        *,
+        motion_index: int,
+        start_frame: int,
+        horizon_k: int,
+        intent_horizon: int,
+        perturbation_family: str,
+        perturbation_strength: float,
+    ) -> dict[str, object]:
+        """Materialize one v015 local scenario without constructing a shared 65D tape.
+
+        The only Noisy reference payload is the current root artifact.  The q29
+        intent carrier is deliberately read from the deployment motion carrier
+        without the joint-perturbation owner, while the full Clean continuation
+        is reserved for a later GMT-only K-step executor.
+        """
+
+        motion_index = int(motion_index)
+        start_frame = int(start_frame)
+        horizon_k = int(horizon_k)
+        intent_horizon = int(intent_horizon)
+        strength = float(perturbation_strength)
+        if motion_index < 0 or motion_index >= int(self.motion_lengths_minus_one.numel()):
+            raise ValueError(f"motion_index={motion_index} is outside the loaded motion range")
+        if start_frame < 0:
+            raise ValueError(f"start_frame must be nonnegative, got {start_frame}")
+        if horizon_k <= 0:
+            raise ValueError(f"horizon_k must be positive, got {horizon_k}")
+        if intent_horizon <= 0:
+            raise ValueError(f"intent_horizon must be positive, got {intent_horizon}")
+        if not math.isfinite(strength) or strength < 0.0:
+            raise ValueError(f"perturbation_strength must be finite and nonnegative, got {perturbation_strength}")
+        family_parts = {part.strip() for part in str(perturbation_family).split("+") if part.strip()}
+        supported_families = ("planar", "yaw", "global_z", "local_rp")
+        if not family_parts or not family_parts.issubset(set(supported_families)):
+            raise ValueError(
+                "local scenario requires one or more physical perturbation families "
+                f"from {supported_families}, got {perturbation_family!r}"
+            )
+        dof = int(self.motion_dir_loader.joint_pos.shape[-1])
+        if dof != 29:
+            raise RuntimeError(
+                "v015 local scenario requires exactly q29 deployment intent; "
+                f"command motion carrier has {dof} DoF"
+            )
+        max_frame = int(self.motion_lengths_minus_one[motion_index].item())
+        last_required_frame = start_frame + max(horizon_k, intent_horizon)
+        if last_required_frame > max_frame:
+            raise ValueError(
+                "local scenario cannot clamp future intent or Clean continuation: "
+                f"start={start_frame}, H={intent_horizon}, K={horizon_k}, max_frame={max_frame}"
+            )
+        perturber_cfg = getattr(self.perturber, "cfg", None)
+        if perturber_cfg is None:
+            raise RuntimeError("local scenario materialization requires MotionPerturber.cfg")
+        isolated_perturber = type(self.perturber)(perturber_cfg, 1, self.device)
+        set_scale = getattr(isolated_perturber, "set_dr_scale_env", None)
+        set_masks = getattr(isolated_perturber, "set_family_env_masks", None)
+        if not callable(set_scale) or not callable(set_masks):
+            raise RuntimeError("local scenario materialization requires MotionPerturber scale and family-mask setters")
+        set_scale(torch.tensor([strength], dtype=torch.float32, device=self.device))
+        set_masks(
+            {
+                name: torch.tensor([name in family_parts], dtype=torch.bool, device=self.device)
+                for name in supported_families
+            }
+        )
+
+        def gather(frame: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+            motion_ids = torch.tensor([motion_index], dtype=torch.long, device=self.device)
+            frame_ids = torch.tensor([int(frame)], dtype=torch.long, device=self.device)
+            joint_pos = self.motion_dir_loader.gather("joint_pos", motion_ids, frame_ids, out_device=self.device)
+            joint_vel = self.motion_dir_loader.gather("joint_vel", motion_ids, frame_ids, out_device=self.device)
+            body_pos = self.motion_dir_loader.gather("body_pos_w", motion_ids, frame_ids, out_device=self.device)
+            body_quat = self.motion_dir_loader.gather("body_quat_w", motion_ids, frame_ids, out_device=self.device)
+            if tuple(joint_pos.shape) != (1, 29) or tuple(joint_vel.shape) != (1, 29):
+                raise RuntimeError(
+                    "local scenario q29 materializer received invalid joint payloads: "
+                    f"joint_pos={tuple(joint_pos.shape)}, joint_vel={tuple(joint_vel.shape)}"
+                )
+            return joint_pos, joint_vel, body_pos, body_quat
+
+        with torch.no_grad():
+            joint_pos_t, _joint_vel_t, body_pos_t, body_quat_t = gather(start_frame)
+            root_pos_t = body_pos_t[:, self.motion_anchor_body_index]
+            root_quat_t = body_quat_t[:, self.motion_anchor_body_index]
+            noisy_root_pos_t = isolated_perturber.apply_perturbations(
+                root_pos_t,
+                body_pos_t[:, self.left_foot_idx],
+                body_pos_t[:, self.right_foot_idx],
+            )
+            noisy_root_quat_t = isolated_perturber.apply_quat_perturbation(root_quat_t)
+            current_root_artifact_t = torch.cat([noisy_root_pos_t[0], noisy_root_quat_t[0]], dim=0)
+
+            intent_q29 = self.extract_frontres_noisy_intent_q29(
+                motion_index=motion_index,
+                start_frame=start_frame,
+                intent_horizon=intent_horizon,
+            )
+            clean_continuation = torch.stack(
+                [
+                    torch.cat(
+                        [
+                            joint_pos[0],
+                            joint_vel[0],
+                            body_pos[:, self.motion_anchor_body_index][0],
+                            body_quat[:, self.motion_anchor_body_index][0],
+                        ],
+                        dim=0,
+                    )
+                    for joint_pos, joint_vel, body_pos, body_quat in (
+                        gather(start_frame + offset) for offset in range(1, horizon_k + 1)
+                    )
+                ],
+                dim=0,
+            )
+        if tuple(current_root_artifact_t.shape) != (7,):
+            raise RuntimeError(
+                "local scenario current root artifact must be [7], got "
+                f"{tuple(current_root_artifact_t.shape)}"
+            )
+        if tuple(intent_q29.shape) != (intent_horizon + 1, 29):
+            raise RuntimeError(f"local scenario intent_q29 has invalid shape {tuple(intent_q29.shape)}")
+        if tuple(clean_continuation.shape) != (horizon_k, 65):
+            raise RuntimeError(f"local scenario clean_continuation has invalid shape {tuple(clean_continuation.shape)}")
+        return {
+            "current_root_artifact_t": current_root_artifact_t.detach().to(dtype=torch.float32).contiguous(),
+            "intent_q29": intent_q29.detach().to(dtype=torch.float32).contiguous(),
+            "clean_continuation": clean_continuation.detach().to(dtype=torch.float32).contiguous(),
+            "provenance": {
+                "materializer_owner": "MultiMotionCommand",
+                "current_root_artifact_provenance": "noisy_root_artifact_t",
+                "intent_q29_provenance": "deployment_noisy_q29",
+                "intent_q29_source": "motion_internal_q29",
+                "clean_continuation_provenance": "clean_gmt_only",
+                "motion_index": motion_index,
+                "start_frame": start_frame,
+                "intent_horizon": intent_horizon,
+                "horizon_k": horizon_k,
+                "perturbation_family": str(perturbation_family),
+                "perturbation_strength": strength,
+            },
+        }
+
+    def materialize_frontres_fixed_noisy_tape(
+        self,
+        *,
+        motion_index: int,
+        start_frame: int,
+        frame_count: int,
+        perturbation_family: str,
+        perturbation_strength: float,
+    ) -> torch.Tensor:
+        """Materialize one sealed ``[L, q+dq+anchor_pos+anchor_quat]`` scenario tape.
+
+        This is selection-time reference construction, not a simulator reset.  It
+        uses an isolated perturbation state so it cannot mutate the live command
+        or resample an already-installed scenario during retry/reset.
+        """
+
+        motion_index = int(motion_index)
+        start_frame = int(start_frame)
+        frame_count = int(frame_count)
+        strength = float(perturbation_strength)
+        if motion_index < 0 or motion_index >= int(self.motion_lengths_minus_one.numel()):
+            raise ValueError(f"motion_index={motion_index} is outside the loaded motion range")
+        if start_frame < 0:
+            raise ValueError(f"start_frame must be nonnegative, got {start_frame}")
+        if frame_count <= 0:
+            raise ValueError(f"frame_count must be positive, got {frame_count}")
+        if not math.isfinite(strength) or strength < 0.0:
+            raise ValueError(f"perturbation_strength must be finite and nonnegative, got {perturbation_strength}")
+        family_parts = {part.strip() for part in str(perturbation_family).split("+") if part.strip()}
+        supported_families = ("planar", "yaw", "global_z", "local_rp")
+        if not family_parts or not family_parts.issubset(set(supported_families)):
+            raise ValueError(
+                "fixed Noisy tape requires one or more physical perturbation families "
+                f"from {supported_families}, got {perturbation_family!r}"
+            )
+        perturber_cfg = getattr(self.perturber, "cfg", None)
+        if perturber_cfg is None:
+            raise RuntimeError("fixed Noisy tape materialization requires MotionPerturber.cfg")
+        isolated_perturber = type(self.perturber)(perturber_cfg, 1, self.device)
+        set_scale = getattr(isolated_perturber, "set_dr_scale_env", None)
+        set_masks = getattr(isolated_perturber, "set_family_env_masks", None)
+        if not callable(set_scale) or not callable(set_masks):
+            raise RuntimeError("fixed Noisy tape materialization requires MotionPerturber scale and family-mask setters")
+        set_scale(torch.tensor([strength], dtype=torch.float32, device=self.device))
+        set_masks(
+            {
+                name: torch.tensor([name in family_parts], dtype=torch.bool, device=self.device)
+                for name in supported_families
+            }
+        )
+
+        max_frame = int(self.motion_lengths_minus_one[motion_index].item())
+        dof = int(self.motion_dir_loader.joint_pos.shape[-1])
+        rows: list[torch.Tensor] = []
+        with torch.no_grad():
+            for offset in range(frame_count):
+                frame = min(start_frame + offset, max_frame)
+                motion_ids = torch.tensor([motion_index], dtype=torch.long, device=self.device)
+                frame_ids = torch.tensor([frame], dtype=torch.long, device=self.device)
+                joint_pos = self.motion_dir_loader.gather("joint_pos", motion_ids, frame_ids, out_device=self.device)
+                joint_vel = self.motion_dir_loader.gather("joint_vel", motion_ids, frame_ids, out_device=self.device)
+                body_pos = self.motion_dir_loader.gather("body_pos_w", motion_ids, frame_ids, out_device=self.device)
+                body_quat = self.motion_dir_loader.gather("body_quat_w", motion_ids, frame_ids, out_device=self.device)
+                root_pos = body_pos[:, self.motion_anchor_body_index]
+                root_quat = body_quat[:, self.motion_anchor_body_index]
+                noisy_pos = isolated_perturber.apply_perturbations(
+                    root_pos,
+                    body_pos[:, self.left_foot_idx],
+                    body_pos[:, self.right_foot_idx],
+                )
+                noisy_quat = isolated_perturber.apply_quat_perturbation(root_quat)
+                noisy_joint_pos = isolated_perturber.apply_joint_perturbation(joint_pos)
+                row = torch.cat(
+                    [
+                        noisy_joint_pos.reshape(1, dof),
+                        joint_vel.reshape(1, dof),
+                        noisy_pos.reshape(1, 3),
+                        noisy_quat.reshape(1, 4),
+                    ],
+                    dim=-1,
+                )
+                rows.append(row[0])
+        return torch.stack(rows, dim=0).detach().to(dtype=torch.float32).contiguous()
+
+    def set_frontres_fixed_noisy_tape(
+        self,
+        tape: torch.Tensor,
+        *,
+        tape_lengths: torch.Tensor,
+        scenario_ids: Sequence[str],
+        noisy_segment_hashes: Sequence[str],
+        execution_mask: torch.Tensor,
+        env_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        """Install immutable v013 Noisy reference tape rows without sampling.
+
+        Every installed row exposes the tape to actor H context. ``execution_mask``
+        separately controls whether GMT reads the Noisy current/K command; paired
+        Clean evidence rows therefore never become actor-visible Clean future.
+        """
+
+        if bool(self._frontres_local_scenario_active.any()):
+            raise RuntimeError("legacy fixed Noisy tape cannot mix with an active v015 local scenario")
+        if not isinstance(tape, torch.Tensor) or tape.ndim != 3:
+            raise ValueError(f"fixed Noisy tape must have shape [B, L, F], got {getattr(tape, 'shape', None)}")
+        if tape.requires_grad or not torch.is_floating_point(tape) or not bool(torch.isfinite(tape).all().item()):
+            raise ValueError("fixed Noisy tape must be detached, finite floating-point data")
+        env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
+        batch_size = int(env_ids.numel())
+        if int(tape.shape[0]) != batch_size or int(tape.shape[1]) <= 0:
+            raise ValueError("fixed Noisy tape batch/length must match nonempty env_ids")
+        expected_dim = self._frontres_fixed_noisy_tape_feature_dim()
+        if int(tape.shape[-1]) != expected_dim:
+            raise ValueError(
+                f"fixed Noisy tape feature dim must be {expected_dim} [q,dq,anchor_pos,anchor_quat], "
+                f"got {int(tape.shape[-1])}"
+            )
+        lengths = torch.as_tensor(tape_lengths, device=self.device, dtype=torch.long).flatten()
+        if int(lengths.numel()) != batch_size or bool((lengths <= 0).any()) or bool((lengths > int(tape.shape[1])).any()):
+            raise ValueError("fixed Noisy tape lengths must be [B] with values in [1, L]")
+        execute = torch.as_tensor(execution_mask, device=self.device, dtype=torch.bool).flatten()
+        if int(execute.numel()) != batch_size:
+            raise ValueError("fixed Noisy tape execution_mask must have B rows")
+        if len(scenario_ids) != batch_size or len(noisy_segment_hashes) != batch_size:
+            raise ValueError("fixed Noisy tape identity metadata must have B rows")
+        if any(not str(value) for value in scenario_ids) or any(not str(value) for value in noisy_segment_hashes):
+            raise ValueError("fixed Noisy tape scenario/hash metadata must be nonempty")
+
+        value = tape.detach().to(device=self.device, dtype=torch.float32).contiguous()
+        if self._frontres_fixed_noisy_tape is None:
+            self._frontres_fixed_noisy_tape = torch.zeros(
+                self.num_envs, int(value.shape[1]), int(value.shape[2]), dtype=value.dtype, device=self.device
+            )
+        elif tuple(self._frontres_fixed_noisy_tape.shape[1:]) != tuple(value.shape[1:]):
+            outside = self._frontres_fixed_noisy_tape_context_active.clone()
+            outside[env_ids] = False
+            if bool(outside.any()):
+                raise RuntimeError("cannot resize fixed Noisy tape while another active scenario is installed")
+            self._frontres_fixed_noisy_tape = torch.zeros(
+                self.num_envs, int(value.shape[1]), int(value.shape[2]), dtype=value.dtype, device=self.device
+            )
+
+        self._frontres_fixed_noisy_tape[env_ids] = value
+        self._frontres_fixed_noisy_tape_lengths[env_ids] = lengths
+        self._frontres_fixed_noisy_tape_cursor[env_ids] = 0
+        self._frontres_fixed_noisy_tape_context_active[env_ids] = True
+        self._frontres_fixed_noisy_tape_execution_active[env_ids] = execute
+        for row, env_id in enumerate(env_ids.detach().cpu().tolist()):
+            self._frontres_fixed_noisy_tape_scenario_ids[int(env_id)] = str(scenario_ids[row])
+            self._frontres_fixed_noisy_tape_hashes[int(env_id)] = str(noisy_segment_hashes[row])
+        # A joint-only override may not coexist with the complete fixed carrier.
+        self.clear_frontres_reference_window(env_ids)
+        return torch.ones(batch_size, dtype=torch.bool, device=self.device)
+
+    def clear_frontres_fixed_noisy_tape(self, env_ids: torch.Tensor | None = None) -> None:
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+        ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
+        if int(ids.numel()) == 0:
+            return
+        self._frontres_fixed_noisy_tape_lengths[ids] = 0
+        self._frontres_fixed_noisy_tape_cursor[ids] = 0
+        self._frontres_fixed_noisy_tape_context_active[ids] = False
+        self._frontres_fixed_noisy_tape_execution_active[ids] = False
+        for env_id in ids.detach().cpu().tolist():
+            self._frontres_fixed_noisy_tape_scenario_ids[int(env_id)] = None
+            self._frontres_fixed_noisy_tape_hashes[int(env_id)] = None
+
+    def frontres_fixed_noisy_tape_hashes(self, env_ids: torch.Tensor) -> tuple[str, ...]:
+        ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
+        if not bool(self._frontres_fixed_noisy_tape_context_active[ids].all()):
+            raise RuntimeError("fixed Noisy tape hash requested for an inactive context row")
+        values = tuple(self._frontres_fixed_noisy_tape_hashes[int(env_id)] for env_id in ids.detach().cpu().tolist())
+        if any(value is None for value in values):
+            raise RuntimeError("active fixed Noisy tape row is missing its hash")
+        return tuple(str(value) for value in values)
+
+    def _frontres_fixed_noisy_tape_rows(
+        self,
+        env_ids: torch.Tensor,
+        offsets: torch.Tensor,
+    ) -> torch.Tensor:
+        if self._frontres_fixed_noisy_tape is None:
+            raise RuntimeError("active fixed Noisy tape has no stored values")
+        ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
+        offsets = torch.as_tensor(offsets, device=self.device, dtype=torch.long).flatten()
+        if int(ids.numel()) == 0 or int(offsets.numel()) == 0 or bool((offsets < 0).any()):
+            raise ValueError("fixed Noisy tape reads require nonempty nonnegative offsets")
+        frame_ids = self._frontres_fixed_noisy_tape_cursor[ids].unsqueeze(1) + offsets.unsqueeze(0)
+        max_frame = (self._frontres_fixed_noisy_tape_lengths[ids] - 1).clamp_min(0).unsqueeze(1)
+        frame_ids = torch.minimum(frame_ids, max_frame)
+        return self._frontres_fixed_noisy_tape[ids.unsqueeze(1), frame_ids]
+
+    def _advance_frontres_fixed_noisy_tape(self) -> None:
+        active = self._frontres_fixed_noisy_tape_context_active
+        if not bool(active.any()):
+            return
+        self._frontres_fixed_noisy_tape_cursor[active] += 1
+        max_frame = (self._frontres_fixed_noisy_tape_lengths - 1).clamp_min(0)
+        self._frontres_fixed_noisy_tape_cursor[active] = torch.minimum(
+            self._frontres_fixed_noisy_tape_cursor[active], max_frame[active]
+        )
+
+    def _frontres_fixed_noisy_tape_for(self, getter: str, horizon: int) -> tuple[torch.Tensor, torch.Tensor] | None:
+        if self._frontres_fixed_noisy_tape is None:
+            return None
+        if getter not in {"joint_pos", "joint_vel"}:
+            return None
+        env_ids = torch.nonzero(self._frontres_fixed_noisy_tape_execution_active, as_tuple=False).flatten()
+        if int(env_ids.numel()) == 0:
+            return None
+        offsets = torch.arange(int(horizon), device=self.device, dtype=torch.long)
+        rows = self._frontres_fixed_noisy_tape_rows(env_ids, offsets)
+        dof = int(self.motion_dir_loader.joint_pos.shape[-1])
+        if getter == "joint_pos":
+            rows = rows[..., :dof]
+        else:
+            rows = rows[..., dof : 2 * dof]
+        return env_ids, rows
+
+    def _apply_frontres_fixed_noisy_tape(self, getter: str, gathered: torch.Tensor, horizon: int) -> torch.Tensor:
+        override = self._frontres_fixed_noisy_tape_for(getter, horizon)
+        if override is None:
+            return gathered
+        env_ids, rows = override
+        if gathered.ndim == rows.ndim - 1:
+            if int(horizon) != 1:
+                raise RuntimeError("single-frame fixed Noisy tape override requires horizon=1")
+            rows = rows[:, 0]
+        elif gathered.ndim != rows.ndim:
+            raise RuntimeError(
+                f"fixed Noisy tape rank mismatch: gathered={tuple(gathered.shape)} rows={tuple(rows.shape)}"
+            )
+        output = gathered.clone()
+        output[env_ids] = rows.to(output.device, dtype=output.dtype)
+        return output
+
+    def frontres_fixed_noisy_future_context(self, future_offsets: Sequence[int]) -> torch.Tensor:
+        """Return actor-only ordered H reads without advancing the K cursor."""
+
+        offsets = tuple(int(offset) for offset in future_offsets)
+        if not offsets or any(offset <= 0 for offset in offsets) or tuple(sorted(set(offsets))) != offsets:
+            raise ValueError(f"future offsets must be nonempty, positive, ordered, unique; got {offsets}")
+        if not bool(self._frontres_fixed_noisy_tape_context_active.all()):
+            raise RuntimeError("fixed Noisy actor context requires an installed tape for every actor row")
+        env_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+        rows = self._frontres_fixed_noisy_tape_rows(
+            env_ids,
+            torch.tensor(offsets, dtype=torch.long, device=self.device),
+        )
+        return rows.reshape(self.num_envs, -1)
+
     def set_frontres_reference_window(self, reference_window: torch.Tensor, *, env_ids: torch.Tensor) -> torch.Tensor:
         """Override GMT command future joint reference for Segment Replay env rows."""
+        if bool(self._frontres_local_scenario_active.any()):
+            raise RuntimeError("legacy reference window cannot mix with an active v015 local scenario")
         if not isinstance(reference_window, torch.Tensor):
             raise TypeError("reference_window must be a torch.Tensor")
         if reference_window.ndim != 3:
@@ -1566,6 +2456,23 @@ class MultiMotionCommand(CommandTerm):
     def _gather_future_by_motion(self, getter: str, horizon: int) -> torch.Tensor:
         if horizon <= 0:
             raise ValueError("horizon must be positive")
+        local_active = self._frontres_local_scenario_active
+        if bool(local_active.any()):
+            if not bool(local_active.all()):
+                raise RuntimeError("v015 local scenario command rows cannot mix with legacy future references")
+            if bool(self._frontres_local_scenario_k_execution_active.all()):
+                continuation, _valid = self._frontres_local_scenario_continuation_rows(horizon)
+                if getter == "joint_pos":
+                    return continuation[..., :29]
+                if getter == "joint_vel":
+                    return continuation[..., 29:58]
+                raise RuntimeError(
+                    "v015 frozen-GMT continuation exposes only the q29/dq29 command reference; "
+                    f"getter={getter!r} is not a Clean-C command field"
+                )
+            raise RuntimeError(
+                "v015 local scenario has no generic future command route before Step 2B installs the GMT-only Clean continuation executor"
+            )
         motion_indices = self.env_motion_indices
         base_indices = self.time_steps.unsqueeze(1)
         offsets = torch.arange(horizon, device=self.device, dtype=torch.long).view(1, -1)
@@ -1578,7 +2485,8 @@ class MultiMotionCommand(CommandTerm):
         gathered = self.motion_dir_loader.gather(getter, flat_motion, flat_frames, out_device=self.device)
         new_shape = (self.num_envs, horizon) + gathered.shape[1:]
         gathered = gathered.view(new_shape)
-        return self._apply_frontres_reference_window(getter, gathered, horizon)
+        gathered = self._apply_frontres_reference_window(getter, gathered, horizon)
+        return self._apply_frontres_fixed_noisy_tape(getter, gathered, horizon)
 
     @property
     def command(self) -> torch.Tensor:
@@ -1726,6 +2634,20 @@ class MultiMotionCommand(CommandTerm):
     @property
     def joint_pos(self) -> torch.Tensor:
         raw = self._gather_by_motion("joint_pos")
+        local_active = self._frontres_local_scenario_active
+        if bool(local_active.any()):
+            if not bool(local_active.all()) or self._frontres_local_scenario_intent_q29 is None:
+                raise RuntimeError("v015 local scenario command rows cannot mix with legacy joint references")
+            if bool(self._frontres_local_scenario_k_execution_active.all()):
+                continuation, _valid = self._frontres_local_scenario_continuation_rows(1)
+                return continuation[:, 0, :29]
+            # q29 is a deployment-provenance carrier; its numeric calibration may
+            # equal Clean motion but it is not a Clean actor/reference window.
+            return self._frontres_local_scenario_intent_q29[:, 0].detach().clone()
+        if bool(self._frontres_fixed_noisy_tape_context_active.any()):
+            if not bool(self._frontres_fixed_noisy_tape_context_active.all()):
+                raise RuntimeError("fixed Noisy command rows cannot be mixed with random-perturbation rows")
+            return self._apply_frontres_fixed_noisy_tape("joint_pos", raw, horizon=1)
         perturbed = self.perturber.apply_joint_perturbation(raw)
         train_ids = getattr(self, '_frontres_pair_train_ids', None)
         base_ids  = getattr(self, '_frontres_pair_base_ids',  None)
@@ -1735,15 +2657,42 @@ class MultiMotionCommand(CommandTerm):
 
     @property
     def joint_vel(self) -> torch.Tensor:
-        return self._gather_by_motion("joint_vel")
+        raw = self._gather_by_motion("joint_vel")
+        local_active = self._frontres_local_scenario_active
+        if bool(local_active.any()) and not bool(local_active.all()):
+            raise RuntimeError("v015 local scenario command rows cannot mix with legacy joint references")
+        if bool(local_active.all()) and bool(self._frontres_local_scenario_k_execution_active.all()):
+            continuation, _valid = self._frontres_local_scenario_continuation_rows(1)
+            return continuation[:, 0, 29:58]
+        if bool(self._frontres_fixed_noisy_tape_context_active.any()):
+            if not bool(self._frontres_fixed_noisy_tape_context_active.all()):
+                raise RuntimeError("fixed Noisy command rows cannot be mixed with random-perturbation rows")
+            return self._apply_frontres_fixed_noisy_tape("joint_vel", raw, horizon=1)
+        return raw
 
     @property
     def body_pos_w(self) -> torch.Tensor:
-        return self._gather_by_motion("body_pos_w") + self._env.scene.env_origins[:, None, :]
+        body_pos = self._gather_by_motion("body_pos_w") + self._env.scene.env_origins[:, None, :]
+        if bool(self._frontres_local_scenario_active.all()) and bool(
+            self._frontres_local_scenario_k_execution_active.all()
+        ):
+            continuation, _valid = self._frontres_local_scenario_continuation_rows(1)
+            body_pos = body_pos.clone()
+            body_pos[:, self.motion_anchor_body_index] = (
+                continuation[:, 0, 58:61] + self._env.scene.env_origins
+            )
+        return body_pos
 
     @property
     def body_quat_w(self) -> torch.Tensor:
-        return self._gather_by_motion("body_quat_w")
+        body_quat = self._gather_by_motion("body_quat_w")
+        if bool(self._frontres_local_scenario_active.all()) and bool(
+            self._frontres_local_scenario_k_execution_active.all()
+        ):
+            continuation, _valid = self._frontres_local_scenario_continuation_rows(1)
+            body_quat = body_quat.clone()
+            body_quat[:, self.motion_anchor_body_index] = continuation[:, 0, 61:65]
+        return body_quat
 
     @property
     def body_lin_vel_w(self) -> torch.Tensor:
@@ -2285,6 +3234,70 @@ class MultiMotionCommand(CommandTerm):
         Evidence: runtime-confirmed by E37; current-frame cache is aligned before first termination.
         """
 
+        local_active = self._frontres_local_scenario_active
+        if bool(local_active.any()):
+            if (
+                not bool(local_active.all())
+                or self._frontres_local_scenario_current_root_artifact_t is None
+            ):
+                raise RuntimeError("v015 local scenario current cache cannot mix with legacy command rows")
+            ready = self._frontres_local_scenario_current_frame_ready
+            if bool(ready.any()):
+                if not bool(ready.all()):
+                    raise RuntimeError("v015 local scenario current cache readiness must be transaction-wide")
+                raise RuntimeError(
+                    "v015 local scenario current cache was already installed; Step 2B owns all subsequent K-step command advancement"
+                )
+            # The sealed root artifact is the only current Noisy reference here.
+            # No MotionPerturber draw and no Clean target may enter this reset path.
+            artifact = self._frontres_local_scenario_current_root_artifact_t
+            self._cached_perturbed_pos.copy_(artifact[:, :3])
+            self._cached_perturbed_quat.copy_(artifact[:, 3:])
+            self._dr_supervised_target.zero_()
+            ready[:] = True
+            return
+
+        fixed_context = self._frontres_fixed_noisy_tape_context_active
+        if bool(fixed_context.any()):
+            if not bool(fixed_context.all()):
+                raise RuntimeError("fixed Noisy command rows cannot be mixed with random-perturbation rows")
+
+            # The carrier already contains the sealed noisy current anchor.  Do
+            # not touch MotionPerturber here: every replay attempt must reread
+            # the same materialized scenario rather than draw a new perturbation.
+            _pos_data = self._gather_by_motion("body_pos_w")
+            _root_pos_ref = _pos_data[:, self.motion_anchor_body_index]
+            _quat_data = self._gather_by_motion("body_quat_w")
+            _root_quat_ref = _quat_data[:, self.motion_anchor_body_index]
+            execution_ids = torch.nonzero(self._frontres_fixed_noisy_tape_execution_active, as_tuple=False).flatten()
+            clean_ids = torch.nonzero(~self._frontres_fixed_noisy_tape_execution_active, as_tuple=False).flatten()
+            if int(execution_ids.numel()) > 0:
+                current_rows = self._frontres_fixed_noisy_tape_rows(
+                    execution_ids, torch.zeros(1, dtype=torch.long, device=self.device)
+                )[:, 0]
+                dof = int(self.motion_dir_loader.joint_pos.shape[-1])
+                self._cached_perturbed_pos[execution_ids] = current_rows[:, 2 * dof : 2 * dof + 3]
+                self._cached_perturbed_quat[execution_ids] = current_rows[:, 2 * dof + 3 : 2 * dof + 7]
+            if int(clean_ids.numel()) > 0:
+                self._cached_perturbed_pos[clean_ids] = _root_pos_ref[clean_ids]
+                self._cached_perturbed_quat[clean_ids] = _root_quat_ref[clean_ids]
+
+            self._compute_jump_degree()
+            self._dr_supervised_target.zero_()
+            if int(execution_ids.numel()) > 0:
+                self._dr_supervised_target[execution_ids, :3] = (
+                    _root_pos_ref[execution_ids] - self._cached_perturbed_pos[execution_ids]
+                )
+                z_upper = self.jump_degree[execution_ids] * self.anchor_penetration_depth[execution_ids]
+                self._dr_supervised_target[execution_ids, 2] = torch.minimum(
+                    self._dr_supervised_target[execution_ids, 2], z_upper
+                )
+                corr_quat = quat_mul(
+                    quat_inv(self._cached_perturbed_quat[execution_ids]), _root_quat_ref[execution_ids]
+                )
+                self._dr_supervised_target[execution_ids, 3:6] = _quat_to_rotvec_wxyz(corr_quat)
+            return
+
         # B1: 从当前 time_steps 读取一次 sampled-frame reference, 不推进 frame.
         _pos_data = self._gather_by_motion("body_pos_w")
         _root_pos_ref = _pos_data[:, self.motion_anchor_body_index]
@@ -2313,6 +3326,7 @@ class MultiMotionCommand(CommandTerm):
         self._global_sim_step += 1
         self.time_steps += 1
         self._advance_frontres_reference_window()
+        self._advance_frontres_fixed_noisy_tape()
 
         # Each command step advances first, then draws exactly one perturbation
         # sample for the new frame. Index reset calls the same cache owner for

@@ -97,6 +97,12 @@ CONTRACTS = (
         path_class="secondary_contract_path",
     ),
     ContractTarget(
+        name="fixed_noisy_segment_lifecycle",
+        path="source/rsl_rl/rsl_rl/tests/frontres_fixed_noisy_segment_lifecycle_contract.py",
+        expected_marker="frontres_fixed_noisy_segment_lifecycle_contract: ok",
+        path_class="core_param_path",
+    ),
+    ContractTarget(
         name="full6_no_active_mask",
         path="source/rsl_rl/rsl_rl/tests/frontres_full6_no_active_mask_contract.py",
         expected_marker="frontres_full6_no_active_mask_contract: ok",
@@ -155,6 +161,12 @@ CONTRACTS = (
         name="algorithm",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_algorithm_contract.py",
         expected_marker="result: PASS",
+        path_class="core_param_path",
+    ),
+    ContractTarget(
+        name="grouped_ppo",
+        path="source/rsl_rl/rsl_rl/tests/frontres_segment_grouped_ppo_contract.py",
+        expected_marker="frontres_segment_grouped_ppo_contract: ok",
         path_class="core_param_path",
     ),
     ContractTarget(
@@ -260,7 +272,7 @@ CONTRACTS = (
     ContractTarget(
         name="hsl_rollout_target_audit",
         path="source/rsl_rl/rsl_rl/tests/frontres_hsl_rollout_target_contract.py",
-        expected_marker="PASS: canonical HSL rollout target supports non-mutating quality audit capture.",
+        expected_marker="frontres_hsl_rollout_target_contract: v007 reject ok",
         path_class="core_param_path",
         requires_torch=True,
     ),
@@ -373,6 +385,13 @@ CONTRACTS = (
         name="stage3_motion_command_reference",
         path="source/rsl_rl/rsl_rl/tests/frontres_segment_motion_command_reference_contract.py",
         expected_marker="frontres_segment_motion_command_reference_contract: ok",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
+        name="fixed_noisy_actor_context",
+        path="source/rsl_rl/rsl_rl/tests/frontres_fixed_noisy_actor_context_contract.py",
+        expected_marker="frontres_fixed_noisy_actor_context_contract: ok",
         path_class="core_param_path",
         requires_torch=True,
     ),
