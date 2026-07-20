@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import torch
 
@@ -440,9 +440,9 @@ def prepare_frontres_v015_one_action_at_t(
 def prepare_frontres_v015_frozen_gmt_step(
     runner: Any,
     *,
-    gmt_observations: torch.Tensor,
+    gmt_observation_provider: Callable[[], torch.Tensor],
 ) -> FrontRESV015FrozenGMTStepPlan:
-    """Advance Clean C and run frozen GMT without sampling or writing another repair."""
+    """Advance Clean C, read its fresh observation, and run frozen GMT without another repair."""
 
     if getattr(runner, "_frontres_v015_one_action_k_phase", None) != "frozen":
         raise RuntimeError("v015 frozen-GMT step requires the unique t action to be sampled first")
@@ -454,6 +454,13 @@ def prepare_frontres_v015_frozen_gmt_step(
     continuation = continuation_state.get("continuation") if isinstance(continuation_state, dict) else None
     valid_mask = continuation_state.get("valid_mask") if isinstance(continuation_state, dict) else None
     cursor = continuation_state.get("cursor") if isinstance(continuation_state, dict) else None
+    if not callable(gmt_observation_provider):
+        raise RuntimeError("v015 frozen-GMT step requires a post-advance observation provider")
+    # C[offset] 必须先成为 command current reference, 然后 observation owner 才能
+    # 构造同一 offset 的 GMT input. 反向顺序会产生一帧 reference lag.
+    gmt_observations = gmt_observation_provider()
+    if not isinstance(gmt_observations, torch.Tensor) or gmt_observations.ndim != 2:
+        raise RuntimeError("v015 frozen-GMT observation provider must return a rank-2 tensor")
     batch_size = int(gmt_observations.shape[0])
     if (
         not isinstance(continuation, torch.Tensor)

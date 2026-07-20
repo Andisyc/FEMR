@@ -2,7 +2,7 @@
 contract_id: FRS-TRAIN-v007
 status: active
 effective_date: 2026-07-20
-updated_date: 2026-07-20
+updated_date: 2026-07-21
 supersedes: FRS-TRAIN-v006
 scope: proposal-only Stage-1 HSL initialization on the deployable future-intent actor interface, plus formal Stage-3 routing for local repair, one policy action per attempt, and frozen-FEMR Clean-continuation K evidence
 ---
@@ -172,12 +172,12 @@ attempt, grouped mass, advantage sign/scale, and exact-one update.
 | S2A | two-role local reset and sealed command layout | completed 2026-07-20; `E-FI-8` deterministic fake-reset evidence only |
 | S2B | one action -> frozen FEMR -> Clean GMT continuation | completed 2026-07-20 at candidate-only deterministic fake S1/S2 (`E-FI-9`); legacy formal collector rejects active v015 local scenarios |
 | S3 | intent/physics Gain storage and consumer connectivity | partially completed at candidate-only deterministic S1 (`E-FI-11`--`E-FI-13`): post-`t` q29 and sealed `I[t]` reach v003 return/priority evidence, local diagnostics, and a v015 metadata-bearing grouped candidate batch; legacy v002 evaluators and adapters reject v015. Sampler state, real evaluation, and runner connectivity remain pending |
-| S4 | transaction/grouped-PPO formal route and persistence | Step 4B CPU-only fake S2 (`E-FI-14`) and Step 4C CPU-only fake S3 (`E-FI-15`) complete: sealed multi-Segment x M -> grouped v003 loss -> one explicit step, then an exact future-intent/prefix-normalizer/checkpoint identity; partial transaction persistence fails closed and only a committed receipt may resume. Generic train dispatch, actual checkpoint cadence/resume, simulator, and live evidence remain blocked. |
-| S5 | bounded live identity sentinel | Step 5A-S0 deterministic pre-live connector completed (`E-FI-16`); the actual S4 local transaction remains user-gated |
+| S4 | transaction/grouped-PPO formal route and persistence | R5 offline S2 (`E-FI-23`) now connects actual command/observation/q29/normalizer/actor-GMT/K evidence for 2 Segment x 2 attempts to the unchanged grouped v003 exact-one owner; R4 S3 (`E-FI-22`) binds exact v2 persistence. Actual checkpoint cadence/resume, simulator, and live evidence remain blocked. |
+| S5 | bounded live identity sentinel | R6-S0 structured snapshot and read-only remote preflight completed (`E-FI-24`); the single SUST_Main_2 transaction remains blocked on explicit informed source-transfer authorization |
 
 H1 changes only the local Stage-1/reject boundaries plus a CPU-only fake
-connector proof. Step 4B/4C separately establish CPU-fake formal routing and
-persistence for v015 Stage 3, but a new Stage-1 HSL checkpoint format, generic
-formal dispatch, simulator/training, and live runs remain unauthorized. The
-existing full-65D Noisy tape and legacy immediate-update routes remain contract
-mismatches until their separate gates are complete.
+connector proof. R5 and R4 establish offline-S2 observation/update connectivity
+and exact v2 persistence for v015 Stage 3, but a new Stage-1 HSL checkpoint
+format, simulator/training, and live runs remain unauthorized. The existing
+full-65D Noisy tape and legacy immediate-update routes remain contract
+mismatches outside the v015 route.

@@ -1511,9 +1511,9 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_fixed_noisy_tape_hashes: list[str | None] = [None] * self.num_envs
 
         # v015 local carrier.  Its three artifacts have separate authorities:
-        # current root artifact -> current reference cache; q29 -> later actor
-        # context; Clean continuation -> later GMT K executor.  This Step 2A
-        # owner stores them but deliberately does not route the latter two.
+        # current root artifact -> current reference cache; q29 -> current
+        # deployment-command identity plus later actor context; Clean
+        # continuation -> later GMT K executor.
         self._frontres_local_scenario_current_root_artifact_t: torch.Tensor | None = None
         self._frontres_local_scenario_intent_q29: torch.Tensor | None = None
         self._frontres_local_scenario_clean_continuation: torch.Tensor | None = None
@@ -1772,6 +1772,35 @@ class MultiMotionCommand(CommandTerm):
             "clean_continuation": self._frontres_local_scenario_clean_continuation.index_select(0, ids).detach().clone(),
             "horizon_k": self._frontres_local_scenario_horizon_k.index_select(0, ids).detach().clone(),
             "continuation_lengths": self._frontres_local_scenario_continuation_lengths.index_select(0, ids).detach().clone(),
+            "scenario_ids": tuple(str(value) for value in scenario_ids),
+            "noisy_segment_hashes": tuple(str(value) for value in hashes),
+            "x_t_identities": tuple(str(value) for value in x_t_identities),
+            "roles": tuple(str(value) for value in roles),
+            "provenance": tuple(dict(value) for value in provenance if value is not None),
+        }
+
+    def frontres_local_scenario_intent_snapshot(self) -> dict[str, object]:
+        """Return a read-only role-aligned view of the deployable q29 actor carrier."""
+
+        if (
+            not bool(self._frontres_local_scenario_active.all())
+            or not bool(self._frontres_local_scenario_current_frame_ready.all())
+            or bool(self._frontres_local_scenario_k_execution_active.any())
+            or self._frontres_local_scenario_intent_q29 is None
+        ):
+            raise RuntimeError(
+                "v015 actor intent snapshot requires one transaction-wide current-frame-ready local scenario "
+                "before the Clean-C K executor opens"
+            )
+        scenario_ids = tuple(self._frontres_local_scenario_ids)
+        hashes = tuple(self._frontres_local_scenario_hashes)
+        x_t_identities = tuple(self._frontres_local_scenario_x_t_identities)
+        roles = tuple(self._frontres_local_scenario_roles)
+        provenance = tuple(self._frontres_local_scenario_provenance)
+        if any(value is None for value in scenario_ids + hashes + x_t_identities + roles + provenance):
+            raise RuntimeError("v015 actor intent snapshot requires complete role identity and provenance")
+        return {
+            "intent_q29": self._frontres_local_scenario_intent_q29.detach().clone(),
             "scenario_ids": tuple(str(value) for value in scenario_ids),
             "noisy_segment_hashes": tuple(str(value) for value in hashes),
             "x_t_identities": tuple(str(value) for value in x_t_identities),
@@ -2456,6 +2485,48 @@ class MultiMotionCommand(CommandTerm):
         return output
 
     # ------------- properties (gathered across envs/motions) -------------
+    def _frontres_local_scenario_current_command_rows(self, getter: str, horizon: int) -> torch.Tensor:
+        """Return only the current deployment q29/dq29 command before the FEMR action."""
+
+        if horizon != 1:
+            raise RuntimeError(
+                "v015 local pre-action GMT command requires motion_horizon=1; "
+                f"got horizon={horizon}"
+            )
+        if getter not in {"joint_pos", "joint_vel"}:
+            raise RuntimeError(
+                "v015 local pre-action GMT command exposes only current q29/dq29; "
+                f"getter={getter!r}"
+            )
+        if (
+            not bool(self._frontres_local_scenario_active.all())
+            or not bool(self._frontres_local_scenario_current_frame_ready.all())
+            or bool(self._frontres_local_scenario_k_execution_active.any())
+            or self._frontres_local_scenario_intent_q29 is None
+        ):
+            raise RuntimeError(
+                "v015 local pre-action GMT command requires one transaction-wide current-frame-ready scenario "
+                "before the Clean-C K executor opens"
+            )
+
+        current = self._gather_by_motion(getter)
+        expected_shape = (self.num_envs, 29)
+        if tuple(current.shape) != expected_shape or not bool(torch.isfinite(current).all()):
+            raise RuntimeError(
+                "v015 local pre-action GMT command requires finite deployment q29/dq29 rows; "
+                f"getter={getter!r} shape={tuple(current.shape)} expected={expected_shape}"
+            )
+        if getter == "joint_pos":
+            sealed_current_q29 = self._frontres_local_scenario_intent_q29[:, 0]
+            if not torch.equal(
+                current.to(device=sealed_current_q29.device, dtype=sealed_current_q29.dtype),
+                sealed_current_q29,
+            ):
+                raise RuntimeError(
+                    "v015 local pre-action GMT command lost the sealed deployment q29 identity at t"
+                )
+        return current.unsqueeze(1)
+
     def _gather_future_by_motion(self, getter: str, horizon: int) -> torch.Tensor:
         if horizon <= 0:
             raise ValueError("horizon must be positive")
@@ -2473,9 +2544,7 @@ class MultiMotionCommand(CommandTerm):
                     "v015 frozen-GMT continuation exposes only the q29/dq29 command reference; "
                     f"getter={getter!r} is not a Clean-C command field"
                 )
-            raise RuntimeError(
-                "v015 local scenario has no generic future command route before Step 2B installs the GMT-only Clean continuation executor"
-            )
+            return self._frontres_local_scenario_current_command_rows(getter, horizon)
         motion_indices = self.env_motion_indices
         base_indices = self.time_steps.unsqueeze(1)
         offsets = torch.arange(horizon, device=self.device, dtype=torch.long).view(1, -1)
@@ -2494,6 +2563,11 @@ class MultiMotionCommand(CommandTerm):
     @property
     def command(self) -> torch.Tensor:
         horizon = self.cfg.motion_horizon
+        local_pre_action = bool(self._frontres_local_scenario_active.any()) and not bool(
+            self._frontres_local_scenario_k_execution_active.any()
+        )
+        if local_pre_action and not bool(self.cfg.command_velocity):
+            raise RuntimeError("v015 local pre-action GMT command requires command_velocity=True for q29+dq29")
         joint_pos_seq = self._gather_future_by_motion("joint_pos", horizon)
         if self.cfg.command_velocity:
             joint_vel_seq = self._gather_future_by_motion("joint_vel", horizon)

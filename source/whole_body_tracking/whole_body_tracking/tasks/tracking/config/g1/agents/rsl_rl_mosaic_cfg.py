@@ -835,7 +835,7 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
         init_critic_from_gmt   = False,
         # ── Observation layout ───────────────────────────────────────────────
         q_ref_start_idx        = 232,      # q_ref offset in 800-dim policy obs
-        num_frontres_obs       = 0,        # 0 = shared FEMR trunk sees full obs
+        num_frontres_obs       = 100,      # v015 runner prepends 58D q29 tail -> FEMR 158D; zero is rejected
         # ── Δq / Δz unused in task-space mode ────────────────────────────────
         num_z_outputs          = 0,
         max_delta_q            = 0.5,

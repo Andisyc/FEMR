@@ -1,11 +1,11 @@
 # FRS-v015 Engineering Plan: Future-Intent, Single-Action K Replay
 
 Status: active, volatile engineering plan. Re-planned after a read-only
-white-box owner audit on 2026-07-19 and H0-A contract closure on 2026-07-20.
-Step 0, 1A, 1B, and H0 are complete at their recorded evidence tiers; no source
-implementation, simulator, training, formal runner, checkpoint migration, or
-live run is authorized by this document unless its named step is separately
-confirmed.
+white-box owner audit on 2026-07-19, H0-A contract closure on 2026-07-20, and
+the R0 formal-observation audit at `E-FI-18`. R0--R5 now prove the deterministic
+command, q29-tail, `928 -> 158/770` authority, exact v2 S3 persistence, and
+unmocked semantic-CPU observation-to-exact-one-update route. Simulator,
+training, and R6 live boundaries require separate approval.
 
 Active contracts:
 
@@ -187,8 +187,9 @@ Stop condition:
 
 ### Step 1B / 12: Future-Intent Actor Bridge
 
-Gate: G1. Depends on: 1A. Status: completed at S1 deterministic-module
-evidence (`E-FI-3`).
+Gate: G1. Depends on: 1A. Status: partial. `E-FI-3` completes the isolated S1
+tail builder only; role-aligned formal consumption remains pending under the
+R0--R6 remediation sequence (`E-FI-18`).
 
 Objective:
 - make the actor consume exactly the future q29 intent offsets from the sealed
@@ -223,6 +224,14 @@ Stop condition:
 - a future root/global field, Clean provenance, perturbation metadata, or a
   raw full tape reaches the actor; or actor/normalizer dimensions have no
   versioned compatible layout.
+
+R0 evidence correction:
+- the live command carrier has `B=8` Repair/Noisy rows, while
+  `_future_intent_context_batch()` reads the `B=4` policy-attempt batch;
+- the configured `num_frontres_obs=0` makes the residual actor consume the full
+  `928D` tensor even though the frozen contract is FEMR `158D` / GMT `770D`;
+- therefore `E-FI-3` does not prove formal role alignment, actor visibility, or
+  live normalizer consumption.
 
 ### Gate H0: HSL Interface and Target Audit
 
@@ -711,9 +720,10 @@ Gate: G5. Depends on: 4C and explicit user authorization.
 
 #### Step 5A-S0: Pre-Live Formal Sentinel Connectivity
 
-Status: completed 2026-07-20 at deterministic CPU-only S2 evidence
-(`E-FI-16`). This is a code-and-contract prerequisite for Step 5A, not its S4
-live evidence and not permission to start an environment transaction.
+Status: partial. `E-FI-16` still proves config isolation, sealed transaction
+ordering, grouped reduction, and exact-one fake update. It does not prove the
+formal observation route because its connectivity test replaces
+`_read_live_observations()` with a stub (`E-FI-18`).
 
 Objective:
 - connect the already sealed v015 objects through one dedicated, opt-in
@@ -747,6 +757,10 @@ Owner split and evidence:
   `frontres_segment_live_probe.py`, and `frontres_segment_storage.py`; S2
   T-connect/T-state/T-provenance/T-frozen/T-order/T-mass using a semantic fake
   environment only.
+- S0c formal observation route: not yet satisfied. It must execute the real
+  command property, the `870D` policy-observation layout, the role-aligned q29
+  append, normalization, and the FEMR/GMT split without replacing
+  `_read_live_observations()`.
 
 Stop condition:
 - any legacy fixed tape, legacy `to_ppo_batch()`, immediate-update path, HSL
@@ -759,10 +773,11 @@ Stop condition:
 Gate: explicit user confirmation after the actual command and preflight are
 reported. Depends on: completed Step 5A-S0.
 
-Status: preflight completed 2026-07-20 at `E-FI-17`; the live transaction was
-not started because the current Darwin arm64 host has no IsaacLab/NVIDIA
-runtime and no `/hdd1/cyx` Stage-1 cache or motion data. Execution remains
-pending on the synchronized SUST_Main_2 workspace.
+Status: attempted once on SUST_Main_2 after the `E-FI-17` local preflight. The
+run reached local-scenario materialization and the balanced `4 Repair + 4
+Noisy` reset, then stopped inside environment observation construction before
+q29 append, actor action, K execution, storage, or optimizer update
+(`E-FI-18`).
 
 Objective:
 - obtain the smallest real-environment trace proving one v015 local scenario
@@ -784,6 +799,181 @@ Expected evidence:
 Stop condition:
 - any required identity is absent; a later FEMR action occurs; a Clean actor
   input appears; or the update count differs from one.
+
+## R0--R6 Formal Observation Remediation
+
+This sequence supersedes the earlier assumption that Step 1B and Step 5A-S0
+already covered the formal observation route. It does not change v015 method
+semantics or the Concept Figure.
+
+### R0 / 7: Formal Observation Contract Freeze
+
+Status: completed at read-only S0 evidence (`E-FI-18`).
+
+Objective:
+- freeze `870D raw + 58D H-tail = 928D`, with FEMR consuming the first `158D`
+  and frozen GMT consuming the original final `770D`.
+
+Scope:
+- source/log audit and plan/checklist/evidence correction only.
+
+Non-scope:
+- Concept Figure, active-contract semantics, training source, tests, simulator,
+  checkpoint execution, or live rerun.
+
+Stop condition:
+- current GMT command cannot be sourced from the selected deployment carrier at
+  `t` without Clean C, future root/global data, or a new privileged field.
+
+### R1 / 7: Current-Frame GMT Command Route
+
+Status: completed at deterministic S1 evidence (`E-FI-19`).
+
+Objective:
+- let an active local scenario construct exactly one current GMT command at `t`
+  before the one FEMR action.
+
+Scope:
+- `MultiMotionCommand.command` / `_gather_future_by_motion()` current-frame
+  branch and its deterministic command-owner contract test.
+
+Non-scope:
+- q29 H-tail append, actor visibility, normalizer, K continuation, Gain, PPO,
+  checkpoint, formal runner, simulator, or live run.
+
+Owner and shape:
+- unique owner: `commands.py::MultiMotionCommand`;
+- input: role-aligned `env_motion_indices[B]`, `time_steps[B]`, local scenario
+  identity, and `motion_horizon=1`;
+- output: deployment-carrier `q29_t + dq29_t` as `[B,1,58]`, flattened by the
+  command property to `[B,58]`; IsaacLab history remains a later integration
+  consumer that produces the existing `[B,290]` policy term.
+
+Expected evidence:
+- S1 T-current-command/T-shape/T-provenance/T-role-identity/
+  T-current-only/T-continuation-isolation/T-legacy-reject.
+
+Stop condition:
+- `motion_horizon != 1`; any row reads `C[t+1:t+K]`, future root/global, or
+  Clean actor data; same-scenario role rows disagree; or the fix weakens the
+  explicit K-execution gate.
+
+### R2 / 7: Role-Aligned q29 H Bridge
+
+Status: completed at deterministic S1 evidence (`E-FI-20`).
+
+Objective:
+- read the sealed command carrier as `[B,H+1,29]` and construct the positive
+  offsets as `[B,58]` for all Repair/Noisy rows.
+
+Scope:
+- command snapshot accessor plus `frontres_runtime.py` actor-tail connector.
+
+Non-scope:
+- actor/GMT visibility split, checkpoint, formal runner, simulator, or live.
+
+Expected evidence:
+- S1 T-role-expand/T-offset/T-permute/T-no-root/T-no-Clean/T-no-C.
+
+Stop condition:
+- the bridge still reads the policy-attempt batch or cannot preserve one sealed
+  scenario across all role rows.
+
+### R3 / 7: FEMR 158D / GMT 770D Authority Split
+
+Status: completed at deterministic S1 evidence (`E-FI-21`).
+
+Objective:
+- make the combined `[B,928]` observation expose only `[B,158]` to FEMR while
+  preserving the frozen GMT `[B,770]` suffix and checkpoint.
+
+Scope:
+- v015 config, runner layout resolution, actor prefix assertion, and frozen-GMT
+  consumer isolation.
+
+Non-scope:
+- command provenance, K execution, loss formulas, checkpoint persistence, or
+  live run.
+
+Expected evidence:
+- S1 T-928-layout/T-158-actor/T-770-GMT/T-num-frontres-zero-reject/
+  T-frozen-GMT-isolation.
+
+Stop condition:
+- FEMR can consume any GMT-only suffix field, GMT input changes from `770D`, or
+  the old GMT checkpoint requires reshaping.
+
+### R4 / 7: Layout Persistence Revalidation
+
+Status: completed at deterministic S3 evidence (`E-FI-22`).
+
+Objective:
+- revalidate v015 checkpoint/normalizer identity against `H=(1,2)`, prefix
+  `158D`, suffix `770D`, and the exact prefix-stat fingerprint.
+
+Scope:
+- deterministic S3 checkpoint/resume contracts only.
+
+Non-scope:
+- real checkpoint cadence/resume, simulator, training, or live run.
+
+Expected evidence:
+- S3 T-layout/T-prefix-stats/T-legacy-zero-reject/T-atomicity-regression.
+
+Stop condition:
+- a full-`928D`, `num_frontres_obs=0`, legacy 65D, or unversioned layout loads
+  as v015.
+
+### R5 / 7: Unmocked Offline Formal Observation Connectivity
+
+Status: completed at deterministic offline S2 evidence (`E-FI-23`).
+
+Objective:
+- execute command -> 870D observation -> q29 append -> normalization ->
+  FEMR/GMT split -> one-action K -> grouped exact-one update without stubbing
+  `_read_live_observations()`.
+
+Scope:
+- semantic CPU fake with the real command/observation connector and structured
+  boundary trace.
+
+Non-scope:
+- simulator physics, long training, policy quality, or deployment composition.
+
+Expected evidence:
+- S2 T-command-connect/T-history-layout/T-role-tail/T-normalizer/T-consumer/
+  T-one-action/T-exact-one-update.
+
+Stop condition:
+- any observation owner is bypassed, a weak shape-only fake substitutes for the
+  current command, or update count differs from one.
+
+### R6 / 7: Bounded Live Identity Sentinel
+
+Status: partial at R6-S0 (`E-FI-24`). Structured telemetry and the read-only
+SUST_Main_2 preflight pass, but the single S4 transaction is blocked until the
+user explicitly authorizes transferring the named local owner files to that
+remote host after the security warning.
+
+Objective:
+- run exactly one SUST_Main_2 transaction with a structured observation and
+  identity snapshot.
+
+Scope:
+- one `2 Segment x 2 attempt` local transaction and evidence extraction.
+
+Non-scope:
+- long training, tuning, checkpoint migration, or deployment composition.
+
+Expected evidence:
+- S4 trace contains `870/58/928/158/770`, role identities, q29 provenance,
+  scenario hash, one action, K, group mass, and update delta one.
+
+Stop condition:
+- any dimension/identity is absent, FEMR sees GMT-only fields, GMT is not
+  `770D`, a later FEMR action appears, or update delta is not one.
+- remote checkout is not synchronized to the locally verified R1--R6 owners;
+  do not run the sentinel against stale source.
 
 ### Step 5B / 12: User-Gated Deployment Composition Evaluation
 
@@ -814,9 +1004,10 @@ Stop condition:
 
 ## Current Plan Cursor
 
-Step 0, 1A, 1B, H0, H1-S1a/H1-S2, 2A, 2B, 3A, 3B, 3C, 4A, 4B, 4C, and
-5A-S0 are complete at their recorded evidence tiers. Step 5A-S1 preflight is
-complete at `E-FI-17`; its sole live transaction is pending a synchronized
-SUST_Main_2 shell with IsaacLab, GPU, Stage-1 cache, and motion data. Generic
-training, checkpoint cadence/resume, long training, and deployment composition
-evaluation remain outside the current authorization.
+R0--R5 / 7 are complete at `E-FI-18`--`E-FI-23`. The deterministic route now
+covers actual command history, role-aligned q29 append, `928 -> 158/770`
+normalization/consumption, post-advance Clean-C K observations, four policy
+attempts, grouped exact-one update, and v2 S3 persistence. R6 is the only next
+step and requires separate user authorization. Simulator/live timing, generic
+training, actual checkpoint cadence/resume, long training, policy quality, and
+deployment composition remain unconfirmed.

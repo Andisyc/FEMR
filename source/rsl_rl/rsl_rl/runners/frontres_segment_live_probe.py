@@ -6,6 +6,7 @@ import copy
 from dataclasses import dataclass
 import hashlib
 import importlib.util
+import json
 import math
 from pathlib import Path
 import sys
@@ -3084,6 +3085,11 @@ def _uses_v015_future_intent_route_local(runner: Any) -> bool:
 
 
 def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
+    """Read env-owned observations and apply the active actor-context/normalizer route.
+
+    Status: R5 offline S2 contract-confirmed; simulator/live timing remains unconfirmed.
+    """
+
     obs, extras = runner.env.get_observations()
     obs_dict = extras.get("observations", {})
     if runner.policy_obs_type is not None and runner.policy_obs_type in obs_dict:
@@ -3095,13 +3101,30 @@ def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
     ref_vel_estimator_obs = obs_dict.get(runner.ref_vel_estimator_obs_type)
 
     obs = obs.to(runner.device)
+    raw_obs_dim = int(obs.shape[-1])
+    uses_v015_future_intent = _uses_v015_future_intent_route_local(runner)
     # v015 的 actor 只能看到 deployment-q29 intent. 旧 65D fixed tape 只保留给
     # 历史路径, 两者不能在同一个 observation 中拼接.
-    if _uses_v015_future_intent_route_local(runner):
+    if uses_v015_future_intent:
         obs = _append_future_intent_actor_context(runner, obs)
     else:
         obs = _append_fixed_noisy_actor_context(runner, obs)
+    combined_obs_dim = int(obs.shape[-1])
     obs = runner._apply_obs_normalizer(obs)
+    if uses_v015_future_intent:
+        policy = getattr(getattr(runner, "alg", None), "policy", None)
+        runner._frontres_v015_observation_route_trace = {
+            "role_row_count": int(obs.shape[0]),
+            "current_command_dim": 0,
+            "raw_observation_dim": raw_obs_dim,
+            "q29_tail_dim": combined_obs_dim - raw_obs_dim,
+            "combined_observation_dim": combined_obs_dim,
+            "normalized_observation_dim": int(obs.shape[-1]),
+            "femr_visible_dim": int(getattr(policy, "num_frontres_obs", 0) or 0),
+            "gmt_suffix_dim": int(getattr(runner, "_frontres_gmt_obs_dim", 0) or 0),
+            "gmt_input_dim": 0,
+            "post_advance_gmt_read_count": 0,
+        }
     privileged_obs = runner.privileged_obs_normalizer(privileged_obs.to(runner.device))
     teacher_obs = runner.teacher_obs_normalizer(teacher_obs.to(runner.device))
     if ref_vel_estimator_obs is not None:
@@ -3114,16 +3137,51 @@ def _read_live_observations(runner: Any) -> FrontRESSegmentLiveObservations:
     )
 
 
-def _read_v015_frozen_gmt_observations(runner: Any, obs: torch.Tensor, infos: dict[str, Any]) -> torch.Tensor:
-    """Prepare an execution observation without creating another actor input/action."""
+def _read_v015_frozen_gmt_observations(
+    runner: Any,
+    obs: torch.Tensor,
+    infos: dict[str, Any],
+    *,
+    frozen_frontres_prefix: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Prepare a GMT execution observation without reopening actor-only q29 context."""
 
     obs_dict = infos.get("observations", {}) if isinstance(infos, dict) else {}
     if runner.policy_obs_type is not None and runner.policy_obs_type in obs_dict:
         obs = obs_dict[runner.policy_obs_type].to(runner.device)
     else:
         obs = obs.to(runner.device)
-    # The q29 tail is deployment provenance only.  Clean C is consumed solely
-    # by the command owner below, not appended to this execution observation.
+    # R5 exact route: t 已经验证并归一化 158D FEMR prefix. K 内 actor 冻结, 因此
+    # 只允许重新读取/归一化 fresh 770D GMT suffix, 不得重新打开 q29 actor snapshot.
+    policy = getattr(getattr(runner, "alg", None), "policy", None)
+    frontres_dim = int(getattr(policy, "num_frontres_obs", 0) or 0)
+    gmt_dim = int(getattr(runner, "_frontres_gmt_obs_dim", 0) or 0)
+    if isinstance(frozen_frontres_prefix, torch.Tensor) and frontres_dim > 0 and gmt_dim > 0:
+        prefix = frozen_frontres_prefix.to(device=runner.device)
+        if tuple(prefix.shape) != (int(obs.shape[0]), frontres_dim):
+            raise RuntimeError(
+                "v015 frozen-GMT route requires the t-time normalized FEMR prefix "
+                f"[{int(obs.shape[0])},{frontres_dim}], got {tuple(prefix.shape)}"
+            )
+        if int(obs.shape[-1]) < gmt_dim:
+            raise RuntimeError("v015 frozen-GMT raw observation is smaller than the frozen GMT suffix")
+        gmt_raw = obs[..., -gmt_dim:]
+        normalize_gmt = getattr(runner, "obs_normalizer", None)
+        if not callable(normalize_gmt):
+            raise RuntimeError("v015 frozen-GMT route requires the frozen GMT normalizer")
+        gmt_obs = normalize_gmt(gmt_raw)
+        combined = torch.cat([prefix.to(dtype=gmt_obs.dtype), gmt_obs], dim=-1)
+        if int(combined.shape[-1]) != int(getattr(policy, "num_actor_obs", 0) or 0):
+            raise RuntimeError("v015 frozen-GMT route lost the exact FEMR/GMT observation authority")
+        trace = dict(getattr(runner, "_frontres_v015_observation_route_trace", {}) or {})
+        trace["gmt_input_dim"] = int(gmt_obs.shape[-1])
+        trace["post_advance_gmt_read_count"] = int(trace.get("post_advance_gmt_read_count", 0)) + 1
+        runner._frontres_v015_observation_route_trace = trace
+        return combined
+
+    if bool(getattr(getattr(runner, "alg", None), "frontres_v015_formal_transaction_enabled", False)):
+        raise RuntimeError("v015 formal frozen-GMT route requires the exact R3 158D/770D authority")
+    # Candidate-only legacy fixtures without R3 dimensions retain their local test contract.
     obs = _append_future_intent_actor_context(runner, obs)
     return runner._apply_obs_normalizer(obs)
 
@@ -3214,6 +3272,19 @@ def collect_frontres_v015_one_action_k_evidence(
 
     command, snapshot, repair_rows = _require_v015_one_action_k_layout(runner, observations, pair_layout)
     n_repair = int(repair_rows.numel())
+    frontres_dim = int(getattr(getattr(runner.alg, "policy", None), "num_frontres_obs", 0) or 0)
+    if bool(getattr(runner.alg, "frontres_v015_local_sentinel_only", False)):
+        current_command = command.command
+        if not isinstance(current_command, torch.Tensor) or current_command.ndim != 2:
+            raise RuntimeError("v015 live sentinel requires a rank-2 current GMT command")
+        trace = dict(getattr(runner, "_frontres_v015_observation_route_trace", {}) or {})
+        trace["current_command_dim"] = int(current_command.shape[-1])
+        runner._frontres_v015_observation_route_trace = trace
+    frozen_frontres_prefix = (
+        observations.obs[:, :frontres_dim].detach().clone()
+        if frontres_dim > 0
+        else None
+    )
     execution_started = False
     actor_forward_count = 0
     later_femr_action_count = 0
@@ -3248,7 +3319,7 @@ def collect_frontres_v015_one_action_k_evidence(
         if tuple(policy_actions.shape) != tuple(policy_means.shape) or tuple(policy_actions.shape) != tuple(policy_sigmas.shape):
             raise RuntimeError("v015 one-action K collector requires aligned full-6D old policy statistics")
 
-        raw_obs, _rewards, t_dones, infos = runner.env.step(t_plan.env_actions.to(runner.env.device))
+        _raw_obs, _rewards, t_dones, _infos = runner.env.step(t_plan.env_actions.to(runner.env.device))
         t_dones = t_dones.to(runner.device).detach().bool().reshape(-1)
         if int(t_dones.numel()) != int(t_plan.env_actions.shape[0]):
             raise RuntimeError("v015 one-action K collector requires one t done flag per scored role")
@@ -3272,12 +3343,24 @@ def collect_frontres_v015_one_action_k_evidence(
         for _offset in range(int(horizon_k.max().item())):
             if getattr(runner, "_frontres_v015_one_action_k_phase", None) != "frozen":
                 raise RuntimeError("v015 one-action K collector lost its frozen-FEMR phase before GMT continuation")
-            gmt_obs = _read_v015_frozen_gmt_observations(runner, raw_obs, infos)
-            frozen_plan = prepare_frontres_v015_frozen_gmt_step(runner, gmt_observations=gmt_obs)
+
+            def post_advance_gmt_observation() -> torch.Tensor:
+                fresh_obs, fresh_infos = runner.env.get_observations()
+                return _read_v015_frozen_gmt_observations(
+                    runner,
+                    fresh_obs,
+                    fresh_infos,
+                    frozen_frontres_prefix=frozen_frontres_prefix,
+                )
+
+            frozen_plan = prepare_frontres_v015_frozen_gmt_step(
+                runner,
+                gmt_observation_provider=post_advance_gmt_observation,
+            )
             continuation_frames.append(frozen_plan.continuation)
             valid_frames.append(frozen_plan.valid_mask)
             gmt_action_frames.append(frozen_plan.env_actions)
-            raw_obs, _rewards, frozen_dones, infos = runner.env.step(frozen_plan.env_actions.to(runner.env.device))
+            _raw_obs, _rewards, frozen_dones, _infos = runner.env.step(frozen_plan.env_actions.to(runner.env.device))
             frozen_dones = frozen_dones.to(runner.device).detach().bool().reshape(-1)
             valid = frozen_plan.valid_mask.to(device=runner.device, dtype=torch.bool).reshape(-1)
             if int(frozen_dones.numel()) != int(valid.numel()):
@@ -3524,13 +3607,13 @@ def run_frontres_v015_formal_transaction_update(
     runner: Any,
     request: FrontRESV015FormalTransactionRequest,
 ) -> FrontRESV015FormalTransactionUpdateResult:
-    """Execute one sealed v015 fake-S2 grouped PPO update after all M attempts.
+    """Execute one sealed v015 offline-S2 grouped PPO update after all M attempts.
 
     此函数是 Step 4B 的唯一 update owner, 也是 Step 4C 的 committed receipt
     publisher. 它不调用 legacy `to_ppo_batch`, `run_frontres_segment_single_update`,
     sampler state, checkpoint save/load, simulator 或 live loop.
 
-    Status: fake-S2/S3 only. Evidence 是 code-confirmed 和 contract-confirmed;
+    Status: offline-S2/S3 only. Evidence 是 code-confirmed 和 contract-confirmed;
     generic formal dispatch, checkpoint cadence, 和 live route 尚未验证.
     """
 
@@ -3697,6 +3780,28 @@ def _build_frontres_v015_local_identity_sentinel_request(
         continuation_lengths = getattr(batch, "frontres_local_scenario_clean_continuation_lengths", None)
         if not isinstance(artifact, torch.Tensor) or not isinstance(continuation_lengths, torch.Tensor):
             raise RuntimeError("v015 local sentinel lost sealed root-artifact or Clean-continuation identity before storage")
+        observation_trace = dict(getattr(runner, "_frontres_v015_observation_route_trace", {}) or {})
+        expected_trace = {
+            "role_row_count": 8,
+            "current_command_dim": 58,
+            "raw_observation_dim": 870,
+            "q29_tail_dim": 58,
+            "combined_observation_dim": 928,
+            "normalized_observation_dim": 928,
+            "femr_visible_dim": 158,
+            "gmt_suffix_dim": 770,
+            "gmt_input_dim": 770,
+        }
+        mismatched_trace = {
+            key: (observation_trace.get(key), expected)
+            for key, expected in expected_trace.items()
+            if observation_trace.get(key) != expected
+        }
+        if mismatched_trace or int(observation_trace.get("post_advance_gmt_read_count", 0)) <= 0:
+            raise RuntimeError(
+                "v015 live sentinel observation trace is incomplete or violates the frozen authority: "
+                f"mismatched={mismatched_trace}, trace={observation_trace}"
+            )
         runner._frontres_v015_local_sentinel_preupdate_diagnostics = {
             "transaction_id": plan.transaction_id,
             "policy_snapshot_id": plan.policy_snapshot_id,
@@ -3712,6 +3817,7 @@ def _build_frontres_v015_local_identity_sentinel_request(
             "actor_forward_count": int(candidate_evidence.one_action.actor_forward_count),
             "later_femr_action_count": int(candidate_evidence.one_action.later_femr_action_count),
             "horizon_k": tuple(int(value) for value in plan.horizon_k.tolist()),
+            "observation_route": observation_trace,
         }
         runner._frontres_v015_local_sentinel_batch = batch
         return FrontRESV015FormalTransactionRequest(
@@ -3732,8 +3838,9 @@ def run_frontres_v015_local_identity_sentinel(
 ) -> FrontRESV015FormalTransactionUpdateResult:
     """Run one explicit v015 sentinel request through the existing exact-one update owner.
 
-    Status: pre-live connector.  The provider is invoked only after the formal
-    collecting barrier opens; legacy probe/storage/update loops are not called.
+    Status: R6-S0 live-ready connector with fail-closed structured telemetry.
+    The provider is invoked only after the formal collecting barrier opens;
+    legacy probe/storage/update loops are not called. S4 live evidence remains open.
     """
 
     alg = _require_v015_formal_transaction_config(runner)
@@ -3753,25 +3860,27 @@ def run_frontres_v015_local_identity_sentinel(
     try:
         result = run_frontres_v015_formal_transaction_update_loop(runner)
         preupdate = getattr(runner, "_frontres_v015_local_sentinel_preupdate_diagnostics", None)
-        if isinstance(preupdate, dict):
-            telemetry = dict(preupdate)
-            telemetry.update(dict(getattr(result, "diagnostics", {}) or {}))
-            telemetry["optimizer_step_delta"] = int(getattr(result, "optimizer_step_delta", -1))
-            telemetry["exact_one_update"] = telemetry["optimizer_step_delta"] == 1
-            runner._frontres_v015_local_sentinel_telemetry = telemetry
-            print(
-                "[FrontRES v015 Local Sentinel] "
-                f"transaction={telemetry['transaction_id']} "
-                f"scenario_hashes={telemetry['noisy_segment_hashes']} "
-                f"x_t={telemetry['x_t_identities']} "
-                f"roles={telemetry['roles']} "
-                f"actor_forwards={telemetry['actor_forward_count']} "
-                f"later_femr_actions={telemetry['later_femr_action_count']} "
-                f"K={telemetry['horizon_k']} "
-                f"group_mass={telemetry.get('grouped_attempt_mass_shares', ())} "
-                f"step_delta={telemetry['optimizer_step_delta']}",
-                flush=True,
-            )
+        if not isinstance(preupdate, dict):
+            raise RuntimeError("v015 local sentinel requires a complete pre-update identity/observation snapshot")
+        telemetry = dict(preupdate)
+        telemetry.update(dict(getattr(result, "diagnostics", {}) or {}))
+        telemetry["optimizer_step_delta"] = int(getattr(result, "optimizer_step_delta", -1))
+        telemetry["exact_one_update"] = telemetry["optimizer_step_delta"] == 1
+        runner._frontres_v015_local_sentinel_telemetry = telemetry
+        print(
+            "[FrontRES v015 Local Sentinel] "
+            f"transaction={telemetry['transaction_id']} "
+            f"scenario_hashes={telemetry['noisy_segment_hashes']} "
+            f"x_t={telemetry['x_t_identities']} "
+            f"roles={telemetry['roles']} "
+            f"actor_forwards={telemetry['actor_forward_count']} "
+            f"later_femr_actions={telemetry['later_femr_action_count']} "
+            f"K={telemetry['horizon_k']} "
+            f"group_mass={telemetry.get('grouped_attempt_mass_shares', ())} "
+            f"step_delta={telemetry['optimizer_step_delta']}",
+            flush=True,
+        )
+        print("[FrontRES v015 Live Snapshot] " + json.dumps(telemetry, sort_keys=True), flush=True)
         return result
     finally:
         if hasattr(runner, "_frontres_v015_formal_transaction_provider"):

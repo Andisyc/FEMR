@@ -267,6 +267,18 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
 
     def observations(_runner):
         trace.append("observations")
+        _runner._frontres_v015_observation_route_trace = {
+            "role_row_count": 8,
+            "current_command_dim": 58,
+            "raw_observation_dim": 870,
+            "q29_tail_dim": 58,
+            "combined_observation_dim": 928,
+            "normalized_observation_dim": 928,
+            "femr_visible_dim": 158,
+            "gmt_suffix_dim": 770,
+            "gmt_input_dim": 770,
+            "post_advance_gmt_read_count": 2,
+        }
         return object()
 
     def capture(_runner, _observations, *, pair_layout):
@@ -318,6 +330,35 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
         assert init_at_random_ep_len
         assert runner._frontres_v015_checkpoint_transaction_state == {"state": "collecting", "phase": "provider"}
         calls.append("provider")
+        plan = fixture.request.plan
+        runner._frontres_v015_local_sentinel_preupdate_diagnostics = {
+            "transaction_id": plan.transaction_id,
+            "policy_snapshot_id": plan.policy_snapshot_id,
+            "x_t_identities": tuple(plan.x_t_identities),
+            "scenario_ids": tuple(plan.scenario_ids),
+            "noisy_segment_hashes": tuple(plan.noisy_segment_hashes),
+            "root_artifact_l2": (0.1, 0.1, 0.2, 0.2),
+            "intent_q29_provenance": plan.intent_q29_provenance,
+            "intent_q29_source": plan.intent_q29_source,
+            "clean_continuation_lengths": tuple(int(value) for value in plan.horizon_k.tolist()),
+            "roles": ("repair",) * 4 + ("noisy",) * 4,
+            "policy_row_count": 4,
+            "actor_forward_count": 1,
+            "later_femr_action_count": 0,
+            "horizon_k": tuple(int(value) for value in plan.horizon_k.tolist()),
+            "observation_route": {
+                "role_row_count": 8,
+                "current_command_dim": 58,
+                "raw_observation_dim": 870,
+                "q29_tail_dim": 58,
+                "combined_observation_dim": 928,
+                "normalized_observation_dim": 928,
+                "femr_visible_dim": 158,
+                "gmt_suffix_dim": 770,
+                "gmt_input_dim": 770,
+                "post_advance_gmt_read_count": 2,
+            },
+        }
         return fixture.request
 
     original = live_probe._build_frontres_v015_local_identity_sentinel_request
@@ -342,8 +383,13 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
     assert result.optimizer_step_delta == 1
     assert result.policy_attempt_count == 4
     assert result.diagnostics["grouped_attempt_mass_shares"] == (0.25, 0.25, 0.25, 0.25)
+    telemetry = fixture.runner._frontres_v015_local_sentinel_telemetry
+    assert telemetry["observation_route"]["raw_observation_dim"] == 870
+    assert telemetry["observation_route"]["femr_visible_dim"] == 158
+    assert telemetry["observation_route"]["gmt_input_dim"] == 770
+    assert telemetry["exact_one_update"] is True
     assert not hasattr(fixture.runner, "_frontres_v015_formal_transaction_provider")
-    print("[T-connect/T-order/T-mass/T-exact-one-update] provider collects the sealed request before one grouped v003 update", flush=True)
+    print("[T-connect/T-order/T-live-snapshot/T-mass/T-exact-one-update] provider emits the complete 870/58/928/158/770 snapshot before one grouped v003 update", flush=True)
 
 
 def main() -> None:

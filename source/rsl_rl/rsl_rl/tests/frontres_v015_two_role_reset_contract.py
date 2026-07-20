@@ -468,7 +468,7 @@ def test_t_state_and_identity(hooks, env, command, role_env_ids) -> None:
     torch.testing.assert_close(snapshot_after_mutation["intent_q29"], source_intent.index_select(0, expected_rows))
     torch.testing.assert_close(snapshot_after_mutation["clean_continuation"], source_continuation.index_select(0, expected_rows))
     command.cfg = SimpleNamespace(motion_horizon=1, command_velocity=False)
-    _expect_error(RuntimeError, lambda: command.command, "Step 2B")
+    _expect_error(RuntimeError, lambda: command.command, "command_velocity=True")
     _expect_error(RuntimeError, command.refresh_frontres_reference_cache_current_frame, "Step 2B")
     _ = command.joint_pos
     assert command.perturber.calls == 0

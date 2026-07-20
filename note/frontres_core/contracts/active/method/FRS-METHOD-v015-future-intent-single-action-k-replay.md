@@ -262,14 +262,17 @@ and records exactly one explicit optimizer step. The actor route selects q29
 intent before normalization and excludes the legacy 65D tail. This is not a
 generic training-entry, checkpoint/resume, simulator, or live-runtime claim.
 
-`E-FI-15` completes bounded Step 4C S3 CPU-fake persistence evidence:
-`frontres_checkpointing.py` saves and validates the exact v015 q29 layout
-version/H offsets, grouped-loss identity, and prefix-normalizer fingerprint
-before any mutable restore. A collecting, sealed, or failed transaction cannot
-be saved or resumed; a completed transaction crosses the checkpoint boundary
-only as a metadata-only exact-one-update receipt, never as raw scenario
-references or candidate batches. This does not establish generic checkpoint
-cadence/dispatch, real resume, simulator, training, or live-runtime evidence.
+`E-FI-15` established the bounded Step 4C S3 save/load and transaction-atomicity
+mechanics under the pre-R3 generic-dimension fixture. `E-FI-22` supersedes its
+layout-accuracy claim: `frontres_checkpointing.py` now saves and validates the
+exact `(1,2)` q29 layout, `870+58=928` combined observation, `100+58=158` FEMR
+prefix, `770D` frozen-GMT suffix, grouped-loss identity, and full-prefix
+normalizer fingerprint before any mutable restore. A collecting, sealed, or
+failed transaction cannot be saved or resumed; a completed transaction crosses
+the checkpoint boundary only as a metadata-only exact-one-update receipt,
+never as raw scenario references or candidate batches. This does not establish
+generic checkpoint cadence/dispatch, real resume, simulator, training, or
+live-runtime evidence.
 
 `E-FI-16` completes Step 5A-S0 deterministic pre-live connectivity evidence:
 an explicit v015-only entrypoint selects a sealed split local scenario, routes
@@ -278,6 +281,17 @@ the unchanged v003 candidate adapter, and the existing exact-one grouped update
 owner. It preserves artifact/I/C/hash/`x_t` identity and rejects legacy tape,
 HSL, and legacy batch routes. It is not a real-environment or live-runtime
 claim.
+
+`E-FI-23` completes R5 offline S2 observation connectivity with a semantic CPU
+fixture and the real `_read_live_observations()` owner. The route reads the
+actual `MultiMotionCommand.command` into a five-frame `290D` command history
+inside raw `870D`, prepends the command-owned `58D` q29 H tail, normalizes the
+combined `928D`, and exposes only `158D` to FEMR while frozen GMT consumes the
+final `770D`. After the one t action, each Clean-C offset advances before a
+fresh GMT observation is read; actor H is not reopened and no later FEMR action
+occurs. Two fixed scenarios with two attempts each retain shared identity and
+produce four grouped rows followed by exactly one update. This is not
+simulator, live timing, training-quality, or deployment evidence.
 
 ## Forbidden Active-Path Assumptions
 

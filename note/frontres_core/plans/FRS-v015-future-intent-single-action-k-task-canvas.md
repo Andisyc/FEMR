@@ -1,6 +1,6 @@
 # FRS-v015 Task Canvas
 
-Status: active volatile control surface. Updated: 2026-07-20.
+Status: active volatile control surface. Updated: 2026-07-21.
 
 ## Objective
 
@@ -17,15 +17,14 @@ continuation, and one-action K evidence.
 
 ## Current Step
 
-`Step 5A-S1 preflight complete at E-FI-17; one live transaction awaits a synchronized SUST_Main_2 shell`
+`R6 / 7 partial at E-FI-24; telemetry and remote preflight pass, source-transfer authorization is required before the single S4 transaction`
 
-Status: H1-S1a/H1-S2, Step 2A, Step 2B, Step 3A, Step 3B, Step 3C, and Step
-4A, Step 4B-S2, and Step 4C are complete. Step 4B wires a pure sealed-plan,
-public runner connector, dedicated update loop, probe formal-update owner, and
-one optimizer call behind a fake request provider. Step 4C adds exact v015
-layout/normalizer identity plus an in-flight transaction persistence barrier and
-metadata-only committed receipt. Neither step activates the generic formal
-entrypoint, sampler state, simulator, training, or live route.
+Status: the earlier local scenario, one-action K, Gain, grouped transaction, and
+persistence evidence remains valid at its stated local/fake tiers. R1--R3 close
+the deterministic current-command, role-aligned q29 append, and actor/GMT
+authority defects reopened by R0. R5 exercises the actual observation owner;
+R6-S0 adds a fail-closed structured live snapshot. No method or Concept Figure
+change is pending.
 
 Scope:
 - retain the completed proposal-only HSL boundary, sealed two-role reset,
@@ -36,13 +35,11 @@ Scope:
   step (`E-FI-14`);
 - retain the completed CPU-fake S3 checkpoint identity and atomicity boundary:
   exact q29 H layout/prefix stats, no partial persistence, and committed-receipt
-  only resume (`E-FI-15`).
+  only resume (`E-FI-22`, rebasing the generic-dimension `E-FI-15` fixture).
 
 Non-scope:
-- HSL changes, grouped-formula changes, checkpoint/resume changes, simulator,
-  real training, live transaction, and deployment composition. The completed
-  Step 5A-S0 added an opt-in connector but did not execute it against a real
-  environment.
+- HSL changes, grouped-formula changes, Concept Figure changes, simulator,
+  real training, another live transaction, and deployment composition.
 
 Step 5A-S1 preflight boundary:
 - use a cold-start fresh v015 FrontRES policy for identity testing; do not load
@@ -54,12 +51,31 @@ Step 5A-S1 preflight boundary:
 
 ## Completed
 
+- `R5 / 7`: actual current command -> five-frame history -> raw `870D` -> q29
+  `58D` -> normalized `928D` -> FEMR `158D` / GMT `770D` -> one-action K ->
+  four grouped attempts -> exact-one update is offline-S2 contract-confirmed;
+  Clean C advances before each fresh GMT observation (`E-FI-23`).
+- `R4 / 7`: v015 checkpoint v2 binds `(1,2)`, `928/158/770`, the complete
+  `158D` prefix-stat fingerprint, and committed-only transaction receipt;
+  v1/full/zero/65D/unversioned/partial identities reject before mutation
+  (`E-FI-22`).
+- `R3 / 7`: v015 config/runner/model resolves `870+58=928`, exposes only the
+  first `158D` to FEMR, preserves the final `770D` for frozen GMT, and rejects
+  `num_frontres_obs=0` (`E-FI-21`).
+- `R2 / 7`: command-owned read-only intent snapshot, B=8 role-aligned offsets
+  `(1,2)` -> `[8,58]`, B=4 policy-batch isolation, permutation/provenance and
+  forbidden-field rejection (`E-FI-20`).
+- `R1 / 7`: role-aligned current deployment q29/dq29 command at `t`, strict
+  horizon/velocity/provenance checks, and unchanged K-only Clean C (`E-FI-19`).
+- `R0 / 7`: formal observation contract frozen, Step 1B/5A-S0 evidence
+  coverage corrected, and R1 command-owner boundary recorded (`E-FI-18`).
 - `G0`: accepted semantics and Concept Figure/contracts synchronized (`E-FI-0`).
 - `G0`: read-only white-box owner audit and refined twelve-step plan (`E-FI-1`).
 - `G1 / Step 1A`: immutable local scenario schema, q29 invariant, hash,
   provenance split, and legacy-tape rejection (`E-FI-2`).
-- `G1 / Step 1B`: versioned q29 actor H layout, provenance/clean isolation,
-  normalizer rejection, and legacy-layout rejection (`E-FI-3`).
+- `G1 / Step 1B`: isolated versioned q29-tail builder, provenance/clean
+  isolation, and legacy-layout rejection (`E-FI-3`); formal role alignment and
+  actor visibility are reopened by `E-FI-18`.
 - `Gate H0`: HSL source/layout/target and checkpoint boundary mapped (`E-FI-4`).
 - `H0-A`: proposal-only HSL authority confirmed and Training v007 activated
   (`E-FI-5`); no source migration is implied.
@@ -149,17 +165,15 @@ Step 5A-S1 preflight boundary:
   shards against one frozen snapshot, routes q29 intent before normalization,
   executes unchanged grouped v003 loss, and proves one explicit optimizer step;
   partial/HSL/legacy paths fail before step.
-- `E-FI-15`: a CPU fake checkpoint save/load preserves only the exact v015
-  q29 H layout, prefix-normalizer fingerprint, grouped identity, and committed
-  exact-one receipt; old/mismatched/tampered layouts and partial transactions
-  reject before mutable restore, while a valid Stage-3 envelope may retain
-  completed-HSL history without accepting a legacy HSL checkpoint.
+- `E-FI-15`: established pre-R3 generic-dimension save/load and transaction
+  atomicity mechanics; its exact-layout claim is rebased by R4 `E-FI-22`.
 
 ## Unresolved Risks
 
-- the q29 actor bridge and Step 2B collector have deterministic/offline evidence
-  only; the generic formal runner remains intentionally isolated despite the
-  completed injected fake-S2 connector.
+- generic checkpoint cadence/dispatch and actual resume remain untested; R4 is
+  deterministic S3 evidence only.
+- R5 closes the prior `_read_live_observations()` fake gap at offline S2, but
+  simulator observation timing and the actual SUST_Main_2 route remain R6.
 - H1 has no live scenario installation; current warmup still fails closed until
   a sealed local scenario is supplied by an authorized lifecycle route.
 - legacy policy-quality/formal evaluator HSL branches remain outside H1;
@@ -185,6 +199,10 @@ Step 5A-S1 preflight boundary:
 
 ## Next Step
 
-Step 5A-S1 preflight is complete at `E-FI-17`. Synchronize the current v015
-worktree to SUST_Main_2, then run the recorded fresh-policy command exactly once
-and stop on any missing identity or update delta other than one.
+After explicit informed authorization to transfer the named owner files to the
+trusted SUST_Main_2 host, run exactly one bounded v015 transaction with the
+structured identity/observation snapshot.
+Require `870/58/928/158/770`, role/scenario/hash/q29/C identities, one FEMR
+action, post-advance Clean-C K order, four equal-mass attempts, and update delta
+one. Stop immediately on any missing identity, later FEMR action, mixed
+reference, or update delta mismatch; do not start long training.

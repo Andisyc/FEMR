@@ -20,10 +20,12 @@ from rsl_rl.modules import FrontRESActorCritic, ResidualActorCritic
 from rsl_rl.modules.frontres_observation_layout import (
     FRONTRES_FUTURE_INTENT_DIM,
     FRONTRES_FUTURE_INTENT_LAYOUT_VERSION,
+    FRONTRES_V015_GMT_SUFFIX_DIM,
     FrontRESFutureIntentLayout,
     compose_frontres_obs_norm_state,
     extract_frontres_extra_norm_stats,
     frontres_extra_norm_stats_for_save,
+    resolve_frontres_v015_observation_authority,
 )
 _FORMAL_AUDIT_SPEC = importlib.util.spec_from_file_location(
     "frontres_formal_runtime_audit_checkpoint", Path(__file__).resolve().with_name("frontres_formal_runtime_audit.py")
@@ -49,7 +51,7 @@ _FRONTRES_GAIN_CONFIG_FIELDS = (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v1"
+_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v2"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
 _V015_LAST_RECEIPT_ATTR = "_frontres_v015_last_committed_transaction_receipt"
@@ -83,7 +85,7 @@ def _uses_v015_formal_checkpoint_identity(runner: Any) -> bool:
 
 
 def _v015_checkpoint_layout_fields(runner: Any) -> dict[str, int | str | tuple[int, ...]]:
-    """在 persistence 或 restore 前读取精确 q29 actor/prefix shape."""
+    """在 persistence 或 restore 前读取并验证 R3 精确 observation authority."""
 
     layout = getattr(runner, "_frontres_future_intent_layout", None)
     if not isinstance(layout, FrontRESFutureIntentLayout):
@@ -91,6 +93,11 @@ def _v015_checkpoint_layout_fields(runner: Any) -> dict[str, int | str | tuple[i
     layout.validate()
     if layout.version != FRONTRES_FUTURE_INTENT_LAYOUT_VERSION:
         raise RuntimeError("v015 checkpoint identity has an incompatible future-intent layout version")
+    if tuple(layout.future_offsets) != (1, 2):
+        raise RuntimeError(
+            "v015 checkpoint identity requires future_offsets=(1, 2), "
+            f"got {tuple(layout.future_offsets)}"
+        )
     policy = getattr(getattr(runner, "alg", None), "policy", None)
     actor_dim = getattr(policy, "num_actor_obs", None)
     prefix_dim = getattr(policy, "num_frontres_obs", None)
@@ -100,15 +107,29 @@ def _v015_checkpoint_layout_fields(runner: Any) -> dict[str, int | str | tuple[i
     actor_dim = int(actor_dim)
     prefix_dim = int(prefix_dim)
     gmt_dim = int(gmt_dim)
-    if (
-        actor_dim <= 0
-        or prefix_dim < layout.actor_tail_dim
-        or gmt_dim <= 0
-        or actor_dim != prefix_dim + gmt_dim
-    ):
+    environment_obs_dim = actor_dim - layout.actor_tail_dim
+    current_frontres_prefix_dim = prefix_dim - layout.actor_tail_dim
+    try:
+        authority = resolve_frontres_v015_observation_authority(
+            environment_obs_dim=environment_obs_dim,
+            configured_frontres_prefix_dim=current_frontres_prefix_dim,
+            actor_tail_dim=layout.actor_tail_dim,
+            gmt_suffix_dim=FRONTRES_V015_GMT_SUFFIX_DIM,
+        )
+    except ValueError as exc:
         raise RuntimeError(
             "v015 checkpoint actor layout is inconsistent: "
-            f"actor={actor_dim} prefix={prefix_dim} gmt={gmt_dim} tail={layout.actor_tail_dim}"
+            f"actor={actor_dim} prefix={prefix_dim} gmt={gmt_dim} tail={layout.actor_tail_dim}; {exc}"
+        ) from exc
+    if (
+        actor_dim != authority.combined_obs_dim
+        or prefix_dim != authority.frontres_visible_dim
+        or gmt_dim != authority.gmt_suffix_dim
+    ):
+        raise RuntimeError(
+            "v015 checkpoint actor layout is inconsistent with R3 authority: "
+            f"actor={actor_dim} prefix={prefix_dim} gmt={gmt_dim}; "
+            f"expected={authority.combined_obs_dim}/{authority.frontres_visible_dim}/{authority.gmt_suffix_dim}"
         )
     configured_tail = int(getattr(runner, "_frontres_future_intent_actor_context_dim", 0) or 0)
     if configured_tail != layout.actor_tail_dim:
@@ -121,6 +142,8 @@ def _v015_checkpoint_layout_fields(runner: Any) -> dict[str, int | str | tuple[i
         "future_offsets": tuple(int(value) for value in layout.future_offsets),
         "intent_dim": FRONTRES_FUTURE_INTENT_DIM,
         "actor_tail_dim": layout.actor_tail_dim,
+        "environment_obs_dim": authority.environment_obs_dim,
+        "current_frontres_prefix_dim": authority.current_frontres_prefix_dim,
         "actor_dim": actor_dim,
         "prefix_dim": prefix_dim,
         "gmt_dim": gmt_dim,

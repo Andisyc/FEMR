@@ -68,6 +68,41 @@ class _Normalizer:
         return value / self.divisor
 
 
+class _IntentCommand:
+    def __init__(self, batch) -> None:
+        self.batch = batch
+
+    def frontres_local_scenario_intent_snapshot(self):
+        intent = getattr(self.batch, "frontres_local_scenario_intent_q29", None)
+        provenance = getattr(self.batch, "frontres_local_scenario_provenance", None)
+        if not isinstance(intent, torch.Tensor) or provenance is None:
+            raise RuntimeError("v015 local scenario intent snapshot is unavailable")
+        batch_size = int(intent.shape[0])
+        return {
+            "intent_q29": intent.detach().clone(),
+            "scenario_ids": tuple(f"scenario-{row}" for row in range(batch_size)),
+            "noisy_segment_hashes": tuple(f"hash-{row}" for row in range(batch_size)),
+            "x_t_identities": tuple(f"x-{row}" for row in range(batch_size)),
+            "roles": ("repair",) * batch_size,
+            "provenance": tuple(dict(value) for value in provenance),
+        }
+
+
+class _CommandManager:
+    def __init__(self, command) -> None:
+        self.command = command
+
+    def get_term(self, name: str):
+        assert name == "motion"
+        return self.command
+
+
+class _Env:
+    def __init__(self, command) -> None:
+        self.unwrapped = self
+        self.command_manager = _CommandManager(command)
+
+
 def _intent(batch_size: int = 2, hmax: int = 3) -> torch.Tensor:
     rows = torch.arange(batch_size, dtype=torch.float32).reshape(batch_size, 1, 1) * 1000.0
     frames = torch.arange(hmax + 1, dtype=torch.float32).reshape(1, hmax + 1, 1) * 100.0
@@ -90,6 +125,7 @@ def _provenance(batch_size: int) -> tuple[dict[str, str], ...]:
 def _runner(layout, batch, *, raw_dim: int = 5, gmt_dim: int = 3):
     tail_dim = layout.actor_tail_dim
     return SimpleNamespace(
+        env=_Env(_IntentCommand(batch)),
         device=torch.device("cpu"),
         alg=SimpleNamespace(
             policy=SimpleNamespace(

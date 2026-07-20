@@ -49,7 +49,11 @@ from rsl_rl.runners.frontres_runtime import (
     get_inference_policy_runner,
     maybe_print_frontres_restore_debug,
 )
-from rsl_rl.modules.frontres_observation_layout import resolve_frontres_future_intent_layout
+from rsl_rl.modules.frontres_observation_layout import (
+    FRONTRES_V015_GMT_SUFFIX_DIM,
+    resolve_frontres_future_intent_layout,
+    resolve_frontres_v015_observation_authority,
+)
 from rsl_rl.runners.frontres_runner_logging import log_runner
 from rsl_rl.frontres.training_schedule import (
     frontres_curriculum_allowed_bases,
@@ -360,14 +364,20 @@ class OnPolicyRunner:
             self._frontres_future_intent_layout = layout
             self._frontres_future_intent_layout_version = layout.version
             self._frontres_future_intent_actor_context_dim = layout.actor_tail_dim
-            num_actor_obs += self._frontres_future_intent_actor_context_dim
             configured_prefix = int(self.policy_cfg.get("num_frontres_obs", 0) or 0)
-            if configured_prefix > 0:
-                self.policy_cfg["num_frontres_obs"] = configured_prefix + self._frontres_future_intent_actor_context_dim
+            authority = resolve_frontres_v015_observation_authority(
+                environment_obs_dim=num_obs,
+                configured_frontres_prefix_dim=configured_prefix,
+                actor_tail_dim=self._frontres_future_intent_actor_context_dim,
+                gmt_suffix_dim=FRONTRES_V015_GMT_SUFFIX_DIM,
+            )
+            num_actor_obs = authority.combined_obs_dim
+            self.policy_cfg["num_frontres_obs"] = authority.frontres_visible_dim
             print(
                 "[Runner] FrontRES v015 future-intent actor layout: "
                 f"version={layout.version} H={layout.future_offsets} tail={self._frontres_future_intent_actor_context_dim} "
-                f"raw_obs={num_obs} actor_obs={num_actor_obs}",
+                f"raw_obs={num_obs} actor_obs={num_actor_obs} "
+                f"frontres_obs={authority.frontres_visible_dim} gmt_obs={authority.gmt_suffix_dim}",
                 flush=True,
             )
 

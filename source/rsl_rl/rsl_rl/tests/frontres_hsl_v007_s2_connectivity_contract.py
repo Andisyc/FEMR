@@ -117,6 +117,30 @@ class _TraceNormalizer:
         return value / 2.0
 
 
+class _IntentCommand:
+    def __init__(self, batch) -> None:
+        self.batch = batch
+
+    def frontres_local_scenario_intent_snapshot(self):
+        intent = self.batch.frontres_local_scenario_intent_q29
+        provenance = self.batch.frontres_local_scenario_provenance
+        batch_size = int(intent.shape[0])
+        return {
+            "intent_q29": intent.detach().clone(),
+            "scenario_ids": tuple(f"hsl-s2-scenario-{row}" for row in range(batch_size)),
+            "noisy_segment_hashes": tuple(f"hsl-s2-hash-{row}" for row in range(batch_size)),
+            "x_t_identities": tuple(f"hsl-s2-x-{row}" for row in range(batch_size)),
+            "roles": ("repair",) * batch_size,
+            "provenance": tuple(dict(value) for value in provenance),
+        }
+
+
+class _Env:
+    def __init__(self, command) -> None:
+        self.unwrapped = self
+        self.command_manager = SimpleNamespace(get_term=lambda name: command if name == "motion" else None)
+
+
 class _TraceResidualActor:
     def __init__(self) -> None:
         self.calls: list[torch.Tensor] = []
@@ -153,6 +177,7 @@ def _make_runner(layout, runtime, normalizer: _TraceNormalizer):
         num_frontres_obs=(raw_dim - gmt_dim) + layout.actor_tail_dim,
     )
     runner = SimpleNamespace(
+        env=_Env(_IntentCommand(batch)),
         device=torch.device("cpu"),
         alg=SimpleNamespace(policy=policy),
         _frontres_gmt_obs_dim=gmt_dim,

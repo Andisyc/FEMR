@@ -131,6 +131,32 @@ class _Normalizer:
         return value / 2.0
 
 
+class _IntentCommand:
+    def __init__(self, batch) -> None:
+        self.batch = batch
+
+    def frontres_local_scenario_intent_snapshot(self):
+        intent = getattr(self.batch, "frontres_local_scenario_intent_q29", None)
+        provenance = getattr(self.batch, "frontres_local_scenario_provenance", None)
+        if not isinstance(intent, torch.Tensor) or provenance is None:
+            raise RuntimeError("v015 sealed local scenario intent snapshot is unavailable")
+        batch_size = int(intent.shape[0])
+        return {
+            "intent_q29": intent.detach().clone(),
+            "scenario_ids": tuple(f"hsl-scenario-{row}" for row in range(batch_size)),
+            "noisy_segment_hashes": tuple(f"hsl-hash-{row}" for row in range(batch_size)),
+            "x_t_identities": tuple(f"hsl-x-{row}" for row in range(batch_size)),
+            "roles": ("repair",) * batch_size,
+            "provenance": tuple(dict(value) for value in provenance),
+        }
+
+
+class _Env:
+    def __init__(self, command) -> None:
+        self.unwrapped = self
+        self.command_manager = SimpleNamespace(get_term=lambda name: command if name == "motion" else None)
+
+
 def _q29_runner(layout, runtime, *, provenance=None):
     raw_dim = 5
     gmt_dim = 3
@@ -142,6 +168,7 @@ def _q29_runner(layout, runtime, *, provenance=None):
     )
     normalizer = _Normalizer()
     runner = SimpleNamespace(
+        env=_Env(_IntentCommand(batch)),
         device=torch.device("cpu"),
         alg=SimpleNamespace(
             policy=SimpleNamespace(
@@ -230,6 +257,7 @@ def test_t_hsl_layout_and_provenance() -> None:
     torch.testing.assert_close(prepared, normalizer.calls[0] / 2.0)
 
     runner._frontres_segment_live_current_batch = SimpleNamespace()
+    runner.env = _Env(_IntentCommand(SimpleNamespace()))
     _expect_error(
         RuntimeError,
         lambda: warmup.prepare_frontres_hsl_actor_observation(runner, raw_obs),

@@ -1,8 +1,10 @@
 # FRS-v015 Future-Intent / Single-Action K Acceptance Checklist
 
-Status: current, volatile acceptance surface. Step 0, Step 1A, Step 1B, H1,
-Step 2A, and the candidate-only Step 2B S1/S2 connection are complete;
-formal-route, persistence, and live evidence remain pending. Updated: 2026-07-20.
+Status: current, volatile acceptance surface. R0--R5 are complete at
+`E-FI-18`--`E-FI-23`; R6-S0 telemetry/preflight is complete at `E-FI-24`.
+The S4 transaction has not run because the security boundary requires explicit
+informed authorization before local owner files are transferred to SUST_Main_2.
+Updated: 2026-07-21.
 
 Plan: `../plans/FRS-v015-future-intent-single-action-k-engineering-plan.md`
 
@@ -47,6 +49,9 @@ unless a new test explicitly rebases it.
 | No future root/global field | actor bridge | S1 T-differential/T-provenance | completed | `E-FI-3`; changing future root/global does not change actor tail |
 | No Clean actor leak | actor bridge / normalizer | S1 T-clean-isolation/T-source | completed | `E-FI-3`; same numeric q29 retains deployment/Noisy provenance |
 | Legacy and stats rejection | actor bridge / normalizer | S1 T-legacy-reject/T-layout | completed | `E-FI-3`; `[H,65]` or incompatible stats fail closed |
+| Role-aligned formal carrier | command snapshot / `frontres_runtime.py` | S1 T-role-expand/T-shape/T-permute | completed | `E-FI-20`; command-owned `[8,3,29]` produces ordered `[8,58]`, ignores the poisoned B=4 policy batch, and preserves role permutation/identity |
+| Exact FEMR/GMT visibility | config / runner / actor | S1 T-158-actor/T-770-GMT/T-zero-reject | completed | `E-FI-21`; config `100D` plus q29 tail `58D` resolves to FEMR `158D`, frozen GMT retains the final `770D`, and zero-prefix fallback rejects |
+| Unmocked formal observation connection | command / observation / normalizer / actor | S2 T-connect/T-consumer | pending R5 | `E-FI-18`; `E-FI-16` replaced `_read_live_observations()` and did not cover this boundary |
 
 ## Gate H0: HSL Audit (Read Only)
 
@@ -140,9 +145,22 @@ unless a new test explicitly rebases it.
 | Item | Owner | Required S/T | Status | Evidence pointer |
 | --- | --- | --- | --- | --- |
 | Pre-live v015 sentinel config and entrypoint isolation | config / runner boundary / `train.py` | S2 T-config/T-entrypoint/T-legacy-isolation | completed | `E-FI-16`; explicit H offsets and v015-only dispatch reject legacy modes before any live command |
-| Pre-live local scenario to formal transaction connector | live sampler / reset request / probe / grouped adapter | S2 T-connect/T-state/T-provenance/T-frozen/T-order/T-mass | completed | `E-FI-16`; deterministic semantic fake proves split local carrier -> sealed grouped exact-one route, no simulator or real transaction |
-| Bounded local runtime trace | formal Stage-3 route | S4 T-live/T-state/T-provenance/T-frozen | preflight complete; runtime blocked by host | `E-FI-17`; current Darwin arm64 host has no IsaacLab/GPU/data, so no simulator was started |
-| Runtime grouped update trace | PPO/diagnostics | S4 T-live/T-order/T-mass | pending server execution | run exactly one fresh-policy `2 Segment x 2 attempt` transaction on synchronized SUST_Main_2; require update delta one |
+| Pre-live local scenario to transaction connector | live sampler / reset request / probe / grouped adapter | S2 T-state/T-order/T-mass | completed, observation excluded | `E-FI-16`; fake proves sealed grouped exact-one route, but stubs `_read_live_observations()` |
+| Formal command/observation connector | command / observation / runtime / actor | S2 T-command-connect/T-history-layout/T-role-tail/T-consumer | completed offline | `E-FI-23`; actual `_read_live_observations`, semantic `58/290/870 + 58 -> 928 -> 158/770`, role-aligned deployment q29 |
+| Bounded local runtime trace | formal Stage-3 route | S4 T-live/T-state/T-provenance/T-frozen | failed before actor; preserved | `v015_step5a_s1.log`; reset reaches 4 Repair + 4 Noisy, then command construction raises before action/update |
+| Runtime grouped update trace | PPO/diagnostics | S4 T-live/T-order/T-mass | pending R6 authorization | R5 proves offline grouped update delta one; R6 may run one bounded live transaction |
+
+## R0--R6 Formal Observation Remediation
+
+| Item | Owner | Required S/T | Status | Evidence pointer |
+| --- | --- | --- | --- | --- |
+| R0 observation contract freeze | plan / checklist / evidence | S0 T-source/T-log/T-plan | completed | `E-FI-18`; `870 + 58 = 928`, FEMR `158`, GMT `770`, current-command provenance frozen |
+| R1 current GMT command | `commands.py::MultiMotionCommand` | S1 T-current-command/T-shape/T-provenance/T-current-only/T-continuation-isolation | completed | `E-FI-19`; role-aligned deployment q29/dq29 at t produces `[B,58]`, while future horizon/q-only/mixed routes reject and Clean C remains K-only |
+| R2 role-aligned q29 H tail | command snapshot / `frontres_runtime.py` | S1 T-role-expand/T-offset/T-permute/T-no-root/T-no-Clean | completed | `E-FI-20`; read-only command snapshot exposes only intent/identity/provenance and routes offsets `(1,2)` as `[B,58]` |
+| R3 FEMR/GMT authority split | config / runner / actor | S1 T-928-layout/T-158-actor/T-770-GMT/T-zero-reject | completed | `E-FI-21`; full `[B,928]`, FEMR prefix `[B,158]`, frozen GMT suffix `[B,770]`, fail-closed zero prefix |
+| R4 persistence revalidation | checkpoint / normalizer | S3 T-layout/T-prefix-stats/T-legacy-reject/T-atomicity | completed | `E-FI-22`; v2 binds `(1,2)`, `928/158/770`, full 158D prefix fingerprint, committed receipt, and rejects v1/full/zero/65D/unversioned/partial identities before mutation |
+| R5 unmocked formal connection | command / observation / runtime / actor / transaction | S2 T-connect/T-history-layout/T-consumer/T-one-action/T-exact-one-update | completed | `E-FI-23`; real `_read_live_observations`, semantic 58/290/870 + 58 -> 928 -> 158/770, post-advance C K, 2 Segment x 2 attempts, update delta one |
+| R6 bounded live sentinel | formal Stage-3 route | S4 T-live/T-identity/T-order/T-mass | partial: S0 ready, remote transfer blocked | `E-FI-24`; structured snapshot/fail-closed telemetry and remote assets pass, but no source transfer or transaction occurred |
 
 ## G5 / Step 5B: Deployment Composition Evaluation
 
@@ -169,3 +187,5 @@ unless a new test explicitly rebases it.
   connectivity remains user-gated.
 - No formal route, persistence migration, or live run begins before its listed
   preceding evidence tier passes.
+- The pre-action GMT command is current deployment-carrier q29/dq29 at `t`;
+  Clean C remains inaccessible until the explicit post-action K executor opens.

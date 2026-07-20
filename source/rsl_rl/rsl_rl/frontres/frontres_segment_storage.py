@@ -425,24 +425,31 @@ class FrontRESV015OneActionKEvidence:
         rows_by_scenario: dict[str, list[int]] = {}
         for row, scenario_id in enumerate(self.scenario_ids):
             rows_by_scenario.setdefault(str(scenario_id), []).append(row)
-        if len(rows_by_scenario) != policy_count:
-            raise ValueError("v015 one-action evidence requires one scenario identity per Repair policy row")
+        if not rows_by_scenario or len(rows_by_scenario) > policy_count:
+            raise ValueError("v015 one-action evidence has an invalid scenario identity partition")
         for scenario_id, rows in rows_by_scenario.items():
-            if len(rows) != 2 or {self.roles[row] for row in rows} != {"repair", "noisy"}:
-                raise ValueError(f"v015 one-action evidence scenario={scenario_id!r} must have one Repair and one Noisy row")
-            left, right = rows
-            if (
-                self.noisy_segment_hashes[left] != self.noisy_segment_hashes[right]
-                or self.x_t_identities[left] != self.x_t_identities[right]
-                or int(self.horizon_k[left].item()) != int(self.horizon_k[right].item())
-                or not torch.equal(self.continuation[:, left], self.continuation[:, right])
-                or not torch.equal(self.intent_q29[left], self.intent_q29[right])
-                or self.intent_q29_provenance[left] != self.intent_q29_provenance[right]
-                or self.intent_q29_source[left] != self.intent_q29_source[right]
-            ):
-                raise ValueError(f"v015 one-action evidence scenario={scenario_id!r} mixes immutable local artifacts")
-            provenance = self.intent_q29_provenance[left]
-            source = self.intent_q29_source[left].lower()
+            repair_rows_for_scenario = [row for row in rows if self.roles[row] == "repair"]
+            noisy_rows_for_scenario = [row for row in rows if self.roles[row] == "noisy"]
+            if not repair_rows_for_scenario or len(repair_rows_for_scenario) != len(noisy_rows_for_scenario):
+                raise ValueError(
+                    f"v015 one-action evidence scenario={scenario_id!r} must have equal Repair/Noisy attempt rows"
+                )
+            # M 次尝试共享同一 sealed scenario. 逐行验证 I/C/hash/x_t/K, 而不是
+            # 错误地要求每条 Repair policy row 都拥有不同 scenario_id.
+            anchor = rows[0]
+            for row in rows[1:]:
+                if (
+                    self.noisy_segment_hashes[anchor] != self.noisy_segment_hashes[row]
+                    or self.x_t_identities[anchor] != self.x_t_identities[row]
+                    or int(self.horizon_k[anchor].item()) != int(self.horizon_k[row].item())
+                    or not torch.equal(self.continuation[:, anchor], self.continuation[:, row])
+                    or not torch.equal(self.intent_q29[anchor], self.intent_q29[row])
+                    or self.intent_q29_provenance[anchor] != self.intent_q29_provenance[row]
+                    or self.intent_q29_source[anchor] != self.intent_q29_source[row]
+                ):
+                    raise ValueError(f"v015 one-action evidence scenario={scenario_id!r} mixes immutable local artifacts")
+            provenance = self.intent_q29_provenance[anchor]
+            source = self.intent_q29_source[anchor].lower()
             if provenance != "deployment_noisy_q29" or not source or any(
                 token in source for token in ("clean", "root", "global")
             ):
@@ -632,21 +639,26 @@ class FrontRESV015GainReturnEvidence:
 
 
 def pair_frontres_v015_gain_facts(evidence: FrontRESV015OneActionKEvidence) -> FrontRESV015PairedGainFacts:
-    """提取对齐的 Repair/Noisy current-q29 facts, 不把 Clean C 用作 intent."""
+    """按 scenario 内 attempt 顺序配对 Repair/Noisy facts, 不把 Clean C 用作 intent."""
 
     evidence.validate()
     repair_rows = evidence.policy_row_indices.to(dtype=torch.long)
+    noisy_by_scenario: dict[str, list[int]] = {}
+    for row, scenario_id in enumerate(evidence.scenario_ids):
+        if evidence.roles[row] == "noisy":
+            noisy_by_scenario.setdefault(str(scenario_id), []).append(row)
+    repair_attempt_index: dict[str, int] = {}
     noisy_rows: list[int] = []
     for repair_row in repair_rows.tolist():
-        scenario_id = evidence.scenario_ids[int(repair_row)]
-        matches = [
-            row
-            for row, candidate_id in enumerate(evidence.scenario_ids)
-            if candidate_id == scenario_id and evidence.roles[row] == "noisy"
-        ]
-        if len(matches) != 1:
-            raise ValueError(f"v015 paired gain facts require one Noisy row for scenario={scenario_id!r}")
-        noisy_rows.append(matches[0])
+        scenario_id = str(evidence.scenario_ids[int(repair_row)])
+        attempt = repair_attempt_index.get(scenario_id, 0)
+        matches = noisy_by_scenario.get(scenario_id, ())
+        if attempt >= len(matches):
+            raise ValueError(
+                f"v015 paired gain facts require an attempt-aligned Noisy row for scenario={scenario_id!r}"
+            )
+        noisy_rows.append(matches[attempt])
+        repair_attempt_index[scenario_id] = attempt + 1
     noisy_index = torch.tensor(noisy_rows, device=repair_rows.device, dtype=torch.long)
     provenance = tuple(evidence.intent_q29_provenance[int(row)] for row in repair_rows.tolist())
     source = tuple(evidence.intent_q29_source[int(row)] for row in repair_rows.tolist())

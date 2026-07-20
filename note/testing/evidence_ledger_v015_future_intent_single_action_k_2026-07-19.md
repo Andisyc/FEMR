@@ -1191,3 +1191,618 @@ Stop result:
   lacks any required path, selects duplicate Segments, plans a row count other
   than four Repair attempts, emits a later FEMR action, exposes Clean actor
   input, or reports optimizer-step delta other than one.
+
+## E-FI-18: R0 Formal Observation Contract Freeze
+
+Date: 2026-07-20
+Tier: S0 read-only source/log audit and governance correction
+Authorization: user requested R0 / 7. Source and logs may be read, and the
+v015 plan/checklist/evidence/canvas may be corrected. Concept Figure, active
+method semantics, training source, tests, simulator, and live execution are
+out of scope.
+
+Raw evidence:
+
+- `v015_step5a_s1.log` reports the real policy observation as `870D`:
+  `30D` anchor-error history, `70D` balance history, and a `770D`
+  GMT-compatible suffix. Its command term is `290D = 58D x 5 history`.
+- The same log reports the selected v015 layout as `H=(1,2)`, q29 tail `58D`,
+  raw observation `870D`, and combined actor observation `928D`. The loaded
+  frozen GMT model and normalizer both retain `770D` input.
+- The residual actor printed `Linear(in_features=928, ...)`. Source confirms
+  `rsl_rl_mosaic_cfg.py` sets `num_frontres_obs=0`; the runner adds the q29 tail
+  to `num_actor_obs` but changes `num_frontres_obs` only when it was already
+  positive. `FrontRESActorCritic` therefore gives FEMR the full `928D` tensor
+  when the configured prefix is zero.
+- The live route reached balanced `repair=4, noisy=4`, completed the sealed
+  local-scenario reset, and then failed in environment observation construction:
+  `MultiMotionCommand.command -> _gather_future_by_motion()` rejected the
+  active local scenario before the explicit K executor opened. The failure
+  occurred before q29 append, normalizer, actor action, K execution, storage,
+  loss, or optimizer update.
+- `apply_frontres_segment_index_reset()` expands the selected motion indices
+  and start frames onto every Repair/Noisy role row before installing the local
+  scenario. Thus the command owner already has role-aligned selected deployment
+  motion/frame identities at `t`.
+- The ordinary command owner constructs one current command from
+  `env_motion_indices` and `time_steps`: q29 and dq29 are gathered from the
+  selected motion carrier and flattened to `[B,58]` when
+  `motion_horizon=1`. The policy observation manager's five-frame history turns
+  this term into `[B,290]` inside the existing `870D` observation.
+- The local scenario separately stores role-aligned `[B,H+1,29]` q29 intent,
+  but `frontres_runtime.py::_future_intent_context_batch()` currently reads the
+  policy-attempt batch. In the bounded transaction that source has `B=4`, while
+  environment observation and command rows have `B=8`.
+- `frontres_v015_local_sentinel_connectivity_contract.py` replaces
+  `_read_live_observations()` with a function returning `object()`. Therefore
+  `E-FI-16` did not execute the command property, 870D observation construction,
+  q29 append, normalizer, or FEMR/GMT consumers.
+
+Frozen observation contract:
+
+| Boundary | Shape | Provenance / consumer |
+| --- | --- | --- |
+| Environment policy observation | `[B,870]` | current robot/balance/artifact prefix `100D` plus unchanged GMT suffix `770D` |
+| Role-aligned local intent | `[B,H+1,29]`, `H=2` | sealed deployment/Noisy q29 carrier for all Repair/Noisy rows |
+| Positive-offset actor tail | `[B,58]` | q29 offsets `(1,2)` only; no root/global/Clean C |
+| Combined observation | `[B,928]` | `[q29 tail 58, current prefix 100, GMT suffix 770]` |
+| FEMR visible input | `[B,158]` | first `58+100`; current artifact plus deployable future q29 intent |
+| Frozen GMT input | `[B,770]` | original final suffix and original checkpoint/normalizer identity |
+| Current GMT command at `t` | `[B,58]` before history | current deployment-carrier `q29_t+dq29_t`, selected by role-aligned motion/frame identity |
+| GMT continuation after action | `[B,K,65]` | Clean C, inaccessible until the explicit frozen-GMT K executor opens |
+
+Decisions:
+
+- This is an integration/evidence defect, not a v015 method change. The Concept
+  Figure and active contracts remain unchanged.
+- Current GMT q29/dq29 at `t` belongs to the selected deployment reference
+  carrier. Numerical equality with Clean calibration does not change its
+  provenance. Clean C remains `t+1:t+K` and cannot service the pre-action
+  command.
+- Step 1B is reclassified as partial: `E-FI-3` proves the isolated q29-tail
+  builder, not role-aligned formal consumption or the FEMR `158D` boundary.
+- Step 5A-S0 is reclassified as partial: `E-FI-16` proves config/transaction
+  isolation and exact-one fake update, not formal observation connectivity.
+- No further simulator/live run is allowed before R1--R5 complete, including
+  an unmocked offline formal observation contract.
+
+R1 Step Contract:
+
+- Owner: `commands.py::MultiMotionCommand.command` and its local
+  `_gather_future_by_motion()` branch.
+- Scope: for an active local scenario before K execution, accept only
+  `motion_horizon=1` and return current deployment q29/dq29 as `[B,58]` from
+  the already installed role-aligned motion/frame identities.
+- Non-scope: q29 H-tail, actor visibility, normalizer, K continuation, Gain,
+  PPO, checkpoint, formal runner, simulator, training, or live run.
+- Tests: S1 T-current-command/T-shape/T-provenance/T-role-identity/
+  T-current-only/T-continuation-isolation/T-legacy-reject.
+- Stop: any access to Clean C, future root/global, Clean actor data, horizon
+  greater than one, mixed same-scenario role values, or weakened K gate.
+
+Next:
+
+- Stop after R0. R1 requires separate user authorization.
+
+## E-FI-19: R1 Current-Frame GMT Command Route
+
+Date: 2026-07-20
+Tier: S1 deterministic command-owner evidence; no S2 formal observation or S4
+live claim
+
+Scope:
+
+- Implement only the `MultiMotionCommand` pre-action current-command branch and
+  deterministic S1 tests.
+- Keep q29 H append, actor visibility, normalizer, checkpoint, K semantics,
+  Gain, PPO, formal runner, simulator, training, and live execution unchanged.
+
+RED evidence:
+
+- The new `frontres_v015_current_gmt_command_contract.py` first failed at
+  `MultiMotionCommand.command -> _gather_future_by_motion()` with the preserved
+  runtime error: `v015 local scenario has no generic future command route...`.
+  This reproduced the R0 command-owner defect before production code changed.
+- The first GREEN attempt then stopped at the new q29 identity oracle because
+  the inherited reset fixture used arbitrary `I[t]` values unrelated to its
+  declared motion/frame. The fixture was corrected to use the same deployment
+  motion/frame q29; the production assertion was retained.
+
+Implementation facts:
+
+- `commands.py::MultiMotionCommand._frontres_local_scenario_current_command_rows()`
+  is the sole new behavior owner.
+- It accepts only a transaction-wide active/current-frame-ready local scenario,
+  K execution inactive, getter `joint_pos` or `joint_vel`, and
+  `motion_horizon=1`.
+- It gathers current q29/dq29 from the role-aligned `env_motion_indices` and
+  `time_steps`, requires finite `[B,29]` rows, and asserts gathered q29 exactly
+  matches sealed deployment `I[t]`.
+- `MultiMotionCommand.command` requires `command_velocity=True` for this
+  pre-action local route and returns `[B,58] = q29_t + dq29_t`.
+- The existing K-active branch remains first and still reads Clean C through
+  `_frontres_local_scenario_continuation_rows()` only after the explicit K
+  executor opens. Mixed local/legacy rows remain rejected.
+
+Verification:
+
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_current_gmt_command_contract.py`
+  exited 0 and printed:
+  `T-current-command`, `T-shape`, `T-provenance`, `T-role-identity`,
+  `T-current-only`, `T-continuation-isolation`, and `T-legacy-reject`.
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_two_role_reset_contract.py`
+  exited 0. Immutable Repair/Noisy reset and role balance remain valid.
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_one_action_k_contract.py`
+  exited 0. One action, later-FEMR freeze, Clean-C K execution, and one policy
+  row remain valid.
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_segment_motion_command_reference_contract.py`
+  exited 0. Legacy reference-window/fixed-tape command behavior remains valid.
+- `python -m py_compile` over `commands.py` and the two changed/new R1 test
+  files exited 0. `git diff --check` also exited 0.
+
+Confirmed:
+
+- For the semantic `B=8` fixture, current command shape is `[8,58]` and every
+  Repair row equals its paired Noisy row from the same selected motion/frame.
+- `motion_horizon>1` and `command_velocity=False` reject before exposing a
+  future or q-only command.
+- Poisoned/nonmatching Clean C and future q29 values do not service the
+  pre-action command; once K opens, the unchanged command branch consumes C.
+- R1 stop conditions were not triggered.
+
+Unconfirmed:
+
+- IsaacLab five-frame observation history, role-aligned future q29 H append,
+  `928 -> 158/770` actor/GMT visibility, normalizer consumption, formal
+  connectivity, simulator timing, and live behavior remain R2--R6 evidence.
+
+Next:
+
+- Stop after R1. R2 requires separate user authorization.
+
+## E-FI-20: R2 Role-Aligned q29 H Bridge
+
+Date: 2026-07-20
+Tier: S1 deterministic command-snapshot/runtime-bridge evidence; no normalizer,
+formal observation, simulator, or live claim
+
+Scope:
+
+- Add one read-only `MultiMotionCommand` accessor for the sealed role-aligned
+  q29 intent and identity/provenance metadata.
+- Make `frontres_runtime.py::append_frontres_future_intent_context()` consume
+  that command snapshot rather than the policy-attempt batch.
+- Keep actor visibility, normalizer behavior, checkpoint, K, Gain, PPO, formal
+  runner, simulator, training, and live execution unchanged.
+
+RED evidence:
+
+- `frontres_v015_role_aligned_future_intent_contract.py` first failed with
+  `AttributeError`: `MultiMotionCommand` had no
+  `frontres_local_scenario_intent_snapshot()` accessor.
+- The test fixture deliberately supplied a poisoned B=4 policy-attempt intent
+  beside the real B=8 command carrier, so a batch fallback could not satisfy
+  the contract.
+
+Implementation facts:
+
+- `commands.py::frontres_local_scenario_intent_snapshot()` requires one
+  transaction-wide active/current-frame-ready scenario with K inactive.
+- It returns cloned `intent_q29` plus scenario/hash/x_t/role/provenance metadata
+  only. Current root artifact and Clean continuation are not in its schema;
+  caller mutation cannot alter command-owned data.
+- `frontres_runtime.py::_future_intent_context_snapshot()` resolves the motion
+  command and requires that exact snapshot schema.
+- `append_frontres_future_intent_context()` now selects offsets from the frozen
+  `FrontRESFutureIntentLayout`, reads intent/provenance only from the command
+  snapshot, and never reads the policy-attempt batch for actor H values.
+- The existing layout builder still validates detached finite
+  `[B,H_max+1,29]`, deployment/Noisy provenance, ordered positive offsets, and
+  excludes root/global/Clean sources.
+
+Verification:
+
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_role_aligned_future_intent_contract.py`
+  exited 0 and printed T-role-expand/T-offset/T-policy-batch-isolation,
+  T-read-only/T-no-root/T-no-Clean/T-no-C, and
+  T-permute/T-scenario-identity/T-provenance.
+- `frontres_future_intent_actor_context_contract.py` exited 0 after its weak
+  batch fixture was upgraded to expose the same data through a command
+  snapshot; shape/offset/provenance/clean-isolation/legacy rejection remain
+  valid.
+- `frontres_hsl_v007_s1_contract.py` and
+  `frontres_hsl_v007_s2_connectivity_contract.py` exited 0 after their fixtures
+  were similarly rebased; no production HSL behavior changed.
+- `frontres_v015_current_gmt_command_contract.py`,
+  `frontres_v015_two_role_reset_contract.py`, and
+  `frontres_v015_one_action_k_contract.py` exited 0. R1 current command,
+  immutable reset, one action, and K-only Clean C remain valid.
+- `python -m py_compile` over the two owner files and affected R2 tests exited
+  0.
+
+Confirmed:
+
+- The semantic fixture carries `B=8`, `H+1=3`, q29=29; offsets `(1,2)` produce
+  `[8,58]` in stable order.
+- Four Repair rows equal their corresponding four Noisy rows; an arbitrary row
+  permutation produces the same permutation of tail and identity.
+- A poisoned B=4 policy-attempt batch is ignored for actor H values.
+- Snapshot mutation, current-root mutation, Clean-C mutation, and an injected
+  future-root/global field cannot change the H tail.
+- Clean-labelled provenance rejects, and R2 stop conditions were not triggered.
+
+Unconfirmed:
+
+- `num_frontres_obs=0` still permits FEMR to consume the full `928D` tensor.
+  Exact FEMR `158D` / frozen-GMT `770D` authority is R3.
+- Prefix/suffix normalizer persistence, unmocked formal observation
+  connectivity, simulator timing, and live execution remain R4--R6.
+
+Next:
+
+- Stop after R2. R3 requires separate user authorization.
+
+## E-FI-21: R3 FEMR 158D / GMT 770D Authority Split
+
+Date: 2026-07-20
+Tier: S1 deterministic observation-layout/consumer-isolation evidence; no
+checkpoint persistence, formal connection, simulator, training, or live claim
+
+Scope:
+
+- Change only the v015 observation config, runner layout resolution, and
+  `FrontRESActorCritic` visibility boundary.
+- Keep command provenance, q29 H values, normalizer persistence, checkpoint,
+  K, Gain, PPO, formal runner, simulator, training, and live execution
+  unchanged.
+
+RED evidence:
+
+- The new `frontres_v015_observation_authority_contract.py` first failed to
+  import `resolve_frontres_v015_observation_authority`, proving that the
+  `870+58 -> 928`, `58+100 -> 158`, and zero-prefix rejection contract had no
+  owner before the implementation.
+
+Implementation facts:
+
+- `rsl_rl_mosaic_cfg.py` now declares the current FrontRES prefix as `100D`;
+  it no longer permits the legacy zero-prefix/full-observation fallback.
+- `frontres_observation_layout.py` owns an immutable v015 authority resolver.
+  It requires `870 = 100 + 770`, resolves combined `928 = 870 + 58`, and
+  resolves FEMR-visible `158 = 100 + 58`.
+- `on_policy_runner.py` uses that resolver only on the requested v015 Segment
+  Replay route, passes `num_actor_obs=928`, and passes
+  `num_frontres_obs=158` to the policy.
+- `FrontRESActorCritic` records the GMT checkpoint/normalizer policy dimension
+  and rejects task-space construction or parsing unless
+  `num_frontres_obs + gmt_policy_obs_dim == num_actor_obs`; zero is rejected.
+- `_parse_observations()` caches the full tensor for GMT but returns only the
+  prefix to FEMR. `_run_gmt_direct()` continues to slice the original final
+  `770D` suffix using the frozen GMT normalizer dimension.
+
+Verification:
+
+- `frontres_v015_observation_authority_contract.py` exited 0 and printed
+  T-928-layout/T-158-actor, T-num-frontres-zero-reject,
+  T-770-GMT/T-frozen-GMT-isolation, and T-config/T-runner-resolution.
+- `frontres_observation_layout_contract.py` exited 0; the existing
+  `870 = 100 + 770` split and frozen GMT suffix normalization remain valid.
+- `frontres_future_intent_actor_context_contract.py`,
+  `frontres_v015_role_aligned_future_intent_contract.py`,
+  `frontres_hsl_v007_s1_contract.py`, and
+  `frontres_hsl_v007_s2_connectivity_contract.py` exited 0; q29 provenance,
+  role alignment, Stage-1 routing, and Stage-3 HSL isolation remain valid.
+- `frontres_segment_stage3_entrypoint_pseudo_contract.py` exited 0. This is a
+  deterministic config/entrypoint regression only and did not run training.
+- `python -m py_compile` over all R3 source/test owners exited 0.
+  `git diff --check` exited 0.
+
+Confirmed:
+
+- The full policy observation remains `[B,928] = [58D q29 tail, 100D current
+  FrontRES prefix, 770D GMT suffix]`.
+- FEMR receives exactly the first `[B,158]`; a poisoned GMT-only suffix cannot
+  appear in the actor slice.
+- Frozen GMT receives exactly the original final `[B,770]`; no checkpoint,
+  GMT input layer, or GMT normalizer reshaping was introduced.
+- Both runner resolution and task-space actor parsing reject
+  `num_frontres_obs=0`. R3 stop conditions were not triggered.
+
+Unconfirmed:
+
+- Prefix/suffix normalizer persistence and checkpoint/resume identity remain
+  R4 S3 evidence.
+- Unmocked formal observation connectivity, simulator timing, training, and
+  live behavior remain R5--R6.
+
+Next:
+
+- Stop after R3. R4 requires separate user authorization.
+
+## E-FI-22: R4 Exact Layout Persistence Revalidation
+
+Date: 2026-07-20
+Tier: S3 deterministic CPU checkpoint/resume identity and atomicity evidence;
+no actual checkpoint cadence/resume, formal connection, simulator, training,
+or live claim
+
+Scope:
+
+- Rebind the existing v015 Stage-3 persistence owner to the R3 observation
+  authority: `H=(1,2)`, raw `870D`, q29 tail `58D`, combined `928D`, FEMR
+  prefix `158D`, frozen-GMT suffix `770D`.
+- Preserve save/load ownership, grouped-loss identity, metadata-only committed
+  receipt, and pre-mutation transaction atomicity.
+- Keep runtime normalizer math, optimizer/grouped PPO, formal runner,
+  simulator, training, actual checkpoint cadence/resume, and live execution
+  unchanged.
+
+Observed pre-fix fact:
+
+- The existing `frontres_v015_checkpoint_resume_contract.py` exited 0 while
+  printing `Loaded FrontRES prefix normalizer stats (dims 0-61)`. Its fixture
+  used offsets `(1,3)`, a `3D` current prefix, and a `7D` GMT suffix. This
+  proved generic save/load mechanics but could not prove the R3
+  `928 -> 158/770` identity.
+- After rebasing the fixture, the first RED run stopped at
+  `identity["format"] == "frontres-v015-checkpoint-v2"` because production
+  still emitted `frontres-v015-checkpoint-v1`.
+
+Implementation facts:
+
+- `frontres_checkpointing.py::_v015_checkpoint_layout_fields()` remains the
+  unique layout identity owner and now reuses the R3 authority resolver.
+- The v2 identity requires offsets `(1,2)` and records raw `870D`, current
+  FrontRES prefix `100D`, q29 tail `58D`, actor `928D`, FEMR prefix `158D`,
+  and GMT suffix `770D`.
+- The normalizer payload remains `[158D prefix stats | 770D frozen-GMT
+  suffix] = 928D`. SHA-256 covers both mean and std of the complete `158D`
+  prefix; tampering index 157 rejects.
+- `frontres-v015-checkpoint-v1`, absent/unversioned identity, legacy `[H,65]`,
+  `num_frontres_obs=0`, full-`928D` FEMR visibility, mismatched H, and partial
+  transaction states fail before actor/sampler/normalizer/optimizer restore.
+- Committed transactions still resume only as a metadata receipt and return
+  runtime transaction state to idle; no scenario reference or candidate batch
+  is serialized.
+
+Multi-layer semantic audit:
+
+| Layer | Files / symbols checked | Aliases checked | Evidence | Gap |
+| --- | --- | --- | --- | --- |
+| Architecture / contract | registry, Method v015, Training v007, R4 plan/checklist, Method-to-Code atlas | checkpoint identity, HSL checkpoint, persistence | note-confirmed | Concept Figure unchanged because method semantics did not change |
+| Symbol | `save_runner`, `load_runner`, `_v015_checkpoint_layout_fields`, `_build_v015_checkpoint_identity`, `_validate_v015_checkpoint_resume` | actor/prefix/GMT dims, transaction receipt | code-confirmed | generic cadence/dispatch unconfirmed |
+| Lexical | checkpoint, resume, `obs_norm_state_dict`, prefix mean/std/fingerprint, normalizer | `_frontres_extra_*`, layout version, `num_frontres_obs` | code-confirmed | policy-quality evaluator is outside the R4 resume owner |
+| Dataflow | runner fields -> combined normalizer -> identity -> pre-mutation validation -> prefix restore | `870/58/928/158/770` | contract-confirmed | no real GMT checkpoint artifact loaded |
+| Lifecycle | idle/committed save-resume; collecting/sealed reject | sampler, actor, normalizer, optimizer mutation | contract-confirmed | actual periodic/final checkpoint trigger untested |
+| Semantic stress | H mismatch, v1, 65D, unversioned, zero/full prefix, tampered last prefix stat, partial transaction | legacy/mixed layouts | contract-confirmed | simulator/live timing untested |
+
+Verification:
+
+- `/Users/chengyuxuan/ArtiIntComVis/FEMR/frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_checkpoint_resume_contract.py`
+  exited 0. It printed T-checkpoint/T-layout/T-prefix-stats/
+  T-commit-receipt, T-v015-hsl-history, T-resume/T-legacy-reject/
+  T-prefix-stats, T-legacy-zero-reject, and T-atomicity.
+- `frontres_v015_observation_authority_contract.py` exited 0 and reconfirmed
+  `870+58=928`, `58+100=158`, GMT `770D`, and zero-prefix rejection.
+- `frontres_v015_transaction_route_contract.py` exited 0 and reconfirmed the
+  sealed `2 x 2` exact-one receipt and checkpoint barrier.
+- `frontres_hsl_v007_s1_contract.py` exited 0; old HSL checkpoints and Stage-3
+  HSL writes/loss remain rejected.
+- `python -m py_compile` over the R4 owner and S3 contract exited 0.
+  `git diff --check` exited 0.
+
+Confirmed:
+
+- The only accepted v015 Stage-3 persistence envelope is v2 with exact
+  `(1,2)` / `928 -> 158/770` identity.
+- The full `158D` prefix mean/std fingerprint round-trips and restores before
+  runtime use; the frozen GMT normalizer object is not overwritten.
+- All R4 legacy/mixed-layout and transaction-atomicity stop conditions reject
+  before mutable restore. R4 stop conditions were not triggered.
+
+Unconfirmed:
+
+- Actual periodic/final checkpoint cadence, a real v2 checkpoint artifact,
+  generic formal dispatch, and live resume remain outside this S3 claim.
+- `frontres_policy_quality_eval.py` reads checkpoint normalizer state through
+  a separate evaluation route; R4 did not certify that consumer.
+- Unmocked formal observation connectivity, simulator timing, training, and
+  live behavior remain R5--R6.
+
+Next:
+
+- Stop after R4. R5 requires separate user authorization.
+
+## E-FI-23: R5 Unmocked Offline Formal Observation Connectivity
+
+Date: 2026-07-20
+Tier: S2 deterministic semantic-CPU connectivity evidence; no simulator,
+training, live run, checkpoint mutation, grouped-PPO formula change, or HSL
+change
+
+Scope:
+
+- Exercise the production `_read_live_observations()` owner without replacing
+  or monkeypatching it.
+- Connect current deployment command -> semantic `870D` observation ->
+  command-owned `58D` q29 future-intent append -> normalization -> FEMR
+  `158D` prefix / frozen-GMT `770D` suffix -> one-action K evidence -> sealed
+  grouped transaction -> exactly one optimizer step.
+- Use two Segment scenarios, two policy attempts per scenario, eight physical
+  role rows (`4 Repair + 4 Noisy`), and four PPO policy rows.
+
+Observed RED facts:
+
+- The earlier local-sentinel fixture replaced `_read_live_observations` with a
+  prepared object. It proved transaction plumbing but not the formal
+  observation connector required by R5.
+- The first unmocked route failed because K execution reopened the actor-only
+  q29 snapshot after the command-owned Clean-C executor had opened.
+- The next run carried the correct immutable identities
+  (`scenario-a, scenario-a, scenario-b, scenario-b` for both roles), but
+  storage rejected them by assuming one Repair and one Noisy row per scenario.
+  That assumption contradicted M attempts sharing one sealed scenario.
+- After those fixes, every compared GMT command-history element was stale
+  (`464/464` mismatched): the runner read the K observation before advancing
+  the command cursor to the requested Clean-C offset.
+
+Implementation facts:
+
+- `frontres_segment_live_probe.py` freezes the already normalized FEMR `158D`
+  prefix at action time. During K it reads and normalizes only a fresh raw
+  `770D` GMT suffix, so it does not reopen the actor H snapshot. The exact
+  formal v015 route fails closed if the `158/770` authority is unavailable.
+- `FrontRESV015OneActionKEvidence.validate()` now accepts M attempts per sealed
+  scenario while requiring equal nonempty Repair/Noisy role counts and exact
+  agreement of scenario, x_t, artifact/intent/continuation identities, hash,
+  and K for every row.
+- `pair_frontres_v015_gain_facts()` pairs Repair and Noisy rows by stable
+  attempt order inside each scenario. The v003 Gain formula and grouped mass
+  are unchanged.
+- `prepare_frontres_v015_frozen_gmt_step()` advances the Clean-C command cursor
+  before invoking a supplied GMT-observation provider. The provider reuses the
+  production environment observation owner and split normalizer; it does not
+  add an environment step, later FEMR action, or PPO row.
+
+Connectivity trace:
+
+| Boundary | Deterministic S2 fact |
+| --- | --- |
+| Current command | `[B,58] = q29_t + dq29_t`, deployment provenance |
+| Command history in raw observation | `5 x 58 = 290D` inside semantic `870D` |
+| Future intent append | command-owned offsets `(1,2)` -> `58D` |
+| Combined observation | `870 + 58 = 928D` |
+| FEMR authority | first `158D = 58D q29 tail + 100D current prefix` |
+| GMT authority | final original `770D` suffix only |
+| K lifecycle | one FEMR action at t; every K observation follows the current Clean-C cursor |
+| PPO transaction | four attempts/four rows; sealed grouped update delta exactly one |
+
+Verification:
+
+- `frontres_v015_unmocked_observation_connectivity_contract.py` exited 0 and
+  printed T-command-connect, T-history-layout, T-role-tail, T-normalizer,
+  T-consumer, T-one-action, T-clean-C-order, and T-exact-one-update.
+- `frontres_v015_one_action_k_contract.py` exited 0 and reconfirmed one actor
+  action, no later actor action, and K evidence without extra policy rows.
+- `frontres_v015_gain_consumer_contract.py` and
+  `frontres_v015_grouped_candidate_adapter_contract.py` exited 0; v003 Gain,
+  sign-preserving scale, and grouped mass remain unchanged.
+- `frontres_v015_transaction_route_contract.py` exited 0 and reconfirmed the
+  sealed `2 x 2` exact-one update boundary and legacy/HSL rejection.
+- `frontres_v015_local_sentinel_connectivity_contract.py`,
+  `frontres_v015_role_aligned_future_intent_contract.py`, and
+  `frontres_v015_observation_authority_contract.py` exited 0; local scenario,
+  role-aligned q29, and `928 -> 158/770` contracts remain valid.
+
+Confirmed:
+
+- R5 reaches the actual observation-reading function using a semantic CPU
+  environment fixture; `_read_live_observations()` is not replaced.
+- Clean x_t remains dynamics reset only. Actor context is current artifact plus
+  deployment/Noisy q29 intent; Clean continuation is consumed only by frozen
+  GMT after the single FEMR action.
+- The sealed `2 Segment x 2 attempt` transaction preserves one PPO row per
+  attempt and performs exactly one optimizer step after all attempts arrive.
+- No checkpoint, grouped-PPO formula, HSL, simulator, training, or live path
+  was modified or executed.
+
+Unconfirmed:
+
+- Isaac/real-environment timing, actual frozen GMT checkpoint behavior,
+  simulator-side command refresh, live telemetry, and physical policy quality
+  remain outside R5.
+
+Next:
+
+- Stop after R5. R6 bounded live identity sentinel requires separate user
+  authorization.
+
+## E-FI-24: R6-S0 Structured Live Snapshot And Remote Preflight
+
+Date: 2026-07-21
+Tier: deterministic telemetry contract plus read-only SUST_Main_2 preflight;
+no source transfer, simulator launch, optimizer update, training, or S4 live
+transaction
+
+Scope:
+
+- Make the already-authorized bounded sentinel emit one fail-closed structured
+  snapshot containing the full observation authority and transaction identity.
+- Verify the named SUST_Main_2 host, repository state, required assets, and
+  runtime interpreter before paying for the single live transaction.
+- Keep checkpoint, grouped-PPO math, HSL, environment semantics, and training
+  behavior unchanged.
+
+Observed gap and fix:
+
+- Before R6-S0, the sentinel retained scenario/hash/x_t/K/update diagnostics
+  but did not persist `870/58/928/158/770`, q29 provenance, Clean-C length, or
+  optimizer identity as one structured log record. A successful run therefore
+  could not satisfy the R6 stop condition.
+- `_read_live_observations()` now records actual raw, appended, normalized,
+  FEMR-visible, and GMT-suffix dimensions. The one-action collector records the
+  live-only `58D` current command, while each post-advance K read records the
+  actual `770D` GMT input and read count.
+- `_build_frontres_v015_local_identity_sentinel_request()` rejects before the
+  grouped update unless the exact `8/58/870/58/928/928/158/770/770` trace and at
+  least one post-advance GMT read are present.
+- `run_frontres_v015_local_identity_sentinel()` rejects a missing pre-update
+  snapshot and prints `[FrontRES v015 Live Snapshot]` as sorted JSON after the
+  exact-one update receipt.
+
+Deterministic verification:
+
+- `frontres_v015_unmocked_observation_connectivity_contract.py` exited 0 using
+  the production `_read_live_observations()` and reconfirmed one action,
+  post-advance Clean C, four attempts, and update delta one while checking the
+  observation trace.
+- `frontres_v015_local_sentinel_connectivity_contract.py` exited 0 and printed
+  a structured snapshot with q29 provenance, Clean-C lengths, roles,
+  scenario/hash/x_t, grouped masses, `later_femr_action_count=0`, and
+  `optimizer_step_delta=1`.
+- `frontres_v015_one_action_k_contract.py`, Python compilation, and
+  `git diff --check` exited 0.
+
+Read-only remote facts:
+
+- SSH reached `SUST_Main_2` at `172.18.36.110`; repository HEAD is
+  `2451409d8ce6682ceb77ca039e46d1b9d6f990ce` on `main`.
+- The remote tracked worktree is clean. Its merge relative to local baseline
+  `f8e14a4` changes only historical run artifacts plus `run_eval.sh` and
+  `run_stage3.sh`; it does not change an R6 owner file.
+- `/hdd1/cyx/MOSAIC/model/model_27000.pt`,
+  `/hdd1/cyx/AMASS_G1Segment`, and `/hdd1/cyx/AMASS_G1NPZ_Final` exist.
+- `/hdd1/cyx/miniconda3/envs/mosaic/bin/python` reports PyTorch
+  `2.5.1+cu121`, CUDA available, and IsaacLab importable. The base interpreter
+  lacks PyTorch and is not a valid R6 command owner.
+- All ten local R1--R6 production-owner checksums differ from the remote clean
+  checkout because the accepted changes remain in the local dirty worktree.
+
+Blocked transfer fact:
+
+- A scoped `rsync -avR` of the ten owner files and two deterministic contracts
+  was rejected by the execution security policy before transfer. The policy
+  requires explicit informed user authorization because this copies private
+  workspace code to a remote host not yet declared trusted.
+- No remote file changed and no simulator/live transaction started. Running
+  the stale remote owners would violate the R6 contract, so no fallback run is
+  permitted.
+
+Prepared command after synchronization:
+
+    cd /hdd1/cyx/FEMR
+    /hdd1/cyx/miniconda3/envs/mosaic/bin/python scripts/rsl_rl/train.py --task=FrontRES-Unified-Tracking-Flat-G1-v0 --num_envs=8 --motion /hdd1/cyx/AMASS_G1NPZ_Final --headless --logger tensorboard --experiment_name g1_flat_frontres_stage3_v015_sentinel --run_name V015_R6_LIVE_SENTINEL_ONCE --max_iterations 0 --frontres_stage stage3_segment_hrl --frontres_specialist_mode rp --frontres_segment_cache_dir /hdd1/cyx/AMASS_G1Segment --frontres_segment_shard_cache_size 8 --frontres_v015_local_sentinel_only --frontres_v015_future_offsets 1,2
+
+Confirmed:
+
+- R6 now has a reviewable one-record telemetry surface and an exact runtime
+  interpreter/asset boundary.
+- No method, Concept Figure, checkpoint, grouped-PPO, HSL, or live behavior was
+  changed or claimed.
+
+Unconfirmed / blocker:
+
+- S4 simulator timing and the single live transaction remain unconfirmed.
+- The next action requires explicit informed authorization to transfer the
+  named local owner files to trusted host SUST_Main_2, or an equivalent manual
+  synchronization by the user.

@@ -10,6 +10,7 @@ import torch
 
 FRONTRES_FUTURE_INTENT_LAYOUT_VERSION = "frontres-v015-future-intent-q29-v1"
 FRONTRES_FUTURE_INTENT_DIM = 29
+FRONTRES_V015_GMT_SUFFIX_DIM = 770
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,58 @@ class FrontRESFutureIntentLayout:
                 "FrontRES future-intent offsets must be strictly ordered and unique, "
                 f"got {self.future_offsets}"
             )
+
+
+@dataclass(frozen=True)
+class FrontRESV015ObservationAuthority:
+    """Resolved v015 split between deployable FEMR context and frozen GMT input."""
+
+    environment_obs_dim: int
+    current_frontres_prefix_dim: int
+    actor_tail_dim: int
+    gmt_suffix_dim: int
+
+    @property
+    def combined_obs_dim(self) -> int:
+        return self.environment_obs_dim + self.actor_tail_dim
+
+    @property
+    def frontres_visible_dim(self) -> int:
+        return self.current_frontres_prefix_dim + self.actor_tail_dim
+
+    def validate(self) -> None:
+        if self.current_frontres_prefix_dim <= 0:
+            raise ValueError("v015 rejects num_frontres_obs=0; the current FrontRES prefix must be explicit")
+        if self.actor_tail_dim <= 0:
+            raise ValueError("v015 requires a nonempty deployment-q29 actor tail")
+        if self.gmt_suffix_dim <= 0:
+            raise ValueError("v015 requires a positive frozen-GMT suffix dimension")
+        if self.environment_obs_dim != self.current_frontres_prefix_dim + self.gmt_suffix_dim:
+            raise ValueError(
+                "v015 raw observation must equal current FrontRES prefix plus frozen-GMT suffix, "
+                f"got {self.environment_obs_dim} != {self.current_frontres_prefix_dim} + {self.gmt_suffix_dim}"
+            )
+        if self.combined_obs_dim != self.frontres_visible_dim + self.gmt_suffix_dim:
+            raise ValueError("v015 combined observation authority split is inconsistent")
+
+
+def resolve_frontres_v015_observation_authority(
+    *,
+    environment_obs_dim: int,
+    configured_frontres_prefix_dim: int,
+    actor_tail_dim: int,
+    gmt_suffix_dim: int = FRONTRES_V015_GMT_SUFFIX_DIM,
+) -> FrontRESV015ObservationAuthority:
+    """Resolve the fail-closed v015 ``[FEMR prefix | GMT suffix]`` layout."""
+
+    authority = FrontRESV015ObservationAuthority(
+        environment_obs_dim=int(environment_obs_dim),
+        current_frontres_prefix_dim=int(configured_frontres_prefix_dim),
+        actor_tail_dim=int(actor_tail_dim),
+        gmt_suffix_dim=int(gmt_suffix_dim),
+    )
+    authority.validate()
+    return authority
 
 
 def resolve_frontres_future_intent_layout(

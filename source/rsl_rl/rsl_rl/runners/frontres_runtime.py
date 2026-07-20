@@ -62,6 +62,30 @@ def _fixed_noisy_motion_command(self):
     return terms.get("motion") if isinstance(terms, dict) else None
 
 
+def _future_intent_context_snapshot(self):
+    command = _fixed_noisy_motion_command(self)
+    read_intent = getattr(command, "frontres_local_scenario_intent_snapshot", None)
+    if not callable(read_intent):
+        return None
+    snapshot = read_intent()
+    if not isinstance(snapshot, dict):
+        raise RuntimeError("v015 future-intent command snapshot must be a dict")
+    required = {
+        "intent_q29",
+        "scenario_ids",
+        "noisy_segment_hashes",
+        "x_t_identities",
+        "roles",
+        "provenance",
+    }
+    if set(snapshot) != required:
+        raise RuntimeError(
+            "v015 future-intent command snapshot has an invalid schema: "
+            f"got={sorted(snapshot)} expected={sorted(required)}"
+        )
+    return snapshot
+
+
 def append_frontres_fixed_noisy_future_context(self, obs: torch.Tensor) -> torch.Tensor:
     """Legacy v013 helper for a full 65D fixed-Noisy future tape.
 
@@ -123,19 +147,20 @@ def append_frontres_fixed_noisy_future_context(self, obs: torch.Tensor) -> torch
 def append_frontres_future_intent_context(self, obs: torch.Tensor) -> torch.Tensor:
     """Prepend the v015 actor-only q29 future-intent tail from a sealed local scenario.
 
-    Status: connected only through the explicit pre-live v015 sentinel. Upstream:
-    the local-scenario actor bridge. Downstream: FrontRES actor prefix and its
-    dedicated normalizer. Generic training and live-runtime evidence remain open.
+    Status: role-aligned command-owned bridge. Upstream: the sealed
+    MultiMotionCommand intent snapshot. Downstream: FrontRES actor prefix.
+    Normalizer/formal observation is offline-S2 contract-confirmed at R5;
+    simulator/live-runtime evidence remains open.
     """
 
     layout = getattr(self, "_frontres_future_intent_layout", None)
     expected_tail = int(getattr(self, "_frontres_future_intent_actor_context_dim", 0) or 0)
-    batch = _future_intent_context_batch(self)
-    if batch is None:
+    snapshot = _future_intent_context_snapshot(self)
+    if snapshot is None:
         if expected_tail > 0:
             raise RuntimeError(
-                "v015 future-intent actor context requires a sealed local scenario before actor evaluation; "
-                "legacy fixed-Noisy tape and raw observation fallback are forbidden"
+                "v015 future-intent actor context requires the role-aligned command snapshot before actor evaluation; "
+                "policy-attempt batch, legacy fixed-Noisy tape, and raw observation fallback are forbidden"
             )
         return obs
     if not isinstance(layout, FrontRESFutureIntentLayout):
@@ -145,14 +170,8 @@ def append_frontres_future_intent_context(self, obs: torch.Tensor) -> torch.Tens
             "v015 future-intent actor context has an incompatible layout version: "
             f"{layout.version!r}"
         )
-    offsets = tuple(int(value) for value in (getattr(batch, "frontres_future_offsets", ()) or ()))
-    if offsets != layout.future_offsets:
-        raise RuntimeError(
-            "sealed local scenario offsets do not match the runner future-intent layout: "
-            f"scenario={offsets}, runner={layout.future_offsets}"
-        )
-    intent_q29 = getattr(batch, "frontres_local_scenario_intent_q29", None)
-    provenance = getattr(batch, "frontres_local_scenario_provenance", None)
+    intent_q29 = snapshot["intent_q29"]
+    provenance = snapshot["provenance"]
     try:
         context = build_frontres_future_intent_tail(
             intent_q29,

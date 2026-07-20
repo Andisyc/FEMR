@@ -33,6 +33,25 @@ from rsl_rl.modules.frontres_observation_layout import split_frontres_policy_obs
 from rsl_rl.utils import resolve_nn_activation
 
 
+def _validate_frontres_task_space_observation_authority(
+    *,
+    num_actor_obs: int,
+    num_frontres_obs: int,
+    gmt_policy_obs_dim: int,
+) -> None:
+    """Fail closed unless task-space FEMR and frozen GMT own disjoint observation slices."""
+
+    if int(num_frontres_obs) <= 0:
+        raise ValueError("task-space v015 rejects num_frontres_obs=0; full-observation FEMR fallback is forbidden")
+    if int(num_frontres_obs) >= int(num_actor_obs):
+        raise ValueError("task-space FEMR prefix must be smaller than the combined policy observation")
+    if int(num_frontres_obs) + int(gmt_policy_obs_dim) != int(num_actor_obs):
+        raise ValueError(
+            "task-space FrontRES/GMT observation authority mismatch: "
+            f"{num_frontres_obs}D FEMR + {gmt_policy_obs_dim}D GMT != {num_actor_obs}D combined"
+        )
+
+
 def _gmt_observation_route_messages(
     *,
     environment_obs_dim: int,
@@ -365,6 +384,14 @@ class FrontRESActorCritic(nn.Module):
             print(f"[ResidualActorCritic] GMT observation normalizer loaded (dim={normalizer_dim}) and frozen")
         else:
             print("[ResidualActorCritic] WARNING: No observation normalizer found in GMT checkpoint!")
+
+        self.gmt_policy_obs_dim = int(gmt_policy_obs_dim)
+        if self.num_task_corrections > 0:
+            _validate_frontres_task_space_observation_authority(
+                num_actor_obs=num_actor_obs,
+                num_frontres_obs=self.num_frontres_obs,
+                gmt_policy_obs_dim=self.gmt_policy_obs_dim,
+            )
 
         # ========== Load Ref Vel Estimator ==========
 
@@ -740,6 +767,13 @@ class FrontRESActorCritic(nn.Module):
 
         # Cache full policy obs for GMT callers
         self._cached_full_policy_obs = full_policy_obs
+
+        if self.num_task_corrections > 0:
+            _validate_frontres_task_space_observation_authority(
+                num_actor_obs=int(full_policy_obs.shape[-1]),
+                num_frontres_obs=self.num_frontres_obs,
+                gmt_policy_obs_dim=self.gmt_policy_obs_dim,
+            )
 
         # FrontRES subset: when num_frontres_obs > 0, residual_actor only sees
         # reference-frame data (first N dims), not proprioception.
