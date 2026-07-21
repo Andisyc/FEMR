@@ -95,6 +95,19 @@ def _expect_reject(fn, fragment: str) -> None:
     raise AssertionError(f"expected strict rejection containing {fragment!r}")
 
 
+class _TrainingStateNormalizer(torch.nn.Module):
+    """Expose a live-style running-state write whenever evaluation forgets eval mode."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.register_buffer("forward_updates", torch.zeros((), dtype=torch.long))
+
+    def forward(self, value: torch.Tensor) -> torch.Tensor:
+        if self.training:
+            self.forward_updates.add_(1)
+        return value
+
+
 def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
     identity, checkpointing, _manifest, quality, storage, _gain = _owners()
     assert callable(getattr(quality, "build_frontres_v015_policy_quality_owner_bundle", None))
@@ -116,8 +129,24 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             "policy": checkpointing.inspect_frontres_v015_quality_checkpoint(policy_path, route="policy").file_sha256,
         }
 
+        normalizers = {
+            "prefix": _TrainingStateNormalizer(),
+            "gmt": _TrainingStateNormalizer(),
+            "privileged": _TrainingStateNormalizer(),
+            "teacher": _TrainingStateNormalizer(),
+        }
+        policy = torch.nn.Sequential(torch.nn.Linear(1, 1), torch.nn.Dropout(p=0.5))
+        policy[1].eval()
+        normalizers["gmt"].eval()
+
+        def normalizer_state() -> tuple[int, ...]:
+            return tuple(int(module.forward_updates.item()) for module in normalizers.values())
+
         def collect(_runner, item, route: str):
             calls.append((item.item_id, route))
+            sample = torch.ones(1, 1)
+            for module in normalizers.values():
+                module(sample)
             return quality.FrontRESV015PolicyQualityRouteEvidence(
                 route=route,
                 checkpoint_file_sha256=checkpoint_by_route[route],
@@ -133,9 +162,18 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 ("gain", "frontres_gain.compute_intent_physics_local_repair_gain"),
             ),
             collect_one_action_k=collect,
-            training_state_signature=lambda _runner: repr(training_state),
+            training_state_signature=lambda _runner: repr((training_state, normalizer_state())),
         )
-        runner = SimpleNamespace(alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True))
+        runner = SimpleNamespace(
+            alg=SimpleNamespace(
+                frontres_v015_formal_transaction_enabled=True,
+                policy=policy,
+            ),
+            _frontres_extra_normalizer=normalizers["prefix"],
+            obs_normalizer=normalizers["gmt"],
+            privileged_obs_normalizer=normalizers["privileged"],
+            teacher_obs_normalizer=normalizers["teacher"],
+        )
         quality.install_frontres_v015_policy_quality_owner_bundle(runner, bundle)
         payload = quality.run_frontres_policy_quality_eval(
             runner,
@@ -151,6 +189,11 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             ("motion-a-k8", "policy"),
         ]
         assert training_state == {"optimizer_steps": 7, "sampler_cursor": 11, "warmup": "disabled"}
+        assert normalizer_state() == (0, 0, 0, 0)
+        assert policy.training and not policy[1].training
+        assert normalizers["prefix"].training
+        assert not normalizers["gmt"].training
+        assert normalizers["privileged"].training and normalizers["teacher"].training
         assert payload == json.loads(result_path.read_text(encoding="utf-8"))
         assert payload["schema_version"] == "frontres-v015-heldout-quality-report-v1"
         assert payload["gain_source"] == "FRS-GAIN-v003-intent-physics-local-repair"
@@ -181,7 +224,16 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 training_state["optimizer_steps"] += 1
             return evidence
 
-        failing_runner = SimpleNamespace(alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True))
+        failing_runner = SimpleNamespace(
+            alg=SimpleNamespace(
+                frontres_v015_formal_transaction_enabled=True,
+                policy=policy,
+            ),
+            _frontres_extra_normalizer=normalizers["prefix"],
+            obs_normalizer=normalizers["gmt"],
+            privileged_obs_normalizer=normalizers["privileged"],
+            teacher_obs_normalizer=normalizers["teacher"],
+        )
         quality.install_frontres_v015_policy_quality_owner_bundle(
             failing_runner,
             quality.FrontRESV015PolicyQualityOwnerBundle(
@@ -201,6 +253,10 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             "training state",
         )
         assert not failed_path.exists()
+        assert policy.training and not policy[1].training
+        assert normalizers["prefix"].training
+        assert not normalizers["gmt"].training
+        assert normalizers["privileged"].training and normalizers["teacher"].training
 
         mixed_path = root / "mixed.json"
 

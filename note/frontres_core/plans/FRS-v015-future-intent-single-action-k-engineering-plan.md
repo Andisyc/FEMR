@@ -1860,6 +1860,32 @@ uses cache `spec.horizon_k` as scenario identity, preserves manifest K8 through
 the materializer, and rejects duplicate motion/start identities. Live held-out
 quality remains unconfirmed until the corrected server command completes.
 
+###### G5-S4-S1D: Quality Inference-Mode Isolation
+
+Objective: prevent zero/HSL/policy held-out inference from updating any live
+policy or observation-normalizer state before the atomic quality report.
+
+Scope: wrap the complete held-out route set in one reversible inference-mode
+boundary; freeze policy, 158D prefix, frozen-GMT, privileged, and teacher
+normalizer module modes before the first observation read; restore every
+submodule's original mixed mode on success or exception; include all four
+normalizer states in the mutation signature.
+
+Non-scope: checkpoint payload/restore semantics, K, Gain, PPO, manifest,
+sampler, simulator, training, or live command.
+
+Evidence: S1/S2 T-train-mode-write/T-zero-write/T-mixed-mode-restore/
+T-exception-restore/T-heldout/T-save-fresh/T-observation-authority.
+
+Stop: any normalizer running state changes; the mutation guard is weakened;
+mixed source modes are flattened on restore; or save/reload/observation
+contracts regress.
+
+Status: completed at deterministic evidence `E-FI-56`. A live-style updating
+normalizer reproduces the prior mutation without the guard; all held-out routes
+now run with zero normalizer writes and restore exact mixed module modes after
+success and intentional failure. Live quality remains unconfirmed.
+
 ###### G5-S4-S2: Final Command Artifact And Threshold Preflight
 
 Objective: perform a read-only preflight after S1A/S1B and freeze the exact

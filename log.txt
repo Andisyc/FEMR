@@ -23,12 +23,12 @@ Traceback (most recent call last):
     ret.return_value = task_function(task_cfg)
   File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
     func(env_cfg, agent_cfg, *args, **kwargs)
-  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1530, in main
-    runner.load_frontres_v015_hsl_initializer(hsl_initializer)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 1433, in load_frontres_v015_hsl_initializer
-    return load_v015_hsl_initializer(self, path)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", line 1039, in load_v015_hsl_initializer
-    validated = _validate_v015_hsl_checkpoint_resume(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", line 864, in _validate_v015_hsl_checkpoint_resume
-    raise RuntimeError("proposal-only HSL checkpoint identity is missing; legacy or unversioned payload rejected")
-RuntimeError: proposal-only HSL checkpoint identity is missing; legacy or unversioned payload rejected
+  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1644, in main
+    runner.run_frontres_policy_quality_eval(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 734, in run_frontres_policy_quality_eval
+    return run_frontres_policy_quality_eval(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", line 760, in run_frontres_policy_quality_eval
+    return run_frontres_v015_policy_quality_heldout_eval(runner, request=request, owners=owners)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py", line 708, in run_frontres_v015_policy_quality_heldout_eval
+    raise RuntimeError("v015 quality evaluation mutated training state")
+RuntimeError: v015 quality evaluation mutated training state

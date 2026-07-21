@@ -3885,3 +3885,66 @@ Acceptance and remaining boundary:
   quality command remains live-unconfirmed and must not repeat training.
 - Numeric Gain/harm acceptance thresholds remain a human decision; G5-S4 and
   G5 are not complete until the atomic live quality report is inspected.
+
+## E-FI-56: G5-S4-S1D Quality Inference-Mode Isolation
+
+Date: 2026-07-22
+Tier: deterministic S1/S2 held-out evaluator, persistence, and observation
+contracts; no simulator, training, checkpoint-format change, or live rerun
+
+Runtime symptom and root cause:
+
+- The corrected server quality command passed strict HSL/policy identity,
+  manifest resolution, and the K4-index/K8-execution resolver, then stopped at
+  `v015 quality evaluation mutated training state` after the first route.
+- Code order showed that every route called `_read_live_observations()` before
+  entering the temporary checkpoint actor context. On a fresh live runner, the
+  158D empirical prefix and privileged normalizers remained in training mode;
+  the zero route therefore updated running state before the post-route
+  signature check. The guard correctly detected this write.
+
+Fail-first regression:
+
+- The focused held-out contract installed training-mode semantic normalizers
+  whose forward pass increments a registered running-state buffer. Without an
+  outer inference guard, the zero route reproduced the same mutation error.
+
+Implemented isolation:
+
+```text
+held-out evaluator entry
+-> snapshot every policy/prefix/GMT/privileged/teacher submodule mode
+-> set every captured module to inference mode
+-> zero -> HSL -> policy observation/action/K routes
+-> unchanged actor/critic/optimizer/sampler/transaction/warmup/normalizer signatures
+-> atomic report or exception
+-> restore each original submodule mode exactly
+```
+
+- The evaluator does not call recursive `runner.train_mode()` during restore;
+  it restores individual module flags so an already-frozen GMT/dropout child
+  is not accidentally switched to training.
+- The training-state signature now includes 158D prefix, GMT, privileged, and
+  teacher normalizer state dictionaries. The mutation guard was strengthened,
+  not removed or bypassed.
+
+Fresh verification:
+
+- `frontres_v015_policy_quality_heldout_contract.py` exited 0 with zero running-
+  state writes and exact mixed-mode restoration after success and intentional
+  mutation failure.
+- `frontres_v015_policy_quality_save_reload_contract.py` exited 0 through real
+  save, independent fresh reload, exact proposal identity, and atomic report.
+- `frontres_v015_unmocked_observation_connectivity_contract.py`,
+  `frontres_v015_observation_authority_contract.py`, and
+  `frontres_future_intent_actor_context_contract.py` exited 0.
+- Python compilation exited 0.
+
+Acceptance and remaining boundary:
+
+- S1D is contract-confirmed. No active contract or Concept Figure semantics
+  changed; this is an inference lifecycle defect under the existing zero-write
+  evaluation boundary.
+- The same corrected fresh held-out quality command remains live-unconfirmed.
+  Bounded training must not be repeated. G5-S4 stays partial until the atomic
+  16-item quality JSON is produced and inspected against human-confirmed gates.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import copy
 import hashlib
@@ -261,6 +262,36 @@ def _v015_quality_hash_state(digest: Any, value: Any) -> None:
         digest.update(repr(value).encode("utf-8"))
 
 
+@contextmanager
+def _frontres_v015_quality_inference_mode(runner: Any):
+    """Freeze every observation/policy module mode for held-out inference.
+
+    Directly restoring each submodule flag preserves mixed source modes such
+    as a training residual actor with an already frozen GMT normalizer.
+    """
+
+    roots = (
+        getattr(getattr(runner, "alg", None), "policy", None),
+        getattr(runner, "_frontres_extra_normalizer", None),
+        getattr(runner, "obs_normalizer", None),
+        getattr(runner, "privileged_obs_normalizer", None),
+        getattr(runner, "teacher_obs_normalizer", None),
+    )
+    module_modes: dict[torch.nn.Module, bool] = {}
+    for root in roots:
+        if not isinstance(root, torch.nn.Module):
+            continue
+        for module in root.modules():
+            module_modes.setdefault(module, bool(module.training))
+    for module in module_modes:
+        module.training = False
+    try:
+        yield
+    finally:
+        for module, was_training in module_modes.items():
+            module.training = was_training
+
+
 def _v015_quality_training_state_signature(runner: Any) -> str:
     """Hash every mutable training owner while excluding physical env state."""
 
@@ -274,6 +305,18 @@ def _v015_quality_training_state_signature(runner: Any) -> str:
         (
             "prefix_normalizer",
             getattr(getattr(runner, "_frontres_extra_normalizer", None), "state_dict", lambda: {})(),
+        ),
+        (
+            "gmt_normalizer",
+            getattr(getattr(runner, "obs_normalizer", None), "state_dict", lambda: {})(),
+        ),
+        (
+            "privileged_normalizer",
+            getattr(getattr(runner, "privileged_obs_normalizer", None), "state_dict", lambda: {})(),
+        ),
+        (
+            "teacher_normalizer",
+            getattr(getattr(runner, "teacher_obs_normalizer", None), "state_dict", lambda: {})(),
         ),
         ("prefix_mean", getattr(runner, "_frontres_extra_mean", None)),
         ("prefix_std", getattr(runner, "_frontres_extra_std", None)),
@@ -654,6 +697,22 @@ def _v015_quality_route_result(
 
 
 def run_frontres_v015_policy_quality_heldout_eval(
+    runner: Any,
+    *,
+    request: FrontRESV015PolicyQualityEvalRequest,
+    owners: FrontRESV015PolicyQualityOwnerBundle,
+) -> dict[str, Any]:
+    """Run all held-out routes under one reversible inference-mode boundary."""
+
+    with _frontres_v015_quality_inference_mode(runner):
+        return _run_frontres_v015_policy_quality_heldout_eval_inference(
+            runner,
+            request=request,
+            owners=owners,
+        )
+
+
+def _run_frontres_v015_policy_quality_heldout_eval_inference(
     runner: Any,
     *,
     request: FrontRESV015PolicyQualityEvalRequest,

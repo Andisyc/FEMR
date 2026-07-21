@@ -321,6 +321,14 @@ unique `(motion_id,start_frame)` and passes manifest K8 independently to the
 local-scenario materializer; K4-to-K8 continuation and duplicate-identity
 rejection pass focused contracts.
 
+G5-S4-S1D is complete at deterministic S1/S2 evidence `E-FI-56`. The first
+corrected live quality attempt reached the real held-out evaluator but stopped
+because zero-route observation normalization updated a training-mode 158D
+running-stat owner before the checkpoint route context. The complete route set
+now freezes policy plus prefix/GMT/privileged/teacher normalizer modes before
+observation read, hashes every normalizer state, and restores exact mixed modes
+after success or exception. The live report is still pending.
+
 G5-S4 is therefore split into S1A launch/telemetry, S1B formal held-out/fresh
 report, S2 read-only artifact/command/threshold preflight, and S4 one bounded
 live run. The S4 training half is runtime-confirmed at `E-FI-55`: one exact
@@ -328,8 +336,8 @@ update saved `model_1.pt`. The first quality command failed before evaluation
 because same-command shell expansion passed an empty positional HSL path and
 selected the legacy default checkpoint. Candidate gates remain user-unconfirmed.
 
-Next step: after syncing the S1C resolver, run only the corrected fresh held-out
-quality command with HSL and policy variables assigned in separate shell
+Next step: after syncing the S1C resolver and S1D inference guard, run only the
+corrected fresh held-out quality command with HSL and policy variables assigned in separate shell
 statements. Do not repeat bounded training. Stop on any non-unique manifest
 identity, strict checkpoint mismatch, training-state mutation, or non-atomic
 report; numeric quality acceptance remains a separate human decision.
