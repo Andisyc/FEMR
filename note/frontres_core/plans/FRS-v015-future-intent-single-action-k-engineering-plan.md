@@ -1373,6 +1373,13 @@ Implementation is split to keep each parameter path independently testable:
    masking fragment was deleted rather than restored; the existing HSL S1
    contract now rejects `_sup_mask` and `frontres_active_task_dims` anywhere in
    the proposal-only warmup owner. No live retry was executed in this repair.
+8. `G2-S4-S0b`: completed at `E-FI-41` after the next S4-S1 attempt proved the
+   normalized 158D input was bitwise equal but the live CUDA and CPU-shadow 6D
+   proposals were not bitwise equal. Strict checkpoint fingerprints, strict
+   actor load, and exact normalized input remain unchanged. Only the
+   cross-device float32 forward comparison now uses `rtol=1e-5, atol=1e-6`,
+   records bitwise status and maximum absolute error, and rejects errors beyond
+   that bound. No live retry was executed in this repair.
 
 Exact Main-2 command after checkout synchronization:
 

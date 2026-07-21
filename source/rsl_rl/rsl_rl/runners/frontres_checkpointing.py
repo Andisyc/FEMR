@@ -225,12 +225,13 @@ def verify_v015_hsl_fresh_reload(
     source_actor_input: torch.Tensor,
     source_proposal: torch.Tensor,
 ) -> dict[str, Any]:
-    """Strictly reload HSL v1 into the pre-warmup shadow and compare its real proposal."""
+    """Strictly reload HSL v1 and compare its CPU proposal to the live-device output."""
 
     if not isinstance(combined_obs, torch.Tensor) or combined_obs.ndim != 2 or combined_obs.shape[-1] != 928:
         raise RuntimeError("G2-S4 fresh reload requires the real combined observation [B,928]")
     combined_cpu = combined_obs.detach().to(device="cpu")
     source_input_cpu = source_actor_input.detach().to(device="cpu")
+    source_proposal_device = str(source_proposal.device)
     source_proposal_cpu = source_proposal.detach().to(device="cpu")
     shadow._frontres_extra_normalizer.eval()
     with torch.inference_mode():
@@ -245,22 +246,39 @@ def verify_v015_hsl_fresh_reload(
         fresh_input = shadow._frontres_extra_normalizer(combined_cpu[:, :158])
         fresh_proposal = _v015_hsl_bounded_proposal(shadow.alg.policy, fresh_input)
     input_equal = torch.equal(fresh_input, source_input_cpu)
-    proposal_equal = torch.equal(fresh_proposal, source_proposal_cpu)
-    if not input_equal or not proposal_equal:
+    proposal_bitwise_equal = torch.equal(fresh_proposal, source_proposal_cpu)
+    proposal_rtol = 1.0e-5
+    proposal_atol = 1.0e-6
+    proposal_close = torch.allclose(
+        fresh_proposal,
+        source_proposal_cpu,
+        rtol=proposal_rtol,
+        atol=proposal_atol,
+    )
+    proposal_max_abs_error = float((fresh_proposal - source_proposal_cpu).abs().max().item())
+    if not input_equal or not proposal_close:
         raise RuntimeError(
             "G2-S4 fresh reload changed the normalized FEMR input or proposal: "
-            f"normalized_158_equal={int(input_equal)} proposal_6_equal={int(proposal_equal)}"
+            f"normalized_158_equal={int(input_equal)} proposal_6_close={int(proposal_close)} "
+            f"proposal_6_bitwise_equal={int(proposal_bitwise_equal)} "
+            f"max_abs_error={proposal_max_abs_error:.9g} rtol={proposal_rtol:.1e} "
+            f"atol={proposal_atol:.1e} source_device={source_proposal_device} shadow_device=cpu"
         )
     result = {
         "checkpoint_path": os.path.abspath(checkpoint_path),
         "normalized_158_equal": True,
-        "proposal_6_equal": True,
+        "proposal_6_close": True,
+        "proposal_6_bitwise_equal": proposal_bitwise_equal,
+        "proposal_6_max_abs_error": proposal_max_abs_error,
         "pre_reload_proposal_equal": False,
     }
     print(
         "[G2-S4-FRESH-RELOAD] "
         f"checkpoint={result['checkpoint_path']} normalized_158_equal=1 "
-        "proposal_6_equal=1 pre_reload_proposal_equal=0",
+        f"proposal_6_close=1 proposal_6_bitwise_equal={int(proposal_bitwise_equal)} "
+        f"max_abs_error={proposal_max_abs_error:.9g} rtol={proposal_rtol:.1e} "
+        f"atol={proposal_atol:.1e} source_device={source_proposal_device} "
+        "shadow_device=cpu pre_reload_proposal_equal=0",
         flush=True,
     )
     return result

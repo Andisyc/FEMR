@@ -17,7 +17,7 @@ continuation, and one-action K evidence.
 
 ## Current Step
 
-`G2-S4-S0a stale diagnostic mask repair complete at E-FI-40; G2-S4-S1 live smoke retry next`
+`G2-S4-S0b cross-device reload verifier repair complete at E-FI-41; G2-S4-S1 live smoke retry next`
 
 Status: local scenario, future q29, two-role reset, one-action K, v003 Gain,
 grouped transaction, persistence identity, and the dedicated formal route are
@@ -243,7 +243,7 @@ Step 5A closure facts:
 
 ## Next Step
 
-Completed step: `G2-S4-S0a`, stale `_sup_mask` diagnostic repair (`E-FI-40`).
+Completed step: `G2-S4-S0b`, cross-device proposal verifier repair (`E-FI-41`).
 No Concept Figure, simulator, training, live run, or persistent artifact
 generation was authorized; checkpoint IO was temporary deterministic test
 evidence only.

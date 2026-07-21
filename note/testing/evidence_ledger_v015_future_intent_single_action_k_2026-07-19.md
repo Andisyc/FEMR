@@ -2829,3 +2829,44 @@ Acceptance and remaining boundary:
   regression test and the old partial-dimension mechanism remains absent.
 - G2-S4-S1 is still open. The same bounded Main-2 command must be explicitly
   re-authorized; no live retry was executed during this repair.
+
+## E-FI-41: G2-S4-S0b Cross-Device Proposal Reload Verification
+
+Date: 2026-07-21
+Tier: live-failure diagnosis plus deterministic S1/S3 numerical and persistence
+regression; no simulator, training, live retry, Stage-3 PPO, deployment
+composition, or checkpoint-format change
+
+Observed failure and boundary:
+
+- Repository `log.txt` reached strict HSL-v1 save/reload and failed only at
+  `normalized_158_equal=1 proposal_6_equal=0`.
+- The checkpoint loader had already validated the exact residual-actor
+  fingerprint and loaded it with `strict=True`. The residual actor is a
+  deterministic Linear/ELU MLP with no dropout or running-state layer.
+- The live source proposal is computed on CUDA while the independent shadow is
+  intentionally CPU-only. A bitwise `torch.equal()` comparison therefore
+  treated normal float32 backend reduction-order differences as checkpoint
+  corruption.
+
+Repair and discrimination:
+
+- Actor/checkpoint fingerprints and normalized 158D input remain strict and
+  exact. The checkpoint format and allowed payload are unchanged.
+- Only the final CUDA/CPU bounded 6D proposal comparison now uses
+  `torch.allclose(rtol=1e-5, atol=1e-6)` and records source/shadow devices,
+  bitwise equality, and `max_abs_error` in both PASS and failure sentinels.
+- The HSL S1 regression observed exact same-device error `0`, accepted a
+  hand-checkable `5.066e-7` differential, and rejected a `1e-3` differential.
+  This distinguishes backend roundoff from real reload drift.
+- HSL S1/S2, v015 observation authority, future-intent actor context, and v015
+  checkpoint/resume contracts all exited 0. `python -m py_compile` and
+  `git diff --check` exited 0.
+
+Acceptance and remaining boundary:
+
+- G2-S4-S0b is complete. The reported failure is fixed without relaxing state,
+  layout, normalizer, identity, or payload validation.
+- G2-S4-S1 remains open. Its next log must report `proposal_6_close=1` plus the
+  actual CUDA/CPU `max_abs_error`; an error beyond the fixed tolerance remains
+  fail-closed.

@@ -823,6 +823,8 @@ def test_t_hsl_live_smoke_connector() -> None:
         source._frontres_hsl_live_smoke_enabled = True
         _wire_hsl_fresh_runner(source, runtime, snapshot)
         shadow = checkpointing.capture_v015_hsl_fresh_reload_shadow(source)
+        tolerance_shadow = checkpointing.capture_v015_hsl_fresh_reload_shadow(source)
+        reject_shadow = checkpointing.capture_v015_hsl_fresh_reload_shadow(source)
         with torch.no_grad():
             next(source.alg.policy.residual_actor.parameters()).add_(0.125)
             source._frontres_extra_normalizer._mean.add_(0.25)
@@ -836,12 +838,39 @@ def test_t_hsl_live_smoke_connector() -> None:
             source_proposal=source_trace["proposal"],
         )
         assert result["normalized_158_equal"] is True
-        assert result["proposal_6_equal"] is True
+        assert result["proposal_6_close"] is True
+        assert result["proposal_6_bitwise_equal"] is True
+        assert result["proposal_6_max_abs_error"] == 0.0
         assert result["pre_reload_proposal_equal"] is False
         assert not hasattr(shadow.alg.policy, "critic")
         assert not hasattr(shadow.alg, "optimizer")
         assert tuple(source._frontres_hsl_smoke_combined_obs.shape) == (2, 928)
         assert tuple(source._frontres_hsl_smoke_normalized_obs[:, :158].shape) == (2, 158)
+
+        near_proposal = source_trace["proposal"] + torch.full_like(source_trace["proposal"], 5.0e-7)
+        near_result = checkpointing.verify_v015_hsl_fresh_reload(
+            tolerance_shadow,
+            checkpoint_path=str(checkpoint_path),
+            combined_obs=source_trace["combined"],
+            source_actor_input=source_trace["actor_input"],
+            source_proposal=near_proposal,
+        )
+        assert near_result["proposal_6_close"] is True
+        assert near_result["proposal_6_bitwise_equal"] is False
+        assert 0.0 < near_result["proposal_6_max_abs_error"] <= 5.1e-7
+
+        far_proposal = source_trace["proposal"] + torch.full_like(source_trace["proposal"], 1.0e-3)
+        _expect_error(
+            RuntimeError,
+            lambda: checkpointing.verify_v015_hsl_fresh_reload(
+                reject_shadow,
+                checkpoint_path=str(checkpoint_path),
+                combined_obs=source_trace["combined"],
+                source_actor_input=source_trace["actor_input"],
+                source_proposal=far_proposal,
+            ),
+            "max_abs_error",
+        )
 
     warmup_source = WARMUP_PATH.read_text()
     for sentinel in (
@@ -854,7 +883,7 @@ def test_t_hsl_live_smoke_connector() -> None:
     ):
         assert sentinel in warmup_source
     print(
-        "[T-HSL-live-smoke/T-telemetry/T-shadow-reload] bounded S4 connector is strict and actor-only",
+        "[T-HSL-live-smoke/T-telemetry/T-shadow-reload] exact state/input plus bounded cross-device proposal tolerance",
         flush=True,
     )
 

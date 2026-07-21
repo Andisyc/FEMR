@@ -27,6 +27,10 @@ Traceback (most recent call last):
     runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 1055, in learn
     run_frontres_joint_warmup(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_warmup.py", line 521, in run_frontres_joint_warmup
-    if _sup_mask is not None:
-NameError: name '_sup_mask' is not defined
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_warmup.py", line 786, in run_frontres_joint_warmup
+    verify_reload(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 1412, in _verify_v015_hsl_fresh_reload
+    return verify_v015_hsl_fresh_reload(shadow, **kwargs)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", line 250, in verify_v015_hsl_fresh_reload
+    raise RuntimeError(
+RuntimeError: G2-S4 fresh reload changed the normalized FEMR input or proposal: normalized_158_equal=1 proposal_6_equal=0
