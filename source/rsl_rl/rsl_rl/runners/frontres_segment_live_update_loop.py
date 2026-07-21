@@ -155,6 +155,41 @@ def run_frontres_v015_formal_transaction_update_loop(runner: Any) -> Any:
     return run_frontres_v015_formal_transaction_update(runner, request)
 
 
+def run_frontres_v015_formal_training_update_loop(
+    runner: Any,
+    *,
+    init_at_random_ep_len: bool = True,
+) -> Any:
+    """Collect one ordinary v015 request, commit one update, then close carriers."""
+
+    from rsl_rl.runners.frontres_segment_live_probe import (
+        build_frontres_v015_formal_training_request,
+        close_frontres_v015_formal_training_request,
+    )
+
+    alg = getattr(runner, "alg", None)
+    if alg is None or not bool(getattr(alg, "frontres_segment_live_train_enabled", False)):
+        raise RuntimeError("v015 formal training dispatch requires ordinary live training")
+    if bool(getattr(alg, "frontres_v015_local_sentinel_only", False)):
+        raise RuntimeError("v015 formal training dispatch rejects sentinel mode")
+
+    def provider() -> Any:
+        return build_frontres_v015_formal_training_request(
+            runner,
+            init_at_random_ep_len=init_at_random_ep_len,
+        )
+
+    if hasattr(runner, "_frontres_v015_formal_transaction_provider"):
+        raise RuntimeError("v015 formal training refuses an existing transaction provider")
+    runner._frontres_v015_formal_transaction_provider = provider
+    try:
+        return run_frontres_v015_formal_transaction_update_loop(runner)
+    finally:
+        if hasattr(runner, "_frontres_v015_formal_transaction_provider"):
+            delattr(runner, "_frontres_v015_formal_transaction_provider")
+        close_frontres_v015_formal_training_request(runner)
+
+
 def run_frontres_segment_live_update_loop(
     runner: Any,
     init_at_random_ep_len: bool = True,

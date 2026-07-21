@@ -1662,37 +1662,162 @@ def _build_current_segment_batch(
     return batch
 
 
-def prepare_frontres_v015_local_sentinel_batch(runner: Any) -> SimpleNamespace:
-    """Select and seal the smallest complete v015 local transaction before reset.
+def _sample_frontres_v015_transaction_sources(
+    sampler: Any,
+    *,
+    repair_rows: int,
+    max_horizon_k: int,
+) -> FrontRESSegmentSample:
+    """Select distinct sources whose unchanged M budgets exactly fill Repair rows."""
 
-    Status: pre-live sentinel owner. Upstream: the explicit v015 sentinel config
-    and current sampler. Downstream: one local-scenario batch plus its frozen
-    policy/expected-row plan. This function selects no legacy fixed tape and
-    does not reset the environment, sample an action, update priority, or step
-    an optimizer.
+    if repair_rows < 4 or repair_rows % 2 != 0:
+        raise RuntimeError("v015 formal transaction requires an even Repair-row budget of at least four")
+    max_draws = max(64, repair_rows * 4)
+    num_segments = int(getattr(sampler, "num_segments", 0) or 0)
+    if 0 < num_segments < 2:
+        raise RuntimeError("v015 formal transaction requires at least two valid Segment sources")
+
+    candidates: list[FrontRESSegmentSample] = []
+    candidate_ids: set[int] = set()
+    reachable = [False] * (repair_rows + 1)
+    previous_sum = [-1] * (repair_rows + 1)
+    previous_candidate = [-1] * (repair_rows + 1)
+    reachable[0] = True
+
+    drawn = 0
+    draw_batch_size = max(8, repair_rows * 2)
+    while drawn < max_draws and not reachable[repair_rows]:
+        requested = min(draw_batch_size, max_draws - drawn)
+        sampled = sampler.sample(requested, max_horizon_k=max_horizon_k)
+        sampled_count = int(sampled.segment_ids.numel())
+        if sampled_count <= 0:
+            raise RuntimeError("v015 formal transaction sampler returned no candidate Segment")
+        drawn += sampled_count
+        for row in range(sampled_count):
+            segment_id = int(sampled.segment_ids[row].item())
+            if segment_id in candidate_ids:
+                continue
+            attempts = max(2, int(sampled.rollout_trial_count[row].item()))
+            if attempts > repair_rows:
+                continue
+            candidate_ids.add(segment_id)
+            candidate = FrontRESSegmentSample(
+                segment_ids=sampled.segment_ids[row : row + 1],
+                source=(str(sampled.source[row]),),
+                priority=sampled.priority[row : row + 1],
+                staleness=sampled.staleness[row : row + 1],
+                valid_mask=sampled.valid_mask[row : row + 1],
+                segment_state=(
+                    sampled.segment_state[row : row + 1]
+                    if isinstance(sampled.segment_state, torch.Tensor)
+                    else None
+                ),
+                rollout_trial_count=sampled.rollout_trial_count[row : row + 1],
+                horizon_k=sampled.horizon_k[row : row + 1],
+                budget_reason=(str(sampled.budget_reason[row]),),
+                trial_role=("policy",),
+                source_index=torch.zeros(1, dtype=torch.long, device=sampled.segment_ids.device),
+                trial_index=torch.zeros(1, dtype=torch.long, device=sampled.segment_ids.device),
+            )
+            candidate_index = len(candidates)
+            candidates.append(candidate)
+            for current in range(repair_rows - attempts, -1, -1):
+                target = current + attempts
+                if reachable[current] and not reachable[target]:
+                    reachable[target] = True
+                    previous_sum[target] = current
+                    previous_candidate[target] = candidate_index
+            if reachable[repair_rows]:
+                break
+
+    if not reachable[repair_rows]:
+        raise RuntimeError(
+            "v015 formal transaction could not select a complete multi-Segment x M layout "
+            f"for repair_rows={repair_rows} after {len(candidates)} distinct candidates"
+        )
+
+    selected_indices: list[int] = []
+    cursor = repair_rows
+    while cursor > 0:
+        candidate_index = previous_candidate[cursor]
+        if candidate_index < 0:
+            raise RuntimeError("v015 transaction source selection lost its exact-row predecessor")
+        selected_indices.append(candidate_index)
+        cursor = previous_sum[cursor]
+    selected_indices.reverse()
+    selected = [candidates[index] for index in selected_indices]
+    if len(selected) < 2:
+        raise RuntimeError("v015 formal transaction requires at least two selected Segment sources")
+
+    device = selected[0].segment_ids.device
+    segment_ids = torch.cat([sample.segment_ids for sample in selected], dim=0)
+    segment_state_values = [sample.segment_state for sample in selected]
+    segment_state = (
+        torch.cat(segment_state_values, dim=0)
+        if all(isinstance(value, torch.Tensor) for value in segment_state_values)
+        else None
+    )
+    return FrontRESSegmentSample(
+        segment_ids=segment_ids,
+        source=tuple(str(sample.source[0]) for sample in selected),
+        priority=torch.cat([sample.priority for sample in selected], dim=0),
+        staleness=torch.cat([sample.staleness for sample in selected], dim=0),
+        valid_mask=torch.cat([sample.valid_mask for sample in selected], dim=0),
+        segment_state=segment_state,
+        rollout_trial_count=torch.cat([sample.rollout_trial_count for sample in selected], dim=0),
+        horizon_k=torch.cat([sample.horizon_k for sample in selected], dim=0),
+        budget_reason=tuple(str(sample.budget_reason[0]) for sample in selected),
+        trial_role=("policy",) * len(selected),
+        source_index=torch.arange(len(selected), dtype=torch.long, device=device),
+        trial_index=torch.zeros(len(selected), dtype=torch.long, device=device),
+    )
+
+
+def _prepare_frontres_v015_local_transaction_batch(
+    runner: Any,
+    *,
+    route: str,
+) -> SimpleNamespace:
+    """Select and seal one complete v015 local transaction before reset.
+
+    Status: active v015 selection owner for the bounded sentinel and ordinary
+    formal Stage-3 route. Downstream is one local-scenario batch plus its frozen
+    policy/expected-row plan. It selects no legacy fixed tape and does not reset
+    the environment, sample an action, update priority, or step an optimizer.
     """
 
     alg = getattr(runner, "alg", None)
     sampler = getattr(runner, "_frontres_segment_sampler", None)
     if alg is None or sampler is None:
-        raise RuntimeError("v015 local sentinel requires initialized algorithm and segment sampler owners")
-    if not bool(getattr(alg, "frontres_v015_local_sentinel_only", False)):
+        raise RuntimeError("v015 local transaction requires initialized algorithm and segment sampler owners")
+    if route not in {"sentinel", "training"}:
+        raise ValueError(f"unknown v015 local transaction route={route!r}")
+    sentinel_only = bool(getattr(alg, "frontres_v015_local_sentinel_only", False))
+    live_train_enabled = bool(getattr(alg, "frontres_segment_live_train_enabled", False))
+    if route == "sentinel" and not sentinel_only:
         raise RuntimeError("v015 local sentinel batch requires its explicit config flag")
+    if route == "training" and (sentinel_only or not live_train_enabled):
+        raise RuntimeError("v015 formal training batch requires ordinary live training and rejects sentinel mode")
     env_count = int(getattr(getattr(runner, "env", None), "num_envs", 0) or 0)
-    if env_count <= 0 or env_count % 2 != 0:
-        raise RuntimeError("v015 local sentinel requires a positive even environment count for Repair/Noisy roles")
+    if env_count <= 0 or env_count % 4 != 0:
+        raise RuntimeError("v015 local transaction requires num_envs divisible by four for complete Repair/Noisy attempts")
     repair_rows = env_count // 2
     if repair_rows < 4:
-        raise RuntimeError("v015 local sentinel requires at least four Repair rows for 2 Segments x 2 attempts")
+        raise RuntimeError("v015 local transaction requires at least four Repair rows for 2 Segments x 2 attempts")
     max_horizon = max(1, int(getattr(alg, "frontres_segment_max_horizon_k", 1) or 1))
     iteration = int(getattr(runner, "current_learning_iteration", 0) or 0)
-    sequence = int(getattr(runner, "_frontres_v015_local_sentinel_sequence", 0) or 0) + 1
-    runner._frontres_v015_local_sentinel_sequence = sequence
-    transaction_id = f"frontres-v015-local-sentinel:i{iteration}:n{sequence}"
-    base_sample = sampler.sample(2, max_horizon_k=max_horizon)
+    sequence_attr = f"_frontres_v015_local_{route}_sequence"
+    sequence = int(getattr(runner, sequence_attr, 0) or 0) + 1
+    setattr(runner, sequence_attr, sequence)
+    transaction_id = f"frontres-v015-local-{route}:i{iteration}:n{sequence}"
+    base_sample = _sample_frontres_v015_transaction_sources(
+        sampler,
+        repair_rows=repair_rows,
+        max_horizon_k=max_horizon,
+    )
     base_ids = base_sample.segment_ids.detach().to(dtype=torch.long).clone()
-    if int(base_ids.numel()) != 2 or int(torch.unique(base_ids).numel()) != 2:
-        raise RuntimeError("v015 local sentinel requires two distinct selected Segment sources")
+    if int(base_ids.numel()) < 2 or int(torch.unique(base_ids).numel()) != int(base_ids.numel()):
+        raise RuntimeError("v015 local transaction requires distinct selected Segment sources")
     snapshot = capture_frontres_frozen_policy_snapshot(runner, transaction_id=transaction_id)
     frozen_plan = sampler.plan_frozen_policy_transaction(
         base_ids,
@@ -1703,7 +1828,7 @@ def prepare_frontres_v015_local_sentinel_batch(runner: Any) -> SimpleNamespace:
     )
     if int(frozen_plan.segment_ids.numel()) != repair_rows:
         raise RuntimeError(
-            "v015 local sentinel requires environment Repair rows to equal its complete selected transaction: "
+            "v015 local transaction requires environment Repair rows to equal its complete selected transaction: "
             f"repair_rows={repair_rows} planned_attempts={int(frozen_plan.segment_ids.numel())}"
         )
     source_index = frozen_plan.source_index.detach().to(device=base_ids.device, dtype=torch.long)
@@ -1733,7 +1858,7 @@ def prepare_frontres_v015_local_sentinel_batch(runner: Any) -> SimpleNamespace:
         v015_local_scenario_transaction_id=transaction_id,
     )
     if batch is None or getattr(batch, "frontres_local_scenario_rows", None) is None:
-        raise RuntimeError("v015 local sentinel failed to materialize a sealed local scenario batch")
+        raise RuntimeError("v015 local transaction failed to materialize a sealed local scenario batch")
     scenario_ids = tuple(str(value) for value in getattr(batch, "frontres_local_scenario_ids", ()) or ())
     hashes = tuple(str(value) for value in getattr(batch, "frontres_local_scenario_hashes", ()) or ())
     x_t_identities = tuple(str(value) for value in getattr(batch, "frontres_local_scenario_x_t_identities", ()) or ())
@@ -1741,13 +1866,13 @@ def prepare_frontres_v015_local_sentinel_batch(runner: Any) -> SimpleNamespace:
     specs = tuple(getattr(batch, "specs", ()) or ())
     row_count = int(expanded_sample.segment_ids.numel())
     if len(specs) != row_count or len(scenario_ids) != row_count or len(hashes) != row_count or len(x_t_identities) != row_count:
-        raise RuntimeError("v015 local sentinel batch lost source-aligned local scenario identities")
+        raise RuntimeError("v015 local transaction batch lost source-aligned local scenario identities")
     if not provenance or any(not isinstance(value, Mapping) for value in provenance):
-        raise RuntimeError("v015 local sentinel batch lost local scenario provenance")
+        raise RuntimeError("v015 local transaction batch lost local scenario provenance")
     intent_provenance = {str(value.get("intent_q29_provenance", "")) for value in provenance}
     intent_source = {str(value.get("intent_q29_source", "")) for value in provenance}
     if len(intent_provenance) != 1 or len(intent_source) != 1:
-        raise RuntimeError("v015 local sentinel requires one q29 provenance/source semantic owner per transaction")
+        raise RuntimeError("v015 local transaction requires one q29 provenance/source semantic owner per transaction")
     plan = FrontRESV015FormalTransactionPlan(
         snapshot=snapshot,
         motion_ids=tuple(str(getattr(spec, "motion_id", "")) for spec in specs),
@@ -1768,6 +1893,123 @@ def prepare_frontres_v015_local_sentinel_batch(runner: Any) -> SimpleNamespace:
     )
     plan.validate()
     return SimpleNamespace(sample=expanded_sample, batch=batch, plan=plan)
+
+
+def prepare_frontres_v015_local_sentinel_batch(runner: Any) -> SimpleNamespace:
+    """Prepare the explicit bounded sentinel transaction."""
+
+    return _prepare_frontres_v015_local_transaction_batch(runner, route="sentinel")
+
+
+def prepare_frontres_v015_formal_training_batch(runner: Any) -> SimpleNamespace:
+    """Prepare one complete ordinary Stage-3 transaction without legacy rows."""
+
+    return _prepare_frontres_v015_local_transaction_batch(runner, route="training")
+
+
+def prepare_frontres_v015_policy_quality_item_batch(runner: Any, item: Any) -> SimpleNamespace:
+    """Materialize one fixed manifest item as an immutable two-role local batch.
+
+    The manifest selects an existing Stage-1 index row. All Repair attempts use
+    one source identity so zero/HSL/policy resets can reuse the same sealed
+    scenario without invoking the training sampler or curriculum.
+    """
+
+    dataset = getattr(runner, "_frontres_segment_dataset", None)
+    specs = tuple(getattr(dataset, "_specs", ()) or ())
+    if dataset is None or not callable(getattr(dataset, "get_segments", None)) or not specs:
+        raise RuntimeError("v015 quality manifest requires the initialized Stage-1 index dataset")
+    motion_id = str(getattr(item, "motion_id", "")).lstrip("./")
+    start_frame = int(getattr(item, "start_frame", -1))
+    horizon_k = int(getattr(item, "effective_horizon_k", 0))
+    matches = tuple(
+        spec
+        for spec in specs
+        if str(getattr(spec, "motion_id", "")).lstrip("./") == motion_id
+        and int(getattr(spec, "start_frame", -1)) == start_frame
+        and int(getattr(spec, "horizon_k", -1)) == horizon_k
+    )
+    if len(matches) != 1:
+        raise RuntimeError(
+            "v015 quality manifest must resolve to exactly one loaded Segment: "
+            f"motion={motion_id!r} frame={start_frame} K={horizon_k} matches={len(matches)}"
+        )
+    params = dict(getattr(item, "perturbation_parameters", ()) or ())
+    strength_values = [params[name] for name in ("strength", "dr_scale", "scale") if name in params]
+    if len(strength_values) != 1:
+        raise ValueError("v015 quality manifest requires exactly one strength/dr_scale/scale parameter")
+    strength = float(strength_values[0])
+    family = str(getattr(item, "perturbation_family", ""))
+    if not family or not math.isfinite(strength) or strength < 0.0:
+        raise ValueError("v015 quality manifest has invalid perturbation family or strength")
+    env_count = int(getattr(getattr(runner, "env", None), "num_envs", 0) or 0)
+    if env_count != 8:
+        raise RuntimeError("v015 bounded held-out quality requires exactly 8 envs (4 Repair + 4 Noisy)")
+    repair_rows = env_count // 2
+    device = torch.device(getattr(runner, "device", "cpu"))
+    segment_id = int(matches[0].segment_id)
+    segment_ids = torch.full((repair_rows,), segment_id, dtype=torch.long, device=device)
+    source_index = torch.zeros(repair_rows, dtype=torch.long, device=device)
+    sample = FrontRESSegmentSample(
+        segment_ids=segment_ids,
+        source=("heldout",) * repair_rows,
+        priority=torch.ones(repair_rows, dtype=torch.float32, device=device),
+        staleness=torch.zeros(repair_rows, dtype=torch.float32, device=device),
+        valid_mask=torch.ones(repair_rows, dtype=torch.bool, device=device),
+        segment_state=None,
+        rollout_trial_count=torch.zeros(repair_rows, dtype=torch.long, device=device),
+        horizon_k=torch.full((repair_rows,), horizon_k, dtype=torch.long, device=device),
+        budget_reason=("heldout_manifest",) * repair_rows,
+        trial_role=("policy",) * repair_rows,
+        source_index=source_index,
+        trial_index=torch.arange(repair_rows, dtype=torch.long, device=device),
+    )
+    batch = dataset.get_segments(segment_ids)
+    _attach_frontres_segment_trial_plan(batch, sample)
+    fixed_plan = SimpleNamespace(
+        perturbation_family=(family,) * repair_rows,
+        perturbation_strength=torch.full(
+            (repair_rows,), strength, dtype=batch.perturbation_strength.dtype, device=device
+        ),
+        source_index=source_index,
+        source_ids=torch.zeros(1, dtype=torch.long, device=device),
+        source_perturbation_family=(family,),
+        source_perturbation_strength=torch.tensor([strength], dtype=torch.float32, device=device),
+        active_modes=(family,),
+        complexity="heldout_fixed",
+        mix_mode="heldout_fixed",
+        mix_diag={"seed": int(getattr(item, "seed", -1))},
+        progress=1.0,
+        seq_idx=int(getattr(item, "seed", -1)),
+    )
+    batch = _attach_stage3_index_perturbation_plan(batch, fixed_plan)
+
+    cpu_rng = torch.random.get_rng_state()
+    cuda_rng = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []
+    try:
+        torch.manual_seed(int(getattr(item, "seed", -1)))
+        batch = _attach_frontres_local_scenarios(
+            runner,
+            batch,
+            sample,
+            update_step=0,
+            transaction_id=f"frontres-v015-quality:{item.comparison_signature}",
+        )
+    finally:
+        torch.random.set_rng_state(cpu_rng)
+        if cuda_rng:
+            torch.cuda.set_rng_state_all(cuda_rng)
+    scenario_ids = tuple(getattr(batch, "frontres_local_scenario_ids", ()) or ())
+    hashes = tuple(getattr(batch, "frontres_local_scenario_hashes", ()) or ())
+    x_t = tuple(getattr(batch, "frontres_local_scenario_x_t_identities", ()) or ())
+    if (
+        len(scenario_ids) != repair_rows
+        or len(set(scenario_ids)) != 1
+        or len(set(hashes)) != 1
+        or len(set(x_t)) != 1
+    ):
+        raise RuntimeError("v015 held-out manifest failed to seal one shared scenario/hash/x_t identity")
+    return SimpleNamespace(sample=sample, batch=batch)
 
 
 def build_live_sampler_evidence(

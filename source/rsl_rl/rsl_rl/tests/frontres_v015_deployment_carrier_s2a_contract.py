@@ -287,11 +287,63 @@ def test_t_execution_and_training_isolation() -> None:
     )
 
 
+def test_t_g4_materialized_carrier_to_current_h() -> None:
+    reset_helper, commands, _runtime, s1_helper, owner = _owners()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source = root / "ordinary_reference.npz"
+        carrier_path = root / "controlled_carrier.npz"
+        s1_helper._write_npz(source, frame_count=6)
+        protocol = owner.build_frontres_v015_persistent_corruption_protocol(
+            corruption_id="g4-s2-current-h",
+            family="local_rp",
+            seed=17,
+            parameters={"roll_std": 0.04, "pitch_std": 0.07, "root_body_index": 0},
+        )
+        carrier = owner.FrontRESV015DeploymentCarrierLifecycle(
+            source_path=str(source),
+            output_path=str(carrier_path),
+            corruption_protocol=protocol,
+        ).materialize()
+        request = owner.load_frontres_v015_deployment_composition_request(
+            owner.FrontRESV015DeploymentCompositionConfig(
+                enabled=True,
+                reference_path=carrier.carrier_path,
+                future_offsets=(1, 2),
+                corruption_protocol=protocol,
+            )
+        )
+        assert request.reference_file_hash == carrier.carrier_file_hash
+        command = _command(reset_helper, commands, num_envs=2)
+        command.set_frontres_v015_deployment_sequence(request)
+        snapshot = command.frontres_v015_deployment_sequence_snapshot()
+        q29, dq29 = _expected_arrays(carrier_path)
+        assert tuple(snapshot["current_q29_dq29"].shape) == (2, 58)
+        assert tuple(snapshot["intent_q29"].shape) == (2, 3, 29)
+        torch.testing.assert_close(snapshot["current_q29_dq29"][0, :29], q29[0])
+        torch.testing.assert_close(snapshot["current_q29_dq29"][0, 29:], dq29[0])
+        torch.testing.assert_close(snapshot["intent_q29"][0], q29[:3])
+        assert snapshot["reference_file_hashes"] == (carrier.carrier_file_hash,) * 2
+        assert snapshot["provenance"] == (
+            {
+                "reference_provenance": "deployment_reference_stream",
+                "current_command_provenance": "deployment_q29_dq29",
+                "intent_q29_provenance": "deployment_noisy_q29",
+                "intent_q29_source": "deployment_npz_joint_pos",
+            },
+        ) * 2
+    print(
+        "[T-G4-S2/T-current-H/T-carrier-identity] deterministic carrier is consumed as [B,58] + [B,H+1,29]",
+        flush=True,
+    )
+
+
 def main() -> None:
     test_t_install_current_h_identity_and_provenance()
     test_t_frame_order_cursor_boundary_and_read_only()
     test_t_row_alignment_mixed_reference_and_hash_reject()
     test_t_execution_and_training_isolation()
+    test_t_g4_materialized_carrier_to_current_h()
     print("frontres_v015_deployment_carrier_s2a_contract: ok", flush=True)
 
 

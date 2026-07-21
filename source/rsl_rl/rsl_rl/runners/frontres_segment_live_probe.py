@@ -30,6 +30,24 @@ from rsl_rl.frontres.frontres_segment_storage import (
     build_frontres_v015_gain_return_evidence,
     pair_frontres_v015_gain_facts,
 )
+try:
+    from rsl_rl.frontres.frontres_segment_diagnostics import (
+        FrontRESV015LocalEvaluationReport,
+        build_frontres_v015_local_evaluation_report,
+    )
+except ModuleNotFoundError:
+    _V015_DIAGNOSTICS_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_diagnostics.py"
+    _V015_DIAGNOSTICS_SPEC = importlib.util.spec_from_file_location(
+        "frontres_segment_diagnostics_runtime",
+        _V015_DIAGNOSTICS_PATH,
+    )
+    if _V015_DIAGNOSTICS_SPEC is None or _V015_DIAGNOSTICS_SPEC.loader is None:
+        raise RuntimeError(f"Could not load v015 transaction diagnostics owner from {_V015_DIAGNOSTICS_PATH}.")
+    _V015_DIAGNOSTICS_MODULE = importlib.util.module_from_spec(_V015_DIAGNOSTICS_SPEC)
+    sys.modules[_V015_DIAGNOSTICS_SPEC.name] = _V015_DIAGNOSTICS_MODULE
+    _V015_DIAGNOSTICS_SPEC.loader.exec_module(_V015_DIAGNOSTICS_MODULE)
+    FrontRESV015LocalEvaluationReport = _V015_DIAGNOSTICS_MODULE.FrontRESV015LocalEvaluationReport
+    build_frontres_v015_local_evaluation_report = _V015_DIAGNOSTICS_MODULE.build_frontres_v015_local_evaluation_report
 from rsl_rl.frontres.frontres_segment_reset import (
     FrontRESSegmentResetAdapter,
     FrontRESSegmentResetResult,
@@ -55,6 +73,7 @@ try:
         FrontRESV015FormalTransactionAccumulator,
         FrontRESV015FormalTransactionPlan,
         capture_frontres_frozen_policy_snapshot,
+        prepare_frontres_v015_formal_training_batch,
         prepare_frontres_v015_local_sentinel_batch,
     )
 except ModuleNotFoundError:
@@ -73,6 +92,7 @@ except ModuleNotFoundError:
     FrontRESV015FormalTransactionPlan = _V015_LIVE_SAMPLER_MODULE.FrontRESV015FormalTransactionPlan
     capture_frontres_frozen_policy_snapshot = _V015_LIVE_SAMPLER_MODULE.capture_frontres_frozen_policy_snapshot
     _close_frontres_local_scenarios = _V015_LIVE_SAMPLER_MODULE._close_frontres_local_scenarios
+    prepare_frontres_v015_formal_training_batch = _V015_LIVE_SAMPLER_MODULE.prepare_frontres_v015_formal_training_batch
     prepare_frontres_v015_local_sentinel_batch = _V015_LIVE_SAMPLER_MODULE.prepare_frontres_v015_local_sentinel_batch
 from rsl_rl.runners.frontres_rollout_step import (
     _append_future_intent_actor_context,
@@ -277,6 +297,7 @@ class FrontRESV015FormalTransactionRequest:
 
     plan: FrontRESV015FormalTransactionPlan
     candidate_batches: tuple[Any, ...]
+    diagnostic_reports: tuple[FrontRESV015LocalEvaluationReport, ...]
     policy_evaluator: Any | None = None
     # Optional compatibility cross-check only. It cannot replace the critic
     # rows carried and reordered by the sealed candidate transaction.
@@ -284,11 +305,27 @@ class FrontRESV015FormalTransactionRequest:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "candidate_batches", tuple(self.candidate_batches))
+        object.__setattr__(self, "diagnostic_reports", tuple(self.diagnostic_reports))
         if not isinstance(self.plan, FrontRESV015FormalTransactionPlan):
             raise TypeError("v015 formal transaction request requires FrontRESV015FormalTransactionPlan")
         self.plan.validate()
         if not self.candidate_batches:
             raise ValueError("v015 formal transaction request requires candidate batches")
+        if len(self.diagnostic_reports) != len(self.candidate_batches):
+            raise ValueError("v015 formal transaction requires one immutable diagnostic projection per candidate batch")
+        for candidate_batch, report in zip(self.candidate_batches, self.diagnostic_reports, strict=True):
+            if not isinstance(report, FrontRESV015LocalEvaluationReport):
+                raise TypeError("v015 formal transaction diagnostic projection has an invalid owner")
+            report.validate()
+            metadata = getattr(candidate_batch, "transaction_metadata", None)
+            if (
+                report.transaction_id != self.plan.transaction_id
+                or metadata is None
+                or report.policy_row_count != int(candidate_batch.observations.shape[0])
+                or report.scenario_ids != tuple(metadata.scenario_ids)
+                or report.noisy_segment_hashes != tuple(metadata.noisy_segment_hashes)
+            ):
+                raise ValueError("v015 formal transaction diagnostic projection lost transaction or scenario identity")
         if self.privileged_observations is not None and not isinstance(self.privileged_observations, torch.Tensor):
             raise TypeError("v015 formal transaction privileged_observations must be a tensor or None")
 
@@ -401,7 +438,7 @@ def _commit_frontres_v015_checkpoint_transaction(
 
 @dataclass(frozen=True)
 class FrontRESV015FormalTransactionUpdateResult:
-    """One fake-S2 formal grouped update and its sealed diagnostics."""
+    """One formal grouped update and its committed transaction diagnostics."""
 
     transaction_id: str
     policy_snapshot_id: str
@@ -3270,8 +3307,8 @@ def collect_frontres_v015_one_action_k_evidence(
     """Capture one action followed by frozen-GMT K evidence for v015.
 
     This bypasses the legacy repeated-action loop. It is consumed by the
-    explicit pre-live sentinel and CPU contracts only; generic live training
-    and legacy storage/update paths remain isolated.
+    explicit pre-live sentinel, formal v015 held-out evaluator, and CPU
+    contracts; generic legacy storage/update paths remain isolated.
     """
 
     command, snapshot, repair_rows = _require_v015_one_action_k_layout(runner, observations, pair_layout)
@@ -3580,12 +3617,15 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
     if any(
         bool(getattr(alg, name, False))
         for name in (
-            "frontres_segment_live_train_enabled",
             "frontres_segment_live_update_loop_only",
             "frontres_segment_live_single_update_only",
         )
     ):
-        raise RuntimeError("v015 formal transaction fake S2 rejects legacy live-update dispatch flags")
+        raise RuntimeError("v015 formal transaction rejects legacy immediate-update dispatch flags")
+    if bool(getattr(alg, "frontres_segment_live_train_enabled", False)) and int(
+        getattr(alg, "frontres_segment_live_update_steps", 0) or 0
+    ) != 1:
+        raise RuntimeError("v015 formal training requires one complete transaction and one update per iteration")
     offsets = tuple(int(value) for value in (getattr(alg, "frontres_future_offsets", ()) or ()))
     if not offsets or any(value <= 0 for value in offsets):
         raise RuntimeError("v015 formal transaction route requires positive deployment-q29 future offsets")
@@ -3651,8 +3691,9 @@ def run_frontres_v015_formal_transaction_update(
     publisher. 它不调用 legacy `to_ppo_batch`, `run_frontres_segment_single_update`,
     sampler state, checkpoint save/load, simulator 或 live loop.
 
-    Status: offline-S2/S3 only. Evidence 是 code-confirmed 和 contract-confirmed;
-    generic formal dispatch, checkpoint cadence, 和 live route 尚未验证.
+    Status: active exact-one update owner for offline contracts, the bounded
+    sentinel, and ordinary v015 Stage-3 dispatch. Simulator and policy-quality
+    evidence remain separate live gates.
     """
 
     if not isinstance(request, FrontRESV015FormalTransactionRequest):
@@ -3735,6 +3776,7 @@ def run_frontres_v015_formal_transaction_update(
         "grouped_segment_mass_shares": tuple(ppo_result.grouped_segment_mass_shares),
         "grouped_attempt_mass_shares": tuple(ppo_result.grouped_attempt_mass_shares),
         "optimizer_step_delta": int(optimizer_step_delta),
+        "v003_action_gain_harm_reports": request.diagnostic_reports,
     }
     print(
         "[FrontRES v015 Formal Transaction] "
@@ -3759,12 +3801,13 @@ def run_frontres_v015_formal_transaction_update(
     )
 
 
-def _build_frontres_v015_local_identity_sentinel_request(
+def _build_frontres_v015_local_transaction_request(
     runner: Any,
     *,
     init_at_random_ep_len: bool,
+    route: str,
 ) -> FrontRESV015FormalTransactionRequest:
-    """Build the real local-scenario request for the opt-in v015 sentinel.
+    """Build a real local-scenario request for one explicit v015 route.
 
     Keeping the request builder separate makes the collecting-barrier order
     testable: no reset or policy attempt may occur before the formal update loop
@@ -3773,7 +3816,18 @@ def _build_frontres_v015_local_identity_sentinel_request(
 
     del init_at_random_ep_len  # x_t reset owns the local dynamic start.
     _require_v015_formal_transaction_config(runner)
-    prepared = prepare_frontres_v015_local_sentinel_batch(runner)
+    if route == "sentinel":
+        prepared = prepare_frontres_v015_local_sentinel_batch(runner)
+        label = "local sentinel"
+        diagnostics_attr = "_frontres_v015_local_sentinel_preupdate_diagnostics"
+        batch_attr = "_frontres_v015_local_sentinel_batch"
+    elif route == "training":
+        prepared = prepare_frontres_v015_formal_training_batch(runner)
+        label = "formal training"
+        diagnostics_attr = "_frontres_v015_formal_training_preupdate_diagnostics"
+        batch_attr = "_frontres_v015_formal_training_batch"
+    else:
+        raise ValueError(f"unknown v015 request route={route!r}")
     batch = prepared.batch
     plan = prepared.plan
     runner._frontres_segment_live_current_sample = prepared.sample
@@ -3788,7 +3842,7 @@ def _build_frontres_v015_local_identity_sentinel_request(
             or int(getattr(pair_layout, "n_candidate", 0)) != 0
             or int(getattr(pair_layout, "n_clean", 0)) != 0
         ):
-            raise RuntimeError("v015 local sentinel requires an exact Repair/Noisy two-role layout for every planned policy row")
+            raise RuntimeError(f"v015 {label} requires an exact Repair/Noisy two-role layout for every planned policy row")
         reset_result = _apply_current_segment_reset(runner, pair_layout=pair_layout)
         success_mask = getattr(reset_result, "success_mask", None)
         if (
@@ -3797,7 +3851,7 @@ def _build_frontres_v015_local_identity_sentinel_request(
             or int(success_mask.numel()) != policy_row_count
             or not bool(success_mask.detach().bool().all())
         ):
-            raise RuntimeError("v015 local sentinel requires every selected local scenario reset to succeed before actor evaluation")
+            raise RuntimeError(f"v015 {label} requires every selected local scenario reset to succeed before actor evaluation")
         observations = _read_live_observations(runner)
         candidate_evidence = collect_frontres_v015_gain_return_priority_evidence(
             runner,
@@ -3814,13 +3868,17 @@ def _build_frontres_v015_local_identity_sentinel_request(
             source_index=plan.source_index,
             trial_index=plan.trial_index,
         )
+        diagnostic_report = build_frontres_v015_local_evaluation_report(
+            candidate_evidence,
+            transaction_id=plan.transaction_id,
+        )
         artifact = getattr(batch, "frontres_local_scenario_current_root_artifact_t", None)
         continuation_lengths = getattr(batch, "frontres_local_scenario_clean_continuation_lengths", None)
         if not isinstance(artifact, torch.Tensor) or not isinstance(continuation_lengths, torch.Tensor):
-            raise RuntimeError("v015 local sentinel lost sealed root-artifact or Clean-continuation identity before storage")
+            raise RuntimeError(f"v015 {label} lost sealed root-artifact or Clean-continuation identity before storage")
         observation_trace = dict(getattr(runner, "_frontres_v015_observation_route_trace", {}) or {})
         expected_trace = {
-            "role_row_count": 8,
+            "role_row_count": 2 * policy_row_count,
             "current_command_dim": 58,
             "raw_observation_dim": 870,
             "q29_tail_dim": 58,
@@ -3838,10 +3896,10 @@ def _build_frontres_v015_local_identity_sentinel_request(
         }
         if mismatched_trace or int(observation_trace.get("post_advance_gmt_read_count", 0)) <= 0:
             raise RuntimeError(
-                "v015 live sentinel observation trace is incomplete or violates the frozen authority: "
+                f"v015 {label} observation trace is incomplete or violates the frozen authority: "
                 f"mismatched={mismatched_trace}, trace={observation_trace}"
             )
-        runner._frontres_v015_local_sentinel_preupdate_diagnostics = {
+        setattr(runner, diagnostics_attr, {
             "transaction_id": plan.transaction_id,
             "policy_snapshot_id": plan.policy_snapshot_id,
             "x_t_identities": tuple(plan.x_t_identities),
@@ -3857,17 +3915,57 @@ def _build_frontres_v015_local_identity_sentinel_request(
             "later_femr_action_count": int(candidate_evidence.one_action.later_femr_action_count),
             "horizon_k": tuple(int(value) for value in plan.horizon_k.tolist()),
             "observation_route": observation_trace,
-        }
-        runner._frontres_v015_local_sentinel_batch = batch
+        })
+        setattr(runner, batch_attr, batch)
         return FrontRESV015FormalTransactionRequest(
             plan=plan,
             candidate_batches=(candidate_batch,),
+            diagnostic_reports=(diagnostic_report,),
         )
     except Exception:
         _close_frontres_local_scenarios(batch)
         runner._frontres_segment_live_current_sample = None
         runner._frontres_segment_live_current_batch = None
         raise
+
+
+def _build_frontres_v015_local_identity_sentinel_request(
+    runner: Any,
+    *,
+    init_at_random_ep_len: bool,
+) -> FrontRESV015FormalTransactionRequest:
+    """Build the dedicated bounded sentinel request."""
+
+    return _build_frontres_v015_local_transaction_request(
+        runner,
+        init_at_random_ep_len=init_at_random_ep_len,
+        route="sentinel",
+    )
+
+
+def build_frontres_v015_formal_training_request(
+    runner: Any,
+    *,
+    init_at_random_ep_len: bool,
+) -> FrontRESV015FormalTransactionRequest:
+    """Build one complete ordinary Stage-3 request without legacy storage."""
+
+    return _build_frontres_v015_local_transaction_request(
+        runner,
+        init_at_random_ep_len=init_at_random_ep_len,
+        route="training",
+    )
+
+
+def close_frontres_v015_formal_training_request(runner: Any) -> None:
+    """Close only the local-scenario carrier owned by the completed request."""
+
+    batch = getattr(runner, "_frontres_v015_formal_training_batch", None)
+    if batch is not None:
+        _close_frontres_local_scenarios(batch)
+        delattr(runner, "_frontres_v015_formal_training_batch")
+    runner._frontres_segment_live_current_sample = None
+    runner._frontres_segment_live_current_batch = None
 
 
 def run_frontres_v015_local_identity_sentinel(

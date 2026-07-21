@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from contextlib import redirect_stdout
 import importlib.util
+import io
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +19,7 @@ RSL_ROOT = ROOT / "source" / "rsl_rl" / "rsl_rl"
 CANDIDATE_TEST = RSL_ROOT / "tests" / "frontres_v015_grouped_candidate_adapter_contract.py"
 LIVE_SAMPLER_PATH = RSL_ROOT / "runners" / "frontres_segment_live_sampler.py"
 LIVE_UPDATE_LOOP_PATH = RSL_ROOT / "runners" / "frontres_segment_live_update_loop.py"
+LIVE_TRAINING_PATH = RSL_ROOT / "runners" / "frontres_segment_live_training.py"
 ON_POLICY_RUNNER_PATH = RSL_ROOT / "runners" / "on_policy_runner.py"
 
 
@@ -150,6 +154,16 @@ def _build_request(candidate_contract, owners, live_sampler):
     request = live_probe.FrontRESV015FormalTransactionRequest(
         plan=plan,
         candidate_batches=(attempt_zero, attempt_one),
+        diagnostic_reports=(
+            live_probe.build_frontres_v015_local_evaluation_report(
+                captured.result,
+                transaction_id=plan.transaction_id,
+            ),
+            live_probe.build_frontres_v015_local_evaluation_report(
+                captured.result,
+                transaction_id=plan.transaction_id,
+            ),
+        ),
         policy_evaluator=policy,
     )
     return SimpleNamespace(
@@ -215,6 +229,16 @@ def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, l
     )
     assert result.diagnostics["intent_q29_provenance"] == "deployment_noisy_q29"
     assert result.diagnostics["optimizer_step_delta"] == 1
+    quality = result.diagnostics["v003_action_gain_harm_reports"]
+    assert isinstance(quality, tuple) and len(quality) == 2
+    assert all(report.transaction_id == result.transaction_id for report in quality)
+    assert all(len(report.policy_actions) == 2 for report in quality)
+    assert all(all(len(row) == 6 for row in report.policy_actions) for report in quality)
+    assert all(report.valid_policy_row_mask == (True, True) for report in quality)
+    assert all(report.scenario_ids == ("scenario-a", "scenario-b") for report in quality)
+    assert all(report.noisy_segment_hashes == ("hash-a", "hash-b") for report in quality)
+    assert all(report.gain_total_pos_frac + report.gain_total_neg_frac <= 1.0 for report in quality)
+    assert fixture.optimizer.step_count == 1
     checkpoint_state = fixture.runner._frontres_v015_checkpoint_transaction_state
     assert checkpoint_state["state"] == "committed"
     assert checkpoint_state["receipt"]["optimizer_step_delta"] == 1
@@ -233,7 +257,11 @@ def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, l
 def test_t_partial_hsl_and_legacy_config_fail_before_step(candidate_contract, owners, live_sampler, live_update_loop) -> None:
     fixture = _build_request(candidate_contract, owners, live_sampler)
     live_probe = owners[6]
-    partial = replace(fixture.request, candidate_batches=(fixture.request.candidate_batches[0],))
+    partial = replace(
+        fixture.request,
+        candidate_batches=(fixture.request.candidate_batches[0],),
+        diagnostic_reports=(fixture.request.diagnostic_reports[0],),
+    )
     _expect_runtime_error(lambda: live_probe.run_frontres_v015_formal_transaction_update(fixture.runner, partial))
     assert fixture.optimizer.step_count == 0
 
@@ -254,6 +282,188 @@ def test_t_partial_hsl_and_legacy_config_fail_before_step(candidate_contract, ow
         "[T-partial/T-warmup-isolation/T-fail-closed] partial transaction, HSL, and legacy normalization reject before step",
         flush=True,
     )
+
+
+def test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, owners, live_sampler, live_update_loop) -> None:
+    fixture = _build_request(candidate_contract, owners, live_sampler)
+    fixture.runner.alg.frontres_segment_live_train_enabled = True
+    fixture.runner.alg.frontres_segment_live_update_steps = 1
+    fixture.runner.alg.frontres_v015_local_sentinel_only = False
+    live_probe = owners[6]
+    calls: list[str] = []
+    original_build = live_probe.build_frontres_v015_formal_training_request
+    original_close = live_probe.close_frontres_v015_formal_training_request
+
+    def build(runner, *, init_at_random_ep_len):
+        assert init_at_random_ep_len
+        assert runner._frontres_v015_checkpoint_transaction_state == {"state": "collecting", "phase": "provider"}
+        calls.append("provider")
+        return fixture.request
+
+    def close(runner):
+        calls.append("close")
+        runner._frontres_segment_live_current_sample = None
+        runner._frontres_segment_live_current_batch = None
+
+    live_probe.build_frontres_v015_formal_training_request = build
+    live_probe.close_frontres_v015_formal_training_request = close
+    try:
+        result = live_update_loop.run_frontres_v015_formal_training_update_loop(
+            fixture.runner,
+            init_at_random_ep_len=True,
+        )
+    finally:
+        live_probe.build_frontres_v015_formal_training_request = original_build
+        live_probe.close_frontres_v015_formal_training_request = original_close
+
+    assert calls == ["provider", "close"]
+    assert result.optimizer_step_delta == 1
+    assert fixture.optimizer.step_count == 1
+    assert fixture.runner._frontres_v015_checkpoint_transaction_state["state"] == "committed"
+    assert not hasattr(fixture.runner, "_frontres_v015_formal_transaction_provider")
+    print(
+        "[T-provider/T-complete-transaction/T-exact-one-update] ordinary provider closes only after committed exact-one update",
+        flush=True,
+    )
+
+
+def test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owners, live_sampler, _live_update_loop) -> None:
+    fixture = _build_request(candidate_contract, owners, live_sampler)
+    live_probe = owners[6]
+    result = live_probe.run_frontres_v015_formal_transaction_update(fixture.runner, fixture.request)
+    training = _load("frontres_v015_formal_live_training_contract", LIVE_TRAINING_PATH)
+    saves: list[str] = []
+    runner = fixture.runner
+    runner.log_dir = "/tmp"
+    runner.current_learning_iteration = 1
+    runner.save = lambda path: saves.append(path)
+    runner._record_frontres_checkpoint_probe = lambda _summary, _path: None
+    summary = training._require_v015_committed_result(runner, result)
+    telemetry = summary["v015_transaction_telemetry"]
+    assert telemetry["policy_row_count"] == 4
+    assert len(telemetry["policy_actions"]) == 4
+    assert all(len(row) == 6 for row in telemetry["policy_actions"])
+    assert telemetry["valid_policy_row_mask"] == (True, True, True, True)
+    assert len(telemetry["intent_gain"]) == 4
+    assert len(telemetry["physics_gain"]) == 4
+    assert len(telemetry["repair_cost"]) == 4
+    assert len(telemetry["gain_total"]) == 4
+    assert telemetry["scenario_ids"] == (
+        "scenario-a",
+        "scenario-b",
+        "scenario-a",
+        "scenario-b",
+    )
+    assert telemetry["noisy_segment_hashes"] == (
+        "hash-a",
+        "hash-b",
+        "hash-a",
+        "hash-b",
+    )
+    assert telemetry["grouped_attempt_mass_shares"] == (0.25, 0.25, 0.25, 0.25)
+    assert telemetry["update_count"] == 1
+    assert telemetry["optimizer_step_delta"] == 1
+    missing_reports = replace(result, diagnostics={**result.diagnostics, "v003_action_gain_harm_reports": ()})
+    _expect_runtime_error(lambda: training._v015_formal_update_summary(missing_reports))
+    feedback_report = replace(result.diagnostics["v003_action_gain_harm_reports"][0], ppo_feedback=True)
+    feedback_result = replace(
+        result,
+        diagnostics={
+            **result.diagnostics,
+            "v003_action_gain_harm_reports": (
+                feedback_report,
+                *result.diagnostics["v003_action_gain_harm_reports"][1:],
+            ),
+        },
+    )
+    try:
+        training._v015_formal_update_summary(feedback_result)
+    except (RuntimeError, ValueError):
+        pass
+    else:
+        raise AssertionError("feedback-bearing telemetry must fail closed")
+    assert training._save_live_checkpoint(
+        runner,
+        checkpoint_path="/tmp/v015-committed.pt",
+        summary=summary,
+        required=True,
+        expected_v015_transaction_id=result.transaction_id,
+    )
+    assert saves == ["/tmp/v015-committed.pt"]
+
+    runner._frontres_v015_checkpoint_transaction_state = {"state": "collecting"}
+    _expect_runtime_error(
+        lambda: training._save_live_checkpoint(
+            runner,
+            checkpoint_path="/tmp/v015-partial.pt",
+            summary=summary,
+            required=True,
+            expected_v015_transaction_id=result.transaction_id,
+        )
+    )
+    assert saves == ["/tmp/v015-committed.pt"]
+    print("[T-commit/T-save] checkpoint trigger accepts the matching receipt and rejects partial state", flush=True)
+
+def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
+    candidate_contract,
+    owners,
+    live_sampler,
+    _live_update_loop,
+) -> None:
+    fixture = _build_request(candidate_contract, owners, live_sampler)
+    live_probe = owners[6]
+    result = live_probe.run_frontres_v015_formal_transaction_update(fixture.runner, fixture.request)
+    training = _load("frontres_v015_formal_training_loop_contract", LIVE_TRAINING_PATH)
+    runner = fixture.runner
+    runner.alg.frontres_segment_live_train_enabled = True
+    runner._frontres_segment_replay_boundary = SimpleNamespace(
+        live_train_enabled=True,
+        periodic_eval_enabled=False,
+    )
+    runner.current_learning_iteration = 0
+    runner.log_dir = "/tmp"
+    runner.disable_logs = False
+    runner.save_interval = 1
+    calls: list[str] = []
+
+    def formal_transaction(*, init_at_random_ep_len):
+        assert init_at_random_ep_len
+        calls.append("formal")
+        return result
+
+    def legacy_forbidden(*_args, **_kwargs):
+        raise AssertionError("ordinary v015 training must not call the legacy update loop")
+
+    def save(path):
+        assert runner._frontres_v015_checkpoint_transaction_state["state"] == "committed"
+        calls.append(f"save:{path}")
+
+    runner.run_frontres_v015_formal_training_transaction = formal_transaction
+    runner.run_frontres_segment_live_update_loop = legacy_forbidden
+    runner.save = save
+    runner._record_frontres_checkpoint_probe = lambda _summary, _path: None
+    training.print_formal_route_audit = lambda *_args, **_kwargs: None
+    output = io.StringIO()
+    with redirect_stdout(output):
+        training.run_frontres_segment_live_training_loop(
+            runner,
+            num_learning_iterations=1,
+            init_at_random_ep_len=True,
+        )
+    assert runner.current_learning_iteration == 1
+    assert calls == ["formal", "save:/tmp/model_1.pt"]
+    telemetry_line = next(
+        line for line in output.getvalue().splitlines()
+        if line.startswith("[FrontRES v015 Transaction Telemetry] ")
+    )
+    logged = json.loads(telemetry_line.split("] ", 1)[1])
+    assert logged["policy_row_count"] == 4
+    assert logged["optimizer_step_delta"] == 1
+    assert logged["gain_source"] == "FRS-GAIN-v003-intent-physics-local-repair"
+    assert logged["return_feedback"] is False
+    assert logged["priority_feedback"] is False
+    assert logged["ppo_feedback"] is False
+    print("[T-formal-dispatch/T-legacy-isolation/T-commit-before-save] one ordinary iteration uses only formal update and saves once", flush=True)
 
 
 def test_t_q29_actor_route_before_normalizer(_candidate_contract, owners, _live_sampler, _live_update_loop) -> None:
@@ -301,6 +511,9 @@ def main() -> None:
     candidate_contract, owners, live_sampler, live_update_loop = _load_owners()
     test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_partial_hsl_and_legacy_config_fail_before_step(candidate_contract, owners, live_sampler, live_update_loop)
+    test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, owners, live_sampler, live_update_loop)
+    test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owners, live_sampler, live_update_loop)
+    test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_q29_actor_route_before_normalizer(candidate_contract, owners, live_sampler, live_update_loop)
     print("frontres_v015_transaction_route_contract: ok", flush=True)
 

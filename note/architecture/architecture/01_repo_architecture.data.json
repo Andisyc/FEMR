@@ -201,14 +201,14 @@
             {"id": "MAIN-20", "path": "source/rsl_rl/rsl_rl/modules/normalizer.py", "role": "policy stats dependency", "functions": [], "sourceLine": 14, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Fnormalizer.py&line=14"}
           ],
       "mainRoute": [
-        "B1 Stage-1: 870D raw + 58D deployment q29 -> 928D combined -> FEMR 158D -> 6D proposal mean; GMT suffix remains 770D",
+        "B1 Stage-1 HSL-v1 -> explicit fresh Stage-3 actor/std/158D prefix migration -> 870D raw + 58D deployment q29 -> 928D combined; GMT suffix remains 770D",
         "B2 front_residual_actor_critic.py::act(): distribution -> sampled Delta SE(3)",
         "B3 evaluate_segment_actions(): stored action -> log_prob/value/entropy"
       ],
       "mainRouteTitles": ["建立 6D 分布", "采样 Repair Action", "重算 PPO Statistics"],
           "review": ["检查输出始终为 6D", "检查 sampled action、mean、sigma、log_prob 同源"],
-          "tests": ["S1 T-shape/grad", "S2 action representation", "S3 checkpoint"],
-          "gap": "真实 policy distribution 需要 Phase B probe"
+          "tests": ["S1 T-shape/grad", "S2 action representation", "S3 checkpoint", "E-FI-43 actor-only migration", "E-FI-44 formal transaction dispatch", "E-FI-45 exact save/fresh reload"],
+          "gap": "E-FI-43 closes deterministic HSL-v1 actor/std/158D-prefix migration; E-FI-44 closes ordinary sealed grouped exact-one dispatch and commit-only save trigger; E-FI-45 closes actual v015 save and strict fresh-inference proposal equality offline. Trained-policy quality and live distribution remain open under G5"
         },
         {
           "id": "MOD-CORRECTION",
@@ -351,9 +351,9 @@
           "mustNot": "不改变 owner 模块中的 action、Gain 或 optimizer 语义",
           "objects": ["sample", "capture", "segment storage", "PPO result", "sampler evidence"],
           "files": [
-            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "legacy sampler plus v015 immutable expected-row plan/accumulator", "functions": ["run_frontres_segment_sampler_step()","FrontRESV015FormalTransactionPlan","FrontRESV015FormalTransactionAccumulator"], "sourceLine": 193, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=193"},
-            {"id": "MAIN-36A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", "role": "dedicated v015 sealed-transaction dispatcher, bounded-live confirmed; legacy repeated update loop stays separate", "functions": ["run_frontres_v015_formal_transaction_update_loop()"], "sourceLine": 123, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_update_loop.py&line=123"},
-            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "training/eval loop", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"},
+            {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "legacy sampler plus v015 whole-M source selection, immutable expected-row plan, and accumulator", "functions": ["run_frontres_segment_sampler_step()","prepare_frontres_v015_formal_training_batch()","FrontRESV015FormalTransactionPlan","FrontRESV015FormalTransactionAccumulator"], "sourceLine": 193, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=193"},
+            {"id": "MAIN-36A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", "role": "ordinary and sentinel v015 sealed-transaction dispatchers; legacy repeated update loop stays separate", "functions": ["run_frontres_v015_formal_transaction_update_loop()","run_frontres_v015_formal_training_update_loop()"], "sourceLine": 123, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_update_loop.py&line=123"},
+            {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "formal transaction iteration/commit-only save owner plus isolated legacy training/eval loop", "functions": ["run_frontres_segment_live_training_loop()"], "sourceLine": 1806, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1806"},
             {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "rollout capture/storage builder, v015 row-aligned actor/critic evaluator connector, and exact-one-update owner", "functions": ["collect_frontres_v015_one_action_k_evidence()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3260, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3260"},
             {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "train/eval console formatting", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"}
           ],
@@ -361,12 +361,12 @@
         "B1 run_frontres_segment_sampler_step(): runner state -> sampled segment batch",
         "B2 run_frontres_segment_live_probe(): batch -> paired K-step capture",
         "B3 build_live_segment_storage(): capture -> policy-row storage",
-        "B4 dedicated v015 route: complete candidate shards -> grouped PPO -> one explicit update; legacy training loop remains separate"
+        "B4 ordinary v015 route: whole Segment-M rows -> complete candidate shards -> grouped PPO -> one explicit update -> committed receipt -> save; legacy update loop remains separate"
       ],
       "mainRouteTitles": ["采样 Segment", "执行 Paired Rollout", "构造 Segment Storage", "更新 Policy 与 Replay"],
           "review": ["检查 sampler evidence 与 PPO diagnostics 隔离", "检查 update 次数和顺序", "检查 eval 不污染 training state"],
-          "tests": ["S2 T-connect/update-order", "S4 live train"],
-          "gap": "E-FI-27 closes the dedicated bounded-live v015 transaction/update route. Generic long training and actual checkpoint cadence/resume remain later gates."
+          "tests": ["S2 T-connect/update-order", "S3 T-commit-before-save", "E-FI-44 ordinary formal dispatch", "E-FI-45 exact save/fresh reload", "S4 live train"],
+          "gap": "E-FI-27 closes the dedicated bounded-live v015 transaction/update route; E-FI-44 closes ordinary whole-M selection, grouped exact-one dispatch, and commit-only save triggering; E-FI-45 closes actual save-to-fresh-inference equality offline. Long training and policy quality remain G5 gates."
         }
       ]
     },
@@ -461,7 +461,7 @@
           "mustNot": "不静默跳过不兼容 actor head 或 observation stats",
           "objects": ["policy state", "std", "normalizer", "optimizer", "sampler", "phase state"],
           "files": [
-            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "Stage-3 v2 与 proposal-only HSL v1 的隔离 checkpoint owner", "functions": ["save_runner()", "load_runner()", "_build_v015_hsl_checkpoint_payload()", "_validate_v015_hsl_checkpoint_resume()"], "sourceLine": 58, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=58"},
+            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "Stage-3 v2 与 proposal-only HSL v1 的隔离 checkpoint owner, 含 explicit Stage-3 actor-only initializer 与 bounded verifier", "functions": ["save_runner()", "load_runner()", "load_v015_hsl_initializer()", "_build_v015_hsl_checkpoint_payload()", "_validate_v015_hsl_checkpoint_resume()", "capture_v015_hsl_fresh_reload_shadow()", "verify_v015_hsl_fresh_reload()"], "sourceLine": 58, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=58"},
             {"id": "MAIN-50", "path": "source/whole_body_tracking/whole_body_tracking/utils/exporter.py", "role": "policy export", "functions": [], "sourceLine": 18, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Futils%2Fexporter.py&line=18"}
           ],
       "mainRoute": [
@@ -471,23 +471,23 @@
       ],
       "mainRouteTitles": ["保存完整训练状态", "恢复并验证状态", "导出 Policy Artifact"],
           "review": ["检查正式 owner 与 detached helper 区别", "检查 cold-start/resume identity", "检查 warmup phase state"],
-          "tests": ["S3 T-persist/order/diff", "S4 artifact resume"],
-          "gap": "真实服务器 checkpoint round-trip 未由静态图证明"
+          "tests": ["S3 T-persist/order/diff", "E-FI-45 exact save/fresh reload", "S4 artifact resume"],
+          "gap": "E-FI-42 live-confirms HSL-v1 production; E-FI-43 confirms explicit Stage-3 actor/std/158D-prefix initialization; E-FI-44 confirms commit-only ordinary save triggering; E-FI-45 confirms the same updated semantic policy through actual save and strict fresh reload. Long-run cadence, trained-policy quality, and live resume remain open"
         },
         {
           "id": "MOD-EVAL",
           "title": "Evaluation",
           "summary": "隔离 legacy eval, 并为 v015 deployment composition 定义独立 reference/materializer/paired report",
-          "owns": "legacy periodic/sequence isolation, ordinary reference identity, planned fixed-carrier materializer, command-owned current/H carrier, paired baseline/repair report 与 no-feedback boundary",
+          "owns": "legacy periodic/sequence isolation, ordinary reference identity, deterministic fixed-carrier materializer, command-owned current/H carrier, paired baseline/repair report 与 no-feedback boundary",
           "mustNot": "不更新 policy 或 replay priority",
           "objects": ["motion id", "start frame", "perturbation", "paired metrics", "survival"],
           "files": [
             {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "periodic/sequence eval route", "functions": ["run_frontres_segment_sequence_offline_eval()"], "sourceLine": 311, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=311"},
-            {"id": "MAIN-37A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py", "role": "E-FI-28/E-FI-30 implemented request/executor/report owner; E-FI-32 marks external pre-materialized input and repair-only composition as target-contract mismatch pending G4/G6", "functions": ["load_frontres_v015_deployment_composition_request()","run_frontres_v015_deployment_composition_eval()","FrontRESV015DeploymentCompositionReport"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_sequence_eval.py&line=1"},
+            {"id": "MAIN-37A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py", "role": "E-FI-46 ordinary-reference to deterministic sealed carrier owner plus E-FI-28/E-FI-30 request/executor/report owner; paired baseline remains G6", "functions": ["materialize_frontres_v015_deployment_carrier()","FrontRESV015DeploymentCarrierLifecycle","load_frontres_v015_deployment_composition_request()","run_frontres_v015_deployment_composition_eval()","FrontRESV015DeploymentCompositionReport"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_sequence_eval.py&line=1"},
             {"id": "MAIN-37B", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "E-FI-29/E-FI-30 immutable deployment q29/dq29/body sequence, explicit cursor/current reference, and command-clock hold owner", "functions": ["set_frontres_v015_deployment_sequence()","frontres_v015_deployment_sequence_snapshot()","advance_frontres_v015_deployment_sequence()","_advance_frontres_command_clock()"], "sourceLine": 1550, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=1550"},
             {"id": "MAIN-37C", "path": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py", "role": "E-FI-29/E-FI-30 deployment current/H validator and 870+58=928 observation builder", "functions": ["read_frontres_v015_deployment_context()","build_frontres_v015_deployment_observation()"], "sourceLine": 89, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=89"},
             {"id": "MAIN-37D", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "thin v015 formal composition entry; no legacy evaluator or training feedback", "functions": ["run_frontres_v015_deployment_composition_eval()"], "sourceLine": 745, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Fon_policy_runner.py&line=745"},
-            {"id": "MAIN-37E", "path": "scripts/rsl_rl/frontres_v015_deployment_composition.py", "role": "E-FI-31 CUDA-visible CLI connector; E-FI-32 implemented-not-runnable because compatible trained FEMR checkpoint, selection-time materializer, and paired evaluator do not yet exist", "functions": ["validate_frontres_v015_deployment_cli_args()","configure_frontres_v015_deployment_agent_cfg()","dispatch_frontres_v015_deployment_composition()"], "sourceLine": 1, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ffrontres_v015_deployment_composition.py&line=1"},
+            {"id": "MAIN-37E", "path": "scripts/rsl_rl/frontres_v015_deployment_composition.py", "role": "E-FI-31 CUDA-visible CLI connector; E-FI-46 closes carrier production, but compatible trained FEMR checkpoint and paired evaluator remain G5/G6 blockers", "functions": ["validate_frontres_v015_deployment_cli_args()","configure_frontres_v015_deployment_agent_cfg()","dispatch_frontres_v015_deployment_composition()"], "sourceLine": 1, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ffrontres_v015_deployment_composition.py&line=1"},
             {"id": "MAIN-49", "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py", "role": "DR sweep", "functions": [], "sourceLine": 20, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_dr_sweep_eval.py&line=20"},
             {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "eval formatting", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"}
           ],
@@ -498,13 +498,13 @@
         "B4 legacy path: sampled quartet reset/preroll/rollout -> v002 metrics, rejected for v015",
         "B5 v015 S2B: T-max(H) current/H -> one 6D FEMR + frozen GMT per frame -> metrics -> atomic JSON with zero training-state diff",
         "B6 v015 S4-S0 implemented-only: CUDA-visible CLI -> exact checkpoint/file/report -> S2B-only dispatch",
-        "B7 planned G1-G5: new-layout HSL/Stage-3 train -> v015 checkpoint; ordinary reference -> one fixed artifact carrier",
+        "B7 G2-G4: new-layout HSL/Stage-3 readiness plus ordinary reference -> deterministic fixed artifact carrier; G5 still owns trained checkpoint",
         "B8 planned G6-G7: same carrier/reset/GMT -> baseline vs FEMR paired composition -> bounded S4"
       ],
       "mainRouteTitles": ["封存 Deployment Request", "安装 Current/H Carrier", "验证 Composition Report", "隔离 Legacy Evaluator", "执行 Formal Composition", "连接 Dedicated CLI", "生成训练与 Carrier 产物", "验证 Paired Live Composition"],
           "review": ["确认每次 eval 新采样", "检查 train/eval state isolation", "检查 Gain raw components 与 K coverage"],
-          "tests": ["S1/S2 interface evidence E-FI-28--E-FI-31", "E-FI-32 dependency/status rebase", "G1 training readiness audit pending", "G4 fixed-carrier contract pending", "G6 paired composition pending", "G7 S4 blocked"],
-          "gap": "E-FI-32: 当前 CLI/S2B implemented-not-runnable. 缺少新观测训练后的 v015 checkpoint, selection-time fixed-carrier materializer 与同 carrier baseline/repair paired evaluator; G1--G6 完成前禁止 S4."
+          "tests": ["S1/S2 interface evidence E-FI-28--E-FI-31", "E-FI-32 dependency/status rebase", "E-FI-46 deterministic fixed-carrier S1/S2", "G5 trained policy pending", "G6 paired composition pending", "G7 S4 blocked"],
+          "gap": "E-FI-46 已关闭 ordinary reference -> selection-time fixed-carrier. 当前 CLI/S2B 仍 implemented-not-runnable: 缺少新观测训练后的 v015 checkpoint 与同 carrier baseline/repair paired evaluator; G5/G6 完成前禁止 S4."
         }
       ]
     },

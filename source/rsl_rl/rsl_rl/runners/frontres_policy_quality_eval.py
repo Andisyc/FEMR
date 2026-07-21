@@ -18,6 +18,7 @@ from rsl_rl.frontres.frontres_policy_quality_manifest import (
     FrontRESPolicyQualityManifest,
     FrontRESPolicyQualityRouteIdentity,
     FrontRESPolicyQualityStateIdentity,
+    FrontRESV015PolicyQualityManifest,
 )
 
 
@@ -148,6 +149,241 @@ class FrontRESPolicyQualityEvalRequest:
 
 
 @dataclass(frozen=True)
+class FrontRESV015PolicyQualityEvalRequest:
+    """Pre-mutation v015 manifest/checkpoint identity consumed only by the S2B owner."""
+
+    manifest_path: str
+    hsl_checkpoint_path: str
+    policy_checkpoint_path: str
+    result_path: str
+    manifest: FrontRESV015PolicyQualityManifest
+    manifest_file_sha256: str
+    hsl_checkpoint: Any
+    policy_checkpoint: Any
+
+
+_V015_QUALITY_OWNER_IDENTITY = (
+    ("reset", "frontres_segment_stage1_env_hooks"),
+    ("observation", "frontres_runtime"),
+    ("one_action_k", "frontres_segment_live_probe.collect_frontres_v015_one_action_k_evidence"),
+    ("gain", "frontres_gain.compute_intent_physics_local_repair_gain"),
+)
+_V015_QUALITY_ROUTES = ("zero", "hsl", "policy")
+_V015_QUALITY_REPORT_SCHEMA = "frontres-v015-heldout-quality-report-v1"
+_V015_GAIN_SOURCE = "FRS-GAIN-v003-intent-physics-local-repair"
+
+
+@dataclass(frozen=True)
+class FrontRESV015PolicyQualityOwnerBundle:
+    """S2 connector for active local owners; evaluator owns no training state.
+
+    Status: formal owner factory is contract-confirmed offline at G5-S4-S1B;
+    simulator execution and policy quality remain live-only.
+    """
+
+    owner_identity: tuple[tuple[str, str], ...]
+    collect_one_action_k: Callable[[Any, Any, str], Any]
+    training_state_signature: Callable[[Any], str]
+
+    def __post_init__(self) -> None:
+        if tuple(self.owner_identity) != _V015_QUALITY_OWNER_IDENTITY:
+            raise ValueError("v015 quality owner identity must name only the active reset/observation/one-action-K/v003 path")
+        if not callable(self.collect_one_action_k) or not callable(self.training_state_signature):
+            raise TypeError("v015 quality owner bundle requires evidence and state-signature callables")
+
+
+@dataclass(frozen=True)
+class FrontRESV015PolicyQualityRouteEvidence:
+    """Bind one route/checkpoint identity to one active one-action-K carrier."""
+
+    route: str
+    checkpoint_file_sha256: str
+    comparison_signature: str
+    one_action_k: Any
+
+    def validate(self) -> None:
+        if self.route not in _V015_QUALITY_ROUTES:
+            raise ValueError("v015 quality route evidence has an invalid route")
+        if self.route == "zero":
+            if self.checkpoint_file_sha256 != "zero":
+                raise ValueError("v015 zero route must not claim a checkpoint")
+        elif (
+            len(self.checkpoint_file_sha256) != 64
+            or any(char not in "0123456789abcdef" for char in self.checkpoint_file_sha256)
+        ):
+            raise ValueError("v015 HSL/policy route requires an exact checkpoint SHA-256")
+        if (
+            len(self.comparison_signature) != 64
+            or any(char not in "0123456789abcdef" for char in self.comparison_signature)
+        ):
+            raise ValueError("v015 quality route evidence requires the manifest item comparison signature")
+        validate = getattr(self.one_action_k, "validate", None)
+        if not callable(validate):
+            raise TypeError("v015 route evidence requires validated one-action-K evidence")
+        validate()
+        if (
+            tuple(self.one_action_k.policy_observations.shape) != (int(self.one_action_k.policy_actions.shape[0]), 928)
+            or tuple(self.one_action_k.policy_privileged_observations.shape)
+            != (int(self.one_action_k.policy_actions.shape[0]), 289)
+            or tuple(self.one_action_k.policy_actions.shape) != (int(self.one_action_k.policy_actions.shape[0]), 6)
+        ):
+            raise ValueError("v015 quality route requires policy/critic/action shapes [B,928]/[B,289]/[B,6]")
+
+
+def install_frontres_v015_policy_quality_owner_bundle(
+    runner: Any,
+    bundle: FrontRESV015PolicyQualityOwnerBundle,
+) -> None:
+    """Install one immutable S2 connector; legacy executor attributes are ignored."""
+
+    if not isinstance(bundle, FrontRESV015PolicyQualityOwnerBundle):
+        raise TypeError("v015 policy-quality requires FrontRESV015PolicyQualityOwnerBundle")
+    if hasattr(runner, "_frontres_v015_policy_quality_owner_bundle"):
+        raise RuntimeError("v015 policy-quality owner bundle is already installed")
+    runner._frontres_v015_policy_quality_owner_bundle = bundle
+
+
+def _v015_quality_hash_state(digest: Any, value: Any) -> None:
+    if isinstance(value, torch.Tensor):
+        tensor = value.detach().to(device="cpu").contiguous()
+        digest.update(str(tuple(tensor.shape)).encode("ascii"))
+        digest.update(str(tensor.dtype).encode("ascii"))
+        digest.update(tensor.numpy().tobytes())
+    elif isinstance(value, Mapping):
+        for key in sorted(value, key=repr):
+            digest.update(repr(key).encode("utf-8"))
+            _v015_quality_hash_state(digest, value[key])
+    elif isinstance(value, (tuple, list)):
+        digest.update(type(value).__name__.encode("ascii"))
+        for item in value:
+            _v015_quality_hash_state(digest, item)
+    else:
+        digest.update(repr(value).encode("utf-8"))
+
+
+def _v015_quality_training_state_signature(runner: Any) -> str:
+    """Hash every mutable training owner while excluding physical env state."""
+
+    digest = hashlib.sha256()
+    alg = getattr(runner, "alg", None)
+    policy = getattr(alg, "policy", None)
+    for name, value in (
+        ("actor", getattr(getattr(policy, "residual_actor", None), "state_dict", lambda: {})()),
+        ("critic", getattr(getattr(policy, "critic", None), "state_dict", lambda: {})()),
+        ("optimizer", getattr(getattr(alg, "optimizer", None), "state_dict", lambda: {})()),
+        (
+            "prefix_normalizer",
+            getattr(getattr(runner, "_frontres_extra_normalizer", None), "state_dict", lambda: {})(),
+        ),
+        ("prefix_mean", getattr(runner, "_frontres_extra_mean", None)),
+        ("prefix_std", getattr(runner, "_frontres_extra_std", None)),
+        ("prefix_layout", getattr(runner, "_frontres_extra_stats_layout_version", None)),
+        (
+            "sampler",
+            getattr(getattr(runner, "_frontres_segment_sampler", None), "state_dict", lambda: {})(),
+        ),
+        ("transaction", getattr(runner, "_frontres_v015_checkpoint_transaction_state", None)),
+        ("receipt", getattr(runner, "_frontres_v015_last_committed_transaction_receipt", None)),
+        ("warmup", getattr(runner, "_frontres_warmup_complete", None)),
+        ("iteration", getattr(runner, "current_learning_iteration", None)),
+    ):
+        digest.update(name.encode("ascii"))
+        _v015_quality_hash_state(digest, value)
+    return digest.hexdigest()
+
+
+def build_frontres_v015_policy_quality_owner_bundle(
+    runner: Any,
+    request: FrontRESV015PolicyQualityEvalRequest,
+) -> FrontRESV015PolicyQualityOwnerBundle:
+    """Bind the formal runner to existing v015 scenario, reset, K, and Gain owners."""
+
+    if not isinstance(request, FrontRESV015PolicyQualityEvalRequest):
+        raise TypeError("formal v015 quality owner requires the strict request")
+    if not bool(getattr(getattr(runner, "alg", None), "frontres_v015_formal_transaction_enabled", False)):
+        raise RuntimeError("formal v015 quality owner requires the active grouped transaction configuration")
+    from rsl_rl.runners.frontres_checkpointing import frontres_v015_quality_route_actor
+    from rsl_rl.runners.frontres_segment_live_probe import (
+        _apply_current_segment_reset,
+        _read_live_observations,
+        collect_frontres_v015_one_action_k_evidence,
+    )
+    from rsl_rl.runners.frontres_segment_live_sampler import (
+        prepare_frontres_v015_policy_quality_item_batch,
+    )
+    from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout
+
+    pair_layout = configure_frontres_pair_layout(runner, is_frontres=True)
+    if (
+        int(getattr(pair_layout, "n_train", 0)) != 4
+        or int(getattr(pair_layout, "n_base", 0)) != 4
+        or int(getattr(pair_layout, "n_candidate", 0)) != 0
+        or int(getattr(pair_layout, "n_clean", 0)) != 0
+    ):
+        raise RuntimeError("formal v015 held-out quality requires exactly 4 Repair + 4 Noisy rows")
+    item_batches: dict[str, Any] = {}
+
+    def collect_one_action_k(_runner: Any, item: Any, route: str) -> FrontRESV015PolicyQualityRouteEvidence:
+        if _runner is not runner or route not in _V015_QUALITY_ROUTES:
+            raise RuntimeError("v015 quality owner received a mixed runner or route identity")
+        signature = str(item.comparison_signature)
+        prepared = item_batches.get(signature)
+        if prepared is None:
+            prepared = prepare_frontres_v015_policy_quality_item_batch(runner, item)
+            item_batches[signature] = prepared
+        runner._frontres_segment_live_current_batch = prepared.batch
+        runner._frontres_segment_live_current_sample = prepared.sample
+        reset = _apply_current_segment_reset(runner, pair_layout=pair_layout)
+        if reset is None or not bool(reset.success_mask.detach().bool().all().item()):
+            raise RuntimeError("v015 held-out quality failed to restore the sealed Clean x_t")
+        observations = _read_live_observations(runner)
+        checkpoint_sha = {
+            "zero": "zero",
+            "hsl": request.hsl_checkpoint.file_sha256,
+            "policy": request.policy_checkpoint.file_sha256,
+        }[route]
+        checkpoint_path = {
+            "hsl": request.hsl_checkpoint_path,
+            "policy": request.policy_checkpoint_path,
+        }.get(route)
+        runner._frontres_v015_quality_action_route = route
+        try:
+            if checkpoint_path is None:
+                evidence = collect_frontres_v015_one_action_k_evidence(
+                    runner,
+                    observations,
+                    pair_layout=pair_layout,
+                )
+            else:
+                with frontres_v015_quality_route_actor(
+                    runner,
+                    checkpoint_path,
+                    route=route,
+                    expected_file_sha256=checkpoint_sha,
+                ):
+                    evidence = collect_frontres_v015_one_action_k_evidence(
+                        runner,
+                        observations,
+                        pair_layout=pair_layout,
+                    )
+        finally:
+            if hasattr(runner, "_frontres_v015_quality_action_route"):
+                delattr(runner, "_frontres_v015_quality_action_route")
+        return FrontRESV015PolicyQualityRouteEvidence(
+            route=route,
+            checkpoint_file_sha256=checkpoint_sha,
+            comparison_signature=signature,
+            one_action_k=evidence,
+        )
+
+    return FrontRESV015PolicyQualityOwnerBundle(
+        owner_identity=_V015_QUALITY_OWNER_IDENTITY,
+        collect_one_action_k=collect_one_action_k,
+        training_state_signature=_v015_quality_training_state_signature,
+    )
+
+
+@dataclass(frozen=True)
 class FrontRESPolicyQualityFormalOwnerBundle:
     owner_identity: tuple[tuple[str, str], ...]
     prepare_item: Callable[[Any, Any, FrontRESPolicyQualityEvalRequest], tuple[Any, Any, Any]]
@@ -239,6 +475,266 @@ def build_frontres_policy_quality_eval_request(
     )
 
 
+def build_frontres_v015_policy_quality_eval_request(
+    *,
+    manifest_path: str,
+    hsl_checkpoint_path: str,
+    policy_checkpoint_path: str,
+    result_path: str,
+) -> FrontRESV015PolicyQualityEvalRequest:
+    """Inspect strict v015 artifacts and freeze their identities without restoring state."""
+
+    paths = {
+        "manifest_path": Path(manifest_path).expanduser().resolve(),
+        "hsl_checkpoint_path": Path(hsl_checkpoint_path).expanduser().resolve(),
+        "policy_checkpoint_path": Path(policy_checkpoint_path).expanduser().resolve(),
+        "result_path": Path(result_path).expanduser().resolve(),
+    }
+    for name in ("manifest_path", "hsl_checkpoint_path", "policy_checkpoint_path"):
+        if not paths[name].is_file():
+            raise FileNotFoundError(f"v015 policy-quality {name} does not exist: {paths[name]}")
+    if paths["hsl_checkpoint_path"] == paths["policy_checkpoint_path"]:
+        raise ValueError("v015 policy-quality HSL and Stage-3 checkpoints must be distinct files")
+    if not paths["result_path"].parent.is_dir():
+        raise FileNotFoundError(f"v015 policy-quality result directory does not exist: {paths['result_path'].parent}")
+
+    manifest_bytes = paths["manifest_path"].read_bytes()
+    manifest = FrontRESV015PolicyQualityManifest.from_json(manifest_bytes.decode("utf-8"))
+    from rsl_rl.runners.frontres_checkpointing import inspect_frontres_v015_quality_checkpoint
+
+    hsl = inspect_frontres_v015_quality_checkpoint(paths["hsl_checkpoint_path"], route="hsl")
+    policy = inspect_frontres_v015_quality_checkpoint(paths["policy_checkpoint_path"], route="policy")
+    expected_layout = {
+        "layout_version": manifest.future_intent_layout_version,
+        "future_offsets": manifest.future_offsets,
+        "intent_dim": 29,
+        "actor_tail_dim": 58,
+        "environment_obs_dim": manifest.raw_observation_dim,
+        "current_frontres_prefix_dim": manifest.actor_input_dim - 58,
+        "actor_dim": manifest.combined_observation_dim,
+        "prefix_dim": manifest.actor_input_dim,
+        "gmt_dim": manifest.gmt_suffix_dim,
+    }
+    if dict(hsl.future_intent_layout) != expected_layout or dict(policy.future_intent_layout) != expected_layout:
+        raise ValueError("v015 policy-quality manifest and checkpoint layouts are mixed")
+    if (
+        hsl.action_kind != manifest.action_kind
+        or policy.action_kind != manifest.action_kind
+        or hsl.action_dim != manifest.action_dim
+        or policy.action_dim != manifest.action_dim
+        or hsl.method_contract_id != manifest.method_contract_id
+        or policy.method_contract_id != manifest.method_contract_id
+        or hsl.training_contract_id != manifest.training_contract_id
+        or policy.training_contract_id != manifest.training_contract_id
+        or policy.gain_contract_id != manifest.gain_contract_id
+        or policy.ppo_contract_id != manifest.ppo_contract_id
+    ):
+        raise ValueError("v015 policy-quality manifest and checkpoint contract/action identities are mixed")
+    return FrontRESV015PolicyQualityEvalRequest(
+        manifest_path=str(paths["manifest_path"]),
+        hsl_checkpoint_path=str(paths["hsl_checkpoint_path"]),
+        policy_checkpoint_path=str(paths["policy_checkpoint_path"]),
+        result_path=str(paths["result_path"]),
+        manifest=manifest,
+        manifest_file_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+        hsl_checkpoint=hsl,
+        policy_checkpoint=policy,
+    )
+
+
+def _v015_quality_json_tensor(value: torch.Tensor) -> Any:
+    """Serialize finite values and preserve unavailable values as null, never zero."""
+
+    def convert(item: Any) -> Any:
+        if isinstance(item, list):
+            return [convert(value) for value in item]
+        number = float(item)
+        return number if np.isfinite(number) else None
+
+    return convert(value.detach().to(device="cpu").tolist())
+
+
+def _v015_quality_require_same_scenario(anchor: Any, candidate: Any) -> None:
+    scalar_identity = (
+        "scenario_ids",
+        "noisy_segment_hashes",
+        "x_t_identities",
+        "roles",
+        "intent_q29_provenance",
+        "intent_q29_source",
+    )
+    if any(tuple(getattr(anchor, name)) != tuple(getattr(candidate, name)) for name in scalar_identity):
+        raise RuntimeError("v015 quality routes lost the same sealed scenario identity")
+    tensor_identity = (
+        "policy_row_indices",
+        "continuation",
+        "continuation_valid_mask",
+        "horizon_k",
+        "intent_q29",
+    )
+    if any(
+        not torch.equal(getattr(anchor, name).detach().to(device="cpu"), getattr(candidate, name).detach().to(device="cpu"))
+        for name in tensor_identity
+    ):
+        raise RuntimeError("v015 quality routes mixed scenario intent, Clean continuation, role rows, or K")
+
+
+def _v015_quality_route_result(
+    evidence: Any,
+    *,
+    route: str,
+    checkpoint_file_sha256: str,
+) -> dict[str, Any]:
+    """Consume one-action evidence through the active v003 Gain owner only."""
+
+    from rsl_rl.frontres.frontres_gain import (
+        FrontRESIntentPhysicsGainConfig,
+        FrontRESIntentPhysicsGainInput,
+        compute_intent_physics_local_repair_gain,
+    )
+    from rsl_rl.frontres.frontres_segment_storage import (
+        FrontRESV015OneActionKEvidence,
+        pair_frontres_v015_gain_facts,
+    )
+
+    if route not in _V015_QUALITY_ROUTES or not isinstance(evidence, FrontRESV015OneActionKEvidence):
+        raise TypeError("v015 quality route requires active one-action-K evidence")
+    evidence.validate()
+    if tuple(evidence.roles) != tuple(
+        "repair" if index < int(evidence.policy_actions.shape[0]) else "noisy"
+        for index in range(int(evidence.t_env_actions.shape[0]))
+    ):
+        raise ValueError("v015 quality route requires ordered Repair/Noisy rows only")
+    if route == "zero" and not bool((evidence.policy_actions == 0.0).all().item()):
+        raise ValueError("v015 zero quality route requires an exact zero 6D action")
+    facts = pair_frontres_v015_gain_facts(evidence)
+    gain_input = FrontRESIntentPhysicsGainInput(
+        intent_q29=facts.intent_q29,
+        repaired_q29=facts.repaired_q29,
+        noisy_q29=facts.noisy_q29,
+        intent_q29_provenance=facts.intent_q29_provenance,
+        intent_q29_source=facts.intent_q29_source,
+        repair_action_steps=facts.policy_actions,
+        intent_valid_mask=facts.intent_valid_mask,
+        repaired_success=facts.repaired_success,
+        noisy_success=facts.noisy_success,
+        repaired_survival=facts.repaired_survival,
+        noisy_survival=facts.noisy_survival,
+        effective_horizon_k=facts.horizon_k,
+    )
+    gain = compute_intent_physics_local_repair_gain(gain_input, config=FrontRESIntentPhysicsGainConfig())
+    valid = facts.intent_valid_mask.bool() & gain.available.bool()
+    if not bool(valid.any().item()):
+        raise RuntimeError("v015 quality route has no valid v003 Gain row")
+    components = {
+        name: torch.where(valid, getattr(gain, name).detach().float(), torch.full_like(gain.gain_total, float("nan")))
+        for name in ("intent_gain", "physics_gain", "repair_cost", "gain_total")
+    }
+    repair_rows = evidence.policy_row_indices.detach().to(dtype=torch.long)
+    return {
+        "route": route,
+        "checkpoint_file_sha256": checkpoint_file_sha256,
+        "gain_source": _V015_GAIN_SOURCE,
+        "scenario_ids": list(evidence.scenario_ids),
+        "noisy_segment_hashes": list(evidence.noisy_segment_hashes),
+        "x_t_identities": list(evidence.x_t_identities),
+        "roles": list(evidence.roles),
+        "horizon_k": [int(value) for value in evidence.horizon_k.tolist()],
+        "actor_forward_count": int(evidence.actor_forward_count),
+        "later_femr_action_count": int(evidence.later_femr_action_count),
+        "policy_actions": _v015_quality_json_tensor(evidence.policy_actions),
+        "policy_row_valid": [bool(value) for value in valid.tolist()],
+        "evidence_valid_step_count": [
+            int(value) for value in evidence.survival_steps.index_select(0, repair_rows).tolist()
+        ],
+        "intent_q29_provenance": facts.intent_q29_provenance,
+        "intent_q29_source": facts.intent_q29_source,
+        **{name: _v015_quality_json_tensor(value) for name, value in components.items()},
+    }
+
+
+def run_frontres_v015_policy_quality_heldout_eval(
+    runner: Any,
+    *,
+    request: FrontRESV015PolicyQualityEvalRequest,
+    owners: FrontRESV015PolicyQualityOwnerBundle,
+) -> dict[str, Any]:
+    """Evaluate zero/HSL/policy on matched v015 evidence and atomically report.
+
+    Status: active formal owner with deterministic S1/S2/S3 connectivity.
+    Simulator execution and policy quality remain G5-S4 live evidence.
+    """
+
+    if not isinstance(request, FrontRESV015PolicyQualityEvalRequest):
+        raise TypeError("v015 held-out quality requires the strict G5-S2A request")
+    if not isinstance(owners, FrontRESV015PolicyQualityOwnerBundle):
+        raise TypeError("v015 held-out quality requires the active owner bundle")
+    baseline_state = str(owners.training_state_signature(runner))
+    checkpoint_identity = {
+        "zero": "zero",
+        "hsl": request.hsl_checkpoint.file_sha256,
+        "policy": request.policy_checkpoint.file_sha256,
+    }
+    item_rows: list[dict[str, Any]] = []
+    for item in request.manifest.items:
+        anchor = None
+        routes: list[dict[str, Any]] = []
+        for route in _V015_QUALITY_ROUTES:
+            if str(owners.training_state_signature(runner)) != baseline_state:
+                raise RuntimeError("v015 quality training state changed before route collection")
+            route_evidence = owners.collect_one_action_k(runner, item, route)
+            if not isinstance(route_evidence, FrontRESV015PolicyQualityRouteEvidence):
+                raise TypeError("v015 quality collector must bind route/checkpoint identity to one-action-K evidence")
+            route_evidence.validate()
+            if (
+                route_evidence.route != route
+                or route_evidence.checkpoint_file_sha256 != checkpoint_identity[route]
+                or route_evidence.comparison_signature != item.comparison_signature
+            ):
+                raise RuntimeError("v015 quality route evidence has a mixed manifest/actor/checkpoint identity")
+            evidence = route_evidence.one_action_k
+            if anchor is None:
+                anchor = evidence
+            else:
+                _v015_quality_require_same_scenario(anchor, evidence)
+            routes.append(
+                _v015_quality_route_result(
+                    evidence,
+                    route=route,
+                    checkpoint_file_sha256=checkpoint_identity[route],
+                )
+            )
+            if str(owners.training_state_signature(runner)) != baseline_state:
+                raise RuntimeError("v015 quality evaluation mutated training state")
+        item_rows.append(
+            {
+                "item_id": item.item_id,
+                "comparison_signature": item.comparison_signature,
+                "routes": routes,
+            }
+        )
+    payload = {
+        "schema_version": _V015_QUALITY_REPORT_SCHEMA,
+        "manifest_file_sha256": request.manifest_file_sha256,
+        "comparison_signature": request.manifest.comparison_signature,
+        "gain_source": _V015_GAIN_SOURCE,
+        "owner_identity": dict(owners.owner_identity),
+        "items": item_rows,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    output = Path(request.result_path)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    if temporary.exists():
+        raise RuntimeError(f"v015 quality atomic report temp path already exists: {temporary}")
+    try:
+        temporary.write_text(encoded, encoding="utf-8")
+        temporary.replace(output)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    return payload
+
+
 def run_frontres_policy_quality_eval(
     runner: Any,
     *,
@@ -248,6 +744,20 @@ def run_frontres_policy_quality_eval(
     result_path: str,
 ) -> Any:
     """Validate the dedicated request, then delegate only to the quality execution owner."""
+    if bool(getattr(getattr(runner, "alg", None), "frontres_v015_formal_transaction_enabled", False)):
+        request = build_frontres_v015_policy_quality_eval_request(
+            manifest_path=manifest_path,
+            hsl_checkpoint_path=hsl_checkpoint_path,
+            policy_checkpoint_path=policy_checkpoint_path,
+            result_path=result_path,
+        )
+        owners = getattr(runner, "_frontres_v015_policy_quality_owner_bundle", None)
+        if owners is None:
+            owners = build_frontres_v015_policy_quality_owner_bundle(runner, request)
+            install_frontres_v015_policy_quality_owner_bundle(runner, owners)
+        if not isinstance(owners, FrontRESV015PolicyQualityOwnerBundle):
+            raise RuntimeError("v015 policy-quality rejects a non-v015 formal owner bundle")
+        return run_frontres_v015_policy_quality_heldout_eval(runner, request=request, owners=owners)
     request = build_frontres_policy_quality_eval_request(
         manifest_path=manifest_path,
         hsl_checkpoint_path=hsl_checkpoint_path,

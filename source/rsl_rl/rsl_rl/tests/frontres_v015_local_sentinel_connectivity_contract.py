@@ -165,9 +165,31 @@ def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
         base_trial_count=torch.tensor([2, 2], dtype=torch.long),
         trial_role=("policy", "policy", "policy", "policy"),
     )
+    draw_count = 0
+
+    def sample_one(*_args, **_kwargs):
+        nonlocal draw_count
+        row = draw_count % 2
+        draw_count += 1
+        return live_sampler.FrontRESSegmentSample(
+            segment_ids=base_sample.segment_ids[row : row + 1],
+            source=(base_sample.source[row],),
+            priority=base_sample.priority[row : row + 1],
+            staleness=base_sample.staleness[row : row + 1],
+            valid_mask=base_sample.valid_mask[row : row + 1],
+            segment_state=None,
+            rollout_trial_count=base_sample.rollout_trial_count[row : row + 1],
+            horizon_k=torch.tensor([3], dtype=torch.long),
+            budget_reason=(base_sample.budget_reason[row],),
+            trial_role=("policy",),
+            source_index=torch.zeros(1, dtype=torch.long),
+            trial_index=torch.zeros(1, dtype=torch.long),
+        )
+
     sampler = SimpleNamespace(
-        sample=lambda *_args, **_kwargs: base_sample,
+        sample=sample_one,
         plan_frozen_policy_transaction=lambda *_args, **_kwargs: frozen_plan,
+        num_segments=2,
     )
     runner = SimpleNamespace(
         alg=SimpleNamespace(
@@ -208,14 +230,51 @@ def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
     live_sampler._build_current_segment_batch = lambda *_args, **_kwargs: local_batch
     try:
         prepared = live_sampler.prepare_frontres_v015_local_sentinel_batch(runner)
+        runner.alg.frontres_v015_local_sentinel_only = False
+        runner.alg.frontres_segment_live_train_enabled = True
+        formal_prepared = live_sampler.prepare_frontres_v015_formal_training_batch(runner)
     finally:
         live_sampler._build_current_segment_batch = original
 
     assert prepared.batch is local_batch
     assert prepared.plan.intent_q29_provenance == "deployment_noisy_q29"
     assert prepared.plan.intent_q29_source == "motion_internal_q29"
+    assert formal_prepared.plan.transaction_id.startswith("frontres-v015-local-training:")
+    assert formal_prepared.plan.noisy_segment_hashes == prepared.plan.noisy_segment_hashes
     assert all(isinstance(value, MappingProxyType) for value in local_batch.frontres_local_scenario_provenance)
-    print("[T-immutable-provenance/T-prepare] kernel MappingProxy provenance reaches the sealed formal plan", flush=True)
+    print("[T-immutable-provenance/T-prepare/T-formal-owner] sentinel and ordinary routes share the sealed local transaction owner", flush=True)
+
+
+def test_t_formal_source_selection_fills_rows_without_partial_attempts() -> None:
+    _formal, _candidate, _owners, live_sampler, _live_probe = _load_owners()
+    attempts = (3, 3, 2, 6)
+
+    def sample_batch(batch_size, **_kwargs):
+        assert batch_size >= len(attempts)
+        return live_sampler.FrontRESSegmentSample(
+            segment_ids=torch.arange(100, 100 + len(attempts), dtype=torch.long),
+            source=("global",) * len(attempts),
+            priority=torch.ones(len(attempts)),
+            staleness=torch.zeros(len(attempts)),
+            valid_mask=torch.ones(len(attempts), dtype=torch.bool),
+            segment_state=None,
+            rollout_trial_count=torch.tensor(attempts, dtype=torch.long),
+            horizon_k=torch.arange(4, 4 + len(attempts), dtype=torch.long),
+            budget_reason=("fixture",) * len(attempts),
+            trial_role=("policy",) * len(attempts),
+            source_index=torch.arange(len(attempts), dtype=torch.long),
+            trial_index=torch.zeros(len(attempts), dtype=torch.long),
+        )
+
+    selected = live_sampler._sample_frontres_v015_transaction_sources(
+        SimpleNamespace(sample=sample_batch, num_segments=len(attempts)),
+        repair_rows=8,
+        max_horizon_k=8,
+    )
+    assert tuple(selected.segment_ids.tolist()) == (100, 101, 102)
+    assert tuple(selected.rollout_trial_count.tolist()) == (3, 3, 2)
+    assert int(selected.rollout_trial_count.sum().item()) == 8
+    print("[T-complete-transaction/T-no-partial] exact source selection preserves whole M budgets for all Repair rows", flush=True)
 
 
 def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> None:
@@ -397,6 +456,7 @@ def main() -> None:
     test_t_local_carrier_replaces_fixed_tape_on_reset_request()
     test_t_sentinel_batch_materializes_local_scenario_not_legacy_tape()
     test_t_sentinel_prepare_accepts_kernel_immutable_provenance()
+    test_t_formal_source_selection_fills_rows_without_partial_attempts()
     test_t_real_builder_orders_local_reset_capture_and_candidate_adapter()
     test_t_sentinel_provider_is_collected_before_one_grouped_update()
     print("frontres_v015_local_sentinel_connectivity_contract: ok", flush=True)

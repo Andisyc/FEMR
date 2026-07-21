@@ -430,6 +430,57 @@ def prepare_frontres_v015_one_action_at_t(
     except Exception:
         delattr(runner, "_frontres_v015_one_action_k_phase")
         raise
+    quality_route = getattr(runner, "_frontres_v015_quality_action_route", None)
+    if quality_route is not None:
+        if quality_route not in {"zero", "hsl", "policy"} or not bool(
+            getattr(getattr(runner, "alg", None), "frontres_v015_formal_transaction_enabled", False)
+        ):
+            delattr(runner, "_frontres_v015_one_action_k_phase")
+            raise RuntimeError("v015 deterministic quality action is restricted to the formal quality route")
+        transition = getattr(runner.alg, "transition", None)
+        mean = getattr(transition, "action_mean", None)
+        policy = runner.alg.policy
+        if not isinstance(mean, torch.Tensor) or tuple(mean.shape[:2]) != (n_repair + n_noisy, 6):
+            delattr(runner, "_frontres_v015_one_action_k_phase")
+            raise RuntimeError("v015 quality route requires one raw 6D proposal mean per role row")
+        if quality_route == "zero":
+            deterministic = torch.zeros_like(mean[:, :6])
+        else:
+            deterministic = torch.cat(
+                (
+                    torch.tanh(mean[:, :3]) * float(policy.max_delta_pos),
+                    torch.tanh(mean[:, 3:6]) * float(policy.max_delta_rpy),
+                ),
+                dim=-1,
+            )
+        deterministic[n_repair:] = 0.0
+        _rewrite_task_space_log_prob(runner, deterministic)
+        _apply_frontres_baseline_transition_override(
+            runner,
+            actions=deterministic,
+            n_train=n_repair,
+            n_candidate=0,
+            n_base=n_noisy,
+            n_clean=0,
+            is_task_space_mode=True,
+            use_explicit_baseline_count=True,
+        )
+        env_actions = _build_env_actions_from_policy_actions(
+            runner,
+            obs=obs,
+            actions=deterministic,
+            is_frontres=True,
+            is_task_space_mode=True,
+            n_train=n_repair,
+            n_candidate=0,
+            use_transition_actions_for_task_env_action=False,
+        )
+        plan = FrontRESRolloutStepPlan(
+            actions=deterministic,
+            env_actions=env_actions,
+            hsl_pos_snapshot=plan.hsl_pos_snapshot,
+            hsl_quat_snapshot=plan.hsl_quat_snapshot,
+        )
     if plan.actions is None or tuple(plan.actions.shape) != (n_repair + n_noisy, 6):
         delattr(runner, "_frontres_v015_one_action_k_phase")
         raise RuntimeError("v015 one-action K collector requires one full-6D policy action per scored role row")

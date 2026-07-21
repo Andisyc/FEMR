@@ -1,6 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
-  "subtitle": "v002 Gain 时代从训练分布到物理执行的八个质量 owner. Q1 只关闭 matched identity scaffolding, 不证明 v015 intent Gain 或 policy useful.",
+  "subtitle": "LEGACY / INCOMPATIBLE: v011/v002 quartet-Clean 时代的八个质量 owner. 不得作为 v015 two-role one-action-K policy-quality route.",
+  "currentStatus": "legacy evaluator remains isolated; G5-S1 through G5-S4-S1B are complete at E-FI-48--E-FI-54. The formal v015 route now installs a fixed-manifest Repair/Noisy one-action-K owner, applies strict HSL-v1/committed Stage3 actor state transiently, restores training state, and reaches the atomic v003 report. This is deterministic offline evidence; bounded live policy quality remains pending G5-S4-S2/S4.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -19,7 +20,8 @@
     {
       "id": "SYS-POLICY-QUALITY",
       "title": "Policy Quality Causal Chain",
-      "summary": "distribution -> Gain -> credit -> update -> action -> frozen-GMT execution -> trajectory",
+      "summary": "LEGACY v011/v002 execution remains isolated: quartet/Clean + repeated FEMR action + legacy HSL rollout target. Active v015 telemetry, strict artifact identity, fixed-manifest formal owner installation, Repair/Noisy deterministic one-action-K v003 evaluation, and actual save-to-independent-fresh-reload atomic-report connectivity exist at E-FI-48--E-FI-54; physical policy quality remains pending G5-S4.",
+      "status": "legacy-incompatible-with-v015",
       "color": "#0f766e",
       "modules": [
         {

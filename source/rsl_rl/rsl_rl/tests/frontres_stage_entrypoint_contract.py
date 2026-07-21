@@ -190,8 +190,8 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_segment_live_update_loop_only", live_update_loop_only)',
         '_set_if_present(alg_cfg, "frontres_segment_sequence_offline_eval_only", sequence_eval_only)',
         '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)',
-        '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)',
-        '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", not v015_local_sentinel_only)',
+        '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", 1 if live_train_enabled else live_update_steps)',
+        '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", False)',
         '_set_if_present(alg_cfg, "frontres_segment_k", 8)',
         'segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"',
         'shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))',
@@ -403,14 +403,23 @@ def main() -> None:
     assert 'export CACHE_DIR' in root_stage3
     assert 'export SHARD_CACHE_SIZE' in root_stage3
     assert 'FRONTRES_STAGE_PREFLIGHT_ONLY' in root_stage3
+    assert 'FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"' in root_stage3
+    assert 'FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"' in root_stage3
+    assert 'PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"' in root_stage3
     assert '[FrontRES Stage3] preflight only' in root_stage3
     assert 'CMD+=("${EXTRA_TRAIN_ARGS[@]}")' in root_stage3
     assert 'train_stage3_segment_hrl.txt' in root_stage3
     assert 'stage2_acceptance' not in root_stage3
     assert 'acceptance' not in root_stage3.lower()
     assert '--frontres_stage stage3_segment_hrl' in stage3
-    assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' in stage3
-    assert '--is_full_resume "${STAGE3_IS_FULL_RESUME}"' in stage3
+    assert '--frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}"' in stage3
+    assert '--frontres_v015_future_offsets "${FRONTRES_V015_FUTURE_OFFSETS}"' in stage3
+    assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' not in stage3
+    assert 'STAGE3_IS_FULL_RESUME' not in stage3
+    assert 'v015 Stage 3 forbids resume and legacy periodic-evaluation arguments' in stage3
+    assert 'G5-S4 bounded Stage 3 requires train mode, 8 envs, 1 iteration, and 1 update' in stage3
+    assert '--frontres_checkpoint_interval 1' in stage3
+    assert '--frontres_formal_runtime_audit' in stage3
     assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in stage3
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in stage3
     assert 'EXTRA_TRAIN_ARGS=("${@:7}")' in stage3

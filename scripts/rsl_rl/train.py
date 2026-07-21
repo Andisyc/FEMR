@@ -221,7 +221,13 @@ parser.add_argument(
     "--frontres_v015_future_offsets",
     type=str,
     default=None,
-    help="Comma-separated positive q29 future offsets required by --frontres_v015_local_sentinel_only, for example '1,2'.",
+    help="Comma-separated positive q29 future offsets required by v015 Stage-3 routes, for example '1,2'.",
+)
+parser.add_argument(
+    "--frontres_v015_hsl_initializer_checkpoint",
+    type=str,
+    default=None,
+    help="Explicit frontres-v015-hsl-proposal-v1 artifact used only for Stage-3 actor initialization.",
 )
 parser.add_argument(
     "--frontres_segment_live_probe_only",
@@ -781,10 +787,10 @@ def _set_if_present(obj, name: str, value) -> None:
 
 
 def _parse_frontres_v015_future_offsets(raw_offsets: str | None) -> tuple[int, ...]:
-    """Parse the explicit deployable q29 H layout required by the v015 sentinel."""
+    """Parse the explicit deployable q29 H layout required by v015."""
 
     if raw_offsets is None:
-        raise ValueError("--frontres_v015_local_sentinel_only requires --frontres_v015_future_offsets")
+        raise ValueError("v015 Stage-3 requires --frontres_v015_future_offsets")
     values = tuple(int(token.strip()) for token in str(raw_offsets).split(",") if token.strip())
     if not values or any(value <= 0 for value in values) or tuple(sorted(set(values))) != values:
         raise ValueError("--frontres_v015_future_offsets must be ordered unique positive integers, for example '1,2'")
@@ -966,7 +972,9 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         _set_if_present(alg_cfg, "frontres_segment_offline_eval_only", offline_eval_only)
         _set_if_present(alg_cfg, "frontres_segment_sequence_offline_eval_only", sequence_eval_only)
         _set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)
-        _set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)
+        # One formal iteration is one complete transaction and exactly one
+        # optimizer step. Multi-step budgets remain legacy probe-only.
+        _set_if_present(alg_cfg, "frontres_segment_live_update_steps", 1 if live_train_enabled else live_update_steps)
         _set_if_present(
             alg_cfg,
             "frontres_segment_critic_warmup_iterations",
@@ -996,15 +1004,17 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             "frontres_segment_periodic_eval_interval",
             max(1, int(getattr(args_cli, "frontres_segment_periodic_eval_interval", 100))),
         )
-        _set_if_present(alg_cfg, "frontres_hsl_init_enabled", not v015_local_sentinel_only)
+        # HSL-v1 is consumed by the explicit checkpoint owner before training;
+        # no continuing HSL flag or supervised state enters Stage 3.
+        _set_if_present(alg_cfg, "frontres_hsl_init_enabled", False)
         _set_if_present(alg_cfg, "frontres_segment_k", 8)
         _set_if_present(alg_cfg, "frontres_segment_max_horizon_k", 64)
         _set_if_present(
             alg_cfg,
             "frontres_segment_advantage_normalization",
-            "grouped_scale_only" if v015_local_sentinel_only else "scale_only",
+            "grouped_scale_only" if (v015_local_sentinel_only or live_train_enabled) else "scale_only",
         )
-        if v015_local_sentinel_only:
+        if v015_local_sentinel_only or live_train_enabled:
             future_offsets = _parse_frontres_v015_future_offsets(
                 getattr(args_cli, "frontres_v015_future_offsets", None)
             )
@@ -1014,6 +1024,16 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             _set_if_present(alg_cfg, "lambda_supervised", 0.0)
             _set_if_present(alg_cfg, "lambda_supervised_min", 0.0)
             _set_if_present(alg_cfg, "frontres_hsl_rollout_label_enabled", False)
+        if live_train_enabled:
+            initializer = str(
+                getattr(args_cli, "frontres_v015_hsl_initializer_checkpoint", "") or ""
+            ).strip()
+            if not initializer:
+                raise ValueError(
+                    "ordinary v015 Stage-3 requires --frontres_v015_hsl_initializer_checkpoint"
+                )
+            _set_if_present(alg_cfg, "frontres_segment_critic_warmup_iterations", 0)
+            _set_if_present(alg_cfg, "frontres_segment_actor_warmup_iterations", 0)
         # B3: AUDIT-PERTURB-01 records the finalized preset consumed by sampler/rollout owners.
         # Result: PENDING_LIVE.
         if formal_audit_enabled:
@@ -1498,6 +1518,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     
     # write git state to logs
     runner.add_git_repo_to_log(__file__)
+
+    hsl_initializer = str(
+        getattr(args_cli, "frontres_v015_hsl_initializer_checkpoint", "") or ""
+    ).strip()
+    if hsl_initializer:
+        if args_cli.frontres_stage != "stage3_segment_hrl":
+            raise ValueError("--frontres_v015_hsl_initializer_checkpoint requires Stage 3")
+        if bool(getattr(agent_cfg, "resume", False)):
+            raise ValueError("Stage-3 HSL initialization cannot be combined with checkpoint resume")
+        runner.load_frontres_v015_hsl_initializer(hsl_initializer)
 
     # save resume path before creating a new log_dir
     if agent_cfg.resume:

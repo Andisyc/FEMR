@@ -189,6 +189,10 @@ attempt, grouped mass, advantage sign/scale, and exact-one update.
 | G2-S1b | formal `928/158/770` Stage-1 route and actor-only critic invariance | completed 2026-07-21; `E-FI-36` deterministic evidence |
 | G2-S2 | strict proposal-only HSL identity/save/reload and pre-mutation rejection | completed 2026-07-21; `E-FI-37` deterministic S3 evidence |
 | G2-S3 | offline fresh-runner q29/normalizer/actor proposal equality | completed 2026-07-21; `E-FI-38` deterministic S2/S3 evidence |
+| G2-S4 | bounded formal Stage-1 q29/target/actor-only update/HSL-v1 save and cross-device reload | completed 2026-07-21; `E-FI-42` live S4 evidence |
+| G3-S1A | explicit actor-only HSL-v1 migration into fresh q29/grouped/formal Stage 3, with legacy training dispatch blocked | completed 2026-07-21; `E-FI-43` deterministic S1/S3 evidence |
+| G3-S1B | ordinary Stage-3 complete multi-Segment x M provider -> sealed grouped exact-one update -> matching committed-only save trigger | completed 2026-07-21; `E-FI-44` deterministic S2/S3 evidence |
+| G3-S2 | same semantic policy exact-one update -> actual v015 save -> strict fresh inference reload with exact q29/158D/6D identity | completed 2026-07-21; `E-FI-45` deterministic S3 evidence |
 | S1 | root-only perturbation / q29 invariant and actor H provenance | partially implemented outside HSL |
 | S2A | two-role local reset and sealed command layout | completed 2026-07-20; `E-FI-8` deterministic fake-reset evidence only |
 | S2B | one action -> frozen FEMR -> Clean GMT continuation | completed 2026-07-20 at candidate-only deterministic fake S1/S2 (`E-FI-9`); legacy formal collector rejects active v015 local scenarios |
@@ -196,9 +200,15 @@ attempt, grouped mass, advantage sign/scale, and exact-one update.
 | S4 | transaction/grouped-PPO formal route and persistence | R5 offline S2 (`E-FI-23`) now connects actual command/observation/q29/normalizer/actor-GMT/K evidence for 2 Segment x 2 attempts to the unchanged grouped v003 exact-one owner; R4 S3 (`E-FI-22`) binds exact v2 persistence. Actual checkpoint cadence/resume, simulator, and live evidence remain blocked. |
 | S5 | bounded live identity sentinel | R6-S0 snapshot/preflight and R6-F1 deterministic clock isolation completed (`E-FI-24`--`E-FI-25`); the repaired single SUST_Main_2 transaction has not been rerun |
 
-H1 changes only the local Stage-1/reject boundaries plus a CPU-only fake
-connector proof. R5 and R4 establish offline-S2 observation/update connectivity
-and exact v2 persistence for v015 Stage 3, but a new Stage-1 HSL checkpoint
-format, simulator/training, and live runs remain unauthorized. The existing
-full-65D Noisy tape and legacy immediate-update routes remain contract
-mismatches outside the v015 route.
+H1 changes only the local Stage-1/reject boundaries. `E-FI-42` runtime-confirms
+the bounded proposal-only HSL route and its strict v1 artifact; `E-FI-43`
+deterministically confirms explicit Stage-3 actor/distribution/158D-prefix
+migration with zero critic/optimizer/sampler/transaction state leak. It does
+not confirm a trained v015 policy checkpoint. `E-FI-44` separately confirms
+ordinary formal provider/update/commit/save-trigger connectivity and legacy
+isolation. `E-FI-45` closes the actual save-to-fresh-inference persistence
+chain at offline S3, but it does not claim live training or policy quality. R5 and R4
+retain offline-S2 observation/update
+connectivity and exact v2 persistence for v015 Stage 3. The existing full-65D
+Noisy tape and legacy immediate-update routes remain contract mismatches outside
+the v015 route.

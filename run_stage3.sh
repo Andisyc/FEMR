@@ -29,7 +29,7 @@ EXTRA_TRAIN_ARGS=("${@:7}")
 
 # B4: Online eval. Use run_eval.sh for sequence/offline eval.
 
-PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-1}"
+PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
 PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
 
 # B5: PPO safety knobs for direct Delta SE Stage 3.
@@ -43,6 +43,16 @@ SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
 LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FEMR_STAGE3_SEGMENT_HRL}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
+FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"
+FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
+
+if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
+  if [[ "${MODE}" != "train" || "${NUM_ENVS}" != "8" || "${MAX_ITERS}" != "1" || "${UPDATE_STEPS}" != "1" ]]; then
+    echo "G5-S4 bounded Stage 3 requires train mode, 8 envs, 1 iteration, and 1 update" >&2
+    exit 4
+  fi
+  RUN_NAME="G5_S4_BOUND_V015"
+fi
 
 cd "$(dirname "$0")"
 
@@ -58,6 +68,8 @@ export PERIODIC_EVAL_INTERVAL
 export LOG_PROJECT_NAME
 export RUN_NAME
 export NPROC_PER_NODE
+export FRONTRES_V015_FUTURE_OFFSETS
+export FRONTRES_G5_S4_BOUNDED
 
 mkdir -p "$(dirname "${LOG_PATH}")"
 

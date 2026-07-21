@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import importlib.util
 import sys
 import tempfile
@@ -17,7 +18,9 @@ import torch
 ROOT = Path(__file__).resolve().parents[4]
 RSL_ROOT = ROOT / "source" / "rsl_rl" / "rsl_rl"
 CHECKPOINT_PATH = RSL_ROOT / "runners" / "frontres_checkpointing.py"
+RUNTIME_PATH = RSL_ROOT / "runners" / "frontres_runtime.py"
 LAYOUT_PATH = RSL_ROOT / "modules" / "frontres_observation_layout.py"
+TRANSACTION_TEST_PATH = RSL_ROOT / "tests" / "frontres_v015_transaction_route_contract.py"
 
 
 def _load(name: str, path: Path):
@@ -55,13 +58,38 @@ def _load_owners():
     return layout, checkpointing, _FrontRESActorCritic
 
 
+def _load_runtime():
+    rsl_rl = sys.modules["rsl_rl"]
+    frontres = _package("rsl_rl.frontres")
+    runners = _package("rsl_rl.runners")
+    rsl_rl.frontres = frontres
+    rsl_rl.runners = runners
+    diagnostics = types.ModuleType("rsl_rl.frontres.runtime_diagnostics")
+    diagnostics.maybe_print_frontres_restore_debug = lambda *_args, **_kwargs: None
+    sys.modules[diagnostics.__name__] = diagnostics
+    frontres.runtime_diagnostics = diagnostics
+    return _load("rsl_rl.runners.frontres_runtime_v015_checkpoint_contract", RUNTIME_PATH)
+
+
+def _transaction_template():
+    transaction = _load("frontres_v015_checkpoint_transaction_helper", TRANSACTION_TEST_PATH)
+    candidate_contract, owners, live_sampler, _live_update_loop = transaction._load_owners()
+    fixture = transaction._build_request(candidate_contract, owners, live_sampler)
+    return SimpleNamespace(
+        transaction=transaction,
+        owners=owners,
+        live_sampler=live_sampler,
+        request=fixture.request,
+    )
+
+
 class _Normalizer(torch.nn.Module):
     def __init__(self, dim: int) -> None:
         super().__init__()
         self.register_buffer("_mean", torch.zeros(1, dim))
         self.register_buffer("_std", torch.ones(1, dim))
         self.register_buffer("_var", torch.ones(1, dim))
-        self.count = torch.tensor(1.0)
+        self.register_buffer("count", torch.tensor(1.0))
         self.until = 1.0e8
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
@@ -81,15 +109,37 @@ class _TrackingSampler:
         self.value = int(state["value"])
 
 
+class _TrackingAdam(torch.optim.Adam):
+    def __init__(self, params) -> None:
+        super().__init__(params, lr=1.0e-3)
+        self.frontres_v015_step_count = 0
+
+    def step(self, closure=None):
+        result = super().step(closure=closure)
+        self.frontres_v015_step_count += 1
+        return result
+
+
 def _policy(policy_cls, *, actor_dim: int, prefix_dim: int):
     class _Policy(policy_cls):
         def __init__(self) -> None:
             super().__init__()
-            self.residual_actor = torch.nn.Linear(actor_dim, 6)
+            self.residual_actor = torch.nn.Linear(prefix_dim, 6)
             self.critic = torch.nn.Linear(actor_dim, 1)
             self.std = torch.nn.Parameter(torch.full((6,), 0.7))
             self.num_actor_obs = actor_dim
             self.num_frontres_obs = prefix_dim
+            self.num_task_corrections = 6
+            self.max_delta_pos = 0.3
+            self.max_delta_rpy = 0.4
+
+        def evaluate_segment_actions(self, observations: torch.Tensor, actions: torch.Tensor):
+            del actions
+            return {
+                "log_prob": self.residual_actor.weight[0, 0] * observations[:, 0],
+                "value": self.critic.weight[0, 0] * observations[:, 1],
+                "entropy": torch.zeros_like(observations[:, 0]),
+            }
 
     return _Policy()
 
@@ -102,7 +152,7 @@ def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 7):
     base_prefix_dim = 100
     prefix_dim = base_prefix_dim + layout.actor_tail_dim
     policy = _policy(policy_cls, actor_dim=prefix_dim + gmt_dim, prefix_dim=prefix_dim)
-    optimizer = torch.optim.Adam(policy.parameters(), lr=1.0e-3)
+    optimizer = _TrackingAdam(policy.parameters())
     alg = SimpleNamespace(
         policy=policy,
         optimizer=optimizer,
@@ -112,6 +162,20 @@ def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 7):
         frontres_segment_advantage_normalization="grouped_scale_only",
         frontres_segment_critic_warmup_iterations=0,
         frontres_segment_actor_warmup_iterations=0,
+        frontres_future_offsets=(1, 2),
+        frontres_future_intent_layout_version=layout.version,
+        frontres_hsl_init_enabled=False,
+        frontres_hsl_rollout_label_enabled=False,
+        lambda_supervised=0.0,
+        lambda_supervised_min=0.0,
+        clip_param=0.2,
+        value_loss_coef=0.0,
+        entropy_coef=0.0,
+        use_clipped_value_loss=True,
+        max_grad_norm=1.0,
+        frontres_segment_live_train_enabled=False,
+        frontres_segment_live_update_loop_only=False,
+        frontres_segment_live_single_update_only=False,
         frontres_formal_runtime_audit=False,
         frontres_segment_offline_eval_only=False,
         frontres_segment_sequence_offline_eval_only=False,
@@ -141,6 +205,95 @@ def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 7):
         _frontres_segment_sampler=_TrackingSampler(value=17),
     )
     return runner
+
+
+class _IntentCommand:
+    def __init__(self, batch) -> None:
+        self.batch = batch
+
+    def frontres_local_scenario_intent_snapshot(self):
+        intent = self.batch.frontres_local_scenario_intent_q29
+        provenance = self.batch.frontres_local_scenario_provenance
+        batch_size = int(intent.shape[0])
+        return {
+            "intent_q29": intent.detach().clone(),
+            "scenario_ids": tuple(f"g3-s2-scenario-{row}" for row in range(batch_size)),
+            "noisy_segment_hashes": tuple(f"g3-s2-noisy-{row}" for row in range(batch_size)),
+            "x_t_identities": tuple(f"g3-s2-x-t-{row}" for row in range(batch_size)),
+            "roles": ("repair", "noisy")[:batch_size],
+            "provenance": tuple(dict(value) for value in provenance),
+        }
+
+
+def _wire_inference_carrier(runner, intent_q29: torch.Tensor) -> dict[str, object]:
+    provenance = tuple(
+        {
+            "carrier_kind": "local_scenario",
+            "current_root_artifact_provenance": "noisy_root_artifact_t",
+            "intent_q29_provenance": "deployment_noisy_q29",
+            "intent_q29_source": "motion_internal_q29",
+            "clean_continuation_provenance": "clean_gmt_only",
+        }
+        for _ in range(int(intent_q29.shape[0]))
+    )
+    batch = SimpleNamespace(
+        frontres_local_scenario_intent_q29=intent_q29.detach().clone(),
+        frontres_local_scenario_provenance=provenance,
+        frontres_local_scenario_clean_continuation=torch.full(
+            (intent_q29.shape[0], 2, 65), 991.0, dtype=torch.float32
+        ),
+    )
+    command = _IntentCommand(batch)
+    runner.env = SimpleNamespace(
+        unwrapped=SimpleNamespace(
+            command_manager=SimpleNamespace(get_term=lambda name: command if name == "motion" else None)
+        )
+    )
+    runner._frontres_segment_live_current_batch = batch
+    runner._frontres_extra_stats_layout_version = runner._frontres_future_intent_layout.version
+    return command.frontres_local_scenario_intent_snapshot()
+
+
+def _fresh_inference_trace(runner, runtime, raw_obs: torch.Tensor) -> dict[str, torch.Tensor]:
+    combined = runtime.append_frontres_future_intent_context(runner, raw_obs)
+    normalized = runtime.apply_obs_normalizer(runner, combined)
+    actor_input = normalized[:, : runner.alg.policy.num_frontres_obs]
+    raw_proposal = runner.alg.policy.residual_actor(actor_input)
+    proposal = torch.cat(
+        (
+            torch.tanh(raw_proposal[:, :3]) * runner.alg.policy.max_delta_pos,
+            torch.tanh(raw_proposal[:, 3:6]) * runner.alg.policy.max_delta_rpy,
+        ),
+        dim=-1,
+    )
+    return {
+        "combined": combined.detach().clone(),
+        "normalized": normalized.detach().clone(),
+        "actor_input": actor_input.detach().clone(),
+        "proposal": proposal.detach().clone(),
+    }
+
+
+def _bind_semantic_transaction(runner, template):
+    snapshot = template.live_sampler.capture_frontres_frozen_policy_snapshot(
+        runner,
+        transaction_id=template.request.plan.transaction_id,
+    )
+    batches = []
+    for batch in template.request.candidate_batches:
+        metadata = replace(
+            batch.transaction_metadata,
+            transaction_id=snapshot.transaction_id,
+            policy_snapshot_id=snapshot.policy_snapshot_id,
+        )
+        batches.append(replace(batch, transaction_metadata=metadata))
+    plan = replace(template.request.plan, snapshot=snapshot)
+    return replace(
+        template.request,
+        plan=plan,
+        candidate_batches=tuple(batches),
+        policy_evaluator=runner.alg.policy,
+    )
 
 
 def _expect_error(fn, text: str) -> None:
@@ -325,13 +478,98 @@ def test_t_atomicity_rejects_partial_save_and_resume(layout_module, checkpointin
         print("[T-atomicity] collecting save and sealed resume both fail closed without a later update path", flush=True)
 
 
+def test_t_committed_save_to_fresh_inference_equality(
+    layout_module,
+    checkpointing,
+    policy_cls,
+    runtime,
+    transaction_template,
+) -> None:
+    """Connect one real committed transaction to strict save/load and 158D inference."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "v015_g3_s2_committed.pt"
+        torch.manual_seed(17)
+        source = _runner(layout_module, policy_cls)
+        intent = torch.arange(2 * 3 * 29, dtype=torch.float32).reshape(2, 3, 29) / 100.0
+        source_snapshot = _wire_inference_carrier(source, intent)
+        raw_obs = torch.arange(2 * 870, dtype=torch.float32).reshape(2, 870) / 1000.0
+        pre_update = _fresh_inference_trace(source, runtime, raw_obs)
+
+        request = _bind_semantic_transaction(source, transaction_template)
+        result = transaction_template.owners[6].run_frontres_v015_formal_transaction_update(source, request)
+        committed_state = copy.deepcopy(source._frontres_v015_checkpoint_transaction_state)
+        assert committed_state["state"] == "committed"
+        assert committed_state["receipt"]["transaction_id"] == result.transaction_id
+        assert committed_state["receipt"]["optimizer_step_delta"] == 1
+        assert committed_state["receipt"]["collected_policy_attempt_count"] == 4
+        assert source.alg.optimizer.frontres_v015_step_count == 1
+        before = _fresh_inference_trace(source, runtime, raw_obs)
+        assert not torch.equal(pre_update["proposal"], before["proposal"])
+
+        checkpointing.save_runner(source, str(path))
+        payload = _saved_payload(path)
+        assert payload["frontres_v015_checkpoint_identity"]["transaction"] == committed_state
+
+        torch.manual_seed(29)
+        fresh = _runner(layout_module, policy_cls, iteration=0)
+        fresh._frontres_extra_mean.fill_(-7.0)
+        fresh._frontres_extra_std.fill_(3.0)
+        fresh_snapshot = _wire_inference_carrier(fresh, intent)
+        pre_load = _fresh_inference_trace(fresh, runtime, raw_obs)
+        assert not torch.equal(pre_load["actor_input"], before["actor_input"])
+        assert not torch.equal(pre_load["proposal"], before["proposal"])
+
+        checkpointing.load_runner(fresh, str(path), load_optimizer=False)
+        after = _fresh_inference_trace(fresh, runtime, raw_obs)
+
+        torch.testing.assert_close(source_snapshot["intent_q29"], fresh_snapshot["intent_q29"])
+        for key in (
+            "scenario_ids",
+            "noisy_segment_hashes",
+            "x_t_identities",
+            "roles",
+            "provenance",
+        ):
+            assert source_snapshot[key] == fresh_snapshot[key]
+        assert tuple(after["combined"].shape) == (2, 928)
+        assert tuple(after["actor_input"].shape) == (2, 158)
+        assert tuple(after["normalized"][:, 158:].shape) == (2, 770)
+        assert tuple(after["proposal"].shape) == (2, 6)
+        expected_q29_tail = intent[:, (1, 2), :].reshape(2, 58)
+        torch.testing.assert_close(after["combined"][:, :58], expected_q29_tail)
+        for key in ("combined", "normalized", "actor_input", "proposal"):
+            torch.testing.assert_close(after[key], before[key], rtol=0.0, atol=0.0)
+        assert fresh._frontres_v015_checkpoint_transaction_state == {"state": "idle"}
+        assert fresh._frontres_v015_last_committed_transaction_receipt == committed_state["receipt"]
+        assert fresh._frontres_extra_stats_layout_version == layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+        assert "frontres_fixed_noisy_tape" not in repr(payload)
+        assert "clean_continuation" not in repr(payload["frontres_v015_checkpoint_identity"])
+        print(
+            "[T-save-producer/T-v015-identity/T-commit-receipt/T-fresh-runner/"
+            "T-prefix-normalizer/T-proposal-equality/T-legacy-reject] "
+            "real committed transaction -> save_runner -> strict fresh load preserves "
+            "928/158/770, deployment q29, normalized 158D input, and 6D proposal",
+            flush=True,
+        )
+
+
 def main() -> None:
+    transaction_template = _transaction_template()
     layout_module, checkpointing, policy_cls = _load_owners()
+    runtime = _load_runtime()
     test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing, policy_cls)
     test_t_v015_envelope_distinguishes_completed_hsl_history(layout_module, checkpointing, policy_cls)
     test_t_resume_rejects_layout_legacy_and_normalizer_before_mutation(layout_module, checkpointing, policy_cls)
     test_t_zero_and_full_observation_prefix_reject_before_save(layout_module, checkpointing, policy_cls)
     test_t_atomicity_rejects_partial_save_and_resume(layout_module, checkpointing, policy_cls)
+    test_t_committed_save_to_fresh_inference_equality(
+        layout_module,
+        checkpointing,
+        policy_cls,
+        runtime,
+        transaction_template,
+    )
     print("frontres_v015_checkpoint_resume_contract: ok", flush=True)
 
 

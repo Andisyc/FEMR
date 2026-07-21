@@ -1,16 +1,19 @@
 """Sequence-evaluation schemas, v015 composition, and legacy planning helpers.
 
-Status: E-FI-28--E-FI-30 connect the explicit NPZ/protocol identity through
-the command-owned deployment carrier, per-frame FEMR, frozen GMT, and the
-immutable no-feedback report. The older plan/reset helpers below remain legacy
-v002 and are rejected by the v015 runner boundary.
+Status: E-FI-46 connects ordinary NPZ plus fixed protocol to one deterministic
+carrier. E-FI-28--E-FI-30 connect its NPZ/protocol identity through the
+command-owned deployment carrier, per-frame FEMR, frozen GMT, and the immutable
+no-feedback report. The older plan/reset helpers below remain legacy v002 and
+are rejected by the v015 runner boundary.
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
+import zipfile
 from dataclasses import dataclass, is_dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,6 +25,7 @@ import torch
 
 _V015_DEPLOYMENT_COMPOSITION_KIND = "deployment_composition_v015"
 _V015_DEPLOYMENT_REFERENCE_PROVENANCE = "deployment_reference_stream"
+_V015_DEPLOYMENT_CARRIER_PROVENANCE = "materialized_deployment_carrier"
 _V015_PERSISTENT_TEMPORAL_MODE = "persistent_full_sequence"
 _V015_SUPPORTED_CORRUPTION_FAMILIES = frozenset(("planar", "yaw", "global_z", "local_rp"))
 _V015_REQUIRED_NPZ_ARRAYS = (
@@ -195,6 +199,123 @@ class FrontRESV015DeploymentCompositionRequest(_FrontRESV015NoTrainingFeedback):
 
 
 @dataclass(frozen=True)
+class FrontRESV015DeploymentCarrier(_FrontRESV015NoTrainingFeedback):
+    """封存 ordinary reference 到 controlled deployment carrier 的不可变回执."""
+
+    source_reference_path: str
+    source_reference_file_hash: str
+    source_reference_stream_id: str
+    carrier_path: str
+    carrier_file_hash: str
+    carrier_stream_id: str
+    frame_count: int
+    joint_dof: int
+    body_count: int
+    root_body_index: int
+    fps: float
+    corruption_protocol: FrontRESV015PersistentCorruptionProtocol
+    materialized_delta_se3: tuple[float, float, float, float, float, float]
+    intent_q29_hash: str
+    materialization_hash: str
+    provenance: str = _V015_DEPLOYMENT_CARRIER_PROVENANCE
+
+    def validate(self) -> None:
+        self.corruption_protocol.validate()
+        source_path = Path(self.source_reference_path)
+        carrier_path = Path(self.carrier_path)
+        if not source_path.is_absolute() or not carrier_path.is_absolute():
+            raise ValueError("v015 deployment carrier paths must be absolute")
+        if source_path.suffix.lower() != ".npz" or carrier_path.suffix.lower() != ".npz":
+            raise ValueError("v015 deployment carrier source/output must both be .npz")
+        for name, value in (
+            ("source_reference_file_hash", self.source_reference_file_hash),
+            ("carrier_file_hash", self.carrier_file_hash),
+            ("intent_q29_hash", self.intent_q29_hash),
+            ("materialization_hash", self.materialization_hash),
+        ):
+            if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+                raise ValueError(f"v015 deployment carrier {name} must be lowercase sha256")
+        if self.source_reference_stream_id != f"ordinary-npz:{self.source_reference_file_hash}":
+            raise ValueError("v015 deployment carrier source stream id disagrees with its file hash")
+        if self.carrier_stream_id != f"deployment-carrier-npz:{self.carrier_file_hash}":
+            raise ValueError("v015 deployment carrier stream id disagrees with its file hash")
+        if self.provenance != _V015_DEPLOYMENT_CARRIER_PROVENANCE:
+            raise ValueError("v015 deployment carrier has invalid provenance")
+        if (
+            self.frame_count <= 0
+            or self.joint_dof != 29
+            or self.body_count <= 0
+            or self.root_body_index < 0
+            or self.root_body_index >= self.body_count
+            or not math.isfinite(self.fps)
+            or self.fps <= 0.0
+        ):
+            raise ValueError("v015 deployment carrier has invalid shape/fps identity")
+        if len(self.materialized_delta_se3) != 6 or any(
+            not math.isfinite(float(value)) for value in self.materialized_delta_se3
+        ):
+            raise ValueError("v015 deployment carrier Delta SE(3) must be finite [6]")
+        if _sha256_file(source_path) != self.source_reference_file_hash:
+            raise ValueError("v015 deployment carrier source file hash changed after materialization")
+        if _sha256_file(carrier_path) != self.carrier_file_hash:
+            raise ValueError("v015 deployment carrier file hash changed after materialization")
+        if _frontres_v015_npz_intent_hash(source_path) != self.intent_q29_hash:
+            raise ValueError("v015 deployment carrier source q29 identity changed")
+        if _frontres_v015_npz_intent_hash(carrier_path) != self.intent_q29_hash:
+            raise ValueError("v015 deployment carrier must preserve q29/dq29 exactly")
+        expected = _frontres_v015_deployment_materialization_hash(
+            source_file_hash=self.source_reference_file_hash,
+            protocol_hash=self.corruption_protocol.protocol_hash,
+            carrier_file_hash=self.carrier_file_hash,
+            materialized_delta_se3=self.materialized_delta_se3,
+            frame_count=self.frame_count,
+            body_count=self.body_count,
+            root_body_index=self.root_body_index,
+            fps=self.fps,
+        )
+        if self.materialization_hash != expected:
+            raise ValueError("v015 deployment carrier materialization hash disagrees with its sealed fields")
+
+
+class FrontRESV015DeploymentCarrierLifecycle:
+    """一个 lifecycle 只 materialize 一次, 后续读取不能重采样 protocol."""
+
+    def __init__(
+        self,
+        *,
+        source_path: str,
+        output_path: str,
+        corruption_protocol: FrontRESV015PersistentCorruptionProtocol,
+    ) -> None:
+        self._source_path = str(source_path)
+        self._output_path = str(output_path)
+        self._corruption_protocol = corruption_protocol
+        self._carrier: FrontRESV015DeploymentCarrier | None = None
+        self._state = "ready"
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    def materialize(self) -> FrontRESV015DeploymentCarrier:
+        if self._state != "ready":
+            raise RuntimeError("v015 deployment carrier lifecycle is already sealed; resampling is forbidden")
+        carrier = materialize_frontres_v015_deployment_carrier(
+            source_path=self._source_path,
+            output_path=self._output_path,
+            corruption_protocol=self._corruption_protocol,
+        )
+        self._carrier = carrier
+        self._state = "sealed"
+        return carrier
+
+    def snapshot(self) -> FrontRESV015DeploymentCarrier:
+        if self._state != "sealed" or self._carrier is None:
+            raise RuntimeError("v015 deployment carrier is not sealed")
+        return self._carrier
+
+
+@dataclass(frozen=True)
 class FrontRESV015DeploymentCompositionReport(_FrontRESV015NoTrainingFeedback):
     """Per-frame deployment-only metrics, separate from local K Gain and training."""
 
@@ -318,6 +439,313 @@ def load_frontres_v015_deployment_composition_request(
     )
     request.validate()
     return request
+
+
+def materialize_frontres_v015_deployment_carrier(
+    *,
+    source_path: str,
+    output_path: str,
+    corruption_protocol: FrontRESV015PersistentCorruptionProtocol,
+) -> FrontRESV015DeploymentCarrier:
+    """只生成一次确定性的 root/global artifact carrier.
+
+    这个 owner 只修改 body-frame reference arrays. q29/dq29 按 bit 复制,
+    protocol metadata 只保留在回执中, 不进入 FEMR/GMT 消费的 archive.
+    """
+
+    if not isinstance(corruption_protocol, FrontRESV015PersistentCorruptionProtocol):
+        raise TypeError("v015 deployment materializer requires its persistent corruption protocol")
+    corruption_protocol.validate()
+    source = Path(source_path).expanduser().resolve(strict=True)
+    output = Path(output_path).expanduser()
+    if not output.is_absolute():
+        output = output.resolve(strict=False)
+    if source.suffix.lower() != ".npz" or output.suffix.lower() != ".npz":
+        raise ValueError("v015 deployment materializer source/output must both be .npz")
+    if not source.is_file():
+        raise ValueError(f"v015 deployment materializer source is not a file: {source}")
+    if not output.parent.is_dir():
+        raise ValueError("v015 deployment materializer output parent must already exist")
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    if output.exists() or temporary.exists():
+        raise ValueError("v015 deployment materializer output or partial path already exists")
+
+    source_hash_before = _sha256_file(source)
+    arrays = _frontres_v015_load_npz_arrays(source)
+    frame_count, joint_dof, body_count, fps = _validate_v015_deployment_npz_arrays(arrays)
+    source_hash_after = _sha256_file(source)
+    if source_hash_after != source_hash_before:
+        raise RuntimeError("v015 deployment materializer source changed while it was being read")
+    intent_hash = _frontres_v015_intent_array_hash(arrays["joint_pos"], arrays["joint_vel"])
+    delta = _frontres_v015_sample_persistent_delta(corruption_protocol)
+    root_body_index = _frontres_v015_root_body_index(corruption_protocol, body_count=body_count)
+    carrier_arrays = _frontres_v015_apply_persistent_delta(
+        arrays,
+        delta,
+        root_body_index=root_body_index,
+    )
+    if _frontres_v015_intent_array_hash(
+        carrier_arrays["joint_pos"], carrier_arrays["joint_vel"]
+    ) != intent_hash:
+        raise RuntimeError("v015 deployment materializer changed q29/dq29")
+    _frontres_v015_write_deterministic_npz(output, carrier_arrays)
+    carrier_hash = _sha256_file(output)
+    materialization_hash = _frontres_v015_deployment_materialization_hash(
+        source_file_hash=source_hash_before,
+        protocol_hash=corruption_protocol.protocol_hash,
+        carrier_file_hash=carrier_hash,
+        materialized_delta_se3=delta,
+        frame_count=frame_count,
+        body_count=body_count,
+        root_body_index=root_body_index,
+        fps=fps,
+    )
+    carrier = FrontRESV015DeploymentCarrier(
+        source_reference_path=str(source),
+        source_reference_file_hash=source_hash_before,
+        source_reference_stream_id=f"ordinary-npz:{source_hash_before}",
+        carrier_path=str(output),
+        carrier_file_hash=carrier_hash,
+        carrier_stream_id=f"deployment-carrier-npz:{carrier_hash}",
+        frame_count=frame_count,
+        joint_dof=joint_dof,
+        body_count=body_count,
+        root_body_index=root_body_index,
+        fps=fps,
+        corruption_protocol=corruption_protocol,
+        materialized_delta_se3=delta,
+        intent_q29_hash=intent_hash,
+        materialization_hash=materialization_hash,
+    )
+    try:
+        carrier.validate()
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
+    return carrier
+
+
+def _frontres_v015_load_npz_arrays(path: Path) -> dict[str, np.ndarray]:
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            missing = tuple(name for name in _V015_REQUIRED_NPZ_ARRAYS if name not in data.files)
+            if missing:
+                raise ValueError(f"v015 deployment .npz is missing required arrays: {missing}")
+            return {name: np.asarray(data[name]).copy() for name in _V015_REQUIRED_NPZ_ARRAYS}
+    except (OSError, TypeError) as exc:
+        raise ValueError(f"v015 deployment reference cannot be read as a safe .npz: {path}") from exc
+
+
+def _frontres_v015_sample_persistent_delta(
+    protocol: FrontRESV015PersistentCorruptionProtocol,
+) -> tuple[float, float, float, float, float, float]:
+    if int(protocol.seed) < 0:
+        raise ValueError("v015 deployment materializer seed must be nonnegative")
+    parameters = dict(protocol.parameters)
+    allowed = {
+        "source",
+        "scale",
+        "xy_std",
+        "x_std",
+        "y_std",
+        "z_std",
+        "roll_std",
+        "pitch_std",
+        "yaw_std",
+        "root_body_index",
+    }
+    unknown = tuple(sorted(set(parameters) - allowed))
+    if unknown:
+        raise ValueError(f"v015 deployment materializer has unknown corruption parameters: {unknown}")
+    scale = _frontres_v015_nonnegative_parameter(parameters, "scale", default=1.0)
+    if scale <= 0.0:
+        raise ValueError("v015 deployment materializer scale must be positive")
+    family = set(protocol.family.split("+"))
+    std = np.zeros(6, dtype=np.float64)
+    if "planar" in family:
+        xy_std = _frontres_v015_nonnegative_parameter(parameters, "xy_std", default=0.0)
+        std[0] = _frontres_v015_nonnegative_parameter(parameters, "x_std", default=xy_std)
+        std[1] = _frontres_v015_nonnegative_parameter(parameters, "y_std", default=xy_std)
+        if std[0] == 0.0 and std[1] == 0.0:
+            raise ValueError("v015 planar materialization requires xy_std or x_std/y_std")
+    if "global_z" in family:
+        std[2] = _frontres_v015_nonnegative_parameter(parameters, "z_std", default=0.0)
+        if std[2] == 0.0:
+            raise ValueError("v015 global_z materialization requires z_std")
+    if "local_rp" in family:
+        std[3] = _frontres_v015_nonnegative_parameter(parameters, "roll_std", default=0.0)
+        std[4] = _frontres_v015_nonnegative_parameter(parameters, "pitch_std", default=0.0)
+        if std[3] == 0.0 and std[4] == 0.0:
+            raise ValueError("v015 local_rp materialization requires roll_std and/or pitch_std")
+    if "yaw" in family:
+        std[5] = _frontres_v015_nonnegative_parameter(parameters, "yaw_std", default=0.0)
+        if std[5] == 0.0:
+            raise ValueError("v015 yaw materialization requires yaw_std")
+    rng = np.random.default_rng(int(protocol.seed))
+    values = rng.normal(loc=0.0, scale=std * scale)
+    return tuple(float(value) for value in values)
+
+
+def _frontres_v015_root_body_index(
+    protocol: FrontRESV015PersistentCorruptionProtocol,
+    *,
+    body_count: int,
+) -> int:
+    value = dict(protocol.parameters).get("root_body_index")
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("v015 deployment materializer requires integer root_body_index in the protocol")
+    index = int(value)
+    if index < 0 or index >= int(body_count):
+        raise ValueError(
+            f"v015 deployment materializer root_body_index={index} is outside body_count={body_count}"
+        )
+    return index
+
+
+def _frontres_v015_nonnegative_parameter(
+    parameters: Mapping[str, str | int | float | bool],
+    name: str,
+    *,
+    default: float,
+) -> float:
+    value = parameters.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"v015 deployment materializer parameter {name} must be numeric")
+    value = float(value)
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError(f"v015 deployment materializer parameter {name} must be finite and nonnegative")
+    return value
+
+
+def _frontres_v015_apply_persistent_delta(
+    arrays: Mapping[str, np.ndarray],
+    delta: tuple[float, float, float, float, float, float],
+    *,
+    root_body_index: int,
+) -> dict[str, np.ndarray]:
+    output = {name: np.asarray(value).copy() for name, value in arrays.items()}
+    translation = np.asarray(delta[:3], dtype=np.float64)
+    delta_quat = _frontres_v015_quat_from_euler(*delta[3:])
+    rotation = _frontres_v015_quat_rotation_matrix(delta_quat)
+    body_pos = np.asarray(arrays["body_pos_w"], dtype=np.float64)
+    body_quat = np.asarray(arrays["body_quat_w"], dtype=np.float64)
+    quat_norm = np.linalg.norm(body_quat, axis=-1)
+    if not bool(np.isfinite(quat_norm).all()) or not bool(np.allclose(quat_norm, 1.0, rtol=1e-4, atol=1e-4)):
+        raise ValueError("v015 deployment materializer requires normalized body quaternions")
+    root_pos = body_pos[:, root_body_index : root_body_index + 1, :]
+    relative = body_pos - root_pos
+    transformed_pos = root_pos + np.einsum("ij,tkj->tki", rotation, relative) + translation
+    transformed_quat = _frontres_v015_quat_multiply(delta_quat, body_quat)
+    transformed_quat /= np.linalg.norm(transformed_quat, axis=-1, keepdims=True)
+    transformed_lin = np.einsum(
+        "ij,tkj->tki", rotation, np.asarray(arrays["body_lin_vel_w"], dtype=np.float64)
+    )
+    transformed_ang = np.einsum(
+        "ij,tkj->tki", rotation, np.asarray(arrays["body_ang_vel_w"], dtype=np.float64)
+    )
+    output["body_pos_w"] = transformed_pos.astype(arrays["body_pos_w"].dtype, copy=False)
+    output["body_quat_w"] = transformed_quat.astype(arrays["body_quat_w"].dtype, copy=False)
+    output["body_lin_vel_w"] = transformed_lin.astype(arrays["body_lin_vel_w"].dtype, copy=False)
+    output["body_ang_vel_w"] = transformed_ang.astype(arrays["body_ang_vel_w"].dtype, copy=False)
+    return output
+
+
+def _frontres_v015_quat_from_euler(roll: float, pitch: float, yaw: float) -> np.ndarray:
+    cr, sr = math.cos(roll * 0.5), math.sin(roll * 0.5)
+    cp, sp = math.cos(pitch * 0.5), math.sin(pitch * 0.5)
+    cy, sy = math.cos(yaw * 0.5), math.sin(yaw * 0.5)
+    return np.asarray(
+        [
+            cr * cp * cy + sr * sp * sy,
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+        ],
+        dtype=np.float64,
+    )
+
+
+def _frontres_v015_quat_multiply(lhs: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+    lw, lx, ly, lz = np.moveaxis(np.asarray(lhs), -1, 0)
+    rw, rx, ry, rz = np.moveaxis(np.asarray(rhs), -1, 0)
+    return np.stack(
+        (
+            lw * rw - lx * rx - ly * ry - lz * rz,
+            lw * rx + lx * rw + ly * rz - lz * ry,
+            lw * ry - lx * rz + ly * rw + lz * rx,
+            lw * rz + lx * ry - ly * rx + lz * rw,
+        ),
+        axis=-1,
+    )
+
+
+def _frontres_v015_quat_rotation_matrix(quaternion: np.ndarray) -> np.ndarray:
+    w, x, y, z = (float(value) for value in quaternion)
+    return np.asarray(
+        [
+            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
+            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
+            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+        ],
+        dtype=np.float64,
+    )
+
+
+def _frontres_v015_write_deterministic_npz(path: Path, arrays: Mapping[str, np.ndarray]) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with zipfile.ZipFile(temporary, mode="x", compression=zipfile.ZIP_STORED) as archive:
+            for name in _V015_REQUIRED_NPZ_ARRAYS:
+                buffer = io.BytesIO()
+                np.save(buffer, np.asarray(arrays[name]), allow_pickle=False)
+                info = zipfile.ZipInfo(filename=f"{name}.npy", date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_STORED
+                info.create_system = 3
+                info.external_attr = 0o600 << 16
+                archive.writestr(info, buffer.getvalue())
+        temporary.replace(path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _frontres_v015_intent_array_hash(joint_pos: np.ndarray, joint_vel: np.ndarray) -> str:
+    digest = hashlib.sha256()
+    for name, value in (("joint_pos", joint_pos), ("joint_vel", joint_vel)):
+        array = np.asarray(value)
+        digest.update(f"{name}:{array.dtype}:{tuple(array.shape)}:".encode("ascii"))
+        digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _frontres_v015_npz_intent_hash(path: Path) -> str:
+    arrays = _frontres_v015_load_npz_arrays(path)
+    return _frontres_v015_intent_array_hash(arrays["joint_pos"], arrays["joint_vel"])
+
+
+def _frontres_v015_deployment_materialization_hash(
+    *,
+    source_file_hash: str,
+    protocol_hash: str,
+    carrier_file_hash: str,
+    materialized_delta_se3: tuple[float, float, float, float, float, float],
+    frame_count: int,
+    body_count: int,
+    root_body_index: int,
+    fps: float,
+) -> str:
+    payload = {
+        "body_count": int(body_count),
+        "carrier_file_hash": str(carrier_file_hash),
+        "fps": float(fps),
+        "frame_count": int(frame_count),
+        "materialized_delta_se3": tuple(float(value) for value in materialized_delta_se3),
+        "protocol_hash": str(protocol_hash),
+        "root_body_index": int(root_body_index),
+        "source_file_hash": str(source_file_hash),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def run_frontres_v015_deployment_composition_eval(

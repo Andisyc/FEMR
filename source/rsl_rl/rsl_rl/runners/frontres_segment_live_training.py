@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import math
 import importlib.util
@@ -1842,6 +1843,214 @@ def _validate_live_update_values(
         )
 
 
+def _v015_formal_update_summary(result: Any) -> dict[str, Any]:
+    """Project a committed formal result without inventing legacy sampler metrics."""
+
+    ppo = getattr(result, "ppo_result", None)
+    if ppo is None:
+        raise TypeError("v015 formal training requires a PPO result")
+    summary = {
+        "transaction_id": str(getattr(result, "transaction_id", "")),
+        "policy_snapshot_id": str(getattr(result, "policy_snapshot_id", "")),
+        "update_steps": 1,
+        "update_count": int(getattr(result, "update_invocation_count", 0)),
+        "ppo_valid_count": int(getattr(result, "valid_row_count", 0)),
+        "policy_attempt_count": int(getattr(result, "policy_attempt_count", 0)),
+        "segment_count": int(getattr(result, "segment_count", 0)),
+        "source_count": int(getattr(result, "source_count", 0)),
+        "optimizer_step_before": int(getattr(result, "optimizer_step_before", -1)),
+        "optimizer_step_after": int(getattr(result, "optimizer_step_after", -1)),
+        "optimizer_step_delta": int(getattr(result, "optimizer_step_delta", -1)),
+        "ppo_total_loss_mean": float(ppo.total_loss.detach().cpu().item()),
+        "ppo_actor_loss_mean": float(ppo.actor_loss.detach().cpu().item()),
+        "ppo_value_loss_mean": float(ppo.value_loss.detach().cpu().item()),
+        "ppo_approx_kl_mean": float(ppo.approx_kl),
+        "ppo_clip_frac_mean": float(ppo.clip_frac),
+        "grouped_motion_count": int(ppo.grouped_motion_count),
+        "grouped_segment_count": int(ppo.grouped_segment_count),
+        "grouped_attempt_count": int(ppo.grouped_attempt_count),
+        "grouped_valid_step_count": int(ppo.grouped_valid_step_count),
+        "grouped_motion_mass_shares": tuple(ppo.grouped_motion_mass_shares),
+        "grouped_segment_mass_shares": tuple(ppo.grouped_segment_mass_shares),
+        "grouped_attempt_mass_shares": tuple(ppo.grouped_attempt_mass_shares),
+    }
+    summary["v015_transaction_telemetry"] = _v015_sealed_transaction_telemetry(
+        result,
+        ppo=ppo,
+    )
+    return summary
+
+
+def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, Any]:
+    """Project sealed v003 reports into JSON-safe live telemetry without feedback."""
+
+    diagnostics = getattr(result, "diagnostics", None)
+    if not isinstance(diagnostics, Mapping):
+        raise RuntimeError("v015 formal result requires sealed transaction diagnostics")
+    reports = diagnostics.get("v003_action_gain_harm_reports")
+    if not isinstance(reports, tuple) or not reports:
+        raise RuntimeError("v015 formal result requires sealed v003 action/Gain/harm reports")
+
+    transaction_id = str(getattr(result, "transaction_id", ""))
+    fields: dict[str, list[Any]] = {
+        "policy_actions": [],
+        "valid_policy_row_mask": [],
+        "intent_gain": [],
+        "physics_gain": [],
+        "repair_cost": [],
+        "gain_total": [],
+        "scenario_ids": [],
+        "noisy_segment_hashes": [],
+        "x_t_identities": [],
+        "horizon_k": [],
+    }
+    gain_source: str | None = None
+    intent_provenance: str | None = None
+    intent_source: str | None = None
+    valid_gain_total: list[float] = []
+
+    for report in reports:
+        validate = getattr(report, "validate", None)
+        if not callable(validate):
+            raise TypeError("v015 live telemetry requires validated immutable reports")
+        validate()
+        if str(getattr(report, "transaction_id", "")) != transaction_id:
+            raise RuntimeError("v015 live telemetry report has mixed transaction identity")
+        if any(bool(getattr(report, name, True)) for name in ("return_feedback", "priority_feedback", "ppo_feedback")):
+            raise RuntimeError("v015 live telemetry report cannot feed training state")
+        current_gain_source = str(getattr(report, "gain_source", ""))
+        current_provenance = str(getattr(report, "intent_q29_provenance", ""))
+        current_source = str(getattr(report, "intent_q29_source", ""))
+        if gain_source is None:
+            gain_source = current_gain_source
+            intent_provenance = current_provenance
+            intent_source = current_source
+        elif (
+            current_gain_source != gain_source
+            or current_provenance != intent_provenance
+            or current_source != intent_source
+        ):
+            raise RuntimeError("v015 live telemetry reports have mixed Gain or q29 provenance")
+
+        actions = tuple(tuple(float(value) for value in row) for row in report.policy_actions)
+        valid = tuple(bool(value) for value in report.valid_policy_row_mask)
+        components = {
+            "intent_gain": tuple(float(value) for value in report.intent_gain),
+            "physics_gain": tuple(float(value) for value in report.physics_gain),
+            "repair_cost": tuple(float(value) for value in report.repair_cost),
+            "gain_total": tuple(float(value) for value in report.gain_total),
+        }
+        row_count = len(actions)
+        if len(valid) != row_count or any(len(values) != row_count for values in components.values()):
+            raise RuntimeError("v015 live telemetry report rows are not aligned")
+        fields["policy_actions"].extend(actions)
+        fields["valid_policy_row_mask"].extend(valid)
+        fields["scenario_ids"].extend(str(value) for value in report.scenario_ids)
+        fields["noisy_segment_hashes"].extend(str(value) for value in report.noisy_segment_hashes)
+        fields["x_t_identities"].extend(str(value) for value in report.x_t_identities)
+        fields["horizon_k"].extend(int(value) for value in report.horizon_k)
+        for name, values in components.items():
+            for is_valid, value in zip(valid, values):
+                if is_valid:
+                    if not math.isfinite(value):
+                        raise RuntimeError(f"v015 live telemetry valid {name} is nonfinite")
+                    fields[name].append(value)
+                    if name == "gain_total":
+                        valid_gain_total.append(value)
+                else:
+                    if not math.isnan(value):
+                        raise RuntimeError(f"v015 live telemetry invalid {name} must remain UNCONFIRMED")
+                    fields[name].append(None)
+
+    policy_row_count = len(fields["policy_actions"])
+    expected_rows = int(getattr(result, "policy_attempt_count", -1))
+    if policy_row_count != expected_rows or not valid_gain_total:
+        raise RuntimeError(
+            "v015 live telemetry row count disagrees with the sealed transaction: "
+            f"reports={policy_row_count} expected={expected_rows}"
+        )
+    positive_fraction = sum(value > 0.0 for value in valid_gain_total) / len(valid_gain_total)
+    negative_fraction = sum(value < 0.0 for value in valid_gain_total) / len(valid_gain_total)
+    return {
+        "transaction_id": transaction_id,
+        "policy_snapshot_id": str(getattr(result, "policy_snapshot_id", "")),
+        "gain_source": gain_source,
+        "intent_q29_provenance": intent_provenance,
+        "intent_q29_source": intent_source,
+        **{name: tuple(values) for name, values in fields.items()},
+        "policy_row_count": policy_row_count,
+        "valid_policy_row_count": len(valid_gain_total),
+        "positive_gain_fraction": float(positive_fraction),
+        "negative_gain_fraction": float(negative_fraction),
+        "harm_fraction": float(negative_fraction),
+        "harm_definition": "gain_total<0",
+        "grouped_motion_mass_shares": tuple(ppo.grouped_motion_mass_shares),
+        "grouped_segment_mass_shares": tuple(ppo.grouped_segment_mass_shares),
+        "grouped_attempt_mass_shares": tuple(ppo.grouped_attempt_mass_shares),
+        "update_count": int(getattr(result, "update_invocation_count", 0)),
+        "optimizer_step_delta": int(getattr(result, "optimizer_step_delta", -1)),
+        "return_feedback": False,
+        "priority_feedback": False,
+        "ppo_feedback": False,
+    }
+
+
+def _require_v015_committed_result(runner: Any, result: Any) -> dict[str, Any]:
+    """Prove exact-one commit before iteration advance or checkpoint save."""
+
+    summary = _v015_formal_update_summary(result)
+    if (
+        summary["update_count"] != 1
+        or summary["optimizer_step_delta"] != 1
+        or summary["optimizer_step_after"] != summary["optimizer_step_before"] + 1
+        or summary["ppo_valid_count"] <= 0
+        or summary["policy_attempt_count"] <= 0
+        or summary["grouped_attempt_count"] != summary["policy_attempt_count"]
+    ):
+        raise RuntimeError(f"v015 formal training result is not one complete grouped update: {summary}")
+    state = getattr(runner, "_frontres_v015_checkpoint_transaction_state", None)
+    receipt = state.get("receipt") if isinstance(state, Mapping) and state.get("state") == "committed" else None
+    if not isinstance(receipt, Mapping):
+        raise RuntimeError("v015 formal training requires a committed checkpoint receipt")
+    if (
+        str(receipt.get("transaction_id", "")) != summary["transaction_id"]
+        or int(receipt.get("expected_policy_row_count", -1)) != summary["policy_attempt_count"]
+        or int(receipt.get("collected_policy_attempt_count", -1)) != summary["policy_attempt_count"]
+        or int(receipt.get("optimizer_step_delta", -1)) != 1
+        or int(receipt.get("optimizer_step_before", -1)) != summary["optimizer_step_before"]
+        or int(receipt.get("optimizer_step_after", -1)) != summary["optimizer_step_after"]
+    ):
+        raise RuntimeError("v015 formal training result disagrees with its committed checkpoint receipt")
+    return summary
+
+
+def _print_v015_formal_train_summary(
+    runner: Any,
+    *,
+    local_iteration: int,
+    num_learning_iterations: int,
+    summary: Mapping[str, Any],
+) -> None:
+    telemetry = summary.get("v015_transaction_telemetry")
+    if not isinstance(telemetry, Mapping):
+        raise RuntimeError("v015 formal train summary requires sealed transaction telemetry")
+    print(
+        "[FrontRES v015 Transaction Telemetry] "
+        + json.dumps(dict(telemetry), sort_keys=True, separators=(",", ":"), allow_nan=False),
+        flush=True,
+    )
+    print(
+        "[FrontRES v015 Formal Train] "
+        f"absolute_iter={runner.current_learning_iteration} "
+        f"local={local_iteration}/{num_learning_iterations} "
+        f"transaction={summary['transaction_id']} "
+        f"segments={summary['segment_count']} attempts={summary['policy_attempt_count']} "
+        f"valid={summary['ppo_valid_count']} grouped_attempts={summary['grouped_attempt_count']} "
+        f"step_delta={summary['optimizer_step_delta']} committed=1",
+        flush=True,
+    )
+
+
 def _path_inside_log_dir(path: str, log_dir: str | None) -> bool:
     if log_dir is None:
         return False
@@ -1900,7 +2109,17 @@ def _save_live_checkpoint(
     checkpoint_path: str,
     summary: Mapping[str, Any],
     required: bool,
+    expected_v015_transaction_id: str | None = None,
 ) -> bool:
+    if expected_v015_transaction_id is not None:
+        state = getattr(runner, "_frontres_v015_checkpoint_transaction_state", None)
+        receipt = state.get("receipt") if isinstance(state, Mapping) and state.get("state") == "committed" else None
+        if (
+            not isinstance(receipt, Mapping)
+            or str(receipt.get("transaction_id", "")) != str(expected_v015_transaction_id)
+            or int(receipt.get("optimizer_step_delta", -1)) != 1
+        ):
+            raise RuntimeError("v015 checkpoint trigger requires the matching exact-one committed transaction receipt")
     try:
         runner.save(checkpoint_path)
     except (OSError, RuntimeError) as exc:
@@ -1942,8 +2161,8 @@ def run_frontres_segment_live_training_loop(
 
     主链路:
         上游: `train.py` 在 `MODE=train` 且 live train 开启时调用本函数.
-        下游: 每轮调用 `run_frontres_segment_live_update_loop`, 校验 summary,
-        输出诊断并按计划保存 checkpoint.
+        下游: v015 每轮调用 formal transaction owner; legacy 配置才调用旧
+        update loop. 只有 committed exact-one result 可递增 iteration 或保存.
 
     语义:
         进入本函数意味着正式 Stage 3 路由已唯一确定. 任何 probe/eval 路径
@@ -1952,6 +2171,9 @@ def run_frontres_segment_live_training_loop(
     boundary = getattr(runner, "_frontres_segment_replay_boundary", None)
     if not bool(getattr(boundary, "live_train_enabled", False)):
         raise ValueError("FrontRES Segment live training requires frontres_segment_live_train_enabled=True.")
+    formal_v015 = bool(getattr(getattr(runner, "alg", None), "frontres_v015_formal_transaction_enabled", False))
+    if formal_v015 and bool(getattr(boundary, "periodic_eval_enabled", False)):
+        raise RuntimeError("v015 formal training rejects the legacy periodic evaluator")
 
     # B2: 冻结 live update loop 将消费的正式 iteration budget.
     num_learning_iterations = max(0, int(num_learning_iterations))
@@ -1973,26 +2195,40 @@ def run_frontres_segment_live_training_loop(
     last_checkpoint_probe_path: str | None = None
 
     for local_iteration in range(num_learning_iterations):
-        summary = runner.run_frontres_segment_live_update_loop(
-            init_at_random_ep_len=bool(init_at_random_ep_len and local_iteration == 0),
-            runner_learn=True,
-        )
-        _validate_live_update_summary(summary)
-        fail_on_invalid, min_valid_count, fail_on_nonfinite = _read_live_guard_cfg(runner)
-        _validate_live_update_values(
-            summary,
-            fail_on_invalid=fail_on_invalid,
-            min_valid_count=min_valid_count,
-            fail_on_nonfinite=fail_on_nonfinite,
-        )
+        if formal_v015:
+            result = runner.run_frontres_v015_formal_training_transaction(
+                init_at_random_ep_len=bool(init_at_random_ep_len and local_iteration == 0),
+            )
+            summary = _require_v015_committed_result(runner, result)
+        else:
+            summary = runner.run_frontres_segment_live_update_loop(
+                init_at_random_ep_len=bool(init_at_random_ep_len and local_iteration == 0),
+                runner_learn=True,
+            )
+            _validate_live_update_summary(summary)
+            fail_on_invalid, min_valid_count, fail_on_nonfinite = _read_live_guard_cfg(runner)
+            _validate_live_update_values(
+                summary,
+                fail_on_invalid=fail_on_invalid,
+                min_valid_count=min_valid_count,
+                fail_on_nonfinite=fail_on_nonfinite,
+            )
         runner.current_learning_iteration += 1
-        _print_live_train_summary(
-            runner,
-            local_iteration=local_iteration + 1,
-            num_learning_iterations=num_learning_iterations,
-            summary=summary,
-        )
-        _maybe_print_periodic_eval(runner, summary)
+        if formal_v015:
+            _print_v015_formal_train_summary(
+                runner,
+                local_iteration=local_iteration + 1,
+                num_learning_iterations=num_learning_iterations,
+                summary=summary,
+            )
+        else:
+            _print_live_train_summary(
+                runner,
+                local_iteration=local_iteration + 1,
+                num_learning_iterations=num_learning_iterations,
+                summary=summary,
+            )
+            _maybe_print_periodic_eval(runner, summary)
         if (
             runner.log_dir is not None
             and not runner.disable_logs
@@ -2000,10 +2236,22 @@ def run_frontres_segment_live_training_loop(
             and runner.current_learning_iteration % runner.save_interval == 0
         ):
             checkpoint_path = os.path.join(runner.log_dir, f"model_{runner.current_learning_iteration}.pt")
-            if _save_live_checkpoint(runner, checkpoint_path=checkpoint_path, summary=summary, required=False):
+            if _save_live_checkpoint(
+                runner,
+                checkpoint_path=checkpoint_path,
+                summary=summary,
+                required=False,
+                expected_v015_transaction_id=(summary["transaction_id"] if formal_v015 else None),
+            ):
                 last_checkpoint_probe_path = checkpoint_path
 
     if runner.log_dir is not None and not runner.disable_logs:
         final_checkpoint_path = os.path.join(runner.log_dir, f"model_{runner.current_learning_iteration}.pt")
         if final_checkpoint_path != last_checkpoint_probe_path:
-            _save_live_checkpoint(runner, checkpoint_path=final_checkpoint_path, summary=summary, required=True)
+            _save_live_checkpoint(
+                runner,
+                checkpoint_path=final_checkpoint_path,
+                summary=summary,
+                required=True,
+                expected_v015_transaction_id=(summary["transaction_id"] if formal_v015 else None),
+            )

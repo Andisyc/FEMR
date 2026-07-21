@@ -51,10 +51,17 @@ class FrontRESV015LocalEvaluationReport:
     Gap: a real local evaluator and simulator timing remain a later gate.
     """
 
+    transaction_id: str
     scenario_ids: tuple[str, ...]
     noisy_segment_hashes: tuple[str, ...]
     x_t_identities: tuple[str, ...]
     horizon_k: tuple[int, ...]
+    policy_actions: tuple[tuple[float, ...], ...]
+    valid_policy_row_mask: tuple[bool, ...]
+    intent_gain: tuple[float, ...]
+    physics_gain: tuple[float, ...]
+    repair_cost: tuple[float, ...]
+    gain_total: tuple[float, ...]
     policy_row_count: int
     valid_policy_row_count: int
     intent_q29_provenance: str
@@ -64,6 +71,7 @@ class FrontRESV015LocalEvaluationReport:
     repair_cost_mean: float
     gain_total_mean: float
     gain_total_pos_frac: float
+    gain_total_neg_frac: float
     evaluation_kind: str = _V015_LOCAL_EVALUATION_KIND
     gain_source: str = _V015_GAIN_SOURCE
     return_feedback: bool = False
@@ -74,18 +82,25 @@ class FrontRESV015LocalEvaluationReport:
         """Reject non-v003, partial, or feedback-bearing local diagnostic reports."""
 
         count = int(self.policy_row_count)
+        components = (self.intent_gain, self.physics_gain, self.repair_cost, self.gain_total)
         if (
-            count <= 0
+            not self.transaction_id
+            or count <= 0
             or len(self.scenario_ids) != count
             or len(self.noisy_segment_hashes) != count
             or len(self.x_t_identities) != count
             or len(self.horizon_k) != count
+            or len(self.policy_actions) != count
+            or any(len(row) != 6 for row in self.policy_actions)
+            or len(self.valid_policy_row_mask) != count
+            or any(len(values) != count for values in components)
             or any(not str(value) for value in self.scenario_ids)
             or any(not str(value) for value in self.noisy_segment_hashes)
             or any(not str(value) for value in self.x_t_identities)
             or any(int(value) <= 0 for value in self.horizon_k)
             or self.valid_policy_row_count < 0
             or self.valid_policy_row_count > count
+            or self.valid_policy_row_count != sum(bool(value) for value in self.valid_policy_row_mask)
             or self.evaluation_kind != _V015_LOCAL_EVALUATION_KIND
             or self.gain_source != _V015_GAIN_SOURCE
             or self.intent_q29_provenance != "deployment_noisy_q29"
@@ -94,6 +109,14 @@ class FrontRESV015LocalEvaluationReport:
             or self.ppo_feedback
         ):
             raise ValueError("v015 local evaluation report has invalid identity, Gain source, or feedback boundary")
+        if not all(math.isfinite(float(value)) for row in self.policy_actions for value in row):
+            raise ValueError("v015 local evaluation report requires finite sealed policy actions [B,6]")
+        for row, row_valid in enumerate(self.valid_policy_row_mask):
+            row_values = tuple(float(values[row]) for values in components)
+            if row_valid and not all(math.isfinite(value) for value in row_values):
+                raise ValueError("v015 local evaluation report requires finite v003 components on valid policy rows")
+            if not row_valid and not all(math.isnan(value) for value in row_values):
+                raise ValueError("v015 local evaluation report keeps invalid-row diagnostics UNCONFIRMED, never zero-filled")
         source = self.intent_q29_source.lower()
         if not source or any(token in source for token in ("clean", "root", "global")):
             raise ValueError("v015 local evaluation report rejects non-deployment q29 provenance")
@@ -103,10 +126,17 @@ class FrontRESV015LocalEvaluationReport:
             self.repair_cost_mean,
             self.gain_total_mean,
             self.gain_total_pos_frac,
+            self.gain_total_neg_frac,
         )
         if self.valid_policy_row_count > 0:
             if not all(math.isfinite(float(value)) for value in metrics):
                 raise ValueError("v015 local evaluation report requires finite v003 diagnostics on valid rows")
+            if (
+                not 0.0 <= self.gain_total_pos_frac <= 1.0
+                or not 0.0 <= self.gain_total_neg_frac <= 1.0
+                or self.gain_total_pos_frac + self.gain_total_neg_frac > 1.0 + 1.0e-7
+            ):
+                raise ValueError("v015 local evaluation report has invalid sign-preserving Gain fractions")
         elif not all(math.isnan(float(value)) for value in metrics):
             raise ValueError("v015 local evaluation report keeps missing diagnostics UNCONFIRMED, never zero-filled")
 
@@ -149,7 +179,11 @@ class FrontRESV015CompositionEvaluationProtocol:
             raise ValueError("v015 composition protocol has invalid deployment identity or local-training feedback")
 
 
-def build_frontres_v015_local_evaluation_report(candidate_evidence: Any) -> FrontRESV015LocalEvaluationReport:
+def build_frontres_v015_local_evaluation_report(
+    candidate_evidence: Any,
+    *,
+    transaction_id: str,
+) -> FrontRESV015LocalEvaluationReport:
     """Project one sealed v003 local candidate carrier into read-only diagnostic facts.
 
     函数名说明:
@@ -177,34 +211,53 @@ def build_frontres_v015_local_evaluation_report(candidate_evidence: Any) -> Fron
     validate_return()
     if getattr(return_evidence, "gain_source", None) != _V015_GAIN_SOURCE:
         raise ValueError("v015 local evaluation rejects legacy or unspecified Gain source")
+    if not str(transaction_id):
+        raise ValueError("v015 local evaluation requires sealed transaction identity")
 
     # B1: 读取 sealed one-row policy metadata, 不读取 mutable sampler state.
-    valid = return_evidence.policy_row_valid.detach().bool().reshape(-1)
+    valid_source = getattr(return_evidence, "policy_row_valid", None)
+    policy_actions_source = getattr(return_evidence, "policy_actions", None)
+    if not isinstance(valid_source, torch.Tensor):
+        raise TypeError("v015 local evaluation requires sealed policy_row_valid")
+    valid = valid_source.detach().bool().reshape(-1)
     count = int(valid.numel())
     if count <= 0:
         raise ValueError("v015 local evaluation requires at least one policy row")
+    if not isinstance(policy_actions_source, torch.Tensor) or tuple(policy_actions_source.shape) != (count, 6):
+        raise ValueError("v015 local evaluation requires sealed policy_actions [B,6]")
     components = (
-        ("intent_gain", return_evidence.intent_gain),
-        ("physics_gain", return_evidence.physics_gain),
-        ("repair_cost", return_evidence.repair_cost),
-        ("gain_total", return_evidence.gain_total),
+        ("intent_gain", getattr(return_evidence, "intent_gain", None)),
+        ("physics_gain", getattr(return_evidence, "physics_gain", None)),
+        ("repair_cost", getattr(return_evidence, "repair_cost", None)),
+        ("gain_total", getattr(return_evidence, "gain_total", None)),
     )
     if any(not isinstance(value, torch.Tensor) or tuple(value.shape) != (count,) for _, value in components):
         raise ValueError("v015 local evaluation requires row-aligned v003 decomposition tensors")
 
     # B2: 仅在 valid rows 聚合 v003 component, invalid rows 保持 UNCONFIRMED.
     component_mean = {name: _v015_masked_mean(value, valid) for name, value in components}
-    gain_total_pos_frac = _v015_masked_positive_fraction(return_evidence.gain_total, valid)
+    gain_total_pos_frac = _v015_masked_sign_fraction(components[3][1], valid, positive=True)
+    gain_total_neg_frac = _v015_masked_sign_fraction(components[3][1], valid, positive=False)
     horizon = return_evidence.horizon_k.detach().to(device="cpu", dtype=torch.long).reshape(-1)
     if int(horizon.numel()) != count:
         raise ValueError("v015 local evaluation horizon_k must align with policy rows")
 
     # B3: 构造 immutable report, 明确声明 evaluation 不反馈训练状态.
     report = FrontRESV015LocalEvaluationReport(
+        transaction_id=str(transaction_id),
         scenario_ids=tuple(str(value) for value in return_evidence.scenario_ids),
         noisy_segment_hashes=tuple(str(value) for value in return_evidence.noisy_segment_hashes),
         x_t_identities=tuple(str(value) for value in return_evidence.x_t_identities),
         horizon_k=tuple(int(value) for value in horizon.tolist()),
+        policy_actions=tuple(
+            tuple(float(value) for value in row)
+            for row in policy_actions_source.detach().to(device="cpu", dtype=torch.float32).tolist()
+        ),
+        valid_policy_row_mask=tuple(bool(value) for value in valid.to(device="cpu").tolist()),
+        intent_gain=tuple(float(value) for value in components[0][1].detach().to(device="cpu").tolist()),
+        physics_gain=tuple(float(value) for value in components[1][1].detach().to(device="cpu").tolist()),
+        repair_cost=tuple(float(value) for value in components[2][1].detach().to(device="cpu").tolist()),
+        gain_total=tuple(float(value) for value in components[3][1].detach().to(device="cpu").tolist()),
         policy_row_count=count,
         valid_policy_row_count=int(valid.sum().item()),
         intent_q29_provenance=str(return_evidence.intent_q29_provenance),
@@ -214,6 +267,7 @@ def build_frontres_v015_local_evaluation_report(candidate_evidence: Any) -> Fron
         repair_cost_mean=component_mean["repair_cost"],
         gain_total_mean=component_mean["gain_total"],
         gain_total_pos_frac=gain_total_pos_frac,
+        gain_total_neg_frac=gain_total_neg_frac,
     )
     report.validate()
     return report
@@ -228,7 +282,8 @@ def format_frontres_v015_local_evaluation_report(report: FrontRESV015LocalEvalua
             "[FrontRES v015 Local-K Evaluation]",
             (
                 "  identity: "
-                f"scenarios={report.scenario_ids} hashes={report.noisy_segment_hashes} "
+                f"transaction={report.transaction_id} scenarios={report.scenario_ids} "
+                f"hashes={report.noisy_segment_hashes} "
                 f"x_t={report.x_t_identities} K={report.horizon_k}"
             ),
             (
@@ -242,6 +297,7 @@ def format_frontres_v015_local_evaluation_report(report: FrontRESV015LocalEvalua
                 "  total: "
                 f"gain={_fmt_v015_eval_scalar(report.gain_total_mean)} "
                 f"positive={_fmt_v015_eval_percent(report.gain_total_pos_frac)} "
+                f"negative={_fmt_v015_eval_percent(report.gain_total_neg_frac)} "
                 f"valid_rows={report.valid_policy_row_count}/{report.policy_row_count}"
             ),
             "  boundary: candidate_only=1 return_feedback=0 priority_feedback=0 ppo_feedback=0",
@@ -296,7 +352,7 @@ def _v015_masked_mean(value: torch.Tensor, valid: torch.Tensor) -> float:
     return float(selected.mean().cpu().item())
 
 
-def _v015_masked_positive_fraction(value: torch.Tensor, valid: torch.Tensor) -> float:
+def _v015_masked_sign_fraction(value: torch.Tensor, valid: torch.Tensor, *, positive: bool) -> float:
     data = value.detach().float().reshape(-1)
     if tuple(data.shape) != tuple(valid.shape):
         raise ValueError("v015 diagnostic positivity mask must align with values")
@@ -305,7 +361,8 @@ def _v015_masked_positive_fraction(value: torch.Tensor, valid: torch.Tensor) -> 
         return float("nan")
     if not bool(torch.isfinite(selected).all()):
         raise ValueError("v015 diagnostic total Gain is nonfinite on a valid policy row")
-    return float((selected > 0.0).float().mean().cpu().item())
+    sign_mask = selected > 0.0 if positive else selected < 0.0
+    return float(sign_mask.float().mean().cpu().item())
 
 
 def _fmt_v015_eval_scalar(value: float) -> str:

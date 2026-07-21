@@ -227,6 +227,29 @@ or the no-feedback evaluation boundary. The current source still requires a
 pre-materialized file and a checkpoint, so source-code alignment remains a
 future bounded implementation step rather than an accomplished fact.
 
+`E-FI-46` (2026-07-21) closes the controlled materializer portion of that gap:
+
+- `frontres_segment_sequence_eval.py` now owns ordinary-reference `.npz` plus
+  canonical persistent protocol -> deterministic atomic carrier materialization;
+- one protocol-seeded Delta SE(3) is held fixed across the full sequence and
+  applied as a rigid root/global body-reference transform, while q29/dq29 are
+  copied bit-for-bit;
+- explicit `root_body_index` resolves the otherwise absent body-name identity
+  and is sealed into the receipt/materialization hash, not the actor archive;
+- source, protocol, carrier, q29, and materialization hashes are immutable;
+  same input reproduces the same carrier bytes, while changed source or seed
+  changes identity;
+- the archive contains only the eight deployment numeric arrays. Corruption
+  family/seed/scale/root identity remain report-only and never become actor
+  inputs;
+- one lifecycle materializes once and rejects a second draw; existing strict
+  request and command owners consume the generated carrier as current
+  q29+dq29 `[B,58]` and dense q29 H `[B,H+1,29]`.
+
+This is deterministic S1/S2 evidence only. It does not execute FEMR/GMT,
+produce composition metrics, compare baseline/repair, or prove physical
+artifact quality. Those remain G5/G6/G7 boundaries.
+
 ## Acceptance Gates
 
 1. S1: root-only scenario, q29 invariant, role identity, one-action/frozen-

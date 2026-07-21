@@ -122,7 +122,10 @@ def test_cli_runner_and_shell_are_dedicated_and_lazy() -> None:
     assert "POLICY_QUALITY_POLICY_CHECKPOINT" in shell
     assert "POLICY_QUALITY_RESULT" in shell
     quality_case = shell[shell.index("policy_quality_eval)") : shell.index(";;", shell.index("policy_quality_eval)"))]
-    assert "STAGE3_IS_FULL_RESUME=0" in quality_case
+    assert "--frontres_policy_quality_eval_only" in quality_case
+    assert '--frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}"' in shell
+    assert "STAGE3_IS_FULL_RESUME" not in shell
+    assert '--resume_student_checkpoint "${HSL_CHECKPOINT}"' not in shell
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from rsl_rl.algorithms import PPO, Distillation, MOSAIC, FrontRESUnified
 from rsl_rl.frontres.frontres_action_cone import FrontRESActionCone
 from rsl_rl.runners.frontres_checkpointing import (
     capture_v015_hsl_fresh_reload_shadow,
+    load_v015_hsl_initializer,
     load_runner,
     record_frontres_checkpoint_probe,
     save_runner,
@@ -34,6 +35,7 @@ from rsl_rl.runners.frontres_segment_live_probe import (
 )
 from rsl_rl.runners.frontres_segment_live_update_loop import (
     run_frontres_segment_live_update_loop as run_frontres_segment_live_update_loop_helper,
+    run_frontres_v015_formal_training_update_loop as run_frontres_v015_formal_training_update_loop_helper,
     run_frontres_v015_formal_transaction_update_loop as run_frontres_v015_formal_transaction_update_loop_helper,
 )
 from rsl_rl.runners.frontres_segment_live_sampler import initialize_frontres_segment_live_sampler
@@ -671,9 +673,20 @@ class OnPolicyRunner:
         )
 
     def run_frontres_v015_formal_transaction(self) -> object:
-        """Step 4B fake-S2 public connector; generic learn/train never calls this method."""
+        """Run one injected v015 request through the exact-one update owner."""
 
         return run_frontres_v015_formal_transaction_update_loop_helper(self)
+
+    def run_frontres_v015_formal_training_transaction(
+        self,
+        init_at_random_ep_len: bool = True,
+    ) -> object:
+        """Collect and commit one complete ordinary Stage-3 transaction."""
+
+        return run_frontres_v015_formal_training_update_loop_helper(
+            self,
+            init_at_random_ep_len=init_at_random_ep_len,
+        )
 
     def run_frontres_v015_local_identity_sentinel(
         self,
@@ -1413,6 +1426,11 @@ class OnPolicyRunner:
 
     def load(self, path: str, load_optimizer: bool = True, load_critic: bool = True):
         return load_runner(self, path, load_optimizer=load_optimizer, load_critic=load_critic)
+
+    def load_frontres_v015_hsl_initializer(self, path: str):
+        """Initialize only the v015 Stage-3 actor boundary from strict HSL-v1."""
+
+        return load_v015_hsl_initializer(self, path)
 
     def get_inference_policy(self, device=None):
         return get_inference_policy_runner(self, device=device)

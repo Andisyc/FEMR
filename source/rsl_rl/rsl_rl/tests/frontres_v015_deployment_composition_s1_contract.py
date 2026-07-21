@@ -235,11 +235,185 @@ def test_t_config_fail_closed_and_legacy_reject(owner) -> None:
     )
 
 
+def test_t_controlled_carrier_materialization(owner) -> None:
+    protocol = owner.build_frontres_v015_persistent_corruption_protocol(
+        corruption_id="g4-controlled-rp-planar",
+        family="planar+local_rp",
+        seed=20260721,
+        parameters={
+            "xy_std": 0.04,
+            "roll_std": 0.06,
+            "pitch_std": 0.08,
+            "scale": 1.0,
+            "root_body_index": 0,
+        },
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source = root / "ordinary_reference.npz"
+        first_path = root / "carrier_a.npz"
+        second_path = root / "carrier_b.npz"
+        changed_path = root / "carrier_changed.npz"
+        changed_source = root / "ordinary_reference_changed.npz"
+        changed_source_path = root / "carrier_source_changed.npz"
+        missing_root_path = root / "carrier_missing_root.npz"
+        missing_scale_path = root / "carrier_missing_scale.npz"
+        unknown_parameter_path = root / "carrier_unknown_parameter.npz"
+        all_family_path = root / "carrier_all_families.npz"
+        _write_npz(source, frame_count=6)
+
+        lifecycle = owner.FrontRESV015DeploymentCarrierLifecycle(
+            source_path=str(source),
+            output_path=str(first_path),
+            corruption_protocol=protocol,
+        )
+        first = lifecycle.materialize()
+        first.validate()
+        assert lifecycle.snapshot() is first
+        assert first.source_reference_file_hash != first.carrier_file_hash
+        assert first.source_reference_stream_id.startswith("ordinary-npz:")
+        assert first.carrier_stream_id.startswith("deployment-carrier-npz:")
+        assert first.corruption_protocol.protocol_hash == protocol.protocol_hash
+        assert first.root_body_index == 0
+        assert len(first.materialization_hash) == 64
+        assert first.intent_q29_hash
+
+        with np.load(source, allow_pickle=False) as source_data, np.load(first_path, allow_pickle=False) as carrier_data:
+            assert set(carrier_data.files) == set(owner._V015_REQUIRED_NPZ_ARRAYS)
+            np.testing.assert_array_equal(carrier_data["joint_pos"], source_data["joint_pos"])
+            np.testing.assert_array_equal(carrier_data["joint_vel"], source_data["joint_vel"])
+            assert not np.array_equal(carrier_data["body_pos_w"], source_data["body_pos_w"])
+            assert not np.array_equal(carrier_data["body_quat_w"], source_data["body_quat_w"])
+            forbidden = ("corruption", "protocol", "seed", "label", "truth", "clean")
+            assert all(not any(token in name.lower() for token in forbidden) for name in carrier_data.files)
+
+        try:
+            lifecycle.materialize()
+        except RuntimeError as exc:
+            assert "already sealed" in str(exc)
+        else:
+            raise AssertionError("G4 lifecycle resampled one sealed carrier")
+
+        second = owner.FrontRESV015DeploymentCarrierLifecycle(
+            source_path=str(source),
+            output_path=str(second_path),
+            corruption_protocol=protocol,
+        ).materialize()
+        assert second.carrier_file_hash == first.carrier_file_hash
+        assert second.materialization_hash == first.materialization_hash
+        assert second.intent_q29_hash == first.intent_q29_hash
+        assert second.materialized_delta_se3 == first.materialized_delta_se3
+
+        changed_protocol = owner.build_frontres_v015_persistent_corruption_protocol(
+            corruption_id="g4-controlled-rp-planar",
+            family="planar+local_rp",
+            seed=20260722,
+            parameters={
+                "xy_std": 0.04,
+                "roll_std": 0.06,
+                "pitch_std": 0.08,
+                "scale": 1.0,
+                "root_body_index": 0,
+            },
+        )
+        changed = owner.materialize_frontres_v015_deployment_carrier(
+            source_path=str(source),
+            output_path=str(changed_path),
+            corruption_protocol=changed_protocol,
+        )
+        assert changed.carrier_file_hash != first.carrier_file_hash
+        assert changed.materialization_hash != first.materialization_hash
+        _write_npz(changed_source, frame_count=6, offset=1.0)
+        source_changed = owner.materialize_frontres_v015_deployment_carrier(
+            source_path=str(changed_source),
+            output_path=str(changed_source_path),
+            corruption_protocol=protocol,
+        )
+        assert source_changed.source_reference_file_hash != first.source_reference_file_hash
+        assert source_changed.carrier_file_hash != first.carrier_file_hash
+        assert source_changed.materialization_hash != first.materialization_hash
+        missing_root = owner.build_frontres_v015_persistent_corruption_protocol(
+            corruption_id="g4-missing-root",
+            family="local_rp",
+            seed=1,
+            parameters={"roll_std": 0.1},
+        )
+        assert "root_body_index" in _expect_value_error(
+            lambda: owner.materialize_frontres_v015_deployment_carrier(
+                source_path=str(source),
+                output_path=str(missing_root_path),
+                corruption_protocol=missing_root,
+            )
+        )
+        assert not missing_root_path.exists()
+        missing_scale = owner.build_frontres_v015_persistent_corruption_protocol(
+            corruption_id="g4-missing-scale",
+            family="local_rp",
+            seed=1,
+            parameters={"root_body_index": 0},
+        )
+        assert "roll_std" in _expect_value_error(
+            lambda: owner.materialize_frontres_v015_deployment_carrier(
+                source_path=str(source),
+                output_path=str(missing_scale_path),
+                corruption_protocol=missing_scale,
+            )
+        )
+        unknown_parameter = owner.build_frontres_v015_persistent_corruption_protocol(
+            corruption_id="g4-unknown-parameter",
+            family="local_rp",
+            seed=1,
+            parameters={"root_body_index": 0, "roll_std": 0.1, "noise_label": "rp"},
+        )
+        assert "unknown corruption parameters" in _expect_value_error(
+            lambda: owner.materialize_frontres_v015_deployment_carrier(
+                source_path=str(source),
+                output_path=str(unknown_parameter_path),
+                corruption_protocol=unknown_parameter,
+            )
+        )
+        assert not missing_scale_path.exists()
+        assert not unknown_parameter_path.exists()
+        all_family_protocol = owner.build_frontres_v015_persistent_corruption_protocol(
+            corruption_id="g4-all-families",
+            family="yaw+global_z+planar+local_rp",
+            seed=31,
+            parameters={
+                "xy_std": 0.02,
+                "z_std": 0.03,
+                "roll_std": 0.04,
+                "pitch_std": 0.05,
+                "yaw_std": 0.06,
+                "root_body_index": 0,
+            },
+        )
+        all_family = owner.materialize_frontres_v015_deployment_carrier(
+            source_path=str(source),
+            output_path=str(all_family_path),
+            corruption_protocol=all_family_protocol,
+        )
+        assert all(abs(value) > 0.0 for value in all_family.materialized_delta_se3)
+        assert all_family.intent_q29_hash == first.intent_q29_hash
+        assert "exists" in _expect_value_error(
+            lambda: owner.materialize_frontres_v015_deployment_carrier(
+                source_path=str(source),
+                output_path=str(first_path),
+                corruption_protocol=protocol,
+            )
+        )
+    print(
+        "[T-materialize/T-hash/T-determinism/T-q29-invariant/T-no-label/T-no-resample] "
+        "ordinary NPZ + fixed protocol yields one deterministic immutable carrier",
+        flush=True,
+    )
+
+
 def main() -> None:
     owner = _load_owner()
     test_t_npz_schema_identity_and_corruption_protocol(owner)
     test_t_report_and_no_feedback(owner)
     test_t_config_fail_closed_and_legacy_reject(owner)
+    test_t_controlled_carrier_materialization(owner)
     print("frontres_v015_deployment_composition_s1_contract: ok", flush=True)
 
 

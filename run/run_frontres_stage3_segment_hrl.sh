@@ -32,14 +32,41 @@ CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
 SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
 PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
 PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
-STAGE3_IS_FULL_RESUME="${STAGE3_IS_FULL_RESUME:-False}"
 FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
+FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"
+FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
 CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py}"
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
 if [[ ! -f "${HSL_CHECKPOINT}" ]]; then
   echo "HSL checkpoint not found: ${HSL_CHECKPOINT}" >&2
   exit 2
+fi
+
+if [[ "${PERIODIC_EVAL_ENABLED}" != "0" ]]; then
+  echo "v015 Stage 3 forbids legacy periodic evaluation" >&2
+  exit 4
+fi
+
+if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
+  for arg in "${EXTRA_TRAIN_ARGS[@]}"; do
+    case "${arg}" in
+      --resume|--resume=*|--resume_student_checkpoint|--resume_student_checkpoint=*|--is_full_resume|--is_full_resume=*|--frontres_segment_periodic_eval_enabled|--frontres_segment_periodic_eval_enabled=*)
+        echo "v015 Stage 3 forbids resume and legacy periodic-evaluation arguments: ${arg}" >&2
+        exit 4
+        ;;
+    esac
+  done
+fi
+
+if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
+  if [[ "${MODE}" != "train" || "${NUM_ENVS}" != "8" || "${MAX_ITERS}" != "1" || "${UPDATE_STEPS}" != "1" ]]; then
+    echo "G5-S4 bounded Stage 3 requires train mode, 8 envs, 1 iteration, and 1 update" >&2
+    exit 4
+  fi
+elif [[ "${FRONTRES_G5_S4_BOUNDED}" != "0" ]]; then
+  echo "FRONTRES_G5_S4_BOUNDED must be 0 or 1" >&2
+  exit 4
 fi
 
 if [[ "${NPROC_PER_NODE}" -gt 1 ]]; then
@@ -89,7 +116,6 @@ case "${MODE}" in
     : "${POLICY_QUALITY_RESULT:?Set POLICY_QUALITY_RESULT for policy_quality_eval}"
     # Quality selection is manifest-owned; never restore checkpoint sampler,
     # optimizer, or warmup state into the runner used for evaluation.
-    STAGE3_IS_FULL_RESUME=0
     MODE_ARGS=(
       --frontres_policy_quality_eval_only
       --frontres_policy_quality_manifest "${POLICY_QUALITY_MANIFEST}"
@@ -103,7 +129,6 @@ case "${MODE}" in
     : "${POLICY_QUALITY_HSL_CHECKPOINT:?Set POLICY_QUALITY_HSL_CHECKPOINT for policy_quality_q2d_eval}"
     : "${POLICY_QUALITY_POLICY_CHECKPOINT:?Set POLICY_QUALITY_POLICY_CHECKPOINT for policy_quality_q2d_eval}"
     : "${POLICY_QUALITY_Q2D_RESULT:?Set POLICY_QUALITY_Q2D_RESULT for policy_quality_q2d_eval}"
-    STAGE3_IS_FULL_RESUME=0
     MODE_ARGS=(
       --frontres_policy_quality_q2d_eval_only
       --frontres_policy_quality_manifest "${POLICY_QUALITY_MANIFEST}"
@@ -129,14 +154,21 @@ TRAIN_CMD=(
   --experiment_name g1_flat_frontres_stage3_segment_hrl
   --run_name "${RUN_NAME}"
   --max_iterations "${MAX_ITERS}"
-  --resume_student_checkpoint "${HSL_CHECKPOINT}"
-  --is_full_resume "${STAGE3_IS_FULL_RESUME}"
- --frontres_stage stage3_segment_hrl
- --frontres_specialist_mode "${FRONTRES_SPECIALIST_MODE}"
- --frontres_segment_cache_dir "${CACHE_DIR}"
+  --frontres_stage stage3_segment_hrl
+  --frontres_specialist_mode "${FRONTRES_SPECIALIST_MODE}"
+  --frontres_segment_cache_dir "${CACHE_DIR}"
   --frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"
   --frontres_segment_live_update_steps "${UPDATE_STEPS}"
+  --frontres_v015_future_offsets "${FRONTRES_V015_FUTURE_OFFSETS}"
+  --frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}"
 )
+
+if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
+  TRAIN_CMD+=(
+    --frontres_checkpoint_interval 1
+    --frontres_formal_runtime_audit
+  )
+fi
 
 if [[ ${#MODE_ARGS[@]} -gt 0 ]]; then
   TRAIN_CMD+=("${MODE_ARGS[@]}")
@@ -144,13 +176,6 @@ fi
 
 if [[ ${#EXTRA_TRAIN_ARGS[@]} -gt 0 ]]; then
   TRAIN_CMD+=("${EXTRA_TRAIN_ARGS[@]}")
-fi
-
-if [[ "${PERIODIC_EVAL_ENABLED}" == "1" ]]; then
-  TRAIN_CMD+=(
-    --frontres_segment_periodic_eval_enabled
-    --frontres_segment_periodic_eval_interval "${PERIODIC_EVAL_INTERVAL}"
-  )
 fi
 
 if [[ "${FRONTRES_STAGE3_RUN_CONTRACTS:-0}" == "1" ]]; then
@@ -163,10 +188,10 @@ if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   joined=" ${TRAIN_CMD[*]} "
   for required in \
     " scripts/rsl_rl/train.py " \
-  " --frontres_stage stage3_segment_hrl " \
-  " --frontres_specialist_mode ${FRONTRES_SPECIALIST_MODE} " \
-  " --resume_student_checkpoint ${HSL_CHECKPOINT} " \
-    " --is_full_resume ${STAGE3_IS_FULL_RESUME} " \
+    " --frontres_stage stage3_segment_hrl " \
+    " --frontres_specialist_mode ${FRONTRES_SPECIALIST_MODE} " \
+    " --frontres_v015_hsl_initializer_checkpoint ${HSL_CHECKPOINT} " \
+    " --frontres_v015_future_offsets ${FRONTRES_V015_FUTURE_OFFSETS} " \
     " --frontres_segment_cache_dir ${CACHE_DIR} " \
     " --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} " \
     " --frontres_segment_live_update_steps ${UPDATE_STEPS} " \

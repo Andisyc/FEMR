@@ -23,6 +23,7 @@ def _run_preflight(
     mode: str,
     env_overrides: dict[str, str] | None = None,
     extra_args: list[str] | None = None,
+    bounds: tuple[str, str, str] = ("1", "2", "3"),
 ) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -41,9 +42,7 @@ def _run_preflight(
                 str(SCRIPT),
                 str(checkpoint),
                 str(motion_path),
-                "1",
-                "2",
-                "3",
+                *bounds,
                 mode,
             ]
         if extra_args:
@@ -70,8 +69,9 @@ def _probe(name: str, command: str) -> None:
     print(
         f"[probe step7] {name}: "
         f"stage3={'--frontres_stage stage3_segment_hrl' in command} "
-        f"resume_stage1={'--resume_student_checkpoint' in command} "
-        f"is_full_resume_false={'--is_full_resume False' in command} "
+        f"hsl_v1={'--frontres_v015_hsl_initializer_checkpoint' in command} "
+        f"offsets={'--frontres_v015_future_offsets 1\\,2' in command} "
+        f"resume={'--resume' in command} "
         f"update_steps_3={'--frontres_segment_live_update_steps 3' in command} "
         f"specialist_rp={'--frontres_specialist_mode rp' in command} "
         f"update_loop={'--frontres_segment_live_update_loop_only' in command} "
@@ -90,14 +90,53 @@ def test_stage3_train_launch_preflight_builds_femr_command() -> None:
 
     assert "[FrontRES Stage3 startup preflight] PASS mode=train" in result.stdout
     assert "--frontres_stage stage3_segment_hrl" in command
-    assert "--resume_student_checkpoint" in command
-    assert "--is_full_resume False" in command
+    assert "--frontres_v015_hsl_initializer_checkpoint" in command
+    assert "--frontres_v015_future_offsets 1\\,2" in command
+    assert "--resume_student_checkpoint" not in command
+    assert "--is_full_resume" not in command
+    assert "--resume " not in command
+    assert "--frontres_segment_periodic_eval_enabled" not in command
     assert "--frontres_specialist_mode rp" in command
     assert "--frontres_segment_live_update_steps 3" in command
     assert "--frontres_segment_live_update_loop_only" not in command
     assert "--frontres_segment_sequence_offline_eval_only" not in command
     assert "stage2_acceptance" not in command
     assert "/MOSAIC/" not in command
+
+
+def test_g5_s4_bounded_launch_freezes_8_1_1_and_audit() -> None:
+    result = _run_preflight(
+        "train",
+        {"FRONTRES_G5_S4_BOUNDED": "1"},
+        bounds=("8", "1", "1"),
+    )
+    assert result.returncode == 0, result.stderr
+    command = _command_line(result)
+    assert "--num_envs=8" in command
+    assert "--max_iterations 1" in command
+    assert "--frontres_segment_live_update_steps 1" in command
+    assert "--frontres_checkpoint_interval 1" in command
+    assert "--frontres_formal_runtime_audit" in command
+
+
+def test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds() -> None:
+    forbidden = (
+        ["--resume", "True"],
+        ["--resume_student_checkpoint", "/tmp/legacy.pt"],
+        ["--is_full_resume", "False"],
+        ["--frontres_segment_periodic_eval_enabled"],
+    )
+    for args in forbidden:
+        result = _run_preflight("train", extra_args=args)
+        assert result.returncode != 0
+        assert "forbids" in result.stderr
+    wrong = _run_preflight(
+        "train",
+        {"FRONTRES_G5_S4_BOUNDED": "1"},
+        bounds=("4", "1", "1"),
+    )
+    assert wrong.returncode != 0
+    assert "8 envs, 1 iteration, and 1 update" in wrong.stderr
 
 
 def test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel() -> None:
@@ -164,6 +203,8 @@ def test_stage3_launch_rejects_unknown_mode_before_training() -> None:
 
 if __name__ == "__main__":
     test_stage3_train_launch_preflight_builds_femr_command()
+    test_g5_s4_bounded_launch_freezes_8_1_1_and_audit()
+    test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds()
     test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel()
     test_stage3_sequence_eval_launch_honors_smoke_eval_env_overrides()
     test_stage3_launch_passes_explicit_segment_ppo_schedule_and_lr_args()

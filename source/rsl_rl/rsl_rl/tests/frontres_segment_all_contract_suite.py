@@ -263,6 +263,27 @@ CONTRACTS = (
         requires_torch=False,
     ),
     ContractTarget(
+        name="v015_policy_quality_identity",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v015_policy_quality_identity_contract.py",
+        expected_marker="frontres_v015_policy_quality_identity_contract: ok",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
+        name="v015_policy_quality_heldout",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v015_policy_quality_heldout_contract.py",
+        expected_marker="frontres_v015_policy_quality_heldout_contract: ok",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
+        name="v015_policy_quality_save_reload",
+        path="source/rsl_rl/rsl_rl/tests/frontres_v015_policy_quality_save_reload_contract.py",
+        expected_marker="frontres_v015_policy_quality_save_reload_contract: ok",
+        path_class="core_param_path",
+        requires_torch=True,
+    ),
+    ContractTarget(
         name="policy_quality_q2_report",
         path="source/rsl_rl/rsl_rl/tests/frontres_policy_quality_q2_report_contract.py",
         expected_marker="PASS: Q2 report preserves per-item noise floors and separates technical validity from science.",

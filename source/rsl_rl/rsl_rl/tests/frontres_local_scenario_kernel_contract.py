@@ -476,6 +476,78 @@ def test_t_legacy_reject() -> None:
     print("[T-legacy-reject] 65D intent and local/fixed-tape mixing are rejected", flush=True)
 
 
+def test_t_fixed_heldout_manifest_item() -> None:
+    commands, live_sampler, _hooks = _load_modules()
+    command = _command(commands)
+    _sampler, _payload, materialization, _request, _scenario = _scenario_parts(
+        live_sampler, command
+    )
+    calls: list[dict[str, object]] = []
+
+    def materialize_frontres_local_scenario(**kwargs):
+        calls.append(dict(kwargs))
+        return {
+            "current_root_artifact_t": materialization.current_root_artifact_t.detach().clone(),
+            "intent_q29": materialization.intent_q29.detach().clone(),
+            "clean_continuation": materialization.clean_continuation.detach().clone(),
+            "provenance": dict(materialization.provenance),
+        }
+
+    adapter = SimpleNamespace(materialize_frontres_local_scenario=materialize_frontres_local_scenario)
+    spec = SimpleNamespace(
+        segment_id=7,
+        motion_id="motion-0",
+        start_frame=2,
+        horizon_k=3,
+        perturbation_family="index_only",
+    )
+
+    class Dataset:
+        _specs = (spec,)
+
+        def get_segments(self, segment_ids):
+            count = int(segment_ids.numel())
+            return SimpleNamespace(
+                segment_ids=segment_ids.detach().clone(),
+                batch_size=count,
+                specs=(spec,) * count,
+                perturbation_family=("index_only",) * count,
+                perturbation_strength=torch.zeros(count),
+            )
+
+    runner = SimpleNamespace(
+        device=torch.device("cpu"),
+        current_learning_iteration=0,
+        alg=SimpleNamespace(frontres_future_offsets=(1, 2)),
+        env=SimpleNamespace(num_envs=8, _frontres_segment_index_reset_adapter=adapter),
+        _frontres_segment_dataset=Dataset(),
+    )
+    item = SimpleNamespace(
+        motion_id="motion-0",
+        start_frame=2,
+        effective_horizon_k=3,
+        perturbation_family="local_rp",
+        perturbation_parameters=(("dr_scale", 0.25),),
+        seed=42,
+        comparison_signature="a" * 64,
+    )
+    rng_before = torch.random.get_rng_state().clone()
+    first = live_sampler.prepare_frontres_v015_policy_quality_item_batch(runner, item)
+    second = live_sampler.prepare_frontres_v015_policy_quality_item_batch(runner, item)
+    assert torch.equal(torch.random.get_rng_state(), rng_before)
+    assert len(calls) == 2
+    assert tuple(first.sample.source_index.tolist()) == (0, 0, 0, 0)
+    assert len(set(first.batch.frontres_local_scenario_ids)) == 1
+    assert first.batch.frontres_local_scenario_ids == second.batch.frontres_local_scenario_ids
+    assert first.batch.frontres_local_scenario_hashes == second.batch.frontres_local_scenario_hashes
+    assert tuple(first.batch.stage3_index_perturbation_family) == ("local_rp",) * 4
+    torch.testing.assert_close(
+        first.batch.stage3_index_perturbation_strength,
+        torch.full((4,), 0.25),
+    )
+    print("[T-heldout-manifest] fixed item -> 4 Repair attempts -> one sealed scenario/hash without RNG drift")
+
+
 def main() -> None:
     test_t_schema()
     test_t_invariant()
@@ -484,6 +556,7 @@ def main() -> None:
     test_t_hash()
     test_t_provenance()
     test_t_metamorphic()
+    test_t_fixed_heldout_manifest_item()
     test_t_legacy_reject()
     print("frontres_local_scenario_kernel_contract: ok", flush=True)
 

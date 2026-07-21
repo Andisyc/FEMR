@@ -2870,3 +2870,947 @@ Acceptance and remaining boundary:
 - G2-S4-S1 remains open. Its next log must report `proposal_6_close=1` plus the
   actual CUDA/CPU `max_abs_error`; an error beyond the fixed tolerance remains
   fail-closed.
+
+## E-FI-42: G2-S4 Bounded Proposal-Only HSL Live Closure
+
+Date: 2026-07-21
+Tier: bounded live S4 on SUST_Main_2/Main-2 with eight IsaacLab envs, one HSL
+warmup iteration, one environment step, three actor epochs, zero PPO
+iterations, real GMT checkpoint, and strict HSL-v1 save/reload
+
+Raw evidence:
+
+- `v015_g2_s4_hsl_smoke_gpu3.log`
+- GMT artifact: `/hdd1/cyx/MOSAIC/model/model_27000.pt`
+- HSL artifact:
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-07-21_17-06-12_G2_S4_BOUND_HSL/model_warmup.pt`
+
+Observed formal chain:
+
+```text
+stage1_hsl config: max_iterations=0, warmup=1, Segment/live train disabled
+-> real current root artifact + deployment_noisy_q29 [8,3,29], offsets (1,2)
+-> raw 870D + q29 tail 58D = combined 928D
+-> FEMR 158D / frozen GMT 770D
+-> current anti-DR Delta SE(3) [8,6]
+-> residual-actor-only backward
+-> critic gradient count 0 and parameter delta 0
+-> frontres-v015-hsl-proposal-v1 exact three-field payload
+-> CPU shadow strict reload
+-> exact normalized 158D + bounded-close 6D proposal
+-> explicit exit before PPO
+```
+
+Runtime facts:
+
+- Current artifact and q29 provenance were present at log lines 458--459;
+  `q29_provenance=deployment_noisy_q29`, raw/combined/FEMR/GMT shapes were
+  `870/928/158/770`.
+- The current anti-DR target was finite `[8,6]`. Actor gradient norm was
+  `9.7264719`; `critic_grad_count=0` and `critic_max_abs_delta=0`.
+- The HSL identity was `frontres-v015-hsl-proposal-v1`, offsets `(1,2)`, GMT
+  SHA-256 `3efcdb50df81465a1d3cbd0edb71cc9662e1e69f65e8f2e067f845607660c426`,
+  exact top-level keys were actor/distribution plus 158D prefix normalizer, and
+  `forbidden_payload=0`.
+- Fresh reload observed `normalized_158_equal=1`, `proposal_6_close=1`,
+  `proposal_6_bitwise_equal=0`, CUDA/CPU `max_abs_error=2.79396772e-09`, below
+  fixed `rtol=1e-5, atol=1e-6`, and `pre_reload_proposal_equal=0`.
+- Completion sentinels were `bounded_hsl=1 ppo_entered=0` and
+  `Stage 1 HSL warmup-only run complete; exiting before PPO loop.`
+- Each of the eight required `G2-S4-*` sentinels plus the final exit appeared
+  exactly once. No Traceback, exception, legacy fallback, reload failure,
+  forbidden payload, nonzero critic delta, or `Entering PPO loop` appeared.
+
+Interpretation and remaining boundary:
+
+- G2 / 7 is complete. This runtime-confirms proposal-only HSL input, target,
+  actor-only optimization, strict persistence, and fresh-reload behavior.
+- The generic `FrontRESUnified` optimizer is constructed during runner setup,
+  but the live HSL owner used its separate actor-only optimizer; the observed
+  critic gradient and parameter delta were both zero, and no PPO loop ran.
+- `model_warmup.pt` is an initialization artifact. It does not prove a trained
+  Stage-3 policy, grouped formal training dispatch, policy quality, controlled
+  deployment carrier, or paired composition. G3-S0 is the next user-gated
+  read-only owner audit.
+
+## E-FI-43: G3-S1A Explicit Actor-Only HSL Migration
+
+Date: 2026-07-21
+Tier: deterministic S1/S3 config and temporary-checkpoint semantic fixtures;
+no simulator, optimizer step, Stage-3 checkpoint save, training, or live run
+
+Fail-first evidence:
+
+- The ordinary Stage-3 preset still produced empty q29 offsets, `scale_only`,
+  implicit HSL state, and nonzero legacy warmup counts.
+- Generic `load_runner()` correctly rejected HSL-v1 on Stage 3 because no
+  explicit actor-initializer boundary existed.
+
+Implemented owner path:
+
+```text
+--frontres_v015_hsl_initializer_checkpoint + explicit offsets (1,2)
+-> q29/grouped/formal Stage-3 config, HSL flags and supervised loss closed
+-> OnPolicyRunner thin initializer connector
+-> frontres_checkpointing strict HSL-v1 pre-mutation validation
+-> residual actor + std/log_std + complete 158D prefix normalizer restore
+-> explicit stop before G3-S1B transaction/training dispatch
+```
+
+Observed deterministic evidence:
+
+- Successful migration reproduced the source actor, 6D distribution, and 158D
+  prefix-normalizer tensors exactly.
+- Critic, privileged/critic normalizer, optimizer load count, sampler identity,
+  and transaction state remained unchanged; no HSL flag or supervised loss
+  remained active.
+- Generic Stage-3 `load_runner`, post-iteration migration, full-resume mode,
+  open HSL flags, and an active transaction all rejected before mutation.
+- Ordinary Stage-3 config now resolves `(1,2)`, `grouped_scale_only`, formal
+  transaction identity, zero legacy actor/critic warmups, and no online HSL.
+  It raises before `learn_frontres_segment_live()` until G3-S1B is connected.
+
+Fresh verification:
+
+- `frontres_segment_stage3_entrypoint_pseudo_contract.py` exited 0, including
+  T-HSL-explicit/T-dispatch-stop.
+- `frontres_hsl_v007_s1_contract.py` exited 0, including strict Stage-3
+  actor-only migration and all earlier HSL S1/S3 regressions.
+- `frontres_v015_checkpoint_resume_contract.py`,
+  `frontres_v015_observation_authority_contract.py`,
+  `frontres_future_intent_actor_context_contract.py`, and
+  `frontres_hsl_v007_s2_connectivity_contract.py` all exited 0.
+- `python -m py_compile` passed for all five modified Python files.
+
+Acceptance and remaining boundary:
+
+- G3-S1A is complete at deterministic S1/S3. The strict Stage-1 artifact now
+  has one explicit Stage-3 consumer and cannot be mistaken for resume state.
+- G3-S1B remains user-gated: connect the ordinary formal training owner to one
+  complete sealed transaction, exact-one update, committed receipt, and save
+  trigger. No Stage-3 training or policy checkpoint is yet authorized.
+
+## E-FI-44: G3-S1B Formal Transaction Dispatch And Commit-Only Save
+
+Date: 2026-07-21
+Tier: deterministic S2/S3 semantic CPU connectivity; no simulator, training,
+fresh inference, checkpoint-format change, or live run
+
+Implemented owner path:
+
+```text
+ordinary Stage-3 train dispatch
+-> exact Repair-row budget -> distinct whole Segment M budgets, no truncation
+-> immutable local artifact/q29/C/hash request under one frozen policy
+-> sealed accumulator -> unchanged grouped v003 loss -> optimizer delta=1
+-> matching committed receipt
+-> iteration advance and checkpoint trigger only after commit
+```
+
+Observed deterministic evidence:
+
+- The source selector preserved sampler-owned M/K budgets and selected a whole
+  multi-Segment subset whose M counts exactly filled the Repair role rows;
+  partial final Segment attempts were not admitted.
+- The ordinary provider was called only after the collecting barrier opened,
+  collection performed zero optimizer steps, and carrier cleanup ran after the
+  exact-one owner returned a committed receipt.
+- Two Segments x two attempts retained equal grouped attempt mass, one PPO row
+  per attempt, deployment q29 provenance, and optimizer `step_delta=1`.
+- The ordinary training loop did not call
+  `run_frontres_segment_live_update_loop()` or legacy `to_ppo_batch()`. One
+  formal iteration advanced the iteration once and invoked one save trigger.
+- The save trigger accepted only the matching committed transaction identity
+  with `optimizer_step_delta=1`; collecting state rejected before `runner.save`.
+- Formal config now fixes `frontres_segment_live_update_steps=1`, because one
+  outer iteration is one complete transaction and one optimizer update.
+
+Fresh verification:
+
+- `frontres_v015_transaction_route_contract.py` exited 0 with T-provider,
+  T-complete-transaction, T-grouped, T-exact-one-update, T-legacy-isolation,
+  T-commit, and T-save evidence.
+- `frontres_v015_local_sentinel_connectivity_contract.py` exited 0 with
+  T-formal-owner, T-complete-transaction, and T-no-partial evidence.
+- `frontres_segment_stage3_entrypoint_pseudo_contract.py` exited 0 and proved
+  the explicit HSL initializer precedes ordinary formal dispatch without the
+  former G3-S1B stop.
+- `frontres_v015_checkpoint_resume_contract.py`,
+  `frontres_v015_unmocked_observation_connectivity_contract.py`,
+  `frontres_v015_grouped_candidate_adapter_contract.py`,
+  `frontres_v015_one_action_k_contract.py`,
+  `frontres_v015_two_role_reset_contract.py`,
+  `frontres_v015_real_optimizer_counter_contract.py`,
+  `frontres_v015_observation_authority_contract.py`, and
+  `frontres_future_intent_actor_context_contract.py` all exited 0.
+- `python -m py_compile` passed for the nine touched Python files.
+
+Acceptance and remaining boundary:
+
+- G3-S1B is complete at deterministic S2/S3. The formal training branch now
+  owns provider -> seal -> grouped exact-one -> commit -> save order, while the
+  legacy immediate-update branch remains separate.
+- The save-trigger test uses a fake `runner.save`; existing S3 persistence tests
+  separately prove the v015 checkpoint schema. G3-S2 must connect the actual
+  save producer to a fresh inference runner and prove exact proposal equality
+  before any simulator/training/live smoke is authorized.
+
+## E-FI-45: G3-S2 Exact Save Producer And Fresh Inference Reload
+
+Date: 2026-07-21
+Tier: deterministic offline S3 semantic CPU fixture; no HSL change, grouped-PPO
+formula change, checkpoint-format change, simulator, training loop, or live run
+
+Fail-first evidence:
+
+- The prior checkpoint fixture instantiated its `residual_actor` with a 928D
+  input even though `num_frontres_obs=158`. The new inference trace failed at
+  `mat1 and mat2 shapes cannot be multiplied (2x158 and 928x6)`, locating the
+  missing acceptance boundary in the fixture rather than the persistence owner.
+- The fixture actor was corrected to consume only the 158D FEMR prefix; its
+  critic retains the full 928D semantic state for checkpoint coverage.
+
+Observed owner path:
+
+```text
+semantic 158D/6D policy + frozen policy snapshot
+-> existing two-Segment x two-attempt grouped candidate request
+-> existing formal grouped exact-one owner
+-> real Adam step counter: 0 -> 1
+-> committed metadata-only receipt
+-> actual frontres_checkpointing.save_runner()
+-> independently initialized fresh semantic inference runner
+-> strict frontres_checkpointing.load_runner()
+-> command-owned deployment q29 append -> normalization -> 158D actor -> 6D proposal
+```
+
+Facts established:
+
+- The policy saved by `save_runner()` is the same policy instance that the
+  formal transaction verified against its frozen snapshot and updated once;
+  the test does not splice a receipt from a different policy.
+- The committed receipt records two Segment sources, four policy attempts,
+  four valid rows, and `optimizer_step_delta=1`. Resume returns transaction
+  state to `idle` while preserving the exact committed receipt as history.
+- The v015 envelope remains `frontres-v015-checkpoint-v2` with exact
+  `928/158/770`, H offsets `(1,2)`, deployment q29 provenance, grouped identity,
+  and a complete 158D prefix-stat fingerprint.
+- Before reload, independently seeded actor weights and deliberately different
+  prefix statistics produce different normalized 158D input and 6D proposal.
+  After strict reload, combined 928D observation, normalized 928D observation,
+  158D actor input, and bounded 6D proposal are elementwise identical with
+  `rtol=0, atol=0`.
+- q29 tail values are exactly `[B,58] = intent_q29[:,(1,2),:]`; Clean
+  continuation values do not enter the checkpoint identity or actor trace.
+- Existing partial/legacy tests still reject collecting/sealed transactions,
+  v1/unversioned/65D layouts, zero/full actor visibility, and tampered prefix
+  statistics before mutable restore. No fallback or padding was added.
+
+Fresh verification:
+
+- `frontres_v015_checkpoint_resume_contract.py` exited 0, including
+  T-save-producer/T-v015-identity/T-commit-receipt/T-fresh-runner/
+  T-prefix-normalizer/T-proposal-equality/T-legacy-reject.
+- `frontres_v015_transaction_route_contract.py`,
+  `frontres_v015_observation_authority_contract.py`, and
+  `frontres_future_intent_actor_context_contract.py` all exited 0.
+- `python -m py_compile` passed for the modified checkpoint contract fixture.
+
+Acceptance and remaining boundary:
+
+- G3-S2 and G3 engineering readiness are complete at offline S2/S3. The exact
+  actor migration, sealed update, commit, actual save, and strict fresh reload
+  chain is now contract-confirmed.
+- This does not produce a trained Stage-3 policy or prove simulator timing,
+  policy quality, long-run checkpoint cadence, or live deployment behavior.
+  G4 owns controlled carrier materialization; G5 separately owns bounded
+  training and policy-quality evidence.
+
+## E-FI-46: G4 Controlled Artifact Carrier Materializer
+
+Date: 2026-07-21
+Tier: deterministic S1/S2 semantic CPU materialization and current/H
+connectivity; no actor execution, composition executor, metrics/report,
+training, simulator, or live run
+
+Fail-first evidence:
+
+- The focused S1 contract failed because
+  `FrontRESV015DeploymentCarrierLifecycle` did not exist. Existing code could
+  validate a user-supplied pre-materialized `.npz`, but no owner transformed an
+  ordinary reference and fixed protocol into that carrier.
+- The first root-index patch accidentally changed the existing deployment
+  request schema. Both old S1 and S2A contracts failed immediately; the field
+  was moved to the new carrier receipt, restoring the unchanged request schema.
+
+Implemented owner path:
+
+```text
+ordinary reference NPZ + canonical family/seed/scale/root_body_index protocol
+-> safe required-array load + source sha256
+-> one RNG draw of persistent Delta SE(3)
+-> rigid root/global transform of body pose/velocity arrays
+-> bitwise unchanged q29/dq29
+-> deterministic atomic NPZ archive with no metadata arrays
+-> carrier sha256 + q29 hash + materialization sha256
+-> sealed lifecycle; second materialize call rejects
+-> existing strict request -> command current [B,58] / H [B,H+1,29]
+```
+
+Facts established:
+
+- `frontres_segment_sequence_eval.py` is the sole G4 materializer owner. No new
+  source module, command sampling path, runner path, or training owner was
+  introduced.
+- Input/output arrays retain `q,dq=[T,29]`, body position/linear/angular
+  velocity `[T,J,3]`, body quaternion `[T,J,4]`, and scalar fps. q29/dq29 are
+  byte-identical; the fixed artifact changes only body-frame reference data.
+- `root_body_index` is explicit protocol identity because the `.npz` schema has
+  no body-name metadata. It is sealed into the materialization hash but is not
+  stored in the deployment archive or exposed as actor input.
+- The archive contains exactly the eight required numeric arrays. Corruption
+  family, seed, protocol, label, truth, and Clean metadata remain only in the
+  immutable receipt/report boundary.
+- The deterministic writer gives identical carrier file hashes, sampled
+  Delta SE(3), q29 hashes, and materialization hashes for the same source and
+  protocol across different output paths. Changing source or seed changes the
+  correct identities.
+- Planar, yaw, global-z, and local-RP parameter branches are covered. Missing
+  root identity, missing family scale, unknown parameters, existing output,
+  or a second lifecycle materialization fail closed.
+- The generated carrier is accepted by the existing strict deployment request
+  and command carrier, producing current q29+dq29 `[B,58]` and dense q29 intent
+  `[B,H+1,29]` with the carrier file hash and deployment provenance.
+
+Fresh verification:
+
+- `frontres_v015_deployment_composition_s1_contract.py` exited 0 with
+  T-materialize/T-hash/T-determinism/T-q29-invariant/T-no-label/T-no-resample.
+- `frontres_v015_deployment_carrier_s2a_contract.py` exited 0 with the new
+  T-G4-S2/T-current-H/T-carrier-identity path plus all existing carrier
+  lifecycle regressions.
+- `python -m py_compile` for the owner and both focused contracts, and
+  `git diff --check`, exited 0.
+
+Acceptance and remaining boundary:
+
+- G4 is complete at deterministic S1/S2. An unexplained external `Noisy.npz`
+  is no longer a prerequisite: it is a deterministic output/cache of ordinary
+  reference plus fixed protocol.
+- This does not execute FEMR/GMT, compare baseline and repair, produce metrics,
+  or prove physical artifact quality. G5 owns trained-policy quality; G6 owns
+  same-carrier paired composition connectivity.
+
+## E-FI-47: G5-S0 Formal Training And Policy-Quality Preflight
+
+Date: 2026-07-21
+Tier: read-only S0 owner/shape/persistence/quality-route audit; no code or active
+contract change, test, checkpoint IO, simulator, training, or live run
+
+Code-confirmed formal chain:
+
+```text
+Stage-3 preset + explicit HSL-v1 initializer
+-> 870D raw + 58D q29 tail = 928D
+-> FEMR 158D / frozen GMT 770D / critic 289D
+-> ordinary whole-M v015 request
+-> sealed grouped transaction
+-> exactly one optimizer update
+-> matching committed receipt
+-> actual v015 save trigger
+```
+
+Owners read:
+
+- `scripts/rsl_rl/train.py::_apply_frontres_stage_preset()` and `main()` own
+  formal configuration, explicit HSL input, and Stage-3 dispatch.
+- `frontres_segment_live_training.py::run_frontres_segment_live_training_loop()`
+  is the unique ordinary iteration/save-order owner.
+- `frontres_segment_live_update_loop.py::run_frontres_v015_formal_training_update_loop()`
+  owns provider/collection order.
+- `frontres_segment_live_probe.py::run_frontres_v015_formal_transaction_update()`
+  owns grouped exact-one update and committed transaction diagnostics.
+- `frontres_checkpointing.py` owns strict HSL-v1 migration and exact Stage-3
+  v015 save/load identity.
+
+Confirmed boundaries:
+
+- The prior S4 HSL log records the server initializer
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-07-21_17-06-12_G2_S4_BOUND_HSL/model_warmup.pt`
+  as `frontres-v015-hsl-proposal-v1`. This audit did not reopen the artifact;
+  current server existence remains unconfirmed.
+- One formal training iteration is one complete transaction and one optimizer
+  step. Iteration advance and save require the matching committed receipt.
+- The actual v015 save producer exists, but ordinary training does not create an
+  independent post-save fresh runner or compare normalized 158D input and 6D
+  proposal after reload. G3-S2 proves that boundary only in an offline fixture.
+- `_v015_formal_update_summary()` exposes transaction, grouped mass, loss, and
+  update counts. It does not expose full-6D action distribution, v003
+  intent/physics/cost/total Gain, positive/negative Gain fractions, or an atomic
+  policy-quality report.
+
+Quality-route stop facts:
+
+- `frontres_policy_quality_formal_owners.py` configures policy/candidate/noisy/
+  clean quartet roles and invokes `build_frontres_hsl_rollout_target()` during
+  repeated K-step actor execution. This is incompatible with the active v015
+  Repair/Noisy, proposal-only HSL, one-action-K contract.
+- The checked manifests identify `FRS-METHOD-v011+FRS-GAIN-v002`, not
+  v015/v003.
+- `FrozenFrontRESTaskActor.from_checkpoint_payload()` requires generic
+  `obs_norm_state_dict`; the strict HSL-v1 artifact instead owns
+  `frontres_prefix_norm_state_dict`. The evaluator cannot consume the accepted
+  initializer without an unauthorized fallback.
+- The old quality report reconstructs v002 Style/Physics/repair-cost and
+  requires quartet role identity. It cannot be treated as v015 policy quality.
+
+Decision and plan effect:
+
+- G5-S0 is completed with stop conditions, not a training authorization.
+- G5 is locally rebased into S1 transaction telemetry, S2A strict checkpoint/
+  manifest identity, S2B two-role held-out evaluation, S3 save/fresh-reload/
+  report connectivity, and S4 bounded live training/quality.
+- G0-G4 and G6-G7 remain unchanged. Active contracts and the Concept Figure do
+  not change because the audit found implementation/acceptance gaps, not a new
+  method semantic.
+- Numeric policy-quality acceptance thresholds must be explicitly confirmed
+  before G5-S4; route connectivity alone cannot satisfy the gate.
+
+Next:
+
+- G5-S1 is the earliest user-gated code step. Reuse
+  `frontres_segment_diagnostics.py::build_frontres_v015_local_evaluation_report`
+  as the sole read-only quality projection owner and
+  `frontres_segment_live_probe.py` as its formal transaction connector. No new
+  rollout, Gain recomputation, feedback path, checkpoint work, or live run is
+  allowed.
+
+## E-FI-48: G5-S1 Transaction-side v003 Action/Gain/Harm Telemetry
+
+Date: 2026-07-21
+Tier: deterministic S1/S2 CPU diagnostics and sealed-transaction connectivity;
+no simulator, training, live run, checkpoint, held-out evaluator, or method
+change
+
+Fail-first evidence:
+
+- Both focused contracts failed only because the existing local evaluation
+  projection had no transaction identity or row-level telemetry interface.
+- No failure entered Gain computation, grouped PPO, optimizer ownership, or a
+  legacy v002/Clean-global route.
+
+Implemented owner path:
+
+```text
+sealed FrontRESV015GainConsumerEvidence
+-> build_frontres_v015_local_evaluation_report(transaction_id=...)
+-> immutable action/mask/v003 component rows + sign fractions
+-> one report per candidate shard in FrontRESV015FormalTransactionRequest
+-> transaction/scenario/noisy-hash validation
+-> grouped exact-one update and committed receipt
+-> post-update diagnostics publication only
+```
+
+Facts established:
+
+- `frontres_segment_diagnostics.py` remains the sole projection owner. It
+  copies sealed `policy_actions [B,6]`, valid-row mask, `intent_gain`,
+  `physics_gain`, `repair_cost`, and `gain_total`; it does not recompute Gain.
+- Invalid policy-row component values must remain NaN/UNCONFIRMED. Missing
+  actions, mask, components, or transaction identity fail closed instead of
+  being silently filled with zero.
+- Positive and negative Gain fractions are computed only from the already
+  sealed `gain_total` rows selected by the valid mask; zero Gain remains
+  neutral.
+- `frontres_segment_live_probe.py` requires one frozen report per candidate
+  shard and verifies transaction, scenario, noisy-hash, and row-count identity
+  before collection. The reports are not included in PPO batches or loss
+  inputs and are published only after the exactly-one optimizer step commits.
+- No v002 Style/Clean-global field, return/priority mutation, sampler write,
+  HSL path, checkpoint path, or held-out evaluation path was added.
+
+Fresh verification:
+
+- `frontres_segment_diagnostics_contract.py` exited 0 with row-level action,
+  v003 component, positive/negative fraction, identity, no-feedback, and
+  missing-field fail-closed assertions.
+- `frontres_v015_transaction_route_contract.py` exited 0 for a two-Segment by
+  two-attempt transaction, preserving all report identities and
+  `optimizer_step_delta=1`.
+
+Acceptance and remaining boundary:
+
+- G5-S1 is complete at deterministic S1/S2. It establishes observable training
+  evidence but does not establish checkpoint/manifest identity, held-out
+  quality, fresh-reload report atomicity, or live policy quality.
+- G5-S2A remains separately user-gated. This step did not enter it.
+
+## E-FI-49: G5-S2A Strict Quality Checkpoint And Manifest Identity
+
+Date: 2026-07-21
+Tier: deterministic S1/S3 CPU checkpoint/manifest/request identity; no actor
+restore, evaluator execution, optimizer, training, simulator, or live run
+
+Fail-first evidence:
+
+- The new contract failed because no v015-only quality request owner existed.
+  The legacy builder checked only file existence and accepted the old v1
+  manifest plus uninspected checkpoint placeholders.
+- Existing HSL and Stage-3 persistence formats were already strict for their
+  own runner routes, but no read-only quality receipt distinguished them before
+  evaluator state construction.
+
+Implemented identity path:
+
+```text
+held-out manifest JSON
+-> strict frontres-v015-policy-quality-manifest-v1 parse
+HSL file -> exact proposal-only payload/fingerprint inspect
+Stage3 file -> exact v015-v2/v003/grouped/layout/transaction inspect
+-> manifest/file SHA-256 receipts
+-> immutable FrontRESV015PolicyQualityEvalRequest
+```
+
+Facts established:
+
+- `frontres_checkpointing.py::inspect_frontres_v015_quality_checkpoint()` is a
+  CPU read-only inspector. It never calls `load_runner()` and exposes no
+  optimizer, critic, sampler, or mutable normalizer state.
+- The HSL route requires `frontres-v015-hsl-proposal-v1`, exact actor/std plus
+  `frontres_prefix_norm_state_dict`, embedded actor/distribution/prefix
+  fingerprints, 928/158/770, offsets `(1,2)`, and 6D Delta SE(3). Generic
+  `obs_norm_state_dict` cannot substitute for the HSL prefix key.
+- The policy route requires `frontres-v015-checkpoint-v2`, v015/v007/v003/v003
+  contracts, grouped one-row identity, exact 928D observation normalizer with
+  158D prefix fingerprint, a finite 6D distribution/output identity, and only
+  idle or valid committed transaction state.
+- `FrontRESV015PolicyQualityManifest` is separate from the retained legacy v1
+  class. Its strict schema binds v015/v003, 870/928/158/770, offsets `(1,2)`,
+  and full-6D action identity. The v015 request accepts only this schema.
+- HSL and policy files remain distinct immutable receipts with exact file
+  hashes. Route swap, HSL actor tamper, policy prefix tamper, partial
+  transaction, v1 schema, and `FRS-GAIN-v002` all reject before any runner
+  mutation.
+- The formal `run_frontres_policy_quality_eval()` now detects an active v015
+  runner before the legacy builder. It validates only the strict request and
+  then stops on the intentionally absent G5-S2B executor; a legacy executor
+  cannot consume v1/v011/v002 inputs on the active v015 route.
+- Existing checkpoint formats and old evaluator execution were not modified.
+  The old evaluator remains explicitly legacy/incompatible until G5-S2B.
+
+Fresh verification:
+
+- `frontres_v015_policy_quality_identity_contract.py` exited 0 for strict
+  identity, layout, fingerprints, tamper, route-swap, partial-transaction, v1,
+  v002, and active-route legacy-bypass rejection.
+- `frontres_hsl_v007_s1_contract.py` exited 0, preserving proposal-only HSL
+  save/reload/pre-mutation behavior.
+- `frontres_v015_checkpoint_resume_contract.py` exited 0, preserving Stage-3
+  v2 save/resume, committed receipt, fresh inference, and tamper rejection.
+- `frontres_policy_quality_manifest_contract.py` and
+  `frontres_policy_quality_entrypoint_contract.py` exited 0, proving the legacy
+  classes remain isolated rather than silently reinterpreted as v015.
+
+Acceptance and remaining boundary:
+
+- G5-S2A is complete at deterministic S1/S3. Identity validation is ready for
+  the future held-out owner, but no checkpoint was loaded into an evaluator and
+  no quality rollout or report was produced.
+- G5-S2B is the next separately user-gated step. It must replace, not adapt,
+  the legacy quartet/Clean/repeated-action execution route.
+
+## E-FI-50: G5-S2B Repair/Noisy One-Action-K Held-Out Quality
+
+Date: 2026-07-21
+Tier: deterministic S1/S2 semantic CPU evaluator and atomic-report
+connectivity; no fresh runner, simulator, training, optimizer, PPO, sampler,
+checkpoint mutation, or live run
+
+Fail-first evidence:
+
+- The strict G5-S2A request had no v015 held-out owner bundle or execution
+  function. Active v015 therefore stopped before the legacy evaluator.
+- The first positive implementation review found that a naked one-action
+  carrier could be labeled HSL/policy without proving its checkpoint or
+  manifest-item origin. The route carrier was strengthened before closeout.
+
+Implemented owner path:
+
+```text
+strict v015 manifest + HSL-v1/Stage3-v015 checkpoint receipts
+-> fixed item order
+-> zero / HSL / policy route+checkpoint+comparison carrier
+-> validated Repair/Noisy FrontRESV015OneActionKEvidence
+-> pair_frontres_v015_gain_facts
+-> compute_intent_physics_local_repair_gain (FRS-GAIN-v003)
+-> state/identity checks
+-> atomic frontres-v015-heldout-quality-report-v1 JSON
+```
+
+Facts established:
+
+- `frontres_policy_quality_eval.py::run_frontres_v015_policy_quality_heldout_eval()`
+  is the unique deterministic execution owner. The formal v015 entry uses it
+  only when an exact active-owner bundle is installed; legacy executor
+  attributes are ignored.
+- Input evidence must be `[B,928]` policy observations, `[B,289]` critic
+  observations, `[B,6]` Repair actions, and `2B` ordered Repair/Noisy role rows.
+  Its existing schema enforces exactly one actor forward, zero later FEMR
+  actions, deployment q29 intent, and `[K,2B,65]` frozen-GMT continuation.
+- Every route carrier binds the manifest item comparison signature and the
+  exact expected checkpoint SHA. Zero has no checkpoint; HSL and policy cannot
+  exchange identities.
+- Zero/HSL/policy must share scenario ID, noisy hash, `x_t`, roles, intent,
+  continuation, valid mask, and K. Mixed route identity rejects before report
+  production.
+- Gain is computed only through `FRS-GAIN-v003` from the active paired facts.
+  No return, advantage, priority, sampler, PPO, legacy v002, or HSL target path
+  is called. Unavailable component values serialize as `null`, never zero.
+- A training-state signature is checked before and after every route. The
+  semantic mutation fixture rejects and leaves no partial report. Success uses
+  a temporary file followed by atomic replace.
+- The semantic fixture uses hand-checkable q29/survival/action values and real
+  active evidence validation and v003 math. It does not prove real checkpoint
+  actor inference, Isaac reset timing, GMT physics, or policy quality.
+
+Fresh verification:
+
+- `frontres_v015_policy_quality_heldout_contract.py` exited 0 for route order,
+  exact shapes, two roles, same scenario/K, one action, v003 values,
+  checkpoint/item binding, state isolation, mixed-identity rejection, and
+  atomic success/failure behavior.
+- `frontres_v015_one_action_k_contract.py`,
+  `frontres_v015_gain_consumer_contract.py`, and
+  `frontres_intent_physics_gain_contract.py` exited 0.
+- Legacy `frontres_policy_quality_eval_contract.py`, entrypoint contract, and
+  executor contract exited 0, confirming isolation rather than reinterpretation.
+
+Acceptance and remaining boundary:
+
+- G5-S2B is complete at deterministic S1/S2. The evaluator semantics and
+  report are contract-confirmed, not runtime-confirmed.
+- G5-S3 is the next user-gated step: actual committed save, independent fresh
+  runner, strict actor/normalizer reload, proposal equality, and the same
+  atomic held-out report.
+
+## E-FI-51: G5-S3 Actual Save To Fresh Reload To Atomic Quality Report
+
+Date: 2026-07-21
+Tier: deterministic S2/S3 semantic CPU persistence and evaluator connectivity;
+no simulator, training loop, live run, checkpoint-format change, or physical
+policy-quality claim
+
+Fail-first and owner correction:
+
+- The first mixed snapshot assertion failed because Python dictionary equality
+  attempted an ambiguous tensor boolean; the contract was corrected to compare
+  q29 tensors exactly and immutable metadata field by field.
+- The next run reached a real persistence mismatch: the existing Stage3 test
+  normalizer stored `count` as a plain tensor attribute, so real
+  `save_runner()` omitted the strict schema field expected by the policy-quality
+  inspector. The semantic fixture now registers `count` as a buffer, matching
+  the real empirical-normalizer and existing HSL fixture contract. No production
+  checkpoint format or inspector rule changed.
+
+Verified path:
+
+```text
+semantic 2-Segment x M ordinary transaction
+-> grouped exact-one optimizer update and committed receipt
+-> actual Stage3-v015 save_runner()
+-> independently initialized fresh inference runner
+-> strict load_runner(load_optimizer=False)
+-> exact deployment q29 + 928/158/770 + prefix normalizer + 6D proposal
+
+strict proposal-only HSL source
+-> actual HSL-v1 save_runner()
+-> independently initialized strict HSL fresh runner
+-> exact normalized 158D input + 6D proposal
+
+strict manifest + exact HSL/Stage3 file identities
+-> G5-S2B zero/HSL/policy Repair/Noisy one-action-K evaluator
+-> atomic frontres-v015-heldout-quality-report-v1
+```
+
+Facts established:
+
+- The ordinary transaction collected four policy attempts from two sources,
+  committed with `optimizer_step_delta=1`, and the actual save payload carried
+  the matching committed receipt.
+- The independent Stage3 fresh runner started from different actor/normalizer
+  state, then strict reload reproduced the exact combined `[2,928]`, FEMR
+  `[2,158]`, GMT suffix `[2,770]`, deployment q29 offsets `(1,2)`, normalized
+  input, and bounded 6D proposal bit for bit.
+- The independently saved/reloaded HSL-v1 route reproduced its exact normalized
+  158D input and 6D proposal. HSL and Stage3 consumed the same raw artifact and
+  deployment q29 combined observation; their learned proposals remained route
+  specific.
+- Strict quality request inspection accepted the actual HSL-v1 and committed
+  Stage3-v015-v2 files, bound their exact SHA-256 identities and the immutable
+  manifest identity, and rejected no schema through fallback or padding.
+- The held-out report contains the actual fresh HSL and Stage3 proposal values,
+  preserves route/checkpoint/item identities, uses the existing v003 evaluator,
+  and is atomically identical to the JSON artifact.
+- Full optimizer state including Adam moments and step count, sampler state,
+  committed transaction/receipt state, warmup flag, actor state, and 158D
+  prefix statistics produced the same signature before and after evaluation.
+  No evaluator feedback reached training state.
+- The one-action-K Repair/Noisy evidence remains a semantic CPU fixture. This
+  proves connectivity and isolation, not IsaacLab execution, GMT physics, or
+  learned policy quality.
+
+Fresh verification:
+
+- `frontres_v015_policy_quality_save_reload_contract.py` exited 0 with the
+  `G5-S3/T-commit/.../T-atomic-report/T-isolation PASS` sentinel.
+- `frontres_v015_checkpoint_resume_contract.py`,
+  `frontres_v015_policy_quality_identity_contract.py`,
+  `frontres_v015_policy_quality_heldout_contract.py`, and
+  `frontres_hsl_v007_s1_contract.py` all exited 0 after the fixture correction.
+
+Acceptance and remaining boundary:
+
+- G5-S3 is complete at deterministic S2/S3. No production formula, checkpoint
+  schema, simulator, training, or live route changed.
+- G5-S4 remains user-gated. Before one bounded live transaction, its exact
+  command, artifacts, telemetry, and numeric action/Gain/harm acceptance
+  thresholds must be frozen in a separate S0 preflight.
+
+## E-FI-52: G5-S4-S0 Readiness Audit And Repair Plan Rebase
+
+Date: 2026-07-21
+Tier: read-only S0 code/plan audit and documentation rebase; no code, active
+contract, Concept Figure, Architecture, test, checkpoint IO, simulator,
+training, or live run
+
+Code-confirmed chain:
+
+```text
+Stage3 preset
+-> explicit HSL-v1 initializer + q29 offsets
+-> 8 env Repair/Noisy local transaction
+-> 2 Segments x 2 policy attempts
+-> grouped exact-one update + committed receipt
+-> actual model_1.pt save
+-> [missing formal independent fresh runner]
+-> [missing formal v015 held-out owner bundle/manifest]
+-> [missing live atomic quality report]
+```
+
+Confirmed blockers:
+
+1. `run/run_frontres_stage3_segment_hrl.sh` passes the HSL artifact through
+   `--resume_student_checkpoint`; `cli_args.py` converts this to `resume=True`.
+   Ordinary v015 instead requires explicit
+   `--frontres_v015_hsl_initializer_checkpoint`, offsets `(1,2)`, and rejects
+   combining the initializer with resume. The launcher does not currently
+   express that contract.
+2. `run_frontres_v015_formal_transaction_update()` already returns immutable
+   `v003_action_gain_harm_reports`, but
+   `frontres_segment_live_training.py::_v015_formal_update_summary()` projects
+   only PPO/count/mass values. The action rows, valid mask, v003 components,
+   sign fractions, scenario/noisy hash, and provenance are therefore not
+   available in the bounded live log.
+3. `frontres_policy_quality_eval.py` requires an installed
+   `FrontRESV015PolicyQualityOwnerBundle` on the formal runner. Repository search
+   found installation only in deterministic contracts, not in `train.py` or
+   `OnPolicyRunner`; formal evaluation stops before route collection.
+4. The repository contains no checked-in
+   `frontres-v015-policy-quality-manifest-v1`. Existing manifests are legacy
+   v011/v002. No formal owner connects an actually saved committed checkpoint
+   to an independent fresh runner and the existing atomic v015 report.
+
+Artifact facts:
+
+- The prior bounded HSL log names
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-07-21_17-06-12_G2_S4_BOUND_HSL/model_warmup.pt`
+  and records strict HSL-v1/fresh-reload success. Current server existence was
+  not checked in this S0.
+- The intended motion and cache roots remain
+  `/hdd1/cyx/AMASS_G1NPZ_Final` and `/hdd1/cyx/AMASS_G1Segment`; their current
+  server existence is unconfirmed.
+- With eight envs the formal local owner requires four Repair rows and four
+  Noisy rows, with at least two distinct Segments and two attempts per Segment.
+- A committed one-iteration run saves
+  `g1_flat_frontres_stage3_segment_hrl/<timestamp>_<run_name>/model_1.pt` only
+  after `optimizer_step_delta=1` and a matching receipt.
+
+Candidate numeric gate, pending explicit user confirmation:
+
+- transaction: two Segments, four attempts, `valid_rows=4/4`, one update, and
+  `optimizer_step_delta=1`;
+- action: all 24 values finite, at least two row L2 norms above `1e-4`, and at
+  least one cross-row dimension std above `1e-5`;
+- saturation: row fraction above `0.285` position or `0.38` rotation no more
+  than `0.25`;
+- trained quality: `gain_total_mean > 0`, positive fraction at least `0.50`
+  and no lower than HSL, negative fraction at most `0.25` and no higher than
+  HSL;
+- harmful-repair fraction is not a new variable: it is the existing
+  `gain_total < 0` fraction unless the user explicitly changes this boundary;
+- reload: normalized 158D input equal and 6D proposal within `rtol=1e-5`,
+  `atol=1e-6`;
+- committed receipt, manifest SHA, HSL/policy route SHA, and atomic JSON output
+  must match with no partial artifact.
+
+Plan effect:
+
+- G5-S4-S0 is complete with stop conditions. It does not authorize the live
+  command shown during the audit.
+- G5-S4 is split into S1A explicit training launch/live telemetry, S1B formal
+  held-out/fresh-report dispatch, S2 final read-only preflight, and S4 one
+  user-confirmed bounded live run.
+- G5-S4-S1A is the only ready code step. G6/G7 remain blocked.
+
+## E-FI-53: G5-S4-S1A Explicit Training Launch And Transaction Telemetry
+
+Date: 2026-07-21
+Tier: deterministic S1/S2 launcher, diagnostics, and sealed-transaction
+contracts; no checkpoint IO, simulator, training, held-out evaluation, fresh
+runner, or live run
+
+Fail-first evidence:
+
+- The launcher contract failed because the Stage3 command did not contain the
+  explicit HSL-v1 initializer or future offsets and still used student-resume
+  semantics.
+- The transaction-route contract failed because the formal update summary
+  discarded `v003_action_gain_harm_reports` and exposed no sealed transaction
+  telemetry.
+
+Implemented route:
+
+```text
+bounded launcher
+-> explicit HSL-v1 initializer + offsets (1,2)
+-> 8 envs + 1 iteration + 1 update + checkpoint interval 1
+-> sealed 2-Segment x 2-attempt grouped transaction
+-> exact-one optimizer update
+-> read-only v003 action/Gain/identity telemetry JSON
+```
+
+Facts established:
+
+- `run_frontres_stage3_segment_hrl.sh` passes the strict initializer and
+  offsets directly. Bounded mode requires the exact 8/1/1 dimensions and adds
+  checkpoint interval one plus the existing formal runtime audit.
+- Both Stage3 launcher layers default legacy periodic evaluation off and reject
+  resume, student-checkpoint, full-resume, and periodic-evaluation overrides.
+- `_v015_formal_update_summary()` consumes only the already sealed immutable
+  v003 reports after the transaction update. It does not call a Gain owner or
+  alter return, priority, PPO, sampler, optimizer, or storage state.
+- The emitted telemetry preserves four `[6]` policy-action rows, valid mask,
+  intent/physics Gain, repair cost, total Gain, positive/negative fractions,
+  scenario/noisy/x_t identity, K, q29/Gain provenance, grouped mass,
+  update-count, and optimizer-step delta.
+- Missing reports, mixed transaction/provenance, feedback-bearing reports,
+  invalid identity, non-finite valid values, and zero-filled invalid component
+  rows reject fail-closed. Unavailable invalid-row components serialize as
+  `null`, never as a fabricated zero.
+
+Fresh verification:
+
+- `frontres_segment_stage3_launch_command_contract.py` exited 0, including the
+  strict bounded command and forbidden-override cases.
+- `frontres_stage_entrypoint_contract.py` exited 0 for the updated launcher and
+  v015 preset authority.
+- `frontres_segment_diagnostics_contract.py` exited 0 for the immutable v003
+  diagnostic report contract.
+- `frontres_v015_transaction_route_contract.py` exited 0 for four attempts,
+  exact-one update, JSON telemetry, missing-field rejection, feedback
+  rejection, and no legacy route.
+- Python compilation, both launcher `bash -n` checks, and `git diff --check`
+  exited 0.
+
+Acceptance and remaining boundary:
+
+- G5-S4-S1A is complete at deterministic S1/S2. This proves command and
+  telemetry contracts only; it does not prove simulator execution, learned
+  policy quality, or live logging.
+- G5-S4-S1B is now the next separately user-gated step. No manifest, formal
+  quality-owner bundle, held-out evaluator dispatch, fresh runner, simulator,
+  training, or live execution was entered here.
+
+## E-FI-54: G5-S4-S1B Formal Held-Out Owner And Fresh-Report Dispatch
+
+Date: 2026-07-21
+Tier: deterministic S1/S2/S3 manifest, formal-owner, persistence, and atomic
+report connectivity; no simulator, training loop, live run, checkpoint-format
+change, or physical policy-quality claim
+
+Fail-first evidence:
+
+- `frontres_v015_policy_quality_heldout_contract.py` failed because no formal
+  v015 owner factory existed.
+- `frontres_v015_policy_quality_save_reload_contract.py` failed because no
+  strict temporary checkpoint-route actor owner existed.
+- The first route-context fixture exposed two contract prerequisites: the
+  Stage3 runner must carry the same frozen-GMT identity as HSL-v1, and HSL and
+  Stage3 must expose the same residual-actor schema. The fixture was corrected
+  to represent those accepted invariants; production validation was not
+  weakened.
+
+Implemented formal path:
+
+```text
+fixed frontres-v015-policy-quality-manifest-v1 item
+-> exact Stage1-index motion/frame/K resolution
+-> one seeded immutable local scenario shared by 4 Repair + 4 Noisy rows
+-> Clean x_t reset before zero/HSL/policy route
+-> strict temporary HSL-v1 or committed Stage3-v015 actor/prefix install
+-> one deterministic 6D proposal, then frozen FEMR and Clean-C GMT K execution
+-> existing FRS-GAIN-v003 held-out owner
+-> atomic frontres-v015-heldout-quality-report-v1
+-> exact actor/normalizer/training-state restoration
+```
+
+Facts established:
+
+- `frontres_v015_policy_quality_heldout_v1.json` fixes 16 item identities over
+  eight held-out motions and seeds 42/43, with local_rp, K=8, q29 offsets
+  `(1,2)`, 928/158/770, full-6D Delta SE(3), and v015/v007/v003/v003 identity.
+- The manifest materializer does not call the training sampler or curriculum.
+  One item resolves to one loaded Stage1 index row; four Repair attempts share
+  one source/scenario/hash/x_t. Seeded materialization restores CPU/CUDA RNG
+  state and repeated construction reproduces the same identity.
+- The formal evaluator installs `FrontRESV015PolicyQualityOwnerBundle` only
+  after strict request inspection. Legacy executor attributes are not read on
+  the active v015 route.
+- Zero/HSL/policy each execute exactly one deterministic 6D proposal at t.
+  No later FEMR action is admitted; K remains frozen-GMT executable evidence.
+- HSL-v1 and Stage3-v015 checkpoints are SHA-bound before mutation. Only the
+  residual actor, 6D distribution, and 158D prefix statistics are installed;
+  the source actor, distribution, prefix normalizer/statistics, and mode are
+  restored in `finally`.
+- The evaluator hashes actor, critic, optimizer, prefix normalization,
+  sampler, transaction/receipt, warmup, and iteration state around every route.
+  Missing/mixed identity, partial checkpoint, fallback, padding, scenario
+  drift, repeated action, or mutation rejects before an atomic report remains.
+
+Fresh verification:
+
+- `frontres_local_scenario_kernel_contract.py` exited 0, including fixed-item
+  4-attempt identity, hash equality, and RNG restoration.
+- `frontres_v015_one_action_k_contract.py` exited 0, including deterministic
+  zero/policy proposal, one actor forward, and zero later FEMR actions.
+- `frontres_v015_policy_quality_identity_contract.py` exited 0 for the fixed
+  16-item manifest and strict checkpoint/manifest rejection cases.
+- `frontres_v015_policy_quality_heldout_contract.py` exited 0 for formal
+  auto-install, one prepared batch reused by all routes, route/checkpoint
+  identity, training-state isolation, and atomic report.
+- `frontres_v015_policy_quality_save_reload_contract.py` exited 0 for actual
+  committed save, independent fresh reload, exact 928/158/770 q29-normalized
+  proposal equality, strict temporary route installation/restoration, and the
+  atomic v003 report.
+- `frontres_v015_checkpoint_resume_contract.py` and
+  `frontres_policy_quality_entrypoint_contract.py` exited 0, preserving strict
+  persistence and legacy-entry isolation.
+- Python compilation and `git diff --check` exited 0.
+
+Acceptance and remaining boundary:
+
+- G5-S4-S1B is complete at deterministic S1/S2/S3. The formal route is
+  contract-confirmed, not runtime-confirmed.
+- G5-S4-S2 is the next separately user-gated read-only preflight. Real server
+  artifact existence, exact command/sentinels, numeric thresholds, simulator
+  execution, training, and live policy quality remain unconfirmed.

@@ -547,6 +547,23 @@ def _hsl_checkpoint_runner(checkpointing, layout, gmt_path: Path, *, seed: int):
     return runner
 
 
+def _stage3_hsl_initializer_runner(checkpointing, layout, gmt_path: Path, *, seed: int):
+    runner = _hsl_checkpoint_runner(checkpointing, layout, gmt_path, seed=seed)
+    runner._frontres_hsl_proposal_context_enabled = False
+    runner.alg.frontres_training_objective = "segment_replay_hrl"
+    runner.alg.frontres_v015_formal_transaction_enabled = True
+    runner.alg.frontres_segment_advantage_normalization = "grouped_scale_only"
+    runner.alg.frontres_future_offsets = (1, 2)
+    runner.alg.frontres_future_intent_layout_version = "frontres-v015-future-intent-q29-v1"
+    runner.alg.frontres_hsl_init_enabled = False
+    runner.alg.frontres_hsl_rollout_label_enabled = False
+    runner.alg.lambda_supervised = 0.0
+    runner.alg.lambda_supervised_min = 0.0
+    runner.current_learning_iteration = 0
+    runner._frontres_segment_sampler = object()
+    return runner
+
+
 def _load_hsl_fresh_connectivity_owners():
     checkpointing = _load_checkpointing()
     rsl_rl = sys.modules["rsl_rl"]
@@ -743,6 +760,94 @@ def test_t_hsl_checkpoint_identity_and_pre_mutation() -> None:
 
     print(
         "[T-HSL-checkpoint/T-pre-mutation] strict actor/std/prefix payload reloads; forbidden/tampered/legacy reject unchanged",
+        flush=True,
+    )
+
+
+def test_t_stage3_explicit_hsl_initializer_actor_only() -> None:
+    checkpointing = _load_checkpointing()
+    layout_module = sys.modules["rsl_rl.modules.frontres_observation_layout"]
+    layout = layout_module.resolve_frontres_future_intent_layout(
+        (1, 2), layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        gmt_path = root / "gmt.pt"
+        torch.save({"artifact": "frozen-gmt"}, gmt_path)
+        checkpoint_path = root / "hsl.pt"
+        source = _hsl_checkpoint_runner(checkpointing, layout, gmt_path, seed=31)
+        checkpointing.save_runner(source, str(checkpoint_path))
+
+        target = _stage3_hsl_initializer_runner(checkpointing, layout, gmt_path, seed=47)
+        protected_before = _checkpoint_mutable_state(target)
+        sampler_before = target._frontres_segment_sampler
+
+        _expect_error(
+            RuntimeError,
+            lambda: checkpointing.load_runner(target, str(checkpoint_path), load_optimizer=False, load_critic=False),
+            "active Stage-1 HSL route",
+        )
+        _assert_checkpoint_state_equal(_checkpoint_mutable_state(target), protected_before)
+
+        receipt = checkpointing.load_v015_hsl_initializer(target, str(checkpoint_path))
+        source_state = _checkpoint_mutable_state(source)
+        loaded_state = _checkpoint_mutable_state(target)
+        for name in ("actor", "prefix"):
+            assert all(torch.equal(lhs, rhs) for lhs, rhs in zip(loaded_state[name], source_state[name]))
+        assert torch.equal(loaded_state["std"], source_state["std"])
+        assert all(
+            torch.equal(lhs, rhs)
+            for lhs, rhs in zip(loaded_state["critic"], protected_before["critic"])
+        )
+        assert all(
+            torch.equal(lhs, rhs)
+            for lhs, rhs in zip(loaded_state["privileged"], protected_before["privileged"])
+        )
+        assert target.alg.optimizer.load_calls == 0
+        assert target._frontres_segment_sampler is sampler_before
+        assert not hasattr(target, "_frontres_v015_checkpoint_transaction_state")
+        assert target.alg.frontres_hsl_init_enabled is False
+        assert receipt["format"] == "frontres-v015-hsl-proposal-v1"
+        assert receipt["restored"] == ("residual_actor", "std", "frontres_prefix_norm_state_dict")
+
+        rejected = _stage3_hsl_initializer_runner(checkpointing, layout, gmt_path, seed=53)
+        rejected.current_learning_iteration = 1
+        before = _checkpoint_mutable_state(rejected)
+        _expect_error(
+            RuntimeError,
+            lambda: checkpointing.load_v015_hsl_initializer(rejected, str(checkpoint_path)),
+            "before the first Stage-3 iteration",
+        )
+        _assert_checkpoint_state_equal(_checkpoint_mutable_state(rejected), before)
+
+        rejection_cases = (
+            ("full-resume", "actor initialization, not full resume", lambda runner: runner.cfg.__setitem__("is_full_resume", True)),
+            ("open-HSL", "HSL flags to be closed", lambda runner: setattr(runner.alg, "frontres_hsl_init_enabled", True)),
+            (
+                "active-transaction",
+                "existing transaction state",
+                lambda runner: setattr(
+                    runner,
+                    "_frontres_v015_checkpoint_transaction_state",
+                    {"state": "collecting", "phase": "provider"},
+                ),
+            ),
+        )
+        for index, (_name, message, mutate) in enumerate(rejection_cases):
+            case = _stage3_hsl_initializer_runner(checkpointing, layout, gmt_path, seed=60 + index)
+            mutate(case)
+            before = _checkpoint_mutable_state(case)
+            sampler = case._frontres_segment_sampler
+            _expect_error(
+                RuntimeError,
+                lambda r=case: checkpointing.load_v015_hsl_initializer(r, str(checkpoint_path)),
+                message,
+            )
+            _assert_checkpoint_state_equal(_checkpoint_mutable_state(case), before)
+            assert case._frontres_segment_sampler is sampler
+
+    print(
+        "[T-Stage3-HSL-init] explicit HSL-v1 restores actor/std/158D prefix only; generic load and post-iteration migration reject unchanged",
         flush=True,
     )
 
@@ -1063,6 +1168,7 @@ def test_t_hsl_direct_write_reject() -> None:
 def main() -> None:
     test_t_hsl_legacy_checkpoint_reject()
     test_t_hsl_checkpoint_identity_and_pre_mutation()
+    test_t_stage3_explicit_hsl_initializer_actor_only()
     test_t_hsl_fresh_runner_connectivity()
     test_t_hsl_live_smoke_connector()
     test_t_hsl_loss_reject()

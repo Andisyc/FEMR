@@ -5,6 +5,7 @@ import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import torch
 
@@ -26,6 +27,66 @@ periodic_eval_summary_to_scalars = diag_module.periodic_eval_summary_to_scalars
 repair_effect_summary_to_scalars = diag_module.repair_effect_summary_to_scalars
 segment_summary_to_scalars = diag_module.segment_summary_to_scalars
 summarize_segment_batch = diag_module.summarize_segment_batch
+
+
+def _v015_candidate_evidence() -> SimpleNamespace:
+    actions = torch.tensor(
+        [
+            [0.10, -0.20, 0.30, -0.40, 0.50, -0.60],
+            [-0.11, 0.21, -0.31, 0.41, -0.51, 0.61],
+            [0.12, 0.22, 0.32, 0.42, 0.52, 0.62],
+        ],
+        dtype=torch.float32,
+    )
+    return_evidence = SimpleNamespace(
+        validate=lambda: None,
+        gain_source="FRS-GAIN-v003-intent-physics-local-repair",
+        policy_actions=actions,
+        policy_row_valid=torch.tensor([True, True, False]),
+        intent_gain=torch.tensor([0.30, -0.10, float("nan")]),
+        physics_gain=torch.tensor([0.20, -0.20, float("nan")]),
+        repair_cost=torch.tensor([0.05, 0.05, float("nan")]),
+        gain_total=torch.tensor([0.45, -0.35, float("nan")]),
+        horizon_k=torch.tensor([4, 4, 4]),
+        scenario_ids=("scenario-a", "scenario-b", "scenario-c"),
+        noisy_segment_hashes=("hash-a", "hash-b", "hash-c"),
+        x_t_identities=("x-a", "x-b", "x-c"),
+        intent_q29_provenance="deployment_noisy_q29",
+        intent_q29_source="fixture-deployment-motion-q29",
+    )
+    return SimpleNamespace(validate=lambda: None, return_evidence=return_evidence)
+
+
+def test_v015_transaction_telemetry_projects_sealed_rows_without_recompute() -> None:
+    candidate = _v015_candidate_evidence()
+    report = diag_module.build_frontres_v015_local_evaluation_report(
+        candidate,
+        transaction_id="tx-v015-g5-s1",
+    )
+
+    assert report.transaction_id == "tx-v015-g5-s1"
+    assert report.policy_actions == tuple(tuple(float(value) for value in row) for row in candidate.return_evidence.policy_actions)
+    assert report.valid_policy_row_mask == (True, True, False)
+    assert report.intent_gain[:2] == (0.30000001192092896, -0.10000000149011612)
+    assert report.physics_gain[:2] == (0.20000000298023224, -0.20000000298023224)
+    assert report.repair_cost[:2] == (0.05000000074505806, 0.05000000074505806)
+    assert report.gain_total[:2] == (0.44999998807907104, -0.3499999940395355)
+    assert all(math.isnan(values[2]) for values in (report.intent_gain, report.physics_gain, report.repair_cost, report.gain_total))
+    assert report.gain_total_pos_frac == 0.5
+    assert report.gain_total_neg_frac == 0.5
+    assert report.scenario_ids == ("scenario-a", "scenario-b", "scenario-c")
+    assert report.noisy_segment_hashes == ("hash-a", "hash-b", "hash-c")
+    assert report.return_feedback is False
+    assert report.priority_feedback is False
+    assert report.ppo_feedback is False
+
+    delattr(candidate.return_evidence, "physics_gain")
+    try:
+        diag_module.build_frontres_v015_local_evaluation_report(candidate, transaction_id="tx-missing")
+    except (TypeError, ValueError):
+        pass
+    else:
+        raise AssertionError("missing v003 telemetry must fail closed instead of being filled with zero")
 
 
 @dataclass(frozen=True)
@@ -415,6 +476,7 @@ def test_action_distribution_health_flags_raw_mean_saturation() -> None:
 
 
 def main() -> None:
+    test_v015_transaction_telemetry_projects_sealed_rows_without_recompute()
     test_segment_diagnostics_required_keys_and_no_acceptance_keys()
     test_segment_log_contains_live_path_sentinel()
     test_repair_effect_summary_formats_training_fit_metrics()

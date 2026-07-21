@@ -17,7 +17,7 @@ continuation, and one-action K evidence.
 
 ## Current Step
 
-`G2-S4-S0b cross-device reload verifier repair complete at E-FI-41; G2-S4-S1 live smoke retry next`
+`G2 / 7 complete at live E-FI-42; G3 / 7 complete at E-FI-43--E-FI-45; G4 / 7 complete at E-FI-46; G5-S0 stopped audit complete at E-FI-47; G5-S1 next`
 
 Status: local scenario, future q29, two-role reset, one-action K, v003 Gain,
 grouped transaction, persistence identity, and the dedicated formal route are
@@ -27,21 +27,37 @@ and exactly one update. These are route facts, not evidence that a trained
 policy exists under the changed observation layout.
 
 The user confirmed that no compatible trained v015 FEMR checkpoint and no
-defined external Noisy `.npz` exist. The S4-S0 CLI is therefore
-implemented-not-runnable. A checkpoint must be produced by new-layout
-HSL/Stage-3 training; controlled artifacts must be materialized once from an
-ordinary reference `.npz`; scientific composition requires same-carrier
-No-FEMR/GMT versus FEMR/GMT comparison.
+defined external Noisy `.npz` exist. E-FI-46 now makes that object a
+deterministic output/cache of ordinary `.npz` plus fixed protocol, rather than
+a user prerequisite. The S4-S0 CLI remains implemented-not-runnable because a
+trained Stage-3 checkpoint and same-carrier No-FEMR/GMT versus FEMR/GMT paired
+composition still do not exist.
+
+G5-S0 now confirms that the formal Stage-3 owner can consume the strict HSL-v1
+initializer, collect one complete multi-Segment x M transaction, perform one
+grouped update, commit, and invoke the actual v015 save owner. It also confirms
+the missing boundary: ordinary training performs no post-save fresh-runner
+verification and emits no atomic v015 policy-quality report. The existing
+policy-quality evaluator/manifests remain quartet/Clean, repeated-action,
+v011/v002 artifacts and are legacy/incompatible with the active two-role
+one-action-K v015 route. No bounded Stage-3 training is authorized.
 
 G2-S1b closes the first G1 gap: Stage-1 now requires `(1,2)` deployment q29,
 constructs `870+58=928`, exposes only the 158D prefix to FEMR, preserves the
 770D GMT suffix, and updates only the residual actor from current anti-DR.
-G2-S2/S3 define and verify the proposal-only HSL checkpoint identity. G2-S4-S0
-now fail-closes the one-run bounds and records real input, target, gradient,
-critic delta, strict save identity, and independent reload equality. The live
-IsaacLab smoke remains unexecuted; ordinary Stage-3 training still calls the
-legacy sampler/update loop and cannot produce a fresh-reloadable Stage-3 v015
-checkpoint.
+G2-S2/S3 define and verify the proposal-only HSL checkpoint identity. E-FI-42
+now live-confirms the bounded Stage-1 route: real input, target, actor-only
+gradient, critic zero-delta, strict save identity, bounded cross-device reload,
+and exit before PPO. E-FI-43 now gives the strict artifact one explicit
+Stage-3 consumer: actor, 6D distribution, and 158D prefix stats migrate into
+the q29/grouped/formal configuration, while critic, optimizer, sampler, and
+transaction state remain untouched. E-FI-44 now connects ordinary Stage-3 to
+whole-row multi-Segment x M selection, sealed grouped exact-one update, matching
+committed receipt, and commit-only save trigger. E-FI-45 closes the offline S3
+save/reload gap with the same semantic 158D/6D policy across an actual
+exact-one Adam update, `save_runner()`, strict fresh load, and exact normalized
+input/proposal equality. This remains engineering evidence, not a trained-policy
+or policy-quality result.
 
 The user selected a minimal Stage-1-only proposal carrier inside existing
 command/runtime/layout owners. G2-S1a installed that carrier without a new
@@ -243,16 +259,67 @@ Step 5A closure facts:
 
 ## Next Step
 
-Completed step: `G2-S4-S0b`, cross-device proposal verifier repair (`E-FI-41`).
-No Concept Figure, simulator, training, live run, or persistent artifact
-generation was authorized; checkpoint IO was temporary deterministic test
-evidence only.
+Completed gates: `G2 / 7` proposal-only HSL persistence/bounded smoke and
+`G3 / 7` deterministic actor migration, formal transaction, actual save, and
+strict fresh inference reload (`E-FI-35`--`E-FI-45`). The
+accepted live artifact is
+`/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-07-21_17-06-12_G2_S4_BOUND_HSL/model_warmup.pt`;
+it is an HSL initializer, not a trained Stage-3 policy.
 
-Current code state: the dedicated local sentinel and deployment CLI preserve
-their bounded evidence, but they do not close the formal training gaps found by
-G1. No compatible trained v015 checkpoint exists.
+Current code state: ordinary Stage-3 requires the explicit HSL-v1 artifact,
+resolves the 928/158/770 q29/grouped/formal configuration, selects only complete
+M budgets, performs exactly one update after seal, and saves only after the
+matching commit. The offline semantic fixture proves that the updated 158D/6D
+policy and its prefix statistics round-trip exactly through the strict v015
+checkpoint owner. Legacy immediate update is outside this branch. No compatible
+trained Stage-3 v015 policy checkpoint exists; producing and judging one remains
+G5.
 
-Next step: separately authorize the `G2-S4-S1` bounded formal Stage-1 HSL smoke retry.
-It must capture real current artifact/q29 input, anti-DR target, actor-only
-gradient boundary, strict HSL save, and fresh reload evidence. Do not enter
-Stage-3 migration/PPO or long training.
+G4 is complete at `E-FI-46`: ordinary reference plus fixed protocol now yields
+one deterministic, sealed, q29-preserving carrier that the existing current/H
+command path consumes without actor metadata.
+
+G5 is locally rebased without reopening G0-G4 or G6-G7: S1 adds read-only
+transaction action/v003-Gain/harm telemetry; S2A freezes strict quality
+checkpoint/manifest identity; S2B replaces quartet/Clean/repeated-action quality
+execution with Repair/Noisy one-action-K held-out evaluation; S3 connects actual
+save to strict fresh reload and atomic quality report; S4 alone may run one
+bounded live training/quality gate after explicit numeric acceptance thresholds.
+
+G5-S1 through G5-S3 are complete at `E-FI-48`--`E-FI-51`. The active identity
+preflight now distinguishes proposal-only HSL-v1 from trained Stage3-v015-v2,
+binds an exact v015/v003 manifest and 928/158/770, offsets `(1,2)`, 6D action,
+and file fingerprints before mutable restore. The deterministic held-out owner
+then compares zero/HSL/policy on matched Repair/Noisy one-action-K evidence,
+uses v003 Gain only, checks training-state isolation, and writes one atomic
+report. The offline persistence path now adds one real committed exact-one
+transaction, actual `save_runner()`, independent strict Stage3 reload, exact
+q29/158D-normalizer/6D proposal equality, strict HSL-v1 baseline reload, and
+the same atomic report. It remains semantic CPU evidence, not live quality.
+
+G5-S4-S0 is complete as a stopped read-only audit at `E-FI-52`. G5-S4-S1A is
+complete at deterministic S1/S2 evidence `E-FI-53`: the bounded launcher now
+uses the explicit HSL-v1 initializer, offsets `(1,2)`, 8 envs, one iteration,
+one update and checkpoint interval one while rejecting resume and legacy
+periodic evaluation. The live summary now exposes the sealed transaction's
+immutable action, valid-mask, v003 Gain/harm, identity, group-mass and
+exact-one fields without recomputation, silent zero fill, or feedback.
+
+G5-S4-S1B is complete at deterministic S1/S2/S3 evidence `E-FI-54`. The
+formal runner now installs the v015-only quality bundle on demand; the fixed
+16-item manifest resolves each item to one immutable 4-Repair/4-Noisy local
+scenario; strict HSL-v1 and committed Stage3-v015 actor/prefix states are
+temporarily installed and restored; and one deterministic proposal plus
+frozen-GMT K evidence reaches the existing atomic v003 report. No legacy
+quartet/Clean evaluator, repeated FEMR action, fallback, or training-state
+write is admitted.
+
+G5-S4 is therefore split into S1A launch/telemetry, S1B formal held-out/fresh
+report, S2 read-only artifact/command/threshold preflight, and S4 one bounded
+live run. Candidate gates are recorded at E-FI-52 but remain user-unconfirmed.
+
+Next step: separately authorize `G5-S4-S2`, a read-only server preflight that
+verifies the real HSL-v1 checkpoint, motion/cache roots, fixed v015 manifest,
+output directory, GPU selection, one-transaction command, post-save quality
+dispatch, required sentinels, and user-confirmed numeric thresholds. It must
+not modify code/documents or start simulator, training, or live execution.

@@ -102,6 +102,8 @@ def _load_owners():
 
 class _FakePolicy:
     num_task_corrections = 6
+    num_frontres_obs = 158
+    num_actor_obs = 928
     max_delta_pos = 1.0
     max_delta_rpy = 1.0
 
@@ -175,7 +177,7 @@ def _configure_fake_env(helper, commands, hooks, setup, *, horizons: tuple[int, 
     env.device = torch.device("cpu")
     command._env = env
     command.cfg = SimpleNamespace(motion_horizon=2, command_velocity=True)
-    env._obs = torch.arange(4 * 11, dtype=torch.float32).reshape(4, 11)
+    env._obs = torch.arange(4 * 928, dtype=torch.float32).reshape(4, 928) / 1000.0
     env.env_action_history: list[torch.Tensor] = []
 
     def get_observations():
@@ -222,10 +224,20 @@ def _configure_fake_env(helper, commands, hooks, setup, *, horizons: tuple[int, 
     return env, command, pair_layout, request
 
 
-def _capture(live_probe, helper, commands, hooks, setup, *, horizons: tuple[int, int]):
+def _capture(
+    live_probe,
+    helper,
+    commands,
+    hooks,
+    setup,
+    *,
+    horizons: tuple[int, int],
+    quality_route: str | None = None,
+):
     env, command, pair_layout, request = _configure_fake_env(helper, commands, hooks, setup, horizons=horizons)
     policy = _FakePolicy(command)
     alg = _FakeAlg(policy)
+    alg.frontres_v015_formal_transaction_enabled = quality_route is not None
     apply_calls: list[torch.Tensor] = []
 
     def apply_frontres_task_corrections(actions, n_train, **_kwargs):
@@ -247,16 +259,20 @@ def _capture(live_probe, helper, commands, hooks, setup, *, horizons: tuple[int,
         teacher_obs_type=None,
         ref_vel_estimator_obs_type=None,
         _frontres_future_intent_layout=SimpleNamespace(version="frontres-v015-future-intent-q29-v1"),
+        _frontres_gmt_obs_dim=770,
         _append_frontres_future_intent_context=lambda obs: obs,
         _apply_obs_normalizer=lambda obs: obs,
+        obs_normalizer=lambda obs: obs,
         privileged_obs_normalizer=lambda obs: obs,
         teacher_obs_normalizer=lambda obs: obs,
         _apply_frontres_task_corrections=apply_frontres_task_corrections,
     )
+    if quality_route is not None:
+        runner._frontres_v015_quality_action_route = quality_route
     observations = live_probe.FrontRESSegmentLiveObservations(
         obs=env._obs.detach().clone(),
-        privileged_obs=env._obs[:, :5].detach().clone(),
-        teacher_obs=env._obs[:, :5].detach().clone(),
+        privileged_obs=env._obs[:, :289].detach().clone(),
+        teacher_obs=env._obs[:, :289].detach().clone(),
         ref_vel_estimator_obs=None,
     )
     evidence = live_probe.collect_frontres_v015_one_action_k_evidence(
@@ -274,6 +290,34 @@ def _capture(live_probe, helper, commands, hooks, setup, *, horizons: tuple[int,
         request=request,
         runner=runner,
     )
+
+
+def test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, setup) -> None:
+    zero = _capture(
+        live_probe,
+        helper,
+        commands,
+        hooks,
+        setup,
+        horizons=(2, 2),
+        quality_route="zero",
+    )
+    policy = _capture(
+        live_probe,
+        helper,
+        commands,
+        hooks,
+        setup,
+        horizons=(2, 2),
+        quality_route="policy",
+    )
+    assert zero.alg.act_calls == policy.alg.act_calls == 1
+    assert torch.count_nonzero(zero.evidence.policy_actions) == 0
+    raw_mean = torch.arange(4 * 6, dtype=torch.float32).reshape(4, 6) / 10.0
+    torch.testing.assert_close(policy.evidence.policy_actions, torch.tanh(raw_mean[:2]))
+    assert zero.evidence.actor_forward_count == policy.evidence.actor_forward_count == 1
+    assert zero.evidence.later_femr_action_count == policy.evidence.later_femr_action_count == 0
+    print("[T-quality-proposal] zero/HSL-policy boundary uses one deterministic 6D proposal and no later FEMR action")
 
 
 def test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup) -> None:
@@ -396,6 +440,7 @@ def test_t_k_metamorphic_and_legacy_reject(live_probe, helper, commands, hooks, 
 def main() -> None:
     helper, commands, hooks, setup, live_probe = _load_owners()
     test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup)
+    test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, setup)
     test_t_continuation_and_row(live_probe, helper, commands, hooks, setup)
     test_t_k_metamorphic_and_legacy_reject(live_probe, helper, commands, hooks, setup)
     print("frontres_v015_one_action_k_contract: ok", flush=True)

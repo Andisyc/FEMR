@@ -312,11 +312,11 @@ class FrontRESSegmentStorageBatch:
 
 @dataclass(frozen=True)
 class FrontRESV015OneActionKEvidence:
-    """Candidate-only evidence for one Repair tuple and its frozen-GMT K consequence.
+    """Evidence for one Repair tuple and its frozen-GMT K consequence.
 
     This is deliberately not a PPO batch: it has no reward, return, advantage,
-    optimizer, or legacy ``to_ppo_batch`` path. Step 4A may convert it into a
-    sealed candidate-only metadata batch; formal learning remains a later gate.
+    optimizer, or legacy ``to_ppo_batch`` path. Formal training may convert it
+    into a sealed metadata candidate; held-out evaluation consumes it directly.
     """
 
     policy_observations: torch.Tensor
