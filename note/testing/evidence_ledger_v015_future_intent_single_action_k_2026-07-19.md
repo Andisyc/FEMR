@@ -3948,3 +3948,68 @@ Acceptance and remaining boundary:
 - The same corrected fresh held-out quality command remains live-unconfirmed.
   Bounded training must not be repeated. G5-S4 stays partial until the atomic
   16-item quality JSON is produced and inspected against human-confirmed gates.
+
+## E-FI-57: G5-S4-S1E Manifest Item Lifecycle Isolation
+
+Date: 2026-07-22
+Tier: deterministic S1/S2 evaluator lifecycle and persistence contracts; no
+simulator, training, checkpoint-format change, or live rerun
+
+Runtime symptom and root cause:
+
+- The next server quality attempt completed repeated resets for the first
+  manifest identity, then failed at
+  `v015 local scenario reset attempted to mutate an active sealed scenario`.
+- The live traceback reached `collect_one_action_k -> reset ->
+  set_frontres_local_scenario`. Code inspection confirmed that K-execution end
+  intentionally retained the sealed scenario for matched attempts, while the
+  held-out evaluator had no item-close callback after its zero/HSL/policy
+  counterfactual set. Item two therefore attempted to install a new seed/hash
+  over item one's still-active command carrier.
+
+Fail-first regression:
+
+- A two-item semantic manifest required the event order `zero -> HSL -> policy
+  -> close` for each item. The old owner bundle rejected the required
+  `close_item` callback, reproducing the absent lifecycle boundary before the
+  implementation changed.
+
+Implemented isolation:
+
+```text
+manifest item
+-> materialize and seal one immutable scenario
+-> zero reset/action/K
+-> same sealed scenario HSL reset/action/K
+-> same sealed scenario policy reset/action/K
+-> command.clear_frontres_local_scenario()
+-> close immutable batch lifecycle
+-> clear evaluator transient batch/sample pointers
+-> next manifest item may install a new scenario/hash
+```
+
+- The evaluator invokes item close in `finally`, so a route exception cannot
+  leak an active command or batch lifecycle.
+- `commands.py` remains unchanged and continues to reject replacement of an
+  active sealed scenario. No clear occurs between the three matched routes.
+- A post-close training-state signature rejects any lifecycle callback that
+  feeds back into policy, optimizer, sampler, transaction, warmup, or
+  normalizer state.
+
+Fresh verification:
+
+- `frontres_v015_policy_quality_heldout_contract.py` exited 0. It proves exact
+  two-item route/close order, formal command and batch close, exception close,
+  and rejection of close-side training-state mutation.
+- `frontres_v015_policy_quality_save_reload_contract.py` exited 0 through real
+  save, independent fresh reload, exact proposal identity, and atomic report.
+- Python compilation for the evaluator and both focused contracts exited 0.
+
+Acceptance and remaining boundary:
+
+- S1E is contract-confirmed. This is an evaluator lifecycle defect, not a
+  method/Concept Figure or command sealed-carrier semantic change.
+- The original live symptom is not yet runtime-confirmed absent. Do not repeat
+  bounded training; rerun only the corrected held-out quality command after
+  server sync, and stop on any active-carrier replacement or missing atomic
+  report.

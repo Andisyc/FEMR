@@ -312,6 +312,7 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
                 ("gain", "frontres_gain.compute_intent_physics_local_repair_gain"),
             ),
             collect_one_action_k=collect,
+            close_item=lambda _runner, _item: None,
             training_state_signature=lambda runner: _state_signature(
                 runner, quality_checkpointing
             ),

@@ -162,6 +162,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 ("gain", "frontres_gain.compute_intent_physics_local_repair_gain"),
             ),
             collect_one_action_k=collect,
+            close_item=lambda _runner, _item: None,
             training_state_signature=lambda _runner: repr((training_state, normalizer_state())),
         )
         runner = SimpleNamespace(
@@ -239,6 +240,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             quality.FrontRESV015PolicyQualityOwnerBundle(
                 owner_identity=bundle.owner_identity,
                 collect_one_action_k=mutating_collect,
+                close_item=lambda _runner, _item: None,
                 training_state_signature=lambda _runner: repr(training_state),
             ),
         )
@@ -281,6 +283,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             quality.FrontRESV015PolicyQualityOwnerBundle(
                 owner_identity=bundle.owner_identity,
                 collect_one_action_k=mixed_collect,
+                close_item=lambda _runner, _item: None,
                 training_state_signature=lambda _runner: repr(training_state),
             ),
         )
@@ -315,6 +318,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             quality.FrontRESV015PolicyQualityOwnerBundle(
                 owner_identity=bundle.owner_identity,
                 collect_one_action_k=wrong_checkpoint_collect,
+                close_item=lambda _runner, _item: None,
                 training_state_signature=lambda _runner: repr(training_state),
             ),
         )
@@ -342,12 +346,14 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
 
         checkpointing.frontres_v015_quality_route_actor = route_actor
         sampler_module = ModuleType("rsl_rl.runners.frontres_segment_live_sampler")
+        lifecycle_close_calls: list[object] = []
 
         def prepare_item(_runner, item):
             prepared_calls.append(item.comparison_signature)
             return SimpleNamespace(batch=object(), sample=object())
 
         sampler_module.prepare_frontres_v015_policy_quality_item_batch = prepare_item
+        sampler_module._close_frontres_local_scenarios = lifecycle_close_calls.append
         sys.modules[sampler_module.__name__] = sampler_module
         probe_module = ModuleType("rsl_rl.runners.frontres_segment_live_probe")
         probe_module._apply_current_segment_reset = lambda *_args, **_kwargs: SimpleNamespace(
@@ -371,9 +377,18 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         )
         sys.modules[setup_module.__name__] = setup_module
 
+        command_close_calls: list[str] = []
+        command = SimpleNamespace(
+            clear_frontres_local_scenario=lambda: command_close_calls.append("clear")
+        )
         formal_runner = SimpleNamespace(
             alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True),
             current_learning_iteration=0,
+            env=SimpleNamespace(
+                command_manager=SimpleNamespace(
+                    get_term=lambda name: command if name == "motion" else None
+                )
+            ),
         )
         formal_payload = quality.run_frontres_policy_quality_eval(
             formal_runner,
@@ -394,8 +409,131 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         ]
         assert formal_payload == json.loads(formal_path.read_text(encoding="utf-8"))
         assert not hasattr(formal_runner, "_frontres_v015_quality_action_route")
+        assert command_close_calls == ["clear"]
+        assert len(lifecycle_close_calls) == 1
+
+
+def test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error() -> None:
+    identity, checkpointing, _manifest, quality, storage, _gain = _owners()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        manifest_path = root / "manifest.json"
+        hsl_path = root / "hsl.pt"
+        policy_path = root / "policy.pt"
+        result_path = root / "quality.json"
+        payload = identity._manifest_payload()
+        second = dict(payload["items"][0])
+        second["item_id"] = "motion-a-k8-seed-8"
+        second["seed"] = 8
+        payload["items"] = [payload["items"][0], second]
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+        torch.save(identity._hsl_payload(checkpointing), hsl_path)
+        torch.save(identity._stage3_payload(checkpointing), policy_path)
+
+        checkpoint_by_route = {
+            "zero": "zero",
+            "hsl": checkpointing.inspect_frontres_v015_quality_checkpoint(hsl_path, route="hsl").file_sha256,
+            "policy": checkpointing.inspect_frontres_v015_quality_checkpoint(policy_path, route="policy").file_sha256,
+        }
+        events: list[tuple[str, str]] = []
+
+        def collect(_runner, item, route: str):
+            events.append((item.item_id, route))
+            return quality.FrontRESV015PolicyQualityRouteEvidence(
+                route=route,
+                checkpoint_file_sha256=checkpoint_by_route[route],
+                comparison_signature=item.comparison_signature,
+                one_action_k=_evidence(storage, route=route),
+            )
+
+        def close_item(_runner, item) -> None:
+            events.append((item.item_id, "close"))
+
+        runner = SimpleNamespace(alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True))
+        quality.install_frontres_v015_policy_quality_owner_bundle(
+            runner,
+            quality.FrontRESV015PolicyQualityOwnerBundle(
+                owner_identity=quality._V015_QUALITY_OWNER_IDENTITY,
+                collect_one_action_k=collect,
+                close_item=close_item,
+                training_state_signature=lambda _runner: "stable",
+            ),
+        )
+        quality.run_frontres_policy_quality_eval(
+            runner,
+            manifest_path=str(manifest_path),
+            hsl_checkpoint_path=str(hsl_path),
+            policy_checkpoint_path=str(policy_path),
+            result_path=str(result_path),
+        )
+        assert events == [
+            ("motion-a-k8", "zero"),
+            ("motion-a-k8", "hsl"),
+            ("motion-a-k8", "policy"),
+            ("motion-a-k8", "close"),
+            ("motion-a-k8-seed-8", "zero"),
+            ("motion-a-k8-seed-8", "hsl"),
+            ("motion-a-k8-seed-8", "policy"),
+            ("motion-a-k8-seed-8", "close"),
+        ]
+
+        failed_events: list[tuple[str, str]] = []
+
+        def failing_collect(_runner, item, route: str):
+            failed_events.append((item.item_id, route))
+            if route == "hsl":
+                raise RuntimeError("route failure")
+            return collect(_runner, item, route)
+
+        failed_runner = SimpleNamespace(alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True))
+        quality.install_frontres_v015_policy_quality_owner_bundle(
+            failed_runner,
+            quality.FrontRESV015PolicyQualityOwnerBundle(
+                owner_identity=quality._V015_QUALITY_OWNER_IDENTITY,
+                collect_one_action_k=failing_collect,
+                close_item=lambda _runner, item: failed_events.append((item.item_id, "close")),
+                training_state_signature=lambda _runner: "stable",
+            ),
+        )
+        _expect_reject(
+            lambda: quality.run_frontres_policy_quality_eval(
+                failed_runner,
+                manifest_path=str(manifest_path),
+                hsl_checkpoint_path=str(hsl_path),
+                policy_checkpoint_path=str(policy_path),
+                result_path=str(root / "failed-lifecycle.json"),
+            ),
+            "route failure",
+        )
+        assert failed_events[-1] == ("motion-a-k8", "close")
+
+        close_state = {"value": 0}
+        close_mutation_runner = SimpleNamespace(
+            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True)
+        )
+        quality.install_frontres_v015_policy_quality_owner_bundle(
+            close_mutation_runner,
+            quality.FrontRESV015PolicyQualityOwnerBundle(
+                owner_identity=quality._V015_QUALITY_OWNER_IDENTITY,
+                collect_one_action_k=collect,
+                close_item=lambda _runner, _item: close_state.__setitem__("value", 1),
+                training_state_signature=lambda _runner: repr(close_state),
+            ),
+        )
+        _expect_reject(
+            lambda: quality.run_frontres_policy_quality_eval(
+                close_mutation_runner,
+                manifest_path=str(manifest_path),
+                hsl_checkpoint_path=str(hsl_path),
+                policy_checkpoint_path=str(policy_path),
+                result_path=str(root / "close-mutation.json"),
+            ),
+            "item close mutated training state",
+        )
+        assert not (root / "close-mutation.json").exists()
 
 
 if __name__ == "__main__":
     test_v015_repair_noisy_one_action_k_atomic_quality()
+    test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error()
     print("frontres_v015_policy_quality_heldout_contract: ok", flush=True)

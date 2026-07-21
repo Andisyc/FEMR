@@ -178,19 +178,25 @@ _V015_GAIN_SOURCE = "FRS-GAIN-v003-intent-physics-local-repair"
 class FrontRESV015PolicyQualityOwnerBundle:
     """S2 connector for active local owners; evaluator owns no training state.
 
-    Status: formal owner factory is contract-confirmed offline at G5-S4-S1B;
-    simulator execution and policy quality remain live-only.
+    Status: active formal owner, contract-confirmed through G5-S4-S1E.
+    Evidence: matched route identity, zero-write inference, and exact item-close.
+    Gap: the corrected 16-item simulator report remains live-unconfirmed.
     """
 
     owner_identity: tuple[tuple[str, str], ...]
     collect_one_action_k: Callable[[Any, Any, str], Any]
+    close_item: Callable[[Any, Any], None]
     training_state_signature: Callable[[Any], str]
 
     def __post_init__(self) -> None:
         if tuple(self.owner_identity) != _V015_QUALITY_OWNER_IDENTITY:
             raise ValueError("v015 quality owner identity must name only the active reset/observation/one-action-K/v003 path")
-        if not callable(self.collect_one_action_k) or not callable(self.training_state_signature):
-            raise TypeError("v015 quality owner bundle requires evidence and state-signature callables")
+        if (
+            not callable(self.collect_one_action_k)
+            or not callable(self.close_item)
+            or not callable(self.training_state_signature)
+        ):
+            raise TypeError("v015 quality owner bundle requires collect, item-close, and state-signature callables")
 
 
 @dataclass(frozen=True)
@@ -352,6 +358,7 @@ def build_frontres_v015_policy_quality_owner_bundle(
         collect_frontres_v015_one_action_k_evidence,
     )
     from rsl_rl.runners.frontres_segment_live_sampler import (
+        _close_frontres_local_scenarios,
         prepare_frontres_v015_policy_quality_item_batch,
     )
     from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout
@@ -419,9 +426,35 @@ def build_frontres_v015_policy_quality_owner_bundle(
             one_action_k=evidence,
         )
 
+    def close_item(_runner: Any, item: Any) -> None:
+        """Close one manifest item's command carrier after all counterfactual routes."""
+
+        if _runner is not runner:
+            raise RuntimeError("v015 quality item close received a mixed runner identity")
+        prepared = item_batches.pop(str(item.comparison_signature), None)
+        if prepared is None:
+            return
+        env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+        manager = getattr(env, "command_manager", None)
+        get_term = getattr(manager, "get_term", None)
+        command = get_term("motion") if callable(get_term) else getattr(manager, "_terms", {}).get("motion")
+        try:
+            clear = getattr(command, "clear_frontres_local_scenario", None)
+            if not callable(clear):
+                raise RuntimeError("v015 quality item close requires command-owned local-scenario lifecycle")
+            clear()
+        finally:
+            try:
+                _close_frontres_local_scenarios(prepared.batch)
+            finally:
+                if getattr(runner, "_frontres_segment_live_current_batch", None) is prepared.batch:
+                    runner._frontres_segment_live_current_batch = None
+                    runner._frontres_segment_live_current_sample = None
+
     return FrontRESV015PolicyQualityOwnerBundle(
         owner_identity=_V015_QUALITY_OWNER_IDENTITY,
         collect_one_action_k=collect_one_action_k,
+        close_item=close_item,
         training_state_signature=_v015_quality_training_state_signature,
     )
 
@@ -738,33 +771,38 @@ def _run_frontres_v015_policy_quality_heldout_eval_inference(
     for item in request.manifest.items:
         anchor = None
         routes: list[dict[str, Any]] = []
-        for route in _V015_QUALITY_ROUTES:
-            if str(owners.training_state_signature(runner)) != baseline_state:
-                raise RuntimeError("v015 quality training state changed before route collection")
-            route_evidence = owners.collect_one_action_k(runner, item, route)
-            if not isinstance(route_evidence, FrontRESV015PolicyQualityRouteEvidence):
-                raise TypeError("v015 quality collector must bind route/checkpoint identity to one-action-K evidence")
-            route_evidence.validate()
-            if (
-                route_evidence.route != route
-                or route_evidence.checkpoint_file_sha256 != checkpoint_identity[route]
-                or route_evidence.comparison_signature != item.comparison_signature
-            ):
-                raise RuntimeError("v015 quality route evidence has a mixed manifest/actor/checkpoint identity")
-            evidence = route_evidence.one_action_k
-            if anchor is None:
-                anchor = evidence
-            else:
-                _v015_quality_require_same_scenario(anchor, evidence)
-            routes.append(
-                _v015_quality_route_result(
-                    evidence,
-                    route=route,
-                    checkpoint_file_sha256=checkpoint_identity[route],
+        try:
+            for route in _V015_QUALITY_ROUTES:
+                if str(owners.training_state_signature(runner)) != baseline_state:
+                    raise RuntimeError("v015 quality training state changed before route collection")
+                route_evidence = owners.collect_one_action_k(runner, item, route)
+                if not isinstance(route_evidence, FrontRESV015PolicyQualityRouteEvidence):
+                    raise TypeError("v015 quality collector must bind route/checkpoint identity to one-action-K evidence")
+                route_evidence.validate()
+                if (
+                    route_evidence.route != route
+                    or route_evidence.checkpoint_file_sha256 != checkpoint_identity[route]
+                    or route_evidence.comparison_signature != item.comparison_signature
+                ):
+                    raise RuntimeError("v015 quality route evidence has a mixed manifest/actor/checkpoint identity")
+                evidence = route_evidence.one_action_k
+                if anchor is None:
+                    anchor = evidence
+                else:
+                    _v015_quality_require_same_scenario(anchor, evidence)
+                routes.append(
+                    _v015_quality_route_result(
+                        evidence,
+                        route=route,
+                        checkpoint_file_sha256=checkpoint_identity[route],
+                    )
                 )
-            )
-            if str(owners.training_state_signature(runner)) != baseline_state:
-                raise RuntimeError("v015 quality evaluation mutated training state")
+                if str(owners.training_state_signature(runner)) != baseline_state:
+                    raise RuntimeError("v015 quality evaluation mutated training state")
+        finally:
+            owners.close_item(runner, item)
+        if str(owners.training_state_signature(runner)) != baseline_state:
+            raise RuntimeError("v015 quality item close mutated training state")
         item_rows.append(
             {
                 "item_id": item.item_id,

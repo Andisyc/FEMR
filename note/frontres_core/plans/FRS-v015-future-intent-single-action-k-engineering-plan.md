@@ -1886,6 +1886,32 @@ normalizer reproduces the prior mutation without the guard; all held-out routes
 now run with zero normalizer writes and restore exact mixed module modes after
 success and intentional failure. Live quality remains unconfirmed.
 
+###### G5-S4-S1E: Manifest Item Lifecycle Isolation
+
+Objective: close one held-out manifest item's sealed local scenario only after
+its matched zero/HSL/policy counterfactual routes finish, before the next item
+installs a different scenario/hash.
+
+Scope: add an explicit evaluator-owned item-close callback that clears the
+command carrier and closes the corresponding immutable batch lifecycle on
+success or exception. Preserve one sealed scenario throughout all three routes
+inside the item and reject any training-state mutation caused by close.
+
+Non-scope: command sealed-carrier guards, scenario materialization, K, Gain,
+checkpoint, PPO, sampler policy, simulator, training, or live command.
+
+Evidence: S1/S2 T-route-order/T-item-close/T-next-item/T-exception-close/
+T-command-close/T-batch-close/T-no-feedback/T-save-fresh.
+
+Stop: scenario closes between counterfactual routes; the next item can replace
+an active carrier; exception leaves either lifecycle active; command fail-
+closed is weakened; or close changes training state.
+
+Status: completed at deterministic evidence `E-FI-57`. The evaluator now owns
+the exact `zero -> HSL -> policy -> item close` boundary, and the formal owner
+closes both command and batch lifecycle before the next manifest item. The
+original 16-item live quality run remains unconfirmed.
+
 ###### G5-S4-S2: Final Command Artifact And Threshold Preflight
 
 Objective: perform a read-only preflight after S1A/S1B and freeze the exact

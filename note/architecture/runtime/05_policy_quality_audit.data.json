@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
   "subtitle": "LEGACY / INCOMPATIBLE: v011/v002 quartet-Clean 时代的八个质量 owner. 不得作为 v015 two-role one-action-K policy-quality route.",
-  "currentStatus": "legacy evaluator remains isolated; G5-S1 through G5-S4-S1D are complete at E-FI-48--E-FI-56. The formal v015 route installs a fixed-manifest Repair/Noisy one-action-K owner, separates K4 cache identity from K8 execution, and freezes policy plus prefix/GMT/privileged/teacher normalizers before every zero/HSL/policy observation read. Exact mixed modes restore on success/error. This is deterministic isolation evidence; bounded live quality report remains pending G5-S4-S4.",
+  "currentStatus": "legacy evaluator remains isolated; G5-S1 through G5-S4-S1E are complete at E-FI-48--E-FI-57. The formal v015 route installs a fixed-manifest Repair/Noisy one-action-K owner, separates K4 cache identity from K8 execution, freezes all policy/normalizer owners during inference, and preserves one sealed scenario across zero/HSL/policy before closing command and batch lifecycle at each manifest-item boundary. Success/error cleanup is deterministic; bounded live quality report remains pending G5-S4-S4.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -20,7 +20,7 @@
     {
       "id": "SYS-POLICY-QUALITY",
       "title": "Policy Quality Causal Chain",
-      "summary": "LEGACY v011/v002 execution remains isolated: quartet/Clean + repeated FEMR action + legacy HSL rollout target. Active v015 evidence at E-FI-48--E-FI-56 includes strict artifact identity, K4-index/K8-execution separation, Repair/Noisy one-action-K v003 evaluation, actual save-to-fresh-reload connectivity, and reversible zero-write inference modes for every policy/normalizer owner; physical policy quality remains pending G5-S4.",
+      "summary": "LEGACY v011/v002 execution remains isolated: quartet/Clean + repeated FEMR action + legacy HSL rollout target. Active v015 evidence at E-FI-48--E-FI-57 includes strict artifact identity, K4-index/K8-execution separation, Repair/Noisy one-action-K v003 evaluation, actual save-to-fresh-reload connectivity, reversible zero-write inference modes, and exact per-item command/batch lifecycle closure after zero/HSL/policy; physical policy quality remains pending G5-S4.",
       "status": "legacy-incompatible-with-v015",
       "color": "#0f766e",
       "modules": [
