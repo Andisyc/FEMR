@@ -314,12 +314,22 @@ frozen-GMT K evidence reaches the existing atomic v003 report. No legacy
 quartet/Clean evaluator, repeated FEMR action, fallback, or training-state
 write is admitted.
 
+G5-S4-S1C is complete at deterministic S1/S2 evidence `E-FI-55`. Runtime
+training exposed that the server Stage-1 index uses K4 while the fixed held-out
+manifest correctly requests executable K8. The resolver now identifies x_t by
+unique `(motion_id,start_frame)` and passes manifest K8 independently to the
+local-scenario materializer; K4-to-K8 continuation and duplicate-identity
+rejection pass focused contracts.
+
 G5-S4 is therefore split into S1A launch/telemetry, S1B formal held-out/fresh
 report, S2 read-only artifact/command/threshold preflight, and S4 one bounded
-live run. Candidate gates are recorded at E-FI-52 but remain user-unconfirmed.
+live run. The S4 training half is runtime-confirmed at `E-FI-55`: one exact
+update saved `model_1.pt`. The first quality command failed before evaluation
+because same-command shell expansion passed an empty positional HSL path and
+selected the legacy default checkpoint. Candidate gates remain user-unconfirmed.
 
-Next step: separately authorize `G5-S4-S2`, a read-only server preflight that
-verifies the real HSL-v1 checkpoint, motion/cache roots, fixed v015 manifest,
-output directory, GPU selection, one-transaction command, post-save quality
-dispatch, required sentinels, and user-confirmed numeric thresholds. It must
-not modify code/documents or start simulator, training, or live execution.
+Next step: after syncing the S1C resolver, run only the corrected fresh held-out
+quality command with HSL and policy variables assigned in separate shell
+statements. Do not repeat bounded training. Stop on any non-unique manifest
+identity, strict checkpoint mismatch, training-state mutation, or non-atomic
+report; numeric quality acceptance remains a separate human decision.

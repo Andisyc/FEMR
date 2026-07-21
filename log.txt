@@ -23,22 +23,12 @@ Traceback (most recent call last):
     ret.return_value = task_function(task_cfg)
   File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
     func(env_cfg, agent_cfg, *args, **kwargs)
-  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1682, in main
-    runner.learn_frontres_segment_live(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 707, in learn_frontres_segment_live
-    run_frontres_segment_live_training_loop(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", line 2199, in run_frontres_segment_live_training_loop
-    result = runner.run_frontres_v015_formal_training_transaction(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 686, in run_frontres_v015_formal_training_transaction
-    return run_frontres_v015_formal_training_update_loop_helper(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 186, in run_frontres_v015_formal_training_update_loop
-    return run_frontres_v015_formal_transaction_update_loop(runner)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 148, in run_frontres_v015_formal_transaction_update_loop
-    request = provider()
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 177, in provider
-    return build_frontres_v015_formal_training_request(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3953, in build_frontres_v015_formal_training_request
-    return _build_frontres_v015_local_transaction_request(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3898, in _build_frontres_v015_local_transaction_request
-    raise RuntimeError(
-RuntimeError: v015 formal training observation trace is incomplete or violates the frozen authority: mismatched={'current_command_dim': (0, 58)}, trace={'role_row_count': 8, 'current_command_dim': 0, 'raw_observation_dim': 870, 'q29_tail_dim': 58, 'combined_observation_dim': 928, 'normalized_observation_dim': 928, 'femr_visible_dim': 158, 'gmt_suffix_dim': 770, 'gmt_input_dim': 770, 'post_advance_gmt_read_count': 8, 'critic_observation_dim': 289}
+  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1530, in main
+    runner.load_frontres_v015_hsl_initializer(hsl_initializer)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 1433, in load_frontres_v015_hsl_initializer
+    return load_v015_hsl_initializer(self, path)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", line 1039, in load_v015_hsl_initializer
+    validated = _validate_v015_hsl_checkpoint_resume(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", line 864, in _validate_v015_hsl_checkpoint_resume
+    raise RuntimeError("proposal-only HSL checkpoint identity is missing; legacy or unversioned payload rejected")
+RuntimeError: proposal-only HSL checkpoint identity is missing; legacy or unversioned payload rejected

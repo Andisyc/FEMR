@@ -486,10 +486,14 @@ def test_t_fixed_heldout_manifest_item() -> None:
 
     def materialize_frontres_local_scenario(**kwargs):
         calls.append(dict(kwargs))
+        horizon_k = int(kwargs["horizon_k"])
         return {
             "current_root_artifact_t": materialization.current_root_artifact_t.detach().clone(),
             "intent_q29": materialization.intent_q29.detach().clone(),
-            "clean_continuation": materialization.clean_continuation.detach().clone(),
+            "clean_continuation": torch.arange(
+                horizon_k * 65,
+                dtype=torch.float32,
+            ).reshape(horizon_k, 65),
             "provenance": dict(materialization.provenance),
         }
 
@@ -498,7 +502,7 @@ def test_t_fixed_heldout_manifest_item() -> None:
         segment_id=7,
         motion_id="motion-0",
         start_frame=2,
-        horizon_k=3,
+        horizon_k=4,
         perturbation_family="index_only",
     )
 
@@ -525,7 +529,7 @@ def test_t_fixed_heldout_manifest_item() -> None:
     item = SimpleNamespace(
         motion_id="motion-0",
         start_frame=2,
-        effective_horizon_k=3,
+        effective_horizon_k=8,
         perturbation_family="local_rp",
         perturbation_parameters=(("dr_scale", 0.25),),
         seed=42,
@@ -536,6 +540,9 @@ def test_t_fixed_heldout_manifest_item() -> None:
     second = live_sampler.prepare_frontres_v015_policy_quality_item_batch(runner, item)
     assert torch.equal(torch.random.get_rng_state(), rng_before)
     assert len(calls) == 2
+    assert all(call["horizon_k"] == 8 for call in calls)
+    assert tuple(first.sample.horizon_k.tolist()) == (8, 8, 8, 8)
+    assert tuple(first.batch.frontres_local_scenario_clean_continuation.shape) == (4, 8, 65)
     assert tuple(first.sample.source_index.tolist()) == (0, 0, 0, 0)
     assert len(set(first.batch.frontres_local_scenario_ids)) == 1
     assert first.batch.frontres_local_scenario_ids == second.batch.frontres_local_scenario_ids
@@ -545,7 +552,22 @@ def test_t_fixed_heldout_manifest_item() -> None:
         first.batch.stage3_index_perturbation_strength,
         torch.full((4,), 0.25),
     )
-    print("[T-heldout-manifest] fixed item -> 4 Repair attempts -> one sealed scenario/hash without RNG drift")
+    duplicate_spec = SimpleNamespace(
+        segment_id=8,
+        motion_id=spec.motion_id,
+        start_frame=spec.start_frame,
+        horizon_k=8,
+        perturbation_family="index_only",
+    )
+    Dataset._specs = (spec, duplicate_spec)
+    _expect_error(
+        RuntimeError,
+        lambda: live_sampler.prepare_frontres_v015_policy_quality_item_batch(runner, item),
+    )
+    print(
+        "[T-heldout-manifest] K4 index identity -> K8 budget/continuation; "
+        "duplicate motion/start rejects without RNG drift"
+    )
 
 
 def main() -> None:

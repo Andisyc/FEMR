@@ -1,10 +1,11 @@
 # Evidence Ledger: FRS-v015 Future Intent And Single-Action K
 
-Date: 2026-07-19 through 2026-07-21
+Date: 2026-07-19 through 2026-07-22
 Scope: Accepted semantic migration and bounded implementation evidence,
 including deterministic contracts, CPU formal-route/persistence checks, and
-the successful bounded S4 local identity sentinel. It contains no long-training,
-policy-quality, deployment-composition, or live checkpoint-resume evidence.
+successful bounded S4 local identity and one-transaction training evidence. It
+contains no long-training, held-out live policy-quality, deployment-composition,
+or live checkpoint-resume evidence.
 
 ## E-FI-0: Confirmed Conceptual Decision
 
@@ -3814,3 +3815,73 @@ Acceptance and remaining boundary:
 - G5-S4-S2 is the next separately user-gated read-only preflight. Real server
   artifact existence, exact command/sentinels, numeric thresholds, simulator
   execution, training, and live policy quality remain unconfirmed.
+
+## E-FI-55: G5-S4 Bounded Train And Held-Out Index/K Resolver Repair
+
+Date: 2026-07-22
+Tier: one bounded S4 training transaction plus deterministic S1/S2 resolver,
+held-out, persistence, and atomic-report contracts; held-out live quality did
+not execute
+
+Runtime evidence:
+
+- `v015_g5_s4_train_gpu3.log` records strict HSL-v1 actor-only initialization,
+  928/158/770 observation authority, two Segment sources, four valid policy
+  attempts, equal grouped mass, `update_count=1`, `optimizer_step_delta=1`, a
+  matching committed receipt, and successful `model_1.pt` persistence.
+- The same log records a Stage-1 index with cache `horizon_k=4`, while the
+  selected transaction independently carries executable budget K8 and
+  materializes K8 local-scenario evidence.
+- `log.txt` records that the first held-out launch stopped before evaluation:
+  same-command shell expansion supplied an empty positional HSL path, so
+  `run_stage3.sh` selected its legacy default checkpoint and the strict HSL-v1
+  inspector rejected the missing identity. The new HSL-v1 artifact was not
+  shown to be corrupt.
+- Training telemetry is connectivity evidence, not held-out acceptance:
+  actions were finite/non-collapsed and unsaturated, but the four training rows
+  had positive Gain fraction `0.25`, harm fraction `0.75`, and zero physics
+  Gain. No policy-quality conclusion is claimed.
+
+Fail-first evidence:
+
+- The focused local-scenario contract reproduced the server incompatibility:
+  a K4 cache spec plus a K8 manifest item produced `matches=0` because the
+  held-out resolver incorrectly included cache `spec.horizon_k` in x_t
+  identity.
+
+Implemented correction:
+
+```text
+Stage-1 cache identity: motion_id + start_frame
+-> exactly one Segment/x_t row
+-> manifest effective_horizon_k remains K8
+-> local-scenario materializer returns Clean continuation [K8,65]
+-> one-action-K held-out evaluator
+```
+
+- `prepare_frontres_v015_policy_quality_item_batch()` no longer equates the
+  cache index construction window with executable-evidence K.
+- Zero or duplicate `(motion_id,start_frame)` identities still reject. There is
+  no fallback, clamp, manifest rewrite, or cache rebuild.
+
+Fresh deterministic verification:
+
+- `frontres_local_scenario_kernel_contract.py` exited 0 with
+  `T-heldout-manifest`: K4 index identity -> K8 budget/continuation, repeated
+  construction retains identity, and duplicate motion/start rejects.
+- `frontres_v015_policy_quality_heldout_contract.py` and
+  `frontres_v015_policy_quality_identity_contract.py` exited 0.
+- `frontres_v015_policy_quality_save_reload_contract.py` exited 0 through an
+  actual committed save, independent fresh reload, strict checkpoint identity,
+  exact proposal equality, and atomic held-out report.
+- Python compilation exited 0.
+
+Acceptance and remaining boundary:
+
+- The resolver defect is contract-confirmed fixed. No Concept Figure or active
+  method semantics changed: cache K identifies neither actor context H nor
+  executable-evidence K.
+- The bounded training half is runtime-confirmed. The corrected fresh held-out
+  quality command remains live-unconfirmed and must not repeat training.
+- Numeric Gain/harm acceptance thresholds remain a human decision; G5-S4 and
+  G5 are not complete until the atomic live quality report is inspected.

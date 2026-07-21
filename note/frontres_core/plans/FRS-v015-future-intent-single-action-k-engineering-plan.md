@@ -1836,6 +1836,30 @@ Stage3-v015 actor/prefix state, collects one deterministic proposal followed by
 frozen-GMT K evidence, and restores all training state before the existing
 v003 atomic report is committed. Legacy quality execution remains isolated.
 
+###### G5-S4-S1C: Held-Out Index Identity / Execution-K Resolver Repair
+
+Objective: keep the Stage-1 cache window and held-out executable-evidence K as
+separate objects when resolving a fixed manifest item.
+
+Scope: resolve one Stage-1 Segment by unique `(motion_id, start_frame)` identity,
+then carry manifest `effective_horizon_k` unchanged into the sample and local-
+scenario materializer. A K4 cache index may therefore materialize the active K8
+continuation, exactly as the ordinary training route already does.
+
+Non-scope: manifest semantics, cache rebuilding, K selection, HSL, Gain, PPO,
+checkpoint format, simulator, training, or live evaluation.
+
+Evidence: S1/S2 T-K4-index/T-K8-budget/T-K8-continuation/T-unique-identity/
+T-heldout-owner/T-save-fresh/T-atomic-report.
+
+Stop: motion/start resolves zero or multiple index rows; execution K is replaced
+by cache K; or the materialized Clean continuation is shorter than execution K.
+
+Status: completed at deterministic evidence `E-FI-55`. The resolver no longer
+uses cache `spec.horizon_k` as scenario identity, preserves manifest K8 through
+the materializer, and rejects duplicate motion/start identities. Live held-out
+quality remains unconfirmed until the corrected server command completes.
+
 ###### G5-S4-S2: Final Command Artifact And Threshold Preflight
 
 Objective: perform a read-only preflight after S1A/S1B and freeze the exact
@@ -1873,6 +1897,12 @@ Evidence: S0 T-artifact/T-command/T-telemetry/T-threshold/T-stop.
 Stop: any required artifact is absent, the command still reaches a legacy
 path, telemetry cannot evaluate every gate, or numeric thresholds remain
 unconfirmed.
+
+Current runtime status: partially confirmed at `E-FI-55`. The bounded training
+half completed one exact update and saved `model_1.pt`; the first quality launch
+failed before evaluation because its shell expression expanded an unset HSL
+positional variable and selected the legacy default checkpoint. The corrected
+command and numeric gates remain user-controlled before the quality rerun.
 
 ###### G5-S4-S4: One Bounded Live Training And Quality Run
 

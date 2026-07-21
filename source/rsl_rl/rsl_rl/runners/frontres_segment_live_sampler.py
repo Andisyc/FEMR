@@ -1910,9 +1910,11 @@ def prepare_frontres_v015_formal_training_batch(runner: Any) -> SimpleNamespace:
 def prepare_frontres_v015_policy_quality_item_batch(runner: Any, item: Any) -> SimpleNamespace:
     """Materialize one fixed manifest item as an immutable two-role local batch.
 
-    The manifest selects an existing Stage-1 index row. All Repair attempts use
-    one source identity so zero/HSL/policy resets can reuse the same sealed
-    scenario without invoking the training sampler or curriculum.
+    The manifest selects an existing Stage-1 index row by motion/frame identity.
+    Its effective K is the executable-evidence budget, not the cache index
+    window used to identify x_t. All Repair attempts use one source identity so
+    zero/HSL/policy resets can reuse the same sealed scenario without invoking
+    the training sampler or curriculum.
     """
 
     dataset = getattr(runner, "_frontres_segment_dataset", None)
@@ -1927,12 +1929,13 @@ def prepare_frontres_v015_policy_quality_item_batch(runner: Any, item: Any) -> S
         for spec in specs
         if str(getattr(spec, "motion_id", "")).lstrip("./") == motion_id
         and int(getattr(spec, "start_frame", -1)) == start_frame
-        and int(getattr(spec, "horizon_k", -1)) == horizon_k
     )
     if len(matches) != 1:
+        cache_horizons = tuple(sorted({int(getattr(spec, "horizon_k", -1)) for spec in matches}))
         raise RuntimeError(
-            "v015 quality manifest must resolve to exactly one loaded Segment: "
-            f"motion={motion_id!r} frame={start_frame} K={horizon_k} matches={len(matches)}"
+            "v015 quality manifest must resolve motion/start to exactly one loaded Segment identity: "
+            f"motion={motion_id!r} frame={start_frame} execution_K={horizon_k} "
+            f"matches={len(matches)} cache_horizons={cache_horizons}"
         )
     params = dict(getattr(item, "perturbation_parameters", ()) or ())
     strength_values = [params[name] for name in ("strength", "dr_scale", "scale") if name in params]
