@@ -4013,3 +4013,135 @@ Acceptance and remaining boundary:
   bounded training; rerun only the corrected held-out quality command after
   server sync, and stop on any active-carrier replacement or missing atomic
   report.
+
+## E-FI-58: G5-Q0 Quality-Gap Plan Rebase
+
+Date: 2026-07-22
+Tier: S0 governance and prior bounded-runtime evidence classification; no code,
+active contract, Concept Figure, test, checkpoint IO, simulator, training, or
+live run in this step
+
+Raw evidence recalled from the completed bounded server execution:
+
+- `/hdd1/cyx/FEMR/v015_g5_s4_quality_gpu3.log` completed all 48 route resets
+  for 16 manifest items x zero/HSL/policy, without traceback, scenario-lifecycle
+  replacement, training-state mutation, later FEMR action, or optimizer update.
+- `/hdd1/cyx/FEMR/v015_g5_s4_policy_quality_gpu3.json` was emitted atomically
+  with SHA-256
+  `98eaf4c2932df12e291177186f4c3308bf6849730e70a990d5a3b8326e29cf1b`.
+- The report used `frontres-v015-heldout-quality-report-v1` and
+  `FRS-GAIN-v003-intent-physics-local-repair`; all 64 policy actions were finite
+  and non-collapsed.
+- Aggregate policy `gain_total` had mean `0.0117027`, positive fraction
+  `0.453125`, and negative/harm fraction `0.546875`. These values are recorded
+  as observations, not accepted quality thresholds.
+
+Earliest authority contradictions:
+
+- Zero action produced nonzero `gain_total` with range approximately
+  `[-0.162, 0.428]`; zero-route `physics_gain` and `repair_cost` were zero, so
+  the variation came from `intent_gain`. The zero route is therefore not yet a
+  proven no-op oracle.
+- `physics_gain` was identically zero for zero, HSL, and policy routes. The
+  bounded report did not supply discriminative survival/ZMP/contact evidence
+  required to judge paired executability.
+- The evaluator proved scenario/hash/x_t and lifecycle identity, but did not
+  prove equality of complete role-aligned root/joint pose and velocity,
+  command/cache state, and RNG state before each route observation/action.
+- Therefore the observed policy fractions cannot distinguish policy failure
+  from evaluation-state or Gain-evidence mismatch. Runtime connectivity passed;
+  evaluation authority is blocked; policy efficacy remains unconfirmed.
+
+Governance decisions:
+
+- Preserve completion of G0--G4 and G5-S1 through G5-S4-S1E. Do not erase the
+  exact-one training, save/fresh-reload, lifecycle, or atomic-report evidence.
+- Rebase only the policy-quality branch as G5-Q1 through G5-Q6: full dynamic-
+  state identity; zero-action no-op oracle; Physics survival/ZMP/contact;
+  matched rerun; Gain-to-advantage-to-update causality; checkpoint trajectory
+  and long-training admission.
+- Mark all v011/v002 and Q-E evidence in the Quality Audit Atlas as historical
+  and incompatible with current v015 acceptance.
+- Do not change active contracts or the Concept Figure. The contradiction is
+  currently an evaluation-authority gap under accepted v015 semantics, not a
+  confirmed method change.
+
+Next:
+
+- G5-Q1 only, after explicit user authorization. Add a read-only probe after
+  every active v015 canonical reset and before `_read_live_observations()`;
+  prove full dynamic-state/cache/RNG equality across zero/HSL/policy in S1/S2,
+  then stop before any live rerun.
+
+## E-FI-59: G5-Q1 Full Dynamic-State Identity S1/S2
+
+Date: 2026-07-22
+Tier: deterministic S1 core-parameter and S2 held-out connectivity evidence;
+no simulator, training, full quality rerun, live sentinel, reset modification,
+or active-contract/Concept-Figure change
+
+Fail-first evidence:
+
+- The focused held-out contract initially failed because the active v015 route
+  exposed no `capture_frontres_v015_policy_quality_dynamic_state_identity`
+  owner and route evidence had no complete state identity.
+- The first connector implementation then failed because report serialization
+  incorrectly read the identity from inner one-action-K evidence rather than
+  the route wrapper. Passing the wrapper identity explicitly fixed that owner
+  boundary without weakening validation.
+
+Implemented core path:
+
+```text
+canonical Clean x_t reset
+-> read-only B=8 state capture
+-> 12 field-level SHA-256 identities
+-> route evidence before observation/action
+-> exact zero/HSL/policy equality check
+-> atomic report or fail-closed field-name diagnostic
+```
+
+Captured fields:
+
+- `root_state_w` including root pose and linear/angular velocity;
+- 29DoF `joint_pos` and `joint_vel`;
+- env origins and episode length;
+- command cursor/perturbation/correction cache and all per-env perturber tensors;
+- Python, NumPy, Torch CPU, and all CUDA RNG states;
+- command-owned current artifact, q29 intent, Clean continuation, K/length,
+  scenario/hash/x_t, role layout, and deployment provenance.
+
+Fresh deterministic evidence:
+
+- `frontres_v015_policy_quality_heldout_contract.py` exited 0. Its semantic
+  B=8 fixture proves repeat capture equality, exact 4 Repair + 4 Noisy order,
+  unchanged source tensors, row-permutation sensitivity, role-mix rejection,
+  route-state mismatch rejection, no partial report, and lifecycle cleanup.
+- `frontres_v015_policy_quality_save_reload_contract.py` exited 0, preserving
+  actual save/fresh-reload and atomic quality connectivity with the new required
+  route identity. This is a regression check, not new checkpoint evidence.
+- Python compilation of the owner and both focused contracts exited 0.
+
+Confirmed:
+
+- The unique active owner is
+  `frontres_policy_quality_eval.py::build_frontres_v015_policy_quality_owner_bundle`.
+  It captures identity immediately after `_apply_current_segment_reset()` and
+  before `_read_live_observations()`.
+- The probe does not restore or mutate env, RNG, optimizer, sampler,
+  transaction, warmup, normalizer, or checkpoint state.
+- Missing schema, non-4+4 roles, row misalignment, changed field hash, mixed
+  comparison signature, and missing command scenario snapshot fail closed.
+
+Open boundary:
+
+- S1/S2 prove the owner and comparison semantics on a meaningful CPU fixture;
+  they do not prove that the real IsaacLab reset reproduces all 12 hashes.
+- G5-Q1 remains partial until one separately authorized bounded S4 identity
+  sentinel passes. Q2 and all further quality/training work remain blocked.
+
+Next:
+
+- Execute G5-Q1-S4 only after user confirmation. Use one matched manifest item,
+  zero/HSL/policy routes, no optimizer update, and stop at the first differing
+  field or missing identity.

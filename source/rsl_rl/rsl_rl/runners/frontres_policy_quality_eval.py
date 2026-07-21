@@ -172,15 +172,73 @@ _V015_QUALITY_OWNER_IDENTITY = (
 _V015_QUALITY_ROUTES = ("zero", "hsl", "policy")
 _V015_QUALITY_REPORT_SCHEMA = "frontres-v015-heldout-quality-report-v1"
 _V015_GAIN_SOURCE = "FRS-GAIN-v003-intent-physics-local-repair"
+_V015_DYNAMIC_STATE_FIELDS = (
+    "root_state_w",
+    "joint_pos",
+    "joint_vel",
+    "env_origins",
+    "episode_length",
+    "command_state",
+    "perturber_state",
+    "python_rng_state",
+    "numpy_rng_state",
+    "torch_rng_state",
+    "cuda_rng_state",
+    "local_scenario",
+)
+
+
+@dataclass(frozen=True)
+class FrontRESV015DynamicStateIdentity:
+    """Read-only post-reset identity captured before observation or action."""
+
+    comparison_signature: str
+    role_layout: tuple[str, ...]
+    field_hashes: tuple[tuple[str, str], ...]
+
+    def validate(self) -> None:
+        if (
+            len(self.comparison_signature) != 64
+            or any(char not in "0123456789abcdef" for char in self.comparison_signature)
+        ):
+            raise ValueError("v015 dynamic-state identity requires the manifest comparison signature")
+        if not self.role_layout or any(role not in {"repair", "noisy"} for role in self.role_layout):
+            raise ValueError("v015 dynamic-state identity requires Repair/Noisy roles only")
+        names = tuple(name for name, _value in self.field_hashes)
+        if names != _V015_DYNAMIC_STATE_FIELDS:
+            raise ValueError("v015 dynamic-state identity has an incomplete or reordered field schema")
+        if any(
+            len(value) != 64 or any(char not in "0123456789abcdef" for char in value)
+            for _name, value in self.field_hashes
+        ):
+            raise ValueError("v015 dynamic-state identity field hashes must be SHA-256 values")
+
+    @property
+    def full_state_hash(self) -> str:
+        self.validate()
+        digest = hashlib.sha256()
+        digest.update(self.comparison_signature.encode("ascii"))
+        digest.update(repr(self.role_layout).encode("ascii"))
+        for name, value in self.field_hashes:
+            digest.update(name.encode("ascii"))
+            digest.update(value.encode("ascii"))
+        return digest.hexdigest()
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "full_state_hash": self.full_state_hash,
+            "role_layout": list(self.role_layout),
+            "field_hashes": dict(self.field_hashes),
+        }
 
 
 @dataclass(frozen=True)
 class FrontRESV015PolicyQualityOwnerBundle:
     """S2 connector for active local owners; evaluator owns no training state.
 
-    Status: active formal owner, contract-confirmed through G5-S4-S1E.
-    Evidence: matched route identity, zero-write inference, and exact item-close.
-    Gap: the corrected 16-item simulator report remains live-unconfirmed.
+    Status: active formal owner, contract-confirmed through G5-Q1 S1/S2.
+    Evidence: matched full-state identity, zero-write inference, and exact item-close.
+    Gap: the post-reset identity hash remains pending one bounded S4 sentinel.
     """
 
     owner_identity: tuple[tuple[str, str], ...]
@@ -207,6 +265,7 @@ class FrontRESV015PolicyQualityRouteEvidence:
     checkpoint_file_sha256: str
     comparison_signature: str
     one_action_k: Any
+    dynamic_state_identity: FrontRESV015DynamicStateIdentity
 
     def validate(self) -> None:
         if self.route not in _V015_QUALITY_ROUTES:
@@ -224,6 +283,11 @@ class FrontRESV015PolicyQualityRouteEvidence:
             or any(char not in "0123456789abcdef" for char in self.comparison_signature)
         ):
             raise ValueError("v015 quality route evidence requires the manifest item comparison signature")
+        if not isinstance(self.dynamic_state_identity, FrontRESV015DynamicStateIdentity):
+            raise TypeError("v015 quality route requires a full dynamic-state identity")
+        self.dynamic_state_identity.validate()
+        if self.dynamic_state_identity.comparison_signature != self.comparison_signature:
+            raise ValueError("v015 quality route dynamic-state comparison signature is mixed")
         validate = getattr(self.one_action_k, "validate", None)
         if not callable(validate):
             raise TypeError("v015 route evidence requires validated one-action-K evidence")
@@ -235,6 +299,8 @@ class FrontRESV015PolicyQualityRouteEvidence:
             or tuple(self.one_action_k.policy_actions.shape) != (int(self.one_action_k.policy_actions.shape[0]), 6)
         ):
             raise ValueError("v015 quality route requires policy/critic/action shapes [B,928]/[B,289]/[B,6]")
+        if self.dynamic_state_identity.role_layout != tuple(self.one_action_k.roles):
+            raise ValueError("v015 quality route dynamic-state rows are not aligned with Repair/Noisy evidence rows")
 
 
 def install_frontres_v015_policy_quality_owner_bundle(
@@ -266,6 +332,27 @@ def _v015_quality_hash_state(digest: Any, value: Any) -> None:
             _v015_quality_hash_state(digest, item)
     else:
         digest.update(repr(value).encode("utf-8"))
+
+
+def _v015_quality_field_hash(name: str, value: Any) -> str:
+    digest = hashlib.sha256()
+    digest.update(name.encode("ascii"))
+    if isinstance(value, _TensorImage):
+        value.update_hash(digest, name=name)
+    elif isinstance(value, bytes):
+        digest.update(value)
+    elif isinstance(value, tuple) and all(isinstance(item, _TensorImage) for item in value):
+        for index, image in enumerate(value):
+            image.update_hash(digest, name=f"{name}[{index}]")
+    elif isinstance(value, tuple) and all(
+        isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], _TensorImage)
+        for item in value
+    ):
+        for field_name, image in value:
+            image.update_hash(digest, name=str(field_name))
+    else:
+        _v015_quality_hash_state(digest, value)
+    return digest.hexdigest()
 
 
 @contextmanager
@@ -386,6 +473,11 @@ def build_frontres_v015_policy_quality_owner_bundle(
         reset = _apply_current_segment_reset(runner, pair_layout=pair_layout)
         if reset is None or not bool(reset.success_mask.detach().bool().all().item()):
             raise RuntimeError("v015 held-out quality failed to restore the sealed Clean x_t")
+        dynamic_state_identity = capture_frontres_v015_policy_quality_dynamic_state_identity(
+            runner,
+            comparison_signature=signature,
+            pair_layout=pair_layout,
+        )
         observations = _read_live_observations(runner)
         checkpoint_sha = {
             "zero": "zero",
@@ -424,6 +516,7 @@ def build_frontres_v015_policy_quality_owner_bundle(
             checkpoint_file_sha256=checkpoint_sha,
             comparison_signature=signature,
             one_action_k=evidence,
+            dynamic_state_identity=dynamic_state_identity,
         )
 
     def close_item(_runner: Any, item: Any) -> None:
@@ -660,6 +753,7 @@ def _v015_quality_route_result(
     *,
     route: str,
     checkpoint_file_sha256: str,
+    dynamic_state_identity: FrontRESV015DynamicStateIdentity,
 ) -> dict[str, Any]:
     """Consume one-action evidence through the active v003 Gain owner only."""
 
@@ -715,6 +809,7 @@ def _v015_quality_route_result(
         "noisy_segment_hashes": list(evidence.noisy_segment_hashes),
         "x_t_identities": list(evidence.x_t_identities),
         "roles": list(evidence.roles),
+        "dynamic_state_identity": dynamic_state_identity.to_json(),
         "horizon_k": [int(value) for value in evidence.horizon_k.tolist()],
         "actor_forward_count": int(evidence.actor_forward_count),
         "later_femr_action_count": int(evidence.later_femr_action_count),
@@ -753,8 +848,8 @@ def _run_frontres_v015_policy_quality_heldout_eval_inference(
 ) -> dict[str, Any]:
     """Evaluate zero/HSL/policy on matched v015 evidence and atomically report.
 
-    Status: active formal owner with deterministic S1/S2/S3 connectivity.
-    Simulator execution and policy quality remain G5-S4 live evidence.
+    Status: active formal owner with deterministic G5-Q1 S1/S2 identity checks.
+    Full-state live equality and policy quality remain separate S4 evidence.
     """
 
     if not isinstance(request, FrontRESV015PolicyQualityEvalRequest):
@@ -770,6 +865,7 @@ def _run_frontres_v015_policy_quality_heldout_eval_inference(
     item_rows: list[dict[str, Any]] = []
     for item in request.manifest.items:
         anchor = None
+        dynamic_state_anchor = None
         routes: list[dict[str, Any]] = []
         try:
             for route in _V015_QUALITY_ROUTES:
@@ -786,6 +882,22 @@ def _run_frontres_v015_policy_quality_heldout_eval_inference(
                 ):
                     raise RuntimeError("v015 quality route evidence has a mixed manifest/actor/checkpoint identity")
                 evidence = route_evidence.one_action_k
+                if dynamic_state_anchor is None:
+                    dynamic_state_anchor = route_evidence.dynamic_state_identity
+                elif route_evidence.dynamic_state_identity != dynamic_state_anchor:
+                    anchor_fields = dict(dynamic_state_anchor.field_hashes)
+                    observed_fields = dict(route_evidence.dynamic_state_identity.field_hashes)
+                    differing = tuple(
+                        name
+                        for name in _V015_DYNAMIC_STATE_FIELDS
+                        if anchor_fields.get(name) != observed_fields.get(name)
+                    )
+                    if dynamic_state_anchor.role_layout != route_evidence.dynamic_state_identity.role_layout:
+                        differing = ("role_layout", *differing)
+                    raise RuntimeError(
+                        "v015 quality routes did not share one full dynamic state: "
+                        f"route={route} differing_fields={differing}"
+                    )
                 if anchor is None:
                     anchor = evidence
                 else:
@@ -795,6 +907,7 @@ def _run_frontres_v015_policy_quality_heldout_eval_inference(
                         evidence,
                         route=route,
                         checkpoint_file_sha256=checkpoint_identity[route],
+                        dynamic_state_identity=route_evidence.dynamic_state_identity,
                     )
                 )
                 if str(owners.training_state_signature(runner)) != baseline_state:
@@ -1228,6 +1341,84 @@ def capture_frontres_policy_quality_state(
         torch_rng_state=_TensorImage.capture(torch.random.get_rng_state()),
         cuda_rng_state=cuda_rng,
     )
+
+
+def capture_frontres_v015_policy_quality_dynamic_state_identity(
+    runner: Any,
+    *,
+    comparison_signature: str,
+    pair_layout: Any,
+) -> FrontRESV015DynamicStateIdentity:
+    """Hash the complete active v015 post-reset state without restoring or mutating it."""
+
+    counts = (
+        int(getattr(pair_layout, "n_train", 0)),
+        int(getattr(pair_layout, "n_base", 0)),
+        int(getattr(pair_layout, "n_candidate", 0)),
+        int(getattr(pair_layout, "n_clean", 0)),
+    )
+    if counts != (4, 4, 0, 0):
+        raise RuntimeError("v015 dynamic-state identity requires exactly 4 Repair + 4 Noisy rows")
+    role_layout = ("repair",) * counts[0] + ("noisy",) * counts[1]
+    env, raw_env = _resolve_envs(runner)
+    env_count = int(getattr(env, "num_envs", getattr(raw_env, "num_envs", 0)) or 0)
+    if env_count != len(role_layout):
+        raise RuntimeError("v015 dynamic-state identity requires B=8 role-aligned environment rows")
+    env_ids = torch.arange(env_count, dtype=torch.long)
+    snapshot = capture_frontres_policy_quality_state(
+        runner,
+        env_ids=env_ids,
+        comparison_signature=comparison_signature,
+        role_layout=role_layout,
+    )
+    command = _resolve_command(raw_env)
+    local_snapshot_fn = getattr(command, "frontres_local_scenario_snapshot", None)
+    if not callable(local_snapshot_fn):
+        raise RuntimeError("v015 dynamic-state identity requires the command-owned local-scenario snapshot")
+    local_snapshot = local_snapshot_fn(env_ids)
+    if not isinstance(local_snapshot, Mapping):
+        raise TypeError("v015 command local-scenario snapshot must be a mapping")
+    required_local = {
+        "current_root_artifact_t",
+        "intent_q29",
+        "clean_continuation",
+        "horizon_k",
+        "continuation_lengths",
+        "scenario_ids",
+        "noisy_segment_hashes",
+        "x_t_identities",
+        "roles",
+        "provenance",
+    }
+    if not required_local.issubset(local_snapshot):
+        raise RuntimeError("v015 dynamic-state identity local scenario is incomplete")
+    if tuple(local_snapshot["roles"]) != role_layout:
+        raise RuntimeError("v015 dynamic-state identity local-scenario role alignment is mixed")
+
+    values = {
+        "root_state_w": snapshot.root_state_w,
+        "joint_pos": snapshot.joint_pos,
+        "joint_vel": snapshot.joint_vel,
+        "env_origins": snapshot.env_origins,
+        "episode_length": snapshot.episode_length,
+        "command_state": snapshot.command_state,
+        "perturber_state": snapshot.perturber_state,
+        "python_rng_state": snapshot.python_rng_state,
+        "numpy_rng_state": snapshot.numpy_rng_state,
+        "torch_rng_state": snapshot.torch_rng_state,
+        "cuda_rng_state": snapshot.cuda_rng_state,
+        "local_scenario": {key: local_snapshot[key] for key in sorted(required_local)},
+    }
+    identity = FrontRESV015DynamicStateIdentity(
+        comparison_signature=comparison_signature,
+        role_layout=role_layout,
+        field_hashes=tuple(
+            (name, _v015_quality_field_hash(name, values[name]))
+            for name in _V015_DYNAMIC_STATE_FIELDS
+        ),
+    )
+    identity.validate()
+    return identity
 
 
 def restore_frontres_policy_quality_state(

@@ -1857,8 +1857,9 @@ by cache K; or the materialized Clean continuation is shorter than execution K.
 
 Status: completed at deterministic evidence `E-FI-55`. The resolver no longer
 uses cache `spec.horizon_k` as scenario identity, preserves manifest K8 through
-the materializer, and rejects duplicate motion/start identities. Live held-out
-quality remains unconfirmed until the corrected server command completes.
+the materializer, and rejects duplicate motion/start identities. The later
+bounded report reached this corrected route; its quality authority is now
+governed by `E-FI-58` and G5-Q1--Q6.
 
 ###### G5-S4-S1D: Quality Inference-Mode Isolation
 
@@ -1884,7 +1885,8 @@ contracts regress.
 Status: completed at deterministic evidence `E-FI-56`. A live-style updating
 normalizer reproduces the prior mutation without the guard; all held-out routes
 now run with zero normalizer writes and restore exact mixed module modes after
-success and intentional failure. Live quality remains unconfirmed.
+success and intentional failure. The later bounded report confirmed route
+completion; it did not close the G5-Q1--Q3 evaluation oracles.
 
 ###### G5-S4-S1E: Manifest Item Lifecycle Isolation
 
@@ -1910,7 +1912,8 @@ closed is weakened; or close changes training state.
 Status: completed at deterministic evidence `E-FI-57`. The evaluator now owns
 the exact `zero -> HSL -> policy -> item close` boundary, and the formal owner
 closes both command and batch lifecycle before the next manifest item. The
-original 16-item live quality run remains unconfirmed.
+later 16-item report confirmed this lifecycle; `E-FI-58` keeps policy efficacy
+unconfirmed for independent state/no-op/Physics reasons.
 
 ###### G5-S4-S2: Final Command Artifact And Threshold Preflight
 
@@ -1922,7 +1925,8 @@ GPU selection, one-transaction command, post-save fresh command/dispatch, and
 all required telemetry. Freeze the user-confirmed numeric thresholds below or
 their explicit replacement.
 
-Candidate thresholds pending user confirmation:
+Historical candidate thresholds, retained only as launch-era context and not
+authoritative until G5-Q1--Q5 close:
 
 - transaction: two Segments, four policy attempts, `valid_rows=4/4`,
   `update_count=1`, and `optimizer_step_delta=1`;
@@ -1950,11 +1954,11 @@ Stop: any required artifact is absent, the command still reaches a legacy
 path, telemetry cannot evaluate every gate, or numeric thresholds remain
 unconfirmed.
 
-Current runtime status: partially confirmed at `E-FI-55`. The bounded training
-half completed one exact update and saved `model_1.pt`; the first quality launch
-failed before evaluation because its shell expression expanded an unset HSL
-positional variable and selected the legacy default checkpoint. The corrected
-command and numeric gates remain user-controlled before the quality rerun.
+Current runtime status: route launch completed by `E-FI-58`. The bounded
+training half performed one exact update and saved `model_1.pt`; the corrected
+quality launch emitted the atomic 16-item report. Numeric acceptance is
+superseded by the dependency-ordered Q1--Q6 authority gates, not accepted or
+rejected from this preflight.
 
 ###### G5-S4-S4: One Bounded Live Training And Quality Run
 
@@ -1974,6 +1978,130 @@ T-action/T-gain/T-harm/T-save/T-fresh-reload/T-report.
 Stop: any legacy fallback or role/layout drift appears; action is nonfinite or
 collapses; harmful repair crosses the confirmed gate; update count is not one;
 checkpoint/reload identity differs; or the evaluator mutates training state.
+
+Status: runtime route completed, but the quality verdict is stopped at
+`E-FI-58`. The corrected 16-item zero/HSL/policy evaluation produced one atomic
+v015 report with no lifecycle, identity, inference-mode, or training-state
+failure. Actions were finite and non-collapsed. However, zero action did not
+form a no-op oracle, `physics_gain` was identically zero, and the report did
+not prove full dynamic-state equality across the three routes. Therefore this
+run proves formal connectivity only. Evaluation authority is blocked and
+policy efficacy is unconfirmed; its candidate numeric thresholds are not an
+admission result.
+
+##### G5-Q0: Quality-Gap Plan Rebase
+
+Objective: preserve all completed v015 route engineering while reopening only
+the policy-quality evidence chain at its earliest unproven authority boundary.
+
+Scope: current plan/checklist/canvas/evidence and Quality Audit Atlas status;
+classify the completed live result; define Q1--Q6 dependencies.
+
+Non-scope: active contracts, Concept Figure, training/evaluation source,
+checkpoint IO, tests, simulator, training, or live execution.
+
+Evidence: S0 T-plan/T-status/T-dependency/T-legacy-isolation at `E-FI-58`.
+
+Stop: any completed G0--G4 or G5-S1--S4-S1E evidence is downgraded; old
+v002/Q-E evidence is treated as current v015 authority; or long training is
+admitted before Q1--Q5 close.
+
+Status: completed at note-confirmed `E-FI-58`. The current verdict is
+`evaluation-authority blocked / policy efficacy unconfirmed`.
+
+##### G5-Q1: Full Dynamic-State Identity
+
+Objective: prove that zero/HSL/policy routes begin from the same complete
+post-reset dynamic state, not merely the same scenario/hash/x_t metadata.
+
+Scope: read-only route-local identity probe at the active v015 reset boundary,
+covering role-aligned root pose/velocity, joint position/velocity, command and
+scenario cache identity, and CPU/CUDA RNG identity before observation/action.
+
+Non-scope: changing reset semantics, action, K, Gain, PPO, checkpoint,
+normalizer, simulator physics, training, or live quality thresholds.
+
+Owner files/modules: `frontres_policy_quality_eval.py::build_frontres_v015_policy_quality_owner_bundle`
+owns the zero/HSL/policy route boundary; the canonical reset remains
+`frontres_segment_live_probe.py::_apply_current_segment_reset`.
+
+Evidence: S1 T-state-schema/T-role-alignment/T-permutation/T-no-feedback;
+S2 T-zero-HSL-policy-equality/T-reset-repeat/T-exception-cleanup; S4 one bounded
+matched-item identity sentinel only after S1/S2 pass.
+
+Stop: any dynamic tensor/cache/RNG identity differs across routes; the probe
+reads legacy quartet/Clean scored fields; the probe mutates reset/training
+state; or equality cannot be established before `_read_live_observations()`.
+
+Status: partial at `E-FI-59`. Deterministic S1/S2 now capture and compare the
+complete B=8 post-reset identity before observation/action: root state, 29DoF
+joint position/velocity, env/episode state, command and perturber caches,
+Python/NumPy/Torch/CUDA RNG, and the command-owned sealed local scenario.
+Field-level mutation, role permutation, incomplete schema, mixed route state,
+and report emission after mismatch reject fail-closed. The probe is read-only
+and does not restore state. One bounded S4 identity sentinel remains separately
+user-gated; Q2 stays blocked until it passes.
+
+##### G5-Q2: Zero-Action No-Op Oracle
+
+Objective: establish that zero action yields Repair and Noisy executions that
+are equal within a predeclared numerical tolerance under one matched state.
+
+Dependency: Q1 complete.
+
+Evidence: S1 tiny semantic no-op/metamorphic contract; S2 matched one-action-K
+zero-route oracle; S4 bounded confirmation only after the offline oracle closes.
+
+Stop: zero action changes command/state, route identity differs, or nonzero
+Gain remains unexplained by measured simulator tolerance.
+
+##### G5-Q3: Physics Survival/ZMP/Contact Evidence
+
+Objective: restore the accepted v003 Physics evidence authority so paired
+execution is not reduced to constant survival alone.
+
+Dependency: Q2 complete.
+
+Evidence: S1 schema/value/sign contracts for survival, ZMP/support and contact;
+S2 active held-out consumer connectivity and legacy-v002 rejection; S4 bounded
+nonconstant physical evidence.
+
+Stop: ZMP/contact are absent, silently zero-filled, unmatched, recomputed by
+diagnostics, or unavailable to the unique v003 Gain owner.
+
+##### G5-Q4: Matched Zero/HSL/Policy Rerun
+
+Objective: rerun the fixed manifest only after Q1--Q3 establish authoritative
+matched state, no-op, and physical evidence.
+
+Evidence: S4 atomic report with full state identity, no-op residual, nonconstant
+v003 components, route/checkpoint identity, and zero training-state writes.
+
+Stop: any earlier oracle fails or a route becomes unmatched.
+
+##### G5-Q5: Gain To Advantage To Update Causality
+
+Objective: trace the same valid policy rows from authoritative v003 Gain
+through return, advantage, grouped reduction, and the exact-one actor update.
+
+Dependency: Q4 complete.
+
+Evidence: S1/S2 sign/mass/covariance and controlled-update contracts; S4 one
+bounded transaction trace if offline evidence is insufficient.
+
+Stop: sign flips, row identity/mass is lost, negative/positive evidence is
+mixed incorrectly, or the actor update cannot be attributed to the sealed rows.
+
+##### G5-Q6: Checkpoint Trajectory And Long-Training Admission
+
+Objective: admit longer training only after Q1--Q5 close, then compare strict
+v015 checkpoint trajectories on the same fixed quality manifest.
+
+Evidence: checkpoint/manifest identity, ordered atomic reports, action and
+Gain trajectory, regression/harm gates, and fresh-reload equality.
+
+Stop: any checkpoint lacks exact v015 identity, reports are unmatched, quality
+regresses without an attributable boundary, or Q1--Q5 remain open.
 
 #### G6 / 7: Paired Composition Connectivity
 
@@ -1997,25 +2125,17 @@ the carrier resamples, baseline is absent, or training state changes.
 
 ## Current Plan Cursor
 
-R0--R6 / 7 and Step 5A are complete at `E-FI-18`--`E-FI-27`. The final bounded
-S4 run confirms the complete dedicated local route through separate
-`928D` actor / `289D` critic observations, K=8 frozen-GMT evidence, grouped
-equal-mass reduction, and exactly one optimizer update. Step 5B deployment-
-composition schema, carrier, CPU executor, and dedicated CLI have interface
-evidence at `E-FI-28`--`E-FI-31`; they are not ready-to-run evaluation evidence.
-G0 is completed at `E-FI-32`. G1 is completed as a stopped read-only audit at
-`E-FI-33`: Stage-1 still admits the old `870D` route, no new HSL checkpoint
-identity exists, ordinary Stage-3 bypasses the sealed grouped transaction, and
-ordinary training cannot produce a fresh-reloadable exact v015 checkpoint.
-The human carrier decision recorded at `E-FI-34` is implemented through G2,
-which is complete at `E-FI-42`. G3 is complete at offline S2/S3: `E-FI-43`
-closes explicit actor-only HSL migration, `E-FI-44` closes ordinary whole-M
-formal dispatch/exact-one commit/commit-only save triggering, and `E-FI-45`
-closes actual save to strict fresh-inference equality, and `E-FI-46` closes G4
-ordinary-reference-to-fixed-carrier materialization. G5--G7 retain their
-policy-quality, paired-connectivity, and bounded-composition duties in that
-order. `E-FI-47` closes G5-S0 as a stopped preflight: formal training through
-committed save is code-confirmed, while strict post-save fresh reload and the
-v015 policy-quality route remain absent. G5 is locally rebased into S1, S2A,
-S2B, S3, and S4; G5-S1 is the only ready code step. No Stage-3 training or
-trained checkpoint is ready.
+G0--G4 are complete through `E-FI-46`. G5-S1 through G5-S4-S1E remain
+complete through `E-FI-57`; the corrected bounded train/save/fresh-evaluation
+route also executed and emitted an atomic 16-item report. `E-FI-58` classifies
+that result without erasing its route evidence: finite non-collapsed actions
+and exact lifecycle connectivity passed, but the zero route was not a no-op
+oracle, `physics_gain` was constant zero, and full dynamic-state equality was
+not proven. The current verdict is therefore `evaluation-authority blocked /
+policy efficacy unconfirmed`, not policy failure or success.
+
+G5-Q0 is complete. G5-Q1 S1/S2 is complete at `E-FI-59`; G5-Q1-S4 is the only
+ready next step and requires a separately authorized bounded identity sentinel.
+Q2--Q6 are dependency-ordered behind it, and G6/G7 remain blocked by G5. No
+additional training, full quality rerun, checkpoint trajectory, or deployment
+composition is admitted until the corresponding Q gate closes.

@@ -1,6 +1,6 @@
 # FRS-v015 Task Canvas
 
-Status: active volatile control surface. Updated: 2026-07-21.
+Status: active volatile control surface. Updated: 2026-07-22.
 
 ## Objective
 
@@ -17,7 +17,7 @@ continuation, and one-action K evidence.
 
 ## Current Step
 
-`G2 / 7 complete at live E-FI-42; G3 / 7 complete at E-FI-43--E-FI-45; G4 / 7 complete at E-FI-46; G5-S0 stopped audit complete at E-FI-47; G5-S1 next`
+`G0--G4 complete; G5-Q0 complete; G5-Q1 S1/S2 complete at E-FI-59; G5-Q1-S4 next`
 
 Status: local scenario, future q29, two-role reset, one-action K, v003 Gain,
 grouped transaction, persistence identity, and the dedicated formal route are
@@ -33,14 +33,14 @@ a user prerequisite. The S4-S0 CLI remains implemented-not-runnable because a
 trained Stage-3 checkpoint and same-carrier No-FEMR/GMT versus FEMR/GMT paired
 composition still do not exist.
 
-G5-S0 now confirms that the formal Stage-3 owner can consume the strict HSL-v1
-initializer, collect one complete multi-Segment x M transaction, perform one
-grouped update, commit, and invoke the actual v015 save owner. It also confirms
-the missing boundary: ordinary training performs no post-save fresh-runner
-verification and emits no atomic v015 policy-quality report. The existing
-policy-quality evaluator/manifests remain quartet/Clean, repeated-action,
-v011/v002 artifacts and are legacy/incompatible with the active two-role
-one-action-K v015 route. No bounded Stage-3 training is authorized.
+G5-S1 through G5-S4-S1E remain complete. The corrected bounded train/save and
+16-item zero/HSL/policy report also completed, proving the formal route,
+lifecycle, strict identity, fresh reload, and finite non-collapsed actions.
+The report does not yet authorize a policy-quality conclusion: zero action was
+not a no-op oracle, `physics_gain` was identically zero, and complete dynamic-
+state equality across the three routes was not proven. The current verdict is
+`evaluation-authority blocked / policy efficacy unconfirmed`. Old v011/v002
+quartet and Q-E evidence remain historical/incompatible.
 
 G2-S1b closes the first G1 gap: Stage-1 now requires `(1,2)` deployment q29,
 constructs `870+58=928`, exposes only the 158D prefix to FEMR, preserves the
@@ -327,7 +327,8 @@ because zero-route observation normalization updated a training-mode 158D
 running-stat owner before the checkpoint route context. The complete route set
 now freezes policy plus prefix/GMT/privileged/teacher normalizer modes before
 observation read, hashes every normalizer state, and restores exact mixed modes
-after success or exception. The live report is still pending.
+after success or exception. The later report completed; `E-FI-58` classifies
+its remaining state/no-op/Physics authority gaps.
 
 G5-S4-S1E is complete at deterministic S1/S2 evidence `E-FI-57`. The next live
 attempt completed all three routes for the first item, then exposed that its
@@ -336,17 +337,19 @@ hash. The evaluator now keeps the carrier sealed across zero/HSL/policy and
 closes both command and immutable batch lifecycle exactly once at the item
 boundary, including route exceptions; close-side training-state writes reject.
 
-G5-S4 is therefore split into S1A launch/telemetry, S1B formal held-out/fresh
-report, S2 read-only artifact/command/threshold preflight, and S4 one bounded
-live run. The S4 training half is runtime-confirmed at `E-FI-55`: one exact
-update saved `model_1.pt`. The first quality command failed before evaluation
-because same-command shell expansion passed an empty positional HSL path and
-selected the legacy default checkpoint. Candidate gates remain user-unconfirmed.
+G5 is now rebased into Q1--Q6 without reopening method semantics. Q1 proves
+full dynamic-state identity; Q2 establishes the zero-action no-op oracle; Q3
+restores survival/ZMP/contact Physics authority; Q4 reruns matched routes; Q5
+traces Gain to advantage and exact-one update; Q6 alone can admit checkpoint-
+trajectory or longer training evidence. G6/G7 remain blocked.
 
-Next step: after syncing the S1E lifecycle fix together with the already
-required S1C/S1D changes, run only the corrected fresh held-out quality command
-with HSL and policy variables assigned in separate shell statements. Do not
-repeat bounded training. Stop on any active-carrier replacement, non-unique
-manifest identity, strict checkpoint mismatch, training-state mutation, or
-non-atomic report; numeric quality acceptance remains a separate human
-decision.
+G5-Q1 S1/S2 is complete at `E-FI-59`. The active v015 route now captures a
+read-only B=8 identity after every canonical Clean x_t reset and before
+observation/action. It binds root state, joint position/velocity, env/episode,
+command/perturber caches, all RNG owners, and the sealed local scenario to each
+zero/HSL/policy evidence row. Any field or role mismatch blocks atomic output.
+
+Next step: G5-Q1-S4 only. Run one bounded matched-item identity sentinel and
+inspect the three route hashes plus field hashes. Do not train, evaluate the
+full 16-item manifest, or enter Q2. Stop immediately if a state field differs,
+the report lacks identity, or any training state changes.

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 from contextlib import contextmanager
 from dataclasses import replace
@@ -86,6 +87,24 @@ def _evidence(storage, *, route: str):
     return result
 
 
+def _dynamic_identity(
+    quality,
+    comparison_signature: str,
+    *,
+    role_layout: tuple[str, ...] = ("repair", "noisy"),
+    salt: str = "matched",
+):
+    field_hashes = tuple(
+        (name, hashlib.sha256(f"{salt}:{name}".encode("ascii")).hexdigest())
+        for name in quality._V015_DYNAMIC_STATE_FIELDS
+    )
+    return quality.FrontRESV015DynamicStateIdentity(
+        comparison_signature=comparison_signature,
+        role_layout=role_layout,
+        field_hashes=field_hashes,
+    )
+
+
 def _expect_reject(fn, fragment: str) -> None:
     try:
         fn()
@@ -106,6 +125,103 @@ class _TrainingStateNormalizer(torch.nn.Module):
         if self.training:
             self.forward_updates.add_(1)
         return value
+
+
+class _Scene(dict):
+    pass
+
+
+def _semantic_dynamic_state_fixture():
+    env_count = 8
+    scene = _Scene()
+    scene.env_origins = torch.arange(env_count * 3, dtype=torch.float32).reshape(env_count, 3)
+    robot = SimpleNamespace(
+        data=SimpleNamespace(
+            root_state_w=torch.arange(env_count * 13, dtype=torch.float32).reshape(env_count, 13),
+            joint_pos=torch.arange(env_count * 29, dtype=torch.float32).reshape(env_count, 29),
+            joint_vel=torch.arange(env_count * 29, dtype=torch.float32).reshape(env_count, 29) * 0.01,
+        )
+    )
+    scene["robot"] = robot
+    roles = ["repair"] * 4 + ["noisy"] * 4
+    local_snapshot = {
+        "current_root_artifact_t": torch.arange(env_count * 7, dtype=torch.float32).reshape(env_count, 7),
+        "intent_q29": torch.arange(env_count * 3 * 29, dtype=torch.float32).reshape(env_count, 3, 29),
+        "clean_continuation": torch.arange(env_count * 2 * 65, dtype=torch.float32).reshape(env_count, 2, 65),
+        "horizon_k": torch.full((env_count,), 2, dtype=torch.long),
+        "continuation_lengths": torch.full((env_count,), 2, dtype=torch.long),
+        "scenario_ids": tuple("scenario-q1" for _ in range(env_count)),
+        "noisy_segment_hashes": tuple("hash-q1" for _ in range(env_count)),
+        "x_t_identities": tuple("x-t-q1" for _ in range(env_count)),
+        "roles": roles,
+        "provenance": tuple(
+            {"intent_q29_provenance": "deployment_noisy_q29", "row": row}
+            for row in range(env_count)
+        ),
+    }
+    command = SimpleNamespace(
+        time_steps=torch.zeros(env_count, dtype=torch.long),
+        env_motion_indices=torch.arange(env_count, dtype=torch.long),
+        _cached_perturbed_pos=torch.zeros(env_count, 3),
+        _cached_perturbed_quat=torch.zeros(env_count, 4),
+        _frontres_pos_correction=torch.zeros(env_count, 3),
+        _frontres_quat_correction=torch.zeros(env_count, 4),
+        perturber=SimpleNamespace(scale=torch.arange(env_count, dtype=torch.float32)),
+        frontres_local_scenario_snapshot=lambda _env_ids: {
+            key: value.clone() if isinstance(value, torch.Tensor) else tuple(value)
+            for key, value in local_snapshot.items()
+        },
+    )
+    env = SimpleNamespace(
+        num_envs=env_count,
+        scene=scene,
+        episode_length_buf=torch.arange(env_count, dtype=torch.long),
+        command_manager=SimpleNamespace(get_term=lambda name: command if name == "motion" else None),
+    )
+    runner = SimpleNamespace(env=env, device="cpu")
+    pair_layout = SimpleNamespace(n_train=4, n_base=4, n_candidate=0, n_clean=0)
+    return runner, pair_layout, robot, local_snapshot
+
+
+def test_v015_full_dynamic_state_identity_probe() -> None:
+    _identity, _checkpointing, _manifest, quality, _storage, _gain = _owners()
+    runner, pair_layout, robot, local_snapshot = _semantic_dynamic_state_fixture()
+    comparison_signature = "a" * 64
+
+    before_root = robot.data.root_state_w.clone()
+    first = quality.capture_frontres_v015_policy_quality_dynamic_state_identity(
+        runner,
+        comparison_signature=comparison_signature,
+        pair_layout=pair_layout,
+    )
+    second = quality.capture_frontres_v015_policy_quality_dynamic_state_identity(
+        runner,
+        comparison_signature=comparison_signature,
+        pair_layout=pair_layout,
+    )
+    assert first == second
+    assert first.role_layout == ("repair",) * 4 + ("noisy",) * 4
+    assert tuple(name for name, _value in first.field_hashes) == quality._V015_DYNAMIC_STATE_FIELDS
+    assert torch.equal(robot.data.root_state_w, before_root)
+
+    robot.data.root_state_w[[0, 4]] = robot.data.root_state_w[[4, 0]].clone()
+    permuted = quality.capture_frontres_v015_policy_quality_dynamic_state_identity(
+        runner,
+        comparison_signature=comparison_signature,
+        pair_layout=pair_layout,
+    )
+    assert permuted.full_state_hash != first.full_state_hash
+    robot.data.root_state_w.copy_(before_root)
+
+    local_snapshot["roles"] = ["noisy"] * 4 + ["repair"] * 4
+    _expect_reject(
+        lambda: quality.capture_frontres_v015_policy_quality_dynamic_state_identity(
+            runner,
+            comparison_signature=comparison_signature,
+            pair_layout=pair_layout,
+        ),
+        "role",
+    )
 
 
 def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
@@ -152,6 +268,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 checkpoint_file_sha256=checkpoint_by_route[route],
                 comparison_signature=item.comparison_signature,
                 one_action_k=_evidence(storage, route=route),
+                dynamic_state_identity=_dynamic_identity(quality, item.comparison_signature),
             )
 
         bundle = quality.FrontRESV015PolicyQualityOwnerBundle(
@@ -204,6 +321,11 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         assert all(row["actor_forward_count"] == 1 and row["later_femr_action_count"] == 0 for row in rows)
         assert all(row["scenario_ids"] == ["scenario-heldout-a", "scenario-heldout-a"] for row in rows)
         assert all(row["noisy_segment_hashes"] == ["noisy-hash-a", "noisy-hash-a"] for row in rows)
+        assert len({row["dynamic_state_identity"]["full_state_hash"] for row in rows}) == 1
+        assert all(
+            row["dynamic_state_identity"]["role_layout"] == ["repair", "noisy"]
+            for row in rows
+        )
         assert rows[0]["policy_actions"] == [[0.0] * 6]
         assert rows[0]["gain_total"] == [0.0]
         assert rows[1]["gain_total"][0] > rows[0]["gain_total"][0]
@@ -220,6 +342,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 checkpoint_file_sha256=checkpoint_by_route[route],
                 comparison_signature=item.comparison_signature,
                 one_action_k=_evidence(storage, route=route),
+                dynamic_state_identity=_dynamic_identity(quality, item.comparison_signature),
             )
             if route == "hsl":
                 training_state["optimizer_steps"] += 1
@@ -275,6 +398,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 checkpoint_file_sha256=checkpoint_by_route[route],
                 comparison_signature=item.comparison_signature,
                 one_action_k=evidence,
+                dynamic_state_identity=_dynamic_identity(quality, item.comparison_signature),
             )
 
         mixed_runner = SimpleNamespace(alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True))
@@ -308,6 +432,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 checkpoint_file_sha256=claimed,
                 comparison_signature=item.comparison_signature,
                 one_action_k=_evidence(storage, route=route),
+                dynamic_state_identity=_dynamic_identity(quality, item.comparison_signature),
             )
 
         wrong_checkpoint_runner = SimpleNamespace(
@@ -390,6 +515,13 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 )
             ),
         )
+        quality.capture_frontres_v015_policy_quality_dynamic_state_identity = (
+            lambda _runner, *, comparison_signature, pair_layout: _dynamic_identity(
+                quality,
+                comparison_signature,
+                role_layout=("repair", "noisy"),
+            )
+        )
         formal_payload = quality.run_frontres_policy_quality_eval(
             formal_runner,
             manifest_path=str(manifest_path),
@@ -411,6 +543,45 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         assert not hasattr(formal_runner, "_frontres_v015_quality_action_route")
         assert command_close_calls == ["clear"]
         assert len(lifecycle_close_calls) == 1
+
+        state_mismatch_path = root / "state-mismatch.json"
+
+        def state_mismatch_collect(_runner, item, route: str):
+            return quality.FrontRESV015PolicyQualityRouteEvidence(
+                route=route,
+                checkpoint_file_sha256=checkpoint_by_route[route],
+                comparison_signature=item.comparison_signature,
+                one_action_k=_evidence(storage, route=route),
+                dynamic_state_identity=_dynamic_identity(
+                    quality,
+                    item.comparison_signature,
+                    salt="mismatch" if route == "policy" else "matched",
+                ),
+            )
+
+        state_mismatch_runner = SimpleNamespace(
+            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True)
+        )
+        quality.install_frontres_v015_policy_quality_owner_bundle(
+            state_mismatch_runner,
+            quality.FrontRESV015PolicyQualityOwnerBundle(
+                owner_identity=quality._V015_QUALITY_OWNER_IDENTITY,
+                collect_one_action_k=state_mismatch_collect,
+                close_item=lambda _runner, _item: None,
+                training_state_signature=lambda _runner: "stable",
+            ),
+        )
+        _expect_reject(
+            lambda: quality.run_frontres_policy_quality_eval(
+                state_mismatch_runner,
+                manifest_path=str(manifest_path),
+                hsl_checkpoint_path=str(hsl_path),
+                policy_checkpoint_path=str(policy_path),
+                result_path=str(state_mismatch_path),
+            ),
+            "dynamic state",
+        )
+        assert not state_mismatch_path.exists()
 
 
 def test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error() -> None:
@@ -444,6 +615,7 @@ def test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error() -> None
                 checkpoint_file_sha256=checkpoint_by_route[route],
                 comparison_signature=item.comparison_signature,
                 one_action_k=_evidence(storage, route=route),
+                dynamic_state_identity=_dynamic_identity(quality, item.comparison_signature),
             )
 
         def close_item(_runner, item) -> None:
@@ -534,6 +706,7 @@ def test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error() -> None
 
 
 if __name__ == "__main__":
+    test_v015_full_dynamic_state_identity_probe()
     test_v015_repair_noisy_one_action_k_atomic_quality()
     test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error()
     print("frontres_v015_policy_quality_heldout_contract: ok", flush=True)

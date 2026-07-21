@@ -299,6 +299,10 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
                 checkpoint_file_sha256=checkpoint_hashes[route],
                 comparison_signature=item.comparison_signature,
                 one_action_k=evidence,
+                dynamic_state_identity=heldout_contract._dynamic_identity(
+                    quality,
+                    item.comparison_signature,
+                ),
             )
 
         bundle = quality.FrontRESV015PolicyQualityOwnerBundle(

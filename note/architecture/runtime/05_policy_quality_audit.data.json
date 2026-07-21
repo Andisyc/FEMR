@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
   "subtitle": "LEGACY / INCOMPATIBLE: v011/v002 quartet-Clean 时代的八个质量 owner. 不得作为 v015 two-role one-action-K policy-quality route.",
-  "currentStatus": "legacy evaluator remains isolated; G5-S1 through G5-S4-S1E are complete at E-FI-48--E-FI-57. The formal v015 route installs a fixed-manifest Repair/Noisy one-action-K owner, separates K4 cache identity from K8 execution, freezes all policy/normalizer owners during inference, and preserves one sealed scenario across zero/HSL/policy before closing command and batch lifecycle at each manifest-item boundary. Success/error cleanup is deterministic; bounded live quality report remains pending G5-S4-S4.",
+  "currentStatus": "G5-Q1 S1/S2 complete at E-FI-59. The active v015 owner now captures B=8 root/joint/env/episode/command/perturber/RNG/local-scenario field hashes after each canonical reset and before observation/action; zero/HSL/policy mismatch blocks atomic output. One bounded G5-Q1-S4 identity sentinel remains user-gated. Current verdict stays evaluation-authority blocked / policy efficacy unconfirmed; Q2--Q6, G6, G7 and long training remain blocked.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -15,13 +15,26 @@
     "QUALITY-EXEC-01",
     "QUALITY-TRAJECTORY-01"
   ],
+  "activeV015QualityPlan": {
+    "status": "evaluation-authority-blocked-policy-efficacy-unconfirmed; q1-s1-s2-complete",
+    "evidence": "E-FI-59",
+    "next": "G5-Q1-S4 bounded full dynamic-state identity sentinel",
+    "gates": [
+      "Q1 full dynamic-state identity",
+      "Q2 zero-action no-op oracle",
+      "Q3 Physics survival/ZMP/contact evidence",
+      "Q4 matched zero/HSL/policy rerun",
+      "Q5 Gain-to-advantage-to-update causality",
+      "Q6 checkpoint trajectory and long-training admission"
+    ]
+  },
   "supportOrder": [],
   "systems": [
     {
       "id": "SYS-POLICY-QUALITY",
       "title": "Policy Quality Causal Chain",
-      "summary": "LEGACY v011/v002 execution remains isolated: quartet/Clean + repeated FEMR action + legacy HSL rollout target. Active v015 evidence at E-FI-48--E-FI-57 includes strict artifact identity, K4-index/K8-execution separation, Repair/Noisy one-action-K v003 evaluation, actual save-to-fresh-reload connectivity, reversible zero-write inference modes, and exact per-item command/batch lifecycle closure after zero/HSL/policy; physical policy quality remains pending G5-S4.",
-      "status": "legacy-incompatible-with-v015",
+      "summary": "The eight cards below are historical v011/v002/Q-E audit objects and cannot authorize v015 quality. Active v015 route evidence is preserved through E-FI-57; E-FI-58 rebases the current investigation to Q1--Q6 because the completed atomic report lacks a proven full-state identity, zero-action no-op oracle, and discriminative Physics evidence.",
+      "status": "historical-incompatible-v002-qe; active-v015-evaluation-authority-blocked",
       "color": "#0f766e",
       "modules": [
         {
@@ -132,7 +145,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-    "gap": "Q-E11 runtime pass; Q1 matched identity closed, next gate is Q2 multi-motion matched oracle"
+    "gap": "HISTORICAL/INCOMPATIBLE Q-E11; it does not close active v015 G5-Q1 full dynamic-state identity"
         },
         {
           "id": "QUALITY-DATA-01",
@@ -225,7 +238,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "pending: Q4 distribution evidence"
+          "gap": "HISTORICAL/INCOMPATIBLE v011/v002 distribution question; active v015 distribution work is deferred behind G5-Q1--Q4"
         },
         {
           "id": "QUALITY-ACTION-01",
@@ -375,7 +388,7 @@
             "Q2-C HSL loss-gradient and checkpoint-lineage contract",
             "Q2-D scaled-action isolation contract"
           ],
-          "gap": "Q-E18 proves an over-amplitude HSL initialization mechanism, not final HRL root-cause closure. Q-E19 requires the same failed samples to cross action-scale Gain -> advantage -> controlled policy-mean correction; full Stage 2 distribution and checkpoint lineage also remain unconfirmed"
+          "gap": "HISTORICAL/INCOMPATIBLE Q-E18/Q-E19; active v015 action evidence is finite/non-collapsed but efficacy remains unconfirmed until G5-Q1--Q5"
         },
         {
           "id": "QUALITY-GAIN-01",
@@ -468,7 +481,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "pending: Q2/Q5 matched Gain evidence"
+          "gap": "HISTORICAL/INCOMPATIBLE FRS-GAIN-v002 card; active v015 uses FRS-GAIN-v003 and is blocked on G5-Q2/Q3 authority"
         },
         {
           "id": "QUALITY-CREDIT-01",
@@ -579,7 +592,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "Q-E23 closes offline transaction/credit wiring; real sampled-action/advantage covariance remains pending one bounded artifact"
+          "gap": "HISTORICAL/INCOMPATIBLE Q-E23; active v015 Gain-to-advantage causality is G5-Q5 and cannot start before Q4"
         },
         {
           "id": "QUALITY-UPDATE-01",
@@ -690,7 +703,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "Q2-D clone-update oracle implemented; real failed-sample PPO batch and trust result remain pending"
+          "gap": "HISTORICAL/INCOMPATIBLE Q2-D; active v015 controlled update evidence belongs to G5-Q5"
         },
         {
           "id": "QUALITY-EXEC-01",
@@ -783,7 +796,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "callback connectivity observed: Q-E3; physical evidence pending Q1-F/Q2"
+          "gap": "HISTORICAL/INCOMPATIBLE Q-E3; active v015 Physics survival/ZMP/contact authority is G5-Q3"
         },
         {
           "id": "QUALITY-TRAJECTORY-01",
@@ -876,7 +889,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "executor schema observed: Q-E5; checkpoint trajectory pending Q3"
+          "gap": "HISTORICAL/INCOMPATIBLE Q-E5; active v015 checkpoint trajectory and long-training admission is G5-Q6"
         }
       ]
     }
