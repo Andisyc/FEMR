@@ -3314,10 +3314,16 @@ def collect_frontres_v015_one_action_k_evidence(
     command, snapshot, repair_rows = _require_v015_one_action_k_layout(runner, observations, pair_layout)
     n_repair = int(repair_rows.numel())
     frontres_dim = int(getattr(getattr(runner.alg, "policy", None), "num_frontres_obs", 0) or 0)
-    if bool(getattr(runner.alg, "frontres_v015_local_sentinel_only", False)):
+    # B1: Sentinel 和 ordinary training 从 command owner 读取当前 GMT command
+    # 维度. Held-out quality 不消费 training observation trace, 不应触发该读取.
+    trace_current_command = bool(
+        getattr(runner.alg, "frontres_v015_local_sentinel_only", False)
+        or getattr(runner.alg, "frontres_segment_live_train_enabled", False)
+    )
+    if trace_current_command:
         current_command = command.command
         if not isinstance(current_command, torch.Tensor) or current_command.ndim != 2:
-            raise RuntimeError("v015 live sentinel requires a rank-2 current GMT command")
+            raise RuntimeError("v015 formal one-action-K requires a rank-2 current GMT command")
         trace = dict(getattr(runner, "_frontres_v015_observation_route_trace", {}) or {})
         trace["current_command_dim"] = int(current_command.shape[-1])
         runner._frontres_v015_observation_route_trace = trace

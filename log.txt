@@ -1,5 +1,5 @@
 Traceback (most recent call last):
-  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1668, in <module>
+  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1698, in <module>
     main()
   File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 104, in wrapper
     hydra_main()
@@ -23,14 +23,22 @@ Traceback (most recent call last):
     ret.return_value = task_function(task_cfg)
   File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
     func(env_cfg, agent_cfg, *args, **kwargs)
-  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1660, in main
-    runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 1055, in learn
-    run_frontres_joint_warmup(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_warmup.py", line 786, in run_frontres_joint_warmup
-    verify_reload(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 1412, in _verify_v015_hsl_fresh_reload
-    return verify_v015_hsl_fresh_reload(shadow, **kwargs)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", line 250, in verify_v015_hsl_fresh_reload
+  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1682, in main
+    runner.learn_frontres_segment_live(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 707, in learn_frontres_segment_live
+    run_frontres_segment_live_training_loop(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", line 2199, in run_frontres_segment_live_training_loop
+    result = runner.run_frontres_v015_formal_training_transaction(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 686, in run_frontres_v015_formal_training_transaction
+    return run_frontres_v015_formal_training_update_loop_helper(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 186, in run_frontres_v015_formal_training_update_loop
+    return run_frontres_v015_formal_transaction_update_loop(runner)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 148, in run_frontres_v015_formal_transaction_update_loop
+    request = provider()
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 177, in provider
+    return build_frontres_v015_formal_training_request(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3953, in build_frontres_v015_formal_training_request
+    return _build_frontres_v015_local_transaction_request(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3898, in _build_frontres_v015_local_transaction_request
     raise RuntimeError(
-RuntimeError: G2-S4 fresh reload changed the normalized FEMR input or proposal: normalized_158_equal=1 proposal_6_equal=0
+RuntimeError: v015 formal training observation trace is incomplete or violates the frozen authority: mismatched={'current_command_dim': (0, 58)}, trace={'role_row_count': 8, 'current_command_dim': 0, 'raw_observation_dim': 870, 'q29_tail_dim': 58, 'combined_observation_dim': 928, 'normalized_observation_dim': 928, 'femr_visible_dim': 158, 'gmt_suffix_dim': 770, 'gmt_input_dim': 770, 'post_advance_gmt_read_count': 8, 'critic_observation_dim': 289}

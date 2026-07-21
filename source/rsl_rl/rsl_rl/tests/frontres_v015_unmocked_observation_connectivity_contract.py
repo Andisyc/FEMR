@@ -341,6 +341,11 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
         "post_advance_gmt_read_count": 0,
     }
 
+    # Regression: ordinary formal training must refresh the same command trace
+    # as the sentinel before the transaction request is sealed.
+    runner.alg.frontres_v015_local_sentinel_only = False
+    runner.alg.frontres_segment_live_train_enabled = True
+    runner.alg.frontres_segment_live_update_steps = 1
     evidence = live_probe.collect_frontres_v015_gain_return_priority_evidence(
         runner,
         observations,
@@ -393,6 +398,12 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
     request = live_probe.FrontRESV015FormalTransactionRequest(
         plan=plan,
         candidate_batches=(candidate,),
+        diagnostic_reports=(
+            live_probe.build_frontres_v015_local_evaluation_report(
+                evidence,
+                transaction_id=plan.transaction_id,
+            ),
+        ),
     )
     result = live_probe.run_frontres_v015_formal_transaction_update(runner, request)
     assert fixture.policy.critic_inputs and tuple(fixture.policy.critic_inputs[-1].shape) == (4, 289)
