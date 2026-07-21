@@ -518,9 +518,6 @@ def run_frontres_joint_warmup(
                 else:
                     _pred_all = _pred_all_raw[:, :_all_tgt.shape[-1]]
                     _target_all = _all_tgt
-                if _sup_mask is not None:
-                    _pred_all = _pred_all * _sup_mask.view(1, -1)
-                    _target_all = _target_all * _sup_mask.view(1, -1)
 
                 _valid_all = _target_all.norm(dim=-1) > 1e-4
                 _valid_pos = _target_all[:, :3].norm(dim=-1) > 1e-4

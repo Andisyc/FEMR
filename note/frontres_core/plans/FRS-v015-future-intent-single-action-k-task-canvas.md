@@ -17,7 +17,7 @@ continuation, and one-action K evidence.
 
 ## Current Step
 
-`G2-S4-S0 bounded HSL telemetry/fresh-reload connector complete at E-FI-39; G2-S4-S1 live smoke next`
+`G2-S4-S0a stale diagnostic mask repair complete at E-FI-40; G2-S4-S1 live smoke retry next`
 
 Status: local scenario, future q29, two-role reset, one-action K, v003 Gain,
 grouped transaction, persistence identity, and the dedicated formal route are
@@ -243,16 +243,16 @@ Step 5A closure facts:
 
 ## Next Step
 
-Completed step: `G2-S4-S0`, bounded HSL telemetry/fresh-reload connector
-(`E-FI-39`). No Concept Figure, simulator, training, live run, or persistent
-artifact generation was authorized; checkpoint IO was temporary deterministic
-test evidence only.
+Completed step: `G2-S4-S0a`, stale `_sup_mask` diagnostic repair (`E-FI-40`).
+No Concept Figure, simulator, training, live run, or persistent artifact
+generation was authorized; checkpoint IO was temporary deterministic test
+evidence only.
 
 Current code state: the dedicated local sentinel and deployment CLI preserve
 their bounded evidence, but they do not close the formal training gaps found by
 G1. No compatible trained v015 checkpoint exists.
 
-Next step: separately authorize `G2-S4-S1`, one bounded formal Stage-1 HSL smoke.
+Next step: separately authorize the `G2-S4-S1` bounded formal Stage-1 HSL smoke retry.
 It must capture real current artifact/q29 input, anti-DR target, actor-only
 gradient boundary, strict HSL save, and fresh reload evidence. Do not enter
 Stage-3 migration/PPO or long training.

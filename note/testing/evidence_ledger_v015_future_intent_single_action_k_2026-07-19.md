@@ -2796,3 +2796,36 @@ Acceptance and remaining boundary:
 - G2-S4 remains open. Only the user-gated G2-S4-S1 Main-2 IsaacLab smoke can
   runtime-confirm real artifact/q29 values, actor gradient, zero critic delta,
   real HSL-v1 artifact output, and fresh reload equality in one formal run.
+
+## E-FI-40: G2-S4-S0a Full-6D Diagnostic Mask Regression Repair
+
+Date: 2026-07-21
+Tier: deterministic S1 regression repair after the first bounded live attempt;
+no simulator, training, live retry, Stage-3 PPO, deployment composition, or
+checkpoint-format change
+
+Observed failure:
+
+- Repository `log.txt` stopped in `run_frontres_joint_warmup()` final
+  diagnostics with `NameError: name '_sup_mask' is not defined`.
+- Historical source confirmed `_sup_mask` belonged to the retired
+  `frontres_active_task_dims` partial-dimension warmup. Proposal-only v007 had
+  removed its definition and training use but left one diagnostic read.
+
+Repair and regression:
+
+- Deleted the three diagnostics-only `_sup_mask` lines. No replacement mask,
+  fallback, active-dimension route, clamp, or skip was introduced.
+- The existing `frontres_hsl_v007_s1_contract.py` now asserts that
+  `run_frontres_joint_warmup()` contains neither `_sup_mask` nor
+  `frontres_active_task_dims`, preserving full-6D HSL semantics.
+- HSL S1, HSL S2 connectivity, v015 observation authority, future-intent actor
+  context, and v015 checkpoint/resume contracts all exited 0.
+- `python -m py_compile` and `git diff --check` exited 0.
+
+Acceptance and remaining boundary:
+
+- G2-S4-S0a is complete. The specific `NameError` now has a deterministic
+  regression test and the old partial-dimension mechanism remains absent.
+- G2-S4-S1 is still open. The same bounded Main-2 command must be explicitly
+  re-authorized; no live retry was executed during this repair.

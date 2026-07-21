@@ -1368,6 +1368,11 @@ Implementation is split to keep each parameter path independently testable:
    and zero PPO iterations. Evidence: S4 T-live-input/T-current-target/T-save/
    T-fresh-reload. Stop on any missing sentinel, legacy fallback, shape drift,
    critic/optimizer payload, nonzero critic delta, reload mismatch, or PPO entry.
+7. `G2-S4-S0a`: completed at `E-FI-40` after the first S4-S1 attempt exposed
+   a stale diagnostics-only `_sup_mask` read. The obsolete partial-dimension
+   masking fragment was deleted rather than restored; the existing HSL S1
+   contract now rejects `_sup_mask` and `frontres_active_task_dims` anywhere in
+   the proposal-only warmup owner. No live retry was executed in this repair.
 
 Exact Main-2 command after checkout synchronization:
 

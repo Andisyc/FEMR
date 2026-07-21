@@ -466,6 +466,8 @@ def test_t_hsl_actor_only_critic_unchanged() -> None:
     assert "policy.evaluate(" not in run_source
     assert "energy_target" not in run_source
     assert "policy.critic.parameters()" not in run_source
+    assert "_sup_mask" not in run_source
+    assert "frontres_active_task_dims" not in run_source
     print("[T-HSL-actor-only/T-critic-unchanged] actor updates while critic has zero grad and zero delta", flush=True)
 
 
