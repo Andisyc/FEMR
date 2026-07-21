@@ -46,8 +46,10 @@ from rsl_rl.runners.frontres_runtime import (
     apply_obs_normalizer,
     append_frontres_future_intent_context,
     append_frontres_fixed_noisy_future_context,
+    build_frontres_v015_deployment_observation,
     get_inference_policy_runner,
     maybe_print_frontres_restore_debug,
+    read_frontres_v015_deployment_context,
 )
 from rsl_rl.modules.frontres_observation_layout import (
     FRONTRES_V015_GMT_SUFFIX_DIM,
@@ -349,7 +351,13 @@ class OnPolicyRunner:
         self._frontres_future_intent_layout = None
         self._frontres_future_intent_layout_version: str | None = None
         self._frontres_future_intent_actor_context_dim = 0
-        if self.training_type == "frontres" and self._frontres_segment_replay_boundary.requested:
+        v015_formal_layout_requested = bool(
+            self.alg_cfg.get("frontres_v015_formal_transaction_enabled", False)
+        )
+        # Deployment eval 只复用 v015 layout/checkpoint identity, 不请求 Segment sampler.
+        if self.training_type == "frontres" and (
+            self._frontres_segment_replay_boundary.requested or v015_formal_layout_requested
+        ):
             raw_offsets = self.alg_cfg.get("frontres_future_offsets", None)
             layout_version = self.alg_cfg.get("frontres_future_intent_layout_version", None)
             if raw_offsets is None or isinstance(raw_offsets, (str, bytes)) or layout_version is None:
@@ -738,6 +746,15 @@ class OnPolicyRunner:
             max_preroll_steps=max_preroll_steps,
             sampler_seed=sampler_seed,
         )
+
+    def run_frontres_v015_deployment_composition_eval(self, *, config):
+        """Thin formal connector for the isolated v015 deployment evaluator."""
+
+        from rsl_rl.runners.frontres_segment_sequence_eval import (
+            run_frontres_v015_deployment_composition_eval,
+        )
+
+        return run_frontres_v015_deployment_composition_eval(self, config=config)
 
     def _run_frontres_segment_single_update(self, storage_batch) -> object:
         return run_frontres_segment_single_update(self, storage_batch)
@@ -1373,6 +1390,17 @@ class OnPolicyRunner:
 
     def _append_frontres_future_intent_context(self, obs: torch.Tensor) -> torch.Tensor:
         return append_frontres_future_intent_context(self, obs)
+
+    def _read_frontres_v015_deployment_context(self, env_ids: torch.Tensor | None = None):
+        return read_frontres_v015_deployment_context(self, env_ids)
+
+    def _build_frontres_v015_deployment_observation(
+        self,
+        obs: torch.Tensor,
+        *,
+        snapshot: dict[str, object] | None = None,
+    ) -> torch.Tensor:
+        return build_frontres_v015_deployment_observation(self, obs, snapshot=snapshot)
 
     def _apply_frontres_task_corrections(
         self,

@@ -1,9 +1,10 @@
 # Evidence Ledger: FRS-v015 Future Intent And Single-Action K
 
-Date: 2026-07-19 through 2026-07-20
-Scope: Accepted semantic migration and bounded deterministic implementation
-evidence, including CPU-only formal-route and persistence contracts. It contains
-no real simulator, training, or live-run evidence.
+Date: 2026-07-19 through 2026-07-21
+Scope: Accepted semantic migration and bounded implementation evidence,
+including deterministic contracts, CPU formal-route/persistence checks, and
+the successful bounded S4 local identity sentinel. It contains no long-training,
+policy-quality, deployment-composition, or live checkpoint-resume evidence.
 
 ## E-FI-0: Confirmed Conceptual Decision
 
@@ -1965,3 +1966,333 @@ Unconfirmed / next:
 - `frontres_segment_live_probe_ppo_contract.py` has a pre-existing import-stub
   drift for `_append_future_intent_actor_context`; it fails before reaching
   this critic route and is not evidence against R6-F2.
+
+## E-FI-27: R6 / Step 5A Successful Bounded Live Identity Sentinel
+
+Date: 2026-07-21
+Tier: S4 bounded live runtime identity, authority, K-lifecycle, grouped-mass,
+and exact-one-update evidence; no long training, policy-quality, deployment-
+composition, checkpoint-cadence/resume, or sampler-evolution claim
+
+Raw evidence identity:
+
+- Repository-root log: `v015_r6_live_sentinel_gpu3.log`.
+- SHA-256:
+  `d67ed9327d8166ef7617b61f1cd746ee1f4b94710277b28cff6a825b6483f15b`.
+- The hash distinguishes this successful rerun from the earlier failed log
+  that used the same filename before R6-F2 was synchronized.
+- Exact scans found no `Traceback`, `RuntimeError`, Hydra job error, CUDA
+  runtime error, fatal signal, assertion failure, or standalone NaN/Inf token.
+
+Observed S4 facts:
+
+| Boundary | Runtime fact |
+| --- | --- |
+| Runtime owner | SUST_Main_2, Isaac Sim headless, `cuda:0` after CUDA-visible-device remapping |
+| Role layout | eight physical rows: four Repair and four Noisy; no candidate/Clean scored rows |
+| Scenario transaction | two Segment sources, two policy attempts per source, four policy rows |
+| Immutable identity | each source's two attempts share one scenario ID, Noisy hash, motion/frame `x_t`, artifact norm, and K |
+| Observation authority | raw `870D` + q29 tail `58D` = actor observation `928D`; FEMR prefix `158D`; frozen GMT suffix/input `770D`; critic `289D` |
+| q29 provenance | `deployment_noisy_q29` from `motion_internal_q29` |
+| One-action K | `actor_forward_count=1`, `later_femr_action_count=0`, K and Clean-continuation length are 8 for all attempts |
+| K evidence | `post_advance_gmt_read_count=8`; every attempt has `evidence_valid_step_count=8` |
+| Grouped reduction | attempt mass `(0.25,0.25,0.25,0.25)`; motion and Segment mass `(0.5,0.5)` |
+| Optimizer boundary | four valid rows, `optimizer_step_delta=1`, `exact_one_update=true` |
+
+Warning classification:
+
+- CUDA/Omniverse enumeration, skipped non-selected GPU, IOMMU, headless GLFW,
+  no-viewport, and one shader-cache lifecycle message were present.
+- They did not stop environment setup or the transaction; the structured live
+  snapshot and exact-one-update receipt were emitted afterward. They are not
+  evidence of a v015 method-route failure in this bounded run.
+- The log alone does not prove the host's physical GPU ordinal because
+  Omniverse and CUDA-visible-device enumeration differ; it does prove the
+  successful policy path ran on the remapped `cuda:0` device.
+
+Acceptance decision:
+
+- R6 is complete at S4 for the bounded local identity sentinel.
+- Step 5A is complete. The current v015 local route runtime-confirms sealed
+  scenarios, Clean dynamics reset, deployment-q29 actor context, one FEMR
+  action, Clean-C K execution, separate actor/critic authorities, grouped
+  equal-mass reduction, and exactly one optimizer update.
+- R6-F1 command-clock isolation and R6-F2 critic-observation routing are both
+  runtime-confirmed by this log. No R6 stop condition triggered.
+- The result does not establish long-training convergence, physical policy
+  quality, actual checkpoint cadence/resume, persistent-sequence composition,
+  or replay-priority evolution.
+
+Next:
+
+- Close Step 5A across plan/checklist/canvas/registry/Architecture.
+- Step 5B deployment-composition evaluation is the only remaining Stage-3
+  engineering step and requires separate explicit user authorization.
+
+## E-FI-28: Step 5B-S1 Immutable Deployment Composition Kernel
+
+Date: 2026-07-21
+Tier: deterministic S1 schema, identity, report, no-feedback, and legacy
+isolation evidence; no command/actor/GMT connectivity, simulator, training,
+live evaluation, checkpoint, sampler, storage, PPO, or optimizer execution
+
+Implementation:
+
+- `frontres_segment_sequence_eval.py` now owns an explicit v015 deployment
+  composition config, persistent-corruption protocol, validated request, and
+  immutable per-frame report. Existing legacy plan/reset functions are
+  unchanged.
+- The request reads one explicit `.npz` with `fps`, q29/dq29, body pose,
+  quaternion, linear velocity, and angular velocity arrays. It validates frame,
+  body, q29, finite-value, fps, and H coverage before sealing the absolute path,
+  file SHA-256, and `deployment_reference_stream` provenance.
+- Corruption metadata is scalar-only, canonicalized by family and parameter
+  order, fixed to `persistent_full_sequence`, and sealed by SHA-256. This hash
+  identifies the protocol; it does not claim that an S2 materialized corrupted
+  frame stream has already executed.
+- The report requires one row per deployment frame for FEMR action use, q29
+  intent error, physics success/fall, ZMP margin, and contact consistency. Its
+  accumulated failure count is derived from per-frame physics success.
+- Return, priority, PPO, sampler, optimizer, Clean continuation, and local
+  scenario are absent from the report dataclass. Feedback properties are
+  immutable false, and passing a local return carrier is rejected by the type.
+- Config validation rejects disabled mode, non-`.npz`, invalid H offsets, and
+  any legacy mode mixing before a file or runner path is consumed.
+
+Fresh verification:
+
+- RED: the new contract initially failed at the missing
+  `build_frontres_v015_persistent_corruption_protocol` owner API.
+- `frontres_v015_deployment_composition_s1_contract.py`: exit 0;
+  `T-npz-schema/T-identity/T-corruption-protocol`,
+  `T-report/T-no-feedback`, and
+  `T-config-fail-closed/T-legacy-reject` passed.
+- `frontres_segment_sequence_eval_contract.py`: exit 0; the legacy v002
+  plan/reset/evaluator contract remains unchanged.
+- `frontres_v015_evaluation_isolation_contract.py`: exit 0; every legacy
+  evaluator still rejects v015 before capture.
+- `python -m py_compile` for the owner and new test: exit 0.
+
+Confirmed:
+
+- Step 5B-S1 is complete at S1. One structured deployment file and one
+  persistent corruption protocol now have immutable, reviewable identities;
+  per-frame report semantics cannot carry local training state.
+- No Concept Figure or method semantic change was made.
+
+Unconfirmed / next:
+
+- Step 5B-S2A must first connect this request only to a command-owned deployment
+  current/H snapshot. Step 5B-S2B then connects repeated per-frame FEMR, frozen
+  GMT, metrics, report, and the dedicated entry while proving zero sampler/
+  storage/PPO/optimizer mutation.
+- S2 formal config/runner dispatch, materialized corrupted-stream identity,
+  report persistence, simulator timing, and S4 deployment behavior remain
+  unconfirmed and require separate authorization.
+
+## E-FI-29: Step 5B-S2A Deployment Carrier And H Snapshot
+
+Date: 2026-07-21
+Tier: deterministic S1 owner plus S2 read-only connector evidence; no local
+scenario, actor/GMT execution, metrics/report production, formal runner,
+simulator, training, storage, return, priority, PPO, or optimizer execution
+
+Root-cause boundary and RED evidence:
+
+- E-FI-28 sealed the `.npz` and corruption-protocol identities, but
+  `MultiMotionCommand` had no deployment sequence owner and
+  `frontres_runtime.py` could read only the local-Segment intent snapshot.
+- The new semantic contract first failed with
+  `AttributeError: MultiMotionCommand has no attribute
+  set_frontres_v015_deployment_sequence`, localizing the missing S2A owner.
+
+Implementation:
+
+- `MultiMotionCommand.set_frontres_v015_deployment_sequence()` validates the
+  E-FI-28 request and protocol, verifies the file SHA-256 before and after the
+  safe `.npz` read, then copies detached finite q29/dq29 `[T,29]` arrays into
+  one command-owned immutable sequence.
+- One explicit `[B]` cursor starts at frame zero. Snapshot reads return current
+  q29+dq29 `[B,58]`, dense q29 intent `[B,H+1,29]`, row ids, frame indices,
+  future offsets, reference/file/protocol identity, and deployment provenance.
+- Snapshot values and provenance are cloned. Reads do not move the cursor;
+  explicit advance changes all rows by exactly one frame and rejects before H
+  would require a clamp. Reinstall, changed hash, active local scenario, fixed
+  tape, and legacy reference window all fail closed.
+- `frontres_runtime.py::read_frontres_v015_deployment_context()` validates and
+  clones that exact schema. The existing actor append, GMT command property,
+  and command-clock dispatcher do not reference the deployment carrier.
+
+Fresh verification:
+
+- `frontres_v015_deployment_carrier_s2a_contract.py`: exit 0;
+  `T-install/T-current/T-H/T-identity/T-provenance`,
+  `T-frame-order/T-cursor/T-boundary/T-read-only`,
+  `T-row-alignment/T-mixed-reference/T-hash`, and
+  `T-no-execution/T-no-training-state/T-close` passed.
+- `frontres_v015_deployment_composition_s1_contract.py`,
+  `frontres_v015_role_aligned_future_intent_contract.py`,
+  `frontres_v015_current_gmt_command_contract.py`,
+  `frontres_v015_two_role_reset_contract.py`, and
+  `frontres_segment_motion_command_reference_contract.py`: exit 0.
+- `python -m py_compile` for `commands.py`, `frontres_runtime.py`, and the new
+  contract: exit 0. `git diff --check`: exit 0.
+
+Confirmed:
+
+- Step 5B-S2A is complete at deterministic S1/S2. One request owns one
+  command sequence; `[B,58]` current command and `[B,H+1,29]` q29 intent share
+  the same cursor, file/stream identity, corruption-protocol identity, row
+  order, and deployment provenance.
+- No Concept Figure or method semantic change was made.
+
+Unconfirmed / next:
+
+- The corruption protocol hash remains declared request identity; S2A does not
+  claim a corruption materializer or physical artifact execution.
+- Step 5B-S2B must separately connect per-frame FEMR, frozen GMT, metrics,
+  immutable report, config/runner dispatch, and zero-write isolation. S4
+  simulator timing and deployment composition behavior remain unconfirmed.
+
+## E-FI-30: Step 5B-S2B Formal Composition Executor
+
+Date: 2026-07-21
+Tier: semantic CPU S2 formal connectivity, report persistence, and zero-write
+evidence; no simulator, training, live evaluation, checkpoint, sampler update,
+storage write, return, priority, PPO, or optimizer step
+
+Boundary and RED evidence:
+
+- E-FI-29 exposed command-owned current/H snapshots but intentionally had no
+  actor, GMT, metric, report, or runner consumer.
+- `frontres_v015_deployment_composition_s2b_contract.py` first failed at the
+  missing `FrontRESV015DeploymentCompositionRunConfig`, proving it did not
+  silently reuse the legacy v002 sequence evaluator.
+- The no-clamp S2A contract implies a reference with T frames and Hmax lookahead
+  has exactly `T-Hmax` evaluated frames. S2B records that boundary explicitly
+  instead of fabricating final future frames.
+
+Implementation:
+
+- `FrontRESV015DeploymentCompositionRunConfig` requires one absolute report
+  path and `source=pre_materialized_deployment_npz`. The formal owner consumes
+  an already artifact-bearing stream; it does not draw corruption from scalar
+  protocol parameters.
+- `MultiMotionCommand` now retains q29/dq29 and body pose/velocity arrays from
+  the same sealed file. Its current q29/dq29/body/root properties follow one
+  explicit cursor, while Isaac command compute returns
+  `deployment_current_hold`; only the sequence executor advances after metrics.
+- `frontres_runtime.py::build_frontres_v015_deployment_observation()` verifies
+  row/cursor/stream/protocol identity and builds `870D + 58D = 928D`. It selects
+  only q29 at declared H offsets; future root/global arrays are not appended.
+- `run_frontres_v015_deployment_composition_eval()` performs one deterministic
+  `[B,6]` correction and one frozen-GMT action per evaluated frame, then records
+  mean absolute q29 intent error, success/fall, ZMP margin, and contact
+  consistency. It writes one immutable JSON through a temporary-path replace.
+- The formal OnPolicyRunner method is a thin connector. It never calls the
+  legacy sequence evaluator. Before/after hashes cover optimizer, sampler,
+  storage, and transition state; any difference rejects report production.
+
+Fresh verification:
+
+- `frontres_v015_deployment_composition_s2b_contract.py`: exit 0;
+  `T-connect/T-per-frame/T-frozen-GMT/T-report/T-zero-write` and
+  `T-formal-entry/T-legacy-isolation` passed. The semantic fixture observed
+  `T=6,Hmax=2 -> 4` FEMR actions, four `770D` GMT reads, four report rows,
+  eight normalization calls, four command-clock holds, and zero optimizer or
+  sampler writes.
+- S1/S2A/evaluation isolation, local q29/current/reset, legacy reference,
+  Stage-3 entrypoint/boundary, v015 checkpoint, HSL-v007, transaction,
+  observation-authority, policy-quality isolation, live-sentinel static, and
+  full-6D contracts all exited 0 in the focused regression set.
+- Python compilation, Architecture JSON parse, and `git diff --check` are part
+  of the final S2B closeout gate.
+
+Confirmed:
+
+- Step 5B-S2B is complete at semantic CPU S2. One pre-materialized deployment
+  stream now reaches per-frame FEMR, frozen GMT, metrics, atomic report, and the
+  dedicated runner entry with no training-state mutation.
+- Clean continuation, local Segment Gain, grouped PPO, checkpoint identity,
+  HSL, and Concept Figure semantics are unchanged.
+
+Unconfirmed / next:
+
+- The CPU metric provider proves schema and aggregation, not physical ZMP,
+  contact, fall, auto-reset, or command-manager timing. The default physical
+  metric reader and actual report values remain S4-only.
+- Step 5B-S4 requires one separately authorized bounded simulator evaluation
+  using an explicitly hashed pre-materialized deployment `.npz` and report
+  path. No generic training or long evaluation is authorized by E-FI-30.
+
+## E-FI-31: Step 5B-S4-S0 Dedicated Live Composition Entrypoint
+
+Date: 2026-07-21
+Tier: deterministic S2 config/checkpoint/dispatch evidence only; no IsaacLab
+import or launch, simulator step, training, live evaluation, sampler creation,
+PPO, optimizer step, checkpoint write, or Concept Figure change
+
+Boundary and RED evidence:
+
+- The first S4-S0 contract run failed because
+  `scripts/rsl_rl/frontres_v015_deployment_composition.py` did not exist,
+  proving S2B had no server-callable owner.
+- White-box task registration then showed the old
+  `FrontRES-RLFinetune-Tracking-Flat-G1-v0` name is commented out. The
+  strengthened contract failed until the CLI selected the registered
+  `FrontRES-Unified-Tracking-Flat-G1-v0` task.
+- The formal transaction owner rejects nonzero Stage-3 warmups. A second RED
+  assertion required both algorithm critic/actor warmup counters to be zero
+  before the config passed.
+
+Implementation:
+
+- The dedicated CLI validates absolute existing FEMR/GMT `.pt` files, one
+  absolute pre-materialized Noisy `.npz`, a new absolute `.json` report path,
+  ordered H offsets, scalar persistent-corruption metadata, positive even env
+  rows, and a valid CUDA device exposed by `CUDA_VISIBLE_DEVICES` before
+  AppLauncher construction.
+- Agent config binds the explicit frozen-GMT checkpoint before
+  `OnPolicyRunner` construction. It enables only the existing formal v015
+  layout/checkpoint identity and disables Segment Replay, live train/probe,
+  sampler-requesting modes, HSL labels/loss, and all legacy evaluators.
+- `OnPolicyRunner` now resolves the accepted q29 H layout when the formal v015
+  checkpoint identity is requested even if Segment Replay is not requested.
+  `FrontRESSegmentRunnerBoundary.requested` remains false, so the Segment
+  sampler initializer is not reached.
+- FEMR loads through `frontres_checkpointing.load_runner` with
+  `load_optimizer=False, load_critic=False`; the only subsequent dispatch is
+  `run_frontres_v015_deployment_composition_eval`. The tracked Adam step count
+  must remain unchanged or the CLI fails.
+- Completion sentinel records reference/protocol hashes, T, evaluated
+  `T-max(H)` frames, H offsets, FEMR action count, failures, optimizer delta,
+  no-feedback state, and report identity.
+
+Fresh verification:
+
+- `frontres_v015_deployment_live_cli_s4s0_contract.py`: exit 0;
+  `T-path/T-gpu/T-protocol`, `T-config/T-dispatch/T-zero-update`, and
+  `T-owner/T-formal-entry/T-no-training` passed.
+- `frontres_v015_deployment_composition_s2b_contract.py`,
+  `frontres_v015_observation_authority_contract.py`,
+  `frontres_v015_checkpoint_resume_contract.py`,
+  `frontres_v015_local_sentinel_config_contract.py`, and
+  `frontres_segment_runner_boundary_contract.py`: exit 0.
+- Python compilation of the CLI, runner connector, and S4-S0 contract: exit 0.
+
+Confirmed:
+
+- S4-S0 is complete. The repository now has one fail-closed v015-only command
+  that can construct the formal IsaacLab runner and connect explicit
+  checkpoint/reference/report identities to S2B without a training/update
+  dispatch.
+- No evaluator formula, 928/158/770 observation authority, PPO, sampler,
+  optimizer, checkpoint format, or Concept Figure semantic was changed.
+
+Unconfirmed / next:
+
+- No real v015 FEMR checkpoint or pre-materialized Noisy deployment stream was
+  opened in this step. Their server identities and hashes remain S4 inputs.
+- Step 5B-S4 remains separately user-gated. One bounded simulator run must
+  produce the expected sentinel and atomic report before deployment
+  composition is runtime-confirmed.

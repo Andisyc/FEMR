@@ -1,9 +1,9 @@
 # FRS-v015 Future-Intent / Single-Action K Acceptance Checklist
 
-Status: current, volatile acceptance surface. R0--R5 are complete at
-`E-FI-18`--`E-FI-23`; R6-S0 and R6-F1 are complete at `E-FI-24`--`E-FI-25`.
-The failed S4 transaction exposed and stopped at the command-clock conflict;
-the repaired owner has deterministic evidence but has not been rerun live.
+Status: current, volatile acceptance surface. R0--R6 and Step 5A are complete
+at `E-FI-18`--`E-FI-27`, including the final bounded S4 identity/formal-update
+sentinel. Step 5B deployment composition is the only remaining Stage-3 item
+and remains user-gated.
 Updated: 2026-07-21.
 
 Plan: `../plans/FRS-v015-future-intent-single-action-k-engineering-plan.md`
@@ -51,7 +51,7 @@ unless a new test explicitly rebases it.
 | Legacy and stats rejection | actor bridge / normalizer | S1 T-legacy-reject/T-layout | completed | `E-FI-3`; `[H,65]` or incompatible stats fail closed |
 | Role-aligned formal carrier | command snapshot / `frontres_runtime.py` | S1 T-role-expand/T-shape/T-permute | completed | `E-FI-20`; command-owned `[8,3,29]` produces ordered `[8,58]`, ignores the poisoned B=4 policy batch, and preserves role permutation/identity |
 | Exact FEMR/GMT visibility | config / runner / actor | S1 T-158-actor/T-770-GMT/T-zero-reject | completed | `E-FI-21`; config `100D` plus q29 tail `58D` resolves to FEMR `158D`, frozen GMT retains the final `770D`, and zero-prefix fallback rejects |
-| Unmocked formal observation connection | command / observation / normalizer / actor | S2 T-connect/T-consumer | pending R5 | `E-FI-18`; `E-FI-16` replaced `_read_live_observations()` and did not cover this boundary |
+| Unmocked formal observation connection | command / observation / normalizer / actor | S2 T-connect/T-consumer | completed | `E-FI-23`; production `_read_live_observations()` connects `870+58=928` to FEMR `158D` and GMT `770D` without replacement |
 
 ## Gate H0: HSL Audit (Read Only)
 
@@ -88,7 +88,7 @@ unless a new test explicitly rebases it.
 | One policy tuple per attempt | rollout/probe/storage | S1 T-row/T-action-count | completed | `E-FI-9`; exactly one Repair action/log-prob/value/mean/sigma tuple regardless of K; no return/advantage yet |
 | FEMR freeze after t | rollout step | S1 T-frozen/T-metamorphic | completed | `E-FI-9`; guarded candidate route rejects a second actor sample and later command repair writes are zero |
 | Full Clean GMT continuation | command route | S1 T-continuation/T-cursor | completed | `E-FI-9`; explicit command C cursor serves q29/dq29/root after t, never H intent |
-| Offline lifecycle connection | reset -> actor -> GMT -> storage | S2 T-connect/T-no-mixed-reference | completed | `E-FI-9`; fake Clean reset -> t actor -> frozen GMT C capture -> immutable one-tuple carrier; formal route remains blocked |
+| Offline lifecycle connection | reset -> actor -> GMT -> storage | S2 T-connect/T-no-mixed-reference | completed | `E-FI-9` local carrier, `E-FI-23` unmocked formal connection, and `E-FI-27` bounded S4 route; no mixed reference or later actor action |
 
 ## G3 / Step 3A: Intent Gain Core
 
@@ -147,8 +147,8 @@ unless a new test explicitly rebases it.
 | Pre-live v015 sentinel config and entrypoint isolation | config / runner boundary / `train.py` | S2 T-config/T-entrypoint/T-legacy-isolation | completed | `E-FI-16`; explicit H offsets and v015-only dispatch reject legacy modes before any live command |
 | Pre-live local scenario to transaction connector | live sampler / reset request / probe / grouped adapter | S2 T-state/T-order/T-mass | completed, observation excluded | `E-FI-16`; fake proves sealed grouped exact-one route, but stubs `_read_live_observations()` |
 | Formal command/observation connector | command / observation / runtime / actor | S2 T-command-connect/T-history-layout/T-role-tail/T-consumer | completed offline | `E-FI-23`; actual `_read_live_observations`, semantic `58/290/870 + 58 -> 928 -> 158/770`, role-aligned deployment q29 |
-| Bounded local runtime trace | formal Stage-3 route | S4 T-live/T-state/T-provenance/T-frozen | partial; R6-F2 active | `v015_r6_live_sentinel_gpu3.log`; reset, t action, K, candidate seal, and grouped PPO entry reached; critic received wrong 928D actor observation |
-| Runtime grouped update trace | PPO/diagnostics | S4 T-live/T-order/T-mass | blocked by R6-F2 | grouped evaluation started, but no optimizer step occurred because the 289D critic observation was dropped before loss |
+| Bounded local runtime trace | formal Stage-3 route | S4 T-live/T-state/T-provenance/T-frozen | completed | `E-FI-27`; `4 Repair + 4 Noisy`, paired scenario/hash/x_t, deployment q29, one action, K=8, no later FEMR action |
+| Runtime grouped update trace | PPO/diagnostics | S4 T-live/T-order/T-mass | completed | `E-FI-27`; actor `928D`, critic `289D`, four valid attempts, equal group mass, `optimizer_step_delta=1`, `exact_one_update=true` |
 
 ## R0--R6 Formal Observation Remediation
 
@@ -161,15 +161,19 @@ unless a new test explicitly rebases it.
 | R4 persistence revalidation | checkpoint / normalizer | S3 T-layout/T-prefix-stats/T-legacy-reject/T-atomicity | completed | `E-FI-22`; v2 binds `(1,2)`, `928/158/770`, full 158D prefix fingerprint, committed receipt, and rejects v1/full/zero/65D/unversioned/partial identities before mutation |
 | R5 unmocked formal connection | command / observation / runtime / actor / transaction | S2 T-connect/T-history-layout/T-consumer/T-one-action/T-exact-one-update | completed | `E-FI-23`; real `_read_live_observations`, semantic 58/290/870 + 58 -> 928 -> 158/770, post-advance C K, 2 Segment x 2 attempts, update delta one |
 | R6-F1 command-clock isolation | `commands.py::MultiMotionCommand` | S1 T-t-clock-hold/T-K-clock-hold/T-legacy-clock/T-duplicate-refresh-reject | completed | `E-FI-25`; local current/C clocks hold across IsaacLab command compute, legacy rows retain ordered advance, duplicate direct refresh still rejects |
-| R6-F2 critic-observation route | one-action evidence / candidate storage / formal evaluator | S1/S2 T-critic-route/T-role-order/T-missing-reject/T-shape-reject/T-exact-one-update | completed offline | `E-FI-26`; sealed Repair critic rows reach the 289D critic while the actor receives 928D, missing/misaligned rows reject, step delta one |
-| R6 bounded live sentinel | formal Stage-3 route | S4 T-live/T-identity/T-order/T-mass | partial: repaired rerun pending | `E-FI-24`--`E-FI-26`; live route reached grouped loss before R6-F2; exact-one update remains S4-unconfirmed until synchronized rerun |
+| R6-F2 critic-observation route | one-action evidence / candidate storage / formal evaluator | S1/S2/S4 T-critic-route/T-role-order/T-missing-reject/T-shape-reject/T-exact-one-update | completed and live-confirmed | `E-FI-26` deterministic route plus `E-FI-27` actor `928D` / critic `289D` bounded-live trace |
+| R6 bounded live sentinel | formal Stage-3 route | S4 T-live/T-identity/T-order/T-mass | completed | `E-FI-27`; final hashed log closes observation, identity, K, grouped mass, and exact-one-update stop conditions |
 
 ## G5 / Step 5B: Deployment Composition Evaluation
 
 | Item | Owner | Required S/T | Status | Evidence pointer |
 | --- | --- | --- | --- | --- |
-| Separate sequence protocol | sequence evaluator | S4 T-composition/T-protocol | user-gated | persistent-artifact deployment reference explicitly named |
-| No feedback into local training | evaluator / storage | S4 T-isolation | blocked by G3 | no local return/PPO/priority mutation |
+| 5B-S0 formal route audit | sequence evaluator / runner / config | S0 T-owner/T-shape/T-legacy/T-write-audit | completed | 2026-07-21 read-only audit: no v015 end-to-end owner exists; legacy owner mutates sampler state and is fail-closed for v015 |
+| 5B-S1 immutable request/report kernel | `frontres_segment_sequence_eval.py` | S1 T-npz-schema/T-identity/T-corruption-protocol/T-report/T-no-feedback/T-config-fail-closed/T-legacy-reject | completed | `E-FI-28`; explicit structured deployment `.npz`, file/protocol hashes, immutable per-frame report, no training-state fields, and legacy mixed-mode rejection |
+| 5B-S2A deployment carrier and H snapshot | command / runtime bridge | S1/S2 T-install/T-current/T-H/T-frame-order/T-cursor/T-boundary/T-row-alignment/T-provenance/T-identity/T-mixed-reference/T-no-execution/T-no-training-state | completed | `E-FI-29`; sealed request -> immutable q29/dq29 sequence -> current `[B,58]` and dense H `[B,H+1,29]`; no clamp, mixed carrier, actor/GMT/runner, or training-state path |
+| 5B-S2B formal composition executor | sequence evaluator / config / runner | S2 T-connect/T-per-frame/T-frozen-GMT/T-report/T-zero-write/T-formal-entry/T-legacy-isolation | completed | `E-FI-30`; pre-materialized deployment `.npz`, `T-max(H)` unclamped rows, `870+58=928`, one 6D action + frozen-GMT read per frame, atomic JSON, unchanged optimizer/sampler/storage/transition fingerprints |
+| 5B-S4-S0 dedicated live CLI | v015 CLI / formal runner / checkpoint owner | S2 T-path/T-gpu/T-protocol/T-config/T-dispatch/T-zero-update/T-owner/T-no-training | completed | `E-FI-31`; registered Unified task, explicit GMT/FEMR/NPZ/report identities, CUDA-visible dispatch, no Segment sampler or learn/update path |
+| 5B-S4 bounded composition evidence | formal deployment evaluator | S4 T-composition/T-isolation/T-protocol | user-gated after S4-S0 | one persistent-artifact deployment stream; per-frame action/intent/physics and accumulated failures |
 
 ## Active Isolation Rules
 

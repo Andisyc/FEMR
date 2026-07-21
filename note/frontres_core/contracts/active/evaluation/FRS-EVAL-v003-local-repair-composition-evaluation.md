@@ -2,7 +2,7 @@
 contract_id: FRS-EVAL-v003
 status: active
 effective_date: 2026-07-19
-updated_date: 2026-07-20
+updated_date: 2026-07-21
 supersedes: FRS-EVAL-v002
 scope: Stage 3 local first-action K evaluation and separate full-sequence deployment-composition evaluation
 ---
@@ -109,6 +109,83 @@ isolation:
 This proof does not establish the formal periodic evaluator, a real full-
 sequence evaluator, simulator timing, evaluation checkpoint state, or live
 deployment composition evidence.
+
+`E-FI-28` (2026-07-21) adds the deterministic S1 deployment-composition
+kernel without changing this evaluation boundary:
+
+- `frontres_segment_sequence_eval.py` validates one explicit structured `.npz`
+  containing q29/dq29 plus body pose/velocity arrays and seals its file hash,
+  deployment provenance, H offsets, frame/body identity, and fps;
+- a canonical `persistent_full_sequence` corruption protocol has an
+  order-independent scalar-parameter hash and cannot carry per-frame actor
+  labels or training state;
+- the immutable per-frame report records FEMR action use, q29 intent error,
+  physics success/fall, ZMP margin, contact consistency, and accumulated
+  failures; return, priority, PPO, sampler, optimizer, Clean continuation, and
+  local-scenario payloads are absent from its type;
+- the dedicated config rejects disabled, malformed, non-`.npz`, invalid-H, and
+  legacy mixed modes before any runner connection.
+
+This remains S1 schema evidence. It does not connect command, actor, GMT,
+simulator, report persistence, or the formal config/runner entrypoint.
+
+`E-FI-29` (2026-07-21) completes only the S2A deployment carrier boundary:
+
+- `MultiMotionCommand` verifies the sealed `.npz` hash again and copies one
+  immutable q29/dq29 sequence with one explicit transaction-wide frame cursor;
+- its read-only snapshot exposes current q29+dq29 `[B,58]`, dense deployment
+  q29 intent `[B,H+1,29]`, row ids, cursor, file/stream/protocol identity, and
+  deployment provenance;
+- reads do not advance; explicit advance rejects before H would clamp; active
+  local scenario, fixed tape, legacy window, reinstall, and changed file hash
+  all fail closed;
+- `frontres_runtime.py` validates and clones the snapshot but does not append an
+  actor observation, execute GMT, create metrics/report rows, or write training
+  state.
+
+This is semantic CPU connectivity evidence, not composition execution. It does
+not prove that the declared corruption protocol has been materialized into a
+runtime stream, that FEMR/GMT consumed the carrier, or that a formal report or
+live metric exists.
+
+`E-FI-30` (2026-07-21) completes the S2 formal composition executor boundary:
+
+- formal input must declare `source=pre_materialized_deployment_npz`; the
+  evaluator verifies and consumes the artifact-bearing stream but never draws,
+  resamples, or guesses a corruption from scalar protocol metadata;
+- a reference with T frames and fixed H offsets evaluates exactly
+  `T-max(H)` frames. Tail frames are neither clamped nor filled with fabricated
+  future context;
+- each evaluated frame follows current q29/dq29/body reference -> 928D
+  deployment observation -> one deterministic full-6D FEMR correction -> one
+  frozen-GMT motor action -> one environment step -> one q29/physics metric row;
+- the dedicated runner method cannot call the legacy v002 sequence evaluator;
+  the final JSON is written atomically and retains file, stream, protocol,
+  evaluated-frame, action, metric, and no-feedback identities;
+- optimizer, sampler, storage, and transition fingerprints are identical before
+  and after the executor. Any change rejects the report.
+
+This remains semantic CPU evidence. Default physical ZMP/contact readers,
+Isaac command timing, auto-reset behavior, actual artifact severity, report
+values, and bounded deployment composition require S4 simulator evidence.
+
+`E-FI-31` (2026-07-21) completes the S4-S0 dedicated live-entry boundary:
+
+- `frontres_v015_deployment_composition.py` accepts only the registered
+  `FrontRES-Unified-Tracking-Flat-G1-v0` task and absolute v015 FEMR, frozen
+  GMT, pre-materialized `.npz`, and new report identities;
+- CUDA selection remains explicit through `CUDA_VISIBLE_DEVICES`; the CLI
+  records the remapped runtime device and rejects missing/out-of-range mapping;
+- the runner resolves the existing q29 H/checkpoint layout from formal v015
+  identity without requesting Segment Replay, so no sampler is constructed;
+- GMT is bound before runner construction, FEMR loads through the formal
+  checkpoint owner with optimizer/critic restore disabled, and the only
+  dispatch is the S2B evaluator. A persistent optimizer step counter must stay
+  unchanged.
+
+This is deterministic config/dispatch evidence only. It does not import or
+launch IsaacLab in tests and does not supply the actual S4 checkpoint, stream,
+physical metrics, timing, or report.
 
 ## Acceptance Gates
 

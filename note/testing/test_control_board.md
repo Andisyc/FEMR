@@ -30,6 +30,7 @@ claims additionally require S4.
 | Segment PPO | clipped surrogate, exact KL, raw-Gaussian/tanh log-prob identity, ratio source, scale-only advantage, rollback | covered S1-S2 | Gain consumer alignment remains S4; long-run learning quality is deferred until after training. |
 | v015 Intent Segment Gain | q29-intent/physics/cost owner and local two-role consumers | S1 candidate chain complete, `E-FI-10`--`E-FI-13` | Real evaluation, sampler state, formal PPO/update, checkpoint/resume, and live consumers remain unconnected. |
 | v015 grouped candidate adapter | sealed candidate return -> local metadata -> grouped PPO batch | S1 complete, `E-FI-13` | Candidate-only batch/loss evidence; formal runner, optimizer, checkpoint/resume, and live transaction remain unconnected. |
+| v015 deployment composition | explicit pre-materialized `.npz` + persistent protocol -> command current/H -> per-frame FEMR/frozen-GMT -> atomic report -> dedicated CUDA-visible CLI | S1/S2 complete, `E-FI-28`--`E-FI-31` | CLI config/dispatch is deterministic-only; physical metrics, simulator timing, actual artifact/checkpoint identities, and bounded S4 composition remain unconfirmed. |
 
 ## Historical v002 Gain Change Matrix
 

@@ -17,23 +17,18 @@ continuation, and one-action K evidence.
 
 ## Current Step
 
-`R6-F2 complete at E-FI-26; synchronize the repaired critic carrier, then rerun the single R6 S4 transaction`
+`Step 5A / R6 complete at E-FI-27; Step 5B deployment composition is the only remaining user-gated step`
 
-Status: the earlier local scenario, one-action K, Gain, grouped transaction, and
-persistence evidence remains valid at its stated local/fake tiers. R1--R3 close
-the deterministic current-command, role-aligned q29 append, and actor/GMT
-authority defects reopened by R0. R5 exercises the actual observation owner;
-R6-S0 adds a fail-closed structured live snapshot. No method or Concept Figure
-change is pending.
+Status: local scenario, future q29, two-role reset, one-action K, v003 Gain,
+grouped transaction, persistence identity, and the dedicated formal route are
+complete through their required S0--S4 tiers. `E-FI-27` runtime-confirms the
+final `928D actor / 289D critic / 770D GMT` route, K=8, four equal-mass attempts,
+and exactly one update. No method or Concept Figure change is pending.
 
-R6-F1 proves local scenario command steps hold the sealed t/C reference while
-legacy rows retain automatic clock advance. The synchronized S4 rerun then
-reached grouped PPO and exposed a distinct loss-side carrier gap: the 289D t
-critic observation was dropped, so the evaluator fell back to the 928D actor
-observation. R6-F2 now carries the t Repair critic rows through candidate
-storage and transaction ordering, rejects missing/misaligned critic input, and
-proves `928D actor / 289D critic / exact-one update` offline. The next live run
-remains user-operated and requires the repaired owners to be synchronized.
+R0--R6 were Step 5A remediation, not new method steps. R6-F1 command-clock and
+R6-F2 critic-carrier repairs are both live-confirmed. Step 5B remains separate:
+it evaluates persistent-sequence deployment composition and cannot feed its
+metrics back into local K return, PPO, or replay priority.
 
 Scope:
 - retain the completed proposal-only HSL boundary, sealed two-role reset,
@@ -47,19 +42,20 @@ Scope:
   only resume (`E-FI-22`, rebasing the generic-dimension `E-FI-15` fixture).
 
 Non-scope:
-- HSL changes, grouped-formula changes, Concept Figure changes, simulator,
-  real training, another live transaction, and deployment composition.
+- HSL changes, grouped-formula changes, Concept Figure changes, long training,
+  additional local sentinels, and any unapproved Step 5B implementation/run.
 
-Step 5A-S1 preflight boundary:
-- use a cold-start fresh v015 FrontRES policy for identity testing; do not load
-  an old HSL checkpoint;
-- use two fresh UNKNOWN Segments with minimum M=2, giving four Repair rows and
-  four Noisy rows (`num_envs=8`);
-- execute only on SUST_Main_2 where `/hdd1/cyx/MOSAIC/model/model_27000.pt`,
-  `/hdd1/cyx/AMASS_G1Segment`, and `/hdd1/cyx/AMASS_G1NPZ_Final` are present.
+Step 5A closure facts:
+- successful raw log: `v015_r6_live_sentinel_gpu3.log`;
+- SHA-256: `d67ed9327d8166ef7617b61f1cd746ee1f4b94710277b28cff6a825b6483f15b`;
+- evidence: `E-FI-27`; no R6 stop condition triggered.
 
 ## Completed
 
+- `G5 / Step 5A` and `R0--R6`: the SUST_Main_2 bounded live route preserves
+  scenario/hash/x_t identity, `870+58=928 -> FEMR 158 / GMT 770`, critic 289D,
+  one FEMR action, K=8, four equal-mass attempts, and exact-one update
+  (`E-FI-27`).
 - `R5 / 7`: actual current command -> five-frame history -> raw `870D` -> q29
   `58D` -> normalized `928D` -> FEMR `158D` / GMT `770D` -> one-action K ->
   four grouped attempts -> exact-one update is offline-S2 contract-confirmed;
@@ -176,42 +172,58 @@ Step 5A-S1 preflight boundary:
   partial/HSL/legacy paths fail before step.
 - `E-FI-15`: established pre-R3 generic-dimension save/load and transaction
   atomicity mechanics; its exact-layout claim is rebased by R4 `E-FI-22`.
+- `E-FI-27`: hashed S4 log closes R6/Step 5A with separate actor/critic/GMT
+  authority, immutable two-Segment M=2 identities, K=8, equal group mass, and
+  one optimizer update.
 
 ## Unresolved Risks
 
 - generic checkpoint cadence/dispatch and actual resume remain untested; R4 is
   deterministic S3 evidence only.
-- R5 closes the prior `_read_live_observations()` fake gap at offline S2, but
-  simulator observation timing and the actual SUST_Main_2 route remain R6.
-- H1 has no live scenario installation; current warmup still fails closed until
-  a sealed local scenario is supplied by an authorized lifecycle route.
+- The bounded SUST_Main_2 route is S4-confirmed, but one transaction does not
+  prove long-training convergence or physical policy quality.
+- H1 has no live Stage-1 HSL execution or new checkpoint identity; Step 5A
+  confirms the sealed scenario carrier only with Stage-3 HSL disabled.
 - legacy policy-quality/formal evaluator HSL branches remain outside H1;
   their label owner fails closed, but their route is not integration-tested.
 - legacy HSL checkpoints lack the q29 layout identity and remain reject-only;
   a new persistence identity is still undefined.
 - the old quartet/full-tape paths are isolated at the local command carrier,
   but the formal runner still owns legacy route selection.
-- no generic v015 formal runtime, actual checkpoint cadence/resume, simulator,
-  training, or live evidence exists; `E-FI-15` is only a CPU fake-S3
-  persistence/atomicity proof.
+- the dedicated v015 local formal runtime is S4-confirmed; generic long-training
+  dispatch and actual checkpoint cadence/resume remain untested.
 - candidate priority is an immutable scenario-keyed artifact only; stable
   segment/trial assignment and sampler-state mutation remain outside Step 3B.
-- Step 3C is deterministic protocol/diagnostic evidence only; no formal
-  periodic evaluator, sequence executor, simulator timing, or deployed
-  composition metric has been run.
-- Step 4B/4C prove only the injected fake route, exact-one optimizer boundary,
-  and temporary CPU checkpoint identity/atomicity. Generic formal dispatch,
-  actual checkpoint cadence/resume, and live execution remain unconfirmed.
-- `E-FI-17` confirms the current Codex host is Darwin arm64 without IsaacLab,
-  NVIDIA runtime, or the server `/hdd1/cyx` artifacts. The live sentinel must
-  run from a synchronized SUST_Main_2 workspace; no local fallback is valid.
+- Step 3C local diagnostics remain deterministic-only; the separate Step 5B
+  deployment executor is now S2 CPU-connected, but simulator timing and
+  deployed composition metrics remain unrun.
+- Step 4B's protected grouped update is now live-confirmed through Step 5A;
+  Step 4C actual checkpoint cadence/resume remains unconfirmed.
+- deployment command/H, per-frame FEMR/frozen-GMT, metric rows, atomic report,
+  and formal no-feedback fingerprints are S2-connected at `E-FI-29`--`E-FI-30`;
+  physical metric values, simulator timing, and full-sequence live failure
+  accumulation remain unconfirmed.
 
 ## Next Step
 
-Synchronize the repaired `commands.py` and its current-command contract to
-SUST_Main_2, then run exactly one bounded v015 transaction with the structured
-identity/observation snapshot.
-Require `870/58/928/158/770`, role/scenario/hash/q29/C identities, one FEMR
-action, post-advance Clean-C K order, four equal-mass attempts, and update delta
-one. Stop immediately on any missing identity, later FEMR action, mixed
-reference, or update delta mismatch; do not start long training.
+Completed step: `Step 5B-S4-S0`, Dedicated Live Composition Entrypoint
+(`E-FI-31`).
+`FRS-EVAL-v003` supplies the accepted semantic contract; no new Contract version
+or Concept Figure edit was required.
+
+Active owner chain: `frontres_segment_sequence_eval.py` seals the request,
+requires pre-materialized deployment provenance, executes `T-max(H)` frames,
+and atomically writes the report; `commands.py` owns current q29/dq29/body and
+cursor; `frontres_runtime.py` builds `928D`; `on_policy_runner.py` is thin.
+
+The dedicated server CLI is
+`scripts/rsl_rl/frontres_v015_deployment_composition.py`. It selects the
+registered Unified task, exact v015/GMT checkpoints, pre-materialized stream,
+CUDA-visible device, and absolute report without enabling Segment Replay,
+sampler, HSL, PPO, optimizer restore, or training.
+
+Next step: user-gated `Step 5B-S4`, Bounded Live Composition. It may run one
+explicit pre-materialized deployment `.npz` through the S2B route and record
+the hashed JSON plus per-frame action/intent/physics/failure telemetry. It must
+not enable training, sampler feedback, PPO, optimizer, checkpoint mutation, or
+long-running evaluation.

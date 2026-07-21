@@ -56,19 +56,19 @@
           "files": [
             {"id": "M2C-S01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "Segment sampler owner", "functions": ["sample_rollout_rows()","expand_rollout_trials()","FrontRESSegmentSampler.update_with_probe()"], "sourceLine": 241, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=241"},
             {"id": "M2C-S02", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_dataset.py", "role": "replayable dynamic state dataset", "functions": [], "sourceLine": 25, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_dataset.py&line=25"},
-            {"id": "M2C-S03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "v015 immutable expected-row plan/accumulator and pre-live local-sentinel selection; legacy S1b route remains isolated", "functions": ["capture_frontres_frozen_policy_snapshot()","FrontRESV015FormalTransactionPlan","FrontRESV015FormalTransactionAccumulator","prepare_frontres_v015_local_sentinel_batch()"], "sourceLine": 193, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=193"},
-            {"id": "M2C-S04", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "v015 local scenario -> 928D actor/289D critic row-aligned transaction -> unchanged grouped exact-one update -> fail-closed R6 snapshot; repaired S4 rerun pending", "functions": ["collect_frontres_v015_one_action_k_evidence()","run_frontres_v015_formal_transaction_update()","run_frontres_v015_local_identity_sentinel()"], "sourceLine": 3260, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3260"},
+            {"id": "M2C-S03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "v015 immutable expected-row plan/accumulator and bounded-live local-sentinel selection; legacy S1b route remains isolated", "functions": ["capture_frontres_frozen_policy_snapshot()","FrontRESV015FormalTransactionPlan","FrontRESV015FormalTransactionAccumulator","prepare_frontres_v015_local_sentinel_batch()"], "sourceLine": 193, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=193"},
+            {"id": "M2C-S04", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "v015 local scenario -> 928D actor/289D critic row-aligned transaction -> unchanged grouped exact-one update -> fail-closed R6 snapshot; S4 confirmed at E-FI-27", "functions": ["collect_frontres_v015_one_action_k_evidence()","run_frontres_v015_formal_transaction_update()","run_frontres_v015_local_identity_sentinel()"], "sourceLine": 3260, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3260"},
             {"id": "M2C-S05", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "v015 S3 v2 identity for exact 928/158/770 layout, prefix fingerprint, and partial-transaction rejection", "functions": ["save_runner()", "load_runner()"], "sourceLine": 85, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=85"}
           ],
           "mainRoute": [
             "B1 frontres_segment_sampler.py::sample_rollout_rows(): priority/source -> selected Segment groups",
-            "B2 v015 CPU/pre-live S0: collecting barrier + frozen snapshot/expected source-trial plan -> sealed accumulator -> grouped v003 loss -> one explicit step -> committed receipt only",
+            "B2 v015 protected transaction: collecting barrier + frozen snapshot/expected source-trial plan -> sealed accumulator -> grouped v003 loss -> one explicit step -> committed receipt only",
             "B3 FrontRESSegmentSampler.update_with_probe(): completed rollout evidence -> updated priority"
           ],
           "mainRouteTitles": ["选择 Segment Group", "冻结情境收集 M Attempts", "更新 Replay Priority"],
           "review": ["检查 motion/segment/trial/snapshot 行域", "检查同一 x_t 与 Noisy hash", "检查 PPO 在 transaction 后才更新"],
           "tests": ["S1 double transaction contract", "S2 v015 transaction route contract", "S3 v015 checkpoint/resume contract", "S4 v013 identity sentinel", "S2 v015 unmocked observation connectivity contract"],
-          "gap": "E-FI-24 adds fail-closed 870/58/928/158/770 identity/update telemetry and a read-only SUST_Main_2 asset preflight. The remote source transfer and S4 transaction did not occur; generic training, checkpoint cadence/resume, simulator, and live evidence remain open."
+          "gap": "E-FI-27 closes the bounded SUST_Main_2 identity/update route with 870/58/928/158/770 plus 289D critic evidence. E-FI-28--E-FI-30 close the deployment request, command carrier, and CPU formal composition executor. Generic long training, checkpoint cadence/resume, policy quality, simulator timing, physical metrics, and bounded live deployment composition remain open."
         },
         {
           "id": "DP-FUTURE",
@@ -80,20 +80,21 @@
           "files": [
             {"id": "M2C-F01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "selection-time immutable Noisy scenario lifecycle owner", "functions": ["FrontRESFixedNoisyScenarioLifecycle.bind_rows()", "close_scenario()"], "sourceLine": 332, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=332"},
             {"id": "M2C-F02", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "one materialization per selected source, local-sentinel batch preparation, and scenario close owner", "functions": ["_attach_frontres_local_scenarios()", "prepare_frontres_v015_local_sentinel_batch()", "_close_frontres_local_scenarios()"], "sourceLine": 1257, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=1257"},
-            {"id": "M2C-F03", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "v015 immutable local carrier, explicit Clean-C cursor, and local-vs-legacy command-clock dispatcher; actor H never reads C", "functions": ["materialize_frontres_local_scenario()", "set_frontres_local_scenario()", "begin_frontres_local_scenario_k_execution()", "advance_frontres_local_scenario_k_execution()", "end_frontres_local_scenario_k_execution()", "_advance_frontres_command_clock()"], "sourceLine": 1534, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=1534"},
+            {"id": "M2C-F03", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "v015 local carrier/C cursor plus deployment q29/dq29/body current-reference cursor and explicit command-clock hold; actor H never reads C or future root/global", "functions": ["set_frontres_v015_deployment_sequence()", "frontres_v015_deployment_sequence_snapshot()", "advance_frontres_v015_deployment_sequence()", "materialize_frontres_local_scenario()", "set_frontres_local_scenario()", "begin_frontres_local_scenario_k_execution()", "advance_frontres_local_scenario_k_execution()", "end_frontres_local_scenario_k_execution()", "_advance_frontres_command_clock()"], "sourceLine": 1550, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=1550"},
             {"id": "M2C-F04", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_stage1_env_hooks.py", "role": "v015 Repair/Noisy role-aware Clean x_t reset and local-carrier installation", "functions": ["apply_frontres_segment_index_reset()"], "sourceLine": 234, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_stage1_env_hooks.py&line=234"},
-            {"id": "M2C-F05", "path": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py", "role": "command-owned q29 H append and 928D split-normalizer bridge; R5 consumes it through the actual offline observation reader", "functions": ["append_frontres_future_intent_context()", "apply_obs_normalizer()"], "sourceLine": 123, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=123"},
+            {"id": "M2C-F05", "path": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py", "role": "local q29 H append plus E-FI-30 deployment current/H validation and 928D builder", "functions": ["read_frontres_v015_deployment_context()", "build_frontres_v015_deployment_observation()", "append_frontres_future_intent_context()", "apply_obs_normalizer()"], "sourceLine": 89, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=89"},
             {"id": "M2C-F06", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "v015 v2 q29 H=(1,2), 158D prefix-stat, and 770D GMT-suffix identity owner; v1/zero/full/65D/unversioned layouts reject before restore", "functions": ["save_runner()", "load_runner()"], "sourceLine": 85, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=85"}
           ],
           "mainRoute": [
             "B1 selected source -> one sealed local scenario: x_t + root_artifact_t + I[H,29] + C[t+1:t+K]",
             "B2 Step 2A Clean x_t reset -> current artifact cache; Step 2B routes one t actor action, then command-owned Clean C only to frozen GMT",
-            "B3 runtime/checkpoint: v015 selects q29 intent before normalizer; legacy 65D tail cannot concatenate, and only the exact H/prefix-stat identity may restore"
+            "B3 deployment S2A/S2B: pre-materialized NPZ -> current q29/dq29/body + q29 H -> 928D -> per-frame 6D FEMR/frozen GMT; T-max(H) forbids tail clamp",
+            "B4 runtime/checkpoint: local v015 selects q29 intent before normalizer; legacy 65D tail cannot concatenate, and only the exact H/prefix-stat identity may restore"
           ],
-          "mainRouteTitles": ["封存 Local Scenario", "分离 Actor Intent 与 GMT Continuation", "接入 Actor 且隔离 Legacy"],
+          "mainRouteTitles": ["封存 Local Scenario", "分离 Actor Intent 与 GMT Continuation", "封存 Deployment Current/H", "接入 Local Actor 且隔离 Legacy"],
           "review": ["确认 Clean x_t 只用于 dynamics reset", "确认 H 是 q29 intent 而 K 是 Clean GMT continuation", "确认 actor 永不读取 Clean/future-root/noise-truth/timing"],
-          "tests": ["S1 local-scenario kernel contract", "S1 v015 two-role reset contract", "S1/S2 legacy tape regressions", "S1/S2 v015 one-action K collector contract", "S3 v015 checkpoint/resume contract", "S2 v015 unmocked observation connectivity contract"],
-          "gap": "E-FI-23 proves current command -> actual 870D observation reader -> command-owned 58D q29 append -> normalization -> 158D FEMR / 770D GMT consumers with semantic CPU owners; E-FI-22 preserves exact v2 persistence. Simulator timing, training, live integration, and actual checkpoint cadence/resume remain unconfirmed."
+          "tests": ["S1 local-scenario kernel contract", "S1 v015 two-role reset contract", "S1/S2 legacy tape regressions", "S1/S2 v015 one-action K collector contract", "S1/S2A deployment carrier/current-H isolation", "S2B deployment per-frame FEMR/frozen-GMT/report", "S3 v015 checkpoint/resume contract", "S2 v015 unmocked observation connectivity contract"],
+          "gap": "E-FI-27 live-confirms the local current/H route, E-FI-22 preserves v2 persistence, and E-FI-30 CPU-confirms deployment per-frame FEMR/frozen-GMT. Physical deployment metrics and Isaac timing remain S4-only."
         },
         {
           "id": "DP-KSTEP",
@@ -115,7 +116,7 @@
           "mainRouteTitles": ["分配 Per-attempt K", "执行 Evidence Horizon", "构造单行 K-step Return"],
           "review": ["对比 sampled/effective/storage K", "检查 done 后的 evidence-step mask", "检查 K 不增加 PPO row 或 group mass"],
           "tests": ["S1/S2 v015 one-action K collector contract", "S1 v015 grouped candidate adapter contract", "S1 v003 grouped-PPO contract", "S2 formal storage route", "S4 AUDIT-SAMPLER-01", "S2 v015 unmocked observation connectivity contract"],
-          "gap": "E-FI-23 proves one actor row per attempt, post-advance Clean-C command observation, frozen-FEMR K execution, and unchanged attempt/group mass with semantic CPU owners. Simulator and live K timing remain unconfirmed."
+          "gap": "E-FI-27 live-confirms one actor row per attempt, eight post-advance Clean-C GMT reads, frozen-FEMR K execution, and unchanged equal attempt/group mass. K curriculum across long training remains unconfirmed."
         }
       ]
     },
@@ -148,7 +149,7 @@
           "mainRouteTitles": ["构造 q29 Actor Input", "验证当前 Anti-DR Target", "拒绝 Stage-3 HSL", "拒绝旧 HSL Checkpoint"],
           "review": ["确认 Stage-1 actor 只读 q29 future intent", "确认 current target 不读 Clean future/global", "确认 Stage-3 storage/loss 没有 HSL target"],
           "tests": ["S1 frontres_hsl_v007_s1_contract.py", "S1 frontres_hsl_rollout_target_contract.py", "S2 frontres_hsl_v007_s2_connectivity_contract.py"],
-          "gap": "implemented-not-integrated: S1/S2 prove local q29/target/reject boundaries and CPU-only owner connectivity. A live sealed scenario carrier, formal evaluator isolation, and a new Stage-1 HSL checkpoint identity remain unconfirmed."
+          "gap": "S1/S2 prove local q29/target/reject boundaries and CPU-only HSL owner connectivity. E-FI-27 confirms a live sealed scenario carrier with HSL disabled; live Stage-1 HSL use and a new Stage-1 HSL checkpoint identity remain unconfirmed."
         },
         {
           "id": "DP-WARMUP",
@@ -165,12 +166,12 @@
           "mainRoute": [
             "B1 frontres_segment_warmup.py::frontres_segment_warmup_phase(): persisted iteration -> phase + actor weight",
             "B2 frontres_segment_ppo.py::compute_frontres_segment_ppo_loss(): sealed-complete grouped terms + actor weight -> candidate total loss",
-            "B3 frontres_segment_live_probe.py::run_frontres_segment_single_update(): legacy loss connector remains isolated; Step 4B/4C plus Step 5A-S0 add a separate protected pre-live transaction/update/persistence route"
+            "B3 frontres_segment_live_probe.py::run_frontres_segment_single_update(): legacy loss connector remains isolated; Step 4B/4C plus Step 5A add a separate bounded-live-confirmed transaction/update route"
           ],
           "mainRouteTitles": ["解析 Warmup Phase", "组合 Grouped PPO Loss", "执行一次受保护更新"],
           "review": ["critic_only actor/std 必须不变", "resume 必须选择同一 phase", "一笔 transaction 只有一次 optimizer step"],
           "tests": ["S1/S2 warmup contracts", "S4 AUDIT-PPO-01"],
-          "gap": "E-FI-16 adds only the explicit opt-in pre-live connector. The current generic caller still selects flat scale_only and immediate update; generic/live routing remains unconfirmed."
+          "gap": "E-FI-27 confirms the explicit opt-in bounded-live connector while HSL stays disabled. The generic long-training caller and live warmup progression remain unconfirmed."
         }
       ]
     },
@@ -222,7 +223,7 @@
           "mainRouteTitles": ["保持 GMT Obs Contract", "执行 Frozen Tracker", "隔离 GMT Gradient"],
           "review": ["确认 requires_grad=False", "确认 optimizer 不含 GMT params"],
           "tests": ["S1/S2 frozen GMT contract", "S4 AUDIT-PPO-01", "S2 v015 unmocked observation connectivity contract"],
-          "gap": "E-FI-23 proves the actual offline consumer receives only the normalized 770D suffix and that K re-reads it after advancing Clean C; parameter freeze under simulator/live execution still awaits R6 evidence."
+          "gap": "E-FI-27 live-confirms the consumer receives only the normalized 770D suffix and K re-reads it eight times after advancing Clean C. Long-running policy quality and freeze persistence remain unconfirmed."
         }
       ]
     },
@@ -254,7 +255,7 @@
           "mainRouteTitles": ["建立 2-split Roles", "恢复匹配 Local Scenario", "采集 Paired Execution"],
           "review": ["检查 policy/search credit boundary", "检查 Noisy/Repair 的 x_t/artifact/I/C/K identity"],
           "tests": ["S1 v015 two-role reset contract", "S1/S2 v015 one-action K collector contract", "S4 AUDIT-PAIR-01/AUDIT-PAIR-EVIDENCE-01"],
-          "gap": "Step 2B implements fake one-action/frozen-FEMR C capture. E-FI-11 proves candidate return/priority evidence and E-FI-12 proves its v003 diagnostics/isolation; formal storage/PPO, route, and live evidence remain pending."
+          "gap": "E-FI-27 live-confirms two-role one-action/frozen-FEMR K capture, formal storage/PPO, equal group mass, and exact-one update. Long-sequence composition remains Step 5B."
         },
         {
           "id": "DP-GAIN",
@@ -265,12 +266,14 @@
           "objects": ["Q-01", "style_gain", "physics_gain", "repair_cost", "gain_total"],
           "files": [
             {"id": "M2C-Q01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "role": "v003 pure Gain semantic owner; v002 Clean-global functions remain isolated", "functions": ["compute_intent_physics_local_repair_gain()","compute_paired_physics_gain()","compute_repair_cost()"], "sourceLine": 208, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=208"},
-            {"id": "M2C-Q02", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "v015 candidate capture/local-metadata connector plus fake-S2 grouped-update and fake-S3 committed-receipt owner", "functions": ["collect_frontres_v015_gain_return_priority_evidence()","build_frontres_v015_grouped_candidate_batch()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3177, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3177"},
+            {"id": "M2C-Q02", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "v015 candidate capture/local-metadata connector plus bounded-live grouped-update and committed-receipt owner", "functions": ["collect_frontres_v015_gain_return_priority_evidence()","build_frontres_v015_grouped_candidate_batch()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3177, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3177"},
             {"id": "M2C-Q03", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "one-row v003 return plus immutable local metadata/storage adapter; legacy batch and fixed-tape metadata reject", "functions": ["build_frontres_v015_gain_return_evidence()","FrontRESV015GroupedCandidateMetadata","build_frontres_v015_grouped_candidate_storage()","FrontRESSegmentStorageBatch.to_grouped_ppo_candidate_batch()"], "sourceLine": 57, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=57"},
             {"id": "M2C-Q04", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "scenario-keyed immutable priority evidence only; no sampler-state update or actor-loss mass", "functions": ["build_frontres_v015_priority_evidence()"], "sourceLine": 134, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=134"},
-            {"id": "M2C-Q05", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "unchanged grouped-loss owner; exercised by complete candidate batch and fake-S2 formal transaction only", "functions": ["compute_frontres_segment_ppo_loss()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
+            {"id": "M2C-Q05", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "unchanged grouped-loss owner; exercised by complete candidate batch and bounded-live formal transaction", "functions": ["compute_frontres_segment_ppo_loss()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
             {"id": "M2C-Q06", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "role": "candidate-only v003 local-K report and separate deployment-composition protocol owner; neither has feedback state", "functions": ["build_frontres_v015_local_evaluation_report()","build_frontres_v015_composition_evaluation_protocol()"], "sourceLine": 149, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=149"},
-            {"id": "M2C-Q07", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "legacy periodic/offline/sequence v002 evaluator isolation gate; v015 layouts fail before capture", "functions": ["_reject_v015_legacy_evaluator()"], "sourceLine": 142, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=142"}
+            {"id": "M2C-Q07", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "legacy periodic/offline/sequence v002 evaluator isolation gate; v015 layouts fail before capture", "functions": ["_reject_v015_legacy_evaluator()"], "sourceLine": 142, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=142"},
+            {"id": "M2C-Q08", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py", "role": "E-FI-28/E-FI-30 deployment request, T-max(H) executor, deployable metrics, atomic no-feedback report, and training fingerprint owner", "functions": ["load_frontres_v015_deployment_composition_request()","run_frontres_v015_deployment_composition_eval()","FrontRESV015DeploymentCompositionReport"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_sequence_eval.py&line=1"},
+            {"id": "M2C-Q09", "path": "scripts/rsl_rl/frontres_v015_deployment_composition.py", "role": "E-FI-31 registered-task/checkpoint/CUDA CLI connector with Segment sampler and training dispatch disabled", "functions": ["configure_frontres_v015_deployment_agent_cfg()","dispatch_frontres_v015_deployment_composition()"], "sourceLine": 1, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ffrontres_v015_deployment_composition.py&line=1"}
           ],
           "mainRoute": [
             "B1 required v003 owner: paired rollout facts + I -> Intent/Physics/Repair components",
@@ -279,8 +282,8 @@
           ],
           "mainRouteTitles": ["计算 Gain Components", "组合 Total Gain", "记录 Candidate Evidence 与 Diagnostics"],
           "review": ["检查所有消费者使用同一 owner", "检查 missing component 不静默写 0"],
-          "tests": ["S1 Gain golden fixtures", "S1 candidate consumer connectivity", "S1 v015 evaluation isolation", "S1 v015 grouped candidate adapter", "S4 AUDIT-GAIN-01/AUDIT-RETURN-01"],
-          "gap": "E-FI-10--E-FI-14 prove the pure v003 owner, return/priority, diagnostics, candidate batch, and one fake complete grouped update; E-FI-22 proves exact v2 partial-transaction checkpoint rejection. Sampler state, real evaluation, generic formal dispatch, actual checkpoint cadence/resume, and live consumers remain unimplemented."
+          "tests": ["S1 Gain golden fixtures", "S1 candidate consumer connectivity", "S1 v015 evaluation isolation", "S1 v015 grouped candidate adapter", "S1 deployment-composition schema/no-feedback", "S2B deployment report/zero-write", "S4-S0 deployment CLI/no-training dispatch", "S4 AUDIT-GAIN-01/AUDIT-RETURN-01"],
+          "gap": "E-FI-27 live-confirms local grouped update; E-FI-28--E-FI-31 add isolated deployment request/carrier/formal report/CLI without Gain/PPO feedback. Physical composition and S4 report values remain unconfirmed."
         }
       ]
     }

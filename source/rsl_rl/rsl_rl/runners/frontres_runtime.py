@@ -86,6 +86,184 @@ def _future_intent_context_snapshot(self):
     return snapshot
 
 
+def read_frontres_v015_deployment_context(
+    self,
+    env_ids: torch.Tensor | None = None,
+) -> dict[str, object]:
+    """Read the Step 5B-S2A deployment current/H carrier without consuming it.
+
+    Status: connector-only. This function validates and clones command-owned
+    data; it does not append actor observations, execute GMT, advance a cursor,
+    produce metrics, or write training state.
+    """
+
+    command = _fixed_noisy_motion_command(self)
+    read_snapshot = getattr(command, "frontres_v015_deployment_sequence_snapshot", None)
+    if not callable(read_snapshot):
+        raise RuntimeError("v015 deployment context requires the command-owned sequence snapshot")
+    snapshot = read_snapshot(env_ids)
+    required = {
+        "env_ids",
+        "frame_indices",
+        "current_q29_dq29",
+        "intent_q29",
+        "future_offsets",
+        "reference_paths",
+        "reference_stream_ids",
+        "reference_file_hashes",
+        "corruption_ids",
+        "corruption_protocol_hashes",
+        "corruption_families",
+        "corruption_temporal_modes",
+        "evaluation_kinds",
+        "provenance",
+    }
+    if not isinstance(snapshot, dict) or set(snapshot) != required:
+        raise RuntimeError(
+            "v015 deployment context snapshot has an invalid schema: "
+            f"got={sorted(snapshot) if isinstance(snapshot, dict) else type(snapshot).__name__}"
+        )
+
+    row_ids = snapshot["env_ids"]
+    frame_indices = snapshot["frame_indices"]
+    current = snapshot["current_q29_dq29"]
+    intent = snapshot["intent_q29"]
+    offsets = tuple(int(value) for value in snapshot["future_offsets"])
+    if (
+        not isinstance(row_ids, torch.Tensor)
+        or row_ids.ndim != 1
+        or row_ids.dtype != torch.long
+        or int(torch.unique(row_ids).numel()) != int(row_ids.numel())
+        or not isinstance(frame_indices, torch.Tensor)
+        or tuple(frame_indices.shape) != tuple(row_ids.shape)
+        or frame_indices.dtype != torch.long
+    ):
+        raise RuntimeError("v015 deployment context requires aligned unique row ids and [B] frame cursors")
+    batch_size = int(row_ids.numel())
+    max_offset = max(offsets, default=-1)
+    tensors = {
+        "current_q29_dq29": (current, (batch_size, 58)),
+        "intent_q29": (intent, (batch_size, max_offset + 1, 29)),
+    }
+    for name, (value, shape) in tensors.items():
+        if (
+            not isinstance(value, torch.Tensor)
+            or tuple(value.shape) != shape
+            or value.requires_grad
+            or not torch.is_floating_point(value)
+            or not bool(torch.isfinite(value).all().item())
+        ):
+            raise RuntimeError(f"v015 deployment {name} must be detached finite {shape} data")
+    if not offsets or tuple(sorted(set(offsets))) != offsets or any(value <= 0 for value in offsets):
+        raise RuntimeError("v015 deployment context requires ordered unique positive H offsets")
+
+    metadata_names = (
+        "reference_paths",
+        "reference_stream_ids",
+        "reference_file_hashes",
+        "corruption_ids",
+        "corruption_protocol_hashes",
+        "corruption_families",
+        "corruption_temporal_modes",
+        "evaluation_kinds",
+        "provenance",
+    )
+    if any(not isinstance(snapshot[name], tuple) or len(snapshot[name]) != batch_size for name in metadata_names):
+        raise RuntimeError("v015 deployment context identity metadata must align one-to-one with command rows")
+    if any(len(set(snapshot[name])) != 1 for name in metadata_names if name != "provenance") or any(
+        value != snapshot["provenance"][0] for value in snapshot["provenance"]
+    ):
+        raise RuntimeError("v015 deployment context rejects mixed reference, protocol, or provenance rows")
+    for row in range(batch_size):
+        file_hash = str(snapshot["reference_file_hashes"][row])
+        protocol_hash = str(snapshot["corruption_protocol_hashes"][row])
+        if (
+            snapshot["reference_stream_ids"][row] != f"deployment-npz:{file_hash}"
+            or len(file_hash) != 64
+            or any(ch not in "0123456789abcdef" for ch in file_hash)
+            or len(protocol_hash) != 64
+            or any(ch not in "0123456789abcdef" for ch in protocol_hash)
+            or snapshot["corruption_temporal_modes"][row] != "persistent_full_sequence"
+            or snapshot["evaluation_kinds"][row] != "deployment_composition_v015"
+        ):
+            raise RuntimeError("v015 deployment context has invalid reference/protocol identity")
+        provenance = snapshot["provenance"][row]
+        if provenance != {
+            "reference_provenance": "deployment_reference_stream",
+            "current_command_provenance": "deployment_q29_dq29",
+            "intent_q29_provenance": "deployment_noisy_q29",
+            "intent_q29_source": "deployment_npz_joint_pos",
+        }:
+            raise RuntimeError("v015 deployment context must retain deployment-only q29 provenance")
+
+    return {
+        **{
+            name: value.detach().clone()
+            for name, value in (
+                ("env_ids", row_ids),
+                ("frame_indices", frame_indices),
+                ("current_q29_dq29", current),
+                ("intent_q29", intent),
+            )
+        },
+        "future_offsets": offsets,
+        **{
+            name: tuple(dict(value) for value in snapshot[name])
+            if name == "provenance"
+            else tuple(snapshot[name])
+            for name in metadata_names
+        },
+    }
+
+
+def build_frontres_v015_deployment_observation(
+    self,
+    obs: torch.Tensor,
+    *,
+    snapshot: dict[str, object] | None = None,
+) -> torch.Tensor:
+    """Prepend deployment H to one raw 870D observation without actor execution."""
+
+    authoritative = read_frontres_v015_deployment_context(self)
+    if snapshot is not None:
+        for name in ("env_ids", "frame_indices"):
+            if not isinstance(snapshot.get(name), torch.Tensor) or not torch.equal(
+                snapshot[name].to(authoritative[name].device), authoritative[name]
+            ):
+                raise RuntimeError("v015 deployment observation snapshot no longer matches the command cursor")
+        for name in ("reference_stream_ids", "corruption_protocol_hashes", "future_offsets"):
+            if snapshot.get(name) != authoritative[name]:
+                raise RuntimeError("v015 deployment observation snapshot has mixed or stale identity")
+    snapshot = authoritative
+    layout = getattr(self, "_frontres_future_intent_layout", None)
+    if not isinstance(layout, FrontRESFutureIntentLayout) or layout.version != FRONTRES_FUTURE_INTENT_LAYOUT_VERSION:
+        raise RuntimeError("v015 deployment observation requires the frozen future-intent layout")
+    if tuple(layout.future_offsets) != tuple(snapshot["future_offsets"]):
+        raise RuntimeError("v015 deployment observation H offsets disagree with the sealed request")
+    if not isinstance(obs, torch.Tensor) or obs.ndim != 2 or int(obs.shape[0]) != int(snapshot["env_ids"].numel()):
+        raise RuntimeError("v015 deployment raw observation must be row-aligned [B,D]")
+    intent = snapshot["intent_q29"]
+    tail = intent[:, layout.future_offsets, :].reshape(int(intent.shape[0]), layout.actor_tail_dim).detach().clone()
+    combined = torch.cat([tail.to(device=obs.device, dtype=obs.dtype), obs], dim=-1)
+    policy = getattr(getattr(self, "alg", None), "policy", None)
+    expected_actor = int(getattr(policy, "num_actor_obs", 0) or 0)
+    expected_frontres = int(getattr(policy, "num_frontres_obs", 0) or 0)
+    gmt_dim = int(getattr(self, "_frontres_gmt_obs_dim", 0) or 0)
+    if (
+        expected_actor <= 0
+        or int(combined.shape[-1]) != expected_actor
+        or gmt_dim <= 0
+        or expected_frontres != expected_actor - gmt_dim
+        or int(obs.shape[-1]) + layout.actor_tail_dim != expected_actor
+    ):
+        raise RuntimeError(
+            "v015 deployment observation violates FEMR/GMT authority: "
+            f"raw={tuple(obs.shape)} combined={tuple(combined.shape)} "
+            f"actor={expected_actor} frontres={expected_frontres} gmt={gmt_dim}"
+        )
+    return combined
+
+
 def append_frontres_fixed_noisy_future_context(self, obs: torch.Tensor) -> torch.Tensor:
     """Legacy v013 helper for a full 65D fixed-Noisy future tape.
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import numpy as np
 import os
@@ -43,6 +44,14 @@ def _quat_to_rotvec_wxyz(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
+
+
+def _frontres_sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _get_rank_world_size(shard_by: str = "global") -> tuple[int, int]:
@@ -1541,6 +1550,283 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_local_scenario_roles: list[str | None] = [None] * self.num_envs
         self._frontres_local_scenario_provenance: list[dict[str, object] | None] = [None] * self.num_envs
 
+        # v015 deployment-composition carrier. This is independent of the
+        # local Segment carrier: it owns one immutable .npz q29/dq29 sequence
+        # plus a transaction-wide read cursor, and has no Clean continuation.
+        self._frontres_v015_deployment_sequence_q29: torch.Tensor | None = None
+        self._frontres_v015_deployment_sequence_dq29: torch.Tensor | None = None
+        self._frontres_v015_deployment_sequence_body_pos_w: torch.Tensor | None = None
+        self._frontres_v015_deployment_sequence_body_quat_w: torch.Tensor | None = None
+        self._frontres_v015_deployment_sequence_body_lin_vel_w: torch.Tensor | None = None
+        self._frontres_v015_deployment_sequence_body_ang_vel_w: torch.Tensor | None = None
+        self._frontres_v015_deployment_sequence_active = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+        self._frontres_v015_deployment_sequence_cursor = torch.zeros(
+            self.num_envs, dtype=torch.long, device=self.device
+        )
+        self._frontres_v015_deployment_sequence_frame_count = 0
+        self._frontres_v015_deployment_sequence_future_offsets: tuple[int, ...] = ()
+        self._frontres_v015_deployment_sequence_reference_path: str | None = None
+        self._frontres_v015_deployment_sequence_reference_stream_id: str | None = None
+        self._frontres_v015_deployment_sequence_reference_file_hash: str | None = None
+        self._frontres_v015_deployment_sequence_corruption_id: str | None = None
+        self._frontres_v015_deployment_sequence_protocol_hash: str | None = None
+        self._frontres_v015_deployment_sequence_corruption_family: str | None = None
+        self._frontres_v015_deployment_sequence_temporal_mode: str | None = None
+        self._frontres_v015_deployment_sequence_evaluation_kind: str | None = None
+
+    def set_frontres_v015_deployment_sequence(self, request: object) -> None:
+        """Install one E-FI-28 deployment request as an immutable q29/dq29 carrier.
+
+        Status: Step 5B-S2A command owner only. The sequence is not connected
+        to the actor, GMT, command clock, metrics, or training state here.
+        """
+
+        validate = getattr(request, "validate", None)
+        if not callable(validate):
+            raise TypeError("v015 deployment sequence requires a validated E-FI-28 request")
+        validate()
+        if bool(self._frontres_v015_deployment_sequence_active.any()):
+            raise RuntimeError("v015 deployment sequence is already active and cannot be reinstalled")
+        if bool(self._frontres_local_scenario_active.any()):
+            raise RuntimeError("v015 deployment sequence cannot mix with a local scenario")
+        if bool(self._frontres_fixed_noisy_tape_context_active.any()):
+            raise RuntimeError("v015 deployment sequence cannot mix with a legacy fixed Noisy tape")
+        if bool(self._frontres_reference_window_active.any()):
+            raise RuntimeError("v015 deployment sequence cannot mix with a legacy reference window")
+
+        reference_path = Path(str(getattr(request, "reference_path", ""))).expanduser().resolve(strict=True)
+        requested_path = str(getattr(request, "reference_path", ""))
+        if str(reference_path) != requested_path or reference_path.suffix.lower() != ".npz":
+            raise ValueError("v015 deployment request must retain one absolute .npz reference path")
+        reference_file_hash = str(getattr(request, "reference_file_hash", ""))
+        reference_stream_id = str(getattr(request, "reference_stream_id", ""))
+        reference_provenance = str(getattr(request, "reference_provenance", ""))
+        evaluation_kind = str(getattr(request, "evaluation_kind", ""))
+        frame_count = int(getattr(request, "frame_count", 0))
+        joint_dof = int(getattr(request, "joint_dof", 0))
+        future_offsets = tuple(int(value) for value in (getattr(request, "future_offsets", ()) or ()))
+        protocol = getattr(request, "corruption_protocol", None)
+        protocol_validate = getattr(protocol, "validate", None)
+        if not callable(protocol_validate):
+            raise TypeError("v015 deployment sequence requires an immutable corruption protocol")
+        protocol_validate()
+        corruption_id = str(getattr(protocol, "corruption_id", ""))
+        protocol_hash = str(getattr(protocol, "protocol_hash", ""))
+        corruption_family = str(getattr(protocol, "family", ""))
+        temporal_mode = str(getattr(protocol, "temporal_mode", ""))
+        if (
+            reference_stream_id != f"deployment-npz:{reference_file_hash}"
+            or reference_provenance != "deployment_reference_stream"
+            or evaluation_kind != "deployment_composition_v015"
+            or frame_count <= 0
+            or joint_dof != 29
+            or not future_offsets
+            or tuple(sorted(set(future_offsets))) != future_offsets
+            or any(value <= 0 for value in future_offsets)
+            or not corruption_id
+            or not corruption_family
+            or temporal_mode != "persistent_full_sequence"
+            or len(protocol_hash) != 64
+            or any(ch not in "0123456789abcdef" for ch in protocol_hash)
+        ):
+            raise ValueError("v015 deployment request identity or q29/H schema is invalid")
+
+        hash_before = _frontres_sha256_file(reference_path)
+        if hash_before != reference_file_hash:
+            raise RuntimeError("v015 deployment reference file hash changed after request sealing")
+        try:
+            with np.load(reference_path, allow_pickle=False) as data:
+                q29_np = np.asarray(data["joint_pos"])
+                dq29_np = np.asarray(data["joint_vel"])
+                body_pos_np = np.asarray(data["body_pos_w"])
+                body_quat_np = np.asarray(data["body_quat_w"])
+                body_lin_np = np.asarray(data["body_lin_vel_w"])
+                body_ang_np = np.asarray(data["body_ang_vel_w"])
+                q29 = torch.as_tensor(q29_np.copy(), device=self.device, dtype=torch.float32)
+                dq29 = torch.as_tensor(dq29_np.copy(), device=self.device, dtype=torch.float32)
+                body_pos = torch.as_tensor(body_pos_np.copy(), device=self.device, dtype=torch.float32)
+                body_quat = torch.as_tensor(body_quat_np.copy(), device=self.device, dtype=torch.float32)
+                body_lin = torch.as_tensor(body_lin_np.copy(), device=self.device, dtype=torch.float32)
+                body_ang = torch.as_tensor(body_ang_np.copy(), device=self.device, dtype=torch.float32)
+        except (KeyError, OSError, TypeError, ValueError) as exc:
+            raise ValueError("v015 deployment sequence cannot read sealed q29/dq29 arrays") from exc
+        hash_after = _frontres_sha256_file(reference_path)
+        if hash_after != reference_file_hash:
+            raise RuntimeError("v015 deployment reference file hash changed during carrier installation")
+        if (
+            tuple(q29.shape) != (frame_count, 29)
+            or tuple(dq29.shape) != (frame_count, 29)
+            or tuple(body_pos.shape) != (frame_count, int(getattr(request, "body_count", 0)), 3)
+            or tuple(body_quat.shape) != (frame_count, int(getattr(request, "body_count", 0)), 4)
+            or tuple(body_lin.shape) != tuple(body_pos.shape)
+            or tuple(body_ang.shape) != tuple(body_pos.shape)
+            or not bool(torch.isfinite(q29).all().item())
+            or not bool(torch.isfinite(dq29).all().item())
+            or not bool(torch.isfinite(body_pos).all().item())
+            or not bool(torch.isfinite(body_quat).all().item())
+            or not bool(torch.isfinite(body_lin).all().item())
+            or not bool(torch.isfinite(body_ang).all().item())
+        ):
+            raise ValueError("v015 deployment sequence must retain finite q29/dq29 and body reference arrays")
+        max_offset = max(future_offsets)
+        if frame_count <= max_offset:
+            raise ValueError("v015 deployment sequence is too short for its H offsets")
+
+        # Sequence values and identities are copied once. Only the explicit
+        # cursor may change after installation; no reset or command callback
+        # can resample or overwrite the carrier.
+        self._frontres_v015_deployment_sequence_q29 = q29.detach().clone().contiguous()
+        self._frontres_v015_deployment_sequence_dq29 = dq29.detach().clone().contiguous()
+        self._frontres_v015_deployment_sequence_body_pos_w = body_pos.detach().clone().contiguous()
+        self._frontres_v015_deployment_sequence_body_quat_w = body_quat.detach().clone().contiguous()
+        self._frontres_v015_deployment_sequence_body_lin_vel_w = body_lin.detach().clone().contiguous()
+        self._frontres_v015_deployment_sequence_body_ang_vel_w = body_ang.detach().clone().contiguous()
+        self._frontres_v015_deployment_sequence_cursor.zero_()
+        self._frontres_v015_deployment_sequence_frame_count = frame_count
+        self._frontres_v015_deployment_sequence_future_offsets = future_offsets
+        self._frontres_v015_deployment_sequence_reference_path = str(reference_path)
+        self._frontres_v015_deployment_sequence_reference_stream_id = reference_stream_id
+        self._frontres_v015_deployment_sequence_reference_file_hash = reference_file_hash
+        self._frontres_v015_deployment_sequence_corruption_id = corruption_id
+        self._frontres_v015_deployment_sequence_protocol_hash = protocol_hash
+        self._frontres_v015_deployment_sequence_corruption_family = corruption_family
+        self._frontres_v015_deployment_sequence_temporal_mode = temporal_mode
+        self._frontres_v015_deployment_sequence_evaluation_kind = evaluation_kind
+        self._frontres_v015_deployment_sequence_active[:] = True
+        self._install_frontres_v015_deployment_current_frame()
+
+    def _frontres_v015_deployment_current_rows(self, getter: str) -> torch.Tensor:
+        """Return one row-aligned current reference field from the sealed sequence."""
+
+        if not bool(self._frontres_v015_deployment_sequence_active.all()):
+            raise RuntimeError("v015 deployment current reference requires one active sequence")
+        fields = {
+            "joint_pos": self._frontres_v015_deployment_sequence_q29,
+            "joint_vel": self._frontres_v015_deployment_sequence_dq29,
+            "body_pos_w": self._frontres_v015_deployment_sequence_body_pos_w,
+            "body_quat_w": self._frontres_v015_deployment_sequence_body_quat_w,
+            "body_lin_vel_w": self._frontres_v015_deployment_sequence_body_lin_vel_w,
+            "body_ang_vel_w": self._frontres_v015_deployment_sequence_body_ang_vel_w,
+        }
+        if getter not in fields or fields[getter] is None:
+            raise RuntimeError(f"v015 deployment current reference has no field {getter!r}")
+        rows = fields[getter].index_select(0, self._frontres_v015_deployment_sequence_cursor)
+        return rows.detach().clone()
+
+    def _install_frontres_v015_deployment_current_frame(self) -> None:
+        """Install the current deployment root artifact and clear the prior repair."""
+
+        body_pos = self._frontres_v015_deployment_current_rows("body_pos_w")
+        body_quat = self._frontres_v015_deployment_current_rows("body_quat_w")
+        anchor = int(self.motion_anchor_body_index)
+        if anchor < 0 or anchor >= int(body_pos.shape[1]):
+            raise RuntimeError("v015 deployment sequence does not contain the command anchor body")
+        self._cached_perturbed_pos.copy_(body_pos[:, anchor])
+        self._cached_perturbed_quat.copy_(body_quat[:, anchor])
+        self._frontres_pos_correction.zero_()
+        self._frontres_quat_correction.zero_()
+        self._frontres_quat_correction[:, 0] = 1.0
+        self._dr_supervised_target.zero_()
+
+    def frontres_v015_deployment_sequence_snapshot(
+        self,
+        env_ids: torch.Tensor | None = None,
+    ) -> dict[str, object]:
+        """Return current q29/dq29 and dense H intent without advancing the cursor."""
+
+        if not bool(self._frontres_v015_deployment_sequence_active.all()):
+            raise RuntimeError("v015 deployment sequence snapshot requires one transaction-wide active carrier")
+        q29 = self._frontres_v015_deployment_sequence_q29
+        dq29 = self._frontres_v015_deployment_sequence_dq29
+        if q29 is None or dq29 is None:
+            raise RuntimeError("active v015 deployment sequence is missing q29/dq29 data")
+        if env_ids is None:
+            ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+        else:
+            ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long).flatten()
+        if (
+            int(ids.numel()) == 0
+            or int(torch.unique(ids).numel()) != int(ids.numel())
+            or bool((ids < 0).any())
+            or bool((ids >= int(self.num_envs)).any())
+        ):
+            raise ValueError("v015 deployment sequence snapshot requires unique in-range command rows")
+
+        cursors = self._frontres_v015_deployment_sequence_cursor.index_select(0, ids)
+        max_offset = max(self._frontres_v015_deployment_sequence_future_offsets)
+        dense_offsets = torch.arange(max_offset + 1, dtype=torch.long, device=self.device)
+        frames = cursors.unsqueeze(1) + dense_offsets.unsqueeze(0)
+        if bool((frames >= self._frontres_v015_deployment_sequence_frame_count).any()):
+            raise RuntimeError("v015 deployment sequence cannot clamp an out-of-range H snapshot")
+        intent_q29 = q29[frames]
+        current_q29 = q29.index_select(0, cursors)
+        current_dq29 = dq29.index_select(0, cursors)
+        batch_size = int(ids.numel())
+        provenance = {
+            "reference_provenance": "deployment_reference_stream",
+            "current_command_provenance": "deployment_q29_dq29",
+            "intent_q29_provenance": "deployment_noisy_q29",
+            "intent_q29_source": "deployment_npz_joint_pos",
+        }
+
+        def repeat(value: str | None) -> tuple[str, ...]:
+            if value is None or not value:
+                raise RuntimeError("active v015 deployment sequence is missing immutable identity metadata")
+            return (value,) * batch_size
+
+        return {
+            "env_ids": ids.detach().clone(),
+            "frame_indices": cursors.detach().clone(),
+            "current_q29_dq29": torch.cat([current_q29, current_dq29], dim=-1).detach().clone(),
+            "intent_q29": intent_q29.detach().clone(),
+            "future_offsets": tuple(self._frontres_v015_deployment_sequence_future_offsets),
+            "reference_paths": repeat(self._frontres_v015_deployment_sequence_reference_path),
+            "reference_stream_ids": repeat(self._frontres_v015_deployment_sequence_reference_stream_id),
+            "reference_file_hashes": repeat(self._frontres_v015_deployment_sequence_reference_file_hash),
+            "corruption_ids": repeat(self._frontres_v015_deployment_sequence_corruption_id),
+            "corruption_protocol_hashes": repeat(self._frontres_v015_deployment_sequence_protocol_hash),
+            "corruption_families": repeat(self._frontres_v015_deployment_sequence_corruption_family),
+            "corruption_temporal_modes": repeat(self._frontres_v015_deployment_sequence_temporal_mode),
+            "evaluation_kinds": repeat(self._frontres_v015_deployment_sequence_evaluation_kind),
+            "provenance": tuple(dict(provenance) for _ in range(batch_size)),
+        }
+
+    def advance_frontres_v015_deployment_sequence(self) -> None:
+        """Advance every command row by one frame, rejecting before H would clamp."""
+
+        if not bool(self._frontres_v015_deployment_sequence_active.all()):
+            raise RuntimeError("v015 deployment sequence advance requires one transaction-wide active carrier")
+        next_cursor = self._frontres_v015_deployment_sequence_cursor + 1
+        max_offset = max(self._frontres_v015_deployment_sequence_future_offsets)
+        if bool((next_cursor + max_offset >= self._frontres_v015_deployment_sequence_frame_count).any()):
+            raise RuntimeError("v015 deployment sequence cannot clamp past the final valid H frame")
+        self._frontres_v015_deployment_sequence_cursor.copy_(next_cursor)
+        self._install_frontres_v015_deployment_current_frame()
+
+    def clear_frontres_v015_deployment_sequence(self) -> None:
+        """Close the deployment carrier as a whole without retaining mutable rows."""
+
+        self._frontres_v015_deployment_sequence_active[:] = False
+        self._frontres_v015_deployment_sequence_cursor.zero_()
+        self._frontres_v015_deployment_sequence_q29 = None
+        self._frontres_v015_deployment_sequence_dq29 = None
+        self._frontres_v015_deployment_sequence_body_pos_w = None
+        self._frontres_v015_deployment_sequence_body_quat_w = None
+        self._frontres_v015_deployment_sequence_body_lin_vel_w = None
+        self._frontres_v015_deployment_sequence_body_ang_vel_w = None
+        self._frontres_v015_deployment_sequence_frame_count = 0
+        self._frontres_v015_deployment_sequence_future_offsets = ()
+        self._frontres_v015_deployment_sequence_reference_path = None
+        self._frontres_v015_deployment_sequence_reference_stream_id = None
+        self._frontres_v015_deployment_sequence_reference_file_hash = None
+        self._frontres_v015_deployment_sequence_corruption_id = None
+        self._frontres_v015_deployment_sequence_protocol_hash = None
+        self._frontres_v015_deployment_sequence_corruption_family = None
+        self._frontres_v015_deployment_sequence_temporal_mode = None
+        self._frontres_v015_deployment_sequence_evaluation_kind = None
+
     def set_frontres_local_scenario(
         self,
         *,
@@ -2530,6 +2816,17 @@ class MultiMotionCommand(CommandTerm):
     def _gather_future_by_motion(self, getter: str, horizon: int) -> torch.Tensor:
         if horizon <= 0:
             raise ValueError("horizon must be positive")
+        deployment_active = getattr(
+            self,
+            "_frontres_v015_deployment_sequence_active",
+            torch.zeros_like(self._frontres_local_scenario_active),
+        )
+        if bool(deployment_active.any()):
+            if not bool(deployment_active.all()) or horizon != 1 or getter not in {"joint_pos", "joint_vel"}:
+                raise RuntimeError(
+                    "v015 deployment GMT command requires all rows, motion_horizon=1, and current q29/dq29 only"
+                )
+            return self._frontres_v015_deployment_current_rows(getter).unsqueeze(1)
         local_active = self._frontres_local_scenario_active
         if bool(local_active.any()):
             if not bool(local_active.all()):
@@ -2577,6 +2874,10 @@ class MultiMotionCommand(CommandTerm):
         return command_seq.reshape(self.num_envs, -1)
 
     def _gather_by_motion(self, getter: str) -> torch.Tensor:
+        if bool(self._frontres_v015_deployment_sequence_active.any()):
+            if not bool(self._frontres_v015_deployment_sequence_active.all()):
+                raise RuntimeError("v015 deployment reference rows cannot mix with legacy motion rows")
+            return self._frontres_v015_deployment_current_rows(getter)
         return self.motion_dir_loader.gather(
             getter, self.env_motion_indices, self.time_steps, out_device=self.device
         )
@@ -2711,6 +3012,8 @@ class MultiMotionCommand(CommandTerm):
     @property
     def joint_pos(self) -> torch.Tensor:
         raw = self._gather_by_motion("joint_pos")
+        if bool(self._frontres_v015_deployment_sequence_active.all()):
+            return raw
         local_active = self._frontres_local_scenario_active
         if bool(local_active.any()):
             if not bool(local_active.all()) or self._frontres_local_scenario_intent_q29 is None:
@@ -2735,6 +3038,8 @@ class MultiMotionCommand(CommandTerm):
     @property
     def joint_vel(self) -> torch.Tensor:
         raw = self._gather_by_motion("joint_vel")
+        if bool(self._frontres_v015_deployment_sequence_active.all()):
+            return raw
         local_active = self._frontres_local_scenario_active
         if bool(local_active.any()) and not bool(local_active.all()):
             raise RuntimeError("v015 local scenario command rows cannot mix with legacy joint references")
@@ -2798,7 +3103,7 @@ class MultiMotionCommand(CommandTerm):
 
     @property
     def anchor_pos_w_original(self) -> torch.Tensor:
-        """Clean anchor position from motion data (no DR, no correction)."""
+        """Uncorrected motion-carrier anchor; deployment mode is not a Clean oracle."""
         pos = self._gather_by_motion("body_pos_w")
         return pos[:, self.motion_anchor_body_index] + self._env.scene.env_origins
 
@@ -2822,7 +3127,7 @@ class MultiMotionCommand(CommandTerm):
 
     @property
     def anchor_quat_w_original(self) -> torch.Tensor:
-        """Clean anchor quaternion from motion data (no DR, no correction)."""
+        """Uncorrected motion-carrier quaternion; deployment mode is not a Clean oracle."""
         quat = self._gather_by_motion("body_quat_w")
         return quat[:, self.motion_anchor_body_index]
 
@@ -3407,6 +3712,17 @@ class MultiMotionCommand(CommandTerm):
         """
 
         self._global_sim_step += 1
+        deployment_active = getattr(
+            self,
+            "_frontres_v015_deployment_sequence_active",
+            torch.zeros_like(self._frontres_local_scenario_active),
+        )
+        if bool(deployment_active.any()):
+            if not bool(deployment_active.all()):
+                raise RuntimeError("v015 deployment command clock cannot mix with legacy rows")
+            # The composition executor advances this cursor only after it has
+            # captured the current frame metrics. IsaacLab command compute must hold.
+            return "deployment_current_hold"
         local_active = self._frontres_local_scenario_active
         if bool(local_active.any()):
             ready = self._frontres_local_scenario_current_frame_ready

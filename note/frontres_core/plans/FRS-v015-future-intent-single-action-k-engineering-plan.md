@@ -1,11 +1,10 @@
 # FRS-v015 Engineering Plan: Future-Intent, Single-Action K Replay
 
-Status: active, volatile engineering plan. Re-planned after a read-only
-white-box owner audit on 2026-07-19, H0-A contract closure on 2026-07-20, and
-the R0 formal-observation audit at `E-FI-18`. R0--R5 now prove the deterministic
-command, q29-tail, `928 -> 158/770` authority, exact v2 S3 persistence, and
-unmocked semantic-CPU observation-to-exact-one-update route. Simulator,
-training, and R6 live boundaries require separate approval.
+Status: active, volatile engineering plan. Steps 1A--5A and R0--R6 are complete
+through bounded S4 at `E-FI-27`: the dedicated v015 route preserves local
+identity, `928D` actor / `289D` critic / `770D` GMT authority, one-action K=8,
+equal grouped mass, and exactly one update. Step 5B deployment composition is
+the only remaining Stage-3 step and requires separate user authorization.
 
 Active contracts:
 
@@ -72,9 +71,9 @@ Concept Figure remains
 `../../architecture/concept/03_frontres_concept_tabs.data.json`; this planning
 revision does not change it.
 
-## White-Box Starting Facts And Isolation Targets
+## White-Box Starting Facts (E-FI-1) And Closed Isolation Targets
 
-| Semantic object | Confirmed current owner | Current mismatch / legacy route | New active-route target | Planned gate |
+| Semantic object | Starting owner at E-FI-1 | Starting mismatch / legacy route | Active-route target | Planned gate |
 | --- | --- | --- | --- | --- |
 | Scenario materialization | `frontres_segment_stage1_env_hooks.py::materialize_frontres_fixed_noisy_tape` | Produces one `[L,65]` tape | Immutable local object containing `x_t`, current root artifact, q29 intent window, Clean continuation, K, and identity | 1A |
 | Actor H context | `frontres_runtime.py::append_frontres_fixed_noisy_future_context` | Requires `[B, |H|*65]`, then prepends it to actor input | Ordered deployment-provenance future q29 tail only | 1B |
@@ -84,8 +83,9 @@ revision does not change it.
 | PPO adapter | `frontres_segment_storage.py` and `frontres_segment_ppo.py` | `to_ppo_batch()` intentionally drops transaction metadata; grouped candidate adapter is offline-only | Metadata-bearing candidate path becomes the only grouped formal path | 4A--4B |
 | HSL | `frontres_warmup.py`, `frontres_hsl_rollout_target.py`, and checkpoint loader | Raw-observation warmup bypasses q29; rollout label uses a Clean quartet | Proposal-only current-frame HSL after q29 bridge; legacy rollout label and old checkpoints reject | H0-A -> H1 |
 
-`E-FI-1` in the evidence ledger records the source locations and limits of this
-audit. These are code facts, not a claim that the v015 route already works.
+`E-FI-1` records this pre-implementation baseline. `E-FI-2`--`E-FI-27` close
+the listed v015 targets through the required deterministic, integration,
+persistence, and bounded-live tiers; the legacy routes remain isolated.
 
 ## Why This Plan Has Twelve Stage-3 Steps And One Conditional HSL Step
 
@@ -187,9 +187,9 @@ Stop condition:
 
 ### Step 1B / 12: Future-Intent Actor Bridge
 
-Gate: G1. Depends on: 1A. Status: partial. `E-FI-3` completes the isolated S1
-tail builder only; role-aligned formal consumption remains pending under the
-R0--R6 remediation sequence (`E-FI-18`).
+Gate: G1. Depends on: 1A. Status: completed. `E-FI-3` proves the isolated S1
+tail builder, `E-FI-20`/`E-FI-23` close role-aligned formal consumption, and
+`E-FI-27` confirms the bounded-live actor/GMT/critic authority split.
 
 Objective:
 - make the actor consume exactly the future q29 intent offsets from the sealed
@@ -668,8 +668,8 @@ Bounded implementation status:
 
 ### Step 4C / 12: Layout and Transaction Persistence
 
-Gate: G4. Depends on: 4B. HSL checkpoint work remains blocked by H0 and user
-confirmation.
+Gate: G4. Depends on: 4B. Stage-3 persistence is complete; a new Stage-1 HSL
+checkpoint identity remains a separate, undefined boundary.
 
 Objective:
 - version the v015 future-intent layout and transaction boundary so resume
@@ -718,12 +718,16 @@ Bounded implementation status:
 
 Gate: G5. Depends on: 4C and explicit user authorization.
 
+Status: completed at bounded S4 (`E-FI-27`). This closes the dedicated local
+identity/formal-update route only; it does not authorize long training or
+deployment-composition evaluation.
+
 #### Step 5A-S0: Pre-Live Formal Sentinel Connectivity
 
-Status: partial. `E-FI-16` still proves config isolation, sealed transaction
-ordering, grouped reduction, and exact-one fake update. It does not prove the
-formal observation route because its connectivity test replaces
-`_read_live_observations()` with a stub (`E-FI-18`).
+Status: completed. `E-FI-16` proves config/entrypoint isolation and the sealed
+fake transaction; `E-FI-23` closes the unmocked offline observation connector;
+`E-FI-24` adds the structured live snapshot; `E-FI-27` confirms the same
+dedicated owner chain in the bounded live sentinel.
 
 Objective:
 - connect the already sealed v015 objects through one dedicated, opt-in
@@ -757,9 +761,9 @@ Owner split and evidence:
   `frontres_segment_live_probe.py`, and `frontres_segment_storage.py`; S2
   T-connect/T-state/T-provenance/T-frozen/T-order/T-mass using a semantic fake
   environment only.
-- S0c formal observation route: not yet satisfied. It must execute the real
-  command property, the `870D` policy-observation layout, the role-aligned q29
-  append, normalization, and the FEMR/GMT split without replacing
+- S0c formal observation route: completed by `E-FI-23` and runtime-confirmed by
+  `E-FI-27`; it executes the real command property, `870D` policy observation,
+  role-aligned q29 append, normalization, and FEMR/GMT split without replacing
   `_read_live_observations()`.
 
 Stop condition:
@@ -773,11 +777,12 @@ Stop condition:
 Gate: explicit user confirmation after the actual command and preflight are
 reported. Depends on: completed Step 5A-S0.
 
-Status: attempted once on SUST_Main_2 after the `E-FI-17` local preflight. The
-run reached local-scenario materialization and the balanced `4 Repair + 4
-Noisy` reset, then stopped inside environment observation construction before
-q29 append, actor action, K execution, storage, or optimizer update
-(`E-FI-18`).
+Status: completed on SUST_Main_2 at S4 (`E-FI-27`). The successful log identity
+is `v015_r6_live_sentinel_gpu3.log` with SHA-256
+`d67ed9327d8166ef7617b61f1cd746ee1f4b94710277b28cff6a825b6483f15b`.
+It records `4 Repair + 4 Noisy` physical rows, two Segment sources with M=2,
+one actor action, eight valid Clean-C GMT steps, four grouped policy rows, and
+one optimizer update.
 
 Objective:
 - obtain the smallest real-environment trace proving one v015 local scenario
@@ -950,12 +955,10 @@ Stop condition:
 
 ### R6 / 7: Bounded Live Identity Sentinel
 
-Status: partial after R6-F2 (`E-FI-26`). The synchronized S4 rerun passed reset,
-the unique t action, Clean-C K execution, and sealed candidate collection, then
-stopped before update because the formal evaluator routed the `[4,928]` actor
-observation into the frozen critic whose input contract is `[4,289]`. R6-F2
-now preserves the t critic observation through the sealed candidate path at
-deterministic S1/S2; the repaired S4 path has not been rerun.
+Status: completed at bounded S4 (`E-FI-27`). The final rerun preserves the
+`[4,928]` actor observation and row-aligned `[4,289]` critic observation,
+executes all K=8 evidence steps, seals four equal-mass policy attempts, and
+publishes `optimizer_step_delta=1` / `exact_one_update=true`.
 
 R6-F1 command-clock repair contract:
 
@@ -976,7 +979,8 @@ R6-F1 command-clock repair contract:
 
 R6-F2 critic-observation route contract:
 
-- Status: completed at deterministic S1/S2 (`E-FI-26`); S4 rerun pending.
+- Status: completed at deterministic S1/S2 (`E-FI-26`) and runtime-confirmed
+  at bounded S4 (`E-FI-27`).
 - Objective: preserve the t policy tuple's real privileged/critic observation
   from role selection through one-action evidence and candidate storage, then
   feed it to the frozen critic during the sealed formal evaluation.
@@ -1012,9 +1016,9 @@ Expected evidence:
 Stop condition:
 - any dimension/identity is absent, FEMR sees GMT-only fields, GMT is not
   `770D`, a later FEMR action appears, or update delta is not one.
-- the R6-F2 deterministic critic route must be synchronized before another
-  live run; do not run against a checkout whose evaluator can still fall back
-  from missing privileged observations to the 928D actor observation.
+
+Acceptance:
+- no stop condition triggered in `E-FI-27`; R6 and Step 5A are closed.
 
 ### Step 5B / 12: User-Gated Deployment Composition Evaluation
 
@@ -1043,13 +1047,134 @@ Stop condition:
 - composition metrics enter training feedback; the report is used to claim
   local-return validity; or the protocol lacks deployment reference provenance.
 
+Bounded substeps:
+- `5B-S0` Formal Route Audit: freeze the owner, shapes, legacy isolation, and
+  S1/S2/S4 evidence gates without modifying code or running the simulator.
+- `5B-S1` Immutable Request/Report Kernel: in
+  `frontres_segment_sequence_eval.py`, validate an explicit deployment `.npz`,
+  seal its file identity and persistent-corruption protocol identity, define a
+  per-frame composition report with no training-feedback fields, and reject
+  legacy/mixed configuration. This is deterministic CPU-only schema evidence.
+- `5B-S2A` Deployment Carrier And H Snapshot: install one immutable request in
+  the command owner and expose only the current deployment command plus
+  `[B,H+1,29]` q29 intent to the runtime bridge. It does not sample FEMR, step
+  GMT, aggregate metrics, or touch the formal runner.
+- `5B-S2B` Formal Composition Executor: connect the verified S2A carrier
+  through per-frame FEMR, frozen GMT, sequence metrics, immutable report, and
+  the dedicated config/runner entry. It must prove zero sampler/storage/PPO/
+  optimizer mutation with an offline semantic fixture before any live run.
+- `5B-S4-S0` Dedicated Live Composition Entrypoint: expose one v015-only
+  server CLI that binds the registered IsaacLab task, explicit frozen-GMT and
+  v015 FEMR checkpoints, one pre-materialized deployment `.npz`, CUDA-visible
+  device identity, and one absolute report path to the S2B owner. It must prove
+  config/dispatch isolation without launching IsaacLab.
+- `5B-S4` Bounded Live Composition: run one explicitly identified deployment
+  stream only after S2 passes, then record per-frame action use, corruption
+  protocol, intent/physics metrics, and accumulated failures.
+
+`5B-S1` non-scope:
+- command/reset/actor/GMT execution, local scenario or Clean continuation;
+- sampler, return, priority, storage, PPO, optimizer, checkpoint, simulator,
+  training, or live evaluation;
+- legacy sequence evaluator migration or Concept Figure changes.
+
+`5B-S1` evidence:
+- S1 `T-npz-schema/T-identity/T-corruption-protocol/T-report/T-no-feedback/T-config-fail-closed/T-legacy-reject`.
+
+`5B-S1` stop condition:
+- the request accepts a non-`.npz` or malformed deployment stream; corruption
+  identity depends on mutable parameter order; report lengths/counts disagree;
+  or any local return, priority, sampler, PPO, optimizer, Clean continuation,
+  or local-scenario payload can enter the S1 owner.
+
+`5B-S1` acceptance:
+- completed at `E-FI-28`; the dedicated S1 owner and its semantic CPU contract
+  pass, while the legacy v002 sequence contract and v015 legacy-isolation
+  contract remain unchanged.
+
+`5B-S2A` scope:
+- `commands.py::MultiMotionCommand` installs one validated E-FI-28 request as
+  an immutable command-owned q29/dq29 sequence and explicit frame cursor;
+- `frontres_runtime.py` reads a cloned current `[B,58]` q29+dq29 command and
+  dense `[B,H+1,29]` deployment q29 intent with row-aligned reference/protocol
+  identity and provenance.
+
+`5B-S2A` non-scope:
+- local scenario, Clean continuation, Segment sampler, actor/GMT execution,
+  metrics/report production, formal config/runner, storage, return, priority,
+  PPO, optimizer, simulator, training, or live evaluation.
+
+`5B-S2A` evidence and stop condition:
+- S1/S2 semantic CPU
+  `T-install/T-current/T-H/T-frame-order/T-cursor/T-boundary/T-row-alignment/T-identity/T-provenance/T-mixed-reference/T-no-execution/T-no-training-state`;
+- stop if installation accepts a changed file hash or mixed carrier, a read
+  advances the cursor, an H read clamps at sequence end, or the carrier reaches
+  actor/GMT/training state before S2B.
+
+`5B-S2A` acceptance:
+- completed at `E-FI-29`; the current/H carrier and read-only runtime connector
+  pass deterministic tests, while actor/GMT/formal execution remains absent.
+
+`5B-S2B` scope:
+- `frontres_segment_sequence_eval.py` owns one typed run config and the formal
+  per-frame executor; the input `.npz` must identify itself as the already
+  materialized deployment stream, so S2B never draws or invents corruption;
+- for each unclamped frame `t in [0, T-max(H))`, command current q29/dq29/body
+  reference and q29 H produce `870+58=928`, one deterministic full-6D FEMR
+  correction, one frozen-GMT motor action, one environment step, and one
+  deployable intent/physics metric row;
+- the immutable report is written atomically to an explicit JSON identity and
+  a before/after fingerprint proves optimizer, sampler, storage, and transition
+  state did not change.
+
+`5B-S2B` non-scope:
+- corruption generation/resampling, local scenario, Clean continuation, Gain,
+  return, priority, PPO, checkpoint, CLI, simulator, training, live evaluation,
+  or Concept Figure changes.
+
+`5B-S2B` evidence and stop condition:
+- S2 semantic CPU
+  `T-connect/T-per-frame/T-frozen-GMT/T-report/T-zero-write/T-formal-entry/T-legacy-isolation`;
+- stop if tail frames are clamped or fabricated, actor H includes future
+  root/global data, GMT is trainable, action/cursor/report counts disagree,
+  legacy sequence evaluation is called, or any training fingerprint changes.
+
+`5B-S2B` acceptance:
+- completed at `E-FI-30`; `T=6,Hmax=2` yields exactly four FEMR actions, four
+  frozen-GMT reads and four report rows, with atomic JSON and zero forbidden
+  writes. Physical metric ownership and simulator timing remain S4-only.
+
+`5B-S4-S0` scope and non-scope:
+- `scripts/rsl_rl/frontres_v015_deployment_composition.py` is the only live
+  CLI. It accepts only `FrontRES-Unified-Tracking-Flat-G1-v0`, absolute
+  checkpoint/reference/report identities, explicit persistent-corruption
+  metadata, and a CUDA device selected through `CUDA_VISIBLE_DEVICES`;
+- it configures the existing v015 H/checkpoint identity while every Segment
+  replay/live-train/HSL/legacy-eval flag remains false, constructs the formal
+  IsaacLab runner, installs GMT before construction, loads FEMR with
+  `load_optimizer=False, load_critic=False`, and dispatches only S2B;
+- no evaluator formula, observation authority, sampler, PPO, optimizer,
+  checkpoint format, simulator execution, training, live run, or Concept
+  Figure change belongs to this substep.
+
+`5B-S4-S0` evidence, stop condition, and acceptance:
+- S2 deterministic `T-path/T-gpu/T-protocol/T-config/T-dispatch/T-zero-update/
+  T-owner/T-formal-entry/T-no-training` plus S2B, observation-authority,
+  checkpoint, local-sentinel-config, and runner-boundary regressions;
+- stop if the registered task/checkpoint owner is ambiguous, the config
+  requests Segment Replay and creates a sampler, checkpoint loading restores
+  optimizer state, or the CLI can call learn/update/legacy sequence evaluation;
+- completed at `E-FI-31`. No simulator was imported or launched. The actual
+  v015 checkpoint and deployment `.npz` identities remain S4 inputs.
+
 ## Current Plan Cursor
 
-R0--R5 / 7 are complete at `E-FI-18`--`E-FI-23`; R6-S0/F1 are complete at
-`E-FI-24`--`E-FI-26`. The second S4 run runtime-confirms reset through grouped
-PPO entry and exposed the R6-F2 loss-side critic-observation carrier gap.
-R6-F2 now passes deterministic route, ordering, fail-closed, and exact-one
-tests. The next action is manual source synchronization followed by the one
-authorized S4 rerun. Simulator completion, generic
-training, actual checkpoint cadence/resume, long training, policy quality, and
-deployment composition remain unconfirmed.
+R0--R6 / 7 and Step 5A are complete at `E-FI-18`--`E-FI-27`. The final bounded
+S4 run confirms the complete dedicated local route through separate
+`928D` actor / `289D` critic observations, K=8 frozen-GMT evidence, grouped
+equal-mass reduction, and exactly one optimizer update. Step 5B deployment-
+composition schema, carrier, CPU executor, and dedicated CLI are complete at
+`E-FI-28`--`E-FI-31`. Step 5B-S4 bounded live composition remains user-gated.
+Generic long
+training, policy quality, actual checkpoint cadence/resume, replay-priority
+evolution, and deployment composition behavior remain unconfirmed.

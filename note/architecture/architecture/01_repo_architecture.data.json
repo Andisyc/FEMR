@@ -328,7 +328,7 @@
           "mustNot": "不重新实现 domain math、Gain 或 PPO formula",
           "objects": ["runner", "env", "policy", "algorithm", "storage"],
           "files": [
-            {"id": "MAIN-30", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "runner public boundary; v015 fake-S2 connector remains opt-in", "functions": ["__init__()","learn()","run_frontres_v015_formal_transaction()"], "sourceLine": 631, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Fon_policy_runner.py&line=631"},
+            {"id": "MAIN-30", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "runner public boundary; dedicated v015 bounded-live transaction connector is opt-in while generic learn remains separate", "functions": ["__init__()","learn()","run_frontres_v015_formal_transaction()","run_frontres_v015_local_identity_sentinel()"], "sourceLine": 631, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Fon_policy_runner.py&line=631"},
             {"id": "MAIN-31", "path": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py", "role": "FrontRES setup connector", "functions": [], "sourceLine": 51, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=51"},
             {"id": "MAIN-40", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_runner_boundary.py", "role": "Stage 3 mode boundary", "functions": ["from_train_cfg()","assert_live_runner_ready()"], "sourceLine": 28, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_runner_boundary.py&line=28"}
           ],
@@ -336,12 +336,12 @@
         "B1 OnPolicyRunner::__init__(): env + config -> policy/algorithm/storage",
         "B2 frontres_training_setup.py: runner state -> FrontRES stage setup",
         "B3 frontres_segment_runner_boundary.py::from_train_cfg(): stage config -> formal Stage 3 boundary",
-        "B4 OnPolicyRunner::learn(): legacy formal boundary -> training lifecycle; separate fake-S2 method is provider-only and never auto-dispatched"
+        "B4 dedicated v015 sentinel: explicit provider -> one sealed live transaction; OnPolicyRunner::learn() generic lifecycle remains separate"
       ],
       "mainRouteTitles": ["组装训练对象", "安装 FrontRES Setup", "确认 Stage 3 Boundary", "进入 Learn Lifecycle"],
           "review": ["确认正式 train 分支而非 probe 分支", "检查 helper 只做 orchestration"],
           "tests": ["S2 official-route connectivity", "S4 formal sentinel"],
-          "gap": "E-FI-14 proves only the provider-injected CPU fake connector. Generic train command reachability, persistence, and live evidence still require later gates."
+          "gap": "E-FI-27 proves the opt-in bounded-live v015 connector through exact-one update. Generic long-training dispatch and actual checkpoint cadence/resume remain unconfirmed."
         },
         {
           "id": "MOD-STAGE3-LOOP",
@@ -352,7 +352,7 @@
           "objects": ["sample", "capture", "segment storage", "PPO result", "sampler evidence"],
           "files": [
             {"id": "MAIN-36", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", "role": "legacy sampler plus v015 immutable expected-row plan/accumulator", "functions": ["run_frontres_segment_sampler_step()","FrontRESV015FormalTransactionPlan","FrontRESV015FormalTransactionAccumulator"], "sourceLine": 193, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_sampler.py&line=193"},
-            {"id": "MAIN-36A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", "role": "fake-S2 injected transaction dispatcher; legacy repeated update loop stays separate", "functions": ["run_frontres_v015_formal_transaction_update_loop()"], "sourceLine": 123, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_update_loop.py&line=123"},
+            {"id": "MAIN-36A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", "role": "dedicated v015 sealed-transaction dispatcher, bounded-live confirmed; legacy repeated update loop stays separate", "functions": ["run_frontres_v015_formal_transaction_update_loop()"], "sourceLine": 123, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_update_loop.py&line=123"},
             {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "training/eval loop", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"},
             {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "rollout capture/storage builder, v015 row-aligned actor/critic evaluator connector, and exact-one-update owner", "functions": ["collect_frontres_v015_one_action_k_evidence()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3260, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3260"},
             {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "train/eval console formatting", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"}
@@ -361,12 +361,12 @@
         "B1 run_frontres_segment_sampler_step(): runner state -> sampled segment batch",
         "B2 run_frontres_segment_live_probe(): batch -> paired K-step capture",
         "B3 build_live_segment_storage(): capture -> policy-row storage",
-        "B4 fake-S2: injected complete candidate shards -> grouped PPO -> one explicit update; legacy training loop remains separate"
+        "B4 dedicated v015 route: complete candidate shards -> grouped PPO -> one explicit update; legacy training loop remains separate"
       ],
       "mainRouteTitles": ["采样 Segment", "执行 Paired Rollout", "构造 Segment Storage", "更新 Policy 与 Replay"],
           "review": ["检查 sampler evidence 与 PPO diagnostics 隔离", "检查 update 次数和顺序", "检查 eval 不污染 training state"],
           "tests": ["S2 T-connect/update-order", "S4 live train"],
-          "gap": "E-FI-14 adds only CPU fake route wiring. Legacy immediate-update loop, generic train dispatch, checkpoint/resume, and live evidence remain later gates."
+          "gap": "E-FI-27 closes the dedicated bounded-live v015 transaction/update route. Generic long training and actual checkpoint cadence/resume remain later gates."
         }
       ]
     },
@@ -409,7 +409,7 @@
           "files": [
             {"id": "MAIN-41", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "Segment storage owner and v015 immutable local-metadata/adapter owner", "functions": ["FrontRESV015GroupedCandidateMetadata","build_frontres_v015_grouped_candidate_storage()","FrontRESSegmentStorageBatch.to_grouped_ppo_candidate_batch()"], "sourceLine": 57, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=57"},
             {"id": "MAIN-42", "path": "source/rsl_rl/rsl_rl/storage/rollout_storage.py", "role": "base RSL-RL storage", "functions": [], "sourceLine": 13, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fstorage%2Frollout_storage.py&line=13"},
-            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "candidate v015 evidence-to-batch connector and fake-S2 exact-one-update owner", "functions": ["build_frontres_v015_grouped_candidate_batch()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3338, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3338"}
+            {"id": "MAIN-38", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "candidate v015 evidence-to-batch connector and bounded-live exact-one-update owner", "functions": ["build_frontres_v015_grouped_candidate_batch()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3338, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3338"}
           ],
       "mainRoute": [
         "B1 Step 3B evidence: one Repair actor/critic policy tuple + q29/K evidence -> v003 return/advantage",
@@ -419,7 +419,7 @@
       "mainRouteTitles": ["封存 One-row Evidence", "绑定 Local Metadata", "构造 Candidate Batch"],
           "review": ["逐字段确认 row/order/shape", "检查 action/mean/sigma/log_prob 同源", "检查 scenario/hash/x_t/q29/K/evidence metadata 与 partial batch fail-closed"],
           "tests": ["S1 v015 grouped candidate adapter", "S1 v003 grouped mass", "S2 transaction-complete/exact-one-update", "S3 resume if persisted"],
-          "gap": "E-FI-26 closes deterministic v015 actor/critic row routing and exact-one update. Repaired S4 critic routing and live mass evidence remain pending"
+          "gap": "E-FI-27 closes bounded-live actor/critic row routing, four-row grouped mass, and exact-one update. Long-training storage evolution remains unconfirmed"
         },
         {
           "id": "MOD-PPO",
@@ -430,8 +430,8 @@
           "objects": ["ratio", "advantage", "pre/post KL", "actor grad", "critic grad", "optimizer state"],
           "files": [
             {"id": "MAIN-43", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "Segment PPO formula plus candidate grouped transaction reducer", "functions": ["compute_frontres_segment_ppo_loss()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
-            {"id": "MAIN-44", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "FrontRES algorithm wrapper; v015 fake-S2 rejects HSL/warmup and permits grouped_scale_only only behind explicit flag", "functions": ["validate_frontres_v015_stage3_supervision_config()"], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_unified.py&line=15"},
-            {"id": "MAIN-45", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "legacy single-update connector remains isolated; v015 fake-S2 owner is separate", "functions": ["run_frontres_segment_single_update()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3338, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3338"}
+            {"id": "MAIN-44", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_unified.py", "role": "FrontRES algorithm wrapper; v015 protected route rejects HSL/warmup and permits grouped_scale_only only behind its explicit flag", "functions": ["validate_frontres_v015_stage3_supervision_config()"], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_unified.py&line=15"},
+            {"id": "MAIN-45", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "legacy single-update connector remains isolated; dedicated v015 bounded-live owner is separate", "functions": ["run_frontres_segment_single_update()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3338, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3338"}
             ,{"id": "MAIN-45A", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "DP-09 phase owner", "functions": ["frontres_segment_warmup_phase()"], "sourceLine": 27, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=27"}
           ],
       "mainRoute": [
@@ -443,7 +443,7 @@
       "mainRouteTitles": ["计算 PPO Loss", "反向传播梯度", "执行 Optimizer Step", "检查 Post-Update Trust"],
           "review": ["检查 scale_only 与 grouped_scale_only 边界", "检查 sealed metadata/row mapping 和 nested loss mass", "检查 critic warmup 与 actor warmup 梯度边界", "检查 post-update KL 与 rollback 顺序"],
           "tests": ["S1 T-clip/kl/grad/update-order/state", "S2 formal connector", "S4 trust diagnostics"],
-          "gap": "E-FI-14 exercises unchanged grouped reducer through a fake complete transaction. Legacy caller still selects scale_only; generic formal update, resume, and live Phase B evidence remain pending"
+          "gap": "E-FI-27 exercises the unchanged grouped reducer through a complete bounded-live v015 transaction. Legacy caller still selects scale_only; generic long training and actual resume remain pending"
         }
       ]
     },
@@ -477,25 +477,33 @@
         {
           "id": "MOD-EVAL",
           "title": "Evaluation",
-          "summary": "独立采样并评价 paired repair 与 long-sequence behavior",
-          "owns": "periodic eval、sequence eval、per-motion aggregation 与 state isolation",
+          "summary": "隔离 legacy paired eval, 并为 v015 deployment composition 定义独立 request/carrier/report",
+          "owns": "legacy periodic/sequence isolation, v015 NPZ/protocol identity, command-owned current/H carrier, per-frame report schema 与后续 formal composition boundary",
           "mustNot": "不更新 policy 或 replay priority",
           "objects": ["motion id", "start frame", "perturbation", "paired metrics", "survival"],
           "files": [
             {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "periodic/sequence eval route", "functions": ["run_frontres_segment_sequence_offline_eval()"], "sourceLine": 311, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=311"},
+            {"id": "MAIN-37A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py", "role": "E-FI-28/E-FI-30 request, T-max(H) formal executor, metrics, training fingerprint, and atomic no-feedback report owner", "functions": ["load_frontres_v015_deployment_composition_request()","run_frontres_v015_deployment_composition_eval()","FrontRESV015DeploymentCompositionReport"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_sequence_eval.py&line=1"},
+            {"id": "MAIN-37B", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "E-FI-29/E-FI-30 immutable deployment q29/dq29/body sequence, explicit cursor/current reference, and command-clock hold owner", "functions": ["set_frontres_v015_deployment_sequence()","frontres_v015_deployment_sequence_snapshot()","advance_frontres_v015_deployment_sequence()","_advance_frontres_command_clock()"], "sourceLine": 1550, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=1550"},
+            {"id": "MAIN-37C", "path": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py", "role": "E-FI-29/E-FI-30 deployment current/H validator and 870+58=928 observation builder", "functions": ["read_frontres_v015_deployment_context()","build_frontres_v015_deployment_observation()"], "sourceLine": 89, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=89"},
+            {"id": "MAIN-37D", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "thin v015 formal composition entry; no legacy evaluator or training feedback", "functions": ["run_frontres_v015_deployment_composition_eval()"], "sourceLine": 745, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Fon_policy_runner.py&line=745"},
+            {"id": "MAIN-37E", "path": "scripts/rsl_rl/frontres_v015_deployment_composition.py", "role": "E-FI-31 v015-only CUDA-visible live CLI; binds registered task, GMT/FEMR checkpoints, pre-materialized NPZ, absolute report, and S2B-only dispatch", "functions": ["validate_frontres_v015_deployment_cli_args()","configure_frontres_v015_deployment_agent_cfg()","dispatch_frontres_v015_deployment_composition()"], "sourceLine": 1, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ffrontres_v015_deployment_composition.py&line=1"},
             {"id": "MAIN-49", "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py", "role": "DR sweep", "functions": [], "sourceLine": 20, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_dr_sweep_eval.py&line=20"},
             {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "eval formatting", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"}
           ],
       "mainRoute": [
-        "B1 live_training.py: checkpoint + eval request -> independent segment sample",
-        "B2 sequence eval: sample -> paired reset/preroll/rollout",
-        "B3 shared Gain owner: paired capture -> per-motion metrics",
-        "B4 eval aggregation: per-motion metrics -> sequence summary"
+        "B1 v015 S1: explicit NPZ + persistent corruption spec -> immutable request identities",
+        "B2 v015 S2A: sealed request -> immutable command q29/dq29 + cursor -> current [B,58] and dense H [B,H+1,29]",
+        "B3 v015 S1: per-frame metric rows -> no-feedback composition report",
+        "B4 legacy path: sampled quartet reset/preroll/rollout -> v002 metrics, rejected for v015",
+        "B5 v015 S2B: T-max(H) current/H -> one 6D FEMR + frozen GMT per frame -> metrics -> atomic JSON with zero training-state diff",
+        "B6 v015 S4-S0: CUDA-visible CLI -> registered Unified task + exact checkpoints/NPZ/report -> S2B-only dispatch",
+        "B7 pending S4: one bounded simulator stream -> physical composition evidence"
       ],
-      "mainRouteTitles": ["独立采样 Eval Segment", "执行 Paired Evaluation", "计算 Per-Motion Metrics", "汇总 Sequence Result"],
+      "mainRouteTitles": ["封存 Deployment Request", "安装 Current/H Carrier", "验证 Composition Report", "隔离 Legacy Evaluator", "执行 Formal Composition", "连接 Dedicated CLI", "验证 Live Composition"],
           "review": ["确认每次 eval 新采样", "检查 train/eval state isolation", "检查 Gain raw components 与 K coverage"],
-          "tests": ["S2 T-diff/meta/connect", "S4 repeated eval"],
-          "gap": "policy quality 和物理真实性只由 live eval 证明"
+          "tests": ["S1 deployment NPZ/identity/protocol/report/no-feedback", "S1/S2A deployment current/H carrier and isolation", "S2B per-frame FEMR/frozen-GMT/report/zero-write", "S4-S0 CLI config/checkpoint/CUDA/no-training dispatch", "S4 bounded composition pending"],
+          "gap": "E-FI-28--E-FI-31 已证明 schema, carrier, S2 CPU formal executor 与 dedicated CLI. default physical metrics, Isaac timing, auto-reset 与真实 composition 仍待 S4."
         }
       ]
     },

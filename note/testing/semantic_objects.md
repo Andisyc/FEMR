@@ -1,6 +1,6 @@
 # FEMR Current Semantic Objects
 
-Updated: 2026-07-19
+Updated: 2026-07-21
 
 ## Observation Payload
 
@@ -108,3 +108,18 @@ and action evidence. Full-sequence composition evaluation remains separate and
 cannot enter a local PPO return.
 
 Missing evidence is `UNCONFIRMED`, never zero.
+
+The v015 deployment-composition S1 object is an explicit structured `.npz`
+identity plus a canonical `persistent_full_sequence` corruption protocol. Its
+immutable report owns per-frame FEMR action use, q29 intent error, physics
+success/fall, ZMP margin, contact consistency, and accumulated failures. It has
+no local return, priority, sampler, PPO, optimizer, Clean continuation, or
+local-scenario field. `E-FI-29` connects only the immutable request to a
+command-owned q29/dq29 sequence and read-only current/H snapshot. Per-frame
+actor/GMT execution, metrics, atomic report production, and formal dispatch are
+CPU-connected at `E-FI-30` for exactly `T-max(H)` unclamped frames. The formal
+input must be a pre-materialized deployment `.npz`; S2B does not infer or draw
+corruption. `E-FI-31` adds one v015-only CUDA-visible CLI that resolves the
+registered Unified task and exact checkpoint/file/report identities without
+requesting Segment Replay or calling learn/update. Physical metrics and
+simulator timing remain the S4 boundary.
