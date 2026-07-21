@@ -16,9 +16,11 @@ import rsl_rl
 from rsl_rl.algorithms import PPO, Distillation, MOSAIC, FrontRESUnified
 from rsl_rl.frontres.frontres_action_cone import FrontRESActionCone
 from rsl_rl.runners.frontres_checkpointing import (
+    capture_v015_hsl_fresh_reload_shadow,
     load_runner,
     record_frontres_checkpoint_probe,
     save_runner,
+    verify_v015_hsl_fresh_reload,
 )
 from rsl_rl.runners.frontres_episode_bookkeeping import update_episode_bookkeeping
 from rsl_rl.frontres.frontres_executability import FrontRESExecutabilityScorer
@@ -264,6 +266,22 @@ class OnPolicyRunner:
             raise ValueError(f"Training type not found for algorithm {self.alg_cfg['class_name']}.")
         self._apply_frontres_specialist_mode()
         self._frontres_segment_replay_boundary = FrontRESSegmentRunnerBoundary.from_train_cfg(self.cfg)
+        self._frontres_hsl_proposal_context_enabled = bool(
+            self.training_type == "frontres"
+            and self.cfg.get("frontres_stage1_exit_after_warmup", False)
+            and self.alg_cfg.get("frontres_training_objective", "") == "supervised_restore"
+        )
+        self._frontres_hsl_live_smoke_enabled = bool(
+            self._frontres_hsl_proposal_context_enabled
+            and self.cfg.get("frontres_hsl_live_smoke_enabled", False)
+        )
+        if self._frontres_hsl_proposal_context_enabled and (
+            self._frontres_segment_replay_boundary.requested
+            or bool(self.alg_cfg.get("frontres_v015_formal_transaction_enabled", False))
+        ):
+            raise ValueError(
+                "proposal-only Stage-1 HSL cannot mix with Segment Replay or a Stage-3 formal transaction"
+            )
         if self.training_type == "frontres":
             self._frontres_segment_replay_boundary.assert_live_runner_ready()
             frontres_segment_sentinel_log = self._frontres_segment_replay_boundary.sentinel_log()
@@ -356,13 +374,15 @@ class OnPolicyRunner:
         )
         # Deployment eval 只复用 v015 layout/checkpoint identity, 不请求 Segment sampler.
         if self.training_type == "frontres" and (
-            self._frontres_segment_replay_boundary.requested or v015_formal_layout_requested
+            self._frontres_segment_replay_boundary.requested
+            or v015_formal_layout_requested
+            or self._frontres_hsl_proposal_context_enabled
         ):
             raw_offsets = self.alg_cfg.get("frontres_future_offsets", None)
             layout_version = self.alg_cfg.get("frontres_future_intent_layout_version", None)
             if raw_offsets is None or isinstance(raw_offsets, (str, bytes)) or layout_version is None:
                 raise ValueError(
-                    "Segment Replay v015 requires explicit frontres_future_offsets and "
+                    "FrontRES v015 requires explicit frontres_future_offsets and "
                     "frontres_future_intent_layout_version; no legacy default is allowed"
                 )
             try:
@@ -867,14 +887,23 @@ class OnPolicyRunner:
 
         # Normalize initial observations (same as in training loop) 观测归一器
         print("[Runner] Applying obs normalizer...", flush=True)
-        obs = self._append_frontres_fixed_noisy_future_context(obs)
+        if self._frontres_hsl_proposal_context_enabled:
+            obs = self._append_frontres_future_intent_context(obs)
+        else:
+            obs = self._append_frontres_fixed_noisy_future_context(obs)
         obs = self._apply_obs_normalizer(obs) # 三种观测量分别使用不同观测归一器
         print("[Runner] Policy obs normalized.", flush=True)
 
         # 使用观测量归一化器对观测量进行处理
         print("[Runner] Applying privileged/teacher normalizers...", flush=True)
-        privileged_obs = self.privileged_obs_normalizer(privileged_obs)
-        teacher_obs = self.teacher_obs_normalizer(teacher_obs)
+        if self._frontres_hsl_proposal_context_enabled:
+            # Proposal-only HSL has no critic/teacher consumer. Avoid even a
+            # running-stat write on those inactive paths.
+            privileged_obs = privileged_obs.detach()
+            teacher_obs = teacher_obs.detach()
+        else:
+            privileged_obs = self.privileged_obs_normalizer(privileged_obs)
+            teacher_obs = self.teacher_obs_normalizer(teacher_obs)
         print("[Runner] Privileged/teacher obs normalized.", flush=True)
 
         print("[Runner] Switching modules to train mode...", flush=True)
@@ -1013,8 +1042,8 @@ class OnPolicyRunner:
 
         maybe_print_frontres_perturbation_curriculum(self, is_frontres=_is_frontres)
 
-        # FrontRES joint warmup runs before PPO and owns its own rollout/loss diagnostics.
-        # 这段属于主 PPO 循环之前的预训练：critic / supervised anchor 先稳定，再让 PPO actor 接管。
+        # Proposal-only HSL runs before PPO and owns only the residual-actor
+        # current anti-DR target. Critic and executable-energy loss are excluded.
         _warmup_decision = resolve_frontres_warmup_iterations(
             configured_iterations=int(self.cfg.get("supervised_warmup_iterations", 0)),
             start_iter=start_iter,
@@ -1375,6 +1404,12 @@ class OnPolicyRunner:
 
     def save(self, path: str, infos=None):
         return save_runner(self, path, infos=infos)
+
+    def _capture_v015_hsl_fresh_reload_shadow(self):
+        return capture_v015_hsl_fresh_reload_shadow(self)
+
+    def _verify_v015_hsl_fresh_reload(self, shadow, **kwargs):
+        return verify_v015_hsl_fresh_reload(shadow, **kwargs)
 
     def load(self, path: str, load_optimizer: bool = True, load_critic: bool = True):
         return load_runner(self, path, load_optimizer=load_optimizer, load_critic=load_critic)

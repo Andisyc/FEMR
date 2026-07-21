@@ -3,8 +3,12 @@
 Status: active, volatile engineering plan. Steps 1A--5A and R0--R6 are complete
 through bounded S4 at `E-FI-27`: the dedicated v015 route preserves local
 identity, `928D` actor / `289D` critic / `770D` GMT authority, one-action K=8,
-equal grouped mass, and exactly one update. Step 5B deployment composition is
-the only remaining Stage-3 step and requires separate user authorization.
+equal grouped mass, and exactly one update. `E-FI-32` rebases the remaining
+test path after the observation migration: no compatible trained checkpoint or
+defined external Noisy `.npz` exists, so direct Step 5B-S4 execution is blocked.
+`E-FI-33` closes the read-only G1 audit with four formal training gaps.
+`E-FI-34` audits G2-S0 and blocks implementation on the Stage-1 q29 carrier
+decision plus removal of the legacy HSL energy-critic path.
 
 Active contracts:
 
@@ -1164,8 +1168,301 @@ Bounded substeps:
 - stop if the registered task/checkpoint owner is ambiguous, the config
   requests Segment Replay and creates a sampler, checkpoint loading restores
   optimizer state, or the CLI can call learn/update/legacy sequence evaluation;
-- completed at `E-FI-31`. No simulator was imported or launched. The actual
-  v015 checkpoint and deployment `.npz` identities remain S4 inputs.
+- completed at `E-FI-31` as config/dispatch isolation evidence only. No
+  simulator was imported or launched. `E-FI-32` reclassifies the CLI as
+  implemented-not-runnable: the compatible v015 checkpoint is a later training
+  output, and an external pre-materialized Noisy `.npz` is not a user input.
+
+### Post-Observation-Change Test-Path Rebase: G0--G7
+
+Confirmed blockers:
+- no trained FEMR checkpoint exists for the new `928D actor / 158D FEMR /
+  770D GMT` layout;
+- no external pre-materialized `Noisy.npz` exists or belongs to the accepted
+  user-facing workflow;
+- the S4-S0 CLI is implemented but cannot yet produce scientific composition
+  evidence;
+- the current S2B/CLI pre-materialized-file assumption is a code/contract
+  alignment gap, not an instruction for the user to invent a file.
+
+Dependency rule:
+- a compatible `FRONTRES_CKPT` is produced only after new-layout HSL,
+  Stage-3 training, checkpoint save, and fresh-runner reload succeed;
+- controlled evaluation starts from an ordinary Clean/reference `.npz` and
+  materializes one immutable persistent-artifact carrier at selection time;
+- full-sequence usefulness is paired No-FEMR/GMT versus FEMR/GMT under the
+  same carrier and initial conditions.
+
+#### G0 / 7: Test-Path And Document Rebase
+
+Objective: remove the false ready-to-run S4 dependency and freeze the corrected
+training/evaluation order.
+
+Scope: active evaluation contract, plan, checklist, canvas, evidence,
+Architecture, and testing views only.
+
+Non-scope: source code, Concept Figure, simulator, training, checkpoint IO, or
+artifact generation.
+
+Evidence: S0 T-doc/T-dependency/T-status at `E-FI-32`.
+
+Stop: any document still calls an external Noisy `.npz` a required user input,
+calls an untrained/missing checkpoint available, or marks S4 runnable.
+
+#### G1 / 7: v015 Training Readiness Audit
+
+Objective: white-box the complete new-layout route:
+`q29 H -> proposal-only HSL -> HSL persistence -> Stage-3 load -> grouped PPO
+-> v015 save -> fresh inference reload`.
+
+Scope: read-only config, runner, HSL target/input, normalizer, storage/loss,
+optimizer, checkpoint, and formal training entrypoint ownership.
+
+Evidence: S0 T-owner/T-layout/T-checkpoint/T-train-dispatch/T-stop.
+
+Stop: new HSL persistence is undefined, old observation/layout can enter, the
+formal train branch cannot save/reload exact v015 identity, or any claimed
+owner remains unconfirmed.
+
+Status: completed as a stopped S0 audit at `E-FI-33`. The audit confirmed all
+four code gaps below; it did not authorize source changes or training.
+
+| Formal boundary | Confirmed current gap | Required retirement / connection |
+| --- | --- | --- |
+| Stage-1 observation | the formal HSL preset does not request the v015 q29 layout, so the legacy `870D` route remains reachable | G2 must make `870D + 58D -> 928D`, FEMR `158D`, and GMT `770D` mandatory for proposal-only HSL |
+| HSL persistence | `model_warmup.pt` uses generic persistence and no accepted proposal-only HSL identity exists | G2 must define a separate versioned HSL envelope and reject legacy/unversioned layout or normalizer state before mutation |
+| Stage-3 update dispatch | ordinary Stage-3 training calls the legacy sampler/update loop rather than the sealed grouped transaction owner | G3 must migrate actor-side initialization and make the complete sealed transaction the only formal grouped-update dispatch |
+| Stage-3 checkpoint production | ordinary training cannot save and fresh-reload an exact v015 identity; the sentinel identity path is not a training checkpoint producer | G3 must connect committed transaction state to the exact v015 save owner and a fresh inference reload |
+
+#### G2 / 7: New-Layout HSL Persistence And Smoke
+
+Objective: define the new proposal-only HSL checkpoint identity, connect the
+formal Stage-1 preset to the mandatory q29 v015 layout, save/reload the HSL
+actor and layout-aware normalizer state, then run one bounded Stage-1 smoke
+that proves current anti-DR proposal identity.
+
+Scope: `scripts/rsl_rl/train.py` Stage-1 preset, runner layout resolution,
+proposal-only HSL input/target owner, HSL-specific persistence identity and
+pre-mutation validation, actor/prefix normalizer save/reload, and the smallest
+deterministic plus bounded-smoke entry required to prove the route.
+
+Non-scope: Stage-3 actor migration, Segment sampling, grouped PPO/update,
+Stage-3 checkpoint production, long HSL training, carrier materialization,
+composition evaluation, and Concept Figure changes.
+
+Evidence: S0/S1/S3/S4 T-owner/T-formal-layout/T-HSL-input/T-current-target/
+T-identity/T-save/T-reload/T-legacy-reject/T-live-smoke.
+
+Stop: the formal Stage-1 route can still construct a legacy `870D` actor
+observation; q29 lacks deployment/Noisy provenance; Clean future/label reaches
+the actor or target; the new HSL identity is not unique; an old/unversioned
+checkpoint loads; prefix-normalizer identity is incomplete; or reload changes
+the proposal output/layout.
+
+##### G2-S0: Proposal-Only HSL Persistence Contract Freeze
+
+Status: carrier decision confirmed by the user. The minimal Stage-1-only
+carrier is implemented in existing owners at deterministic S1 (`E-FI-35`);
+no source or test module was created. The formal layout and actor-only warmup
+are completed at deterministic S1 (`E-FI-36`); strict HSL persistence is
+completed at deterministic S3 (`E-FI-37`); fresh-runner connectivity is
+completed at deterministic S2/S3 (`E-FI-38`); the bounded telemetry/reload
+connector is completed at deterministic S1/S3 (`E-FI-39`). `G2-S4-S1` is next
+and separately user-gated.
+
+The white-box audit confirmed two additional pre-implementation gaps beyond
+the four G1 findings:
+
+- `prepare_frontres_hsl_actor_observation()` can read q29 only through
+  `MultiMotionCommand.frontres_local_scenario_intent_snapshot()`, but the
+  formal Stage-1 HSL route never materializes or installs an active local
+  scenario;
+- `run_frontres_joint_warmup()` currently builds an executable-energy target,
+  optimizes both `residual_actor` and `critic`, and saves both through the
+  generic runner checkpoint. This conflicts with v007's actor-only current
+  anti-DR proposal boundary.
+
+The user selected the Stage-1-only immutable proposal carrier:
+
+```text
+proposal_context = {
+  current_root_artifact_identity,
+  intent_q29[t:t+H],
+  deployment_noisy_provenance,
+  proposal_context_id
+}
+```
+
+It is command-owned and sealed for one HSL sample, but contains no `x_t`, Clean
+continuation, K, Segment role, attempt, return, priority, or PPO state. The
+rejected alternative was to reuse the complete Stage-3 local-scenario carrier
+while leaving its Clean continuation and K fields unused. That would make
+proposal initialization depend on Segment Replay objects HSL does not consume.
+The clarification is recorded in v007 without creating another code module or
+changing the Concept Figure.
+
+Proposed persistence owner and schema, pending that decision:
+
+```text
+owner: frontres_checkpointing.py
+key: frontres_v015_hsl_checkpoint_identity
+format: frontres-v015-hsl-proposal-v1
+
+identity:
+  FRS-METHOD-v015 / FRS-TRAIN-v007
+  objective = proposal_only_current_antidr_delta_se3
+  H = (1, 2), intent = 29D, tail = 58D
+  raw / actor / FEMR / GMT = 870 / 928 / 158 / 770
+  action = full 6D Delta SE(3)
+  GMT checkpoint artifact hash + frozen 770D normalizer identity
+  complete 158D FEMR-prefix normalizer fingerprint
+
+payload allowed for migration:
+  residual_actor state
+  action-distribution std or log_std
+  158D prefix-normalizer state
+
+payload forbidden:
+  critic, critic normalizer, HSL optimizer, Segment sampler, transaction,
+  Gain/return/priority/PPO state, Clean continuation, or rollout labels
+```
+
+The loader must validate the complete identity and exact payload key set before
+mutating actor or normalizer state. Generic `load_runner()` compatibility,
+first-layer reshaping, missing-prefix identity normalization, and legacy
+`frontres_warmup_complete` fallback are forbidden.
+
+Implementation is split to keep each parameter path independently testable:
+
+1. `G2-S1a`: completed at `E-FI-35`. The existing command-owned HSL
+   proposal carrier and q29 snapshot. Core path:
+   `motion/frame + current artifact -> [B,H+1,29] + provenance -> immutable
+   proposal_context_id`. Evidence: S1 T-carrier/T-shape/T-provenance/
+   T-immutability/T-no-C-K. Clean/K/Segment mixing and future-frame clamping
+   reject; the existing local-scenario route remains unchanged.
+2. `G2-S1b`: completed at `E-FI-36`. Stage-1 preset -> runner
+   `928/158/770` layout -> q29 normalizer -> actor-only current anti-DR HSL.
+   The executable-energy target, critic optimizer membership, critic forward,
+   and energy diagnostics were removed from the HSL owner. Evidence: S1
+   T-config/T-layout/T-target/T-actor-only/T-critic-unchanged/T-legacy-reject.
+3. `G2-S2`: completed at `E-FI-37`. The dedicated HSL
+   identity/save/pre-mutation reload lives in
+   `frontres_checkpointing.py`, with `frontres_warmup.py` as the only save
+   connector. The strict three-field payload is actor/distribution/prefix-only;
+   exact identity and all fingerprints validate before the first state write.
+   Evidence: S3 T-schema/T-save/T-reload/T-tamper/T-GMT-identity/T-normalizer/
+   T-forbidden-payload/T-unmutated-reject.
+4. `G2-S3`: completed at `E-FI-38`. One offline fresh-runner fixture proves
+   exact q29 -> combined 928D -> normalized 158D -> bounded 6D proposal
+   equality after strict HSL reload. It uses two independently initialized
+   runner objects and no legacy prefix padding, critic, optimizer, simulator,
+   or training. Evidence: S2/S3 T-fresh-runner/T-output/T-layout/
+   T-zero-state-leak.
+5. `G2-S4-S0`: completed at `E-FI-39`. The existing Stage-1 owners now expose
+   one explicit bounded-smoke flag, structured real-input/target/gradient/
+   critic/checkpoint telemetry, and an independent pre-warmup CPU shadow that
+   must differ before strict HSL-v1 reload and match normalized 158D input plus
+   bounded 6D proposal exactly after reload. No new source module was created.
+6. `G2-S4-S1`: the separately user-gated bounded Stage-1 live smoke. It uses
+   eight envs, one warmup iteration, one environment step, three actor epochs,
+   and zero PPO iterations. Evidence: S4 T-live-input/T-current-target/T-save/
+   T-fresh-reload. Stop on any missing sentinel, legacy fallback, shape drift,
+   critic/optimizer payload, nonzero critic delta, reload mismatch, or PPO entry.
+
+Exact Main-2 command after checkout synchronization:
+
+```bash
+cd /hdd1/cyx/FEMR
+CUDA_VISIBLE_DEVICES=3 PYTHONUNBUFFERED=1 HYDRA_FULL_ERROR=1 \
+FEMR_LOG_ROOT=/hdd1/cyx/FEMR \
+/hdd1/cyx/miniconda3/envs/mosaic/bin/python scripts/rsl_rl/train.py \
+  --task=FrontRES-Unified-Tracking-Flat-G1-v0 --device=cuda:0 --num_envs=8 \
+  --motion=/hdd1/cyx/AMASS_G1NPZ_Final --headless --logger=tensorboard \
+  --experiment_name=g1_flat_frontres_stage1_hsl --run_name=G2_S4_BOUND_HSL \
+  --max_iterations=0 --supervised_warmup_iterations=1 \
+  --supervised_warmup_steps_per_iter=1 --supervised_warmup_max_envs_per_step=8 \
+  --frontres_v015_future_offsets=1,2 --frontres_specialist_mode=rp \
+  --frontres_hsl_live_smoke --frontres_stage=stage1_hsl \
+  2>&1 | tee /hdd1/cyx/FEMR/v015_g2_s4_hsl_smoke_gpu3.log
+```
+
+Planned deterministic commands after implementation:
+
+```text
+frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_hsl_formal_route_contract.py
+frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_hsl_checkpoint_contract.py
+frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s1_contract.py
+frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s2_connectivity_contract.py
+```
+
+No command above is authorized or executed by G2-S0.
+
+#### G3 / 7: Stage-3 Training And Checkpoint Smoke
+
+Objective: migrate only the G2 actor-side initializer into Stage 3, replace the
+ordinary legacy sampler/update dispatch with the sealed grouped transaction,
+execute exactly one complete transaction/update, produce the first exact v015
+Stage-3 checkpoint, and reload it in a fresh inference runner.
+
+Scope: actor-only HSL migration, formal Stage-3 config/runner dispatch,
+transaction provider/accumulator connection, existing grouped PPO consumer,
+exact-one-update boundary, committed v015 save producer, and fresh inference
+reload. The grouped PPO formula and HSL target semantics remain unchanged.
+
+Evidence: S0/S2/S3/S4 T-actor-migration/T-no-HSL-state-leak/T-formal-dispatch/
+T-one-transaction/T-grouped/T-exact-one-update/T-save/T-fresh-reload.
+
+Stop: critic/optimizer/HSL target state migrates from the G2 initializer;
+legacy sampler/update remains reachable from the formal v015 train mode; a
+partial or mixed transaction reaches loss; update count is not exactly one;
+checkpoint lacks the exact v015 identity or committed receipt; or fresh
+inference changes actor/layout/normalizer identity.
+
+#### G4 / 7: Controlled Artifact Carrier Materializer
+
+Objective: define the smallest evaluation preparation owner:
+`ordinary Clean/reference .npz + fixed protocol -> one immutable carrier`.
+
+Scope: selection-time materialization, source/protocol/carrier hashes,
+deployment-only current/H output, and no-resample lifecycle.
+
+Non-scope: actor input metadata, framewise resampling, training, or live eval.
+
+Evidence: S1/S2 T-materialize/T-hash/T-determinism/T-no-label/T-no-resample.
+
+Stop: user must manually supply an unexplained Noisy file, metadata enters
+actor input, or baseline/repair branches receive different carriers.
+
+#### G5 / 7: Formal Training And Policy-Quality Gate
+
+Objective: train the v015 policy after G2/G3 closure and produce the checkpoint
+that later evaluation consumes.
+
+Evidence: bounded training logs and checkpoint identity plus nondegenerate
+action, executable Gain, harmful-repair, and reload-consistency diagnostics.
+
+Stop: route evidence is mistaken for policy quality, action collapses, harmful
+repair dominates, or checkpoint/reload identity fails.
+
+#### G6 / 7: Paired Composition Connectivity
+
+Objective: connect the same fixed carrier and initial conditions to two
+no-feedback branches: frozen-GMT baseline and per-frame FEMR plus frozen GMT.
+
+Evidence: S1/S2 T-pair/T-identity/T-baseline/T-repair/T-no-feedback/T-report.
+
+Stop: only the Repair branch exists, branches differ in carrier/reset/GMT, or
+composition metrics enter PPO, sampler, return, priority, or optimizer.
+
+#### G7 / 7: Bounded Live Composition
+
+Objective: run one user-authorized paired simulator sequence with the trained
+G5 checkpoint and G4 carrier, then seal hashes, telemetry, failures, and report.
+
+Evidence: S4 T-composition/T-pair/T-protocol/T-isolation/T-checkpoint.
+
+Stop: any dependency above is missing, the CLI uses an untrained checkpoint,
+the carrier resamples, baseline is absent, or training state changes.
 
 ## Current Plan Cursor
 
@@ -1173,8 +1470,13 @@ R0--R6 / 7 and Step 5A are complete at `E-FI-18`--`E-FI-27`. The final bounded
 S4 run confirms the complete dedicated local route through separate
 `928D` actor / `289D` critic observations, K=8 frozen-GMT evidence, grouped
 equal-mass reduction, and exactly one optimizer update. Step 5B deployment-
-composition schema, carrier, CPU executor, and dedicated CLI are complete at
-`E-FI-28`--`E-FI-31`. Step 5B-S4 bounded live composition remains user-gated.
-Generic long
-training, policy quality, actual checkpoint cadence/resume, replay-priority
-evolution, and deployment composition behavior remain unconfirmed.
+composition schema, carrier, CPU executor, and dedicated CLI have interface
+evidence at `E-FI-28`--`E-FI-31`; they are not ready-to-run evaluation evidence.
+G0 is completed at `E-FI-32`. G1 is completed as a stopped read-only audit at
+`E-FI-33`: Stage-1 still admits the old `870D` route, no new HSL checkpoint
+identity exists, ordinary Stage-3 bypasses the sealed grouped transaction, and
+ordinary training cannot produce a fresh-reloadable exact v015 checkpoint.
+G2-S0 is blocked pending the human carrier decision recorded at `E-FI-34`.
+G3 remains blocked by G2; G4--G7 retain their carrier, policy-quality,
+paired-connectivity, and bounded-composition duties in that order. No source
+implementation or training is ready.

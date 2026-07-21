@@ -384,6 +384,12 @@ parser.add_argument(
     help="Maximum env samples kept from each warmup step for supervised SGD.",
 )
 parser.add_argument(
+    "--frontres_hsl_live_smoke",
+    action="store_true",
+    default=False,
+    help="Run the bounded proposal-only Stage-1 HSL telemetry and fresh-reload sentinel.",
+)
+parser.add_argument(
     "--is_full_resume",
     type=lambda x: str(x).lower() in ("true", "1", "yes", "y"),
     default=None,
@@ -797,6 +803,9 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     live_update_loop_arg = bool(getattr(args_cli, "frontres_segment_live_update_loop_only", False))
     offline_eval_arg = bool(getattr(args_cli, "frontres_segment_offline_eval_only", False))
     sequence_eval_arg = bool(getattr(args_cli, "frontres_segment_sequence_offline_eval_only", False))
+    hsl_live_smoke_arg = bool(getattr(args_cli, "frontres_hsl_live_smoke", False))
+    if hsl_live_smoke_arg and stage != "stage1_hsl":
+        raise ValueError("--frontres_hsl_live_smoke requires --frontres_stage stage1_hsl")
     if (
         live_sentinel_arg
         or v015_local_sentinel_arg
@@ -827,11 +836,50 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     elif stage in ("stage1_hsl", "stage2_hsl_warmup"):
         if getattr(args_cli, "experiment_name", None) is None:
             agent_cfg.experiment_name = "g1_flat_frontres_stage2_hsl"
+        requested_offsets = getattr(args_cli, "frontres_v015_future_offsets", None)
+        future_offsets = (
+            (1, 2)
+            if requested_offsets is None
+            else _parse_frontres_v015_future_offsets(requested_offsets)
+        )
+        if future_offsets != (1, 2):
+            raise ValueError("proposal-only Stage-1 HSL requires offsets (1,2) for the 58D q29 tail")
         _set_if_present(agent_cfg, "frontres_stage1_exit_after_warmup", True)
+        _set_if_present(agent_cfg, "frontres_warmup_energy_loss_weight", 0.0)
         _set_if_present(alg_cfg, "frontres_training_objective", "supervised_restore")
-        _set_if_present(alg_cfg, "lambda_supervised", 1.0)
-        _set_if_present(alg_cfg, "lambda_supervised_min", 1.0)
+        _set_if_present(alg_cfg, "frontres_segment_replay_enabled", False)
+        _set_if_present(alg_cfg, "frontres_segment_live_runner_enabled", False)
+        _set_if_present(alg_cfg, "frontres_v015_formal_transaction_enabled", False)
+        _set_if_present(alg_cfg, "frontres_future_offsets", future_offsets)
+        _set_if_present(
+            alg_cfg,
+            "frontres_future_intent_layout_version",
+            "frontres-v015-future-intent-q29-v1",
+        )
+        # Stage-1 supervision lives only in frontres_warmup.py; online algorithm
+        # supervision and the legacy rollout label remain disabled.
+        _set_if_present(alg_cfg, "lambda_supervised", 0.0)
+        _set_if_present(alg_cfg, "lambda_supervised_min", 0.0)
+        _set_if_present(alg_cfg, "frontres_hsl_rollout_label_enabled", False)
+        if policy_cfg is None:
+            raise AttributeError("proposal-only Stage-1 HSL requires a policy config")
+        _set_if_present(policy_cfg, "num_frontres_obs", 100)
         _set_if_present(agent_cfg, "critic_warmup_iterations", 0)
+        _set_if_present(agent_cfg, "frontres_hsl_live_smoke_enabled", hsl_live_smoke_arg)
+        if hsl_live_smoke_arg:
+            bounded_envs = int(getattr(args_cli, "num_envs", 0) or 0)
+            if bounded_envs <= 0 or bounded_envs > 8 or bounded_envs % 2 != 0:
+                raise ValueError("G2-S4 bounded HSL smoke requires an even --num_envs in [2,8]")
+            if int(getattr(agent_cfg, "max_iterations", -1)) != 0:
+                raise ValueError("G2-S4 bounded HSL smoke requires --max_iterations 0")
+            if int(getattr(agent_cfg, "supervised_warmup_iterations", -1)) != 1:
+                raise ValueError("G2-S4 bounded HSL smoke requires --supervised_warmup_iterations 1")
+            if int(getattr(agent_cfg, "supervised_warmup_steps_per_iter", -1)) != 1:
+                raise ValueError("G2-S4 bounded HSL smoke requires --supervised_warmup_steps_per_iter 1")
+            if bool(getattr(agent_cfg, "resume", False)):
+                raise ValueError("G2-S4 bounded HSL smoke forbids resume or legacy checkpoint fallback")
+            __import__("os").environ["FRONTRES_FORMAL_RUNTIME_AUDIT_ACTIVE"] = "1"
+            _set_if_present(alg_cfg, "frontres_formal_runtime_audit", True)
     elif stage == "stage3_segment_hrl":
         if getattr(args_cli, "experiment_name", None) is None:
             agent_cfg.experiment_name = "g1_flat_frontres_stage3_segment_hrl"

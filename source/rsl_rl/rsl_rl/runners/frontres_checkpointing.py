@@ -6,12 +6,14 @@ thin wrappers so training loops and external scripts keep the same API.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import importlib.util
 import os
 from pathlib import Path
 import shutil
+from types import SimpleNamespace
 from typing import Any, Mapping
 
 import torch
@@ -55,6 +57,15 @@ _V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v2"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
 _V015_LAST_RECEIPT_ATTR = "_frontres_v015_last_committed_transaction_receipt"
+_V015_HSL_CHECKPOINT_IDENTITY_KEY = "frontres_v015_hsl_checkpoint_identity"
+_V015_HSL_CHECKPOINT_FORMAT = "frontres-v015-hsl-proposal-v1"
+_V015_HSL_PREFIX_NORM_KEY = "frontres_prefix_norm_state_dict"
+_V015_HSL_TOP_LEVEL_KEYS = {
+    _V015_HSL_CHECKPOINT_IDENTITY_KEY,
+    "model_state_dict",
+    _V015_HSL_PREFIX_NORM_KEY,
+}
+_EMPIRICAL_NORMALIZER_STATE_KEYS = {"_mean", "_var", "_std", "count"}
 
 
 def _v015_tensor_fingerprint(*values: torch.Tensor) -> str:
@@ -72,6 +83,237 @@ def _v015_tensor_fingerprint(*values: torch.Tensor) -> str:
         digest.update(cpu.numpy().tobytes())
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def _v015_state_dict_fingerprint(state: Mapping[str, torch.Tensor], *, label: str) -> str:
+    """Return one key/order/value-sensitive fingerprint for a tensor state dict."""
+
+    if not isinstance(state, Mapping) or not state:
+        raise RuntimeError(f"{label} must be a nonempty tensor state dict")
+    digest = hashlib.sha256()
+    for name in sorted(state):
+        value = state[name]
+        if not isinstance(name, str) or not isinstance(value, torch.Tensor):
+            raise RuntimeError(f"{label} must contain only named tensors")
+        cpu = value.detach().to(device="cpu").contiguous()
+        if torch.is_floating_point(cpu) and not bool(torch.isfinite(cpu).all().item()):
+            raise RuntimeError(f"{label} contains non-finite tensor {name}")
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(tuple(cpu.shape)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(cpu.dtype).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(cpu.numpy().tobytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _v015_clone_tensor_state(state: Mapping[str, torch.Tensor], *, label: str) -> dict[str, torch.Tensor]:
+    _v015_state_dict_fingerprint(state, label=label)
+    return {name: value.detach().clone() for name, value in state.items()}
+
+
+def _validate_v015_normalizer_state(
+    state: Mapping[str, torch.Tensor],
+    *,
+    dim: int,
+    label: str,
+) -> Mapping[str, torch.Tensor]:
+    if not isinstance(state, Mapping) or set(state) != _EMPIRICAL_NORMALIZER_STATE_KEYS:
+        raise RuntimeError(f"{label} has an unexpected state schema")
+    for name in ("_mean", "_var", "_std"):
+        value = state[name]
+        if (
+            not isinstance(value, torch.Tensor)
+            or tuple(value.shape) != (1, int(dim))
+            or not torch.is_floating_point(value)
+            or not bool(torch.isfinite(value).all().item())
+        ):
+            raise RuntimeError(f"{label} {name} must be finite [1,{int(dim)}]")
+    if bool((state["_var"] < 0).any().item()) or bool((state["_std"] <= 0).any().item()):
+        raise RuntimeError(f"{label} variance/std state is invalid")
+    count = state["count"]
+    if not isinstance(count, torch.Tensor) or count.numel() != 1 or int(count.item()) < 0:
+        raise RuntimeError(f"{label} count must be a nonnegative scalar")
+    return state
+
+
+def _v015_file_sha256(path: str | os.PathLike[str]) -> str:
+    """Hash the exact frozen GMT artifact bound to an HSL checkpoint."""
+
+    artifact = Path(path).expanduser().resolve()
+    if not artifact.is_file():
+        raise RuntimeError(f"proposal-only HSL requires an existing GMT checkpoint artifact: {artifact}")
+    digest = hashlib.sha256()
+    with artifact.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _uses_v015_hsl_checkpoint_identity(runner: Any) -> bool:
+    layout = getattr(runner, "_frontres_future_intent_layout", None)
+    return bool(getattr(runner, "_frontres_hsl_proposal_context_enabled", False)) and isinstance(
+        layout, FrontRESFutureIntentLayout
+    )
+
+
+def capture_v015_hsl_fresh_reload_shadow(runner: Any) -> Any:
+    """Capture an independent pre-warmup owner for the bounded HSL reload sentinel."""
+
+    if not _uses_v015_hsl_checkpoint_identity(runner):
+        raise RuntimeError("G2-S4 fresh reload requires the active proposal-only HSL route")
+    policy = runner.alg.policy
+    distribution_key, distribution = _v015_hsl_distribution_state(policy)
+    shadow_policy = SimpleNamespace(
+        residual_actor=copy.deepcopy(policy.residual_actor).to(device="cpu"),
+        gmt_normalizer=copy.deepcopy(policy.gmt_normalizer).to(device="cpu"),
+        gmt_policy_obs_dim=int(policy.gmt_policy_obs_dim),
+        num_task_corrections=int(policy.num_task_corrections),
+        total_output_dim=int(policy.total_output_dim),
+        num_actor_obs=int(policy.num_actor_obs),
+        num_frontres_obs=int(policy.num_frontres_obs),
+        max_delta_pos=float(policy.max_delta_pos),
+        max_delta_rpy=float(policy.max_delta_rpy),
+    )
+    setattr(shadow_policy, distribution_key, distribution.detach().to(device="cpu").clone())
+    shadow = SimpleNamespace(
+        alg=SimpleNamespace(
+            policy=shadow_policy,
+            frontres_training_objective="supervised_restore",
+            frontres_formal_runtime_audit=True,
+        ),
+        policy_cfg={"gmt_checkpoint_path": runner.policy_cfg.get("gmt_checkpoint_path")},
+        empirical_normalization=True,
+        _frontres_hsl_proposal_context_enabled=True,
+        _frontres_future_intent_layout=runner._frontres_future_intent_layout,
+        _frontres_future_intent_actor_context_dim=int(
+            runner._frontres_future_intent_actor_context_dim
+        ),
+        _frontres_gmt_obs_dim=int(runner._frontres_gmt_obs_dim),
+        _frontres_extra_normalizer=copy.deepcopy(runner._frontres_extra_normalizer).to(
+            device="cpu"
+        ),
+        _frontres_extra_mean=None,
+        _frontres_extra_std=None,
+        _frontres_extra_stats_layout_version=None,
+    )
+    return shadow
+
+
+def _v015_hsl_bounded_proposal(policy: Any, actor_input: torch.Tensor) -> torch.Tensor:
+    if not isinstance(actor_input, torch.Tensor) or actor_input.ndim != 2 or actor_input.shape[-1] != 158:
+        raise RuntimeError("G2-S4 fresh reload requires normalized FEMR input [B,158]")
+    raw = policy.residual_actor(actor_input)
+    if not isinstance(raw, torch.Tensor) or tuple(raw.shape) != (int(actor_input.shape[0]), 6):
+        raise RuntimeError("G2-S4 fresh reload requires a full-6D residual actor output")
+    return torch.cat(
+        [
+            torch.tanh(raw[:, :3]) * float(policy.max_delta_pos),
+            torch.tanh(raw[:, 3:6]) * float(policy.max_delta_rpy),
+        ],
+        dim=-1,
+    )
+
+
+def verify_v015_hsl_fresh_reload(
+    shadow: Any,
+    *,
+    checkpoint_path: str,
+    combined_obs: torch.Tensor,
+    source_actor_input: torch.Tensor,
+    source_proposal: torch.Tensor,
+) -> dict[str, Any]:
+    """Strictly reload HSL v1 into the pre-warmup shadow and compare its real proposal."""
+
+    if not isinstance(combined_obs, torch.Tensor) or combined_obs.ndim != 2 or combined_obs.shape[-1] != 928:
+        raise RuntimeError("G2-S4 fresh reload requires the real combined observation [B,928]")
+    combined_cpu = combined_obs.detach().to(device="cpu")
+    source_input_cpu = source_actor_input.detach().to(device="cpu")
+    source_proposal_cpu = source_proposal.detach().to(device="cpu")
+    shadow._frontres_extra_normalizer.eval()
+    with torch.inference_mode():
+        before_input = shadow._frontres_extra_normalizer(combined_cpu[:, :158])
+        before_proposal = _v015_hsl_bounded_proposal(shadow.alg.policy, before_input)
+    if torch.equal(before_proposal, source_proposal_cpu):
+        raise RuntimeError("G2-S4 fresh reload shadow did not differ before checkpoint load")
+
+    load_runner(shadow, checkpoint_path, load_optimizer=True, load_critic=True)
+    shadow._frontres_extra_normalizer.eval()
+    with torch.inference_mode():
+        fresh_input = shadow._frontres_extra_normalizer(combined_cpu[:, :158])
+        fresh_proposal = _v015_hsl_bounded_proposal(shadow.alg.policy, fresh_input)
+    input_equal = torch.equal(fresh_input, source_input_cpu)
+    proposal_equal = torch.equal(fresh_proposal, source_proposal_cpu)
+    if not input_equal or not proposal_equal:
+        raise RuntimeError(
+            "G2-S4 fresh reload changed the normalized FEMR input or proposal: "
+            f"normalized_158_equal={int(input_equal)} proposal_6_equal={int(proposal_equal)}"
+        )
+    result = {
+        "checkpoint_path": os.path.abspath(checkpoint_path),
+        "normalized_158_equal": True,
+        "proposal_6_equal": True,
+        "pre_reload_proposal_equal": False,
+    }
+    print(
+        "[G2-S4-FRESH-RELOAD] "
+        f"checkpoint={result['checkpoint_path']} normalized_158_equal=1 "
+        "proposal_6_equal=1 pre_reload_proposal_equal=0",
+        flush=True,
+    )
+    return result
+
+
+def _v015_hsl_distribution_state(policy: Any) -> tuple[str, torch.Tensor]:
+    available = tuple(name for name in ("std", "log_std") if isinstance(getattr(policy, name, None), torch.Tensor))
+    if len(available) != 1:
+        raise RuntimeError("proposal-only HSL requires exactly one std or log_std distribution tensor")
+    name = available[0]
+    value = getattr(policy, name)
+    if tuple(value.shape) != (6,) or not bool(torch.isfinite(value).all().item()):
+        raise RuntimeError("proposal-only HSL distribution state must be finite [6]")
+    return name, value
+
+
+def _v015_hsl_prefix_normalizer_state(runner: Any) -> dict[str, torch.Tensor]:
+    if not bool(getattr(runner, "empirical_normalization", False)):
+        raise RuntimeError("proposal-only HSL requires empirical 158D prefix normalizer state")
+    normalizer = getattr(runner, "_frontres_extra_normalizer", None)
+    if not isinstance(normalizer, torch.nn.Module):
+        raise RuntimeError("proposal-only HSL requires the live 158D prefix normalizer owner")
+    state = _validate_v015_normalizer_state(
+        normalizer.state_dict(),
+        dim=158,
+        label="proposal-only HSL prefix normalizer",
+    )
+    return _v015_clone_tensor_state(state, label="proposal-only HSL prefix normalizer")
+
+
+def _v015_hsl_gmt_identity(runner: Any) -> dict[str, Any]:
+    policy = getattr(getattr(runner, "alg", None), "policy", None)
+    if int(getattr(policy, "gmt_policy_obs_dim", 0) or 0) != FRONTRES_V015_GMT_SUFFIX_DIM:
+        raise RuntimeError("proposal-only HSL requires the frozen GMT 770D observation identity")
+    normalizer = getattr(policy, "gmt_normalizer", None)
+    if not isinstance(normalizer, torch.nn.Module):
+        raise RuntimeError("proposal-only HSL requires the frozen GMT normalizer")
+    state = _validate_v015_normalizer_state(
+        normalizer.state_dict(),
+        dim=FRONTRES_V015_GMT_SUFFIX_DIM,
+        label="proposal-only HSL GMT normalizer",
+    )
+    policy_cfg = getattr(runner, "policy_cfg", None)
+    gmt_path = policy_cfg.get("gmt_checkpoint_path") if isinstance(policy_cfg, Mapping) else None
+    if not isinstance(gmt_path, (str, os.PathLike)):
+        raise RuntimeError("proposal-only HSL requires gmt_checkpoint_path in the policy config")
+    return {
+        "checkpoint_sha256": _v015_file_sha256(gmt_path),
+        "normalizer_dim": FRONTRES_V015_GMT_SUFFIX_DIM,
+        "normalizer_fingerprint": _v015_state_dict_fingerprint(
+            state, label="proposal-only HSL GMT normalizer"
+        ),
+    }
 
 
 def _uses_v015_formal_checkpoint_identity(runner: Any) -> bool:
@@ -148,6 +390,234 @@ def _v015_checkpoint_layout_fields(runner: Any) -> dict[str, int | str | tuple[i
         "prefix_dim": prefix_dim,
         "gmt_dim": gmt_dim,
     }
+
+
+def _build_v015_hsl_checkpoint_payload(runner: Any) -> dict[str, Any]:
+    """Build the exact proposal-only HSL migration payload."""
+
+    if not _uses_v015_hsl_checkpoint_identity(runner):
+        raise RuntimeError("proposal-only HSL checkpoint save requires the active Stage-1 route")
+    alg = getattr(runner, "alg", None)
+    if str(getattr(alg, "frontres_training_objective", "")) != "supervised_restore":
+        raise RuntimeError("proposal-only HSL checkpoint requires the supervised_restore objective")
+    fields = _v015_checkpoint_layout_fields(runner)
+    if (
+        fields["environment_obs_dim"] != 870
+        or fields["current_frontres_prefix_dim"] != 100
+        or fields["actor_dim"] != 928
+        or fields["prefix_dim"] != 158
+        or fields["gmt_dim"] != 770
+        or fields["actor_tail_dim"] != 58
+    ):
+        raise RuntimeError("proposal-only HSL checkpoint requires exact 870/928/158/770 observation authority")
+    policy = getattr(alg, "policy", None)
+    actor = getattr(policy, "residual_actor", None)
+    if not isinstance(actor, torch.nn.Module):
+        raise RuntimeError("proposal-only HSL checkpoint requires the residual actor owner")
+    if int(getattr(policy, "num_task_corrections", 0) or 0) != 6 or int(
+        getattr(policy, "total_output_dim", 0) or 0
+    ) != 6:
+        raise RuntimeError("proposal-only HSL checkpoint requires full 6D Delta SE(3) action identity")
+    actor_state = _v015_clone_tensor_state(
+        actor.state_dict(), label="proposal-only HSL residual actor"
+    )
+    distribution_key, distribution = _v015_hsl_distribution_state(policy)
+    prefix_state = _v015_hsl_prefix_normalizer_state(runner)
+    model_keys = {"residual_actor", distribution_key}
+    payload_identity = {
+        "top_level_keys": tuple(sorted(_V015_HSL_TOP_LEVEL_KEYS)),
+        "model_keys": tuple(sorted(model_keys)),
+        "residual_actor_fingerprint": _v015_state_dict_fingerprint(
+            actor_state, label="proposal-only HSL residual actor"
+        ),
+        "distribution_key": distribution_key,
+        "distribution_fingerprint": _v015_tensor_fingerprint(distribution),
+        "prefix_normalizer_keys": tuple(sorted(_EMPIRICAL_NORMALIZER_STATE_KEYS)),
+        "prefix_normalizer_fingerprint": _v015_state_dict_fingerprint(
+            prefix_state, label="proposal-only HSL prefix normalizer"
+        ),
+    }
+    identity = {
+        "format": _V015_HSL_CHECKPOINT_FORMAT,
+        "method_contract_id": "FRS-METHOD-v015",
+        "training_contract_id": "FRS-TRAIN-v007",
+        "objective": "proposal_only_current_antidr_delta_se3",
+        "future_intent_layout": fields,
+        "action": {"kind": "delta_se3", "dim": 6},
+        "gmt": _v015_hsl_gmt_identity(runner),
+        "payload": payload_identity,
+    }
+    return {
+        _V015_HSL_CHECKPOINT_IDENTITY_KEY: identity,
+        "model_state_dict": {
+            "residual_actor": actor_state,
+            distribution_key: distribution.detach().clone(),
+        },
+        _V015_HSL_PREFIX_NORM_KEY: prefix_state,
+    }
+
+
+def _validate_v015_hsl_tensor_state(
+    candidate: Any,
+    runtime: Mapping[str, torch.Tensor],
+    *,
+    label: str,
+) -> Mapping[str, torch.Tensor]:
+    if not isinstance(candidate, Mapping) or set(candidate) != set(runtime):
+        raise RuntimeError(f"proposal-only HSL {label} has an incompatible tensor schema")
+    for name, runtime_value in runtime.items():
+        value = candidate[name]
+        if (
+            not isinstance(value, torch.Tensor)
+            or tuple(value.shape) != tuple(runtime_value.shape)
+            or value.dtype != runtime_value.dtype
+            or (torch.is_floating_point(value) and not bool(torch.isfinite(value).all().item()))
+        ):
+            raise RuntimeError(f"proposal-only HSL {label} tensor {name} is incompatible")
+    return candidate
+
+
+def _validate_v015_hsl_checkpoint_resume(
+    runner: Any,
+    checkpoint: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Validate the complete HSL payload before any runner state mutation."""
+
+    uses_hsl = _uses_v015_hsl_checkpoint_identity(runner)
+    has_hsl_identity = isinstance(checkpoint, Mapping) and _V015_HSL_CHECKPOINT_IDENTITY_KEY in checkpoint
+    if not uses_hsl:
+        if has_hsl_identity:
+            raise RuntimeError("proposal-only HSL checkpoint requires the active Stage-1 HSL route")
+        return None
+    if not isinstance(checkpoint, Mapping):
+        raise RuntimeError("proposal-only HSL checkpoint payload must be a mapping")
+    if _V015_HSL_CHECKPOINT_IDENTITY_KEY not in checkpoint:
+        raise RuntimeError("proposal-only HSL checkpoint identity is missing; legacy or unversioned payload rejected")
+    if set(checkpoint) != _V015_HSL_TOP_LEVEL_KEYS:
+        raise RuntimeError("proposal-only HSL checkpoint requires the exact payload field set")
+    if str(getattr(getattr(runner, "alg", None), "frontres_training_objective", "")) != "supervised_restore":
+        raise RuntimeError("proposal-only HSL checkpoint reload requires the supervised_restore objective")
+    identity = checkpoint.get(_V015_HSL_CHECKPOINT_IDENTITY_KEY)
+    required_identity = {
+        "format",
+        "method_contract_id",
+        "training_contract_id",
+        "objective",
+        "future_intent_layout",
+        "action",
+        "gmt",
+        "payload",
+    }
+    if not isinstance(identity, Mapping) or set(identity) != required_identity:
+        raise RuntimeError("proposal-only HSL checkpoint identity is missing, legacy, or malformed")
+    if (
+        identity["format"] != _V015_HSL_CHECKPOINT_FORMAT
+        or identity["method_contract_id"] != "FRS-METHOD-v015"
+        or identity["training_contract_id"] != "FRS-TRAIN-v007"
+        or identity["objective"] != "proposal_only_current_antidr_delta_se3"
+    ):
+        raise RuntimeError("proposal-only HSL checkpoint has an incompatible identity")
+    fields = _v015_checkpoint_layout_fields(runner)
+    if identity["future_intent_layout"] != fields:
+        raise RuntimeError("proposal-only HSL checkpoint future-intent layout mismatch")
+    if identity["action"] != {"kind": "delta_se3", "dim": 6}:
+        raise RuntimeError("proposal-only HSL checkpoint action identity mismatch")
+    if identity["gmt"] != _v015_hsl_gmt_identity(runner):
+        raise RuntimeError("proposal-only HSL checkpoint GMT artifact or normalizer identity mismatch")
+
+    payload_identity = identity["payload"]
+    required_payload_identity = {
+        "top_level_keys",
+        "model_keys",
+        "residual_actor_fingerprint",
+        "distribution_key",
+        "distribution_fingerprint",
+        "prefix_normalizer_keys",
+        "prefix_normalizer_fingerprint",
+    }
+    if not isinstance(payload_identity, Mapping) or set(payload_identity) != required_payload_identity:
+        raise RuntimeError("proposal-only HSL checkpoint payload identity is malformed")
+    if tuple(payload_identity["top_level_keys"]) != tuple(sorted(_V015_HSL_TOP_LEVEL_KEYS)):
+        raise RuntimeError("proposal-only HSL checkpoint top-level identity mismatch")
+
+    policy = getattr(getattr(runner, "alg", None), "policy", None)
+    actor = getattr(policy, "residual_actor", None)
+    if not isinstance(actor, torch.nn.Module):
+        raise RuntimeError("proposal-only HSL checkpoint requires the residual actor owner")
+    model_state = checkpoint["model_state_dict"]
+    distribution_key, runtime_distribution = _v015_hsl_distribution_state(policy)
+    expected_model_keys = {"residual_actor", distribution_key}
+    if (
+        not isinstance(model_state, Mapping)
+        or set(model_state) != expected_model_keys
+        or tuple(payload_identity["model_keys"]) != tuple(sorted(expected_model_keys))
+        or payload_identity["distribution_key"] != distribution_key
+    ):
+        raise RuntimeError("proposal-only HSL checkpoint model payload is not actor/distribution-only")
+    actor_state = _validate_v015_hsl_tensor_state(
+        model_state["residual_actor"],
+        actor.state_dict(),
+        label="residual actor",
+    )
+    if _v015_state_dict_fingerprint(actor_state, label="proposal-only HSL residual actor") != payload_identity[
+        "residual_actor_fingerprint"
+    ]:
+        raise RuntimeError("proposal-only HSL residual actor fingerprint mismatch")
+    distribution = model_state[distribution_key]
+    if (
+        not isinstance(distribution, torch.Tensor)
+        or tuple(distribution.shape) != tuple(runtime_distribution.shape)
+        or distribution.dtype != runtime_distribution.dtype
+        or not bool(torch.isfinite(distribution).all().item())
+        or _v015_tensor_fingerprint(distribution) != payload_identity["distribution_fingerprint"]
+    ):
+        raise RuntimeError("proposal-only HSL distribution fingerprint or schema mismatch")
+
+    prefix_normalizer = getattr(runner, "_frontres_extra_normalizer", None)
+    if not isinstance(prefix_normalizer, torch.nn.Module):
+        raise RuntimeError("proposal-only HSL checkpoint requires the live prefix normalizer owner")
+    runtime_prefix_state = prefix_normalizer.state_dict()
+    prefix_state = _validate_v015_hsl_tensor_state(
+        checkpoint[_V015_HSL_PREFIX_NORM_KEY],
+        runtime_prefix_state,
+        label="prefix normalizer",
+    )
+    _validate_v015_normalizer_state(
+        prefix_state,
+        dim=158,
+        label="proposal-only HSL prefix normalizer",
+    )
+    if (
+        set(prefix_state) != _EMPIRICAL_NORMALIZER_STATE_KEYS
+        or tuple(payload_identity["prefix_normalizer_keys"])
+        != tuple(sorted(_EMPIRICAL_NORMALIZER_STATE_KEYS))
+        or _v015_state_dict_fingerprint(prefix_state, label="proposal-only HSL prefix normalizer")
+        != payload_identity["prefix_normalizer_fingerprint"]
+    ):
+        raise RuntimeError("proposal-only HSL prefix normalizer fingerprint mismatch")
+    return {
+        "identity": dict(identity),
+        "actor_state": actor_state,
+        "distribution_key": distribution_key,
+        "distribution": distribution,
+        "prefix_state": prefix_state,
+    }
+
+
+def _restore_v015_hsl_checkpoint(runner: Any, validated: Mapping[str, Any], *, path: str) -> bool:
+    """Restore only the three states admitted by the validated HSL envelope."""
+
+    policy = runner.alg.policy
+    policy.residual_actor.load_state_dict(validated["actor_state"], strict=True)
+    distribution = getattr(policy, validated["distribution_key"])
+    distribution.data.copy_(validated["distribution"].to(device=distribution.device, dtype=distribution.dtype))
+    runner._frontres_extra_normalizer.load_state_dict(validated["prefix_state"], strict=True)
+    runner._frontres_extra_mean = None
+    runner._frontres_extra_std = None
+    runner._frontres_extra_stats_layout_version = None
+    runner._frontres_warmup_complete = True
+    runner._frontres_last_loaded_checkpoint_path = os.path.abspath(path)
+    return True
 
 
 def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, Any]:
@@ -410,9 +880,9 @@ def _validate_frontres_gain_config_resume(runner, checkpoint, *, is_full_resume:
 def reject_legacy_frontres_hsl_checkpoint(runner, checkpoint: dict) -> None:
     """Reject a legacy Stage-1 HSL payload before any v015 state restoration.
 
-    Status: active reject-only boundary. A v015 q29 actor layout has no accepted
-    HSL checkpoint identity yet, so a checkpoint marked as legacy warmup cannot
-    become a direct initialization or resume input.
+    Status: active reject-only boundary. The accepted proposal-only identity is
+    validated by `_validate_v015_hsl_checkpoint_resume`; legacy warmup markers
+    remain forbidden on every v015 q29 route.
     """
 
     layout = getattr(runner, "_frontres_future_intent_layout", None)
@@ -598,6 +1068,27 @@ def save_runner(self, path: str, infos=None):
         Evidence 是 code-confirmed 和 contract-confirmed; generic checkpoint
         cadence, simulator, training, 和 live resume 尚未验证.
     """
+    # HSL is a migration artifact, not a generic runner checkpoint. Return
+    # before critic/optimizer/sampler/Gain/transaction fields are constructed.
+    if _uses_v015_hsl_checkpoint_identity(self):
+        if infos is not None:
+            raise RuntimeError("proposal-only HSL checkpoint forbids generic runner infos payload")
+        hsl_payload = _build_v015_hsl_checkpoint_payload(self)
+        torch.save(hsl_payload, path)
+        hsl_identity = hsl_payload[_V015_HSL_CHECKPOINT_IDENTITY_KEY]
+        hsl_layout = hsl_identity["future_intent_layout"]
+        print(
+            "[G2-S4-HSL-IDENTITY] "
+            f"format={hsl_identity['format']} raw={hsl_layout['environment_obs_dim']} "
+            f"actor={hsl_layout['actor_dim']} femr={hsl_layout['prefix_dim']} "
+            f"gmt={hsl_layout['gmt_dim']} offsets={hsl_layout['future_offsets']} "
+            f"gmt_sha256={hsl_identity['gmt']['checkpoint_sha256']} "
+            f"top_level_keys={tuple(sorted(hsl_payload))} forbidden_payload=0",
+            flush=True,
+        )
+        print(f"[Runner] Proposal-only HSL checkpoint saved to {path}", flush=True)
+        return
+
     # B1: 汇总 policy, optimizer, iteration 和 active Stage 3 owner state.
     # Check if using ResidualActorCritic (special handling)
     if isinstance(self.alg.policy, (ResidualActorCritic, FrontRESActorCritic)):
@@ -757,6 +1248,9 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         bool(getattr(getattr(self, "alg", None), "frontres_formal_runtime_audit", False))
     )
     loaded_dict = torch.load(path, weights_only=False)
+    hsl_resume = _validate_v015_hsl_checkpoint_resume(self, loaded_dict)
+    if hsl_resume is not None:
+        return _restore_v015_hsl_checkpoint(self, hsl_resume, path=path)
     v015_resume_identity = _validate_v015_checkpoint_resume(self, loaded_dict)
     if v015_resume_identity is None:
         reject_legacy_frontres_hsl_checkpoint(self, loaded_dict)

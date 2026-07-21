@@ -118,8 +118,13 @@ local-scenario field. `E-FI-29` connects only the immutable request to a
 command-owned q29/dq29 sequence and read-only current/H snapshot. Per-frame
 actor/GMT execution, metrics, atomic report production, and formal dispatch are
 CPU-connected at `E-FI-30` for exactly `T-max(H)` unclamped frames. The formal
-input must be a pre-materialized deployment `.npz`; S2B does not infer or draw
-corruption. `E-FI-31` adds one v015-only CUDA-visible CLI that resolves the
-registered Unified task and exact checkpoint/file/report identities without
-requesting Segment Replay or calling learn/update. Physical metrics and
-simulator timing remain the S4 boundary.
+current code input is a pre-materialized deployment `.npz`; S2B does not infer
+or draw corruption. `E-FI-31` adds one v015-only CUDA-visible CLI that resolves
+checkpoint/file/report identities without requesting Segment Replay or calling
+learn/update. `E-FI-32` corrects the target semantic object: the user supplies
+an ordinary reference `.npz`, while a planned selection-time owner creates one
+fixed controlled artifact carrier and records source/protocol/carrier hashes.
+The trained v015 checkpoint is produced by training, not supplied before it.
+Composition requires paired baseline/repair execution. Current CLI/S2B remain
+implemented-not-runnable until G1--G6 close; physical metrics and simulator
+timing remain the G7 S4 boundary.

@@ -98,9 +98,21 @@ observation, or actor target.
 
 ## HSL Layout And Checkpoint Boundary
 
-Stage-1 HSL must build the q29 actor tail through the same sealed local-scenario
-carrier and versioned layout as the v015 actor bridge before normalization and
-before the residual actor consumes its input.
+Stage-1 HSL must build the q29 actor tail through the same versioned layout and
+deployment-provenance validator as the v015 actor bridge before normalization
+and before the residual actor consumes its input. Its command-owned proposal
+snapshot is deliberately smaller than a Stage-3 local scenario:
+
+```text
+current root-artifact identity
++ deployment/Noisy q29 I[t:t+H]
++ immutable proposal-context identity
+```
+
+It contains no Clean `x_t`, Clean continuation, K, Segment role, attempt,
+return, priority, or PPO state. This is an implementation ownership
+clarification, not a new actor observation: Stage 1 and Stage 3 still expose
+the same current-artifact plus q29 future-intent interface to the actor.
 
 Legacy HSL checkpoints are not migration inputs:
 
@@ -108,9 +120,14 @@ Legacy HSL checkpoints are not migration inputs:
 - no acceptance of legacy or unversioned prefix-normalizer statistics;
 - no cold-start or resume behavior that treats an old HSL checkpoint as v007.
 
-A separately authorized persistence step must define a new HSL layout and
-checkpoint identity. Until then, legacy HSL checkpoint load is rejected rather
-than adapted.
+G2-S2 defines the only accepted Stage-1 migration identity:
+`frontres-v015-hsl-proposal-v1`. Its exact payload is residual actor,
+`std` or `log_std`, and the complete 158D prefix-normalizer state. The identity
+binds the `870/928/158/770` layout, `(1,2)` q29 offsets, full-6D action, frozen
+GMT artifact hash, and frozen 770D GMT-normalizer fingerprint. Critic,
+critic-normalizer, optimizer, sampler, transaction, Gain/PPO state, and generic
+warmup markers are forbidden. Legacy HSL checkpoint load remains rejected
+rather than adapted.
 
 The Step 4C v015 Stage-3 envelope is not a new Stage-1 HSL checkpoint format.
 It may retain `frontres_warmup_complete` only as historical Stage-3 state after
@@ -168,6 +185,10 @@ attempt, grouped mass, advantage sign/scale, and exact-one update.
 | H0-A | proposal-only HSL authority and rollout-label prohibition | confirmed 2026-07-20; no code migration |
 | H1 S1a | q29 HSL input, current-frame target provenance, direct/legacy Stage-3 rejection, zero/rejected loss, legacy checkpoint rejection | completed 2026-07-20; `E-FI-6` deterministic evidence |
 | H1 S2 | fake Stage-1 connectivity and fake Stage-3 isolation | completed 2026-07-20; `E-FI-7` CPU-only connectivity evidence |
+| G2-S1a | command-owned minimal proposal carrier and shared q29 bridge | completed 2026-07-21; `E-FI-35` deterministic evidence |
+| G2-S1b | formal `928/158/770` Stage-1 route and actor-only critic invariance | completed 2026-07-21; `E-FI-36` deterministic evidence |
+| G2-S2 | strict proposal-only HSL identity/save/reload and pre-mutation rejection | completed 2026-07-21; `E-FI-37` deterministic S3 evidence |
+| G2-S3 | offline fresh-runner q29/normalizer/actor proposal equality | completed 2026-07-21; `E-FI-38` deterministic S2/S3 evidence |
 | S1 | root-only perturbation / q29 invariant and actor H provenance | partially implemented outside HSL |
 | S2A | two-role local reset and sealed command layout | completed 2026-07-20; `E-FI-8` deterministic fake-reset evidence only |
 | S2B | one action -> frozen FEMR -> Clean GMT continuation | completed 2026-07-20 at candidate-only deterministic fake S1/S2 (`E-FI-9`); legacy formal collector rejects active v015 local scenarios |

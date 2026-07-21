@@ -71,8 +71,8 @@ def prepare_frontres_hsl_actor_observation(runner: Any, raw_obs: torch.Tensor) -
     """Build the sealed-q29 Stage-1 actor input before its normalizer consumes it.
 
     Status: active Stage-1-only route. This helper has no raw-observation
-    fallback: the existing v015 bridge owns q29 provenance and fails closed when
-    a sealed local scenario is absent.
+    fallback: the v015 bridge owns q29 provenance and reads only the
+    command-owned proposal snapshot on the formal HSL route.
     """
 
     if not isinstance(raw_obs, torch.Tensor) or raw_obs.ndim != 2:
@@ -95,6 +95,49 @@ def prepare_frontres_hsl_actor_observation(runner: Any, raw_obs: torch.Tensor) -
     normalized = apply_normalizer(augmented)
     if not isinstance(normalized, torch.Tensor) or tuple(normalized.shape) != tuple(augmented.shape):
         raise RuntimeError("v015 HSL normalizer must preserve the q29-augmented actor shape")
+    if bool(getattr(runner, "_frontres_hsl_live_smoke_enabled", False)):
+        policy = runner.alg.policy
+        gmt_dim = int(getattr(runner, "_frontres_gmt_obs_dim", 0) or 0)
+        prefix_dim = int(getattr(policy, "num_frontres_obs", 0) or 0)
+        if (
+            tuple(raw_obs.shape)[-1] != 870
+            or tuple(augmented.shape)[-1] != 928
+            or prefix_dim != 158
+            or gmt_dim != 770
+        ):
+            raise RuntimeError(
+                "G2-S4 observation authority drift: "
+                f"raw={raw_obs.shape[-1]} combined={augmented.shape[-1]} "
+                f"femr={prefix_dim} gmt={gmt_dim}"
+            )
+        runner._frontres_hsl_smoke_combined_obs = augmented.detach().clone()
+        runner._frontres_hsl_smoke_normalized_obs = normalized.detach().clone()
+        if not bool(getattr(runner, "_frontres_hsl_smoke_input_emitted", False)):
+            snapshot = getattr(runner, "_frontres_hsl_smoke_context_snapshot", None)
+            if not isinstance(snapshot, dict):
+                raise RuntimeError("G2-S4 input telemetry requires the command-owned proposal snapshot")
+            intent = snapshot["intent_q29"]
+            artifact_pos = snapshot["artifact_pos"]
+            artifact_quat = snapshot["artifact_quat"]
+            print(
+                "[G2-S4-INPUT] "
+                f"artifact_id_head={snapshot['current_root_artifact_ids'][0]} "
+                f"context_id_head={snapshot['proposal_context_ids'][0]} "
+                f"motion_head={snapshot['motion_indices'][0]} frame_head={snapshot['frame_indices'][0]} "
+                f"artifact_pos_head={artifact_pos[0].detach().cpu().tolist()} "
+                f"artifact_quat_head={artifact_quat[0].detach().cpu().tolist()} "
+                f"q29_shape={tuple(intent.shape)} offsets={snapshot['future_offsets']} "
+                f"q29_provenance={snapshot['provenance'][0]['intent_q29_provenance']}",
+                flush=True,
+            )
+            print(
+                "[G2-S4-OBS] "
+                f"raw={tuple(raw_obs.shape)} combined={tuple(augmented.shape)} "
+                f"femr={tuple(normalized[:, :prefix_dim].shape)} "
+                f"gmt={tuple(normalized[:, prefix_dim:].shape)}",
+                flush=True,
+            )
+            runner._frontres_hsl_smoke_input_emitted = True
     return normalized
 
 
@@ -141,6 +184,62 @@ def validate_frontres_hsl_current_frame_target(target: torch.Tensor, command: An
     return target
 
 
+def capture_frontres_hsl_critic_state(policy: Any) -> tuple[torch.Tensor, ...]:
+    """Clone critic parameters for the proposal-only HSL invariance guard."""
+
+    critic = getattr(policy, "critic", None)
+    if not isinstance(critic, torch.nn.Module):
+        raise RuntimeError("proposal-only HSL requires an explicit critic invariance boundary")
+    return tuple(value.detach().clone() for value in critic.parameters())
+
+
+def assert_frontres_hsl_critic_unchanged(
+    policy: Any,
+    before: tuple[torch.Tensor, ...],
+) -> None:
+    """Fail closed if proposal initialization mutates any critic parameter."""
+
+    after = tuple(value.detach() for value in policy.critic.parameters())
+    if len(after) != len(before) or any(not torch.equal(value, old) for value, old in zip(after, before)):
+        raise RuntimeError("proposal-only HSL critic changed during actor initialization")
+
+
+def frontres_hsl_critic_grad_count(policy: Any) -> int:
+    """Return the number of critic parameters carrying a gradient."""
+
+    return sum(int(isinstance(value.grad, torch.Tensor)) for value in policy.critic.parameters())
+
+
+def frontres_hsl_critic_max_abs_delta(
+    policy: Any,
+    before: tuple[torch.Tensor, ...],
+) -> float:
+    """Return the exact maximum critic parameter delta for S4 telemetry."""
+
+    after = tuple(value.detach() for value in policy.critic.parameters())
+    return max(
+        (float((value - old).abs().max().item()) for value, old in zip(after, before)),
+        default=0.0,
+    )
+
+
+def build_frontres_hsl_actor_only_optimizer(
+    policy: Any,
+    *,
+    learning_rate: float,
+) -> torch.optim.Optimizer:
+    """Build the only optimizer allowed by proposal-only Stage-1 HSL."""
+
+    actor = getattr(policy, "residual_actor", None)
+    if not isinstance(actor, torch.nn.Module):
+        raise RuntimeError("proposal-only HSL requires the residual actor owner")
+    actor_params = tuple(actor.parameters())
+    critic_params = tuple(getattr(policy, "critic").parameters())
+    if not actor_params or {id(value) for value in actor_params} & {id(value) for value in critic_params}:
+        raise RuntimeError("proposal-only HSL actor and critic parameter ownership must be disjoint")
+    return torch.optim.Adam(actor_params, lr=float(learning_rate))
+
+
 def run_frontres_joint_warmup(
     runner: Any,
     *,
@@ -158,7 +257,7 @@ def run_frontres_joint_warmup(
     warmup_perturbation_mode_groups: Callable[..., list[tuple[str, ...]]],
     apply_dr_scale: Callable[..., None],
 ) -> None:
-    """Run the FrontRES joint supervised/energy warmup phase before PPO."""
+    """Run proposal-only actor initialization from the current anti-DR target."""
     if not (is_frontres and warmup_iters > 0):
         return
 
@@ -207,15 +306,25 @@ def run_frontres_joint_warmup(
     _warmup_max_envs = max(1, min(_warmup_max_envs, self.env.num_envs))
     _warmup_valid_w = float(getattr(self.alg, "supervised_valid_loss_weight", 4.0))
     _warmup_dir_w = float(getattr(self.alg, "supervised_direction_loss_weight", 0.1))
-    _warmup_energy_w = float(self.cfg.get("frontres_warmup_energy_loss_weight", 1.0))
+    if not bool(getattr(self, "_frontres_hsl_proposal_context_enabled", False)):
+        raise RuntimeError("FRS-TRAIN-v007 requires the formal Stage-1 HSL proposal route")
+    if float(self.cfg.get("frontres_warmup_energy_loss_weight", 0.0)) != 0.0:
+        raise RuntimeError("proposal-only Stage-1 HSL forbids executable-energy critic loss")
     _warmup_diag_interval = int(self.cfg.get(
         "supervised_warmup_diag_interval", max(1, warmup_iters // 5)))
     _warmup_diag_interval = max(1, _warmup_diag_interval)
-    _warmup_opt = torch.optim.Adam(
-        list(self.alg.policy.residual_actor.parameters())
-        + list(self.alg.policy.critic.parameters()),
-        lr=_warmup_lr,
+    _critic_state_before = capture_frontres_hsl_critic_state(self.alg.policy)
+    _warmup_opt = build_frontres_hsl_actor_only_optimizer(
+        self.alg.policy,
+        learning_rate=_warmup_lr,
     )
+    _live_smoke = bool(getattr(self, "_frontres_hsl_live_smoke_enabled", False))
+    _fresh_reload_shadow = None
+    if _live_smoke:
+        capture_shadow = getattr(self, "_capture_v015_hsl_fresh_reload_shadow", None)
+        if not callable(capture_shadow):
+            raise RuntimeError("G2-S4 requires the strict HSL fresh-reload shadow owner")
+        _fresh_reload_shadow = capture_shadow()
 
     # Import once to avoid per-step overhead.
     from whole_body_tracking.tasks.tracking.mdp.observations import \
@@ -231,11 +340,11 @@ def run_frontres_joint_warmup(
         if abs(_warmup_dr_scale_end - _warmup_dr_scale_start) > 1e-8
         else f"{_warmup_dr_scale_end}"
     )
-    print(f"[Runner] === Joint warmup: {warmup_iters} iters "
+    print(f"[Runner] === Proposal-only HSL warmup: {warmup_iters} iters "
           f"(dr_scale={_warmup_dr_desc}, lr={_warmup_lr}, epochs={_warmup_epochs}, "
           f"steps_per_iter={_warmup_steps}, "
           f"max_envs_per_step={_warmup_max_envs}, "
-          f"frontres_input={_nfo} dims, energy_w={_warmup_energy_w}, "
+          f"frontres_input={_nfo} dims, critic_update=false, "
           f"perturb_schedule={self.cfg.get('supervised_warmup_perturbation_schedule', self.cfg.get('frontres_warmup_perturbation_schedule', 'mixed_single'))}) ===",
           flush=True)
 
@@ -254,11 +363,9 @@ def run_frontres_joint_warmup(
 
         _wo_list: list[torch.Tensor] = []
         _wt_list: list[torch.Tensor] = []
-        _wc_list: list[torch.Tensor] = []
-        _we_list: list[torch.Tensor] = []
 
         # Use no_grad rather than inference_mode: warmup samples are later fed
-        # back through trainable actor/critic networks.
+        # back through the trainable residual actor.
         with torch.no_grad():
             for _step in range(_warmup_steps):
                 _mode_group = _warmup_mode_groups[
@@ -280,12 +387,6 @@ def run_frontres_joint_warmup(
                 obs_dict = extras.get("observations", {})
                 _p_obs_raw = obs_dict.get(self.policy_obs_type, obs).to(self.device)
                 _p_obs = prepare_frontres_hsl_actor_observation(self, _p_obs_raw)
-                if self.privileged_obs_type is not None and self.privileged_obs_type in obs_dict:
-                    _c_obs = self.privileged_obs_normalizer(
-                        obs_dict[self.privileged_obs_type].to(self.device)
-                    )
-                else:
-                    _c_obs = _p_obs
                 _mcmd_wu = _env_raw.command_manager._terms.get("motion")
                 if _mcmd_wu is None:
                     raise RuntimeError("Stage-1 HSL requires the current motion command anti-DR owner")
@@ -293,61 +394,30 @@ def run_frontres_joint_warmup(
                     _get_warmup_target(_env_raw, "motion").to(self.device),
                     _mcmd_wu,
                 )
+                _raw_target = _target.detach().clone()
                 _target = self._frontres_action_cone.project_task_target(_mcmd_wu, _target)
-                if n_train > 0 and n_base > 0 and n_clean > 0:
-                    _n_energy = min(n_train, n_base, n_clean)
-                    if _mcmd_wu is not None:
-                        _executability = self._frontres_executability
-                        _active_modes = tuple(getattr(self, "_frontres_curriculum_active_modes", ()))
-                        _, _exec_wu_components = _executability.exec_score(_mcmd_wu, return_components=True)
-                        _wu_modes = [
-                            tuple(getattr(self, "_frontres_curriculum_active_modes", ()))
-                        ] * _n_energy
-                        _r_perturbed_wu = _executability.exec_score_for_modes(
-                            _exec_wu_components,
-                            n_train,
-                            _n_energy,
-                            mode_groups=_wu_modes,
-                            active_modes=_active_modes,
-                        ).view(-1)
-                        _, _feasible_wu_components = _executability.feasible_oracle_exec_score(
-                            _mcmd_wu, n_train, _n_energy, return_components=True
-                        )
-                        _r_feasible_wu = _executability.exec_score_for_modes(
-                            _feasible_wu_components,
-                            0,
-                            _n_energy,
-                            mode_groups=_wu_modes,
-                            active_modes=_active_modes,
-                        ).to(self.device).view(-1)
-                        _energy_target = (_r_feasible_wu - _r_perturbed_wu).clamp(min=0.0).unsqueeze(-1)
-                    else:
-                        _energy_target = torch.zeros(_n_energy, 1, device=self.device)
-                    _p_obs = _p_obs[:_n_energy]
-                    _c_obs = _c_obs[:_n_energy]
-                    _target = _target[:_n_energy]
-                else:
-                    _energy_target = torch.zeros(_p_obs.shape[0], 1, device=self.device)
+                if _live_smoke and not bool(getattr(self, "_frontres_hsl_smoke_target_emitted", False)):
+                    print(
+                        "[G2-S4-TARGET] owner=current_antidr_delta_se3 "
+                        f"raw_shape={tuple(_raw_target.shape)} applied_shape={tuple(_target.shape)} "
+                        f"raw_head={_raw_target[0].detach().cpu().tolist()} "
+                        f"applied_head={_target[0].detach().cpu().tolist()} finite=1",
+                        flush=True,
+                    )
+                    self._frontres_hsl_smoke_target_emitted = True
 
                 if _warmup_max_envs < _p_obs.shape[0]:
                     _sample_ids = torch.randperm(_p_obs.shape[0], device=self.device)[:_warmup_max_envs]
                     _p_obs = _p_obs[_sample_ids]
-                    _c_obs = _c_obs[_sample_ids]
                     _target = _target[_sample_ids]
-                    _energy_target = _energy_target[_sample_ids]
 
                 _wo_list.append(_p_obs[:, :_nfo])
                 _wt_list.append(_target)
-                _wc_list.append(_c_obs)
-                _we_list.append(_energy_target)
 
         _all_obs = torch.cat(_wo_list, dim=0)
         _all_tgt = torch.cat(_wt_list, dim=0)
-        _all_critic_obs = torch.cat(_wc_list, dim=0)
-        _all_energy = torch.cat(_we_list, dim=0)
         _N = _all_obs.shape[0]
         _last_actor_loss = torch.tensor(0.0, device=self.device)
-        _last_energy_loss = torch.tensor(0.0, device=self.device)
         for epoch in range(_warmup_epochs):
             perm = torch.randperm(_N, device=self.device)
             for i in range(0, _N, 4096):
@@ -406,16 +476,30 @@ def run_frontres_joint_warmup(
                         )
                     loss = loss + _warmup_dir_w * direction_loss
                 actor_loss = loss
-                value_pred = self.alg.policy.evaluate(_all_critic_obs[idx])
-                energy_loss = torch.nn.functional.huber_loss(
-                    value_pred, _all_energy[idx].detach(), reduction="mean"
-                )
-                loss = actor_loss + _warmup_energy_w * energy_loss
                 _warmup_opt.zero_grad()
                 loss.backward()
+                if _live_smoke and not bool(getattr(self, "_frontres_hsl_smoke_grad_emitted", False)):
+                    actor_grads = [
+                        value.grad.detach()
+                        for value in self.alg.policy.residual_actor.parameters()
+                        if isinstance(value.grad, torch.Tensor)
+                    ]
+                    actor_grad_norm = torch.sqrt(
+                        sum((value.float().square().sum() for value in actor_grads), torch.zeros((), device=self.device))
+                    )
+                    critic_grad_count = frontres_hsl_critic_grad_count(self.alg.policy)
+                    if not actor_grads or not bool(torch.isfinite(actor_grad_norm).item()) or actor_grad_norm.item() <= 0.0:
+                        raise RuntimeError("G2-S4 requires a finite nonzero residual-actor gradient")
+                    if critic_grad_count != 0:
+                        raise RuntimeError("G2-S4 proposal-only HSL produced a critic gradient")
+                    print(
+                        "[G2-S4-GRAD] actor_grad_nonzero=1 "
+                        f"actor_grad_norm={actor_grad_norm.item():.9g} critic_grad_count=0 optimizer=actor_only",
+                        flush=True,
+                    )
+                    self._frontres_hsl_smoke_grad_emitted = True
                 _warmup_opt.step()
                 _last_actor_loss = actor_loss.detach()
-                _last_energy_loss = energy_loss.detach()
 
         if (_wu + 1) % _warmup_diag_interval == 0 or (_wu + 1) == warmup_iters:
             with torch.inference_mode():
@@ -627,31 +711,11 @@ def run_frontres_joint_warmup(
                     _obs_z_best_corr = _best_scores[7].item()
                     _obs_roll_best_corr = _best_scores[8].item()
                     _obs_pitch_best_corr = _best_scores[9].item()
-                _energy_pred_all = self.alg.policy.evaluate(_all_critic_obs)
-                _energy_loss_all = torch.nn.functional.huber_loss(
-                    _energy_pred_all, _all_energy, reduction="mean").item()
-                _energy_mae = (_energy_pred_all - _all_energy).abs().mean().item()
-                _energy_target_mean = _all_energy.mean().item()
-                _energy_pred_mean = _energy_pred_all.mean().item()
-                _energy_target_std = _all_energy.std(unbiased=False).item()
-                _energy_pred_std = _energy_pred_all.std(unbiased=False).item()
-                _energy_cov = (
-                    (_energy_pred_all - _energy_pred_all.mean())
-                    * (_all_energy - _all_energy.mean())
-                ).mean()
-                _energy_corr = (
-                    _energy_cov
-                    / (_energy_pred_all.std(unbiased=False) * _all_energy.std(unbiased=False)).clamp(min=1e-6)
-                ).item()
-                _safe_gap_diag = float(self.cfg.get("frontres_safe_gap_per_step", 0.003))
-                _broken_gap_diag = float(self.cfg.get("frontres_broken_gap_per_step", 0.08))
-                _energy_damage_frac = (_all_energy.view(-1) > _safe_gap_diag).float().mean().item()
-                _energy_broken_frac = (_all_energy.view(-1) > _broken_gap_diag).float().mean().item()
             print(f"[Runner]   warmup {_wu + 1}/{warmup_iters}: "
                   f"dr_scale={_warmup_dr_scale:.3f}, "
                   f"mode_mix={tuple(_warmup_mode_groups)}, "
                   f"loss={loss.item():.6f}, actor={_last_actor_loss.item():.6f}, "
-                  f"energy={_last_energy_loss.item():.6f}, cos={_warmup_cos:.4f}, "
+                  f"critic_update=false, cos={_warmup_cos:.4f}, "
                   f"valid={_valid_frac:.3f}",
                   flush=True)
             print(f"[Runner]      diag: "
@@ -683,21 +747,51 @@ def run_frontres_joint_warmup(
                   f"sign_z/r/p={_obs_z_best_sign:.3f}/{_obs_roll_best_sign:.3f}/{_obs_pitch_best_sign:.3f}, "
                   f"corr_z/r/p={_obs_z_best_corr:+.3f}/{_obs_roll_best_corr:+.3f}/{_obs_pitch_best_corr:+.3f}",
                   flush=True)
-            print(f"[Runner]      energy: "
-                  f"loss={_energy_loss_all:.6f}, mae={_energy_mae:.6f}, "
-                  f"pred/target={_energy_pred_mean:.6f}/{_energy_target_mean:.6f}",
-                  flush=True)
-            print(f"[Runner]      energy: "
-                  f"corr={_energy_corr:+.4f}, std_pred/target={_energy_pred_std:.6f}/{_energy_target_std:.6f}, "
-                  f"damage_frac={_energy_damage_frac:.3f}, broken_frac={_energy_broken_frac:.3f}",
-                  flush=True)
 
-    print(f"[Runner] === Joint warmup complete (final loss={loss.item():.6f}) ===",
+    assert_frontres_hsl_critic_unchanged(self.alg.policy, _critic_state_before)
+    if _live_smoke:
+        critic_max_abs_delta = frontres_hsl_critic_max_abs_delta(
+            self.alg.policy,
+            _critic_state_before,
+        )
+        if critic_max_abs_delta != 0.0:
+            raise RuntimeError("G2-S4 critic parameter delta is nonzero")
+        print("[G2-S4-CRITIC] critic_max_abs_delta=0 critic_unchanged=1", flush=True)
+    print(f"[Runner] === Proposal-only HSL warmup complete (final loss={loss.item():.6f}) ===",
           flush=True)
     if self.log_dir is not None:
-        self._frontres_warmup_complete = True
         self._dr_scale = dr_scale
         warmup_path = os.path.join(self.log_dir, "model_warmup.pt")
         self.save(warmup_path)
+        self._frontres_warmup_complete = True
         print(f"[Runner] Warmup checkpoint saved to {warmup_path}", flush=True)
+        if _live_smoke:
+            combined_obs = getattr(self, "_frontres_hsl_smoke_combined_obs", None)
+            normalized_obs = getattr(self, "_frontres_hsl_smoke_normalized_obs", None)
+            verify_reload = getattr(self, "_verify_v015_hsl_fresh_reload", None)
+            if (
+                _fresh_reload_shadow is None
+                or not isinstance(combined_obs, torch.Tensor)
+                or not isinstance(normalized_obs, torch.Tensor)
+                or not callable(verify_reload)
+            ):
+                raise RuntimeError("G2-S4 fresh reload telemetry is incomplete")
+            source_actor_input = normalized_obs[:, :158]
+            with torch.inference_mode():
+                raw_proposal = self.alg.policy.residual_actor(source_actor_input)
+                source_proposal = torch.cat(
+                    [
+                        torch.tanh(raw_proposal[:, :3]) * self.alg.policy.max_delta_pos,
+                        torch.tanh(raw_proposal[:, 3:6]) * self.alg.policy.max_delta_rpy,
+                    ],
+                    dim=-1,
+                )
+            verify_reload(
+                _fresh_reload_shadow,
+                checkpoint_path=warmup_path,
+                combined_obs=combined_obs,
+                source_actor_input=source_actor_input,
+                source_proposal=source_proposal,
+            )
+            print("[G2-S4-COMPLETE] bounded_hsl=1 ppo_entered=0", flush=True)
     _apply_frontres_dr_scale(dr_scale)

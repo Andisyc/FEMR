@@ -2296,3 +2296,503 @@ Unconfirmed / next:
 - Step 5B-S4 remains separately user-gated. One bounded simulator run must
   produce the expected sentinel and atomic report before deployment
   composition is runtime-confirmed.
+
+## E-FI-32: Post-Observation-Change Test-Path Rebase
+
+Date: 2026-07-21
+Tier: user-confirmed dependency correction plus S0 documentation/governance
+evidence; no source code, Concept Figure, simulator, training, checkpoint IO,
+artifact generation, or live run
+
+Raw decision evidence:
+
+- The user stated: the observation was changed substantially and the policy
+  has not been retrained, therefore no compatible v015 FEMR checkpoint exists.
+- The user stated: no `Noisy.npz` exists and this object had never been defined
+  for them before the S4 command requested it.
+- The user requested a replanned test path and then explicitly authorized the
+  documentation update before returning to the main conversation.
+
+Corrected facts:
+
+- `FRONTRES_CKPT` is a future product of new-layout HSL/Stage-3 training,
+  checkpoint save, and fresh-runner reload. It is not an available S4 input.
+- Deployment consumes an ordinary reference `.npz`; it has no special
+  user-facing `Noisy.npz` type. For controlled synthetic evaluation, a planned
+  selection-time owner must materialize one fixed artifact carrier from an
+  existing Clean/reference `.npz` and seal source/protocol/carrier hashes.
+- Corruption metadata is report-only and cannot enter FEMR observation. The
+  carrier is created once and shared unchanged by every comparison branch.
+- Scientific composition evidence requires frozen-GMT baseline versus
+  per-frame-FEMR plus frozen-GMT under the same carrier, initial conditions,
+  and GMT identity. A repair-only sequence is insufficient to claim benefit.
+- E-FI-28--E-FI-31 remain valid deterministic interface/config evidence. S2B
+  and the CLI are now classified `implemented-not-runnable`, not ready S4.
+
+Replanned order:
+
+1. G0 document/test-path rebase;
+2. G1 read-only Training Readiness Audit;
+3. G2 new-layout proposal-only HSL persistence and smoke;
+4. G3 Stage-3 one-transaction save/fresh-reload smoke;
+5. G4 controlled fixed-carrier materializer;
+6. G5 formal training and policy-quality gate;
+7. G6 paired composition connectivity;
+8. G7 one bounded live composition run.
+
+Acceptance:
+
+- G0 is complete. Step 5B-S4 is blocked behind G1--G6.
+- The next authorized action is read-only G1 only. No training recommendation
+  follows from prior route/connectivity tests.
+
+## E-FI-33: G1 v015 Training Readiness Audit And Gap Rebase
+
+Date: 2026-07-21
+Tier: S0 static owner/layout/checkpoint/train-dispatch audit plus documentation
+closeout; no source code, active contract, Concept Figure, test, checkpoint IO,
+simulator, training, artifact generation, or live run
+
+Read-only evidence:
+
+- `scripts/rsl_rl/train.py::_apply_frontres_stage_preset()` configures
+  proposal-only HSL without enabling the v015 formal transaction/layout or
+  supplying nonempty q29 future offsets. `OnPolicyRunner` resolves the v015
+  layout only for Segment Replay or an explicit v015 formal identity.
+- `frontres_warmup.py::run_frontres_joint_warmup()` writes
+  `model_warmup.pt` through generic `save_runner()`. The active training
+  contract and `reject_legacy_frontres_hsl_checkpoint()` both state that no
+  accepted proposal-only v015 HSL checkpoint identity exists.
+- ordinary Stage-3 training dispatches
+  `run_frontres_segment_live_update_loop()`, which repeatedly invokes the
+  legacy `run_frontres_segment_sampler_step()` path. The sealed grouped v015
+  transaction owner remains a separate explicit dispatch.
+- `frontres_checkpointing.save_runner()` emits the exact
+  `frontres-v015-checkpoint-v2` envelope only when the v015 formal identity and
+  layout are active. Ordinary Stage-3 training does not enable that route; the
+  bounded local sentinel is not a formal training checkpoint producer.
+
+Confirmed gaps:
+
+1. Stage-1 formal HSL has not enabled q29 v015 layout; legacy `870D` input
+   remains reachable.
+2. A new proposal-only HSL checkpoint identity is undefined.
+3. Ordinary Stage-3 training bypasses the sealed grouped transaction through
+   the legacy sampler/update loop.
+4. Ordinary training cannot produce and fresh-reload an exact v015 checkpoint.
+
+Plan rebase:
+
+- G2 owns the new HSL identity, mandatory Stage-1 q29 formal route, HSL
+  actor/prefix-normalizer save/reload, deterministic evidence, and one bounded
+  proposal-only smoke.
+- G3 owns actor-only migration, sealed formal grouped dispatch, exact-one
+  transaction/update smoke, the exact v015 checkpoint producer, and fresh
+  inference reload.
+- G4--G7 retain controlled carrier materialization, formal policy quality,
+  paired composition connectivity, and bounded live composition respectively.
+
+Acceptance:
+
+- G1 is completed as a stopped audit, not as training readiness approval.
+- G2-S0 is the only next user-gated step. No code change or training may begin
+  until its owner/schema/evidence/stop contract is confirmed.
+
+## E-FI-34: G2-S0 Proposal-Only HSL Persistence White-Box Audit
+
+Date: 2026-07-21
+Tier: S0 multi-layer semantic audit and planning evidence; no source code,
+active contract, Concept Figure, test, checkpoint IO, simulator, training,
+artifact generation, or live run
+
+Design and owner evidence:
+
+- Concept Figure `M-03` defines HSL as supervised initialization of the 6D
+  actor; `M-05` separately owns Actor & Critic Warmup.
+- Active `FRS-TRAIN-v007` allows only current-frame anti-DR Delta SE(3) as the
+  Stage-1 HSL target and reserves a separately authorized new HSL identity.
+- `train.py::_apply_frontres_stage_preset()` does not enable a v015 HSL layout
+  mode or install `(1,2)` future offsets for `stage1_hsl`.
+- `OnPolicyRunner` resolves `928/158/770` only when Segment Replay or the
+  Stage-3/deployment formal-transaction identity requests it.
+
+Carrier/dataflow finding:
+
+- `prepare_frontres_hsl_actor_observation()` calls the shared q29 bridge.
+- The bridge reads only
+  `MultiMotionCommand.frontres_local_scenario_intent_snapshot()`.
+- That accessor requires a transaction-wide active/current-frame-ready local
+  scenario. Formal HSL neither samples nor installs such a scenario.
+- Therefore merely enabling the layout would change the failure from legacy
+  `870D` reachability to a missing-carrier exception; it would not complete the
+  Stage-1 q29 route.
+
+Target/gradient finding:
+
+- `run_frontres_joint_warmup()` validates the actor target as current anti-DR
+  `[B,6]`, but also constructs `_energy_target` from executable and feasible
+  oracle scores.
+- Its warmup optimizer contains both `residual_actor` and `critic` parameters,
+  and the total loss includes Huber energy loss on `policy.evaluate()`.
+- Generic `model_warmup.pt` consequently saves actor, critic, policy noise,
+  optimizer, critic normalizer, Gain/sampler state when present, and no HSL
+  identity. This is not a proposal-only migration artifact.
+
+Persistence/lifecycle finding:
+
+- `frontres_checkpointing.py` is the unique runner persistence owner, but only
+  the Stage-3 `frontres-v015-checkpoint-v2` envelope is implemented.
+- `load_runner()` has no proposal-only HSL validation branch. It either
+  validates the Stage-3 envelope or reaches the legacy-HSL reject boundary.
+- Legacy normalizer extraction can pad missing prefix statistics with identity
+  values; that compatibility behavior must not be reachable after a new HSL
+  identity is selected.
+- `FrontRESActorCritic` loads the frozen GMT checkpoint and its 770D normalizer,
+  but the proposed HSL artifact must explicitly bind that GMT artifact identity
+  to make a fresh reload reproducible.
+
+Decision and proposed schema:
+
+- Recommended: define a separate immutable Stage-1 proposal carrier containing
+  only current artifact identity, deployment/Noisy q29 H, provenance, and a
+  proposal-context identity. Do not add x_t, Clean continuation, K, Segment
+  roles, attempts, return, priority, or PPO state.
+- Not recommended: reuse the full Stage-3 local-scenario carrier and keep C/K
+  unused. This introduces Segment Replay objects into proposal initialization.
+- Proposed checkpoint key/format:
+  `frontres_v015_hsl_checkpoint_identity` /
+  `frontres-v015-hsl-proposal-v1`.
+- Allowed migration payload: residual actor, distribution std/log_std, and the
+  exact 158D FEMR-prefix normalizer state.
+- Forbidden payload: critic/critic normalizer, HSL optimizer, sampler,
+  transaction, Gain/return/priority/PPO, Clean continuation, or rollout label.
+
+Acceptance and stop:
+
+- G2-S0 is blocked, not complete, because v007 currently names the shared
+  local-scenario carrier while the recommended minimal proposal carrier is a
+  distinct responsibility. This requires human clarification before contract
+  activation or code.
+- After confirmation, G2 is split into S1a carrier, S1b actor-only formal
+  route, S2 identity/save/reload, S3 fresh-runner connectivity, and separately
+  authorized S4 bounded smoke.
+
+## E-FI-35: G2-S1a Existing-Module HSL Proposal Carrier
+
+Date: 2026-07-21
+Tier: S1 deterministic command/runtime/layout contract evidence; no new source
+or test module, formal Stage-1 dispatch, checkpoint IO, simulator, training,
+artifact generation, or live run
+
+Human decision and scope:
+
+- The user selected the minimal Stage-1-only proposal carrier and required the
+  implementation to modify existing owners instead of creating another module.
+- The active v007 contract was clarified in place: Stage-1 and Stage-3 share
+  the versioned q29 layout/provenance validator, but Stage-1 owns only current
+  root-artifact identity, deployment/Noisy q29 `I[t:t+H]`, and an immutable
+  proposal-context identity.
+- The carrier excludes Clean `x_t`, Clean continuation `C`, `K`, Segment roles,
+  attempts, return, priority, PPO state, and every future root/global field.
+
+Fail-first evidence:
+
+- The extended existing `frontres_hsl_v007_s1_contract.py` initially failed at
+  `MultiMotionCommand.frontres_hsl_proposal_intent_snapshot`: the accessor did
+  not exist before this step.
+- No separate carrier module or separate test module was introduced.
+
+Implementation evidence:
+
+- `commands.py` now owns one vectorized deployment-q29 row extractor reused by
+  both local-scenario materialization and the Stage-1 proposal snapshot. The
+  snapshot returns detached `[B,H+1,29]` q29, motion/frame identities, current
+  artifact hashes, proposal-context hashes, offsets, and deployment provenance.
+- `frontres_runtime.py` selects that command-owned snapshot only under the
+  explicit HSL proposal-context flag and routes it through the existing future
+  q29 append path. The local-scenario route remains separate.
+- `frontres_observation_layout.py` reuses the existing provenance validator for
+  `carrier_kind=hsl_proposal` and rejects Clean-continuation provenance.
+- The command snapshot rejects out-of-range windows instead of clamping and
+  rejects mixing with local-scenario, fixed-tape, or deployment-eval state.
+
+Deterministic verification:
+
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s1_contract.py`
+  passed, including carrier schema, immutability, no-C/K, runtime isolation,
+  layout/provenance, current anti-DR target, Stage-3 label/write rejection, and
+  legacy checkpoint rejection.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_future_intent_actor_context_contract.py`
+  passed.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_role_aligned_future_intent_contract.py`
+  passed.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_local_scenario_kernel_contract.py`
+  passed.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_two_role_reset_contract.py`
+  passed.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s2_connectivity_contract.py`
+  passed.
+- `frontres/bin/python -m py_compile` passed for the three modified source
+  owners and the extended HSL S1 contract test.
+
+Acceptance and remaining boundary:
+
+- G2-S1a is complete at S1. Existing owner modules and the existing HSL S1
+  test carry the implementation; no duplicate module was created.
+- This evidence does not prove formal Stage-1 config/runner connectivity. The
+  runner flag is deterministic-fixture-only, the warmup optimizer still owns
+  the legacy critic/energy path, and the proposal-only checkpoint identity is
+  not implemented.
+- G2-S1b is the next independently authorized step: formal Stage-1
+  `928/158/770` route plus actor-only proposal warmup and critic-state
+  invariance. G2-S2 checkpoint identity/save/reload remains out of scope.
+
+## E-FI-36: G2-S1b Formal Proposal-Only HSL Route
+
+Date: 2026-07-21
+Tier: S1 deterministic config/layout/core-parameter and regression evidence;
+no checkpoint IO, simulator, training, artifact generation, or live run
+
+Fail-first evidence:
+
+- The extended existing HSL S1 contract initially failed after the Stage-1
+  preset printed `segment_replay=True`, `future_offsets=()`, and retained
+  `frontres_warmup_energy_loss_weight=1.0`.
+- This isolated the two authorized defects: the formal Stage-1 preset did not
+  request the v015 q29 layout, and the warmup owner still admitted the legacy
+  executable-energy critic route.
+
+Implementation evidence:
+
+- `train.py::_apply_frontres_stage_preset()` now fixes Stage-1 HSL offsets to
+  `(1,2)`, rejects another offset layout, disables Segment Replay and Stage-3
+  formal transaction, selects the v015 q29 layout, keeps online supervised
+  algorithm loss and rollout labels at zero/off, fixes the current FEMR prefix
+  at `100D`, and sets the HSL energy weight to zero.
+- `OnPolicyRunner` derives an explicit proposal-context route only from the
+  Stage-1 exit plus `supervised_restore` identity. It rejects Segment/formal
+  mixing, resolves `870+58=928`, writes `num_frontres_obs=158`, preserves the
+  frozen GMT `770D` suffix, and appends proposal q29 before the first
+  normalization call. It also bypasses the inactive privileged/teacher
+  normalizers so proposal HSL cannot update critic-side running statistics.
+- `frontres_warmup.py` now builds its optimizer only from
+  `residual_actor.parameters()`. The executable-energy target, critic
+  observation collection, critic forward/loss, and energy diagnostics were
+  removed. A before/after tensor guard fails closed on any critic mutation.
+- The FrontRES config default and nearby owner comments now record
+  proposal-only actor initialization instead of the retired joint HSL
+  actor/energy-critic interpretation.
+
+Observed S1 facts:
+
+- The actor-only pseudo step changed residual-actor parameters.
+- Every critic parameter retained `grad is None` and exact tensor equality.
+- The formal runner contains no Stage-1 privileged/teacher normalizer write.
+- A deliberate critic mutation triggered the invariance guard.
+- The formal preset produced `(1,2)`, `segment_replay=False`, zero online HSL
+  loss, and the deterministic `928D -> FEMR 158D / GMT 770D` contract.
+
+Fresh verification:
+
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s1_contract.py`
+  passed all carrier, config, layout, target, actor-only, critic-invariance,
+  Stage-3 isolation, and legacy-reject assertions.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s2_connectivity_contract.py`
+  passed the q29-normalizer-actor-current-target and zero Stage-3 HSL paths.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_stage_entrypoint_contract.py`
+  and `frontres_segment_stage3_entrypoint_pseudo_contract.py` passed.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_observation_authority_contract.py`
+  passed `928/158/770` authority and zero-prefix rejection.
+- `python -m py_compile`, Architecture JSON parsing, and `git diff --check`
+  passed for the modified step surface.
+
+Acceptance and remaining boundary:
+
+- G2-S1b is complete at deterministic S1. This proves formal config/owner
+  selection and the local actor-only gradient boundary; it is not simulator or
+  live HSL evidence.
+- Generic `model_warmup.pt` persistence is still not an accepted v015 HSL
+  artifact. G2-S2 must define and validate
+  `frontres-v015-hsl-proposal-v1` before any Stage-1 checkpoint IO or bounded
+  smoke is authorized.
+
+## E-FI-37: G2-S2 Strict Proposal-Only HSL Persistence
+
+Date: 2026-07-21
+Tier: deterministic S3 semantic checkpoint fixture with temporary local files;
+no fresh formal runner, simulator, training, Stage-3 PPO, artifact production,
+or live run
+
+Fail-first evidence:
+
+- The extended existing HSL contract first failed because generic
+  `save_runner()` produced the ordinary runner payload rather than the required
+  three-field HSL artifact.
+- The old route admitted critic, optimizer, Gain, warmup marker, normalizer,
+  sampler, and other generic state before any HSL-specific identity existed.
+
+Implemented owner boundary:
+
+- `frontres_checkpointing.py` is the sole format owner for
+  `frontres-v015-hsl-proposal-v1`.
+- `frontres_warmup.py` remains a thin connector through existing `self.save()`;
+  it marks runtime warmup completion only after the strict save succeeds.
+- The HSL save branch returns before generic critic/optimizer/sampler/Gain/
+  transaction payload construction. The deterministic optimizer fixture raises
+  if `state_dict()` is read, while HSL save succeeds.
+
+Exact payload and identity:
+
+- Top-level keys are exactly `frontres_v015_hsl_checkpoint_identity`,
+  `model_state_dict`, and `frontres_prefix_norm_state_dict`.
+- `model_state_dict` is exactly `residual_actor` plus one `std` or `log_std`
+  tensor. The prefix payload is the complete 158D empirical-normalizer state:
+  `_mean`, `_var`, `_std`, and `count`.
+- Identity binds FRS-METHOD-v015/FRS-TRAIN-v007, proposal-only current anti-DR
+  objective, `(1,2)` q29 layout, `870/928/158/770`, full 6D Delta SE(3), GMT
+  checkpoint SHA-256, frozen GMT 770D normalizer fingerprint, and value-sensitive
+  actor/distribution/prefix fingerprints.
+
+Pre-mutation evidence:
+
+- Load validates the exact top-level and nested field sets, current layout,
+  action, GMT artifact/normalizer, tensor keys/shapes/dtypes/finiteness, and all
+  fingerprints before the first actor/distribution/prefix write.
+- Successful reload changed only actor, distribution, and prefix-normalizer
+  state to the source values. Critic, privileged/critic normalizer, and
+  optimizer load count remained unchanged.
+- Five rejected cases were injected: forbidden optimizer key, actor-value
+  tamper, prefix-stat tamper, GMT identity tamper, and legacy/unversioned
+  warmup payload. Every case preserved actor, critic, distribution, prefix,
+  privileged normalizer, optimizer count, warmup marker, and loaded-path state.
+
+Fresh verification:
+
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s1_contract.py`
+  passed the combined S1/S3 HSL contract.
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_v015_checkpoint_resume_contract.py`
+  passed, proving the existing Stage-3 `frontres-v015-checkpoint-v2` format and
+  transaction atomicity path were not migrated or regressed.
+- HSL S2 connectivity and future-intent actor-context contracts passed.
+- `python -m py_compile`, Architecture JSON parsing, and `git diff --check`
+  passed for the modified surface.
+
+Acceptance and remaining boundary:
+
+- G2-S2 is complete at deterministic S3. The accepted HSL artifact is strictly
+  migration-only and cannot enter a non-HSL or Stage-3 formal checkpoint route.
+- This fixture does not prove a newly constructed formal runner reproduces the
+  same normalized 158D input and actor proposal. That is the separately
+  authorized G2-S3 offline fresh-runner connectivity boundary.
+
+## E-FI-38: G2-S3 Offline Fresh-Runner HSL Connectivity
+
+Date: 2026-07-21
+Tier: deterministic S2/S3 semantic connectivity with two independent fake
+runner objects and temporary checkpoint files; no production source change,
+simulator, training, Stage-3 migration/PPO, or live run
+
+Core parameter path:
+
+```text
+fixed current artifact in raw [B,870]
++ fixed deployment q29 [B,3,29] at offsets (1,2)
+-> command-owned 58D tail
+-> combined [B,928]
+-> existing prefix/GMT normalizer split
+-> normalized FEMR input [B,158]
+-> residual actor
+-> bounded full-6D Delta SE(3) proposal
+```
+
+Fixture evidence:
+
+- The source and fresh runner are independently initialized with different
+  residual-actor weights and different 158D prefix-normalizer statistics.
+- Both use the same frozen GMT artifact, GMT 770D normalizer, current artifact,
+  raw 870D observation, q29 window, offsets, proposal-context identities, and
+  deployment/Noisy provenance.
+- Before reload, their normalized 158D actor inputs and 6D proposals differ,
+  proving the target is not accidentally identical by construction.
+- The source saves through `frontres-v015-hsl-proposal-v1`; the fresh runner
+  reloads through the strict HSL pre-mutation branch.
+
+Observed equality after reload:
+
+- Combined observation is exactly `[2,928]`; its first 58 values equal q29
+  offsets `(1,2)`, and the following current-artifact values equal the fixed
+  raw input.
+- Normalized full observation, normalized FEMR `[2,158]` input, and bounded
+  `[2,6]` proposal are elementwise identical with `rtol=0, atol=0` between the
+  source-before-save and fresh-after-reload routes.
+- Fresh reload uses the live 158D prefix-normalizer state directly:
+  `_frontres_extra_mean`, `_frontres_extra_std`, and legacy layout-padding state
+  remain absent.
+- Critic parameters remain at the fresh runner's pre-load values and optimizer
+  load count remains zero.
+
+Fresh verification:
+
+- `frontres/bin/python source/rsl_rl/rsl_rl/tests/frontres_hsl_v007_s1_contract.py`
+  passed the new T-fresh-runner/T-output/T-zero-leak trace plus prior S1/S3
+  HSL contracts.
+- HSL S2 connectivity, Stage-3 v2 checkpoint/resume, future-intent actor
+  context, and v015 observation-authority contracts passed.
+- `python -m py_compile` and `git diff --check` passed.
+
+Acceptance and remaining boundary:
+
+- G2-S3 is complete at deterministic S2/S3. No production code change was
+  required; the existing strict checkpoint, q29 bridge, normalizer, and actor
+  owners already compose correctly offline.
+- This does not prove IsaacLab lifecycle timing, real current-artifact/q29
+  values, optimizer execution during bounded HSL, or real checkpoint output.
+  Those are the separately authorized G2-S4 bounded formal Stage-1 smoke.
+
+## E-FI-39: G2-S4-S0 Bounded HSL Telemetry And Fresh-Reload Connector
+
+Date: 2026-07-21
+Tier: deterministic S1/S3 config, telemetry-schema, persistence, and shadow
+reload contracts; no simulator, training, live run, Stage-3 PPO, deployment
+composition, or checkpoint-format change
+
+Implemented owner path:
+
+```text
+--frontres_hsl_live_smoke
+-> Stage-1-only bounded config checks
+-> command-owned real artifact/q29 snapshot
+-> 870D + 58D = 928D -> FEMR 158D / GMT 770D telemetry
+-> current anti-DR target
+-> residual-actor nonzero gradient / critic zero gradient and zero delta
+-> frontres-v015-hsl-proposal-v1 exact save identity
+-> independent pre-warmup CPU shadow strict reload
+-> normalized 158D and bounded 6D exact equality
+```
+
+Observed deterministic evidence:
+
+- `frontres_hsl_v007_s1_contract.py` exited 0. Its new
+  T-HSL-live-smoke/T-telemetry/T-shadow-reload case observed `[2,928]`,
+  `[2,158]`, `[2,770]`, deployment q29 provenance, exact HSL-v1 keys,
+  `forbidden_payload=0`, pre-reload proposal inequality, and post-reload
+  `normalized_158_equal=1 proposal_6_equal=1`.
+- The bounded config rejects non-Stage-1 use, odd or more than eight envs,
+  nonzero PPO iterations, warmup iterations/steps other than one, and resume.
+- The shadow owns only residual actor, distribution, frozen GMT normalizer,
+  and 158D prefix normalizer. It has no critic or optimizer attribute.
+- `frontres_hsl_v007_s2_connectivity_contract.py`,
+  `frontres_future_intent_actor_context_contract.py`,
+  `frontres_v015_observation_authority_contract.py`, and
+  `frontres_v015_checkpoint_resume_contract.py` all exited 0.
+- `python -m py_compile` for all changed Python files and `git diff --check`
+  exited 0.
+
+Acceptance and remaining boundary:
+
+- G2-S4-S0 is complete at deterministic S1/S3. It changes no method semantic,
+  grouped PPO formula, checkpoint format, or Concept Figure, and creates no new
+  source module.
+- G2-S4 remains open. Only the user-gated G2-S4-S1 Main-2 IsaacLab smoke can
+  runtime-confirm real artifact/q29 values, actor gradient, zero critic delta,
+  real HSL-v1 artifact output, and fresh reload equality in one formal run.

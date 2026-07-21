@@ -631,8 +631,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Executable evidence diagnostics. The active Segment Replay path does not
     # use a learned alpha/rho floor or acceptance penalty.
     frontres_reward_compute_live_debug = False
-    # Diagnostic-only upper bound for paired rollout evidence.
-    frontres_warmup_energy_loss_weight = 1.0
+    # FRS-TRAIN-v007: HSL initializes only the residual actor. Critic energy
+    # supervision is forbidden and must remain exactly zero.
+    frontres_warmup_energy_loss_weight = 0.0
     # Demo restoration reward:
     #   r_restore = ||noisy - clean|| - ||corrected - clean||
     # It is computed from the anchor error against the clean reference.  PPO now
@@ -672,12 +673,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     debug_frontres_broken_gap_per_step = 0.08
     debug_frontres_gap_gate_temp   = 0.005
 
-    # ── Joint warmup before PPO loop ───────────────────────────────────────
-    # Same rollout batch trains both halves of the concept:
-    #   Actor:  Δ ≈ -noise
-    #   Critic: E(s_noisy) ≈ max(R_feasible_oracle - R_noisy, 0)
-    # PPO still keeps an online supervised anchor afterwards, so the transition
-    # is gradual rather than a hard switch.
+    # ── Proposal-only HSL before PPO ────────────────────────────────────────
+    # Stage 1 trains only the residual actor toward current anti-DR Delta SE(3).
+    # Critic, executable-energy targets, and online Stage-3 supervision are out.
     supervised_warmup_iterations   = 200
     supervised_warmup_steps_per_iter = 8
     supervised_warmup_max_envs_per_step = 4096
@@ -685,6 +683,9 @@ class G1FlatFrontRESUnifiedRunnerCfg(RslRlOnPolicyRunnerCfg):
     # Segment Replay PPO. scripts/rsl_rl/train.py enables this for
     # --frontres_stage stage1_hsl and disables it for Stage 2.
     frontres_stage1_exit_after_warmup = False
+    # One bounded formal Stage-1 transaction with S4 telemetry and strict
+    # fresh-reload verification. Normal HSL training must leave this disabled.
+    frontres_hsl_live_smoke_enabled = False
     supervised_warmup_dr_scale_start = 0.35  # curriculum start: easy enough for stable direction learning
     supervised_warmup_dr_scale      = 1.25   # curriculum end: expose rp beyond the easy GMT regime
     supervised_warmup_lr           = 1e-4

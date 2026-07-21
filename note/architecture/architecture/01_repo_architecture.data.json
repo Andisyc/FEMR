@@ -92,7 +92,7 @@
           "mustNot": "不决定 Segment PPO credit",
           "objects": ["motion id", "phase", "root target", "body target"],
           "files": [
-            {"id": "MAIN-07", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "motion command and local-vs-legacy reference-clock owner", "functions": ["_advance_frontres_command_clock()"], "sourceLine": 33, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=33"},
+            {"id": "MAIN-07", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "motion command, Stage-1 artifact/q29 proposal snapshot, and local-vs-legacy reference-clock owner", "functions": ["frontres_hsl_proposal_intent_snapshot()", "_advance_frontres_command_clock()"], "sourceLine": 33, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=33"},
             {"id": "MAIN-08", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/events.py", "role": "reset 与随机化事件", "functions": [], "sourceLine": 15, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fevents.py&line=15"},
             {"id": "MAIN-09", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/terminations.py", "role": "episode termination", "functions": [], "sourceLine": 31, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fterminations.py&line=31"}
           ],
@@ -192,7 +192,7 @@
           "id": "MOD-POLICY",
           "title": "FrontRES Policy",
           "summary": "同一个 6D actor 由 Stage-1 q29 HSL 初始化, Stage-3 不保留 online HSL anchor",
-          "owns": "actor/critic、action distribution、mean/std 与 inference boundary",
+          "owns": "full-6D actor distribution、Stage-3 critic 与 inference boundary; Stage-1 HSL optimizer 只拥有 residual actor",
           "mustNot": "不追加 confidence、rho、authority 或 active-dim action columns",
           "objects": ["policy obs", "6D mean", "6D sigma", "Delta SE(3)"],
           "files": [
@@ -201,7 +201,7 @@
             {"id": "MAIN-20", "path": "source/rsl_rl/rsl_rl/modules/normalizer.py", "role": "policy stats dependency", "functions": [], "sourceLine": 14, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Fnormalizer.py&line=14"}
           ],
       "mainRoute": [
-        "B1 front_residual_actor_critic.py::update_distribution(): 870D obs -> 6D mean/sigma",
+        "B1 Stage-1: 870D raw + 58D deployment q29 -> 928D combined -> FEMR 158D -> 6D proposal mean; GMT suffix remains 770D",
         "B2 front_residual_actor_critic.py::act(): distribution -> sampled Delta SE(3)",
         "B3 evaluate_segment_actions(): stored action -> log_prob/value/entropy"
       ],
@@ -461,7 +461,7 @@
           "mustNot": "不静默跳过不兼容 actor head 或 observation stats",
           "objects": ["policy state", "std", "normalizer", "optimizer", "sampler", "phase state"],
           "files": [
-            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "正式 checkpoint owner", "functions": ["load_runner()"], "sourceLine": 368, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=368"},
+            {"id": "MAIN-32", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "Stage-3 v2 与 proposal-only HSL v1 的隔离 checkpoint owner", "functions": ["save_runner()", "load_runner()", "_build_v015_hsl_checkpoint_payload()", "_validate_v015_hsl_checkpoint_resume()"], "sourceLine": 58, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=58"},
             {"id": "MAIN-50", "path": "source/whole_body_tracking/whole_body_tracking/utils/exporter.py", "role": "policy export", "functions": [], "sourceLine": 18, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Futils%2Fexporter.py&line=18"}
           ],
       "mainRoute": [
@@ -477,17 +477,17 @@
         {
           "id": "MOD-EVAL",
           "title": "Evaluation",
-          "summary": "隔离 legacy paired eval, 并为 v015 deployment composition 定义独立 request/carrier/report",
-          "owns": "legacy periodic/sequence isolation, v015 NPZ/protocol identity, command-owned current/H carrier, per-frame report schema 与后续 formal composition boundary",
+          "summary": "隔离 legacy eval, 并为 v015 deployment composition 定义独立 reference/materializer/paired report",
+          "owns": "legacy periodic/sequence isolation, ordinary reference identity, planned fixed-carrier materializer, command-owned current/H carrier, paired baseline/repair report 与 no-feedback boundary",
           "mustNot": "不更新 policy 或 replay priority",
           "objects": ["motion id", "start frame", "perturbation", "paired metrics", "survival"],
           "files": [
             {"id": "MAIN-37", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "periodic/sequence eval route", "functions": ["run_frontres_segment_sequence_offline_eval()"], "sourceLine": 311, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=311"},
-            {"id": "MAIN-37A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py", "role": "E-FI-28/E-FI-30 request, T-max(H) formal executor, metrics, training fingerprint, and atomic no-feedback report owner", "functions": ["load_frontres_v015_deployment_composition_request()","run_frontres_v015_deployment_composition_eval()","FrontRESV015DeploymentCompositionReport"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_sequence_eval.py&line=1"},
+            {"id": "MAIN-37A", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py", "role": "E-FI-28/E-FI-30 implemented request/executor/report owner; E-FI-32 marks external pre-materialized input and repair-only composition as target-contract mismatch pending G4/G6", "functions": ["load_frontres_v015_deployment_composition_request()","run_frontres_v015_deployment_composition_eval()","FrontRESV015DeploymentCompositionReport"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_sequence_eval.py&line=1"},
             {"id": "MAIN-37B", "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", "role": "E-FI-29/E-FI-30 immutable deployment q29/dq29/body sequence, explicit cursor/current reference, and command-clock hold owner", "functions": ["set_frontres_v015_deployment_sequence()","frontres_v015_deployment_sequence_snapshot()","advance_frontres_v015_deployment_sequence()","_advance_frontres_command_clock()"], "sourceLine": 1550, "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=1550"},
             {"id": "MAIN-37C", "path": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py", "role": "E-FI-29/E-FI-30 deployment current/H validator and 870+58=928 observation builder", "functions": ["read_frontres_v015_deployment_context()","build_frontres_v015_deployment_observation()"], "sourceLine": 89, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=89"},
             {"id": "MAIN-37D", "path": "source/rsl_rl/rsl_rl/runners/on_policy_runner.py", "role": "thin v015 formal composition entry; no legacy evaluator or training feedback", "functions": ["run_frontres_v015_deployment_composition_eval()"], "sourceLine": 745, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Fon_policy_runner.py&line=745"},
-            {"id": "MAIN-37E", "path": "scripts/rsl_rl/frontres_v015_deployment_composition.py", "role": "E-FI-31 v015-only CUDA-visible live CLI; binds registered task, GMT/FEMR checkpoints, pre-materialized NPZ, absolute report, and S2B-only dispatch", "functions": ["validate_frontres_v015_deployment_cli_args()","configure_frontres_v015_deployment_agent_cfg()","dispatch_frontres_v015_deployment_composition()"], "sourceLine": 1, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ffrontres_v015_deployment_composition.py&line=1"},
+            {"id": "MAIN-37E", "path": "scripts/rsl_rl/frontres_v015_deployment_composition.py", "role": "E-FI-31 CUDA-visible CLI connector; E-FI-32 implemented-not-runnable because compatible trained FEMR checkpoint, selection-time materializer, and paired evaluator do not yet exist", "functions": ["validate_frontres_v015_deployment_cli_args()","configure_frontres_v015_deployment_agent_cfg()","dispatch_frontres_v015_deployment_composition()"], "sourceLine": 1, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ffrontres_v015_deployment_composition.py&line=1"},
             {"id": "MAIN-49", "path": "source/rsl_rl/rsl_rl/runners/frontres_dr_sweep_eval.py", "role": "DR sweep", "functions": [], "sourceLine": 20, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_dr_sweep_eval.py&line=20"},
             {"id": "MAIN-39", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "eval formatting", "functions": [], "sourceLine": 130, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=130"}
           ],
@@ -497,13 +497,14 @@
         "B3 v015 S1: per-frame metric rows -> no-feedback composition report",
         "B4 legacy path: sampled quartet reset/preroll/rollout -> v002 metrics, rejected for v015",
         "B5 v015 S2B: T-max(H) current/H -> one 6D FEMR + frozen GMT per frame -> metrics -> atomic JSON with zero training-state diff",
-        "B6 v015 S4-S0: CUDA-visible CLI -> registered Unified task + exact checkpoints/NPZ/report -> S2B-only dispatch",
-        "B7 pending S4: one bounded simulator stream -> physical composition evidence"
+        "B6 v015 S4-S0 implemented-only: CUDA-visible CLI -> exact checkpoint/file/report -> S2B-only dispatch",
+        "B7 planned G1-G5: new-layout HSL/Stage-3 train -> v015 checkpoint; ordinary reference -> one fixed artifact carrier",
+        "B8 planned G6-G7: same carrier/reset/GMT -> baseline vs FEMR paired composition -> bounded S4"
       ],
-      "mainRouteTitles": ["封存 Deployment Request", "安装 Current/H Carrier", "验证 Composition Report", "隔离 Legacy Evaluator", "执行 Formal Composition", "连接 Dedicated CLI", "验证 Live Composition"],
+      "mainRouteTitles": ["封存 Deployment Request", "安装 Current/H Carrier", "验证 Composition Report", "隔离 Legacy Evaluator", "执行 Formal Composition", "连接 Dedicated CLI", "生成训练与 Carrier 产物", "验证 Paired Live Composition"],
           "review": ["确认每次 eval 新采样", "检查 train/eval state isolation", "检查 Gain raw components 与 K coverage"],
-          "tests": ["S1 deployment NPZ/identity/protocol/report/no-feedback", "S1/S2A deployment current/H carrier and isolation", "S2B per-frame FEMR/frozen-GMT/report/zero-write", "S4-S0 CLI config/checkpoint/CUDA/no-training dispatch", "S4 bounded composition pending"],
-          "gap": "E-FI-28--E-FI-31 已证明 schema, carrier, S2 CPU formal executor 与 dedicated CLI. default physical metrics, Isaac timing, auto-reset 与真实 composition 仍待 S4."
+          "tests": ["S1/S2 interface evidence E-FI-28--E-FI-31", "E-FI-32 dependency/status rebase", "G1 training readiness audit pending", "G4 fixed-carrier contract pending", "G6 paired composition pending", "G7 S4 blocked"],
+          "gap": "E-FI-32: 当前 CLI/S2B implemented-not-runnable. 缺少新观测训练后的 v015 checkpoint, selection-time fixed-carrier materializer 与同 carrier baseline/repair paired evaluator; G1--G6 完成前禁止 S4."
         }
       ]
     },

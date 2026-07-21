@@ -2203,6 +2203,60 @@ class MultiMotionCommand(CommandTerm):
         dof = int(self.motion_dir_loader.joint_pos.shape[-1])
         return 2 * dof + 7
 
+    def _extract_frontres_noisy_intent_q29_rows(
+        self,
+        motion_indices: torch.Tensor,
+        start_frames: torch.Tensor,
+        intent_horizon: int,
+    ) -> torch.Tensor:
+        """Read dense deployment q29 windows for row-aligned motion/frame pairs."""
+
+        motion_ids = torch.as_tensor(motion_indices, device=self.device, dtype=torch.long).flatten()
+        frames_t = torch.as_tensor(start_frames, device=self.device, dtype=torch.long).flatten()
+        horizon = int(intent_horizon)
+        if int(motion_ids.numel()) == 0 or tuple(motion_ids.shape) != tuple(frames_t.shape):
+            raise ValueError("q29 intent rows require nonempty aligned motion/frame ids")
+        if bool((motion_ids < 0).any()) or bool((motion_ids >= int(self.motion_lengths_minus_one.numel())).any()):
+            raise ValueError("q29 intent motion index is outside the loaded motion range")
+        if bool((frames_t < 0).any()) or horizon <= 0:
+            raise ValueError("q29 intent start frames must be nonnegative and H must be positive")
+        dof = int(self.motion_dir_loader.joint_pos.shape[-1])
+        if dof != 29:
+            raise RuntimeError(
+                "v015 Future Motion Context requires exactly q29 deployment intent; "
+                f"command motion carrier has {dof} DoF"
+            )
+        max_frames = self.motion_lengths_minus_one.index_select(0, motion_ids)
+        invalid = frames_t + horizon > max_frames
+        if bool(invalid.any()):
+            row = int(torch.nonzero(invalid, as_tuple=False)[0].item())
+            raise ValueError(
+                "q29 intent window cannot clamp future deployment frames: "
+                f"row={row}, start={int(frames_t[row].item())}, H={horizon}, "
+                f"max_frame={int(max_frames[row].item())}"
+            )
+
+        # B1: Expand each row into its dense t:t+H frame identity.
+        offsets = torch.arange(horizon + 1, dtype=torch.long, device=self.device)
+        dense_frames = frames_t.unsqueeze(1) + offsets.unsqueeze(0)
+        dense_motions = motion_ids.unsqueeze(1).expand_as(dense_frames)
+
+        # B2: Reuse the deployment joint_pos owner; root/global and Clean fields are absent.
+        with torch.no_grad():
+            intent = self.motion_dir_loader.gather(
+                "joint_pos",
+                dense_motions.reshape(-1),
+                dense_frames.reshape(-1),
+                out_device=self.device,
+            ).reshape(int(motion_ids.numel()), horizon + 1, 29)
+        if (
+            intent.requires_grad
+            or not torch.is_floating_point(intent)
+            or not bool(torch.isfinite(intent).all().item())
+        ):
+            raise RuntimeError("Noisy q29 extractor must return detached finite [B,H+1,29] deployment intent")
+        return intent.detach().to(device=self.device, dtype=torch.float32).clone().contiguous()
+
     def extract_frontres_noisy_intent_q29(
         self,
         *,
@@ -2228,59 +2282,83 @@ class MultiMotionCommand(CommandTerm):
             不读取 Clean reference, 不重采样或变异 perturbation.
         """
 
-        motion_index = int(motion_index)
-        start_frame = int(start_frame)
-        intent_horizon = int(intent_horizon)
-        if motion_index < 0 or motion_index >= int(self.motion_lengths_minus_one.numel()):
-            raise ValueError(f"motion_index={motion_index} is outside the loaded motion range")
-        if start_frame < 0:
-            raise ValueError(f"start_frame must be nonnegative, got {start_frame}")
-        if intent_horizon <= 0:
-            raise ValueError(f"intent_horizon must be positive, got {intent_horizon}")
-        dof = int(self.motion_dir_loader.joint_pos.shape[-1])
-        if dof != 29:
-            raise RuntimeError(
-                "v015 Future Motion Context requires exactly q29 deployment intent; "
-                f"command motion carrier has {dof} DoF"
-            )
-        max_frame = int(self.motion_lengths_minus_one[motion_index].item())
-        if start_frame + intent_horizon > max_frame:
-            raise ValueError(
-                "q29 intent window cannot clamp future deployment frames: "
-                f"start={start_frame}, H={intent_horizon}, max_frame={max_frame}"
-            )
-
-        # B1: 构造同一 deployment carrier 上从 t 到 t+H 的有序 frame identity.
-        frame_count = intent_horizon + 1
-        motion_ids = torch.full((frame_count,), motion_index, dtype=torch.long, device=self.device)
-        frame_ids = torch.arange(
-            start_frame,
-            start_frame + frame_count,
-            dtype=torch.long,
-            device=self.device,
+        rows = self._extract_frontres_noisy_intent_q29_rows(
+            torch.tensor([int(motion_index)], dtype=torch.long, device=self.device),
+            torch.tensor([int(start_frame)], dtype=torch.long, device=self.device),
+            int(intent_horizon),
         )
+        return rows[0].detach().clone()
 
-        # B2: 只读取 root-invariant articulated q29, 不触达 root/global 或 Clean carrier.
-        with torch.no_grad():
-            intent_q29 = self.motion_dir_loader.gather(
-                "joint_pos",
-                motion_ids,
-                frame_ids,
-                out_device=self.device,
-            )
+    def frontres_hsl_proposal_intent_snapshot(
+        self,
+        future_offsets: Sequence[int],
+    ) -> dict[str, object]:
+        """Return an immutable Stage-1 artifact/q29 proposal context.
+
+        Status: Stage-1 carrier only. This read-only snapshot reuses the command's
+        deployment q29 owner and excludes every Segment/K/C object.
+        """
+
+        offsets = tuple(int(value) for value in future_offsets)
+        if not offsets or any(value <= 0 for value in offsets) or tuple(sorted(set(offsets))) != offsets:
+            raise ValueError("HSL proposal future offsets must be ordered unique positive integers")
         if (
-            tuple(intent_q29.shape) != (frame_count, 29)
-            or intent_q29.requires_grad
-            or not torch.is_floating_point(intent_q29)
-            or not bool(torch.isfinite(intent_q29).all().item())
+            bool(self._frontres_local_scenario_active.any())
+            or bool(self._frontres_fixed_noisy_tape_context_active.any())
+            or bool(self._frontres_v015_deployment_sequence_active.any())
         ):
-            raise RuntimeError(
-                "Noisy q29 extractor must return detached finite "
-                f"[{frame_count},29] deployment intent, got {tuple(intent_q29.shape)}"
-            )
+            raise RuntimeError("HSL proposal carrier cannot mix with Segment, fixed-tape, or deployment-eval state")
 
-        # B3: 复制为 scenario-local immutable input, 交给 sealed scenario lifecycle.
-        return intent_q29.detach().to(device=self.device, dtype=torch.float32).clone().contiguous()
+        motion_ids = self.env_motion_indices.detach().to(device=self.device, dtype=torch.long).clone()
+        frame_ids = self.time_steps.detach().to(device=self.device, dtype=torch.long).clone()
+        intent = self._extract_frontres_noisy_intent_q29_rows(motion_ids, frame_ids, max(offsets))
+        artifact_pos = self.anchor_dr_delta_pos.detach().to(device="cpu", dtype=torch.float32).contiguous()
+        artifact_quat = self.anchor_dr_delta_quat_correction.detach().to(
+            device="cpu", dtype=torch.float32
+        ).contiguous()
+        intent_cpu = intent.detach().to(device="cpu", dtype=torch.float32).contiguous()
+        if (
+            tuple(artifact_pos.shape) != (self.num_envs, 3)
+            or tuple(artifact_quat.shape) != (self.num_envs, 4)
+            or not bool(torch.isfinite(artifact_pos).all().item())
+            or not bool(torch.isfinite(artifact_quat).all().item())
+        ):
+            raise RuntimeError("HSL proposal carrier requires finite current root-artifact [B,3]+[B,4]")
+
+        artifact_ids: list[str] = []
+        context_ids: list[str] = []
+        for row in range(self.num_envs):
+            artifact_digest = hashlib.sha256()
+            artifact_digest.update(artifact_pos[row].numpy().tobytes())
+            artifact_digest.update(artifact_quat[row].numpy().tobytes())
+            artifact_id = artifact_digest.hexdigest()
+            context_digest = hashlib.sha256()
+            context_digest.update(artifact_id.encode("ascii"))
+            context_digest.update(str(int(motion_ids[row].item())).encode("ascii"))
+            context_digest.update(str(int(frame_ids[row].item())).encode("ascii"))
+            context_digest.update(repr(offsets).encode("ascii"))
+            context_digest.update(intent_cpu[row].numpy().tobytes())
+            artifact_ids.append(artifact_id)
+            context_ids.append(context_digest.hexdigest())
+
+        provenance = tuple(
+            {
+                "carrier_kind": "hsl_proposal",
+                "current_root_artifact_provenance": "noisy_root_artifact_t",
+                "intent_q29_provenance": "deployment_noisy_q29",
+                "intent_q29_source": "motion_internal_q29",
+            }
+            for _ in range(self.num_envs)
+        )
+        return {
+            "intent_q29": intent.detach().clone(),
+            "proposal_context_ids": tuple(context_ids),
+            "current_root_artifact_ids": tuple(artifact_ids),
+            "motion_indices": tuple(int(value) for value in motion_ids.detach().cpu().tolist()),
+            "frame_indices": tuple(int(value) for value in frame_ids.detach().cpu().tolist()),
+            "future_offsets": offsets,
+            "provenance": provenance,
+        }
 
     def materialize_frontres_local_scenario(
         self,

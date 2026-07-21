@@ -170,8 +170,17 @@ def _validate_frontres_future_intent_provenance(
                 "FrontRES actor future intent source must exclude root/global/Clean fields, "
                 f"row {row} has {value.get('intent_q29_source')!r}"
             )
-        if value.get("clean_continuation_provenance") != "clean_gmt_only":
-            raise ValueError("FrontRES local scenario must retain a GMT-only Clean continuation")
+        carrier_kind = str(value.get("carrier_kind", "local_scenario"))
+        if carrier_kind == "hsl_proposal":
+            if value.get("current_root_artifact_provenance") != "noisy_root_artifact_t":
+                raise ValueError("FrontRES HSL proposal requires current Noisy root-artifact provenance")
+            if "clean_continuation_provenance" in value:
+                raise ValueError("FrontRES HSL proposal provenance must not contain a Clean continuation")
+        elif carrier_kind == "local_scenario":
+            if value.get("clean_continuation_provenance") != "clean_gmt_only":
+                raise ValueError("FrontRES local scenario must retain a GMT-only Clean continuation")
+        else:
+            raise ValueError(f"FrontRES future intent has unknown carrier_kind={carrier_kind!r}")
 
 
 def split_frontres_policy_obs(obs: torch.Tensor, gmt_dim: int | None) -> tuple[torch.Tensor | None, torch.Tensor]:

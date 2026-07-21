@@ -23,13 +23,13 @@ Concept Figure. Canonical names and block IDs come from
 | `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v015` / `Local Root-Artifact Scenario` | `M-02` | `E-FI-27` live-confirms two root-artifact local scenarios with paired immutable hashes; the legacy full-tape route remains excluded. |
 | `FRS-DP-02` | Segment Replay | `FRS-METHOD-v015` / `Frozen-Policy Multi-Attempt Transaction` | `SR-01` | `E-FI-27` live-confirms two Segment sources with M=2, one frozen snapshot, equal attempt mass, and exactly one update after all rows seal. |
 | `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v015` / `Single-Action K-step Evidence` | `M-06` | `E-FI-27` live-confirms one action/PPO row per attempt, K=8, eight valid evidence steps, and no K-dependent actor mass. |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v015` / `Future Intent Context` | `M-04` | `E-FI-27` live-confirms the local `870+58=928`, FEMR `158D`, critic `289D`, and frozen-GMT `770D` route; `E-FI-30` CPU-confirms one 6D FEMR action on every unclamped deployment frame. Repair quality remains a later experiment. |
-| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v015` / `Method Boundary` | `M-10` | `E-FI-27` live-confirms one local t action, eight post-advance Clean-C GMT reads, and zero later FEMR actions; `E-FI-30` CPU-confirms a frozen GMT consumes the corrected 770D suffix on every deployment frame. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v015` / `Future Intent Context` | `M-04` | `E-FI-27` live-confirms the local `870+58=928`, FEMR `158D`, critic `289D`, and frozen-GMT `770D` route; `E-FI-30` CPU-confirms one 6D FEMR action on every unclamped deployment frame. `E-FI-32` confirms that no policy has yet been trained for this changed layout, so repair quality and checkpoint identity remain open. |
+| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v015` / `Method Boundary` | `M-10` | `E-FI-27` live-confirms one local t action, eight post-advance Clean-C GMT reads, and zero later FEMR actions; `E-FI-30` CPU-confirms the per-frame suffix route. A same-carrier frozen-GMT baseline versus FEMR+GMT paired composition owner is still missing at `E-FI-32`. |
 | `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v003` / `Two-Role Pairing And Time` | `Q-PAIR` | `E-FI-27` live-confirms four Repair plus four Noisy role rows and M=2 identity pairing for two fixed scenarios; legacy quartet remains excluded. |
 | `FRS-DP-07` | Repair Gain | `FRS-GAIN-v003` / `Core Decision` | `Q-01` | `E-FI-27` live-confirms the v003 carrier reaches four valid grouped rows and one update; component quality and sampler-state evolution remain unconfirmed. |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v007` / `HSL Proposal-Only Initialization` | `M-03` | H1 S1/S2 prove q29/current-target local boundaries and a CPU-only zero-HSL-loss connector; the Clean-quartet label remains forbidden. `E-FI-22` is Stage-3 persistence only and does not define a Stage-1 HSL checkpoint format. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v007` / `HSL Proposal-Only Initialization` | `M-03` | `E-FI-35` adds the minimal carrier; `E-FI-36` connects formal actor-only HSL; `E-FI-37` adds strict HSL persistence; `E-FI-38` proves exact fresh-runner 928D/158D/6D proposal equality. Bounded live HSL remains open. |
 | `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v007` / `Formal Transaction Route` | `M-05` | HSL remains initialization-only and disabled in Stage 3; `E-FI-27` live-confirms separate 928D actor/289D critic routing and exact-one grouped update. |
-| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v015` / `Future Intent Context` | `M-11` | `E-FI-27` live-confirms H is deployment/Noisy q29 read once at local t and is not reopened as the eight-step Clean-C GMT reference; `E-FI-30` CPU-confirms command-owned q29 H is rebuilt for each deployment cursor across exactly `T-max(H)` unclamped frames. |
+| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v015` / `Future Intent Context` | `M-11` | `E-FI-27` live-confirms H is deployment/Noisy q29 read once at local t and is not reopened as the eight-step Clean-C GMT reference; `E-FI-30` CPU-confirms command-owned q29 H across `T-max(H)` unclamped frames. `E-FI-32` leaves the ordinary-reference-to-fixed-carrier materializer unimplemented. |
 
 The v015 implementation route is governed by
 `../plans/FRS-v015-future-intent-single-action-k-engineering-plan.md` and its
@@ -43,8 +43,13 @@ current/H carrier plus read-only runtime connector. `E-FI-30` completes the S2
 CPU formal executor with unclamped `T-max(H)` frames, frozen GMT, atomic report,
 and zero training-state mutation. `E-FI-31` adds the v015-only server CLI and
 proves registered-task/checkpoint/CUDA/config dispatch without Segment sampler
-or training/update calls. Simulator timing, physical metric values,
-and live composition remain open. No
+or training/update calls. `E-FI-32` records that no compatible trained v015
+checkpoint or defined external Noisy file exists: the checkpoint must be
+produced by the new-layout training loop, controlled corruption must be
+materialized once from an ordinary reference `.npz`, and composition must be
+paired against frozen-GMT baseline. The CLI is implemented-not-runnable and
+S4 is blocked. Simulator timing, physical metric values, and live composition
+remain open. No
 long-training recommendation follows from contract activation or one bounded
 sentinel alone.
 

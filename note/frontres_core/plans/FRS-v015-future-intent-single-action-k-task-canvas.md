@@ -17,13 +17,36 @@ continuation, and one-action K evidence.
 
 ## Current Step
 
-`Step 5A / R6 complete at E-FI-27; Step 5B deployment composition is the only remaining user-gated step`
+`G2-S4-S0 bounded HSL telemetry/fresh-reload connector complete at E-FI-39; G2-S4-S1 live smoke next`
 
 Status: local scenario, future q29, two-role reset, one-action K, v003 Gain,
 grouped transaction, persistence identity, and the dedicated formal route are
 complete through their required S0--S4 tiers. `E-FI-27` runtime-confirms the
 final `928D actor / 289D critic / 770D GMT` route, K=8, four equal-mass attempts,
-and exactly one update. No method or Concept Figure change is pending.
+and exactly one update. These are route facts, not evidence that a trained
+policy exists under the changed observation layout.
+
+The user confirmed that no compatible trained v015 FEMR checkpoint and no
+defined external Noisy `.npz` exist. The S4-S0 CLI is therefore
+implemented-not-runnable. A checkpoint must be produced by new-layout
+HSL/Stage-3 training; controlled artifacts must be materialized once from an
+ordinary reference `.npz`; scientific composition requires same-carrier
+No-FEMR/GMT versus FEMR/GMT comparison.
+
+G2-S1b closes the first G1 gap: Stage-1 now requires `(1,2)` deployment q29,
+constructs `870+58=928`, exposes only the 158D prefix to FEMR, preserves the
+770D GMT suffix, and updates only the residual actor from current anti-DR.
+G2-S2/S3 define and verify the proposal-only HSL checkpoint identity. G2-S4-S0
+now fail-closes the one-run bounds and records real input, target, gradient,
+critic delta, strict save identity, and independent reload equality. The live
+IsaacLab smoke remains unexecuted; ordinary Stage-3 training still calls the
+legacy sampler/update loop and cannot produce a fresh-reloadable Stage-3 v015
+checkpoint.
+
+The user selected a minimal Stage-1-only proposal carrier inside existing
+command/runtime/layout owners. G2-S1a installed that carrier without a new
+source module. G2-S1b connected it to the formal preset/runner and removed the
+Clean/executability-derived energy-critic path from HSL.
 
 R0--R6 were Step 5A remediation, not new method steps. R6-F1 command-clock and
 R6-F2 critic-carrier repairs are both live-confirmed. Step 5B remains separate:
@@ -41,9 +64,10 @@ Scope:
   exact q29 H layout/prefix stats, no partial persistence, and committed-receipt
   only resume (`E-FI-22`, rebasing the generic-dimension `E-FI-15` fixture).
 
-Non-scope:
-- HSL changes, grouped-formula changes, Concept Figure changes, long training,
-  additional local sentinels, and any unapproved Step 5B implementation/run.
+Non-scope of this G1 closeout:
+- source code, active contracts, grouped-formula changes, Concept Figure
+  changes, tests, checkpoint IO, simulator, training, live runs, and Step 5B
+  execution.
 
 Step 5A closure facts:
 - successful raw log: `v015_r6_live_sentinel_gpu3.log`;
@@ -52,6 +76,10 @@ Step 5A closure facts:
 
 ## Completed
 
+- `G1 / 7`: the read-only owner audit stopped on four confirmed formal gaps:
+  old Stage-1 `870D` reachability, undefined proposal-only HSL persistence,
+  legacy ordinary Stage-3 dispatch, and no exact v015 training checkpoint
+  producer/fresh-reload chain (`E-FI-33`).
 - `G5 / Step 5A` and `R0--R6`: the SUST_Main_2 bounded live route preserves
   scenario/hash/x_t identity, `870+58=928 -> FEMR 158 / GMT 770`, critic 289D,
   one FEMR action, K=8, four equal-mass attempts, and exact-one update
@@ -178,16 +206,25 @@ Step 5A closure facts:
 
 ## Unresolved Risks
 
-- generic checkpoint cadence/dispatch and actual resume remain untested; R4 is
-  deterministic S3 evidence only.
+- The carrier decision is closed: use the minimal Stage-1 proposal carrier
+  `{current artifact identity, q29 H, deployment provenance, context id}` and
+  keep the full Stage-3 local scenario isolated.
+- G2-S1--G2-S4-S0 now fix the formal q29 layout, actor-only gradient boundary,
+  strict proposal-only HSL persistence, offline fresh-runner fixed-input
+  proposal equality, and the bounded live telemetry connector. Real Stage-1
+  runtime evidence remains open at G2-S4-S1.
+- G3 has not yet isolated actor-only HSL migration, replaced the ordinary
+  legacy sampler/update dispatch, or connected formal training to an exact
+  v015 checkpoint producer and fresh inference reload.
 - The bounded SUST_Main_2 route is S4-confirmed, but one transaction does not
   prove long-training convergence or physical policy quality.
-- H1 has no live Stage-1 HSL execution or new checkpoint identity; Step 5A
-  confirms the sealed scenario carrier only with Stage-3 HSL disabled.
+- H1 has no live Stage-1 HSL execution. The strict proposal-only HSL checkpoint
+  identity is deterministic-only; Step 5A confirms the sealed scenario carrier
+  only with Stage-3 HSL disabled.
 - legacy policy-quality/formal evaluator HSL branches remain outside H1;
   their label owner fails closed, but their route is not integration-tested.
 - legacy HSL checkpoints lack the q29 layout identity and remain reject-only;
-  a new persistence identity is still undefined.
+  `frontres-v015-hsl-proposal-v1` is the only accepted Stage-1 identity.
 - the old quartet/full-tape paths are isolated at the local command carrier,
   but the formal runner still owns legacy route selection.
 - the dedicated v015 local formal runtime is S4-confirmed; generic long-training
@@ -206,24 +243,16 @@ Step 5A closure facts:
 
 ## Next Step
 
-Completed step: `Step 5B-S4-S0`, Dedicated Live Composition Entrypoint
-(`E-FI-31`).
-`FRS-EVAL-v003` supplies the accepted semantic contract; no new Contract version
-or Concept Figure edit was required.
+Completed step: `G2-S4-S0`, bounded HSL telemetry/fresh-reload connector
+(`E-FI-39`). No Concept Figure, simulator, training, live run, or persistent
+artifact generation was authorized; checkpoint IO was temporary deterministic
+test evidence only.
 
-Active owner chain: `frontres_segment_sequence_eval.py` seals the request,
-requires pre-materialized deployment provenance, executes `T-max(H)` frames,
-and atomically writes the report; `commands.py` owns current q29/dq29/body and
-cursor; `frontres_runtime.py` builds `928D`; `on_policy_runner.py` is thin.
+Current code state: the dedicated local sentinel and deployment CLI preserve
+their bounded evidence, but they do not close the formal training gaps found by
+G1. No compatible trained v015 checkpoint exists.
 
-The dedicated server CLI is
-`scripts/rsl_rl/frontres_v015_deployment_composition.py`. It selects the
-registered Unified task, exact v015/GMT checkpoints, pre-materialized stream,
-CUDA-visible device, and absolute report without enabling Segment Replay,
-sampler, HSL, PPO, optimizer restore, or training.
-
-Next step: user-gated `Step 5B-S4`, Bounded Live Composition. It may run one
-explicit pre-materialized deployment `.npz` through the S2B route and record
-the hashed JSON plus per-frame action/intent/physics/failure telemetry. It must
-not enable training, sampler feedback, PPO, optimizer, checkpoint mutation, or
-long-running evaluation.
+Next step: separately authorize `G2-S4-S1`, one bounded formal Stage-1 HSL smoke.
+It must capture real current artifact/q29 input, anti-DR target, actor-only
+gradient boundary, strict HSL save, and fresh reload evidence. Do not enter
+Stage-3 migration/PPO or long training.

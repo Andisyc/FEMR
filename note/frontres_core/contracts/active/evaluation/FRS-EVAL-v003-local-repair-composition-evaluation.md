@@ -52,9 +52,28 @@ identity.
 
 ## Full-Sequence Deployment Composition Evaluation
 
-A separately named sequence evaluation may feed a complete deployment .npz
-reference stream to FEMR and GMT. FEMR may act at each deployment frame under
-its normal inference interface.
+A separately named sequence evaluation feeds one ordinary deployment/reference
+`.npz` stream to FEMR and GMT. A real extracted stream may already contain
+artifacts. A controlled synthetic evaluation instead starts from an existing
+Clean/reference `.npz` and materializes one fixed persistent-corruption carrier
+at sequence-selection time. A separately user-managed `Noisy.npz` is not a
+method input or prerequisite.
+
+The materializer runs once before either branch executes, seals the Clean
+source hash, corruption protocol/seed/scale, and materialized-carrier hash, and
+then exposes only deployment-visible current reference and future q29 intent.
+Corruption metadata is report-only and must not enter FEMR observation. No
+frame, reset, or comparison branch may resample the carrier.
+
+Composition usefulness requires a paired comparison under the same fixed
+carrier and initial conditions:
+
+```
+Baseline: fixed artifact carrier -> frozen GMT
+Repair:   same carrier -> per-frame FEMR -> frozen GMT
+```
+
+FEMR may act at each deployment frame under its normal inference interface.
 
 This evaluation reports whether local repairs compose under temporally
 persistent artifacts. It must report its own reference-corruption protocol,
@@ -186,6 +205,27 @@ values, and bounded deployment composition require S4 simulator evidence.
 This is deterministic config/dispatch evidence only. It does not import or
 launch IsaacLab in tests and does not supply the actual S4 checkpoint, stream,
 physical metrics, timing, or report.
+
+`E-FI-32` (2026-07-21) corrects the post-observation-change test dependency:
+
+- the user confirmed that no trained checkpoint compatible with the new
+  `928/158/770` observation layout exists. A v015 FEMR checkpoint is therefore
+  an output of HSL/Stage-3 training and reload validation, not a current S4
+  input;
+- the user confirmed that no pre-materialized `Noisy.npz` exists and that this
+  object had not been defined in the accepted workflow. Controlled corruption
+  is now owned by a planned selection-time materializer from an ordinary
+  Clean/reference `.npz`; an optional serialized carrier is evidence/cache,
+  not a user-facing semantic input;
+- E-FI-28--E-FI-31 remain valid interface/config evidence, but S2B and the CLI
+  are `implemented-not-runnable` for scientific evaluation until training,
+  materialization, and paired-baseline dependencies close;
+- Step 5B-S4 is blocked. It cannot begin directly after CLI connectivity.
+
+This correction does not change FEMR observation, action, local K Gain, PPO,
+or the no-feedback evaluation boundary. The current source still requires a
+pre-materialized file and a checkpoint, so source-code alignment remains a
+future bounded implementation step rather than an accomplished fact.
 
 ## Acceptance Gates
 

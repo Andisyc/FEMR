@@ -2,8 +2,11 @@
 
 Status: current, volatile acceptance surface. R0--R6 and Step 5A are complete
 at `E-FI-18`--`E-FI-27`, including the final bounded S4 identity/formal-update
-sentinel. Step 5B deployment composition is the only remaining Stage-3 item
-and remains user-gated.
+sentinel. `E-FI-32` rebases the remaining path: no compatible trained v015
+checkpoint or defined external Noisy `.npz` exists, the CLI is
+implemented-not-runnable, and Step 5B-S4 is blocked behind G2--G6. `E-FI-33`
+closes G1 as a stopped S0 audit. `E-FI-34` blocks G2-S0 on the Stage-1 q29
+carrier decision and proposal-only critic isolation.
 Updated: 2026-07-21.
 
 Plan: `../plans/FRS-v015-future-intent-single-action-k-engineering-plan.md`
@@ -172,8 +175,27 @@ unless a new test explicitly rebases it.
 | 5B-S1 immutable request/report kernel | `frontres_segment_sequence_eval.py` | S1 T-npz-schema/T-identity/T-corruption-protocol/T-report/T-no-feedback/T-config-fail-closed/T-legacy-reject | completed | `E-FI-28`; explicit structured deployment `.npz`, file/protocol hashes, immutable per-frame report, no training-state fields, and legacy mixed-mode rejection |
 | 5B-S2A deployment carrier and H snapshot | command / runtime bridge | S1/S2 T-install/T-current/T-H/T-frame-order/T-cursor/T-boundary/T-row-alignment/T-provenance/T-identity/T-mixed-reference/T-no-execution/T-no-training-state | completed | `E-FI-29`; sealed request -> immutable q29/dq29 sequence -> current `[B,58]` and dense H `[B,H+1,29]`; no clamp, mixed carrier, actor/GMT/runner, or training-state path |
 | 5B-S2B formal composition executor | sequence evaluator / config / runner | S2 T-connect/T-per-frame/T-frozen-GMT/T-report/T-zero-write/T-formal-entry/T-legacy-isolation | completed | `E-FI-30`; pre-materialized deployment `.npz`, `T-max(H)` unclamped rows, `870+58=928`, one 6D action + frozen-GMT read per frame, atomic JSON, unchanged optimizer/sampler/storage/transition fingerprints |
-| 5B-S4-S0 dedicated live CLI | v015 CLI / formal runner / checkpoint owner | S2 T-path/T-gpu/T-protocol/T-config/T-dispatch/T-zero-update/T-owner/T-no-training | completed | `E-FI-31`; registered Unified task, explicit GMT/FEMR/NPZ/report identities, CUDA-visible dispatch, no Segment sampler or learn/update path |
-| 5B-S4 bounded composition evidence | formal deployment evaluator | S4 T-composition/T-isolation/T-protocol | user-gated after S4-S0 | one persistent-artifact deployment stream; per-frame action/intent/physics and accumulated failures |
+| 5B-S4-S0 dedicated live CLI | v015 CLI / formal runner / checkpoint owner | S2 T-path/T-gpu/T-protocol/T-config/T-dispatch/T-zero-update/T-owner/T-no-training | implemented-not-runnable | `E-FI-31` proves config/dispatch only; `E-FI-32` confirms no compatible trained checkpoint and retires the external Noisy-file prerequisite |
+| 5B-S4 bounded composition evidence | paired formal deployment evaluator | S4 T-composition/T-pair/T-isolation/T-protocol/T-checkpoint | blocked behind G2--G6 | requires trained/reloaded v015 checkpoint, selection-time fixed carrier, and same-carrier No-FEMR/GMT versus FEMR/GMT comparison |
+
+## Post-Observation-Change Test Path: G0--G7
+
+| Gate | Owner | Required S/T | Status | Evidence / stop condition |
+| --- | --- | --- | --- | --- |
+| G0 document/test-path rebase | contract / plan / checklist / Architecture | S0 T-doc/T-dependency/T-status | completed | `E-FI-32`; stop if missing checkpoint or external Noisy `.npz` is still treated as available input, or S4 is runnable |
+| G1 training readiness audit | config / HSL / runner / PPO / checkpoint / train entry | S0 T-owner/T-layout/T-checkpoint/T-train-dispatch/T-stop | completed, stopped on confirmed gaps | `E-FI-33`; old `870D` Stage-1 route, undefined HSL identity, legacy Stage-3 dispatch, and absent exact v015 checkpoint producer confirmed |
+| G2-S0 HSL persistence contract freeze | Stage-1 carrier / preset / runner layout / warmup / checkpoint owner | S0 T-owner/T-carrier/T-layout/T-target/T-payload/T-stop | completed by user decision | `E-FI-34` plus user confirmation; use a minimal command-owned proposal carrier in existing modules, not the full local scenario |
+| G2-S1a HSL proposal carrier | existing `commands.py` / runtime-layout bridge / existing HSL S1 test | S1 T-carrier/T-shape/T-provenance/T-immutability/T-no-C-K/T-local-isolation | completed | `E-FI-35`; current artifact identity and deployment q29 only; no x_t/C/K/Segment/attempt state; no new source or test module |
+| G2-S1b formal proposal-only HSL route | Stage-1 preset / runner / warmup | S1 T-config/T-formal-layout/T-HSL-input/T-current-target/T-actor-only/T-critic-unchanged/T-legacy-reject | completed | `E-FI-36`; `928D -> FEMR 158D / GMT 770D`, actor changes, critic grad/state unchanged, energy route absent |
+| G2-S2 HSL identity/save/reload | `frontres_checkpointing.py` / warmup save connector | S3 T-schema/T-save/T-reload/T-tamper/T-GMT-identity/T-normalizer/T-forbidden-payload/T-unmutated-reject | completed | `E-FI-37`; strict actor/distribution/158D-prefix payload, GMT artifact/normalizer binding, five rejected tamper/legacy cases remain unmutated |
+| G2-S3 fresh-runner HSL connectivity | runner / q29 bridge / normalizer / actor / checkpoint loader | S2/S3 T-fresh-runner/T-output/T-layout/T-zero-state-leak | completed | `E-FI-38`; same artifact/q29/raw input reproduces exact combined 928D, normalized 158D and bounded 6D proposal after strict reload |
+| G2-S4-S0 bounded HSL connector | existing Stage-1 config/runtime/warmup/checkpoint owners | S1/S3 T-bounds/T-telemetry/T-shadow-reload/T-legacy-reject | completed | `E-FI-39`; explicit bounded flag, real-input sentinel schema, actor-only gradient, zero critic delta, strict identity, exact 158D/6D shadow reload; no new source module |
+| G2-S4-S1 bounded HSL smoke | formal Stage-1 route | S4 T-live-input/T-current-target/T-save/T-fresh-reload | ready, user-gated | one 8-env/1-step proposal-only run; no Stage-3 PPO or long training; stop on any missing sentinel or reload mismatch |
+| G3 Stage-3 checkpoint smoke | actor migration / formal train / sealed grouped transaction / v015 checkpoint | S0/S2/S3/S4 T-actor-migration/T-formal-dispatch/T-one-transaction/T-exact-one-update/T-save/T-fresh-reload | blocked by G2 | actor-only migration; legacy sampler/update unreachable; committed exact v015 save/reload identity required |
+| G4 controlled carrier materializer | reference corruption preparation owner | S1/S2 T-materialize/T-hash/T-determinism/T-no-label/T-no-resample | blocked by G2/G3 | ordinary reference `.npz` -> one fixed carrier; no manual Noisy file, actor metadata, or branch mismatch |
+| G5 formal training/policy-quality | formal v015 training route | S4 T-train/T-action/T-gain/T-harm/T-checkpoint | blocked by G2/G3 | checkpoint is output; route-only success is insufficient |
+| G6 paired composition connectivity | baseline/repair sequence evaluator | S1/S2 T-pair/T-identity/T-baseline/T-repair/T-no-feedback | blocked by G4/G5 | same carrier/reset/GMT; no metrics enter training state |
+| G7 bounded live composition | paired formal evaluator | S4 T-composition/T-pair/T-protocol/T-isolation/T-checkpoint | blocked by G6 | one trained checkpoint and fixed carrier; stop on resampling, absent baseline, or state mutation |
 
 ## Active Isolation Rules
 

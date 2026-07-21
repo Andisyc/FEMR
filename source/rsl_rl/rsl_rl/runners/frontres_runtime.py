@@ -64,6 +64,42 @@ def _fixed_noisy_motion_command(self):
 
 def _future_intent_context_snapshot(self):
     command = _fixed_noisy_motion_command(self)
+    if bool(getattr(self, "_frontres_hsl_proposal_context_enabled", False)):
+        layout = getattr(self, "_frontres_future_intent_layout", None)
+        if not isinstance(layout, FrontRESFutureIntentLayout):
+            raise RuntimeError("HSL proposal context requires the resolved v015 q29 layout")
+        read_proposal = getattr(command, "frontres_hsl_proposal_intent_snapshot", None)
+        if not callable(read_proposal):
+            raise RuntimeError("HSL proposal context requires the command-owned q29 snapshot")
+        snapshot = read_proposal(layout.future_offsets)
+        required = {
+            "intent_q29",
+            "proposal_context_ids",
+            "current_root_artifact_ids",
+            "motion_indices",
+            "frame_indices",
+            "future_offsets",
+            "provenance",
+        }
+        if not isinstance(snapshot, dict) or set(snapshot) != required:
+            raise RuntimeError("HSL proposal q29 snapshot has an invalid schema")
+        if tuple(snapshot["future_offsets"]) != tuple(layout.future_offsets):
+            raise RuntimeError("HSL proposal q29 offsets disagree with the runner layout")
+        intent_q29 = snapshot["intent_q29"]
+        if not isinstance(intent_q29, torch.Tensor) or intent_q29.ndim != 3:
+            raise RuntimeError("HSL proposal intent_q29 must be [B,H+1,29]")
+        batch_size = int(intent_q29.shape[0])
+        aligned = (
+            "proposal_context_ids",
+            "current_root_artifact_ids",
+            "motion_indices",
+            "frame_indices",
+            "provenance",
+        )
+        if any(len(snapshot[name]) != batch_size for name in aligned):
+            raise RuntimeError("HSL proposal identity/provenance must align one-to-one with actor rows")
+        return snapshot
+
     read_intent = getattr(command, "frontres_local_scenario_intent_snapshot", None)
     if not callable(read_intent):
         return None
@@ -323,10 +359,10 @@ def append_frontres_fixed_noisy_future_context(self, obs: torch.Tensor) -> torch
 
 
 def append_frontres_future_intent_context(self, obs: torch.Tensor) -> torch.Tensor:
-    """Prepend the v015 actor-only q29 future-intent tail from a sealed local scenario.
+    """Prepend the v015 actor-only q29 future-intent tail from the active carrier.
 
-    Status: role-aligned command-owned bridge. Upstream: the sealed
-    MultiMotionCommand intent snapshot. Downstream: FrontRES actor prefix.
+    Status: command-owned bridge. Upstream: proposal-only HSL or role-aligned
+    local-scenario intent snapshot. Downstream: FrontRES actor prefix.
     Normalizer/formal observation is offline-S2 contract-confirmed at R5;
     simulator/live-runtime evidence remains open.
     """
@@ -350,6 +386,28 @@ def append_frontres_future_intent_context(self, obs: torch.Tensor) -> torch.Tens
         )
     intent_q29 = snapshot["intent_q29"]
     provenance = snapshot["provenance"]
+    if bool(getattr(self, "_frontres_hsl_live_smoke_enabled", False)):
+        command = _fixed_noisy_motion_command(self)
+        artifact_pos = getattr(command, "anchor_dr_delta_pos", None)
+        artifact_quat = getattr(command, "anchor_dr_delta_quat_correction", None)
+        if (
+            not isinstance(artifact_pos, torch.Tensor)
+            or tuple(artifact_pos.shape) != (int(intent_q29.shape[0]), 3)
+            or not isinstance(artifact_quat, torch.Tensor)
+            or tuple(artifact_quat.shape) != (int(intent_q29.shape[0]), 4)
+        ):
+            raise RuntimeError("G2-S4 requires the real current root artifact [B,3]+[B,4]")
+        self._frontres_hsl_smoke_context_snapshot = {
+            "proposal_context_ids": tuple(snapshot["proposal_context_ids"]),
+            "current_root_artifact_ids": tuple(snapshot["current_root_artifact_ids"]),
+            "motion_indices": tuple(snapshot["motion_indices"]),
+            "frame_indices": tuple(snapshot["frame_indices"]),
+            "future_offsets": tuple(snapshot["future_offsets"]),
+            "provenance": tuple(dict(value) for value in provenance),
+            "intent_q29": intent_q29.detach().clone(),
+            "artifact_pos": artifact_pos.detach().clone(),
+            "artifact_quat": artifact_quat.detach().clone(),
+        }
     try:
         context = build_frontres_future_intent_tail(
             intent_q29,
