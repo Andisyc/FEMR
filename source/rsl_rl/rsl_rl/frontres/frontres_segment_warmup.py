@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
+from typing import Iterable
 
 _AUDIT_SPEC = importlib.util.spec_from_file_location(
     "frontres_formal_runtime_probe_warmup",
@@ -22,6 +25,169 @@ class FrontRESSegmentWarmupPhase:
     phase_iteration: int
     actor_loss_weight: float
     critic_update_enabled: bool = True
+
+
+@dataclass(frozen=True)
+class FrontRESKStageSpec:
+    """One immutable FRS-TRAIN-v009 horizon stage."""
+
+    horizon_k: int
+    critic_only_iterations: int
+    actor_warmup_iterations: int
+    joint_iterations: int
+
+
+@dataclass(frozen=True)
+class FrontRESKStageIdentity:
+    """Resolved v009 identity for one committed-update iteration."""
+
+    schedule_fingerprint: str
+    stage_index: int
+    active_k: int
+    stage_iteration: int
+    absolute_iteration: int
+    phase: FrontRESSegmentWarmupPhase
+
+
+def normalize_frontres_k_stage_schedule(
+    schedule: Iterable[FrontRESKStageSpec | Iterable[int]],
+    *,
+    max_horizon_k: int | None = None,
+) -> tuple[FrontRESKStageSpec, ...]:
+    """Validate and freeze the explicit global K-stage schedule."""
+
+    normalized: list[FrontRESKStageSpec] = []
+    for row, raw in enumerate(tuple(schedule)):
+        if isinstance(raw, FrontRESKStageSpec):
+            spec = raw
+            values = (
+                spec.horizon_k,
+                spec.critic_only_iterations,
+                spec.actor_warmup_iterations,
+                spec.joint_iterations,
+            )
+        else:
+            values = tuple(raw)
+            if len(values) != 4:
+                raise ValueError(f"K-stage row {row} must contain (K,N_c,N_a,N_joint)")
+            spec = FrontRESKStageSpec(*values)
+        if any(not isinstance(value, int) or isinstance(value, bool) for value in values):
+            raise ValueError(f"K-stage row {row} requires integer durations and K")
+        if spec.horizon_k <= 0:
+            raise ValueError(f"K-stage row {row} horizon_k must be positive")
+        if spec.critic_only_iterations <= 0 or spec.actor_warmup_iterations <= 0:
+            raise ValueError(f"K-stage row {row} requires positive critic-only and actor-warmup durations")
+        if spec.joint_iterations < 0:
+            raise ValueError(f"K-stage row {row} joint duration must be nonnegative")
+        if row > 0 and spec.horizon_k <= normalized[-1].horizon_k:
+            raise ValueError("K-stage horizons must be strictly increasing")
+        if max_horizon_k is not None and spec.horizon_k > int(max_horizon_k):
+            raise ValueError(f"K-stage horizon {spec.horizon_k} exceeds max_horizon_k={int(max_horizon_k)}")
+        normalized.append(spec)
+    if not normalized:
+        raise ValueError("FRS-TRAIN-v009 requires a nonempty explicit K-stage schedule")
+    for row, spec in enumerate(normalized[:-1]):
+        if spec.joint_iterations <= 0:
+            raise ValueError(f"non-final K-stage row {row} requires a positive joint duration")
+    return tuple(normalized)
+
+
+def parse_frontres_k_stage_schedule(
+    value: str,
+    *,
+    max_horizon_k: int | None = None,
+) -> tuple[FrontRESKStageSpec, ...]:
+    """Parse ``K:N_c:N_a:N_joint`` comma-separated CLI syntax."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("FRS-TRAIN-v009 requires an explicit K-stage schedule")
+    rows: list[tuple[int, int, int, int]] = []
+    for row, token in enumerate(value.split(",")):
+        parts = tuple(part.strip() for part in token.split(":"))
+        if len(parts) != 4 or any(not part for part in parts):
+            raise ValueError(f"K-stage token {row} must use K:N_c:N_a:N_joint")
+        try:
+            rows.append(tuple(int(part) for part in parts))
+        except ValueError as exc:
+            raise ValueError(f"K-stage token {row} contains a non-integer value") from exc
+    return normalize_frontres_k_stage_schedule(rows, max_horizon_k=max_horizon_k)
+
+
+def frontres_k_stage_schedule_tuple(
+    schedule: Iterable[FrontRESKStageSpec | Iterable[int]],
+) -> tuple[tuple[int, int, int, int], ...]:
+    normalized = normalize_frontres_k_stage_schedule(schedule)
+    return tuple(
+        (
+            spec.horizon_k,
+            spec.critic_only_iterations,
+            spec.actor_warmup_iterations,
+            spec.joint_iterations,
+        )
+        for spec in normalized
+    )
+
+
+def frontres_k_stage_schedule_fingerprint(
+    schedule: Iterable[FrontRESKStageSpec | Iterable[int]],
+) -> str:
+    payload = json.dumps(frontres_k_stage_schedule_tuple(schedule), separators=(",", ":"))
+    return hashlib.sha256(payload.encode("ascii")).hexdigest()
+
+
+def resolve_frontres_k_stage_identity(
+    *,
+    schedule: Iterable[FrontRESKStageSpec | Iterable[int]],
+    committed_update_iteration: int,
+    max_horizon_k: int | None = None,
+) -> FrontRESKStageIdentity:
+    """Resolve one global K and stage-local phase from committed updates."""
+
+    if (
+        not isinstance(committed_update_iteration, int)
+        or isinstance(committed_update_iteration, bool)
+        or committed_update_iteration < 0
+    ):
+        raise ValueError("committed_update_iteration must be a nonnegative integer")
+    absolute_iteration = committed_update_iteration
+    normalized = normalize_frontres_k_stage_schedule(schedule, max_horizon_k=max_horizon_k)
+    remaining = absolute_iteration
+    stage_index = len(normalized) - 1
+    stage_iteration = remaining
+    for row, spec in enumerate(normalized[:-1]):
+        duration = spec.critic_only_iterations + spec.actor_warmup_iterations + spec.joint_iterations
+        if remaining < duration:
+            stage_index = row
+            stage_iteration = remaining
+            break
+        remaining -= duration
+    else:
+        stage_iteration = remaining
+    spec = normalized[stage_index]
+    phase = frontres_segment_warmup_phase(
+        iteration=stage_iteration,
+        critic_warmup_iterations=spec.critic_only_iterations,
+        actor_warmup_iterations=spec.actor_warmup_iterations,
+    )
+    identity = FrontRESKStageIdentity(
+        schedule_fingerprint=frontres_k_stage_schedule_fingerprint(normalized),
+        stage_index=stage_index,
+        active_k=spec.horizon_k,
+        stage_iteration=stage_iteration,
+        absolute_iteration=absolute_iteration,
+        phase=phase,
+    )
+    emit_formal_runtime_probe(
+        "AUDIT-KPLAN-01",
+        schedule_fingerprint=identity.schedule_fingerprint,
+        stage_index=identity.stage_index,
+        active_k=identity.active_k,
+        stage_iteration=identity.stage_iteration,
+        absolute_iteration=identity.absolute_iteration,
+        phase=identity.phase.name,
+        actor_loss_weight=identity.phase.actor_loss_weight,
+    )
+    return identity
 
 
 def frontres_segment_warmup_phase(
@@ -87,4 +253,14 @@ def frontres_segment_warmup_phase(
     return phase
 
 
-__all__ = ["FrontRESSegmentWarmupPhase", "frontres_segment_warmup_phase"]
+__all__ = [
+    "FrontRESKStageIdentity",
+    "FrontRESKStageSpec",
+    "FrontRESSegmentWarmupPhase",
+    "frontres_k_stage_schedule_fingerprint",
+    "frontres_k_stage_schedule_tuple",
+    "frontres_segment_warmup_phase",
+    "normalize_frontres_k_stage_schedule",
+    "parse_frontres_k_stage_schedule",
+    "resolve_frontres_k_stage_identity",
+]

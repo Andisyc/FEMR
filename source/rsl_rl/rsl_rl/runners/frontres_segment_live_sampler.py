@@ -32,6 +32,18 @@ _SAMPLER_MODULE = importlib.util.module_from_spec(_SAMPLER_SPEC)
 sys.modules[_SAMPLER_SPEC.name] = _SAMPLER_MODULE
 _SAMPLER_SPEC.loader.exec_module(_SAMPLER_MODULE)
 
+_K_STAGE_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py"
+_K_STAGE_SPEC = importlib.util.spec_from_file_location(
+    "frontres_k_stage_live_sampler_module",
+    _K_STAGE_PATH,
+)
+if _K_STAGE_SPEC is None or _K_STAGE_SPEC.loader is None:
+    raise RuntimeError(f"Could not load FrontRES K-stage owner from {_K_STAGE_PATH}.")
+_K_STAGE_MODULE = importlib.util.module_from_spec(_K_STAGE_SPEC)
+sys.modules[_K_STAGE_SPEC.name] = _K_STAGE_MODULE
+_K_STAGE_SPEC.loader.exec_module(_K_STAGE_MODULE)
+resolve_frontres_k_stage_identity = _K_STAGE_MODULE.resolve_frontres_k_stage_identity
+
 _DATASET_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_dataset.py"
 _DATASET_SPEC = importlib.util.spec_from_file_location(
     "frontres_segment_dataset_live_module",
@@ -1812,6 +1824,14 @@ def _prepare_frontres_v015_local_transaction_batch(
         raise RuntimeError("v015 local transaction requires at least four Repair rows for 2 Segments x 2 attempts")
     max_horizon = max(1, int(getattr(alg, "frontres_segment_max_horizon_k", 1) or 1))
     iteration = int(getattr(runner, "current_learning_iteration", 0) or 0)
+    curriculum = resolve_frontres_k_stage_identity(
+        schedule=tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ()),
+        committed_update_iteration=iteration,
+        max_horizon_k=max_horizon,
+    )
+    configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
+    if configured_fingerprint and configured_fingerprint != curriculum.schedule_fingerprint:
+        raise RuntimeError("FRS-TRAIN-v009 sampler curriculum fingerprint drifted after config resolution")
     sequence_attr = f"_frontres_v015_local_{route}_sequence"
     sequence = int(getattr(runner, sequence_attr, 0) or 0) + 1
     setattr(runner, sequence_attr, sequence)
@@ -1831,7 +1851,10 @@ def _prepare_frontres_v015_local_transaction_batch(
         policy_snapshot_id=snapshot.policy_snapshot_id,
         max_horizon_k=max_horizon,
         minimum_policy_attempts=2,
+        active_horizon_k=curriculum.active_k,
     )
+    if not bool((frozen_plan.horizon_k == curriculum.active_k).all().item()):
+        raise RuntimeError("FRS-TRAIN-v009 sampler failed to produce a homogeneous-K transaction")
     if int(frozen_plan.segment_ids.numel()) != repair_rows:
         raise RuntimeError(
             "v015 local transaction requires environment Repair rows to equal its complete selected transaction: "

@@ -86,6 +86,9 @@ def _formal_alg(policy: torch.nn.Module, optimizer: _TrackingSGD) -> SimpleNames
         frontres_hsl_rollout_label_enabled=False,
         frontres_segment_critic_warmup_iterations=1,
         frontres_segment_actor_warmup_iterations=1,
+        frontres_segment_k_curriculum=((3, 1, 1, 2), (4, 1, 1, 0)),
+        frontres_segment_k_curriculum_fingerprint="",
+        frontres_segment_max_horizon_k=4,
         frontres_future_offsets=(1, 2),
         frontres_future_intent_layout_version="frontres-v015-future-intent-q29-v1",
         frontres_segment_live_train_enabled=False,
@@ -137,6 +140,20 @@ def _build_request(candidate_contract, owners, live_sampler):
         attempt_one,
         privileged_observations=torch.tensor([1.0, 11.0]).unsqueeze(1).expand(2, critic_dim).clone(),
     )
+    attempt_zero = replace(
+        attempt_zero,
+        transaction_metadata=replace(
+            attempt_zero.transaction_metadata,
+            horizon_k=torch.full_like(attempt_zero.transaction_metadata.horizon_k, 3),
+        ),
+    )
+    attempt_one = replace(
+        attempt_one,
+        transaction_metadata=replace(
+            attempt_one.transaction_metadata,
+            horizon_k=torch.full_like(attempt_one.transaction_metadata.horizon_k, 3),
+        ),
+    )
     metadata = attempt_zero.transaction_metadata
     plan = live_sampler.FrontRESV015FormalTransactionPlan(
         snapshot=snapshot,
@@ -165,6 +182,13 @@ def _build_request(candidate_contract, owners, live_sampler):
                 transaction_id=plan.transaction_id,
             ),
         ),
+        curriculum_fingerprint=live_probe._v015_resolve_curriculum_identity(runner).schedule_fingerprint,
+        k_stage_index=live_probe._v015_resolve_curriculum_identity(runner).stage_index,
+        active_k=live_probe._v015_resolve_curriculum_identity(runner).active_k,
+        k_stage_iteration=live_probe._v015_resolve_curriculum_identity(runner).stage_iteration,
+        training_iteration=live_probe._v015_resolve_curriculum_identity(runner).absolute_iteration,
+        warmup_phase_name=live_probe._v015_resolve_curriculum_identity(runner).phase.name,
+        warmup_actor_loss_weight=live_probe._v015_resolve_curriculum_identity(runner).phase.actor_loss_weight,
         policy_evaluator=policy,
     )
     return SimpleNamespace(
@@ -341,20 +365,87 @@ def test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, o
     )
 
 
-def test_t_v008_critic_only_formal_update(candidate_contract, owners, live_sampler) -> None:
+def test_t_v009_critic_only_formal_update(candidate_contract, owners, live_sampler) -> None:
     fixture = _build_request(candidate_contract, owners, live_sampler)
     fixture.runner.current_learning_iteration = 0
     fixture.runner.alg.value_loss_coef = 1.0
-    result = owners[6].run_frontres_v015_formal_transaction_update(fixture.runner, fixture.request)
+    curriculum = owners[6]._v015_resolve_curriculum_identity(fixture.runner)
+    request = replace(
+        fixture.request,
+        curriculum_fingerprint=curriculum.schedule_fingerprint,
+        k_stage_index=curriculum.stage_index,
+        active_k=curriculum.active_k,
+        k_stage_iteration=curriculum.stage_iteration,
+        training_iteration=curriculum.absolute_iteration,
+        warmup_phase_name=curriculum.phase.name,
+        warmup_actor_loss_weight=curriculum.phase.actor_loss_weight,
+    )
+    result = owners[6].run_frontres_v015_formal_transaction_update(fixture.runner, request)
     diagnostics = result.diagnostics
-    assert diagnostics["training_contract_id"] == "FRS-TRAIN-v008"
+    assert diagnostics["training_contract_id"] == "FRS-TRAIN-v009"
     assert diagnostics["gain_contract_id"] == "FRS-GAIN-v004"
     assert diagnostics["warmup_phase"] == "critic_only"
     assert diagnostics["actor_loss_weight"] == 0.0
     assert diagnostics["actor_std_parameter_delta"]["param_delta_max_abs"] == 0.0
     assert diagnostics["critic_parameter_delta"]["param_delta_max_abs"] > 0.0
     assert result.optimizer_step_delta == 1
-    print("[T-v008-critic-only] formal grouped owner updates Critic exactly once and freezes actor/std", flush=True)
+    print("[T-v009-critic-only] formal grouped owner updates Critic exactly once and freezes actor/std", flush=True)
+
+
+def test_t_v009_mixed_k_rejects_and_new_stage_recalibrates(candidate_contract, owners, live_sampler) -> None:
+    fixture = _build_request(candidate_contract, owners, live_sampler)
+    try:
+        mixed_plan = replace(
+            fixture.request.plan,
+            horizon_k=torch.tensor([3, 4, 3, 3], dtype=torch.long),
+        )
+        replace(fixture.request, plan=mixed_plan)
+    except ValueError as exc:
+        assert "mixes local scenario identity" in str(exc) or "mixed-K" in str(exc)
+    else:
+        raise AssertionError("v009 request must reject mixed-K before update")
+
+    fixture.runner.current_learning_iteration = 4
+    fixture.runner.alg.value_loss_coef = 1.0
+    curriculum = owners[6]._v015_resolve_curriculum_identity(fixture.runner)
+    assert curriculum.stage_index == 1
+    assert curriculum.active_k == 4
+    assert curriculum.phase.name == "critic_only"
+    batches = tuple(
+        replace(
+            batch,
+            transaction_metadata=replace(
+                batch.transaction_metadata,
+                horizon_k=torch.full_like(batch.transaction_metadata.horizon_k, curriculum.active_k),
+            ),
+        )
+        for batch in fixture.request.candidate_batches
+    )
+    request = replace(
+        fixture.request,
+        plan=replace(
+            fixture.request.plan,
+            horizon_k=torch.full_like(fixture.request.plan.horizon_k, curriculum.active_k),
+        ),
+        candidate_batches=batches,
+        curriculum_fingerprint=curriculum.schedule_fingerprint,
+        k_stage_index=curriculum.stage_index,
+        active_k=curriculum.active_k,
+        k_stage_iteration=curriculum.stage_iteration,
+        training_iteration=curriculum.absolute_iteration,
+        warmup_phase_name=curriculum.phase.name,
+        warmup_actor_loss_weight=curriculum.phase.actor_loss_weight,
+    )
+    result = owners[6].run_frontres_v015_formal_transaction_update(fixture.runner, request)
+    diagnostics = result.diagnostics
+    assert diagnostics["k_stage_index"] == 1
+    assert diagnostics["active_k"] == 4
+    assert diagnostics["k_stage_iteration"] == 0
+    assert diagnostics["warmup_phase"] == "critic_only"
+    assert diagnostics["actor_std_parameter_delta"]["param_delta_max_abs"] == 0.0
+    assert diagnostics["critic_parameter_delta"]["param_delta_max_abs"] > 0.0
+    assert result.optimizer_step_delta == 1
+    print("[T-v009-transition] new K re-enters critic-only with homogeneous rows and exact-one update", flush=True)
 
 
 def test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owners, live_sampler, _live_update_loop) -> None:
@@ -597,7 +688,8 @@ def main() -> None:
     test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_partial_hsl_and_legacy_config_fail_before_step(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, owners, live_sampler, live_update_loop)
-    test_t_v008_critic_only_formal_update(candidate_contract, owners, live_sampler)
+    test_t_v009_critic_only_formal_update(candidate_contract, owners, live_sampler)
+    test_t_v009_mixed_k_rejects_and_new_stage_recalibrates(candidate_contract, owners, live_sampler)
     test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_q29_actor_route_before_normalizer(candidate_contract, owners, live_sampler, live_update_loop)

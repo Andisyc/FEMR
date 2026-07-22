@@ -449,30 +449,30 @@
         {
           "id": "AUDIT-KPLAN-01",
           "title": "Probe 06 | K-step 计划",
-          "summary": "curriculum K 被展开为 per-row rollout budget",
+          "summary": "v009 formal route 用全局 active K 隔离旧 per-Segment K planner",
           "cardKind": "runtime_probe",
-          "owns": "验证 curriculum K 被展开为 per-row rollout budget",
+          "owns": "验证正式 transaction 的 schedule fingerprint、active K 与所有 Segment x M rows 同质",
           "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
           "objects": [
             "Design: M-06, SR-01",
-            "curriculum max K",
-            "per-row horizon_k",
-            "expanded trial rows"
+            "FRS-TRAIN-v009 schedule fingerprint",
+            "global active_k",
+            "homogeneous Segment x M rows"
           ],
           "files": [
             {
               "id": "AUDIT-KPLAN-01-SRC",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py",
-              "role": "被检查的正式 owner 边界",
+              "role": "legacy per-Segment budget owner; formal plan_frozen_policy_transaction(active_horizon_k) now isolates it from v009 K authority",
               "functions": [
-                "plan_rollout_budget()/expand_rollout_trials()"
+                "plan_frozen_policy_transaction(active_horizon_k)"
               ]
             }
           ],
           "mainRoute": [
-            "B1 plan_rollout_budget()/expand_rollout_trials(): upstream state -> owner input",
-            "B2 plan_rollout_budget()/expand_rollout_trials(): owner input -> semantic object",
-            "B3 downstream consumer: semantic object -> formal consumer"
+            "B1 resolve_frontres_k_stage_identity(): committed iteration -> one active K",
+            "B2 plan_frozen_policy_transaction(active_horizon_k): legacy budget -> homogeneous-K plan",
+            "B3 formal request/update: reject any row that differs from the sealed active K"
           ],
           "mainRouteTitles": [
             "进入 Owner",
@@ -1522,13 +1522,14 @@
         {
           "id": "AUDIT-WARMUP-01",
           "title": "Probe 19 | Actor/Critic Warmup",
-          "summary": "v008 要求 critic-only、actor ramp 与 joint phase 在正式 v015 transaction owner 生效",
+          "summary": "v009 offline-confirmed: 每次全局 K 切换后同一 Critic 重新进入 critic-only，再 actor ramp 与 joint",
           "cardKind": "runtime_probe",
-          "owns": "验证 v004 return、persisted iteration、phase/actor weight 与正式 v015 gradient boundary",
-          "mustNot": "不得回退 legacy single-update owner、v002/v003 Gain、重启 phase、改变 grouped reduction 或让 critic-only 更新 actor/std",
+          "owns": "验证 v004 return、schedule/stage/K/local iteration、phase/actor weight 与正式 v015 gradient boundary",
+          "mustNot": "不得回退 legacy owner、Multi-Critic、mixed-K、K-conditioned actor、改变 grouped reduction 或让新-K critic-only 更新 actor/std",
           "objects": [
             "Design: M-05",
-            "persisted iteration",
+            "schedule fingerprint and active K",
+            "stage-local iteration",
             "phase/actor weight",
             "loss gradient boundary"
           ],
@@ -1536,16 +1537,16 @@
             {
               "id": "AUDIT-WARMUP-01-SRC",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
-              "role": "active phase semantic owner; E-FI-68 runtime-confirms formal v015 critic-only consumption",
+              "role": "active v009 schedule/stage/local-phase owner; E-FI-70 confirms new-K critic-only and checkpoint-v4 resume offline",
               "functions": [
-                "frontres_segment_warmup_phase()"
+                "resolve_frontres_k_stage_identity()"
               ]
             }
           ],
           "mainRoute": [
-            "B1 frontres_segment_warmup_phase(): upstream state -> owner input",
-            "B2 frontres_segment_warmup_phase(): owner input -> semantic object",
-            "B3 planned run_frontres_v015_formal_transaction_update(): v004 transaction + phase -> protected exact-one update"
+            "B1 v009 curriculum resolver: frozen schedule + committed receipt -> stage/K/local iteration",
+            "B2 frontres_segment_warmup_phase(): stage-local iteration -> phase + actor weight",
+            "B3 run_frontres_v015_formal_transaction_update(): homogeneous-K v004 transaction + sealed phase -> protected exact-one update"
           ],
           "mainRouteTitles": [
             "进入 Owner",

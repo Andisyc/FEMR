@@ -1683,6 +1683,7 @@ class FrontRESSegmentSampler:
         policy_snapshot_id: str,
         max_horizon_k: int = 8,
         minimum_policy_attempts: int = 2,
+        active_horizon_k: int | None = None,
     ) -> FrontRESFrozenPolicyTransactionPlan:
         """Plan a complete all-policy attempt layout without mutating sampler state.
 
@@ -1705,6 +1706,17 @@ class FrontRESSegmentSampler:
             raise ValueError("minimum_policy_attempts must be at least two")
 
         budget = self.plan_rollout_budget(ids, max_horizon_k=max_horizon_k)
+        if active_horizon_k is not None:
+            active_horizon = int(active_horizon_k)
+            if active_horizon <= 0 or active_horizon > int(max_horizon_k):
+                raise ValueError("active_horizon_k must be positive and no larger than max_horizon_k")
+            budget = FrontRESSegmentRolloutBudget(
+                segment_ids=budget.segment_ids,
+                trial_count=budget.trial_count,
+                horizon_k=torch.full_like(budget.horizon_k, active_horizon),
+                segment_state=budget.segment_state,
+                reason=tuple(f"v009_global_k_{active_horizon}" for _ in budget.reason),
+            )
         trial_count = torch.clamp_min(
             budget.trial_count.to(device=self.device, dtype=torch.long),
             int(minimum_policy_attempts),

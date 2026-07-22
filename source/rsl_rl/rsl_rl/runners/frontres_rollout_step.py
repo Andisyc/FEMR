@@ -213,7 +213,7 @@ def _write_supervised_target_before_step(
     if is_task_space_mode and _uses_v015_future_intent_route(runner):
         if float(getattr(runner.alg, "lambda_supervised", 0.0)) > 0.0:
             raise RuntimeError(
-                "FRS-TRAIN-v008 forbids a nonzero Stage-3 online HSL target writer on the v015 route"
+                "FRS-TRAIN-v009 forbids a nonzero Stage-3 online HSL target writer on the v015 route"
             )
         return
     if not (is_task_space_mode and getattr(runner.alg, "lambda_supervised", 0.0) > 0):
@@ -249,7 +249,7 @@ def _capture_hsl_snapshot_before_step(
         return None, None
     if _uses_v015_future_intent_route(runner):
         raise RuntimeError(
-            "FRS-TRAIN-v008 forbids legacy HSL rollout snapshots on the v015 Stage-3 route"
+            "FRS-TRAIN-v009 forbids legacy HSL rollout snapshots on the v015 Stage-3 route"
         )
     env_for_hsl_pre = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
     if not hasattr(env_for_hsl_pre, "command_manager"):

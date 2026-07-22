@@ -372,6 +372,12 @@ parser.add_argument(
     help="For Stage 3: iterations used to linearly ramp Segment PPO actor loss to full weight.",
 )
 parser.add_argument(
+    "--frontres_segment_k_curriculum",
+    type=str,
+    default=None,
+    help="Required v009 schedule: comma-separated K:N_c:N_a:N_joint rows.",
+)
+parser.add_argument(
     "--supervised_warmup_iterations",
     type=int,
     default=None,
@@ -797,6 +803,21 @@ def _parse_frontres_v015_future_offsets(raw_offsets: str | None) -> tuple[int, .
     return values
 
 
+def _parse_frontres_v015_k_curriculum(raw_schedule: str | None) -> tuple[tuple[int, int, int, int], ...]:
+    """Parse the explicit FRS-TRAIN-v009 schedule through its pure owner."""
+
+    if raw_schedule is None:
+        raise ValueError("v015 Stage-3 requires --frontres_segment_k_curriculum")
+    from rsl_rl.frontres.frontres_segment_warmup import (
+        frontres_k_stage_schedule_tuple,
+        parse_frontres_k_stage_schedule,
+    )
+
+    return frontres_k_stage_schedule_tuple(
+        parse_frontres_k_stage_schedule(str(raw_schedule), max_horizon_k=64)
+    )
+
+
 def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) -> None:
     """Apply FrontRES staged-training presets through Python config objects, not Hydra overrides."""
 
@@ -1007,7 +1028,6 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         # HSL-v1 is consumed by the explicit checkpoint owner before training;
         # no continuing HSL flag or supervised state enters Stage 3.
         _set_if_present(alg_cfg, "frontres_hsl_init_enabled", False)
-        _set_if_present(alg_cfg, "frontres_segment_k", 8)
         _set_if_present(alg_cfg, "frontres_segment_max_horizon_k", 64)
         _set_if_present(
             alg_cfg,
@@ -1015,9 +1035,14 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             "grouped_scale_only" if (v015_local_sentinel_only or live_train_enabled) else "scale_only",
         )
         if v015_local_sentinel_only or live_train_enabled:
+            k_curriculum = _parse_frontres_v015_k_curriculum(
+                getattr(args_cli, "frontres_segment_k_curriculum", None)
+            )
             future_offsets = _parse_frontres_v015_future_offsets(
                 getattr(args_cli, "frontres_v015_future_offsets", None)
             )
+            _set_if_present(alg_cfg, "frontres_segment_k_curriculum", k_curriculum)
+            _set_if_present(alg_cfg, "frontres_segment_k", int(k_curriculum[0][0]))
             _set_if_present(alg_cfg, "frontres_v015_formal_transaction_enabled", True)
             _set_if_present(alg_cfg, "frontres_future_offsets", future_offsets)
             _set_if_present(alg_cfg, "frontres_future_intent_layout_version", "frontres-v015-future-intent-q29-v1")
@@ -1032,10 +1057,6 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
                 raise ValueError(
                     "ordinary v015 Stage-3 requires --frontres_v015_hsl_initializer_checkpoint"
                 )
-            if int(getattr(alg_cfg, "frontres_segment_critic_warmup_iterations", 0)) <= 0 or int(
-                getattr(alg_cfg, "frontres_segment_actor_warmup_iterations", 0)
-            ) <= 0:
-                raise ValueError("FRS-TRAIN-v008 ordinary Stage-3 requires positive critic/actor warmup durations")
         # B3: AUDIT-PERTURB-01 records the finalized preset consumed by sampler/rollout owners.
         # Result: PENDING_LIVE.
         if formal_audit_enabled:
@@ -1078,6 +1099,7 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
         f"segment_actor_warmup={getattr(alg_cfg, 'frontres_segment_actor_warmup_iterations', 'n/a')}, "
         f"formal_runtime_audit={getattr(alg_cfg, 'frontres_formal_runtime_audit', 'n/a')}, "
         f"segment_k={getattr(alg_cfg, 'frontres_segment_k', 'n/a')}, "
+        f"k_curriculum={getattr(alg_cfg, 'frontres_segment_k_curriculum', 'n/a')}, "
         f"future_offsets={getattr(alg_cfg, 'frontres_future_offsets', 'n/a')}, "
         f"segment_shard_cache_size={getattr(alg_cfg, 'frontres_segment_shard_cache_size', 'n/a')}, "
         f"max_iterations={getattr(agent_cfg, 'max_iterations', 'n/a')}, "

@@ -166,6 +166,14 @@ The K curriculum changes how long the first action's consequence is measured.
 It does not add future root perturbations or future FEMR actions to this
 single-action experiment.
 
+The active curriculum is a global ordered K-stage curriculum. At any training
+iteration, one active K is shared by every selected Segment and all M attempts
+in the transaction. Segment difficulty, replay state, or priority may not
+assign different K values inside the formal transaction. When the global K
+stage advances, the next transaction re-enters critic-only calibration under
+FRS-TRAIN-v009 before actor gradients are released. Earlier K stages are
+curriculum scaffolding; the final K owns the final local-repair objective.
+
 ## Frozen-Policy Multi-Attempt Transaction
 
 One transaction freezes `pi_old`, selects multiple local scenarios, and for
@@ -319,7 +327,7 @@ evidence; the repaired S4 transaction remains unconfirmed.
 
 ## Owned Subcontracts
 
-- Formal Stage 3 route: `../training/FRS-TRAIN-v008-critic-ready-v004-actor-curriculum.md`.
+- Formal Stage 3 route: `../training/FRS-TRAIN-v009-k-stage-critic-curriculum.md`.
 - Paired Gain: `../reward/FRS-GAIN-v004-support-mode-physics-admissibility.md`.
 - Grouped PPO: `../optimization/FRS-PPO-v003-single-policy-row-k-evidence-grouped-reduction.md`.
 - Evaluation: `../evaluation/FRS-EVAL-v003-local-repair-composition-evaluation.md`.

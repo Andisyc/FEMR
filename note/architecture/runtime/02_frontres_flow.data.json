@@ -99,24 +99,24 @@
         {
           "id": "DP-KSTEP",
           "title": "K-step Curriculum",
-          "summary": "用 K-step Clean-continuation GMT 证据评估首帧唯一 repair 的延迟后果",
-          "owns": "per-attempt K assignment, one-action then frozen-FEMR lifecycle, Clean-continuation execution, K-evidence aggregation, and one policy-row return",
-          "mustNot": "不把所有行静默固定为 K=8, 不把 K 混同 H, 不在 K 内继续 FEMR 或注入后续 root noise",
-          "objects": ["M-06", "horizon_k", "one policy row per attempt", "evidence_valid_step_count", "returns", "delayed regret", "H != K"],
+          "summary": "全局递增 K-stage 延长首帧唯一 repair 的 Clean-continuation GMT 后果证据",
+          "owns": "one active K per committed training stage, homogeneous-K sealed transactions, one-action then frozen-FEMR lifecycle, Clean-continuation execution, K-evidence aggregation, and one policy-row return",
+          "mustNot": "不按 Segment 难度混合 K, 不把 K 输入 actor 或混同 H, 不在 K 内继续 FEMR 或注入后续 root noise",
+          "objects": ["M-06", "FRS-TRAIN-v009", "global k_stage_index", "active_k", "one policy row per attempt", "evidence_valid_step_count", "returns", "H != K"],
           "files": [
-            {"id": "M2C-K01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "K curriculum assignment", "functions": ["plan_rollout_budget()","expand_rollout_trials()"], "sourceLine": 495, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=495"},
+            {"id": "M2C-K01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "legacy per-Segment budget remains available, while plan_frozen_policy_transaction(active_horizon_k) overrides it with the v009 global K on the formal route", "functions": ["plan_rollout_budget()","plan_frozen_policy_transaction()"], "sourceLine": 495, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=495"},
             {"id": "M2C-K02", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "one-row/K-evidence carrier with M-attempt-per-scenario Repair/Noisy pairing plus immutable v015 grouped metadata; legacy adapter is isolated", "functions": ["FrontRESV015OneActionKEvidence.validate()", "FrontRESV015GroupedCandidateMetadata", "build_frontres_v015_grouped_candidate_storage()"], "sourceLine": 57, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=57"},
             {"id": "M2C-K03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "one-action/frozen-GMT K capture with post-command-advance fresh GMT observation; legacy repeated actor collector rejects v015", "functions": ["collect_frontres_v015_one_action_k_evidence()", "_run_live_rollout_capture()"], "sourceLine": 3201, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3201"}
           ],
           "mainRoute": [
-            "B1 frontres_segment_sampler.py::plan_rollout_budget(): curriculum state -> per-row K",
+            "B1 v009 schedule resolver + formal sampler override: committed global stage -> one active K shared by every Segment x M row",
             "B2 collect_frontres_v015_one_action_k_evidence(): one action at t -> frozen FEMR + command-owned Clean-C K evidence",
             "B3 return evidence -> sealed metadata: one Repair PPO row + K/evidence count; only grouped candidate adapter may carry it"
           ],
-          "mainRouteTitles": ["分配 Per-attempt K", "执行 Evidence Horizon", "构造单行 K-step Return"],
-          "review": ["对比 sampled/effective/storage K", "检查 done 后的 evidence-step mask", "检查 K 不增加 PPO row 或 group mass"],
+          "mainRouteTitles": ["解析 Global K Stage", "执行 Evidence Horizon", "构造单行 K-step Return"],
+          "review": ["拒绝 transaction 内 mixed-K", "检查 done 后的 evidence-step mask", "检查 K 不增加 PPO row 或 group mass"],
           "tests": ["S1/S2 v015 one-action K collector contract", "S1 v015 grouped candidate adapter contract", "S1 v003 grouped-PPO contract", "S2 formal storage route", "S4 AUDIT-SAMPLER-01", "S2 v015 unmocked observation connectivity contract"],
-          "gap": "E-FI-27 live-confirms one actor row per attempt, eight post-advance Clean-C GMT reads, frozen-FEMR K execution, and unchanged equal attempt/group mass. K curriculum across long training remains unconfirmed."
+          "gap": "E-FI-70 S1/S2 confirms explicit schedule identity, formal homogeneous-K override, mixed-K rejection and exact-one new-K critic-only isolation. The retained per-Segment planner is legacy/ablation-only; C4 live transition remains pending."
         }
       ]
     },
@@ -156,26 +156,26 @@
         {
           "id": "DP-WARMUP",
           "title": "Actor & Critic Warmup",
-          "summary": "先训练 critic, 再线性释放 HSL actor, 最后 joint PPO",
-          "owns": "FRS-TRAIN-v008 critic_only, actor_warmup, joint phase, actor loss weight, scalar Critic target, exact-one grouped transaction boundary and resume continuity",
-          "mustNot": "不恢复 rho、第二 Critic、第二 optimizer、HSL Stage-3 target、legacy update route 或 v003/v007 resume",
-          "objects": ["M-05", "FRS-TRAIN-v008", "FRS-GAIN-v004 return", "phase", "actor_loss_weight", "critic grad", "actor/std grad", "persisted iteration"],
+          "summary": "每次全局 K 增长后先重校准同一 Critic, 再线性释放 actor, 最后 joint PPO",
+          "owns": "FRS-TRAIN-v009 K-stage-local critic_only, actor_warmup, joint phase, actor loss weight, one scalar Critic continuity, exact-one grouped transaction boundary and resume continuity",
+          "mustNot": "不恢复 rho、Multi-Critic、第二 optimizer、K-conditioned actor、HSL Stage-3 target、legacy update route 或 v008 resume",
+          "objects": ["M-05", "FRS-TRAIN-v009", "FRS-GAIN-v004 return", "k_stage_index", "active_k", "stage_iteration", "phase", "actor_loss_weight", "critic grad", "actor/std grad"],
           "files": [
-            {"id": "M2C-W01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "phase owner", "functions": ["frontres_segment_warmup_phase()"], "sourceLine": 27, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=27"},
+            {"id": "M2C-W01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "active v009 immutable schedule/fingerprint and committed-iteration to K-stage/local-phase owner", "functions": ["resolve_frontres_k_stage_identity()", "parse_frontres_k_stage_schedule()"], "sourceLine": 27, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=27"},
             {"id": "M2C-W02", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "actor-weighted PPO loss and candidate grouped reduction", "functions": ["compute_frontres_segment_ppo_loss()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
-            {"id": "M2C-W03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "active v008 formal phase owner; seals one phase per transaction and isolates actor/std during critic-only exact-one update", "functions": ["run_frontres_segment_single_update()", "_require_v015_formal_transaction_config()", "_v015_formal_ppo_config()", "run_frontres_v015_formal_transaction_update()"], "sourceLine": 3640, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3640"},
-            {"id": "M2C-W04", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "active v008/v004 schedule and absolute-iteration persistence; incompatible Stage3 identities reject before mutation", "functions": ["save_runner()", "load_runner()"], "sourceLine": 1556, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1556"}
+            {"id": "M2C-W03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "active v009 homogeneous-K request seal, exact-one update, committed receipt and new-K actor/std isolation owner", "functions": ["_v015_resolve_curriculum_identity()", "run_frontres_v015_formal_transaction_update()"], "sourceLine": 3640, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3640"},
+            {"id": "M2C-W04", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "active checkpoint-v4 v009 schedule/stage/K/local-phase persistence and pre-mutation compatibility owner", "functions": ["save_runner()", "load_runner()"], "sourceLine": 1556, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1556"}
           ],
           "mainRoute": [
-            "B1 frontres_segment_warmup.py::frontres_segment_warmup_phase(): persisted iteration -> phase + actor weight",
+            "B1 frontres_segment_warmup.py: explicit schedule + committed iteration -> active K + stage-local phase + actor weight",
             "B2 frontres_segment_ppo.py::compute_frontres_segment_ppo_loss(): v004 return + grouped terms + actor weight -> value and actor loss",
             "B3 formal v015 owner: complete transaction + sealed phase -> critic-only/actor-ramp/joint exact-one update",
-            "B4 frontres_checkpointing.py: v008/v004 schedule + absolute iteration -> exact phase resume or pre-mutation reject"
+            "B4 frontres_checkpointing.py: checkpoint-v4 v009/v004 schedule fingerprint + K stage/local iteration -> exact resume or pre-mutation reject"
           ],
           "mainRouteTitles": ["解析 Warmup Phase", "组合 Grouped PPO Loss", "执行正式 Phase Update", "持久化 Phase Identity"],
-          "review": ["critic_only actor/std 必须不变且 Critic 必须更新", "formal v015 不得回退 legacy owner", "resume 必须选择同一 phase", "一笔 transaction 只有一次 optimizer step"],
-          "tests": ["E-FI-68 S1 phase/gradient contracts", "E-FI-68 S2 formal v015 connectivity", "E-FI-68 S3 v008/v004 resume", "E-FI-68 S4 critic-only sentinel"],
-          "gap": "E-FI-68 runtime-confirmed: iteration 0 used critic_only with actor_weight=0, actor/std delta 0, Critic 10/10 tensors changed, exact-one update, and committed v008/v004 save. Actor-ramp quality remains an X1 live boundary."
+          "review": ["每次换 K 后 critic_only actor/std 必须不变且同一 Critic 必须更新", "一笔 transaction 内 K 必须同质", "stage 仅在 committed transaction 后前进", "resume 必须选择同一 schedule/stage/K/phase", "一笔 transaction 只有一次 optimizer step"],
+          "tests": ["E-FI-68 v008 K=8 critic-only foundation", "E-FI-70 C1 schedule kernel", "E-FI-70 C2 homogeneous-K transition", "E-FI-70 C3 checkpoint-v4 persistence", "planned C4 bounded K-transition sentinel"],
+          "gap": "E-FI-70 S1/S2/S3 confirms the v009 offline engineering route, including repeated critic-only, homogeneous K, exact-one update and strict checkpoint-v4 resume. Only C4 official live K-transition evidence remains absent."
         }
       ]
     },

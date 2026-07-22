@@ -1867,6 +1867,10 @@ def _v015_formal_update_summary(result: Any) -> dict[str, Any]:
         "training_contract_id": str(diagnostics.get("training_contract_id", "")),
         "gain_contract_id": str(diagnostics.get("gain_contract_id", "")),
         "training_iteration": int(diagnostics.get("training_iteration", -1)),
+        "curriculum_fingerprint": str(diagnostics.get("curriculum_fingerprint", "")),
+        "k_stage_index": int(diagnostics.get("k_stage_index", -1)),
+        "active_k": int(diagnostics.get("active_k", -1)),
+        "k_stage_iteration": int(diagnostics.get("k_stage_iteration", -1)),
         "warmup_phase": str(diagnostics.get("warmup_phase", "")),
         "warmup_phase_iteration": int(diagnostics.get("warmup_phase_iteration", -1)),
         "actor_loss_weight": float(diagnostics.get("actor_loss_weight", float("nan"))),
@@ -2138,6 +2142,10 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "training_contract_id": str(diagnostics.get("training_contract_id", "")),
         "gain_contract_id": str(diagnostics.get("gain_contract_id", "")),
         "training_iteration": int(diagnostics.get("training_iteration", -1)),
+        "curriculum_fingerprint": str(diagnostics.get("curriculum_fingerprint", "")),
+        "k_stage_index": int(diagnostics.get("k_stage_index", -1)),
+        "active_k": int(diagnostics.get("active_k", -1)),
+        "k_stage_iteration": int(diagnostics.get("k_stage_iteration", -1)),
         "warmup_phase": str(diagnostics.get("warmup_phase", "")),
         "warmup_phase_iteration": int(diagnostics.get("warmup_phase_iteration", -1)),
         "actor_loss_weight": float(diagnostics.get("actor_loss_weight", float("nan"))),
@@ -2178,10 +2186,19 @@ def _require_v015_committed_result(runner: Any, result: Any) -> dict[str, Any]:
     telemetry = summary.get("v015_transaction_telemetry")
     if (
         not isinstance(telemetry, Mapping)
-        or telemetry.get("training_contract_id") != "FRS-TRAIN-v008"
+        or telemetry.get("training_contract_id") != "FRS-TRAIN-v009"
         or telemetry.get("gain_contract_id") != "FRS-GAIN-v004"
     ):
-        raise RuntimeError("v015 formal training requires exact v008/v004 telemetry identity")
+        raise RuntimeError("v015 formal training requires exact v009/v004 telemetry identity")
+    for name in (
+        "curriculum_fingerprint",
+        "k_stage_index",
+        "active_k",
+        "k_stage_iteration",
+        "training_iteration",
+    ):
+        if receipt.get(name) != telemetry.get(name):
+            raise RuntimeError(f"v015 formal training receipt/telemetry curriculum mismatch for {name}")
     if telemetry.get("warmup_phase") == "critic_only":
         actor_delta = telemetry.get("actor_std_parameter_delta")
         critic_delta = telemetry.get("critic_parameter_delta")
@@ -2191,7 +2208,7 @@ def _require_v015_committed_result(runner: Any, result: Any) -> dict[str, Any]:
             or float(actor_delta.get("param_delta_max_abs", float("nan"))) != 0.0
             or not float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
         ):
-            raise RuntimeError("FRS-TRAIN-v008 critic-only commit requires zero actor/std and nonzero Critic delta")
+            raise RuntimeError("FRS-TRAIN-v009 critic-only commit requires zero actor/std and nonzero Critic delta")
     return summary
 
 

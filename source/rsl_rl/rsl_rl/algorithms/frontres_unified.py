@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from typing import Optional
+import importlib.util
 import math
+from pathlib import Path
+import sys
 
 import torch
 import torch.nn as nn
@@ -10,6 +13,31 @@ import torch.optim as optim
 
 from rsl_rl.modules import ActorCritic, FrontRESActorCritic, ResidualActorCritic
 from rsl_rl.storage import RolloutStorage
+
+
+def _frontres_v009_schedule_owners():
+    try:
+        from rsl_rl.frontres.frontres_segment_warmup import (
+            frontres_k_stage_schedule_fingerprint,
+            frontres_k_stage_schedule_tuple,
+            normalize_frontres_k_stage_schedule,
+        )
+    except (ModuleNotFoundError, ImportError):
+        path = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py"
+        spec = importlib.util.spec_from_file_location("frontres_v009_schedule_unified", path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load FRS-TRAIN-v009 schedule owner from {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        frontres_k_stage_schedule_fingerprint = module.frontres_k_stage_schedule_fingerprint
+        frontres_k_stage_schedule_tuple = module.frontres_k_stage_schedule_tuple
+        normalize_frontres_k_stage_schedule = module.normalize_frontres_k_stage_schedule
+    return (
+        normalize_frontres_k_stage_schedule,
+        frontres_k_stage_schedule_tuple,
+        frontres_k_stage_schedule_fingerprint,
+    )
 
 
 def validate_frontres_v015_stage3_supervision_config(
@@ -25,7 +53,7 @@ def validate_frontres_v015_stage3_supervision_config(
         return
     if abs(float(lambda_supervised)) > 1.0e-12 or abs(float(lambda_supervised_min)) > 1.0e-12:
         raise ValueError(
-            "FRS-TRAIN-v008 requires lambda_supervised=0 and lambda_supervised_min=0 "
+            "FRS-TRAIN-v009 requires lambda_supervised=0 and lambda_supervised_min=0 "
             "for the v015 future-intent Stage-3 route; HSL is initialization-only"
         )
 
@@ -130,6 +158,7 @@ class FrontRESUnified:
         frontres_segment_live_update_steps: int = 4,
         frontres_segment_critic_warmup_iterations: int = 0,
         frontres_segment_actor_warmup_iterations: int = 0,
+        frontres_segment_k_curriculum: tuple[tuple[int, int, int, int], ...] = (),
         frontres_formal_runtime_audit: bool = False,
         frontres_segment_periodic_eval_enabled: bool = False,
         frontres_segment_periodic_eval_interval: int = 100,
@@ -251,6 +280,24 @@ class FrontRESUnified:
         self.frontres_segment_live_update_steps = max(1, int(frontres_segment_live_update_steps))
         self.frontres_segment_critic_warmup_iterations = max(0, int(frontres_segment_critic_warmup_iterations))
         self.frontres_segment_actor_warmup_iterations = max(0, int(frontres_segment_actor_warmup_iterations))
+        self.frontres_segment_k_curriculum = tuple(
+            tuple(int(value) for value in row) for row in frontres_segment_k_curriculum
+        )
+        self.frontres_segment_k_curriculum_fingerprint = ""
+        if self.frontres_segment_k_curriculum:
+            (
+                normalize_frontres_k_stage_schedule,
+                frontres_k_stage_schedule_tuple,
+                frontres_k_stage_schedule_fingerprint,
+            ) = _frontres_v009_schedule_owners()
+            normalized_k_schedule = normalize_frontres_k_stage_schedule(
+                self.frontres_segment_k_curriculum,
+                max_horizon_k=int(frontres_segment_max_horizon_k),
+            )
+            self.frontres_segment_k_curriculum = frontres_k_stage_schedule_tuple(normalized_k_schedule)
+            self.frontres_segment_k_curriculum_fingerprint = frontres_k_stage_schedule_fingerprint(
+                normalized_k_schedule
+            )
         self.frontres_formal_runtime_audit = bool(frontres_formal_runtime_audit)
         self.frontres_segment_periodic_eval_enabled = bool(frontres_segment_periodic_eval_enabled)
         self.frontres_segment_periodic_eval_interval = max(1, int(frontres_segment_periodic_eval_interval))
@@ -278,6 +325,8 @@ class FrontRESUnified:
                 "'none', 'scale_only', 'standard', or 'grouped_scale_only'"
             )
         if self.frontres_v015_formal_transaction_enabled:
+            if not self.frontres_segment_k_curriculum:
+                raise ValueError("FRS-TRAIN-v009 formal transaction requires an explicit K-stage curriculum")
             if self.frontres_segment_advantage_normalization != "grouped_scale_only":
                 raise ValueError("v015 formal transaction requires grouped_scale_only normalization")
             if (
@@ -287,11 +336,6 @@ class FrontRESUnified:
                 or self.frontres_hsl_rollout_label_enabled
             ):
                 raise ValueError("v015 formal transaction rejects HSL and Stage-3 supervised targets")
-            if self.frontres_segment_live_train_enabled and (
-                self.frontres_segment_critic_warmup_iterations <= 0
-                or self.frontres_segment_actor_warmup_iterations <= 0
-            ):
-                raise ValueError("FRS-TRAIN-v008 formal training requires positive critic/actor warmup durations")
         if self.frontres_v015_local_sentinel_only:
             if not self.frontres_v015_formal_transaction_enabled:
                 raise ValueError("v015 local sentinel requires frontres_v015_formal_transaction_enabled=True")

@@ -56,7 +56,7 @@
     {
       "id": "M-06",
       "title": "K-step Curriculum",
-      "summary": "首帧修复的 K-step GMT 证据",
+      "summary": "全局递增 K, 扩展首帧修复的后果证据",
       "concept": "C-CURRICULUM",
       "x": 40,
       "y": 330,
@@ -117,7 +117,7 @@
     {
       "id": "M-05",
       "title": "Actor & Critic Warmup",
-      "summary": "预热 Actor 与 Critic",
+      "summary": "每次换 K 先校准 Critic, 再释放 Actor",
       "concept": "C-TRAIN",
       "x": 855,
       "y": 470,
@@ -135,6 +135,7 @@
     {"from": "M-10", "to": "Q-PAIR", "label": "执行", "concept": "C-EXTERNAL"},
     {"from": "Q-PAIR", "to": "Q-01", "label": "配对增益", "concept": "C-SIGNAL"},
     {"from": "M-03", "to": "M-05", "label": "进入 RL", "concept": "C-TRAIN"},
+    {"from": "M-06", "to": "M-05", "label": "换 K 后重校准", "concept": "C-TRAIN", "fromAnchor": "bottom", "toAnchor": "bottom", "via": [[150, 570], [970, 570]], "labelX": 560, "labelY": 560},
     {"from": "M-05", "to": "M-04", "label": "预热", "concept": "C-TRAIN", "fromAnchor": "top", "toAnchor": "bottom", "via": [[970, 405], [1285, 405]], "labelX": 1127, "labelY": 397},
     {"from": "Q-01", "to": "M-04", "label": "PPO 学习信号", "concept": "C-TRAIN", "fromAnchor": "bottom", "toAnchor": "bottom", "toOffset": 45, "via": [[2115, 300], [1330, 300]], "labelX": 1722, "labelY": 289},
     {"from": "Q-01", "to": "SR-01", "label": "重放优先级", "concept": "C-SIGNAL", "fromAnchor": "top", "toAnchor": "top", "via": [[2115, 60], [710, 60]]}

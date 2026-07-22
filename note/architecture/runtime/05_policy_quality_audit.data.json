@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
-  "subtitle": "v015 policy-quality current-state view: historical v011/v002/v003 cards remain isolated; E-FI-68 closes v004/v008 engineering while actor-ramp efficacy remains unconfirmed.",
-  "currentStatus": "E-FI-68 runtime-confirms expected support, actual ContactSensor, phase-conditioned ZMP, non-compensatory v004 Gain, v008 critic-only isolation, exact-one update and committed persistence. All four critic-only Repairs remained Physics-inadmissible; actor-ramp quality is the next X1 evidence boundary.",
+  "subtitle": "v015 policy-quality current-state view: historical v011/v002/v003 cards remain isolated; E-FI-70 closes deterministic v009 C1-C3, while C4 official live K-transition remains the engineering gate.",
+  "currentStatus": "E-FI-70 confirms explicit global K stages, homogeneous-K transactions, new-K critic-only isolation, exact-one update and checkpoint-v4 resume offline. Policy efficacy and long-training admission remain blocked until C4 provides official live transition evidence.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,

@@ -198,7 +198,9 @@ def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
         alg=SimpleNamespace(
             policy=policy,
             frontres_v015_local_sentinel_only=True,
-            frontres_segment_max_horizon_k=3,
+        frontres_segment_max_horizon_k=3,
+        frontres_segment_k_curriculum=((3, 1, 1, 0),),
+        frontres_segment_k_curriculum_fingerprint="",
         ),
         env=SimpleNamespace(num_envs=8),
         _frontres_segment_sampler=sampler,

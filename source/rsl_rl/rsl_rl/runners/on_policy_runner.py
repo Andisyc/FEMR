@@ -1197,7 +1197,7 @@ class OnPolicyRunner:
                         and bool(self.cfg.get("frontres_hsl_rollout_label_enabled", False))
                     ):
                         raise RuntimeError(
-                            "FRS-TRAIN-v008 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
+                            "FRS-TRAIN-v009 forbids frontres_hsl_rollout_label_enabled on every active Stage-3 route"
                         )
                     
                     # ------------------- Policy Rollout -------------------

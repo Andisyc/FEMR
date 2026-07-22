@@ -1,200 +1,151 @@
-# FRS-v015 One-Shot HRL Engineering Plan
+# FRS-v015 K-Stage Critic Curriculum Engineering Plan
 
 Status: active, volatile engineering plan. Updated: 2026-07-22.
-
-This plan applies `one-shot-execution`: owner changes, focused tests, formal
-connectivity, one bounded smoke, evidence capture, and documentation refresh are
-embedded checks inside one engineering unit. They are not separate user-visible
-approval steps.
 
 ## Authority
 
 - Concept Figure: `../../architecture/concept/03_frontres_concept_tabs.data.json`
-- Contract registry: `../contracts/README.md`
-- Active contracts: Method v015, Training v008, Gain v004, PPO v003, Eval v003
-- Acceptance checklist: `../checklists/FRS-v015-future-intent-single-action-k-checklist.md`
-- Evidence ledger: `../../testing/evidence_ledger_v015_future_intent_single_action_k_2026-07-19.md`
-
-The accepted design delta is entirely inside existing `Q-PAIR` and `Q-01`:
-expected support-mode preservation, Contact-phase-conditioned ZMP, and
-non-compensatory Physics admissibility. It does not add a top-level Contact
-module. The same G5-P1 now also closes `M-05`: v004 critic-only calibration,
-linear actor takeover, then joint PPO. It does not add an actor, Critic,
-optimizer, HSL target, or change H, K, transaction, or grouped PPO semantics.
+- Method: `../contracts/active/method/FRS-METHOD-v015-future-intent-single-action-k-replay.md`
+- Training: `../contracts/active/training/FRS-TRAIN-v009-k-stage-critic-curriculum.md`
+- Gain/PPO: FRS-GAIN-v004 / FRS-PPO-v003, unchanged
+- Checklist: `../checklists/FRS-v015-future-intent-single-action-k-checklist.md`
+- Evidence: `../../testing/evidence_ledger_v015_future_intent_single_action_k_2026-07-19.md`
 
 ## Preserved Foundation
 
-`G0--G4`, the G5 formal route, and `E-FI-0--E-FI-65` remain valid evidence for:
+G0-G5-P1 and `E-FI-0--E-FI-68` remain valid for local scenarios, q29 future
+intent, 928/158/770 authority, two roles, one action, K-step frozen-GMT
+evidence, multi-Segment x M atomicity, grouped PPO, v004 Physics Gain,
+proposal-only HSL, and one bounded critic-only update. No prior evidence proves
+K-stage Critic Curriculum.
 
-- immutable local scenarios and deployment-provenance q29 Intent;
-- `928D = 158D FEMR + 770D frozen GMT` authority;
-- Repair/Noisy roles, one FEMR action, and K-step frozen-GMT evidence;
-- one policy row per attempt, multi-Segment x M transaction, grouped reduction,
-  exact-one update, and committed Stage3-v015 persistence;
-- strict HSL-v1 actor-only initialization;
-- the existing scalar Critic, 289D critic observation, value/return/advantage
-  carrier, and historical Warmup scheduler/tests;
-- complete paired survival/ZMP/contact carrier and row-aligned credit
-  diagnostics.
+## Original Contract Mismatch And Closure
 
-Those facts do not validate the v004 Gain. `E-FI-64` showed the formal additive
-v003 route could produce harmful repairs, and `E-FI-65` still used a foot-height
-contact proxy and additive available-mean Physics. E68--E70 validate Warmup only
-on the older update/v002 Gain route. HSL remains frozen.
+The confirmed method treats K as a global curriculum stage. Before E-FI-70,
+the source let `frontres_segment_sampler.py::plan_rollout_budget()` assign
+`8/16/32/64` from each Segment's replay state, so different horizons may reach
+one scalar Critic without K input. `frontres_segment_warmup_phase()` indexes one
+global v008 warmup only and does not re-enter critic-only when K changes.
+Checkpoint v3 binds v008/global iteration but not a K schedule, stage, or local
+phase. E-FI-70 closes this mismatch on the v009 formal route through an
+explicit schedule, homogeneous-K override, stage-local recalibration and
+checkpoint v4. C4 live transition and long training remain blocked.
 
-## Closure State
+## Source Of Truth
 
-G5-P1 implementation, focused S1/S2/S3 contracts, and the bounded S4
-critic-only transaction are complete at `E-FI-68`. The formal route now uses
-the sealed expected-support carrier, actual `contact_forces`, phase-conditioned
-ZMP, FRS-GAIN-v004 consumers, FRS-TRAIN-v008 phase selection, critic-only
-actor/std isolation, and v008/v004 persistence identity.
+| Semantic object | Active owner after implementation | Legacy path | Isolation rule |
+| --- | --- | --- | --- |
+| K curriculum schedule | existing `frontres_segment_warmup.py` pure schedule kernel | per-Segment K in `plan_rollout_budget()` | formal v009 ignores/rejects segment-owned K |
+| active K stage | formal runner before transaction selection | global iteration-only v008 phase | one immutable stage identity per transaction |
+| Critic target | existing v004 return/storage/PPO path | mixed `return_K` targets | every row in a transaction has one `active_k` |
+| transition | committed-update cursor | state change during collection | advance only after committed receipt |
+| persistence | `frontres_checkpointing.py` | checkpoint v3/v008 | checkpoint v4/v009 exact schedule fingerprint |
 
-The S4 transaction is an engineering proof, not a policy-quality claim. All
-four sampled Repair rows remained Physics-inadmissible, so both role utilities
-were tied at the unsafe tier and `gain_total` consisted only of the negative
-bounded repair penalty. This is admissible Critic calibration data and the
-Critic updated, but actor-ramp quality remains unconfirmed until X1.
+## Step Map
 
-## G5-P1: One-Shot v004 Physics Gain And Critic-Ready Actor Migration
+### C0 (Preparatory): Contract And White-Box Rebase
 
-### Terminal outcome
+Objective: freeze the global K-stage/single-Critic semantics and locate the
+current mixed-K mismatch.
 
-The official Stage3-v015 path uses one immutable expected support sequence,
-authoritative actual ContactSensor evidence, phase-conditioned ZMP, and the
-single scalar FRS-GAIN-v004 utility in every formal consumer. A cold HSL-v1
-actor then enters v004 critic-only calibration before actor ramp and joint PPO.
-One bounded 8-env critic-only transaction proves the formal route without
-changing the frozen method boundaries.
+Scope: Training v009, Method v015 clarification, Concept Figure M-06/M-05
+interaction, registry, plan, checklist, canvas, Architecture, and evidence.
 
-### Unique owners and data route
+Non-scope: source code, tests, checkpoint I/O, simulator, training, live run.
 
-| Semantic object | Unique owner | Input -> output |
-| --- | --- | --- |
-| Expected support carrier | `commands.py::MultiMotionCommand.materialize_frontres_local_scenario()` | same ordered Clean frames and materializer-owned reference foot kinematics -> immutable left/right support modes `[K,2]` plus phase/tolerance identity; `[K,65]` remains the GMT command |
-| Actual Contact evidence | `frontres_segment_live_probe.py::_capture_physics_frame()` | `contact_forces` ContactSensor + role rows -> paired actual contact `[K,B,2]` |
-| Immutable paired facts | `frontres_segment_storage.py` | expected/actual contact, ZMP, survival, valid masks, scenario identity -> one-action-K paired facts |
-| v004 ordering | `frontres_gain.py` | per-role Physics admissibility/deficit + Intent quality + repair cost -> one scalar paired Gain `[B]` |
-| Warmup phase | `frontres_segment_warmup.py::frontres_segment_warmup_phase()` | persisted iteration plus explicit `N_c/N_a` -> phase and actor loss weight |
-| Phase-aware formal update | `frontres_segment_live_probe.py::run_frontres_v015_formal_transaction_update()` | complete v004 transaction + phase -> critic-only / actor-ramp / joint exact-one update |
-| Warmup persistence | `frontres_checkpointing.py` | v008/v004 identity + `N_c/N_a` + absolute iteration/phase -> exact save/resume or fail-closed |
+Evidence: E-FI-69 plus exact owner/shape/identity audit.
 
-Expected support is materialized once from the same Clean frame identities
-already gathered by the command owner; it must be covered by the sealed
-scenario hash and reused by all M attempts. Actual Contact must come from the configured sensor. The
-existing `contact_state` field is the allowed carrier; no predictor, label, or
-actor input is added.
+Stop: any unresolved choice about global versus per-Segment K, Multi-Critic,
+K actor input, or final objective horizon.
 
-### Formal consumers
+Why separate: this is the human semantic and contract-version boundary.
 
-The same `gain_contract_id=FRS-GAIN-v004` result must reach:
+### C1 / 4: Pure Curriculum Kernel And Config Identity
 
-```text
-immutable storage
--> return and advantage
--> replay priority evidence
--> grouped PPO transaction
--> live diagnostics
--> local and held-out evaluation
-```
+Objective: implement immutable schedule validation and absolute iteration ->
+`(stage, active_k, stage_iteration, phase, actor_weight)` mapping.
 
-Every v015 formal consumer rejects v002/v003 fallback, missing component
-zero-fill, mixed scenario/phase identity, and partial transaction evidence.
-The phase is fixed for the complete transaction. PPO reduction, optimizer
-count, scalar Critic interface, and value-loss formula remain unchanged.
+Scope: existing `frontres_segment_warmup.py`, config dataclasses, Stage3 CLI
+parsing, and focused pure contracts. The schedule explicitly carries ordered
+`(K,N_c,N_a,N_joint)` stages; the final stage remains joint.
 
-### Scope
+Non-scope: sampler/reset/storage/PPO/checkpoint mutation, simulator, live run.
 
-- derive expected support modes from the GMT-only Clean continuation without
-  actor exposure;
-- read left/right actual contact from the existing ContactSensor;
-- implement timing-tolerant planned/extra/missed/dragging Contact alignment;
-- implement support-phase ZMP masks, domains, transition recovery, and flight
-  `N/A`;
-- implement non-compensatory admissibility/deficit/Intent tier ordering and
-  bounded repair penalty in the existing scalar Gain owner;
-- migrate every formal v015 consumer and diagnostic to v004;
-- connect the existing Warmup scheduler to the formal v015 owner;
-- require explicit nonzero `N_c/N_a` for formal training, with current
-  engineering defaults 200/500;
-- in critic-only, update only the scalar Critic while actor/std remain exactly
-  unchanged; then linearly ramp actor loss while Critic remains enabled;
-- bind v008/v004, schedule, absolute iteration, and phase into Stage3
-  checkpoint/resume identity and reject v003/v007 resume before mutation;
-- run focused deterministic, formal-connectivity, and one bounded live proof;
-- append evidence and refresh checklist/canvas/Architecture inside the same
-  closure.
+Evidence: S1 boundary, invalid-order, final-stage, permutation, and deterministic
+fingerprint tests; v008 global scheduler remains historical only.
 
-### Non-scope
+Stop: implicit schedule defaults, non-monotonic K, zero recalibration, or a
+need for multiple Critics.
 
-- actor observation, action shape, scalar Critic architecture, critic
-  observation, HSL, normalizer, or generic checkpoint-format changes;
-- `rho`, dual output, serial networks, second Critic/optimizer, contact
-  predictor, or new actor input;
-- Noisy physical prefix, noise label, perturbation time, Clean actor future, or
-  future root/global actor input;
-- changing H, K, one-action-K, sealed transaction, grouped PPO, or optimizer
-  formula;
-- long training, multi-seed, deployment composition, or paper experiments.
+### C2 / 4: Formal Homogeneous-K Transaction And Phase Update
 
-### Embedded evidence
+Objective: connect the C1 stage identity to official selection, sealed
+transaction metadata, v004 return, and the existing exact-one grouped update.
 
-S1 deterministic contracts must cover support codes `11/10/01/00`, left/right
-identity, planned step, static support, early/late tolerance, extra/missed
-switches, dragging, transition recovery, flight ZMP masking, survival failure,
-both-safe/both-unsafe/cross-tier ordering, no-op, missing/non-finite evidence,
-row/role permutation, actor-input exclusion, all Warmup phase boundaries,
-actor-weight formula, and critic-only actor/std invariance.
+Scope: existing live sampler/formal request/update/diagnostic owners. Every
+selected Segment and M attempt receives `active_k`; per-Segment adaptive K is
+rejected on v009 formal training. Stage/phase cannot change while open.
 
-S2 formal connectivity must prove one sealed support carrier across M attempts,
-real ContactSensor owner reachability, `[K,B,2]` row alignment, shared valid
-masks, all v004 consumers, unchanged one-row/grouped/exact-one behavior, and
-v002/v003 isolation. The same formal v015 owner must prove v004 return reaches
-the Critic during critic-only, actor/std stay fixed, actor-ramp weight is
-monotonic, and no legacy update connector is used.
+Non-scope: Gain/PPO formula, actor/Critic architecture, M semantics, HSL,
+checkpoint format, simulator/live run.
 
-S3 persistence must prove cold HSL-v1 starts at iteration 0 critic-only, exact
-v008/v004 save/reload preserves `N_c/N_a` and phase, and v003/v007/unversioned
-resume rejects before state mutation.
+Evidence: S2 fake official-entry connectivity across one K transition;
+old-stage commit then new-stage critic-only, equal group mass, actor/std zero
+delta, Critic nonzero delta, exact-one update, mixed-K fail-closed.
 
-S4 bounded evidence is one 8-env complete critic-only transaction. It must record
-expected/actual contact sequences, switch violations, phase/ZMP masks and
-recovery, survival, per-role admissibility/deficit, Intent quality, paired
-utility, repair cost, Gain, return, raw/scaled advantage, gradient, group mass,
-Warmup phase/weight, actor/std zero delta, nonzero Critic delta, exact-one
-update, committed checkpoint, and v008/v004 identity. Deterministic fixtures
-cover actor-ramp/joint; actual long phase progression belongs to X1.
+Stop: K cannot be made transaction-homogeneous, stage change precedes commit,
+or grouped PPO needs cross-K weighting.
 
-### Stop conditions
+### C3 / 4: v009 Persistence And Fresh Resume
 
-Stop the one-shot implementation at the first true design boundary if:
+Objective: create checkpoint v4 identity for exact curriculum resume.
 
-- expected support cannot be deterministically derived from Clean continuation
-  while remaining evaluator-only;
-- `contact_forces` cannot provide stable left/right actual contact;
-- role/foot/phase/scenario identity cannot stay sealed across attempts;
-- planned aggressive motion cannot be separated from Repair-induced stepping
-  without a new label or model;
-- numerical scaling allows Intent or repair cost to invert the Physics tier;
-- any formal consumer requires mixed v003/v004 evidence or a frozen method
-  boundary must change;
-- the formal owner falls back to `run_frontres_segment_single_update()`, still
-  rejects nonzero Warmup, changes actor/std during critic-only, gives the Critic
-  no gradient, crosses phase inside a transaction, restarts phase on resume, or
-  accepts a v003/v007 Stage3 checkpoint;
-- after one complete implementation/repair cycle, the bounded live route is
-  still contradictory, no-op, regressing, or harmful.
+Scope: existing checkpoint owner and save connector; bind schedule fingerprint,
+stage index, active K, local iteration, phase, absolute committed update, and
+v004/v003/layout identities.
 
-## X1: Formal Experiments And Composition
+Non-scope: checkpoint payload expansion beyond existing training state,
+actor-only Stage3 migration, simulator/live run.
 
-X1 remains the next high-cost boundary only after G5-P1 passes. It owns the
-training budget/seeds, checkpoint trajectory, paired deployment composition,
-and paper artifacts. It is not authorized by this plan rebase.
+Evidence: S3 save/reload/pre-mutation tests; exact resume equality; v008,
+different schedule, mixed-K, and partial transaction rejection.
+
+Stop: resume can restart a K stage, cross phase, or mutate before identity
+validation.
+
+### C4 / 4: Bounded Official K-Transition Sentinel
+
+Objective: prove the official Stage3 route crosses exactly one K boundary.
+
+Scope: one explicit small engineering schedule, 8 envs, enough transactions to
+commit the old stage and enter new-K critic-only, one update per transaction,
+committed v009 checkpoint and synchronized evidence/Architecture closeout.
+
+Frozen bounded schedule: `8:1:1:1,16:1:1:0`, four formal iterations and
+checkpoint interval one. Expected order is K8 critic-only, K8 actor-ramp, K8
+joint, then K16 critic-only. `model_3.pt` must expose the next K16
+critic-only identity; the fourth receipt must prove K16 actor/std zero delta
+and Critic nonzero delta before `model_4.pt` advances to actor-ramp.
+
+Non-scope: policy-quality acceptance, long training, multiple seeds,
+deployment composition, paper experiments.
+
+Evidence: S4 stage/K/phase identity, expected/actual K, actor/std zero delta at
+new stage, Critic nonzero delta, exact-one counts, checkpoint v4/v009 receipt.
+
+Stop: mixed K, missing stage identity, actor drift, no Critic update, transition
+before commit, resume mismatch, or any legacy v008 path.
+
+Why separate: this is the only simulator/material-cost boundary.
+
+## Post-C4 Boundary
+
+After C4, `formal-runtime-audit` decides runtime closure and
+`policy-quality-audit` owns final-K label learnability, checkpoint trajectory,
+no-op/harm detection, and long-training admission. Short-K success cannot
+authorize long-sequence or deployment claims.
 
 ## Cursor
 
-Current cursor: `G5-P1 completed at E-FI-68; X1 remains the next high-cost,
-separately authorized boundary`.
-
-No actor-ramp progression, long training, multi-seed run, deployment
-composition, or paper experiment has been authorized or executed.
+Current cursor: `C1-C3 complete with E-FI-70 deterministic evidence; stop at
+C4 / 4 bounded official K-transition live gate`.

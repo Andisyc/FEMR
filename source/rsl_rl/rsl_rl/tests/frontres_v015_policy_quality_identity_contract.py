@@ -131,11 +131,17 @@ def _stage3_payload(checkpointing, *, transaction_state: str = "idle") -> dict[s
         obs_norm["_std"][..., :158],
     )
     transaction: dict[str, object] = {"state": transaction_state}
+    schedule = ((8, 1, 1, 0),)
+    curriculum = checkpointing.resolve_frontres_k_stage_identity(
+        schedule=schedule,
+        committed_update_iteration=1,
+        max_horizon_k=8,
+    )
     return {
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v015-checkpoint-v3",
+            "format": "frontres-v015-checkpoint-v4",
             "method_contract_id": "FRS-METHOD-v015",
-            "training_contract_id": "FRS-TRAIN-v008",
+            "training_contract_id": "FRS-TRAIN-v009",
             "gain_contract_id": "FRS-GAIN-v004",
             "ppo_contract_id": "FRS-PPO-v003",
             "future_intent_layout": _layout(),
@@ -152,11 +158,16 @@ def _stage3_payload(checkpointing, *, transaction_state: str = "idle") -> dict[s
                 "policy_rows_per_attempt": 1,
             },
             "transaction": transaction,
-            "warmup": {
-                "critic_warmup_iterations": 200,
-                "actor_warmup_iterations": 500,
-                "iteration": 1,
-                "phase": "critic_only",
+            "curriculum": {
+                "schedule": schedule,
+                "schedule_fingerprint": curriculum.schedule_fingerprint,
+                "k_stage_index": curriculum.stage_index,
+                "active_k": curriculum.active_k,
+                "stage_iteration": curriculum.stage_iteration,
+                "absolute_iteration": curriculum.absolute_iteration,
+                "phase": curriculum.phase.name,
+                "phase_iteration": curriculum.phase.phase_iteration,
+                "actor_loss_weight": curriculum.phase.actor_loss_weight,
             },
         },
         "model_state_dict": {"residual_actor": actor, "std": torch.full((6,), 0.2)},
@@ -171,7 +182,7 @@ def _manifest_payload() -> dict[str, object]:
     return {
         "schema_version": "frontres-v015-policy-quality-manifest-v1",
         "method_contract_id": "FRS-METHOD-v015",
-        "training_contract_id": "FRS-TRAIN-v008",
+        "training_contract_id": "FRS-TRAIN-v009",
         "gain_contract_id": "FRS-GAIN-v004",
         "ppo_contract_id": "FRS-PPO-v003",
         "future_intent_layout_version": "frontres-v015-future-intent-q29-v1",
@@ -247,7 +258,7 @@ def test_strict_v015_quality_identity_and_tamper_rejection() -> None:
         assert request.hsl_checkpoint.format == "frontres-v015-hsl-proposal-v1"
         assert request.hsl_checkpoint.normalizer_key == "frontres_prefix_norm_state_dict"
         assert request.policy_checkpoint.route == "policy"
-        assert request.policy_checkpoint.format == "frontres-v015-checkpoint-v3"
+        assert request.policy_checkpoint.format == "frontres-v015-checkpoint-v4"
         assert request.policy_checkpoint.normalizer_key == "obs_norm_state_dict"
         assert len(request.manifest_file_sha256) == 64
         assert len(request.hsl_checkpoint.file_sha256) == 64

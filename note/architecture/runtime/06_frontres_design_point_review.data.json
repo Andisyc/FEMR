@@ -65,7 +65,8 @@
       "parent": "K-step Curriculum",
       "rows": [
         {"question": "K 在 policy 语义中代表什么？", "point": "每个 attempt 只有一条 PPO policy/action row；K 只是 executable-evidence horizon"},
-        {"question": "K 的增长如何改变方法？", "point": "只逐步延长首帧修复的延迟后果评估，不把 K 变成额外 actor future frames 或 PPO rows"}
+        {"question": "K 的增长如何改变方法？", "point": "只逐步延长首帧修复的延迟后果评估，不把 K 变成额外 actor future frames 或 PPO rows"},
+        {"question": "不同 Segment 能否同时使用不同 K？", "point": "不能；FRS-TRAIN-v009 每个训练 stage 只有一个全局 active K，同一 sealed transaction 的所有 Segment x M attempts 必须同质"}
       ]
     },
     {
@@ -94,6 +95,7 @@
       "rows": [
         {"question": "为什么不能一进入 Stage-3 就让 actor 完全接管？", "point": "HSL 只提供初始 proposal；fresh critic 尚未学到 FRS-GAIN-v004 paired return 时，立即施加完整 PPO actor gradient 会冲掉这一初始化"},
         {"question": "Critic Warmup Curriculum 如何分段？", "point": "依次经历 critic-only、actor-warmup、joint：critic 始终学习 v004 return，actor 与 std 先冻结，PPO actor loss weight 再从 0 平滑升至 1"},
+        {"question": "K 增长时 Critic 如何处理？", "point": "保留同一个 scalar Critic 的权重，但每次进入更长 K-stage 都将 actor/std 再次冻结，从 critic-only 重新校准该 horizon 的 return 尺度；禁止 Multi-Critic"},
         {"question": "Actor takeover 如何发生？", "point": "actor 从 HSL 初始化参数出发，随 PPO actor weight 增大逐步由 v004 executable Gain 的策略梯度接管，而非突然切换或继续依赖 HSL target"},
         {"question": "完成 takeover 后的联合训练是什么？", "point": "进入 joint PPO 后，actor 与 scalar critic 共同使用同一 v004 paired evidence；HSL 不再向 Stage-3 提供监督目标"}
       ]

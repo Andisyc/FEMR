@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import copy
 from dataclasses import replace
+import hashlib
 import importlib.util
+import json
 import sys
 import tempfile
 import types
@@ -144,7 +146,14 @@ def _policy(policy_cls, *, actor_dim: int, prefix_dim: int):
     return _Policy()
 
 
-def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 7):
+_V009_SCHEDULE = ((3, 1, 1, 2), (4, 1, 1, 0))
+
+
+def _v009_schedule_fingerprint() -> str:
+    return hashlib.sha256(json.dumps(_V009_SCHEDULE, separators=(",", ":")).encode("ascii")).hexdigest()
+
+
+def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 3):
     layout = layout_module.resolve_frontres_future_intent_layout(
         offsets, layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
     )
@@ -162,6 +171,9 @@ def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 7):
         frontres_segment_advantage_normalization="grouped_scale_only",
         frontres_segment_critic_warmup_iterations=2,
         frontres_segment_actor_warmup_iterations=3,
+        frontres_segment_k_curriculum=_V009_SCHEDULE,
+        frontres_segment_k_curriculum_fingerprint=_v009_schedule_fingerprint(),
+        frontres_segment_max_horizon_k=4,
         frontres_future_offsets=(1, 2),
         frontres_future_intent_layout_version=layout.version,
         frontres_hsl_init_enabled=False,
@@ -319,6 +331,11 @@ def _committed_state() -> dict[str, object]:
             "optimizer_step_before": 9,
             "optimizer_step_after": 10,
             "optimizer_step_delta": 1,
+            "curriculum_fingerprint": _v009_schedule_fingerprint(),
+            "k_stage_index": 0,
+            "active_k": 3,
+            "k_stage_iteration": 2,
+            "training_iteration": 2,
         },
     }
 
@@ -345,14 +362,19 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
         checkpointing.save_runner(source, str(path))
         payload = _saved_payload(path)
         identity = payload["frontres_v015_checkpoint_identity"]
-        assert identity["format"] == "frontres-v015-checkpoint-v3"
-        assert identity["training_contract_id"] == "FRS-TRAIN-v008"
+        assert identity["format"] == "frontres-v015-checkpoint-v4"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v009"
         assert identity["gain_contract_id"] == "FRS-GAIN-v004"
-        assert identity["warmup"] == {
-            "critic_warmup_iterations": 2,
-            "actor_warmup_iterations": 3,
-            "iteration": 7,
+        assert identity["curriculum"] == {
+            "schedule": _V009_SCHEDULE,
+            "schedule_fingerprint": _v009_schedule_fingerprint(),
+            "k_stage_index": 0,
+            "active_k": 3,
+            "stage_iteration": 3,
+            "absolute_iteration": 3,
             "phase": "joint",
+            "phase_iteration": 1,
+            "actor_loss_weight": 1.0,
         }
         assert identity["future_intent_layout"]["future_offsets"] == (1, 2)
         assert identity["future_intent_layout"]["actor_tail_dim"] == 58
@@ -383,7 +405,7 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
         resumed.obs_normalizer._mean.fill_(-321.0)
         resumed.obs_normalizer._std.fill_(3.0)
         checkpointing.load_runner(resumed, str(path), load_optimizer=False)
-        assert resumed.current_learning_iteration == 7
+        assert resumed.current_learning_iteration == 3
         assert resumed._frontres_segment_sampler.loaded is True
         assert resumed._frontres_extra_stats_layout_version == layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
         assert resumed._frontres_v015_checkpoint_transaction_state == {"state": "idle"}
@@ -485,6 +507,63 @@ def test_t_atomicity_rejects_partial_save_and_resume(layout_module, checkpointin
         print("[T-atomicity] collecting save and sealed resume both fail closed without a later update path", flush=True)
 
 
+def test_t_v009_transition_identity_and_schedule_reject(layout_module, checkpointing, policy_cls) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "v009_transition.pt"
+        source = _runner(layout_module, policy_cls, iteration=4)
+        committed = _committed_state()
+        committed["receipt"].update(
+            {
+                "k_stage_iteration": 3,
+                "training_iteration": 3,
+            }
+        )
+        source._frontres_v015_checkpoint_transaction_state = committed
+        checkpointing.save_runner(source, str(path))
+        payload = _saved_payload(path)
+        identity = payload["frontres_v015_checkpoint_identity"]
+        assert identity["format"] == "frontres-v015-checkpoint-v4"
+        assert identity["curriculum"]["k_stage_index"] == 1
+        assert identity["curriculum"]["active_k"] == 4
+        assert identity["curriculum"]["stage_iteration"] == 0
+        assert identity["curriculum"]["phase"] == "critic_only"
+        assert identity["curriculum"]["actor_loss_weight"] == 0.0
+
+        resumed = _runner(layout_module, policy_cls, iteration=0)
+        checkpointing.load_runner(resumed, str(path), load_optimizer=True)
+        assert resumed.current_learning_iteration == 4
+        assert resumed.alg.optimizer.param_groups[0]["lr"] == source.alg.optimizer.param_groups[0]["lr"]
+
+        mismatched = _runner(layout_module, policy_cls, iteration=0)
+        mismatched_schedule = ((3, 1, 1, 3), (4, 1, 1, 0))
+        mismatched.alg.frontres_segment_k_curriculum = mismatched_schedule
+        mismatched.alg.frontres_segment_k_curriculum_fingerprint = checkpointing.resolve_frontres_k_stage_identity(
+            schedule=mismatched_schedule,
+            committed_update_iteration=0,
+            max_horizon_k=4,
+        ).schedule_fingerprint
+        actor_before = mismatched.alg.policy.residual_actor.weight.detach().clone()
+        _expect_error(
+            lambda: checkpointing.load_runner(mismatched, str(path), load_optimizer=False),
+            "schedule differs",
+        )
+        _assert_unmutated(mismatched, actor_before)
+
+        old_v3 = copy.deepcopy(payload)
+        old_v3["frontres_v015_checkpoint_identity"]["format"] = "frontres-v015-checkpoint-v3"
+        old_v3["frontres_v015_checkpoint_identity"]["training_contract_id"] = "FRS-TRAIN-v008"
+        old_v3_path = Path(tmp) / "old_v3.pt"
+        torch.save(old_v3, old_v3_path)
+        rejected = _runner(layout_module, policy_cls, iteration=0)
+        actor_before = rejected.alg.policy.residual_actor.weight.detach().clone()
+        _expect_error(
+            lambda: checkpointing.load_runner(rejected, str(old_v3_path), load_optimizer=False),
+            "contract or format identity",
+        )
+        _assert_unmutated(rejected, actor_before)
+        print("[T-v009-transition/T-schedule-fingerprint/T-v008-reject] exact new-K critic-only resume and pre-mutation rejection", flush=True)
+
+
 def test_t_committed_save_to_fresh_inference_equality(
     layout_module,
     checkpointing,
@@ -497,7 +576,7 @@ def test_t_committed_save_to_fresh_inference_equality(
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "v015_g3_s2_committed.pt"
         torch.manual_seed(17)
-        source = _runner(layout_module, policy_cls)
+        source = _runner(layout_module, policy_cls, iteration=2)
         intent = torch.arange(2 * 3 * 29, dtype=torch.float32).reshape(2, 3, 29) / 100.0
         source_snapshot = _wire_inference_carrier(source, intent)
         raw_obs = torch.arange(2 * 870, dtype=torch.float32).reshape(2, 870) / 1000.0
@@ -511,6 +590,7 @@ def test_t_committed_save_to_fresh_inference_equality(
         assert committed_state["receipt"]["optimizer_step_delta"] == 1
         assert committed_state["receipt"]["collected_policy_attempt_count"] == 4
         assert source.alg.optimizer.frontres_v015_step_count == 1
+        source.current_learning_iteration += 1
         before = _fresh_inference_trace(source, runtime, raw_obs)
         assert not torch.equal(pre_update["proposal"], before["proposal"])
 
@@ -570,6 +650,7 @@ def main() -> None:
     test_t_resume_rejects_layout_legacy_and_normalizer_before_mutation(layout_module, checkpointing, policy_cls)
     test_t_zero_and_full_observation_prefix_reject_before_save(layout_module, checkpointing, policy_cls)
     test_t_atomicity_rejects_partial_save_and_resume(layout_module, checkpointing, policy_cls)
+    test_t_v009_transition_identity_and_schedule_reject(layout_module, checkpointing, policy_cls)
     test_t_committed_save_to_fresh_inference_equality(
         layout_module,
         checkpointing,

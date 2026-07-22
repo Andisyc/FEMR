@@ -7,7 +7,7 @@ This registry is the only default entrypoint for FrontRES contracts.
 | Category | Active contract | Status |
 | --- | --- | --- |
 | Method | `active/method/FRS-METHOD-v015-future-intent-single-action-k-replay.md` | active |
-| Training | `active/training/FRS-TRAIN-v008-critic-ready-v004-actor-curriculum.md` | active |
+| Training | `active/training/FRS-TRAIN-v009-k-stage-critic-curriculum.md` | active |
 | Reward | `active/reward/FRS-GAIN-v004-support-mode-physics-admissibility.md` | active |
 | Optimization | `active/optimization/FRS-PPO-v003-single-policy-row-k-evidence-grouped-reduction.md` | active |
 | Evaluation | `active/evaluation/FRS-EVAL-v003-local-repair-composition-evaluation.md` | active |
@@ -22,13 +22,13 @@ Concept Figure. Canonical names and block IDs come from
 | --- | --- | --- | --- | --- |
 | `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v015` / `Local Root-Artifact Scenario` | `M-02` | `E-FI-27` live-confirms two root-artifact local scenarios with paired immutable hashes; the legacy full-tape route remains excluded. |
 | `FRS-DP-02` | Segment Replay | `FRS-METHOD-v015` / `Frozen-Policy Multi-Attempt Transaction` | `SR-01` | `E-FI-27` live-confirms two Segment sources with M=2, one frozen snapshot, equal attempt mass, and exactly one update after all rows seal. |
-| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v015` / `Single-Action K-step Evidence` | `M-06` | `E-FI-27` live-confirms one action/PPO row per attempt, K=8, eight valid evidence steps, and no K-dependent actor mass. |
+| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v015` / `Single-Action K-step Evidence`; `FRS-TRAIN-v009` / `Global K-Stage Identity` | `M-06` | `E-FI-70` S1/S2 confirms explicit global schedule identity, homogeneous-K formal transactions, mixed-K rejection and new-K critic-only isolation. C4 live transition remains pending. |
 | `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v015` / `Future Intent Context` | `M-04` | `E-FI-27` live-confirms the local `870+58=928`, FEMR `158D`, critic `289D`, and frozen-GMT `770D` route; `E-FI-30` CPU-confirms one 6D FEMR action on every unclamped deployment frame; `E-FI-42` live-confirms the proposal-only HSL initializer on the same 158D actor interface. No Stage-3 v015 policy has yet been trained, so repair quality remains open. |
 | `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v015` / `Method Boundary` | `M-10` | `E-FI-27` live-confirms one local t action, eight post-advance Clean-C GMT reads, and zero later FEMR actions; `E-FI-30` CPU-confirms the per-frame suffix route. A same-carrier frozen-GMT baseline versus FEMR+GMT paired composition owner is still missing at `E-FI-32`. |
-| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v004` / `Paired Evidence And Time` | `Q-PAIR` | v015 two-role/sealed-scenario identity is runtime-confirmed through `E-FI-64`, but expected support-mode derivation and ContactSensor-backed actual contact are contract-mismatch / pending implementation at `E-FI-66`. |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v004` / `Non-Compensatory Core Decision` | `Q-01` | `E-FI-64--E-FI-65` confirm the additive v003 route and complete paired evidence carrier; `E-FI-66` supersedes that ordering with Physics-first admissibility. v004 owner/consumer/live evidence is pending. |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v008` / `Proposal-Only HSL Initialization` | `M-03` | `E-FI-35--E-FI-45` and `E-FI-42` retain deterministic/live HSL-v1 actor-only evidence. HSL remains frozen and supplies no Critic, optimizer, or Stage-3 target. |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v008` / `Critic-Ready Actor Curriculum` | `M-05` | Legacy deterministic and E68--E70 runtime evidence prove the scheduler on the old update/v002 route. `E-FI-67` code-confirms that formal v015 currently rejects nonzero Warmup and hardcodes actor weight 1; v004 critic-only/actor-ramp/joint connectivity is pending G5-P1. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v004` / `Paired Evidence And Time` | `Q-PAIR` | `E-FI-68` runtime-confirms expected support, ContactSensor-backed actual contact, phase-ZMP evidence, and sealed two-role identity on the formal route. |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v004` / `Non-Compensatory Core Decision` | `Q-01` | `E-FI-68` runtime-confirms the v004 owner and formal consumers; all four critic-only Repairs were Physics-inadmissible, so actor efficacy remains unconfirmed. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v009` / `Persistence And Compatibility` | `M-03` | `E-FI-35--E-FI-45` and `E-FI-42` retain deterministic/live HSL-v1 actor-only evidence. HSL remains frozen as the only actor-only cold start and supplies no Critic, optimizer, or Stage-3 target. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v009` / `Per-Stage Critic-Ready Schedule` | `M-05` | `E-FI-70` S1/S2/S3 confirms repeated critic-only scheduling, actor/std isolation, exact-one update, checkpoint-v4 identity and exact resume. C4 runtime evidence remains pending. |
 | `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v015` / `Future Intent Context` | `M-11` | `E-FI-27` live-confirms H is deployment/Noisy q29 read once at local t and is not reopened as the eight-step Clean-C GMT reference; `E-FI-30` CPU-confirms command-owned q29 H across `T-max(H)` unclamped frames; `E-FI-46` materializes one deterministic q29-preserving carrier from ordinary `.npz` plus fixed protocol. |
 
 The v015 implementation route is governed by

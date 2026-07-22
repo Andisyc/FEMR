@@ -244,7 +244,7 @@ class FrontRESV015PolicyQualityManifest:
     items: tuple[FrontRESPolicyQualityManifestItem, ...]
     schema_version: str = _V015_SCHEMA_VERSION
     method_contract_id: str = "FRS-METHOD-v015"
-    training_contract_id: str = "FRS-TRAIN-v008"
+    training_contract_id: str = "FRS-TRAIN-v009"
     gain_contract_id: str = "FRS-GAIN-v004"
     ppo_contract_id: str = "FRS-PPO-v003"
     future_intent_layout_version: str = "frontres-v015-future-intent-q29-v1"
@@ -260,7 +260,7 @@ class FrontRESV015PolicyQualityManifest:
         exact_identity = (
             self.schema_version == _V015_SCHEMA_VERSION
             and self.method_contract_id == "FRS-METHOD-v015"
-            and self.training_contract_id == "FRS-TRAIN-v008"
+            and self.training_contract_id == "FRS-TRAIN-v009"
             and self.gain_contract_id == "FRS-GAIN-v004"
             and self.ppo_contract_id == "FRS-PPO-v003"
             and self.future_intent_layout_version == "frontres-v015-future-intent-q29-v1"

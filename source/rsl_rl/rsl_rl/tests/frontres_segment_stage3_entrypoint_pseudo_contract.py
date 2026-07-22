@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 from pathlib import Path
+import sys
+import types
 from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[4]
+SOURCE_ROOT = ROOT / "source" / "rsl_rl"
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
 TRAIN_PATH = ROOT / "scripts" / "rsl_rl" / "train.py"
 MOSAIC_CFG_PATH = (
     ROOT
@@ -23,10 +29,23 @@ MOSAIC_CFG_PATH = (
 
 
 def _load_stage_preset():
+    rsl_rl = types.ModuleType("rsl_rl")
+    rsl_rl.__path__ = []
+    frontres = types.ModuleType("rsl_rl.frontres")
+    frontres.__path__ = []
+    sys.modules["rsl_rl"] = rsl_rl
+    sys.modules["rsl_rl.frontres"] = frontres
+    warmup_path = ROOT / "source" / "rsl_rl" / "rsl_rl" / "frontres" / "frontres_segment_warmup.py"
+    warmup_spec = importlib.util.spec_from_file_location("rsl_rl.frontres.frontres_segment_warmup", warmup_path)
+    assert warmup_spec is not None and warmup_spec.loader is not None
+    warmup_module = importlib.util.module_from_spec(warmup_spec)
+    sys.modules[warmup_spec.name] = warmup_module
+    warmup_spec.loader.exec_module(warmup_module)
     tree = ast.parse(TRAIN_PATH.read_text())
     wanted = {
         "_set_if_present",
         "_parse_frontres_v015_future_offsets",
+        "_parse_frontres_v015_k_curriculum",
         "_apply_frontres_stage_preset",
         "_apply_frontres_segment_ppo_schedule_override",
         "_apply_frontres_segment_ppo_lr_override",
@@ -69,6 +88,7 @@ def _alg_cfg() -> SimpleNamespace:
         frontres_segment_live_update_steps=4,
         frontres_segment_critic_warmup_iterations=0,
         frontres_segment_actor_warmup_iterations=0,
+        frontres_segment_k_curriculum=(),
         frontres_formal_runtime_audit=False,
         frontres_hsl_init_enabled=False,
         frontres_hsl_rollout_label_enabled=True,
@@ -120,6 +140,7 @@ def _args(**overrides) -> SimpleNamespace:
         "frontres_segment_live_update_steps": 6,
         "frontres_segment_critic_warmup_iterations": 200,
         "frontres_segment_actor_warmup_iterations": 500,
+        "frontres_segment_k_curriculum": "8:200:500:100,16:200:500:0",
         "frontres_formal_runtime_audit": False,
         "frontres_v015_future_offsets": "1,2",
         "frontres_v015_hsl_initializer_checkpoint": "/tmp/frontres-v015-hsl-proposal-v1.pt",
@@ -183,6 +204,7 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
     assert alg.frontres_segment_live_update_steps == 1
     assert alg.frontres_segment_critic_warmup_iterations == 200
     assert alg.frontres_segment_actor_warmup_iterations == 500
+    assert alg.frontres_segment_k_curriculum == ((8, 200, 500, 100), (16, 200, 500, 0))
     assert alg.frontres_formal_runtime_audit is True
     assert alg.frontres_hsl_init_enabled is False
     assert alg.frontres_hsl_rollout_label_enabled is False
@@ -224,6 +246,17 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
         assert "frontres_v015_hsl_initializer_checkpoint" in str(exc)
     else:
         raise AssertionError("ordinary Stage-3 training must require an explicit HSL-v1 initializer")
+
+    missing_schedule = _agent_cfg()
+    try:
+        _apply_frontres_stage_preset(
+            missing_schedule,
+            _args(frontres_segment_k_curriculum=None),
+        )
+    except ValueError as exc:
+        assert "frontres_segment_k_curriculum" in str(exc)
+    else:
+        raise AssertionError("ordinary Stage-3 training must require an explicit v009 K curriculum")
 
 
 def test_stage2_hsl_warmup_constructs_proposal_only_6d_policy() -> None:

@@ -1,9 +1,10 @@
 ---
 contract_id: FRS-TRAIN-v008
-status: active
+status: superseded
 effective_date: 2026-07-22
 updated_date: 2026-07-22
 supersedes: FRS-TRAIN-v007
+superseded_by: FRS-TRAIN-v009
 scope: proposal-only HSL actor initialization followed by v004 critic-only, actor-ramp, and joint grouped-PPO training over sealed one-action-K transactions
 ---
 

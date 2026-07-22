@@ -4760,3 +4760,142 @@ Verdict:
 - X1 is now the next separate high-cost decision. Actor-ramp policy quality,
   checkpoint trajectory, long training, multiple seeds, deployment
   composition, and paper evidence remain unconfirmed and unauthorized.
+
+## E-FI-69: K-Stage Critic Curriculum Contract And White-Box Rebase
+
+Date: 2026-07-22
+
+Tier: user-confirmed training semantics, read-only source-owner audit, and
+document-only C0 governance rebase; no training-source modification, test,
+checkpoint I/O, simulator, training, live run, or deployment composition
+
+Decision:
+
+- Preserve one full-6D actor, one scalar Gain, one scalar Critic, and one
+  optimizer. Multi-Critic and K-conditioned actor input are rejected.
+- K values are ordered curriculum approximations toward one final executable
+  evidence horizon, not simultaneous policy objectives.
+- Each training stage has one global active K. Every Segment and every M
+  attempt in a sealed transaction uses that same K.
+- The same Critic continues its weights across stages. After every K increase,
+  actor/std freeze again for a stage-local critic-only phase, followed by an
+  actor ramp and joint PPO at the same K.
+- A K-stage transition may occur only after the current exact-one transaction
+  is committed. H, one-action-K, FRS-GAIN-v004, grouped PPO, HSL, and actor
+  visibility remain unchanged.
+
+Fresh code evidence:
+
+- `frontres_segment_sampler.py::plan_rollout_budget()` currently assigns K by
+  `FrontRESSegmentState`: UNKNOWN/HOPELESS use 8, PROMISING uses 16, FRONTIER
+  uses 16 or 32, DELAYED_REGRET uses 32 or 64, and SOLVED uses 64.
+  Consequently different Segments may carry different K values in one formal
+  training period.
+- `frontres_segment_warmup.py::frontres_segment_warmup_phase()` is an
+  absolute-global-iteration v008 owner. It has no schedule fingerprint,
+  K-stage index, active K, or stage-local iteration and therefore cannot
+  re-enter critic-only when K changes.
+- Stage3 configuration currently hardcodes `frontres_segment_k=8` with maximum
+  horizon 64 rather than parsing an explicit frozen K-stage schedule.
+- Stage3 checkpoint identity `frontres-v015-checkpoint-v3` binds v008,
+  absolute iteration, warmup durations, and phase, but not schedule
+  fingerprint, K stage, active K, or stage-local iteration.
+- E-FI-68 remains valid evidence for the single-K K=8 critic-only foundation;
+  it is not evidence of a K transition curriculum.
+
+Governance changes:
+
+- Activated `FRS-TRAIN-v009-k-stage-critic-curriculum` and superseded v008
+  without silently changing its historical evidence.
+- Updated Method v015, the contract registry, Concept Figure M-06/M-05 edge,
+  the active engineering plan/checklist/task canvas, and current Architecture.
+- The implementation plan contains one preparatory C0 gate and four bounded
+  execution steps: C1 pure schedule/config identity; C2 homogeneous-K formal
+  transaction and phase transition; C3 strict v009 persistence/resume; C4 one
+  bounded official K-transition sentinel.
+- Current per-Segment adaptive K may remain only as historical/ablation logic;
+  it is marked `contract-mismatch` for the v009 formal route.
+
+Stop conditions:
+
+- Stop on mixed K within a transaction, stage change before commit,
+  actor/std mutation in new-K critic-only, Critic reinitialization, Multi-Critic
+  expansion, K entering actor observation, implicit schedule defaults, or
+  resume identity drift.
+- Long training and policy-quality claims remain blocked until C1-C4 agree on
+  one schedule fingerprint and a real bounded K transition.
+
+Next:
+
+- C0 cross-file JSON/reference/diff validation passed. C1 / 4 requires separate
+  implementation authorization and must not touch formal
+  transaction, checkpoint, simulator, training, or live-run paths.
+
+## E-FI-70: C1-C3 K-Stage Critic Curriculum Offline Engineering Closure
+
+Date: 2026-07-22
+
+Tier: deterministic S1 schedule/config, S2 formal transaction connectivity,
+and S3 checkpoint persistence evidence; no simulator, training, optimizer
+outside semantic CPU fixtures, live run, deployment composition, or C4
+
+C1 implementation:
+
+- `frontres_segment_warmup.py` now owns strict schedule parsing, normalization,
+  SHA-256 fingerprinting, and committed-update mapping to
+  `(stage_index, active_k, stage_iteration, phase, actor_loss_weight)`.
+- The schedule is explicit CLI/config identity with rows
+  `(K,N_c,N_a,N_joint)`. Empty, malformed, non-increasing, over-max,
+  zero-recalibration, and non-final zero-joint schedules reject.
+- Stage3 launch requires `FRONTRES_V015_K_CURRICULUM`; no production default
+  silently selects the final method schedule. Legacy global warmup fields
+  remain non-authoritative compatibility data.
+
+C2 implementation:
+
+- The formal sampler retains Segment-dependent trial budgeting but overrides
+  its legacy per-Segment K with one `active_horizon_k` from the sealed v009
+  stage identity.
+- `FrontRESV015FormalTransactionRequest` binds the schedule fingerprint,
+  stage, active K, stage-local iteration, absolute iteration, phase, and actor
+  weight. Every plan row must equal the active K before rollout/loss/update.
+- The formal update recomputes and matches the sealed identity, performs the
+  unchanged grouped PPO exact-one update, and clears actor/std gradients in
+  every new-K critic-only phase.
+- The committed receipt records the exact curriculum identity consumed by the
+  update. Formal telemetry must match that receipt field by field.
+
+C3 implementation:
+
+- Stage3 persistence is now `frontres-v015-checkpoint-v4` with
+  `FRS-TRAIN-v009`, the ordered schedule/fingerprint, stage index, active K,
+  stage-local/absolute iteration, phase, actor weight, v004/v003 identities,
+  normalizer/layout, optimizer/sampler state, and committed receipt.
+- A committed receipt must be adjacent to the checkpoint iteration and match
+  the preceding stage identity. At a boundary, the receipt records the old
+  stage commit while checkpoint curriculum records the new-K critic-only
+  starting state.
+- v008/checkpoint-v3, unversioned, different-schedule, tampered phase/K,
+  collecting/sealed/failed, and non-adjacent receipt paths reject before actor,
+  normalizer, sampler, optimizer, or iteration mutation.
+
+Executed deterministic evidence:
+
+- `frontres_segment_warmup_contract.py`: PASS.
+- `frontres_segment_sampler_contract.py`: PASS.
+- `frontres_v015_transaction_route_contract.py`: PASS, including mixed-K
+  rejection and new-K actor/std zero delta with nonzero Critic delta.
+- `frontres_v015_checkpoint_resume_contract.py`: PASS, including checkpoint-v4
+  transition resume, optimizer restore, different schedule and v008 rejection.
+- Stage3 entrypoint and launch-command contracts: PASS.
+- Unmocked observation and v015 local-sentinel connectivity contracts: PASS.
+- Observation authority, HSL isolation, policy-quality strict identity, and
+  actual save/fresh-reload contracts: PASS.
+
+Boundary:
+
+- C1-C3 are offline engineering-complete. The retained legacy adaptive-K
+  planner is not deleted, but it cannot decide K on the v009 formal route.
+- No official simulator transaction has crossed a K boundary. C4 remains a
+  separate user-authorized live gate; long training and policy-quality claims
+  remain blocked.

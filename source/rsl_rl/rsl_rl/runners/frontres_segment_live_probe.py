@@ -35,7 +35,7 @@ try:
         FrontRESV015LocalEvaluationReport,
         build_frontres_v015_local_evaluation_report,
     )
-except ModuleNotFoundError:
+except (ModuleNotFoundError, ImportError):
     _V015_DIAGNOSTICS_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_diagnostics.py"
     _V015_DIAGNOSTICS_SPEC = importlib.util.spec_from_file_location(
         "frontres_segment_diagnostics_runtime",
@@ -54,8 +54,11 @@ from rsl_rl.frontres.frontres_segment_reset import (
     ensure_frontres_segment_live_reset_hook,
 )
 try:
-    from rsl_rl.frontres.frontres_segment_warmup import frontres_segment_warmup_phase
-except ModuleNotFoundError:
+    from rsl_rl.frontres.frontres_segment_warmup import (
+        frontres_segment_warmup_phase,
+        resolve_frontres_k_stage_identity,
+    )
+except (ModuleNotFoundError, ImportError):
     _WARMUP_PATH = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py"
     _WARMUP_SPEC = importlib.util.spec_from_file_location("frontres_segment_warmup_runtime", _WARMUP_PATH)
     if _WARMUP_SPEC is None or _WARMUP_SPEC.loader is None:
@@ -64,6 +67,7 @@ except ModuleNotFoundError:
     sys.modules[_WARMUP_SPEC.name] = _WARMUP_MODULE
     _WARMUP_SPEC.loader.exec_module(_WARMUP_MODULE)
     frontres_segment_warmup_phase = _WARMUP_MODULE.frontres_segment_warmup_phase
+    resolve_frontres_k_stage_identity = _WARMUP_MODULE.resolve_frontres_k_stage_identity
 from rsl_rl.frontres.training_schedule import resolve_frontres_mode_state
 from rsl_rl.modules import FrontRESActorCritic
 from rsl_rl.runners.frontres_training_setup import configure_frontres_pair_layout
@@ -298,13 +302,17 @@ class FrontRESV015FormalTransactionRequest:
     plan: FrontRESV015FormalTransactionPlan
     candidate_batches: tuple[Any, ...]
     diagnostic_reports: tuple[FrontRESV015LocalEvaluationReport, ...]
+    curriculum_fingerprint: str
+    k_stage_index: int
+    active_k: int
+    k_stage_iteration: int
+    training_iteration: int
+    warmup_phase_name: str
+    warmup_actor_loss_weight: float
     policy_evaluator: Any | None = None
     # Optional compatibility cross-check only. It cannot replace the critic
     # rows carried and reordered by the sealed candidate transaction.
     privileged_observations: torch.Tensor | None = None
-    training_iteration: int | None = None
-    warmup_phase_name: str | None = None
-    warmup_actor_loss_weight: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "candidate_batches", tuple(self.candidate_batches))
@@ -331,9 +339,22 @@ class FrontRESV015FormalTransactionRequest:
                 raise ValueError("v015 formal transaction diagnostic projection lost transaction or scenario identity")
         if self.privileged_observations is not None and not isinstance(self.privileged_observations, torch.Tensor):
             raise TypeError("v015 formal transaction privileged_observations must be a tensor or None")
-        phase_fields = (self.training_iteration, self.warmup_phase_name, self.warmup_actor_loss_weight)
-        if any(value is not None for value in phase_fields) and not all(value is not None for value in phase_fields):
-            raise ValueError("v015 formal transaction phase identity must be complete or absent")
+        if not isinstance(self.curriculum_fingerprint, str) or len(self.curriculum_fingerprint) != 64:
+            raise ValueError("v015 formal transaction requires a SHA-256 curriculum fingerprint")
+        if any(
+            isinstance(value, bool) or int(value) < 0
+            for value in (self.k_stage_index, self.k_stage_iteration, self.training_iteration)
+        ):
+            raise ValueError("v015 formal transaction K-stage indexes must be nonnegative integers")
+        if isinstance(self.active_k, bool) or int(self.active_k) <= 0:
+            raise ValueError("v015 formal transaction active_k must be positive")
+        if self.warmup_phase_name not in {"critic_only", "actor_warmup", "joint"}:
+            raise ValueError("v015 formal transaction has an invalid warmup phase")
+        if not 0.0 <= float(self.warmup_actor_loss_weight) <= 1.0:
+            raise ValueError("v015 formal transaction actor loss weight must be in [0,1]")
+        horizon = self.plan.horizon_k.detach().to(device="cpu", dtype=torch.long)
+        if not bool((horizon == int(self.active_k)).all().item()):
+            raise ValueError("v015 formal transaction rejects mixed-K or active-K-mismatched plan rows")
 
 
 _V015_CHECKPOINT_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
@@ -421,6 +442,7 @@ def _commit_frontres_v015_checkpoint_transaction(
     valid_policy_row_count: int,
     optimizer_step_before: int,
     optimizer_step_after: int,
+    curriculum: Any,
 ) -> None:
     """在唯一允许的 optimizer step 后发布 metadata-only receipt."""
 
@@ -438,6 +460,11 @@ def _commit_frontres_v015_checkpoint_transaction(
         "optimizer_step_before": int(optimizer_step_before),
         "optimizer_step_after": int(optimizer_step_after),
         "optimizer_step_delta": int(optimizer_step_after - optimizer_step_before),
+        "curriculum_fingerprint": str(curriculum.schedule_fingerprint),
+        "k_stage_index": int(curriculum.stage_index),
+        "active_k": int(curriculum.active_k),
+        "k_stage_iteration": int(curriculum.stage_iteration),
+        "training_iteration": int(curriculum.absolute_iteration),
     }
     setattr(runner, _V015_CHECKPOINT_TRANSACTION_STATE_ATTR, {"state": "committed", "receipt": receipt})
 
@@ -3674,10 +3701,9 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
         for name in ("frontres_hsl_init_enabled", "frontres_hsl_rollout_label_enabled")
     ):
         raise RuntimeError("v015 formal transaction route rejects implicit HSL initialization or rollout labels")
-    critic_warmup = int(getattr(alg, "frontres_segment_critic_warmup_iterations", 0) or 0)
-    actor_warmup = int(getattr(alg, "frontres_segment_actor_warmup_iterations", 0) or 0)
-    if bool(getattr(alg, "frontres_segment_live_train_enabled", False)) and (critic_warmup <= 0 or actor_warmup <= 0):
-        raise RuntimeError("FRS-TRAIN-v008 formal training requires positive critic and actor warmup durations")
+    schedule = tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ())
+    if not schedule:
+        raise RuntimeError("FRS-TRAIN-v009 formal transaction requires an explicit K-stage curriculum")
     if any(
         bool(getattr(alg, name, False))
         for name in (
@@ -3696,6 +3722,21 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
     if str(getattr(alg, "frontres_future_intent_layout_version", "")) != "frontres-v015-future-intent-q29-v1":
         raise RuntimeError("v015 formal transaction route requires the v015 q29 actor layout")
     return alg
+
+
+def _v015_resolve_curriculum_identity(runner: Any, alg: Any | None = None) -> Any:
+    """Resolve the sole K/phase identity allowed for the next transaction."""
+
+    alg = _require_v015_formal_transaction_config(runner) if alg is None else alg
+    identity = resolve_frontres_k_stage_identity(
+        schedule=tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ()),
+        committed_update_iteration=int(getattr(runner, "current_learning_iteration", 0)),
+        max_horizon_k=int(getattr(alg, "frontres_segment_max_horizon_k", 0)),
+    )
+    configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
+    if configured_fingerprint and configured_fingerprint != identity.schedule_fingerprint:
+        raise RuntimeError("FRS-TRAIN-v009 runtime curriculum fingerprint drifted after config resolution")
+    return identity
 
 
 def _v015_formal_ppo_config(alg: Any, *, actor_loss_weight: float) -> FrontRESSegmentPPOConfig:
@@ -3770,18 +3811,21 @@ def run_frontres_v015_formal_transaction_update(
     if policy is None or optimizer is None:
         raise RuntimeError("v015 formal transaction update requires runner.alg policy and optimizer")
     optimizer_step_before = _v015_formal_optimizer_step_count(optimizer)
-    iteration = int(getattr(runner, "current_learning_iteration", 0))
-    warmup_phase = frontres_segment_warmup_phase(
-        iteration=iteration,
-        critic_warmup_iterations=int(getattr(alg, "frontres_segment_critic_warmup_iterations", 0)),
-        actor_warmup_iterations=int(getattr(alg, "frontres_segment_actor_warmup_iterations", 0)),
-    )
-    if request.training_iteration is not None and (
-        int(request.training_iteration) != iteration
+    curriculum = _v015_resolve_curriculum_identity(runner, alg)
+    iteration = curriculum.absolute_iteration
+    warmup_phase = curriculum.phase
+    if (
+        request.training_iteration != iteration
+        or request.curriculum_fingerprint != curriculum.schedule_fingerprint
+        or request.k_stage_index != curriculum.stage_index
+        or request.active_k != curriculum.active_k
+        or request.k_stage_iteration != curriculum.stage_iteration
         or request.warmup_phase_name != warmup_phase.name
         or not math.isclose(float(request.warmup_actor_loss_weight), warmup_phase.actor_loss_weight, abs_tol=1e-12)
     ):
-        raise RuntimeError("v015 transaction crossed or changed its sealed FRS-TRAIN-v008 phase")
+        raise RuntimeError("v015 transaction crossed or changed its sealed FRS-TRAIN-v009 K-stage identity")
+    if not bool((request.plan.horizon_k.detach().to(dtype=torch.long) == curriculum.active_k).all().item()):
+        raise RuntimeError("FRS-TRAIN-v009 formal update rejects mixed-K transaction rows")
     request.plan.verify_policy(policy)
     accumulator = FrontRESV015FormalTransactionAccumulator(
         request.plan,
@@ -3855,7 +3899,7 @@ def run_frontres_v015_formal_transaction_update(
     critic_delta = _parameter_delta_stats(critic_params, parameter_snapshots)
     noncritic_delta = _parameter_delta_stats(noncritic_params, parameter_snapshots)
     if warmup_phase.name == "critic_only" and noncritic_delta["param_delta_max_abs"] != 0.0:
-        raise RuntimeError("FRS-TRAIN-v008 critic-only update mutated actor or distribution parameters")
+        raise RuntimeError("FRS-TRAIN-v009 critic-only update mutated actor or distribution parameters")
     optimizer_step_after = _v015_formal_optimizer_step_count(optimizer)
     optimizer_step_delta = optimizer_step_after - optimizer_step_before
     if optimizer_step_delta != 1:
@@ -3869,6 +3913,7 @@ def run_frontres_v015_formal_transaction_update(
         valid_policy_row_count=int(ppo_result.valid_count),
         optimizer_step_before=optimizer_step_before,
         optimizer_step_after=optimizer_step_after,
+        curriculum=curriculum,
     )
     metadata = ppo_batch.transaction_metadata
     source_count = int(torch.unique(metadata.source_index.detach().to(dtype=torch.long)).numel())
@@ -3916,9 +3961,13 @@ def run_frontres_v015_formal_transaction_update(
         "gradient_parameter_count": len(parameters),
         "gradient_nonzero_parameter_count": gradient_nonzero_parameter_count,
         "optimizer_step_delta": int(optimizer_step_delta),
-        "training_contract_id": "FRS-TRAIN-v008",
+        "training_contract_id": "FRS-TRAIN-v009",
         "gain_contract_id": "FRS-GAIN-v004",
         "training_iteration": iteration,
+        "curriculum_fingerprint": curriculum.schedule_fingerprint,
+        "k_stage_index": curriculum.stage_index,
+        "active_k": curriculum.active_k,
+        "k_stage_iteration": curriculum.stage_iteration,
         "warmup_phase": warmup_phase.name,
         "warmup_phase_iteration": warmup_phase.phase_iteration,
         "actor_loss_weight": warmup_phase.actor_loss_weight,
@@ -3967,11 +4016,7 @@ def _build_frontres_v015_local_transaction_request(
     del init_at_random_ep_len  # x_t reset owns the local dynamic start.
     alg = _require_v015_formal_transaction_config(runner)
     sealed_iteration = int(getattr(runner, "current_learning_iteration", 0))
-    sealed_phase = frontres_segment_warmup_phase(
-        iteration=sealed_iteration,
-        critic_warmup_iterations=int(getattr(alg, "frontres_segment_critic_warmup_iterations", 0)),
-        actor_warmup_iterations=int(getattr(alg, "frontres_segment_actor_warmup_iterations", 0)),
-    )
+    sealed_curriculum = _v015_resolve_curriculum_identity(runner, alg)
     if route == "sentinel":
         prepared = prepare_frontres_v015_local_sentinel_batch(runner)
         label = "local sentinel"
@@ -4079,9 +4124,13 @@ def _build_frontres_v015_local_transaction_request(
             plan=plan,
             candidate_batches=(candidate_batch,),
             diagnostic_reports=(diagnostic_report,),
+            curriculum_fingerprint=sealed_curriculum.schedule_fingerprint,
+            k_stage_index=sealed_curriculum.stage_index,
+            active_k=sealed_curriculum.active_k,
+            k_stage_iteration=sealed_curriculum.stage_iteration,
             training_iteration=sealed_iteration,
-            warmup_phase_name=sealed_phase.name,
-            warmup_actor_loss_weight=sealed_phase.actor_loss_weight,
+            warmup_phase_name=sealed_curriculum.phase.name,
+            warmup_actor_loss_weight=sealed_curriculum.phase.actor_loss_weight,
         )
     except Exception:
         _close_frontres_local_scenarios(batch)

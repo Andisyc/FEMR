@@ -35,6 +35,7 @@ def _run_preflight(
         env["FRONTRES_STAGE_PREFLIGHT_ONLY"] = "1"
         env["FRONTRES_STAGE3_RUN_CONTRACTS"] = "0"
         env["FRONTRES_SPECIALIST_MODE"] = "rp"
+        env["FRONTRES_V015_K_CURRICULUM"] = "8:2:3:4,16:2:3:0"
         if env_overrides:
             env.update(env_overrides)
         cmd = [
@@ -92,6 +93,7 @@ def test_stage3_train_launch_preflight_builds_femr_command() -> None:
     assert "--frontres_stage stage3_segment_hrl" in command
     assert "--frontres_v015_hsl_initializer_checkpoint" in command
     assert "--frontres_v015_future_offsets 1\\,2" in command
+    assert "--frontres_segment_k_curriculum 8:2:3:4\\,16:2:3:0" in command
     assert "--resume_student_checkpoint" not in command
     assert "--is_full_resume" not in command
     assert "--resume " not in command

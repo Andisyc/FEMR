@@ -163,6 +163,9 @@ class _SemanticAlg:
         self.frontres_segment_live_single_update_only = False
         self.frontres_segment_critic_warmup_iterations = 0
         self.frontres_segment_actor_warmup_iterations = 0
+        self.frontres_segment_k_curriculum = ((8, 1, 1, 0),)
+        self.frontres_segment_k_curriculum_fingerprint = ""
+        self.frontres_segment_max_horizon_k = 8
         self.lambda_supervised = 0.0
         self.lambda_supervised_min = 0.0
         self.clip_param = 0.2
@@ -247,6 +250,24 @@ def _build_fixture():
     current_helper = _load("frontres_v015_r5_current_command_helper", CURRENT_COMMAND_TEST)
     command, request = current_helper._sealed_role_command(helper, commands, hooks, setup)
     command.cfg = SimpleNamespace(motion_horizon=1, command_velocity=True)
+    env_ids = torch.arange(8, dtype=torch.long)
+    sealed = command.frontres_local_scenario_snapshot(env_ids)
+    command.clear_frontres_local_scenario()
+    command.set_frontres_local_scenario(
+        current_root_artifact_t=sealed["current_root_artifact_t"],
+        intent_q29=sealed["intent_q29"],
+        clean_continuation=sealed["clean_continuation"],
+        expected_support=sealed["expected_support"],
+        horizon_k=torch.full((8,), 2, dtype=torch.long),
+        continuation_lengths=torch.full((8,), 2, dtype=torch.long),
+        scenario_ids=sealed["scenario_ids"],
+        noisy_segment_hashes=sealed["noisy_segment_hashes"],
+        x_t_identities=sealed["x_t_identities"],
+        provenance=sealed["provenance"],
+        roles=sealed["roles"],
+        env_ids=env_ids,
+    )
+    command.refresh_frontres_reference_cache_current_frame()
     base_env = helper._FakeEnv(command, command.robot, num_envs=8)
     env = _SemanticEnv(base_env, command)
     command._env = env
@@ -378,6 +399,10 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
 
     continuation = fixture.command._frontres_local_scenario_clean_continuation.detach().clone()
     horizon = fixture.command._frontres_local_scenario_horizon_k.detach().clone()
+    assert int(torch.unique(horizon).numel()) == 1
+    active_k = int(horizon[0].item())
+    runner.alg.frontres_segment_k_curriculum = ((active_k, 1, 1, 0),)
+    runner.alg.frontres_segment_max_horizon_k = active_k
     assert len(fixture.policy.gmt_policy.inputs) == int(horizon.max().item())
     assert runner._frontres_v015_observation_route_trace["post_advance_gmt_read_count"] == int(horizon.max().item())
     for offset, gmt_input in enumerate(fixture.policy.gmt_policy.inputs):
@@ -422,6 +447,13 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
                 transaction_id=plan.transaction_id,
             ),
         ),
+        curriculum_fingerprint=live_probe._v015_resolve_curriculum_identity(runner).schedule_fingerprint,
+        k_stage_index=live_probe._v015_resolve_curriculum_identity(runner).stage_index,
+        active_k=live_probe._v015_resolve_curriculum_identity(runner).active_k,
+        k_stage_iteration=live_probe._v015_resolve_curriculum_identity(runner).stage_iteration,
+        training_iteration=live_probe._v015_resolve_curriculum_identity(runner).absolute_iteration,
+        warmup_phase_name=live_probe._v015_resolve_curriculum_identity(runner).phase.name,
+        warmup_actor_loss_weight=live_probe._v015_resolve_curriculum_identity(runner).phase.actor_loss_weight,
     )
     result = live_probe.run_frontres_v015_formal_transaction_update(runner, request)
     assert fixture.policy.critic_inputs and tuple(fixture.policy.critic_inputs[-1].shape) == (4, 289)

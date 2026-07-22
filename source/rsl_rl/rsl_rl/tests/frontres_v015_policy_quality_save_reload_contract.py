@@ -152,7 +152,7 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
         stage3_runtime = checkpoint_contract._load_runtime()
         transaction_template = checkpoint_contract._transaction_template()
         torch.manual_seed(17)
-        source = checkpoint_contract._runner(stage3_layout_module, policy_cls)
+        source = checkpoint_contract._runner(stage3_layout_module, policy_cls, iteration=2)
         source.policy_cfg["gmt_checkpoint_path"] = str(gmt_path)
         source.alg.policy.gmt_policy_obs_dim = hsl_source.alg.policy.gmt_policy_obs_dim
         source.alg.policy.gmt_normalizer = copy.deepcopy(hsl_source.alg.policy.gmt_normalizer)
@@ -167,6 +167,7 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
         assert committed["receipt"]["transaction_id"] == update.transaction_id
         assert committed["receipt"]["optimizer_step_delta"] == 1
         assert source.alg.optimizer.frontres_v015_step_count == 1
+        source.current_learning_iteration += 1
         stage3_before = checkpoint_contract._fresh_inference_trace(source, stage3_runtime, raw_obs)
         assert not torch.equal(pre_update["proposal"], stage3_before["proposal"])
         stage3_checkpointing.save_runner(source, str(policy_path))
@@ -233,7 +234,7 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
             result_path=str(report_path),
         )
         assert strict_request.hsl_checkpoint.format == "frontres-v015-hsl-proposal-v1"
-        assert strict_request.policy_checkpoint.format == "frontres-v015-checkpoint-v3"
+        assert strict_request.policy_checkpoint.format == "frontres-v015-checkpoint-v4"
         policy_layout = dict(strict_request.policy_checkpoint.future_intent_layout)
         assert policy_layout["actor_dim"] == 928
         assert policy_layout["prefix_dim"] == 158

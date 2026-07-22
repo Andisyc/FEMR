@@ -34,6 +34,12 @@ PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
 PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
 FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
 FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"
+FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-}"
+
+if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
+  echo "FRS-TRAIN-v009 requires FRONTRES_V015_K_CURRICULUM=K:N_c:N_a:N_joint,..." >&2
+  exit 4
+fi
 FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
 CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py}"
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
@@ -160,6 +166,7 @@ TRAIN_CMD=(
   --frontres_segment_shard_cache_size "${SHARD_CACHE_SIZE}"
   --frontres_segment_live_update_steps "${UPDATE_STEPS}"
   --frontres_v015_future_offsets "${FRONTRES_V015_FUTURE_OFFSETS}"
+  --frontres_segment_k_curriculum "${FRONTRES_V015_K_CURRICULUM}"
   --frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}"
 )
 
@@ -194,6 +201,7 @@ if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
     " --frontres_specialist_mode ${FRONTRES_SPECIALIST_MODE} " \
     " --frontres_v015_hsl_initializer_checkpoint ${HSL_CHECKPOINT} " \
     " --frontres_v015_future_offsets ${FRONTRES_V015_FUTURE_OFFSETS} " \
+    " --frontres_segment_k_curriculum ${FRONTRES_V015_K_CURRICULUM} " \
     " --frontres_segment_cache_dir ${CACHE_DIR} " \
     " --frontres_segment_shard_cache_size ${SHARD_CACHE_SIZE} " \
     " --frontres_segment_live_update_steps ${UPDATE_STEPS} " \

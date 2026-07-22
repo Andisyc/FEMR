@@ -15,6 +15,7 @@ import importlib.util
 import os
 from pathlib import Path
 import shutil
+import sys
 from types import SimpleNamespace
 from typing import Any, Literal, Mapping
 
@@ -41,6 +42,18 @@ print_checkpoint_payload_audit = _FORMAL_AUDIT_MODULE.print_checkpoint_payload_a
 emit_formal_runtime_probe = _FORMAL_AUDIT_MODULE.emit_formal_runtime_probe
 configure_formal_runtime_probe = _FORMAL_AUDIT_MODULE.configure_formal_runtime_probe
 
+_K_STAGE_SPEC = importlib.util.spec_from_file_location(
+    "frontres_k_stage_checkpoint_module",
+    Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py",
+)
+if _K_STAGE_SPEC is None or _K_STAGE_SPEC.loader is None:
+    raise RuntimeError("Could not load FRS-TRAIN-v009 K-stage owner")
+_K_STAGE_MODULE = importlib.util.module_from_spec(_K_STAGE_SPEC)
+sys.modules[_K_STAGE_SPEC.name] = _K_STAGE_MODULE
+_K_STAGE_SPEC.loader.exec_module(_K_STAGE_MODULE)
+frontres_k_stage_schedule_tuple = _K_STAGE_MODULE.frontres_k_stage_schedule_tuple
+resolve_frontres_k_stage_identity = _K_STAGE_MODULE.resolve_frontres_k_stage_identity
+
 
 _FRONTRES_GAIN_CONFIG_FIELDS = (
     ("style_weight", "frontres_gain_style_weight", 1.0),
@@ -55,7 +68,7 @@ _FRONTRES_GAIN_CONFIG_FIELDS = (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v3"
+_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v4"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
 _V015_LAST_RECEIPT_ATTR = "_frontres_v015_last_committed_transaction_receipt"
@@ -323,7 +336,7 @@ def _inspect_frontres_v015_policy_quality_payload(
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v015"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v008"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v009"
         or identity.get("gain_contract_id") != "FRS-GAIN-v004"
         or identity.get("ppo_contract_id") != "FRS-PPO-v003"
         or identity.get("future_intent_layout") != _v015_quality_expected_layout()
@@ -335,17 +348,29 @@ def _inspect_frontres_v015_policy_quality_payload(
         "policy_rows_per_attempt": 1,
     }:
         raise RuntimeError("quality policy has an incompatible grouped-loss identity")
-    warmup = identity.get("warmup")
-    if not isinstance(warmup, Mapping):
-        raise RuntimeError("quality policy has no FRS-TRAIN-v008 warmup identity")
-    critic_warmup = int(warmup.get("critic_warmup_iterations", 0))
-    actor_warmup = int(warmup.get("actor_warmup_iterations", 0))
-    iteration = int(warmup.get("iteration", -1))
-    expected_phase = "critic_only" if iteration < critic_warmup else (
-        "actor_warmup" if iteration < critic_warmup + actor_warmup else "joint"
+    curriculum = identity.get("curriculum")
+    if not isinstance(curriculum, Mapping):
+        raise RuntimeError("quality policy has no FRS-TRAIN-v009 curriculum identity")
+    schedule = curriculum.get("schedule")
+    iteration = int(curriculum.get("absolute_iteration", -1))
+    expected = resolve_frontres_k_stage_identity(
+        schedule=schedule if isinstance(schedule, (tuple, list)) else (),
+        committed_update_iteration=iteration,
+        max_horizon_k=max((int(row[0]) for row in schedule), default=0) if isinstance(schedule, (tuple, list)) else 0,
     )
-    if critic_warmup <= 0 or actor_warmup <= 0 or iteration < 0 or warmup.get("phase") != expected_phase:
-        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v008 warmup identity")
+    expected_payload = {
+        "schedule": frontres_k_stage_schedule_tuple(schedule),
+        "schedule_fingerprint": expected.schedule_fingerprint,
+        "k_stage_index": expected.stage_index,
+        "active_k": expected.active_k,
+        "stage_iteration": expected.stage_iteration,
+        "absolute_iteration": expected.absolute_iteration,
+        "phase": expected.phase.name,
+        "phase_iteration": expected.phase.phase_iteration,
+        "actor_loss_weight": expected.phase.actor_loss_weight,
+    }
+    if dict(curriculum) != expected_payload:
+        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v009 curriculum identity")
     transaction = identity.get("transaction")
     if not isinstance(transaction, Mapping) or str(transaction.get("state", "")) not in {"idle", "committed"}:
         raise RuntimeError("quality policy rejects partial or malformed transaction identity")
@@ -379,7 +404,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         format=_V015_CHECKPOINT_FORMAT,
         file_sha256=file_sha256,
         method_contract_id="FRS-METHOD-v015",
-        training_contract_id="FRS-TRAIN-v008",
+        training_contract_id="FRS-TRAIN-v009",
         gain_contract_id="FRS-GAIN-v004",
         ppo_contract_id="FRS-PPO-v003",
         future_intent_layout=tuple(_v015_quality_expected_layout().items()),
@@ -1090,11 +1115,22 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
         "optimizer_step_before",
         "optimizer_step_after",
         "optimizer_step_delta",
+        "curriculum_fingerprint",
+        "k_stage_index",
+        "active_k",
+        "k_stage_iteration",
+        "training_iteration",
     )
     if set(receipt) != set(required):
         raise RuntimeError("v015 committed checkpoint receipt has an unexpected field set")
     result = {name: receipt[name] for name in required}
-    for name in ("transaction_id", "policy_snapshot_id", "plan_identity_hash", "scenario_identity_hash"):
+    for name in (
+        "transaction_id",
+        "policy_snapshot_id",
+        "plan_identity_hash",
+        "scenario_identity_hash",
+        "curriculum_fingerprint",
+    ):
         if not isinstance(result[name], str) or not result[name]:
             raise RuntimeError(f"v015 committed checkpoint receipt has invalid {name}")
     for name in (
@@ -1104,6 +1140,10 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
         "optimizer_step_before",
         "optimizer_step_after",
         "optimizer_step_delta",
+        "k_stage_index",
+        "active_k",
+        "k_stage_iteration",
+        "training_iteration",
     ):
         result[name] = int(result[name])
     if (
@@ -1113,6 +1153,11 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
         or result["valid_policy_row_count"] > result["collected_policy_attempt_count"]
         or result["optimizer_step_delta"] != 1
         or result["optimizer_step_after"] != result["optimizer_step_before"] + 1
+        or len(result["curriculum_fingerprint"]) != 64
+        or result["k_stage_index"] < 0
+        or result["active_k"] <= 0
+        or result["k_stage_iteration"] < 0
+        or result["training_iteration"] < 0
     ):
         raise RuntimeError("v015 committed checkpoint receipt is not an exact-one completed transaction")
     return result
@@ -1137,6 +1182,34 @@ def _v015_transaction_checkpoint_payload(runner: Any) -> dict[str, Any]:
             f"state={phase}"
         )
     raise RuntimeError(f"v015 checkpoint transaction has unknown state={phase!r}")
+
+
+def _validate_v009_receipt_curriculum(
+    transaction: Mapping[str, Any],
+    *,
+    schedule: tuple[tuple[int, int, int, int], ...],
+    current_iteration: int,
+) -> None:
+    """Bind the last committed update to the stage immediately before save."""
+
+    if transaction.get("state") != "committed":
+        return
+    receipt = transaction["receipt"]
+    expected_iteration = int(current_iteration) - 1
+    if expected_iteration < 0 or int(receipt["training_iteration"]) != expected_iteration:
+        raise RuntimeError("FRS-TRAIN-v009 committed receipt is not adjacent to checkpoint iteration")
+    expected = resolve_frontres_k_stage_identity(
+        schedule=schedule,
+        committed_update_iteration=expected_iteration,
+        max_horizon_k=max(int(row[0]) for row in schedule),
+    )
+    if (
+        receipt["curriculum_fingerprint"] != expected.schedule_fingerprint
+        or int(receipt["k_stage_index"]) != expected.stage_index
+        or int(receipt["active_k"]) != expected.active_k
+        or int(receipt["k_stage_iteration"]) != expected.stage_iteration
+    ):
+        raise RuntimeError("FRS-TRAIN-v009 committed receipt has a mismatched K-stage identity")
 
 
 def _build_v015_checkpoint_identity(
@@ -1187,21 +1260,27 @@ def _build_v015_checkpoint_identity(
             "combined_dim": None,
             "prefix_stats_fingerprint": None,
         }
-    critic_warmup = int(getattr(alg, "frontres_segment_critic_warmup_iterations", 0))
-    actor_warmup = int(getattr(alg, "frontres_segment_actor_warmup_iterations", 0))
     iteration = int(getattr(runner, "current_learning_iteration", 0))
-    if critic_warmup <= 0 or actor_warmup <= 0:
-        raise RuntimeError("FRS-TRAIN-v008 checkpoint identity requires positive warmup durations")
-    if iteration < critic_warmup:
-        phase = "critic_only"
-    elif iteration < critic_warmup + actor_warmup:
-        phase = "actor_warmup"
-    else:
-        phase = "joint"
+    schedule = tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ())
+    curriculum = resolve_frontres_k_stage_identity(
+        schedule=schedule,
+        committed_update_iteration=iteration,
+        max_horizon_k=int(getattr(alg, "frontres_segment_max_horizon_k", 0)),
+    )
+    configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
+    if configured_fingerprint and configured_fingerprint != curriculum.schedule_fingerprint:
+        raise RuntimeError("FRS-TRAIN-v009 checkpoint curriculum fingerprint drifted after config resolution")
+    schedule_tuple = frontres_k_stage_schedule_tuple(schedule)
+    transaction = _v015_transaction_checkpoint_payload(runner)
+    _validate_v009_receipt_curriculum(
+        transaction,
+        schedule=schedule_tuple,
+        current_iteration=iteration,
+    )
     return {
         "format": _V015_CHECKPOINT_FORMAT,
         "method_contract_id": "FRS-METHOD-v015",
-        "training_contract_id": "FRS-TRAIN-v008",
+        "training_contract_id": "FRS-TRAIN-v009",
         "gain_contract_id": "FRS-GAIN-v004",
         "ppo_contract_id": "FRS-PPO-v003",
         "future_intent_layout": fields,
@@ -1211,12 +1290,17 @@ def _build_v015_checkpoint_identity(
             "candidate_layout_version": _V015_GROUPED_CANDIDATE_LAYOUT,
             "policy_rows_per_attempt": 1,
         },
-        "transaction": _v015_transaction_checkpoint_payload(runner),
-        "warmup": {
-            "critic_warmup_iterations": critic_warmup,
-            "actor_warmup_iterations": actor_warmup,
-            "iteration": iteration,
-            "phase": phase,
+        "transaction": transaction,
+        "curriculum": {
+            "schedule": frontres_k_stage_schedule_tuple(schedule),
+            "schedule_fingerprint": curriculum.schedule_fingerprint,
+            "k_stage_index": curriculum.stage_index,
+            "active_k": curriculum.active_k,
+            "stage_iteration": curriculum.stage_iteration,
+            "absolute_iteration": curriculum.absolute_iteration,
+            "phase": curriculum.phase.name,
+            "phase_iteration": curriculum.phase.phase_iteration,
+            "actor_loss_weight": curriculum.phase.actor_loss_weight,
         },
     }
 
@@ -1235,26 +1319,39 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v015"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v008"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v009"
         or identity.get("gain_contract_id") != "FRS-GAIN-v004"
         or identity.get("ppo_contract_id") != "FRS-PPO-v003"
     ):
         raise RuntimeError("v015 checkpoint has an incompatible contract or format identity")
-    warmup = identity.get("warmup")
-    expected_warmup = {
-        "critic_warmup_iterations": int(getattr(runner.alg, "frontres_segment_critic_warmup_iterations", 0)),
-        "actor_warmup_iterations": int(getattr(runner.alg, "frontres_segment_actor_warmup_iterations", 0)),
-    }
-    if not isinstance(warmup, Mapping) or any(warmup.get(key) != value for key, value in expected_warmup.items()):
-        raise RuntimeError("FRS-TRAIN-v008 checkpoint warmup identity is missing or incompatible")
-    saved_iteration = int(warmup.get("iteration", -1))
-    critic_warmup = expected_warmup["critic_warmup_iterations"]
-    actor_warmup = expected_warmup["actor_warmup_iterations"]
-    expected_phase = "critic_only" if saved_iteration < critic_warmup else (
-        "actor_warmup" if saved_iteration < critic_warmup + actor_warmup else "joint"
+    curriculum = identity.get("curriculum")
+    if not isinstance(curriculum, Mapping):
+        raise RuntimeError("FRS-TRAIN-v009 checkpoint curriculum identity is missing")
+    runtime_schedule = tuple(getattr(runner.alg, "frontres_segment_k_curriculum", ()) or ())
+    runtime_schedule_tuple = frontres_k_stage_schedule_tuple(runtime_schedule)
+    if curriculum.get("schedule") != runtime_schedule_tuple:
+        raise RuntimeError("FRS-TRAIN-v009 checkpoint schedule differs from the runtime schedule")
+    saved_iteration = int(curriculum.get("absolute_iteration", -1))
+    if saved_iteration < 0 or int(checkpoint.get("iter", -1)) != saved_iteration:
+        raise RuntimeError("FRS-TRAIN-v009 checkpoint iteration identity is inconsistent")
+    expected_curriculum = resolve_frontres_k_stage_identity(
+        schedule=runtime_schedule,
+        committed_update_iteration=saved_iteration,
+        max_horizon_k=int(getattr(runner.alg, "frontres_segment_max_horizon_k", 0)),
     )
-    if saved_iteration < 0 or warmup.get("phase") != expected_phase:
-        raise RuntimeError("FRS-TRAIN-v008 checkpoint iteration/phase identity is inconsistent")
+    expected_curriculum_payload = {
+        "schedule": runtime_schedule_tuple,
+        "schedule_fingerprint": expected_curriculum.schedule_fingerprint,
+        "k_stage_index": expected_curriculum.stage_index,
+        "active_k": expected_curriculum.active_k,
+        "stage_iteration": expected_curriculum.stage_iteration,
+        "absolute_iteration": expected_curriculum.absolute_iteration,
+        "phase": expected_curriculum.phase.name,
+        "phase_iteration": expected_curriculum.phase.phase_iteration,
+        "actor_loss_weight": expected_curriculum.phase.actor_loss_weight,
+    }
+    if dict(curriculum) != expected_curriculum_payload:
+        raise RuntimeError("FRS-TRAIN-v009 checkpoint curriculum stage/phase identity is inconsistent")
     fields = _v015_checkpoint_layout_fields(runner)
     if identity.get("future_intent_layout") != fields:
         raise RuntimeError(
@@ -1315,6 +1412,11 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
             "state": "committed",
             "receipt": _v015_committed_transaction_receipt(transaction),
         }
+        _validate_v009_receipt_curriculum(
+            result["transaction"],
+            schedule=runtime_schedule_tuple,
+            current_iteration=saved_iteration,
+        )
         return result
     raise RuntimeError("v015 checkpoint resume rejects partial, failed, or malformed transactions")
 
@@ -1595,10 +1697,9 @@ def save_runner(self, path: str, infos=None):
         "iter": self.current_learning_iteration,
         "infos": infos,}
     if getattr(self.alg, "frontres_training_objective", "") == "segment_replay_hrl":
-        saved_dict["frontres_segment_warmup_config"] = {
-            "critic_warmup_iterations": int(getattr(self.alg, "frontres_segment_critic_warmup_iterations", 0)),
-            "actor_warmup_iterations": int(getattr(self.alg, "frontres_segment_actor_warmup_iterations", 0)),
-        }
+        saved_dict["frontres_segment_k_curriculum"] = frontres_k_stage_schedule_tuple(
+            tuple(getattr(self.alg, "frontres_segment_k_curriculum", ()) or ())
+        )
 
     # Persist adaptive DR state so resume picks up at the correct scale.
     if hasattr(self, '_dr_scale'):
@@ -1771,7 +1872,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         _validate_frontres_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
     else:
         print(
-            "[Runner] Verified FRS-GAIN-v004 and FRS-TRAIN-v008 through the v015 checkpoint identity; "
+            "[Runner] Verified FRS-GAIN-v004 and FRS-TRAIN-v009 through the v015 checkpoint identity; "
             "legacy FRS-GAIN-v002 checkpoint metadata is not the active v015 owner.",
             flush=True,
         )
@@ -1951,24 +2052,16 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
             if hasattr(self.alg, "rnd") and self.alg.rnd:
                 self.alg.rnd_optimizer.load_state_dict(loaded_dict["rnd_optimizer_state_dict"])
     # -- load current learning iteration
-    if resumed_training and is_full_resume and "frontres_segment_warmup_config" in loaded_dict:
-        saved_warmup = loaded_dict["frontres_segment_warmup_config"]
-        runtime_warmup = {
-            "critic_warmup_iterations": int(getattr(self.alg, "frontres_segment_critic_warmup_iterations", 0)),
-            "actor_warmup_iterations": int(getattr(self.alg, "frontres_segment_actor_warmup_iterations", 0)),
-        }
-        if saved_warmup != runtime_warmup:
-            if eval_only:
-                print(
-                    "[Runner] Eval-only checkpoint load: warmup config guard skipped; "
-                    f"checkpoint={saved_warmup}, runtime={runtime_warmup}.",
-                    flush=True,
-                )
-            else:
-                raise ValueError(
-                    "Stage 3 warmup config changed across full resume: "
-                    f"checkpoint={saved_warmup}, runtime={runtime_warmup}."
-                )
+    if resumed_training and is_full_resume and v015_resume_identity is not None:
+        saved_schedule = loaded_dict.get("frontres_segment_k_curriculum")
+        runtime_schedule = frontres_k_stage_schedule_tuple(
+            tuple(getattr(self.alg, "frontres_segment_k_curriculum", ()) or ())
+        )
+        if saved_schedule != runtime_schedule:
+            raise ValueError(
+                "FRS-TRAIN-v009 K-stage schedule changed across full resume: "
+                f"checkpoint={saved_schedule}, runtime={runtime_schedule}."
+            )
     if resumed_training:
         if is_full_resume:
             self.current_learning_iteration = loaded_dict["iter"]

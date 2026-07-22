@@ -414,6 +414,32 @@ def test_sampler_frozen_policy_transaction_plan_keeps_all_attempts_policy_sample
     assert torch.equal(sampler.seen, seen_before)
 
 
+def test_v009_frozen_transaction_overrides_legacy_per_segment_k() -> None:
+    sampler = _sampler_with_all_budget_states()
+    plan = sampler.plan_frozen_policy_transaction(
+        torch.tensor([1, 2]),
+        transaction_id="txn-v009-global-k",
+        policy_snapshot_id="snapshot-v009-global-k",
+        max_horizon_k=32,
+        active_horizon_k=24,
+    )
+    assert plan.base_horizon_k.tolist() == [24, 24]
+    assert plan.horizon_k.tolist() == [24] * int(plan.horizon_k.numel())
+    for invalid in (0, 33):
+        try:
+            sampler.plan_frozen_policy_transaction(
+                torch.tensor([1, 2]),
+                transaction_id=f"txn-v009-invalid-{invalid}",
+                policy_snapshot_id="snapshot-v009-invalid",
+                max_horizon_k=32,
+                active_horizon_k=invalid,
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("v009 active K outside the formal horizon must reject")
+
+
 def test_sampler_frozen_policy_transaction_plan_enforces_multiple_segments_and_attempts() -> None:
     sampler = _sampler_with_all_budget_states()
     plan = sampler.plan_frozen_policy_transaction(
@@ -512,6 +538,7 @@ def main() -> None:
     test_sampler_rollout_budget_allocates_trials_by_state_and_horizon_unlock()
     test_sampler_trial_plan_expands_policy_first_roles()
     test_sampler_frozen_policy_transaction_plan_keeps_all_attempts_policy_sampled()
+    test_v009_frozen_transaction_overrides_legacy_per_segment_k()
     test_sampler_frozen_policy_transaction_plan_enforces_multiple_segments_and_attempts()
     test_sampler_rollout_row_sampling_respects_fixed_env_budget()
     test_sampler_review_and_staleness_keep_coverage()
