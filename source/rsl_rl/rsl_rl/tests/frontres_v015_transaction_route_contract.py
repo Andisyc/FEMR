@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 import importlib.util
 import io
 import json
+import math
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -229,6 +230,19 @@ def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, l
     )
     assert result.diagnostics["intent_q29_provenance"] == "deployment_noisy_q29"
     assert result.diagnostics["optimizer_step_delta"] == 1
+    for name in (
+        "return_mean",
+        "return_min",
+        "return_max",
+        "return_abs_mean",
+        "gradient_pre_clip_norm",
+        "gradient_post_clip_norm",
+    ):
+        assert math.isfinite(float(result.diagnostics[name]))
+    assert result.diagnostics["gradient_pre_clip_norm"] > 0.0
+    assert result.diagnostics["gradient_post_clip_norm"] > 0.0
+    assert result.diagnostics["gradient_parameter_count"] > 0
+    assert result.diagnostics["gradient_nonzero_parameter_count"] > 0
     quality = result.diagnostics["v003_action_gain_harm_reports"]
     assert isinstance(quality, tuple) and len(quality) == 2
     assert all(report.transaction_id == result.transaction_id for report in quality)
@@ -361,6 +375,32 @@ def test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owner
         "hash-b",
     )
     assert telemetry["grouped_attempt_mass_shares"] == (0.25, 0.25, 0.25, 0.25)
+    for name in (
+        "return_mean",
+        "return_min",
+        "return_max",
+        "return_abs_mean",
+        "advantage_mean",
+        "advantage_min",
+        "advantage_max",
+        "advantage_abs_mean",
+        "advantage_abs_max",
+        "advantage_abs_top1_frac",
+        "advantage_scale",
+        "grouped_transaction_advantage_rms",
+        "gradient_pre_clip_norm",
+        "gradient_post_clip_norm",
+        "action_abs_mean",
+        "action_abs_max",
+        "action_l2_mean",
+    ):
+        assert math.isfinite(float(telemetry[name])), name
+    assert telemetry["gradient_pre_clip_norm"] > 0.0
+    assert telemetry["gradient_post_clip_norm"] > 0.0
+    assert telemetry["gradient_parameter_count"] > 0
+    assert telemetry["gradient_nonzero_parameter_count"] > 0
+    assert telemetry["grouped_reduction_active"] is True
+    assert telemetry["advantage_sign_flip_count"] == 0
     assert telemetry["update_count"] == 1
     assert telemetry["optimizer_step_delta"] == 1
     missing_reports = replace(result, diagnostics={**result.diagnostics, "v003_action_gain_harm_reports": ()})

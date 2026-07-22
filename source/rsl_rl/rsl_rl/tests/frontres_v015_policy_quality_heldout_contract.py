@@ -463,6 +463,11 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         formal_calls: list[tuple[str, str]] = []
         prepared_calls: list[str] = []
         context_calls: list[tuple[str, str]] = []
+        reset_calls: list[str] = []
+        snapshot_calls: list[str] = []
+        restore_calls: list[str] = []
+        route_state = {"cuda_rng": 17, "sealed_scenario": "scenario-heldout-a"}
+        failing_route = {"value": None}
 
         @contextmanager
         def route_actor(_runner, _path, *, route: str, expected_file_sha256: str):
@@ -481,15 +486,21 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         sampler_module._close_frontres_local_scenarios = lifecycle_close_calls.append
         sys.modules[sampler_module.__name__] = sampler_module
         probe_module = ModuleType("rsl_rl.runners.frontres_segment_live_probe")
-        probe_module._apply_current_segment_reset = lambda *_args, **_kwargs: SimpleNamespace(
-            success_mask=torch.ones(8, dtype=torch.bool)
-        )
+        def reset_route_start(*_args, **_kwargs):
+            reset_calls.append("reset")
+            return SimpleNamespace(success_mask=torch.ones(8, dtype=torch.bool))
+
+        probe_module._apply_current_segment_reset = reset_route_start
         probe_module._read_live_observations = lambda _runner: object()
 
         def collect_formal(runner, _observations, *, pair_layout):
             route = runner._frontres_v015_quality_action_route
             formal_calls.append((route, f"{pair_layout.n_train}+{pair_layout.n_base}"))
-            return _evidence(storage, route=route)
+            evidence = _evidence(storage, route=route)
+            route_state["cuda_rng"] += {"zero": 1, "hsl": 3, "policy": 7}[route]
+            if failing_route["value"] == route:
+                raise RuntimeError(f"deliberate {route} route failure")
+            return evidence
 
         probe_module.collect_frontres_v015_one_action_k_evidence = collect_formal
         sys.modules[probe_module.__name__] = probe_module
@@ -515,13 +526,46 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
                 )
             ),
         )
-        quality.capture_frontres_v015_policy_quality_dynamic_state_identity = (
-            lambda _runner, *, comparison_signature, pair_layout: _dynamic_identity(
-                quality,
-                comparison_signature,
-                role_layout=("repair", "noisy"),
+        def capture_route_start(_runner, *, env_ids, comparison_signature, role_layout):
+            assert tuple(env_ids) == tuple(range(8))
+            assert tuple(role_layout) == ("repair",) * 4 + ("noisy",) * 4
+            snapshot_calls.append(comparison_signature)
+            return SimpleNamespace(
+                comparison_signature=comparison_signature,
+                cuda_rng=route_state["cuda_rng"],
+                sealed_scenario=route_state["sealed_scenario"],
             )
-        )
+
+        def restore_route_start(_runner, snapshot, *, comparison_signature):
+            assert snapshot.comparison_signature == comparison_signature
+            assert route_state["sealed_scenario"] == snapshot.sealed_scenario
+            route_state["cuda_rng"] = snapshot.cuda_rng
+            restore_calls.append(comparison_signature)
+
+        def capture_dynamic_identity(_runner, *, comparison_signature, pair_layout):
+            assert pair_layout.n_train == 4 and pair_layout.n_base == 4
+            field_hashes = tuple(
+                (
+                    name,
+                    hashlib.sha256(
+                        (
+                            f"{name}:{route_state['cuda_rng']}"
+                            if name == "cuda_rng_state"
+                            else f"{name}:{route_state['sealed_scenario']}"
+                        ).encode("ascii")
+                    ).hexdigest(),
+                )
+                for name in quality._V015_DYNAMIC_STATE_FIELDS
+            )
+            return quality.FrontRESV015DynamicStateIdentity(
+                comparison_signature=comparison_signature,
+                role_layout=("repair", "noisy"),
+                field_hashes=field_hashes,
+            )
+
+        quality.capture_frontres_policy_quality_state = capture_route_start
+        quality.restore_frontres_policy_quality_state = restore_route_start
+        quality.capture_frontres_v015_policy_quality_dynamic_state_identity = capture_dynamic_identity
         formal_payload = quality.run_frontres_policy_quality_eval(
             formal_runner,
             manifest_path=str(manifest_path),
@@ -534,6 +578,9 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             quality.FrontRESV015PolicyQualityOwnerBundle,
         )
         assert prepared_calls == [formal_payload["items"][0]["comparison_signature"]]
+        assert reset_calls == ["reset"]
+        assert snapshot_calls == [formal_payload["items"][0]["comparison_signature"]]
+        assert restore_calls == [formal_payload["items"][0]["comparison_signature"]] * 3
         assert formal_calls == [("zero", "4+4"), ("hsl", "4+4"), ("policy", "4+4")]
         assert context_calls == [
             ("hsl", checkpoint_by_route["hsl"]),
@@ -543,6 +590,93 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         assert not hasattr(formal_runner, "_frontres_v015_quality_action_route")
         assert command_close_calls == ["clear"]
         assert len(lifecycle_close_calls) == 1
+        route_hashes = {
+            row["dynamic_state_identity"]["full_state_hash"]
+            for row in formal_payload["items"][0]["routes"]
+        }
+        assert len(route_hashes) == 1
+
+        request = quality.build_frontres_v015_policy_quality_eval_request(
+            manifest_path=str(manifest_path),
+            hsl_checkpoint_path=str(hsl_path),
+            policy_checkpoint_path=str(policy_path),
+            result_path=str(root / "permuted.json"),
+        )
+        permuted_command_calls: list[str] = []
+        permuted_command = SimpleNamespace(
+            clear_frontres_local_scenario=lambda: permuted_command_calls.append("clear")
+        )
+        permuted_runner = SimpleNamespace(
+            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True),
+            current_learning_iteration=0,
+            env=SimpleNamespace(
+                command_manager=SimpleNamespace(
+                    get_term=lambda name: permuted_command if name == "motion" else None
+                )
+            ),
+        )
+        route_state["cuda_rng"] = 31
+        reset_before = len(reset_calls)
+        snapshot_before = len(snapshot_calls)
+        restore_before = len(restore_calls)
+        permuted_owner = quality.build_frontres_v015_policy_quality_owner_bundle(permuted_runner, request)
+        training_before = permuted_owner.training_state_signature(permuted_runner)
+        permuted_evidence = [
+            permuted_owner.collect_one_action_k(permuted_runner, request.manifest.items[0], route)
+            for route in ("policy", "zero", "hsl")
+        ]
+        permuted_owner.close_item(permuted_runner, request.manifest.items[0])
+        assert len(reset_calls) == reset_before + 1
+        assert len(snapshot_calls) == snapshot_before + 1
+        assert len(restore_calls) == restore_before + 3
+        assert len({row.dynamic_state_identity.full_state_hash for row in permuted_evidence}) == 1
+        assert permuted_command_calls == ["clear"]
+        assert permuted_owner.training_state_signature(permuted_runner) == training_before
+
+        failure_command_calls: list[str] = []
+        failure_command = SimpleNamespace(
+            clear_frontres_local_scenario=lambda: failure_command_calls.append("clear")
+        )
+        failure_runner = SimpleNamespace(
+            alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True),
+            current_learning_iteration=0,
+            env=SimpleNamespace(
+                command_manager=SimpleNamespace(
+                    get_term=lambda name: failure_command if name == "motion" else None
+                )
+            ),
+        )
+        failure_path = root / "route-start-failure.json"
+        route_state["cuda_rng"] = 43
+        failing_route["value"] = "hsl"
+        failed_reset_before = len(reset_calls)
+        _expect_reject(
+            lambda: quality.run_frontres_policy_quality_eval(
+                failure_runner,
+                manifest_path=str(manifest_path),
+                hsl_checkpoint_path=str(hsl_path),
+                policy_checkpoint_path=str(policy_path),
+                result_path=str(failure_path),
+            ),
+            "deliberate hsl route failure",
+        )
+        assert not failure_path.exists()
+        assert failure_command_calls == ["clear"]
+        assert len(reset_calls) == failed_reset_before + 1
+
+        failing_route["value"] = None
+        route_state["cuda_rng"] = 47
+        recovered_path = root / "route-start-recovered.json"
+        quality.run_frontres_policy_quality_eval(
+            failure_runner,
+            manifest_path=str(manifest_path),
+            hsl_checkpoint_path=str(hsl_path),
+            policy_checkpoint_path=str(policy_path),
+            result_path=str(recovered_path),
+        )
+        assert recovered_path.is_file()
+        assert failure_command_calls == ["clear", "clear"]
+        assert len(reset_calls) == failed_reset_before + 2
 
         state_mismatch_path = root / "state-mismatch.json"
 

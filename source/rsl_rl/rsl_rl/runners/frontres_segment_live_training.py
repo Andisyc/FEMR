@@ -1891,6 +1891,14 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
     if not isinstance(reports, tuple) or not reports:
         raise RuntimeError("v015 formal result requires sealed v003 action/Gain/harm reports")
 
+    def required_finite(name: str) -> float:
+        if name not in diagnostics:
+            raise RuntimeError(f"v015 formal result is missing {name} telemetry")
+        value = float(diagnostics[name])
+        if not math.isfinite(value):
+            raise RuntimeError(f"v015 formal result has non-finite {name} telemetry")
+        return value
+
     transaction_id = str(getattr(result, "transaction_id", ""))
     fields: dict[str, list[Any]] = {
         "policy_actions": [],
@@ -1971,6 +1979,22 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         )
     positive_fraction = sum(value > 0.0 for value in valid_gain_total) / len(valid_gain_total)
     negative_fraction = sum(value < 0.0 for value in valid_gain_total) / len(valid_gain_total)
+    valid_actions = [
+        row
+        for row, is_valid in zip(fields["policy_actions"], fields["valid_policy_row_mask"])
+        if is_valid
+    ]
+    if not valid_actions:
+        raise RuntimeError("v015 live telemetry has no valid full-6D policy action")
+    action_abs_values = [abs(value) for row in valid_actions for value in row]
+    action_l2_values = [math.sqrt(sum(value * value for value in row)) for row in valid_actions]
+    gradient_parameter_count = int(diagnostics.get("gradient_parameter_count", -1))
+    gradient_nonzero_parameter_count = int(diagnostics.get("gradient_nonzero_parameter_count", -1))
+    if gradient_parameter_count <= 0 or not 0 <= gradient_nonzero_parameter_count <= gradient_parameter_count:
+        raise RuntimeError(
+            "v015 formal result has invalid gradient parameter telemetry: "
+            f"nonzero={gradient_nonzero_parameter_count} total={gradient_parameter_count}"
+        )
     return {
         "transaction_id": transaction_id,
         "policy_snapshot_id": str(getattr(result, "policy_snapshot_id", "")),
@@ -1984,6 +2008,27 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "negative_gain_fraction": float(negative_fraction),
         "harm_fraction": float(negative_fraction),
         "harm_definition": "gain_total<0",
+        "action_abs_mean": float(sum(action_abs_values) / len(action_abs_values)),
+        "action_abs_max": float(max(action_abs_values)),
+        "action_l2_mean": float(sum(action_l2_values) / len(action_l2_values)),
+        "return_mean": required_finite("return_mean"),
+        "return_min": required_finite("return_min"),
+        "return_max": required_finite("return_max"),
+        "return_abs_mean": required_finite("return_abs_mean"),
+        "advantage_mean": float(ppo.advantage_mean),
+        "advantage_min": float(ppo.advantage_min),
+        "advantage_max": float(ppo.advantage_max),
+        "advantage_abs_mean": float(ppo.advantage_abs_mean),
+        "advantage_abs_max": float(ppo.advantage_abs_max),
+        "advantage_abs_top1_frac": float(ppo.advantage_abs_top1_frac),
+        "advantage_scale": float(ppo.advantage_scale),
+        "advantage_sign_flip_count": int(ppo.advantage_sign_flip_count),
+        "grouped_reduction_active": bool(ppo.grouped_reduction_active),
+        "grouped_transaction_advantage_rms": float(ppo.grouped_transaction_advantage_rms),
+        "gradient_pre_clip_norm": required_finite("gradient_pre_clip_norm"),
+        "gradient_post_clip_norm": required_finite("gradient_post_clip_norm"),
+        "gradient_parameter_count": gradient_parameter_count,
+        "gradient_nonzero_parameter_count": gradient_nonzero_parameter_count,
         "grouped_motion_mass_shares": tuple(ppo.grouped_motion_mass_shares),
         "grouped_segment_mass_shares": tuple(ppo.grouped_segment_mass_shares),
         "grouped_attempt_mass_shares": tuple(ppo.grouped_attempt_mass_shares),

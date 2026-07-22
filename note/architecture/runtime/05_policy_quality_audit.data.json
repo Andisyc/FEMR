@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
   "subtitle": "LEGACY / INCOMPATIBLE: v011/v002 quartet-Clean 时代的八个质量 owner. 不得作为 v015 two-role one-action-K policy-quality route.",
-  "currentStatus": "G5-Q1 S1/S2 complete at E-FI-59. The active v015 owner now captures B=8 root/joint/env/episode/command/perturber/RNG/local-scenario field hashes after each canonical reset and before observation/action; zero/HSL/policy mismatch blocks atomic output. One bounded G5-Q1-S4 identity sentinel remains user-gated. Current verdict stays evaluation-authority blocked / policy efficacy unconfirmed; Q2--Q6, G6, G7 and long training remain blocked.",
+  "currentStatus": "G5-E0 is one engineering unit: batch official-route inspection, obvious repairs, focused checks, one bounded Stage3 smoke, decisive telemetry, and routine evidence refresh. Existing E-FI-48--E-FI-61 evidence is preserved; Q1--Q6 are retired as mandatory prerequisites. This atlas is conditional only after abnormal runtime or policy metrics. A clean bounded smoke closes engineering and moves to the separately authorized X1 experiments/composition boundary.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -16,16 +16,16 @@
     "QUALITY-TRAJECTORY-01"
   ],
   "activeV015QualityPlan": {
-    "status": "evaluation-authority-blocked-policy-efficacy-unconfirmed; q1-s1-s2-complete",
-    "evidence": "E-FI-59",
-    "next": "G5-Q1-S4 bounded full dynamic-state identity sentinel",
+    "status": "conditional-diagnostic-not-active-engineering-gate",
+    "evidence": "E-FI-48 through E-FI-61 preserved; execution rebase at E-FI-62",
+    "next": "remain dormant during normal G5-E0 execution; invoke only the smallest relevant owner after an abnormal runtime or learned-policy metric",
     "gates": [
-      "Q1 full dynamic-state identity",
-      "Q2 zero-action no-op oracle",
-      "Q3 Physics survival/ZMP/contact evidence",
-      "Q4 matched zero/HSL/policy rerun",
-      "Q5 Gain-to-advantage-to-update causality",
-      "Q6 checkpoint trajectory and long-training admission"
+      "conditional comparison identity",
+      "conditional zero-action no-op oracle",
+      "conditional Physics survival/ZMP/contact evidence",
+      "conditional matched zero/HSL/policy comparison",
+      "conditional Gain-to-advantage-to-update causality",
+      "conditional checkpoint trajectory analysis"
     ]
   },
   "supportOrder": [],
@@ -33,8 +33,8 @@
     {
       "id": "SYS-POLICY-QUALITY",
       "title": "Policy Quality Causal Chain",
-      "summary": "The eight cards below are historical v011/v002/Q-E audit objects and cannot authorize v015 quality. Active v015 route evidence is preserved through E-FI-57; E-FI-58 rebases the current investigation to Q1--Q6 because the completed atomic report lacks a proven full-state identity, zero-action no-op oracle, and discriminative Physics evidence.",
-      "status": "historical-incompatible-v002-qe; active-v015-evaluation-authority-blocked",
+      "summary": "The eight cards below are historical v011/v002/Q-E audit objects and cannot authorize v015 quality. Active v015 evidence is preserved through E-FI-61. Under E-FI-62 these cards are conditional diagnostics, not mandatory engineering gates; open only the smallest owner after the bounded official Stage3 smoke exposes a performance anomaly.",
+      "status": "historical-incompatible-v002-qe; active-v015-quality-audit-conditional",
       "color": "#0f766e",
       "modules": [
         {
@@ -145,7 +145,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-    "gap": "HISTORICAL/INCOMPATIBLE Q-E11; it does not close active v015 G5-Q1 full dynamic-state identity"
+    "gap": "HISTORICAL/INCOMPATIBLE Q-E11; use active v015 comparison identity only if a bounded run exposes an unmatched-quality contradiction"
         },
         {
           "id": "QUALITY-DATA-01",
@@ -238,7 +238,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "HISTORICAL/INCOMPATIBLE v011/v002 distribution question; active v015 distribution work is deferred behind G5-Q1--Q4"
+          "gap": "HISTORICAL/INCOMPATIBLE v011/v002 distribution question; inspect active v015 distribution only after abnormal bounded-run metrics"
         },
         {
           "id": "QUALITY-ACTION-01",
@@ -388,7 +388,7 @@
             "Q2-C HSL loss-gradient and checkpoint-lineage contract",
             "Q2-D scaled-action isolation contract"
           ],
-          "gap": "HISTORICAL/INCOMPATIBLE Q-E18/Q-E19; active v015 action evidence is finite/non-collapsed but efficacy remains unconfirmed until G5-Q1--Q5"
+          "gap": "HISTORICAL/INCOMPATIBLE Q-E18/Q-E19; active v015 action quality becomes diagnostic only if bounded-run actions or metrics are abnormal"
         },
         {
           "id": "QUALITY-GAIN-01",
@@ -481,7 +481,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "HISTORICAL/INCOMPATIBLE FRS-GAIN-v002 card; active v015 uses FRS-GAIN-v003 and is blocked on G5-Q2/Q3 authority"
+          "gap": "HISTORICAL/INCOMPATIBLE FRS-GAIN-v002 card; active v015 uses FRS-GAIN-v003 and this card is conditional on contradictory Gain/execution metrics"
         },
         {
           "id": "QUALITY-CREDIT-01",
@@ -592,7 +592,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "HISTORICAL/INCOMPATIBLE Q-E23; active v015 Gain-to-advantage causality is G5-Q5 and cannot start before Q4"
+          "gap": "HISTORICAL/INCOMPATIBLE Q-E23; inspect active v015 Gain-to-advantage causality only after the bounded smoke exposes a sign or update anomaly"
         },
         {
           "id": "QUALITY-UPDATE-01",
@@ -703,7 +703,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "HISTORICAL/INCOMPATIBLE Q2-D; active v015 controlled update evidence belongs to G5-Q5"
+          "gap": "HISTORICAL/INCOMPATIBLE Q2-D; active v015 controlled update audit is conditional on a visible optimization-direction anomaly"
         },
         {
           "id": "QUALITY-EXEC-01",
@@ -796,7 +796,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "HISTORICAL/INCOMPATIBLE Q-E3; active v015 Physics survival/ZMP/contact authority is G5-Q3"
+          "gap": "HISTORICAL/INCOMPATIBLE Q-E3; inspect active v015 Physics evidence only when bounded-run Gain/execution metrics require it"
         },
         {
           "id": "QUALITY-TRAJECTORY-01",
@@ -889,7 +889,7 @@
             "offline deterministic quality contract",
             "matched live evidence only when gate permits"
           ],
-          "gap": "HISTORICAL/INCOMPATIBLE Q-E5; active v015 checkpoint trajectory and long-training admission is G5-Q6"
+          "gap": "HISTORICAL/INCOMPATIBLE Q-E5; checkpoint trajectory analysis is conditional experiment diagnostics, not an engineering prerequisite"
         }
       ]
     }

@@ -4143,5 +4143,225 @@ Open boundary:
 Next:
 
 - Execute G5-Q1-S4 only after user confirmation. Use one matched manifest item,
-  zero/HSL/policy routes, no optimizer update, and stop at the first differing
-  field or missing identity.
+zero/HSL/policy routes, no optimizer update, and stop at the first differing
+field or missing identity.
+
+## E-FI-60: G5-Q1-S4 Live Identity Sentinel Fail-Closed
+
+Date: 2026-07-22
+
+Tier: S4 one-item live sentinel negative evidence; no training, PPO entry,
+optimizer update, full 16-item evaluation, Q2 work, or atomic quality report
+
+Raw evidence:
+
+- Server log: `/hdd1/cyx/FEMR/v015_g5_q1_s4_identity_gpu3.log`.
+- SHA-256: `c74d3b264f879a8df80558d1d20c131a148188f9a4625c5d33bb1f4672704534`.
+- Size: `47480` bytes; mtime: `2026-07-22 02:35:16.417000961 +0800`.
+- Runtime failure: `route=hsl differing_fields=('cuda_rng_state',)`.
+- Two canonical Segment resets ran. `Entering PPO loop` count was `0`,
+optimizer-update sentinel count was `0`, and
+`v015_g5_q1_s4_identity_gpu3.json` was absent.
+
+Facts:
+
+- Zero and HSL route-start identities matched for root state, joint position,
+joint velocity, env origins, episode length, command state, perturber state,
+Python RNG, NumPy RNG, Torch CPU RNG, and sealed local scenario.
+- CUDA RNG was the only differing field. The second canonical reset restored
+Clean x_t and reused the sealed scenario but did not reproduce the CUDA RNG
+state consumed after the zero route.
+- The fail-closed comparison stopped before the policy route and prevented an
+atomic report. No PPO or optimizer update was reached.
+
+Decision:
+
+- Keep CUDA RNG in the required identity. Do not silence, omit, or tolerate
+the mismatch.
+- Freeze G5-Q1-S4A as a separate implementation step: capture one complete
+route-start snapshot after the first canonical reset and restore the same
+physical, command, perturber, Python/NumPy/Torch/CUDA RNG, and sealed
+local-scenario identity before zero/HSL/policy.
+- Q2--Q6, G6/G7, additional training, full quality rerun, and deployment
+composition remain blocked.
+
+Open boundary:
+
+- Deterministic S1/S2 contracts have not yet proven route-order invariance,
+CUDA RNG restoration after deliberate consumption, exception cleanup, or zero
+training-state feedback for the proposed restore path.
+- A replacement one-item S4 sentinel is not authorized until those contracts
+pass and requires separate user confirmation.
+
+Next:
+
+- Implement G5-Q1-S4A only after explicit user authorization. Do not enter Q2
+or launch simulator/training/live execution in that implementation step.
+
+## E-FI-61: G5-Q1-S4A Route-Start Snapshot Restore S1/S2
+
+Date: 2026-07-22
+
+Tier: deterministic S1 core-parameter and S2 held-out lifecycle evidence; no
+simulator, training, live sentinel, Q2, Gain/PPO/HSL/checkpoint, active-contract,
+or Concept-Figure change
+
+Fail-first evidence:
+
+- The focused held-out contract deliberately consumed a modeled CUDA RNG value
+after each route. Before the implementation change it reproduced the live
+failure at HSL with `differing_fields=('cuda_rng_state',)`.
+
+Implementation:
+
+- `build_frontres_v015_policy_quality_owner_bundle()` now owns one
+`FrontRESPolicyQualityScoringState` plus expected dynamic identity per manifest
+item.
+- The owner materializes and resets a sealed item once, captures one complete
+post-reset route-start, and calls the existing strict state restore before each
+zero/HSL/policy observation/action path.
+- A fresh 12-field dynamic identity is compared with the expected identity
+before `_read_live_observations()`. Field or role drift still fails closed.
+- Item close removes the route-start snapshot before closing the command-owned
+carrier and immutable batch. It does not reinstall, mutate, or resample the
+sealed local scenario.
+
+Deterministic evidence:
+
+- `frontres_v015_policy_quality_heldout_contract.py`: PASS. One reset and one
+snapshot feed three restores; deliberate RNG consumption produces identical
+route hashes; `policy -> zero -> hsl` permutation remains identical; an HSL
+exception closes the item, emits no report, and a retry captures a fresh state.
+- `frontres_v015_policy_quality_save_reload_contract.py`: PASS, including the
+existing strict actual-save/fresh-runner/atomic-report connectivity fixture.
+- `frontres_policy_quality_state_contract.py`: PASS; the complete scoring state
+capture/restore hash remains closed offline.
+- `python -m py_compile` for the modified owner and held-out contract: PASS.
+- `git diff --check`: PASS.
+
+Confirmed:
+
+- The implementation fixes the owner-local cause observed at `E-FI-60`
+without deleting CUDA RNG identity or weakening mismatch rejection.
+- Route order, deliberate RNG consumption, exception cleanup, retry lifecycle,
+sealed-scenario identity, and training-state zero-write are contract-confirmed.
+
+Open boundary:
+
+- CPU fixtures cannot prove IsaacLab simulator write-back or real CUDA RNG
+restoration. G5-Q1 remains partial until one separately authorized replacement
+one-item S4 sentinel matches all zero/HSL/policy field hashes.
+- Q2--Q6, full quality rerun, additional training, G6/G7, and deployment
+composition remain blocked.
+
+Next:
+
+- Perform a read-only replacement G5-Q1-S4 artifact/command preflight only
+after explicit user authorization; report the exact command and stop before
+launching the live sentinel.
+
+## E-FI-62: One-Shot HRL Engineering Plan Rebase
+
+Date: 2026-07-22
+
+Tier: user-confirmed execution-governance and current-plan rebase; no training
+source, active contract, Concept Figure, checkpoint, simulator, training, or
+live execution change
+
+User decision:
+
+- HSL is an already validated auxiliary initializer. Do not repeatedly audit it
+when training diagnostics provide no fresh contradiction.
+- The engineering terminal outcome is to connect the HRL path, remove visible
+bugs, run a bounded training smoke, and judge readiness from decisive metrics.
+- Repeated fragmented preflights, per-assertion gates, and user handoffs waste
+time and tokens. Internal assertions must remain inside one engineering run.
+- `formal-runtime-audit` is reserved for visible official-route/runtime bugs.
+`policy-quality-audit` is reserved for poor, no-op, regressing, or contradictory
+learned-policy metrics.
+
+Skill evidence:
+
+- Updated `/Users/chengyuxuan/.codex/skills/one-shot-execution/SKILL.md`.
+- Final `one-shot-execution` SHA-256:
+  `450059d376e91162cff5fcdb85d32ec921d08edad0ee4900de366ccaa77f8ebf`.
+- Final `workflow-governance` SHA-256:
+  `ea69eb7923b2c3c1fc1a1823acbff71dfe26127902bba1321d53cc1b5280de03`.
+- Added the planning compression gate, deletion test, ML/RL engineering closure
+unit, internal-assertion rule, validated auxiliary-path freeze, and conditional
+routing to formal-runtime/policy-quality audits.
+- Updated workflow governance so lifecycle stages and checklist/evidence layers
+may close inside one authorized engineering unit; crossing owners, test types,
+or offline/live evidence no longer creates an automatic user-visible step.
+- Ruby replication of every `quick_validate.py` frontmatter/name/description
+check plus required-body checks: PASS. The official
+`quick_validate.py` could not run because available Python environments lacked
+PyYAML and restricted network access prevented temporary installation; this is
+a validator dependency limitation, not a claimed official-validator PASS.
+
+Plan decision:
+
+- Replace the active G5-Q1--Q6 prerequisite chain with G5-E0 One-Shot HRL
+Engineering Closure.
+- Batch official-route inspection, obvious repair, focused verification,
+bounded formal training, log inspection, and routine evidence refresh into one
+authorized unit.
+- Keep `E-FI-58`--`E-FI-61` as valid historical/current facts and reusable
+conditional diagnostics; do not discard their regression protections.
+- A clean bounded Stage3 smoke with finite non-degenerate action/update,
+plausible Gain/advantage/gradient diagnostics, and a committed checkpoint closes
+engineering. G6/G7 then become experiment/composition work.
+
+Next:
+
+- Execute G5-E0 as one unit. Pause only for a true semantic decision, a costly
+or destructive action, an unresolved official-route contradiction after one
+repair cycle, or abnormal learned-policy metrics that trigger a conditional
+audit.
+
+## E-FI-63: Planning Compression Closeout
+
+Date: 2026-07-22
+
+Tier: governance/documentation only; no training source, active contract,
+Concept Figure, checkpoint, test, simulator, training, or live-run change
+
+Applied rules:
+
+- The upgraded `one-shot-execution` skill now governs engineering planning as
+  well as debugging. Owners, lifecycle stages, evidence tiers, tests, and
+  routine document refresh are embedded checks rather than automatic steps.
+- The upgraded `workflow-governance` skill permits one authorized engineering
+  unit to cross implementation, integration, offline/live verification, and
+  documentation stages when no new human decision or high-cost boundary is
+  crossed.
+- HSL remains frozen as a validated auxiliary initializer unless fresh
+  official-run evidence identifies it as the first broken owner.
+- `formal-runtime-audit` and `policy-quality-audit` are conditional tools, not
+  mandatory prerequisite chains.
+
+Deletion-test result:
+
+- Replaced the chronological 2,086-line engineering plan with one current
+  engineering closure unit, `G5-E0`.
+- Replaced the micro-step checklist with embedded terminal assertions.
+- Replaced the historical task canvas with the current cursor, stop rule, and
+  next true boundary.
+- Merged the former G6/G7 setup sequence into `X1 Formal Experiments And
+  Composition`; only its long/costly experiment boundary requires separate
+  authorization.
+- Retained `E-FI-58--E-FI-61` and the policy-quality Architecture as reusable
+  conditional evidence. Historical evidence was not deleted or rewritten.
+
+Files updated:
+
+- `note/frontres_core/plans/FRS-v015-future-intent-single-action-k-engineering-plan.md`
+- `note/frontres_core/checklists/FRS-v015-future-intent-single-action-k-checklist.md`
+- `note/frontres_core/plans/FRS-v015-future-intent-single-action-k-task-canvas.md`
+- `note/architecture/runtime/05_policy_quality_audit.data.json`
+- this append-only evidence ledger
+
+Current cursor:
+
+- `G5-E0` is ready for explicit execution authorization as one complete unit.
+- This closeout did not execute G5-E0 and did not authorize X1.

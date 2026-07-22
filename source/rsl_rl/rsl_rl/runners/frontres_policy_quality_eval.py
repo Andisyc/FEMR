@@ -459,6 +459,12 @@ def build_frontres_v015_policy_quality_owner_bundle(
     ):
         raise RuntimeError("formal v015 held-out quality requires exactly 4 Repair + 4 Noisy rows")
     item_batches: dict[str, Any] = {}
+    item_route_starts: dict[
+        str,
+        tuple[FrontRESPolicyQualityScoringState, FrontRESV015DynamicStateIdentity],
+    ] = {}
+    route_start_roles = ("repair",) * 4 + ("noisy",) * 4
+    route_start_env_ids = tuple(range(8))
 
     def collect_one_action_k(_runner: Any, item: Any, route: str) -> FrontRESV015PolicyQualityRouteEvidence:
         if _runner is not runner or route not in _V015_QUALITY_ROUTES:
@@ -470,14 +476,49 @@ def build_frontres_v015_policy_quality_owner_bundle(
             item_batches[signature] = prepared
         runner._frontres_segment_live_current_batch = prepared.batch
         runner._frontres_segment_live_current_sample = prepared.sample
-        reset = _apply_current_segment_reset(runner, pair_layout=pair_layout)
-        if reset is None or not bool(reset.success_mask.detach().bool().all().item()):
-            raise RuntimeError("v015 held-out quality failed to restore the sealed Clean x_t")
+        route_start = item_route_starts.get(signature)
+        if route_start is None:
+            reset = _apply_current_segment_reset(runner, pair_layout=pair_layout)
+            if reset is None or not bool(reset.success_mask.detach().bool().all().item()):
+                raise RuntimeError("v015 held-out quality failed to restore the sealed Clean x_t")
+            snapshot = capture_frontres_policy_quality_state(
+                runner,
+                env_ids=route_start_env_ids,
+                comparison_signature=signature,
+                role_layout=route_start_roles,
+            )
+            expected_identity = capture_frontres_v015_policy_quality_dynamic_state_identity(
+                runner,
+                comparison_signature=signature,
+                pair_layout=pair_layout,
+            )
+            route_start = (snapshot, expected_identity)
+            item_route_starts[signature] = route_start
+        snapshot, expected_identity = route_start
+        restore_frontres_policy_quality_state(
+            runner,
+            snapshot,
+            comparison_signature=signature,
+        )
         dynamic_state_identity = capture_frontres_v015_policy_quality_dynamic_state_identity(
             runner,
             comparison_signature=signature,
             pair_layout=pair_layout,
         )
+        if dynamic_state_identity != expected_identity:
+            expected_fields = dict(expected_identity.field_hashes)
+            observed_fields = dict(dynamic_state_identity.field_hashes)
+            differing = tuple(
+                name
+                for name in _V015_DYNAMIC_STATE_FIELDS
+                if expected_fields.get(name) != observed_fields.get(name)
+            )
+            if expected_identity.role_layout != dynamic_state_identity.role_layout:
+                differing = ("role_layout", *differing)
+            raise RuntimeError(
+                "v015 quality route-start restore did not reproduce the sealed dynamic state: "
+                f"route={route} differing_fields={differing}"
+            )
         observations = _read_live_observations(runner)
         checkpoint_sha = {
             "zero": "zero",
@@ -524,7 +565,9 @@ def build_frontres_v015_policy_quality_owner_bundle(
 
         if _runner is not runner:
             raise RuntimeError("v015 quality item close received a mixed runner identity")
-        prepared = item_batches.pop(str(item.comparison_signature), None)
+        signature = str(item.comparison_signature)
+        item_route_starts.pop(signature, None)
+        prepared = item_batches.pop(signature, None)
         if prepared is None:
             return
         env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env

@@ -3747,7 +3747,32 @@ def run_frontres_v015_formal_transaction_update(
     ]
     if not parameters:
         raise RuntimeError("v015 formal transaction optimizer has no trainable parameters")
-    torch.nn.utils.clip_grad_norm_(parameters, float(getattr(alg, "max_grad_norm", 1.0)))
+    gradient_pre_clip_norm = float(
+        torch.nn.utils.clip_grad_norm_(parameters, float(getattr(alg, "max_grad_norm", 1.0)))
+    )
+    gradient_tensors = [parameter.grad.detach().float() for parameter in parameters if parameter.grad is not None]
+    gradient_post_clip_norm = math.sqrt(
+        sum(float(gradient.pow(2).sum().cpu().item()) for gradient in gradient_tensors)
+    )
+    gradient_nonzero_parameter_count = sum(
+        int(bool((gradient != 0.0).any().cpu().item())) for gradient in gradient_tensors
+    )
+    if not math.isfinite(gradient_pre_clip_norm) or not math.isfinite(gradient_post_clip_norm):
+        raise FloatingPointError(
+            "v015 formal transaction produced non-finite gradients: "
+            f"pre_clip={gradient_pre_clip_norm} post_clip={gradient_post_clip_norm}"
+        )
+    diagnostic_valid = (
+        ppo_batch.valid_mask.detach().bool()
+        & torch.isfinite(ppo_batch.returns.detach())
+        & torch.isfinite(ppo_batch.advantages.detach())
+    )
+    if int(diagnostic_valid.sum().item()) != int(ppo_result.valid_count):
+        raise RuntimeError(
+            "v015 formal transaction return/advantage telemetry disagrees with PPO valid rows: "
+            f"telemetry={int(diagnostic_valid.sum().item())} ppo={int(ppo_result.valid_count)}"
+        )
+    valid_returns = ppo_batch.returns.detach().float()[diagnostic_valid]
     step()
     optimizer_step_after = _v015_formal_optimizer_step_count(optimizer)
     optimizer_step_delta = optimizer_step_after - optimizer_step_before
@@ -3781,6 +3806,14 @@ def run_frontres_v015_formal_transaction_update(
         "grouped_motion_mass_shares": tuple(ppo_result.grouped_motion_mass_shares),
         "grouped_segment_mass_shares": tuple(ppo_result.grouped_segment_mass_shares),
         "grouped_attempt_mass_shares": tuple(ppo_result.grouped_attempt_mass_shares),
+        "return_mean": float(valid_returns.mean().cpu().item()),
+        "return_min": float(valid_returns.min().cpu().item()),
+        "return_max": float(valid_returns.max().cpu().item()),
+        "return_abs_mean": float(valid_returns.abs().mean().cpu().item()),
+        "gradient_pre_clip_norm": gradient_pre_clip_norm,
+        "gradient_post_clip_norm": gradient_post_clip_norm,
+        "gradient_parameter_count": len(parameters),
+        "gradient_nonzero_parameter_count": gradient_nonzero_parameter_count,
         "optimizer_step_delta": int(optimizer_step_delta),
         "v003_action_gain_harm_reports": request.diagnostic_reports,
     }
