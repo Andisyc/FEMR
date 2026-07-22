@@ -82,6 +82,11 @@ def _evidence(storage, *, route: str):
         executed_q29_t_valid_mask=torch.ones(2, dtype=torch.bool),
         done_any=torch.zeros(2, dtype=torch.bool),
         survival_steps=torch.tensor([repaired_survival, 1.0]),
+        physics_zmp_repaired_steps=torch.full((2, 1), 0.3 + action_scale),
+        physics_zmp_noisy_steps=torch.full((2, 1), 0.3),
+        physics_contact_repaired_steps=torch.full((2, 1), 1.0),
+        physics_contact_noisy_steps=torch.full((2, 1), 0.5),
+        physics_pair_valid_mask=torch.ones(2, 1, dtype=torch.bool),
     )
     result.validate()
     return result

@@ -362,16 +362,45 @@ def test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owner
     assert len(telemetry["physics_gain"]) == 4
     assert len(telemetry["repair_cost"]) == 4
     assert len(telemetry["gain_total"]) == 4
+    for name in (
+        "policy_values",
+        "returns",
+        "raw_advantages",
+        "scaled_advantages",
+        "repaired_survival",
+        "noisy_survival",
+        "physics_survival_quality_repaired",
+        "physics_survival_quality_noisy",
+        "repaired_zmp_margin",
+        "noisy_zmp_margin",
+        "repaired_contact",
+        "noisy_contact",
+        "physics_success_gain",
+        "physics_survival_gain",
+        "physics_zmp_gain",
+        "physics_contact_gain",
+        "physics_valid_step_count",
+    ):
+        assert len(telemetry[name]) == 4, name
+    assert all(
+        math.isclose(raw, ret - value)
+        for raw, ret, value in zip(telemetry["raw_advantages"], telemetry["returns"], telemetry["policy_values"])
+    )
+    assert all(
+        math.copysign(1.0, raw) == math.copysign(1.0, scaled)
+        for raw, scaled in zip(telemetry["raw_advantages"], telemetry["scaled_advantages"])
+        if raw != 0.0 and scaled != 0.0
+    )
     assert telemetry["scenario_ids"] == (
         "scenario-a",
-        "scenario-b",
         "scenario-a",
+        "scenario-b",
         "scenario-b",
     )
     assert telemetry["noisy_segment_hashes"] == (
         "hash-a",
-        "hash-b",
         "hash-a",
+        "hash-b",
         "hash-b",
     )
     assert telemetry["grouped_attempt_mass_shares"] == (0.25, 0.25, 0.25, 0.25)

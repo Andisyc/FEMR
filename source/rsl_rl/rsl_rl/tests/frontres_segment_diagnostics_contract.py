@@ -47,6 +47,24 @@ def _v015_candidate_evidence() -> SimpleNamespace:
         physics_gain=torch.tensor([0.20, -0.20, float("nan")]),
         repair_cost=torch.tensor([0.05, 0.05, float("nan")]),
         gain_total=torch.tensor([0.45, -0.35, float("nan")]),
+        policy_values=torch.tensor([0.10, 0.20, float("nan")]),
+        return_k=torch.tensor([0.45, -0.35, float("nan")]),
+        advantage_k=torch.tensor([0.35, -0.55, float("nan")]),
+        repaired_success=torch.tensor([1.0, 0.0, float("nan")]),
+        noisy_success=torch.tensor([0.0, 0.0, float("nan")]),
+        repaired_survival=torch.tensor([4.0, 2.0, float("nan")]),
+        noisy_survival=torch.tensor([2.0, 2.0, float("nan")]),
+        physics_survival_quality_repaired=torch.tensor([1.0, 0.5, float("nan")]),
+        physics_survival_quality_noisy=torch.tensor([0.5, 0.5, float("nan")]),
+        repaired_zmp_margin=torch.tensor([0.3, 0.1, float("nan")]),
+        noisy_zmp_margin=torch.tensor([0.1, 0.1, float("nan")]),
+        repaired_contact=torch.tensor([1.0, 0.5, float("nan")]),
+        noisy_contact=torch.tensor([0.5, 0.5, float("nan")]),
+        physics_success_gain=torch.tensor([1.0, 0.0, float("nan")]),
+        physics_survival_gain=torch.tensor([0.5, 0.0, float("nan")]),
+        physics_zmp_gain=torch.tensor([0.2, 0.0, float("nan")]),
+        physics_contact_gain=torch.tensor([0.5, 0.0, float("nan")]),
+        physics_valid_step_count=torch.tensor([4, 2, 0]),
         horizon_k=torch.tensor([4, 4, 4]),
         scenario_ids=("scenario-a", "scenario-b", "scenario-c"),
         noisy_segment_hashes=("hash-a", "hash-b", "hash-c"),
@@ -71,6 +89,11 @@ def test_v015_transaction_telemetry_projects_sealed_rows_without_recompute() -> 
     assert report.physics_gain[:2] == (0.20000000298023224, -0.20000000298023224)
     assert report.repair_cost[:2] == (0.05000000074505806, 0.05000000074505806)
     assert report.gain_total[:2] == (0.44999998807907104, -0.3499999940395355)
+    assert report.policy_values[:2] == (0.10000000149011612, 0.20000000298023224)
+    assert report.raw_advantages[:2] == (0.3499999940395355, -0.550000011920929)
+    assert math.isclose(report.physics_zmp_gain[0], 0.2, rel_tol=0.0, abs_tol=1.0e-6)
+    assert report.physics_zmp_gain[1] == 0.0
+    assert report.physics_contact_gain[:2] == (0.5, 0.0)
     assert all(math.isnan(values[2]) for values in (report.intent_gain, report.physics_gain, report.repair_cost, report.gain_total))
     assert report.gain_total_pos_frac == 0.5
     assert report.gain_total_neg_frac == 0.5

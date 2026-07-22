@@ -1907,6 +1907,24 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "physics_gain": [],
         "repair_cost": [],
         "gain_total": [],
+        "policy_values": [],
+        "returns": [],
+        "raw_advantages": [],
+        "repaired_success": [],
+        "noisy_success": [],
+        "repaired_survival": [],
+        "noisy_survival": [],
+        "physics_survival_quality_repaired": [],
+        "physics_survival_quality_noisy": [],
+        "repaired_zmp_margin": [],
+        "noisy_zmp_margin": [],
+        "repaired_contact": [],
+        "noisy_contact": [],
+        "physics_success_gain": [],
+        "physics_survival_gain": [],
+        "physics_zmp_gain": [],
+        "physics_contact_gain": [],
+        "physics_valid_step_count": [],
         "scenario_ids": [],
         "noisy_segment_hashes": [],
         "x_t_identities": [],
@@ -1947,6 +1965,27 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
             "physics_gain": tuple(float(value) for value in report.physics_gain),
             "repair_cost": tuple(float(value) for value in report.repair_cost),
             "gain_total": tuple(float(value) for value in report.gain_total),
+            "policy_values": tuple(float(value) for value in report.policy_values),
+            "returns": tuple(float(value) for value in report.returns),
+            "raw_advantages": tuple(float(value) for value in report.raw_advantages),
+            "repaired_success": tuple(float(value) for value in report.repaired_success),
+            "noisy_success": tuple(float(value) for value in report.noisy_success),
+            "repaired_survival": tuple(float(value) for value in report.repaired_survival),
+            "noisy_survival": tuple(float(value) for value in report.noisy_survival),
+            "physics_survival_quality_repaired": tuple(
+                float(value) for value in report.physics_survival_quality_repaired
+            ),
+            "physics_survival_quality_noisy": tuple(
+                float(value) for value in report.physics_survival_quality_noisy
+            ),
+            "repaired_zmp_margin": tuple(float(value) for value in report.repaired_zmp_margin),
+            "noisy_zmp_margin": tuple(float(value) for value in report.noisy_zmp_margin),
+            "repaired_contact": tuple(float(value) for value in report.repaired_contact),
+            "noisy_contact": tuple(float(value) for value in report.noisy_contact),
+            "physics_success_gain": tuple(float(value) for value in report.physics_success_gain),
+            "physics_survival_gain": tuple(float(value) for value in report.physics_survival_gain),
+            "physics_zmp_gain": tuple(float(value) for value in report.physics_zmp_gain),
+            "physics_contact_gain": tuple(float(value) for value in report.physics_contact_gain),
         }
         row_count = len(actions)
         if len(valid) != row_count or any(len(values) != row_count for values in components.values()):
@@ -1957,6 +1996,7 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         fields["noisy_segment_hashes"].extend(str(value) for value in report.noisy_segment_hashes)
         fields["x_t_identities"].extend(str(value) for value in report.x_t_identities)
         fields["horizon_k"].extend(int(value) for value in report.horizon_k)
+        fields["physics_valid_step_count"].extend(int(value) for value in report.physics_valid_step_count)
         for name, values in components.items():
             for is_valid, value in zip(valid, values):
                 if is_valid:
@@ -1970,6 +2010,20 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
                         raise RuntimeError(f"v015 live telemetry invalid {name} must remain UNCONFIRMED")
                     fields[name].append(None)
 
+    row_order = tuple(int(value) for value in diagnostics.get("v003_diagnostic_report_row_order", ()))
+    flat_row_count = len(fields["policy_actions"])
+    if sorted(row_order) != list(range(flat_row_count)):
+        raise RuntimeError(
+            "v015 live telemetry requires an exact diagnostic-to-PPO row permutation: "
+            f"order={row_order} rows={flat_row_count}"
+        )
+    for name, values in fields.items():
+        fields[name] = [values[index] for index in row_order]
+    valid_gain_total = [
+        float(value)
+        for value, is_valid in zip(fields["gain_total"], fields["valid_policy_row_mask"])
+        if bool(is_valid)
+    ]
     policy_row_count = len(fields["policy_actions"])
     expected_rows = int(getattr(result, "policy_attempt_count", -1))
     if policy_row_count != expected_rows or not valid_gain_total:
@@ -1977,6 +2031,18 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
             "v015 live telemetry row count disagrees with the sealed transaction: "
             f"reports={policy_row_count} expected={expected_rows}"
         )
+    prepared_advantages = tuple(float(value) for value in getattr(ppo, "prepared_advantages", ()))
+    valid_row_count = sum(bool(value) for value in fields["valid_policy_row_mask"])
+    if len(prepared_advantages) != valid_row_count:
+        raise RuntimeError(
+            "v015 live telemetry requires one PPO-scaled advantage per valid policy row: "
+            f"prepared={len(prepared_advantages)} valid={valid_row_count}"
+        )
+    prepared_iter = iter(prepared_advantages)
+    fields["scaled_advantages"] = tuple(
+        next(prepared_iter) if bool(is_valid) else None
+        for is_valid in fields["valid_policy_row_mask"]
+    )
     positive_fraction = sum(value > 0.0 for value in valid_gain_total) / len(valid_gain_total)
     negative_fraction = sum(value < 0.0 for value in valid_gain_total) / len(valid_gain_total)
     valid_actions = [

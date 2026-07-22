@@ -224,6 +224,23 @@ def _configure_fake_env(helper, commands, hooks, setup, *, horizons: tuple[int, 
     return env, command, pair_layout, request
 
 
+def _fake_physics_frame(offset: int, *, mode: str = "unequal") -> tuple[torch.Tensor, ...] | None:
+    if mode == "missing":
+        return None
+    if mode == "tie":
+        zmp = torch.tensor([0.2 + 0.01 * offset, 0.4 + 0.01 * offset])
+        contact = torch.tensor([1.0, 0.5])
+        return zmp, zmp.clone(), contact, contact.clone()
+    if mode != "unequal":
+        raise ValueError(f"unknown physics fixture mode={mode!r}")
+    return (
+        torch.tensor([0.4 + 0.1 * offset, 0.2 + 0.1 * offset]),
+        torch.tensor([0.1 + 0.1 * offset, 0.2 + 0.1 * offset]),
+        torch.tensor([1.0, 0.5]),
+        torch.tensor([0.5, 0.5]),
+    )
+
+
 def _capture(
     live_probe,
     helper,
@@ -233,6 +250,7 @@ def _capture(
     *,
     horizons: tuple[int, int],
     quality_route: str | None = None,
+    physics_mode: str = "unequal",
 ):
     env, command, pair_layout, request = _configure_fake_env(helper, commands, hooks, setup, horizons=horizons)
     policy = _FakePolicy(command)
@@ -275,11 +293,24 @@ def _capture(
         teacher_obs=env._obs[:, :289].detach().clone(),
         ref_vel_estimator_obs=None,
     )
-    evidence = live_probe.collect_frontres_v015_one_action_k_evidence(
-        runner,
-        observations,
-        pair_layout=pair_layout,
-    )
+    physics_offset = 0
+    original_physics = live_probe._capture_physics_frame
+
+    def capture_physics(_runner, _layout):
+        nonlocal physics_offset
+        frame = _fake_physics_frame(physics_offset, mode=physics_mode)
+        physics_offset += 1
+        return frame
+
+    live_probe._capture_physics_frame = capture_physics
+    try:
+        evidence = live_probe.collect_frontres_v015_one_action_k_evidence(
+            runner,
+            observations,
+            pair_layout=pair_layout,
+        )
+    finally:
+        live_probe._capture_physics_frame = original_physics
     return SimpleNamespace(
         evidence=evidence,
         env=env,
@@ -289,6 +320,7 @@ def _capture(
         apply_calls=apply_calls,
         request=request,
         runner=runner,
+        pair_layout=pair_layout,
     )
 
 
@@ -382,6 +414,12 @@ def test_t_continuation_and_row(live_probe, helper, commands, hooks, setup) -> N
         evidence.continuation_valid_mask,
         torch.tensor([[True, True, True, True], [True, True, True, True], [True, False, True, False]]),
     )
+    torch.testing.assert_close(
+        evidence.physics_pair_valid_mask,
+        torch.tensor([[True, True], [True, True], [True, False]]),
+    )
+    assert torch.isnan(evidence.physics_zmp_repaired_steps[2, 1])
+    torch.testing.assert_close(evidence.physics_zmp_repaired_steps[:2, 1], torch.tensor([0.2, 0.3]))
     # The action at t reads deployment q29 intent, while every later frozen-GMT
     # call reads the command-owned Clean continuation C.
     first_q = result.policy.env_action_calls[0]["joint_pos"][:, 0]
@@ -391,6 +429,84 @@ def test_t_continuation_and_row(live_probe, helper, commands, hooks, setup) -> N
         torch.testing.assert_close(call["joint_vel"][:, 0], expected_c[offset] + 29.0)
         torch.testing.assert_close(call["anchor_pos"][:, 0], expected_c[offset] + 58.0)
     print("[T-continuation/T-row] one-policy-row-per-Repair; GMT=C[q29,dq29,root] only", flush=True)
+
+
+def test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, commands, hooks, setup) -> None:
+    unequal = _capture(live_probe, helper, commands, hooks, setup, horizons=(3, 2), physics_mode="unequal")
+    facts = sys.modules["rsl_rl.frontres.frontres_segment_storage"].pair_frontres_v015_gain_facts(unequal.evidence)
+    torch.testing.assert_close(facts.repaired_zmp_margin, torch.tensor([0.5, 0.25]))
+    torch.testing.assert_close(facts.noisy_zmp_margin, torch.tensor([0.2, 0.25]))
+    torch.testing.assert_close(facts.repaired_contact, torch.tensor([1.0, 0.5]))
+    torch.testing.assert_close(facts.noisy_contact, torch.tensor([0.5, 0.5]))
+    assert facts.physics_valid_step_count.tolist() == [3, 2]
+
+    tied = _capture(live_probe, helper, commands, hooks, setup, horizons=(2, 2), physics_mode="tie")
+    tied_facts = sys.modules["rsl_rl.frontres.frontres_segment_storage"].pair_frontres_v015_gain_facts(tied.evidence)
+    torch.testing.assert_close(tied_facts.repaired_zmp_margin, tied_facts.noisy_zmp_margin)
+    torch.testing.assert_close(tied_facts.repaired_contact, tied_facts.noisy_contact)
+
+    contact_command = SimpleNamespace(
+        cfg=SimpleNamespace(body_names=["left_ankle_roll_link", "right_ankle_roll_link"]),
+        body_pos_w=torch.zeros(4, 2, 3),
+        robot_body_pos_w=torch.zeros(4, 2, 3),
+    )
+    contact_command.robot_body_pos_w[0, 1, 2] = 0.2
+    unequal.runner.env.scene = SimpleNamespace(env_origins=torch.zeros(4, 3))
+    two_role_contact = live_probe._height_contact_consistency_pair(
+        unequal.runner,
+        contact_command,
+        unequal.pair_layout,
+        2,
+    )
+    assert two_role_contact is not None
+    torch.testing.assert_close(two_role_contact[0], torch.tensor([0.5, 1.0]))
+    torch.testing.assert_close(two_role_contact[1], torch.tensor([1.0, 1.0]))
+
+    try:
+        _capture(live_probe, helper, commands, hooks, setup, horizons=(1, 1), physics_mode="missing")
+    except RuntimeError as exc:
+        assert "paired ZMP/contact evidence" in str(exc)
+    else:
+        raise AssertionError("missing formal Physics evidence did not fail closed")
+
+    permutation = torch.tensor([1, 0])
+    role_permutation = torch.tensor([1, 0, 3, 2])
+    from dataclasses import replace
+
+    permuted = replace(
+        unequal.evidence,
+        policy_observations=unequal.evidence.policy_observations.index_select(0, permutation),
+        policy_privileged_observations=unequal.evidence.policy_privileged_observations.index_select(0, permutation),
+        policy_actions=unequal.evidence.policy_actions.index_select(0, permutation),
+        policy_log_probs=unequal.evidence.policy_log_probs.index_select(0, permutation),
+        policy_values=unequal.evidence.policy_values.index_select(0, permutation),
+        policy_means=unequal.evidence.policy_means.index_select(0, permutation),
+        policy_sigmas=unequal.evidence.policy_sigmas.index_select(0, permutation),
+        t_env_actions=unequal.evidence.t_env_actions.index_select(0, role_permutation),
+        continuation=unequal.evidence.continuation.index_select(1, role_permutation),
+        continuation_valid_mask=unequal.evidence.continuation_valid_mask.index_select(1, role_permutation),
+        frozen_gmt_env_actions=unequal.evidence.frozen_gmt_env_actions.index_select(1, role_permutation),
+        horizon_k=unequal.evidence.horizon_k.index_select(0, role_permutation),
+        scenario_ids=tuple(unequal.evidence.scenario_ids[index] for index in role_permutation.tolist()),
+        noisy_segment_hashes=tuple(unequal.evidence.noisy_segment_hashes[index] for index in role_permutation.tolist()),
+        x_t_identities=tuple(unequal.evidence.x_t_identities[index] for index in role_permutation.tolist()),
+        intent_q29=unequal.evidence.intent_q29.index_select(0, role_permutation),
+        intent_q29_provenance=tuple(unequal.evidence.intent_q29_provenance[index] for index in role_permutation.tolist()),
+        intent_q29_source=tuple(unequal.evidence.intent_q29_source[index] for index in role_permutation.tolist()),
+        executed_q29_t=unequal.evidence.executed_q29_t.index_select(0, role_permutation),
+        executed_q29_t_valid_mask=unequal.evidence.executed_q29_t_valid_mask.index_select(0, role_permutation),
+        done_any=unequal.evidence.done_any.index_select(0, role_permutation),
+        survival_steps=unequal.evidence.survival_steps.index_select(0, role_permutation),
+        physics_zmp_repaired_steps=unequal.evidence.physics_zmp_repaired_steps.index_select(1, permutation),
+        physics_zmp_noisy_steps=unequal.evidence.physics_zmp_noisy_steps.index_select(1, permutation),
+        physics_contact_repaired_steps=unequal.evidence.physics_contact_repaired_steps.index_select(1, permutation),
+        physics_contact_noisy_steps=unequal.evidence.physics_contact_noisy_steps.index_select(1, permutation),
+        physics_pair_valid_mask=unequal.evidence.physics_pair_valid_mask.index_select(1, permutation),
+    )
+    permuted_facts = sys.modules["rsl_rl.frontres.frontres_segment_storage"].pair_frontres_v015_gain_facts(permuted)
+    torch.testing.assert_close(permuted_facts.repaired_zmp_margin, facts.repaired_zmp_margin.index_select(0, permutation))
+    assert permuted_facts.scenario_ids == tuple(facts.scenario_ids[index] for index in permutation.tolist())
+    print("[T-physics/T-tie/T-missing/T-mask/T-permute] paired Physics is complete and row-stable", flush=True)
 
 
 def test_t_k_metamorphic_and_legacy_reject(live_probe, helper, commands, hooks, setup) -> None:
@@ -442,6 +558,7 @@ def main() -> None:
     test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup)
     test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, setup)
     test_t_continuation_and_row(live_probe, helper, commands, hooks, setup)
+    test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, commands, hooks, setup)
     test_t_k_metamorphic_and_legacy_reject(live_probe, helper, commands, hooks, setup)
     print("frontres_v015_one_action_k_contract: ok", flush=True)
 

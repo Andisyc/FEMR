@@ -103,6 +103,33 @@ Pause only when one of these true boundaries is reached:
 - the bounded run completes but learned metrics are no-op, regressing, or
   mutually contradictory, activating the conditional policy-quality branch.
 
+### Execution result
+
+Status: stopped at the declared policy-quality boundary, `E-FI-64`.
+
+The official 8-env, 1-iteration, 1-update route reached strict HSL-v1
+initialization, 928/158/770 authority, two sealed Segments x two attempts,
+one-action K=8 evidence, grouped v003 PPO, exact-one Adam update, and a
+committed Stage3-v015 checkpoint. The bounded telemetry connector was repaired
+inside this unit to expose return, advantage, action scale, and pre/post-clip
+gradient without changing Gain/PPO/HSL semantics.
+
+Engineering connectivity passed, but closure did not: three of four attempts
+had negative Gain, `harm_fraction=0.75`, every advantage was negative, and all
+four `physics_gain` values were exactly zero. The gradient path was active
+(`18/18` parameter tensors, pre-clip norm `611.1876`, post-clip `0.5`), so this
+is not an optimizer/no-op wiring failure. It activates the smallest conditional
+policy-quality audit before X1 or any additional training.
+
+The conditional audit identified and repaired the first invalid evidence owner
+at `E-FI-65`. Formal one-action-K collection now seals paired survival,
+ZMP/support, height-contact consistency, and their common valid-step mask into
+the immutable v015 carrier and consumes them through the unchanged v003 Gain.
+Diagnostics now expose raw paired Physics components, policy value, return,
+raw advantage, and row-aligned grouped-scaled advantage. Deterministic S1/S2
+contracts pass; real simulator Physics values remain unconfirmed until one
+bounded live sentinel is separately authorized.
+
 Crossing files, owners, offline/live evidence tiers, or test types is not a
 stop condition by itself.
 

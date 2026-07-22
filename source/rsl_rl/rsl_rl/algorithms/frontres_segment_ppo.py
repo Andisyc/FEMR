@@ -94,6 +94,7 @@ class FrontRESSegmentPPOResult:
     advantage_abs_top1_frac: float = 0.0
     advantage_scale: float = 1.0
     advantage_sign_flip_count: int = 0
+    prepared_advantages: tuple[float, ...] = ()
     grouped_reduction_active: bool = False
     grouped_motion_count: int = 0
     grouped_segment_count: int = 0
@@ -502,6 +503,7 @@ def compute_frontres_segment_ppo_loss(
         advantage_abs_top1_frac=float(advantage_abs_top1_frac),
         advantage_scale=float(advantage_scale),
         advantage_sign_flip_count=int(advantage_sign_flip_count),
+        prepared_advantages=tuple(float(value) for value in advantages.detach().cpu().tolist()),
         grouped_reduction_active=grouped_reduction is not None,
         grouped_motion_count=0 if grouped_reduction is None else len(grouped_reduction.motion_keys),
         grouped_segment_count=0 if grouped_reduction is None else len(grouped_reduction.segment_keys),

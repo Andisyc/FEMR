@@ -4365,3 +4365,159 @@ Current cursor:
 
 - `G5-E0` is ready for explicit execution authorization as one complete unit.
 - This closeout did not execute G5-E0 and did not authorize X1.
+
+## E-FI-64: G5-E0 Bounded Official HRL Smoke
+
+Date: 2026-07-22
+
+Tier: S4 official Stage3-v015 runtime evidence; 8 envs, one iteration, one
+complete transaction, one optimizer update; no long training, multi-seed,
+deployment composition, or paper experiment
+
+Raw evidence:
+
+- Log: `/hdd1/cyx/FEMR/v015_g5_e0_train_gpu3.log`.
+- Log SHA-256: `895c0938b5cdf20bc5f202a8e572f1651d7aba813370ce20b30bd894ebee11bd`.
+- Checkpoint:
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-07-22_10-35-53_G5_S4_BOUND_V015/model_1.pt`.
+- Checkpoint SHA-256:
+  `1aafafc541f9abba1562f7cf4c62731d80a41a9edba015f88b7d12db4e24546d`;
+  size `935964068` bytes.
+
+Engineering repair inside G5-E0:
+
+- The formal route already computed returns, advantages, and gradients but did
+not project them into bounded telemetry. `frontres_segment_live_probe.py` now
+captures finite valid-row return statistics and pre/post-clip gradient norms;
+`frontres_segment_live_training.py` publishes them with action-scale and PPO
+advantage diagnostics without recomputing Gain or feeding training state.
+- The focused transaction contract first failed on missing `return_mean`, then
+passed after the connector repair. A zero-gradient weak observation fixture
+exposed an over-strict diagnostic rejection; the one permitted repair cycle
+retained zero-gradient telemetry as an observable quality result while keeping
+non-finite gradients fail-closed.
+- Launcher, entrypoint, HSL-v1, observation authority, unmocked connectivity,
+v003 Gain consumer, transaction, checkpoint/resume, save/reload, pycompile, and
+diff checks passed after the repair.
+
+Runtime-confirmed route:
+
+- Strict HSL-v1 restored actor/std/158D prefix only; critic, optimizer, sampler,
+and transaction were not restored from HSL.
+- Observation authority was `928 = 158 FEMR + 770 frozen GMT`, with finite raw
+and normalized tensors.
+- Two sealed Segments x two attempts produced four full-6D policy rows and
+K=8 evidence. Group mass was equal: motion/Segment `(0.5,0.5)`, attempt
+`(0.25,0.25,0.25,0.25)`.
+- One grouped transaction produced `update_count=1`,
+`optimizer_step_delta=1`, a committed receipt, and one saved Stage3-v015
+checkpoint. No Traceback or non-finite sentinel appeared.
+
+Decisive telemetry:
+
+- Action was finite and non-collapsed: absolute mean `0.00408867`, maximum
+`0.01544815`, mean L2 `0.01178368`.
+- `gain_total=(-0.0947941, 0.0194770, -0.0918342, -0.0853486)`;
+positive fraction `0.25`, negative/harm fraction `0.75`.
+- `physics_gain=(0,0,0,0)`. Gain was therefore driven by intent improvement
+minus repair cost, without discriminative live Physics evidence.
+- Return mean was `-0.063125`. Every advantage was negative: mean `-0.912162`,
+minimum `-1.365667`, maximum `-0.367361`.
+- Gradient was connected, not no-op: `18/18` parameter tensors were nonzero;
+pre-clip norm `611.187561`, post-clip norm `0.49999998`.
+
+Verdict:
+
+- Official engineering connectivity, identity, grouped reduction, exact-one
+update, diagnostics, and persistence passed.
+- G5-E0 does not close because its declared quality stop condition fired. The
+sampled attempts were predominantly harmful, all advantages were negative, and
+Physics Gain was constant zero. This is not evidence of a disconnected
+optimizer; PPO correctly discouraged the sampled actions.
+- X1, additional training, multi-seed, deployment composition, and paper
+experiments remain blocked. The smallest next action is a read-only
+policy-quality audit of survival/ZMP/contact evidence through v003 Physics Gain
+and Gain -> return -> advantage causality.
+
+## E-FI-65: G5-E0 Physics Evidence Closure S1/S2
+
+Date: 2026-07-22
+
+Tier: deterministic S1 core-parameter and S2 formal-connectivity evidence; no
+simulator, training, live run, checkpoint operation, X1, Gain/PPO/HSL formula,
+active-contract, or Concept-Figure change
+
+Root cause confirmed:
+
+- The formal v015 one-action-K collector dynamically captured `done_any` and
+  `survival_steps`, but its immutable evidence schema had no ZMP/support or
+  contact fields. The v003 input therefore received only success/survival.
+- Missing ZMP/contact stayed internal `NaN` and the Gain owner's available-mean
+  reduced only the delivered components. Aggregate `physics_gain=0` could not
+  prove a complete paired physical tie.
+- The bounded telemetry also omitted raw Physics components and per-row policy
+  value/raw advantage. PPO scaled advantages were available only as aggregate
+  statistics, so critic-to-return causality was not row-auditable.
+
+Implementation:
+
+- `collect_frontres_v015_one_action_k_evidence()` now captures the existing
+  paired Physics frame after every frozen-GMT step. It seals Repair/Noisy ZMP,
+  height-contact consistency, and a common alive/horizon mask as detached
+  `[K,B]` tensors. Missing or malformed evidence fails closed.
+- The two-role contact adapter now compares each Repair/Noisy robot row with
+  its role-aligned command-owned K continuation; it does not require a third
+  scored Clean role or expose Clean to the actor.
+- Immutable storage computes masked per-attempt Physics means and passes them
+  to the unchanged `compute_intent_physics_local_repair_gain()` input.
+- The sealed return/report carrier exposes Repair/Noisy success, raw survival,
+  K-normalized survival quality, ZMP, contact, all paired component gains,
+  policy value, return, and raw advantage without recomputing Gain.
+- PPO math is unchanged. Its result now retains the already-computed prepared
+  advantages for diagnostics. Formal telemetry uses an explicit
+  `(source_index, trial_index)` permutation to align report rows with the
+  transaction accumulator's source-major PPO order before publishing scaled
+  advantages.
+
+Fresh deterministic evidence:
+
+- `frontres_v015_one_action_k_contract.py`: PASS; unequal, exact tie, missing
+  fail-closed, mixed-K mask, scenario-row permutation, and two-role contact
+  reference cases.
+- `frontres_v015_gain_consumer_contract.py`: PASS; complete paired Physics
+  reaches v003 with no v002 fallback.
+- `frontres_segment_diagnostics_contract.py`: PASS; missing fields reject and
+  raw Physics/critic diagnostics remain immutable.
+- `frontres_v015_transaction_route_contract.py`: PASS; raw advantage equals
+  return minus value, scaled signs are preserved after explicit row alignment,
+  and exact-one update remains intact.
+- `frontres_intent_physics_gain_contract.py`: PASS; unchanged v003 formula.
+- `frontres_v015_unmocked_observation_connectivity_contract.py`: PASS; the
+  existing 928/158/770 -> one-action-K -> grouped exact-one CPU route remains
+  connected with semantic Physics evidence.
+- `frontres_v015_policy_quality_heldout_contract.py`: PASS.
+- `python -m py_compile` for all modified production owners: PASS.
+- `git diff --check`: PASS.
+
+Confirmed:
+
+- The first invalid owner is repaired without changing Gain, PPO reduction,
+  HSL, actor visibility, checkpoint identity, K semantics, or optimizer count.
+- Missing Physics cannot silently appear as a complete zero tie.
+- Raw and grouped-scaled credit diagnostics are now aligned to the same
+  transaction policy-row identity.
+
+Open boundary:
+
+- CPU fixtures prove schema, masking, pairing, failure, and consumer semantics;
+  they do not prove real IsaacLab ZMP/contact availability or discriminative
+  values.
+- E-FI-64's policy-quality verdict is not overturned by offline repair.
+  Additional training and X1 remain blocked until one bounded live Physics
+  sentinel records the new raw/component telemetry.
+
+Next:
+
+- After explicit user authorization, run one bounded 8-env, one-transaction
+  live Physics sentinel. Stop on missing/nonfinite Physics, row-identity drift,
+  later FEMR action, or any training beyond the single authorized boundary.

@@ -3399,6 +3399,11 @@ def collect_frontres_v015_one_action_k_evidence(
         continuation_frames: list[torch.Tensor] = []
         valid_frames: list[torch.Tensor] = []
         gmt_action_frames: list[torch.Tensor] = []
+        zmp_repaired_frames: list[torch.Tensor] = []
+        zmp_noisy_frames: list[torch.Tensor] = []
+        contact_repaired_frames: list[torch.Tensor] = []
+        contact_noisy_frames: list[torch.Tensor] = []
+        physics_pair_valid_frames: list[torch.Tensor] = []
         horizon_k = snapshot["horizon_k"].detach().long().clone()
         for _offset in range(int(horizon_k.max().item())):
             if getattr(runner, "_frontres_v015_one_action_k_phase", None) != "frozen":
@@ -3426,6 +3431,27 @@ def collect_frontres_v015_one_action_k_evidence(
             if int(frozen_dones.numel()) != int(valid.numel()):
                 raise RuntimeError("v015 one-action K collector requires one frozen-GMT done flag per role")
             alive = valid & (~done_any)
+            physics_frame = _capture_physics_frame(runner, pair_layout)
+            if physics_frame is None:
+                raise RuntimeError(
+                    "v015 one-action K collector requires paired ZMP/contact evidence on every executable K step"
+                )
+            pair_valid = alive[:n_repair] & alive[n_repair : 2 * n_repair]
+            nan = torch.full((n_repair,), float("nan"), device=runner.device, dtype=torch.float32)
+            frame_names = (
+                ("zmp_repaired", physics_frame[0], zmp_repaired_frames),
+                ("zmp_noisy", physics_frame[1], zmp_noisy_frames),
+                ("contact_repaired", physics_frame[2], contact_repaired_frames),
+                ("contact_noisy", physics_frame[3], contact_noisy_frames),
+            )
+            for name, frame, destination in frame_names:
+                frame = frame.detach().to(device=runner.device, dtype=torch.float32).reshape(-1)
+                if int(frame.numel()) != n_repair or not bool(torch.isfinite(frame[pair_valid]).all()):
+                    raise RuntimeError(
+                        f"v015 one-action K collector received invalid paired Physics frame {name}"
+                    )
+                destination.append(torch.where(pair_valid, frame, nan).detach().clone())
+            physics_pair_valid_frames.append(pair_valid.detach().clone())
             survival_steps = survival_steps + alive.to(dtype=survival_steps.dtype)
             done_any = done_any | (frozen_dones & alive)
 
@@ -3461,6 +3487,11 @@ def collect_frontres_v015_one_action_k_evidence(
             executed_q29_t_valid_mask=(~t_dones).detach().clone(),
             done_any=done_any.detach().clone(),
             survival_steps=survival_steps.detach().clone(),
+            physics_zmp_repaired_steps=torch.stack(zmp_repaired_frames, dim=0),
+            physics_zmp_noisy_steps=torch.stack(zmp_noisy_frames, dim=0),
+            physics_contact_repaired_steps=torch.stack(contact_repaired_frames, dim=0),
+            physics_contact_noisy_steps=torch.stack(contact_noisy_frames, dim=0),
+            physics_pair_valid_mask=torch.stack(physics_pair_valid_frames, dim=0),
         )
         evidence.validate()
         return evidence
@@ -3516,6 +3547,10 @@ def collect_frontres_v015_gain_return_priority_evidence(
         repaired_survival=facts.repaired_survival,
         noisy_survival=facts.noisy_survival,
         effective_horizon_k=facts.horizon_k,
+        repaired_zmp_margin=facts.repaired_zmp_margin,
+        noisy_zmp_margin=facts.noisy_zmp_margin,
+        repaired_contact=facts.repaired_contact,
+        noisy_contact=facts.noisy_contact,
     )
     gain_result = compute(gain_input, config=config)
     return_evidence = build_frontres_v015_gain_return_evidence(facts, gain_result)
@@ -3791,6 +3826,25 @@ def run_frontres_v015_formal_transaction_update(
     metadata = ppo_batch.transaction_metadata
     source_count = int(torch.unique(metadata.source_index.detach().to(dtype=torch.long)).numel())
     segment_count = int(torch.unique(metadata.segment_ids.detach().to(dtype=torch.long)).numel())
+    flat_report_row_by_attempt: dict[tuple[int, int], int] = {}
+    flat_report_row = 0
+    for candidate_batch, report in zip(request.candidate_batches, request.diagnostic_reports, strict=True):
+        candidate_metadata = candidate_batch.transaction_metadata
+        if len(report.policy_actions) != int(candidate_metadata.batch_size):
+            raise RuntimeError("v015 formal diagnostics disagree with their candidate batch row count")
+        for row in range(int(candidate_metadata.batch_size)):
+            key = (
+                int(candidate_metadata.source_index[row].item()),
+                int(candidate_metadata.trial_index[row].item()),
+            )
+            if key in flat_report_row_by_attempt:
+                raise RuntimeError(f"v015 formal diagnostics repeat attempt identity {key}")
+            flat_report_row_by_attempt[key] = flat_report_row
+            flat_report_row += 1
+    diagnostic_report_row_order = tuple(
+        flat_report_row_by_attempt[(int(metadata.source_index[row].item()), int(metadata.trial_index[row].item()))]
+        for row in range(int(metadata.batch_size))
+    )
     diagnostics = {
         "transaction_id": request.plan.transaction_id,
         "policy_snapshot_id": request.plan.policy_snapshot_id,
@@ -3816,6 +3870,7 @@ def run_frontres_v015_formal_transaction_update(
         "gradient_nonzero_parameter_count": gradient_nonzero_parameter_count,
         "optimizer_step_delta": int(optimizer_step_delta),
         "v003_action_gain_harm_reports": request.diagnostic_reports,
+        "v003_diagnostic_report_row_order": diagnostic_report_row_order,
     }
     print(
         "[FrontRES v015 Formal Transaction] "
@@ -4666,11 +4721,11 @@ def _capture_physics_frame(
         执行结果; 它不是 environment reward, 也不构造 Style Gain.
 
     主链路:
-        上游: env.step 后的 robot state, motion command 和 quartet role layout.
+        上游: env.step 后的 robot state, motion command 和 paired role layout.
         下游: `compute_paired_physics_gain` 比较 Repaired/Noisy executability.
 
     语义:
-        ZMP/support 必须按同一 quartet frame 配对. 当前 contact 是 foot-height
+        ZMP/support 必须按同一 Repair/Noisy frame 配对. 当前 contact 是 foot-height
         support proxy, 不是 contact-force sensor; 该限制必须保留在审计解释中.
     """
     # B1: 读取同一 quartet frame 的 paired frozen-GMT execution state.
@@ -4722,10 +4777,10 @@ def _height_contact_consistency_pair(
     pair_layout: Any,
     n: int,
 ) -> tuple[torch.Tensor, torch.Tensor] | None:
-    clean_ref = getattr(command, "body_pos_w", None)
+    reference_pos = getattr(command, "body_pos_w", None)
     robot_pos = getattr(command, "robot_body_pos_w", None)
     body_names = list(getattr(getattr(command, "cfg", None), "body_names", []))
-    if not isinstance(clean_ref, torch.Tensor) or not isinstance(robot_pos, torch.Tensor):
+    if not isinstance(reference_pos, torch.Tensor) or not isinstance(robot_pos, torch.Tensor):
         return None
     foot_names = getattr(runner, "cfg", {}).get(
         "frontres_balance_foot_body_names",
@@ -4740,9 +4795,10 @@ def _height_contact_consistency_pair(
     n_train = int(pair_layout.n_train)
     n_candidate = int(pair_layout.n_candidate)
     n_base = int(pair_layout.n_base)
+    n_clean = int(pair_layout.n_clean)
     base_start = n_train + n_candidate
     clean_start = base_start + n_base
-    if int(clean_ref.shape[0]) < clean_start + n or int(robot_pos.shape[0]) < base_start + n:
+    if int(reference_pos.shape[0]) < base_start + n or int(robot_pos.shape[0]) < base_start + n:
         return None
     env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
     origin_z = getattr(getattr(env, "scene", None), "env_origins", None)
@@ -4754,12 +4810,19 @@ def _height_contact_consistency_pair(
             feet = feet - origin_z[start : start + n, 2].view(-1, 1)
         return feet <= threshold
 
-    clean_contact = contact_mask(clean_ref, clean_start)
+    if n_clean >= n and int(reference_pos.shape[0]) >= clean_start + n:
+        repaired_reference_contact = contact_mask(reference_pos, clean_start)
+        noisy_reference_contact = repaired_reference_contact
+    else:
+        # v015 has no scored Clean role. During frozen-GMT K execution each role's
+        # command-owned reference is the shared Clean continuation, not actor input.
+        repaired_reference_contact = contact_mask(reference_pos, 0)
+        noisy_reference_contact = contact_mask(reference_pos, base_start)
     repaired_contact = contact_mask(robot_pos, 0)
     noisy_contact = contact_mask(robot_pos, base_start)
     return (
-        (clean_contact == repaired_contact).float().mean(dim=-1),
-        (clean_contact == noisy_contact).float().mean(dim=-1),
+        (repaired_reference_contact == repaired_contact).float().mean(dim=-1),
+        (noisy_reference_contact == noisy_contact).float().mean(dim=-1),
     )
 
 

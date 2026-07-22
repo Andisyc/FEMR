@@ -17,13 +17,18 @@ training diagnostics to remove visible bugs, and then move to experiments.
 
 ## Current Cursor
 
-`G5-E0 — One-Shot HRL Engineering Closure: ready, not yet executed`
+`G5-E0 — Physics evidence closure contract-confirmed; bounded live revalidation pending`
 
 Completed foundation through `E-FI-61` includes the q29 carrier, 928/158/770
 authority split, two-role one-action-K evidence, grouped exact-one update,
 HSL-v1 initializer, Stage3-v015 persistence, and formal connectors. `E-FI-62`
 retires the mandatory Q1--Q6 audit chain. HSL stays frozen unless new official
-evidence identifies it as the first broken owner.
+evidence identifies it as the first broken owner. `E-FI-64` now runtime-confirms
+the complete official update and checkpoint route, but records `0.75` harm,
+all-negative advantages, and zero Physics Gain on every row. `E-FI-65` repairs
+the missing formal ZMP/contact carrier, preserves survival and common K masks,
+and exposes row-aligned value/return/raw/scaled advantage diagnostics without
+changing Gain, PPO, or HSL formulas.
 
 ## Single Engineering Unit
 
@@ -58,9 +63,11 @@ Neither branch is a mandatory pre-training checklist.
 
 ## Next True Boundary
 
-`X1 — Formal Experiments And Composition`: authorized training budget, seeds,
-checkpoint trajectory, paired frozen-GMT versus FEMR+GMT evaluation, and paper
-artifacts. This costly GPU/experiment boundary requires separate authorization.
+The conditional policy-quality branch remains active before X1. Deterministic
+contracts now distinguish genuine ties from missing Physics evidence, but only
+a bounded real-environment sentinel can show whether Repair/Noisy survival,
+ZMP, and contact are discriminative in IsaacLab. Additional training, seeds,
+composition, and paper artifacts remain blocked.
 
 ## Stop Rule
 
@@ -71,5 +78,7 @@ cycle, or abnormal learned metrics requiring a conditional audit.
 
 ## Next Action
 
-Obtain explicit authorization to execute all of G5-E0 as one unit. Do not
-create another S0/S1/S2/S4 micro-plan first.
+After explicit authorization, run one bounded live Physics sentinel with the
+same 8-env, one-transaction boundary. Require raw paired survival/ZMP/contact,
+v003 component gains, policy value, return, raw/scaled advantage, and exact row
+identity; stop before additional training or X1.

@@ -105,11 +105,24 @@ def _capture_consumer(one_action, helper, commands, hooks, setup, live_probe, *,
         teacher_obs=env._obs[:, :5].detach().clone(),
         ref_vel_estimator_obs=None,
     )
-    result = live_probe.collect_frontres_v015_gain_return_priority_evidence(
-        runner,
-        observations,
-        pair_layout=pair_layout,
-    )
+    physics_offset = 0
+    original_physics = live_probe._capture_physics_frame
+
+    def capture_physics(_runner, _layout):
+        nonlocal physics_offset
+        frame = one_action._fake_physics_frame(physics_offset, mode="unequal")
+        physics_offset += 1
+        return frame
+
+    live_probe._capture_physics_frame = capture_physics
+    try:
+        result = live_probe.collect_frontres_v015_gain_return_priority_evidence(
+            runner,
+            observations,
+            pair_layout=pair_layout,
+        )
+    finally:
+        live_probe._capture_physics_frame = original_physics
     return SimpleNamespace(
         result=result,
         runner=runner,
@@ -149,6 +162,9 @@ def test_t_provenance_and_consumer_value(one_action, helper, commands, hooks, se
     torch.testing.assert_close(one.executed_q29_t[:2, 0], one.intent_q29[:2, 0, 0] + 0.1)
     torch.testing.assert_close(one.executed_q29_t[2:, 0], one.intent_q29[2:, 0, 0] + 0.4)
     assert bool((returned.intent_gain > 0.0).all())
+    assert bool((returned.physics_zmp_gain >= 0.0).all())
+    assert bool((returned.physics_contact_gain >= 0.0).all())
+    assert bool((returned.physics_valid_step_count > 0).all())
     torch.testing.assert_close(returned.return_k, returned.gain_total)
     torch.testing.assert_close(returned.advantage_k, returned.return_k - returned.policy_values)
     expected_evidence_steps = one.survival_steps.index_select(0, one.policy_row_indices).to(dtype=torch.long)

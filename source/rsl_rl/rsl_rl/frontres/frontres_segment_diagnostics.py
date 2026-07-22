@@ -42,13 +42,13 @@ _V015_COMPOSITION_EVALUATION_KIND = "deployment_composition_protocol"
 class FrontRESV015LocalEvaluationReport:
     """Read-only v015 local-K diagnostic projection of sealed candidate evidence.
 
-    Status: candidate-only.
+    Status: active read-only projection for candidate and formal v015 routes.
     Upstream: Step 3B `FrontRESV015GainConsumerEvidence` after its v003 return
     carrier has been sealed.
     Downstream: terminal/diagnostic review only, never sampler, PPO, optimizer,
     checkpoint, or formal evaluator state.
-    Evidence: deterministic S1 contract.
-    Gap: a real local evaluator and simulator timing remain a later gate.
+    Evidence: deterministic S1/S2 Physics and transaction contracts.
+    Gap: real simulator Physics values remain a bounded live gate.
     """
 
     transaction_id: str
@@ -62,6 +62,24 @@ class FrontRESV015LocalEvaluationReport:
     physics_gain: tuple[float, ...]
     repair_cost: tuple[float, ...]
     gain_total: tuple[float, ...]
+    policy_values: tuple[float, ...]
+    returns: tuple[float, ...]
+    raw_advantages: tuple[float, ...]
+    repaired_success: tuple[float, ...]
+    noisy_success: tuple[float, ...]
+    repaired_survival: tuple[float, ...]
+    noisy_survival: tuple[float, ...]
+    physics_survival_quality_repaired: tuple[float, ...]
+    physics_survival_quality_noisy: tuple[float, ...]
+    repaired_zmp_margin: tuple[float, ...]
+    noisy_zmp_margin: tuple[float, ...]
+    repaired_contact: tuple[float, ...]
+    noisy_contact: tuple[float, ...]
+    physics_success_gain: tuple[float, ...]
+    physics_survival_gain: tuple[float, ...]
+    physics_zmp_gain: tuple[float, ...]
+    physics_contact_gain: tuple[float, ...]
+    physics_valid_step_count: tuple[int, ...]
     policy_row_count: int
     valid_policy_row_count: int
     intent_q29_provenance: str
@@ -83,6 +101,25 @@ class FrontRESV015LocalEvaluationReport:
 
         count = int(self.policy_row_count)
         components = (self.intent_gain, self.physics_gain, self.repair_cost, self.gain_total)
+        row_diagnostics = (
+            self.policy_values,
+            self.returns,
+            self.raw_advantages,
+            self.repaired_success,
+            self.noisy_success,
+            self.repaired_survival,
+            self.noisy_survival,
+            self.physics_survival_quality_repaired,
+            self.physics_survival_quality_noisy,
+            self.repaired_zmp_margin,
+            self.noisy_zmp_margin,
+            self.repaired_contact,
+            self.noisy_contact,
+            self.physics_success_gain,
+            self.physics_survival_gain,
+            self.physics_zmp_gain,
+            self.physics_contact_gain,
+        )
         if (
             not self.transaction_id
             or count <= 0
@@ -94,6 +131,9 @@ class FrontRESV015LocalEvaluationReport:
             or any(len(row) != 6 for row in self.policy_actions)
             or len(self.valid_policy_row_mask) != count
             or any(len(values) != count for values in components)
+            or any(len(values) != count for values in row_diagnostics)
+            or len(self.physics_valid_step_count) != count
+            or any(value < 0 or value > self.horizon_k[index] for index, value in enumerate(self.physics_valid_step_count))
             or any(not str(value) for value in self.scenario_ids)
             or any(not str(value) for value in self.noisy_segment_hashes)
             or any(not str(value) for value in self.x_t_identities)
@@ -112,7 +152,7 @@ class FrontRESV015LocalEvaluationReport:
         if not all(math.isfinite(float(value)) for row in self.policy_actions for value in row):
             raise ValueError("v015 local evaluation report requires finite sealed policy actions [B,6]")
         for row, row_valid in enumerate(self.valid_policy_row_mask):
-            row_values = tuple(float(values[row]) for values in components)
+            row_values = tuple(float(values[row]) for values in (*components, *row_diagnostics))
             if row_valid and not all(math.isfinite(value) for value in row_values):
                 raise ValueError("v015 local evaluation report requires finite v003 components on valid policy rows")
             if not row_valid and not all(math.isnan(value) for value in row_values):
@@ -233,6 +273,29 @@ def build_frontres_v015_local_evaluation_report(
     )
     if any(not isinstance(value, torch.Tensor) or tuple(value.shape) != (count,) for _, value in components):
         raise ValueError("v015 local evaluation requires row-aligned v003 decomposition tensors")
+    diagnostic_names = (
+        "policy_values",
+        "return_k",
+        "advantage_k",
+        "repaired_success",
+        "noisy_success",
+        "repaired_survival",
+        "noisy_survival",
+        "physics_survival_quality_repaired",
+        "physics_survival_quality_noisy",
+        "repaired_zmp_margin",
+        "noisy_zmp_margin",
+        "repaired_contact",
+        "noisy_contact",
+        "physics_success_gain",
+        "physics_survival_gain",
+        "physics_zmp_gain",
+        "physics_contact_gain",
+        "physics_valid_step_count",
+    )
+    diagnostic_tensors = {name: getattr(return_evidence, name, None) for name in diagnostic_names}
+    if any(not isinstance(value, torch.Tensor) or tuple(value.shape) != (count,) for value in diagnostic_tensors.values()):
+        raise ValueError("v015 local evaluation requires complete row-aligned Physics/critic diagnostics")
 
     # B2: 仅在 valid rows 聚合 v003 component, invalid rows 保持 UNCONFIRMED.
     component_mean = {name: _v015_masked_mean(value, valid) for name, value in components}
@@ -258,6 +321,30 @@ def build_frontres_v015_local_evaluation_report(
         physics_gain=tuple(float(value) for value in components[1][1].detach().to(device="cpu").tolist()),
         repair_cost=tuple(float(value) for value in components[2][1].detach().to(device="cpu").tolist()),
         gain_total=tuple(float(value) for value in components[3][1].detach().to(device="cpu").tolist()),
+        policy_values=tuple(float(value) for value in diagnostic_tensors["policy_values"].detach().cpu().tolist()),
+        returns=tuple(float(value) for value in diagnostic_tensors["return_k"].detach().cpu().tolist()),
+        raw_advantages=tuple(float(value) for value in diagnostic_tensors["advantage_k"].detach().cpu().tolist()),
+        repaired_success=tuple(float(value) for value in diagnostic_tensors["repaired_success"].detach().cpu().tolist()),
+        noisy_success=tuple(float(value) for value in diagnostic_tensors["noisy_success"].detach().cpu().tolist()),
+        repaired_survival=tuple(float(value) for value in diagnostic_tensors["repaired_survival"].detach().cpu().tolist()),
+        noisy_survival=tuple(float(value) for value in diagnostic_tensors["noisy_survival"].detach().cpu().tolist()),
+        physics_survival_quality_repaired=tuple(
+            float(value) for value in diagnostic_tensors["physics_survival_quality_repaired"].detach().cpu().tolist()
+        ),
+        physics_survival_quality_noisy=tuple(
+            float(value) for value in diagnostic_tensors["physics_survival_quality_noisy"].detach().cpu().tolist()
+        ),
+        repaired_zmp_margin=tuple(float(value) for value in diagnostic_tensors["repaired_zmp_margin"].detach().cpu().tolist()),
+        noisy_zmp_margin=tuple(float(value) for value in diagnostic_tensors["noisy_zmp_margin"].detach().cpu().tolist()),
+        repaired_contact=tuple(float(value) for value in diagnostic_tensors["repaired_contact"].detach().cpu().tolist()),
+        noisy_contact=tuple(float(value) for value in diagnostic_tensors["noisy_contact"].detach().cpu().tolist()),
+        physics_success_gain=tuple(float(value) for value in diagnostic_tensors["physics_success_gain"].detach().cpu().tolist()),
+        physics_survival_gain=tuple(float(value) for value in diagnostic_tensors["physics_survival_gain"].detach().cpu().tolist()),
+        physics_zmp_gain=tuple(float(value) for value in diagnostic_tensors["physics_zmp_gain"].detach().cpu().tolist()),
+        physics_contact_gain=tuple(float(value) for value in diagnostic_tensors["physics_contact_gain"].detach().cpu().tolist()),
+        physics_valid_step_count=tuple(
+            int(value) for value in diagnostic_tensors["physics_valid_step_count"].detach().cpu().tolist()
+        ),
         policy_row_count=count,
         valid_policy_row_count=int(valid.sum().item()),
         intent_q29_provenance=str(return_evidence.intent_q29_provenance),
@@ -291,7 +378,20 @@ def format_frontres_v015_local_evaluation_report(report: FrontRESV015LocalEvalua
                 f"provenance={report.intent_q29_provenance} source={report.intent_q29_source} "
                 f"gain={_fmt_v015_eval_scalar(report.intent_gain_mean)}"
             ),
-            f"  physics: gain={_fmt_v015_eval_scalar(report.physics_gain_mean)}",
+            (
+                "  physics: "
+                f"gain={_fmt_v015_eval_scalar(report.physics_gain_mean)} "
+                f"success_gain={report.physics_success_gain} "
+                f"survival=(repair={report.repaired_survival},noisy={report.noisy_survival},"
+                f"quality_repair={report.physics_survival_quality_repaired},"
+                f"quality_noisy={report.physics_survival_quality_noisy},gain={report.physics_survival_gain}) "
+                f"zmp=(repair={report.repaired_zmp_margin},noisy={report.noisy_zmp_margin},gain={report.physics_zmp_gain}) "
+                f"contact=(repair={report.repaired_contact},noisy={report.noisy_contact},gain={report.physics_contact_gain})"
+            ),
+            (
+                "  credit: "
+                f"value={report.policy_values} return={report.returns} raw_advantage={report.raw_advantages}"
+            ),
             f"  repair: cost={_fmt_v015_eval_scalar(report.repair_cost_mean)}",
             (
                 "  total: "
