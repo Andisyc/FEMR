@@ -25,7 +25,7 @@ def validate_frontres_v015_stage3_supervision_config(
         return
     if abs(float(lambda_supervised)) > 1.0e-12 or abs(float(lambda_supervised_min)) > 1.0e-12:
         raise ValueError(
-            "FRS-TRAIN-v007 requires lambda_supervised=0 and lambda_supervised_min=0 "
+            "FRS-TRAIN-v008 requires lambda_supervised=0 and lambda_supervised_min=0 "
             "for the v015 future-intent Stage-3 route; HSL is initialization-only"
         )
 
@@ -285,10 +285,13 @@ class FrontRESUnified:
                 or self.lambda_supervised_min != 0.0
                 or self.frontres_hsl_init_enabled
                 or self.frontres_hsl_rollout_label_enabled
-                or self.frontres_segment_critic_warmup_iterations != 0
-                or self.frontres_segment_actor_warmup_iterations != 0
             ):
-                raise ValueError("v015 formal transaction rejects HSL and legacy Stage-3 warmup")
+                raise ValueError("v015 formal transaction rejects HSL and Stage-3 supervised targets")
+            if self.frontres_segment_live_train_enabled and (
+                self.frontres_segment_critic_warmup_iterations <= 0
+                or self.frontres_segment_actor_warmup_iterations <= 0
+            ):
+                raise ValueError("FRS-TRAIN-v008 formal training requires positive critic/actor warmup durations")
         if self.frontres_v015_local_sentinel_only:
             if not self.frontres_v015_formal_transaction_enabled:
                 raise ValueError("v015 local sentinel requires frontres_v015_formal_transaction_enabled=True")

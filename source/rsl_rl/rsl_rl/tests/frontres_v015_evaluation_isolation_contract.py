@@ -85,7 +85,9 @@ def test_t_diagnostic_and_v003_evaluator(
         priority = captured.result.priority_evidence
         return_before = returned.gain_total.detach().clone()
         priority_before = priority.gain_total.detach().clone()
-        report = diagnostics.build_frontres_v015_local_evaluation_report(captured.result)
+        report = diagnostics.build_frontres_v015_local_evaluation_report(
+            captured.result, transaction_id="tx-v015-eval-isolation"
+        )
     finally:
         gain.compute_segment_gain = original_segment_gain
         live_probe._capture_paired_gain = original_capture_gain
@@ -94,7 +96,7 @@ def test_t_diagnostic_and_v003_evaluator(
     assert not legacy_calls
     valid = returned.policy_row_valid.bool()
     assert report.evaluation_kind == "local_k_candidate_only"
-    assert report.gain_source == "FRS-GAIN-v003-intent-physics-local-repair"
+    assert report.gain_source == "FRS-GAIN-v004-support-mode-physics-admissibility"
     assert report.intent_q29_provenance == "deployment_noisy_q29"
     assert report.intent_q29_source == "motion_internal_q29"
     assert report.valid_policy_row_count == int(valid.sum().item())
@@ -105,14 +107,34 @@ def test_t_diagnostic_and_v003_evaluator(
     _assert_same_with_nan(returned.gain_total, return_before)
     _assert_same_with_nan(priority.gain_total, priority_before)
 
+    nan_rows = (float("nan"),) * report.policy_row_count
     no_valid_report = replace(
         report,
+        valid_policy_row_mask=(False,) * report.policy_row_count,
         valid_policy_row_count=0,
+        intent_gain=nan_rows,
+        physics_gain=nan_rows,
+        repair_cost=nan_rows,
+        gain_total=nan_rows,
+        **{
+            name: nan_rows
+            for name in (
+                "policy_values", "returns", "raw_advantages", "repaired_success", "noisy_success",
+                "repaired_survival", "noisy_survival", "physics_survival_quality_repaired",
+                "physics_survival_quality_noisy", "repaired_zmp_margin", "noisy_zmp_margin",
+                "repaired_contact", "noisy_contact", "physics_success_gain", "physics_survival_gain",
+                "physics_zmp_gain", "physics_contact_gain", "intent_quality_repaired",
+                "intent_quality_noisy", "physics_admissible_repaired", "physics_admissible_noisy",
+                "physics_deficit_repaired", "physics_deficit_noisy", "utility_repaired", "utility_noisy",
+                "repair_penalty",
+            )
+        },
         intent_gain_mean=float("nan"),
         physics_gain_mean=float("nan"),
         repair_cost_mean=float("nan"),
         gain_total_mean=float("nan"),
         gain_total_pos_frac=float("nan"),
+        gain_total_neg_frac=float("nan"),
     )
     no_valid_report.validate()
     _expect_value_error(lambda: replace(no_valid_report, gain_total_mean=0.0).validate())
@@ -124,7 +146,7 @@ def test_t_diagnostic_and_v003_evaluator(
     assert "physics: gain=" in text and "repair: cost=" in text
     assert "style=" not in text and "Clean" not in text
     print(
-        "[T-diagnostic/T-evaluator/T-no-v002-fallback/T-no-zero-fill] sealed v003 candidate evidence formats intent/physics/cost/source only",
+        "[T-diagnostic/T-evaluator/T-no-v002-fallback/T-no-zero-fill] sealed v004 candidate evidence formats admissibility/intent/cost/source only",
         flush=True,
     )
 

@@ -302,6 +302,9 @@ class FrontRESV015FormalTransactionRequest:
     # Optional compatibility cross-check only. It cannot replace the critic
     # rows carried and reordered by the sealed candidate transaction.
     privileged_observations: torch.Tensor | None = None
+    training_iteration: int | None = None
+    warmup_phase_name: str | None = None
+    warmup_actor_loss_weight: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "candidate_batches", tuple(self.candidate_batches))
@@ -328,6 +331,9 @@ class FrontRESV015FormalTransactionRequest:
                 raise ValueError("v015 formal transaction diagnostic projection lost transaction or scenario identity")
         if self.privileged_observations is not None and not isinstance(self.privileged_observations, torch.Tensor):
             raise TypeError("v015 formal transaction privileged_observations must be a tensor or None")
+        phase_fields = (self.training_iteration, self.warmup_phase_name, self.warmup_actor_loss_weight)
+        if any(value is not None for value in phase_fields) and not all(value is not None for value in phase_fields):
+            raise ValueError("v015 formal transaction phase identity must be complete or absent")
 
 
 _V015_CHECKPOINT_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
@@ -1881,6 +1887,7 @@ def _attach_frontres_local_scenario_to_index_request(request: Any, batch: Any) -
     artifact = getattr(batch, "frontres_local_scenario_current_root_artifact_t", None)
     intent = getattr(batch, "frontres_local_scenario_intent_q29", None)
     continuation = getattr(batch, "frontres_local_scenario_clean_continuation", None)
+    expected_support = getattr(batch, "frontres_local_scenario_expected_support", None)
     lengths = getattr(batch, "frontres_local_scenario_clean_continuation_lengths", None)
     mask = getattr(batch, "frontres_local_scenario_clean_continuation_mask", None)
     scenario_ids = tuple(str(value) for value in (getattr(batch, "frontres_local_scenario_ids", ()) or ()))
@@ -1894,6 +1901,7 @@ def _attach_frontres_local_scenario_to_index_request(request: Any, batch: Any) -
         or not isinstance(artifact, torch.Tensor)
         or not isinstance(intent, torch.Tensor)
         or not isinstance(continuation, torch.Tensor)
+        or not isinstance(expected_support, torch.Tensor)
         or not isinstance(lengths, torch.Tensor)
         or not isinstance(mask, torch.Tensor)
         or not offsets
@@ -1904,6 +1912,7 @@ def _attach_frontres_local_scenario_to_index_request(request: Any, batch: Any) -
         or continuation.ndim != 3
         or tuple(continuation.shape[:1]) != (batch_size,)
         or int(continuation.shape[-1]) != 65
+        or tuple(expected_support.shape) != tuple(continuation.shape[:2]) + (2,)
         or tuple(lengths.shape) != (batch_size,)
         or tuple(mask.shape) != tuple(continuation.shape[:2])
         or len(scenario_ids) != batch_size
@@ -1918,6 +1927,7 @@ def _attach_frontres_local_scenario_to_index_request(request: Any, batch: Any) -
     request.frontres_local_scenario_current_root_artifact_t = artifact.detach().clone()
     request.frontres_local_scenario_intent_q29 = intent.detach().clone()
     request.frontres_local_scenario_clean_continuation = continuation.detach().clone()
+    request.frontres_local_scenario_expected_support = expected_support.detach().clone()
     request.frontres_local_scenario_clean_continuation_lengths = lengths.detach().clone()
     request.frontres_local_scenario_clean_continuation_mask = mask.detach().clone()
     request.frontres_local_scenario_ids = scenario_ids
@@ -3403,6 +3413,7 @@ def collect_frontres_v015_one_action_k_evidence(
         zmp_noisy_frames: list[torch.Tensor] = []
         contact_repaired_frames: list[torch.Tensor] = []
         contact_noisy_frames: list[torch.Tensor] = []
+        expected_support_frames: list[torch.Tensor] = []
         physics_pair_valid_frames: list[torch.Tensor] = []
         horizon_k = snapshot["horizon_k"].detach().long().clone()
         for _offset in range(int(horizon_k.max().item())):
@@ -3441,8 +3452,6 @@ def collect_frontres_v015_one_action_k_evidence(
             frame_names = (
                 ("zmp_repaired", physics_frame[0], zmp_repaired_frames),
                 ("zmp_noisy", physics_frame[1], zmp_noisy_frames),
-                ("contact_repaired", physics_frame[2], contact_repaired_frames),
-                ("contact_noisy", physics_frame[3], contact_noisy_frames),
             )
             for name, frame, destination in frame_names:
                 frame = frame.detach().to(device=runner.device, dtype=torch.float32).reshape(-1)
@@ -3451,6 +3460,16 @@ def collect_frontres_v015_one_action_k_evidence(
                         f"v015 one-action K collector received invalid paired Physics frame {name}"
                     )
                 destination.append(torch.where(pair_valid, frame, nan).detach().clone())
+            expected_support, contact_repaired, contact_noisy = physics_frame[2:]
+            for name, frame, destination in (
+                ("expected_support", expected_support, expected_support_frames),
+                ("contact_repaired", contact_repaired, contact_repaired_frames),
+                ("contact_noisy", contact_noisy, contact_noisy_frames),
+            ):
+                frame = frame.detach().to(device=runner.device, dtype=torch.float32)
+                if tuple(frame.shape) != (n_repair, 2):
+                    raise RuntimeError(f"v015 one-action K collector received invalid {name} shape {tuple(frame.shape)}")
+                destination.append(frame.clone())
             physics_pair_valid_frames.append(pair_valid.detach().clone())
             survival_steps = survival_steps + alive.to(dtype=survival_steps.dtype)
             done_any = done_any | (frozen_dones & alive)
@@ -3487,6 +3506,7 @@ def collect_frontres_v015_one_action_k_evidence(
             executed_q29_t_valid_mask=(~t_dones).detach().clone(),
             done_any=done_any.detach().clone(),
             survival_steps=survival_steps.detach().clone(),
+            physics_expected_support_steps=torch.stack(expected_support_frames, dim=0),
             physics_zmp_repaired_steps=torch.stack(zmp_repaired_frames, dim=0),
             physics_zmp_noisy_steps=torch.stack(zmp_noisy_frames, dim=0),
             physics_contact_repaired_steps=torch.stack(contact_repaired_frames, dim=0),
@@ -3551,6 +3571,10 @@ def collect_frontres_v015_gain_return_priority_evidence(
         noisy_zmp_margin=facts.noisy_zmp_margin,
         repaired_contact=facts.repaired_contact,
         noisy_contact=facts.noisy_contact,
+        repaired_contact_violation=facts.repaired_contact_violation,
+        noisy_contact_violation=facts.noisy_contact_violation,
+        repaired_zmp_violation=facts.repaired_zmp_violation,
+        noisy_zmp_violation=facts.noisy_zmp_violation,
     )
     gain_result = compute(gain_input, config=config)
     return_evidence = build_frontres_v015_gain_return_evidence(facts, gain_result)
@@ -3650,11 +3674,10 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
         for name in ("frontres_hsl_init_enabled", "frontres_hsl_rollout_label_enabled")
     ):
         raise RuntimeError("v015 formal transaction route rejects implicit HSL initialization or rollout labels")
-    if any(
-        int(getattr(alg, name, 0) or 0) != 0
-        for name in ("frontres_segment_critic_warmup_iterations", "frontres_segment_actor_warmup_iterations")
-    ):
-        raise RuntimeError("v015 formal transaction route rejects legacy Stage-3 warmup phases")
+    critic_warmup = int(getattr(alg, "frontres_segment_critic_warmup_iterations", 0) or 0)
+    actor_warmup = int(getattr(alg, "frontres_segment_actor_warmup_iterations", 0) or 0)
+    if bool(getattr(alg, "frontres_segment_live_train_enabled", False)) and (critic_warmup <= 0 or actor_warmup <= 0):
+        raise RuntimeError("FRS-TRAIN-v008 formal training requires positive critic and actor warmup durations")
     if any(
         bool(getattr(alg, name, False))
         for name in (
@@ -3675,7 +3698,7 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
     return alg
 
 
-def _v015_formal_ppo_config(alg: Any) -> FrontRESSegmentPPOConfig:
+def _v015_formal_ppo_config(alg: Any, *, actor_loss_weight: float) -> FrontRESSegmentPPOConfig:
     """复用 v003 公式参数, 仅选择已确认的 grouped reduction mode."""
 
     return FrontRESSegmentPPOConfig(
@@ -3686,7 +3709,7 @@ def _v015_formal_ppo_config(alg: Any) -> FrontRESSegmentPPOConfig:
         use_clipped_value_loss=bool(getattr(alg, "use_clipped_value_loss", True)),
         normalize_advantages=False,
         advantage_normalization="grouped_scale_only",
-        actor_loss_weight=1.0,
+        actor_loss_weight=float(actor_loss_weight),
     )
 
 
@@ -3747,6 +3770,18 @@ def run_frontres_v015_formal_transaction_update(
     if policy is None or optimizer is None:
         raise RuntimeError("v015 formal transaction update requires runner.alg policy and optimizer")
     optimizer_step_before = _v015_formal_optimizer_step_count(optimizer)
+    iteration = int(getattr(runner, "current_learning_iteration", 0))
+    warmup_phase = frontres_segment_warmup_phase(
+        iteration=iteration,
+        critic_warmup_iterations=int(getattr(alg, "frontres_segment_critic_warmup_iterations", 0)),
+        actor_warmup_iterations=int(getattr(alg, "frontres_segment_actor_warmup_iterations", 0)),
+    )
+    if request.training_iteration is not None and (
+        int(request.training_iteration) != iteration
+        or request.warmup_phase_name != warmup_phase.name
+        or not math.isclose(float(request.warmup_actor_loss_weight), warmup_phase.actor_loss_weight, abs_tol=1e-12)
+    ):
+        raise RuntimeError("v015 transaction crossed or changed its sealed FRS-TRAIN-v008 phase")
     request.plan.verify_policy(policy)
     accumulator = FrontRESV015FormalTransactionAccumulator(
         request.plan,
@@ -3761,7 +3796,7 @@ def run_frontres_v015_formal_transaction_update(
     ppo_result = compute_frontres_segment_ppo_loss(
         policy_evaluator,
         ppo_batch,
-        _v015_formal_ppo_config(alg),
+        _v015_formal_ppo_config(alg, actor_loss_weight=warmup_phase.actor_loss_weight),
     )
     if not ppo_result.should_step:
         raise RuntimeError("v015 formal transaction has no valid grouped PPO rows; refusing optimizer step")
@@ -3774,6 +3809,9 @@ def run_frontres_v015_formal_transaction_update(
     except TypeError:
         zero_grad()
     ppo_result.total_loss.backward()
+    optimizer_params, parameter_snapshots = _optimizer_parameter_snapshots(policy, optimizer)
+    if warmup_phase.name == "critic_only":
+        _clear_noncritic_grads(policy, optimizer_params)
     parameters = [
         parameter
         for group in getattr(optimizer, "param_groups", ())
@@ -3809,6 +3847,15 @@ def run_frontres_v015_formal_transaction_update(
         )
     valid_returns = ppo_batch.returns.detach().float()[diagnostic_valid]
     step()
+    parameter_delta = _parameter_delta_stats(optimizer_params, parameter_snapshots)
+    critic = getattr(policy, "critic", None)
+    critic_ids = {id(parameter) for parameter in critic.parameters()} if critic is not None else set()
+    critic_params = tuple((name, parameter) for name, parameter in optimizer_params if id(parameter) in critic_ids)
+    noncritic_params = tuple((name, parameter) for name, parameter in optimizer_params if id(parameter) not in critic_ids)
+    critic_delta = _parameter_delta_stats(critic_params, parameter_snapshots)
+    noncritic_delta = _parameter_delta_stats(noncritic_params, parameter_snapshots)
+    if warmup_phase.name == "critic_only" and noncritic_delta["param_delta_max_abs"] != 0.0:
+        raise RuntimeError("FRS-TRAIN-v008 critic-only update mutated actor or distribution parameters")
     optimizer_step_after = _v015_formal_optimizer_step_count(optimizer)
     optimizer_step_delta = optimizer_step_after - optimizer_step_before
     if optimizer_step_delta != 1:
@@ -3869,8 +3916,17 @@ def run_frontres_v015_formal_transaction_update(
         "gradient_parameter_count": len(parameters),
         "gradient_nonzero_parameter_count": gradient_nonzero_parameter_count,
         "optimizer_step_delta": int(optimizer_step_delta),
-        "v003_action_gain_harm_reports": request.diagnostic_reports,
-        "v003_diagnostic_report_row_order": diagnostic_report_row_order,
+        "training_contract_id": "FRS-TRAIN-v008",
+        "gain_contract_id": "FRS-GAIN-v004",
+        "training_iteration": iteration,
+        "warmup_phase": warmup_phase.name,
+        "warmup_phase_iteration": warmup_phase.phase_iteration,
+        "actor_loss_weight": warmup_phase.actor_loss_weight,
+        "parameter_delta": parameter_delta,
+        "critic_parameter_delta": critic_delta,
+        "actor_std_parameter_delta": noncritic_delta,
+        "v004_action_gain_harm_reports": request.diagnostic_reports,
+        "v004_diagnostic_report_row_order": diagnostic_report_row_order,
     }
     print(
         "[FrontRES v015 Formal Transaction] "
@@ -3909,7 +3965,13 @@ def _build_frontres_v015_local_transaction_request(
     """
 
     del init_at_random_ep_len  # x_t reset owns the local dynamic start.
-    _require_v015_formal_transaction_config(runner)
+    alg = _require_v015_formal_transaction_config(runner)
+    sealed_iteration = int(getattr(runner, "current_learning_iteration", 0))
+    sealed_phase = frontres_segment_warmup_phase(
+        iteration=sealed_iteration,
+        critic_warmup_iterations=int(getattr(alg, "frontres_segment_critic_warmup_iterations", 0)),
+        actor_warmup_iterations=int(getattr(alg, "frontres_segment_actor_warmup_iterations", 0)),
+    )
     if route == "sentinel":
         prepared = prepare_frontres_v015_local_sentinel_batch(runner)
         label = "local sentinel"
@@ -4011,10 +4073,15 @@ def _build_frontres_v015_local_transaction_request(
             "observation_route": observation_trace,
         })
         setattr(runner, batch_attr, batch)
+        if int(getattr(runner, "current_learning_iteration", 0)) != sealed_iteration:
+            raise RuntimeError("v015 formal transaction changed persisted iteration while collecting attempts")
         return FrontRESV015FormalTransactionRequest(
             plan=plan,
             candidate_batches=(candidate_batch,),
             diagnostic_reports=(diagnostic_report,),
+            training_iteration=sealed_iteration,
+            warmup_phase_name=sealed_phase.name,
+            warmup_actor_loss_weight=sealed_phase.actor_loss_weight,
         )
     except Exception:
         _close_frontres_local_scenarios(batch)
@@ -4094,7 +4161,9 @@ def run_frontres_v015_local_identity_sentinel(
         if not isinstance(preupdate, dict):
             raise RuntimeError("v015 local sentinel requires a complete pre-update identity/observation snapshot")
         telemetry = dict(preupdate)
-        telemetry.update(dict(getattr(result, "diagnostics", {}) or {}))
+        result_diagnostics = dict(getattr(result, "diagnostics", {}) or {})
+        result_diagnostics.pop("v004_action_gain_harm_reports", None)
+        telemetry.update(result_diagnostics)
         telemetry["optimizer_step_delta"] = int(getattr(result, "optimizer_step_delta", -1))
         telemetry["exact_one_update"] = telemetry["optimizer_step_delta"] == 1
         runner._frontres_v015_local_sentinel_telemetry = telemetry
@@ -4713,8 +4782,8 @@ def _capture_root_orientation_frame(
 def _capture_physics_frame(
     runner: Any,
     pair_layout: Any,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None:
-    """截获 paired ZMP/support 和 height-contact Physics evidence.
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None:
+    """Capture paired ZMP plus sealed expected and sensor-authoritative Contact.
 
     函数名说明:
         `_capture_physics_frame` 是 paired Physics capture adapter, 读取 frozen-GMT
@@ -4725,8 +4794,8 @@ def _capture_physics_frame(
         下游: `compute_paired_physics_gain` 比较 Repaired/Noisy executability.
 
     语义:
-        ZMP/support 必须按同一 Repair/Noisy frame 配对. 当前 contact 是 foot-height
-        support proxy, 不是 contact-force sensor; 该限制必须保留在审计解释中.
+        ZMP/support 必须按同一 Repair/Noisy frame 配对. Actual Contact 只来自
+        已配置的 contact_forces ContactSensor；缺失时 fail closed.
     """
     # B1: 读取同一 quartet frame 的 paired frozen-GMT execution state.
     command = _motion_command_for_runner(runner)
@@ -4751,12 +4820,12 @@ def _capture_physics_frame(
     except (ImportError, AttributeError, KeyError, RuntimeError, TypeError, ValueError):
         return None
 
-    contact = _height_contact_consistency_pair(runner, command, pair_layout, n)
+    contact = _contact_sensor_pair(runner, command, pair_layout, n)
     if contact is None:
         return None
-    contact_repaired, contact_noisy = contact
+    expected_support, contact_repaired, contact_noisy = contact
     # B2: 对齐 Repaired/Noisy ZMP 和 contact evidence, 产出 canonical Physics 输入.
-    frame = (zmp_repaired, zmp_noisy, contact_repaired, contact_noisy)
+    frame = (zmp_repaired, zmp_noisy, expected_support, contact_repaired, contact_noisy)
     # AUDIT-PAIR-EVIDENCE-01: Record physics evidence beside style evidence.
     # Result: E67 LIVE PASS for one capture; physics evidence shares the
     # canonical transaction/batch identity.
@@ -4764,23 +4833,26 @@ def _capture_physics_frame(
         "AUDIT-PAIR-EVIDENCE-01",
         zmp_repaired=frame[0],
         zmp_noisy=frame[1],
-        contact_repaired=frame[2],
-        contact_noisy=frame[3],
+        expected_support=frame[2],
+        contact_repaired=frame[3],
+        contact_noisy=frame[4],
         **_audit_identity_kwargs(getattr(runner, "_frontres_segment_live_audit_identity", None)),
     )
     return frame
 
 
-def _height_contact_consistency_pair(
+def _contact_sensor_pair(
     runner: Any,
     command: Any,
     pair_layout: Any,
     n: int,
-) -> tuple[torch.Tensor, torch.Tensor] | None:
-    reference_pos = getattr(command, "body_pos_w", None)
-    robot_pos = getattr(command, "robot_body_pos_w", None)
-    body_names = list(getattr(getattr(command, "cfg", None), "body_names", []))
-    if not isinstance(reference_pos, torch.Tensor) or not isinstance(robot_pos, torch.Tensor):
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
+    snapshot = getattr(command, "frontres_local_scenario_k_execution_snapshot", None)
+    if not callable(snapshot):
+        return None
+    sealed = snapshot()
+    support_rows = sealed.get("expected_support") if isinstance(sealed, Mapping) else None
+    if not isinstance(support_rows, torch.Tensor) or tuple(support_rows.shape) != (int(command.num_envs), 2):
         return None
     foot_names = getattr(runner, "cfg", {}).get(
         "frontres_balance_foot_body_names",
@@ -4789,41 +4861,42 @@ def _height_contact_consistency_pair(
             ["left_ankle_roll_link", "right_ankle_roll_link"],
         ),
     )
-    foot_ids = [index for index, name in enumerate(body_names) if name in set(foot_names)]
-    if len(foot_ids) != 2:
-        return None
     n_train = int(pair_layout.n_train)
     n_candidate = int(pair_layout.n_candidate)
     n_base = int(pair_layout.n_base)
-    n_clean = int(pair_layout.n_clean)
     base_start = n_train + n_candidate
-    clean_start = base_start + n_base
-    if int(reference_pos.shape[0]) < base_start + n or int(robot_pos.shape[0]) < base_start + n:
-        return None
     env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
-    origin_z = getattr(getattr(env, "scene", None), "env_origins", None)
-    threshold = float(getattr(runner, "cfg", {}).get("frontres_balance_contact_height", 0.08))
-
-    def contact_mask(values: torch.Tensor, start: int) -> torch.Tensor:
-        feet = values[start : start + n, foot_ids, 2]
-        if isinstance(origin_z, torch.Tensor):
-            feet = feet - origin_z[start : start + n, 2].view(-1, 1)
-        return feet <= threshold
-
-    if n_clean >= n and int(reference_pos.shape[0]) >= clean_start + n:
-        repaired_reference_contact = contact_mask(reference_pos, clean_start)
-        noisy_reference_contact = repaired_reference_contact
-    else:
-        # v015 has no scored Clean role. During frozen-GMT K execution each role's
-        # command-owned reference is the shared Clean continuation, not actor input.
-        repaired_reference_contact = contact_mask(reference_pos, 0)
-        noisy_reference_contact = contact_mask(reference_pos, base_start)
-    repaired_contact = contact_mask(robot_pos, 0)
-    noisy_contact = contact_mask(robot_pos, base_start)
-    return (
-        (repaired_reference_contact == repaired_contact).float().mean(dim=-1),
-        (noisy_reference_contact == noisy_contact).float().mean(dim=-1),
-    )
+    scene = getattr(env, "scene", None)
+    if scene is None:
+        return None
+    try:
+        sensor = scene["contact_forces"]
+    except (KeyError, TypeError, AssertionError):
+        sensors = getattr(scene, "sensors", None)
+        sensor = sensors.get("contact_forces") if isinstance(sensors, Mapping) else None
+    if sensor is None:
+        return None
+    find_bodies = getattr(sensor, "find_bodies", None)
+    if not callable(find_bodies):
+        return None
+    found = find_bodies(list(foot_names))
+    foot_ids = found[0] if isinstance(found, tuple) else found
+    foot_ids = torch.as_tensor(foot_ids, device=runner.device, dtype=torch.long).flatten()
+    if int(foot_ids.numel()) != 2:
+        return None
+    forces = getattr(getattr(sensor, "data", None), "net_forces_w", None)
+    if not isinstance(forces, torch.Tensor):
+        return None
+    forces = forces.to(device=runner.device)
+    if forces.ndim != 3 or int(forces.shape[0]) < base_start + n:
+        return None
+    threshold = float(getattr(getattr(sensor, "cfg", None), "force_threshold", 10.0))
+    actual = torch.linalg.norm(forces.index_select(1, foot_ids), dim=-1) >= threshold
+    expected_repair = support_rows[:n].bool()
+    expected_noisy = support_rows[base_start : base_start + n].bool()
+    if not torch.equal(expected_repair, expected_noisy):
+        raise RuntimeError("FRS-GAIN-v004 paired roles do not share sealed expected support identity")
+    return expected_repair, actual[:n], actual[base_start : base_start + n]
 
 
 def _root_relative_body_pos(body_pos: torch.Tensor) -> torch.Tensor:

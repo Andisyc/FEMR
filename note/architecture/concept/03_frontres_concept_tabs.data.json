@@ -97,7 +97,7 @@
     {
       "id": "Q-01",
       "title": "Repair Gain",
-      "summary": "意图保持与物理可执行的配对增益",
+      "summary": "支撑语义与相位平衡先合格，再优化意图的配对增益",
       "concept": "C-SIGNAL",
       "x": 2000,
       "y": 150,

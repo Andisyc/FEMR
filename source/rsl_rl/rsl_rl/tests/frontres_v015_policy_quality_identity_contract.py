@@ -133,10 +133,10 @@ def _stage3_payload(checkpointing, *, transaction_state: str = "idle") -> dict[s
     transaction: dict[str, object] = {"state": transaction_state}
     return {
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v015-checkpoint-v2",
+            "format": "frontres-v015-checkpoint-v3",
             "method_contract_id": "FRS-METHOD-v015",
-            "training_contract_id": "FRS-TRAIN-v007",
-            "gain_contract_id": "FRS-GAIN-v003",
+            "training_contract_id": "FRS-TRAIN-v008",
+            "gain_contract_id": "FRS-GAIN-v004",
             "ppo_contract_id": "FRS-PPO-v003",
             "future_intent_layout": _layout(),
             "normalizer": {
@@ -152,6 +152,12 @@ def _stage3_payload(checkpointing, *, transaction_state: str = "idle") -> dict[s
                 "policy_rows_per_attempt": 1,
             },
             "transaction": transaction,
+            "warmup": {
+                "critic_warmup_iterations": 200,
+                "actor_warmup_iterations": 500,
+                "iteration": 1,
+                "phase": "critic_only",
+            },
         },
         "model_state_dict": {"residual_actor": actor, "std": torch.full((6,), 0.2)},
         "obs_norm_state_dict": obs_norm,
@@ -165,8 +171,8 @@ def _manifest_payload() -> dict[str, object]:
     return {
         "schema_version": "frontres-v015-policy-quality-manifest-v1",
         "method_contract_id": "FRS-METHOD-v015",
-        "training_contract_id": "FRS-TRAIN-v007",
-        "gain_contract_id": "FRS-GAIN-v003",
+        "training_contract_id": "FRS-TRAIN-v008",
+        "gain_contract_id": "FRS-GAIN-v004",
         "ppo_contract_id": "FRS-PPO-v003",
         "future_intent_layout_version": "frontres-v015-future-intent-q29-v1",
         "future_offsets": [1, 2],
@@ -241,7 +247,7 @@ def test_strict_v015_quality_identity_and_tamper_rejection() -> None:
         assert request.hsl_checkpoint.format == "frontres-v015-hsl-proposal-v1"
         assert request.hsl_checkpoint.normalizer_key == "frontres_prefix_norm_state_dict"
         assert request.policy_checkpoint.route == "policy"
-        assert request.policy_checkpoint.format == "frontres-v015-checkpoint-v2"
+        assert request.policy_checkpoint.format == "frontres-v015-checkpoint-v3"
         assert request.policy_checkpoint.normalizer_key == "obs_norm_state_dict"
         assert len(request.manifest_file_sha256) == 64
         assert len(request.hsl_checkpoint.file_sha256) == 64

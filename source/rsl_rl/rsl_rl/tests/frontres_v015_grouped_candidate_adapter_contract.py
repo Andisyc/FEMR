@@ -37,13 +37,15 @@ class _ZeroRatioPolicy(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.log_prob_scale = torch.nn.Parameter(torch.tensor(0.0))
-        self.value_scale = torch.nn.Parameter(torch.tensor(0.0))
+        self.std = torch.nn.Parameter(torch.zeros(6))
+        self.critic = torch.nn.Linear(1, 1, bias=False)
+        torch.nn.init.zeros_(self.critic.weight)
 
     def evaluate_segment_actions(self, observations: torch.Tensor, actions: torch.Tensor):
         del actions
         return {
             "log_prob": self.log_prob_scale * observations[:, 0],
-            "value": self.value_scale * observations[:, 1],
+            "value": self.critic(observations[:, 1:2]).squeeze(-1),
             "entropy": torch.zeros_like(observations[:, 0]),
         }
 

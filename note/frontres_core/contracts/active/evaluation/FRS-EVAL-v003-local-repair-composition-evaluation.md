@@ -2,7 +2,7 @@
 contract_id: FRS-EVAL-v003
 status: active
 effective_date: 2026-07-19
-updated_date: 2026-07-21
+updated_date: 2026-07-22
 supersedes: FRS-EVAL-v002
 scope: Stage 3 local first-action K evaluation and separate full-sequence deployment-composition evaluation
 ---
@@ -82,11 +82,13 @@ the single-action K return used a fully Noisy continuation.
 
 ## Metrics
 
-Local evaluation reports the v003 decomposition:
+Local evaluation reports the active v004 decomposition:
 
 ```
 Intent: root-invariant q29/relative-articulation fidelity and paired intent_gain
-Physics: success, fall, survival, ZMP/support, contact, and paired physics_gain
+Physics: expected/actual support-mode alignment, ContactSensor evidence,
+phase-conditioned ZMP, survival, per-role admissibility/deficit, and paired
+utility improvement
 Repair: Delta SE norm and temporal change
 Summary: gain_total, K, H, current artifact, intent invariant, continuation identity
 ```

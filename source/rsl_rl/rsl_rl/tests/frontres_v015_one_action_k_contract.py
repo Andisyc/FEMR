@@ -66,7 +66,20 @@ def _load_owners():
         is_task_space_mode=True,
     )
     warmup = types.ModuleType("rsl_rl.frontres.frontres_segment_warmup")
-    warmup.frontres_segment_warmup_phase = lambda *_args, **_kwargs: "disabled"
+    def warmup_phase(*_args, **kwargs):
+        iteration = int(kwargs.get("iteration", 0))
+        critic = int(kwargs.get("critic_warmup_iterations", 0))
+        actor = int(kwargs.get("actor_warmup_iterations", 0))
+        if iteration < critic:
+            return SimpleNamespace(name="critic_only", phase_iteration=iteration, actor_loss_weight=0.0)
+        if iteration < critic + actor:
+            phase_iteration = iteration - critic
+            return SimpleNamespace(
+                name="actor_warmup", phase_iteration=phase_iteration, actor_loss_weight=(phase_iteration + 1) / actor
+            )
+        return SimpleNamespace(name="joint", phase_iteration=max(0, iteration - critic - actor), actor_loss_weight=1.0)
+
+    warmup.frontres_segment_warmup_phase = warmup_phase
     sys.modules[warmup.__name__] = warmup
     frontres_pkg.frontres_segment_warmup = warmup
 
@@ -229,15 +242,16 @@ def _fake_physics_frame(offset: int, *, mode: str = "unequal") -> tuple[torch.Te
         return None
     if mode == "tie":
         zmp = torch.tensor([0.2 + 0.01 * offset, 0.4 + 0.01 * offset])
-        contact = torch.tensor([1.0, 0.5])
-        return zmp, zmp.clone(), contact, contact.clone()
+        expected = torch.ones(2, 2)
+        return zmp, zmp.clone(), expected, expected.clone(), expected.clone()
     if mode != "unequal":
         raise ValueError(f"unknown physics fixture mode={mode!r}")
     return (
         torch.tensor([0.4 + 0.1 * offset, 0.2 + 0.1 * offset]),
         torch.tensor([0.1 + 0.1 * offset, 0.2 + 0.1 * offset]),
-        torch.tensor([1.0, 0.5]),
-        torch.tensor([0.5, 0.5]),
+        torch.ones(2, 2),
+        torch.ones(2, 2),
+        torch.tensor([[1.0, 0.0], [1.0, 1.0]]),
     )
 
 
@@ -370,6 +384,7 @@ def test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup) -
         current_root_artifact_t=sealed["current_root_artifact_t"],
         intent_q29=sealed["intent_q29"],
         clean_continuation=sealed["clean_continuation"],
+        expected_support=sealed["expected_support"],
         horizon_k=sealed["horizon_k"],
         continuation_lengths=sealed["continuation_lengths"],
         scenario_ids=sealed["scenario_ids"],
@@ -436,8 +451,8 @@ def test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, comma
     facts = sys.modules["rsl_rl.frontres.frontres_segment_storage"].pair_frontres_v015_gain_facts(unequal.evidence)
     torch.testing.assert_close(facts.repaired_zmp_margin, torch.tensor([0.5, 0.25]))
     torch.testing.assert_close(facts.noisy_zmp_margin, torch.tensor([0.2, 0.25]))
-    torch.testing.assert_close(facts.repaired_contact, torch.tensor([1.0, 0.5]))
-    torch.testing.assert_close(facts.noisy_contact, torch.tensor([0.5, 0.5]))
+    torch.testing.assert_close(facts.repaired_contact, torch.tensor([1.0, 1.0]))
+    torch.testing.assert_close(facts.noisy_contact, torch.tensor([0.0, 1.0]))
     assert facts.physics_valid_step_count.tolist() == [3, 2]
 
     tied = _capture(live_probe, helper, commands, hooks, setup, horizons=(2, 2), physics_mode="tie")
@@ -445,22 +460,41 @@ def test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, comma
     torch.testing.assert_close(tied_facts.repaired_zmp_margin, tied_facts.noisy_zmp_margin)
     torch.testing.assert_close(tied_facts.repaired_contact, tied_facts.noisy_contact)
 
-    contact_command = SimpleNamespace(
-        cfg=SimpleNamespace(body_names=["left_ankle_roll_link", "right_ankle_roll_link"]),
-        body_pos_w=torch.zeros(4, 2, 3),
-        robot_body_pos_w=torch.zeros(4, 2, 3),
+    assert not hasattr(live_probe, "_height_contact_consistency_pair")
+
+    sealed = unequal.command.frontres_local_scenario_snapshot(torch.arange(4))
+    unequal.command.set_frontres_local_scenario(
+        current_root_artifact_t=sealed["current_root_artifact_t"],
+        intent_q29=sealed["intent_q29"],
+        clean_continuation=sealed["clean_continuation"],
+        expected_support=sealed["expected_support"],
+        horizon_k=sealed["horizon_k"],
+        continuation_lengths=sealed["continuation_lengths"],
+        scenario_ids=sealed["scenario_ids"],
+        noisy_segment_hashes=sealed["noisy_segment_hashes"],
+        x_t_identities=sealed["x_t_identities"],
+        provenance=sealed["provenance"],
+        roles=sealed["roles"],
+        env_ids=torch.arange(4),
     )
-    contact_command.robot_body_pos_w[0, 1, 2] = 0.2
-    unequal.runner.env.scene = SimpleNamespace(env_origins=torch.zeros(4, 3))
-    two_role_contact = live_probe._height_contact_consistency_pair(
-        unequal.runner,
-        contact_command,
-        unequal.pair_layout,
-        2,
+    unequal.command.refresh_frontres_reference_cache_current_frame()
+    unequal.command.begin_frontres_local_scenario_k_execution()
+    unequal.command.advance_frontres_local_scenario_k_execution()
+    forces = torch.zeros(4, 2, 3)
+    forces[:, :, 2] = 20.0
+    forces[2, 1, 2] = 0.0
+    sensor = SimpleNamespace(
+        data=SimpleNamespace(net_forces_w=forces),
+        cfg=SimpleNamespace(force_threshold=10.0),
+        find_bodies=lambda _names: ([0, 1], ["left", "right"]),
     )
-    assert two_role_contact is not None
-    torch.testing.assert_close(two_role_contact[0], torch.tensor([0.5, 1.0]))
-    torch.testing.assert_close(two_role_contact[1], torch.tensor([1.0, 1.0]))
+    unequal.runner.env.scene.sensors = {"contact_forces": sensor}
+    sensor_pair = live_probe._contact_sensor_pair(unequal.runner, unequal.command, unequal.pair_layout, 2)
+    assert sensor_pair is not None
+    expected_support, repair_contact, noisy_contact = sensor_pair
+    assert bool(expected_support.all()) and bool(repair_contact.all())
+    assert noisy_contact.tolist() == [[True, False], [True, True]]
+    unequal.command.end_frontres_local_scenario_k_execution()
 
     try:
         _capture(live_probe, helper, commands, hooks, setup, horizons=(1, 1), physics_mode="missing")
@@ -497,6 +531,7 @@ def test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, comma
         executed_q29_t_valid_mask=unequal.evidence.executed_q29_t_valid_mask.index_select(0, role_permutation),
         done_any=unequal.evidence.done_any.index_select(0, role_permutation),
         survival_steps=unequal.evidence.survival_steps.index_select(0, role_permutation),
+        physics_expected_support_steps=unequal.evidence.physics_expected_support_steps.index_select(1, permutation),
         physics_zmp_repaired_steps=unequal.evidence.physics_zmp_repaired_steps.index_select(1, permutation),
         physics_zmp_noisy_steps=unequal.evidence.physics_zmp_noisy_steps.index_select(1, permutation),
         physics_contact_repaired_steps=unequal.evidence.physics_contact_repaired_steps.index_select(1, permutation),

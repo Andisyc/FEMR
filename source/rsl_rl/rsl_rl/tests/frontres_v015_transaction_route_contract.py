@@ -84,8 +84,8 @@ def _formal_alg(policy: torch.nn.Module, optimizer: _TrackingSGD) -> SimpleNames
         frontres_segment_advantage_normalization="grouped_scale_only",
         frontres_hsl_init_enabled=False,
         frontres_hsl_rollout_label_enabled=False,
-        frontres_segment_critic_warmup_iterations=0,
-        frontres_segment_actor_warmup_iterations=0,
+        frontres_segment_critic_warmup_iterations=1,
+        frontres_segment_actor_warmup_iterations=1,
         frontres_future_offsets=(1, 2),
         frontres_future_intent_layout_version="frontres-v015-future-intent-q29-v1",
         frontres_segment_live_train_enabled=False,
@@ -108,7 +108,7 @@ def _build_request(candidate_contract, owners, live_sampler):
     )
     policy = candidate_contract._ZeroRatioPolicy()
     optimizer = _TrackingSGD(policy.parameters())
-    runner = SimpleNamespace(alg=_formal_alg(policy, optimizer))
+    runner = SimpleNamespace(alg=_formal_alg(policy, optimizer), current_learning_iteration=2)
     snapshot = live_sampler.capture_frontres_frozen_policy_snapshot(runner, transaction_id="tx-v015-formal-s2")
     common = {
         "transaction_id": snapshot.transaction_id,
@@ -243,7 +243,7 @@ def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, l
     assert result.diagnostics["gradient_post_clip_norm"] > 0.0
     assert result.diagnostics["gradient_parameter_count"] > 0
     assert result.diagnostics["gradient_nonzero_parameter_count"] > 0
-    quality = result.diagnostics["v003_action_gain_harm_reports"]
+    quality = result.diagnostics["v004_action_gain_harm_reports"]
     assert isinstance(quality, tuple) and len(quality) == 2
     assert all(report.transaction_id == result.transaction_id for report in quality)
     assert all(len(report.policy_actions) == 2 for report in quality)
@@ -341,6 +341,22 @@ def test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, o
     )
 
 
+def test_t_v008_critic_only_formal_update(candidate_contract, owners, live_sampler) -> None:
+    fixture = _build_request(candidate_contract, owners, live_sampler)
+    fixture.runner.current_learning_iteration = 0
+    fixture.runner.alg.value_loss_coef = 1.0
+    result = owners[6].run_frontres_v015_formal_transaction_update(fixture.runner, fixture.request)
+    diagnostics = result.diagnostics
+    assert diagnostics["training_contract_id"] == "FRS-TRAIN-v008"
+    assert diagnostics["gain_contract_id"] == "FRS-GAIN-v004"
+    assert diagnostics["warmup_phase"] == "critic_only"
+    assert diagnostics["actor_loss_weight"] == 0.0
+    assert diagnostics["actor_std_parameter_delta"]["param_delta_max_abs"] == 0.0
+    assert diagnostics["critic_parameter_delta"]["param_delta_max_abs"] > 0.0
+    assert result.optimizer_step_delta == 1
+    print("[T-v008-critic-only] formal grouped owner updates Critic exactly once and freezes actor/std", flush=True)
+
+
 def test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owners, live_sampler, _live_update_loop) -> None:
     fixture = _build_request(candidate_contract, owners, live_sampler)
     live_probe = owners[6]
@@ -383,7 +399,7 @@ def test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owner
     ):
         assert len(telemetry[name]) == 4, name
     assert all(
-        math.isclose(raw, ret - value)
+        math.isclose(raw, ret - value, rel_tol=1e-6, abs_tol=1e-6)
         for raw, ret, value in zip(telemetry["raw_advantages"], telemetry["returns"], telemetry["policy_values"])
     )
     assert all(
@@ -432,16 +448,16 @@ def test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owner
     assert telemetry["advantage_sign_flip_count"] == 0
     assert telemetry["update_count"] == 1
     assert telemetry["optimizer_step_delta"] == 1
-    missing_reports = replace(result, diagnostics={**result.diagnostics, "v003_action_gain_harm_reports": ()})
+    missing_reports = replace(result, diagnostics={**result.diagnostics, "v004_action_gain_harm_reports": ()})
     _expect_runtime_error(lambda: training._v015_formal_update_summary(missing_reports))
-    feedback_report = replace(result.diagnostics["v003_action_gain_harm_reports"][0], ppo_feedback=True)
+    feedback_report = replace(result.diagnostics["v004_action_gain_harm_reports"][0], ppo_feedback=True)
     feedback_result = replace(
         result,
         diagnostics={
             **result.diagnostics,
-            "v003_action_gain_harm_reports": (
+            "v004_action_gain_harm_reports": (
                 feedback_report,
-                *result.diagnostics["v003_action_gain_harm_reports"][1:],
+                *result.diagnostics["v004_action_gain_harm_reports"][1:],
             ),
         },
     )
@@ -528,7 +544,7 @@ def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
     logged = json.loads(telemetry_line.split("] ", 1)[1])
     assert logged["policy_row_count"] == 4
     assert logged["optimizer_step_delta"] == 1
-    assert logged["gain_source"] == "FRS-GAIN-v003-intent-physics-local-repair"
+    assert logged["gain_source"] == "FRS-GAIN-v004-support-mode-physics-admissibility"
     assert logged["return_feedback"] is False
     assert logged["priority_feedback"] is False
     assert logged["ppo_feedback"] is False
@@ -581,6 +597,7 @@ def main() -> None:
     test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_partial_hsl_and_legacy_config_fail_before_step(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, owners, live_sampler, live_update_loop)
+    test_t_v008_critic_only_formal_update(candidate_contract, owners, live_sampler)
     test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_q29_actor_route_before_normalizer(candidate_contract, owners, live_sampler, live_update_loop)

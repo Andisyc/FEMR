@@ -91,7 +91,7 @@ class FrontRESV015PriorityEvidence:
     valid_mask: torch.Tensor
     intent_q29_provenance: str
     intent_q29_source: str
-    gain_source: str = "FRS-GAIN-v003-intent-physics-local-repair"
+    gain_source: str = "FRS-GAIN-v004-support-mode-physics-admissibility"
 
     def validate(self) -> None:
         count = int(self.gain_total.numel())
@@ -113,7 +113,7 @@ class FrontRESV015PriorityEvidence:
             or len(self.x_t_identities) != count
             or not bool((self.horizon_k > 0).all())
             or self.intent_q29_provenance != "deployment_noisy_q29"
-            or self.gain_source != "FRS-GAIN-v003-intent-physics-local-repair"
+            or self.gain_source != "FRS-GAIN-v004-support-mode-physics-admissibility"
         ):
             raise ValueError("v015 priority evidence has invalid identity, provenance, or Gain source")
         source = self.intent_q29_source.lower()
@@ -144,7 +144,7 @@ def build_frontres_v015_priority_evidence(return_evidence: Any) -> FrontRESV015P
     if not callable(validate):
         raise TypeError("v015 priority evidence requires a validated v003 return carrier")
     validate()
-    if getattr(return_evidence, "gain_source", None) != "FRS-GAIN-v003-intent-physics-local-repair":
+    if getattr(return_evidence, "gain_source", None) != "FRS-GAIN-v004-support-mode-physics-admissibility":
         raise ValueError("v015 priority evidence rejects legacy or unspecified Gain source")
     result = FrontRESV015PriorityEvidence(
         scenario_ids=tuple(str(value) for value in return_evidence.scenario_ids),
@@ -735,6 +735,7 @@ class FrontRESLocalScenarioMaterialization:
     current_root_artifact_t: torch.Tensor
     intent_q29: torch.Tensor
     clean_continuation: torch.Tensor
+    expected_support: torch.Tensor
     provenance: Mapping[str, Any]
 
 
@@ -747,6 +748,7 @@ class FrontRESLocalScenario:
     _current_root_artifact_t: torch.Tensor
     _intent_q29: torch.Tensor
     _clean_continuation: torch.Tensor
+    _expected_support: torch.Tensor
     provenance: Mapping[str, str | int | float | bool]
 
     @classmethod
@@ -761,32 +763,35 @@ class FrontRESLocalScenario:
                 "materialize_scenario must return FrontRESLocalScenarioMaterialization, "
                 f"got {type(materialization)!r}"
             )
-        artifact, intent, continuation = _validate_local_scenario_payload(
+        artifact, intent, continuation, expected_support = _validate_local_scenario_payload(
             materialization.current_root_artifact_t,
             materialization.intent_q29,
             materialization.clean_continuation,
+            materialization.expected_support,
             request=request,
         )
         provenance = _freeze_local_scenario_provenance(materialization.provenance)
         return cls(
             request=request,
-            noisy_segment_hash=_local_scenario_hash(request, artifact, intent, continuation, provenance),
+            noisy_segment_hash=_local_scenario_hash(request, artifact, intent, continuation, expected_support, provenance),
             _current_root_artifact_t=artifact,
             _intent_q29=intent,
             _clean_continuation=continuation,
+            _expected_support=expected_support,
             provenance=provenance,
         )
 
     def __post_init__(self) -> None:
         self.request.validate()
-        artifact, intent, continuation = _validate_local_scenario_payload(
+        artifact, intent, continuation, expected_support = _validate_local_scenario_payload(
             self._current_root_artifact_t,
             self._intent_q29,
             self._clean_continuation,
+            self._expected_support,
             request=self.request,
         )
         provenance = _freeze_local_scenario_provenance(self.provenance)
-        observed_hash = _local_scenario_hash(self.request, artifact, intent, continuation, provenance)
+        observed_hash = _local_scenario_hash(self.request, artifact, intent, continuation, expected_support, provenance)
         if self.noisy_segment_hash != observed_hash:
             raise ValueError(
                 "noisy_segment_hash does not match the immutable local scenario: "
@@ -795,6 +800,7 @@ class FrontRESLocalScenario:
         object.__setattr__(self, "_current_root_artifact_t", artifact)
         object.__setattr__(self, "_intent_q29", intent)
         object.__setattr__(self, "_clean_continuation", continuation)
+        object.__setattr__(self, "_expected_support", expected_support)
         object.__setattr__(self, "provenance", provenance)
 
     @property
@@ -813,6 +819,10 @@ class FrontRESLocalScenario:
     def clean_continuation(self) -> torch.Tensor:
         return self._clean_continuation.detach().clone()
 
+    @property
+    def expected_support(self) -> torch.Tensor:
+        return self._expected_support.detach().clone()
+
     def probe(self) -> dict[str, Any]:
         return {
             "scenario_id": self.scenario_id,
@@ -824,6 +834,7 @@ class FrontRESLocalScenario:
             "current_root_artifact_shape": tuple(self._current_root_artifact_t.shape),
             "intent_q29_shape": tuple(self._intent_q29.shape),
             "clean_continuation_shape": tuple(self._clean_continuation.shape),
+            "expected_support_shape": tuple(self._expected_support.shape),
             "intent_q29_provenance": self.provenance["intent_q29_provenance"],
             "clean_continuation_provenance": self.provenance["clean_continuation_provenance"],
             "noisy_segment_hash": self.noisy_segment_hash,
@@ -1022,9 +1033,10 @@ def _validate_local_scenario_payload(
     current_root_artifact_t: torch.Tensor,
     intent_q29: torch.Tensor,
     clean_continuation: torch.Tensor,
+    expected_support: torch.Tensor,
     *,
     request: FrontRESLocalScenarioRequest,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     def freeze(name: str, value: torch.Tensor) -> torch.Tensor:
         if not isinstance(value, torch.Tensor):
             raise TypeError(f"{name} must be a torch.Tensor")
@@ -1039,6 +1051,7 @@ def _validate_local_scenario_payload(
     artifact = freeze("current_root_artifact_t", current_root_artifact_t)
     intent = freeze("intent_q29", intent_q29)
     continuation = freeze("clean_continuation", clean_continuation)
+    support = freeze("expected_support", expected_support)
     if artifact.ndim != 1 or tuple(artifact.shape) != (7,):
         raise ValueError(f"current_root_artifact_t must have shape [7], got {tuple(artifact.shape)}")
     if intent.ndim != 2 or tuple(intent.shape) != (request.intent_frame_count, 29):
@@ -1051,7 +1064,11 @@ def _validate_local_scenario_payload(
             "clean_continuation must have shape "
             f"[{int(request.horizon_k)},65], got {tuple(continuation.shape)}"
         )
-    return artifact, intent, continuation
+    if tuple(support.shape) != (int(request.horizon_k), 2):
+        raise ValueError(f"expected_support must have shape [{int(request.horizon_k)},2], got {tuple(support.shape)}")
+    if bool(((support != 0.0) & (support != 1.0)).any()):
+        raise ValueError("expected_support must contain only binary left/right support states")
+    return artifact, intent, continuation, support
 
 
 def _freeze_local_scenario_provenance(provenance: Mapping[str, Any]) -> Mapping[str, str | int | float | bool]:
@@ -1071,6 +1088,7 @@ def _freeze_local_scenario_provenance(provenance: Mapping[str, Any]) -> Mapping[
         "current_root_artifact_provenance": "noisy_root_artifact_t",
         "intent_q29_provenance": "deployment_noisy_q29",
         "clean_continuation_provenance": "clean_gmt_only",
+        "expected_support_provenance": "clean_gmt_physics_only",
         "intent_q29_source": None,
     }
     for key, expected in required.items():
@@ -1089,6 +1107,7 @@ def _local_scenario_hash(
     current_root_artifact_t: torch.Tensor,
     intent_q29: torch.Tensor,
     clean_continuation: torch.Tensor,
+    expected_support: torch.Tensor,
     provenance: Mapping[str, str | int | float | bool],
 ) -> str:
     digest = hashlib.sha256()
@@ -1109,6 +1128,7 @@ def _local_scenario_hash(
         ("current_root_artifact_t", current_root_artifact_t),
         ("intent_q29", intent_q29),
         ("clean_continuation", clean_continuation),
+        ("expected_support", expected_support),
     ):
         value = tensor.detach().to(device="cpu").contiguous()
         digest.update(str(name).encode("utf-8"))

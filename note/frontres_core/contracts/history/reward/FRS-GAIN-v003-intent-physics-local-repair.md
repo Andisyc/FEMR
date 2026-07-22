@@ -1,9 +1,10 @@
 ---
 contract_id: FRS-GAIN-v003
-status: active
+status: superseded
 effective_date: 2026-07-19
-updated_date: 2026-07-20
+updated_date: 2026-07-22
 supersedes: FRS-GAIN-v002
+superseded_by: FRS-GAIN-v004
 scope: Stage 3 two-role local-repair paired Gain with root-invariant articulated-intent retention, physical executability, and Delta SE(3) cost
 ---
 

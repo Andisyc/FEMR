@@ -1526,6 +1526,7 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_local_scenario_current_root_artifact_t: torch.Tensor | None = None
         self._frontres_local_scenario_intent_q29: torch.Tensor | None = None
         self._frontres_local_scenario_clean_continuation: torch.Tensor | None = None
+        self._frontres_local_scenario_expected_support: torch.Tensor | None = None
         self._frontres_local_scenario_horizon_k = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._frontres_local_scenario_continuation_lengths = torch.zeros(
             self.num_envs, dtype=torch.long, device=self.device
@@ -1833,6 +1834,7 @@ class MultiMotionCommand(CommandTerm):
         current_root_artifact_t: torch.Tensor,
         intent_q29: torch.Tensor,
         clean_continuation: torch.Tensor,
+        expected_support: torch.Tensor,
         horizon_k: torch.Tensor,
         continuation_lengths: torch.Tensor,
         scenario_ids: Sequence[str],
@@ -1857,6 +1859,7 @@ class MultiMotionCommand(CommandTerm):
             "current_root_artifact_t": current_root_artifact_t,
             "intent_q29": intent_q29,
             "clean_continuation": clean_continuation,
+            "expected_support": expected_support,
         }
         for name, value in payloads.items():
             if (
@@ -1881,6 +1884,10 @@ class MultiMotionCommand(CommandTerm):
                 "v015 clean_continuation must have shape [B,K_max,65], "
                 f"got {tuple(clean_continuation.shape)}"
             )
+        if tuple(expected_support.shape) != (batch_size, int(clean_continuation.shape[1]), 2):
+            raise ValueError("v015 expected_support must have shape [B,K_max,2]")
+        if bool(((expected_support != 0.0) & (expected_support != 1.0)).any()):
+            raise ValueError("v015 expected_support must contain binary left/right support states")
         horizon = torch.as_tensor(horizon_k, device=self.device, dtype=torch.long).flatten()
         lengths = torch.as_tensor(continuation_lengths, device=self.device, dtype=torch.long).flatten()
         if (
@@ -1911,6 +1918,7 @@ class MultiMotionCommand(CommandTerm):
                 value.get("current_root_artifact_provenance") != "noisy_root_artifact_t"
                 or value.get("intent_q29_provenance") != "deployment_noisy_q29"
                 or value.get("clean_continuation_provenance") != "clean_gmt_only"
+                or value.get("expected_support_provenance") != "clean_gmt_physics_only"
             ):
                 raise ValueError(
                     "v015 local scenario provenance must keep Noisy current/q29 and GMT-only Clean continuation, "
@@ -1942,6 +1950,7 @@ class MultiMotionCommand(CommandTerm):
                     or not torch.equal(current_root_artifact_t[anchor], current_root_artifact_t[row])
                     or not torch.equal(intent_q29[anchor], intent_q29[row])
                     or not torch.equal(clean_continuation[anchor], clean_continuation[row])
+                    or not torch.equal(expected_support[anchor], expected_support[row])
                     or int(horizon[anchor].item()) != int(horizon[row].item())
                     or provenance_rows[anchor] != provenance_rows[row]
                 ):
@@ -1958,6 +1967,7 @@ class MultiMotionCommand(CommandTerm):
         value_artifact = current_root_artifact_t.detach().to(device=self.device, dtype=torch.float32).contiguous()
         value_intent = intent_q29.detach().to(device=self.device, dtype=torch.float32).contiguous()
         value_continuation = clean_continuation.detach().to(device=self.device, dtype=torch.float32).contiguous()
+        value_support = expected_support.detach().to(device=self.device, dtype=torch.float32).contiguous()
         if bool(active.any()):
             if not bool(active.all()):
                 raise RuntimeError("v015 local scenario cannot replace a partially active command carrier")
@@ -1968,6 +1978,7 @@ class MultiMotionCommand(CommandTerm):
                 torch.equal(existing["current_root_artifact_t"], value_artifact)
                 and torch.equal(existing["intent_q29"], value_intent)
                 and torch.equal(existing["clean_continuation"], value_continuation)
+                and torch.equal(existing["expected_support"], value_support)
                 and torch.equal(existing["horizon_k"], horizon)
                 and torch.equal(existing["continuation_lengths"], lengths)
                 and existing["scenario_ids"] == scenario_ids
@@ -1990,9 +2001,13 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_local_scenario_clean_continuation = torch.empty(
             self.num_envs, int(value_continuation.shape[1]), 65, dtype=torch.float32, device=self.device
         )
+        self._frontres_local_scenario_expected_support = torch.empty(
+            self.num_envs, int(value_support.shape[1]), 2, dtype=torch.float32, device=self.device
+        )
         self._frontres_local_scenario_current_root_artifact_t[env_ids] = value_artifact.clone()
         self._frontres_local_scenario_intent_q29[env_ids] = value_intent.clone()
         self._frontres_local_scenario_clean_continuation[env_ids] = value_continuation.clone()
+        self._frontres_local_scenario_expected_support[env_ids] = value_support.clone()
         self._frontres_local_scenario_horizon_k[env_ids] = horizon
         self._frontres_local_scenario_continuation_lengths[env_ids] = lengths
         self._frontres_local_scenario_active[env_ids] = True
@@ -2041,6 +2056,7 @@ class MultiMotionCommand(CommandTerm):
             or self._frontres_local_scenario_current_root_artifact_t is None
             or self._frontres_local_scenario_intent_q29 is None
             or self._frontres_local_scenario_clean_continuation is None
+            or self._frontres_local_scenario_expected_support is None
         ):
             raise RuntimeError("v015 local scenario snapshot requires active command rows")
         scenario_ids = tuple(self._frontres_local_scenario_ids[int(env_id)] for env_id in ids.detach().cpu().tolist())
@@ -2056,6 +2072,7 @@ class MultiMotionCommand(CommandTerm):
             "current_root_artifact_t": self._frontres_local_scenario_current_root_artifact_t.index_select(0, ids).detach().clone(),
             "intent_q29": self._frontres_local_scenario_intent_q29.index_select(0, ids).detach().clone(),
             "clean_continuation": self._frontres_local_scenario_clean_continuation.index_select(0, ids).detach().clone(),
+            "expected_support": self._frontres_local_scenario_expected_support.index_select(0, ids).detach().clone(),
             "horizon_k": self._frontres_local_scenario_horizon_k.index_select(0, ids).detach().clone(),
             "continuation_lengths": self._frontres_local_scenario_continuation_lengths.index_select(0, ids).detach().clone(),
             "scenario_ids": tuple(str(value) for value in scenario_ids),
@@ -2193,10 +2210,17 @@ class MultiMotionCommand(CommandTerm):
         """Return frozen-GMT C evidence without opening an actor route."""
 
         rows, valid = self._frontres_local_scenario_continuation_rows(1)
+        cursor = self._frontres_local_scenario_k_execution_cursor
+        if self._frontres_local_scenario_expected_support is None:
+            raise RuntimeError("v015 K execution is missing sealed expected support evidence")
+        support = self._frontres_local_scenario_expected_support[
+            torch.arange(self.num_envs, device=self.device, dtype=torch.long), cursor
+        ]
         return {
             "continuation": rows[:, 0].detach().clone(),
             "valid_mask": valid[:, 0].detach().clone(),
             "cursor": self._frontres_local_scenario_k_execution_cursor.detach().clone(),
+            "expected_support": support.detach().clone(),
         }
 
     def _frontres_fixed_noisy_tape_feature_dim(self) -> int:
@@ -2460,9 +2484,9 @@ class MultiMotionCommand(CommandTerm):
                 start_frame=start_frame,
                 intent_horizon=intent_horizon,
             )
+            continuation_frames = [gather(start_frame + offset) for offset in range(1, horizon_k + 1)]
             clean_continuation = torch.stack(
-                [
-                    torch.cat(
+                [torch.cat(
                         [
                             joint_pos[0],
                             joint_vel[0],
@@ -2470,13 +2494,19 @@ class MultiMotionCommand(CommandTerm):
                             body_quat[:, self.motion_anchor_body_index][0],
                         ],
                         dim=0,
-                    )
-                    for joint_pos, joint_vel, body_pos, body_quat in (
-                        gather(start_frame + offset) for offset in range(1, horizon_k + 1)
-                    )
-                ],
+                    ) for joint_pos, joint_vel, body_pos, body_quat in continuation_frames],
                 dim=0,
             )
+            support_height = float(getattr(getattr(self, "cfg", None), "frontres_expected_contact_height", 0.08))
+            expected_support = torch.stack(
+                [
+                    torch.stack(
+                        (body_pos[0, self.left_foot_idx, 2], body_pos[0, self.right_foot_idx, 2])
+                    ) <= support_height
+                    for _joint_pos, _joint_vel, body_pos, _body_quat in continuation_frames
+                ],
+                dim=0,
+            ).to(dtype=torch.float32)
         if tuple(current_root_artifact_t.shape) != (7,):
             raise RuntimeError(
                 "local scenario current root artifact must be [7], got "
@@ -2486,16 +2516,21 @@ class MultiMotionCommand(CommandTerm):
             raise RuntimeError(f"local scenario intent_q29 has invalid shape {tuple(intent_q29.shape)}")
         if tuple(clean_continuation.shape) != (horizon_k, 65):
             raise RuntimeError(f"local scenario clean_continuation has invalid shape {tuple(clean_continuation.shape)}")
+        if tuple(expected_support.shape) != (horizon_k, 2):
+            raise RuntimeError(f"local scenario expected_support has invalid shape {tuple(expected_support.shape)}")
         return {
             "current_root_artifact_t": current_root_artifact_t.detach().to(dtype=torch.float32).contiguous(),
             "intent_q29": intent_q29.detach().to(dtype=torch.float32).contiguous(),
             "clean_continuation": clean_continuation.detach().to(dtype=torch.float32).contiguous(),
+            "expected_support": expected_support.detach().to(dtype=torch.float32).contiguous(),
             "provenance": {
                 "materializer_owner": "MultiMotionCommand",
                 "current_root_artifact_provenance": "noisy_root_artifact_t",
                 "intent_q29_provenance": "deployment_noisy_q29",
                 "intent_q29_source": "motion_internal_q29",
                 "clean_continuation_provenance": "clean_gmt_only",
+                "expected_support_provenance": "clean_gmt_physics_only",
+                "expected_contact_height": support_height,
                 "motion_index": motion_index,
                 "start_frame": start_frame,
                 "intent_horizon": intent_horizon,

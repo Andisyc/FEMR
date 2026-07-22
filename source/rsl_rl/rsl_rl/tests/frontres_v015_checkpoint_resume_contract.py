@@ -160,8 +160,8 @@ def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 7):
         frontres_training_objective="segment_replay_hrl",
         frontres_v015_formal_transaction_enabled=True,
         frontres_segment_advantage_normalization="grouped_scale_only",
-        frontres_segment_critic_warmup_iterations=0,
-        frontres_segment_actor_warmup_iterations=0,
+        frontres_segment_critic_warmup_iterations=2,
+        frontres_segment_actor_warmup_iterations=3,
         frontres_future_offsets=(1, 2),
         frontres_future_intent_layout_version=layout.version,
         frontres_hsl_init_enabled=False,
@@ -345,8 +345,15 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
         checkpointing.save_runner(source, str(path))
         payload = _saved_payload(path)
         identity = payload["frontres_v015_checkpoint_identity"]
-        assert identity["format"] == "frontres-v015-checkpoint-v2"
-        assert identity["gain_contract_id"] == "FRS-GAIN-v003"
+        assert identity["format"] == "frontres-v015-checkpoint-v3"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v008"
+        assert identity["gain_contract_id"] == "FRS-GAIN-v004"
+        assert identity["warmup"] == {
+            "critic_warmup_iterations": 2,
+            "actor_warmup_iterations": 3,
+            "iteration": 7,
+            "phase": "joint",
+        }
         assert identity["future_intent_layout"]["future_offsets"] == (1, 2)
         assert identity["future_intent_layout"]["actor_tail_dim"] == 58
         assert identity["future_intent_layout"]["environment_obs_dim"] == 870

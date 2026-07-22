@@ -4,81 +4,94 @@ Status: active volatile control surface. Updated: 2026-07-22.
 
 ## Objective
 
-Finish the official Stage3-v015 HRL engineering route quickly, use decisive
-training diagnostics to remove visible bugs, and then move to experiments.
+Replace the harmful additive Physics/Intent tradeoff with one scalar
+FRS-GAIN-v004 ordering, then calibrate the existing scalar Critic before
+gradually releasing the HSL-initialized actor. Preserve the one-actor,
+one-Critic, one-optimizer architecture.
 
 ## Method Authority
 
 - Concept Figure: `../../architecture/concept/03_frontres_concept_tabs.data.json`
 - Registry: `../contracts/README.md`
-- Active contracts: Method v015 / Training v007 / Gain v003 / PPO v003 /
+- Active contracts: Method v015 / Training v008 / Gain v004 / PPO v003 /
   Eval v003
-- No method or Concept Figure change is pending.
+- Design points remain `Q-PAIR` and `Q-01`; no top-level Contact module exists.
+- `M-03` remains proposal-only HSL; `M-05` owns critic-only -> actor-ramp ->
+  joint PPO.
 
 ## Current Cursor
 
-`G5-E0 — Physics evidence closure contract-confirmed; bounded live revalidation pending`
+`G5-P1 - v004 Gain and Critic-ready Actor Curriculum rebased; current formal code contract-mismatch; implementation awaiting explicit authorization`
 
-Completed foundation through `E-FI-61` includes the q29 carrier, 928/158/770
-authority split, two-role one-action-K evidence, grouped exact-one update,
-HSL-v1 initializer, Stage3-v015 persistence, and formal connectors. `E-FI-62`
-retires the mandatory Q1--Q6 audit chain. HSL stays frozen unless new official
-evidence identifies it as the first broken owner. `E-FI-64` now runtime-confirms
-the complete official update and checkpoint route, but records `0.75` harm,
-all-negative advantages, and zero Physics Gain on every row. `E-FI-65` repairs
-the missing formal ZMP/contact carrier, preserves survival and common K masks,
-and exposes row-aligned value/return/raw/scaled advantage diagnostics without
-changing Gain, PPO, or HSL formulas.
+## Preserved Evidence
 
-## Single Engineering Unit
+`E-FI-0--E-FI-65` preserves the sealed q29/928/158/770/two-role/one-action-K/
+grouped/exact-one/HSL/persistence foundation. `E-FI-64` triggered the method
+boundary with harmful repairs; `E-FI-65` proved complete paired Physics carrier
+connectivity but retained height-proxy Contact and additive v003 semantics.
+Historical E68--E70 prove Warmup scheduling only on the old update/v002 Gain
+route. The latest v015 S4 run explicitly used critic/actor Warmup `0/0`.
+
+## Design Delta
 
 ```text
-batch official-route inspection
--> repair all obvious in-scope defects
--> focused compile/contracts
--> one bounded Stage3-v015 smoke
--> inspect action/Gain/advantage/gradient/update/checkpoint telemetry
--> one internal repair/rerun if needed
--> engineering closeout
+same Clean continuation frame identities + reference foot kinematics
+-> evaluator-only expected support sequence 11/10/01/00
+
+contact_forces ContactSensor
+-> actual left/right Contact sequence
+
+expected Contact phase + actual Contact + ZMP + survival
+-> non-compensatory Physics admissibility / deficit
+
+Physics tier first, then Intent, then bounded repair cost
+-> one scalar paired Gain
+
+HSL-v1 actor + fresh scalar Critic
+-> critic-only v004 calibration
+-> linear actor takeover with Critic still learning
+-> joint grouped PPO
 ```
 
-Required terminal facts:
+Clean continuation remains GMT/Physics-evaluator evidence only. It never enters
+actor observation, Intent target, or deployment input.
 
-- official route reached with no legacy fallback;
-- finite non-degenerate `[B,6]` actions;
-- sealed transaction identity and valid grouped mass;
-- finite coherent Gain, return, advantage, gradient, and exact-one update;
-- committed Stage3-v015 checkpoint;
-- no visible exception, NaN/Inf, partial transaction, Clean actor input, or
-  later FEMR action.
+## Active Files
 
-## Conditional Branches
+- `note/frontres_core/contracts/active/reward/FRS-GAIN-v004-support-mode-physics-admissibility.md`
+- `note/frontres_core/contracts/active/training/FRS-TRAIN-v008-critic-ready-v004-actor-curriculum.md`
+- `note/frontres_core/plans/FRS-v015-future-intent-single-action-k-engineering-plan.md`
+- `note/frontres_core/checklists/FRS-v015-future-intent-single-action-k-checklist.md`
+- `note/testing/evidence_ledger_v015_future_intent_single_action_k_2026-07-19.md`
+- `note/architecture/concept/03_frontres_concept_tabs.data.json`
+- `note/architecture/runtime/02_frontres_flow.data.json`
+- `note/architecture/runtime/05_policy_quality_audit.data.json`
 
-- Runtime owner/shape/checkpoint contradiction -> smallest relevant
-  `formal-runtime-audit` probe.
-- Runnable but no-op/regressing/harmful/contradictory metrics -> smallest
-  relevant `policy-quality-audit` probe.
+## Unresolved Implementation Facts
 
-Neither branch is a mandatory pre-training checklist.
-
-## Next True Boundary
-
-The conditional policy-quality branch remains active before X1. Deterministic
-contracts now distinguish genuine ties from missing Physics evidence, but only
-a bounded real-environment sentinel can show whether Repair/Noisy survival,
-ZMP, and contact are discriminative in IsaacLab. Additional training, seeds,
-composition, and paper artifacts remain blocked.
+- exact reference-foot threshold/velocity rule for expected-contact derivation
+  during Clean continuation materialization;
+- production owner that populates `contact_state` from `contact_forces`;
+- timing tolerance and transition recovery carrier identities;
+- v004 utility normalization that proves tier separation without a second
+  output or optimizer;
+- complete migration/isolation of return, priority, diagnostics, and evaluators.
+- formal v015 Warmup phase consumption, actor/std gradient isolation, and
+  v008/v004 checkpoint/resume identity.
 
 ## Stop Rule
 
-Do not pause for file boundaries, owner boundaries, test types, evidence tiers,
-or routine documentation. Pause only for a method decision, new costly or
-destructive authority, an unresolved official contradiction after one repair
-cycle, or abnormal learned metrics requiring a conditional audit.
+Stop if expected support needs actor-visible Clean data, actual Contact cannot
+come from the existing sensor, phase identity cannot remain sealed, planned
+aggressive motion requires a new predictor/label, Intent/cost can invert the
+Physics tier, formal v015 must fall back to the legacy update owner, actor/std
+changes in critic-only, Critic receives no v004 gradient, resume restarts the
+schedule, or a frozen H/K/actor/Critic/PPO/HSL boundary must change.
 
 ## Next Action
 
-After explicit authorization, run one bounded live Physics sentinel with the
-same 8-env, one-transaction boundary. Require raw paired survival/ZMP/contact,
-v003 component gains, policy value, return, raw/scaled advantage, and exact row
-identity; stop before additional training or X1.
+After explicit authorization, execute G5-P1 as one closure: implement all
+owners and consumers, run focused S1/S2/S3 contracts, run exactly one bounded
+8-env critic-only transaction, inspect v004 Physics/Intent/credit and separate
+actor/std/Critic telemetry, and refresh evidence/Architecture. Do not enter X1,
+long training, multi-seed, actor-ramp progression, or deployment composition.

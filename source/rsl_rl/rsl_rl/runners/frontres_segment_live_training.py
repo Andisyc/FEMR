@@ -1849,6 +1849,9 @@ def _v015_formal_update_summary(result: Any) -> dict[str, Any]:
     ppo = getattr(result, "ppo_result", None)
     if ppo is None:
         raise TypeError("v015 formal training requires a PPO result")
+    diagnostics = getattr(result, "diagnostics", None)
+    if not isinstance(diagnostics, Mapping):
+        raise TypeError("v015 formal training requires immutable update diagnostics")
     summary = {
         "transaction_id": str(getattr(result, "transaction_id", "")),
         "policy_snapshot_id": str(getattr(result, "policy_snapshot_id", "")),
@@ -1861,6 +1864,14 @@ def _v015_formal_update_summary(result: Any) -> dict[str, Any]:
         "optimizer_step_before": int(getattr(result, "optimizer_step_before", -1)),
         "optimizer_step_after": int(getattr(result, "optimizer_step_after", -1)),
         "optimizer_step_delta": int(getattr(result, "optimizer_step_delta", -1)),
+        "training_contract_id": str(diagnostics.get("training_contract_id", "")),
+        "gain_contract_id": str(diagnostics.get("gain_contract_id", "")),
+        "training_iteration": int(diagnostics.get("training_iteration", -1)),
+        "warmup_phase": str(diagnostics.get("warmup_phase", "")),
+        "warmup_phase_iteration": int(diagnostics.get("warmup_phase_iteration", -1)),
+        "actor_loss_weight": float(diagnostics.get("actor_loss_weight", float("nan"))),
+        "critic_parameter_delta": dict(diagnostics.get("critic_parameter_delta", {})),
+        "actor_std_parameter_delta": dict(diagnostics.get("actor_std_parameter_delta", {})),
         "ppo_total_loss_mean": float(ppo.total_loss.detach().cpu().item()),
         "ppo_actor_loss_mean": float(ppo.actor_loss.detach().cpu().item()),
         "ppo_value_loss_mean": float(ppo.value_loss.detach().cpu().item()),
@@ -1887,9 +1898,9 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
     diagnostics = getattr(result, "diagnostics", None)
     if not isinstance(diagnostics, Mapping):
         raise RuntimeError("v015 formal result requires sealed transaction diagnostics")
-    reports = diagnostics.get("v003_action_gain_harm_reports")
+    reports = diagnostics.get("v004_action_gain_harm_reports")
     if not isinstance(reports, tuple) or not reports:
-        raise RuntimeError("v015 formal result requires sealed v003 action/Gain/harm reports")
+        raise RuntimeError("v015 formal result requires sealed v004 action/Gain/harm reports")
 
     def required_finite(name: str) -> float:
         if name not in diagnostics:
@@ -1924,6 +1935,18 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "physics_survival_gain": [],
         "physics_zmp_gain": [],
         "physics_contact_gain": [],
+        "intent_quality_repaired": [],
+        "intent_quality_noisy": [],
+        "physics_admissible_repaired": [],
+        "physics_admissible_noisy": [],
+        "physics_deficit_repaired": [],
+        "physics_deficit_noisy": [],
+        "utility_repaired": [],
+        "utility_noisy": [],
+        "repair_penalty": [],
+        "expected_support_steps": [],
+        "actual_contact_repaired_steps": [],
+        "actual_contact_noisy_steps": [],
         "physics_valid_step_count": [],
         "scenario_ids": [],
         "noisy_segment_hashes": [],
@@ -1986,6 +2009,15 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
             "physics_survival_gain": tuple(float(value) for value in report.physics_survival_gain),
             "physics_zmp_gain": tuple(float(value) for value in report.physics_zmp_gain),
             "physics_contact_gain": tuple(float(value) for value in report.physics_contact_gain),
+            "intent_quality_repaired": tuple(float(value) for value in report.intent_quality_repaired),
+            "intent_quality_noisy": tuple(float(value) for value in report.intent_quality_noisy),
+            "physics_admissible_repaired": tuple(float(value) for value in report.physics_admissible_repaired),
+            "physics_admissible_noisy": tuple(float(value) for value in report.physics_admissible_noisy),
+            "physics_deficit_repaired": tuple(float(value) for value in report.physics_deficit_repaired),
+            "physics_deficit_noisy": tuple(float(value) for value in report.physics_deficit_noisy),
+            "utility_repaired": tuple(float(value) for value in report.utility_repaired),
+            "utility_noisy": tuple(float(value) for value in report.utility_noisy),
+            "repair_penalty": tuple(float(value) for value in report.repair_penalty),
         }
         row_count = len(actions)
         if len(valid) != row_count or any(len(values) != row_count for values in components.values()):
@@ -1997,6 +2029,9 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         fields["x_t_identities"].extend(str(value) for value in report.x_t_identities)
         fields["horizon_k"].extend(int(value) for value in report.horizon_k)
         fields["physics_valid_step_count"].extend(int(value) for value in report.physics_valid_step_count)
+        fields["expected_support_steps"].extend(report.expected_support_steps)
+        fields["actual_contact_repaired_steps"].extend(report.actual_contact_repaired_steps)
+        fields["actual_contact_noisy_steps"].extend(report.actual_contact_noisy_steps)
         for name, values in components.items():
             for is_valid, value in zip(valid, values):
                 if is_valid:
@@ -2010,7 +2045,7 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
                         raise RuntimeError(f"v015 live telemetry invalid {name} must remain UNCONFIRMED")
                     fields[name].append(None)
 
-    row_order = tuple(int(value) for value in diagnostics.get("v003_diagnostic_report_row_order", ()))
+    row_order = tuple(int(value) for value in diagnostics.get("v004_diagnostic_report_row_order", ()))
     flat_row_count = len(fields["policy_actions"])
     if sorted(row_order) != list(range(flat_row_count)):
         raise RuntimeError(
@@ -2100,6 +2135,14 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "grouped_attempt_mass_shares": tuple(ppo.grouped_attempt_mass_shares),
         "update_count": int(getattr(result, "update_invocation_count", 0)),
         "optimizer_step_delta": int(getattr(result, "optimizer_step_delta", -1)),
+        "training_contract_id": str(diagnostics.get("training_contract_id", "")),
+        "gain_contract_id": str(diagnostics.get("gain_contract_id", "")),
+        "training_iteration": int(diagnostics.get("training_iteration", -1)),
+        "warmup_phase": str(diagnostics.get("warmup_phase", "")),
+        "warmup_phase_iteration": int(diagnostics.get("warmup_phase_iteration", -1)),
+        "actor_loss_weight": float(diagnostics.get("actor_loss_weight", float("nan"))),
+        "critic_parameter_delta": dict(diagnostics.get("critic_parameter_delta", {})),
+        "actor_std_parameter_delta": dict(diagnostics.get("actor_std_parameter_delta", {})),
         "return_feedback": False,
         "priority_feedback": False,
         "ppo_feedback": False,
@@ -2132,6 +2175,23 @@ def _require_v015_committed_result(runner: Any, result: Any) -> dict[str, Any]:
         or int(receipt.get("optimizer_step_after", -1)) != summary["optimizer_step_after"]
     ):
         raise RuntimeError("v015 formal training result disagrees with its committed checkpoint receipt")
+    telemetry = summary.get("v015_transaction_telemetry")
+    if (
+        not isinstance(telemetry, Mapping)
+        or telemetry.get("training_contract_id") != "FRS-TRAIN-v008"
+        or telemetry.get("gain_contract_id") != "FRS-GAIN-v004"
+    ):
+        raise RuntimeError("v015 formal training requires exact v008/v004 telemetry identity")
+    if telemetry.get("warmup_phase") == "critic_only":
+        actor_delta = telemetry.get("actor_std_parameter_delta")
+        critic_delta = telemetry.get("critic_parameter_delta")
+        if (
+            not isinstance(actor_delta, Mapping)
+            or not isinstance(critic_delta, Mapping)
+            or float(actor_delta.get("param_delta_max_abs", float("nan"))) != 0.0
+            or not float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
+        ):
+            raise RuntimeError("FRS-TRAIN-v008 critic-only commit requires zero actor/std and nonzero Critic delta")
     return summary
 
 

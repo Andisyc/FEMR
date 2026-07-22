@@ -2,173 +2,207 @@
 
 Status: active, volatile engineering plan. Updated: 2026-07-22.
 
-This plan applies the planning-compression rules from `one-shot-execution`.
-Lifecycle stages, source owners, evidence tiers, tests, documentation refresh,
-and an internal repair cycle are embedded checks inside an execution unit. They
-are not separate user-visible steps.
+This plan applies `one-shot-execution`: owner changes, focused tests, formal
+connectivity, one bounded smoke, evidence capture, and documentation refresh are
+embedded checks inside one engineering unit. They are not separate user-visible
+approval steps.
 
 ## Authority
 
 - Concept Figure: `../../architecture/concept/03_frontres_concept_tabs.data.json`
 - Contract registry: `../contracts/README.md`
-- Active contracts: Method v015, Training v007, Gain v003, PPO v003, Eval v003
+- Active contracts: Method v015, Training v008, Gain v004, PPO v003, Eval v003
 - Acceptance checklist: `../checklists/FRS-v015-future-intent-single-action-k-checklist.md`
 - Evidence ledger: `../../testing/evidence_ledger_v015_future_intent_single_action_k_2026-07-19.md`
 
-No method or Concept Figure change is pending. If implementation reveals a
-real semantic contradiction, execution stops for a human decision instead of
-silently changing these authorities.
+The accepted design delta is entirely inside existing `Q-PAIR` and `Q-01`:
+expected support-mode preservation, Contact-phase-conditioned ZMP, and
+non-compensatory Physics admissibility. It does not add a top-level Contact
+module. The same G5-P1 now also closes `M-05`: v004 critic-only calibration,
+linear actor takeover, then joint PPO. It does not add an actor, Critic,
+optimizer, HSL target, or change H, K, transaction, or grouped PPO semantics.
 
-## Terminal Outcome
+## Preserved Foundation
 
-Engineering is complete when the official Stage3-v015 path is connected,
-obvious runtime bugs are removed, one bounded official training smoke reaches a
-real grouped update and committed checkpoint, and its decisive diagnostics are
-finite and non-degenerate. After that, remaining work is experiment execution
-and paper evidence, not another engineering-audit chain.
+`G0--G4`, the G5 formal route, and `E-FI-0--E-FI-65` remain valid evidence for:
 
-## Completed Foundation
+- immutable local scenarios and deployment-provenance q29 Intent;
+- `928D = 158D FEMR + 770D frozen GMT` authority;
+- Repair/Noisy roles, one FEMR action, and K-step frozen-GMT evidence;
+- one policy row per attempt, multi-Segment x M transaction, grouped reduction,
+  exact-one update, and committed Stage3-v015 persistence;
+- strict HSL-v1 actor-only initialization;
+- the existing scalar Critic, 289D critic observation, value/return/advantage
+  carrier, and historical Warmup scheduler/tests;
+- complete paired survival/ZMP/contact carrier and row-aligned credit
+  diagnostics.
 
-`G0--G4` and the supporting G5 implementation are retained as completed
-evidence through `E-FI-61`. In particular, the repository already contains:
+Those facts do not validate the v004 Gain. `E-FI-64` showed the formal additive
+v003 route could produce harmful repairs, and `E-FI-65` still used a foot-height
+contact proxy and additive available-mean Physics. E68--E70 validate Warmup only
+on the older update/v002 Gain route. HSL remains frozen.
 
-- immutable local scenarios and deployment-provenance q29 intent;
-- `928D` combined observation, FEMR `158D` authority, and frozen-GMT `770D`
-  authority;
-- Repair/Noisy two-role reset and one FEMR action followed by K-step GMT
-  evidence;
-- v003 Gain, one policy row per attempt, grouped reduction, and exact-one
-  transaction update;
-- strict HSL-v1 actor-only initialization and Stage3-v015 checkpoint identity;
-- committed save/fresh-reload and bounded diagnostic/evaluation connectors.
+## Current Contract Mismatch
 
-HSL is frozen as a validated auxiliary initializer. It is reopened only if
-fresh official-run evidence identifies HSL as the first broken owner. The old
-Q1--Q6 quality chain is preserved in the ledger as reusable evidence, but is no
-longer a mandatory prerequisite to training.
+The following active source behavior is superseded and must not authorize more
+training:
 
-## G5-E0: One-Shot HRL Engineering Closure
+- `frontres_segment_live_probe.py::_height_contact_consistency_pair()` uses
+  reference and robot foot-height thresholds instead of `contact_forces`;
+- the cache schema has `contact_state`, but production sensor population is not
+  code-confirmed;
+- `frontres_gain.py::compute_paired_physics_gain()` averages available paired
+  success, survival, ZMP, and contact differences;
+- `compute_intent_physics_local_repair_gain()` additively combines weighted
+  Intent, Physics, and repair cost;
+- storage, return, priority, diagnostics, and evaluators identify v003.
+- `_require_v015_formal_transaction_config()` rejects nonzero critic/actor
+  Warmup durations;
+- `_v015_formal_ppo_config()` hardcodes `actor_loss_weight=1.0`, and the formal
+  v015 update never applies critic-only actor/std gradient isolation;
+- the latest v015 S4 run used `critic_warmup=0` and `actor_warmup=0`.
 
-This is one authorized implementation-and-verification unit.
+This is `contract-mismatch`, not partial v004 implementation. X1 and additional
+training remain blocked.
+
+## G5-P1: One-Shot v004 Physics Gain And Critic-Ready Actor Migration
+
+### Terminal outcome
+
+The official Stage3-v015 path uses one immutable expected support sequence,
+authoritative actual ContactSensor evidence, phase-conditioned ZMP, and the
+single scalar FRS-GAIN-v004 utility in every formal consumer. A cold HSL-v1
+actor then enters v004 critic-only calibration before actor ramp and joint PPO.
+One bounded 8-env critic-only transaction proves the formal route without
+changing the frozen method boundaries.
+
+### Unique owners and data route
+
+| Semantic object | Unique owner | Input -> output |
+| --- | --- | --- |
+| Expected support carrier | `commands.py::MultiMotionCommand.materialize_frontres_local_scenario()` | same ordered Clean frames and materializer-owned reference foot kinematics -> immutable left/right support modes `[K,2]` plus phase/tolerance identity; `[K,65]` remains the GMT command |
+| Actual Contact evidence | `frontres_segment_live_probe.py::_capture_physics_frame()` | `contact_forces` ContactSensor + role rows -> paired actual contact `[K,B,2]` |
+| Immutable paired facts | `frontres_segment_storage.py` | expected/actual contact, ZMP, survival, valid masks, scenario identity -> one-action-K paired facts |
+| v004 ordering | `frontres_gain.py` | per-role Physics admissibility/deficit + Intent quality + repair cost -> one scalar paired Gain `[B]` |
+| Warmup phase | `frontres_segment_warmup.py::frontres_segment_warmup_phase()` | persisted iteration plus explicit `N_c/N_a` -> phase and actor loss weight |
+| Phase-aware formal update | `frontres_segment_live_probe.py::run_frontres_v015_formal_transaction_update()` | complete v004 transaction + phase -> critic-only / actor-ramp / joint exact-one update |
+| Warmup persistence | `frontres_checkpointing.py` | v008/v004 identity + `N_c/N_a` + absolute iteration/phase -> exact save/resume or fail-closed |
+
+Expected support is materialized once from the same Clean frame identities
+already gathered by the command owner; it must be covered by the sealed
+scenario hash and reused by all M attempts. Actual Contact must come from the configured sensor. The
+existing `contact_state` field is the allowed carrier; no predictor, label, or
+actor input is added.
+
+### Formal consumers
+
+The same `gain_contract_id=FRS-GAIN-v004` result must reach:
+
+```text
+immutable storage
+-> return and advantage
+-> replay priority evidence
+-> grouped PPO transaction
+-> live diagnostics
+-> local and held-out evaluation
+```
+
+Every v015 formal consumer rejects v002/v003 fallback, missing component
+zero-fill, mixed scenario/phase identity, and partial transaction evidence.
+The phase is fixed for the complete transaction. PPO reduction, optimizer
+count, scalar Critic interface, and value-loss formula remain unchanged.
 
 ### Scope
 
-1. Batch-inspect the official route:
+- derive expected support modes from the GMT-only Clean continuation without
+  actor exposure;
+- read left/right actual contact from the existing ContactSensor;
+- implement timing-tolerant planned/extra/missed/dragging Contact alignment;
+- implement support-phase ZMP masks, domains, transition recovery, and flight
+  `N/A`;
+- implement non-compensatory admissibility/deficit/Intent tier ordering and
+  bounded repair penalty in the existing scalar Gain owner;
+- migrate every formal v015 consumer and diagnostic to v004;
+- connect the existing Warmup scheduler to the formal v015 owner;
+- require explicit nonzero `N_c/N_a` for formal training, with current
+  engineering defaults 200/500;
+- in critic-only, update only the scalar Critic while actor/std remain exactly
+  unchanged; then linearly ramp actor loss while Critic remains enabled;
+- bind v008/v004, schedule, absolute iteration, and phase into Stage3
+  checkpoint/resume identity and reject v003/v007 resume before mutation;
+- run focused deterministic, formal-connectivity, and one bounded live proof;
+- append evidence and refresh checklist/canvas/Architecture inside the same
+  closure.
 
-   ```text
-   Stage3 config
-   -> explicit HSL-v1 actor initializer
-   -> q29 928/158/770 observation authority
-   -> sealed multi-Segment x M transaction
-   -> one-action K evidence
-   -> v003 Gain and return
-   -> grouped PPO
-   -> optimizer exact-one update
-   -> committed Stage3-v015 checkpoint
-   -> bounded diagnostics
-   ```
+### Non-scope
 
-2. Repair every obvious in-scope route, shape, identity, lifecycle, or logging
-   defect found before or during the bounded smoke. One internal rerun after
-   repair remains part of this unit.
-3. Run only the focused compile/contracts needed to catch local regressions.
-4. Run one bounded official Stage3 smoke and inspect its complete log.
-5. Refresh the volatile plan/checklist/canvas and append final evidence.
+- actor observation, action shape, scalar Critic architecture, critic
+  observation, HSL, normalizer, or generic checkpoint-format changes;
+- `rho`, dual output, serial networks, second Critic/optimizer, contact
+  predictor, or new actor input;
+- Noisy physical prefix, noise label, perturbation time, Clean actor future, or
+  future root/global actor input;
+- changing H, K, one-action-K, sealed transaction, grouped PPO, or optimizer
+  formula;
+- long training, multi-seed, deployment composition, or paper experiments.
 
-### Embedded acceptance checks
+### Embedded evidence
 
-- official v015 branch is reached without legacy resume/evaluator fallback;
-- action has shape `[B,6]`, is finite, and is not collapsed by interface error;
-- scenario/noisy hash, transaction identity, valid policy rows, and group mass
-  remain present;
-- `intent_gain`, `physics_gain`, `repair_cost`, `gain_total`, return, and
-  advantage are finite and expose both sign and scale;
-- gradients and optimizer counters prove exactly one update after the complete
-  transaction, not during attempt collection;
-- no Traceback, NaN/Inf, partial transaction, later FEMR action, or Clean actor
-  input appears;
-- a committed Stage3-v015 checkpoint path is emitted.
+S1 deterministic contracts must cover support codes `11/10/01/00`, left/right
+identity, planned step, static support, early/late tolerance, extra/missed
+switches, dragging, transition recovery, flight ZMP masking, survival failure,
+both-safe/both-unsafe/cross-tier ordering, no-op, missing/non-finite evidence,
+row/role permutation, actor-input exclusion, all Warmup phase boundaries,
+actor-weight formula, and critic-only actor/std invariance.
 
-These are assertions inside G5-E0. Failure first triggers local diagnosis and
-repair, not a new numbered planning step.
+S2 formal connectivity must prove one sealed support carrier across M attempts,
+real ContactSensor owner reachability, `[K,B,2]` row alignment, shared valid
+masks, all v004 consumers, unchanged one-row/grouped/exact-one behavior, and
+v002/v003 isolation. The same formal v015 owner must prove v004 return reaches
+the Critic during critic-only, actor/std stay fixed, actor-ramp weight is
+monotonic, and no legacy update connector is used.
+
+S3 persistence must prove cold HSL-v1 starts at iteration 0 critic-only, exact
+v008/v004 save/reload preserves `N_c/N_a` and phase, and v003/v007/unversioned
+resume rejects before state mutation.
+
+S4 bounded evidence is one 8-env complete critic-only transaction. It must record
+expected/actual contact sequences, switch violations, phase/ZMP masks and
+recovery, survival, per-role admissibility/deficit, Intent quality, paired
+utility, repair cost, Gain, return, raw/scaled advantage, gradient, group mass,
+Warmup phase/weight, actor/std zero delta, nonzero Critic delta, exact-one
+update, committed checkpoint, and v008/v004 identity. Deterministic fixtures
+cover actor-ramp/joint; actual long phase progression belongs to X1.
 
 ### Stop conditions
 
-Pause only when one of these true boundaries is reached:
+Stop the one-shot implementation at the first true design boundary if:
 
-- a method/contract decision has multiple materially different answers;
-- a destructive, costly, remote, or long-running action needs new authority;
-- the official route remains contradictory after one complete diagnosis and
-  repair cycle;
-- the bounded run completes but learned metrics are no-op, regressing, or
-  mutually contradictory, activating the conditional policy-quality branch.
-
-### Execution result
-
-Status: stopped at the declared policy-quality boundary, `E-FI-64`.
-
-The official 8-env, 1-iteration, 1-update route reached strict HSL-v1
-initialization, 928/158/770 authority, two sealed Segments x two attempts,
-one-action K=8 evidence, grouped v003 PPO, exact-one Adam update, and a
-committed Stage3-v015 checkpoint. The bounded telemetry connector was repaired
-inside this unit to expose return, advantage, action scale, and pre/post-clip
-gradient without changing Gain/PPO/HSL semantics.
-
-Engineering connectivity passed, but closure did not: three of four attempts
-had negative Gain, `harm_fraction=0.75`, every advantage was negative, and all
-four `physics_gain` values were exactly zero. The gradient path was active
-(`18/18` parameter tensors, pre-clip norm `611.1876`, post-clip `0.5`), so this
-is not an optimizer/no-op wiring failure. It activates the smallest conditional
-policy-quality audit before X1 or any additional training.
-
-The conditional audit identified and repaired the first invalid evidence owner
-at `E-FI-65`. Formal one-action-K collection now seals paired survival,
-ZMP/support, height-contact consistency, and their common valid-step mask into
-the immutable v015 carrier and consumes them through the unchanged v003 Gain.
-Diagnostics now expose raw paired Physics components, policy value, return,
-raw advantage, and row-aligned grouped-scaled advantage. Deterministic S1/S2
-contracts pass; real simulator Physics values remain unconfirmed until one
-bounded live sentinel is separately authorized.
-
-Crossing files, owners, offline/live evidence tiers, or test types is not a
-stop condition by itself.
+- expected support cannot be deterministically derived from Clean continuation
+  while remaining evaluator-only;
+- `contact_forces` cannot provide stable left/right actual contact;
+- role/foot/phase/scenario identity cannot stay sealed across attempts;
+- planned aggressive motion cannot be separated from Repair-induced stepping
+  without a new label or model;
+- numerical scaling allows Intent or repair cost to invert the Physics tier;
+- any formal consumer requires mixed v003/v004 evidence or a frozen method
+  boundary must change;
+- the formal owner falls back to `run_frontres_segment_single_update()`, still
+  rejects nonzero Warmup, changes actor/std during critic-only, gives the Critic
+  no gradient, crosses phase inside a transaction, restarts phase on resume, or
+  accepts a v003/v007 Stage3 checkpoint;
+- after one complete implementation/repair cycle, the bounded live route is
+  still contradictory, no-op, regressing, or harmful.
 
 ## X1: Formal Experiments And Composition
 
-This is the next true high-cost boundary after G5-E0 passes. It combines former
-G6/G7 setup checks with the experiment that consumes them:
-
-- choose the authorized training budget and seeds;
-- run formal Stage3-v015 training and checkpoint trajectory collection;
-- run paired frozen-GMT versus FEMR+GMT deployment composition;
-- collect experiment tables, plots, and paper artifacts.
-
-Offline connectivity and report checks are embedded in X1 setup. Long GPU
-runs and externally consumed results require explicit authorization, so X1 is
-not silently entered from G5-E0.
-
-## Conditional Diagnostic Branches
-
-- Use `formal-runtime-audit` only when the official route exposes an unresolved
-  owner, shape, checkpoint, or runtime-connectivity contradiction.
-- Use `policy-quality-audit` only after a runnable policy exhibits no-op,
-  regression, harmful Gain, contradictory physics evidence, or unexpected
-  checkpoint trajectories.
-- Open only the smallest diagnostic owner implicated by the first abnormal
-  fact. Do not restore Q1--Q6 as a mandatory sequence.
-
-## Planning Deletion Test
-
-The former implementation, integration, persistence, offline/live, checklist,
-and evidence-refresh micro-steps do not require independent user decisions and
-are merged into G5-E0. Former G6/G7 are merged into X1 because only the costly
-experiment boundary requires new authorization. Removing any remaining unit
-would either mix engineering with a costly experiment or conceal a genuine
-method decision.
+X1 remains the next high-cost boundary only after G5-P1 passes. It owns the
+training budget/seeds, checkpoint trajectory, paired deployment composition,
+and paper artifacts. It is not authorized by this plan rebase.
 
 ## Cursor
 
-Current cursor: `G5-E0 ready for explicit execution authorization`.
+Current cursor: `G5-P1 design ready; implementation requires explicit user authorization`.
 
-This planning update does not execute G5-E0, tests, simulator, training, or a
-live run.
+This rebase changes documents only. It does not run tests, simulator, training,
+live evaluation, checkpoint I/O, or deployment composition.

@@ -155,6 +155,8 @@ class FrontRESStage1EnvAdapter:
                 "command fixed Noisy materializer must return detached finite "
                 f"[L,{expected_dim}] tape, got {tuple(tape.shape)}"
             )
+        if bool(((expected_support != 0.0) & (expected_support != 1.0)).any()):
+            raise ValueError("v015 local expected support must be binary left/right phase evidence")
         return tape.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous()
 
     def materialize_frontres_local_scenario(
@@ -190,6 +192,7 @@ class FrontRESStage1EnvAdapter:
             "current_root_artifact_t",
             "intent_q29",
             "clean_continuation",
+            "expected_support",
             "provenance",
         }
         if set(payload) != required:
@@ -200,23 +203,29 @@ class FrontRESStage1EnvAdapter:
         artifact = payload["current_root_artifact_t"]
         intent = payload["intent_q29"]
         continuation = payload["clean_continuation"]
+        expected_support = payload["expected_support"]
         provenance = payload["provenance"]
         if (
             not isinstance(artifact, torch.Tensor)
             or not isinstance(intent, torch.Tensor)
             or not isinstance(continuation, torch.Tensor)
+            or not isinstance(expected_support, torch.Tensor)
             or artifact.requires_grad
             or intent.requires_grad
             or continuation.requires_grad
+            or expected_support.requires_grad
             or not torch.is_floating_point(artifact)
             or not torch.is_floating_point(intent)
             or not torch.is_floating_point(continuation)
+            or not torch.is_floating_point(expected_support)
             or not bool(torch.isfinite(artifact).all().item())
             or not bool(torch.isfinite(intent).all().item())
             or not bool(torch.isfinite(continuation).all().item())
+            or not bool(torch.isfinite(expected_support).all().item())
             or tuple(artifact.shape) != (7,)
             or tuple(intent.shape) != (int(intent_horizon) + 1, 29)
             or tuple(continuation.shape) != (int(horizon_k), 65)
+            or tuple(expected_support.shape) != (int(horizon_k), 2)
         ):
             raise RuntimeError(
                 "command local scenario materializer must return detached finite "
@@ -228,6 +237,7 @@ class FrontRESStage1EnvAdapter:
             "current_root_artifact_t": artifact.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
             "intent_q29": intent.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
             "clean_continuation": continuation.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
+            "expected_support": expected_support.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous(),
             "provenance": dict(provenance),
         }
 
@@ -308,6 +318,7 @@ class FrontRESStage1EnvAdapter:
                     current_root_artifact_t=local_scenario["current_root_artifact_t"].index_select(0, source_rows),
                     intent_q29=local_scenario["intent_q29"].index_select(0, source_rows),
                     clean_continuation=local_scenario["clean_continuation"].index_select(0, source_rows),
+                    expected_support=local_scenario["expected_support"].index_select(0, source_rows),
                     horizon_k=local_scenario["horizon_k"].index_select(0, source_rows),
                     continuation_lengths=local_scenario["continuation_lengths"].index_select(0, source_rows),
                     scenario_ids=tuple(local_scenario["scenario_ids"][int(row)] for row in source_rows.tolist()),
@@ -425,12 +436,14 @@ class FrontRESStage1EnvAdapter:
         artifact = getattr(request, "frontres_local_scenario_current_root_artifact_t", None)
         intent = getattr(request, "frontres_local_scenario_intent_q29", None)
         continuation = getattr(request, "frontres_local_scenario_clean_continuation", None)
-        if not isinstance(artifact, torch.Tensor) or not isinstance(intent, torch.Tensor) or not isinstance(continuation, torch.Tensor):
+        expected_support = getattr(request, "frontres_local_scenario_expected_support", None)
+        if not isinstance(artifact, torch.Tensor) or not isinstance(intent, torch.Tensor) or not isinstance(continuation, torch.Tensor) or not isinstance(expected_support, torch.Tensor):
             raise ValueError("v015 local reset requires tensor artifact, q29 intent, and Clean continuation fields")
         for name, value in (
             ("current_root_artifact_t", artifact),
             ("intent_q29", intent),
             ("clean_continuation", continuation),
+            ("expected_support", expected_support),
         ):
             if (
                 value.requires_grad
@@ -449,6 +462,7 @@ class FrontRESStage1EnvAdapter:
             or int(continuation.shape[0]) != int(source_count)
             or int(continuation.shape[1]) <= 0
             or int(continuation.shape[2]) != 65
+            or tuple(expected_support.shape) != (int(source_count), int(continuation.shape[1]), 2)
         ):
             raise ValueError(
                 "v015 local reset requires [B,7] current artifact, [B,H+1,29] q29 intent, and [B,K_max,65] Clean continuation"
@@ -496,6 +510,7 @@ class FrontRESStage1EnvAdapter:
                 value.get("current_root_artifact_provenance") != "noisy_root_artifact_t"
                 or value.get("intent_q29_provenance") != "deployment_noisy_q29"
                 or value.get("clean_continuation_provenance") != "clean_gmt_only"
+                or value.get("expected_support_provenance") != "clean_gmt_physics_only"
             ):
                 raise ValueError(f"v015 local provenance row {row} violates the Noisy-q29/Clean-continuation boundary")
             intent_source = str(value.get("intent_q29_source", "")).lower()
@@ -505,6 +520,7 @@ class FrontRESStage1EnvAdapter:
             "current_root_artifact_t": artifact.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
             "intent_q29": intent.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
             "clean_continuation": continuation.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
+            "expected_support": expected_support.detach().to(device=device, dtype=torch.float32).clone().contiguous(),
             "horizon_k": horizon_k.detach().clone(),
             "continuation_lengths": lengths.detach().clone(),
             "scenario_ids": scenario_ids,

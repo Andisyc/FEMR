@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import hashlib
 import importlib.util
 from pathlib import Path
+import sys
 from typing import Any, Callable, Iterable
 
 import torch
@@ -16,6 +17,23 @@ assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
 _AUDIT_MODULE = importlib.util.module_from_spec(_AUDIT_SPEC)
 _AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
 emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
+
+
+def _v004_phase_evaluator() -> Callable[..., dict[str, torch.Tensor]]:
+    try:
+        from rsl_rl.frontres.frontres_gain import evaluate_phase_conditioned_physics
+
+        return evaluate_phase_conditioned_physics
+    except ModuleNotFoundError:
+        spec = importlib.util.spec_from_file_location(
+            "frontres_gain_storage_runtime", Path(__file__).resolve().with_name("frontres_gain.py")
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("could not load FRS-GAIN-v004 phase evaluator")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module.evaluate_phase_conditioned_physics
 
 
 @dataclass(frozen=True)
@@ -345,6 +363,7 @@ class FrontRESV015OneActionKEvidence:
     executed_q29_t_valid_mask: torch.Tensor
     done_any: torch.Tensor
     survival_steps: torch.Tensor
+    physics_expected_support_steps: torch.Tensor
     physics_zmp_repaired_steps: torch.Tensor
     physics_zmp_noisy_steps: torch.Tensor
     physics_contact_repaired_steps: torch.Tensor
@@ -421,26 +440,38 @@ class FrontRESV015OneActionKEvidence:
             if value.ndim != 1 or int(value.numel()) != role_count:
                 raise ValueError(f"v015 one-action evidence {name} must be [N]")
         physics_shape = (int(self.continuation.shape[0]), policy_count)
+        if tuple(self.physics_expected_support_steps.shape) != physics_shape + (2,):
+            raise ValueError(
+                f"v015 one-action evidence physics_expected_support_steps must be [K,B,2]={physics_shape + (2,)}"
+            )
+        if bool(
+            ((self.physics_expected_support_steps != 0.0) & (self.physics_expected_support_steps != 1.0)).any()
+        ):
+            raise ValueError("v015 one-action evidence expected support must be binary left/right state")
         for name, value in (
             ("physics_zmp_repaired_steps", self.physics_zmp_repaired_steps),
             ("physics_zmp_noisy_steps", self.physics_zmp_noisy_steps),
-            ("physics_contact_repaired_steps", self.physics_contact_repaired_steps),
-            ("physics_contact_noisy_steps", self.physics_contact_noisy_steps),
             ("physics_pair_valid_mask", self.physics_pair_valid_mask),
         ):
             if tuple(value.shape) != physics_shape:
                 raise ValueError(f"v015 one-action evidence {name} must be [K,B]={physics_shape}")
         physics_valid = self.physics_pair_valid_mask.bool()
+        supported_valid = physics_valid & self.physics_expected_support_steps.bool().any(dim=-1)
+        contact_shape = physics_shape + (2,)
         for name, value in (
-            ("physics_zmp_repaired_steps", self.physics_zmp_repaired_steps),
-            ("physics_zmp_noisy_steps", self.physics_zmp_noisy_steps),
             ("physics_contact_repaired_steps", self.physics_contact_repaired_steps),
             ("physics_contact_noisy_steps", self.physics_contact_noisy_steps),
         ):
+            if tuple(value.shape) != contact_shape:
+                raise ValueError(f"v015 one-action evidence {name} must be [K,B,2]={contact_shape}")
+        for name, value in (
+            ("physics_zmp_repaired_steps", self.physics_zmp_repaired_steps),
+            ("physics_zmp_noisy_steps", self.physics_zmp_noisy_steps),
+        ):
             finite = torch.isfinite(value.float())
-            if not bool(finite[physics_valid].all()) or bool(finite[~physics_valid].any()):
+            if not bool(finite[supported_valid].all()) or bool(finite[~physics_valid].any()):
                 raise ValueError(
-                    f"v015 one-action evidence {name} must be finite exactly on paired valid K steps"
+                    f"v015 one-action evidence {name} must be finite on supported paired-valid K steps and absent outside validity"
                 )
         if (
             len(self.intent_q29_provenance) != role_count
@@ -457,6 +488,13 @@ class FrontRESV015OneActionKEvidence:
         )
         if not torch.equal(self.policy_row_indices.to(dtype=torch.long), repair_rows):
             raise ValueError("v015 one-action evidence policy rows must be exactly the Repair role rows")
+        support_by_scenario: dict[str, torch.Tensor] = {}
+        for policy_col, role_row in enumerate(repair_rows.tolist()):
+            scenario_id = str(self.scenario_ids[int(role_row)])
+            support = self.physics_expected_support_steps[:, policy_col]
+            anchor_support = support_by_scenario.setdefault(scenario_id, support)
+            if not torch.equal(anchor_support, support):
+                raise ValueError(f"v015 one-action evidence scenario={scenario_id!r} mixes expected support identity")
         rows_by_scenario: dict[str, list[int]] = {}
         for row, scenario_id in enumerate(self.scenario_ids):
             rows_by_scenario.setdefault(str(scenario_id), []).append(row)
@@ -507,6 +545,7 @@ class FrontRESV015OneActionKEvidence:
             self.executed_q29_t_valid_mask,
             self.done_any,
             self.survival_steps,
+            self.physics_expected_support_steps,
             self.physics_zmp_repaired_steps,
             self.physics_zmp_noisy_steps,
             self.physics_contact_repaired_steps,
@@ -523,7 +562,7 @@ class FrontRESV015PairedGainFacts:
 
     状态: active v015 local storage adapter.
     上游: immutable one-action capture.
-    下游: FRS-GAIN-v003 input 和 one return/advantage carrier.
+    下游: FRS-GAIN-v004 input 和 one return/advantage carrier.
     证据: deterministic formal connectivity; live Physics values remain pending.
     """
 
@@ -545,6 +584,10 @@ class FrontRESV015PairedGainFacts:
     noisy_zmp_margin: torch.Tensor
     repaired_contact: torch.Tensor
     noisy_contact: torch.Tensor
+    repaired_contact_violation: torch.Tensor
+    noisy_contact_violation: torch.Tensor
+    repaired_zmp_violation: torch.Tensor
+    noisy_zmp_violation: torch.Tensor
     physics_valid_step_count: torch.Tensor
     horizon_k: torch.Tensor
     scenario_ids: tuple[str, ...]
@@ -571,6 +614,10 @@ class FrontRESV015PairedGainFacts:
             ("noisy_zmp_margin", self.noisy_zmp_margin),
             ("repaired_contact", self.repaired_contact),
             ("noisy_contact", self.noisy_contact),
+            ("repaired_contact_violation", self.repaired_contact_violation),
+            ("noisy_contact_violation", self.noisy_contact_violation),
+            ("repaired_zmp_violation", self.repaired_zmp_violation),
+            ("noisy_zmp_violation", self.noisy_zmp_violation),
             ("physics_valid_step_count", self.physics_valid_step_count),
             ("horizon_k", self.horizon_k),
         ):
@@ -649,6 +696,15 @@ class FrontRESV015GainReturnEvidence:
     physics_survival_gain: torch.Tensor
     physics_zmp_gain: torch.Tensor
     physics_contact_gain: torch.Tensor
+    intent_quality_repaired: torch.Tensor
+    intent_quality_noisy: torch.Tensor
+    physics_admissible_repaired: torch.Tensor
+    physics_admissible_noisy: torch.Tensor
+    physics_deficit_repaired: torch.Tensor
+    physics_deficit_noisy: torch.Tensor
+    utility_repaired: torch.Tensor
+    utility_noisy: torch.Tensor
+    repair_penalty: torch.Tensor
     physics_valid_step_count: torch.Tensor
     return_k: torch.Tensor
     advantage_k: torch.Tensor
@@ -660,7 +716,7 @@ class FrontRESV015GainReturnEvidence:
     x_t_identities: tuple[str, ...]
     intent_q29_provenance: str
     intent_q29_source: str
-    gain_source: str = "FRS-GAIN-v003-intent-physics-local-repair"
+    gain_source: str = "FRS-GAIN-v004-support-mode-physics-admissibility"
 
     def validate(self) -> None:
         count = int(self.policy_actions.shape[0])
@@ -687,6 +743,15 @@ class FrontRESV015GainReturnEvidence:
             ("physics_survival_gain", self.physics_survival_gain),
             ("physics_zmp_gain", self.physics_zmp_gain),
             ("physics_contact_gain", self.physics_contact_gain),
+            ("intent_quality_repaired", self.intent_quality_repaired),
+            ("intent_quality_noisy", self.intent_quality_noisy),
+            ("physics_admissible_repaired", self.physics_admissible_repaired),
+            ("physics_admissible_noisy", self.physics_admissible_noisy),
+            ("physics_deficit_repaired", self.physics_deficit_repaired),
+            ("physics_deficit_noisy", self.physics_deficit_noisy),
+            ("utility_repaired", self.utility_repaired),
+            ("utility_noisy", self.utility_noisy),
+            ("repair_penalty", self.repair_penalty),
             ("physics_valid_step_count", self.physics_valid_step_count),
             ("return_k", self.return_k),
             ("advantage_k", self.advantage_k),
@@ -704,7 +769,7 @@ class FrontRESV015GainReturnEvidence:
             or len(self.scenario_ids) != count
             or len(self.noisy_segment_hashes) != count
             or len(self.x_t_identities) != count
-            or self.gain_source != "FRS-GAIN-v003-intent-physics-local-repair"
+            or self.gain_source != "FRS-GAIN-v004-support-mode-physics-admissibility"
             or bool((self.horizon_k <= 0).any())
             or bool((self.evidence_valid_step_count < 0).any())
             or bool((self.evidence_valid_step_count > self.horizon_k).any())
@@ -734,6 +799,15 @@ class FrontRESV015GainReturnEvidence:
             ("physics_survival_gain", self.physics_survival_gain),
             ("physics_zmp_gain", self.physics_zmp_gain),
             ("physics_contact_gain", self.physics_contact_gain),
+            ("intent_quality_repaired", self.intent_quality_repaired),
+            ("intent_quality_noisy", self.intent_quality_noisy),
+            ("physics_admissible_repaired", self.physics_admissible_repaired),
+            ("physics_admissible_noisy", self.physics_admissible_noisy),
+            ("physics_deficit_repaired", self.physics_deficit_repaired),
+            ("physics_deficit_noisy", self.physics_deficit_noisy),
+            ("utility_repaired", self.utility_repaired),
+            ("utility_noisy", self.utility_noisy),
+            ("repair_penalty", self.repair_penalty),
         ):
             finite = torch.isfinite(value)
             if not bool(finite[valid].all()) or bool(finite[~valid].any()):
@@ -784,6 +858,30 @@ def pair_frontres_v015_gain_facts(evidence: FrontRESV015OneActionKEvidence) -> F
         return torch.where(count > 0, mean, torch.full_like(mean, float("nan")))
 
     physics_valid_step_count = evidence.physics_pair_valid_mask.bool().sum(dim=0).to(dtype=torch.long)
+    expected_support = evidence.physics_expected_support_steps.detach().bool()
+    evaluate_phase_conditioned_physics = _v004_phase_evaluator()
+    repair_phase = evaluate_phase_conditioned_physics(
+        expected_support,
+        evidence.physics_contact_repaired_steps,
+        evidence.physics_zmp_repaired_steps,
+        evidence.physics_pair_valid_mask,
+    )
+    noisy_phase = evaluate_phase_conditioned_physics(
+        expected_support,
+        evidence.physics_contact_noisy_steps,
+        evidence.physics_zmp_noisy_steps,
+        evidence.physics_pair_valid_mask,
+    )
+    intent_valid = (
+        evidence.executed_q29_t_valid_mask.index_select(0, repair_rows).bool()
+        & evidence.executed_q29_t_valid_mask.index_select(0, noisy_index).bool()
+        & (physics_valid_step_count > 0)
+    ).detach().clone()
+    phase_nan = torch.full((int(repair_rows.numel()),), float("nan"), device=repair_rows.device)
+
+    def valid_phase(value: torch.Tensor) -> torch.Tensor:
+        return torch.where(intent_valid, value.to(device=repair_rows.device, dtype=torch.float32), phase_nan)
+
     facts = FrontRESV015PairedGainFacts(
         policy_observations=evidence.policy_observations.detach().clone(),
         policy_actions=evidence.policy_actions.detach().clone(),
@@ -794,18 +892,19 @@ def pair_frontres_v015_gain_facts(evidence: FrontRESV015OneActionKEvidence) -> F
         intent_q29=evidence.intent_q29.index_select(0, repair_rows)[:, 0].detach().clone(),
         repaired_q29=evidence.executed_q29_t.index_select(0, repair_rows).detach().clone(),
         noisy_q29=evidence.executed_q29_t.index_select(0, noisy_index).detach().clone(),
-        intent_valid_mask=(
-            evidence.executed_q29_t_valid_mask.index_select(0, repair_rows).bool()
-            & evidence.executed_q29_t_valid_mask.index_select(0, noisy_index).bool()
-        ).detach().clone(),
+        intent_valid_mask=intent_valid,
         repaired_success=(~evidence.done_any.index_select(0, repair_rows).bool()).detach().clone(),
         noisy_success=(~evidence.done_any.index_select(0, noisy_index).bool()).detach().clone(),
         repaired_survival=evidence.survival_steps.index_select(0, repair_rows).detach().clone(),
         noisy_survival=evidence.survival_steps.index_select(0, noisy_index).detach().clone(),
         repaired_zmp_margin=paired_step_mean(evidence.physics_zmp_repaired_steps).detach().clone(),
         noisy_zmp_margin=paired_step_mean(evidence.physics_zmp_noisy_steps).detach().clone(),
-        repaired_contact=paired_step_mean(evidence.physics_contact_repaired_steps).detach().clone(),
-        noisy_contact=paired_step_mean(evidence.physics_contact_noisy_steps).detach().clone(),
+        repaired_contact=valid_phase(1.0 - repair_phase["contact_violation"]).detach().clone(),
+        noisy_contact=valid_phase(1.0 - noisy_phase["contact_violation"]).detach().clone(),
+        repaired_contact_violation=valid_phase(repair_phase["contact_violation"]).detach().clone(),
+        noisy_contact_violation=valid_phase(noisy_phase["contact_violation"]).detach().clone(),
+        repaired_zmp_violation=valid_phase(repair_phase["zmp_violation"]).detach().clone(),
+        noisy_zmp_violation=valid_phase(noisy_phase["zmp_violation"]).detach().clone(),
         physics_valid_step_count=physics_valid_step_count.detach().clone(),
         horizon_k=evidence.horizon_k.index_select(0, repair_rows).detach().clone(),
         scenario_ids=tuple(evidence.scenario_ids[int(row)] for row in repair_rows.tolist()),
@@ -830,7 +929,7 @@ def build_frontres_v015_gain_return_evidence(
     for name in ("gain_total", "intent_gain", "physics_gain", "repair_cost"):
         value = getattr(gain_result, name, None)
         if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != count:
-            raise ValueError(f"v015 return evidence requires FRS-GAIN-v003 {name} [B]")
+            raise ValueError(f"v015 return evidence requires FRS-GAIN-v004 {name} [B]")
         components[name] = value.detach().to(device=facts.policy_values.device, dtype=torch.float32).clone()
     if (
         getattr(gain_result, "intent_q29_provenance", None) != facts.intent_q29_provenance
@@ -853,10 +952,19 @@ def build_frontres_v015_gain_return_evidence(
         "physics_survival_gain",
         "physics_zmp_gain",
         "physics_contact_gain",
+        "intent_quality_repaired",
+        "intent_quality_noisy",
+        "physics_admissible_repaired",
+        "physics_admissible_noisy",
+        "physics_deficit_repaired",
+        "physics_deficit_noisy",
+        "utility_repaired",
+        "utility_noisy",
+        "repair_penalty",
     ):
         value = getattr(gain_result, name, None)
         if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != count:
-            raise ValueError(f"v015 return evidence requires FRS-GAIN-v003 {name} [B]")
+            raise ValueError(f"v015 return evidence requires FRS-GAIN-v004 {name} [B]")
         value = value.detach().to(device=facts.policy_values.device, dtype=torch.float32).clone()
         physics_components[name] = torch.where(valid, value, nan)
 
@@ -902,6 +1010,15 @@ def build_frontres_v015_gain_return_evidence(
         physics_survival_gain=physics_components["physics_survival_gain"],
         physics_zmp_gain=physics_components["physics_zmp_gain"],
         physics_contact_gain=physics_components["physics_contact_gain"],
+        intent_quality_repaired=physics_components["intent_quality_repaired"],
+        intent_quality_noisy=physics_components["intent_quality_noisy"],
+        physics_admissible_repaired=physics_components["physics_admissible_repaired"],
+        physics_admissible_noisy=physics_components["physics_admissible_noisy"],
+        physics_deficit_repaired=physics_components["physics_deficit_repaired"],
+        physics_deficit_noisy=physics_components["physics_deficit_noisy"],
+        utility_repaired=physics_components["utility_repaired"],
+        utility_noisy=physics_components["utility_noisy"],
+        repair_penalty=physics_components["repair_penalty"],
         physics_valid_step_count=facts.physics_valid_step_count.detach().clone(),
         return_k=return_k,
         advantage_k=advantage_k,

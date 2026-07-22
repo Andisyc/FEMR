@@ -346,14 +346,18 @@ def test_t_unmocked_observation_to_exact_one_update() -> None:
     runner.alg.frontres_v015_local_sentinel_only = False
     runner.alg.frontres_segment_live_train_enabled = True
     runner.alg.frontres_segment_live_update_steps = 1
+    runner.alg.frontres_segment_critic_warmup_iterations = 1
+    runner.alg.frontres_segment_actor_warmup_iterations = 1
+    runner.current_learning_iteration = 2
     original_physics = live_probe._capture_physics_frame
 
     def semantic_physics(_runner, _layout):
         return (
             torch.tensor([0.4, 0.3, 0.2, 0.1]),
             torch.tensor([0.2, 0.3, 0.1, 0.1]),
-            torch.tensor([1.0, 0.5, 1.0, 0.5]),
-            torch.tensor([0.5, 0.5, 0.5, 0.5]),
+            torch.ones(4, 2),
+            torch.ones(4, 2),
+            torch.tensor([[1.0, 0.0], [1.0, 1.0], [1.0, 0.0], [1.0, 1.0]]),
         )
 
     live_probe._capture_physics_frame = semantic_physics

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import fields, replace
 import sys
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
@@ -40,6 +41,7 @@ def _kernel_provenance(live_sampler):
             "intent_q29_provenance": "deployment_noisy_q29",
             "intent_q29_source": "motion_internal_q29",
             "clean_continuation_provenance": "clean_gmt_only",
+            "expected_support_provenance": "clean_gmt_physics_only",
         }
     )
 
@@ -52,6 +54,7 @@ def _local_batch(live_sampler) -> SimpleNamespace:
         frontres_local_scenario_current_root_artifact_t=torch.ones(2, 7),
         frontres_local_scenario_intent_q29=torch.arange(2 * 3 * 29, dtype=torch.float32).reshape(2, 3, 29),
         frontres_local_scenario_clean_continuation=continuation,
+        frontres_local_scenario_expected_support=torch.ones(2, 3, 2),
         frontres_local_scenario_clean_continuation_lengths=lengths,
         frontres_local_scenario_clean_continuation_mask=(
             torch.arange(3, dtype=torch.long).unsqueeze(0) < lengths.unsqueeze(1)
@@ -311,6 +314,7 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
         "observations": live_probe._read_live_observations,
         "capture": live_probe.collect_frontres_v015_gain_return_priority_evidence,
         "candidate": live_probe.build_frontres_v015_grouped_candidate_batch,
+        "diagnostics": live_probe.build_frontres_v015_local_evaluation_report,
     }
 
     def prepare(_runner):
@@ -360,6 +364,30 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
     live_probe._read_live_observations = observations
     live_probe.collect_frontres_v015_gain_return_priority_evidence = capture
     live_probe.build_frontres_v015_grouped_candidate_batch = candidate
+    report_a, report_b = fixture.request.diagnostic_reports
+    row_updates = {
+        field.name: getattr(report_a, field.name) + getattr(report_b, field.name)
+        for field in fields(report_a)
+        if isinstance(getattr(report_a, field.name), tuple)
+        and len(getattr(report_a, field.name)) == report_a.policy_row_count
+        and field.name not in {"scenario_ids", "noisy_segment_hashes"}
+    }
+    combined_gain = report_a.gain_total + report_b.gain_total
+    combined_report = replace(
+        report_a,
+        **row_updates,
+        scenario_ids=tuple(complete_candidate.transaction_metadata.scenario_ids),
+        noisy_segment_hashes=tuple(complete_candidate.transaction_metadata.noisy_segment_hashes),
+        policy_row_count=report_a.policy_row_count + report_b.policy_row_count,
+        valid_policy_row_count=report_a.valid_policy_row_count + report_b.valid_policy_row_count,
+        intent_gain_mean=sum(report_a.intent_gain + report_b.intent_gain) / 4,
+        physics_gain_mean=sum(report_a.physics_gain + report_b.physics_gain) / 4,
+        repair_cost_mean=sum(report_a.repair_cost + report_b.repair_cost) / 4,
+        gain_total_mean=sum(combined_gain) / 4,
+        gain_total_pos_frac=sum(value > 0 for value in combined_gain) / 4,
+        gain_total_neg_frac=sum(value < 0 for value in combined_gain) / 4,
+    )
+    live_probe.build_frontres_v015_local_evaluation_report = lambda _evidence, *, transaction_id: combined_report
     try:
         request = live_probe._build_frontres_v015_local_identity_sentinel_request(
             fixture.runner,
@@ -372,6 +400,7 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
         live_probe._read_live_observations = originals["observations"]
         live_probe.collect_frontres_v015_gain_return_priority_evidence = originals["capture"]
         live_probe.build_frontres_v015_grouped_candidate_batch = originals["candidate"]
+        live_probe.build_frontres_v015_local_evaluation_report = originals["diagnostics"]
 
     assert trace == ["prepare", "reset", "observations", "capture", "candidate"]
     assert request.plan is fixture.request.plan

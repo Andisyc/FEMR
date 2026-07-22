@@ -55,7 +55,7 @@ _FRONTRES_GAIN_CONFIG_FIELDS = (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v2"
+_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v3"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
 _V015_LAST_RECEIPT_ATTR = "_frontres_v015_last_committed_transaction_receipt"
@@ -323,8 +323,8 @@ def _inspect_frontres_v015_policy_quality_payload(
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v015"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v007"
-        or identity.get("gain_contract_id") != "FRS-GAIN-v003"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v008"
+        or identity.get("gain_contract_id") != "FRS-GAIN-v004"
         or identity.get("ppo_contract_id") != "FRS-PPO-v003"
         or identity.get("future_intent_layout") != _v015_quality_expected_layout()
     ):
@@ -335,6 +335,17 @@ def _inspect_frontres_v015_policy_quality_payload(
         "policy_rows_per_attempt": 1,
     }:
         raise RuntimeError("quality policy has an incompatible grouped-loss identity")
+    warmup = identity.get("warmup")
+    if not isinstance(warmup, Mapping):
+        raise RuntimeError("quality policy has no FRS-TRAIN-v008 warmup identity")
+    critic_warmup = int(warmup.get("critic_warmup_iterations", 0))
+    actor_warmup = int(warmup.get("actor_warmup_iterations", 0))
+    iteration = int(warmup.get("iteration", -1))
+    expected_phase = "critic_only" if iteration < critic_warmup else (
+        "actor_warmup" if iteration < critic_warmup + actor_warmup else "joint"
+    )
+    if critic_warmup <= 0 or actor_warmup <= 0 or iteration < 0 or warmup.get("phase") != expected_phase:
+        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v008 warmup identity")
     transaction = identity.get("transaction")
     if not isinstance(transaction, Mapping) or str(transaction.get("state", "")) not in {"idle", "committed"}:
         raise RuntimeError("quality policy rejects partial or malformed transaction identity")
@@ -368,8 +379,8 @@ def _inspect_frontres_v015_policy_quality_payload(
         format=_V015_CHECKPOINT_FORMAT,
         file_sha256=file_sha256,
         method_contract_id="FRS-METHOD-v015",
-        training_contract_id="FRS-TRAIN-v007",
-        gain_contract_id="FRS-GAIN-v003",
+        training_contract_id="FRS-TRAIN-v008",
+        gain_contract_id="FRS-GAIN-v004",
         ppo_contract_id="FRS-PPO-v003",
         future_intent_layout=tuple(_v015_quality_expected_layout().items()),
         action_kind="delta_se3",
@@ -1176,11 +1187,22 @@ def _build_v015_checkpoint_identity(
             "combined_dim": None,
             "prefix_stats_fingerprint": None,
         }
+    critic_warmup = int(getattr(alg, "frontres_segment_critic_warmup_iterations", 0))
+    actor_warmup = int(getattr(alg, "frontres_segment_actor_warmup_iterations", 0))
+    iteration = int(getattr(runner, "current_learning_iteration", 0))
+    if critic_warmup <= 0 or actor_warmup <= 0:
+        raise RuntimeError("FRS-TRAIN-v008 checkpoint identity requires positive warmup durations")
+    if iteration < critic_warmup:
+        phase = "critic_only"
+    elif iteration < critic_warmup + actor_warmup:
+        phase = "actor_warmup"
+    else:
+        phase = "joint"
     return {
         "format": _V015_CHECKPOINT_FORMAT,
         "method_contract_id": "FRS-METHOD-v015",
-        "training_contract_id": "FRS-TRAIN-v007",
-        "gain_contract_id": "FRS-GAIN-v003",
+        "training_contract_id": "FRS-TRAIN-v008",
+        "gain_contract_id": "FRS-GAIN-v004",
         "ppo_contract_id": "FRS-PPO-v003",
         "future_intent_layout": fields,
         "normalizer": normalizer,
@@ -1190,6 +1212,12 @@ def _build_v015_checkpoint_identity(
             "policy_rows_per_attempt": 1,
         },
         "transaction": _v015_transaction_checkpoint_payload(runner),
+        "warmup": {
+            "critic_warmup_iterations": critic_warmup,
+            "actor_warmup_iterations": actor_warmup,
+            "iteration": iteration,
+            "phase": phase,
+        },
     }
 
 
@@ -1207,11 +1235,26 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v015"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v007"
-        or identity.get("gain_contract_id") != "FRS-GAIN-v003"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v008"
+        or identity.get("gain_contract_id") != "FRS-GAIN-v004"
         or identity.get("ppo_contract_id") != "FRS-PPO-v003"
     ):
         raise RuntimeError("v015 checkpoint has an incompatible contract or format identity")
+    warmup = identity.get("warmup")
+    expected_warmup = {
+        "critic_warmup_iterations": int(getattr(runner.alg, "frontres_segment_critic_warmup_iterations", 0)),
+        "actor_warmup_iterations": int(getattr(runner.alg, "frontres_segment_actor_warmup_iterations", 0)),
+    }
+    if not isinstance(warmup, Mapping) or any(warmup.get(key) != value for key, value in expected_warmup.items()):
+        raise RuntimeError("FRS-TRAIN-v008 checkpoint warmup identity is missing or incompatible")
+    saved_iteration = int(warmup.get("iteration", -1))
+    critic_warmup = expected_warmup["critic_warmup_iterations"]
+    actor_warmup = expected_warmup["actor_warmup_iterations"]
+    expected_phase = "critic_only" if saved_iteration < critic_warmup else (
+        "actor_warmup" if saved_iteration < critic_warmup + actor_warmup else "joint"
+    )
+    if saved_iteration < 0 or warmup.get("phase") != expected_phase:
+        raise RuntimeError("FRS-TRAIN-v008 checkpoint iteration/phase identity is inconsistent")
     fields = _v015_checkpoint_layout_fields(runner)
     if identity.get("future_intent_layout") != fields:
         raise RuntimeError(
@@ -1728,7 +1771,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         _validate_frontres_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
     else:
         print(
-            "[Runner] Verified FRS-GAIN-v003 through the v015 checkpoint identity; "
+            "[Runner] Verified FRS-GAIN-v004 and FRS-TRAIN-v008 through the v015 checkpoint identity; "
             "legacy FRS-GAIN-v002 checkpoint metadata is not the active v015 owner.",
             flush=True,
         )

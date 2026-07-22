@@ -181,8 +181,8 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
     assert alg.frontres_segment_live_runner_enabled is True
     assert alg.frontres_segment_live_train_enabled is True
     assert alg.frontres_segment_live_update_steps == 1
-    assert alg.frontres_segment_critic_warmup_iterations == 0
-    assert alg.frontres_segment_actor_warmup_iterations == 0
+    assert alg.frontres_segment_critic_warmup_iterations == 200
+    assert alg.frontres_segment_actor_warmup_iterations == 500
     assert alg.frontres_formal_runtime_audit is True
     assert alg.frontres_hsl_init_enabled is False
     assert alg.frontres_hsl_rollout_label_enabled is False

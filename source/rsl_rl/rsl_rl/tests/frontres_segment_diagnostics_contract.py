@@ -40,7 +40,7 @@ def _v015_candidate_evidence() -> SimpleNamespace:
     )
     return_evidence = SimpleNamespace(
         validate=lambda: None,
-        gain_source="FRS-GAIN-v003-intent-physics-local-repair",
+        gain_source="FRS-GAIN-v004-support-mode-physics-admissibility",
         policy_actions=actions,
         policy_row_valid=torch.tensor([True, True, False]),
         intent_gain=torch.tensor([0.30, -0.10, float("nan")]),
@@ -64,6 +64,15 @@ def _v015_candidate_evidence() -> SimpleNamespace:
         physics_survival_gain=torch.tensor([0.5, 0.0, float("nan")]),
         physics_zmp_gain=torch.tensor([0.2, 0.0, float("nan")]),
         physics_contact_gain=torch.tensor([0.5, 0.0, float("nan")]),
+        intent_quality_repaired=torch.tensor([0.9, 0.7, float("nan")]),
+        intent_quality_noisy=torch.tensor([0.6, 0.8, float("nan")]),
+        physics_admissible_repaired=torch.tensor([1.0, 0.0, float("nan")]),
+        physics_admissible_noisy=torch.tensor([0.0, 0.0, float("nan")]),
+        physics_deficit_repaired=torch.tensor([0.0, 0.4, float("nan")]),
+        physics_deficit_noisy=torch.tensor([0.5, 0.2, float("nan")]),
+        utility_repaired=torch.tensor([0.9, -1.4, float("nan")]),
+        utility_noisy=torch.tensor([-1.5, -1.2, float("nan")]),
+        repair_penalty=torch.tensor([0.05, 0.05, float("nan")]),
         physics_valid_step_count=torch.tensor([4, 2, 0]),
         horizon_k=torch.tensor([4, 4, 4]),
         scenario_ids=("scenario-a", "scenario-b", "scenario-c"),
@@ -72,7 +81,13 @@ def _v015_candidate_evidence() -> SimpleNamespace:
         intent_q29_provenance="deployment_noisy_q29",
         intent_q29_source="fixture-deployment-motion-q29",
     )
-    return SimpleNamespace(validate=lambda: None, return_evidence=return_evidence)
+    one_action = SimpleNamespace(
+        validate=lambda: None,
+        physics_expected_support_steps=torch.ones(4, 3, 2),
+        physics_contact_repaired_steps=torch.ones(4, 3, 2),
+        physics_contact_noisy_steps=torch.ones(4, 3, 2),
+    )
+    return SimpleNamespace(validate=lambda: None, return_evidence=return_evidence, one_action=one_action)
 
 
 def test_v015_transaction_telemetry_projects_sealed_rows_without_recompute() -> None:

@@ -127,6 +127,7 @@ def test_t_row_permutation_identity_and_provenance() -> None:
         current_root_artifact_t=command._frontres_local_scenario_current_root_artifact_t.index_select(0, permutation),
         intent_q29=sealed["intent_q29"].index_select(0, permutation),
         clean_continuation=command._frontres_local_scenario_clean_continuation.index_select(0, permutation),
+        expected_support=command._frontres_local_scenario_expected_support.index_select(0, permutation),
         horizon_k=command._frontres_local_scenario_horizon_k.index_select(0, permutation),
         continuation_lengths=command._frontres_local_scenario_continuation_lengths.index_select(0, permutation),
         scenario_ids=tuple(sealed["scenario_ids"][index] for index in permutation.tolist()),

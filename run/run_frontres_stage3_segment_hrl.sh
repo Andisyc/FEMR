@@ -167,6 +167,8 @@ if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
   TRAIN_CMD+=(
     --frontres_checkpoint_interval 1
     --frontres_formal_runtime_audit
+    --frontres_segment_critic_warmup_iterations 200
+    --frontres_segment_actor_warmup_iterations 500
   )
 fi
 

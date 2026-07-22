@@ -1032,8 +1032,10 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
                 raise ValueError(
                     "ordinary v015 Stage-3 requires --frontres_v015_hsl_initializer_checkpoint"
                 )
-            _set_if_present(alg_cfg, "frontres_segment_critic_warmup_iterations", 0)
-            _set_if_present(alg_cfg, "frontres_segment_actor_warmup_iterations", 0)
+            if int(getattr(alg_cfg, "frontres_segment_critic_warmup_iterations", 0)) <= 0 or int(
+                getattr(alg_cfg, "frontres_segment_actor_warmup_iterations", 0)
+            ) <= 0:
+                raise ValueError("FRS-TRAIN-v008 ordinary Stage-3 requires positive critic/actor warmup durations")
         # B3: AUDIT-PERTURB-01 records the finalized preset consumed by sampler/rollout owners.
         # Result: PENDING_LIVE.
         if formal_audit_enabled:

@@ -1,9 +1,10 @@
 ---
 contract_id: FRS-TRAIN-v007
-status: active
+status: superseded
 effective_date: 2026-07-20
-updated_date: 2026-07-21
+updated_date: 2026-07-22
 supersedes: FRS-TRAIN-v006
+superseded_by: FRS-TRAIN-v008
 scope: proposal-only Stage-1 HSL initialization on the deployable future-intent actor interface, plus formal Stage-3 routing for local repair, one policy action per attempt, and frozen-FEMR Clean-continuation K evidence
 ---
 

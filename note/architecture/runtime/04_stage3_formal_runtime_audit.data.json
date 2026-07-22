@@ -1522,10 +1522,10 @@
         {
           "id": "AUDIT-WARMUP-01",
           "title": "Probe 19 | Actor/Critic Warmup",
-          "summary": "critic-only、actor ramp 与 joint phase 按 iteration 生效",
+          "summary": "v008 要求 critic-only、actor ramp 与 joint phase 在正式 v015 transaction owner 生效",
           "cardKind": "runtime_probe",
-          "owns": "验证 critic-only、actor ramp 与 joint phase 按 iteration 生效",
-          "mustNot": "不得改变训练分支、张量语义、更新顺序或缺失值状态",
+          "owns": "验证 v004 return、persisted iteration、phase/actor weight 与正式 v015 gradient boundary",
+          "mustNot": "不得回退 legacy single-update owner、v002/v003 Gain、重启 phase、改变 grouped reduction 或让 critic-only 更新 actor/std",
           "objects": [
             "Design: M-05",
             "persisted iteration",
@@ -1536,7 +1536,7 @@
             {
               "id": "AUDIT-WARMUP-01-SRC",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
-              "role": "被检查的正式 owner 边界",
+              "role": "phase semantic owner; formal v015 consumer wiring is currently contract-mismatch",
               "functions": [
                 "frontres_segment_warmup_phase()"
               ]
@@ -1545,7 +1545,7 @@
           "mainRoute": [
             "B1 frontres_segment_warmup_phase(): upstream state -> owner input",
             "B2 frontres_segment_warmup_phase(): owner input -> semantic object",
-            "B3 downstream consumer: semantic object -> formal consumer"
+            "B3 planned run_frontres_v015_formal_transaction_update(): v004 transaction + phase -> protected exact-one update"
           ],
           "mainRouteTitles": [
             "进入 Owner",
@@ -1593,13 +1593,14 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "E41 已闭合全部 compact audit 字段; 方法质量仍单独待验"
+            "历史 E68-E70 只证明旧 update/v002 route; v008 formal evidence 尚未产生"
           ],
           "tests": [
-            "S2 official-route connectivity",
-            "S4 formal live snapshot"
+            "pending G5-P1 S2 formal-v015 connectivity",
+            "pending G5-P1 S3 v008/v004 resume",
+            "pending G5-P1 S4 critic-only live snapshot"
           ],
-          "gap": "runtime-observed: critic and actor warmup progressed into joint phase_iter=0 with actor_weight=1.0 (E68-E70)"
+          "gap": "E-FI-67 CONTRACT-MISMATCH: E68-E70 are historical old-route/v002 evidence. Formal v015 currently rejects nonzero Warmup and hardcodes actor_weight=1; v008/v004 critic-only, actor-ramp, joint and resume remain pending G5-P1."
         },
         {
           "id": "AUDIT-PPO-01",

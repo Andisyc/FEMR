@@ -33,7 +33,7 @@ class FrontRESSegmentReplaySummary:
     objective: str
 
 
-_V015_GAIN_SOURCE = "FRS-GAIN-v003-intent-physics-local-repair"
+_V015_GAIN_SOURCE = "FRS-GAIN-v004-support-mode-physics-admissibility"
 _V015_LOCAL_EVALUATION_KIND = "local_k_candidate_only"
 _V015_COMPOSITION_EVALUATION_KIND = "deployment_composition_protocol"
 
@@ -79,6 +79,18 @@ class FrontRESV015LocalEvaluationReport:
     physics_survival_gain: tuple[float, ...]
     physics_zmp_gain: tuple[float, ...]
     physics_contact_gain: tuple[float, ...]
+    intent_quality_repaired: tuple[float, ...]
+    intent_quality_noisy: tuple[float, ...]
+    physics_admissible_repaired: tuple[float, ...]
+    physics_admissible_noisy: tuple[float, ...]
+    physics_deficit_repaired: tuple[float, ...]
+    physics_deficit_noisy: tuple[float, ...]
+    utility_repaired: tuple[float, ...]
+    utility_noisy: tuple[float, ...]
+    repair_penalty: tuple[float, ...]
+    expected_support_steps: tuple[tuple[tuple[float, float], ...], ...]
+    actual_contact_repaired_steps: tuple[tuple[tuple[float, float], ...], ...]
+    actual_contact_noisy_steps: tuple[tuple[tuple[float, float], ...], ...]
     physics_valid_step_count: tuple[int, ...]
     policy_row_count: int
     valid_policy_row_count: int
@@ -119,6 +131,15 @@ class FrontRESV015LocalEvaluationReport:
             self.physics_survival_gain,
             self.physics_zmp_gain,
             self.physics_contact_gain,
+            self.intent_quality_repaired,
+            self.intent_quality_noisy,
+            self.physics_admissible_repaired,
+            self.physics_admissible_noisy,
+            self.physics_deficit_repaired,
+            self.physics_deficit_noisy,
+            self.utility_repaired,
+            self.utility_noisy,
+            self.repair_penalty,
         )
         if (
             not self.transaction_id
@@ -133,6 +154,9 @@ class FrontRESV015LocalEvaluationReport:
             or any(len(values) != count for values in components)
             or any(len(values) != count for values in row_diagnostics)
             or len(self.physics_valid_step_count) != count
+            or len(self.expected_support_steps) != count
+            or len(self.actual_contact_repaired_steps) != count
+            or len(self.actual_contact_noisy_steps) != count
             or any(value < 0 or value > self.horizon_k[index] for index, value in enumerate(self.physics_valid_step_count))
             or any(not str(value) for value in self.scenario_ids)
             or any(not str(value) for value in self.noisy_segment_hashes)
@@ -245,10 +269,15 @@ def build_frontres_v015_local_evaluation_report(
         raise TypeError("v015 local evaluation requires a validated Step 3B candidate carrier")
     validate()
     return_evidence = getattr(candidate_evidence, "return_evidence", None)
+    one_action = getattr(candidate_evidence, "one_action", None)
     validate_return = getattr(return_evidence, "validate", None)
     if not callable(validate_return):
         raise TypeError("v015 local evaluation requires validated v003 return evidence")
     validate_return()
+    validate_one_action = getattr(one_action, "validate", None)
+    if not callable(validate_one_action):
+        raise TypeError("v015 local evaluation requires immutable one-action-K Physics evidence")
+    validate_one_action()
     if getattr(return_evidence, "gain_source", None) != _V015_GAIN_SOURCE:
         raise ValueError("v015 local evaluation rejects legacy or unspecified Gain source")
     if not str(transaction_id):
@@ -291,6 +320,15 @@ def build_frontres_v015_local_evaluation_report(
         "physics_survival_gain",
         "physics_zmp_gain",
         "physics_contact_gain",
+        "intent_quality_repaired",
+        "intent_quality_noisy",
+        "physics_admissible_repaired",
+        "physics_admissible_noisy",
+        "physics_deficit_repaired",
+        "physics_deficit_noisy",
+        "utility_repaired",
+        "utility_noisy",
+        "repair_penalty",
         "physics_valid_step_count",
     )
     diagnostic_tensors = {name: getattr(return_evidence, name, None) for name in diagnostic_names}
@@ -342,6 +380,27 @@ def build_frontres_v015_local_evaluation_report(
         physics_survival_gain=tuple(float(value) for value in diagnostic_tensors["physics_survival_gain"].detach().cpu().tolist()),
         physics_zmp_gain=tuple(float(value) for value in diagnostic_tensors["physics_zmp_gain"].detach().cpu().tolist()),
         physics_contact_gain=tuple(float(value) for value in diagnostic_tensors["physics_contact_gain"].detach().cpu().tolist()),
+        intent_quality_repaired=tuple(float(value) for value in diagnostic_tensors["intent_quality_repaired"].detach().cpu().tolist()),
+        intent_quality_noisy=tuple(float(value) for value in diagnostic_tensors["intent_quality_noisy"].detach().cpu().tolist()),
+        physics_admissible_repaired=tuple(float(value) for value in diagnostic_tensors["physics_admissible_repaired"].detach().cpu().tolist()),
+        physics_admissible_noisy=tuple(float(value) for value in diagnostic_tensors["physics_admissible_noisy"].detach().cpu().tolist()),
+        physics_deficit_repaired=tuple(float(value) for value in diagnostic_tensors["physics_deficit_repaired"].detach().cpu().tolist()),
+        physics_deficit_noisy=tuple(float(value) for value in diagnostic_tensors["physics_deficit_noisy"].detach().cpu().tolist()),
+        utility_repaired=tuple(float(value) for value in diagnostic_tensors["utility_repaired"].detach().cpu().tolist()),
+        utility_noisy=tuple(float(value) for value in diagnostic_tensors["utility_noisy"].detach().cpu().tolist()),
+        repair_penalty=tuple(float(value) for value in diagnostic_tensors["repair_penalty"].detach().cpu().tolist()),
+        expected_support_steps=tuple(
+            tuple(tuple(float(value) for value in step) for step in row)
+            for row in one_action.physics_expected_support_steps.detach().permute(1, 0, 2).cpu().tolist()
+        ),
+        actual_contact_repaired_steps=tuple(
+            tuple(tuple(float(value) for value in step) for step in row)
+            for row in one_action.physics_contact_repaired_steps.detach().permute(1, 0, 2).cpu().tolist()
+        ),
+        actual_contact_noisy_steps=tuple(
+            tuple(tuple(float(value) for value in step) for step in row)
+            for row in one_action.physics_contact_noisy_steps.detach().permute(1, 0, 2).cpu().tolist()
+        ),
         physics_valid_step_count=tuple(
             int(value) for value in diagnostic_tensors["physics_valid_step_count"].detach().cpu().tolist()
         ),

@@ -82,10 +82,15 @@ def _evidence(storage, *, route: str):
         executed_q29_t_valid_mask=torch.ones(2, dtype=torch.bool),
         done_any=torch.zeros(2, dtype=torch.bool),
         survival_steps=torch.tensor([repaired_survival, 1.0]),
+        physics_expected_support_steps=torch.ones(2, 1, 2),
         physics_zmp_repaired_steps=torch.full((2, 1), 0.3 + action_scale),
         physics_zmp_noisy_steps=torch.full((2, 1), 0.3),
-        physics_contact_repaired_steps=torch.full((2, 1), 1.0),
-        physics_contact_noisy_steps=torch.full((2, 1), 0.5),
+        physics_contact_repaired_steps=torch.ones(2, 1, 2),
+        physics_contact_noisy_steps=(
+            torch.ones(2, 1, 2)
+            if route == "zero"
+            else torch.tensor([[[1.0, 0.0]], [[1.0, 0.0]]])
+        ),
         physics_pair_valid_mask=torch.ones(2, 1, dtype=torch.bool),
     )
     result.validate()
@@ -319,7 +324,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         assert normalizers["privileged"].training and normalizers["teacher"].training
         assert payload == json.loads(result_path.read_text(encoding="utf-8"))
         assert payload["schema_version"] == "frontres-v015-heldout-quality-report-v1"
-        assert payload["gain_source"] == "FRS-GAIN-v003-intent-physics-local-repair"
+        assert payload["gain_source"] == "FRS-GAIN-v004-support-mode-physics-admissibility"
         rows = payload["items"][0]["routes"]
         assert tuple(row["route"] for row in rows) == ("zero", "hsl", "policy")
         assert all(row["roles"] == ["repair", "noisy"] for row in rows)

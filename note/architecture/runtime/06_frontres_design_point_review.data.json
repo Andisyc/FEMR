@@ -78,20 +78,24 @@
     {
       "parent": "Repair Gain",
       "rows": [
-        {"question": "Repair Gain 总体奖励什么？", "point": "只奖励既保持原动作意图、又提升 GMT 可执行性的修复，并扣除不必要的 full-6D 改动"},
+        {"question": "Repair Gain 总体奖励什么？", "point": "先要求 Repair 不破坏参考动作的支撑语义与相位平衡，再在 Physics 合格的修复中尽量保持和改善原动作意图"},
         {"question": "Style Gain 衡量什么？", "point": "比较 Repair 与 Noisy 对同一 29DoF 内部运动意图的实现质量；它不以 root/global 轨迹或 Clean 全局运动作为 actor target"},
-        {"question": "Physical Gain 衡量什么？", "point": "比较 Frozen GMT 在 Repair 与 Noisy 下的可执行性改善，包括平衡、存活、支撑与接触质量"},
+        {"question": "预期 Contact 从哪里来？", "point": "从同一 sealed scenario 的 GMT-only Clean continuation 确定性派生左右脚支撑序列；它只供 Physics evaluator 使用，不进入 actor"},
+        {"question": "实际 Contact 如何判定？", "point": "复用现有 contact_forces ContactSensor；脚高只能描述参考支撑候选，不能充当机器人真实接触"},
+        {"question": "如何区分计划内迈步和额外补偿步？", "point": "对齐参考与实际 Contact 时序并允许小范围提前或延迟；额外、漏失、拖脚或超出容差的切换均为 Physics 违规"},
+        {"question": "ZMP 为什么必须由 Contact phase 解释？", "point": "单/双支撑按对应支撑域评价，计划切换允许瞬态但要求窗口内恢复，腾空阶段 ZMP 为 N/A；这样不会误罚激烈动作的计划内动态偏移"},
+        {"question": "Physics 与 Intent 谁优先？", "point": "Contact、ZMP、survival 构成非补偿 Physics admissibility；任一关键项不合格时 Intent 改善不能抵消违规，Physics 合格后才按 Intent 排序"},
         {"question": "Repair Cost 为什么需要？", "point": "约束 full-6D 修复的幅值与突变，防止用过大或不连续的补偿换取短期收益"},
-        {"question": "三项如何合成？", "point": "总 Gain 按权重合成 Style Gain + Physical Gain − Repair Cost；有效修复必须同时符合动作意图与物理可执行性"}
+        {"question": "最终是否仍是一个标量目标？", "point": "是；先按 Physics tier 形成每个角色的单一 utility，再做 Repair 相对 Noisy 的 paired difference 并扣除有界 Repair Cost，仍由一个 scalar Critic 和 PPO 消费"}
       ]
     },
     {
       "parent": "Actor & Critic Warmup",
       "rows": [
-        {"question": "为什么不能一进入 Stage-3 就让 actor 完全接管？", "point": "HSL 只提供初始 proposal；critic 尚未学到 paired executable return 时，立即施加完整 PPO actor gradient 会冲掉这一初始化"},
-        {"question": "Critic Warmup Curriculum 如何分段？", "point": "依次经历 critic-only、actor-warmup、joint：critic 始终学习，actor 的 PPO loss weight 则从 0 平滑升至 1"},
-        {"question": "Actor takeover 如何发生？", "point": "actor 从 HSL 初始化参数出发，随 PPO actor weight 增大逐步由 executable Gain 的策略梯度接管，而非突然切换或继续依赖 HSL target"},
-        {"question": "完成 takeover 后的联合训练是什么？", "point": "进入 joint PPO 后，actor 与 critic 共同使用同一 paired executable evidence；HSL 不再向 Stage-3 提供监督目标"}
+        {"question": "为什么不能一进入 Stage-3 就让 actor 完全接管？", "point": "HSL 只提供初始 proposal；fresh critic 尚未学到 FRS-GAIN-v004 paired return 时，立即施加完整 PPO actor gradient 会冲掉这一初始化"},
+        {"question": "Critic Warmup Curriculum 如何分段？", "point": "依次经历 critic-only、actor-warmup、joint：critic 始终学习 v004 return，actor 与 std 先冻结，PPO actor loss weight 再从 0 平滑升至 1"},
+        {"question": "Actor takeover 如何发生？", "point": "actor 从 HSL 初始化参数出发，随 PPO actor weight 增大逐步由 v004 executable Gain 的策略梯度接管，而非突然切换或继续依赖 HSL target"},
+        {"question": "完成 takeover 后的联合训练是什么？", "point": "进入 joint PPO 后，actor 与 scalar critic 共同使用同一 v004 paired evidence；HSL 不再向 Stage-3 提供监督目标"}
       ]
     }
   ]

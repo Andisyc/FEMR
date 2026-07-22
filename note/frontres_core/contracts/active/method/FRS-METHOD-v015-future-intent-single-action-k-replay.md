@@ -2,7 +2,7 @@
 contract_id: FRS-METHOD-v015
 status: active
 effective_date: 2026-07-19
-updated_date: 2026-07-21
+updated_date: 2026-07-22
 supersedes: FRS-METHOD-v014
 scope: FrontRES Stage 3 local root-artifact repair with deployment-provenance future 29DoF intent, fixed-policy multi-attempt Segment Replay, one policy action per attempt, and single-action K-step frozen-GMT evidence
 ---
@@ -192,8 +192,11 @@ physics_gain = executability(Repair)         - executability(Noisy)
 repair_cost  = cost(Delta SE(3)_t)
 ```
 
-The reward owner is `FRS-GAIN-v003`. Direct similarity between Repair and
-Noisy rollout is forbidden because it rewards a no-op. Full Clean global
+The reward owner is `FRS-GAIN-v004`. Physics admissibility first preserves the
+expected support mode and evaluates ZMP under the corresponding Contact phase;
+only Physics-admissible repairs may be ordered by Intent improvement. Direct
+similarity between Repair and Noisy rollout is forbidden because it rewards a
+no-op. Full Clean global
 rollout similarity is also forbidden as an actor target. Clean can calibrate
 the `I_s` assumption and supply the common continuation only.
 
@@ -229,9 +232,10 @@ return/advantage, priority, grouped PPO, checkpoint, formal-route, simulator,
 training, or live evidence.
 
 `E-FI-11` completes the next candidate-only deterministic S1 boundary: post-`t`
-robot q29 and the same sealed deployment/Noisy `I[t]` reach FRS-GAIN-v003,
-which creates one return/advantage carrier and immutable scenario-keyed priority
-evidence. It does not insert legacy storage, mutate replay state, add PPO loss
+robot q29 and the same sealed deployment/Noisy `I[t]` reached the then-active
+FRS-GAIN-v003 carrier. That evidence remains valid for carrier connectivity,
+not for the superseding v004 ordering. It does not insert legacy storage,
+mutate replay state, add PPO loss
 mass, or establish diagnostics, evaluation, grouped PPO, checkpoint, formal
 route, simulator, training, or live evidence.
 
@@ -315,7 +319,7 @@ evidence; the repaired S4 transaction remains unconfirmed.
 
 ## Owned Subcontracts
 
-- Formal Stage 3 route: `../training/FRS-TRAIN-v007-proposal-only-hsl-future-intent-transaction.md`.
-- Paired Gain: `../reward/FRS-GAIN-v003-intent-physics-local-repair.md`.
+- Formal Stage 3 route: `../training/FRS-TRAIN-v008-critic-ready-v004-actor-curriculum.md`.
+- Paired Gain: `../reward/FRS-GAIN-v004-support-mode-physics-admissibility.md`.
 - Grouped PPO: `../optimization/FRS-PPO-v003-single-policy-row-k-evidence-grouped-reduction.md`.
 - Evaluation: `../evaluation/FRS-EVAL-v003-local-repair-composition-evaluation.md`.

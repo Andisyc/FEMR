@@ -4521,3 +4521,162 @@ Next:
 - After explicit user authorization, run one bounded 8-env, one-transaction
   live Physics sentinel. Stop on missing/nonfinite Physics, row-identity drift,
   later FEMR action, or any training beyond the single authorized boundary.
+
+## E-FI-66: Physics-Intent Design Rebase And FRS-GAIN-v004 Activation
+
+Date: 2026-07-22
+
+Tier: user-confirmed semantic decision plus read-only source-owner audit;
+document-only governance update; no source modification, test, simulator,
+training, checkpoint I/O, live run, or deployment composition
+
+Decision evidence:
+
+- The user confirmed that Physics must prevent the observed sustained-lean / extra-step
+  shortcut, not merely reward survival.
+- Expected left/right support mode is deterministically derived from the same
+  sealed scenario's GMT-only Clean continuation and remains Physics-evaluator
+  evidence only.
+- Actual Contact must use the existing `contact_forces` ContactSensor.
+- Contact timing alignment distinguishes planned steps from extra, missed,
+  dragging, and out-of-tolerance switches.
+- ZMP remains a core Physics variable and is interpreted by Contact phase:
+  support-domain evaluation, planned transition recovery, and flight `N/A`.
+- Physics admissibility is non-compensatory: Contact/ZMP/survival failure cannot
+  be offset by Intent; after admissibility, Intent is optimized and full-6D
+  repair cost remains bounded inside the same tier.
+- One 6D actor, one scalar Gain, one scalar Critic, H/K, one-action-K, sealed
+  transaction, grouped PPO, and HSL remain unchanged. No rho, dual network,
+  predictor, new actor input, Noisy prefix, label, or perturbation time is added.
+
+Fresh source audit:
+
+- `frontres_segment_live_probe.py::_capture_physics_frame()` captures paired ZMP
+  and delegates Contact to `_height_contact_consistency_pair()`.
+- `_height_contact_consistency_pair()` thresholds both reference and robot foot
+  heights. Its owner docstring explicitly identifies this as a foot-height
+  support proxy rather than a contact-force sensor.
+- `tracking_env_cfg.py` configures and enables `contact_forces =
+  ContactSensorCfg(... force_threshold=10.0 ...)`.
+- `MultiMotionCommand.materialize_frontres_local_scenario()` gathers reference
+  `body_pos_w/body_quat_w` for the same ordered Clean frames while constructing
+  the `[K,65]` GMT continuation. This makes selection-time expected-support
+  derivation feasible without pretending the 65D command contains Contact and
+  without adding actor-visible future root/global data.
+- `FrontRESRobotRolloutState.contact_state` exists as an optional immutable
+  carrier, but production population from `contact_forces` is not code-confirmed.
+- `frontres_gain.py::compute_paired_physics_gain()` forms paired success,
+  K-normalized survival, ZMP, and contact differences and combines available
+  components by mean.
+- `compute_intent_physics_local_repair_gain()` still uses the superseded
+  additive weighted Intent + Physics - repair-cost formula.
+- `frontres_segment_storage.py` seals `[K,B]` ZMP/contact evidence and averages
+  it to paired facts, but its return builder and downstream identities still
+  require FRS-GAIN-v003.
+
+Governance changes:
+
+- Activated `FRS-GAIN-v004-support-mode-physics-admissibility` and moved v003 to
+  contract history as superseded.
+- Preserved Concept Figure blocks `Q-PAIR` and `Q-01`; updated only the existing
+  Repair Gain summary. No Contact Phase module was added.
+- Rebased the active plan/checklist/canvas and current Architecture around one
+  G5-P1 engineering closure.
+- Marked current source as `contract-mismatch`; E-FI-64/E-FI-65 remain valid
+  evidence of the old additive route and carrier connectivity, not v004
+  implementation evidence.
+
+Open evidence:
+
+- S1 deterministic v004 semantic contracts are absent.
+- S2 formal consumer migration and v002/v003 isolation are absent.
+- S4 real ContactSensor / phase-conditioned ZMP / v004 Gain evidence is absent.
+- X1, further training, multi-seed, deployment composition, and paper
+  experiments remain blocked.
+
+Next:
+
+- After explicit user authorization, execute G5-P1 as one implementation,
+  connectivity, focused-test, bounded-live, evidence, and Architecture closure.
+  Stop on actor information leakage, unavailable sensor authority, phase
+  identity drift, tier inversion, mixed Gain versions, frozen-boundary change,
+  or harmful/no-op bounded evidence after one repair cycle.
+
+## E-FI-67: FRS-TRAIN-v008 Critic-Ready Actor Curriculum Rebase
+
+Date: 2026-07-22
+
+Tier: user-confirmed training semantic plus read-only formal-owner audit;
+document-only governance update; no source modification, test, checkpoint I/O,
+simulator, training, live run, or deployment composition
+
+Decision:
+
+- Preserve one full-6D actor, one scalar Gain, one scalar Critic, and one
+  optimizer.
+- Preserve proposal-only HSL as actor/distribution/158D-prefix initialization;
+  HSL does not restore or supervise the Critic.
+- A cold v004 Stage-3 run must first calibrate the fresh scalar Critic while
+  actor/std remain frozen, then linearly release actor PPO weight while the
+  Critic keeps learning, then enter joint PPO.
+- Merge this M-05 closure into the existing one-shot G5-P1 rather than creating
+  a separate training subsystem or approval chain.
+
+Fresh code evidence:
+
+- `frontres_segment_warmup.py::frontres_segment_warmup_phase()` already defines
+  `critic_only`, `actor_warmup`, and `joint` from persisted iteration and
+  `N_c/N_a`; actor weights are `0`, `(j+1)/N_a`, and `1` respectively.
+- Legacy `run_frontres_segment_single_update()` consumes that phase, passes the
+  actor weight to PPO, and clears non-Critic gradients during critic-only.
+- Focused contracts cover critic-only actor invariance and linear actor weight.
+- Historical E68--E70 live evidence shows 200 critic-only iterations, a
+  500-iteration actor ramp, joint weight 1, and resume continuity, but those
+  runs used the older update/v002 Gain route.
+- Formal v015 `_require_v015_formal_transaction_config()` explicitly rejects
+  every nonzero critic/actor Warmup duration.
+- Formal v015 `_v015_formal_ppo_config()` hardcodes
+  `actor_loss_weight=1.0`.
+- `run_frontres_v015_formal_transaction_update()` does not resolve a Warmup
+  phase or clear actor/std gradients before its exact-one step.
+- `v015_g5_e0_physics_s4_gpu3.log` records
+  `segment_critic_warmup=0` and `segment_actor_warmup=0`; it proves scalar
+  Critic/value connectivity, not current v015 Warmup.
+
+Governance changes:
+
+- Activated `FRS-TRAIN-v008-critic-ready-v004-actor-curriculum` and moved v007
+  to training-contract history as superseded.
+- Preserved Concept Figure `M-03` and `M-05`; their human method meaning was
+  already correct.
+- Rebased G5-P1 to close v004 Physics/Gain and v008 Critic-ready Actor
+  Curriculum in one engineering unit.
+- Updated checklist/canvas, Method-to-Code, formal Runtime Audit, and
+  policy-quality Architecture to mark the formal v015 Warmup route as
+  `contract-mismatch`.
+- Removed one stale Method-to-Code gap that still claimed the actor lacked v015
+  q29 future intent; E-FI-27/E-FI-42/E-FI-64 already runtime-confirm that route.
+
+Required implementation evidence:
+
+- S1: phase boundaries, actor-weight formula, critic-only actor/std invariance,
+  nonzero Critic update, actor-ramp monotonicity, joint weight, and mixed
+  identity rejection.
+- S2: complete v004 transaction reaches the formal v015 phase-aware grouped
+  update without legacy fallback and still takes exactly one optimizer step.
+- S3: HSL cold start enters iteration 0 critic-only; v008/v004 save/reload
+  preserves schedule/phase; v003/v007/unversioned resume rejects before
+  mutation.
+- S4: one bounded 8-env critic-only transaction records real v004 Physics,
+  actor/std zero delta, nonzero Critic delta, exact-one update, and committed
+  v008/v004 checkpoint.
+- Live progression through actor-ramp and joint belongs to X1; deterministic
+  fixtures may cover those boundaries before the costly run.
+
+Next:
+
+- After explicit user authorization, execute the rebased G5-P1 as one
+  implementation/test/persistence/bounded-live closure. Stop if formal v015
+  requires legacy update fallback, actor/std changes in critic-only, Critic has
+  no v004 gradient, phase crosses an open transaction, resume restarts Warmup,
+  or incompatible checkpoints can mutate state.

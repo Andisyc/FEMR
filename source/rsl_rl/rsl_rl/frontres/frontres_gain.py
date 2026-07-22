@@ -109,20 +109,21 @@ class FrontRESSegmentGainResult:
 
 @dataclass(frozen=True)
 class FrontRESIntentPhysicsGainConfig:
-    """Explicit weights and scales for the active FRS-GAIN-v003 core.
+    """Fixed scales for the active FRS-GAIN-v004 lexicographic core.
 
     This config intentionally has no Clean/global-style fields. It is a pure
     calculation surface; Step 3B owns configuration routing and consumers.
     """
 
-    intent_weight: float = 1.0
-    physics_weight: float = 1.0
     repair_weight: float = 0.15
     q29_scale: float = 1.0
     qvel_scale: float = 1.0
     qacc_scale: float = 1.0
     repair_norm_scale: float = 1.0
     repair_temporal_scale: float = 1.0
+    zmp_violation_scale: float = 0.05
+    contact_timing_tolerance: int = 1
+    zmp_recovery_window: int = 1
 
 
 _PhysicsCostConfig = FrontRESSegmentGainConfig | FrontRESIntentPhysicsGainConfig
@@ -159,12 +160,16 @@ class FrontRESIntentPhysicsGainInput:
     noisy_zmp_margin: torch.Tensor | None = None
     repaired_contact: torch.Tensor | None = None
     noisy_contact: torch.Tensor | None = None
+    repaired_contact_violation: torch.Tensor | None = None
+    noisy_contact_violation: torch.Tensor | None = None
+    repaired_zmp_violation: torch.Tensor | None = None
+    noisy_zmp_violation: torch.Tensor | None = None
     repair_action_valid_steps: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
 class FrontRESIntentPhysicsGainResult:
-    """Per-row FRS-GAIN-v003 decomposition.
+    """Per-row FRS-GAIN-v004 decomposition and role-tier diagnostics.
 
     Optional qvel/qacc and one-action temporal terms remain NaN when they are
     not observable. They are never silently converted to zero.
@@ -191,6 +196,15 @@ class FrontRESIntentPhysicsGainResult:
     physics_contact_gain: torch.Tensor
     repair_norm: torch.Tensor
     repair_temporal_change: torch.Tensor
+    intent_quality_repaired: torch.Tensor
+    intent_quality_noisy: torch.Tensor
+    physics_admissible_repaired: torch.Tensor
+    physics_admissible_noisy: torch.Tensor
+    physics_deficit_repaired: torch.Tensor
+    physics_deficit_noisy: torch.Tensor
+    utility_repaired: torch.Tensor
+    utility_noisy: torch.Tensor
+    repair_penalty: torch.Tensor
     intent_q29_provenance: str
     intent_q29_source: str
 
@@ -210,7 +224,7 @@ def compute_intent_physics_local_repair_gain(
     *,
     config: FrontRESIntentPhysicsGainConfig,
 ) -> FrontRESIntentPhysicsGainResult:
-    """Compute the active root-invariant FRS-GAIN-v003 local-repair Gain.
+    """Compute the active root-invariant FRS-GAIN-v004 local-repair Gain.
 
     Both scored branches are compared to the same deployment/Noisy q29 target;
     direct Repair-vs-Noisy similarity is never an intent component. This pure
@@ -243,11 +257,41 @@ def compute_intent_physics_local_repair_gain(
     like = intent["intent"]
     physics_gain = _match(physics["physics"], like)
     repair_cost = _match(repair["cost"], like)
-    total = (
-        float(config.intent_weight) * intent["intent"]
-        + float(config.physics_weight) * physics_gain
-        - float(config.repair_weight) * repair_cost
+    if not 0.0 <= float(config.repair_weight) < 1.0:
+        raise ValueError("FRS-GAIN-v004 repair_weight is the bounded c_max and must be in [0,1)")
+    required_violation = (
+        evidence.repaired_contact_violation,
+        evidence.noisy_contact_violation,
+        evidence.repaired_zmp_violation,
+        evidence.noisy_zmp_violation,
     )
+    if not all(isinstance(value, torch.Tensor) for value in required_violation):
+        raise ValueError("FRS-GAIN-v004 requires explicit Contact/ZMP violation evidence for both roles")
+    valid_rows = (
+        evidence.intent_valid_mask.to(device=like.device, dtype=torch.bool)
+        if isinstance(evidence.intent_valid_mask, torch.Tensor)
+        else torch.ones_like(like, dtype=torch.bool)
+    )
+    repaired_contact_violation = _normalized_violation(evidence.repaired_contact_violation, like, "Repair Contact", valid_rows)
+    noisy_contact_violation = _normalized_violation(evidence.noisy_contact_violation, like, "Noisy Contact", valid_rows)
+    repaired_zmp_violation = _normalized_violation(evidence.repaired_zmp_violation, like, "Repair ZMP", valid_rows)
+    noisy_zmp_violation = _normalized_violation(evidence.noisy_zmp_violation, like, "Noisy ZMP", valid_rows)
+    repaired_survival_violation = 1.0 - _match(physics["survival_quality_repaired"], like)
+    noisy_survival_violation = 1.0 - _match(physics["survival_quality_noisy"], like)
+    deficit_repaired = torch.stack(
+        (repaired_contact_violation, repaired_zmp_violation, repaired_survival_violation), dim=0
+    ).amax(dim=0)
+    deficit_noisy = torch.stack(
+        (noisy_contact_violation, noisy_zmp_violation, noisy_survival_violation), dim=0
+    ).amax(dim=0)
+    admissible_repaired = deficit_repaired <= 0.0
+    admissible_noisy = deficit_noisy <= 0.0
+    intent_quality_repaired = torch.exp(-intent["q29_repaired_error"] / float(config.q29_scale)).clamp(0.0, 1.0)
+    intent_quality_noisy = torch.exp(-intent["q29_noisy_error"] / float(config.q29_scale)).clamp(0.0, 1.0)
+    utility_repaired = torch.where(admissible_repaired, intent_quality_repaired, -1.0 - deficit_repaired)
+    utility_noisy = torch.where(admissible_noisy, intent_quality_noisy, -1.0 - deficit_noisy)
+    repair_penalty = float(config.repair_weight) * repair_cost / (1.0 + repair_cost.clamp_min(0.0))
+    total = utility_repaired - utility_noisy - repair_penalty
     total = torch.where(
         torch.isfinite(intent["intent"]) & torch.isfinite(physics_gain) & torch.isfinite(repair_cost),
         total,
@@ -275,22 +319,111 @@ def compute_intent_physics_local_repair_gain(
         physics_contact_gain=_match(physics["contact"], like),
         repair_norm=_match(repair["norm"], like),
         repair_temporal_change=_match(repair["temporal"], like),
+        intent_quality_repaired=intent_quality_repaired,
+        intent_quality_noisy=intent_quality_noisy,
+        physics_admissible_repaired=admissible_repaired,
+        physics_admissible_noisy=admissible_noisy,
+        physics_deficit_repaired=deficit_repaired,
+        physics_deficit_noisy=deficit_noisy,
+        utility_repaired=utility_repaired,
+        utility_noisy=utility_noisy,
+        repair_penalty=repair_penalty,
         intent_q29_provenance=evidence.intent_q29_provenance,
         intent_q29_source=evidence.intent_q29_source,
     )
 
 
+def _normalized_violation(
+    value: torch.Tensor, like: torch.Tensor, label: str, valid_rows: torch.Tensor
+) -> torch.Tensor:
+    result = _match(value, like).float()
+    if (
+        not bool(torch.isfinite(result[valid_rows]).all())
+        or bool(torch.isfinite(result[~valid_rows]).any())
+        or bool((result[valid_rows] < 0.0).any())
+        or bool((result[valid_rows] > 1.0).any())
+    ):
+        raise ValueError(f"FRS-GAIN-v004 {label} violation must be finite in [0,1]")
+    return result
+
+
+def evaluate_phase_conditioned_physics(
+    expected_support_steps: torch.Tensor,
+    actual_contact_steps: torch.Tensor,
+    zmp_margin_steps: torch.Tensor,
+    valid_steps: torch.Tensor,
+    *,
+    timing_tolerance: int = 1,
+    recovery_window: int = 1,
+    zmp_violation_scale: float = 0.05,
+) -> dict[str, torch.Tensor]:
+    """Derive Contact and phase-conditioned ZMP violations from sealed K evidence."""
+
+    if (
+        expected_support_steps.ndim != 3
+        or tuple(expected_support_steps.shape) != tuple(actual_contact_steps.shape)
+        or int(expected_support_steps.shape[-1]) != 2
+        or tuple(zmp_margin_steps.shape) != tuple(expected_support_steps.shape[:2])
+        or tuple(valid_steps.shape) != tuple(expected_support_steps.shape[:2])
+    ):
+        raise ValueError("FRS-GAIN-v004 phase evidence requires [K,B,2] support/contact and [K,B] ZMP/mask")
+    if timing_tolerance < 0 or recovery_window < 0 or not float(zmp_violation_scale) > 0.0:
+        raise ValueError("FRS-GAIN-v004 timing/recovery must be non-negative and ZMP scale positive")
+    expected = expected_support_steps.bool()
+    actual = actual_contact_steps.bool()
+    valid = valid_steps.bool()
+    k_steps = int(expected.shape[0])
+    aligned = torch.zeros_like(valid)
+    for delta in range(-int(timing_tolerance), int(timing_tolerance) + 1):
+        source = torch.arange(k_steps, device=expected.device) + delta
+        in_range = (source >= 0) & (source < k_steps)
+        source = source.clamp(0, max(k_steps - 1, 0))
+        match = (actual == expected.index_select(0, source)).all(dim=-1)
+        aligned |= match & in_range.unsqueeze(1)
+    contact_mismatch = valid & ~aligned
+    contact_violation = contact_mismatch.float().sum(dim=0) / valid.sum(dim=0).clamp_min(1).float()
+
+    supported = expected.any(dim=-1) & valid
+    if not bool(torch.isfinite(zmp_margin_steps.float()[supported]).all()):
+        raise ValueError("FRS-GAIN-v004 requires finite ZMP evidence on supported valid K steps")
+    transition = torch.zeros_like(valid)
+    if k_steps > 1:
+        transition[1:] = (expected[1:] != expected[:-1]).any(dim=-1) & valid[1:] & valid[:-1]
+    zmp_evaluate = supported.clone()
+    for offset in range(int(recovery_window)):
+        indices = torch.nonzero(transition, as_tuple=False)
+        if int(indices.numel()) == 0:
+            break
+        shifted = indices[:, 0] + offset
+        inside = shifted < k_steps
+        zmp_evaluate[shifted[inside], indices[inside, 1]] = False
+    zmp_step_violation = torch.clamp(-zmp_margin_steps.float() / float(zmp_violation_scale), 0.0, 1.0)
+    zmp_count = zmp_evaluate.sum(dim=0)
+    zmp_violation = torch.where(
+        zmp_count > 0,
+        torch.where(zmp_evaluate, zmp_step_violation, torch.zeros_like(zmp_step_violation)).amax(dim=0),
+        torch.zeros(expected.shape[1], device=expected.device, dtype=torch.float32),
+    )
+    return {
+        "contact_violation": contact_violation,
+        "zmp_violation": zmp_violation,
+        "contact_mismatch_steps": contact_mismatch,
+        "zmp_applicable_steps": zmp_evaluate,
+        "support_transition_steps": transition,
+    }
+
+
 def _validate_v003_intent_provenance(evidence: FrontRESIntentPhysicsGainInput) -> None:
     if evidence.intent_q29_provenance != "deployment_noisy_q29":
         raise ValueError(
-            "FRS-GAIN-v003 requires intent_q29_provenance='deployment_noisy_q29', "
+            "FRS-GAIN-v004 requires intent_q29_provenance='deployment_noisy_q29', "
             f"got {evidence.intent_q29_provenance!r}"
         )
     source = str(evidence.intent_q29_source).strip()
     forbidden = ("clean", "root", "global")
     if not source or any(token in source.lower() for token in forbidden):
         raise ValueError(
-            "FRS-GAIN-v003 intent_q29_source must exclude Clean/root/global provenance, "
+            "FRS-GAIN-v004 intent_q29_source must exclude Clean/root/global provenance, "
             f"got {evidence.intent_q29_source!r}"
         )
 
@@ -354,7 +487,7 @@ def _v003_optional_intent_component(
         missing = torch.full_like(like, float("nan"))
         return missing.clone(), missing.clone(), missing.clone()
     if not all(isinstance(value, torch.Tensor) for value in values):
-        raise ValueError(f"FRS-GAIN-v003 {name} must be supplied for intent, Repair, and Noisy together")
+        raise ValueError(f"FRS-GAIN-v004 {name} must be supplied for intent, Repair, and Noisy together")
     return _v003_intent_component(
         name=name,
         intent=intent,
@@ -381,13 +514,13 @@ def _v003_intent_component(
         or int(intent.shape[0]) <= 0
     ):
         raise ValueError(
-            f"FRS-GAIN-v003 {name} must have identical [B,29] or [B,T,29] tensors, "
+            f"FRS-GAIN-v004 {name} must have identical [B,29] or [B,T,29] tensors, "
             f"got intent={tuple(intent.shape)}, repaired={tuple(repaired.shape)}, noisy={tuple(noisy.shape)}"
         )
     if not float(scale) > 0.0:
-        raise ValueError(f"FRS-GAIN-v003 {name}_scale must be positive, got {scale!r}")
+        raise ValueError(f"FRS-GAIN-v004 {name}_scale must be positive, got {scale!r}")
     if intent.device != repaired.device or intent.device != noisy.device:
-        raise ValueError(f"FRS-GAIN-v003 {name} intent/Repair/Noisy tensors must share one device")
+        raise ValueError(f"FRS-GAIN-v004 {name} intent/Repair/Noisy tensors must share one device")
 
     noisy_error_steps = torch.linalg.norm(noisy.float() - intent.float(), dim=-1)
     repaired_error_steps = torch.linalg.norm(repaired.float() - intent.float(), dim=-1)
@@ -398,7 +531,7 @@ def _v003_intent_component(
             valid = valid_mask.to(device=intent.device, dtype=torch.bool)
             if tuple(valid.shape) != tuple(intent.shape[:1]):
                 raise ValueError(
-                    f"FRS-GAIN-v003 {name} validity must be [B] for [B,29], got {tuple(valid.shape)}"
+                    f"FRS-GAIN-v004 {name} validity must be [B] for [B,29], got {tuple(valid.shape)}"
                 )
         noisy_error = torch.where(valid, noisy_error_steps, torch.full_like(noisy_error_steps, float("nan")))
         repaired_error = torch.where(
@@ -413,7 +546,7 @@ def _v003_intent_component(
             valid = valid_mask.to(device=intent.device, dtype=torch.bool)
             if tuple(valid.shape) != tuple(intent.shape[:2]):
                 raise ValueError(
-                    f"FRS-GAIN-v003 {name} validity must be [B,T] for [B,T,29], got {tuple(valid.shape)}"
+                    f"FRS-GAIN-v004 {name} validity must be [B,T] for [B,T,29], got {tuple(valid.shape)}"
                 )
         noisy_error = _masked_temporal_mean(noisy_error_steps, valid)
         repaired_error = _masked_temporal_mean(repaired_error_steps, valid)
@@ -431,30 +564,34 @@ def _validate_v003_physics_batch_size(evidence: FrontRESIntentPhysicsGainInput, 
         "noisy_zmp_margin",
         "repaired_contact",
         "noisy_contact",
+        "repaired_contact_violation",
+        "noisy_contact_violation",
+        "repaired_zmp_violation",
+        "noisy_zmp_violation",
     ):
         value = getattr(evidence, name)
         if isinstance(value, torch.Tensor) and value.numel() != batch_size:
             raise ValueError(
-                f"FRS-GAIN-v003 {name} must have one scalar per q29 row, "
+                f"FRS-GAIN-v004 {name} must have one scalar per q29 row, "
                 f"got {tuple(value.shape)} for B={batch_size}"
             )
     horizon = evidence.effective_horizon_k
     if isinstance(horizon, torch.Tensor) and horizon.numel() not in (1, batch_size):
         raise ValueError(
-            "FRS-GAIN-v003 effective_horizon_k must be scalar or one value per q29 row, "
+            "FRS-GAIN-v004 effective_horizon_k must be scalar or one value per q29 row, "
             f"got {tuple(horizon.shape)} for B={batch_size}"
         )
 
 
 def _validate_v003_repair_actions(action_steps: torch.Tensor, batch_size: int) -> None:
     if not isinstance(action_steps, torch.Tensor) or action_steps.numel() == 0:
-        raise ValueError("FRS-GAIN-v003 requires nonempty executed full-6D repair_action_steps")
+        raise ValueError("FRS-GAIN-v004 requires nonempty executed full-6D repair_action_steps")
     if action_steps.ndim == 2 and tuple(action_steps.shape) == (batch_size, 6):
         return
     if action_steps.ndim == 3 and int(action_steps.shape[1]) == batch_size and int(action_steps.shape[2]) == 6:
         return
     raise ValueError(
-        "FRS-GAIN-v003 repair_action_steps must be [B,6] or [T,B,6] with the q29 batch size, "
+        "FRS-GAIN-v004 repair_action_steps must be [B,6] or [T,B,6] with the q29 batch size, "
         f"got {tuple(action_steps.shape)} for B={batch_size}"
     )
 
@@ -532,7 +669,8 @@ def compute_paired_physics_gain(
     unconfirmed and therefore cannot silently become a raw-step Gain.
 
     Status: shared pure Physics primitive. Legacy FRS-GAIN-v002 callers and the
-    FRS-GAIN-v003 root-invariant owner retain this same paired decomposition.
+    FRS-GAIN-v004 keeps this paired decomposition as diagnostics; role utility
+    uses explicit admissibility/deficit evidence instead of the available mean.
     Upstream: paired frozen-GMT capture with raw survival steps and per-row K.
     Downstream: final Gain composition only; consumer routing remains separate.
     """

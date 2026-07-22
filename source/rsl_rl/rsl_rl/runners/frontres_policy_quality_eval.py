@@ -171,7 +171,7 @@ _V015_QUALITY_OWNER_IDENTITY = (
 )
 _V015_QUALITY_ROUTES = ("zero", "hsl", "policy")
 _V015_QUALITY_REPORT_SCHEMA = "frontres-v015-heldout-quality-report-v1"
-_V015_GAIN_SOURCE = "FRS-GAIN-v003-intent-physics-local-repair"
+_V015_GAIN_SOURCE = "FRS-GAIN-v004-support-mode-physics-admissibility"
 _V015_DYNAMIC_STATE_FIELDS = (
     "root_state_w",
     "joint_pos",
@@ -736,7 +736,7 @@ def build_frontres_v015_policy_quality_eval_request(
         or policy.action_dim != manifest.action_dim
         or hsl.method_contract_id != manifest.method_contract_id
         or policy.method_contract_id != manifest.method_contract_id
-        or hsl.training_contract_id != manifest.training_contract_id
+        or hsl.training_contract_id != "FRS-TRAIN-v007"
         or policy.training_contract_id != manifest.training_contract_id
         or policy.gain_contract_id != manifest.gain_contract_id
         or policy.ppo_contract_id != manifest.ppo_contract_id
@@ -834,14 +834,28 @@ def _v015_quality_route_result(
         repaired_survival=facts.repaired_survival,
         noisy_survival=facts.noisy_survival,
         effective_horizon_k=facts.horizon_k,
+        repaired_zmp_margin=facts.repaired_zmp_margin,
+        noisy_zmp_margin=facts.noisy_zmp_margin,
+        repaired_contact=facts.repaired_contact,
+        noisy_contact=facts.noisy_contact,
+        repaired_contact_violation=facts.repaired_contact_violation,
+        noisy_contact_violation=facts.noisy_contact_violation,
+        repaired_zmp_violation=facts.repaired_zmp_violation,
+        noisy_zmp_violation=facts.noisy_zmp_violation,
     )
     gain = compute_intent_physics_local_repair_gain(gain_input, config=FrontRESIntentPhysicsGainConfig())
     valid = facts.intent_valid_mask.bool() & gain.available.bool()
     if not bool(valid.any().item()):
-        raise RuntimeError("v015 quality route has no valid v003 Gain row")
+        raise RuntimeError("v015 quality route has no valid v004 Gain row")
     components = {
         name: torch.where(valid, getattr(gain, name).detach().float(), torch.full_like(gain.gain_total, float("nan")))
-        for name in ("intent_gain", "physics_gain", "repair_cost", "gain_total")
+        for name in (
+            "intent_gain", "physics_gain", "repair_cost", "gain_total",
+            "intent_quality_repaired", "intent_quality_noisy",
+            "physics_admissible_repaired", "physics_admissible_noisy",
+            "physics_deficit_repaired", "physics_deficit_noisy",
+            "utility_repaired", "utility_noisy", "repair_penalty",
+        )
     }
     repair_rows = evidence.policy_row_indices.detach().to(dtype=torch.long)
     return {
