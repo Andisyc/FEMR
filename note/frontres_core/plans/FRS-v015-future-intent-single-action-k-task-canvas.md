@@ -21,7 +21,7 @@ one-Critic, one-optimizer architecture.
 
 ## Current Cursor
 
-`G5-P1 - v004 Gain and Critic-ready Actor Curriculum rebased; current formal code contract-mismatch; implementation awaiting explicit authorization`
+`G5-P1 completed at E-FI-68; X1 actor-ramp/long-training boundary is not authorized`
 
 ## Preserved Evidence
 
@@ -67,17 +67,18 @@ actor observation, Intent target, or deployment input.
 - `note/architecture/runtime/02_frontres_flow.data.json`
 - `note/architecture/runtime/05_policy_quality_audit.data.json`
 
-## Unresolved Implementation Facts
+## Verified Closure
 
-- exact reference-foot threshold/velocity rule for expected-contact derivation
-  during Clean continuation materialization;
-- production owner that populates `contact_state` from `contact_forces`;
-- timing tolerance and transition recovery carrier identities;
-- v004 utility normalization that proves tier separation without a second
-  output or optimizer;
-- complete migration/isolation of return, priority, diagnostics, and evaluators.
-- formal v015 Warmup phase consumption, actor/std gradient isolation, and
-  v008/v004 checkpoint/resume identity.
+- expected support is sealed as evaluator-only `[K,2]` identity;
+- actual Repair/Noisy Contact is captured from `contact_forces`;
+- phase-conditioned ZMP and non-compensatory v004 utility reach all formal
+  consumers;
+- formal v008 iteration 0 is critic-only with actor weight `0`;
+- the bounded transaction changed all 10 Critic parameter tensors, changed no
+  actor/std tensor, took one optimizer step, and saved one committed v008/v004
+  checkpoint;
+- all four S4 Repairs were Physics-inadmissible, so actor efficacy remains
+  unconfirmed rather than being relabeled as an engineering failure.
 
 ## Stop Rule
 
@@ -90,8 +91,6 @@ schedule, or a frozen H/K/actor/Critic/PPO/HSL boundary must change.
 
 ## Next Action
 
-After explicit authorization, execute G5-P1 as one closure: implement all
-owners and consumers, run focused S1/S2/S3 contracts, run exactly one bounded
-8-env critic-only transaction, inspect v004 Physics/Intent/credit and separate
-actor/std/Critic telemetry, and refresh evidence/Architecture. Do not enter X1,
-long training, multi-seed, actor-ramp progression, or deployment composition.
+G5-P1 is closed. The next decision is X1: authorize a bounded actor-ramp
+training budget and quality gate, then evaluate checkpoint trajectory before
+any long training, multi-seed, deployment composition, or paper experiment.

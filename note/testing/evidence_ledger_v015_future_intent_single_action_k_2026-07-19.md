@@ -4676,7 +4676,87 @@ Required implementation evidence:
 Next:
 
 - After explicit user authorization, execute the rebased G5-P1 as one
-  implementation/test/persistence/bounded-live closure. Stop if formal v015
-  requires legacy update fallback, actor/std changes in critic-only, Critic has
-  no v004 gradient, phase crosses an open transaction, resume restarts Warmup,
-  or incompatible checkpoints can mutate state.
+ implementation/test/persistence/bounded-live closure. Stop if formal v015
+ requires legacy update fallback, actor/std changes in critic-only, Critic has
+ no v004 gradient, phase crosses an open transaction, resume restarts Warmup,
+ or incompatible checkpoints can mutate state.
+
+## E-FI-68: G5-P1 v004/v008 Engineering Closure And Critic-Only S4
+
+Date: 2026-07-22
+
+Tier: S1/S2/S3 deterministic contracts plus one S4 official Stage3-v015
+critic-only transaction; 8 envs, one iteration, one exact optimizer update; no
+actor-ramp progression, long training, multi-seed, deployment composition, or
+paper experiment
+
+Raw evidence:
+
+- Local log: `v015_g5_p1_critic_s4_gpu3.log`.
+- Log SHA-256:
+  `e8e8a693b837c06585322f7b44abab9cbe670891ff8ddbcabd9e20cff9131936`.
+- Runtime checkpoint:
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-07-22_20-05-22_G5_S4_BOUND_V015/model_1.pt`.
+- Source implementation commit: `02adc2f` (`implement v004 physics gain and
+  v008 critic warmup`); the server ran pulled merge identity `ad068c5`.
+
+Deterministic implementation evidence:
+
+- Expected-support schema/provenance/hash, real Contact owner, Contact timing,
+  phase-conditioned ZMP, v004 ordering, missing/mask/permutation, v004 consumer
+  isolation, formal grouped transaction, v008 phase/gradient,
+  checkpoint/resume, held-out evaluation, and observation-connectivity focused
+  contracts passed.
+- Python production modules compiled and `git diff --check` passed before the
+  implementation commit.
+- Stage3 checkpoint identity is `frontres-v015-checkpoint-v3`, binding
+  `FRS-TRAIN-v008`, `FRS-GAIN-v004`, warmup durations, iteration, and phase;
+  incompatible old identities reject before mutation.
+
+S4 runtime facts:
+
+- Formal config resolved `critic_warmup_iterations=200`,
+  `actor_warmup_iterations=500`, `phase=critic_only`, and
+  `actor_loss_weight=0.0` at iteration 0.
+- The transaction contained two Segments x two attempts, four valid policy
+  rows, K=8 evidence, equal motion/Segment mass `(0.5,0.5)`, equal attempt mass
+  `(0.25,0.25,0.25,0.25)`, and one sealed hash per Segment across attempts.
+- The log recorded expected support `[4,8,2]`, actual Repair/Noisy Contact from
+  the live sensor, survival, ZMP, per-role admissibility/deficit, utility,
+  Intent quality, repair cost, Gain, return, raw/scaled advantage, gradients,
+  group mass, and transaction/checkpoint identity.
+- Critic-only isolation passed: actor/std changed `0/8` parameter tensors with
+  max delta `0`; Critic changed `10/10`, first at `critic.0.weight`, with L2
+  delta `0.00139620` and max absolute delta `1.00024e-6`.
+- Gradient was finite and connected: `10/18` parameter tensors nonzero;
+  pre/post-clip norm `0.10401675`.
+- Exact-one and persistence passed: `optimizer_step_delta=1`,
+  `update_count=1`, committed receipt `1`, and `save.status: OK` at iteration 1.
+- No Python Traceback, RuntimeError, assertion, non-finite sentinel, legacy
+  Gain fallback, actor drift, or partial transaction occurred. The lone
+  `DriverShaderCacheManager` startup error did not prevent Isaac Sim, the
+  transaction, update, or save from completing.
+
+Policy-quality observation, not an engineering failure:
+
+- Action remained finite/nonzero: absolute mean `0.00408867`, maximum
+  `0.01544815`, mean L2 `0.01178368`.
+- All four Noisy and Repair roles were Physics-inadmissible with deficit `1`;
+  both utilities were `-2`. Consequently v004 correctly prevented Intent or
+  ZMP improvements from compensating the Physics tier, and each total Gain was
+  only the negative bounded repair penalty:
+  `(-0.00113385,-0.00147449,-0.00275787,-0.00161156)`.
+- Positive Gain fraction was `0`, harm fraction `1`. Raw and scaled advantages
+  were all negative because the fresh Critic values exceeded these returns.
+  This is valid Critic calibration evidence while the actor is frozen; it does
+  not establish actor-ramp efficacy.
+
+Verdict:
+
+- G5-P1 engineering closure passes FRS-GAIN-v004 and FRS-TRAIN-v008 S1/S2/S3/S4.
+- The run proves authoritative Physics evidence, non-compensatory scalar Gain,
+  critic-only gradient isolation, exact-one grouped update, and committed
+  persistence on the formal route.
+- X1 is now the next separate high-cost decision. Actor-ramp policy quality,
+  checkpoint trajectory, long training, multiple seeds, deployment
+  composition, and paper evidence remain unconfirmed and unauthorized.

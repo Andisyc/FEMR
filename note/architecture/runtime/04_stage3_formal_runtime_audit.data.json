@@ -1536,7 +1536,7 @@
             {
               "id": "AUDIT-WARMUP-01-SRC",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
-              "role": "phase semantic owner; formal v015 consumer wiring is currently contract-mismatch",
+              "role": "active phase semantic owner; E-FI-68 runtime-confirms formal v015 critic-only consumption",
               "functions": [
                 "frontres_segment_warmup_phase()"
               ]
@@ -1593,14 +1593,14 @@
           },
           "review": [
             "按 B1/B2/B3 阅读选择理由、插桩位置、截获对象和失败归属",
-            "历史 E68-E70 只证明旧 update/v002 route; v008 formal evidence 尚未产生"
+            "E-FI-68 已证明 v008 formal critic-only route; E68-E70 仍仅作为旧 route 历史证据"
           ],
           "tests": [
-            "pending G5-P1 S2 formal-v015 connectivity",
-            "pending G5-P1 S3 v008/v004 resume",
-            "pending G5-P1 S4 critic-only live snapshot"
+            "E-FI-68 G5-P1 S2 formal-v015 connectivity",
+            "E-FI-68 G5-P1 S3 v008/v004 resume",
+            "E-FI-68 G5-P1 S4 critic-only live snapshot"
           ],
-          "gap": "E-FI-67 CONTRACT-MISMATCH: E68-E70 are historical old-route/v002 evidence. Formal v015 currently rejects nonzero Warmup and hardcodes actor_weight=1; v008/v004 critic-only, actor-ramp, joint and resume remain pending G5-P1."
+          "gap": "E-FI-68 runtime-confirmed critic-only: actor_weight=0, actor/std delta 0, Critic 10/10 tensors changed, exact-one update and committed v008/v004 checkpoint. Actor-ramp/joint live progression remains X1."
         },
         {
           "id": "AUDIT-PPO-01",

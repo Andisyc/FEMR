@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
-  "subtitle": "v015 policy-quality current-state view: historical v011/v002 cards remain isolated; Gain and frozen-GMT execution cards expose the active FRS-GAIN-v004 contract mismatch.",
-  "currentStatus": "E-FI-66 activates FRS-GAIN-v004 and E-FI-67 activates FRS-TRAIN-v008. Current code still uses foot-height Contact, additive v003 composition, and a formal v015 update that rejects nonzero Warmup and hardcodes actor_weight=1. G5-P1 must close both v004 Physics evidence/Gain and v008 critic-only -> actor-ramp -> joint formal connectivity before additional training or X1.",
+  "subtitle": "v015 policy-quality current-state view: historical v011/v002/v003 cards remain isolated; E-FI-68 closes v004/v008 engineering while actor-ramp efficacy remains unconfirmed.",
+  "currentStatus": "E-FI-68 runtime-confirms expected support, actual ContactSensor, phase-conditioned ZMP, non-compensatory v004 Gain, v008 critic-only isolation, exact-one update and committed persistence. All four critic-only Repairs remained Physics-inadmissible; actor-ramp quality is the next X1 evidence boundary.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -16,9 +16,9 @@
     "QUALITY-TRAJECTORY-01"
   ],
   "activeV015QualityPlan": {
-    "status": "FRS-GAIN-v004-and-FRS-TRAIN-v008-active-code-contract-mismatch",
-    "evidence": "E-FI-64 runtime trigger; E-FI-65 old-route carrier closure; E-FI-66 v004 design; E-FI-67 v008 Warmup design and formal-owner mismatch audit",
-    "next": "one authorized G5-P1 v004 Gain plus critic-ready actor implementation/connectivity/persistence/bounded-live closure; no additional training, X1 or deployment composition before it passes",
+    "status": "G5-P1-v004-v008-engineering-closed-policy-efficacy-unconfirmed",
+    "evidence": "E-FI-64 runtime trigger; E-FI-65 old-route carrier closure; E-FI-66 v004 design; E-FI-67 v008 design; E-FI-68 S1/S2/S3 plus bounded critic-only S4",
+    "next": "separately authorize X1 bounded actor-ramp budget and checkpoint quality gate; no long training, multi-seed, deployment composition or paper experiment yet",
     "gates": [
       "conditional comparison identity",
       "conditional zero-action no-op oracle",
@@ -33,8 +33,8 @@
     {
       "id": "SYS-POLICY-QUALITY",
       "title": "Policy Quality Causal Chain",
-      "summary": "Historical v011/v002 cards remain explicitly incompatible. QUALITY-GAIN-01 and QUALITY-EXEC-01 now project the active FRS-GAIN-v004 mismatch and its G5-P1 evidence boundary; they do not claim implementation.",
-      "status": "FRS-GAIN-v004 active semantics; code contract-mismatch; historical cards isolated",
+      "summary": "Historical v011/v002/v003 cards remain explicitly incompatible. QUALITY-GAIN-01 and QUALITY-EXEC-01 project the E-FI-68 active v004/v008 route and retain critic-only efficacy limits.",
+      "status": "G5-P1 engineering runtime-confirmed; actor-ramp quality unconfirmed; historical cards isolated",
       "color": "#0f766e",
       "modules": [
         {
@@ -410,28 +410,28 @@
             {
               "id": "QUALITY-GAIN-01-B1",
               "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py",
-              "role": "B1 planned: derive immutable expected support from same Clean-frame reference foot kinematics while preserving [K,65] as GMT-only command; current carrier is absent",
+              "role": "B1 active: derives immutable expected support from the same Clean-frame reference foot kinematics while preserving [K,65] as GMT-only command",
               "sourceLine": 2352,
               "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=2352"
             },
             {
               "id": "QUALITY-GAIN-01-B2",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
-              "role": "B2 contract-mismatch: capture uses height proxy; v004 requires contact_forces plus phase-conditioned ZMP",
+              "role": "B2 active: captures actual contact_forces plus phase-conditioned ZMP for Repair/Noisy role rows",
               "sourceLine": 4713,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4713"
             },
             {
               "id": "QUALITY-GAIN-01-B3",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py",
-              "role": "B3 contract-mismatch: additive v003 available-mean occupies the unique v004 owner location",
+              "role": "B3 active: unique v004 non-compensatory Physics/Intent/repair-cost ordering owner",
               "sourceLine": 208,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=208"
             },
             {
               "id": "QUALITY-GAIN-01-B4",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py",
-              "role": "B4 contract-mismatch: immutable paired carrier exists but return and consumer identity remain v003",
+              "role": "B4 active: immutable v004 paired carrier, return, priority and formal consumer identity",
               "sourceLine": 750,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=750"
             }
@@ -445,7 +445,7 @@
           "probeSteps": [],
           "probe": {
             "owner": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py::compute_intent_physics_local_repair_gain()",
-            "insertion": "planned G5-P1 B1/B2/B3/B4 boundaries",
+            "insertion": "active G5-P1 B1/B2/B3/B4 boundaries",
             "capture": [
               "expected/actual Contact sequence and switch alignment",
               "phase/ZMP applicability, recovery and violations",
@@ -465,11 +465,11 @@
             "最后核验所有 formal consumers 的 v004 isolation"
           ],
           "tests": [
-            "pending S1 support/contact/phase/ZMP/order contracts",
-            "pending S2 formal v004 consumer isolation",
-            "pending S4 one-transaction ContactSensor sentinel"
+            "E-FI-68 S1 support/contact/phase/ZMP/order contracts",
+            "E-FI-68 S2 formal v004 consumer isolation",
+            "E-FI-68 S4 one-transaction ContactSensor sentinel"
           ],
-          "gap": "E-FI-66 CONTRACT-MISMATCH: FRS-GAIN-v004 is active semantics, but expected support carrier, ContactSensor actual Contact, phase-conditioned ZMP, lexicographic utility, and v004 consumers are not implemented. X1 and additional training are blocked."
+          "gap": "E-FI-68 runtime-confirms the complete v004 route. All four critic-only Repairs remained Physics-inadmissible, so actor-ramp efficacy remains an X1 quality boundary."
         },
         {
           "id": "QUALITY-CREDIT-01",
@@ -713,21 +713,21 @@
             {
               "id": "QUALITY-EXEC-01-B1",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
-              "role": "B1 contract-mismatch: expected support carrier is not yet materialized",
+              "role": "B1 active: sealed expected support carrier is materialized once per scenario",
               "sourceLine": 3266,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3266"
             },
             {
               "id": "QUALITY-EXEC-01-B2",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
-              "role": "B2 contract-mismatch: paired capture uses foot-height Contact rather than contact_forces",
+              "role": "B2 active: paired capture uses authoritative contact_forces and phase-conditioned ZMP",
               "sourceLine": 3267,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3267"
             },
             {
               "id": "QUALITY-EXEC-01-B3",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
-              "role": "B3 planned: seal phase-conditioned ZMP, survival and support-switch violations",
+              "role": "B3 active: seals phase-conditioned ZMP, survival and support-switch violations",
               "sourceLine": 3268,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3268"
             }
@@ -781,11 +781,11 @@
             "再按 B1/B2/B3 打开源码并确认 failure owner"
           ],
           "tests": [
-            "pending G5-P1 S1 Contact/phase/ZMP contracts",
-            "pending G5-P1 S2 formal consumer connectivity",
-            "pending G5-P1 S4 bounded real-sensor sentinel"
+            "E-FI-68 G5-P1 S1 Contact/phase/ZMP contracts",
+            "E-FI-68 G5-P1 S2 formal consumer connectivity",
+            "E-FI-68 G5-P1 S4 bounded real-sensor sentinel"
           ],
-          "gap": "E-FI-66 CONTRACT-MISMATCH: expected support is absent, actual Contact uses foot height, and ZMP is not interpreted by Contact phase. G5-P1 must close these owners before X1."
+          "gap": "E-FI-68 closes the v004 engineering route with expected support, actual ContactSensor and phase-ZMP evidence. All four critic-only Repairs remained Physics-inadmissible, so actor-ramp efficacy is still unconfirmed for X1."
         },
         {
           "id": "QUALITY-TRAJECTORY-01",

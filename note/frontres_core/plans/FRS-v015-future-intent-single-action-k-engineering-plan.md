@@ -42,28 +42,19 @@ v003 route could produce harmful repairs, and `E-FI-65` still used a foot-height
 contact proxy and additive available-mean Physics. E68--E70 validate Warmup only
 on the older update/v002 Gain route. HSL remains frozen.
 
-## Current Contract Mismatch
+## Closure State
 
-The following active source behavior is superseded and must not authorize more
-training:
+G5-P1 implementation, focused S1/S2/S3 contracts, and the bounded S4
+critic-only transaction are complete at `E-FI-68`. The formal route now uses
+the sealed expected-support carrier, actual `contact_forces`, phase-conditioned
+ZMP, FRS-GAIN-v004 consumers, FRS-TRAIN-v008 phase selection, critic-only
+actor/std isolation, and v008/v004 persistence identity.
 
-- `frontres_segment_live_probe.py::_height_contact_consistency_pair()` uses
-  reference and robot foot-height thresholds instead of `contact_forces`;
-- the cache schema has `contact_state`, but production sensor population is not
-  code-confirmed;
-- `frontres_gain.py::compute_paired_physics_gain()` averages available paired
-  success, survival, ZMP, and contact differences;
-- `compute_intent_physics_local_repair_gain()` additively combines weighted
-  Intent, Physics, and repair cost;
-- storage, return, priority, diagnostics, and evaluators identify v003.
-- `_require_v015_formal_transaction_config()` rejects nonzero critic/actor
-  Warmup durations;
-- `_v015_formal_ppo_config()` hardcodes `actor_loss_weight=1.0`, and the formal
-  v015 update never applies critic-only actor/std gradient isolation;
-- the latest v015 S4 run used `critic_warmup=0` and `actor_warmup=0`.
-
-This is `contract-mismatch`, not partial v004 implementation. X1 and additional
-training remain blocked.
+The S4 transaction is an engineering proof, not a policy-quality claim. All
+four sampled Repair rows remained Physics-inadmissible, so both role utilities
+were tied at the unsafe tier and `gain_total` consisted only of the negative
+bounded repair penalty. This is admissible Critic calibration data and the
+Critic updated, but actor-ramp quality remains unconfirmed until X1.
 
 ## G5-P1: One-Shot v004 Physics Gain And Critic-Ready Actor Migration
 
@@ -202,7 +193,8 @@ and paper artifacts. It is not authorized by this plan rebase.
 
 ## Cursor
 
-Current cursor: `G5-P1 design ready; implementation requires explicit user authorization`.
+Current cursor: `G5-P1 completed at E-FI-68; X1 remains the next high-cost,
+separately authorized boundary`.
 
-This rebase changes documents only. It does not run tests, simulator, training,
-live evaluation, checkpoint I/O, or deployment composition.
+No actor-ramp progression, long training, multi-seed run, deployment
+composition, or paper experiment has been authorized or executed.
