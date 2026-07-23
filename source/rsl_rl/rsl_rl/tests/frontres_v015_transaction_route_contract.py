@@ -654,6 +654,22 @@ def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
     result = live_probe.run_frontres_v015_formal_transaction_update(fixture.runner, fixture.request)
     training = _load("frontres_v015_formal_training_loop_contract", LIVE_TRAINING_PATH)
     runner = fixture.runner
+    missing_projection = dict(result.diagnostics)
+    missing_projection.pop("constraint_projection_status")
+    _expect_runtime_error(
+        lambda: training._v015_sealed_transaction_telemetry(
+            replace(result, diagnostics=missing_projection),
+            ppo=runner.alg,
+        )
+    )
+    nonfinite_kkt = dict(result.diagnostics)
+    nonfinite_kkt["constraint_kkt_max_violation"] = float("nan")
+    _expect_runtime_error(
+        lambda: training._v015_sealed_transaction_telemetry(
+            replace(result, diagnostics=nonfinite_kkt),
+            ppo=runner.alg,
+        )
+    )
     runner.alg.frontres_segment_live_train_enabled = True
     runner._frontres_segment_replay_boundary = SimpleNamespace(
         live_train_enabled=True,
@@ -699,6 +715,26 @@ def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
     assert logged["policy_row_count"] == 4
     assert logged["optimizer_step_delta"] == 1
     assert logged["gain_source"] == "FRS-GAIN-v005-vector-physics-constraints"
+    assert logged["method_contract_id"] == "FRS-METHOD-v016"
+    assert logged["optimization_contract_id"] == "FRS-PPO-v004"
+    assert logged["scalar_target_id"] == "paired-intent-minus-repair-v1"
+    assert logged["constraint_schema_id"] == "contact-phase_zmp-survival-physical-v1"
+    assert logged["projection_schema_id"] == "grouped-first-order-constraint-projection-v1"
+    assert logged["constraint_projection_status"] in {
+        "INTENT_FEASIBLE",
+        "PROJECTED_INTENT",
+        "CONSTRAINT_RECOVERY",
+        "NO_EMPIRICAL_DIRECTION",
+        "NO_COMMON_FIRST_ORDER_DESCENT",
+    }
+    assert set(logged["constraint_levels"]) == {"contact", "zmp", "survival"}
+    assert set(logged["constraint_gradient_norms"]) == {"contact", "zmp", "survival"}
+    assert set(logged["constraint_directional_derivatives"]) <= {"contact", "zmp", "survival"}
+    assert set(logged["constraint_intent_directional_derivatives"]) <= {"contact", "zmp", "survival"}
+    assert logged["constraint_kkt_max_violation"] >= 0.0
+    assert len(logged["contact_constraint_advantage"]) == 4
+    assert len(logged["zmp_constraint_advantage"]) == 4
+    assert len(logged["survival_constraint_advantage"]) == 4
     assert len(logged["zmp_margin_repaired_steps"]) == 4
     assert len(logged["zmp_margin_noisy_steps"]) == 4
     assert len(logged["zmp_applicable_steps"]) == 4

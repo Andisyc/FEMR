@@ -1933,6 +1933,71 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
             raise RuntimeError(f"v015 formal result has non-finite {name} telemetry")
         return value
 
+    def required_identity(name: str, expected: str) -> str:
+        value = str(diagnostics.get(name, ""))
+        if value != expected:
+            raise RuntimeError(f"v015 formal result requires {name}={expected!r}, got {value!r}")
+        return value
+
+    constraint_families = {"contact", "zmp", "survival"}
+
+    def required_constraint_mapping(name: str, *, exact_families: bool) -> dict[str, float]:
+        raw = diagnostics.get(name)
+        if not isinstance(raw, Mapping):
+            raise RuntimeError(f"v015 formal result is missing {name} telemetry")
+        values = {str(key): float(value) for key, value in raw.items()}
+        keys = set(values)
+        if (exact_families and keys != constraint_families) or (not exact_families and not keys <= constraint_families):
+            raise RuntimeError(f"v015 formal result has invalid {name} families: {sorted(keys)}")
+        if not all(math.isfinite(value) for value in values.values()):
+            raise RuntimeError(f"v015 formal result has non-finite {name} telemetry")
+        return values
+
+    method_contract_id = required_identity("method_contract_id", "FRS-METHOD-v016")
+    optimization_contract_id = required_identity("optimization_contract_id", "FRS-PPO-v004")
+    scalar_target_id = required_identity("scalar_target_id", "paired-intent-minus-repair-v1")
+    constraint_schema_id = required_identity(
+        "constraint_schema_id", "contact-phase_zmp-survival-physical-v1"
+    )
+    projection_schema_id = required_identity(
+        "projection_schema_id", "grouped-first-order-constraint-projection-v1"
+    )
+    projection_status = str(diagnostics.get("constraint_projection_status", ""))
+    allowed_projection_status = {
+        "INTENT_FEASIBLE",
+        "PROJECTED_INTENT",
+        "CONSTRAINT_RECOVERY",
+        "NO_EMPIRICAL_DIRECTION",
+        "NO_COMMON_FIRST_ORDER_DESCENT",
+    }
+    if projection_status not in allowed_projection_status:
+        raise RuntimeError(f"v015 formal result has invalid constraint projection status: {projection_status!r}")
+    active_families = tuple(str(value) for value in diagnostics.get("constraint_active_families", ()))
+    if len(set(active_families)) != len(active_families) or not set(active_families) <= constraint_families:
+        raise RuntimeError(f"v015 formal result has invalid active constraint families: {active_families}")
+    constraint_levels = required_constraint_mapping("constraint_levels", exact_families=True)
+    constraint_gradient_norms = required_constraint_mapping("constraint_gradient_norms", exact_families=True)
+    constraint_directional_derivatives = required_constraint_mapping(
+        "constraint_directional_derivatives", exact_families=False
+    )
+    constraint_intent_directional_derivatives = required_constraint_mapping(
+        "constraint_intent_directional_derivatives", exact_families=False
+    )
+    constraint_dual_coefficients = required_constraint_mapping(
+        "constraint_dual_coefficients", exact_families=False
+    )
+    raw_gram = diagnostics.get("constraint_gram")
+    if not isinstance(raw_gram, tuple):
+        raise RuntimeError("v015 formal result is missing constraint_gram telemetry")
+    constraint_gram = tuple(tuple(float(value) for value in row) for row in raw_gram)
+    if any(len(row) != len(constraint_gram) for row in constraint_gram) or not all(
+        math.isfinite(value) for row in constraint_gram for value in row
+    ):
+        raise RuntimeError("v015 formal result has invalid constraint_gram telemetry")
+    constraint_kkt_max_violation = required_finite("constraint_kkt_max_violation")
+    if constraint_kkt_max_violation < 0.0:
+        raise RuntimeError("v015 formal result has negative constraint KKT violation")
+
     transaction_id = str(getattr(result, "transaction_id", ""))
     fields: dict[str, list[Any]] = {
         "policy_actions": [],
@@ -2109,6 +2174,26 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         )
     for name, values in fields.items():
         fields[name] = [values[index] for index in row_order]
+    for name in (
+        "contact_constraint_advantage",
+        "zmp_constraint_advantage",
+        "survival_constraint_advantage",
+    ):
+        raw_values = diagnostics.get(name)
+        if not isinstance(raw_values, tuple) or len(raw_values) != flat_row_count:
+            raise RuntimeError(f"v015 formal result requires row-aligned sealed {name} telemetry")
+        values: list[float | None] = []
+        for is_valid, raw_value in zip(fields["valid_policy_row_mask"], raw_values):
+            value = float(raw_value)
+            if bool(is_valid):
+                if not math.isfinite(value):
+                    raise RuntimeError(f"v015 formal result has non-finite valid {name} telemetry")
+                values.append(value)
+            else:
+                if not math.isnan(value):
+                    raise RuntimeError(f"v015 formal result invalid {name} must remain UNCONFIRMED")
+                values.append(None)
+        fields[name] = values
     valid_gain_total = [
         float(value)
         for value, is_valid in zip(fields["gain_total"], fields["valid_policy_row_mask"])
@@ -2192,6 +2277,20 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "optimizer_step_delta": int(getattr(result, "optimizer_step_delta", -1)),
         "training_contract_id": str(diagnostics.get("training_contract_id", "")),
         "gain_contract_id": str(diagnostics.get("gain_contract_id", "")),
+        "method_contract_id": method_contract_id,
+        "optimization_contract_id": optimization_contract_id,
+        "scalar_target_id": scalar_target_id,
+        "constraint_schema_id": constraint_schema_id,
+        "projection_schema_id": projection_schema_id,
+        "constraint_projection_status": projection_status,
+        "constraint_active_families": active_families,
+        "constraint_levels": constraint_levels,
+        "constraint_gradient_norms": constraint_gradient_norms,
+        "constraint_directional_derivatives": constraint_directional_derivatives,
+        "constraint_dual_coefficients": constraint_dual_coefficients,
+        "constraint_gram": constraint_gram,
+        "constraint_intent_directional_derivatives": constraint_intent_directional_derivatives,
+        "constraint_kkt_max_violation": constraint_kkt_max_violation,
         "training_iteration": int(diagnostics.get("training_iteration", -1)),
         "curriculum_fingerprint": str(diagnostics.get("curriculum_fingerprint", "")),
         "k_stage_index": int(diagnostics.get("k_stage_index", -1)),
