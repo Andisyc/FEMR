@@ -40,7 +40,7 @@ def _v015_candidate_evidence() -> SimpleNamespace:
     )
     return_evidence = SimpleNamespace(
         validate=lambda: None,
-        gain_source="FRS-GAIN-v004-support-mode-physics-admissibility",
+        gain_source="FRS-GAIN-v005-vector-physics-constraints",
         policy_actions=actions,
         policy_row_valid=torch.tensor([True, True, False]),
         intent_gain=torch.tensor([0.30, -0.10, float("nan")]),
@@ -50,6 +50,14 @@ def _v015_candidate_evidence() -> SimpleNamespace:
         policy_values=torch.tensor([0.10, 0.20, float("nan")]),
         return_k=torch.tensor([0.45, -0.35, float("nan")]),
         advantage_k=torch.tensor([0.35, -0.55, float("nan")]),
+        contact_constraint=torch.tensor([0.0, 0.04, float("nan")]),
+        zmp_constraint=torch.tensor([0.01, 0.02, float("nan")]),
+        survival_constraint=torch.tensor([0.0, 0.04, float("nan")]),
+        contact_constraint_advantage=torch.full((3,), float("nan")),
+        zmp_constraint_advantage=torch.full((3,), float("nan")),
+        survival_constraint_advantage=torch.full((3,), float("nan")),
+        zmp_constraint_applicable=torch.tensor([True, True, False]),
+        constraint_advantage_state="unsealed",
         repaired_success=torch.tensor([1.0, 0.0, float("nan")]),
         noisy_success=torch.tensor([0.0, 0.0, float("nan")]),
         repaired_survival=torch.tensor([4.0, 2.0, float("nan")]),
@@ -145,13 +153,17 @@ def test_v015_transaction_telemetry_projects_sealed_rows_without_recompute() -> 
         (False, True, False, True),
         (False, False, False, False),
     )
-    assert report.zmp_step_violation_repaired[0] == (0.0, None, 0.5, None)
+    assert report.zmp_step_violation_repaired[0] == (0.0, None, 0.02500000037252903, None)
     assert report.zmp_argmax_frame_repaired == (2, 0, None)
-    assert report.zmp_max_violation_repaired == (0.5, 1.0, None)
-    assert report.zmp_recovery_trajectory_repaired == ((0.5, None), (1.0, None, 0.0, None), ())
-    assert report.zmp_step_violation_noisy[0] == (1.0, None, 0.0, None)
+    assert report.zmp_max_violation_repaired == (0.02500000037252903, 0.10000000149011612, None)
+    assert report.zmp_recovery_trajectory_repaired == (
+        (0.02500000037252903, None),
+        (0.10000000149011612, None, 0.0, None),
+        (),
+    )
+    assert report.zmp_step_violation_noisy[0] == (0.10000000149011612, None, 0.0, None)
     assert report.zmp_argmax_frame_noisy == (0, 2, None)
-    assert report.zmp_max_violation_noisy == (1.0, 1.0, None)
+    assert report.zmp_max_violation_noisy == (0.10000000149011612, 0.05000000074505806, None)
     assert all(math.isnan(values[2]) for values in (report.intent_gain, report.physics_gain, report.repair_cost, report.gain_total))
     assert report.gain_total_pos_frac == 0.5
     assert report.gain_total_neg_frac == 0.5

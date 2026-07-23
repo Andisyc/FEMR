@@ -26,7 +26,7 @@ def _frontres_v009_schedule_owners():
         path = Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py"
         spec = importlib.util.spec_from_file_location("frontres_v009_schedule_unified", path)
         if spec is None or spec.loader is None:
-            raise RuntimeError(f"Could not load FRS-TRAIN-v009 schedule owner from {path}")
+            raise RuntimeError(f"Could not load FRS-TRAIN-v010 schedule owner from {path}")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
@@ -53,7 +53,7 @@ def validate_frontres_v015_stage3_supervision_config(
         return
     if abs(float(lambda_supervised)) > 1.0e-12 or abs(float(lambda_supervised_min)) > 1.0e-12:
         raise ValueError(
-            "FRS-TRAIN-v009 requires lambda_supervised=0 and lambda_supervised_min=0 "
+                "FRS-TRAIN-v010 requires lambda_supervised=0 and lambda_supervised_min=0 "
             "for the v015 future-intent Stage-3 route; HSL is initialization-only"
         )
 
@@ -277,6 +277,13 @@ class FrontRESUnified:
         self.frontres_segment_sequence_offline_eval_only = bool(frontres_segment_sequence_offline_eval_only)
         self.frontres_segment_live_train_enabled = bool(frontres_segment_live_train_enabled)
         self.frontres_v015_formal_transaction_enabled = bool(frontres_v015_formal_transaction_enabled)
+        self.frontres_method_contract_id = "FRS-METHOD-v016"
+        self.frontres_gain_contract_id = "FRS-GAIN-v005"
+        self.frontres_optimization_contract_id = "FRS-PPO-v004"
+        self.frontres_training_contract_id = "FRS-TRAIN-v010"
+        self.frontres_scalar_target_id = "paired-intent-minus-repair-v1"
+        self.frontres_constraint_schema_id = "contact-phase_zmp-survival-physical-v1"
+        self.frontres_projection_schema_id = "grouped-first-order-constraint-projection-v1"
         self.frontres_segment_live_update_steps = max(1, int(frontres_segment_live_update_steps))
         self.frontres_segment_critic_warmup_iterations = max(0, int(frontres_segment_critic_warmup_iterations))
         self.frontres_segment_actor_warmup_iterations = max(0, int(frontres_segment_actor_warmup_iterations))
@@ -326,7 +333,7 @@ class FrontRESUnified:
             )
         if self.frontres_v015_formal_transaction_enabled:
             if not self.frontres_segment_k_curriculum:
-                raise ValueError("FRS-TRAIN-v009 formal transaction requires an explicit K-stage curriculum")
+                raise ValueError("FRS-TRAIN-v010 formal transaction requires an explicit K-stage curriculum")
             if self.frontres_segment_advantage_normalization != "grouped_scale_only":
                 raise ValueError("v015 formal transaction requires grouped_scale_only normalization")
             if (

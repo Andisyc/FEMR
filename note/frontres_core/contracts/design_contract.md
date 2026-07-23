@@ -9,7 +9,7 @@ note/frontres_core/contracts/README.md
 The active method contract is:
 
 ```text
-note/frontres_core/contracts/active/method/FRS-METHOD-v015-future-intent-single-action-k-replay.md
+note/frontres_core/contracts/active/method/FRS-METHOD-v016-physics-constrained-intent-replay.md
 ```
 
 The human-readable design-point source is:

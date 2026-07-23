@@ -20,6 +20,7 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
     FrontRESSegmentPPOBatch,
     FrontRESSegmentPPOConfig,
     compute_frontres_segment_ppo_loss,
+    install_frontres_v004_projected_gradients,
 )
 from rsl_rl.frontres.frontres_segment_storage import (
     FrontRESSegmentRolloutStorage,
@@ -450,6 +451,13 @@ def _commit_frontres_v015_checkpoint_transaction(
     if not isinstance(state, dict) or state.get("state") != "sealed":
         raise RuntimeError("v015 formal transaction commit requires a sealed checkpoint barrier")
     receipt = {
+        "method_contract_id": "FRS-METHOD-v016",
+        "gain_contract_id": "FRS-GAIN-v005",
+        "optimization_contract_id": "FRS-PPO-v004",
+        "training_contract_id": "FRS-TRAIN-v010",
+        "scalar_target_id": "paired-intent-minus-repair-v1",
+        "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "projection_schema_id": "grouped-first-order-constraint-projection-v1",
         "transaction_id": plan.transaction_id,
         "policy_snapshot_id": plan.policy_snapshot_id,
         "plan_identity_hash": _v015_checkpoint_plan_hash(plan, scenario_only=False),
@@ -3602,6 +3610,12 @@ def collect_frontres_v015_gain_return_priority_evidence(
         noisy_contact_violation=facts.noisy_contact_violation,
         repaired_zmp_violation=facts.repaired_zmp_violation,
         noisy_zmp_violation=facts.noisy_zmp_violation,
+        expected_support_steps=facts.expected_support_steps,
+        repaired_contact_steps=facts.repaired_contact_steps,
+        noisy_contact_steps=facts.noisy_contact_steps,
+        repaired_zmp_margin_steps=facts.repaired_zmp_margin_steps,
+        noisy_zmp_margin_steps=facts.noisy_zmp_margin_steps,
+        physics_pair_valid_mask=facts.physics_pair_valid_mask,
     )
     gain_result = compute(gain_input, config=config)
     return_evidence = build_frontres_v015_gain_return_evidence(facts, gain_result)
@@ -3703,7 +3717,7 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
         raise RuntimeError("v015 formal transaction route rejects implicit HSL initialization or rollout labels")
     schedule = tuple(getattr(alg, "frontres_segment_k_curriculum", ()) or ())
     if not schedule:
-        raise RuntimeError("FRS-TRAIN-v009 formal transaction requires an explicit K-stage curriculum")
+        raise RuntimeError("FRS-TRAIN-v010 formal transaction requires an explicit K-stage curriculum")
     if any(
         bool(getattr(alg, name, False))
         for name in (
@@ -3721,6 +3735,18 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
         raise RuntimeError("v015 formal transaction route requires positive deployment-q29 future offsets")
     if str(getattr(alg, "frontres_future_intent_layout_version", "")) != "frontres-v015-future-intent-q29-v1":
         raise RuntimeError("v015 formal transaction route requires the v015 q29 actor layout")
+    required_identity = {
+        "frontres_method_contract_id": "FRS-METHOD-v016",
+        "frontres_gain_contract_id": "FRS-GAIN-v005",
+        "frontres_optimization_contract_id": "FRS-PPO-v004",
+        "frontres_training_contract_id": "FRS-TRAIN-v010",
+        "frontres_scalar_target_id": "paired-intent-minus-repair-v1",
+        "frontres_constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "frontres_projection_schema_id": "grouped-first-order-constraint-projection-v1",
+    }
+    for name, expected in required_identity.items():
+        if str(getattr(alg, name, "")) != expected:
+            raise RuntimeError(f"v015 formal transaction requires {name}={expected}")
     return alg
 
 
@@ -3735,7 +3761,7 @@ def _v015_resolve_curriculum_identity(runner: Any, alg: Any | None = None) -> An
     )
     configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
     if configured_fingerprint and configured_fingerprint != identity.schedule_fingerprint:
-        raise RuntimeError("FRS-TRAIN-v009 runtime curriculum fingerprint drifted after config resolution")
+        raise RuntimeError("FRS-TRAIN-v010 runtime curriculum fingerprint drifted after config resolution")
     return identity
 
 
@@ -3823,9 +3849,9 @@ def run_frontres_v015_formal_transaction_update(
         or request.warmup_phase_name != warmup_phase.name
         or not math.isclose(float(request.warmup_actor_loss_weight), warmup_phase.actor_loss_weight, abs_tol=1e-12)
     ):
-        raise RuntimeError("v015 transaction crossed or changed its sealed FRS-TRAIN-v009 K-stage identity")
+        raise RuntimeError("v015 transaction crossed or changed its sealed FRS-TRAIN-v010 K-stage identity")
     if not bool((request.plan.horizon_k.detach().to(dtype=torch.long) == curriculum.active_k).all().item()):
-        raise RuntimeError("FRS-TRAIN-v009 formal update rejects mixed-K transaction rows")
+        raise RuntimeError("FRS-TRAIN-v010 formal update rejects mixed-K transaction rows")
     request.plan.verify_policy(policy)
     accumulator = FrontRESV015FormalTransactionAccumulator(
         request.plan,
@@ -3837,10 +3863,11 @@ def run_frontres_v015_formal_transaction_update(
     _seal_frontres_v015_checkpoint_transaction_plan(runner, request.plan)
     request.plan.verify_policy(policy)
     policy_evaluator = _v015_formal_policy_evaluator(request, alg, ppo_batch)
+    ppo_cfg = _v015_formal_ppo_config(alg, actor_loss_weight=warmup_phase.actor_loss_weight)
     ppo_result = compute_frontres_segment_ppo_loss(
         policy_evaluator,
         ppo_batch,
-        _v015_formal_ppo_config(alg, actor_loss_weight=warmup_phase.actor_loss_weight),
+        ppo_cfg,
     )
     if not ppo_result.should_step:
         raise RuntimeError("v015 formal transaction has no valid grouped PPO rows; refusing optimizer step")
@@ -3852,10 +3879,7 @@ def run_frontres_v015_formal_transaction_update(
         zero_grad(set_to_none=True)
     except TypeError:
         zero_grad()
-    ppo_result.total_loss.backward()
     optimizer_params, parameter_snapshots = _optimizer_parameter_snapshots(policy, optimizer)
-    if warmup_phase.name == "critic_only":
-        _clear_noncritic_grads(policy, optimizer_params)
     parameters = [
         parameter
         for group in getattr(optimizer, "param_groups", ())
@@ -3864,6 +3888,12 @@ def run_frontres_v015_formal_transaction_update(
     ]
     if not parameters:
         raise RuntimeError("v015 formal transaction optimizer has no trainable parameters")
+    projection = install_frontres_v004_projected_gradients(
+        policy,
+        ppo_result,
+        ppo_cfg,
+        tuple(parameters),
+    )
     gradient_pre_clip_norm = float(
         torch.nn.utils.clip_grad_norm_(parameters, float(getattr(alg, "max_grad_norm", 1.0)))
     )
@@ -3899,7 +3929,7 @@ def run_frontres_v015_formal_transaction_update(
     critic_delta = _parameter_delta_stats(critic_params, parameter_snapshots)
     noncritic_delta = _parameter_delta_stats(noncritic_params, parameter_snapshots)
     if warmup_phase.name == "critic_only" and noncritic_delta["param_delta_max_abs"] != 0.0:
-        raise RuntimeError("FRS-TRAIN-v009 critic-only update mutated actor or distribution parameters")
+        raise RuntimeError("FRS-TRAIN-v010 critic-only update mutated actor or distribution parameters")
     optimizer_step_after = _v015_formal_optimizer_step_count(optimizer)
     optimizer_step_delta = optimizer_step_after - optimizer_step_before
     if optimizer_step_delta != 1:
@@ -3961,8 +3991,29 @@ def run_frontres_v015_formal_transaction_update(
         "gradient_parameter_count": len(parameters),
         "gradient_nonzero_parameter_count": gradient_nonzero_parameter_count,
         "optimizer_step_delta": int(optimizer_step_delta),
-        "training_contract_id": "FRS-TRAIN-v009",
-        "gain_contract_id": "FRS-GAIN-v004",
+        "method_contract_id": "FRS-METHOD-v016",
+        "training_contract_id": "FRS-TRAIN-v010",
+        "gain_contract_id": "FRS-GAIN-v005",
+        "optimization_contract_id": "FRS-PPO-v004",
+        "scalar_target_id": "paired-intent-minus-repair-v1",
+        "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "projection_schema_id": "grouped-first-order-constraint-projection-v1",
+        "constraint_projection_status": projection.status,
+        "constraint_active_families": projection.active_families,
+        "constraint_gradient_norms": projection.gradient_norms,
+        "constraint_directional_derivatives": projection.directional_derivatives,
+        "constraint_levels": dict(ppo_result.constraint_levels or {}),
+        "constraint_dual_coefficients": projection.dual_coefficients,
+        "constraint_gram": projection.constraint_gram,
+        "constraint_intent_directional_derivatives": projection.intent_directional_derivatives,
+        "constraint_kkt_max_violation": projection.kkt_max_violation,
+        "contact_constraint": tuple(float(value) for value in ppo_batch.contact_constraint.detach().cpu().tolist()),
+        "zmp_constraint": tuple(float(value) for value in ppo_batch.zmp_constraint.detach().cpu().tolist()),
+        "survival_constraint": tuple(float(value) for value in ppo_batch.survival_constraint.detach().cpu().tolist()),
+        "contact_constraint_advantage": tuple(float(value) for value in ppo_batch.contact_constraint_advantage.detach().cpu().tolist()),
+        "zmp_constraint_advantage": tuple(float(value) for value in ppo_batch.zmp_constraint_advantage.detach().cpu().tolist()),
+        "survival_constraint_advantage": tuple(float(value) for value in ppo_batch.survival_constraint_advantage.detach().cpu().tolist()),
+        "zmp_constraint_applicable": tuple(bool(value) for value in ppo_batch.zmp_constraint_applicable.detach().cpu().tolist()),
         "training_iteration": iteration,
         "curriculum_fingerprint": curriculum.schedule_fingerprint,
         "k_stage_index": curriculum.stage_index,
@@ -3974,8 +4025,8 @@ def run_frontres_v015_formal_transaction_update(
         "parameter_delta": parameter_delta,
         "critic_parameter_delta": critic_delta,
         "actor_std_parameter_delta": noncritic_delta,
-        "v004_action_gain_harm_reports": request.diagnostic_reports,
-        "v004_diagnostic_report_row_order": diagnostic_report_row_order,
+        "v005_action_constraint_reports": request.diagnostic_reports,
+        "v005_diagnostic_report_row_order": diagnostic_report_row_order,
     }
     print(
         "[FrontRES v015 Formal Transaction] "
@@ -4225,7 +4276,7 @@ def run_frontres_v015_local_identity_sentinel(
             raise RuntimeError("v015 local sentinel requires a complete pre-update identity/observation snapshot")
         telemetry = dict(preupdate)
         result_diagnostics = dict(getattr(result, "diagnostics", {}) or {})
-        result_diagnostics.pop("v004_action_gain_harm_reports", None)
+        result_diagnostics.pop("v005_action_constraint_reports", None)
         telemetry.update(result_diagnostics)
         telemetry["optimizer_step_delta"] = int(getattr(result, "optimizer_step_delta", -1))
         telemetry["exact_one_update"] = telemetry["optimizer_step_delta"] == 1
@@ -4958,7 +5009,7 @@ def _contact_sensor_pair(
     expected_repair = support_rows[:n].bool()
     expected_noisy = support_rows[base_start : base_start + n].bool()
     if not torch.equal(expected_repair, expected_noisy):
-        raise RuntimeError("FRS-GAIN-v004 paired roles do not share sealed expected support identity")
+        raise RuntimeError("FRS-GAIN-v005 paired roles do not share sealed expected support identity")
     return expected_repair, actual[:n], actual[base_start : base_start + n]
 
 

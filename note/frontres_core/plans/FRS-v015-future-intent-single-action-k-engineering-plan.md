@@ -1,159 +1,217 @@
-# FRS-v015 K-Stage Critic Curriculum Engineering Plan
+# FRS-v015 Physics-Constrained Intent Migration Engineering Plan
 
 Status: active, volatile engineering plan. Updated: 2026-07-23.
 
 ## Authority
 
 - Concept Figure: `../../architecture/concept/03_frontres_concept_tabs.data.json`
-- Method: `../contracts/active/method/FRS-METHOD-v015-future-intent-single-action-k-replay.md`
-- Training: `../contracts/active/training/FRS-TRAIN-v009-k-stage-critic-curriculum.md`
-- Gain/PPO: FRS-GAIN-v004 / FRS-PPO-v003, unchanged
+- Active contracts: FRS-METHOD-v016 / FRS-GAIN-v005 / FRS-PPO-v004 /
+ FRS-TRAIN-v010
+- Current incompatible source route: FRS-METHOD-v015 / FRS-GAIN-v004 /
+ FRS-PPO-v003 / FRS-TRAIN-v009
+- P0 decision record:
+  `FRS-GAIN-v005-vector-physics-constrained-intent-proposal.md`
 - Checklist: `../checklists/FRS-v015-future-intent-single-action-k-checklist.md`
 - Evidence: `../../testing/evidence_ledger_v015_future_intent_single_action_k_2026-07-19.md`
 
+## Terminal Outcome
+
+Preserve the Noisy zero-action counterfactual and all existing v015 replay
+semantics, while replacing v004 scalar Physics/Intent utility with:
+
+```text
+scalar paired Intent objective - repair cost -> one scalar Critic
+Contact / phase-ZMP / survival K-step evidence -> actor constraints
+```
+
+The final engineering closure must prove that Physics determines admissible
+actor-update directions, Intent improves only inside that space, and one sealed
+multi-Segment x M transaction still produces exactly one optimizer update and
+one compatible checkpoint.
+
 ## Preserved Foundation
 
-G0-G5-P1 and `E-FI-0--E-FI-68` remain valid for local scenarios, q29 future
-intent, 928/158/770 authority, two roles, one action, K-step frozen-GMT
-evidence, multi-Segment x M atomicity, grouped PPO, v004 Physics Gain,
-proposal-only HSL, and one bounded critic-only update. No prior evidence proves
-K-stage Critic Curriculum.
+E-FI-0--E-FI-71 remain valid evidence for local scenarios, deployment q29 H,
+928/158/770 observation authority, two roles, one action, frozen-GMT K evidence,
+multi-Segment x M atomicity, grouped equal mass, proposal-only HSL, K-stage
+Critic curriculum, exact-one update, and v004 runtime connectivity. They do not
+prove that the v004 scalar target preserves Physics direction information.
 
-## Original Contract Mismatch And Closure
+The current source remains the last runnable v004/v003/v009 route. It is now
+an explicit contract-mismatch for further training because `clamp`/`amax` and
+unsafe-tier scalarization erased distinctions visible in raw ZMP evidence.
 
-The confirmed method treats K as a global curriculum stage. Before E-FI-70,
-the source let `frontres_segment_sampler.py::plan_rollout_budget()` assign
-`8/16/32/64` from each Segment's replay state, so different horizons may reach
-one scalar Critic without K input. `frontres_segment_warmup_phase()` indexes one
-global v008 warmup only and does not re-enter critic-only when K changes.
-Checkpoint v3 binds v008/global iteration but not a K schedule, stage, or local
-phase. E-FI-70 closes this mismatch on the v009 formal route through an
-explicit schedule, homogeneous-K override, stage-local recalibration and
-checkpoint v4. E-FI-71 closes C4 live transition; long training remains blocked
-by the policy-quality findings recorded below.
+## Source Of Truth And Migration Surface
 
-## Source Of Truth
-
-| Semantic object | Active owner after implementation | Legacy path | Isolation rule |
+| Semantic object | Proposed owner | Current incompatible owner | Required isolation |
 | --- | --- | --- | --- |
-| K curriculum schedule | existing `frontres_segment_warmup.py` pure schedule kernel | per-Segment K in `plan_rollout_budget()` | formal v009 ignores/rejects segment-owned K |
-| active K stage | formal runner before transaction selection | global iteration-only v008 phase | one immutable stage identity per transaction |
-| Critic target | existing v004 return/storage/PPO path | mixed `return_K` targets | every row in a transaction has one `active_k` |
-| transition | committed-update cursor | state change during collection | advance only after committed receipt |
-| persistence | `frontres_checkpointing.py` | checkpoint v3/v008 | checkpoint v4/v009 exact schedule fingerprint |
+| Noisy baseline | existing sealed scenario / two-role collector | same owner | retain exactly one shared zero-action baseline; never score it as a PPO row |
+| K-step Physics evidence | command + live probe + storage | evidence exists but is reduced for v004 | retain ordered Contact/phase-ZMP/survival and semantic masks until loss |
+| scalar objective | `frontres_gain.py` v005 owner | v004 tiered `gain_total` | only paired Intent improvement minus repair cost reaches scalar Critic |
+| constrained actor update | `frontres_segment_ppo.py` v004 owner | scalar-advantage PPO v003 | separate Physics constraint surrogates; no scalar Physics reward fallback |
+| exact-one transaction | formal update owner | v009/v003 path | same sealed rows and grouped mass; one projected actor + scalar-Critic step |
+| replay priority | existing sampler evidence owner | v004 scalar Gain projection | selection-only evidence; cannot multiply actor loss or recreate scalar Physics reward |
+| persistence | `frontres_checkpointing.py` | checkpoint-v4 binds v004/v003/v009 | new identity rejects old objective/constraint state before mutation |
+| diagnostics/evaluation | existing diagnostic owners | v004 deficit/utility summaries | raw per-channel/time constraints, projection facts, objective/value/advantage |
 
 ## Step Map
 
-### C0 (Preparatory): Contract And White-Box Rebase
+### P0 (Preparatory): Design Rebase And Owner Audit
 
-Objective: freeze the global K-stage/single-Critic semantics and locate the
-current mixed-K mismatch.
+Objective: record the confirmed Noisy/Physics/Intent authority split and expose
+the remaining constrained-update decision.
 
-Scope: Training v009, Method v015 clarification, Concept Figure M-06/M-05
-interaction, registry, plan, checklist, canvas, Architecture, and evidence.
+Scope: v005 proposal, Concept Figure Q-PAIR/Q-01 wording, registry mismatch,
+current Architecture, plan, checklist, canvas, evidence ledger, and read-only
+CodeGraph owner/consumer audit.
 
-Non-scope: source code, tests, checkpoint I/O, simulator, training, live run.
+Non-scope: active-contract supersession, source code, tests, checkpoint I/O,
+simulator, training, or live run.
 
-Evidence: E-FI-69 plus exact owner/shape/identity audit.
+Evidence: E-FI-72 plus CodeGraph-confirmed route
+`frontres_gain -> storage return -> grouped PPO -> formal update -> checkpoint`.
 
-Stop: any unresolved choice about global versus per-Segment K, Multi-Critic,
-K actor input, or final objective horizon.
+Stop: the user has not confirmed the exact constrained-update mechanism.
 
-Why separate: this is the human semantic and contract-version boundary.
+Why separate: selecting projection/recovery semantics changes the optimization
+method and checkpoint identity; this is a real human scientific decision.
 
-### C1 / 4: Pure Curriculum Kernel And Config Identity
+Status: completed in this document-only rebase.
 
-Objective: implement immutable schedule validation and absolute iteration ->
-`(stage, active_k, stage_iteration, phase, actor_weight)` mapping.
+### P1 / 4: Contract Activation And Constraint Mathematics
 
-Scope: existing `frontres_segment_warmup.py`, config dataclasses, Stage3 CLI
-parsing, and focused pure contracts. The schedule explicitly carries ordered
-`(K,N_c,N_a,N_joint)` stages; the final stage remains joint.
+Objective: freeze one executable constrained-update rule before code changes.
 
-Non-scope: sampler/reset/storage/PPO/checkpoint mutation, simulator, live run.
+Scope: define physical-unit Contact/ZMP/survival residuals, time aggregation
+without saturation, grouped constraint surrogates, the constraint-gradient
+projection/recovery rule, scalar Intent-Critic target, infeasible-case behavior,
+selection-only replay-priority authority, and coordinated METHOD-v016 /
+GAIN-v005 / PPO-v004 / TRAIN-v010 identities.
+Activate contracts, registry, Concept Figure mapping, and current Architecture.
 
-Evidence: S1 boundary, invalid-order, final-stage, permutation, and deterministic
-fingerprint tests; v008 global scheduler remains historical only.
+Non-scope: source code, test execution, checkpoint I/O, simulator, training,
+live run, new actor input/output, second actor/Critic/optimizer, or HSL changes.
 
-Stop: implicit schedule defaults, non-monotonic K, zero recalibration, or a
-need for multiple Critics.
+Expected evidence: formula fixtures showing that different severe ZMP/contact
+states remain distinguishable; safe-state collisions are semantically
+irrelevant; Noisy cannot waive an absolute Repair constraint; the scalar Critic
+target contains no Physics mixture.
 
-### C2 / 4: Formal Homogeneous-K Transaction And Phase Update
+Stop: projection requires a second learned network, a hand-weighted scalar
+Physics score, a hard adverse-row mask, an undefined infeasible fallback, or a
+new actor-visible privileged signal.
+Status: completed document-only. E-FI-73 activates the four coordinated
+contracts, archives their superseded predecessors, and leaves source/runtime
+deliberately blocked for P2.
 
-Objective: connect the C1 stage identity to official selection, sealed
-transaction metadata, v004 return, and the existing exact-one grouped update.
+### P2 / 4: One-Shot Offline Engineering Closure
 
-Scope: existing live sampler/formal request/update/diagnostic owners. Every
-selected Segment and M attempt receives `active_k`; per-Segment adaptive K is
-rejected on v009 formal training. Stage/phase cannot change while open.
+Status: completed offline at E-FI-74. The active source route now implements
+the v005 scalar/vector authority split, PPO-v004 grouped joint projection,
+TRAIN-v010 gradient phases, and checkpoint-v5 strict identity. This is not
+simulator or policy-quality evidence.
 
-Non-scope: Gain/PPO formula, actor/Critic architecture, M semantics, HSL,
-checkpoint format, simulator/live run.
+Objective: implement the complete new contract through the formal update and
+persistence boundary in one local engineering unit.
 
-Evidence: S2 fake official-entry connectivity across one K transition;
-old-stage commit then new-stage critic-only, equal group mass, actor/std zero
-delta, Critic nonzero delta, exact-one update, mixed-K fail-closed.
+Scope: existing evidence/result schemas, `frontres_gain.py`, storage/candidate
+carrier, grouped PPO constrained-loss owner, formal exact-one update,
+diagnostics/evaluation, checkpoint save/reload identity, legacy isolation, and
+all focused deterministic S1/S2/S3 contracts. Reuse existing modules; do not
+create a parallel training stack.
+Unique owners: `frontres_gain.py` owns scalar target and physical residuals;
+`frontres_segment_ppo.py` owns grouped actor/constraint gradients and their
+joint projection; the existing formal transaction/update owner owns exact-one
+commit; `frontres_checkpointing.py` owns checkpoint-v5 validation before any
+state mutation; the existing training schedule owner implements v010 fresh
+Critic entry and per-global-K recalibration.
 
-Stop: K cannot be made transaction-homogeneous, stage change precedes commit,
-or grouped PPO needs cross-K weighting.
+Non-scope: simulator, real training, live run, long horizon experiment,
+multi-seed, deployment composition, HSL, actor observation, GMT, H/K/M, or
+group-mass changes.
 
-### C3 / 4: v009 Persistence And Fresh Resume
+Embedded checks:
 
-Objective: create checkpoint v4 identity for exact curriculum resume.
+- S1: raw K-step identity, phase/N-A semantics, no saturation collision,
+  constraint projection/recovery, permutation and missing-evidence fail-closed;
+- S2: one complete multi-Segment x M transaction carries the same Noisy
+  baseline, scalar objective, vector constraints, equal group mass, and exactly
+  one optimizer step; v004/v003 formal fallback rejects;
+- S3: new checkpoint binds all contract/layout/curriculum/constraint identities,
+ committed receipt and solver identity; no learned or persistent dual state is
+ introduced; old v004/v009, tampered, or partial resume rejects before mutation;
+- curriculum: first v010 entry fresh-initializes Critic/critic normalizer and
+ optimizer while actor/std remain frozen; every global K increase preserves the
+ same v010 Critic, re-enters critic-only recalibration, then actor ramp and joint;
+- regression: 928/158/770, q29 provenance, one-action-K, K curriculum, HSL
+  isolation, frozen GMT, and actor/Critic gradient authority remain unchanged.
 
-Scope: existing checkpoint owner and save connector; bind schedule fingerprint,
-stage index, active K, local iteration, phase, absolute committed update, and
-v004/v003/layout identities.
+Engineering acceptance: deterministic evidence proves the scalar Critic learns
+only the Intent objective and actor gradients are transformed only by the named
+Physics constraints, with no hidden scalar Physics utility.
 
-Non-scope: checkpoint payload expansion beyond existing training state,
-actor-only Stage3 migration, simulator/live run.
+Stop: any constraint evidence is silently filled, saturated, reduced before its
+semantic owner, mixed across scenarios/roles/K, fed to the actor, or requires
+more than one committed optimizer step.
 
-Evidence: S3 save/reload/pre-mutation tests; exact resume equality; v008,
-different schedule, mixed-K, and partial transaction rejection.
+### P3 / 4: Bounded Official Physics-Constraint Sentinel
 
-Stop: resume can restart a K stage, cross phase, or mutate before identity
-validation.
+Objective: prove the new route on one real 8-env sealed transaction.
 
-### C4 / 4: Bounded Official K-Transition Sentinel
+Scope: one explicit Stage3-v015 engineering run at one K stage, one iteration,
+one complete transaction, one optimizer update, one committed new-identity
+checkpoint, log review, evidence/checklist/Architecture closeout.
 
-Objective: prove the official Stage3 route crosses exactly one K boundary.
+Required telemetry: scenario/Noisy hashes, raw Contact/phase-ZMP/survival by K,
+semantic masks, scalar Intent objective/return/value/advantage, each constraint
+residual and gradient, projected actor direction, actor/Critic parameter deltas,
+group mass, exact-one counts, and save identity.
 
-Scope: one explicit small engineering schedule, 8 envs, enough transactions to
-commit the old stage and enter new-K critic-only, one update per transaction,
-committed v009 checkpoint and synchronized evidence/Architecture closeout.
+Non-scope: long training, K transition, multiple seeds, deployment composition,
+paper experiment, or method tuning.
 
-Frozen bounded schedule: `8:1:1:1,16:1:1:0`, four formal iterations and
-checkpoint interval one. Expected order is K8 critic-only, K8 actor-ramp, K8
-joint, then K16 critic-only. `model_3.pt` must expose the next K16
-critic-only identity; the fourth receipt must prove K16 actor/std zero delta
-and Critic nonzero delta before `model_4.pt` advances to actor-ramp.
+Stop: missing raw evidence, v004/v003 fallback, constraint-gradient absence,
+actor update that worsens every violated Physics channel, scalar-Critic Physics
+contamination, nonfinite projection, or update count other than one.
 
-Non-scope: policy-quality acceptance, long training, multiple seeds,
-deployment composition, paper experiments.
+Why separate: this is the simulator/material-cost and external-runtime boundary.
 
-Evidence: S4 stage/K/phase identity, expected/actual K, actor/std zero delta at
-new stage, Critic nonzero delta, exact-one counts, checkpoint v4/v009 receipt.
+### P4 / 4: Policy-Quality Admission
 
-Stop: mixed K, missing stage identity, actor drift, no Critic update, transition
-before commit, resume mismatch, or any legacy v008 path.
+Objective: decide whether the new target/update is informative enough to admit
+actor-ramp training.
 
-Why separate: this is the only simulator/material-cost boundary.
+Scope: compare the bounded sentinel's Noisy/Repair causal evidence, constraint
+movement, scalar objective/value calibration, action non-collapse, and demo-
+quality hacking sentinels; then define the smallest justified training horizon.
 
-Status: completed by E-FI-71. The official route produced the exact K8
-critic-only -> actor-warmup -> joint -> K16 critic-only order, homogeneous
-four-row transactions, equal group mass, exact-one updates, actor/std isolation
-in both critic-only phases, and four committed v4/v009 checkpoints.
+Non-scope: automatic long training, multi-seed, deployment composition, or
+paper claims.
 
-## Post-C4 Boundary
+Expected evidence: the new route distinguishes raw improvements hidden by v004,
+does not reward sustained lean/unplanned stepping, and provides a nonzero
+Physics correction direction when Repair is inadmissible.
 
-After C4, engineering runtime closure is confirmed. `policy-quality-audit` now
-owns the first unresolved boundary: all 16 C4 rows were Physics-inadmissible,
-all 16 Gains were negative, and only 3/16 raw advantages were positive. The
-audit must distinguish an uncalibrated Critic from an uninformative saturated
-unsafe-tier target before any actor-ramp long training. Short-K success cannot
-authorize long-sequence or deployment claims.
+Stop: no feasible/corrective direction, no-op collapse, systematic Physics
+regression, Intent-only shortcut, or evidence that the chosen constrained
+optimizer does not realize the confirmed concept. Such a result returns to P1,
+not to coefficient tuning.
+
+## Why Four Main Steps
+
+The plan has four execution steps plus preparatory P0. The splits are not by
+file or test tier:
+
+- P1 is the completed scientific/optimization contract decision;
+- P2 is the largest safe local implementation and verification closure;
+- P3 requires simulator/material-cost authority;
+- P4 is the policy-quality and longer-training authorization boundary.
+
+Removing any one would either hide a human semantic decision, cross a costly
+runtime boundary, or admit training without causal evidence. All owner edits,
+focused tests, formal connectivity, persistence, and routine document refresh
+are deliberately merged into P2.
 
 ## Cursor
 
-Current cursor: `C1-C4 engineering complete with E-FI-70/E-FI-71; stop at the
-post-C4 policy-quality design decision before long training`.
+Current cursor: `P2 / 4 complete at E-FI-74; P3 / 4 requires separate simulator/material-cost authorization`.

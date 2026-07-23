@@ -1,9 +1,10 @@
 ---
 contract_id: FRS-TRAIN-v009
-status: active
+status: superseded
 effective_date: 2026-07-22
 updated_date: 2026-07-23
 supersedes: FRS-TRAIN-v008
+superseded_by: FRS-TRAIN-v010
 scope: single-Critic global K-stage curriculum with per-stage critic recalibration, actor ramp, joint grouped PPO, homogeneous-K transactions, and exact curriculum persistence
 ---
 

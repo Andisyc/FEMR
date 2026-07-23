@@ -6,10 +6,10 @@ This registry is the only default entrypoint for FrontRES contracts.
 
 | Category | Active contract | Status |
 | --- | --- | --- |
-| Method | `active/method/FRS-METHOD-v015-future-intent-single-action-k-replay.md` | active |
-| Training | `active/training/FRS-TRAIN-v009-k-stage-critic-curriculum.md` | active |
-| Reward | `active/reward/FRS-GAIN-v004-support-mode-physics-admissibility.md` | active |
-| Optimization | `active/optimization/FRS-PPO-v003-single-policy-row-k-evidence-grouped-reduction.md` | active |
+| Method | `active/method/FRS-METHOD-v016-physics-constrained-intent-replay.md` | active |
+| Training | `active/training/FRS-TRAIN-v010-intent-critic-k-curriculum.md` | active |
+| Reward | `active/reward/FRS-GAIN-v005-vector-physics-constraints.md` | active |
+| Optimization | `active/optimization/FRS-PPO-v004-grouped-constraint-gradient-projection.md` | active |
 | Evaluation | `active/evaluation/FRS-EVAL-v003-local-repair-composition-evaluation.md` | active |
 
 ## Concept Figure Design Point Register
@@ -20,21 +20,22 @@ Concept Figure. Canonical names and block IDs come from
 
 | Design ID | Canonical human name | Active contract section | Figure block ID | Current code/evidence gap |
 | --- | --- | --- | --- | --- |
-| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v015` / `Local Root-Artifact Scenario` | `M-02` | `E-FI-27` live-confirms two root-artifact local scenarios with paired immutable hashes; the legacy full-tape route remains excluded. |
-| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v015` / `Frozen-Policy Multi-Attempt Transaction` | `SR-01` | `E-FI-27` live-confirms two Segment sources with M=2, one frozen snapshot, equal attempt mass, and exactly one update after all rows seal. |
-| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v015` / `Single-Action K-step Evidence`; `FRS-TRAIN-v009` / `Global K-Stage Identity` | `M-06` | `E-FI-71` live-confirms the exact K8 critic-only -> actor-warmup -> joint -> K16 critic-only transition, homogeneous-K transactions, exact-one updates, and checkpoint-v4/v009 stage identity. |
-| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v015` / `Future Intent Context` | `M-04` | `E-FI-27` live-confirms the local `870+58=928`, FEMR `158D`, critic `289D`, and frozen-GMT `770D` route; `E-FI-30` CPU-confirms one 6D FEMR action on every unclamped deployment frame; `E-FI-42` live-confirms the proposal-only HSL initializer on the same 158D actor interface. No Stage-3 v015 policy has yet been trained, so repair quality remains open. |
-| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v015` / `Method Boundary` | `M-10` | `E-FI-27` live-confirms one local t action, eight post-advance Clean-C GMT reads, and zero later FEMR actions; `E-FI-30` CPU-confirms the per-frame suffix route. A same-carrier frozen-GMT baseline versus FEMR+GMT paired composition owner is still missing at `E-FI-32`. |
-| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v004` / `Paired Evidence And Time` | `Q-PAIR` | `E-FI-68` runtime-confirms expected support, ContactSensor-backed actual contact, phase-ZMP evidence, and sealed two-role identity on the formal route. |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v004` / `Non-Compensatory Core Decision` | `Q-01` | `E-FI-71` live-confirms the v004 consumer route but finds 0/16 Physics-admissible Repair rows and 0/16 positive Gain rows. Engineering is closed; unsafe-tier target distinguishability and actor efficacy remain blocked. |
-| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v009` / `Persistence And Compatibility` | `M-03` | `E-FI-35--E-FI-45` and `E-FI-42` retain deterministic/live HSL-v1 actor-only evidence. HSL remains frozen as the only actor-only cold start and supplies no Critic, optimizer, or Stage-3 target. |
-| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v009` / `Per-Stage Critic-Ready Schedule` | `M-05` | `E-FI-71` live-confirms actor/std zero delta with nonzero Critic updates in both K8 and post-transition K16 critic-only phases, followed by the intended K8 actor/joint updates and four committed v4/v009 checkpoints. The one-update phases are connectivity sentinels, not calibrated long-training durations. |
-| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v015` / `Future Intent Context` | `M-11` | `E-FI-27` live-confirms H is deployment/Noisy q29 read once at local t and is not reopened as the eight-step Clean-C GMT reference; `E-FI-30` CPU-confirms command-owned q29 H across `T-max(H)` unclamped frames; `E-FI-46` materializes one deterministic q29-preserving carrier from ordinary `.npz` plus fixed protocol. |
+| `FRS-DP-01` | Perturbation Data | `FRS-METHOD-v016` / `Preserved Replay Authority` | `M-02` | Existing v015 evidence remains valid; P2 must prove the new loss path does not change scenario identity. |
+| `FRS-DP-02` | Segment Replay | `FRS-METHOD-v016` / `Preserved Replay Authority` | `SR-01` | Existing sealed multi-Segment x M evidence remains valid; P2 must preserve one equal-mass committed update. |
+| `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v016` / `Preserved Replay Authority`; `FRS-TRAIN-v010` / `Per-K Recalibration` | `M-06` | v009 runtime evidence is historical compatibility evidence only; P2 must implement the v010 target and checkpoint-v5 identity. |
+| `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v016` / `Actor And Information Boundary` | `M-04` | The 158D/full-6D authority remains unchanged; P2 must ensure constraint evidence cannot enter actor observations. |
+| `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v016` / `Preserved Replay Authority` | `M-10` | Existing one-action-K evidence remains valid; P2 changes only its loss-side interpretation. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v005` / `Paired Evidence Authority` | `Q-PAIR` | E-FI-72 fixes Noisy as the paired zero-action baseline; P2 must retain ordered, uncollapsed Repair Contact/phase-ZMP/survival evidence. |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v005` / `Scalar Objective And Physics Constraints`; `FRS-PPO-v004` / `Grouped First-Order Projection` | `Q-01` | P1 activates the constrained-Intent contract; current v004/v003 source remains incompatible until P2. |
+| `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v010` / `Actor-Only Initialization` | `M-03` | HSL-v1 remains frozen and actor-only; P2 must not change its target or payload. |
+| `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v010` / `Fresh Target Entry And Per-K Recalibration` | `M-05` | Fresh v010 target entry rejects v004 Critic state; each global K increase recalibrates the same v010 Critic with actor/std frozen before ramp and joint. Source support is P2-pending. |
+| `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v016` / `Actor And Information Boundary` | `M-11` | Existing deployment/Noisy q29 H evidence remains valid and is not changed by P1. |
 
-The v015 implementation route is governed by
+The physics-constrained Intent migration is governed by
 `../plans/FRS-v015-future-intent-single-action-k-engineering-plan.md` and its
-paired checklist. `FRS-PPO-v003` remains active because its one-row grouped
-reduction is unchanged; `E-FI-27` closes the bounded S4 local identity and
+paired checklist. `FRS-PPO-v004` preserves v003 one-row grouped equal-mass
+reduction but replaces the actor update with a joint constraint-gradient
+projection; `E-FI-27` closes the bounded S4 local identity and
 exact-one-update route. `E-FI-71` additionally closes the bounded K-transition
 and actual checkpoint-cadence gate. Long-training convergence, policy quality,
 and Step 5B deployment composition remain unconfirmed. `E-FI-28` completes the immutable Step 5B-S1 deployment
@@ -73,6 +74,21 @@ it does not execute composition or expose corruption metadata to the actor.
 Entrypoints, configuration, storage, checkpointing, diagnostics, probes, and
 tests are implementation objects under these design points. They are not
 additional top-level method designs.
+
+## Active Contract / Implementation Stop
+
+`E-FI-72` records the user-confirmed method change and `E-FI-73` activates its
+coordinated METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010 contracts. Noisy
+rollout remains the same-scenario
+zero-action counterfactual. Contact, phase-conditioned ZMP, and survival must
+remain separate K-step Physics constraints; paired Intent improvement minus
+repair cost becomes the scalar objective and the only scalar-Critic target.
+
+The human Concept Figure and active contracts now agree. The source still
+implements METHOD-v015 / GAIN-v004 / PPO-v003 / TRAIN-v009 and therefore remains
+a deliberate `contract-mismatch` hard stop before checkpoint I/O, simulator, or
+training. P2 must replace that route atomically; silent v004 fallback or mere
+relabeling is forbidden.
 
 ## Reading Rule
 

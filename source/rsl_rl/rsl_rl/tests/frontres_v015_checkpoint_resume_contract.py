@@ -189,6 +189,13 @@ def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 3):
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
         frontres_formal_runtime_audit=False,
+        frontres_method_contract_id="FRS-METHOD-v016",
+        frontres_gain_contract_id="FRS-GAIN-v005",
+        frontres_optimization_contract_id="FRS-PPO-v004",
+        frontres_training_contract_id="FRS-TRAIN-v010",
+        frontres_scalar_target_id="paired-intent-minus-repair-v1",
+        frontres_constraint_schema_id="contact-phase_zmp-survival-physical-v1",
+        frontres_projection_schema_id="grouped-first-order-constraint-projection-v1",
         frontres_segment_offline_eval_only=False,
         frontres_segment_sequence_offline_eval_only=False,
         rnd=None,
@@ -321,6 +328,13 @@ def _committed_state() -> dict[str, object]:
     return {
         "state": "committed",
         "receipt": {
+            "method_contract_id": "FRS-METHOD-v016",
+            "gain_contract_id": "FRS-GAIN-v005",
+            "optimization_contract_id": "FRS-PPO-v004",
+            "training_contract_id": "FRS-TRAIN-v010",
+            "scalar_target_id": "paired-intent-minus-repair-v1",
+            "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+            "projection_schema_id": "grouped-first-order-constraint-projection-v1",
             "transaction_id": "tx-v015-s3",
             "policy_snapshot_id": "tx-v015-s3:pi-0123456789abcdef",
             "plan_identity_hash": "a" * 64,
@@ -362,9 +376,11 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
         checkpointing.save_runner(source, str(path))
         payload = _saved_payload(path)
         identity = payload["frontres_v015_checkpoint_identity"]
-        assert identity["format"] == "frontres-v015-checkpoint-v4"
-        assert identity["training_contract_id"] == "FRS-TRAIN-v009"
-        assert identity["gain_contract_id"] == "FRS-GAIN-v004"
+        assert identity["format"] == "frontres-v015-checkpoint-v5"
+        assert identity["training_contract_id"] == "FRS-TRAIN-v010"
+        assert identity["gain_contract_id"] == "FRS-GAIN-v005"
+        assert identity["optimization_contract_id"] == "FRS-PPO-v004"
+        assert identity["method_contract_id"] == "FRS-METHOD-v016"
         assert identity["curriculum"] == {
             "schedule": _V009_SCHEDULE,
             "schedule_fingerprint": _v009_schedule_fingerprint(),
@@ -388,6 +404,8 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
         assert identity["normalizer"]["combined_dim"] == 928
         assert len(identity["normalizer"]["prefix_stats_fingerprint"]) == 64
         assert identity["grouped_loss"]["advantage_normalization"] == "grouped_scale_only"
+        assert identity["constraint_solver"]["persistent_dual_state"] is False
+        assert "frontres_gain_config" not in payload
         assert identity["transaction"] == _committed_state()
         assert "clean_continuation" not in repr(identity)
         assert "intent_q29" not in repr(identity)
@@ -453,6 +471,32 @@ def test_t_resume_rejects_layout_legacy_and_normalizer_before_mutation(layout_mo
         _expect_error(lambda: checkpointing.load_runner(old_v1, str(old_v1_path), load_optimizer=False), "contract or format identity")
         _assert_unmutated(old_v1, actor_before)
 
+        old_v4_payload = copy.deepcopy(payload)
+        old_v4_payload["frontres_v015_checkpoint_identity"].update(
+            {
+                "format": "frontres-v015-checkpoint-v4",
+                "method_contract_id": "FRS-METHOD-v015",
+                "gain_contract_id": "FRS-GAIN-v004",
+                "optimization_contract_id": "FRS-PPO-v003",
+                "training_contract_id": "FRS-TRAIN-v009",
+            }
+        )
+        old_v4_path = Path(tmp) / "old_v4.pt"
+        torch.save(old_v4_payload, old_v4_path)
+        old_v4 = _runner(layout_module, policy_cls, iteration=0)
+        actor_before = old_v4.alg.policy.residual_actor.weight.detach().clone()
+        _expect_error(lambda: checkpointing.load_runner(old_v4, str(old_v4_path), load_optimizer=False), "contract or format identity")
+        _assert_unmutated(old_v4, actor_before)
+
+        tampered_solver_payload = copy.deepcopy(payload)
+        tampered_solver_payload["frontres_v015_checkpoint_identity"]["constraint_solver"]["projection_tolerance"] = 0.5
+        tampered_solver_path = Path(tmp) / "tampered_solver.pt"
+        torch.save(tampered_solver_payload, tampered_solver_path)
+        tampered_solver = _runner(layout_module, policy_cls, iteration=0)
+        actor_before = tampered_solver.alg.policy.residual_actor.weight.detach().clone()
+        _expect_error(lambda: checkpointing.load_runner(tampered_solver, str(tampered_solver_path), load_optimizer=False), "solver identity")
+        _assert_unmutated(tampered_solver, actor_before)
+
         legacy_payload = copy.deepcopy(payload)
         del legacy_payload["frontres_v015_checkpoint_identity"]
         legacy_payload["obs_norm_state_dict"]["_mean"] = torch.zeros(1, 7 + 2 * 65)
@@ -472,7 +516,7 @@ def test_t_resume_rejects_layout_legacy_and_normalizer_before_mutation(layout_mo
         actor_before = tampered.alg.policy.residual_actor.weight.detach().clone()
         _expect_error(lambda: checkpointing.load_runner(tampered, str(tampered_path), load_optimizer=False), "statistics do not match")
         _assert_unmutated(tampered, actor_before)
-        print("[T-resume/T-legacy-reject/T-prefix-stats] H mismatch, old v1, old [H,65], and full-prefix tampering reject before mutable restore", flush=True)
+        print("[T-resume/T-legacy-reject/T-prefix-stats] H mismatch, old v1/v4, solver tamper, old [H,65], and prefix tamper reject pre-mutation", flush=True)
 
 
 def test_t_zero_and_full_observation_prefix_reject_before_save(layout_module, checkpointing, policy_cls) -> None:
@@ -507,7 +551,7 @@ def test_t_atomicity_rejects_partial_save_and_resume(layout_module, checkpointin
         print("[T-atomicity] collecting save and sealed resume both fail closed without a later update path", flush=True)
 
 
-def test_t_v009_transition_identity_and_schedule_reject(layout_module, checkpointing, policy_cls) -> None:
+def test_t_v010_transition_identity_and_schedule_reject(layout_module, checkpointing, policy_cls) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "v009_transition.pt"
         source = _runner(layout_module, policy_cls, iteration=4)
@@ -522,7 +566,7 @@ def test_t_v009_transition_identity_and_schedule_reject(layout_module, checkpoin
         checkpointing.save_runner(source, str(path))
         payload = _saved_payload(path)
         identity = payload["frontres_v015_checkpoint_identity"]
-        assert identity["format"] == "frontres-v015-checkpoint-v4"
+        assert identity["format"] == "frontres-v015-checkpoint-v5"
         assert identity["curriculum"]["k_stage_index"] == 1
         assert identity["curriculum"]["active_k"] == 4
         assert identity["curriculum"]["stage_iteration"] == 0
@@ -561,7 +605,7 @@ def test_t_v009_transition_identity_and_schedule_reject(layout_module, checkpoin
             "contract or format identity",
         )
         _assert_unmutated(rejected, actor_before)
-        print("[T-v009-transition/T-schedule-fingerprint/T-v008-reject] exact new-K critic-only resume and pre-mutation rejection", flush=True)
+    print("[T-v010-transition/T-schedule-fingerprint/T-v009-reject] exact new-K critic-only resume and pre-mutation rejection", flush=True)
 
 
 def test_t_committed_save_to_fresh_inference_equality(
@@ -650,7 +694,7 @@ def main() -> None:
     test_t_resume_rejects_layout_legacy_and_normalizer_before_mutation(layout_module, checkpointing, policy_cls)
     test_t_zero_and_full_observation_prefix_reject_before_save(layout_module, checkpointing, policy_cls)
     test_t_atomicity_rejects_partial_save_and_resume(layout_module, checkpointing, policy_cls)
-    test_t_v009_transition_identity_and_schedule_reject(layout_module, checkpointing, policy_cls)
+    test_t_v010_transition_identity_and_schedule_reject(layout_module, checkpointing, policy_cls)
     test_t_committed_save_to_fresh_inference_equality(
         layout_module,
         checkpointing,

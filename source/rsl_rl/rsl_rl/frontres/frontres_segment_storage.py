@@ -29,7 +29,7 @@ def _v004_phase_evaluator() -> Callable[..., dict[str, torch.Tensor]]:
             "frontres_gain_storage_runtime", Path(__file__).resolve().with_name("frontres_gain.py")
         )
         if spec is None or spec.loader is None:
-            raise RuntimeError("could not load FRS-GAIN-v004 phase evaluator")
+            raise RuntimeError("could not load FRS-GAIN-v005 phase evaluator")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
@@ -257,6 +257,13 @@ class FrontRESSegmentStorageBatch:
     audit_identity_state: str = "UNCONFIRMED"
     transaction_metadata: Any | None = None
     transaction_row_indices: torch.Tensor | None = None
+    contact_constraint: torch.Tensor | None = None
+    zmp_constraint: torch.Tensor | None = None
+    survival_constraint: torch.Tensor | None = None
+    zmp_constraint_applicable: torch.Tensor | None = None
+    contact_constraint_advantage: torch.Tensor | None = None
+    zmp_constraint_advantage: torch.Tensor | None = None
+    survival_constraint_advantage: torch.Tensor | None = None
 
     def to_ppo_batch(self, batch_cls: Callable[..., Any]) -> Any:
         """把 finalized Segment storage 转换为 legacy PPO batch contract.
@@ -325,6 +332,12 @@ class FrontRESSegmentStorageBatch:
             payload["privileged_observations"] = self.privileged_observations
             payload["transaction_metadata"] = self.transaction_metadata
             payload["transaction_row_indices"] = _storage_batch_transaction_row_indices(self)
+            for name in (
+                "contact_constraint", "zmp_constraint", "survival_constraint",
+                "contact_constraint_advantage", "zmp_constraint_advantage", "survival_constraint_advantage",
+                "zmp_constraint_applicable",
+            ):
+                payload[name] = getattr(self, name)
         return batch_cls(**payload)
 
 
@@ -558,11 +571,11 @@ class FrontRESV015OneActionKEvidence:
 
 @dataclass(frozen=True)
 class FrontRESV015PairedGainFacts:
-    """将一个 Repair policy row 与其 Noisy baseline 配对给 v003 owner.
+    """将一个 Repair policy row 与其 Noisy baseline 配对给 v005 owner.
 
     状态: active v015 local storage adapter.
     上游: immutable one-action capture.
-    下游: FRS-GAIN-v004 input 和 one return/advantage carrier.
+    下游: FRS-GAIN-v005 scalar target/vector-constraint input 和 one return/advantage carrier.
     证据: deterministic formal connectivity; live Physics values remain pending.
     """
 
@@ -590,6 +603,12 @@ class FrontRESV015PairedGainFacts:
     noisy_zmp_violation: torch.Tensor
     physics_valid_step_count: torch.Tensor
     horizon_k: torch.Tensor
+    expected_support_steps: torch.Tensor
+    repaired_contact_steps: torch.Tensor
+    noisy_contact_steps: torch.Tensor
+    repaired_zmp_margin_steps: torch.Tensor
+    noisy_zmp_margin_steps: torch.Tensor
+    physics_pair_valid_mask: torch.Tensor
     scenario_ids: tuple[str, ...]
     noisy_segment_hashes: tuple[str, ...]
     x_t_identities: tuple[str, ...]
@@ -644,6 +663,16 @@ class FrontRESV015PairedGainFacts:
             or bool((self.physics_valid_step_count > self.horizon_k).any())
         ):
             raise ValueError("v015 paired gain facts have invalid identity or Physics evidence")
+        k_steps = int(self.expected_support_steps.shape[0])
+        if (
+            tuple(self.expected_support_steps.shape) != (k_steps, count, 2)
+            or tuple(self.repaired_contact_steps.shape) != (k_steps, count, 2)
+            or tuple(self.noisy_contact_steps.shape) != (k_steps, count, 2)
+            or tuple(self.repaired_zmp_margin_steps.shape) != (k_steps, count)
+            or tuple(self.noisy_zmp_margin_steps.shape) != (k_steps, count)
+            or tuple(self.physics_pair_valid_mask.shape) != (k_steps, count)
+        ):
+            raise ValueError("FRS-GAIN-v005 paired facts require ordered [K,B] Contact/ZMP evidence")
         valid = self.intent_valid_mask.bool()
         for name, value in (
             ("repaired_zmp_margin", self.repaired_zmp_margin),
@@ -705,6 +734,13 @@ class FrontRESV015GainReturnEvidence:
     utility_repaired: torch.Tensor
     utility_noisy: torch.Tensor
     repair_penalty: torch.Tensor
+    contact_constraint: torch.Tensor
+    zmp_constraint: torch.Tensor
+    survival_constraint: torch.Tensor
+    zmp_constraint_applicable: torch.Tensor
+    contact_constraint_advantage: torch.Tensor
+    zmp_constraint_advantage: torch.Tensor
+    survival_constraint_advantage: torch.Tensor
     physics_valid_step_count: torch.Tensor
     return_k: torch.Tensor
     advantage_k: torch.Tensor
@@ -716,7 +752,10 @@ class FrontRESV015GainReturnEvidence:
     x_t_identities: tuple[str, ...]
     intent_q29_provenance: str
     intent_q29_source: str
-    gain_source: str = "FRS-GAIN-v004-support-mode-physics-admissibility"
+    gain_source: str = "FRS-GAIN-v005-vector-physics-constraints"
+    scalar_target_id: str = "paired-intent-minus-repair-v1"
+    constraint_schema_id: str = "contact-phase_zmp-survival-physical-v1"
+    constraint_advantage_state: str = "unsealed"
 
     def validate(self) -> None:
         count = int(self.policy_actions.shape[0])
@@ -752,6 +791,13 @@ class FrontRESV015GainReturnEvidence:
             ("utility_repaired", self.utility_repaired),
             ("utility_noisy", self.utility_noisy),
             ("repair_penalty", self.repair_penalty),
+            ("contact_constraint", self.contact_constraint),
+            ("zmp_constraint", self.zmp_constraint),
+            ("survival_constraint", self.survival_constraint),
+            ("zmp_constraint_applicable", self.zmp_constraint_applicable),
+            ("contact_constraint_advantage", self.contact_constraint_advantage),
+            ("zmp_constraint_advantage", self.zmp_constraint_advantage),
+            ("survival_constraint_advantage", self.survival_constraint_advantage),
             ("physics_valid_step_count", self.physics_valid_step_count),
             ("return_k", self.return_k),
             ("advantage_k", self.advantage_k),
@@ -769,7 +815,9 @@ class FrontRESV015GainReturnEvidence:
             or len(self.scenario_ids) != count
             or len(self.noisy_segment_hashes) != count
             or len(self.x_t_identities) != count
-            or self.gain_source != "FRS-GAIN-v004-support-mode-physics-admissibility"
+            or self.gain_source != "FRS-GAIN-v005-vector-physics-constraints"
+            or self.scalar_target_id != "paired-intent-minus-repair-v1"
+            or self.constraint_schema_id != "contact-phase_zmp-survival-physical-v1"
             or bool((self.horizon_k <= 0).any())
             or bool((self.evidence_valid_step_count < 0).any())
             or bool((self.evidence_valid_step_count > self.horizon_k).any())
@@ -778,6 +826,19 @@ class FrontRESV015GainReturnEvidence:
         ):
             raise ValueError("v015 return evidence has invalid policy tuple or Gain source")
         valid = self.policy_row_valid.bool()
+        constraint_advantages = (
+            self.contact_constraint_advantage,
+            self.zmp_constraint_advantage,
+            self.survival_constraint_advantage,
+        )
+        if self.constraint_advantage_state == "sealed":
+            if any(not bool(torch.isfinite(value[valid]).all()) for value in constraint_advantages):
+                raise ValueError("FRS-GAIN-v005 sealed constraint advantages must be finite on valid rows")
+        elif self.constraint_advantage_state == "unsealed":
+            if any(bool(torch.isfinite(value).any()) for value in constraint_advantages):
+                raise ValueError("FRS-GAIN-v005 unsealed constraint advantages must remain UNCONFIRMED")
+        else:
+            raise ValueError("FRS-GAIN-v005 rejects unknown constraint advantage lifecycle state")
         for name, value in (
             ("gain_total", self.gain_total),
             ("intent_gain", self.intent_gain),
@@ -907,6 +968,12 @@ def pair_frontres_v015_gain_facts(evidence: FrontRESV015OneActionKEvidence) -> F
         noisy_zmp_violation=valid_phase(noisy_phase["zmp_violation"]).detach().clone(),
         physics_valid_step_count=physics_valid_step_count.detach().clone(),
         horizon_k=evidence.horizon_k.index_select(0, repair_rows).detach().clone(),
+        expected_support_steps=evidence.physics_expected_support_steps.detach().clone(),
+        repaired_contact_steps=evidence.physics_contact_repaired_steps.detach().clone(),
+        noisy_contact_steps=evidence.physics_contact_noisy_steps.detach().clone(),
+        repaired_zmp_margin_steps=evidence.physics_zmp_repaired_steps.detach().clone(),
+        noisy_zmp_margin_steps=evidence.physics_zmp_noisy_steps.detach().clone(),
+        physics_pair_valid_mask=evidence.physics_pair_valid_mask.detach().clone(),
         scenario_ids=tuple(evidence.scenario_ids[int(row)] for row in repair_rows.tolist()),
         noisy_segment_hashes=tuple(evidence.noisy_segment_hashes[int(row)] for row in repair_rows.tolist()),
         x_t_identities=tuple(evidence.x_t_identities[int(row)] for row in repair_rows.tolist()),
@@ -929,7 +996,7 @@ def build_frontres_v015_gain_return_evidence(
     for name in ("gain_total", "intent_gain", "physics_gain", "repair_cost"):
         value = getattr(gain_result, name, None)
         if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != count:
-            raise ValueError(f"v015 return evidence requires FRS-GAIN-v004 {name} [B]")
+            raise ValueError(f"v016 return evidence requires FRS-GAIN-v005 {name} [B]")
         components[name] = value.detach().to(device=facts.policy_values.device, dtype=torch.float32).clone()
     if (
         getattr(gain_result, "intent_q29_provenance", None) != facts.intent_q29_provenance
@@ -943,6 +1010,45 @@ def build_frontres_v015_gain_return_evidence(
     masked_components = {
         name: torch.where(valid, value, nan)
         for name, value in components.items()
+    }
+    constraint_components: dict[str, torch.Tensor] = {}
+    for name in ("contact_constraint", "zmp_constraint", "survival_constraint"):
+        value = getattr(gain_result, name, None)
+        if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != count:
+            raise ValueError(f"v015 return evidence requires FRS-GAIN-v005 {name} [B]")
+        value = value.detach().to(device=facts.policy_values.device, dtype=torch.float32).clone()
+        if not bool(torch.isfinite(value[valid]).all()) or bool((value[valid] < 0.0).any()):
+            raise ValueError(f"FRS-GAIN-v005 {name} must be finite and nonnegative on valid rows")
+        constraint_components[name] = torch.where(valid, value, nan)
+    zmp_applicable = getattr(gain_result, "zmp_constraint_applicable", None)
+    if not isinstance(zmp_applicable, torch.Tensor) or zmp_applicable.ndim != 1 or int(zmp_applicable.numel()) != count:
+        raise ValueError("v015 return evidence requires FRS-GAIN-v005 zmp_constraint_applicable [B]")
+    zmp_applicable = zmp_applicable.detach().to(device=facts.policy_values.device, dtype=torch.bool).clone()
+
+    scenario_counts = {
+        scenario_id: sum(observed == scenario_id for observed in facts.scenario_ids)
+        for scenario_id in set(facts.scenario_ids)
+    }
+    advantages_sealed = all(count >= 2 for count in scenario_counts.values())
+
+    def centered_by_scenario(value: torch.Tensor) -> torch.Tensor:
+        result = torch.full_like(value, float("nan"))
+        if not advantages_sealed:
+            return result
+        for scenario_id in sorted(set(facts.scenario_ids)):
+            rows = [index for index, observed in enumerate(facts.scenario_ids) if observed == scenario_id]
+            index = torch.tensor(rows, device=value.device, dtype=torch.long)
+            selected = value.index_select(0, index)
+            selected_valid = valid.index_select(0, index)
+            if not bool(selected_valid.all()):
+                raise ValueError("FRS-GAIN-v005 requires valid Repair attempts before constraint centering")
+            centered = selected - selected.mean().detach()
+            result.index_copy_(0, index, centered)
+        return result
+
+    constraint_advantages = {
+        name: centered_by_scenario(value)
+        for name, value in constraint_components.items()
     }
     physics_components: dict[str, torch.Tensor] = {}
     for name in (
@@ -964,7 +1070,7 @@ def build_frontres_v015_gain_return_evidence(
     ):
         value = getattr(gain_result, name, None)
         if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != count:
-            raise ValueError(f"v015 return evidence requires FRS-GAIN-v004 {name} [B]")
+            raise ValueError(f"v016 return evidence requires FRS-GAIN-v005 {name} [B]")
         value = value.detach().to(device=facts.policy_values.device, dtype=torch.float32).clone()
         physics_components[name] = torch.where(valid, value, nan)
 
@@ -1019,6 +1125,14 @@ def build_frontres_v015_gain_return_evidence(
         utility_repaired=physics_components["utility_repaired"],
         utility_noisy=physics_components["utility_noisy"],
         repair_penalty=physics_components["repair_penalty"],
+        contact_constraint=constraint_components["contact_constraint"],
+        zmp_constraint=constraint_components["zmp_constraint"],
+        survival_constraint=constraint_components["survival_constraint"],
+        zmp_constraint_applicable=zmp_applicable,
+        contact_constraint_advantage=constraint_advantages["contact_constraint"],
+        zmp_constraint_advantage=constraint_advantages["zmp_constraint"],
+        survival_constraint_advantage=constraint_advantages["survival_constraint"],
+        constraint_advantage_state="sealed" if advantages_sealed else "unsealed",
         physics_valid_step_count=facts.physics_valid_step_count.detach().clone(),
         return_k=return_k,
         advantage_k=advantage_k,
@@ -1134,6 +1248,13 @@ def build_frontres_v015_grouped_candidate_storage(
         old_sigmas=return_evidence.policy_sigmas.detach().clone(),
         transaction_metadata=metadata,
         transaction_row_indices=torch.arange(count, device=device, dtype=torch.long),
+        contact_constraint=return_evidence.contact_constraint.detach().clone(),
+        zmp_constraint=return_evidence.zmp_constraint.detach().clone(),
+        survival_constraint=return_evidence.survival_constraint.detach().clone(),
+        zmp_constraint_applicable=return_evidence.zmp_constraint_applicable.detach().clone(),
+        contact_constraint_advantage=return_evidence.contact_constraint_advantage.detach().clone(),
+        zmp_constraint_advantage=return_evidence.zmp_constraint_advantage.detach().clone(),
+        survival_constraint_advantage=return_evidence.survival_constraint_advantage.detach().clone(),
     )
     return storage_batch
 

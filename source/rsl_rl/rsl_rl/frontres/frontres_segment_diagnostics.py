@@ -34,7 +34,7 @@ class FrontRESSegmentReplaySummary:
     objective: str
 
 
-_V015_GAIN_SOURCE = "FRS-GAIN-v004-support-mode-physics-admissibility"
+_V015_GAIN_SOURCE = "FRS-GAIN-v005-vector-physics-constraints"
 _V015_LOCAL_EVALUATION_KIND = "local_k_candidate_only"
 _V015_COMPOSITION_EVALUATION_KIND = "deployment_composition_protocol"
 
@@ -51,7 +51,7 @@ def _v004_phase_evaluator() -> Callable[..., dict[str, torch.Tensor]]:
             "frontres_gain_diagnostics_runtime", Path(__file__).resolve().with_name("frontres_gain.py")
         )
         if spec is None or spec.loader is None:
-            raise RuntimeError("could not load FRS-GAIN-v004 phase evaluator for diagnostics")
+            raise RuntimeError("could not load FRS-GAIN-v005 phase evaluator for diagnostics")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
@@ -111,8 +111,8 @@ def _project_v015_zmp_role(
             violation = float(violation_cpu[step, row])
             if is_valid and not math.isfinite(margin):
                 raise ValueError("v015 ZMP diagnostic valid margin must be finite")
-            if is_applicable and (not is_valid or not math.isfinite(violation) or not 0.0 <= violation <= 1.0):
-                raise ValueError("v015 ZMP diagnostic applicable violation must be finite in [0,1]")
+            if is_applicable and (not is_valid or not math.isfinite(violation) or violation < 0.0):
+                raise ValueError("v015 ZMP diagnostic applicable violation must be finite and unsaturated")
             row_margins.append(margin if is_valid else None)
             row_violations.append(violation if is_applicable else None)
             if is_applicable:
@@ -166,6 +166,14 @@ class FrontRESV015LocalEvaluationReport:
     policy_values: tuple[float, ...]
     returns: tuple[float, ...]
     raw_advantages: tuple[float, ...]
+    contact_constraint: tuple[float, ...]
+    zmp_constraint: tuple[float, ...]
+    survival_constraint: tuple[float, ...]
+    contact_constraint_advantage: tuple[float, ...]
+    zmp_constraint_advantage: tuple[float, ...]
+    survival_constraint_advantage: tuple[float, ...]
+    zmp_constraint_applicable: tuple[bool, ...]
+    constraint_advantage_state: str
     repaired_success: tuple[float, ...]
     noisy_success: tuple[float, ...]
     repaired_survival: tuple[float, ...]
@@ -230,6 +238,9 @@ class FrontRESV015LocalEvaluationReport:
             self.policy_values,
             self.returns,
             self.raw_advantages,
+            self.contact_constraint,
+            self.zmp_constraint,
+            self.survival_constraint,
             self.repaired_success,
             self.noisy_success,
             self.repaired_survival,
@@ -264,8 +275,17 @@ class FrontRESV015LocalEvaluationReport:
             or len(self.policy_actions) != count
             or any(len(row) != 6 for row in self.policy_actions)
             or len(self.valid_policy_row_mask) != count
+            or len(self.zmp_constraint_applicable) != count
             or any(len(values) != count for values in components)
             or any(len(values) != count for values in row_diagnostics)
+            or any(
+                len(values) != count
+                for values in (
+                    self.contact_constraint_advantage,
+                    self.zmp_constraint_advantage,
+                    self.survival_constraint_advantage,
+                )
+            )
             or len(self.physics_valid_step_count) != count
             or len(self.expected_support_steps) != count
             or len(self.actual_contact_repaired_steps) != count
@@ -311,6 +331,19 @@ class FrontRESV015LocalEvaluationReport:
                 raise ValueError("v015 local evaluation report requires finite v003 components on valid policy rows")
             if not row_valid and not all(math.isnan(value) for value in row_values):
                 raise ValueError("v015 local evaluation report keeps invalid-row diagnostics UNCONFIRMED, never zero-filled")
+        constraint_advantages = (
+            self.contact_constraint_advantage,
+            self.zmp_constraint_advantage,
+            self.survival_constraint_advantage,
+        )
+        if self.constraint_advantage_state == "sealed":
+            if any(not all(math.isfinite(float(value)) for value in values) for values in constraint_advantages):
+                raise ValueError("v015 sealed constraint diagnostics require finite centered advantages")
+        elif self.constraint_advantage_state == "unsealed":
+            if any(any(math.isfinite(float(value)) for value in values) for values in constraint_advantages):
+                raise ValueError("v015 unsealed constraint diagnostics must remain UNCONFIRMED")
+        else:
+            raise ValueError("v015 rejects unknown constraint advantage lifecycle state")
         source = self.intent_q29_source.lower()
         if not source or any(token in source for token in ("clean", "root", "global")):
             raise ValueError("v015 local evaluation report rejects non-deployment q29 provenance")
@@ -489,6 +522,12 @@ def build_frontres_v015_local_evaluation_report(
         "utility_noisy",
         "repair_penalty",
         "physics_valid_step_count",
+        "contact_constraint",
+        "zmp_constraint",
+        "survival_constraint",
+        "contact_constraint_advantage",
+        "zmp_constraint_advantage",
+        "survival_constraint_advantage",
     )
     diagnostic_tensors = {name: getattr(return_evidence, name, None) for name in diagnostic_names}
     if any(not isinstance(value, torch.Tensor) or tuple(value.shape) != (count,) for value in diagnostic_tensors.values()):
@@ -568,6 +607,14 @@ def build_frontres_v015_local_evaluation_report(
         policy_values=tuple(float(value) for value in diagnostic_tensors["policy_values"].detach().cpu().tolist()),
         returns=tuple(float(value) for value in diagnostic_tensors["return_k"].detach().cpu().tolist()),
         raw_advantages=tuple(float(value) for value in diagnostic_tensors["advantage_k"].detach().cpu().tolist()),
+        contact_constraint=tuple(float(value) for value in diagnostic_tensors["contact_constraint"].detach().cpu().tolist()),
+        zmp_constraint=tuple(float(value) for value in diagnostic_tensors["zmp_constraint"].detach().cpu().tolist()),
+        survival_constraint=tuple(float(value) for value in diagnostic_tensors["survival_constraint"].detach().cpu().tolist()),
+        contact_constraint_advantage=tuple(float(value) for value in diagnostic_tensors["contact_constraint_advantage"].detach().cpu().tolist()),
+        zmp_constraint_advantage=tuple(float(value) for value in diagnostic_tensors["zmp_constraint_advantage"].detach().cpu().tolist()),
+        survival_constraint_advantage=tuple(float(value) for value in diagnostic_tensors["survival_constraint_advantage"].detach().cpu().tolist()),
+        zmp_constraint_applicable=tuple(bool(value) for value in return_evidence.zmp_constraint_applicable.detach().cpu().tolist()),
+        constraint_advantage_state=str(return_evidence.constraint_advantage_state),
         repaired_success=tuple(float(value) for value in diagnostic_tensors["repaired_success"].detach().cpu().tolist()),
         noisy_success=tuple(float(value) for value in diagnostic_tensors["noisy_success"].detach().cpu().tolist()),
         repaired_survival=tuple(float(value) for value in diagnostic_tensors["repaired_survival"].detach().cpu().tolist()),
@@ -668,6 +715,11 @@ def format_frontres_v015_local_evaluation_report(report: FrontRESV015LocalEvalua
             (
                 "  credit: "
                 f"value={report.policy_values} return={report.returns} raw_advantage={report.raw_advantages}"
+            ),
+            (
+                "  constraints: "
+                f"contact={report.contact_constraint} zmp={report.zmp_constraint} "
+                f"survival={report.survival_constraint} zmp_applicable={report.zmp_constraint_applicable}"
             ),
             f"  repair: cost={_fmt_v015_eval_scalar(report.repair_cost_mean)}",
             (

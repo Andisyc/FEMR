@@ -29,7 +29,7 @@ class FrontRESSegmentWarmupPhase:
 
 @dataclass(frozen=True)
 class FrontRESKStageSpec:
-    """One immutable FRS-TRAIN-v009 horizon stage."""
+    """One immutable FRS-TRAIN-v010 horizon stage."""
 
     horizon_k: int
     critic_only_iterations: int
@@ -85,7 +85,7 @@ def normalize_frontres_k_stage_schedule(
             raise ValueError(f"K-stage horizon {spec.horizon_k} exceeds max_horizon_k={int(max_horizon_k)}")
         normalized.append(spec)
     if not normalized:
-        raise ValueError("FRS-TRAIN-v009 requires a nonempty explicit K-stage schedule")
+        raise ValueError("FRS-TRAIN-v010 requires a nonempty explicit K-stage schedule")
     for row, spec in enumerate(normalized[:-1]):
         if spec.joint_iterations <= 0:
             raise ValueError(f"non-final K-stage row {row} requires a positive joint duration")
@@ -100,7 +100,7 @@ def parse_frontres_k_stage_schedule(
     """Parse ``K:N_c:N_a:N_joint`` comma-separated CLI syntax."""
 
     if not isinstance(value, str) or not value.strip():
-        raise ValueError("FRS-TRAIN-v009 requires an explicit K-stage schedule")
+        raise ValueError("FRS-TRAIN-v010 requires an explicit K-stage schedule")
     rows: list[tuple[int, int, int, int]] = []
     for row, token in enumerate(value.split(",")):
         parts = tuple(part.strip() for part in token.split(":"))

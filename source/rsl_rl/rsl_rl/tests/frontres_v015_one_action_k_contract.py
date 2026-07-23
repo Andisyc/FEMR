@@ -57,6 +57,9 @@ def _load_owners():
     ppo_module.compute_frontres_segment_ppo_loss = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         AssertionError("Step 2B must not enter PPO")
     )
+    ppo_module.install_frontres_v004_projected_gradients = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Step 2B must not install PPO gradients")
+    )
     sys.modules[ppo_module.__name__] = ppo_module
     algorithms_pkg.frontres_segment_ppo = ppo_module
 
@@ -452,7 +455,7 @@ def test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, comma
     torch.testing.assert_close(facts.repaired_zmp_margin, torch.tensor([0.5, 0.25]))
     torch.testing.assert_close(facts.noisy_zmp_margin, torch.tensor([0.2, 0.25]))
     torch.testing.assert_close(facts.repaired_contact, torch.tensor([1.0, 1.0]))
-    torch.testing.assert_close(facts.noisy_contact, torch.tensor([0.0, 1.0]))
+    torch.testing.assert_close(facts.noisy_contact, torch.tensor([0.94, 1.0]))
     assert facts.physics_valid_step_count.tolist() == [3, 2]
 
     tied = _capture(live_probe, helper, commands, hooks, setup, horizons=(2, 2), physics_mode="tie")

@@ -324,7 +324,7 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         assert normalizers["privileged"].training and normalizers["teacher"].training
         assert payload == json.loads(result_path.read_text(encoding="utf-8"))
         assert payload["schema_version"] == "frontres-v015-heldout-quality-report-v1"
-        assert payload["gain_source"] == "FRS-GAIN-v004-support-mode-physics-admissibility"
+        assert payload["gain_source"] == "FRS-GAIN-v005-vector-physics-constraints"
         rows = payload["items"][0]["routes"]
         assert tuple(row["route"] for row in rows) == ("zero", "hsl", "policy")
         assert all(row["roles"] == ["repair", "noisy"] for row in rows)

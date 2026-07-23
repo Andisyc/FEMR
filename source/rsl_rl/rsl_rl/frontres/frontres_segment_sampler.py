@@ -91,7 +91,7 @@ class FrontRESV015PriorityEvidence:
     valid_mask: torch.Tensor
     intent_q29_provenance: str
     intent_q29_source: str
-    gain_source: str = "FRS-GAIN-v004-support-mode-physics-admissibility"
+    gain_source: str = "FRS-GAIN-v005-vector-physics-constraints"
 
     def validate(self) -> None:
         count = int(self.gain_total.numel())
@@ -113,7 +113,7 @@ class FrontRESV015PriorityEvidence:
             or len(self.x_t_identities) != count
             or not bool((self.horizon_k > 0).all())
             or self.intent_q29_provenance != "deployment_noisy_q29"
-            or self.gain_source != "FRS-GAIN-v004-support-mode-physics-admissibility"
+            or self.gain_source != "FRS-GAIN-v005-vector-physics-constraints"
         ):
             raise ValueError("v015 priority evidence has invalid identity, provenance, or Gain source")
         source = self.intent_q29_source.lower()
@@ -144,7 +144,7 @@ def build_frontres_v015_priority_evidence(return_evidence: Any) -> FrontRESV015P
     if not callable(validate):
         raise TypeError("v015 priority evidence requires a validated v003 return carrier")
     validate()
-    if getattr(return_evidence, "gain_source", None) != "FRS-GAIN-v004-support-mode-physics-admissibility":
+    if getattr(return_evidence, "gain_source", None) != "FRS-GAIN-v005-vector-physics-constraints":
         raise ValueError("v015 priority evidence rejects legacy or unspecified Gain source")
     result = FrontRESV015PriorityEvidence(
         scenario_ids=tuple(str(value) for value in return_evidence.scenario_ids),

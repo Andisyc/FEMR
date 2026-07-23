@@ -503,26 +503,31 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
 def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[str, Any]) -> None:
     if not formal_runtime_audit_enabled(runner):
         return
-    # B1: v009 persistence audit follows the checkpoint-v4 curriculum owner.
-    # The removed v008 global warmup payload is deliberately not accepted here.
+    # B1: active persistence audit follows the checkpoint-v5 coordinated owner.
     required = (
         "model_state_dict",
         "optimizer_state_dict",
         "iter",
         "obs_norm_state_dict",
         "frontres_segment_sampler_state_dict",
-        "frontres_gain_config",
         "frontres_segment_k_curriculum",
         "frontres_v015_checkpoint_identity",
     )
     missing = [key for key in required if key not in payload]
     assert not missing, f"formal Stage 3 checkpoint missing audit fields: {missing}"
 
-    # B2: Cross-check the top-level resume schedule against the sealed v4 identity.
+    # B2: Cross-check the top-level resume schedule and coordinated v5 identity.
     identity = payload["frontres_v015_checkpoint_identity"]
     assert isinstance(identity, Mapping), "formal Stage 3 checkpoint identity must be a mapping"
-    assert identity.get("format") == "frontres-v015-checkpoint-v4", "formal audit requires checkpoint-v4"
-    assert identity.get("training_contract_id") == "FRS-TRAIN-v009", "formal audit requires FRS-TRAIN-v009"
+    assert identity.get("format") == "frontres-v015-checkpoint-v5", "formal audit requires checkpoint-v5"
+    assert identity.get("method_contract_id") == "FRS-METHOD-v016", "formal audit requires FRS-METHOD-v016"
+    assert identity.get("gain_contract_id") == "FRS-GAIN-v005", "formal audit requires FRS-GAIN-v005"
+    assert identity.get("optimization_contract_id") == "FRS-PPO-v004", "formal audit requires FRS-PPO-v004"
+    assert identity.get("training_contract_id") == "FRS-TRAIN-v010", "formal audit requires FRS-TRAIN-v010"
+    assert "frontres_gain_config" not in payload, "active checkpoint-v5 must exclude legacy scalar Gain metadata"
+    solver = identity.get("constraint_solver")
+    assert isinstance(solver, Mapping), "formal Stage 3 checkpoint has no constraint-solver identity"
+    assert solver.get("persistent_dual_state") is False, "formal Stage 3 must not persist learned dual state"
     curriculum = identity.get("curriculum")
     assert isinstance(curriculum, Mapping), "formal Stage 3 checkpoint has no sealed curriculum identity"
     try:
@@ -536,13 +541,15 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     active_k = int(curriculum.get("active_k", 0))
     assert active_k in {row[0] for row in identity_schedule}, "formal Stage 3 checkpoint active K is not scheduled"
 
-    # B3: Emit the exact v009 identity immediately before the torch.save consumer.
+    # B3: Emit the exact coordinated identity immediately before torch.save.
     print(
         "[AUDIT-PERSIST-01] "
         f"path={path} iter={payload.get('iter', 'missing')} "
         f"model={int('model_state_dict' in payload)} optimizer={int('optimizer_state_dict' in payload)} "
         f"obs_norm={int('obs_norm_state_dict' in payload)} sampler={int('frontres_segment_sampler_state_dict' in payload)} "
-        f"gain_config={int('frontres_gain_config' in payload)} "
+        f"contracts={identity.get('method_contract_id')}/{identity.get('gain_contract_id')}/"
+        f"{identity.get('optimization_contract_id')}/{identity.get('training_contract_id')} "
+        f"persistent_dual={int(bool(solver.get('persistent_dual_state')))} "
         f"curriculum={saved_schedule} stage={curriculum.get('k_stage_index', 'missing')} "
         f"active_k={active_k} phase={curriculum.get('phase', 'missing')} "
         f"fingerprint={curriculum.get('schedule_fingerprint', 'missing')}",

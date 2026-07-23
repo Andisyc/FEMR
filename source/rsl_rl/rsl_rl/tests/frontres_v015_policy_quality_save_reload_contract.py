@@ -234,7 +234,7 @@ def test_real_save_fresh_reload_to_atomic_quality_report() -> None:
             result_path=str(report_path),
         )
         assert strict_request.hsl_checkpoint.format == "frontres-v015-hsl-proposal-v1"
-        assert strict_request.policy_checkpoint.format == "frontres-v015-checkpoint-v4"
+        assert strict_request.policy_checkpoint.format == "frontres-v015-checkpoint-v5"
         policy_layout = dict(strict_request.policy_checkpoint.future_intent_layout)
         assert policy_layout["actor_dim"] == 928
         assert policy_layout["prefix_dim"] == 158

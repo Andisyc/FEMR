@@ -171,7 +171,7 @@ _V015_QUALITY_OWNER_IDENTITY = (
 )
 _V015_QUALITY_ROUTES = ("zero", "hsl", "policy")
 _V015_QUALITY_REPORT_SCHEMA = "frontres-v015-heldout-quality-report-v1"
-_V015_GAIN_SOURCE = "FRS-GAIN-v004-support-mode-physics-admissibility"
+_V015_GAIN_SOURCE = "FRS-GAIN-v005-vector-physics-constraints"
 _V015_DYNAMIC_STATE_FIELDS = (
     "root_state_w",
     "joint_pos",
@@ -734,7 +734,7 @@ def build_frontres_v015_policy_quality_eval_request(
         or policy.action_kind != manifest.action_kind
         or hsl.action_dim != manifest.action_dim
         or policy.action_dim != manifest.action_dim
-        or hsl.method_contract_id != manifest.method_contract_id
+        or hsl.method_contract_id != "FRS-METHOD-v015"
         or policy.method_contract_id != manifest.method_contract_id
         or hsl.training_contract_id != "FRS-TRAIN-v007"
         or policy.training_contract_id != manifest.training_contract_id
@@ -842,11 +842,17 @@ def _v015_quality_route_result(
         noisy_contact_violation=facts.noisy_contact_violation,
         repaired_zmp_violation=facts.repaired_zmp_violation,
         noisy_zmp_violation=facts.noisy_zmp_violation,
+        expected_support_steps=facts.expected_support_steps,
+        repaired_contact_steps=facts.repaired_contact_steps,
+        noisy_contact_steps=facts.noisy_contact_steps,
+        repaired_zmp_margin_steps=facts.repaired_zmp_margin_steps,
+        noisy_zmp_margin_steps=facts.noisy_zmp_margin_steps,
+        physics_pair_valid_mask=facts.physics_pair_valid_mask,
     )
     gain = compute_intent_physics_local_repair_gain(gain_input, config=FrontRESIntentPhysicsGainConfig())
     valid = facts.intent_valid_mask.bool() & gain.available.bool()
     if not bool(valid.any().item()):
-        raise RuntimeError("v015 quality route has no valid v004 Gain row")
+        raise RuntimeError("v015 quality route has no valid v005 objective/constraint row")
     components = {
         name: torch.where(valid, getattr(gain, name).detach().float(), torch.full_like(gain.gain_total, float("nan")))
         for name in (
@@ -855,6 +861,7 @@ def _v015_quality_route_result(
             "physics_admissible_repaired", "physics_admissible_noisy",
             "physics_deficit_repaired", "physics_deficit_noisy",
             "utility_repaired", "utility_noisy", "repair_penalty",
+            "contact_constraint", "zmp_constraint", "survival_constraint",
         )
     }
     repair_rows = evidence.policy_row_indices.detach().to(dtype=torch.long)

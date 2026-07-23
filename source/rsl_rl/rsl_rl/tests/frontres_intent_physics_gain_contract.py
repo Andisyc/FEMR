@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic S1 contracts for the FRS-GAIN-v004 pure owner."""
+"""Deterministic S1 contracts for the FRS-GAIN-v005 pure owner."""
 from __future__ import annotations
 
 from dataclasses import fields, replace
@@ -42,6 +42,8 @@ def _evidence(
     repaired = _q29(0.1, batch_size=int(intent.shape[0])) if repaired is None else repaired
     noisy = _q29(0.4, batch_size=int(intent.shape[0])) if noisy is None else noisy
     action_steps = torch.zeros(int(intent.shape[0]), 6) if action_steps is None else action_steps
+    batch_size = int(intent.shape[0])
+    expected_support = torch.ones(4, batch_size, 2)
     payload = {
         "intent_q29": intent,
         "repaired_q29": repaired,
@@ -58,6 +60,12 @@ def _evidence(
         "noisy_contact_violation": torch.ones(int(intent.shape[0])),
         "repaired_zmp_violation": torch.zeros(int(intent.shape[0])),
         "noisy_zmp_violation": torch.zeros(int(intent.shape[0])),
+        "expected_support_steps": expected_support,
+        "repaired_contact_steps": expected_support.clone(),
+        "noisy_contact_steps": expected_support.clone(),
+        "repaired_zmp_margin_steps": torch.full((4, batch_size), 0.1),
+        "noisy_zmp_margin_steps": torch.full((4, batch_size), 0.1),
+        "physics_pair_valid_mask": torch.ones(4, batch_size, dtype=torch.bool),
     }
     payload.update(kwargs)
     return MODULE.FrontRESIntentPhysicsGainInput(**payload)
@@ -77,7 +85,7 @@ def test_value_sign_and_alias() -> None:
     torch.testing.assert_close(result.intent_gain, torch.full((2,), 0.3))
     torch.testing.assert_close(result.physics_gain, torch.full((2,), 0.75))
     torch.testing.assert_close(result.repair_cost, torch.zeros(2))
-    assert bool((result.gain_total > 2.0).all())
+    torch.testing.assert_close(result.gain_total, result.intent_gain)
     assert bool(result.physics_admissible_repaired.all())
     assert not bool(result.physics_admissible_noisy.any())
     torch.testing.assert_close(result.style_gain, result.intent_gain)
@@ -180,8 +188,8 @@ def test_paired_physics_k_normalization_and_full_six_d_cost() -> None:
     torch.testing.assert_close(result.repair_norm, expected_norm)
     torch.testing.assert_close(result.repair_temporal_change, expected_temporal)
     torch.testing.assert_close(result.repair_cost, expected_cost)
-    expected_penalty = 0.15 * expected_cost / (1.0 + expected_cost)
-    expected_total = torch.tensor([2.5]) - expected_penalty
+    expected_penalty = expected_cost
+    expected_total = -expected_penalty
     torch.testing.assert_close(result.gain_total, expected_total)
     print("[T-pair/T-full6] K-normalized paired physics and all-6D repair cost remain explicit", flush=True)
 
@@ -197,7 +205,7 @@ def test_phase_conditioning_and_lexicographic_dominance() -> None:
     torch.testing.assert_close(phase["contact_violation"], torch.zeros(1))
     assert not bool(phase["zmp_applicable_steps"][1, 0])
     assert bool(phase["zmp_applicable_steps"][2, 0])
-    torch.testing.assert_close(phase["zmp_step_violation"][:, 0], torch.tensor([1.0, 1.0, 0.0, 0.0]))
+    torch.testing.assert_close(phase["zmp_step_violation"][:, 0], torch.tensor([0.2, 0.2, 0.0, 0.0]))
 
     extra_step = actual.clone()
     extra_step[0, 0, 0] = 0
@@ -210,11 +218,13 @@ def test_phase_conditioning_and_lexicographic_dominance() -> None:
         repaired=_q29(0.0, batch_size=2),
         noisy=_q29(0.4, batch_size=2),
         repaired_contact_violation=torch.ones(2),
+        repaired_contact_steps=torch.zeros(4, 2, 2),
         noisy_contact_violation=torch.zeros(2),
         noisy_success=torch.ones(2, dtype=torch.bool),
         noisy_survival=torch.full((2,), 4.0),
     ))
-    assert bool((unsafe_better_intent.gain_total < 0.0).all())
+    assert bool((unsafe_better_intent.gain_total > 0.0).all())
+    assert bool((unsafe_better_intent.contact_constraint > 0.0).all())
     flight = MODULE.evaluate_phase_conditioned_physics(
         torch.zeros(2, 1, 2), torch.zeros(2, 1, 2), torch.full((2, 1), float("nan")),
         torch.ones(2, 1, dtype=torch.bool), timing_tolerance=0, recovery_window=0,
@@ -234,7 +244,40 @@ def test_phase_conditioning_and_lexicographic_dominance() -> None:
     torch.testing.assert_close(
         permuted["zmp_step_violation"], two["zmp_step_violation"].index_select(1, permutation)
     )
-    print("[T-phase/T-lexicographic] planned transitions recover; unsafe Intent cannot compensate Physics", flush=True)
+    print("[T-phase/T-vector] planned transitions recover; Physics remains separate from scalar Intent", flush=True)
+
+
+def test_unsaturated_constraints_and_noisy_independence() -> None:
+    mild = _evidence(repaired_zmp_margin_steps=torch.full((4, 2), -0.05))
+    severe = replace(mild, repaired_zmp_margin_steps=torch.full((4, 2), -0.50))
+    mild_result = _compute(mild)
+    severe_result = _compute(severe)
+    assert bool((severe_result.zmp_constraint > mild_result.zmp_constraint).all())
+    torch.testing.assert_close(severe_result.gain_total, mild_result.gain_total)
+
+    noisy_changed = replace(mild, noisy_zmp_margin_steps=torch.full((4, 2), -5.0))
+    noisy_changed_result = _compute(noisy_changed)
+    torch.testing.assert_close(noisy_changed_result.zmp_constraint, mild_result.zmp_constraint)
+    torch.testing.assert_close(noisy_changed_result.gain_total, mild_result.gain_total)
+
+    flight = _evidence(
+        expected_support_steps=torch.zeros(4, 2, 2),
+        repaired_contact_steps=torch.zeros(4, 2, 2),
+        noisy_contact_steps=torch.zeros(4, 2, 2),
+        repaired_zmp_margin_steps=torch.full((4, 2), float("nan")),
+        noisy_zmp_margin_steps=torch.full((4, 2), float("nan")),
+    )
+    flight_result = _compute(flight)
+    assert not bool(flight_result.zmp_constraint_applicable.any())
+    torch.testing.assert_close(flight_result.zmp_constraint, torch.zeros(2))
+
+    try:
+        _compute(replace(mild, repaired_zmp_margin_steps=None))
+    except ValueError as exc:
+        assert "ordered" in str(exc)
+    else:
+        raise AssertionError("FRS-GAIN-v005 accepted missing ordered Physics evidence")
+    print("[T-unsaturated/T-noisy-independent/T-flight] vector constraints preserve severity and N/A", flush=True)
 
 
 def main() -> None:
@@ -244,6 +287,7 @@ def main() -> None:
     test_optional_components_are_unconfirmed_not_zero()
     test_paired_physics_k_normalization_and_full_six_d_cost()
     test_phase_conditioning_and_lexicographic_dominance()
+    test_unsaturated_constraints_and_noisy_independence()
     print("frontres_intent_physics_gain_contract: ok", flush=True)
 
 

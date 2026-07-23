@@ -47,7 +47,7 @@ _K_STAGE_SPEC = importlib.util.spec_from_file_location(
     Path(__file__).resolve().parents[1] / "frontres" / "frontres_segment_warmup.py",
 )
 if _K_STAGE_SPEC is None or _K_STAGE_SPEC.loader is None:
-    raise RuntimeError("Could not load FRS-TRAIN-v009 K-stage owner")
+        raise RuntimeError("Could not load FRS-TRAIN-v010 K-stage owner")
 _K_STAGE_MODULE = importlib.util.module_from_spec(_K_STAGE_SPEC)
 sys.modules[_K_STAGE_SPEC.name] = _K_STAGE_MODULE
 _K_STAGE_SPEC.loader.exec_module(_K_STAGE_MODULE)
@@ -68,7 +68,7 @@ _FRONTRES_GAIN_CONFIG_FIELDS = (
 )
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
-_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v4"
+_V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v5"
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
 _V015_LAST_RECEIPT_ATTR = "_frontres_v015_last_committed_transaction_receipt"
@@ -335,10 +335,10 @@ def _inspect_frontres_v015_policy_quality_payload(
         raise RuntimeError("quality policy requires the strict Stage-3 v015 checkpoint identity")
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
-        or identity.get("method_contract_id") != "FRS-METHOD-v015"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v009"
-        or identity.get("gain_contract_id") != "FRS-GAIN-v004"
-        or identity.get("ppo_contract_id") != "FRS-PPO-v003"
+        or identity.get("method_contract_id") != "FRS-METHOD-v016"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v010"
+        or identity.get("gain_contract_id") != "FRS-GAIN-v005"
+        or identity.get("optimization_contract_id") != "FRS-PPO-v004"
         or identity.get("future_intent_layout") != _v015_quality_expected_layout()
     ):
         raise RuntimeError("quality policy has an incompatible v015 contract or layout identity")
@@ -348,9 +348,21 @@ def _inspect_frontres_v015_policy_quality_payload(
         "policy_rows_per_attempt": 1,
     }:
         raise RuntimeError("quality policy has an incompatible grouped-loss identity")
+    if identity.get("constraint_solver") != {
+        "family_order": ("contact", "zmp", "survival"),
+        "contact_budget_foot_seconds": 0.0,
+        "zmp_budget_metre_seconds": 0.0,
+        "contact_scale_foot_seconds": 1.0,
+        "zmp_scale_metre_seconds": 0.05,
+        "survival_scale_seconds": 1.0,
+        "constraint_grad_epsilon": 1.0e-10,
+        "projection_tolerance": 1.0e-8,
+        "persistent_dual_state": False,
+    }:
+        raise RuntimeError("quality policy has an incompatible v005 constraint solver identity")
     curriculum = identity.get("curriculum")
     if not isinstance(curriculum, Mapping):
-        raise RuntimeError("quality policy has no FRS-TRAIN-v009 curriculum identity")
+        raise RuntimeError("quality policy has no FRS-TRAIN-v010 curriculum identity")
     schedule = curriculum.get("schedule")
     iteration = int(curriculum.get("absolute_iteration", -1))
     expected = resolve_frontres_k_stage_identity(
@@ -370,7 +382,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         "actor_loss_weight": expected.phase.actor_loss_weight,
     }
     if dict(curriculum) != expected_payload:
-        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v009 curriculum identity")
+        raise RuntimeError("quality policy has an inconsistent FRS-TRAIN-v010 curriculum identity")
     transaction = identity.get("transaction")
     if not isinstance(transaction, Mapping) or str(transaction.get("state", "")) not in {"idle", "committed"}:
         raise RuntimeError("quality policy rejects partial or malformed transaction identity")
@@ -403,10 +415,10 @@ def _inspect_frontres_v015_policy_quality_payload(
         route="policy",
         format=_V015_CHECKPOINT_FORMAT,
         file_sha256=file_sha256,
-        method_contract_id="FRS-METHOD-v015",
-        training_contract_id="FRS-TRAIN-v009",
-        gain_contract_id="FRS-GAIN-v004",
-        ppo_contract_id="FRS-PPO-v003",
+        method_contract_id="FRS-METHOD-v016",
+        training_contract_id="FRS-TRAIN-v010",
+        gain_contract_id="FRS-GAIN-v005",
+        ppo_contract_id="FRS-PPO-v004",
         future_intent_layout=tuple(_v015_quality_expected_layout().items()),
         action_kind="delta_se3",
         action_dim=6,
@@ -1105,6 +1117,13 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
     if not isinstance(receipt, Mapping):
         raise RuntimeError("v015 committed checkpoint transaction requires a receipt")
     required = (
+        "method_contract_id",
+        "gain_contract_id",
+        "optimization_contract_id",
+        "training_contract_id",
+        "scalar_target_id",
+        "constraint_schema_id",
+        "projection_schema_id",
         "transaction_id",
         "policy_snapshot_id",
         "plan_identity_hash",
@@ -1125,6 +1144,13 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
         raise RuntimeError("v015 committed checkpoint receipt has an unexpected field set")
     result = {name: receipt[name] for name in required}
     for name in (
+        "method_contract_id",
+        "gain_contract_id",
+        "optimization_contract_id",
+        "training_contract_id",
+        "scalar_target_id",
+        "constraint_schema_id",
+        "projection_schema_id",
         "transaction_id",
         "policy_snapshot_id",
         "plan_identity_hash",
@@ -1133,6 +1159,17 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
     ):
         if not isinstance(result[name], str) or not result[name]:
             raise RuntimeError(f"v015 committed checkpoint receipt has invalid {name}")
+    expected_identity = {
+        "method_contract_id": "FRS-METHOD-v016",
+        "gain_contract_id": "FRS-GAIN-v005",
+        "optimization_contract_id": "FRS-PPO-v004",
+        "training_contract_id": "FRS-TRAIN-v010",
+        "scalar_target_id": "paired-intent-minus-repair-v1",
+        "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "projection_schema_id": "grouped-first-order-constraint-projection-v1",
+    }
+    if any(result[name] != value for name, value in expected_identity.items()):
+        raise RuntimeError("v015 committed checkpoint receipt has legacy contract identity")
     for name in (
         "expected_policy_row_count",
         "collected_policy_attempt_count",
@@ -1197,7 +1234,7 @@ def _validate_v009_receipt_curriculum(
     receipt = transaction["receipt"]
     expected_iteration = int(current_iteration) - 1
     if expected_iteration < 0 or int(receipt["training_iteration"]) != expected_iteration:
-        raise RuntimeError("FRS-TRAIN-v009 committed receipt is not adjacent to checkpoint iteration")
+        raise RuntimeError("FRS-TRAIN-v010 committed receipt is not adjacent to checkpoint iteration")
     expected = resolve_frontres_k_stage_identity(
         schedule=schedule,
         committed_update_iteration=expected_iteration,
@@ -1209,7 +1246,7 @@ def _validate_v009_receipt_curriculum(
         or int(receipt["active_k"]) != expected.active_k
         or int(receipt["k_stage_iteration"]) != expected.stage_iteration
     ):
-        raise RuntimeError("FRS-TRAIN-v009 committed receipt has a mismatched K-stage identity")
+        raise RuntimeError("FRS-TRAIN-v010 committed receipt has a mismatched K-stage identity")
 
 
 def _build_v015_checkpoint_identity(
@@ -1269,7 +1306,7 @@ def _build_v015_checkpoint_identity(
     )
     configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
     if configured_fingerprint and configured_fingerprint != curriculum.schedule_fingerprint:
-        raise RuntimeError("FRS-TRAIN-v009 checkpoint curriculum fingerprint drifted after config resolution")
+        raise RuntimeError("FRS-TRAIN-v010 checkpoint curriculum fingerprint drifted after config resolution")
     schedule_tuple = frontres_k_stage_schedule_tuple(schedule)
     transaction = _v015_transaction_checkpoint_payload(runner)
     _validate_v009_receipt_curriculum(
@@ -1279,10 +1316,24 @@ def _build_v015_checkpoint_identity(
     )
     return {
         "format": _V015_CHECKPOINT_FORMAT,
-        "method_contract_id": "FRS-METHOD-v015",
-        "training_contract_id": "FRS-TRAIN-v009",
-        "gain_contract_id": "FRS-GAIN-v004",
-        "ppo_contract_id": "FRS-PPO-v003",
+        "method_contract_id": "FRS-METHOD-v016",
+        "training_contract_id": "FRS-TRAIN-v010",
+        "gain_contract_id": "FRS-GAIN-v005",
+        "optimization_contract_id": "FRS-PPO-v004",
+        "scalar_target_id": "paired-intent-minus-repair-v1",
+        "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "projection_schema_id": "grouped-first-order-constraint-projection-v1",
+        "constraint_solver": {
+            "family_order": ("contact", "zmp", "survival"),
+            "contact_budget_foot_seconds": 0.0,
+            "zmp_budget_metre_seconds": 0.0,
+            "contact_scale_foot_seconds": 1.0,
+            "zmp_scale_metre_seconds": 0.05,
+            "survival_scale_seconds": 1.0,
+            "constraint_grad_epsilon": 1.0e-10,
+            "projection_tolerance": 1.0e-8,
+            "persistent_dual_state": False,
+        },
         "future_intent_layout": fields,
         "normalizer": normalizer,
         "grouped_loss": {
@@ -1318,22 +1369,38 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         )
     if (
         identity.get("format") != _V015_CHECKPOINT_FORMAT
-        or identity.get("method_contract_id") != "FRS-METHOD-v015"
-        or identity.get("training_contract_id") != "FRS-TRAIN-v009"
-        or identity.get("gain_contract_id") != "FRS-GAIN-v004"
-        or identity.get("ppo_contract_id") != "FRS-PPO-v003"
+        or identity.get("method_contract_id") != "FRS-METHOD-v016"
+        or identity.get("training_contract_id") != "FRS-TRAIN-v010"
+        or identity.get("gain_contract_id") != "FRS-GAIN-v005"
+        or identity.get("optimization_contract_id") != "FRS-PPO-v004"
+        or identity.get("scalar_target_id") != "paired-intent-minus-repair-v1"
+        or identity.get("constraint_schema_id") != "contact-phase_zmp-survival-physical-v1"
+        or identity.get("projection_schema_id") != "grouped-first-order-constraint-projection-v1"
     ):
         raise RuntimeError("v015 checkpoint has an incompatible contract or format identity")
+    expected_solver = {
+        "family_order": ("contact", "zmp", "survival"),
+        "contact_budget_foot_seconds": 0.0,
+        "zmp_budget_metre_seconds": 0.0,
+        "contact_scale_foot_seconds": 1.0,
+        "zmp_scale_metre_seconds": 0.05,
+        "survival_scale_seconds": 1.0,
+        "constraint_grad_epsilon": 1.0e-10,
+        "projection_tolerance": 1.0e-8,
+        "persistent_dual_state": False,
+    }
+    if identity.get("constraint_solver") != expected_solver:
+        raise RuntimeError("v015 checkpoint has an incompatible FRS-PPO-v004 solver identity")
     curriculum = identity.get("curriculum")
     if not isinstance(curriculum, Mapping):
-        raise RuntimeError("FRS-TRAIN-v009 checkpoint curriculum identity is missing")
+        raise RuntimeError("FRS-TRAIN-v010 checkpoint curriculum identity is missing")
     runtime_schedule = tuple(getattr(runner.alg, "frontres_segment_k_curriculum", ()) or ())
     runtime_schedule_tuple = frontres_k_stage_schedule_tuple(runtime_schedule)
     if curriculum.get("schedule") != runtime_schedule_tuple:
-        raise RuntimeError("FRS-TRAIN-v009 checkpoint schedule differs from the runtime schedule")
+        raise RuntimeError("FRS-TRAIN-v010 checkpoint schedule differs from the runtime schedule")
     saved_iteration = int(curriculum.get("absolute_iteration", -1))
     if saved_iteration < 0 or int(checkpoint.get("iter", -1)) != saved_iteration:
-        raise RuntimeError("FRS-TRAIN-v009 checkpoint iteration identity is inconsistent")
+        raise RuntimeError("FRS-TRAIN-v010 checkpoint iteration identity is inconsistent")
     expected_curriculum = resolve_frontres_k_stage_identity(
         schedule=runtime_schedule,
         committed_update_iteration=saved_iteration,
@@ -1351,7 +1418,7 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         "actor_loss_weight": expected_curriculum.phase.actor_loss_weight,
     }
     if dict(curriculum) != expected_curriculum_payload:
-        raise RuntimeError("FRS-TRAIN-v009 checkpoint curriculum stage/phase identity is inconsistent")
+        raise RuntimeError("FRS-TRAIN-v010 checkpoint curriculum stage/phase identity is inconsistent")
     fields = _v015_checkpoint_layout_fields(runner)
     if identity.get("future_intent_layout") != fields:
         raise RuntimeError(
@@ -1735,7 +1802,7 @@ def save_runner(self, path: str, infos=None):
         saved_dict["frontres_exec_floor_source_last"] = self._frontres_exec_floor_source_last
     if hasattr(self, '_frontres_warmup_complete'):
         saved_dict["frontres_warmup_complete"] = bool(self._frontres_warmup_complete)
-    if str(getattr(self, "training_type", "")) == "frontres":
+    if str(getattr(self, "training_type", "")) == "frontres" and not _uses_v015_formal_checkpoint_identity(self):
         saved_dict["frontres_gain_config"] = _frontres_gain_config_payload(getattr(self, "cfg", None))
     segment_sampler = getattr(self, "_frontres_segment_sampler", None)
     if segment_sampler is not None and hasattr(segment_sampler, "state_dict"):
@@ -1872,8 +1939,8 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         _validate_frontres_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
     else:
         print(
-            "[Runner] Verified FRS-GAIN-v004 and FRS-TRAIN-v009 through the v015 checkpoint identity; "
-            "legacy FRS-GAIN-v002 checkpoint metadata is not the active v015 owner.",
+            "[Runner] Verified FRS-GAIN-v005 and FRS-TRAIN-v010 through the v015 checkpoint identity; "
+            "legacy scalar Gain metadata is excluded from the active v015 owner.",
             flush=True,
         )
     # Full-resume diagnostic probe; uncomment when checking checkpoint reloads.
@@ -2059,7 +2126,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         )
         if saved_schedule != runtime_schedule:
             raise ValueError(
-                "FRS-TRAIN-v009 K-stage schedule changed across full resume: "
+                "FRS-TRAIN-v010 K-stage schedule changed across full resume: "
                 f"checkpoint={saved_schedule}, runtime={runtime_schedule}."
             )
     if resumed_training:

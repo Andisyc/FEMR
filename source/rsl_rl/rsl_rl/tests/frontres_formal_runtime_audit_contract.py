@@ -160,11 +160,14 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                 "optimizer_state_dict": {},
                 "obs_norm_state_dict": {},
                 "frontres_segment_sampler_state_dict": {},
-                "frontres_gain_config": {},
                 "frontres_segment_k_curriculum": ((8, 1, 1, 1), (16, 1, 1, 0)),
                 "frontres_v015_checkpoint_identity": {
-                    "format": "frontres-v015-checkpoint-v4",
-                    "training_contract_id": "FRS-TRAIN-v009",
+                    "format": "frontres-v015-checkpoint-v5",
+                    "method_contract_id": "FRS-METHOD-v016",
+                    "gain_contract_id": "FRS-GAIN-v005",
+                    "optimization_contract_id": "FRS-PPO-v004",
+                    "training_contract_id": "FRS-TRAIN-v010",
+                    "constraint_solver": {"persistent_dual_state": False},
                     "curriculum": {
                         "schedule": ((8, 1, 1, 1), (16, 1, 1, 0)),
                         "schedule_fingerprint": "f" * 64,
@@ -231,7 +234,7 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
     assert "active_k=16" in output
 
 
-def test_checkpoint_audit_rejects_missing_or_mixed_v009_curriculum() -> None:
+def test_checkpoint_audit_rejects_missing_or_mixed_v010_curriculum() -> None:
     runner = _runner()
     schedule = ((8, 1, 1, 1), (16, 1, 1, 0))
     base = {
@@ -240,11 +243,14 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v009_curriculum() -> None:
         "optimizer_state_dict": {},
         "obs_norm_state_dict": {},
         "frontres_segment_sampler_state_dict": {},
-        "frontres_gain_config": {},
         "frontres_segment_k_curriculum": schedule,
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v015-checkpoint-v4",
-            "training_contract_id": "FRS-TRAIN-v009",
+            "format": "frontres-v015-checkpoint-v5",
+            "method_contract_id": "FRS-METHOD-v016",
+            "gain_contract_id": "FRS-GAIN-v005",
+            "optimization_contract_id": "FRS-PPO-v004",
+            "training_contract_id": "FRS-TRAIN-v010",
+            "constraint_solver": {"persistent_dual_state": False},
             "curriculum": {"schedule": schedule, "active_k": 16},
         },
     }
@@ -267,7 +273,7 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v009_curriculum() -> None:
         except AssertionError:
             pass
         else:
-            raise AssertionError("formal audit accepted missing or mixed v009 curriculum")
+            raise AssertionError("formal audit accepted missing or mixed v010 curriculum")
 
 
 def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
@@ -503,7 +509,10 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
             assert linked_path.is_file(), f"Atlas source link target does not exist: {linked_path}"
             source_line = int(step["sourceLine"])
             assert 1 <= source_line <= len(owner_lines)
-            assert f"# B{step_index}:" in owner_lines[source_line - 1]
+            assert f"# B{step_index}:" in owner_lines[source_line - 1], (
+                f"{audit_id} B{step_index} source line drifted: "
+                f"{module['files'][0]['path']}:{source_line}"
+            )
     assert modules["AUDIT-PPO-01"]["gap"].startswith("runtime-observed:")
     assert "valid=13/14/16/16" in modules["AUDIT-PPO-01"]["gap"]
     assert "E70" in modules["AUDIT-PPO-01"]["gap"]
@@ -534,7 +543,7 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
 if __name__ == "__main__":
     test_return_audit_uses_policy_gain_rows_only()
     test_structured_phase_b_snapshots_cover_all_formal_boundaries()
-    test_checkpoint_audit_rejects_missing_or_mixed_v009_curriculum()
+    test_checkpoint_audit_rejects_missing_or_mixed_v010_curriculum()
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
     test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()
     test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_termination()

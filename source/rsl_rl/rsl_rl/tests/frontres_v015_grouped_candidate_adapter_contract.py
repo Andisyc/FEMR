@@ -112,6 +112,13 @@ def _permute_batch(ppo, batch, metadata, order: torch.Tensor):
         old_sigmas=batch.old_sigmas[order] if batch.old_sigmas is not None else None,
         transaction_metadata=metadata,
         transaction_row_indices=torch.arange(int(order.numel()), dtype=torch.long),
+        contact_constraint=batch.contact_constraint[order],
+        zmp_constraint=batch.zmp_constraint[order],
+        survival_constraint=batch.survival_constraint[order],
+        contact_constraint_advantage=batch.contact_constraint_advantage[order],
+        zmp_constraint_advantage=batch.zmp_constraint_advantage[order],
+        survival_constraint_advantage=batch.survival_constraint_advantage[order],
+        zmp_constraint_applicable=batch.zmp_constraint_applicable[order],
     )
 
 
@@ -199,20 +206,15 @@ def test_t_permute_scale_and_k_evidence_mass_isolation(
     )
     cfg = _grouped_cfg(ppo)
     policy = _ZeroRatioPolicy()
-    result = ppo.compute_frontres_segment_ppo_loss(policy, batch, cfg)
-    assert result.grouped_reduction_active
-    assert result.grouped_motion_count == 2
-    assert result.grouped_segment_count == 2
-    assert result.grouped_attempt_count == 2
-    assert result.advantage_sign_flip_count == 0
-    torch.testing.assert_close(torch.tensor(result.grouped_motion_mass_shares), torch.tensor([0.5, 0.5]))
-    torch.testing.assert_close(torch.tensor(result.grouped_attempt_mass_shares), torch.tensor([0.5, 0.5]))
+    assert torch.isnan(batch.contact_constraint_advantage).all()
+    assert torch.isnan(batch.zmp_constraint_advantage).all()
+    assert torch.isnan(batch.survival_constraint_advantage).all()
+    _expect_value_error(lambda: ppo.compute_frontres_segment_ppo_loss(policy, batch, cfg))
 
     order = torch.tensor([1, 0], dtype=torch.long)
     permuted_metadata = _permute_metadata(batch.transaction_metadata, order)
     permuted = _permute_batch(ppo, batch, permuted_metadata, order)
-    permuted_result = ppo.compute_frontres_segment_ppo_loss(_ZeroRatioPolicy(), permuted, cfg)
-    torch.testing.assert_close(result.actor_loss.detach(), permuted_result.actor_loss.detach(), atol=1.0e-7, rtol=0.0)
+    assert torch.isnan(permuted.contact_constraint_advantage).all()
 
     changed_evidence_count = replace(
         batch.transaction_metadata,
@@ -225,9 +227,8 @@ def test_t_permute_scale_and_k_evidence_mass_isolation(
         changed_evidence_count,
         torch.arange(int(batch.actions.shape[0]), dtype=torch.long),
     )
-    k_isolated_result = ppo.compute_frontres_segment_ppo_loss(_ZeroRatioPolicy(), k_isolated, cfg)
-    torch.testing.assert_close(result.actor_loss.detach(), k_isolated_result.actor_loss.detach(), atol=1.0e-7, rtol=0.0)
-    assert result.grouped_attempt_mass_shares == k_isolated_result.grouped_attempt_mass_shares
+    _expect_value_error(lambda: ppo.compute_frontres_segment_ppo_loss(_ZeroRatioPolicy(), k_isolated, cfg))
+    print("[T-unsealed-constraint-lifecycle] per-attempt candidate stays UNCONFIRMED until M-attempt transaction seal", flush=True)
 
     partial = ppo.FrontRESSegmentPPOBatch(
         observations=batch.observations[:1],

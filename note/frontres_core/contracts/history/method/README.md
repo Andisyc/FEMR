@@ -20,7 +20,7 @@ Read `../../README.md` first. These files are excluded from default recall.
 | `FRS-METHOD-v012` | 2026-07-17 | Double Segment Replay with fixed-policy repeated on-policy attempts before one cross-Segment PPO update | superseded | `v013` |
 | `FRS-METHOD-v013` | 2026-07-19 | Fixed Noisy future context, repeated policy attempts from Clean dynamic x_t, and grouped cross-Segment PPO transaction | superseded | `v014` |
 | `FRS-METHOD-v014` | 2026-07-19 | One PPO policy row per attempt; K is executable return evidence, but H/K were incorrectly coupled to one 65D Noisy tape | superseded | `v015` |
-| `FRS-METHOD-v015` | 2026-07-19 | Future 29DoF intent disambiguates one local root repair; K freezes FEMR and evaluates common Clean GMT continuation | active | - |
+| `FRS-METHOD-v015` | 2026-07-19 | Future 29DoF intent disambiguates one local root repair; K freezes FEMR and evaluates common Clean GMT continuation | superseded | `v016` |
 
 The numbered files below preserve the durable method meaning and supersession
 reason. `FRS-METHOD-v000-design-history-compendium.md` is the restricted raw

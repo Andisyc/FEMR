@@ -4967,3 +4967,213 @@ Next:
   advantages. Then choose between a richer Physics-first unsafe-tier distance,
   a sampling/curriculum adjustment, or longer Critic calibration only after the
   target is shown distinguishable.
+
+## E-FI-72: Noisy Counterfactual Retention And Vector-Physics Design Rebase
+
+Date: 2026-07-23
+
+Tier: user-confirmed method concept, existing-log causal evidence, read-only
+CodeGraph owner/consumer audit, and document-only governance rebase. No source
+code, test, checkpoint I/O, simulator, training, or live run.
+
+Raw evidence:
+
+- repository-root `v015_zmp_plateau_s4_gpu3.log`;
+- E-FI-71 bounded official C4 evidence;
+- active v004 source at
+  `source/rsl_rl/rsl_rl/frontres/frontres_gain.py`;
+- explicit user confirmation that FEMR should seek the smallest Intent-faithful
+  repair inside the executable space defined by Contact, ZMP, and survival.
+
+Observed facts:
+
+- v004 normalizes violation severity, reduces Contact/ZMP/survival with
+  `amax`, maps both inadmissible roles into a saturated unsafe utility tier,
+  and then constructs one scalar paired Gain;
+- the plateau log contains raw ZMP improvement that collides after this
+  reduction, so the scalar return/advantage cannot preserve the corresponding
+  policy-direction distinction;
+- CodeGraph traces the active consumer chain from
+  `compute_intent_physics_local_repair_gain()` through storage return,
+  `compute_frontres_segment_ppo_loss()`, the exact-one formal update,
+  diagnostics, and checkpoint identity;
+- Critic calibration can fit the scalar target but cannot recover Physics
+  evidence deleted before return construction.
+
+Confirmed decision:
+
+- retain one Noisy rollout per sealed scenario as the zero-action
+  counterfactual shared by all M Repair attempts;
+- Noisy supplies paired causal/Intent/no-op evidence but is not the Physics
+  admissibility threshold;
+- retain ordered ContactSensor, phase-conditioned ZMP, and survival evidence
+  until the optimization boundary and consume them as separate actor
+  constraints;
+- paired Intent improvement minus full-6D repair cost becomes the scalar
+  objective and the only scalar-Critic target;
+- preserve one full-6D actor, one scalar Critic, one optimizer, H, one-action-K,
+  global K curriculum, sealed grouped transaction, exact-one update, frozen
+  GMT, and proposal-only HSL;
+- do not introduce rho, a second network/Critic, Contact predictor, Clean actor
+  input, Noisy physical prefix, or deployment Noisy rollout.
+
+Governance result:
+
+- created the v005 proposal and rebased the current plan/checklist/canvas;
+- updated Concept Figure Q-01 without adding a Contact/constraint module;
+- marked current v004/v003/v009 source and active contracts as an explicit
+  figure/contract mismatch before further training;
+- compressed the remaining work into P1-P4: one semantic contract decision,
+  one offline engineering closure, one bounded official sentinel, and one
+  policy-quality/long-training decision.
+
+Open semantic boundary:
+
+- the recommended implementation is a grouped first-order constraint-gradient
+  projection: scalar Intent PPO/Critic plus separate Contact/ZMP/survival
+  surrogates, with the actor direction projected into the local Physics-feasible
+  set before the existing exact-one optimizer step;
+- the exact residual units, time statistic, projection/recovery rule, and
+  infeasible-case behavior require human confirmation in P1 before coordinated
+  METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010 activation.
+
+Stop:
+
+- no source modification, checkpoint migration, simulator, or training while
+  the Concept Figure and active v004/v003/v009 contracts intentionally differ.
+
+## E-FI-73: P1 Physics-Constrained Intent Contract Activation
+
+Date: 2026-07-23
+
+Tier: user-authorized mathematical/identity contract activation and
+document-only governance closeout. No source code, tests, checkpoint I/O,
+simulator, training, or live run.
+
+Activated decision:
+
+- `FRS-METHOD-v016` preserves the sealed Noisy zero-action counterfactual,
+  158D full-6D actor, one-action-K frozen-GMT evidence, grouped transaction,
+  and exact-one update while separating scalar Intent from Physics authority;
+- `FRS-GAIN-v005` defines the scalar Critic target as paired Intent improvement
+  minus full-6D repair cost and retains Contact, phase-ZMP, and survival as
+  separate physical-unit, non-saturating Repair constraint residuals;
+- `FRS-PPO-v004` defines a joint grouped first-order projection of the Intent
+  actor direction into the Contact/ZMP/survival non-worsening cone, with
+  KKT-checked corrective recovery and actor/std zero update when no common
+  descent direction exists; the Critic may still update in the same exact-one
+  optimizer step;
+- `FRS-TRAIN-v010` rejects old v004/v009 Critic/checkpoint identity before
+  mutation, fresh-initializes Critic state on first entry to the new target
+  with actor/std frozen, and reuses the same v010 Critic for critic-only
+  recalibration after every global K increase before actor ramp and joint;
+- replay priority remains selection-only and cannot recreate scalar Physics
+  reward or change grouped actor-loss mass;
+- no second actor, Critic, optimizer, learned dual, rho, new actor input, HSL
+  change, or Clean/Physics leakage is introduced.
+
+Identity and governance result:
+
+- active identities are METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010 and
+  checkpoint-v5 with explicit scalar-target, constraint-schema, projection,
+  K-stage, transaction, and committed-receipt identity;
+- METHOD-v015 / GAIN-v004 / PPO-v003 / TRAIN-v009 were moved to history and
+  marked superseded, but remain the current incompatible source route;
+- registry, plan, checklist, task canvas, and current Architecture now mark P1
+  complete and P2 ready but not authorized;
+- Concept Figure was not rewritten in P1; its P0 Q-PAIR/Q-01/M-05 mapping was
+  verified against the activated contracts.
+
+Stop:
+
+- source/runtime/checkpoint execution remains blocked until P2 atomically
+  implements the new evidence, loss, update, diagnostics, and persistence
+  route and rejects all v004/v003/v009 fallback before state mutation.
+
+## E-FI-74: P2 One-Shot Offline Physics-Constrained Intent Engineering Closure
+
+Date: 2026-07-23
+
+Tier: user-authorized source implementation plus deterministic S1/S2/S3
+contracts. No simulator, real training, live run, deployment composition, long
+training, multi-seed experiment, or policy-quality claim occurred.
+
+Implemented authority split:
+
+- `frontres_gain.py` now makes `gain_total` exactly paired root-invariant
+  Intent improvement minus the existing full-6D repair cost. Contact,
+  phase-conditioned ZMP and survival remain named physical-unit residuals;
+  they are not added to the scalar Critic target.
+- The one-action-K/storage path carries ordered raw Physics evidence, explicit
+  ZMP applicability, residual levels and detached per-attempt constraint
+  evidence. Constraint advantages remain unsealed/NaN at isolated-attempt
+  scope and are centered only after all M rows of the same sealed scenario are
+  present in the transaction accumulator.
+- `frontres_segment_ppo.py` computes equal-mass grouped Intent and per-family
+  constraint surrogates, then installs one KKT-checked joint projected/recovery
+  actor gradient. Scalar-Critic gradients are derived only from value loss;
+  actor/std and Critic parameter authority remain disjoint inside the same
+  runner-owned exact-one optimizer step.
+- Explicit ZMP N/A is excluded. Mixed support/flight rows retain equal mass
+  among applicable motion/Segment/attempt groups; an all-flight transaction
+  excludes the ZMP family without treating missing evidence as observed zero.
+- Formal diagnostics expose contract IDs, raw constraint levels/advantages,
+  applicability, projection status, gradients, dual coefficients, Gram matrix,
+  directional derivatives and KKT violation without feeding diagnostics back
+  into training state.
+- The formal runtime checkpoint audit was migrated from the historical
+  checkpoint-v4/scalar-Gain payload to the same checkpoint-v5 coordinated
+  contract, solver and no-persistent-dual assertions, preventing the enabled
+  audit path from rejecting the new official save boundary.
+- Stage3 persistence is `frontres-v015-checkpoint-v5` and binds METHOD-v016,
+  GAIN-v005, PPO-v004, TRAIN-v010, future layout, K curriculum, grouped loss,
+  solver schema, transaction and committed receipt. The active payload has no
+  legacy scalar `frontres_gain_config` and no persistent/learned dual state.
+  v004/v009, solver-tampered and partial transaction resumes reject before
+  state mutation.
+- TRAIN-v010 deterministic coverage proves first-entry actor-only HSL migration
+  leaves the newly constructed Critic/optimizer outside the HSL payload,
+  critic-only formal updates preserve actor/std, and every homogeneous global
+  K increase re-enters critic-only recalibration on the same v010 Critic before
+  actor ramp/joint.
+
+Executed deterministic evidence (all PASS):
+
+- S1 Gain/Physics: `frontres_intent_physics_gain_contract.py`, including scalar
+  purity, physical severity, flight N/A, provenance, missing and permutation
+  rejection.
+- S1/S2 optimization: `frontres_segment_grouped_ppo_contract.py`, including
+  equal group mass, sign-preserving scale, joint projection/recovery,
+  no-direction/no-common-descent, KKT, actor/Critic gradient authority and
+  mixed/applicable ZMP N/A semantics.
+- S2 formal route: `frontres_v015_one_action_k_contract.py`,
+  `frontres_v015_grouped_candidate_adapter_contract.py`,
+  `frontres_v015_gain_consumer_contract.py`, and
+  `frontres_v015_transaction_route_contract.py`; the last proves a complete
+  2-Segment x 2-attempt transaction, one projected formal update, phase
+  isolation, commit-before-save and no legacy adapter.
+- S3 persistence/evaluation: `frontres_v015_checkpoint_resume_contract.py`,
+  `frontres_formal_runtime_audit_contract.py`,
+  `frontres_segment_diagnostics_contract.py`, and the three strict
+  `frontres_v015_policy_quality_{identity,heldout,save_reload}_contract.py`
+  contracts.
+- Regression: `frontres_segment_warmup_contract.py`,
+  `frontres_segment_sampler_contract.py`, `frontres_hsl_v007_s1_contract.py`,
+  `frontres_future_intent_actor_context_contract.py`,
+  `frontres_v015_role_aligned_future_intent_contract.py`,
+  `frontres_v015_observation_authority_contract.py`, and Stage3 entrypoint and
+  launch-command contracts. Production Python compilation and Architecture
+  JSON parsing also passed.
+
+Verdict and remaining boundary:
+
+- P2 is offline engineering-complete. The formal source route now matches the
+  coordinated active contracts and Concept Figure authority split.
+- Deterministic fixtures do not prove that real ContactSensor/ZMP/survival
+  evidence is finite and informative, that the projected direction is useful
+  on a real transaction, or that checkpoint-v5 is produced by IsaacLab.
+- P3 remains a separate simulator/material-cost boundary. It requires explicit
+  user authorization for one 8-env, one-transaction, one-update official
+  sentinel and must stop on missing raw evidence, scalar-Critic Physics
+  contamination, nonfinite projection, adverse constraint direction, legacy
+  fallback, or optimizer step count other than one.

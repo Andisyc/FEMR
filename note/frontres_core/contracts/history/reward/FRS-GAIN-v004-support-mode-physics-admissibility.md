@@ -1,8 +1,9 @@
 ---
 contract_id: FRS-GAIN-v004
-status: active
+status: superseded
 effective_date: 2026-07-22
 updated_date: 2026-07-23
+superseded_by: FRS-GAIN-v005
 supersedes: FRS-GAIN-v003
 scope: Stage 3 paired local-repair Gain with expected support-mode preservation, contact-phase-conditioned ZMP, non-compensatory Physics admissibility, root-invariant Intent, and full-6D repair cost
 ---

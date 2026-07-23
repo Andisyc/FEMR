@@ -1,9 +1,10 @@
 ---
 contract_id: FRS-METHOD-v015
-status: active
+status: superseded
 effective_date: 2026-07-19
 updated_date: 2026-07-22
 supersedes: FRS-METHOD-v014
+superseded_by: FRS-METHOD-v016
 scope: FrontRES Stage 3 local root-artifact repair with deployment-provenance future 29DoF intent, fixed-policy multi-attempt Segment Replay, one policy action per attempt, and single-action K-step frozen-GMT evidence
 ---
 

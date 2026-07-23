@@ -1866,6 +1866,25 @@ def _v015_formal_update_summary(result: Any) -> dict[str, Any]:
         "optimizer_step_delta": int(getattr(result, "optimizer_step_delta", -1)),
         "training_contract_id": str(diagnostics.get("training_contract_id", "")),
         "gain_contract_id": str(diagnostics.get("gain_contract_id", "")),
+        "method_contract_id": str(diagnostics.get("method_contract_id", "")),
+        "optimization_contract_id": str(diagnostics.get("optimization_contract_id", "")),
+        "scalar_target_id": str(diagnostics.get("scalar_target_id", "")),
+        "constraint_schema_id": str(diagnostics.get("constraint_schema_id", "")),
+        "projection_schema_id": str(diagnostics.get("projection_schema_id", "")),
+        "constraint_projection_status": str(diagnostics.get("constraint_projection_status", "")),
+        "constraint_active_families": tuple(diagnostics.get("constraint_active_families", ())),
+        "constraint_levels": dict(diagnostics.get("constraint_levels", {})),
+        "constraint_gradient_norms": dict(diagnostics.get("constraint_gradient_norms", {})),
+        "constraint_directional_derivatives": dict(diagnostics.get("constraint_directional_derivatives", {})),
+        "constraint_dual_coefficients": dict(diagnostics.get("constraint_dual_coefficients", {})),
+        "constraint_gram": tuple(diagnostics.get("constraint_gram", ())),
+        "constraint_intent_directional_derivatives": dict(
+            diagnostics.get("constraint_intent_directional_derivatives", {})
+        ),
+        "constraint_kkt_max_violation": float(diagnostics.get("constraint_kkt_max_violation", float("nan"))),
+        "contact_constraint_advantage": tuple(diagnostics.get("contact_constraint_advantage", ())),
+        "zmp_constraint_advantage": tuple(diagnostics.get("zmp_constraint_advantage", ())),
+        "survival_constraint_advantage": tuple(diagnostics.get("survival_constraint_advantage", ())),
         "training_iteration": int(diagnostics.get("training_iteration", -1)),
         "curriculum_fingerprint": str(diagnostics.get("curriculum_fingerprint", "")),
         "k_stage_index": int(diagnostics.get("k_stage_index", -1)),
@@ -1897,14 +1916,14 @@ def _v015_formal_update_summary(result: Any) -> dict[str, Any]:
 
 
 def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, Any]:
-    """Project sealed v003 reports into JSON-safe live telemetry without feedback."""
+    """Project immutable v005 objective/constraint reports into read-only live telemetry."""
 
     diagnostics = getattr(result, "diagnostics", None)
     if not isinstance(diagnostics, Mapping):
         raise RuntimeError("v015 formal result requires sealed transaction diagnostics")
-    reports = diagnostics.get("v004_action_gain_harm_reports")
+    reports = diagnostics.get("v005_action_constraint_reports")
     if not isinstance(reports, tuple) or not reports:
-        raise RuntimeError("v015 formal result requires sealed v004 action/Gain/harm reports")
+        raise RuntimeError("v015 formal result requires immutable v005 action/constraint reports")
 
     def required_finite(name: str) -> float:
         if name not in diagnostics:
@@ -1925,6 +1944,10 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "policy_values": [],
         "returns": [],
         "raw_advantages": [],
+        "contact_constraint": [],
+        "zmp_constraint": [],
+        "survival_constraint": [],
+        "zmp_constraint_applicable": [],
         "repaired_success": [],
         "noisy_success": [],
         "repaired_survival": [],
@@ -2007,6 +2030,9 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
             "policy_values": tuple(float(value) for value in report.policy_values),
             "returns": tuple(float(value) for value in report.returns),
             "raw_advantages": tuple(float(value) for value in report.raw_advantages),
+            "contact_constraint": tuple(float(value) for value in report.contact_constraint),
+            "zmp_constraint": tuple(float(value) for value in report.zmp_constraint),
+            "survival_constraint": tuple(float(value) for value in report.survival_constraint),
             "repaired_success": tuple(float(value) for value in report.repaired_success),
             "noisy_success": tuple(float(value) for value in report.noisy_success),
             "repaired_survival": tuple(float(value) for value in report.repaired_survival),
@@ -2045,6 +2071,7 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         fields["x_t_identities"].extend(str(value) for value in report.x_t_identities)
         fields["horizon_k"].extend(int(value) for value in report.horizon_k)
         fields["physics_valid_step_count"].extend(int(value) for value in report.physics_valid_step_count)
+        fields["zmp_constraint_applicable"].extend(bool(value) for value in report.zmp_constraint_applicable)
         fields["expected_support_steps"].extend(report.expected_support_steps)
         fields["actual_contact_repaired_steps"].extend(report.actual_contact_repaired_steps)
         fields["actual_contact_noisy_steps"].extend(report.actual_contact_noisy_steps)
@@ -2073,7 +2100,7 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
                         raise RuntimeError(f"v015 live telemetry invalid {name} must remain UNCONFIRMED")
                     fields[name].append(None)
 
-    row_order = tuple(int(value) for value in diagnostics.get("v004_diagnostic_report_row_order", ()))
+    row_order = tuple(int(value) for value in diagnostics.get("v005_diagnostic_report_row_order", ()))
     flat_row_count = len(fields["policy_actions"])
     if sorted(row_order) != list(range(flat_row_count)):
         raise RuntimeError(
@@ -2210,10 +2237,10 @@ def _require_v015_committed_result(runner: Any, result: Any) -> dict[str, Any]:
     telemetry = summary.get("v015_transaction_telemetry")
     if (
         not isinstance(telemetry, Mapping)
-        or telemetry.get("training_contract_id") != "FRS-TRAIN-v009"
-        or telemetry.get("gain_contract_id") != "FRS-GAIN-v004"
+        or telemetry.get("training_contract_id") != "FRS-TRAIN-v010"
+        or telemetry.get("gain_contract_id") != "FRS-GAIN-v005"
     ):
-        raise RuntimeError("v015 formal training requires exact v009/v004 telemetry identity")
+        raise RuntimeError("v015 formal training requires exact v010/v005 telemetry identity")
     for name in (
         "curriculum_fingerprint",
         "k_stage_index",
@@ -2232,7 +2259,7 @@ def _require_v015_committed_result(runner: Any, result: Any) -> dict[str, Any]:
             or float(actor_delta.get("param_delta_max_abs", float("nan"))) != 0.0
             or not float(critic_delta.get("param_delta_max_abs", 0.0)) > 0.0
         ):
-            raise RuntimeError("FRS-TRAIN-v009 critic-only commit requires zero actor/std and nonzero Critic delta")
+            raise RuntimeError("FRS-TRAIN-v010 critic-only commit requires zero actor/std and nonzero Critic delta")
     return summary
 
 

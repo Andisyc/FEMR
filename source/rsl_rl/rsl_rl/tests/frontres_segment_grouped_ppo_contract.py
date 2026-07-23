@@ -5,7 +5,7 @@ import importlib.util
 import inspect
 import math
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import torch
@@ -32,6 +32,8 @@ storage_module = _load(
 FrontRESSegmentPPOBatch = ppo_module.FrontRESSegmentPPOBatch
 FrontRESSegmentPPOConfig = ppo_module.FrontRESSegmentPPOConfig
 compute_frontres_segment_ppo_loss = ppo_module.compute_frontres_segment_ppo_loss
+project_frontres_grouped_constraint_direction = ppo_module.project_frontres_grouped_constraint_direction
+install_frontres_v004_projected_gradients = ppo_module.install_frontres_v004_projected_gradients
 FrontRESSegmentStorageBatch = storage_module.FrontRESSegmentStorageBatch
 FrontRESV015GroupedCandidateMetadata = storage_module.FrontRESV015GroupedCandidateMetadata
 
@@ -170,7 +172,21 @@ def _batch(
         valid_mask=valid_mask,
         segment_ids=metadata.segment_ids.clone(),
         transaction_metadata=metadata,
+        **_constraint_payload(batch_size),
     )
+
+
+def _constraint_payload(count: int) -> dict[str, torch.Tensor]:
+    zero = torch.zeros(count)
+    return {
+        "contact_constraint": zero.clone(),
+        "zmp_constraint": zero.clone(),
+        "survival_constraint": zero.clone(),
+        "contact_constraint_advantage": zero.clone(),
+        "zmp_constraint_advantage": zero.clone(),
+        "survival_constraint_advantage": zero.clone(),
+        "zmp_constraint_applicable": torch.ones(count, dtype=torch.bool),
+    }
 
 
 def _metadata_with_duplicate_step_and_equivalent_attempt() -> _TransactionMetadata:
@@ -269,6 +285,7 @@ def test_grouped_nested_reduction_is_hand_computed_and_row_permutation_invariant
         valid_mask=batch.valid_mask[order],
         segment_ids=permuted_metadata.segment_ids.clone(),
         transaction_metadata=permuted_metadata,
+        **{name: value[order] for name, value in _constraint_payload(8).items()},
     )
     permuted_result = compute_frontres_segment_ppo_loss(_ZeroRatioPolicy(), permuted, _grouped_cfg())
 
@@ -311,6 +328,7 @@ def test_grouped_scale_preserves_sign_and_does_not_amplify_low_scale_segment() -
         valid_mask=torch.ones(4, dtype=torch.bool),
         segment_ids=metadata.segment_ids.clone(),
         transaction_metadata=metadata,
+        **_constraint_payload(4),
     )
     result = compute_frontres_segment_ppo_loss(_ZeroRatioPolicy(), batch, _grouped_cfg())
 
@@ -385,6 +403,7 @@ def test_grouped_loss_fails_closed_for_missing_or_misaligned_transaction_metadat
         advantages=batch.advantages,
         valid_mask=batch.valid_mask,
         segment_ids=batch.segment_ids,
+        **_constraint_payload(8),
     )
     try:
         compute_frontres_segment_ppo_loss(_ZeroRatioPolicy(), missing, _grouped_cfg())
@@ -411,6 +430,7 @@ def test_grouped_loss_fails_closed_for_missing_or_misaligned_transaction_metadat
         valid_mask=original.valid_mask,
         segment_ids=original.segment_ids,
         transaction_metadata=bad_metadata,
+        **_constraint_payload(8),
     )
     try:
         compute_frontres_segment_ppo_loss(_ZeroRatioPolicy(), mismatched, _grouped_cfg())
@@ -430,6 +450,7 @@ def test_grouped_loss_fails_closed_for_missing_or_misaligned_transaction_metadat
         segment_ids=batch.segment_ids[:4],
         transaction_metadata=_metadata(),
         transaction_row_indices=torch.arange(4),
+        **_constraint_payload(4),
     )
     try:
         compute_frontres_segment_ppo_loss(_ZeroRatioPolicy(), partial, _grouped_cfg())
@@ -452,6 +473,7 @@ def test_storage_adapter_preserves_sealed_transaction_metadata_for_grouped_loss(
         valid_mask=torch.tensor([True, True, True, True, True, True, True, False]),
         segment_ids=metadata.segment_ids.clone(),
         transaction_metadata=metadata,
+        **_constraint_payload(8),
     )
     ppo_batch = storage_batch.to_grouped_ppo_candidate_batch(FrontRESSegmentPPOBatch)
     try:
@@ -487,6 +509,131 @@ def test_grouped_reducer_has_no_sampling_or_replay_loss_multiplier() -> None:
     assert runner_source.count("to_grouped_ppo_candidate_batch") == 1
 
 
+def test_joint_projection_statuses_kkt_and_permutation() -> None:
+    p_intent = torch.tensor([1.0, 1.0])
+    gradients = {
+        "contact": torch.tensor([1.0, 0.0]),
+        "zmp": torch.tensor([0.0, 1.0]),
+        "survival": torch.tensor([1.0, 1.0]),
+    }
+    inactive = project_frontres_grouped_constraint_direction(
+        p_intent, gradients, {"contact": 0.0, "zmp": 0.0, "survival": 0.0}
+    )
+    assert inactive.status == "INTENT_FEASIBLE"
+    torch.testing.assert_close(inactive.direction, p_intent)
+
+    feasible = project_frontres_grouped_constraint_direction(
+        torch.tensor([-1.0, 1.0]), gradients, {"contact": 1.0, "zmp": 0.0, "survival": 0.0}
+    )
+    assert feasible.status == "PROJECTED_INTENT"
+    assert feasible.directional_derivatives["contact"] < 0.0
+    assert feasible.kkt_max_violation == 0.0
+
+    recovery = project_frontres_grouped_constraint_direction(
+        p_intent, gradients, {"contact": 1.0, "zmp": 1.0, "survival": 0.0}
+    )
+    assert recovery.status == "CONSTRAINT_RECOVERY"
+    assert all(value <= 1.0e-8 for value in recovery.directional_derivatives.values())
+    assert any(value < -1.0e-8 for value in recovery.directional_derivatives.values())
+
+    no_empirical = project_frontres_grouped_constraint_direction(
+        p_intent,
+        {**gradients, "contact": torch.zeros(2)},
+        {"contact": 1.0, "zmp": 0.0, "survival": 0.0},
+    )
+    assert no_empirical.status == "NO_EMPIRICAL_DIRECTION"
+    torch.testing.assert_close(no_empirical.direction, torch.zeros(2))
+
+    opposing = project_frontres_grouped_constraint_direction(
+        p_intent,
+        {"contact": torch.tensor([1.0, 0.0]), "zmp": torch.tensor([-1.0, 0.0]), "survival": torch.tensor([0.0, 1.0])},
+        {"contact": 1.0, "zmp": 1.0, "survival": 0.0},
+    )
+    assert opposing.status == "NO_COMMON_FIRST_ORDER_DESCENT"
+    torch.testing.assert_close(opposing.direction, torch.zeros(2))
+
+    permuted = project_frontres_grouped_constraint_direction(
+        p_intent,
+        {"survival": gradients["survival"], "contact": gradients["contact"], "zmp": gradients["zmp"]},
+        {"zmp": 1.0, "contact": 1.0, "survival": 0.0},
+    )
+    assert permuted.status == recovery.status
+    torch.testing.assert_close(permuted.direction, recovery.direction)
+    print("[T-projection] inactive/feasible/recovery/no-direction/no-common/permutation KKT pass", flush=True)
+
+
+def test_gradient_authority_and_actor_ramp() -> None:
+    class _Policy(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.actor_weight = torch.nn.Parameter(torch.tensor([0.0, 0.0]))
+            self.critic = torch.nn.Linear(1, 1, bias=False)
+
+    policy = _Policy()
+    p = policy.actor_weight
+    expected_critic_gradient = 2.0 * policy.critic.weight.detach().clone()
+    value_loss = policy.critic.weight.square().sum()
+    result = ppo_module.FrontRESSegmentPPOResult(
+        total_loss=(-p[0] + value_loss),
+        actor_loss=-p[0],
+        value_loss=value_loss,
+        entropy=p.sum() * 0.0,
+        valid_count=2,
+        valid_frac=1.0,
+        clip_frac=0.0,
+        approx_kl=0.0,
+        ratio_mean=1.0,
+        constraint_surrogates={
+            "contact": p[0],
+            "zmp": p[1] * 0.0,
+            "survival": p[1] * 0.0,
+        },
+        constraint_levels={"contact": 1.0, "zmp": 0.0, "survival": 0.0},
+    )
+    projection = install_frontres_v004_projected_gradients(
+        policy,
+        result,
+        FrontRESSegmentPPOConfig(actor_loss_weight=0.25),
+        tuple(policy.parameters()),
+    )
+    assert projection.status == "CONSTRAINT_RECOVERY"
+    torch.testing.assert_close(p.grad, torch.tensor([0.25, 0.0]))
+    assert policy.critic.weight.grad is not None
+    torch.testing.assert_close(policy.critic.weight.grad, expected_critic_gradient)
+    print("[T-gradient-authority] projected actor ramp and scalar-Critic gradients are disjoint", flush=True)
+
+
+def test_mixed_zmp_na_rows_are_excluded_without_losing_group_identity() -> None:
+    batch = _batch()
+    applicable = torch.tensor([True, False, True, False, True, False, True, False])
+    zmp_level = torch.tensor([1.0, float("nan"), 2.0, float("nan"), 3.0, float("nan"), 4.0, float("nan")])
+    zmp_advantage = torch.tensor([0.5, float("nan"), -0.5, float("nan"), 1.0, float("nan"), -1.0, float("nan")])
+    mixed = replace(
+        batch,
+        zmp_constraint=zmp_level,
+        zmp_constraint_advantage=zmp_advantage,
+        zmp_constraint_applicable=applicable,
+    )
+    result = compute_frontres_segment_ppo_loss(_ZeroRatioPolicy(), mixed, _grouped_cfg())
+    assert result.constraint_levels is not None
+    assert result.constraint_surrogates is not None
+    assert math.isfinite(result.constraint_levels["zmp"])
+    assert result.constraint_levels["zmp"] > 0.0
+    assert bool(torch.isfinite(result.constraint_surrogates["zmp"]).item())
+
+    all_na = replace(
+        batch,
+        zmp_constraint=torch.full((8,), float("nan")),
+        zmp_constraint_advantage=torch.full((8,), float("nan")),
+        zmp_constraint_applicable=torch.zeros(8, dtype=torch.bool),
+    )
+    result_na = compute_frontres_segment_ppo_loss(_ZeroRatioPolicy(), all_na, _grouped_cfg())
+    assert result_na.constraint_levels == {"contact": 0.0, "zmp": 0.0, "survival": 0.0}
+    assert result_na.constraint_surrogates is not None
+    torch.testing.assert_close(result_na.constraint_surrogates["zmp"], torch.tensor(0.0))
+    print("[T-zmp-N/A] mixed support/flight rows retain applicable grouped mass; all-flight excludes ZMP", flush=True)
+
+
 def main() -> None:
     test_grouped_nested_reduction_is_hand_computed_and_row_permutation_invariant()
     test_grouped_scale_preserves_sign_and_does_not_amplify_low_scale_segment()
@@ -494,6 +641,9 @@ def main() -> None:
     test_grouped_loss_fails_closed_for_missing_or_misaligned_transaction_metadata()
     test_storage_adapter_preserves_sealed_transaction_metadata_for_grouped_loss()
     test_grouped_reducer_has_no_sampling_or_replay_loss_multiplier()
+    test_joint_projection_statuses_kkt_and_permutation()
+    test_gradient_authority_and_actor_ramp()
+    test_mixed_zmp_na_rows_are_excluded_without_losing_group_identity()
     print("frontres_segment_grouped_ppo_contract: ok")
 
 

@@ -75,24 +75,24 @@
               "capture": "stage/task/mode/checkpoint",
               "whyHere": "命令刚完成 Stage 3 preset, 这里能确认本次运行身份而不受 runner 后续状态影响",
               "failureOwner": "失败归属: CLI 参数或 Stage 3 preset",
-              "sourceLine": 1746,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1746"
+              "sourceLine": 1780,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1780"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1922 :: run_frontres_segment_live_training_loop() 产物边界",
               "capture": "live_train/alternate_modes",
               "whyHere": "formal guard 在这里首次排除 sentinel/eval/update_loop 等替代路径",
               "failureOwner": "失败归属: runner route guard 或 boundary config",
-              "sourceLine": 1922,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1922"
+              "sourceLine": 2417,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=2417"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1924 :: 正式 consumer 接收前",
               "capture": "iteration/update loop",
               "whyHere": "进入 live update loop 前是正式训练承诺点, 再晚只能看到训练结果",
               "failureOwner": "失败归属: train dispatch 到 live loop 的连接",
-              "sourceLine": 1924,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1924"
+              "sourceLine": 2419,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=2419"
             }
           ],
           "probe": {
@@ -157,24 +157,24 @@
               "capture": "specialist_mode",
               "whyHere": "specialist mode 与 DR 参数尚未写入 alg config, 可隔离 CLI 来源错误",
               "failureOwner": "失败归属: CLI/preset 输入",
-              "sourceLine": 900,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=900"
+              "sourceLine": 1009,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1009"
             },
             {
               "location": "scripts/rsl_rl/train.py:903 :: _configure_frontres_motion_perturbations() 产物边界",
               "capture": "family config",
               "whyHere": "这里首次形成正式训练使用的 canonical perturbation config",
               "failureOwner": "失败归属: Stage 3 perturbation configuration",
-              "sourceLine": 903,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=903"
+              "sourceLine": 1012,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1012"
             },
             {
               "location": "scripts/rsl_rl/train.py:923 :: 正式 consumer 接收前",
               "capture": "DR scale/schedule",
               "whyHere": "sampler/rollout 读取前检查可发现配置存在但未透传的旁路",
               "failureOwner": "失败归属: alg config 到 runtime owner 的转发",
-              "sourceLine": 923,
-              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=923"
+              "sourceLine": 1060,
+              "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ftrain.py&line=1060"
             }
           ],
           "probe": {
@@ -403,24 +403,24 @@
               "capture": "sample state",
               "whyHere": "采样前的 priority/state 是 source 选择的唯一依据",
               "failureOwner": "失败归属: sampler persistent state",
-              "sourceLine": 796,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=796"
+              "sourceLine": 538,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=538"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:824 :: sample_rollout_rows() 产物边界",
               "capture": "rollout evidence",
               "whyHere": "sample 返回时 segment/source/K/trial role 首次绑定为同一事务",
               "failureOwner": "失败归属: sample_rollout_rows",
-              "sourceLine": 824,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=824"
+              "sourceLine": 554,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=554"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:839 :: 正式 consumer 接收前",
               "capture": "priority before/after",
               "whyHere": "priority update 后检查可证明更新使用同一次 rollout evidence",
               "failureOwner": "失败归属: update_with_probe 或 evidence wiring",
-              "sourceLine": 839,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=839"
+              "sourceLine": 577,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=577"
             }
           ],
           "probe": {
@@ -485,24 +485,24 @@
               "capture": "curriculum max K",
               "whyHere": "persistent segment state 与 max K 同时可见, 能验证 curriculum 输入",
               "failureOwner": "失败归属: segment state 或 max_horizon config",
-              "sourceLine": 1005,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1005"
+              "sourceLine": 1346,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1346"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:1049 :: plan_rollout_budget() 产物边界",
               "capture": "per-row horizon_k",
               "whyHere": "trial_count、horizon_k、reason 在 budget 返回前首次完整对应",
               "failureOwner": "失败归属: plan_rollout_budget",
-              "sourceLine": 1049,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1049"
+              "sourceLine": 1374,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1374"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:1057 :: 正式 consumer 接收前",
               "capture": "expanded trial rows",
               "whyHere": "trial expansion 前检查可发现 budget 正确但未被采用",
               "failureOwner": "失败归属: budget 到 expansion 的连接",
-              "sourceLine": 1057,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1057"
+              "sourceLine": 1389,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1389"
             }
           ],
           "probe": {
@@ -567,24 +567,24 @@
               "capture": "base segment budget",
               "whyHere": "base budget 进入 expansion 时可验证每个 source segment 的 K",
               "failureOwner": "失败归属: K plan 输出",
-              "sourceLine": 1090,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1090"
+              "sourceLine": 1346,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1346"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:1106 :: expand_rollout_trials() 产物边界",
               "capture": "expanded source/trial/K rows",
               "whyHere": "source_index/trial_index/role/K 在 expanded plan 中首次逐行对齐",
               "failureOwner": "失败归属: expand_rollout_trials",
-              "sourceLine": 1106,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1106"
+              "sourceLine": 1374,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1374"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py:1116 :: 正式 consumer 接收前",
               "capture": "reset/rollout consumer rows",
               "whyHere": "reset/rollout 消费前检查可发现 expanded rows 被截断或重排",
               "failureOwner": "失败归属: trial plan 到 reset/rollout connector",
-              "sourceLine": 1116,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1116"
+              "sourceLine": 1389,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=1389"
             }
           ],
           "probe": {
@@ -649,24 +649,24 @@
               "capture": "reset 前/随机化后/reset 后 episode_length_buf",
               "whyHere": "index reset 刚结束且 env.step 尚未发生, 可直接比较每个 role 的 episode 生命周期是否同源",
               "failureOwner": "失败归属: episode_length_buf randomization 或 index-reset lifecycle wiring",
-              "sourceLine": 2857,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2857"
+              "sourceLine": 2977,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2977"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2858 :: _run_live_rollout_capture() 产物边界",
               "capture": "quartet origin-relative root/joint pair error",
               "whyHere": "policy/candidate/noisy/clean 的机器人 dynamic state 在此首次应构成可比较 quartet",
               "failureOwner": "失败归属: index reset robot-state write 或 quartet state synchronization",
-              "sourceLine": 2858,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2858"
+              "sourceLine": 2978,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2978"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:2859 :: 正式 consumer 接收前",
               "capture": "逐步 role done/timeout/termination/survival 与 active term masks",
               "whyHere": "env.step 返回时 done 与 time_out 同时可见, 能区分时限结束和物理 termination",
               "failureOwner": "失败归属: environment termination owner 或 rollout survival accounting",
-              "sourceLine": 2859,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2859"
+              "sourceLine": 2979,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=2979"
             }
           ],
           "probe": {
@@ -813,24 +813,24 @@
               "capture": "raw obs[*,870]",
               "whyHere": "raw 870D obs 尚未归一化, 可先验证 100D+770D 布局来源",
               "failureOwner": "失败归属: environment observation construction",
-              "sourceLine": 162,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=162"
+              "sourceLine": 506,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=506"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py:194 :: apply_obs_normalizer() 产物边界",
               "capture": "prefix100/suffix770",
               "whyHere": "prefix/suffix 分别归一化后首次形成 actor 实际输入",
               "failureOwner": "失败归属: apply_obs_normalizer 或 persisted stats",
-              "sourceLine": 194,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=194"
+              "sourceLine": 558,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=558"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_runtime.py:198 :: 正式 consumer 接收前",
               "capture": "normalized finite obs",
               "whyHere": "actor 调用前检查可发现 normalized obs 被替换或再次处理",
               "failureOwner": "失败归属: normalizer 到 policy connector",
-              "sourceLine": 198,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=198"
+              "sourceLine": 562,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_runtime.py&line=562"
             }
           ],
           "probe": {
@@ -895,24 +895,24 @@
               "capture": "policy obs",
               "whyHere": "policy obs 刚进入 actor, 可把 observation 错误与 actor 错误分开",
               "failureOwner": "失败归属: observation/normalizer upstream",
-              "sourceLine": 851,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=851"
+              "sourceLine": 829,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=829"
             },
             {
               "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:921 :: update_distribution()/act() 产物边界",
               "capture": "mean/sigma[*,6]",
               "whyHere": "Normal(mean,sigma) 建立后 full-6D distribution 语义第一次完整成立",
               "failureOwner": "失败归属: actor head、std 或 distribution construction",
-              "sourceLine": 921,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=921"
+              "sourceLine": 955,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=955"
             },
             {
               "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:983 :: 正式 consumer 接收前",
               "capture": "sampled action[*,6]",
               "whyHere": "act 返回前首次完成 raw sample 到 bounded Delta SE(3) action 的转换",
               "failureOwner": "失败归属: sampling、bounding 或 action representation",
-              "sourceLine": 983,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=983"
+              "sourceLine": 1017,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=1017"
             }
           ],
           "probe": {
@@ -1059,24 +1059,24 @@
               "capture": "GMT observation",
               "whyHere": "GMT policy obs 与 FrontRES correction 同时可见, 可确认 repaired path 输入",
               "failureOwner": "失败归属: repaired reference 或 GMT observation",
-              "sourceLine": 1042,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=1042"
+              "sourceLine": 1076,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=1076"
             },
             {
               "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:1048 :: get_env_action() 产物边界",
               "capture": "requires_grad/optimizer exclusion",
               "whyHere": "no_grad GMT 调用后可直接检查冻结执行与 robot action",
               "failureOwner": "失败归属: frozen GMT invocation",
-              "sourceLine": 1048,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=1048"
+              "sourceLine": 1082,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=1082"
             },
             {
               "location": "source/rsl_rl/rsl_rl/modules/front_residual_actor_critic.py:983 :: 正式 consumer 接收前",
               "capture": "GMT execution/checksum",
               "whyHere": "env.step 前检查可发现 GMT 输出被旧 action 或其他分支覆盖",
               "failureOwner": "失败归属: GMT output 到 environment action connector",
-              "sourceLine": 983,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=983"
+              "sourceLine": 1017,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Fmodules%2Ffront_residual_actor_critic.py&line=1017"
             }
           ],
           "probe": {
@@ -1141,24 +1141,24 @@
               "capture": "pair layout",
               "whyHere": "env 总行数与 quartet 开关刚进入布局 owner, 可验证分区依据",
               "failureOwner": "失败归属: pair-layout config",
-              "sourceLine": 172,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=172"
+              "sourceLine": 229,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=229"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py:201 :: configure_frontres_pair_layout() 产物边界",
               "capture": "trial role rows",
               "whyHere": "n_train/n_candidate/n_base/n_clean 首次成为 motion-command baseline",
               "failureOwner": "失败归属: configure_frontres_pair_layout",
-              "sourceLine": 201,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=201"
+              "sourceLine": 258,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=258"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_training_setup.py:245 :: 正式 consumer 接收前",
               "capture": "reset/valid role counts",
               "whyHere": "reset/capture 前检查可发现 role counts 未同步到 command owner",
               "failureOwner": "失败归属: pair layout 到 reset/capture wiring",
-              "sourceLine": 245,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=245"
+              "sourceLine": 302,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_training_setup.py&line=302"
             }
           ],
           "probe": {
@@ -1224,24 +1224,24 @@
               "capture": "shared segment/K",
               "whyHere": "同一 quartet frame 的 Clean/Repaired/Noisy 行尚未聚合, 可验证配对身份",
               "failureOwner": "失败归属: role slicing 或 motion/frame alignment",
-              "sourceLine": 3266,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3266"
+              "sourceLine": 3362,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3362"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:3267 :: _capture_motion_quality_frame() 产物边界",
               "capture": "Noisy/Repaired execution",
               "whyHere": "style 与 physics frame 完成后首次具备 canonical Gain 所需配对语义",
               "failureOwner": "失败归属: motion/physics capture owners",
-              "sourceLine": 3267,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3267"
+              "sourceLine": 3009,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3009"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:3268 :: 正式 consumer 接收前",
               "capture": "paired style/physics evidence",
               "whyHere": "Gain 调用前检查可发现 transaction/batch signature 不一致或 evidence 被跨 motion、跨 K 或跨 role 混合",
               "failureOwner": "失败归属: paired capture 到 Gain connector",
-              "sourceLine": 3268,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3268"
+              "sourceLine": 3056,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3056"
             }
           ],
           "probe": {
@@ -1308,24 +1308,24 @@
               "capture": "raw survival_steps + effective_horizon_K",
               "whyHere": "raw survival_steps 与 effective_horizon_K 首次同时进入 Gain owner, 可确认原始单位和每行 K 没有错位",
               "failureOwner": "失败归属: paired capture 或 horizon forwarding",
-              "sourceLine": 468,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=468"
+              "sourceLine": 1021,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=1021"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:450 :: compute_segment_gain() 产物边界",
               "capture": "survival_quality repaired/noisy + physics_survival_gain",
               "whyHere": "survival_quality repaired/noisy 与 physics_survival_gain 在 owner 产物边界同时成立, 可确认没有回退到 raw step difference",
               "failureOwner": "失败归属: compute_paired_physics_gain 或 survival unit conversion",
-              "sourceLine": 450,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=450"
+              "sourceLine": 804,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=804"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:536 :: 正式 consumer 接收前",
               "capture": "survival_gain_step_sum + gain_total",
               "whyHere": "同一 transaction 的逐步 survival Gain 累计与最终 gain_total 交给正式 consumer 前同时可见, 可发现旧 score、旧单位或跨 batch 旁路",
               "failureOwner": "失败归属: Gain 到 storage/sampler evidence wiring",
-              "sourceLine": 536,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=536"
+              "sourceLine": 1023,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=1023"
             }
           ],
           "probe": {
@@ -1392,24 +1392,24 @@
               "capture": "one first-step policy tuple + effective K",
               "whyHere": "动作的 old-policy tuple 与 K 同时可见, 可验证一个 attempt 不会预先展开为 K 条 policy rows",
               "failureOwner": "失败归属: Gain reward construction 或 horizon forwarding",
-              "sourceLine": 82,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=82"
+              "sourceLine": 286,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=286"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:83 :: compute_returns_and_advantages()/to_ppo_batch() 产物边界",
               "capture": "K evidence aggregate + one return/advantage",
               "whyHere": "K evidence 与单个 return/advantage 同时成立, 可验证执行证据没有被误写为多条 PPO rows",
               "failureOwner": "失败归属: compute_returns_and_advantages",
-              "sourceLine": 83,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=83"
+              "sourceLine": 287,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=287"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:85 :: 正式 consumer 接收前",
               "capture": "one PPO policy row per attempt",
               "whyHere": "PPO batch 构造时检查可发现 transaction/batch signature、return、advantage 与单行 attempt identity 错位",
               "failureOwner": "失败归属: storage to_ppo_batch conversion 或 K-row 语义泄漏",
-              "sourceLine": 85,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=85"
+              "sourceLine": 289,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=289"
             }
           ],
           "probe": {
@@ -1476,24 +1476,24 @@
               "capture": "checkpoint identity",
               "whyHere": "checkpoint path 与 payload identity 刚读取, 可确认实际加载的 Stage 2 artifact",
               "failureOwner": "失败归属: launch checkpoint path 或 torch.load payload",
-              "sourceLine": 385,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=385"
+              "sourceLine": 1744,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1744"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:390 :: load_runner() 产物边界",
               "capture": "actor/normalizer state",
               "whyHere": "actor 与 normalizer state 映射完成后首次形成 Stage 3 初始化状态",
               "failureOwner": "失败归属: load_runner state mapping",
-              "sourceLine": 390,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=390"
+              "sourceLine": 1816,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1816"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:741 :: 正式 consumer 接收前",
               "capture": "Stage 3 live policy",
               "whyHere": "首次 live policy 使用前检查可发现加载后又被重置或漏传",
               "failureOwner": "失败归属: checkpoint load 到 Stage 3 runner initialization",
-              "sourceLine": 741,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=741"
+              "sourceLine": 1841,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1841"
             }
           ],
           "probe": {
@@ -1559,24 +1559,24 @@
               "capture": "persisted iteration",
               "whyHere": "persisted iteration 与两个 warmup boundary 同时可见, 可验证 phase 输入",
               "failureOwner": "失败归属: resume iteration 或 warmup config",
-              "sourceLine": 52,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=52"
+              "sourceLine": 218,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=218"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py:53 :: frontres_segment_warmup_phase() 产物边界",
               "capture": "phase/actor weight",
               "whyHere": "phase 与 actor_loss_weight 形成后首次决定允许哪些梯度",
               "failureOwner": "失败归属: frontres_segment_warmup_phase",
-              "sourceLine": 53,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=53"
+              "sourceLine": 219,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=219"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py:75 :: 正式 consumer 接收前",
               "capture": "loss gradient boundary",
               "whyHere": "PPO loss 读取前检查可发现 phase 正确但权重未生效",
               "failureOwner": "失败归属: warmup phase 到 PPO config wiring",
-              "sourceLine": 75,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=75"
+              "sourceLine": 241,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=241"
             }
           ],
           "probe": {
@@ -1642,24 +1642,24 @@
               "capture": "old stats/action/advantage",
               "whyHere": "old action/logprob/mean/sigma/advantage 同时可见, 可验证 rollout tuple 同源性",
               "failureOwner": "失败归属: storage/PPO batch source",
-              "sourceLine": 276,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=276"
+              "sourceLine": 495,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=495"
             },
             {
               "location": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py:356 :: compute_frontres_segment_ppo_loss() 产物边界",
               "capture": "loss/backward/optimizer step",
               "whyHere": "loss、ratio、KL 在同一次 forward 后首次具备 PPO 更新语义",
               "failureOwner": "失败归属: compute_frontres_segment_ppo_loss",
-              "sourceLine": 356,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=356"
+              "sourceLine": 575,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=575"
             },
             {
               "location": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py:390 :: 正式 consumer 接收前",
               "capture": "post-KL/trust decision",
               "whyHere": "optimizer/rollback 后检查可区分计算正确但提交状态错误",
               "failureOwner": "失败归属: optimizer step、post-KL 或 trust rollback",
-              "sourceLine": 390,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=390"
+              "sourceLine": 658,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=658"
             }
           ],
           "probe": {
@@ -1695,8 +1695,8 @@
           "objects": [
             "Design: M-03, SR-01, M-05, Q-01",
             "base policy payload",
-            "normalizer/sampler/Gain/v009 curriculum",
-            "v4 identity assert/torch.save"
+            "normalizer/sampler/v010 curriculum",
+            "v5 coordinated contract/solver/receipt identity assert"
           ],
           "files": [
             {
@@ -1724,24 +1724,24 @@
               "capture": "base policy payload",
               "whyHere": "policy/optimizer/iteration state 刚进入 save owner, 可确认写盘来源",
               "failureOwner": "失败归属: runner training state",
-              "sourceLine": 252,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=252"
+              "sourceLine": 1744,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1744"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:355 :: save_runner() 产物边界",
-              "capture": "normalizer/sampler/Gain/v009 curriculum",
-              "whyHere": "normalizer/sampler/Gain/v009 schedule 与 checkpoint-v4 identity 合并后 payload 语义首次完整",
+              "capture": "normalizer/sampler/v010 curriculum",
+              "whyHere": "normalizer/sampler/v010 schedule 与 checkpoint-v5 coordinated identity 合并后 payload 语义首次完整",
               "failureOwner": "失败归属: save_runner payload construction",
-              "sourceLine": 355,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=355"
+              "sourceLine": 1816,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1816"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:356 :: 正式 consumer 接收前",
-              "capture": "v4 identity assert/torch.save",
-              "whyHere": "torch.save 前交叉检查 top-level schedule 与 sealed v009 curriculum, 能证明真实写盘对象而非 logger 推断",
-              "failureOwner": "失败归属: v009 identity validation 或 filesystem save boundary",
-              "sourceLine": 356,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=356"
+              "capture": "v5 coordinated identity assert/torch.save",
+              "whyHere": "torch.save 前交叉检查 v016/v005/v004/v010、solver、receipt 与 sealed curriculum, 能证明真实写盘对象而非 logger 推断",
+              "failureOwner": "失败归属: checkpoint-v5 identity validation 或 filesystem save boundary",
+              "sourceLine": 1841,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1841"
             }
           ],
           "probe": {
@@ -1749,8 +1749,8 @@
             "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
             "capture": [
               "base policy payload",
-              "normalizer/sampler/Gain/v009 curriculum",
-              "v4 identity assert/torch.save"
+              "normalizer/sampler/v010 curriculum",
+              "v5 coordinated identity assert/torch.save"
             ],
             "failIf": [
               "关键对象缺失、非有限或 shape/role 不符",
@@ -1765,7 +1765,7 @@
             "S2 official-route connectivity",
             "S4 formal live snapshot"
           ],
-          "gap": "runtime-observed: model_701 saved complete model/optimizer/normalizer/sampler/Gain/warmup payload at iter 701 (E70)"
+          "gap": "runtime-observed: model_701 saved the historical complete v009 payload at iter 701 (E70); E-FI-74 offline-confirms active checkpoint-v5 coordinated identity, while P3 live persistence remains pending"
         },
         {
           "id": "AUDIT-DIAG-01",
@@ -1807,24 +1807,24 @@
               "capture": "canonical live summary",
               "whyHere": "canonical live summary 尚未格式化, 可确认日志字段真实来源",
               "failureOwner": "失败归属: live summary aggregation",
-              "sourceLine": 117,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=117"
+              "sourceLine": 478,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=478"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py:83 :: repair_effect_summary_to_scalars() 产物边界",
               "capture": "single/aggregate transaction identity",
               "whyHere": "diagnostic scalars 形成后可检查缺失值是否仍为 UNCONFIRMED/NaN",
               "failureOwner": "失败归属: repair_effect_summary_to_scalars",
-              "sourceLine": 83,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=83"
+              "sourceLine": 536,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=536"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py:135 :: 正式 consumer 接收前",
               "capture": "diagnostic scalars",
               "whyHere": "terminal/logger 消费前检查可发现 aggregate 是否误报为 single transaction, 或正确 scalar 被旧字段覆盖",
               "failureOwner": "失败归属: diagnostics formatting 或 logger wiring",
-              "sourceLine": 135,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=135"
+              "sourceLine": 544,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=544"
             }
           ],
           "probe": {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic candidate-only S1 contract for v003 Gain consumers."""
+"""Deterministic candidate-only S1 contract for v005 Gain consumers."""
 from __future__ import annotations
 
 from dataclasses import replace
@@ -175,7 +175,7 @@ def test_t_provenance_and_consumer_value(one_action, helper, commands, hooks, se
     assert priority.intent_q29_provenance == "deployment_noisy_q29"
     assert not hasattr(priority, "advantages")
     print(
-        "[T-provenance/T-consumer/T-no-v002-fallback] I[t] and post-t robot q29 reach v003 only; return=Gain",
+        "[T-provenance/T-consumer/T-no-v002-fallback] I[t] and post-t robot q29 reach v005 only; return=scalar Intent target",
         flush=True,
     )
 

@@ -139,11 +139,25 @@ def _stage3_payload(checkpointing, *, transaction_state: str = "idle") -> dict[s
     )
     return {
         "frontres_v015_checkpoint_identity": {
-            "format": "frontres-v015-checkpoint-v4",
-            "method_contract_id": "FRS-METHOD-v015",
-            "training_contract_id": "FRS-TRAIN-v009",
-            "gain_contract_id": "FRS-GAIN-v004",
-            "ppo_contract_id": "FRS-PPO-v003",
+            "format": "frontres-v015-checkpoint-v5",
+            "method_contract_id": "FRS-METHOD-v016",
+            "training_contract_id": "FRS-TRAIN-v010",
+            "gain_contract_id": "FRS-GAIN-v005",
+            "optimization_contract_id": "FRS-PPO-v004",
+            "scalar_target_id": "paired-intent-minus-repair-v1",
+            "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+            "projection_schema_id": "grouped-first-order-constraint-projection-v1",
+            "constraint_solver": {
+                "family_order": ("contact", "zmp", "survival"),
+                "contact_budget_foot_seconds": 0.0,
+                "zmp_budget_metre_seconds": 0.0,
+                "contact_scale_foot_seconds": 1.0,
+                "zmp_scale_metre_seconds": 0.05,
+                "survival_scale_seconds": 1.0,
+                "constraint_grad_epsilon": 1.0e-10,
+                "projection_tolerance": 1.0e-8,
+                "persistent_dual_state": False,
+            },
             "future_intent_layout": _layout(),
             "normalizer": {
                 "mode": "empirical_prefix_plus_frozen_gmt",
@@ -181,10 +195,10 @@ def _stage3_payload(checkpointing, *, transaction_state: str = "idle") -> dict[s
 def _manifest_payload() -> dict[str, object]:
     return {
         "schema_version": "frontres-v015-policy-quality-manifest-v1",
-        "method_contract_id": "FRS-METHOD-v015",
-        "training_contract_id": "FRS-TRAIN-v009",
-        "gain_contract_id": "FRS-GAIN-v004",
-        "ppo_contract_id": "FRS-PPO-v003",
+        "method_contract_id": "FRS-METHOD-v016",
+        "training_contract_id": "FRS-TRAIN-v010",
+        "gain_contract_id": "FRS-GAIN-v005",
+        "ppo_contract_id": "FRS-PPO-v004",
         "future_intent_layout_version": "frontres-v015-future-intent-q29-v1",
         "future_offsets": [1, 2],
         "raw_observation_dim": 870,
@@ -258,7 +272,7 @@ def test_strict_v015_quality_identity_and_tamper_rejection() -> None:
         assert request.hsl_checkpoint.format == "frontres-v015-hsl-proposal-v1"
         assert request.hsl_checkpoint.normalizer_key == "frontres_prefix_norm_state_dict"
         assert request.policy_checkpoint.route == "policy"
-        assert request.policy_checkpoint.format == "frontres-v015-checkpoint-v4"
+        assert request.policy_checkpoint.format == "frontres-v015-checkpoint-v5"
         assert request.policy_checkpoint.normalizer_key == "obs_norm_state_dict"
         assert len(request.manifest_file_sha256) == 64
         assert len(request.hsl_checkpoint.file_sha256) == 64

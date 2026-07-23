@@ -60,6 +60,7 @@ def _load_owners():
     ppo = owners[8]
     live_probe.FrontRESSegmentPPOConfig = ppo.FrontRESSegmentPPOConfig
     live_probe.compute_frontres_segment_ppo_loss = ppo.compute_frontres_segment_ppo_loss
+    live_probe.install_frontres_v004_projected_gradients = ppo.install_frontres_v004_projected_gradients
     live_sampler = sys.modules.get("rsl_rl.runners.frontres_segment_live_sampler")
     if live_sampler is None:
         live_sampler = _load("rsl_rl.runners.frontres_segment_live_sampler", LIVE_SAMPLER_PATH)
@@ -94,6 +95,13 @@ def _formal_alg(policy: torch.nn.Module, optimizer: _TrackingSGD) -> SimpleNames
         frontres_segment_live_train_enabled=False,
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
+        frontres_method_contract_id="FRS-METHOD-v016",
+        frontres_gain_contract_id="FRS-GAIN-v005",
+        frontres_optimization_contract_id="FRS-PPO-v004",
+        frontres_training_contract_id="FRS-TRAIN-v010",
+        frontres_scalar_target_id="paired-intent-minus-repair-v1",
+        frontres_constraint_schema_id="contact-phase_zmp-survival-physical-v1",
+        frontres_projection_schema_id="grouped-first-order-constraint-projection-v1",
     )
 
 
@@ -254,6 +262,25 @@ def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, l
     )
     assert result.diagnostics["intent_q29_provenance"] == "deployment_noisy_q29"
     assert result.diagnostics["optimizer_step_delta"] == 1
+    assert result.diagnostics["method_contract_id"] == "FRS-METHOD-v016"
+    assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v005"
+    assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v004"
+    assert result.diagnostics["training_contract_id"] == "FRS-TRAIN-v010"
+    assert result.diagnostics["scalar_target_id"] == "paired-intent-minus-repair-v1"
+    assert result.diagnostics["constraint_schema_id"] == "contact-phase_zmp-survival-physical-v1"
+    assert result.diagnostics["projection_schema_id"] == "grouped-first-order-constraint-projection-v1"
+    assert result.diagnostics["constraint_projection_status"] in {
+        "INTENT_FEASIBLE", "PROJECTED_INTENT", "CONSTRAINT_RECOVERY",
+        "NO_EMPIRICAL_DIRECTION", "NO_COMMON_FIRST_ORDER_DESCENT",
+    }
+    for name in (
+        "contact_constraint_advantage",
+        "zmp_constraint_advantage",
+        "survival_constraint_advantage",
+    ):
+        values = torch.tensor(result.diagnostics[name])
+        assert bool(torch.isfinite(values).all())
+        torch.testing.assert_close(values.reshape(2, 2).sum(dim=1), torch.zeros(2), atol=1.0e-7, rtol=0.0)
     for name in (
         "return_mean",
         "return_min",
@@ -267,7 +294,7 @@ def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, l
     assert result.diagnostics["gradient_post_clip_norm"] > 0.0
     assert result.diagnostics["gradient_parameter_count"] > 0
     assert result.diagnostics["gradient_nonzero_parameter_count"] > 0
-    quality = result.diagnostics["v004_action_gain_harm_reports"]
+    quality = result.diagnostics["v005_action_constraint_reports"]
     assert isinstance(quality, tuple) and len(quality) == 2
     assert all(report.transaction_id == result.transaction_id for report in quality)
     assert all(len(report.policy_actions) == 2 for report in quality)
@@ -276,6 +303,9 @@ def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, l
     assert all(report.scenario_ids == ("scenario-a", "scenario-b") for report in quality)
     assert all(report.noisy_segment_hashes == ("hash-a", "hash-b") for report in quality)
     assert all(report.gain_total_pos_frac + report.gain_total_neg_frac <= 1.0 for report in quality)
+    assert all(len(report.contact_constraint) == 2 for report in quality)
+    assert all(len(report.zmp_constraint) == 2 for report in quality)
+    assert all(len(report.survival_constraint) == 2 for report in quality)
     assert fixture.optimizer.step_count == 1
     checkpoint_state = fixture.runner._frontres_v015_checkpoint_transaction_state
     assert checkpoint_state["state"] == "committed"
@@ -398,7 +428,7 @@ def test_t_formal_training_close_releases_command_before_sampler_lifecycle(
     print("[T-command-close/T-next-transaction] completed request releases the sealed command carrier", flush=True)
 
 
-def test_t_v009_critic_only_formal_update(candidate_contract, owners, live_sampler) -> None:
+def test_t_v010_critic_only_formal_update(candidate_contract, owners, live_sampler) -> None:
     fixture = _build_request(candidate_contract, owners, live_sampler)
     fixture.runner.current_learning_iteration = 0
     fixture.runner.alg.value_loss_coef = 1.0
@@ -415,17 +445,17 @@ def test_t_v009_critic_only_formal_update(candidate_contract, owners, live_sampl
     )
     result = owners[6].run_frontres_v015_formal_transaction_update(fixture.runner, request)
     diagnostics = result.diagnostics
-    assert diagnostics["training_contract_id"] == "FRS-TRAIN-v009"
-    assert diagnostics["gain_contract_id"] == "FRS-GAIN-v004"
+    assert diagnostics["training_contract_id"] == "FRS-TRAIN-v010"
+    assert diagnostics["gain_contract_id"] == "FRS-GAIN-v005"
     assert diagnostics["warmup_phase"] == "critic_only"
     assert diagnostics["actor_loss_weight"] == 0.0
     assert diagnostics["actor_std_parameter_delta"]["param_delta_max_abs"] == 0.0
     assert diagnostics["critic_parameter_delta"]["param_delta_max_abs"] > 0.0
     assert result.optimizer_step_delta == 1
-    print("[T-v009-critic-only] formal grouped owner updates Critic exactly once and freezes actor/std", flush=True)
+    print("[T-v010-critic-only] scalar Intent Critic updates exactly once and freezes actor/std", flush=True)
 
 
-def test_t_v009_mixed_k_rejects_and_new_stage_recalibrates(candidate_contract, owners, live_sampler) -> None:
+def test_t_v010_mixed_k_rejects_and_new_stage_recalibrates(candidate_contract, owners, live_sampler) -> None:
     fixture = _build_request(candidate_contract, owners, live_sampler)
     try:
         mixed_plan = replace(
@@ -436,7 +466,7 @@ def test_t_v009_mixed_k_rejects_and_new_stage_recalibrates(candidate_contract, o
     except ValueError as exc:
         assert "mixes local scenario identity" in str(exc) or "mixed-K" in str(exc)
     else:
-        raise AssertionError("v009 request must reject mixed-K before update")
+        raise AssertionError("v010 request must reject mixed-K before update")
 
     fixture.runner.current_learning_iteration = 4
     fixture.runner.alg.value_loss_coef = 1.0
@@ -478,7 +508,7 @@ def test_t_v009_mixed_k_rejects_and_new_stage_recalibrates(candidate_contract, o
     assert diagnostics["actor_std_parameter_delta"]["param_delta_max_abs"] == 0.0
     assert diagnostics["critic_parameter_delta"]["param_delta_max_abs"] > 0.0
     assert result.optimizer_step_delta == 1
-    print("[T-v009-transition] new K re-enters critic-only with homogeneous rows and exact-one update", flush=True)
+    print("[T-v010-transition] same Critic enters recalibration at the new homogeneous K", flush=True)
 
 
 def test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owners, live_sampler, _live_update_loop) -> None:
@@ -572,16 +602,16 @@ def test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owner
     assert telemetry["advantage_sign_flip_count"] == 0
     assert telemetry["update_count"] == 1
     assert telemetry["optimizer_step_delta"] == 1
-    missing_reports = replace(result, diagnostics={**result.diagnostics, "v004_action_gain_harm_reports": ()})
+    missing_reports = replace(result, diagnostics={**result.diagnostics, "v005_action_constraint_reports": ()})
     _expect_runtime_error(lambda: training._v015_formal_update_summary(missing_reports))
-    feedback_report = replace(result.diagnostics["v004_action_gain_harm_reports"][0], ppo_feedback=True)
+    feedback_report = replace(result.diagnostics["v005_action_constraint_reports"][0], ppo_feedback=True)
     feedback_result = replace(
         result,
         diagnostics={
             **result.diagnostics,
-            "v004_action_gain_harm_reports": (
+            "v005_action_constraint_reports": (
                 feedback_report,
-                *result.diagnostics["v004_action_gain_harm_reports"][1:],
+                *result.diagnostics["v005_action_constraint_reports"][1:],
             ),
         },
     )
@@ -668,7 +698,7 @@ def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
     logged = json.loads(telemetry_line.split("] ", 1)[1])
     assert logged["policy_row_count"] == 4
     assert logged["optimizer_step_delta"] == 1
-    assert logged["gain_source"] == "FRS-GAIN-v004-support-mode-physics-admissibility"
+    assert logged["gain_source"] == "FRS-GAIN-v005-vector-physics-constraints"
     assert len(logged["zmp_margin_repaired_steps"]) == 4
     assert len(logged["zmp_margin_noisy_steps"]) == 4
     assert len(logged["zmp_applicable_steps"]) == 4
@@ -736,8 +766,8 @@ def main() -> None:
     test_t_formal_training_close_releases_command_before_sampler_lifecycle(
         candidate_contract, owners, live_sampler, live_update_loop
     )
-    test_t_v009_critic_only_formal_update(candidate_contract, owners, live_sampler)
-    test_t_v009_mixed_k_rejects_and_new_stage_recalibrates(candidate_contract, owners, live_sampler)
+    test_t_v010_critic_only_formal_update(candidate_contract, owners, live_sampler)
+    test_t_v010_mixed_k_rejects_and_new_stage_recalibrates(candidate_contract, owners, live_sampler)
     test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_q29_actor_route_before_normalizer(candidate_contract, owners, live_sampler, live_update_loop)

@@ -555,6 +555,22 @@ class FrontRESV015FormalTransactionAccumulator:
         )
         batch_cls = type(first)
         total_rows = int(metadata.batch_size)
+        valid_mask = reorder_tensor(cat_batch_tensor("valid_mask")).bool()
+
+        def centered_constraint(name: str) -> torch.Tensor:
+            level = reorder_tensor(cat_batch_tensor(name)).float()
+            centered = torch.full_like(level, float("nan"))
+            for scenario_id in sorted(set(metadata.scenario_ids)):
+                rows = [row for row, observed in enumerate(metadata.scenario_ids) if observed == scenario_id]
+                if len(rows) < 2:
+                    raise ValueError("FRS-GAIN-v005 requires M>=2 attempts before transaction constraint centering")
+                index = torch.tensor(rows, device=level.device, dtype=torch.long)
+                if not bool(valid_mask.index_select(0, index).all()):
+                    raise ValueError("FRS-GAIN-v005 rejects invalid rows before transaction constraint centering")
+                values = level.index_select(0, index)
+                centered.index_copy_(0, index, values - values.mean().detach())
+            return centered
+
         return batch_cls(
             observations=reorder_tensor(cat_batch_tensor("observations")),
             actions=reorder_tensor(cat_batch_tensor("actions")),
@@ -562,7 +578,7 @@ class FrontRESV015FormalTransactionAccumulator:
             old_values=reorder_tensor(cat_batch_tensor("old_values")),
             returns=reorder_tensor(cat_batch_tensor("returns")),
             advantages=reorder_tensor(cat_batch_tensor("advantages")),
-            valid_mask=reorder_tensor(cat_batch_tensor("valid_mask")),
+            valid_mask=valid_mask,
             segment_ids=reorder_tensor(cat_batch_tensor("segment_ids")),
             old_means=(
                 None
@@ -581,6 +597,13 @@ class FrontRESV015FormalTransactionAccumulator:
             ),
             transaction_metadata=metadata,
             transaction_row_indices=torch.arange(total_rows, dtype=torch.long),
+            contact_constraint=reorder_tensor(cat_batch_tensor("contact_constraint")),
+            zmp_constraint=reorder_tensor(cat_batch_tensor("zmp_constraint")),
+            survival_constraint=reorder_tensor(cat_batch_tensor("survival_constraint")),
+            zmp_constraint_applicable=reorder_tensor(cat_batch_tensor("zmp_constraint_applicable")),
+            contact_constraint_advantage=centered_constraint("contact_constraint"),
+            zmp_constraint_advantage=centered_constraint("zmp_constraint"),
+            survival_constraint_advantage=centered_constraint("survival_constraint"),
         )
 
 
@@ -1831,7 +1854,7 @@ def _prepare_frontres_v015_local_transaction_batch(
     )
     configured_fingerprint = str(getattr(alg, "frontres_segment_k_curriculum_fingerprint", "") or "")
     if configured_fingerprint and configured_fingerprint != curriculum.schedule_fingerprint:
-        raise RuntimeError("FRS-TRAIN-v009 sampler curriculum fingerprint drifted after config resolution")
+        raise RuntimeError("FRS-TRAIN-v010 sampler curriculum fingerprint drifted after config resolution")
     sequence_attr = f"_frontres_v015_local_{route}_sequence"
     sequence = int(getattr(runner, sequence_attr, 0) or 0) + 1
     setattr(runner, sequence_attr, sequence)
@@ -1854,7 +1877,7 @@ def _prepare_frontres_v015_local_transaction_batch(
         active_horizon_k=curriculum.active_k,
     )
     if not bool((frozen_plan.horizon_k == curriculum.active_k).all().item()):
-        raise RuntimeError("FRS-TRAIN-v009 sampler failed to produce a homogeneous-K transaction")
+        raise RuntimeError("FRS-TRAIN-v010 sampler failed to produce a homogeneous-K transaction")
     if int(frozen_plan.segment_ids.numel()) != repair_rows:
         raise RuntimeError(
             "v015 local transaction requires environment Repair rows to equal its complete selected transaction: "

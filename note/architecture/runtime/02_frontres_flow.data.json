@@ -157,25 +157,25 @@
           "id": "DP-WARMUP",
           "title": "Actor & Critic Warmup",
           "summary": "每次全局 K 增长后先重校准同一 Critic, 再线性释放 actor, 最后 joint PPO",
-          "owns": "FRS-TRAIN-v009 K-stage-local critic_only, actor_warmup, joint phase, actor loss weight, one scalar Critic continuity, exact-one grouped transaction boundary and resume continuity",
+          "owns": "FRS-TRAIN-v010 owns fresh Intent-Critic entry, per-global-K critic_only recalibration, actor ramp, joint phase, one scalar Critic continuity, exact-one grouped transaction boundary and checkpoint-v5 identity; E-FI-74 confirms the source route offline",
           "mustNot": "不恢复 rho、Multi-Critic、第二 optimizer、K-conditioned actor、HSL Stage-3 target、legacy update route 或 v008 resume",
-          "objects": ["M-05", "FRS-TRAIN-v009", "FRS-GAIN-v004 return", "k_stage_index", "active_k", "stage_iteration", "phase", "actor_loss_weight", "critic grad", "actor/std grad"],
+          "objects": ["M-05", "FRS-TRAIN-v010", "paired-intent-minus-repair-v1", "k_stage_index", "active_k", "stage_iteration", "phase", "actor_loss_weight", "critic grad", "actor/std grad"],
           "files": [
-            {"id": "M2C-W01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "active v009 immutable schedule/fingerprint and committed-iteration to K-stage/local-phase owner", "functions": ["resolve_frontres_k_stage_identity()", "parse_frontres_k_stage_schedule()"], "sourceLine": 27, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=27"},
-            {"id": "M2C-W02", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "actor-weighted PPO loss and candidate grouped reduction", "functions": ["compute_frontres_segment_ppo_loss()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
-            {"id": "M2C-W03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "active v009 homogeneous-K request seal, exact-one update, committed receipt and new-K actor/std isolation owner", "functions": ["_v015_resolve_curriculum_identity()", "run_frontres_v015_formal_transaction_update()"], "sourceLine": 3640, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3640"},
-            {"id": "M2C-W04", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "active checkpoint-v4 v009 schedule/stage/K/local-phase persistence and pre-mutation compatibility owner", "functions": ["save_runner()", "load_runner()"], "sourceLine": 1556, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1556"}
+            {"id": "M2C-W01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py", "role": "active v010 immutable schedule/fingerprint and committed-iteration to K-stage/local-phase owner", "functions": ["resolve_frontres_k_stage_identity()", "parse_frontres_k_stage_schedule()"], "sourceLine": 27, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_warmup.py&line=27"},
+            {"id": "M2C-W02", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "active PPO-v004 scalar-Intent grouped loss, per-constraint surrogate, and KKT-checked joint projection", "functions": ["compute_frontres_segment_ppo_loss()", "install_frontres_v004_projected_gradients()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
+            {"id": "M2C-W03", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "active v010 homogeneous-K seal, projected-gradient install, exact-one update, committed receipt and phase isolation owner", "functions": ["_v015_resolve_curriculum_identity()", "run_frontres_v015_formal_transaction_update()"], "sourceLine": 3640, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3640"},
+            {"id": "M2C-W04", "path": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", "role": "active checkpoint-v5 v010/v005/v004 identity, solver schema, committed receipt and pre-mutation compatibility owner", "functions": ["save_runner()", "load_runner()"], "sourceLine": 1556, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=1556"}
           ],
           "mainRoute": [
             "B1 frontres_segment_warmup.py: explicit schedule + committed iteration -> active K + stage-local phase + actor weight",
-            "B2 frontres_segment_ppo.py::compute_frontres_segment_ppo_loss(): v004 return + grouped terms + actor weight -> value and actor loss",
+            "B2 frontres_segment_ppo.py: scalar v005 return + grouped constraint surrogates -> PPO-v004 projected actor gradient and scalar-Critic value loss",
             "B3 formal v015 owner: complete transaction + sealed phase -> critic-only/actor-ramp/joint exact-one update",
-            "B4 frontres_checkpointing.py: checkpoint-v4 v009/v004 schedule fingerprint + K stage/local iteration -> exact resume or pre-mutation reject"
+            "B4 frontres_checkpointing.py: checkpoint-v5 v010/v005/v004 schedule + solver + transaction identity -> exact resume or pre-mutation reject"
           ],
           "mainRouteTitles": ["解析 Warmup Phase", "组合 Grouped PPO Loss", "执行正式 Phase Update", "持久化 Phase Identity"],
           "review": ["每次换 K 后 critic_only actor/std 必须不变且同一 Critic 必须更新", "一笔 transaction 内 K 必须同质", "stage 仅在 committed transaction 后前进", "resume 必须选择同一 schedule/stage/K/phase", "一笔 transaction 只有一次 optimizer step"],
           "tests": ["E-FI-68 v008 K=8 critic-only foundation", "E-FI-70 C1 schedule kernel", "E-FI-70 C2 homogeneous-K transition", "E-FI-70 C3 checkpoint-v4 persistence", "E-FI-71 C4 bounded official K-transition sentinel"],
-          "gap": "E-FI-71 closes the v009 live engineering route: both critic-only phases preserve actor/std while changing the Critic, transactions remain homogeneous with exact-one updates, and model_1--model_4 carry v4/v009 identities. The one-update schedule is a sentinel only; 0/16 admissible Repairs and 0/16 positive Gains block long-training admission."
+          "gap": "E-FI-74 closes the v010 offline source route and strict checkpoint-v5 identity. Real constraint gradients, projection outcome, parameter deltas and policy efficacy remain blocked on the one-transaction P3 runtime sentinel."
         }
       ]
     },
@@ -264,30 +264,30 @@
         {
           "id": "DP-GAIN",
           "title": "Repair Gain",
-          "summary": "先以 Contact/ZMP/survival 判定 Physics admissibility，再在合格层内优化 Intent 与 Repair Cost",
-          "owns": "FRS-GAIN-v004 Physics tier, scalar paired Gain, candidate diagnostics, and all PPO/replay/evaluation consumers",
-          "mustNot": "Intent 或 Repair Cost 不得补偿 Physics 违规；不回退到 additive v003、v002、environment reward 或 legacy RP score",
-          "objects": ["Q-01", "expected support", "physics_admissible", "physics_deficit", "intent_quality", "repair_cost", "gain_total"],
+          "summary": "Noisy保留零动作反事实，Physics约束actor更新方向，Intent只在可执行空间内优化",
+          "owns": "active FRS-GAIN-v005 owns scalar Intent objective plus vector K-step Physics constraints; active FRS-PPO-v004 owns grouped joint projection; current v004/v003 source remains an explicit contract-mismatch",
+          "mustNot": "不得删除Noisy、把Noisy当Physics阈值、把Contact/ZMP/survival压回一个标量或让Clean/Physics进入actor input",
+          "objects": ["Q-01", "Noisy counterfactual", "paired Intent objective", "repair_cost", "Contact constraints [B,K,...]", "phase-ZMP constraints [B,K,...]", "survival constraints [B,K]"],
           "files": [
-            {"id": "M2C-Q01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "role": "unique active v004 semantic owner for non-compensatory Physics tier, Intent quality, and bounded repair penalty", "functions": ["compute_intent_physics_local_repair_gain()","evaluate_phase_conditioned_physics()","compute_repair_cost()"], "sourceLine": 208, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=208"},
+            {"id": "M2C-Q01", "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py", "role": "active v005 scalar Intent objective plus physical-unit unsaturated Contact/phase-ZMP/survival residual owner", "functions": ["compute_intent_physics_local_repair_gain()","evaluate_phase_conditioned_physics()","compute_repair_cost()"], "sourceLine": 208, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=208"},
             {"id": "M2C-Q02", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", "role": "v015 candidate capture/local-metadata connector plus bounded-live grouped-update and committed-receipt owner", "functions": ["collect_frontres_v015_gain_return_priority_evidence()","build_frontres_v015_grouped_candidate_batch()","run_frontres_v015_formal_transaction_update()"], "sourceLine": 3177, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3177"},
-            {"id": "M2C-Q03", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "immutable one-action-K support/Contact/ZMP/survival carrier and strict v004 return builder", "functions": ["FrontRESV015OneActionKEvidence","pair_frontres_v015_gain_facts()","build_frontres_v015_gain_return_evidence()"], "sourceLine": 314, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=314"},
+            {"id": "M2C-Q03", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", "role": "active immutable one-action-K carrier for scalar Intent return plus raw constraints and within-scenario centered constraint advantages", "functions": ["FrontRESV015OneActionKEvidence","pair_frontres_v015_gain_facts()","build_frontres_v015_gain_return_evidence()"], "sourceLine": 314, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=314"},
             {"id": "M2C-Q04", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", "role": "scenario-keyed immutable priority evidence only; no sampler-state update or actor-loss mass", "functions": ["build_frontres_v015_priority_evidence()"], "sourceLine": 134, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_sampler.py&line=134"},
-            {"id": "M2C-Q05", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "unchanged grouped-loss owner; exercised by complete candidate batch and bounded-live formal transaction", "functions": ["compute_frontres_segment_ppo_loss()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
-            {"id": "M2C-Q06", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "role": "active v004 read-only diagnostics consumer with fail-closed identity and component projection", "functions": ["build_frontres_v015_local_evaluation_report()","build_frontres_v015_composition_evaluation_protocol()"], "sourceLine": 149, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=149"},
+            {"id": "M2C-Q05", "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py", "role": "active PPO-v004 equal-mass grouped Intent/constraint gradients, joint projection/recovery, KKT diagnostics and disjoint actor/Critic gradient owner", "functions": ["compute_frontres_segment_ppo_loss()","install_frontres_v004_projected_gradients()"], "sourceLine": 251, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=251"},
+            {"id": "M2C-Q06", "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py", "role": "active v005 read-only scalar/vector diagnostics consumer with fail-closed identity and no training feedback", "functions": ["build_frontres_v015_local_evaluation_report()","build_frontres_v015_composition_evaluation_protocol()"], "sourceLine": 149, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=149"},
             {"id": "M2C-Q07", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", "role": "legacy periodic/offline/sequence v002 evaluator isolation gate; v015 layouts fail before capture", "functions": ["_reject_v015_legacy_evaluator()"], "sourceLine": 142, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=142"},
             {"id": "M2C-Q08", "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_sequence_eval.py", "role": "E-FI-46 deterministic carrier plus E-FI-28/E-FI-30 deployment request, T-max(H) executor, deployable metrics, atomic no-feedback report, and training fingerprint owner", "functions": ["materialize_frontres_v015_deployment_carrier()","FrontRESV015DeploymentCarrierLifecycle","load_frontres_v015_deployment_composition_request()","run_frontres_v015_deployment_composition_eval()","FrontRESV015DeploymentCompositionReport"], "sourceLine": 1, "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_sequence_eval.py&line=1"},
             {"id": "M2C-Q09", "path": "scripts/rsl_rl/frontres_v015_deployment_composition.py", "role": "E-FI-31 CLI isolation connector; carrier exists at E-FI-46, trained checkpoint and paired composition remain G5/G6 blockers", "functions": ["configure_frontres_v015_deployment_agent_cfg()","dispatch_frontres_v015_deployment_composition()"], "sourceLine": 1, "sourceHref": "/open-source?path=scripts%2Frsl_rl%2Ffrontres_v015_deployment_composition.py&line=1"}
           ],
           "mainRoute": [
-            "B1 v004 evidence: expected support + actual Contact/ZMP/survival -> per-role admissibility and deficit",
-            "B2 frontres_gain.py v004 owner: Physics tier -> Intent quality -> bounded Repair Cost -> scalar paired Gain",
-             "B3 one v004 identity -> return/priority/grouped PPO/diagnostics/evaluation; v002/v003 fallback rejects"
+            "B1 active: raw K-step Contact/phase-ZMP/survival -> physical-unit v005 residuals",
+            "B2 active: paired Intent objective -> scalar Critic; Physics vectors -> PPO-v004 constrained actor update",
+            "B3 E-FI-74: v016/v005/v004/v010 -> exact-one grouped update/diagnostics/checkpoint-v5 with legacy isolation"
           ],
-          "mainRouteTitles": ["计算 Gain Components", "组合 Total Gain", "记录 Candidate Evidence 与 Diagnostics"],
-          "review": ["检查 Physics tier 不被 Intent/cost 抵消", "检查所有消费者使用同一 v004 owner", "检查 missing component 不静默写 0"],
-          "tests": ["E-FI-68 S1 support/contact/phase/ZMP/lexicographic golden fixtures", "E-FI-68 S2 v004 consumer and v002/v003 isolation", "E-FI-68 S4 one-transaction ContactSensor sentinel"],
-          "gap": "E-FI-68 runtime-confirmed: v004 authoritative evidence and consumers are active. The critic-only sample had four Physics-inadmissible Repairs, so actor-ramp efficacy remains unconfirmed for X1."
+          "mainRouteTitles": ["定位 V004 信息损失", "冻结 V005 目标与约束", "迁移 Formal Consumers"],
+          "review": ["确认Noisy只做反事实基线", "确认Physics不再压成scalar Gain", "确认单Critic只预测Intent objective"],
+          "tests": ["E-FI-72 document-only design/owner rebase", "E-FI-73 P1 contract activation", "E-FI-74 P2 S1/S2/S3 offline complete", "P3 bounded S4 pending"],
+          "gap": "offline source/contract alignment is complete at E-FI-74. Real constraint evidence, projected actor direction and checkpoint-v5 must still be confirmed by the bounded P3 simulator transaction before longer training."
         }
       ]
     }

@@ -1,74 +1,67 @@
-# FRS-v015 Critic Curriculum Task Canvas
+# FRS-v015 Physics-Constrained Intent Task Canvas
 
 Status: active volatile control surface. Updated: 2026-07-23.
 
 ## Objective
 
-Keep one 6D actor and one scalar Critic while making K curriculum target
-stationary within each stage: one global K per transaction, Critic recalibration
-after every K transition, then actor ramp and joint PPO at that same K.
+Keep the Noisy zero-action counterfactual, one full-6D actor, one scalar Critic,
+one-action-K and exact-one grouped transaction, while moving Contact, phase-ZMP
+and survival out of scalar Gain and into explicit actor-update constraints.
 
 ## Method Authority
 
-- Concept Figure: `M-06 K-step Curriculum` -> `M-05 Actor & Critic Warmup`
-- Method: FRS-METHOD-v015
-- Training: FRS-TRAIN-v009
-- Gain/PPO: FRS-GAIN-v004 / FRS-PPO-v003 unchanged
+- Concept Figure: `Q-PAIR Paired Rollouts` -> `Q-01 Repair Gain`
+- Active contracts: METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010
+- Active source route: METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010,
+  offline-confirmed at E-FI-74
+- P0 decision record:
+  `FRS-GAIN-v005-vector-physics-constrained-intent-proposal.md`
+- Implementation plan: four main steps P1-P4 plus completed preparatory P0
 
 ## Current Cursor
 
-`C1-C4 engineering complete; post-C4 policy-quality decision blocks long training`
+`P2 / 4 complete at E-FI-74; P3 / 4 awaits simulator/material-cost authorization`
 
 ## Confirmed
 
-- Multi-Critic is rejected because it separates baselines but does not repair a
-  truncated actor target.
-- K values are ordered curriculum approximations toward one final horizon, not
-  simultaneous objectives.
-- Same transaction must not mix K.
-- Critic parameters continue across K; actor/std freeze during each new-K
-  recalibration.
-- Stage transitions occur only after a committed transaction.
-- E-FI-71 live-confirms the K8 critic-only -> actor-warmup -> joint -> K16
-  critic-only transition, actor/std isolation, exact-one updates and v4/v009
-  persistence.
+- Noisy rollout is retained as the same-scenario zero-action baseline.
+- Noisy answers whether FEMR caused improvement; it does not define Physics
+  admissibility.
+- Repair must satisfy expected Contact, phase-conditioned ZMP and survival
+  independently of whether it is less bad than Noisy.
+- scalar Critic target is paired Intent improvement minus repair cost only.
+- raw signed/per-step/per-channel Physics evidence remains available until the
+  optimization boundary.
+- no rho, second actor, second Critic, contact predictor, new actor input, HSL
+  change, Noisy prefix, or deployment Noisy rollout is introduced.
 
-## Closed Engineering Mismatch
+## Contradicted V004 Assumption
 
-- formal transaction planning now overrides legacy per-Segment K with the one
-  active v009 stage K;
-- phase resolution is stage-local and re-enters critic-only after K changes;
-- checkpoint v4 binds the exact schedule fingerprint and K-stage identity;
-- v008/checkpoint-v3 and mismatched schedules reject before mutation.
-
-## Exposed Quality Blocker
-
-- 0/16 Repair and Noisy rows were Physics-admissible;
-- 0/16 final Gains were positive, while 3/16 raw advantages were positive;
-- one-update critic-only phases prove isolation, not Critic calibration;
-- when both roles share the same saturated worst Physics violation, v004 can
-  preserve non-compensation yet lose useful within-unsafe-tier direction.
+The C4/ZMP plateau evidence shows that `[0,1]` violation normalization,
+temporal/channel `amax`, and unsafe scalar utility can map physically distinct
+Noisy/Repair trajectories to the same target. Critic warmup cannot recover
+evidence deleted before return construction.
 
 ## Active Steps
 
 ```text
-C0 contract/plan/Architecture
--> C1 pure schedule/config
--> C2 homogeneous-K formal transaction
--> C3 v009 persistence/resume
--> C4 bounded official K transition
--> policy-quality audit at final K
+P0 document/owner rebase [complete]
+-> P1 constrained-update mathematics + contract activation [complete]
+-> P2 one-shot offline implementation/S1/S2/S3 [complete]
+-> P3 one bounded 8-env official sentinel [runtime authorization]
+-> P4 policy-quality / longer-training admission [human decision]
 ```
 
 ## Non-Scope
 
-Multi-Critic, K actor input, new module, second optimizer, Gain/PPO/HSL changes,
-long training, multi-seed, deployment composition, and paper experiments.
+Long training, multi-seed, deployment composition, paper experiments, HSL,
+actor observation/output changes, GMT changes, multiple Critics/optimizers,
+Noisy physical prefix, or scalar reward-weight tuning.
 
 ## Next Action
 
-Do not start long training. First perform a bounded, read-only causal audit of
-which Contact/ZMP/survival component saturates each of the 16 C4 rows and
-whether v004 hides paired improvement at the worst-component reduction. Then
-the user chooses evaluator refinement, sampling/curriculum adjustment, or only
-longer Critic calibration.
+Authorize P3 only when ready to cross the simulator/material-cost boundary for
+one 8-env, one-transaction, one-update official sentinel. P3 must record raw
+Physics evidence, scalar Intent/value/advantage, constraint gradients and joint
+projection, actor/Critic deltas, exact-one counts, and checkpoint-v5 identity.
+It does not admit long training or policy-quality claims.

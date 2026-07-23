@@ -1,8 +1,9 @@
 ---
 contract_id: FRS-PPO-v003
-status: active
+status: superseded
 effective_date: 2026-07-19
 updated_date: 2026-07-20
+superseded_by: FRS-PPO-v004
 supersedes: FRS-PPO-v002
 scope: Stage 3 grouped_scale_only PPO reduction over one policy row per policy-sampled attempt, with K-step executable evidence aggregated into that row
 ---
