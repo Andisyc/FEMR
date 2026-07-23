@@ -4899,3 +4899,71 @@ Boundary:
 - No official simulator transaction has crossed a K boundary. C4 remains a
   separate user-authorized live gate; long training and policy-quality claims
   remain blocked.
+
+## E-FI-71: C4 Bounded Official K-Transition And Quality Blocker
+
+Date: 2026-07-23
+
+Tier: S4 bounded official runtime evidence; 8 environments, four formal
+iterations, one optimizer update per sealed transaction, checkpoint interval
+one; no long training, multi-seed, deployment composition, or paper experiment
+
+Raw evidence:
+
+- repository-root `v015_c4_k_transition_gpu3.log` (779 lines);
+- explicit schedule `8:1:1:1,16:1:1:0`;
+- no `Traceback`, `RuntimeError`, `AssertionError`, NaN, or CUDA failure; final
+  GLFW/IOMMU messages are headless-host warnings after successful completion.
+
+Engineering facts established:
+
+- the four committed transactions have the exact order K8 critic-only, K8
+  actor-warmup, K8 joint, and K16 critic-only;
+- each transaction contains four valid policy rows with group mass
+  `[0.25,0.25,0.25,0.25]` and exactly one optimizer step;
+- both critic-only phases preserve exact actor/std zero delta while changing ten
+  Critic parameters; actor-warmup and joint change actor and Critic;
+- `model_1.pt` through `model_4.pt` are strict checkpoint-v4/v009 saves;
+  `model_3.pt` resolves to K16 critic-only and `model_4.pt` to K16
+  actor-warmup;
+- two pre-success integration defects were closed before this run: stale v008
+  checkpoint audit ownership and command-carrier cleanup after committed
+  training. Neither failure is present in the final log.
+
+Policy-quality facts exposed:
+
+- all four transactions report `positive_gain_fraction=0`,
+  `negative_gain_fraction=1`, and `harm_fraction=1`: 0/16 policy rows have
+  positive v004 Gain;
+- Repair and Noisy Physics admissibility are both 0/16;
+- only 3/16 raw advantages are positive: 0 in K8 critic-only, 2 in K8
+  actor-warmup, 1 in K8 joint, and 0 in K16 critic-only;
+- in both critic-only phases, Repair/Noisy Physics deficits equal `1` and both
+  unsafe utilities equal `-2`, reducing Gain to the negative repair penalty;
+- actor-warmup and joint pre-clip gradient norms are approximately `700.11`
+  and `648.66`, both clipped to `0.5`; critic-only norms are approximately
+  `0.104` and `0.0856`.
+
+Interpretation and boundary:
+
+- C1-C4 K-stage engineering is complete. The one-update phase durations prove
+  ordering, isolation, exact-one update, and persistence; they do not prove
+  Critic calibration or a usable long-training schedule.
+- Negative Gain with positive raw advantage is legal PPO semantics when the
+  return is less harmful than the Critic prediction. It is not itself a wiring
+  failure, but an uncalibrated Critic can make that relative credit unreliable.
+- Longer Critic warmup cannot recover action ranking if the v004 unsafe tier
+  maps both roles to the same saturated worst-violation utility. The next
+  decision must distinguish target saturation from insufficient calibration.
+- Do not admit actor-ramp long training, weaken Physics non-compensation, or
+  allow Intent to offset a critical violation without a separate human design
+  decision and focused evidence.
+
+Next:
+
+- perform a bounded read-only causal projection over the 16 C4 rows: identify
+  the worst Contact/ZMP/survival component, the component-level Repair-Noisy
+  differences hidden by the `max` deficit, Critic values, returns, and raw
+  advantages. Then choose between a richer Physics-first unsafe-tier distance,
+  a sampling/curriculum adjustment, or longer Critic calibration only after the
+  target is shown distinguishable.

@@ -1,6 +1,6 @@
 # FRS-v015 K-Stage Critic Curriculum Engineering Plan
 
-Status: active, volatile engineering plan. Updated: 2026-07-22.
+Status: active, volatile engineering plan. Updated: 2026-07-23.
 
 ## Authority
 
@@ -29,7 +29,8 @@ global v008 warmup only and does not re-enter critic-only when K changes.
 Checkpoint v3 binds v008/global iteration but not a K schedule, stage, or local
 phase. E-FI-70 closes this mismatch on the v009 formal route through an
 explicit schedule, homogeneous-K override, stage-local recalibration and
-checkpoint v4. C4 live transition and long training remain blocked.
+checkpoint v4. E-FI-71 closes C4 live transition; long training remains blocked
+by the policy-quality findings recorded below.
 
 ## Source Of Truth
 
@@ -138,14 +139,21 @@ before commit, resume mismatch, or any legacy v008 path.
 
 Why separate: this is the only simulator/material-cost boundary.
 
+Status: completed by E-FI-71. The official route produced the exact K8
+critic-only -> actor-warmup -> joint -> K16 critic-only order, homogeneous
+four-row transactions, equal group mass, exact-one updates, actor/std isolation
+in both critic-only phases, and four committed v4/v009 checkpoints.
+
 ## Post-C4 Boundary
 
-After C4, `formal-runtime-audit` decides runtime closure and
-`policy-quality-audit` owns final-K label learnability, checkpoint trajectory,
-no-op/harm detection, and long-training admission. Short-K success cannot
+After C4, engineering runtime closure is confirmed. `policy-quality-audit` now
+owns the first unresolved boundary: all 16 C4 rows were Physics-inadmissible,
+all 16 Gains were negative, and only 3/16 raw advantages were positive. The
+audit must distinguish an uncalibrated Critic from an uninformative saturated
+unsafe-tier target before any actor-ramp long training. Short-K success cannot
 authorize long-sequence or deployment claims.
 
 ## Cursor
 
-Current cursor: `C1-C3 complete with E-FI-70 deterministic evidence; stop at
-C4 / 4 bounded official K-transition live gate`.
+Current cursor: `C1-C4 engineering complete with E-FI-70/E-FI-71; stop at the
+post-C4 policy-quality design decision before long training`.

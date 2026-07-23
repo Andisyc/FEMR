@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
-  "subtitle": "v015 policy-quality current-state view: historical v011/v002/v003 cards remain isolated; E-FI-70 closes deterministic v009 C1-C3, while C4 official live K-transition remains the engineering gate.",
-  "currentStatus": "E-FI-70 confirms explicit global K stages, homogeneous-K transactions, new-K critic-only isolation, exact-one update and checkpoint-v4 resume offline. Policy efficacy and long-training admission remain blocked until C4 provides official live transition evidence.",
+  "subtitle": "v015 policy-quality current-state view: historical v011/v002/v003 cards remain isolated; E-FI-71 closes C4 K-stage engineering and exposes unsafe-tier target distinguishability as the active blocker.",
+  "currentStatus": "E-FI-71 confirms the official K8-to-K16 transition, homogeneous transactions, actor/std isolation, exact-one updates and checkpoint-v4/v009 cadence. Policy efficacy and long-training admission remain blocked because 0/16 Repairs were Physics-admissible, 0/16 Gains were positive, and only 3/16 raw advantages were positive.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -16,9 +16,9 @@
     "QUALITY-TRAJECTORY-01"
   ],
   "activeV015QualityPlan": {
-    "status": "G5-P1-v004-v008-engineering-closed-policy-efficacy-unconfirmed",
-    "evidence": "E-FI-64 runtime trigger; E-FI-65 old-route carrier closure; E-FI-66 v004 design; E-FI-67 v008 design; E-FI-68 S1/S2/S3 plus bounded critic-only S4",
-    "next": "separately authorize X1 bounded actor-ramp budget and checkpoint quality gate; no long training, multi-seed, deployment composition or paper experiment yet",
+    "status": "v009-C4-engineering-closed-policy-efficacy-blocked",
+    "evidence": "E-FI-64 runtime trigger; E-FI-65 old-route carrier closure; E-FI-66 v004 design; E-FI-67 critic-ready design; E-FI-68 v004 runtime; E-FI-70 C1-C3; E-FI-71 bounded official C4",
+    "next": "audit the 16 C4 rows for worst Contact/ZMP/survival saturation, hidden paired improvement, Critic values, returns and raw advantages before choosing evaluator refinement, sampling/curriculum adjustment or longer Critic calibration; no long training yet",
     "gates": [
       "conditional comparison identity",
       "conditional zero-action no-op oracle",
@@ -33,8 +33,8 @@
     {
       "id": "SYS-POLICY-QUALITY",
       "title": "Policy Quality Causal Chain",
-      "summary": "Historical v011/v002/v003 cards remain explicitly incompatible. QUALITY-GAIN-01 and QUALITY-EXEC-01 project the E-FI-68 active v004/v008 route and retain critic-only efficacy limits.",
-      "status": "G5-P1 engineering runtime-confirmed; actor-ramp quality unconfirmed; historical cards isolated",
+      "summary": "Historical v011/v002/v003 cards remain explicitly incompatible. QUALITY-GAIN-01 and QUALITY-CREDIT-01 now project the E-FI-71 v004/v009 unsafe-tier, Critic and relative-advantage evidence.",
+      "status": "C4 engineering runtime-confirmed; unsafe-tier target distinguishability and actor efficacy blocked; historical cards isolated",
       "color": "#0f766e",
       "modules": [
         {

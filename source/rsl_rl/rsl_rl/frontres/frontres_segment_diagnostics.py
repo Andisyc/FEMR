@@ -4,7 +4,8 @@ from dataclasses import dataclass
 import importlib.util
 import math
 from pathlib import Path
-from typing import Any
+import sys
+from typing import Any, Callable
 
 import torch
 
@@ -36,6 +37,106 @@ class FrontRESSegmentReplaySummary:
 _V015_GAIN_SOURCE = "FRS-GAIN-v004-support-mode-physics-admissibility"
 _V015_LOCAL_EVALUATION_KIND = "local_k_candidate_only"
 _V015_COMPOSITION_EVALUATION_KIND = "deployment_composition_protocol"
+
+
+def _v004_phase_evaluator() -> Callable[..., dict[str, torch.Tensor]]:
+    """Load the active v004 evaluator so diagnostics reuse, never copy, its masks."""
+
+    try:
+        from rsl_rl.frontres.frontres_gain import evaluate_phase_conditioned_physics
+
+        return evaluate_phase_conditioned_physics
+    except ModuleNotFoundError:
+        spec = importlib.util.spec_from_file_location(
+            "frontres_gain_diagnostics_runtime", Path(__file__).resolve().with_name("frontres_gain.py")
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("could not load FRS-GAIN-v004 phase evaluator for diagnostics")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module.evaluate_phase_conditioned_physics
+
+
+@dataclass(frozen=True)
+class _V015ZMPRoleProjection:
+    margins: tuple[tuple[float | None, ...], ...]
+    violations: tuple[tuple[float | None, ...], ...]
+    argmax_frames: tuple[int | None, ...]
+    max_violations: tuple[float | None, ...]
+    recovery_trajectories: tuple[tuple[float | None, ...], ...]
+
+
+def _project_v015_zmp_role(
+    *,
+    margins: torch.Tensor,
+    applicable: torch.Tensor,
+    step_violation: torch.Tensor,
+    pair_valid: torch.Tensor,
+    horizons: torch.Tensor,
+) -> _V015ZMPRoleProjection:
+    """Project exact v004 ZMP intermediates into row-major JSON-safe diagnostics."""
+
+    if not (
+        margins.ndim == 2
+        and tuple(margins.shape) == tuple(applicable.shape)
+        and tuple(margins.shape) == tuple(step_violation.shape)
+        and tuple(margins.shape) == tuple(pair_valid.shape)
+        and horizons.ndim == 1
+        and int(horizons.numel()) == int(margins.shape[1])
+    ):
+        raise ValueError("v015 ZMP diagnostic projection requires aligned [K,B] tensors and [B] horizons")
+    margins_cpu = margins.detach().to(device="cpu", dtype=torch.float32)
+    applicable_cpu = applicable.detach().to(device="cpu", dtype=torch.bool)
+    violation_cpu = step_violation.detach().to(device="cpu", dtype=torch.float32)
+    valid_cpu = pair_valid.detach().to(device="cpu", dtype=torch.bool)
+    horizons_cpu = horizons.detach().to(device="cpu", dtype=torch.long)
+
+    margin_rows: list[tuple[float | None, ...]] = []
+    violation_rows: list[tuple[float | None, ...]] = []
+    argmax_frames: list[int | None] = []
+    max_violations: list[float | None] = []
+    recovery_rows: list[tuple[float | None, ...]] = []
+    for row, horizon_value in enumerate(horizons_cpu.tolist()):
+        horizon = int(horizon_value)
+        if horizon <= 0 or horizon > int(margins_cpu.shape[0]):
+            raise ValueError("v015 ZMP diagnostic horizon exceeds sealed K evidence")
+        row_margins: list[float | None] = []
+        row_violations: list[float | None] = []
+        applicable_indices: list[int] = []
+        for step in range(horizon):
+            is_valid = bool(valid_cpu[step, row])
+            is_applicable = bool(applicable_cpu[step, row])
+            margin = float(margins_cpu[step, row])
+            violation = float(violation_cpu[step, row])
+            if is_valid and not math.isfinite(margin):
+                raise ValueError("v015 ZMP diagnostic valid margin must be finite")
+            if is_applicable and (not is_valid or not math.isfinite(violation) or not 0.0 <= violation <= 1.0):
+                raise ValueError("v015 ZMP diagnostic applicable violation must be finite in [0,1]")
+            row_margins.append(margin if is_valid else None)
+            row_violations.append(violation if is_applicable else None)
+            if is_applicable:
+                applicable_indices.append(step)
+        if applicable_indices:
+            argmax = max(applicable_indices, key=lambda step: float(violation_cpu[step, row]))
+            max_violation = float(violation_cpu[argmax, row])
+            recovery = tuple(row_violations[argmax:])
+        else:
+            argmax = None
+            max_violation = None
+            recovery = ()
+        margin_rows.append(tuple(row_margins))
+        violation_rows.append(tuple(row_violations))
+        argmax_frames.append(argmax)
+        max_violations.append(max_violation)
+        recovery_rows.append(recovery)
+    return _V015ZMPRoleProjection(
+        margins=tuple(margin_rows),
+        violations=tuple(violation_rows),
+        argmax_frames=tuple(argmax_frames),
+        max_violations=tuple(max_violations),
+        recovery_trajectories=tuple(recovery_rows),
+    )
 
 
 @dataclass(frozen=True)
@@ -91,6 +192,18 @@ class FrontRESV015LocalEvaluationReport:
     expected_support_steps: tuple[tuple[tuple[float, float], ...], ...]
     actual_contact_repaired_steps: tuple[tuple[tuple[float, float], ...], ...]
     actual_contact_noisy_steps: tuple[tuple[tuple[float, float], ...], ...]
+    zmp_margin_repaired_steps: tuple[tuple[float | None, ...], ...]
+    zmp_margin_noisy_steps: tuple[tuple[float | None, ...], ...]
+    zmp_applicable_steps: tuple[tuple[bool, ...], ...]
+    support_transition_steps: tuple[tuple[bool, ...], ...]
+    zmp_step_violation_repaired: tuple[tuple[float | None, ...], ...]
+    zmp_step_violation_noisy: tuple[tuple[float | None, ...], ...]
+    zmp_argmax_frame_repaired: tuple[int | None, ...]
+    zmp_argmax_frame_noisy: tuple[int | None, ...]
+    zmp_max_violation_repaired: tuple[float | None, ...]
+    zmp_max_violation_noisy: tuple[float | None, ...]
+    zmp_recovery_trajectory_repaired: tuple[tuple[float | None, ...], ...]
+    zmp_recovery_trajectory_noisy: tuple[tuple[float | None, ...], ...]
     physics_valid_step_count: tuple[int, ...]
     policy_row_count: int
     valid_policy_row_count: int
@@ -157,6 +270,23 @@ class FrontRESV015LocalEvaluationReport:
             or len(self.expected_support_steps) != count
             or len(self.actual_contact_repaired_steps) != count
             or len(self.actual_contact_noisy_steps) != count
+            or any(
+                len(values) != count
+                for values in (
+                    self.zmp_margin_repaired_steps,
+                    self.zmp_margin_noisy_steps,
+                    self.zmp_applicable_steps,
+                    self.support_transition_steps,
+                    self.zmp_step_violation_repaired,
+                    self.zmp_step_violation_noisy,
+                    self.zmp_argmax_frame_repaired,
+                    self.zmp_argmax_frame_noisy,
+                    self.zmp_max_violation_repaired,
+                    self.zmp_max_violation_noisy,
+                    self.zmp_recovery_trajectory_repaired,
+                    self.zmp_recovery_trajectory_noisy,
+                )
+            )
             or any(value < 0 or value > self.horizon_k[index] for index, value in enumerate(self.physics_valid_step_count))
             or any(not str(value) for value in self.scenario_ids)
             or any(not str(value) for value in self.noisy_segment_hashes)
@@ -184,6 +314,35 @@ class FrontRESV015LocalEvaluationReport:
         source = self.intent_q29_source.lower()
         if not source or any(token in source for token in ("clean", "root", "global")):
             raise ValueError("v015 local evaluation report rejects non-deployment q29 provenance")
+        for row, horizon in enumerate(self.horizon_k):
+            step_rows = (
+                self.zmp_margin_repaired_steps[row],
+                self.zmp_margin_noisy_steps[row],
+                self.zmp_applicable_steps[row],
+                self.support_transition_steps[row],
+                self.zmp_step_violation_repaired[row],
+                self.zmp_step_violation_noisy[row],
+            )
+            if any(len(values) != horizon for values in step_rows):
+                raise ValueError("v015 ZMP diagnostics must preserve each row's exact K-step order")
+            for role_name in ("repaired", "noisy"):
+                violations = getattr(self, f"zmp_step_violation_{role_name}")[row]
+                argmax = getattr(self, f"zmp_argmax_frame_{role_name}")[row]
+                maximum = getattr(self, f"zmp_max_violation_{role_name}")[row]
+                recovery = getattr(self, f"zmp_recovery_trajectory_{role_name}")[row]
+                applicable_indices = [index for index, flag in enumerate(self.zmp_applicable_steps[row]) if flag]
+                if applicable_indices:
+                    if argmax not in applicable_indices or maximum is None:
+                        raise ValueError("v015 ZMP diagnostics require an applicable argmax and maximum")
+                    finite_values = [float(violations[index]) for index in applicable_indices if violations[index] is not None]
+                    if len(finite_values) != len(applicable_indices) or not math.isclose(
+                        float(maximum), max(finite_values), rel_tol=0.0, abs_tol=1.0e-6
+                    ):
+                        raise ValueError("v015 ZMP diagnostic maximum disagrees with its step trajectory")
+                    if tuple(recovery) != tuple(violations[int(argmax) :]):
+                        raise ValueError("v015 ZMP recovery trajectory must start at the first worst frame")
+                elif argmax is not None or maximum is not None or recovery:
+                    raise ValueError("v015 ZMP N/A rows cannot invent argmax or recovery evidence")
         metrics = (
             self.intent_gain_mean,
             self.physics_gain_mean,
@@ -343,7 +502,54 @@ def build_frontres_v015_local_evaluation_report(
     if int(horizon.numel()) != count:
         raise ValueError("v015 local evaluation horizon_k must align with policy rows")
 
-    # B3: 构造 immutable report, 明确声明 evaluation 不反馈训练状态.
+    # B3: 复用 active v004 phase evaluator, 只暴露其逐帧 ZMP 中间量.
+    expected_support = one_action.physics_expected_support_steps.detach()
+    pair_valid = one_action.physics_pair_valid_mask.detach().bool()
+    policy_valid = valid.to(device=pair_valid.device).unsqueeze(0)
+    horizon_mask = torch.arange(pair_valid.shape[0], device=pair_valid.device).unsqueeze(1) < return_evidence.horizon_k.to(
+        device=pair_valid.device
+    ).reshape(1, -1)
+    diagnostic_valid = pair_valid & policy_valid & horizon_mask
+    phase_evaluator = _v004_phase_evaluator()
+    repaired_phase = phase_evaluator(
+        expected_support,
+        one_action.physics_contact_repaired_steps.detach(),
+        one_action.physics_zmp_repaired_steps.detach(),
+        diagnostic_valid,
+    )
+    noisy_phase = phase_evaluator(
+        expected_support,
+        one_action.physics_contact_noisy_steps.detach(),
+        one_action.physics_zmp_noisy_steps.detach(),
+        diagnostic_valid,
+    )
+    for mask_name in ("zmp_applicable_steps", "support_transition_steps"):
+        if not torch.equal(repaired_phase[mask_name], noisy_phase[mask_name]):
+            raise ValueError(f"v015 ZMP diagnostic roles disagree on sealed {mask_name}")
+    repaired_zmp = _project_v015_zmp_role(
+        margins=one_action.physics_zmp_repaired_steps,
+        applicable=repaired_phase["zmp_applicable_steps"],
+        step_violation=repaired_phase["zmp_step_violation"],
+        pair_valid=diagnostic_valid,
+        horizons=return_evidence.horizon_k,
+    )
+    noisy_zmp = _project_v015_zmp_role(
+        margins=one_action.physics_zmp_noisy_steps,
+        applicable=noisy_phase["zmp_applicable_steps"],
+        step_violation=noisy_phase["zmp_step_violation"],
+        pair_valid=diagnostic_valid,
+        horizons=return_evidence.horizon_k,
+    )
+    applicable_rows = tuple(
+        tuple(bool(value) for value in row[: int(horizon[index])])
+        for index, row in enumerate(repaired_phase["zmp_applicable_steps"].detach().permute(1, 0).cpu().tolist())
+    )
+    transition_rows = tuple(
+        tuple(bool(value) for value in row[: int(horizon[index])])
+        for index, row in enumerate(repaired_phase["support_transition_steps"].detach().permute(1, 0).cpu().tolist())
+    )
+
+    # B4: 构造 immutable report, 明确声明 evaluation 不反馈训练状态.
     report = FrontRESV015LocalEvaluationReport(
         transaction_id=str(transaction_id),
         scenario_ids=tuple(str(value) for value in return_evidence.scenario_ids),
@@ -401,6 +607,18 @@ def build_frontres_v015_local_evaluation_report(
             tuple(tuple(float(value) for value in step) for step in row)
             for row in one_action.physics_contact_noisy_steps.detach().permute(1, 0, 2).cpu().tolist()
         ),
+        zmp_margin_repaired_steps=repaired_zmp.margins,
+        zmp_margin_noisy_steps=noisy_zmp.margins,
+        zmp_applicable_steps=applicable_rows,
+        support_transition_steps=transition_rows,
+        zmp_step_violation_repaired=repaired_zmp.violations,
+        zmp_step_violation_noisy=noisy_zmp.violations,
+        zmp_argmax_frame_repaired=repaired_zmp.argmax_frames,
+        zmp_argmax_frame_noisy=noisy_zmp.argmax_frames,
+        zmp_max_violation_repaired=repaired_zmp.max_violations,
+        zmp_max_violation_noisy=noisy_zmp.max_violations,
+        zmp_recovery_trajectory_repaired=repaired_zmp.recovery_trajectories,
+        zmp_recovery_trajectory_noisy=noisy_zmp.recovery_trajectories,
         physics_valid_step_count=tuple(
             int(value) for value in diagnostic_tensors["physics_valid_step_count"].detach().cpu().tolist()
         ),

@@ -2,7 +2,7 @@
 contract_id: FRS-GAIN-v004
 status: active
 effective_date: 2026-07-22
-updated_date: 2026-07-22
+updated_date: 2026-07-23
 supersedes: FRS-GAIN-v003
 scope: Stage 3 paired local-repair Gain with expected support-mode preservation, contact-phase-conditioned ZMP, non-compensatory Physics admissibility, root-invariant Intent, and full-6D repair cost
 ---
@@ -210,21 +210,27 @@ All active consumers must carry `gain_contract_id=FRS-GAIN-v004` and reject
 v002/v003 fallback, mixed evidence, partial phase masks, or missing provenance.
 PPO reduction and optimizer ownership remain unchanged.
 
-## Current Contract Mismatch
+## Implementation And Live Evidence Status
 
-The current source does not implement this contract:
+E-FI-68 closes the former source mismatch: the formal route now derives sealed
+expected support, reads ContactSensor-backed actual contact, evaluates
+phase-conditioned ZMP, constructs v004 non-compensatory utility, and carries
+the v004 identity through return and diagnostics.
 
-- `_height_contact_consistency_pair()` thresholds reference and robot foot
-  height; it does not read authoritative `contact_forces` sensor state;
-- `FrontRESRobotRolloutState.contact_state` exists, but production population
-  from the sensor is not code-confirmed;
-- `compute_paired_physics_gain()` uses an available mean of paired success,
-  survival, ZMP, and contact differences;
-- `compute_intent_physics_local_repair_gain()` uses the superseded additive
-  `intent_weight * intent + physics_weight * physics - repair_weight * cost`;
-- storage, diagnostics, return, priority, and evaluators identify v003.
+E-FI-71 exposes a policy-quality boundary rather than a wiring failure. Across
+16 live policy rows, both Repair and Noisy were Physics-inadmissible and every
+final Gain was negative. In the critic-only rows, both role deficits saturated
+at `1` and both unsafe utilities at `-2`, so paired Gain reduced to the negative
+repair penalty even when a component-level Physics measurement improved. The
+`max(d_contact, d_zmp, d_survival)` unsafe tier correctly prevents Intent from
+compensating a critical violation, but it may provide weak directional ranking
+when the same worst violation saturates both roles.
 
-These are `contract-mismatch` paths, not alternate active semantics.
+This evidence does not authorize additive Intent compensation. It leaves a
+human design decision between: preserving a richer Physics-first distance
+inside the unsafe tier, changing the sampling/curriculum so paired rows are
+distinguishable, and lengthening Critic calibration after the target itself is
+shown informative. No such semantic change is active in v004 yet.
 
 ## Required Diagnostics
 

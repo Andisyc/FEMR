@@ -407,6 +407,7 @@ def evaluate_phase_conditioned_physics(
     return {
         "contact_violation": contact_violation,
         "zmp_violation": zmp_violation,
+        "zmp_step_violation": zmp_step_violation,
         "contact_mismatch_steps": contact_mismatch,
         "zmp_applicable_steps": zmp_evaluate,
         "support_transition_steps": transition,

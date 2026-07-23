@@ -1522,7 +1522,7 @@
         {
           "id": "AUDIT-WARMUP-01",
           "title": "Probe 19 | Actor/Critic Warmup",
-          "summary": "v009 offline-confirmed: 每次全局 K 切换后同一 Critic 重新进入 critic-only，再 actor ramp 与 joint",
+          "summary": "v009 live-confirmed: 每次全局 K 切换后同一 Critic 重新进入 critic-only，再 actor ramp 与 joint",
           "cardKind": "runtime_probe",
           "owns": "验证 v004 return、schedule/stage/K/local iteration、phase/actor weight 与正式 v015 gradient boundary",
           "mustNot": "不得回退 legacy owner、Multi-Critic、mixed-K、K-conditioned actor、改变 grouped reduction 或让新-K critic-only 更新 actor/std",
@@ -1537,7 +1537,7 @@
             {
               "id": "AUDIT-WARMUP-01-SRC",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_warmup.py",
-              "role": "active v009 schedule/stage/local-phase owner; E-FI-70 confirms new-K critic-only and checkpoint-v4 resume offline",
+              "role": "active v009 schedule/stage/local-phase owner; E-FI-71 confirms the official K8-to-K16 transition, critic-only actor/std isolation, exact-one updates and checkpoint-v4/v009 cadence live",
               "functions": [
                 "resolve_frontres_k_stage_identity()"
               ]

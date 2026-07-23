@@ -1,6 +1,6 @@
 # FRS-v015 K-Stage Critic Curriculum Acceptance Checklist
 
-Status: active, volatile acceptance surface. Updated: 2026-07-22.
+Status: active, volatile acceptance surface. Updated: 2026-07-23.
 
 | Step | Owner / tier | Acceptance assertion | Status | Evidence / stop |
 | --- | --- | --- | --- | --- |
@@ -13,14 +13,18 @@ Status: active, volatile acceptance surface. Updated: 2026-07-22.
 | C2 | S2 isolation | per-Segment adaptive K cannot reach v009 formal storage/return/PPO/diagnostics | completed | formal planner overrides K; legacy remains ablation-only |
 | C3 | S3 persistence | checkpoint v4 binds v009 schedule/stage/K/local iteration/phase and resumes exactly | completed | strict save/fresh reload |
 | C3 | S3 rejection | v008, unversioned, different schedule, mixed-K, collecting/failed transaction rejects before mutation | completed | pre-mutation S3 contracts |
-| C4 | S4 official | bounded 8-env official route crosses one K boundary with homogeneous transactions, new-K critic-only isolation, exact-one updates and committed v009 save | pending user live authorization | C1-C3 complete; do not run automatically |
-| Quality | Q | final-K label learnability, zero/HSL/policy comparison, checkpoint trajectory and long-training admission | blocked by C4 | policy-quality-audit |
+| C4 | S4 official | bounded 8-env official route crosses one K boundary with homogeneous transactions, new-K critic-only isolation, exact-one updates and committed v009 save | completed | E-FI-71; exact four-phase order and model_1--model_4 v4/v009 identities |
+| Quality | Q | final-K label learnability, unsafe-tier target distinguishability, Critic calibration, checkpoint trajectory and long-training admission | blocked by E-FI-71 quality evidence | 0/16 admissible Repairs, 0/16 positive Gain, 3/16 positive raw advantages |
 
 ## Pass Rule
 
 Critic Curriculum passes engineering only when C1-C4 agree on the same schedule
 fingerprint and formal transaction identity. A deterministic scheduler or one
 K=8 run cannot prove K transition behavior.
+
+Engineering passage does not authorize long training: the live return target
+must first provide meaningful paired ranking, and Critic calibration must be
+separated from target saturation.
 
 ## Fail Rule
 

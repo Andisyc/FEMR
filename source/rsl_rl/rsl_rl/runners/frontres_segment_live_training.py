@@ -1951,6 +1951,18 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "expected_support_steps": [],
         "actual_contact_repaired_steps": [],
         "actual_contact_noisy_steps": [],
+        "zmp_margin_repaired_steps": [],
+        "zmp_margin_noisy_steps": [],
+        "zmp_applicable_steps": [],
+        "support_transition_steps": [],
+        "zmp_step_violation_repaired": [],
+        "zmp_step_violation_noisy": [],
+        "zmp_argmax_frame_repaired": [],
+        "zmp_argmax_frame_noisy": [],
+        "zmp_max_violation_repaired": [],
+        "zmp_max_violation_noisy": [],
+        "zmp_recovery_trajectory_repaired": [],
+        "zmp_recovery_trajectory_noisy": [],
         "physics_valid_step_count": [],
         "scenario_ids": [],
         "noisy_segment_hashes": [],
@@ -2036,6 +2048,18 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         fields["expected_support_steps"].extend(report.expected_support_steps)
         fields["actual_contact_repaired_steps"].extend(report.actual_contact_repaired_steps)
         fields["actual_contact_noisy_steps"].extend(report.actual_contact_noisy_steps)
+        fields["zmp_margin_repaired_steps"].extend(report.zmp_margin_repaired_steps)
+        fields["zmp_margin_noisy_steps"].extend(report.zmp_margin_noisy_steps)
+        fields["zmp_applicable_steps"].extend(report.zmp_applicable_steps)
+        fields["support_transition_steps"].extend(report.support_transition_steps)
+        fields["zmp_step_violation_repaired"].extend(report.zmp_step_violation_repaired)
+        fields["zmp_step_violation_noisy"].extend(report.zmp_step_violation_noisy)
+        fields["zmp_argmax_frame_repaired"].extend(report.zmp_argmax_frame_repaired)
+        fields["zmp_argmax_frame_noisy"].extend(report.zmp_argmax_frame_noisy)
+        fields["zmp_max_violation_repaired"].extend(report.zmp_max_violation_repaired)
+        fields["zmp_max_violation_noisy"].extend(report.zmp_max_violation_noisy)
+        fields["zmp_recovery_trajectory_repaired"].extend(report.zmp_recovery_trajectory_repaired)
+        fields["zmp_recovery_trajectory_noisy"].extend(report.zmp_recovery_trajectory_noisy)
         for name, values in components.items():
             for is_valid, value in zip(valid, values):
                 if is_valid:

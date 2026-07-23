@@ -116,7 +116,7 @@
           "mainRouteTitles": ["解析 Global K Stage", "执行 Evidence Horizon", "构造单行 K-step Return"],
           "review": ["拒绝 transaction 内 mixed-K", "检查 done 后的 evidence-step mask", "检查 K 不增加 PPO row 或 group mass"],
           "tests": ["S1/S2 v015 one-action K collector contract", "S1 v015 grouped candidate adapter contract", "S1 v003 grouped-PPO contract", "S2 formal storage route", "S4 AUDIT-SAMPLER-01", "S2 v015 unmocked observation connectivity contract"],
-          "gap": "E-FI-70 S1/S2 confirms explicit schedule identity, formal homogeneous-K override, mixed-K rejection and exact-one new-K critic-only isolation. The retained per-Segment planner is legacy/ablation-only; C4 live transition remains pending."
+          "gap": "E-FI-71 live-confirms the K8 critic-only -> actor-warmup -> joint -> K16 critic-only transition, formal homogeneous-K transactions, exact-one updates and v4/v009 persistence. The retained per-Segment planner remains legacy/ablation-only; policy quality, not K connectivity, is now the blocker."
         }
       ]
     },
@@ -174,8 +174,8 @@
           ],
           "mainRouteTitles": ["解析 Warmup Phase", "组合 Grouped PPO Loss", "执行正式 Phase Update", "持久化 Phase Identity"],
           "review": ["每次换 K 后 critic_only actor/std 必须不变且同一 Critic 必须更新", "一笔 transaction 内 K 必须同质", "stage 仅在 committed transaction 后前进", "resume 必须选择同一 schedule/stage/K/phase", "一笔 transaction 只有一次 optimizer step"],
-          "tests": ["E-FI-68 v008 K=8 critic-only foundation", "E-FI-70 C1 schedule kernel", "E-FI-70 C2 homogeneous-K transition", "E-FI-70 C3 checkpoint-v4 persistence", "planned C4 bounded K-transition sentinel"],
-          "gap": "E-FI-70 S1/S2/S3 confirms the v009 offline engineering route, including repeated critic-only, homogeneous K, exact-one update and strict checkpoint-v4 resume. Only C4 official live K-transition evidence remains absent."
+          "tests": ["E-FI-68 v008 K=8 critic-only foundation", "E-FI-70 C1 schedule kernel", "E-FI-70 C2 homogeneous-K transition", "E-FI-70 C3 checkpoint-v4 persistence", "E-FI-71 C4 bounded official K-transition sentinel"],
+          "gap": "E-FI-71 closes the v009 live engineering route: both critic-only phases preserve actor/std while changing the Critic, transactions remain homogeneous with exact-one updates, and model_1--model_4 carry v4/v009 identities. The one-update schedule is a sentinel only; 0/16 admissible Repairs and 0/16 positive Gains block long-training admission."
         }
       ]
     },

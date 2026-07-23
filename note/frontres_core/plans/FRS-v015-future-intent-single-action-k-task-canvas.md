@@ -1,6 +1,6 @@
 # FRS-v015 Critic Curriculum Task Canvas
 
-Status: active volatile control surface. Updated: 2026-07-22.
+Status: active volatile control surface. Updated: 2026-07-23.
 
 ## Objective
 
@@ -17,7 +17,7 @@ after every K transition, then actor ramp and joint PPO at that same K.
 
 ## Current Cursor
 
-`C4 / 4 pending live authorization: bounded official K transition`
+`C1-C4 engineering complete; post-C4 policy-quality decision blocks long training`
 
 ## Confirmed
 
@@ -29,6 +29,9 @@ after every K transition, then actor ramp and joint PPO at that same K.
 - Critic parameters continue across K; actor/std freeze during each new-K
   recalibration.
 - Stage transitions occur only after a committed transaction.
+- E-FI-71 live-confirms the K8 critic-only -> actor-warmup -> joint -> K16
+  critic-only transition, actor/std isolation, exact-one updates and v4/v009
+  persistence.
 
 ## Closed Engineering Mismatch
 
@@ -37,6 +40,14 @@ after every K transition, then actor ramp and joint PPO at that same K.
 - phase resolution is stage-local and re-enters critic-only after K changes;
 - checkpoint v4 binds the exact schedule fingerprint and K-stage identity;
 - v008/checkpoint-v3 and mismatched schedules reject before mutation.
+
+## Exposed Quality Blocker
+
+- 0/16 Repair and Noisy rows were Physics-admissible;
+- 0/16 final Gains were positive, while 3/16 raw advantages were positive;
+- one-update critic-only phases prove isolation, not Critic calibration;
+- when both roles share the same saturated worst Physics violation, v004 can
+  preserve non-compensation yet lose useful within-unsafe-tier direction.
 
 ## Active Steps
 
@@ -56,6 +67,8 @@ long training, multi-seed, deployment composition, and paper experiments.
 
 ## Next Action
 
-Do not start C4 automatically. First freeze the small transition schedule,
-server artifacts, GPU, output log/checkpoint paths, expected telemetry and stop
-condition; then run one user-authorized 8-env bounded official sentinel.
+Do not start long training. First perform a bounded, read-only causal audit of
+which Contact/ZMP/survival component saturates each of the 16 C4 rows and
+whether v004 hides paired improvement at the worst-component reduction. Then
+the user chooses evaluator refinement, sampling/curriculum adjustment, or only
+longer Critic calibration.

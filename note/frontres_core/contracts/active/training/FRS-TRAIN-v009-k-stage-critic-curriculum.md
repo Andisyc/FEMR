@@ -2,7 +2,7 @@
 contract_id: FRS-TRAIN-v009
 status: active
 effective_date: 2026-07-22
-updated_date: 2026-07-22
+updated_date: 2026-07-23
 supersedes: FRS-TRAIN-v008
 scope: single-Critic global K-stage curriculum with per-stage critic recalibration, actor ramp, joint grouped PPO, homogeneous-K transactions, and exact curriculum persistence
 ---
@@ -207,5 +207,18 @@ E-FI-70 closes deterministic C1-C3:
   identity and rejects v008, v3, partial, tampered, or different-schedule
   resume before mutable restoration.
 
-C4 bounded official live transition evidence is still absent. This contract
-does not authorize long training or policy-quality claims before C4.
+E-FI-71 closes the bounded C4 official route with the frozen engineering
+schedule `8:1:1:1,16:1:1:0`: K8 critic-only, K8 actor-warmup, K8 joint, then
+K16 critic-only. Both critic-only phases preserve exact actor/std zero delta
+while changing the Critic; actor-warmup and joint change both actor and Critic.
+Every transaction seals four valid policy rows with equal group mass and
+exactly one optimizer update. `model_1.pt` through `model_4.pt` carry strict
+checkpoint-v4/v009 identities; `model_3.pt` exposes K16 critic-only and
+`model_4.pt` advances to K16 actor-warmup.
+
+This closes engineering connectivity only. The one-update `N_c=1`, `N_a=1`
+durations are sentinel mechanics, not a calibrated training schedule. In the
+same C4 evidence, 0/16 Repair and 0/16 Noisy rows were Physics-admissible,
+0/16 Gains were positive, and only 3/16 raw advantages were positive. Long
+training therefore remains blocked on the policy-quality decision boundary;
+C4 does not establish Critic calibration or actor efficacy.

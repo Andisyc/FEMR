@@ -669,6 +669,18 @@ def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
     assert logged["policy_row_count"] == 4
     assert logged["optimizer_step_delta"] == 1
     assert logged["gain_source"] == "FRS-GAIN-v004-support-mode-physics-admissibility"
+    assert len(logged["zmp_margin_repaired_steps"]) == 4
+    assert len(logged["zmp_margin_noisy_steps"]) == 4
+    assert len(logged["zmp_applicable_steps"]) == 4
+    assert len(logged["support_transition_steps"]) == 4
+    assert len(logged["zmp_step_violation_repaired"]) == 4
+    assert len(logged["zmp_step_violation_noisy"]) == 4
+    assert len(logged["zmp_argmax_frame_repaired"]) == 4
+    assert len(logged["zmp_argmax_frame_noisy"]) == 4
+    assert len(logged["zmp_max_violation_repaired"]) == 4
+    assert len(logged["zmp_max_violation_noisy"]) == 4
+    assert len(logged["zmp_recovery_trajectory_repaired"]) == 4
+    assert len(logged["zmp_recovery_trajectory_noisy"]) == 4
     assert logged["return_feedback"] is False
     assert logged["priority_feedback"] is False
     assert logged["ppo_feedback"] is False

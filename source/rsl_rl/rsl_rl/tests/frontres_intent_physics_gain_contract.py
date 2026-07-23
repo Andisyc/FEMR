@@ -197,6 +197,7 @@ def test_phase_conditioning_and_lexicographic_dominance() -> None:
     torch.testing.assert_close(phase["contact_violation"], torch.zeros(1))
     assert not bool(phase["zmp_applicable_steps"][1, 0])
     assert bool(phase["zmp_applicable_steps"][2, 0])
+    torch.testing.assert_close(phase["zmp_step_violation"][:, 0], torch.tensor([1.0, 1.0, 0.0, 0.0]))
 
     extra_step = actual.clone()
     extra_step[0, 0, 0] = 0
@@ -230,6 +231,9 @@ def test_phase_conditioning_and_lexicographic_dominance() -> None:
         valid.repeat(1, 2).index_select(1, permutation),
     )
     torch.testing.assert_close(permuted["zmp_violation"], two["zmp_violation"].index_select(0, permutation))
+    torch.testing.assert_close(
+        permuted["zmp_step_violation"], two["zmp_step_violation"].index_select(1, permutation)
+    )
     print("[T-phase/T-lexicographic] planned transitions recover; unsafe Intent cannot compensate Physics", flush=True)
 
 
