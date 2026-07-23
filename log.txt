@@ -27,16 +27,26 @@ Traceback (most recent call last):
     runner.learn_frontres_segment_live(
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 707, in learn_frontres_segment_live
     run_frontres_segment_live_training_loop(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", line 2427, in run_frontres_segment_live_training_loop
-    if _save_live_checkpoint(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", line 2312, in _save_live_checkpoint
-    runner.save(checkpoint_path)
-  File "/hdd1/cyx/FEMR/source/whole_body_tracking/whole_body_tracking/utils/my_on_policy_runner.py", line 37, in save
-    super().save(path, infos)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 1419, in save
-    return save_runner(self, path, infos=infos)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py", line 1797, in save_runner
-    print_checkpoint_payload_audit(self, path=path, payload=saved_dict)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_formal_runtime_audit.py", line 516, in print_checkpoint_payload_audit
-    assert not missing, f"formal Stage 3 checkpoint missing audit fields: {missing}"
-AssertionError: formal Stage 3 checkpoint missing audit fields: ['frontres_segment_warmup_config']
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", line 2387, in run_frontres_segment_live_training_loop
+    result = runner.run_frontres_v015_formal_training_transaction(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 686, in run_frontres_v015_formal_training_transaction
+    return run_frontres_v015_formal_training_update_loop_helper(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 186, in run_frontres_v015_formal_training_update_loop
+    return run_frontres_v015_formal_transaction_update_loop(runner)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 148, in run_frontres_v015_formal_transaction_update_loop
+    request = provider()
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 177, in provider
+    return build_frontres_v015_formal_training_request(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4163, in build_frontres_v015_formal_training_request
+    return _build_frontres_v015_local_transaction_request(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4047, in _build_frontres_v015_local_transaction_request
+    reset_result = _apply_current_segment_reset(runner, pair_layout=pair_layout)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 1681, in _apply_current_segment_reset
+    return _apply_index_only_segment_reset(runner, batch, pair_layout=pair_layout)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 1844, in _apply_index_only_segment_reset
+    raw_result = hook(request)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_stage1_env_hooks.py", line 317, in apply_frontres_segment_index_reset
+    applied = set_local_scenario(
+  File "/hdd1/cyx/FEMR/source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", line 1990, in set_frontres_local_scenario
+    raise RuntimeError("v015 local scenario reset attempted to mutate an active sealed scenario")
+RuntimeError: v015 local scenario reset attempted to mutate an active sealed scenario

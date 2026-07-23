@@ -4168,14 +4168,28 @@ def build_frontres_v015_formal_training_request(
 
 
 def close_frontres_v015_formal_training_request(runner: Any) -> None:
-    """Close only the local-scenario carrier owned by the completed request."""
+    """Release command and sampler carriers owned by one completed request."""
 
     batch = getattr(runner, "_frontres_v015_formal_training_batch", None)
-    if batch is not None:
-        _close_frontres_local_scenarios(batch)
-        delattr(runner, "_frontres_v015_formal_training_batch")
-    runner._frontres_segment_live_current_sample = None
-    runner._frontres_segment_live_current_batch = None
+    try:
+        if batch is not None:
+            command = _motion_command_for_runner(runner)
+            clear = getattr(command, "clear_frontres_local_scenario", None)
+            try:
+                if not callable(clear):
+                    raise RuntimeError(
+                        "v015 formal training close requires command-owned local-scenario lifecycle"
+                    )
+                # Command rows own the live active bit; release them before the
+                # immutable materializer identities are closed.
+                clear()
+            finally:
+                _close_frontres_local_scenarios(batch)
+    finally:
+        if hasattr(runner, "_frontres_v015_formal_training_batch"):
+            delattr(runner, "_frontres_v015_formal_training_batch")
+        runner._frontres_segment_live_current_sample = None
+        runner._frontres_segment_live_current_batch = None
 
 
 def run_frontres_v015_local_identity_sentinel(

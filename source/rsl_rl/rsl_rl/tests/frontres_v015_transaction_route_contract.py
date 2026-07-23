@@ -365,6 +365,39 @@ def test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, o
     )
 
 
+def test_t_formal_training_close_releases_command_before_sampler_lifecycle(
+    _candidate_contract, owners, _live_sampler, _live_update_loop
+) -> None:
+    live_probe = owners[6]
+    events: list[str] = []
+    command = SimpleNamespace(
+        active=True,
+        clear_frontres_local_scenario=lambda: (
+            events.append("command"),
+            setattr(command, "active", False),
+        ),
+    )
+    runner = SimpleNamespace(
+        env=SimpleNamespace(command_manager=SimpleNamespace(get_term=lambda name: command)),
+        _frontres_v015_formal_training_batch=object(),
+        _frontres_segment_live_current_sample=object(),
+        _frontres_segment_live_current_batch=object(),
+    )
+    original_close = live_probe._close_frontres_local_scenarios
+    live_probe._close_frontres_local_scenarios = lambda batch: events.append("sampler")
+    try:
+        live_probe.close_frontres_v015_formal_training_request(runner)
+    finally:
+        live_probe._close_frontres_local_scenarios = original_close
+
+    assert events == ["command", "sampler"]
+    assert command.active is False
+    assert not hasattr(runner, "_frontres_v015_formal_training_batch")
+    assert runner._frontres_segment_live_current_sample is None
+    assert runner._frontres_segment_live_current_batch is None
+    print("[T-command-close/T-next-transaction] completed request releases the sealed command carrier", flush=True)
+
+
 def test_t_v009_critic_only_formal_update(candidate_contract, owners, live_sampler) -> None:
     fixture = _build_request(candidate_contract, owners, live_sampler)
     fixture.runner.current_learning_iteration = 0
@@ -688,6 +721,9 @@ def main() -> None:
     test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_partial_hsl_and_legacy_config_fail_before_step(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, owners, live_sampler, live_update_loop)
+    test_t_formal_training_close_releases_command_before_sampler_lifecycle(
+        candidate_contract, owners, live_sampler, live_update_loop
+    )
     test_t_v009_critic_only_formal_update(candidate_contract, owners, live_sampler)
     test_t_v009_mixed_k_rejects_and_new_stage_recalibrates(candidate_contract, owners, live_sampler)
     test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owners, live_sampler, live_update_loop)
