@@ -161,7 +161,22 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                 "obs_norm_state_dict": {},
                 "frontres_segment_sampler_state_dict": {},
                 "frontres_gain_config": {},
-                "frontres_segment_warmup_config": {"critic_warmup_iterations": 200, "actor_warmup_iterations": 500},
+                "frontres_segment_k_curriculum": ((8, 1, 1, 1), (16, 1, 1, 0)),
+                "frontres_v015_checkpoint_identity": {
+                    "format": "frontres-v015-checkpoint-v4",
+                    "training_contract_id": "FRS-TRAIN-v009",
+                    "curriculum": {
+                        "schedule": ((8, 1, 1, 1), (16, 1, 1, 0)),
+                        "schedule_fingerprint": "f" * 64,
+                        "k_stage_index": 1,
+                        "active_k": 16,
+                        "stage_iteration": 0,
+                        "absolute_iteration": 3,
+                        "phase": "critic_only",
+                        "phase_iteration": 0,
+                        "actor_loss_weight": 0.0,
+                    },
+                },
             },
         )
     output = stream.getvalue()
@@ -212,7 +227,47 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
         line = next(line for line in output.splitlines() if line.startswith(f"[{label}]"))
         assert "missing" not in line, line
     assert "gmt_trainable=0 gmt_in_optimizer=0" in output
-    assert "warmup={'critic_warmup_iterations': 200, 'actor_warmup_iterations': 500}" in output
+    assert "curriculum=((8, 1, 1, 1), (16, 1, 1, 0))" in output
+    assert "active_k=16" in output
+
+
+def test_checkpoint_audit_rejects_missing_or_mixed_v009_curriculum() -> None:
+    runner = _runner()
+    schedule = ((8, 1, 1, 1), (16, 1, 1, 0))
+    base = {
+        "iter": 4,
+        "model_state_dict": {},
+        "optimizer_state_dict": {},
+        "obs_norm_state_dict": {},
+        "frontres_segment_sampler_state_dict": {},
+        "frontres_gain_config": {},
+        "frontres_segment_k_curriculum": schedule,
+        "frontres_v015_checkpoint_identity": {
+            "format": "frontres-v015-checkpoint-v4",
+            "training_contract_id": "FRS-TRAIN-v009",
+            "curriculum": {"schedule": schedule, "active_k": 16},
+        },
+    }
+    for mutate in (
+        lambda payload: payload.pop("frontres_segment_k_curriculum"),
+        lambda payload: payload["frontres_v015_checkpoint_identity"]["curriculum"].update(
+            schedule=((8, 1, 1, 1), (32, 1, 1, 0))
+        ),
+    ):
+        payload = {
+            **base,
+            "frontres_v015_checkpoint_identity": {
+                **base["frontres_v015_checkpoint_identity"],
+                "curriculum": dict(base["frontres_v015_checkpoint_identity"]["curriculum"]),
+            },
+        }
+        mutate(payload)
+        try:
+            audit.print_checkpoint_payload_audit(runner, path="/tmp/model_bad.pt", payload=payload)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("formal audit accepted missing or mixed v009 curriculum")
 
 
 def test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners() -> None:
@@ -479,6 +534,7 @@ def test_runtime_audit_atlas_source_comments_and_checklist_share_ids() -> None:
 if __name__ == "__main__":
     test_return_audit_uses_policy_gain_rows_only()
     test_structured_phase_b_snapshots_cover_all_formal_boundaries()
+    test_checkpoint_audit_rejects_missing_or_mixed_v009_curriculum()
     test_audit_flag_off_is_silent_and_hooks_are_on_formal_owners()
     test_ppo_audit_reports_zero_valid_batch_without_changing_training_control_flow()
     test_reset_lifecycle_audit_is_role_aware_and_separates_timeout_from_termination()

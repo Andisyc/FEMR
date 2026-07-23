@@ -1695,8 +1695,8 @@
           "objects": [
             "Design: M-03, SR-01, M-05, Q-01",
             "base policy payload",
-            "normalizer/sampler/Gain/warmup",
-            "required-key assert/torch.save"
+            "normalizer/sampler/Gain/v009 curriculum",
+            "v4 identity assert/torch.save"
           ],
           "files": [
             {
@@ -1729,17 +1729,17 @@
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:355 :: save_runner() 产物边界",
-              "capture": "normalizer/sampler/Gain/warmup",
-              "whyHere": "normalizer/sampler/Gain/warmup 合并后 payload 语义首次完整",
+              "capture": "normalizer/sampler/Gain/v009 curriculum",
+              "whyHere": "normalizer/sampler/Gain/v009 schedule 与 checkpoint-v4 identity 合并后 payload 语义首次完整",
               "failureOwner": "失败归属: save_runner payload construction",
               "sourceLine": 355,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=355"
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_checkpointing.py:356 :: 正式 consumer 接收前",
-              "capture": "required-key assert/torch.save",
-              "whyHere": "torch.save 前检查能证明真实写盘对象而非 logger 推断",
-              "failureOwner": "失败归属: required-key validation 或 filesystem save boundary",
+              "capture": "v4 identity assert/torch.save",
+              "whyHere": "torch.save 前交叉检查 top-level schedule 与 sealed v009 curriculum, 能证明真实写盘对象而非 logger 推断",
+              "failureOwner": "失败归属: v009 identity validation 或 filesystem save boundary",
               "sourceLine": 356,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_checkpointing.py&line=356"
             }
@@ -1749,8 +1749,8 @@
             "insertion": "对应 B1/B2/B3 子框, 由同名 AUDIT-* snapshot 输出",
             "capture": [
               "base policy payload",
-              "normalizer/sampler/Gain/warmup",
-              "required-key assert/torch.save"
+              "normalizer/sampler/Gain/v009 curriculum",
+              "v4 identity assert/torch.save"
             ],
             "failIf": [
               "关键对象缺失、非有限或 shape/role 不符",

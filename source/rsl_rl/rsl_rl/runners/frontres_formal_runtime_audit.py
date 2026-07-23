@@ -503,6 +503,8 @@ def print_ppo_audit(runner: Any, *, result: Any) -> None:
 def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[str, Any]) -> None:
     if not formal_runtime_audit_enabled(runner):
         return
+    # B1: v009 persistence audit follows the checkpoint-v4 curriculum owner.
+    # The removed v008 global warmup payload is deliberately not accepted here.
     required = (
         "model_state_dict",
         "optimizer_state_dict",
@@ -510,17 +512,40 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
         "obs_norm_state_dict",
         "frontres_segment_sampler_state_dict",
         "frontres_gain_config",
-        "frontres_segment_warmup_config",
+        "frontres_segment_k_curriculum",
+        "frontres_v015_checkpoint_identity",
     )
     missing = [key for key in required if key not in payload]
     assert not missing, f"formal Stage 3 checkpoint missing audit fields: {missing}"
+
+    # B2: Cross-check the top-level resume schedule against the sealed v4 identity.
+    identity = payload["frontres_v015_checkpoint_identity"]
+    assert isinstance(identity, Mapping), "formal Stage 3 checkpoint identity must be a mapping"
+    assert identity.get("format") == "frontres-v015-checkpoint-v4", "formal audit requires checkpoint-v4"
+    assert identity.get("training_contract_id") == "FRS-TRAIN-v009", "formal audit requires FRS-TRAIN-v009"
+    curriculum = identity.get("curriculum")
+    assert isinstance(curriculum, Mapping), "formal Stage 3 checkpoint has no sealed curriculum identity"
+    try:
+        saved_schedule = tuple(tuple(int(value) for value in row) for row in payload["frontres_segment_k_curriculum"])
+        identity_schedule = tuple(tuple(int(value) for value in row) for row in curriculum["schedule"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AssertionError("formal Stage 3 checkpoint has malformed curriculum schedule") from exc
+    assert saved_schedule and saved_schedule == identity_schedule, (
+        "formal Stage 3 checkpoint top-level and identity curriculum schedules differ"
+    )
+    active_k = int(curriculum.get("active_k", 0))
+    assert active_k in {row[0] for row in identity_schedule}, "formal Stage 3 checkpoint active K is not scheduled"
+
+    # B3: Emit the exact v009 identity immediately before the torch.save consumer.
     print(
         "[AUDIT-PERSIST-01] "
         f"path={path} iter={payload.get('iter', 'missing')} "
         f"model={int('model_state_dict' in payload)} optimizer={int('optimizer_state_dict' in payload)} "
         f"obs_norm={int('obs_norm_state_dict' in payload)} sampler={int('frontres_segment_sampler_state_dict' in payload)} "
         f"gain_config={int('frontres_gain_config' in payload)} "
-        f"warmup={payload.get('frontres_segment_warmup_config', 'missing')}",
+        f"curriculum={saved_schedule} stage={curriculum.get('k_stage_index', 'missing')} "
+        f"active_k={active_k} phase={curriculum.get('phase', 'missing')} "
+        f"fingerprint={curriculum.get('schedule_fingerprint', 'missing')}",
         flush=True,
     )
 
