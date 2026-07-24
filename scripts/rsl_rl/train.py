@@ -230,6 +230,12 @@ parser.add_argument(
     help="Explicit frontres-v015-hsl-proposal-v1 artifact used only for Stage-3 actor initialization.",
 )
 parser.add_argument(
+    "--frontres_v015_resume_checkpoint",
+    type=str,
+    default=None,
+    help="Strict frontres-v015-checkpoint-v5 full resume for ordinary Stage-3 training; mutually exclusive with HSL initialization.",
+)
+parser.add_argument(
     "--frontres_segment_live_probe_only",
     action="store_true",
     default=False,
@@ -831,6 +837,16 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
     offline_eval_arg = bool(getattr(args_cli, "frontres_segment_offline_eval_only", False))
     sequence_eval_arg = bool(getattr(args_cli, "frontres_segment_sequence_offline_eval_only", False))
     hsl_live_smoke_arg = bool(getattr(args_cli, "frontres_hsl_live_smoke", False))
+    hsl_initializer_arg = str(
+        getattr(args_cli, "frontres_v015_hsl_initializer_checkpoint", "") or ""
+    ).strip()
+    v015_resume_arg = str(
+        getattr(args_cli, "frontres_v015_resume_checkpoint", "") or ""
+    ).strip()
+    if (hsl_initializer_arg or v015_resume_arg) and stage != "stage3_segment_hrl":
+        raise ValueError("v015 HSL initialization/full resume requires --frontres_stage stage3_segment_hrl")
+    if hsl_initializer_arg and v015_resume_arg:
+        raise ValueError("v015 HSL initialization and checkpoint-v5 full resume are mutually exclusive")
     if hsl_live_smoke_arg and stage != "stage1_hsl":
         raise ValueError("--frontres_hsl_live_smoke requires --frontres_stage stage1_hsl")
     if (
@@ -1053,10 +1069,20 @@ def _apply_frontres_stage_preset(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli) ->
             initializer = str(
                 getattr(args_cli, "frontres_v015_hsl_initializer_checkpoint", "") or ""
             ).strip()
-            if not initializer:
+            resume_checkpoint = str(
+                getattr(args_cli, "frontres_v015_resume_checkpoint", "") or ""
+            ).strip()
+            if bool(initializer) == bool(resume_checkpoint):
                 raise ValueError(
-                    "ordinary v015 Stage-3 requires --frontres_v015_hsl_initializer_checkpoint"
+                    "ordinary v015 Stage-3 requires exactly one of "
+                    "--frontres_v015_hsl_initializer_checkpoint or --frontres_v015_resume_checkpoint"
                 )
+            if resume_checkpoint:
+                if not os.path.isfile(resume_checkpoint):
+                    raise FileNotFoundError(f"v015 checkpoint-v5 resume checkpoint not found: {resume_checkpoint}")
+                agent_cfg.resume = True
+                agent_cfg.is_full_resume = True
+                agent_cfg.student_checkpoint_path = os.path.abspath(resume_checkpoint)
         # B3: AUDIT-PERTURB-01 records the finalized preset consumed by sampler/rollout owners.
         # Result: PENDING_LIVE.
         if formal_audit_enabled:
@@ -1546,6 +1572,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     hsl_initializer = str(
         getattr(args_cli, "frontres_v015_hsl_initializer_checkpoint", "") or ""
     ).strip()
+    v015_resume_checkpoint = str(
+        getattr(args_cli, "frontres_v015_resume_checkpoint", "") or ""
+    ).strip()
+    if hsl_initializer and v015_resume_checkpoint:
+        raise ValueError("Stage-3 HSL initialization and checkpoint-v5 full resume are mutually exclusive")
     if hsl_initializer:
         if args_cli.frontres_stage != "stage3_segment_hrl":
             raise ValueError("--frontres_v015_hsl_initializer_checkpoint requires Stage 3")

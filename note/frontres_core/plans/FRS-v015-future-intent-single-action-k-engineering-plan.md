@@ -1,14 +1,14 @@
 # FRS-v015 Physics-Constrained Intent Migration Engineering Plan
 
-Status: active, volatile engineering plan. Updated: 2026-07-23.
+Status: active, volatile engineering plan. Updated: 2026-07-24.
 
 ## Authority
 
 - Concept Figure: `../../architecture/concept/03_frontres_concept_tabs.data.json`
 - Active contracts: FRS-METHOD-v016 / FRS-GAIN-v005 / FRS-PPO-v004 /
- FRS-TRAIN-v010
-- Current incompatible source route: FRS-METHOD-v015 / FRS-GAIN-v004 /
- FRS-PPO-v003 / FRS-TRAIN-v009
+  FRS-TRAIN-v010
+- Active source/runtime route: FRS-METHOD-v016 / FRS-GAIN-v005 /
+  FRS-PPO-v004 / FRS-TRAIN-v010
 - P0 decision record:
   `FRS-GAIN-v005-vector-physics-constrained-intent-proposal.md`
 - Checklist: `../checklists/FRS-v015-future-intent-single-action-k-checklist.md`
@@ -37,9 +37,8 @@ multi-Segment x M atomicity, grouped equal mass, proposal-only HSL, K-stage
 Critic curriculum, exact-one update, and v004 runtime connectivity. They do not
 prove that the v004 scalar target preserves Physics direction information.
 
-The current source remains the last runnable v004/v003/v009 route. It is now
-an explicit contract-mismatch for further training because `clamp`/`amax` and
-unsafe-tier scalarization erased distinctions visible in raw ZMP evidence.
+The active source/runtime route now implements v016/v005/v004/v010. Historical
+v004/v003/v009 identities remain isolated and reject on the formal route.
 
 ## Source Of Truth And Migration Surface
 
@@ -156,6 +155,12 @@ more than one committed optimizer step.
 
 ### P3 / 4: Bounded Official Physics-Constraint Sentinel
 
+Status: completed at E-FI-75. One real 8-env, 2-Segment x 2-attempt, K8
+critic-only transaction produced finite Contact/phase-ZMP/survival evidence,
+one constraint-recovery direction, exactly one optimizer update, and one
+committed `frontres-v015-checkpoint-v5` artifact. This is runtime/connectivity
+evidence, not actor-ramp efficacy or long-training admission.
+
 Objective: prove the new route on one real 8-env sealed transaction.
 
 Scope: one explicit Stage3-v015 engineering run at one K stage, one iteration,
@@ -178,6 +183,11 @@ Why separate: this is the simulator/material-cost and external-runtime boundary.
 
 ### P4 / 4: Policy-Quality Admission
 
+Status: P4-S1 readiness closure completed at E-FI-77. Actor-ramp is not
+admitted. The current checkpoint-v5 remains K8 `critic_only 1/200`; strict
+full resume and the raw atomic quality-evidence projection are now available,
+but no continuation, simulator, training or live run occurred.
+
 Objective: decide whether the new target/update is informative enough to admit
 actor-ramp training.
 
@@ -197,6 +207,75 @@ regression, Intent-only shortcut, or evidence that the chosen constrained
 optimizer does not realize the confirmed concept. Such a result returns to P1,
 not to coefficient tuning.
 
+#### P4-S1: Readiness Closure Contract
+
+Objective: close only the formal checkpoint-v5 continuation and quality-
+evidence interfaces required before any critic continuation or actor-ramp run.
+
+Unique orchestration owner:
+`scripts/rsl_rl/train.py::main()`. The Stage3 shell launcher remains a connector;
+`frontres_checkpointing.py::load_runner()`,
+`frontres_segment_live_training.py::run_frontres_segment_live_training_loop()`
+and `frontres_policy_quality_eval.py` remain their existing persistence,
+training-loop and report semantic owners. No parallel runner or evaluator may
+be created.
+
+Scope:
+
+- add one explicit Stage3-v015 checkpoint-v5 full-resume route, mutually
+  exclusive with HSL-v1 initialization, restoring the exact actor, scalar
+  Critic, optimizer, sampler, 928/158/770 normalizer identity, schedule,
+  committed receipt history and absolute iteration;
+- preserve `((8,200,500,0),)` and expose an exact bounded continuation from
+  K8 phase iteration 1 to the critic-only boundary at iteration 200; no actor
+  update is allowed inside this readiness closure;
+- extend the existing atomic held-out report with read-only expected/actual
+  Contact sequences, phase-ZMP applicability/violation/recovery trajectories,
+  survival trajectories and an evaluator-only sustained lateral-lean trace;
+- keep every new evaluation field outside actor observation, scalar Critic
+  target, Gain/PPO, sampler, priority, optimizer and checkpoint identity.
+
+Non-scope: changing TRAIN-v010 counts, running the remaining 199 critic-only
+updates, actor-ramp, simulator/training/live execution, long training, multiple
+seeds, deployment composition, HSL changes, Gain/PPO formulas, new actor input,
+new learned network, or Concept Figure changes.
+
+Focused evidence:
+
+- S1 launcher/config: HSL initialization XOR strict v5 resume; legacy,
+  unversioned, schedule-mismatched and partial checkpoints reject before
+  mutation; exact resume begins at absolute iteration 1 and a bounded 199-
+  update budget resolves to the iteration-200 critic boundary;
+- S2 formal connectivity: a semantic checkpoint-v5 fixture restores actor,
+  Critic, optimizer, sampler, prefix normalizer, curriculum and committed
+  receipt, then one complete fake transaction advances exactly one iteration
+  without reinitialization or a second optimizer step;
+- S1/S2 quality: report projections preserve row order, scenario/hash/K,
+  expected/actual Contact, phase-ZMP N/A masks and recovery trajectories,
+  survival and sustained-lean traces; missing evidence fails closed rather
+  than being filled with zero;
+- S3 persistence/isolation: resumed save remains checkpoint-v5 with the same
+  coordinated contracts and complete-or-idle transaction identity; quality
+  evaluation leaves optimizer, sampler, transaction and normalizers unchanged.
+
+Stop condition: stop before any simulator or training if resume reloads HSL,
+resets or omits Critic/optimizer/sampler/iteration, changes the schedule or
+928/158/770 identity, restores a partial transaction, permits more than one
+update per committed transaction, or if the atomic report cannot expose raw
+Contact/phase-ZMP and sustained-lean evidence without leaking evaluator-only
+state into training.
+
+Implementation result (E-FI-77): `train.py::main()` now owns an explicit
+checkpoint-v5 full-resume route. The Stage3 launcher selects exactly one of
+HSL-v1 initialization or v5 resume. `load_runner()` validates actor, Critic,
+optimizer, sampler, 928/158/770 layout, TRAIN-v010 schedule and complete-or-
+idle transaction identity before mutable restore, and preserves the last
+committed receipt across an idle resumed save. The existing v015 held-out
+evaluator now emits ordered expected/actual Contact, phase-ZMP applicability,
+N/A, violation and recovery trajectories, raw survival, and evaluation-only
+paired root-roll/cumulative-lean traces. Missing raw evidence fails closed.
+Focused deterministic S1/S2/S3 contracts passed; no simulator or training ran.
+
 ## Why Four Main Steps
 
 The plan has four execution steps plus preparatory P0. The splits are not by
@@ -214,4 +293,4 @@ are deliberately merged into P2.
 
 ## Cursor
 
-Current cursor: `P2 / 4 complete at E-FI-74; P3 / 4 requires separate simulator/material-cost authorization`.
+Current cursor: `P4-S1 readiness closure complete at E-FI-77; no critic continuation or actor-ramp is authorized`.

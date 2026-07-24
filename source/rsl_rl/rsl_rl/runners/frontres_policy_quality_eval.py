@@ -804,6 +804,7 @@ def _v015_quality_route_result(
         FrontRESIntentPhysicsGainConfig,
         FrontRESIntentPhysicsGainInput,
         compute_intent_physics_local_repair_gain,
+        evaluate_phase_conditioned_physics,
     )
     from rsl_rl.frontres.frontres_segment_storage import (
         FrontRESV015OneActionKEvidence,
@@ -865,6 +866,69 @@ def _v015_quality_route_result(
         )
     }
     repair_rows = evidence.policy_row_indices.detach().to(dtype=torch.long)
+    required_raw = {
+        "physics_survival_repaired_steps": evidence.physics_survival_repaired_steps,
+        "physics_survival_noisy_steps": evidence.physics_survival_noisy_steps,
+        "evaluation_only_lateral_lean_repaired_steps": evidence.evaluation_only_lateral_lean_repaired_steps,
+        "evaluation_only_lateral_lean_noisy_steps": evidence.evaluation_only_lateral_lean_noisy_steps,
+    }
+    if any(not isinstance(value, torch.Tensor) for value in required_raw.values()):
+        missing = tuple(name for name, value in required_raw.items() if not isinstance(value, torch.Tensor))
+        raise RuntimeError(f"v015 quality raw Physics/lean evidence is missing: {missing}")
+    pair_valid = evidence.physics_pair_valid_mask.detach().bool()
+    survival_repaired = required_raw["physics_survival_repaired_steps"].detach()
+    survival_noisy = required_raw["physics_survival_noisy_steps"].detach()
+    for name, value in (("Repair", survival_repaired), ("Noisy", survival_noisy)):
+        if bool(((value != 0) & (value != 1)).any()):
+            raise RuntimeError(f"v015 quality {name} survival trajectory must be binary")
+    noisy_rows = torch.tensor(
+        [index for index, role in enumerate(evidence.roles) if role == "noisy"],
+        device=evidence.survival_steps.device,
+        dtype=torch.long,
+    )
+    if not torch.equal(
+        survival_repaired.float().sum(dim=0),
+        evidence.survival_steps.index_select(0, repair_rows).float(),
+    ) or not torch.equal(
+        survival_noisy.float().sum(dim=0),
+        evidence.survival_steps.index_select(0, noisy_rows).float(),
+    ):
+        raise RuntimeError("v015 quality raw survival trajectory disagrees with one-action-K evidence")
+    phase_kwargs = {
+        "expected_support_steps": evidence.physics_expected_support_steps,
+        "valid_steps": pair_valid,
+    }
+    repaired_phase = evaluate_phase_conditioned_physics(
+        actual_contact_steps=evidence.physics_contact_repaired_steps,
+        zmp_margin_steps=evidence.physics_zmp_repaired_steps,
+        **phase_kwargs,
+    )
+    noisy_phase = evaluate_phase_conditioned_physics(
+        actual_contact_steps=evidence.physics_contact_noisy_steps,
+        zmp_margin_steps=evidence.physics_zmp_noisy_steps,
+        **phase_kwargs,
+    )
+    applicable = repaired_phase["zmp_applicable_steps"].bool()
+    if not torch.equal(applicable, noisy_phase["zmp_applicable_steps"].bool()):
+        raise RuntimeError("v015 quality phase-ZMP applicability drifted between paired routes")
+    supported = pair_valid & evidence.physics_expected_support_steps.detach().bool().any(dim=-1)
+    recovery_window = supported & (~applicable)
+    nan_steps = torch.full_like(evidence.physics_zmp_repaired_steps.float(), float("nan"))
+    repaired_violation = torch.where(applicable, repaired_phase["zmp_step_violation"], nan_steps)
+    noisy_violation = torch.where(applicable, noisy_phase["zmp_step_violation"], nan_steps)
+
+    def cumulative_mean(value: torch.Tensor) -> torch.Tensor:
+        finite = torch.isfinite(value)
+        total = torch.where(finite, value, torch.zeros_like(value)).cumsum(dim=0)
+        count = finite.to(dtype=value.dtype).cumsum(dim=0)
+        return torch.where(count > 0, total / count.clamp_min(1.0), torch.full_like(value, float("nan")))
+
+    lean_repaired = required_raw["evaluation_only_lateral_lean_repaired_steps"].detach().float()
+    lean_noisy = required_raw["evaluation_only_lateral_lean_noisy_steps"].detach().float()
+    for name, value in (("Repair", lean_repaired), ("Noisy", lean_noisy)):
+        finite = torch.isfinite(value)
+        if not bool(finite[pair_valid].all()) or bool(finite[~pair_valid].any()):
+            raise RuntimeError(f"v015 quality {name} lateral-lean trajectory has invalid mask semantics")
     return {
         "route": route,
         "checkpoint_file_sha256": checkpoint_file_sha256,
@@ -884,6 +948,26 @@ def _v015_quality_route_result(
         ],
         "intent_q29_provenance": facts.intent_q29_provenance,
         "intent_q29_source": facts.intent_q29_source,
+        "expected_contact_steps": _v015_quality_json_tensor(evidence.physics_expected_support_steps),
+        "actual_contact_repaired_steps": _v015_quality_json_tensor(evidence.physics_contact_repaired_steps),
+        "actual_contact_noisy_steps": _v015_quality_json_tensor(evidence.physics_contact_noisy_steps),
+        "phase_zmp_applicable_steps": _v015_quality_json_tensor(applicable),
+        "phase_zmp_na_steps": _v015_quality_json_tensor(~applicable),
+        "phase_zmp_margin_repaired_steps": _v015_quality_json_tensor(evidence.physics_zmp_repaired_steps),
+        "phase_zmp_margin_noisy_steps": _v015_quality_json_tensor(evidence.physics_zmp_noisy_steps),
+        "phase_zmp_violation_repaired_steps": _v015_quality_json_tensor(repaired_violation),
+        "phase_zmp_violation_noisy_steps": _v015_quality_json_tensor(noisy_violation),
+        "phase_zmp_support_transition_steps": _v015_quality_json_tensor(repaired_phase["support_transition_steps"]),
+        "phase_zmp_recovery_repaired_steps": _v015_quality_json_tensor(recovery_window),
+        "phase_zmp_recovery_noisy_steps": _v015_quality_json_tensor(recovery_window),
+        "survival_repaired_steps": _v015_quality_json_tensor(required_raw["physics_survival_repaired_steps"]),
+        "survival_noisy_steps": _v015_quality_json_tensor(required_raw["physics_survival_noisy_steps"]),
+        "evaluation_only_sustained_lean": {
+            "repaired_lateral_roll_rad": _v015_quality_json_tensor(lean_repaired),
+            "noisy_lateral_roll_rad": _v015_quality_json_tensor(lean_noisy),
+            "repaired_cumulative_mean_rad": _v015_quality_json_tensor(cumulative_mean(lean_repaired)),
+            "noisy_cumulative_mean_rad": _v015_quality_json_tensor(cumulative_mean(lean_noisy)),
+        },
         **{name: _v015_quality_json_tensor(value) for name, value in components.items()},
     }
 

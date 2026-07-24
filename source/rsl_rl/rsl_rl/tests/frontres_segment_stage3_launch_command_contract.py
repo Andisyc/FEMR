@@ -141,6 +141,35 @@ def test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds() -> None:
     assert "8 envs, 1 iteration, and 1 update" in wrong.stderr
 
 
+def test_p4_s1_strict_v5_resume_replaces_hsl_initializer() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        resume_path = Path(tmp) / "model_1.pt"
+        resume_path.write_text("semantic checkpoint-v5 fixture\n")
+        result = _run_preflight(
+            "train",
+            {"FRONTRES_V015_RESUME_CHECKPOINT": str(resume_path)},
+            bounds=("8", "199", "1"),
+        )
+    assert result.returncode == 0, result.stderr
+    command = _command_line(result)
+    assert f"--frontres_v015_resume_checkpoint {resume_path}" in command
+    assert "--frontres_v015_hsl_initializer_checkpoint" not in command
+    assert "--resume_student_checkpoint" not in command
+    assert "--resume " not in command
+    assert "--is_full_resume" not in command
+    assert "--max_iterations 199" in command
+
+
+def test_p4_s1_strict_v5_resume_rejects_missing_checkpoint() -> None:
+    result = _run_preflight(
+        "train",
+        {"FRONTRES_V015_RESUME_CHECKPOINT": "/definitely/missing/model_1.pt"},
+        bounds=("8", "199", "1"),
+    )
+    assert result.returncode != 0
+    assert "checkpoint-v5 resume checkpoint not found" in result.stderr
+
+
 def test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel() -> None:
     for mode, expected_flag in SENTINEL_FLAGS.items():
         result = _run_preflight(mode)
@@ -207,6 +236,8 @@ if __name__ == "__main__":
     test_stage3_train_launch_preflight_builds_femr_command()
     test_g5_s4_bounded_launch_freezes_8_1_1_and_audit()
     test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds()
+    test_p4_s1_strict_v5_resume_replaces_hsl_initializer()
+    test_p4_s1_strict_v5_resume_rejects_missing_checkpoint()
     test_stage3_update_loop_launch_preflight_adds_only_update_loop_sentinel()
     test_stage3_sequence_eval_launch_honors_smoke_eval_env_overrides()
     test_stage3_launch_passes_explicit_segment_ppo_schedule_and_lr_args()

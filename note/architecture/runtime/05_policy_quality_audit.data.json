@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
-  "subtitle": "v015 policy-quality current-state view: historical v011/v002/v003 cards remain isolated; E-FI-71 closes C4 K-stage engineering and exposes unsafe-tier target distinguishability as the active blocker.",
-  "currentStatus": "E-FI-74 offline-confirms METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010: one scalar Intent Critic plus grouped Contact/phase-ZMP/survival actor constraints, exact-one update, and checkpoint-v5. P3 live Physics evidence remains unconfirmed.",
+  "subtitle": "v015 policy-quality current-state view: E-FI-77 closes strict checkpoint-v5 resume and raw quality-evidence readiness.",
+  "currentStatus": "P4-S1 is complete: formal HSL-XOR-v5 resume and atomic raw Contact/phase-ZMP/survival/evaluation-only lean reporting pass deterministic S1/S2/S3 contracts. Checkpoint remains K8 critic_only 1/200; continuation and actor-ramp remain unrun.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -16,9 +16,16 @@
     "QUALITY-TRAJECTORY-01"
   ],
   "activeV015QualityPlan": {
-    "status": "P2-offline-engineering-complete-P3-runtime-authorization-required",
-    "evidence": "E-FI-64--E-FI-71 preserve historical formal-route evidence; E-FI-72 records the authority split; E-FI-73 activates coordinated contracts; E-FI-74 confirms the new source route offline",
-    "next": "authorize one bounded P3 8-env transaction to validate real Contact/phase-ZMP/survival constraints, projection telemetry, exact-one update and checkpoint-v5",
+    "status": "P4-S1-readiness-closure-complete",
+    "evidence": "E-FI-72 records the authority split; E-FI-73 activates coordinated contracts; E-FI-74 confirms the source route offline; E-FI-75 confirms one real K8 critic-only transaction and checkpoint-v5 payload; E-FI-76 audits the readiness gaps; E-FI-77 closes strict resume and raw quality reporting",
+    "next": "human decision on the remaining K8 critic-only continuation and later actor-ramp admission; no run is authorized by P4-S1",
+    "readinessClosure": {
+      "owner": "scripts/rsl_rl/train.py::main()",
+      "checkpointState": "frontres-v015-checkpoint-v5 K8 critic_only 1/200",
+      "scope": "HSL-XOR-v5-resume formal dispatch plus raw quality evidence and evaluator-only sustained-lean report projection",
+      "nonScope": "simulator, training, live run, actor-ramp, Gain/PPO/HSL changes, Concept Figure, long training, multi-seed or deployment composition",
+      "stop": "resume reinitializes or omits state, schedule/layout/transaction identity drifts, update count is not exact-one, or evaluator evidence leaks into training"
+    },
     "gates": [
       "conditional comparison identity",
       "conditional zero-action no-op oracle",
@@ -34,7 +41,7 @@
       "id": "SYS-POLICY-QUALITY",
       "title": "Policy Quality Causal Chain",
       "summary": "Historical v011/v002/v003 cards remain explicitly incompatible. QUALITY-GAIN-01 and QUALITY-CREDIT-01 now project the E-FI-71 v004/v009 unsafe-tier, Critic and relative-advantage evidence.",
-      "status": "C4 engineering runtime-confirmed; unsafe-tier target distinguishability and actor efficacy blocked; historical cards isolated",
+      "status": "P3 constrained runtime and persistence confirmed; actor-ramp efficacy remains unconfirmed; historical cards isolated",
       "color": "#0f766e",
       "modules": [
         {
@@ -394,10 +401,10 @@
           "id": "QUALITY-GAIN-01",
           "title": "Quality 04 | V004 Scalarization -> V005 Physics Constraints",
           "summary": "Noisy保留反事实基线，Contact、phase-ZMP、survival以独立约束限制actor更新方向",
-          "cardKind": "quality_engineering_confirmed_live_pending",
+          "cardKind": "quality_runtime_confirmed_actor_efficacy_pending",
           "parentDesignPoint": "FRS-DP-06/07 | Q-PAIR/Q-01",
           "question": "如何让Physics直接约束可执行更新方向，同时保留Noisy反事实和单一Intent Critic",
-          "failureOwner": "bounded P3 live evidence boundary",
+          "failureOwner": "P4 actor-ramp policy-quality admission boundary",
           "owns": "active v005 scalar Intent target plus physical-unit vector constraints and PPO-v004 grouped joint projection",
           "mustNot": "不得删除Noisy、把Noisy当安全阈值、压回单一Physics分数、屏蔽adverse rows或增加Clean actor input/second learned network",
           "objects": [
@@ -442,7 +449,7 @@
             "B1 retain sealed Clean C -> evaluator-only expected support modes",
             "B2 retain ContactSensor + phase-ZMP + survival as ordered raw evidence",
             "B3 paired Intent objective -> scalar Critic; Physics vectors stay separate",
-            "B4 E-FI-74 confirms constrained actor update, exact-one commit and checkpoint-v5 identity offline"
+            "B4 E-FI-75 live-confirms scalar-Critic-only K8 update, constraint-recovery direction, exact-one commit and checkpoint-v5 payload identity"
           ],
           "probeSteps": [],
           "probe": {
@@ -470,10 +477,11 @@
           "tests": [
             "E-FI-72 document-only design and owner rebase",
             "E-FI-73 P1 contract activation",
-            "P2 S1/S2/S3 constrained-update contracts pending",
-            "P3 one-transaction S4 pending"
+            "E-FI-74 P2 S1/S2/S3 constrained-update contracts",
+            "E-FI-75 P3 one-transaction live S4 and checkpoint-v5 identity",
+            "E-FI-77 P4-S1 strict resume and raw quality-evidence deterministic closure"
           ],
-          "gap": "E-FI-71 and v015_zmp_plateau_s4_gpu3.log contradict v004 target sufficiency. E-FI-73 freezes the replacement rule; source changes and training remain blocked until P2 implements and verifies the active contracts."
+          "gap": "E-FI-77 closes formal HSL-XOR-v5 resume and raw expected/actual Contact, phase-ZMP, survival and evaluation-only sustained-lean reporting. The checkpoint remains K8 critic_only 1/200; the remaining continuation and actor-ramp admission are intentionally unrun human-controlled decisions."
         },
         {
           "id": "QUALITY-CREDIT-01",

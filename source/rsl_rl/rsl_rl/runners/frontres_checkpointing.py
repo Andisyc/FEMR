@@ -1204,12 +1204,27 @@ def _v015_transaction_checkpoint_payload(runner: Any) -> dict[str, Any]:
     """拒绝 in-flight work, 不序列化 partial candidate batch 或 reference."""
 
     state = getattr(runner, _V015_TRANSACTION_STATE_ATTR, None)
+    last_receipt = getattr(runner, _V015_LAST_RECEIPT_ATTR, None)
     if state is None:
+        if isinstance(last_receipt, Mapping):
+            return {
+                "state": "committed",
+                "receipt": _v015_committed_transaction_receipt(
+                    {"state": "committed", "receipt": last_receipt}
+                ),
+            }
         return {"state": "idle"}
     if not isinstance(state, Mapping):
         raise RuntimeError("v015 checkpoint transaction state must be a mapping")
     phase = str(state.get("state", ""))
     if phase == "idle":
+        if isinstance(last_receipt, Mapping):
+            return {
+                "state": "committed",
+                "receipt": _v015_committed_transaction_receipt(
+                    {"state": "committed", "receipt": last_receipt}
+                ),
+            }
         return {"state": "idle"}
     if phase == "committed":
         return {"state": "committed", "receipt": _v015_committed_transaction_receipt(state)}
@@ -1378,6 +1393,63 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         or identity.get("projection_schema_id") != "grouped-first-order-constraint-projection-v1"
     ):
         raise RuntimeError("v015 checkpoint has an incompatible contract or format identity")
+    model_state = checkpoint.get("model_state_dict")
+    if not isinstance(model_state, Mapping) or not isinstance(model_state.get("residual_actor"), Mapping) or not isinstance(
+        model_state.get("critic"), Mapping
+    ):
+        raise RuntimeError("v015 checkpoint is missing exact actor/Critic state")
+    if not isinstance(checkpoint.get("optimizer_state_dict"), Mapping):
+        raise RuntimeError("v015 checkpoint is missing optimizer state")
+    sampler = getattr(runner, "_frontres_segment_sampler", None)
+    if sampler is not None and not isinstance(checkpoint.get("frontres_segment_sampler_state_dict"), Mapping):
+        raise RuntimeError("v015 checkpoint is missing sampler state")
+
+    def require_exact_tensor_state(saved: Mapping[str, Any], runtime: Mapping[str, Any], *, label: str) -> None:
+        if set(saved) != set(runtime):
+            raise RuntimeError(f"v015 checkpoint {label} keys differ from runtime")
+        for name, runtime_value in runtime.items():
+            saved_value = saved[name]
+            if (
+                not isinstance(saved_value, torch.Tensor)
+                or not isinstance(runtime_value, torch.Tensor)
+                or saved_value.shape != runtime_value.shape
+                or saved_value.dtype != runtime_value.dtype
+            ):
+                raise RuntimeError(f"v015 checkpoint {label}.{name} shape/dtype differs from runtime")
+
+    policy = getattr(getattr(runner, "alg", None), "policy", None)
+    require_exact_tensor_state(
+        model_state["residual_actor"], policy.residual_actor.state_dict(), label="actor"
+    )
+    require_exact_tensor_state(model_state["critic"], policy.critic.state_dict(), label="Critic")
+    optimizer_state = checkpoint["optimizer_state_dict"]
+    saved_groups = optimizer_state.get("param_groups")
+    saved_slots = optimizer_state.get("state")
+    runtime_groups = getattr(runner.alg.optimizer, "param_groups", None)
+    if (
+        not isinstance(saved_groups, list)
+        or not isinstance(saved_slots, Mapping)
+        or not isinstance(runtime_groups, list)
+        or len(saved_groups) != len(runtime_groups)
+    ):
+        raise RuntimeError("v015 checkpoint optimizer state differs from runtime")
+    for saved_group, runtime_group in zip(saved_groups, runtime_groups, strict=True):
+        saved_ids = saved_group.get("params") if isinstance(saved_group, Mapping) else None
+        runtime_params = runtime_group.get("params") if isinstance(runtime_group, Mapping) else None
+        if not isinstance(saved_ids, list) or not isinstance(runtime_params, list) or len(saved_ids) != len(runtime_params):
+            raise RuntimeError("v015 checkpoint optimizer parameter groups differ from runtime")
+        for saved_id, runtime_parameter in zip(saved_ids, runtime_params, strict=True):
+            slot = saved_slots.get(saved_id, {})
+            if not isinstance(slot, Mapping):
+                raise RuntimeError("v015 checkpoint optimizer slot state is malformed")
+            for slot_value in slot.values():
+                if (
+                    isinstance(slot_value, torch.Tensor)
+                    and slot_value.ndim > 0
+                    and slot_value.numel() > 1
+                    and slot_value.shape != runtime_parameter.shape
+                ):
+                    raise RuntimeError("v015 checkpoint optimizer slot shape differs from runtime")
     expected_solver = {
         "family_order": ("contact", "zmp", "survival"),
         "contact_budget_foot_seconds": 0.0,
@@ -2100,7 +2172,9 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
                     else:
                         self.alg.learning_rate = restored_lr
                         print(f"[Runner] Synced learning_rate = {restored_lr:.2e} (from optimizer checkpoint)")
-            except (ValueError, KeyError) as e:
+            except (ValueError, KeyError, RuntimeError) as e:
+                if v015_resume_identity is not None:
+                    raise RuntimeError("v015 full resume rejected incompatible optimizer state") from e
                 # Optimizer state mismatch (e.g., different parameter groups between stages)
                 # This can happen when:
                 # - Stage 1 had frozen critic (optimizer only has actor params)

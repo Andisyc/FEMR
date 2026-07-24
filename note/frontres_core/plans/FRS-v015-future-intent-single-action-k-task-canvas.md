@@ -1,6 +1,6 @@
 # FRS-v015 Physics-Constrained Intent Task Canvas
 
-Status: active volatile control surface. Updated: 2026-07-23.
+Status: active volatile control surface. Updated: 2026-07-24.
 
 ## Objective
 
@@ -13,14 +13,14 @@ and survival out of scalar Gain and into explicit actor-update constraints.
 - Concept Figure: `Q-PAIR Paired Rollouts` -> `Q-01 Repair Gain`
 - Active contracts: METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010
 - Active source route: METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010,
-  offline-confirmed at E-FI-74
+  runtime-confirmed through one bounded transaction at E-FI-75
 - P0 decision record:
   `FRS-GAIN-v005-vector-physics-constrained-intent-proposal.md`
 - Implementation plan: four main steps P1-P4 plus completed preparatory P0
 
 ## Current Cursor
 
-`P2 / 4 complete at E-FI-74; P3 / 4 awaits simulator/material-cost authorization`
+`P4-S1 readiness closure completed at E-FI-77; critic continuation and actor-ramp remain unrun`
 
 ## Confirmed
 
@@ -48,9 +48,21 @@ evidence deleted before return construction.
 P0 document/owner rebase [complete]
 -> P1 constrained-update mathematics + contract activation [complete]
 -> P2 one-shot offline implementation/S1/S2/S3 [complete]
--> P3 one bounded 8-env official sentinel [runtime authorization]
--> P4 policy-quality / longer-training admission [human decision]
+-> P3 one bounded 8-env official sentinel [complete]
+-> P4-S0 policy-quality admission audit [complete]
+-> P4-S1 resume + quality-evidence readiness closure [complete]
+-> P4 critic continuation / actor-ramp admission [awaiting separate human decision]
 ```
+
+## Active Blockers
+
+- checkpoint-v5 is K8 `critic_only 1/200`; 199 additional critic-only updates
+  would be required to reach the fixed TRAIN-v010 actor-ramp boundary, but no
+  continuation run is authorized;
+- no engineering-readiness blocker remains in the strict checkpoint-v5 route;
+  the remaining 199 critic-only updates are intentionally unrun;
+- policy efficacy and the numerical actor-ramp admission boundary remain
+  unresolved experimental decisions, not missing wiring.
 
 ## Non-Scope
 
@@ -60,8 +72,7 @@ Noisy physical prefix, or scalar reward-weight tuning.
 
 ## Next Action
 
-Authorize P3 only when ready to cross the simulator/material-cost boundary for
-one 8-env, one-transaction, one-update official sentinel. P3 must record raw
-Physics evidence, scalar Intent/value/advantage, constraint gradients and joint
-projection, actor/Critic deltas, exact-one counts, and checkpoint-v5 identity.
-It does not admit long training or policy-quality claims.
+Decide separately whether to run the remaining K8 critic-only continuation.
+P4-S1 provides the strict resume command surface and complete atomic quality
+evidence, but it does not authorize simulator/training/live execution,
+actor-ramp length or numerical admission thresholds.

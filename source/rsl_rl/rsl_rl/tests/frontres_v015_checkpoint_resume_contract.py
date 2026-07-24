@@ -373,6 +373,12 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
         source.obs_normalizer._mean.fill_(123.0)
         source.obs_normalizer._std.fill_(2.0)
         source._frontres_v015_checkpoint_transaction_state = _committed_state()
+        source.alg.optimizer.zero_grad()
+        source.alg.policy.residual_actor.weight.sum().backward()
+        source.alg.optimizer.step()
+        actor_state = copy.deepcopy(source.alg.policy.residual_actor.state_dict())
+        critic_state = copy.deepcopy(source.alg.policy.critic.state_dict())
+        optimizer_state = copy.deepcopy(source.alg.optimizer.state_dict())
         checkpointing.save_runner(source, str(path))
         payload = _saved_payload(path)
         identity = payload["frontres_v015_checkpoint_identity"]
@@ -422,16 +428,33 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
         resumed = _runner(layout_module, policy_cls, iteration=0)
         resumed.obs_normalizer._mean.fill_(-321.0)
         resumed.obs_normalizer._std.fill_(3.0)
-        checkpointing.load_runner(resumed, str(path), load_optimizer=False)
+        checkpointing.load_runner(resumed, str(path), load_optimizer=True)
         assert resumed.current_learning_iteration == 3
         assert resumed._frontres_segment_sampler.loaded is True
         assert resumed._frontres_extra_stats_layout_version == layout_module.FRONTRES_FUTURE_INTENT_LAYOUT_VERSION
         assert resumed._frontres_v015_checkpoint_transaction_state == {"state": "idle"}
         assert resumed._frontres_v015_last_committed_transaction_receipt == _committed_state()["receipt"]
+        for name, value in actor_state.items():
+            torch.testing.assert_close(resumed.alg.policy.residual_actor.state_dict()[name], value)
+        for name, value in critic_state.items():
+            torch.testing.assert_close(resumed.alg.policy.critic.state_dict()[name], value)
+        resumed_optimizer_state = resumed.alg.optimizer.state_dict()
+        assert resumed_optimizer_state["state"].keys() == optimizer_state["state"].keys()
+        for parameter_id, saved_slot in optimizer_state["state"].items():
+            for name, saved_value in saved_slot.items():
+                observed = resumed_optimizer_state["state"][parameter_id][name]
+                if isinstance(saved_value, torch.Tensor):
+                    torch.testing.assert_close(observed, saved_value)
+                else:
+                    assert observed == saved_value
         torch.testing.assert_close(resumed._frontres_extra_mean, source._frontres_extra_mean)
         torch.testing.assert_close(resumed._frontres_extra_std, source._frontres_extra_std)
         torch.testing.assert_close(resumed.obs_normalizer._mean, torch.full((1, 770), -321.0))
         torch.testing.assert_close(resumed.obs_normalizer._std, torch.full((1, 770), 3.0))
+        resumed_path = Path(tmp) / "v015_resumed_idle.pt"
+        checkpointing.save_runner(resumed, str(resumed_path))
+        resumed_payload = _saved_payload(resumed_path)
+        assert resumed_payload["frontres_v015_checkpoint_identity"]["transaction"] == _committed_state()
         print("[T-checkpoint/T-layout/T-prefix-stats/T-commit-receipt] 928D layout, full 158D prefix fingerprint, frozen 770D GMT suffix, and metadata-only receipt round-trip", flush=True)
 
 
@@ -516,6 +539,24 @@ def test_t_resume_rejects_layout_legacy_and_normalizer_before_mutation(layout_mo
         actor_before = tampered.alg.policy.residual_actor.weight.detach().clone()
         _expect_error(lambda: checkpointing.load_runner(tampered, str(tampered_path), load_optimizer=False), "statistics do not match")
         _assert_unmutated(tampered, actor_before)
+
+        for missing_key, fragment in (
+            ("optimizer_state_dict", "optimizer state"),
+            ("frontres_segment_sampler_state_dict", "sampler state"),
+        ):
+            missing_payload = copy.deepcopy(payload)
+            del missing_payload[missing_key]
+            missing_path = Path(tmp) / f"missing_{missing_key}.pt"
+            torch.save(missing_payload, missing_path)
+            missing = _runner(layout_module, policy_cls, iteration=0)
+            actor_before = missing.alg.policy.residual_actor.weight.detach().clone()
+            _expect_error(
+                lambda path=missing_path, runner=missing: checkpointing.load_runner(
+                    runner, str(path), load_optimizer=True
+                ),
+                fragment,
+            )
+            _assert_unmutated(missing, actor_before)
         print("[T-resume/T-legacy-reject/T-prefix-stats] H mismatch, old v1/v4, solver tamper, old [H,65], and prefix tamper reject pre-mutation", flush=True)
 
 

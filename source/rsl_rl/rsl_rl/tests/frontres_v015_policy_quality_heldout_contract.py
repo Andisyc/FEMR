@@ -82,7 +82,7 @@ def _evidence(storage, *, route: str):
         executed_q29_t_valid_mask=torch.ones(2, dtype=torch.bool),
         done_any=torch.zeros(2, dtype=torch.bool),
         survival_steps=torch.tensor([repaired_survival, 1.0]),
-        physics_expected_support_steps=torch.ones(2, 1, 2),
+        physics_expected_support_steps=torch.tensor([[[1.0, 1.0]], [[1.0, 0.0]]]),
         physics_zmp_repaired_steps=torch.full((2, 1), 0.3 + action_scale),
         physics_zmp_noisy_steps=torch.full((2, 1), 0.3),
         physics_contact_repaired_steps=torch.ones(2, 1, 2),
@@ -92,6 +92,10 @@ def _evidence(storage, *, route: str):
             else torch.tensor([[[1.0, 0.0]], [[1.0, 0.0]]])
         ),
         physics_pair_valid_mask=torch.ones(2, 1, dtype=torch.bool),
+        physics_survival_repaired_steps=torch.tensor([[True], [repaired_survival >= 2.0]]),
+        physics_survival_noisy_steps=torch.tensor([[True], [False]]),
+        evaluation_only_lateral_lean_repaired_steps=torch.tensor([[0.02], [0.03 + action_scale]]),
+        evaluation_only_lateral_lean_noisy_steps=torch.tensor([[0.02], [0.02]]),
     )
     result.validate()
     return result
@@ -340,6 +344,18 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         assert rows[0]["gain_total"] == [0.0]
         assert rows[1]["gain_total"][0] > rows[0]["gain_total"][0]
         assert rows[2]["gain_total"][0] > rows[1]["gain_total"][0]
+        for row in rows:
+            assert row["expected_contact_steps"] == [[[1.0, 1.0]], [[1.0, 0.0]]]
+            assert len(row["actual_contact_repaired_steps"]) == 2
+            assert len(row["actual_contact_noisy_steps"]) == 2
+            assert row["phase_zmp_applicable_steps"] == [[True], [False]]
+            assert row["phase_zmp_na_steps"] == [[False], [True]]
+            assert row["phase_zmp_recovery_repaired_steps"] == [[False], [True]]
+            assert len(row["phase_zmp_violation_repaired_steps"]) == 2
+            assert len(row["phase_zmp_recovery_repaired_steps"]) == 2
+            assert row["survival_repaired_steps"][0] == [True]
+            assert len(row["evaluation_only_sustained_lean"]["repaired_lateral_roll_rad"]) == 2
+            assert len(row["evaluation_only_sustained_lean"]["repaired_cumulative_mean_rad"]) == 2
         assert "return" not in repr(payload).lower()
         assert "priority" not in repr(payload).lower()
         assert "clean" not in repr(payload).lower()
@@ -432,6 +448,43 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             "scenario",
         )
         assert not mixed_path.exists()
+
+        missing_path = root / "missing_raw.json"
+
+        def missing_raw_collect(_runner, item, route: str):
+            evidence = replace(
+                _evidence(storage, route=route),
+                evaluation_only_lateral_lean_repaired_steps=None,
+            )
+            return quality.FrontRESV015PolicyQualityRouteEvidence(
+                route=route,
+                checkpoint_file_sha256=checkpoint_by_route[route],
+                comparison_signature=item.comparison_signature,
+                one_action_k=evidence,
+                dynamic_state_identity=_dynamic_identity(quality, item.comparison_signature),
+            )
+
+        missing_runner = SimpleNamespace(alg=SimpleNamespace(frontres_v015_formal_transaction_enabled=True))
+        quality.install_frontres_v015_policy_quality_owner_bundle(
+            missing_runner,
+            quality.FrontRESV015PolicyQualityOwnerBundle(
+                owner_identity=bundle.owner_identity,
+                collect_one_action_k=missing_raw_collect,
+                close_item=lambda _runner, _item: None,
+                training_state_signature=lambda _runner: repr(training_state),
+            ),
+        )
+        _expect_reject(
+            lambda: quality.run_frontres_policy_quality_eval(
+                missing_runner,
+                manifest_path=str(manifest_path),
+                hsl_checkpoint_path=str(hsl_path),
+                policy_checkpoint_path=str(policy_path),
+                result_path=str(missing_path),
+            ),
+            "evidence is missing",
+        )
+        assert not missing_path.exists()
 
         wrong_checkpoint_path = root / "wrong_checkpoint.json"
 

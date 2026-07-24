@@ -35,6 +35,7 @@ PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
 FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
 FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"
 FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-}"
+FRONTRES_V015_RESUME_CHECKPOINT="${FRONTRES_V015_RESUME_CHECKPOINT:-}"
 
 if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
   echo "FRS-TRAIN-v009 requires FRONTRES_V015_K_CURRICULUM=K:N_c:N_a:N_joint,..." >&2
@@ -44,7 +45,11 @@ FRONTRES_G5_S4_BOUNDED="${FRONTRES_G5_S4_BOUNDED:-0}"
 CONTRACT_SUITE="${FRONTRES_STAGE3_CONTRACT_SUITE:-source/rsl_rl/rsl_rl/tests/frontres_segment_all_contract_suite.py}"
 CONTRACT_PYTHON="${FRONTRES_STAGE3_CONTRACT_PYTHON:-python}"
 
-if [[ ! -f "${HSL_CHECKPOINT}" ]]; then
+if [[ -n "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${FRONTRES_V015_RESUME_CHECKPOINT}" ]]; then
+  echo "checkpoint-v5 resume checkpoint not found: ${FRONTRES_V015_RESUME_CHECKPOINT}" >&2
+  exit 2
+fi
+if [[ -z "${FRONTRES_V015_RESUME_CHECKPOINT}" && ! -f "${HSL_CHECKPOINT}" ]]; then
   echo "HSL checkpoint not found: ${HSL_CHECKPOINT}" >&2
   exit 2
 fi
@@ -167,8 +172,13 @@ TRAIN_CMD=(
   --frontres_segment_live_update_steps "${UPDATE_STEPS}"
   --frontres_v015_future_offsets "${FRONTRES_V015_FUTURE_OFFSETS}"
   --frontres_segment_k_curriculum "${FRONTRES_V015_K_CURRICULUM}"
-  --frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}"
 )
+
+if [[ -n "${FRONTRES_V015_RESUME_CHECKPOINT}" ]]; then
+  TRAIN_CMD+=(--frontres_v015_resume_checkpoint "${FRONTRES_V015_RESUME_CHECKPOINT}")
+else
+  TRAIN_CMD+=(--frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}")
+fi
 
 if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
   TRAIN_CMD+=(
@@ -195,11 +205,15 @@ fi
 
 if [[ "${FRONTRES_STAGE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   joined=" ${TRAIN_CMD[*]} "
+  identity_fragment=" --frontres_v015_hsl_initializer_checkpoint ${HSL_CHECKPOINT} "
+  if [[ -n "${FRONTRES_V015_RESUME_CHECKPOINT}" ]]; then
+    identity_fragment=" --frontres_v015_resume_checkpoint ${FRONTRES_V015_RESUME_CHECKPOINT} "
+  fi
   for required in \
     " scripts/rsl_rl/train.py " \
     " --frontres_stage stage3_segment_hrl " \
     " --frontres_specialist_mode ${FRONTRES_SPECIALIST_MODE} " \
-    " --frontres_v015_hsl_initializer_checkpoint ${HSL_CHECKPOINT} " \
+    "${identity_fragment}" \
     " --frontres_v015_future_offsets ${FRONTRES_V015_FUTURE_OFFSETS} " \
     " --frontres_segment_k_curriculum ${FRONTRES_V015_K_CURRICULUM} " \
     " --frontres_segment_cache_dir ${CACHE_DIR} " \

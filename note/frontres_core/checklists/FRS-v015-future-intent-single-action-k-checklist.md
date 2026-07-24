@@ -1,6 +1,6 @@
 # FRS-v015 Physics-Constrained Intent Migration Checklist
 
-Status: active, volatile acceptance surface. Updated: 2026-07-23.
+Status: active, volatile acceptance surface. Updated: 2026-07-24.
 
 | Step | Owner / tier | Acceptance assertion | Status | Evidence / stop |
 | --- | --- | --- | --- | --- |
@@ -16,8 +16,13 @@ Status: active, volatile acceptance surface. Updated: 2026-07-23.
 | P2 | S2 connectivity | same sealed Noisy baseline and M Repair rows reach scalar objective plus vector constraints, grouped equal mass and exact-one update | completed | E-FI-74; v004/v003 formal consumers reject |
 | P2 | S2 gradients | scalar Critic receives only Intent objective; actor receives Intent direction constrained by Physics; frozen GMT and actor inputs unchanged | completed | E-FI-74; KKT and parameter-authority contracts pass |
 | P2 | S3 persistence | checkpoint-v5/receipt bind solver and contracts; v004/v009, tampered, or partial resume rejects before mutation | completed | E-FI-74; no persistent dual state or legacy scalar Gain payload |
-| P3 | S4 official | one 8-env transaction logs raw evidence, constraints, projection, objective/value/advantage, parameter deltas and exactly one committed update | awaiting user runtime authorization | one bounded official run only |
-| P4 | quality | target distinguishes v004 plateau cases and actor update improves or preserves Physics without sustained lean/unplanned stepping | blocked by P3 | failure returns to P1, not weight tuning |
+| P3 | S4 official | one 8-env transaction logs raw evidence, constraints, projection, objective/value/advantage, parameter deltas and exactly one committed update | completed | E-FI-75; live log plus read-only checkpoint-v5 payload identity |
+| P4-S0 | S0 admission audit | checkpoint-v5 phase, Critic budget, formal continuation route and held-out evidence coverage are read-only resolved before actor-ramp | completed | E-FI-76: K8 critic-only 1/200; formal resume contradiction and quality-report gaps confirmed |
+| P4-S1 | S1 launcher/config | strict checkpoint-v5 resume is mutually exclusive with HSL initialization and preserves exact v010 schedule/iteration | completed | E-FI-77; explicit resume replaces HSL flag, missing/legacy/partial/mixed identity rejects |
+| P4-S1 | S2 resume connectivity | actor/Critic/optimizer/sampler/normalizer/receipt restore exactly and one fake transaction advances exactly one update | completed | E-FI-77; strict semantic checkpoint and transaction contracts pass |
+| P4-S1 | S1/S2 quality evidence | atomic report exposes raw expected/actual Contact, phase-ZMP trajectories/N-A masks, survival and evaluator-only sustained lean | completed | E-FI-77; missing evidence fails closed and no Clean actor route is added |
+| P4-S1 | S3 persistence/isolation | resumed save remains coordinated checkpoint-v5 and evaluation mutates no optimizer/sampler/transaction/normalizer state | completed | E-FI-77; committed receipt survives idle re-save; save/reload isolation passes |
+| P4 | quality | target distinguishes v004 plateau cases and actor update improves or preserves Physics without sustained lean/unplanned stepping | awaiting experiment decision | critic continuation and actor-ramp require separate authorization |
 
 ## Pass Rule
 

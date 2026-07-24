@@ -382,6 +382,10 @@ class FrontRESV015OneActionKEvidence:
     physics_contact_repaired_steps: torch.Tensor
     physics_contact_noisy_steps: torch.Tensor
     physics_pair_valid_mask: torch.Tensor
+    physics_survival_repaired_steps: torch.Tensor | None = None
+    physics_survival_noisy_steps: torch.Tensor | None = None
+    evaluation_only_lateral_lean_repaired_steps: torch.Tensor | None = None
+    evaluation_only_lateral_lean_noisy_steps: torch.Tensor | None = None
 
     def validate(self) -> None:
         """Fail closed unless the evidence encodes exactly one Repair policy row per scenario."""
@@ -467,6 +471,14 @@ class FrontRESV015OneActionKEvidence:
             ("physics_pair_valid_mask", self.physics_pair_valid_mask),
         ):
             if tuple(value.shape) != physics_shape:
+                raise ValueError(f"v015 one-action evidence {name} must be [K,B]={physics_shape}")
+        for name, value in (
+            ("physics_survival_repaired_steps", self.physics_survival_repaired_steps),
+            ("physics_survival_noisy_steps", self.physics_survival_noisy_steps),
+            ("evaluation_only_lateral_lean_repaired_steps", self.evaluation_only_lateral_lean_repaired_steps),
+            ("evaluation_only_lateral_lean_noisy_steps", self.evaluation_only_lateral_lean_noisy_steps),
+        ):
+            if value is not None and tuple(value.shape) != physics_shape:
                 raise ValueError(f"v015 one-action evidence {name} must be [K,B]={physics_shape}")
         physics_valid = self.physics_pair_valid_mask.bool()
         supported_valid = physics_valid & self.physics_expected_support_steps.bool().any(dim=-1)

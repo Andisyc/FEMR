@@ -3450,6 +3450,11 @@ def collect_frontres_v015_one_action_k_evidence(
         contact_noisy_frames: list[torch.Tensor] = []
         expected_support_frames: list[torch.Tensor] = []
         physics_pair_valid_frames: list[torch.Tensor] = []
+        survival_repaired_frames: list[torch.Tensor] = []
+        survival_noisy_frames: list[torch.Tensor] = []
+        lean_repaired_frames: list[torch.Tensor] = []
+        lean_noisy_frames: list[torch.Tensor] = []
+        quality_trace_enabled = hasattr(runner, "_frontres_v015_quality_action_route")
         horizon_k = snapshot["horizon_k"].detach().long().clone()
         for _offset in range(int(horizon_k.max().item())):
             if getattr(runner, "_frontres_v015_one_action_k_phase", None) != "frozen":
@@ -3483,6 +3488,8 @@ def collect_frontres_v015_one_action_k_evidence(
                     "v015 one-action K collector requires paired ZMP/contact evidence on every executable K step"
                 )
             pair_valid = alive[:n_repair] & alive[n_repair : 2 * n_repair]
+            survival_repaired_frames.append(alive[:n_repair].detach().clone())
+            survival_noisy_frames.append(alive[n_repair : 2 * n_repair].detach().clone())
             nan = torch.full((n_repair,), float("nan"), device=runner.device, dtype=torch.float32)
             frame_names = (
                 ("zmp_repaired", physics_frame[0], zmp_repaired_frames),
@@ -3506,6 +3513,15 @@ def collect_frontres_v015_one_action_k_evidence(
                     raise RuntimeError(f"v015 one-action K collector received invalid {name} shape {tuple(frame.shape)}")
                 destination.append(frame.clone())
             physics_pair_valid_frames.append(pair_valid.detach().clone())
+            if quality_trace_enabled:
+                lean_frame = _capture_v015_quality_lateral_lean_frame(runner, pair_layout)
+                if lean_frame is None:
+                    raise RuntimeError("v015 quality requires evaluation-only paired lateral-lean evidence")
+                for frame, destination in zip(lean_frame, (lean_repaired_frames, lean_noisy_frames), strict=True):
+                    frame = frame.detach().to(device=runner.device, dtype=torch.float32).reshape(-1)
+                    if int(frame.numel()) != n_repair or not bool(torch.isfinite(frame[pair_valid]).all()):
+                        raise RuntimeError("v015 quality received invalid lateral-lean evidence")
+                    destination.append(torch.where(pair_valid, frame, nan).detach().clone())
             survival_steps = survival_steps + alive.to(dtype=survival_steps.dtype)
             done_any = done_any | (frozen_dones & alive)
 
@@ -3547,6 +3563,14 @@ def collect_frontres_v015_one_action_k_evidence(
             physics_contact_repaired_steps=torch.stack(contact_repaired_frames, dim=0),
             physics_contact_noisy_steps=torch.stack(contact_noisy_frames, dim=0),
             physics_pair_valid_mask=torch.stack(physics_pair_valid_frames, dim=0),
+            physics_survival_repaired_steps=torch.stack(survival_repaired_frames, dim=0),
+            physics_survival_noisy_steps=torch.stack(survival_noisy_frames, dim=0),
+            evaluation_only_lateral_lean_repaired_steps=(
+                torch.stack(lean_repaired_frames, dim=0) if quality_trace_enabled else None
+            ),
+            evaluation_only_lateral_lean_noisy_steps=(
+                torch.stack(lean_noisy_frames, dim=0) if quality_trace_enabled else None
+            ),
         )
         evidence.validate()
         return evidence
@@ -4953,6 +4977,35 @@ def _capture_physics_frame(
         **_audit_identity_kwargs(getattr(runner, "_frontres_segment_live_audit_identity", None)),
     )
     return frame
+
+
+def _capture_v015_quality_lateral_lean_frame(
+    runner: Any,
+    pair_layout: Any,
+) -> tuple[torch.Tensor, torch.Tensor] | None:
+    """Read paired robot root roll for evaluation only; never expose it to training."""
+
+    command = _motion_command_for_runner(runner)
+    robot_quat = getattr(command, "robot_anchor_quat_w", None) if command is not None else None
+    n = min(max(0, int(pair_layout.n_train)), max(0, int(pair_layout.n_base)))
+    base_start = int(pair_layout.n_train) + int(pair_layout.n_candidate)
+    if (
+        not isinstance(robot_quat, torch.Tensor)
+        or n <= 0
+        or robot_quat.ndim != 2
+        or int(robot_quat.shape[1]) != 4
+        or int(robot_quat.shape[0]) < base_start + n
+    ):
+        return None
+
+    def roll_wxyz(quat: torch.Tensor) -> torch.Tensor:
+        w, x, y, z = quat.unbind(dim=-1)
+        return torch.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x.square() + y.square()))
+
+    return (
+        roll_wxyz(robot_quat[:n]).detach().clone(),
+        roll_wxyz(robot_quat[base_start : base_start + n]).detach().clone(),
+    )
 
 
 def _contact_sensor_pair(

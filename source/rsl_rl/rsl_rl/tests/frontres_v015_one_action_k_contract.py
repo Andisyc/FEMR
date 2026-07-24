@@ -312,6 +312,7 @@ def _capture(
     )
     physics_offset = 0
     original_physics = live_probe._capture_physics_frame
+    original_lean = live_probe._capture_v015_quality_lateral_lean_frame
 
     def capture_physics(_runner, _layout):
         nonlocal physics_offset
@@ -320,6 +321,10 @@ def _capture(
         return frame
 
     live_probe._capture_physics_frame = capture_physics
+    live_probe._capture_v015_quality_lateral_lean_frame = lambda _runner, _layout: (
+        torch.full((2,), 0.03),
+        torch.full((2,), 0.01),
+    )
     try:
         evidence = live_probe.collect_frontres_v015_one_action_k_evidence(
             runner,
@@ -328,6 +333,7 @@ def _capture(
         )
     finally:
         live_probe._capture_physics_frame = original_physics
+        live_probe._capture_v015_quality_lateral_lean_frame = original_lean
     return SimpleNamespace(
         evidence=evidence,
         env=env,
@@ -367,6 +373,26 @@ def test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, s
     assert zero.evidence.actor_forward_count == policy.evidence.actor_forward_count == 1
     assert zero.evidence.later_femr_action_count == policy.evidence.later_femr_action_count == 0
     print("[T-quality-proposal] zero/HSL-policy boundary uses one deterministic 6D proposal and no later FEMR action")
+
+
+def test_t_quality_lateral_lean_is_actual_robot_only(live_probe) -> None:
+    angle = torch.tensor([0.20, -0.10, 0.05, -0.25])
+    quats = torch.zeros(4, 4)
+    quats[:, 0] = torch.cos(angle / 2.0)
+    quats[:, 1] = torch.sin(angle / 2.0)
+    command = SimpleNamespace(robot_anchor_quat_w=quats)
+    runner = SimpleNamespace(
+        env=SimpleNamespace(
+            command_manager=SimpleNamespace(get_term=lambda name: command if name == "motion" else None)
+        )
+    )
+    repaired, noisy = live_probe._capture_v015_quality_lateral_lean_frame(
+        runner,
+        SimpleNamespace(n_train=2, n_candidate=0, n_base=2),
+    )
+    torch.testing.assert_close(repaired, angle[:2])
+    torch.testing.assert_close(noisy, angle[2:])
+    print("[T-quality-lean] evaluator reads paired actual robot root roll without Clean reference", flush=True)
 
 
 def test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup) -> None:
@@ -595,6 +621,7 @@ def main() -> None:
     helper, commands, hooks, setup, live_probe = _load_owners()
     test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup)
     test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, setup)
+    test_t_quality_lateral_lean_is_actual_robot_only(live_probe)
     test_t_continuation_and_row(live_probe, helper, commands, hooks, setup)
     test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, commands, hooks, setup)
     test_t_k_metamorphic_and_legacy_reject(live_probe, helper, commands, hooks, setup)

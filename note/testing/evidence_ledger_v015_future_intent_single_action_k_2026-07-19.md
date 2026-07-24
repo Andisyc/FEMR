@@ -5177,3 +5177,180 @@ Verdict and remaining boundary:
   sentinel and must stop on missing raw evidence, scalar-Critic Physics
   contamination, nonfinite projection, adverse constraint direction, legacy
   fallback, or optimizer step count other than one.
+
+## E-FI-75: P3 Bounded Official Physics-Constraint Sentinel And Checkpoint-v5 Identity
+
+Date: 2026-07-24
+
+Tier: user-authorized S4 live sentinel review plus read-only checkpoint payload
+inspection. No source modification, simulator rerun, actor-ramp, long training,
+multi-seed experiment, deployment composition, or paper claim occurred in this
+closeout.
+
+Raw evidence:
+
+- repository-root `v015_p3_physics_constraint_s4_gpu3.log`, produced by one
+  official 8-env, one-iteration, one-update Stage3-v015 run;
+- read-only `torch.load(..., map_location="cpu")` inspection on the authenticated
+  server of
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-07-23_20-43-56_G5_S4_BOUND_V015/model_1.pt`;
+- no `Traceback` or `RuntimeError`; headless GLFW/display and shader-cache
+  shutdown messages did not interrupt the committed update or save.
+
+Live transaction facts:
+
+- one sealed transaction contained 2 Segments x 2 policy attempts, 4/4 valid
+  rows, K8 evidence, grouped attempt mass `(0.25, 0.25, 0.25, 0.25)`,
+  `optimizer_step_delta=1`, and `update_count=1`;
+- final serialized telemetry carries METHOD-v016 / GAIN-v005 / PPO-v004 /
+  TRAIN-v010, `paired-intent-minus-repair-v1`, the physical constraint schema,
+  projection schema, row-aligned Contact/ZMP/survival advantages, Gram matrix,
+  directional derivatives and `constraint_kkt_max_violation=0`;
+- scalar purity is live-confirmed: `gain_total = intent_gain - repair_cost`
+  with maximum numerical error `3.26e-9`; Physics does not enter the scalar
+  Critic target. `raw_advantage = return - policy_value` holds with maximum
+  error `3.73e-9`;
+- Contact and ZMP were active while survival residual was zero. The unconstrained
+  Intent direction had positive Contact/ZMP derivatives (`635.68`, `3190.09`),
+  whereas `CONSTRAINT_RECOVERY` produced negative derivatives (`-4218.51`,
+  `-11096.43`), so the selected first-order direction reduced both violated
+  Physics channels;
+- TRAIN-v010 was in `critic_only`: actor/std maximum parameter delta was exactly
+  zero, ten Critic parameters changed with maximum delta `1.00024e-6`, and the
+  committed update advanced the K8 phase from iteration 0 to 1;
+- this single frozen-actor transaction reported positive Gain fraction `0.25`
+  and harm fraction `0.75`. Those values describe the HSL-initialized proposals
+  before actor-ramp learning; they do not prove actor efficacy or failure.
+
+Checkpoint identity facts:
+
+- the saved payload contains `format=frontres-v015-checkpoint-v5` and binds
+  METHOD-v016, GAIN-v005, PPO-v004, TRAIN-v010,
+  `paired-intent-minus-repair-v1`,
+  `contact-phase_zmp-survival-physical-v1`, and
+  `grouped-first-order-constraint-projection-v1`;
+- curriculum identity is K8 with schedule `((8, 200, 500, 0),)`,
+  `phase=critic_only`, `phase_iteration=1`, and `actor_loss_weight=0`;
+- transaction state is `committed`; its receipt binds 4 collected/valid policy
+  rows, optimizer step `0 -> 1`, scenario/plan hashes and the same contract
+  identities. `persistent_dual_state=false`.
+
+Verdict and next boundary:
+
+- P3 is complete. The formal runtime, final telemetry consumer, exact-one
+  optimizer boundary and checkpoint-v5 producer are live-confirmed.
+- P3 does not admit long training. P4 must first decide the actor-ramp admission
+  evidence and smallest justified horizon. It must stop on no feasible/corrective
+  direction, no-op collapse, systematic Physics regression, sustained lean,
+  unplanned stepping, or an Intent-only shortcut; such a result returns to P1
+  rather than coefficient tuning.
+
+## E-FI-76: P4-S0 Policy-Quality And Actor-Ramp Admission Audit
+
+Date: 2026-07-24
+
+Tier: read-only S0 contract/code/evidence audit. No source or Concept Figure
+change, test, checkpoint mutation, simulator, training, live run, actor-ramp,
+multi-seed evaluation or deployment composition occurred.
+
+Evidence inspected:
+
+- E-FI-75 and repository-root
+  `v015_p3_physics_constraint_s4_gpu3.log`;
+- active TRAIN-v010, PPO-v004 and EVAL-v003 contracts plus the current
+  checkpoint-v5 identity recorded by P3;
+- formal Stage3 shell/`train.py` dispatch, `load_runner()` persistence owner,
+  `run_frontres_segment_live_training_loop()` and the active v015 held-out
+  report projection;
+- `frontres_v015_policy_quality_heldout_v1.json` and the one-action-K evidence
+  carrier.
+
+Confirmed facts:
+
+- the current P3 artifact is
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-07-23_20-43-56_G5_S4_BOUND_V015/model_1.pt`,
+  K8 `critic_only`, phase/absolute iteration `1/200`, actor weight zero and
+  schedule `((8,200,500,0),)`; therefore the fixed contract boundary requires
+  199 additional committed critic-only updates before actor-ramp can begin;
+- `load_runner()` has a strict checkpoint-v5 full-resume owner, but the formal
+  launcher rejects `--resume`, `--resume_student_checkpoint` and
+  `--is_full_resume`, always passes an HSL-v1 initializer, while `train.py`
+  requires that initializer for ordinary Stage3 and forbids combining it with
+  resume. No honest official continuation command currently exists;
+- one-action-K evidence already retains ordered expected support, actual
+  ContactSensor rows, phase-ZMP values/masks and survival, but the atomic held-
+  out report serializes only actions, identity, valid counts and aggregate
+  Intent/repair/Contact/ZMP/survival components;
+- the report has no sustained lateral-lean trajectory and no raw
+  expected/actual Contact or phase-ZMP applicability/violation/recovery
+  trajectory, so it cannot prove the requested non-hacking Demo-quality gate;
+- P3 remains valid mechanism/connectivity evidence. These gaps block only
+  checkpoint continuation and policy-quality admission; they do not reopen
+  METHOD-v016, GAIN-v005, PPO-v004, TRAIN-v010 or the Concept Figure.
+
+Decision and next boundary:
+
+- P4-S0 is complete and actor-ramp remains blocked;
+- P4-S1 is frozen as one readiness-closure implementation unit owned by
+  `scripts/rsl_rl/train.py::main()` at the orchestration boundary, reusing the
+  existing persistence, training-loop and held-out-report semantic owners;
+- P4-S1 may implement strict HSL-XOR-v5-resume connectivity and read-only raw
+  quality evidence plus evaluator-only sustained-lean reporting, with focused
+  deterministic S1/S2/S3 contracts only;
+- P4-S1 must stop before simulator/training/live execution. The remaining 199
+  critic-only updates, actor-ramp length and numerical admission thresholds
+  require a later explicit human decision after readiness closes.
+
+## E-FI-77: P4-S1 Readiness Closure
+
+Date: 2026-07-24
+
+Tier: deterministic S1/S2/S3 implementation evidence. No simulator, training,
+live run, remaining critic-only update, actor-ramp, HSL/Gain/PPO/TRAIN-v010
+change, actor-observation change, checkpoint-format change or Concept Figure
+change occurred.
+
+Implemented boundaries:
+
+- `scripts/rsl_rl/train.py::main()` remains the sole orchestration owner and
+  accepts an explicit `--frontres_v015_resume_checkpoint`; ordinary Stage3
+  requires exactly one of that strict v5 route or HSL-v1 initialization;
+- the shell launcher is only a connector and emits exactly one identity flag;
+  legacy generic resume arguments remain rejected;
+- `load_runner()` validates v5 actor/Critic tensor identity, optimizer
+  compatibility, sampler presence, 928/158/770 normalizer identity,
+  TRAIN-v010 schedule/absolute iteration and committed-or-idle receipt before
+  mutable restore. Optimizer mismatch is fatal for v5 rather than downgraded
+  to a warning;
+- a restored committed receipt remains available after runtime transaction
+  state returns to idle and is retained by a subsequent coordinated v5 save;
+- the existing atomic v015 held-out report now carries ordered expected and
+  actual Contact, phase-ZMP applicability/N-A/violation/recovery and margins,
+  raw Repair/Noisy survival, and evaluation-only actual root-roll plus
+  cumulative lateral-lean trajectories;
+- lateral lean is captured only when the held-out quality route is active;
+  training one-action-K keeps that optional carrier absent. Missing quality
+  evidence fails closed and the existing training-state signature proves no
+  optimizer, sampler, transaction or normalizer feedback.
+
+Deterministic evidence:
+
+- `frontres_segment_stage3_launch_command_contract.py`: PASS, including HSL XOR
+  v5 resume, 199-update command budget and missing-checkpoint rejection;
+- `frontres_v015_one_action_k_contract.py`: PASS, including actual paired
+  root-roll evaluation evidence and unchanged one-action-K semantics;
+- `frontres_v015_policy_quality_heldout_contract.py`: PASS, including raw
+  trajectory projection, missing-evidence rejection, atomic report and state
+  isolation;
+- `frontres_v015_checkpoint_resume_contract.py`: PASS, including actor, Critic,
+  Adam moments, sampler, 158D prefix/770D GMT authority, schedule, absolute
+  iteration, committed receipt and resumed-save persistence;
+- `frontres_v015_policy_quality_save_reload_contract.py`: PASS, preserving
+  actual save/fresh reload/atomic report isolation;
+- Python compilation of all changed Python owners and focused contracts: PASS.
+
+Verdict: P4-S1 is complete. The formal continuation route and policy-quality
+evidence surface are engineering-ready. The checkpoint remains K8
+`critic_only 1/200`; no claim is made about Critic calibration or policy
+quality. Running the remaining 199 critic-only updates and deciding actor-ramp
+admission remain separate human-controlled steps.
