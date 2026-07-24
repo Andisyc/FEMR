@@ -89,6 +89,41 @@ def test_t_current_only_and_command_velocity(helper, commands, hooks, setup) -> 
     print("[T-current-only] local pre-action command rejects future horizon and q-only layout", flush=True)
 
 
+def test_t_current_command_survives_post_action_auto_reset_clock_drift(helper, commands, hooks, setup) -> None:
+    command, _request = _sealed_role_command(helper, commands, hooks, setup)
+    command.cfg = SimpleNamespace(motion_horizon=1, command_velocity=True)
+    sealed = command.command.detach().clone()
+
+    snapshot = command.frontres_local_scenario_snapshot(torch.arange(8))
+    command.clear_frontres_local_scenario()
+    permutation = torch.arange(7, -1, -1)
+    command.set_frontres_local_scenario(
+        current_root_artifact_t=snapshot["current_root_artifact_t"].index_select(0, permutation),
+        intent_q29=snapshot["intent_q29"].index_select(0, permutation),
+        clean_continuation=snapshot["clean_continuation"].index_select(0, permutation),
+        expected_support=snapshot["expected_support"].index_select(0, permutation),
+        horizon_k=snapshot["horizon_k"].index_select(0, permutation),
+        continuation_lengths=snapshot["continuation_lengths"].index_select(0, permutation),
+        scenario_ids=tuple(snapshot["scenario_ids"][row] for row in permutation.tolist()),
+        noisy_segment_hashes=tuple(snapshot["noisy_segment_hashes"][row] for row in permutation.tolist()),
+        x_t_identities=tuple(snapshot["x_t_identities"][row] for row in permutation.tolist()),
+        provenance=tuple(snapshot["provenance"][row] for row in permutation.tolist()),
+        roles=tuple(snapshot["roles"][row] for row in permutation.tolist()),
+        env_ids=permutation,
+    )
+    command.refresh_frontres_reference_cache_current_frame()
+    torch.testing.assert_close(command.command, sealed)
+
+    # IsaacLab may auto-reset terminal rows inside env.step before computing
+    # the returned observation. The sealed command carrier must remain stable.
+    command.time_steps[:] = 7
+    command.env_motion_indices[:] = 0
+    torch.testing.assert_close(command.command, sealed)
+    torch.testing.assert_close(command.joint_pos, sealed[:, :29])
+    torch.testing.assert_close(command.joint_vel, sealed[:, 29:])
+    print("[T-auto-reset-clock] sealed current q29+dq29 survives raw motion-clock drift after the one action", flush=True)
+
+
 def test_t_continuation_and_mixed_route_isolation(helper, commands, hooks, setup) -> None:
     command, request = _sealed_role_command(helper, commands, hooks, setup)
     command.cfg = SimpleNamespace(motion_horizon=1, command_velocity=True)
@@ -172,6 +207,7 @@ def main() -> None:
     commands, hooks, setup = helper._load_owners()
     test_t_current_command_shape_provenance_role_identity(helper, commands, hooks, setup)
     test_t_current_only_and_command_velocity(helper, commands, hooks, setup)
+    test_t_current_command_survives_post_action_auto_reset_clock_drift(helper, commands, hooks, setup)
     test_t_continuation_and_mixed_route_isolation(helper, commands, hooks, setup)
     test_t_local_and_legacy_command_clock_ownership(helper, commands, hooks, setup)
     print("frontres_v015_current_gmt_command_contract: ok", flush=True)

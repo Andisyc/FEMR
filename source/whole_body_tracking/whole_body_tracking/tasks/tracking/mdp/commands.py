@@ -1525,6 +1525,7 @@ class MultiMotionCommand(CommandTerm):
         # continuation -> later GMT K executor.
         self._frontres_local_scenario_current_root_artifact_t: torch.Tensor | None = None
         self._frontres_local_scenario_intent_q29: torch.Tensor | None = None
+        self._frontres_local_scenario_current_command_q29_dq29: torch.Tensor | None = None
         self._frontres_local_scenario_clean_continuation: torch.Tensor | None = None
         self._frontres_local_scenario_expected_support: torch.Tensor | None = None
         self._frontres_local_scenario_horizon_k = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
@@ -1973,6 +1974,8 @@ class MultiMotionCommand(CommandTerm):
                 raise RuntimeError("v015 local scenario cannot replace a partially active command carrier")
             if bool(self._frontres_local_scenario_k_execution_active.any()):
                 raise RuntimeError("v015 local scenario cannot reset while its K-step Clean continuation is executing")
+            if self._frontres_local_scenario_current_command_q29_dq29 is None:
+                raise RuntimeError("active v015 local scenario lost its sealed current q29+dq29 command")
             existing = self.frontres_local_scenario_snapshot(env_ids)
             if not (
                 torch.equal(existing["current_root_artifact_t"], value_artifact)
@@ -1992,6 +1995,23 @@ class MultiMotionCommand(CommandTerm):
             self._frontres_local_scenario_k_execution_cursor[env_ids] = -1
             return torch.ones(batch_size, dtype=torch.bool, device=self.device)
 
+        current_dq29 = self._gather_by_motion("joint_vel")
+        if (
+            tuple(current_dq29.shape) != (self.num_envs, 29)
+            or not bool(torch.isfinite(current_dq29).all())
+        ):
+            raise RuntimeError(
+                "v015 local scenario install requires finite selected deployment dq29 "
+                "before sealing the current q29+dq29 command"
+            )
+        value_current_command = torch.cat(
+            [
+                value_intent[:, 0],
+                current_dq29.index_select(0, env_ids).to(device=self.device, dtype=torch.float32),
+            ],
+            dim=-1,
+        ).contiguous()
+
         self._frontres_local_scenario_current_root_artifact_t = torch.empty(
             self.num_envs, 7, dtype=torch.float32, device=self.device
         )
@@ -2006,6 +2026,10 @@ class MultiMotionCommand(CommandTerm):
         )
         self._frontres_local_scenario_current_root_artifact_t[env_ids] = value_artifact.clone()
         self._frontres_local_scenario_intent_q29[env_ids] = value_intent.clone()
+        self._frontres_local_scenario_current_command_q29_dq29 = torch.empty(
+            self.num_envs, 58, dtype=torch.float32, device=self.device
+        )
+        self._frontres_local_scenario_current_command_q29_dq29[env_ids] = value_current_command.detach().clone()
         self._frontres_local_scenario_clean_continuation[env_ids] = value_continuation.clone()
         self._frontres_local_scenario_expected_support[env_ids] = value_support.clone()
         self._frontres_local_scenario_horizon_k[env_ids] = horizon
@@ -2039,6 +2063,7 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_local_scenario_k_execution_cursor[ids] = -1
         self._frontres_local_scenario_horizon_k[ids] = 0
         self._frontres_local_scenario_continuation_lengths[ids] = 0
+        self._frontres_local_scenario_current_command_q29_dq29 = None
         for env_id in ids.detach().cpu().tolist():
             self._frontres_local_scenario_ids[int(env_id)] = None
             self._frontres_local_scenario_hashes[int(env_id)] = None
@@ -2090,6 +2115,7 @@ class MultiMotionCommand(CommandTerm):
             or not bool(self._frontres_local_scenario_current_frame_ready.all())
             or bool(self._frontres_local_scenario_k_execution_active.any())
             or self._frontres_local_scenario_intent_q29 is None
+            or self._frontres_local_scenario_current_command_q29_dq29 is None
         ):
             raise RuntimeError(
                 "v015 actor intent snapshot requires one transaction-wide current-frame-ready local scenario "
@@ -2908,7 +2934,8 @@ class MultiMotionCommand(CommandTerm):
                 "before the Clean-C K executor opens"
             )
 
-        current = self._gather_by_motion(getter)
+        current_command = self._frontres_local_scenario_current_command_q29_dq29
+        current = current_command[:, :29] if getter == "joint_pos" else current_command[:, 29:]
         expected_shape = (self.num_envs, 29)
         if tuple(current.shape) != expected_shape or not bool(torch.isfinite(current).all()):
             raise RuntimeError(
@@ -3159,6 +3186,11 @@ class MultiMotionCommand(CommandTerm):
         if bool(local_active.all()) and bool(self._frontres_local_scenario_k_execution_active.all()):
             continuation, _valid = self._frontres_local_scenario_continuation_rows(1)
             return continuation[:, 0, 29:58]
+        if bool(local_active.all()):
+            current_command = self._frontres_local_scenario_current_command_q29_dq29
+            if current_command is None:
+                raise RuntimeError("v015 local current dq29 requires the sealed current-command carrier")
+            return current_command[:, 29:].detach().clone()
         if bool(self._frontres_fixed_noisy_tape_context_active.any()):
             if not bool(self._frontres_fixed_noisy_tape_context_active.all()):
                 raise RuntimeError("fixed Noisy command rows cannot be mixed with random-perturbation rows")
