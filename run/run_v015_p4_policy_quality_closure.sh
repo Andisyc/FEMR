@@ -36,13 +36,14 @@ MOTIONS="${P4_MOTION_ROOT:-/hdd1/cyx/AMASS_G1NPZ_Final}"
 MANIFEST="${P4_MANIFEST:-${ROOT}/note/testing/manifests/frontres_v015_policy_quality_heldout_v1.json}"
 
 BASE_JSON="${ROOT}/v015_p4_quality_model201.json"
+BASE_LOG="${ROOT}/v015_p4_quality_model201_gpu${CUDA_VISIBLE_DEVICES}.log"
 TRAIN_LOG="${ROOT}/v015_p4_actor_ramp_block50_gpu${CUDA_VISIBLE_DEVICES}.log"
 AFTER_JSON="${ROOT}/v015_p4_quality_model251.json"
 AFTER_LOG="${ROOT}/v015_p4_quality_model251_gpu${CUDA_VISIBLE_DEVICES}.log"
 PATH_FILE="${ROOT}/v015_p4_model251_path.txt"
 ARCHIVE="${ROOT}/v015_p4_policy_quality_closure_gpu${CUDA_VISIBLE_DEVICES}.tar.gz"
 
-for required in "${MODEL201}" "${HSL}" "${MANIFEST}" "${BASE_JSON}"; do
+for required in "${MODEL201}" "${HSL}" "${MANIFEST}"; do
   if [[ ! -s "${required}" ]]; then
     echo "[P4-CLOSURE] missing required artifact: ${required}" >&2
     exit 2
@@ -55,11 +56,45 @@ if [[ ! -d "${MOTIONS}" || ! -d "${CACHE_DIR}" ]]; then
   exit 2
 fi
 
+GPU_FREE_MIB="$(nvidia-smi -i "${CUDA_VISIBLE_DEVICES}" --query-gpu=memory.free --format=csv,noheader,nounits | tr -d ' ')"
+MIN_FREE_MIB="${P4_MIN_FREE_MIB:-16384}"
+if [[ ! "${GPU_FREE_MIB}" =~ ^[0-9]+$ || "${GPU_FREE_MIB}" -lt "${MIN_FREE_MIB}" ]]; then
+  echo "[P4-CLOSURE] insufficient GPU memory: gpu=${CUDA_VISIBLE_DEVICES} free_mib=${GPU_FREE_MIB} required_mib=${MIN_FREE_MIB}" >&2
+  exit 8
+fi
+echo "[P4-CLOSURE] GPU_READY gpu=${CUDA_VISIBLE_DEVICES} free_mib=${GPU_FREE_MIB}"
+
 existing_train="$(pgrep -af '[s]cripts/rsl_rl/train.py.*model_201.pt' || true)"
 if [[ -n "${existing_train}" ]]; then
   echo "[P4-CLOSURE] an earlier model_201 training process is still active:" >&2
   echo "${existing_train}" >&2
   exit 7
+fi
+
+
+if [[ ! -s "${BASE_JSON}" ]]; then
+  echo "[P4-CLOSURE] BASELINE_START checkpoint=${MODEL201}"
+  RUN_NAME=P4_QUALITY_MODEL201 \
+  FRONTRES_V015_FUTURE_OFFSETS=1,2 \
+  FRONTRES_V015_K_CURRICULUM=8:200:500:0 \
+  POLICY_QUALITY_MANIFEST="${MANIFEST}" \
+  POLICY_QUALITY_HSL_CHECKPOINT="${HSL}" \
+  POLICY_QUALITY_POLICY_CHECKPOINT="${MODEL201}" \
+  POLICY_QUALITY_RESULT="${BASE_JSON}" \
+  bash run/run_frontres_stage3_segment_hrl.sh \
+    "${HSL}" "${MOTIONS}" 8 0 1 policy_quality_eval \
+    --frontres_segment_ppo_schedule adaptive \
+    --frontres_segment_ppo_lr 1e-6 \
+    >"${BASE_LOG}" 2>&1
+  if [[ ! -s "${BASE_JSON}" ]] || grep -q 'Traceback' "${BASE_LOG}"; then
+    echo "[P4-CLOSURE] baseline report failed" >&2
+    tail -n 120 "${BASE_LOG}" >&2
+    exit 9
+  fi
+  echo "[P4-CLOSURE] BASELINE_COMPLETE report=${BASE_JSON}"
+else
+  python -c 'import json,sys; json.load(open(sys.argv[1]))' "${BASE_JSON}"
+  echo "[P4-CLOSURE] BASELINE_REUSE report=${BASE_JSON}"
 fi
 
 echo "[P4-CLOSURE] TRAIN_START model=${MODEL201} updates=50 gpu=${CUDA_VISIBLE_DEVICES}"
@@ -120,6 +155,7 @@ echo "[P4-CLOSURE] QUALITY_COMPLETE report=${AFTER_JSON}"
 tar -czf "${ARCHIVE}" \
   -C "${ROOT}" \
   "$(basename "${BASE_JSON}")" \
+  "$(basename "${BASE_LOG}")" \
   "$(basename "${TRAIN_LOG}")" \
   "$(basename "${AFTER_JSON}")" \
   "$(basename "${AFTER_LOG}")" \
