@@ -183,10 +183,11 @@ Why separate: this is the simulator/material-cost and external-runtime boundary.
 
 ### P4 / 4: Policy-Quality Admission
 
-Status: P4-S1 readiness closure completed at E-FI-77. Actor-ramp is not
-admitted. The current checkpoint-v5 remains K8 `critic_only 1/200`; strict
-full resume and the raw atomic quality-evidence projection are now available,
-but no continuation, simulator, training or live run occurred.
+Status: P4-S2 critic-only continuation completed at E-FI-78. The strict v5
+resume route advanced K8 from `critic_only 1/200` to absolute iteration 200
+through 199 committed critic-only updates. `model_200.pt` is now at the
+TRAIN-v010 actor-warmup boundary; no actor-ramp update has run and policy-
+quality admission remains open.
 
 Objective: decide whether the new target/update is informative enough to admit
 actor-ramp training.
@@ -276,6 +277,80 @@ N/A, violation and recovery trajectories, raw survival, and evaluation-only
 paired root-roll/cumulative-lean traces. Missing raw evidence fails closed.
 Focused deterministic S1/S2/S3 contracts passed; no simulator or training ran.
 
+#### P4-S2: K8 Critic-Only Continuation Closeout
+
+Status: completed at E-FI-78.
+
+Objective: exhaust the fixed TRAIN-v010 K8 critic-only budget without allowing
+an actor/std update, while preserving one sealed transaction -> one optimizer
+step and coordinated checkpoint-v5 persistence.
+
+Live result: repository-root `v015_p4_critic_k8_to_200_gpu3.log` contains 199
+formal transactions and 199 serialized transaction telemetry records covering
+training iterations 1--199. Every accepted transaction has K8, four valid
+policy rows, equal attempt mass `(0.25, 0.25, 0.25, 0.25)`,
+`optimizer_step_delta=1`, `update_count=1`, actor weight zero, actor/std maximum
+delta zero, and a nonzero finite Critic delta. Rejected scenarios did not step
+the optimizer. The final coordinated save is
+`/hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-07-24_14-58-03_P4_CRITIC_K8_TO_200/model_200.pt`
+at absolute iteration 200 with METHOD-v016 / GAIN-v005 / PPO-v004 /
+TRAIN-v010 and schedule `((8,200,500,0),)`. Its serialized `phase=actor_warmup`
+describes the next update; all 199 executed updates remained `critic_only`.
+
+Limit: changing scenarios across the 199 transactions makes aggregate
+return/value drift unmatched evidence. E-FI-78 proves schedule, gradient-
+authority, transaction and persistence closure, not Critic calibration or
+policy efficacy.
+
+#### P4-S3: First Actor-Ramp Bounded Sentinel Contract
+
+Status: frozen and ready, not authorized.
+
+Objective: prove the first TRAIN-v010 actor-ramp update uses the constrained
+PPO-v004 direction without crossing into a longer training or policy-quality
+claim.
+
+Unique orchestration owner: `scripts/rsl_rl/train.py::main()` using the
+existing strict checkpoint-v5 resume connector,
+`frontres_segment_live_training.py::run_frontres_segment_live_training_loop()`
+and the existing coordinated save owner. No new runner or evaluator is
+permitted.
+
+Scope: resume the exact E-FI-78 `model_200.pt`; run one 8-env, K8, 2-Segment x
+2-attempt sealed transaction and exactly one optimizer update; save the
+committed iteration-201 checkpoint; review the final serialized telemetry and
+refresh current evidence documents. The update must start at absolute
+iteration 200 in `actor_warmup` with actor loss weight `1/500 = 0.002`.
+
+Required S4 evidence:
+
+- strict v5 resume restores absolute iteration 200, stage 0, K8, actor/Critic,
+  optimizer, sampler, 928/158/770 normalizers and committed receipt without HSL;
+- one complete transaction retains four valid rows and equal attempt mass,
+  then reports exactly one optimizer step and one committed receipt;
+- actor parameter delta becomes nonzero and finite under weight 0.002; std
+  delta remains finite and follows its existing TRAIN-v010 authority, while
+  the scalar Critic also changes and remains trained only on paired Intent
+  improvement minus repair cost;
+- Contact/phase-ZMP/survival evidence remains finite and row-aligned; the named
+  projection/recovery status, directional derivatives and KKT residual prove
+  that the selected actor direction obeys PPO-v004 rather than scalar Physics;
+- the iteration-201 save remains checkpoint-v5 with the same four contract
+  identities, schedule, constraint schema and complete transaction identity.
+
+Non-scope: a second actor-ramp update, long training, numerical threshold
+tuning, multi-seed, deployment composition, HSL/Gain/PPO/TRAIN changes, actor
+observation changes, or a claim that one update establishes policy efficacy.
+
+Stop condition: stop after the single committed update, or earlier on HSL/
+legacy fallback, phase/iteration drift, actor weight other than 0.002, missing
+or nonfinite Physics evidence, invalid projection/KKT facts, actor zero or
+nonfinite actor/std delta, Critic zero/nonfinite delta, mixed K/scenario identity,
+optimizer step count other than one, or non-v5/partial save. Any no-op,
+systematic Physics regression, sustained-lean or unplanned-step evidence keeps
+P4 quality admission blocked and returns to mechanism audit rather than longer
+training.
+
 ## Why Four Main Steps
 
 The plan has four execution steps plus preparatory P0. The splits are not by
@@ -293,4 +368,4 @@ are deliberately merged into P2.
 
 ## Cursor
 
-Current cursor: `P4-S1 readiness closure complete at E-FI-77; no critic continuation or actor-ramp is authorized`.
+Current cursor: `P4-S2 critic-only continuation complete at E-FI-78; P4-S3 first actor-ramp bounded sentinel is frozen but requires explicit live-run authorization`.

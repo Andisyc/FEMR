@@ -20,7 +20,7 @@ and survival out of scalar Gain and into explicit actor-update constraints.
 
 ## Current Cursor
 
-`P4-S1 readiness closure completed at E-FI-77; critic continuation and actor-ramp remain unrun`
+`P4-S2 critic-only continuation completed at E-FI-78; model_200.pt is at the actor-warmup boundary; P4-S3 is frozen but unrun`
 
 ## Confirmed
 
@@ -51,16 +51,18 @@ P0 document/owner rebase [complete]
 -> P3 one bounded 8-env official sentinel [complete]
 -> P4-S0 policy-quality admission audit [complete]
 -> P4-S1 resume + quality-evidence readiness closure [complete]
--> P4 critic continuation / actor-ramp admission [awaiting separate human decision]
+-> P4-S2 K8 critic-only continuation to iteration 200 [complete]
+-> P4-S3 first actor-ramp bounded sentinel [ready; explicit live authorization required]
+-> P4 policy-quality admission [open]
 ```
 
 ## Active Blockers
 
-- checkpoint-v5 is K8 `critic_only 1/200`; 199 additional critic-only updates
-  would be required to reach the fixed TRAIN-v010 actor-ramp boundary, but no
-  continuation run is authorized;
+- checkpoint-v5 `model_200.pt` has reached absolute iteration 200 and the fixed
+  TRAIN-v010 actor-warmup boundary; no actor-ramp update has executed;
 - no engineering-readiness blocker remains in the strict checkpoint-v5 route;
-  the remaining 199 critic-only updates are intentionally unrun;
+  the next boundary is one materially costly simulator update requiring human
+  authorization;
 - policy efficacy and the numerical actor-ramp admission boundary remain
   unresolved experimental decisions, not missing wiring.
 
@@ -72,7 +74,7 @@ Noisy physical prefix, or scalar reward-weight tuning.
 
 ## Next Action
 
-Decide separately whether to run the remaining K8 critic-only continuation.
-P4-S1 provides the strict resume command surface and complete atomic quality
-evidence, but it does not authorize simulator/training/live execution,
-actor-ramp length or numerical admission thresholds.
+Authorize or reject P4-S3: resume the exact E-FI-78 `model_200.pt` for one
+8-env, K8, 2-Segment x 2-attempt actor-ramp transaction at weight 0.002 and one
+committed update. This sentinel tests constrained actor-gradient connectivity;
+it does not authorize a second update, long training or a policy-efficacy claim.

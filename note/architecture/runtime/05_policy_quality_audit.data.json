@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
-  "subtitle": "v015 policy-quality current-state view: E-FI-77 closes strict checkpoint-v5 resume and raw quality-evidence readiness.",
-  "currentStatus": "P4-S1 is complete: formal HSL-XOR-v5 resume and atomic raw Contact/phase-ZMP/survival/evaluation-only lean reporting pass deterministic S1/S2/S3 contracts. Checkpoint remains K8 critic_only 1/200; continuation and actor-ramp remain unrun.",
+  "subtitle": "v015 policy-quality current-state view: E-FI-78 closes the K8 critic-only continuation at the actor-warmup boundary.",
+  "currentStatus": "P4-S2 is complete: 199 live K8 critic-only transactions advanced checkpoint-v5 from iteration 1 to 200 with actor/std frozen, Critic updating, exact-one commits and coordinated persistence. The next actor-ramp update is frozen as P4-S3 but remains unrun.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -16,15 +16,15 @@
     "QUALITY-TRAJECTORY-01"
   ],
   "activeV015QualityPlan": {
-    "status": "P4-S1-readiness-closure-complete",
-    "evidence": "E-FI-72 records the authority split; E-FI-73 activates coordinated contracts; E-FI-74 confirms the source route offline; E-FI-75 confirms one real K8 critic-only transaction and checkpoint-v5 payload; E-FI-76 audits the readiness gaps; E-FI-77 closes strict resume and raw quality reporting",
-    "next": "human decision on the remaining K8 critic-only continuation and later actor-ramp admission; no run is authorized by P4-S1",
+    "status": "P4-S2-critic-only-continuation-complete",
+    "evidence": "E-FI-72 records the authority split; E-FI-73 activates coordinated contracts; E-FI-74 confirms the source route offline; E-FI-75 confirms one real K8 critic-only transaction and checkpoint-v5 payload; E-FI-76 audits the readiness gaps; E-FI-77 closes strict resume and raw quality reporting; E-FI-78 live-confirms 199 critic-only exact-one updates and the iteration-200 checkpoint-v5 boundary",
+    "next": "human authorization decision for P4-S3: exactly one actor-ramp transaction at weight 0.002; no second update or longer training is authorized",
     "readinessClosure": {
       "owner": "scripts/rsl_rl/train.py::main()",
-      "checkpointState": "frontres-v015-checkpoint-v5 K8 critic_only 1/200",
-      "scope": "HSL-XOR-v5-resume formal dispatch plus raw quality evidence and evaluator-only sustained-lean report projection",
-      "nonScope": "simulator, training, live run, actor-ramp, Gain/PPO/HSL changes, Concept Figure, long training, multi-seed or deployment composition",
-      "stop": "resume reinitializes or omits state, schedule/layout/transaction identity drifts, update count is not exact-one, or evaluator evidence leaks into training"
+      "checkpointState": "frontres-v015-checkpoint-v5 K8 absolute iteration 200; next phase actor_warmup",
+      "scope": "strict v5 resume plus 199 live critic-only exact-one transactions, coordinated model_200 persistence and raw quality-evidence readiness",
+      "nonScope": "actor-ramp execution, policy-efficacy claim, Gain/PPO/HSL changes, Concept Figure, long training, multi-seed or deployment composition",
+      "stop": "P4-S3 requires explicit authority and must stop after one update or on phase/weight, projection, Physics, transaction or checkpoint drift"
     },
     "gates": [
       "conditional comparison identity",
@@ -41,7 +41,7 @@
       "id": "SYS-POLICY-QUALITY",
       "title": "Policy Quality Causal Chain",
       "summary": "Historical v011/v002/v003 cards remain explicitly incompatible. QUALITY-GAIN-01 and QUALITY-CREDIT-01 now project the E-FI-71 v004/v009 unsafe-tier, Critic and relative-advantage evidence.",
-      "status": "P3 constrained runtime and persistence confirmed; actor-ramp efficacy remains unconfirmed; historical cards isolated",
+      "status": "P4-S2 critic-only schedule, exact-one transaction and persistence confirmed; actor-ramp efficacy remains unconfirmed; historical cards isolated",
       "color": "#0f766e",
       "modules": [
         {
@@ -479,9 +479,10 @@
             "E-FI-73 P1 contract activation",
             "E-FI-74 P2 S1/S2/S3 constrained-update contracts",
             "E-FI-75 P3 one-transaction live S4 and checkpoint-v5 identity",
-            "E-FI-77 P4-S1 strict resume and raw quality-evidence deterministic closure"
+            "E-FI-77 P4-S1 strict resume and raw quality-evidence deterministic closure",
+            "E-FI-78 P4-S2 199-update K8 critic-only live continuation and model_200 persistence"
           ],
-          "gap": "E-FI-77 closes formal HSL-XOR-v5 resume and raw expected/actual Contact, phase-ZMP, survival and evaluation-only sustained-lean reporting. The checkpoint remains K8 critic_only 1/200; the remaining continuation and actor-ramp admission are intentionally unrun human-controlled decisions."
+          "gap": "E-FI-78 closes the K8 critic-only budget at absolute iteration 200 with actor/std frozen and Critic changing on all 199 accepted transactions. P4-S3 is frozen as one actor-ramp update at weight 0.002; it remains a human-controlled live boundary and cannot by itself establish policy efficacy."
         },
         {
           "id": "QUALITY-CREDIT-01",

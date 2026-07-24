@@ -22,7 +22,10 @@ Status: active, volatile acceptance surface. Updated: 2026-07-24.
 | P4-S1 | S2 resume connectivity | actor/Critic/optimizer/sampler/normalizer/receipt restore exactly and one fake transaction advances exactly one update | completed | E-FI-77; strict semantic checkpoint and transaction contracts pass |
 | P4-S1 | S1/S2 quality evidence | atomic report exposes raw expected/actual Contact, phase-ZMP trajectories/N-A masks, survival and evaluator-only sustained lean | completed | E-FI-77; missing evidence fails closed and no Clean actor route is added |
 | P4-S1 | S3 persistence/isolation | resumed save remains coordinated checkpoint-v5 and evaluation mutates no optimizer/sampler/transaction/normalizer state | completed | E-FI-77; committed receipt survives idle re-save; save/reload isolation passes |
-| P4 | quality | target distinguishes v004 plateau cases and actor update improves or preserves Physics without sustained lean/unplanned stepping | awaiting experiment decision | critic continuation and actor-ramp require separate authorization |
+| P4-S2 | S4 critic-only schedule | strict v5 resume executes exactly 199 K8 critic-only updates from absolute iteration 1 to 200 | completed | E-FI-78; 199/199 telemetry rows are `critic_only`, actor weight 0, actor/std delta 0, Critic delta nonzero |
+| P4-S2 | S4 transaction/persistence | every accepted transaction has 4 valid rows, equal attempt mass and exact-one update; rejected scenarios do not step; final save is coordinated v5 at iteration 200 | completed | E-FI-78; `v015_p4_critic_k8_to_200_gpu3.log`; `model_200.pt` persistence sentinel |
+| P4-S3 | S4 first actor-ramp sentinel | strict `model_200.pt` resume performs one K8 transaction at actor weight 0.002; actor and Critic change finitely, std stays finite under its existing authority, and save iteration 201 remains v5 | ready, not authorized | stop on HSL/legacy fallback, wrong phase/weight, missing Physics/KKT, zero actor/Critic delta, nonfinite actor/std delta, mixed identity or update count != 1 |
+| P4 | quality | target distinguishes v004 plateau cases and actor update improves or preserves Physics without sustained lean/unplanned stepping | awaiting actor-ramp evidence | E-FI-78 closes Critic budget only; one bounded actor-ramp sentinel is the next material-cost gate |
 
 ## Pass Rule
 

@@ -84,11 +84,15 @@ zero-action counterfactual. Contact, phase-conditioned ZMP, and survival must
 remain separate K-step Physics constraints; paired Intent improvement minus
 repair cost becomes the scalar objective and the only scalar-Critic target.
 
-The human Concept Figure and active contracts now agree. The source still
-implements METHOD-v015 / GAIN-v004 / PPO-v003 / TRAIN-v009 and therefore remains
-a deliberate `contract-mismatch` hard stop before checkpoint I/O, simulator, or
-training. P2 must replace that route atomically; silent v004 fallback or mere
-relabeling is forbidden.
+The human Concept Figure, active contracts and formal source route agree.
+E-FI-74 closes deterministic METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010
+connectivity; E-FI-75 live-confirms one constrained K8 transaction and
+checkpoint-v5; E-FI-77 closes strict v5 full resume and raw quality evidence;
+E-FI-78 advances the same K8 Critic from iteration 1 to the fixed iteration-200
+actor-warmup boundary while actor/std remain unchanged. Silent v004/v003/v009
+fallback remains forbidden. Policy efficacy is still unconfirmed: the next
+authorized material-cost boundary is the single-update P4-S3 actor-ramp
+sentinel, not automatic longer training.
 
 ## Reading Rule
 

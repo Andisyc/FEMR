@@ -5354,3 +5354,59 @@ evidence surface are engineering-ready. The checkpoint remains K8
 `critic_only 1/200`; no claim is made about Critic calibration or policy
 quality. Running the remaining 199 critic-only updates and deciding actor-ramp
 admission remain separate human-controlled steps.
+
+## E-FI-78: P4 K8 Critic-Only Continuation Live Closeout
+
+Date: 2026-07-24
+
+Tier: user-authorized S4 live continuation plus read-only log review. No source
+or Concept Figure change, actor-ramp update, long training, multi-seed,
+deployment composition or paper claim occurred in this closeout.
+
+Raw evidence:
+
+- repository-root `v015_p4_critic_k8_to_200_gpu3.log`;
+- final persistence sentinel for
+  `/hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-07-24_14-58-03_P4_CRITIC_K8_TO_200/model_200.pt`;
+- no `Traceback`, `RuntimeError`, `ValueError` or `FAILED` marker was found.
+
+Live-confirmed facts:
+
+- 199 serialized transaction telemetry records and 199 formal-train receipts
+  cover unique training iterations 1--199 and advance absolute iteration 1 to
+  200;
+- all 199 accepted transactions remain K8 `critic_only`, use actor loss weight
+  zero, preserve actor/std maximum parameter delta exactly zero, and report a
+  nonzero finite Critic delta;
+- every accepted transaction has four valid policy rows, equal attempt mass
+  `(0.25, 0.25, 0.25, 0.25)`, `optimizer_step_delta=1` and `update_count=1`;
+  rejected scenario attempts report zero optimizer-step delta and do not
+  consume the 199 committed-update budget;
+- every telemetry record carries METHOD-v016 / GAIN-v005 / PPO-v004 /
+  TRAIN-v010, finite scalar objective/value/advantage and finite Contact,
+  phase-ZMP and survival constraint evidence. Observed projection states are
+  `CONSTRAINT_RECOVERY`, `PROJECTED_INTENT`,
+  `NO_COMMON_FIRST_ORDER_DESCENT` and `NO_EMPIRICAL_DIRECTION`;
+- the final formal receipt is transaction
+  `frontres-v015-local-training:i199:n207`, with two Segments, four attempts,
+  four valid rows, exact-one update and committed identity at absolute
+  iteration 200;
+- `[AUDIT-PERSIST-01]` and the final save report bind checkpoint-v5 persistence
+  to METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010, K8 schedule
+  `((8,200,500,0),)`, model/optimizer/normalizer/sampler state and successful
+  `model_200.pt` save. The persisted `phase=actor_warmup` denotes the phase of
+  the next update; none of the 199 executed updates used a nonzero actor weight.
+
+Verdict and limitation:
+
+- P4-S2 is complete. The fixed K8 Critic-only schedule, actor/std freeze,
+  scalar-Critic update authority, sealed exact-one transaction lifecycle and
+  coordinated persistence are live-confirmed through the iteration-200
+  boundary;
+- this changing-scenario training log is not a matched calibration experiment.
+  Aggregate return/value drift cannot establish Critic calibration or policy
+  efficacy, and no actor-ramp update has yet occurred;
+- P4-S3 is therefore frozen as exactly one actor-ramp transaction from
+  `model_200.pt`, starting at weight `1/500 = 0.002`. It requires explicit
+  simulator/live authorization and must not expand into a second update or
+  longer training without a new policy-quality decision.
