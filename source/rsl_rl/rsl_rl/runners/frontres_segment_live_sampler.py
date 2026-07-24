@@ -9,7 +9,7 @@ import math
 from pathlib import Path
 import sys
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 import torch
 
@@ -1288,6 +1288,43 @@ def _local_scenario_materializer_adapter(runner: Any) -> Any:
     )
 
 
+def _local_scenario_candidate_eligibility(
+    runner: Any,
+    *,
+    horizon_k: int,
+    intent_horizon: int,
+) -> Callable[[int], bool]:
+    """Bind the active H/K budget to immutable Segment motion/frame specs."""
+
+    dataset = getattr(runner, "_frontres_segment_dataset", None)
+    specs_by_id = getattr(dataset, "_spec_by_id", None)
+    if not isinstance(specs_by_id, dict):
+        raise RuntimeError("v015 source eligibility requires the Stage-1 Segment spec index")
+    adapter = _local_scenario_materializer_adapter(runner)
+    is_materializable = getattr(adapter, "frontres_local_scenario_is_materializable", None)
+    if not callable(is_materializable):
+        raise RuntimeError("v015 source eligibility requires the Stage-1 unclamped frame-budget accessor")
+
+    def candidate_is_eligible(segment_id: int) -> bool:
+        spec = specs_by_id.get(int(segment_id))
+        if spec is None:
+            raise RuntimeError(f"v015 source eligibility cannot resolve segment_id={int(segment_id)}")
+        motion_id = str(getattr(spec, "motion_id", ""))
+        start_frame = getattr(spec, "start_frame", None)
+        if not motion_id or start_frame is None:
+            raise RuntimeError(f"v015 source eligibility requires motion/frame identity for segment_id={int(segment_id)}")
+        return bool(
+            is_materializable(
+                motion_id=motion_id,
+                start_frame=int(start_frame),
+                horizon_k=int(horizon_k),
+                intent_horizon=int(intent_horizon),
+            )
+        )
+
+    return candidate_is_eligible
+
+
 def _local_scenario_transaction_id(runner: Any, *, update_step: int) -> str:
     sequence = int(getattr(runner, "_frontres_local_scenario_transaction_sequence", 0)) + 1
     runner._frontres_local_scenario_transaction_sequence = sequence
@@ -1708,6 +1745,7 @@ def _sample_frontres_v015_transaction_sources(
     *,
     repair_rows: int,
     max_horizon_k: int,
+    candidate_is_eligible: Callable[[int], bool] | None = None,
 ) -> FrontRESSegmentSample:
     """Select distinct sources whose unchanged M budgets exactly fill Repair rows."""
 
@@ -1737,6 +1775,8 @@ def _sample_frontres_v015_transaction_sources(
         for row in range(sampled_count):
             segment_id = int(sampled.segment_ids[row].item())
             if segment_id in candidate_ids:
+                continue
+            if candidate_is_eligible is not None and not bool(candidate_is_eligible(segment_id)):
                 continue
             attempts = max(2, int(sampled.rollout_trial_count[row].item()))
             if attempts > repair_rows:
@@ -1859,10 +1899,17 @@ def _prepare_frontres_v015_local_transaction_batch(
     sequence = int(getattr(runner, sequence_attr, 0) or 0) + 1
     setattr(runner, sequence_attr, sequence)
     transaction_id = f"frontres-v015-local-{route}:i{iteration}:n{sequence}"
+    future_offsets = _require_frontres_future_offsets(runner)
+    candidate_is_eligible = _local_scenario_candidate_eligibility(
+        runner,
+        horizon_k=curriculum.active_k,
+        intent_horizon=max(future_offsets),
+    )
     base_sample = _sample_frontres_v015_transaction_sources(
         sampler,
         repair_rows=repair_rows,
         max_horizon_k=max_horizon,
+        candidate_is_eligible=candidate_is_eligible,
     )
     base_ids = base_sample.segment_ids.detach().to(dtype=torch.long).clone()
     if int(base_ids.numel()) < 2 or int(torch.unique(base_ids).numel()) != int(base_ids.numel()):

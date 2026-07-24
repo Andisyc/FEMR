@@ -404,6 +404,28 @@ def test_t_provenance() -> None:
     print("[T-provenance] adapter=q29 deployment carrier; continuation=GMT-only Clean carrier", flush=True)
 
 
+def test_t_frame_budget_rejects_only_current_k_ineligible_segments() -> None:
+    commands, _live_sampler, hooks = _load_modules()
+    command = _command(commands)
+    adapter = object.__new__(hooks.FrontRESStage1EnvAdapter)
+    adapter.command = command
+    adapter._motion_index_for_key = lambda _motion_id: 0
+
+    assert adapter.frontres_local_scenario_is_materializable(
+        motion_id="motion-0", start_frame=23, horizon_k=8, intent_horizon=2
+    )
+    assert not adapter.frontres_local_scenario_is_materializable(
+        motion_id="motion-0", start_frame=24, horizon_k=8, intent_horizon=2
+    )
+    assert adapter.frontres_local_scenario_is_materializable(
+        motion_id="motion-0", start_frame=24, horizon_k=4, intent_horizon=2
+    )
+    assert not adapter.frontres_local_scenario_is_materializable(
+        motion_id="motion-0", start_frame=28, horizon_k=2, intent_horizon=4
+    )
+    print("[T-frame-budget] eligibility is max(K,H)-conditioned and never clamps the segment start", flush=True)
+
+
 def test_t_metamorphic() -> None:
     commands, live_sampler, _hooks = _load_modules()
     command = _command(commands)
@@ -590,6 +612,7 @@ def main() -> None:
     test_t_noisy_q29_route()
     test_t_hash()
     test_t_provenance()
+    test_t_frame_budget_rejects_only_current_k_ineligible_segments()
     test_t_metamorphic()
     test_t_fixed_heldout_manifest_item()
     test_t_legacy_reject()

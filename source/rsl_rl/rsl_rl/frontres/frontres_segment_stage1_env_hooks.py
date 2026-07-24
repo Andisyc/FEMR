@@ -241,6 +241,30 @@ class FrontRESStage1EnvAdapter:
             "provenance": dict(provenance),
         }
 
+    def frontres_local_scenario_is_materializable(
+        self,
+        *,
+        motion_id: str,
+        start_frame: int,
+        horizon_k: int,
+        intent_horizon: int,
+    ) -> bool:
+        """Return whether one Segment has the full unclamped H/K frame budget."""
+
+        motion_index = self._motion_index_for_key(str(motion_id))
+        start = int(start_frame)
+        horizon = int(horizon_k)
+        intent = int(intent_horizon)
+        if horizon <= 0 or intent <= 0:
+            raise ValueError("local scenario frame-budget check requires positive H and K")
+        max_frames = getattr(self.command, "motion_lengths_minus_one", None)
+        if not isinstance(max_frames, torch.Tensor):
+            raise RuntimeError("local scenario frame-budget check requires command motion_lengths_minus_one")
+        if motion_index < 0 or motion_index >= int(max_frames.numel()):
+            raise ValueError(f"motion_index={motion_index} is outside the loaded motion range")
+        max_frame = int(max_frames[int(motion_index)].item())
+        return start >= 0 and start + max(horizon, intent) <= max_frame
+
     def apply_frontres_segment_index_reset(self, request: Any) -> dict[str, torch.Tensor]:
         """将 sampled Segment 状态重置到显式配对的全部 split-env role.
 

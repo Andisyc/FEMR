@@ -1,369 +1,60 @@
-结论先说：这次暴露的真正问题只有两个。其余现象——负 Gain、负/正 Advantage、巨大梯度——都是这两个问题产生的结果，不是新的独立原因。
-问题一：Critic 还没学会“正常水平是多少”
-Critic 的作用不是判断动作是否绝对有益，而是预测：
-在当前状态下，Actor 通常能取得多大的 Gain？
-
-这次每个 K 只让 Critic 更新一次，显然不足以形成可靠判断。
-例如某个动作的 Gain 是 -0.01，说明它确实有害。但 Critic错误地预测平均动作会得到 -0.10，那么它会认为：
-虽然这个动作有害，但它比我预期的有害程度小。
-
-于是该动作获得正 Advantage，Actor可能强化它。
-所以：
-负 Gain、正 Advantage 在数学上并不矛盾；
-但在 Critic 尚未校准时，这个“相对更好”的判断不可靠；
-延长 Critic Warmup 可以修复这个问题。
-可以把它理解为：Gain 是考试真实分数，Critic 是预测平均分。Critic只看过一道题，预测平均分当然不可信。
-问题二：unsafe plateau 可能让 Gain 本身失去方向
-这是更根本的问题。
-当前 Physics 规则要求 Contact、ZMP、survival 都不能出现关键违规。假设：
-Noisy：Contact 严重违规；
-Repair A：ZMP改善了，但 Contact 仍严重违规；
-Repair B：ZMP也恶化了，Contact仍严重违规。
-因为系统只看“最严重的违规”，A 和 B 都会被判为同样的“不合格”。
-也就是：
-Noisy    -> 不合格
-Repair A -> 仍不合格
-Repair B -> 仍不合格
-虽然 A 明显比 B 更接近安全状态，Gain 却无法表达这种区别。再扣除修复代价后，A 和 B 都得到负 Gain。
-这就是 unsafe plateau：
-只要没有一次性跨过完整 Physics 合格线，很多不同质量的修复都会得到近似相同的分数。
-
-它保护了我们已经确认的原则——Intent 不能补偿 Contact/ZMP 违规——但也可能把“正在向安全方向改善”的信息一起删除。
-为什么只增加 Critic Warmup 可能不够
-Critic只能学习 Gain 已经提供的信息。
-如果 Gain 能区分：
-Repair A 比 Repair B 更接近 Physics 合格
-那么充分训练 Critic 是有效的。
-但如果 Gain 把 A 和 B 都记成同一个失败分数，那么即使把 Critic 训练得非常准确，它也只能准确地学会：
-所有动作都差不多有害。
-
-Critic不能凭空恢复被 Gain 删除的方向信息。
-因此两者关系是：
-Gain 决定“什么动作更好”
-Critic 学习“当前策略通常能做到多好”
-Gain 没方向，Critic训练再久也没用；Gain 有方向但 Critic没校准，Actor收到的相对信用会不可靠。
-其他现象到底是什么
-现象	它是什么	是否是独立根因
-所有 Gain 为负	当前动作没有跨过 Physics 排序，且还要扣 repair cost	否，是结果
-负 Gain 但正 Advantage	动作绝对有害，但比 Critic 的悲观预测稍好	否，是相对信用现象
-Actor 梯度很大并被裁剪	少量样本和不稳定 Advantage 产生尖锐更新	否，是症状
-HSL效果不好	初始动作质量可能不高	不是这次核心问题
-K Curriculum	K8→K16 的调度和隔离已经通过	不是问题
-Double Segment Replay	transaction、等质量聚合、exact-one update 都通过	不是问题
-
-当前尚未裁决的唯一问题
-我们还不知道哪一种占主导：
-Gain其实有足够的 Physics 区分度，只是 Critic Warmup 太短；
-Gain 在 unsafe 区域把不同动作压成同分，Critic无论训练多久都学不到方向；
-两者同时存在。
-从当前日志看，两者都存在，但 unsafe plateau 更值得优先确认。因为如果训练目标本身没有方向，直接延长 Critic Warmup 或长训练只会更准确地学习一个平坦目标。
-因此下一步不应该立即改公式，也不应该直接长训练，而是只回答一个简单问题：
-当 Repair 改善了 ZMP 或 Contact，但仍未完全合格时，当前 Gain 是否能够识别“它比 Noisy 更接近合格”？
-
-如果答案是“能”，下一步主要扩大 Critic Warmup。
-如果答案是“不能”，就需要重新设计 unsafe 区域内部的 Physics 排序，同时继续禁止 Intent 跨越 Physics 红线。
-你现在可以决定：
-A. 先确认 unsafe plateau 是否真的删除了方向信息。推荐。
-B. 直接扩大 Critic Warmup。风险是可能只是在拟合一个平坦目标。
-C. 直接重设计 unsafe Physics 排序。风险是尚未确认到底是哪一项违规造成压平。
-推荐 A，因为它只使用现有日志，就能区分“评分没有方向”和“Critic没学会评分”。
-Next-Step Card：
-Plan cursor: C4 工程完成，策略质量阻塞
-Recommended next action: 一次性解析现有 16 条 row，裁决 unsafe plateau 与 Critic 未校准的相对责任
-Why this is next: 它直接决定后续是改 Gain，还是只延长 Critic Warmup
-Authority boundary: 只读分析可安全执行；任何 Gain 语义修改仍需用户确认
-
-
-2:49 PM
-
-
-
-
-
-
-1 annotation
-
-
-请先执行代码阅读？A是执行log和代码阅读吗？
-
-
-
-
-
-
-3:01 PM
-
-
-
-
-
-
-Worked for 2m 6s
-
-
-
-是。A 应当包含两部分：
-先读代码：确认最终 Gain 到底使用什么
-再读日志：把 16 条样本代入真实公式
-我已经完成了第一轮代码—日志对照，结果比之前更明确：unsafe plateau 确实存在，不只是猜测。
-代码实际做了什么
-Physics deficit 的代码是：
-deficit = max(Contact违规, ZMP违规, Survival违规)
-见 [frontres_gain.py (line 275)](/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_gain.py:275)。
-只要 deficit > 0，这个角色就是 Physics 不合格，其分数变成：
-utility = -1 - deficit
-最终：
-Gain = Repair utility - Noisy utility - repair penalty
-见 [frontres_gain.py (line 287)](/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_gain.py:287)。
-因此，当 Repair 和 Noisy 的最大 deficit 相同时：
-Repair utility - Noisy utility = 0
-Gain = -repair penalty
-此时：
-Intent 改善不会进入最终 Gain；
-非最大项的 Physics 改善也不会进入最终 Gain；
-Actor只能看到“只要动了，就付出修复代价”。
-Critic部分也已确认：
-return = gain_total
-advantage = gain_total - Critic预测
-见 [frontres_segment_storage.py (line 978)](/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py:978)。
-16 条日志得到什么结果
-对现有 16 条 policy rows 逐条代入：
-13/16：Repair deficit 与 Noisy deficit 完全相同；
-0/16：Repair降低了最大 Physics deficit；
-3/16：Repair反而增大了最大 Physics deficit；
-在那 13 条同分样本中，有 7 条的辅助 physics_gain 为正，但这些改善没有进入最终 Gain；
-所有 16 条 Gain 都是负数。
-这意味着：
-13 条：Physics最大违规没有变化
-       -> utility差为0
-       -> Gain只剩负repair penalty
-
-3 条：Physics最大违规变得更严重
-      -> utility变差
-      -> Gain更负
-
-0 条：最大Physics违规得到改善
-所以这批样本对 Actor 提供的信息主要是：
-不要修，修复只会产生代价；部分动作还会让最严重的 Physics 问题更坏。
-
-这说明什么
-现在可以确认两件事。
-第一，Critic Warmup 确实太短。它只更新一次，无法准确预测当前策略的平均 Gain，所以 3 条 positive Advantage 暂时不可靠。
-第二，也是更重要的：即使 Critic 完全校准，这批数据仍然没有一条动作降低最大 Physics deficit。Critic最多只能准确学会“这些动作都没有跨越当前最严重的 Physics 问题”。
-因此，问题不能只靠延长 Critic Warmup解决。
-仍然缺少的最后一项信息
-目前日志记录了最终 deficit，却没有完整记录每条样本对应的：
-Contact violation
-ZMP violation
-Survival violation
-谁成为了 max
-所以我们已经确认“最大值没有改善”，但还没确认具体原因是：
-Contact长期占据最大值，隐藏了 ZMP 改善；
-ZMP长期饱和，隐藏了 Contact 改善；
-两者交替成为最大值；
-当前阈值使正常的动态动作也容易达到最大违规。
-这是 A 中剩余的最后一次代码—证据阅读，不需要重新训练。
-当前结论：
-unsafe plateau：代码确认 + 日志确认
-Critic未校准：日志确认
-哪个Physics分量制造plateau：仍未确认
-推荐继续完成 A：定位 16 条样本的 worst-component identity。只有这样才能判断下一步是修正 Contact/ZMP evaluator，还是重新设计 Physics-first 的 unsafe 内部排序。
-
-
-3:03 PM
-
-
-
-
-
-
-1 annotation
-
-
-请执行，但现在需要我做什么？需要从服务器上拉取什么？
-
-
-
-
-
-
-3:05 PM
-
-
-
-
-
-
-Worked for 54s
-
-
-
-你现在不需要做任何事，也不需要再从服务器拉文件。现有本地日志已经足以定位主要 culprit。
-已执行的结果
-我按照代码中的 Contact 时序容差，重新计算了 16 条样本的 Contact violation，然后与最终 Physics deficit 对照。
-结果：
-Worst component 判断	Noisy	Repair
-ZMP 严格大于 Contact	11/16	11/16
-Contact 最大或与 ZMP 并列	5/16	5/16
-
-这里“ZMP 严格大于 Contact”是确定事实，不是推测。因为 survival 没有违规，而最终 deficit 明显大于 Contact violation，所以最大项只能是 ZMP。
-真正暴露的问题
-代码对 ZMP 做了两次最坏值选择：
-每一帧 ZMP margin
--> 转换成 [0,1] violation
--> K 帧中取最大 violation
--> 再与 Contact、survival 取最大值
-见 [frontres_gain.py (line 350)](/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_gain.py:350)。
-而单帧 ZMP 的计算会在 margin 足够差时饱和到 1：
-zmp_step_violation = clamp(-margin / 0.05, 0, 1)
-见 [frontres_gain.py (line 400)](/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_gain.py:400)。
-这意味着：
-K 帧中只要有一帧 ZMP margin 较差，整段 ZMP deficit 就可能直接变成 1。
-
-随后，哪怕 Repair：
-改善了其他 7/15 帧；
-改善了平均 ZMP；
-改善了 Contact；
-改善了 Intent；
-只要最差那一帧仍为 1，最终 Physics deficit 就完全不变。
-这正是 unsafe plateau 的主要来源。
-为什么 K 增大后问题更明显
-K 越长，出现至少一帧极差 ZMP 的概率越高：
-K=8：在8帧里寻找最差一帧
-K=16：在16帧里寻找最差一帧
-K=64：在64帧里寻找最差一帧
-因此随着 K Curriculum 增长，ZMP deficit 越容易长期固定为 1。Critic看到的就不是更丰富的长时 Physics 结果，而可能是越来越多完全相同的饱和值。
-这会破坏 Critic Curriculum 的前提：不同动作必须产生可区分的 return。
-这不意味着应该删除或弱化 ZMP
-问题不是“使用了 ZMP”，而是：
-当前使用“整段最差一帧”代表完整 K-step Physics 质量。
-
-ZMP仍然必须保留。它负责阻止持续侧倾、失衡但不摔倒和被迫迈步补偿等 Reward hacking。
-真正需要检查的是：
-最差 ZMP 帧是否属于计划内支撑切换；
-是否属于激烈动作允许的短暂动态偏移；
-是否在随后恢复；
-还是确实是 Repair制造的持续失衡。
-当前代码已经识别 Contact phase，但只排除很短的 transition/recovery 区间，然后仍对其余所有帧取最大值。这可能把合法瞬态和持续失衡压成同一个 1。
-Critic Warmup 的位置现在更清楚了
-因果顺序是：
-ZMP temporal aggregation
--> Physics deficit
--> Gain/return
--> Critic学习return
--> Advantage
-当前第一个可能丢失信息的位置是 ZMP temporal aggregation，发生在 Critic之前。
-因此正确顺序是：
-先确认饱和的 ZMP 帧是合法瞬态还是真实持续失衡；
-让 Physics Gain 保留安全优先，同时能区分“正在恢复”和“持续恶化”；
-然后增加 Critic Warmup，让 Critic充分学习这个有区分度的目标。
-只增加 Critic Warmup，会让 Critic更准确地预测大量相同的饱和分数。
-还缺什么证据
-现有日志没有保存每条样本的完整：
-逐帧 ZMP margin
-ZMP applicable mask
-support transition mask
-哪一帧触发最大 violation
-触发后是否恢复
-因此我们已经确定：
-主要 plateau owner = ZMP worst-frame aggregation
-但还不能确定：
-这些 worst frames 是真实危险，还是计划内动态瞬态被误判
-这个问题无法通过再从服务器拉取现有文件解决，因为当前日志没有保存上述逐帧字段。下一步需要先给现有 telemetry 增加这些只读诊断，然后再运行一个很小的 bounded transaction。
-你现在不需要操作。建议主线程的下一步是：
-请执行 ZMP Unsafe-Plateau One-Shot Closure。
-
-仅扩展现有 v015 Physics diagnostics，记录每条 policy row 的逐帧
-zmp_margin、zmp_applicable_mask、support_transition_mask、
-zmp_step_violation、argmax frame、max violation 和 recovery trajectory。
-
-完成 focused deterministic contracts 后运行一次 bounded 8-env official
-transaction，并直接裁决 worst ZMP frame 是计划内瞬态、恢复失败还是持续失衡。
-
-不得删除或弱化 ZMP，不得修改 Contact/Intent/PPO/HSL，不得长训练。
-普通诊断错误在同一单元内修复，不拆分新步骤；只有证据要求改变
-FRS-GAIN-v004 语义时停止并交还用户决策。
-到需要服务器运行时，你只需同步代码并启动一次 bounded 命令；完成后拉取新的日志即可。当前不需要拉取任何东西。
-
-
-3:06 PM
-
-
-
-
-
-
-1 annotation
-
-
-请执行 [$runtime-probing-debug](/Users/chengyuxuan/.codex/skills/runtime-probing-debug/SKILL.md)
-
-
-
-
-
-
-3:13 PM
-
-
-
-
-
-
-Worked for 7m 1s
-
-
-
-本地实现与验证已完成；服务器 live run 尚未启动，因为当前侧线程没有附着 SSH terminal。你只需要同步代码、运行一次命令，然后拉取一个日志文件。
-已完成：
-暴露 active v004 的逐帧 zmp_step_violation；
-transaction telemetry 新增：Repair/Noisy 逐帧 ZMP margin；
-applicable mask；
-support transition mask；
-逐帧 violation；
-argmax frame；
-max violation；
-从最差帧开始的 recovery trajectory；
-
-没有修改 Gain、PPO、Contact、Intent、HSL 或训练反馈；
-invalid/N/A 帧输出 null，不静默补零。
-修改位置：
-[frontres_gain.py (line 350)](/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_gain.py:350)
-[frontres_segment_diagnostics.py (line 41)](/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py:41)
-[frontres_segment_live_training.py (line 1899)](/Users/chengyuxuan/ArtiIntComVis/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1899)
-Focused contracts、py_compile、shell syntax 与 git diff --check 均通过。
-同步后在服务器执行：
-cd /hdd1/cyx/FEMR
-
-CUDA_VISIBLE_DEVICES=3 \
-CACHE_DIR=/hdd1/cyx/AMASS_G1Segment \
-FEMR_LOG_ROOT=/hdd1/cyx/FEMR \
-LOG_PATH=/hdd1/cyx/FEMR/v015_zmp_plateau_s4_gpu3.log \
-RUN_NAME=V015_ZMP_PLATEAU_S4 \
-PERIODIC_EVAL_ENABLED=0 \
-FRONTRES_V015_FUTURE_OFFSETS=1,2 \
-FRONTRES_V015_K_CURRICULUM='8:1:1:1' \
-FRONTRES_G5_S4_BOUNDED=1 \
-bash run_stage3.sh \
-  /hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-07-21_17-06-12_G2_S4_BOUND_HSL/model_warmup.pt \
-  /hdd1/cyx/AMASS_G1NPZ_Final \
-  8 1 1 train
-这是一次 K=8、8 env、1 transaction、1 update 的 bounded run。成功日志应出现：
-[FrontRES v015 Transaction Telemetry]
-[FrontRES v015 Formal Train] ... step_delta=1 committed=1
-Telemetry 中应包含：
-zmp_margin_repaired_steps
-zmp_margin_noisy_steps
-zmp_applicable_steps
-support_transition_steps
-zmp_step_violation_repaired
-zmp_step_violation_noisy
-zmp_argmax_frame_repaired
-zmp_argmax_frame_noisy
-zmp_max_violation_repaired
-zmp_max_violation_noisy
-zmp_recovery_trajectory_repaired
-zmp_recovery_trajectory_noisy
-完成后只需拉取：
-/hdd1/cyx/FEMR/v015_zmp_plateau_s4_gpu3.log
-不需要拉取 checkpoint。拿到日志后即可直接裁决三类情况：计划内瞬态、瞬态后恢复失败、持续 ZMP 失衡。
+Traceback (most recent call last):
+  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1753, in <module>
+    main()
+  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 104, in wrapper
+    hydra_main()
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/main.py", line 94, in decorated_main
+    _run_hydra(
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 394, in _run_hydra
+    _run_app(
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 457, in _run_app
+    run_and_report(
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 223, in run_and_report
+    raise ex
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 220, in run_and_report
+    return func()
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 458, in <lambda>
+    lambda: hydra.run(
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 132, in run
+    _ = ret.return_value
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 260, in return_value
+    raise self._return_value
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 186, in run_job
+    ret.return_value = task_function(task_cfg)
+  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1737, in main
+    runner.learn_frontres_segment_live(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 707, in learn_frontres_segment_live
+    run_frontres_segment_live_training_loop(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", line 2537, in run_frontres_segment_live_training_loop
+    result = runner.run_frontres_v015_formal_training_transaction(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 686, in run_frontres_v015_formal_training_transaction
+    return run_frontres_v015_formal_training_update_loop_helper(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 186, in run_frontres_v015_formal_training_update_loop
+    return run_frontres_v015_formal_transaction_update_loop(runner)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 148, in run_frontres_v015_formal_transaction_update_loop
+    request = provider()
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 177, in provider
+    return build_frontres_v015_formal_training_request(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4238, in build_frontres_v015_formal_training_request
+    return _build_frontres_v015_local_transaction_request(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4101, in _build_frontres_v015_local_transaction_request
+    prepared = prepare_frontres_v015_formal_training_batch(runner)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", line 1959, in prepare_frontres_v015_formal_training_batch
+    return _prepare_frontres_v015_local_transaction_batch(runner, route="training")
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", line 1905, in _prepare_frontres_v015_local_transaction_batch
+    batch = _build_current_segment_batch(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", line 1665, in _build_current_segment_batch
+    batch = _attach_frontres_local_scenarios(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", line 1412, in _attach_frontres_local_scenarios
+    rows = lifecycle.bind_rows(sample)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_sampler.py", line 1001, in bind_rows
+    materialization = self._materialize_scenario(request)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_sampler.py", line 1388, in materialize
+    payload = adapter.materialize_frontres_local_scenario(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_stage1_env_hooks.py", line 181, in materialize_frontres_local_scenario
+    payload = materialize(
+  File "/hdd1/cyx/FEMR/source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", line 2436, in materialize_frontres_local_scenario
+    raise ValueError(
+ValueError: local scenario cannot clamp future intent or Clean continuation: start=247, H=2, K=8, max_frame=253

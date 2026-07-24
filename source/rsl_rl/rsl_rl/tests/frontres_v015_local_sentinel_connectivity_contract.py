@@ -198,11 +198,24 @@ def test_t_sentinel_prepare_accepts_kernel_immutable_provenance() -> None:
         alg=SimpleNamespace(
             policy=policy,
             frontres_v015_local_sentinel_only=True,
-        frontres_segment_max_horizon_k=3,
-        frontres_segment_k_curriculum=((3, 1, 1, 0),),
-        frontres_segment_k_curriculum_fingerprint="",
+            frontres_segment_max_horizon_k=3,
+            frontres_segment_k_curriculum=((3, 1, 1, 0),),
+            frontres_segment_k_curriculum_fingerprint="",
+            frontres_future_offsets=(1, 2),
         ),
-        env=SimpleNamespace(num_envs=8),
+        env=SimpleNamespace(
+            num_envs=8,
+            _frontres_segment_index_reset_adapter=SimpleNamespace(
+                materialize_frontres_local_scenario=lambda **_kwargs: None,
+                frontres_local_scenario_is_materializable=lambda **_kwargs: True,
+            ),
+        ),
+        _frontres_segment_dataset=SimpleNamespace(
+            _spec_by_id={
+                101: SimpleNamespace(motion_id="motion-a", start_frame=12),
+                202: SimpleNamespace(motion_id="motion-b", start_frame=24),
+            }
+        ),
         _frontres_segment_sampler=sampler,
         current_learning_iteration=0,
     )
@@ -280,6 +293,38 @@ def test_t_formal_source_selection_fills_rows_without_partial_attempts() -> None
     assert tuple(selected.rollout_trial_count.tolist()) == (3, 3, 2)
     assert int(selected.rollout_trial_count.sum().item()) == 8
     print("[T-complete-transaction/T-no-partial] exact source selection preserves whole M budgets for all Repair rows", flush=True)
+
+
+def test_t_formal_source_selection_excludes_k_ineligible_edge_segments_before_seal() -> None:
+    _formal, _candidate, _owners, live_sampler, _live_probe = _load_owners()
+    attempts = (3, 3, 2, 6)
+
+    def sample_batch(batch_size, **_kwargs):
+        assert batch_size >= len(attempts)
+        return live_sampler.FrontRESSegmentSample(
+            segment_ids=torch.arange(100, 100 + len(attempts), dtype=torch.long),
+            source=("global",) * len(attempts),
+            priority=torch.ones(len(attempts)),
+            staleness=torch.zeros(len(attempts)),
+            valid_mask=torch.ones(len(attempts), dtype=torch.bool),
+            segment_state=None,
+            rollout_trial_count=torch.tensor(attempts, dtype=torch.long),
+            horizon_k=torch.full((len(attempts),), 8, dtype=torch.long),
+            budget_reason=("fixture",) * len(attempts),
+            trial_role=("policy",) * len(attempts),
+            source_index=torch.arange(len(attempts), dtype=torch.long),
+            trial_index=torch.zeros(len(attempts), dtype=torch.long),
+        )
+
+    selected = live_sampler._sample_frontres_v015_transaction_sources(
+        SimpleNamespace(sample=sample_batch, num_segments=len(attempts)),
+        repair_rows=8,
+        max_horizon_k=8,
+        candidate_is_eligible=lambda segment_id: segment_id != 100,
+    )
+    assert tuple(selected.segment_ids.tolist()) == (102, 103)
+    assert int(selected.rollout_trial_count.sum().item()) == 8
+    print("[T-K-eligibility/T-before-seal] edge Segment is excluded before exact M-layout selection", flush=True)
 
 
 def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> None:
@@ -488,6 +533,7 @@ def main() -> None:
     test_t_sentinel_batch_materializes_local_scenario_not_legacy_tape()
     test_t_sentinel_prepare_accepts_kernel_immutable_provenance()
     test_t_formal_source_selection_fills_rows_without_partial_attempts()
+    test_t_formal_source_selection_excludes_k_ineligible_edge_segments_before_seal()
     test_t_real_builder_orders_local_reset_capture_and_candidate_adapter()
     test_t_sentinel_provider_is_collected_before_one_grouped_update()
     print("frontres_v015_local_sentinel_connectivity_contract: ok", flush=True)
