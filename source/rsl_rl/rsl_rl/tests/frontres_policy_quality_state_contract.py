@@ -178,9 +178,60 @@ def test_restore_rows_supports_isaac_inference_tensors() -> None:
     assert target.tolist() == [[0.0, 0.0], [1.0, 2.0], [0.0, 0.0], [3.0, 4.0]]
 
 
+def test_local_scenario_route_start_restores_command_lifecycle() -> None:
+    runner = _runner()
+    command = runner.env.unwrapped.command_manager.get_term("motion")
+    rows = int(command.time_steps.numel())
+    command._frontres_local_scenario_active = torch.ones(rows, dtype=torch.bool)
+    command._frontres_local_scenario_current_frame_ready = torch.ones(rows, dtype=torch.bool)
+    command._frontres_local_scenario_k_execution_active = torch.zeros(rows, dtype=torch.bool)
+    command._frontres_local_scenario_k_execution_cursor = torch.full((rows,), -1, dtype=torch.long)
+    signature = "d" * 64
+    snapshot = state_module.capture_frontres_policy_quality_state(
+        runner,
+        env_ids=tuple(range(rows)),
+        comparison_signature=signature,
+        role_layout=("repair", "repair", "noisy", "noisy"),
+    )
+
+    # Simulate one-action-K completion before the next counterfactual route.
+    command._frontres_local_scenario_current_frame_ready.zero_()
+    command._frontres_local_scenario_k_execution_active.zero_()
+    command._frontres_local_scenario_k_execution_cursor.fill_(-1)
+    state_module.restore_frontres_policy_quality_state(
+        runner,
+        snapshot,
+        comparison_signature=signature,
+    )
+
+    assert bool(command._frontres_local_scenario_active.all())
+    assert bool(command._frontres_local_scenario_current_frame_ready.all())
+    assert not bool(command._frontres_local_scenario_k_execution_active.any())
+    assert bool((command._frontres_local_scenario_k_execution_cursor == -1).all())
+
+
+def test_active_local_scenario_rejects_missing_lifecycle_state() -> None:
+    runner = _runner()
+    command = runner.env.unwrapped.command_manager.get_term("motion")
+    command._frontres_local_scenario_active = torch.ones(command.time_steps.numel(), dtype=torch.bool)
+    try:
+        state_module.capture_frontres_policy_quality_state(
+            runner,
+            env_ids=(0, 1),
+            comparison_signature="e" * 64,
+            role_layout=("repair", "noisy"),
+        )
+    except RuntimeError as exc:
+        assert "lifecycle field is invalid" in str(exc)
+    else:
+        raise AssertionError("active local scenario must reject an incomplete route-start lifecycle snapshot")
+
+
 if __name__ == "__main__":
     test_zero_preroll_has_no_policy_route()
     test_complete_scoring_state_round_trip_restores_hash_and_rng()
     test_restore_rejects_comparison_mismatch_and_missing_cache()
     test_restore_rows_supports_isaac_inference_tensors()
+    test_local_scenario_route_start_restores_command_lifecycle()
+    test_active_local_scenario_rejects_missing_lifecycle_state()
     print("PASS: policy-quality scoring state capture and restore are closed offline.")

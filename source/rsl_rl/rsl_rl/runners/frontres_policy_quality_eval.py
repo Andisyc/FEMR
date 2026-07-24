@@ -32,6 +32,28 @@ _COMMAND_STATE_FIELDS = (
     "_frontres_quat_correction",
 )
 
+_LOCAL_SCENARIO_LIFECYCLE_FIELDS = (
+    "_frontres_local_scenario_active",
+    "_frontres_local_scenario_current_frame_ready",
+    "_frontres_local_scenario_k_execution_active",
+    "_frontres_local_scenario_k_execution_cursor",
+)
+
+
+def _policy_quality_command_state_fields(command: Any) -> tuple[str, ...]:
+    """Include route-local scenario clocks whenever a sealed scenario is active."""
+
+    active = getattr(command, "_frontres_local_scenario_active", None)
+    if not isinstance(active, torch.Tensor) or not bool(active.any().item()):
+        return _COMMAND_STATE_FIELDS
+    if active.ndim != 1 or not bool(active.all().item()):
+        raise RuntimeError("policy-quality state requires one transaction-wide active local scenario")
+    for name in _LOCAL_SCENARIO_LIFECYCLE_FIELDS:
+        value = getattr(command, name, None)
+        if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.shape[0]) != int(active.shape[0]):
+            raise RuntimeError(f"policy-quality local-scenario lifecycle field is invalid: {name}")
+    return (*_COMMAND_STATE_FIELDS, *_LOCAL_SCENARIO_LIFECYCLE_FIELDS)
+
 
 @dataclass(frozen=True)
 class _TensorImage:
@@ -1454,7 +1476,7 @@ def capture_frontres_policy_quality_state(
     )
     command_state = tuple(
         (name, _capture_rows(_require_tensor(getattr(command, name, None), f"command.{name}"), ids))
-        for name in _COMMAND_STATE_FIELDS
+        for name in _policy_quality_command_state_fields(command)
     )
     perturber = getattr(command, "perturber", None)
     if perturber is None:

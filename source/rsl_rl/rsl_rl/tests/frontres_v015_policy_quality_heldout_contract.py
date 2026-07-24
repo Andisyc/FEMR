@@ -180,6 +180,10 @@ def _semantic_dynamic_state_fixture():
         _cached_perturbed_quat=torch.zeros(env_count, 4),
         _frontres_pos_correction=torch.zeros(env_count, 3),
         _frontres_quat_correction=torch.zeros(env_count, 4),
+        _frontres_local_scenario_active=torch.ones(env_count, dtype=torch.bool),
+        _frontres_local_scenario_current_frame_ready=torch.ones(env_count, dtype=torch.bool),
+        _frontres_local_scenario_k_execution_active=torch.zeros(env_count, dtype=torch.bool),
+        _frontres_local_scenario_k_execution_cursor=torch.full((env_count,), -1, dtype=torch.long),
         perturber=SimpleNamespace(scale=torch.arange(env_count, dtype=torch.float32)),
         frontres_local_scenario_snapshot=lambda _env_ids: {
             key: value.clone() if isinstance(value, torch.Tensor) else tuple(value)
