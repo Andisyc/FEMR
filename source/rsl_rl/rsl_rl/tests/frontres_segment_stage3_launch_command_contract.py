@@ -121,6 +121,22 @@ def test_g5_s4_bounded_launch_freezes_8_1_1_and_audit() -> None:
     assert "--frontres_formal_runtime_audit" in command
 
 
+def test_stage3_train_launch_accepts_explicit_checkpoint_interval() -> None:
+    result = _run_preflight(
+        "train",
+        {"FRONTRES_CHECKPOINT_INTERVAL": "50"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--frontres_checkpoint_interval 50" in _command_line(result), result.stdout
+
+    invalid = _run_preflight(
+        "train",
+        {"FRONTRES_CHECKPOINT_INTERVAL": "0"},
+    )
+    assert invalid.returncode != 0
+    assert "FRONTRES_CHECKPOINT_INTERVAL must be a positive integer" in invalid.stderr
+
+
 def test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds() -> None:
     forbidden = (
         ["--resume", "True"],
@@ -235,6 +251,7 @@ def test_stage3_launch_rejects_unknown_mode_before_training() -> None:
 if __name__ == "__main__":
     test_stage3_train_launch_preflight_builds_femr_command()
     test_g5_s4_bounded_launch_freezes_8_1_1_and_audit()
+    test_stage3_train_launch_accepts_explicit_checkpoint_interval()
     test_g5_s4_launch_rejects_resume_periodic_and_wrong_bounds()
     test_p4_s1_strict_v5_resume_replaces_hsl_initializer()
     test_p4_s1_strict_v5_resume_rejects_missing_checkpoint()

@@ -29,6 +29,7 @@ NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 LOG_PROJECT_NAME="${LOG_PROJECT_NAME:-FEMR}"
 RUN_NAME="${RUN_NAME:-FEMR_STAGE3_SEGMENT_HRL}"
 CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"
+CHECKPOINT_INTERVAL="${FRONTRES_CHECKPOINT_INTERVAL:-1}"
 SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"
 PERIODIC_EVAL_ENABLED="${PERIODIC_EVAL_ENABLED:-0}"
 PERIODIC_EVAL_INTERVAL="${PERIODIC_EVAL_INTERVAL:-100}"
@@ -36,6 +37,11 @@ FRONTRES_SPECIALIST_MODE="${FRONTRES_SPECIALIST_MODE:-rp}"
 FRONTRES_V015_FUTURE_OFFSETS="${FRONTRES_V015_FUTURE_OFFSETS:-1,2}"
 FRONTRES_V015_K_CURRICULUM="${FRONTRES_V015_K_CURRICULUM:-}"
 FRONTRES_V015_RESUME_CHECKPOINT="${FRONTRES_V015_RESUME_CHECKPOINT:-}"
+
+if ! [[ "${CHECKPOINT_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "FRONTRES_CHECKPOINT_INTERVAL must be a positive integer" >&2
+  exit 2
+fi
 
 if [[ "${MODE}" == "train" && -z "${FRONTRES_V015_K_CURRICULUM}" ]]; then
   echo "FRS-TRAIN-v009 requires FRONTRES_V015_K_CURRICULUM=K:N_c:N_a:N_joint,..." >&2
@@ -180,9 +186,12 @@ else
   TRAIN_CMD+=(--frontres_v015_hsl_initializer_checkpoint "${HSL_CHECKPOINT}")
 fi
 
+if [[ "${MODE}" == "train" ]]; then
+  TRAIN_CMD+=(--frontres_checkpoint_interval "${CHECKPOINT_INTERVAL}")
+fi
+
 if [[ "${FRONTRES_G5_S4_BOUNDED}" == "1" ]]; then
   TRAIN_CMD+=(
-    --frontres_checkpoint_interval 1
     --frontres_formal_runtime_audit
     --frontres_segment_critic_warmup_iterations 200
     --frontres_segment_actor_warmup_iterations 500
