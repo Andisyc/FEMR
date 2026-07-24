@@ -23,6 +23,7 @@ from rsl_rl.algorithms.frontres_segment_ppo import (
     install_frontres_v004_projected_gradients,
 )
 from rsl_rl.frontres.frontres_segment_storage import (
+    FrontRESV015RejectedTransactionEvidence,
     FrontRESSegmentRolloutStorage,
     FrontRESSegmentTransition,
     FrontRESV015GainReturnEvidence,
@@ -4208,9 +4209,7 @@ def _build_frontres_v015_local_transaction_request(
             warmup_actor_loss_weight=sealed_curriculum.phase.actor_loss_weight,
         )
     except Exception:
-        _close_frontres_local_scenarios(batch)
-        runner._frontres_segment_live_current_sample = None
-        runner._frontres_segment_live_current_batch = None
+        abort_frontres_v015_formal_training_collection(runner, batch=batch)
         raise
 
 
@@ -4265,6 +4264,44 @@ def close_frontres_v015_formal_training_request(runner: Any) -> None:
             delattr(runner, "_frontres_v015_formal_training_batch")
         runner._frontres_segment_live_current_sample = None
         runner._frontres_segment_live_current_batch = None
+
+
+def abort_frontres_v015_formal_training_collection(runner: Any, *, batch: Any | None = None) -> None:
+    """Idempotently discard one rejected provider collection without an update.
+
+    The command carrier is released before the materializer lifecycle.  The
+    checkpoint barrier returns to the only persistable no-transaction state,
+    so a later provider may open a fresh transaction at the same absolute
+    training iteration.
+    """
+
+    if batch is None:
+        batch = getattr(runner, "_frontres_v015_formal_training_batch", None)
+    if batch is None:
+        batch = getattr(runner, "_frontres_segment_live_current_batch", None)
+    command = None
+    try:
+        command = _motion_command_for_runner(runner)
+    except (AttributeError, KeyError, RuntimeError):
+        command = None
+    if command is not None:
+        active = getattr(command, "_frontres_local_scenario_active", None)
+        clear = getattr(command, "clear_frontres_local_scenario", None)
+        if isinstance(active, torch.Tensor) and bool(active.any()):
+            if not callable(clear):
+                raise RuntimeError("v015 rejected transaction requires command-owned scenario cleanup")
+            clear()
+    if batch is not None and not tuple(getattr(batch, "frontres_local_scenario_closed_ids", ()) or ()):
+        _close_frontres_local_scenarios(batch)
+    setattr(runner, _V015_CHECKPOINT_TRANSACTION_STATE_ATTR, {"state": "idle"})
+    for name in (
+        "_frontres_v015_formal_training_batch",
+        "_frontres_v015_formal_training_preupdate_diagnostics",
+    ):
+        if hasattr(runner, name):
+            delattr(runner, name)
+    runner._frontres_segment_live_current_sample = None
+    runner._frontres_segment_live_current_batch = None
 
 
 def run_frontres_v015_local_identity_sentinel(

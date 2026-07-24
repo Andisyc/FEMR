@@ -1,4 +1,4 @@
-raceback (most recent call last):
+Traceback (most recent call last):
   File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1753, in <module>
     main()
   File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 104, in wrapper
@@ -41,30 +41,12 @@ raceback (most recent call last):
     return _build_frontres_v015_local_transaction_request(
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4132, in _build_frontres_v015_local_transaction_request
     candidate_evidence = collect_frontres_v015_gain_return_priority_evidence(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3601, in collect_frontres_v015_gain_return_priority_evidence
-    one_action = collect_frontres_v015_one_action_k_evidence(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3427, in collect_frontres_v015_one_action_k_evidence
-    _raw_obs, _rewards, t_dones, _infos = runner.env.step(t_plan.env_actions.to(runner.env.device))
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_rl/isaaclab_rl/rsl_rl/vecenv_wrapper.py", line 176, in step
-    obs_dict, rew, terminated, truncated, extras = self.env.step(actions)
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/gymnasium/wrappers/common.py", line 393, in step
-    return super().step(action)
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/gymnasium/core.py", line 327, in step
-    return self.env.step(action)
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab/isaaclab/envs/manager_based_rl_env.py", line 239, in step
-    self.obs_buf = self.observation_manager.compute()
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab/isaaclab/managers/observation_manager.py", line 253, in compute
-    obs_buffer[group_name] = self.compute_group(group_name)
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab/isaaclab/managers/observation_manager.py", line 308, in compute_group
-    obs: torch.Tensor = term_cfg.func(self._env, **term_cfg.params).clone()
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab/isaaclab/envs/mdp/observations.py", line 531, in generated_commands
-    return env.command_manager.get_command(command_name)
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab/isaaclab/managers/command_manager.py", line 383, in get_command
-    return self._terms[name].command
-  File "/hdd1/cyx/FEMR/source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", line 2981, in command
-    joint_pos_seq = self._gather_future_by_motion("joint_pos", horizon)
-  File "/hdd1/cyx/FEMR/source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", line 2957, in _gather_future_by_motion
-    return self._frontres_local_scenario_current_command_rows(getter, horizon)
-  File "/hdd1/cyx/FEMR/source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py", line 2924, in _frontres_local_scenario_current_command_rows
-    raise RuntimeError(
-RuntimeError: v015 local pre-action GMT command lost the sealed deployment q29 identity at t
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3645, in collect_frontres_v015_gain_return_priority_evidence
+    return_evidence = build_frontres_v015_gain_return_evidence(facts, gain_result)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", line 1061, in build_frontres_v015_gain_return_evidence
+    constraint_advantages = {
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", line 1062, in <dictcomp>
+    name: centered_by_scenario(value)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", line 1056, in centered_by_scenario
+    raise ValueError("FRS-GAIN-v005 requires valid Repair attempts before constraint centering")
+ValueError: FRS-GAIN-v005 requires valid Repair attempts before constraint centering

@@ -19,6 +19,10 @@ _AUDIT_SPEC.loader.exec_module(_AUDIT_MODULE)
 emit_formal_runtime_probe = _AUDIT_MODULE.emit_formal_runtime_probe
 
 
+class FrontRESV015RejectedTransactionEvidence(RuntimeError):
+    """A complete v015 transaction must be discarded before any update."""
+
+
 def _v004_phase_evaluator() -> Callable[..., dict[str, torch.Tensor]]:
     try:
         from rsl_rl.frontres.frontres_gain import evaluate_phase_conditioned_physics
@@ -1053,7 +1057,15 @@ def build_frontres_v015_gain_return_evidence(
             selected = value.index_select(0, index)
             selected_valid = valid.index_select(0, index)
             if not bool(selected_valid.all()):
-                raise ValueError("FRS-GAIN-v005 requires valid Repair attempts before constraint centering")
+                valid_rows = tuple(bool(item) for item in selected_valid.detach().cpu().tolist())
+                physics_steps = tuple(
+                    int(facts.physics_valid_step_count[row].detach().cpu().item()) for row in rows
+                )
+                raise FrontRESV015RejectedTransactionEvidence(
+                    "FRS-GAIN-v005 rejected the complete transaction before constraint centering: "
+                    f"scenario_id={scenario_id!r} valid_repair_attempts={valid_rows} "
+                    f"physics_valid_step_count={physics_steps}"
+                )
             centered = selected - selected.mean().detach()
             result.index_copy_(0, index, centered)
         return result

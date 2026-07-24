@@ -395,6 +395,96 @@ def test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, o
     )
 
 
+def test_t_rejected_collection_reopens_barrier_without_update(
+    candidate_contract, owners, live_sampler, live_update_loop
+) -> None:
+    fixture = _build_request(candidate_contract, owners, live_sampler)
+    fixture.runner.alg.frontres_segment_live_train_enabled = True
+    fixture.runner.alg.frontres_segment_live_update_steps = 1
+    fixture.runner.alg.frontres_v015_local_sentinel_only = False
+    live_probe = owners[6]
+    calls: list[str] = []
+    original_build = live_probe.build_frontres_v015_formal_training_request
+    original_close = live_probe.close_frontres_v015_formal_training_request
+
+    def build(runner, *, init_at_random_ep_len):
+        assert init_at_random_ep_len
+        assert runner._frontres_v015_checkpoint_transaction_state == {"state": "collecting", "phase": "provider"}
+        calls.append("provider")
+        if calls.count("provider") == 1:
+            raise live_probe.FrontRESV015RejectedTransactionEvidence("invalid M-attempt evidence")
+        return fixture.request
+
+    def close(runner):
+        calls.append("close")
+        runner._frontres_segment_live_current_sample = None
+        runner._frontres_segment_live_current_batch = None
+
+    live_probe.build_frontres_v015_formal_training_request = build
+    live_probe.close_frontres_v015_formal_training_request = close
+    try:
+        result = live_update_loop.run_frontres_v015_formal_training_update_loop(
+            fixture.runner,
+            init_at_random_ep_len=True,
+        )
+    finally:
+        live_probe.build_frontres_v015_formal_training_request = original_build
+        live_probe.close_frontres_v015_formal_training_request = original_close
+
+    assert calls == ["provider", "provider", "close"]
+    assert result.optimizer_step_delta == 1
+    assert fixture.optimizer.step_count == 1
+    assert fixture.runner._frontres_v015_checkpoint_transaction_state["state"] == "committed"
+    print(
+        "[T-reject/T-recollect/T-exact-one] invalid evidence returns the barrier to idle; accepted transaction steps once",
+        flush=True,
+    )
+
+
+def test_t_rejected_collection_budget_fails_closed(
+    candidate_contract, owners, live_sampler, live_update_loop
+) -> None:
+    fixture = _build_request(candidate_contract, owners, live_sampler)
+    fixture.runner.alg.frontres_segment_live_train_enabled = True
+    fixture.runner.alg.frontres_segment_live_update_steps = 1
+    fixture.runner.alg.frontres_v015_local_sentinel_only = False
+    live_probe = owners[6]
+    calls: list[str] = []
+    original_build = live_probe.build_frontres_v015_formal_training_request
+    original_close = live_probe.close_frontres_v015_formal_training_request
+    original_budget = live_update_loop._V015_MAX_REJECTED_COLLECTIONS
+
+    def build(_runner, *, init_at_random_ep_len):
+        assert init_at_random_ep_len
+        calls.append("provider")
+        raise live_probe.FrontRESV015RejectedTransactionEvidence("always invalid")
+
+    def close(runner):
+        calls.append("close")
+        runner._frontres_segment_live_current_sample = None
+        runner._frontres_segment_live_current_batch = None
+
+    live_probe.build_frontres_v015_formal_training_request = build
+    live_probe.close_frontres_v015_formal_training_request = close
+    live_update_loop._V015_MAX_REJECTED_COLLECTIONS = 1
+    try:
+        _expect_runtime_error(
+            lambda: live_update_loop.run_frontres_v015_formal_training_update_loop(
+                fixture.runner,
+                init_at_random_ep_len=True,
+            )
+        )
+    finally:
+        live_update_loop._V015_MAX_REJECTED_COLLECTIONS = original_budget
+        live_probe.build_frontres_v015_formal_training_request = original_build
+        live_probe.close_frontres_v015_formal_training_request = original_close
+
+    assert calls == ["provider", "provider", "close"]
+    assert fixture.optimizer.step_count == 0
+    assert fixture.runner._frontres_v015_checkpoint_transaction_state == {"state": "idle"}
+    print("[T-reject-budget/T-zero-update] repeated invalid evidence stops bounded and persistably idle", flush=True)
+
+
 def test_t_formal_training_close_releases_command_before_sampler_lifecycle(
     _candidate_contract, owners, _live_sampler, _live_update_loop
 ) -> None:
@@ -426,6 +516,43 @@ def test_t_formal_training_close_releases_command_before_sampler_lifecycle(
     assert runner._frontres_segment_live_current_sample is None
     assert runner._frontres_segment_live_current_batch is None
     print("[T-command-close/T-next-transaction] completed request releases the sealed command carrier", flush=True)
+
+
+def test_t_rejected_collection_cleanup_is_idempotent(_candidate_contract, owners, _live_sampler, _live_update_loop) -> None:
+    live_probe = owners[6]
+    events: list[str] = []
+    command = SimpleNamespace(_frontres_local_scenario_active=torch.ones(2, dtype=torch.bool))
+
+    def clear() -> None:
+        events.append("command")
+        command._frontres_local_scenario_active[:] = False
+
+    command.clear_frontres_local_scenario = clear
+    batch = SimpleNamespace(frontres_local_scenario_closed_ids=())
+    runner = SimpleNamespace(
+        env=SimpleNamespace(command_manager=SimpleNamespace(get_term=lambda name: command)),
+        _frontres_segment_live_current_sample=object(),
+        _frontres_segment_live_current_batch=batch,
+        _frontres_v015_checkpoint_transaction_state={"state": "collecting", "phase": "provider"},
+    )
+    original_close = live_probe._close_frontres_local_scenarios
+
+    def close_lifecycle(current_batch) -> None:
+        events.append("sampler")
+        current_batch.frontres_local_scenario_closed_ids = ("closed",)
+
+    live_probe._close_frontres_local_scenarios = close_lifecycle
+    try:
+        live_probe.abort_frontres_v015_formal_training_collection(runner, batch=batch)
+        live_probe.abort_frontres_v015_formal_training_collection(runner, batch=batch)
+    finally:
+        live_probe._close_frontres_local_scenarios = original_close
+
+    assert events == ["command", "sampler"]
+    assert runner._frontres_v015_checkpoint_transaction_state == {"state": "idle"}
+    assert runner._frontres_segment_live_current_sample is None
+    assert runner._frontres_segment_live_current_batch is None
+    print("[T-reject-cleanup/T-idempotent] command, sampler, and barrier lifecycle close exactly once", flush=True)
 
 
 def test_t_v010_critic_only_formal_update(candidate_contract, owners, live_sampler) -> None:
@@ -799,9 +926,12 @@ def main() -> None:
     test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_partial_hsl_and_legacy_config_fail_before_step(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_ordinary_training_provider_uses_exact_one_owner(candidate_contract, owners, live_sampler, live_update_loop)
+    test_t_rejected_collection_reopens_barrier_without_update(candidate_contract, owners, live_sampler, live_update_loop)
+    test_t_rejected_collection_budget_fails_closed(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_formal_training_close_releases_command_before_sampler_lifecycle(
         candidate_contract, owners, live_sampler, live_update_loop
     )
+    test_t_rejected_collection_cleanup_is_idempotent(candidate_contract, owners, live_sampler, live_update_loop)
     test_t_v010_critic_only_formal_update(candidate_contract, owners, live_sampler)
     test_t_v010_mixed_k_rejects_and_new_stage_recalibrates(candidate_contract, owners, live_sampler)
     test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owners, live_sampler, live_update_loop)

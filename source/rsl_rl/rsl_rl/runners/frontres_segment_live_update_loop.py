@@ -18,6 +18,7 @@ _LIVE_SAMPLER_MODULE = importlib.util.module_from_spec(_LIVE_SAMPLER_SPEC)
 sys.modules[_LIVE_SAMPLER_SPEC.name] = _LIVE_SAMPLER_MODULE
 _LIVE_SAMPLER_SPEC.loader.exec_module(_LIVE_SAMPLER_MODULE)
 run_frontres_segment_sampler_step = _LIVE_SAMPLER_MODULE.run_frontres_segment_sampler_step
+_V015_MAX_REJECTED_COLLECTIONS = 8
 
 
 def _fmt_num(value: Any) -> str:
@@ -163,6 +164,9 @@ def run_frontres_v015_formal_training_update_loop(
     """Collect one ordinary v015 request, commit one update, then close carriers."""
 
     from rsl_rl.runners.frontres_segment_live_probe import (
+        FrontRESV015RejectedTransactionEvidence,
+        _v015_formal_optimizer_step_count,
+        abort_frontres_v015_formal_training_collection,
         build_frontres_v015_formal_training_request,
         close_frontres_v015_formal_training_request,
     )
@@ -183,7 +187,33 @@ def run_frontres_v015_formal_training_update_loop(
         raise RuntimeError("v015 formal training refuses an existing transaction provider")
     runner._frontres_v015_formal_transaction_provider = provider
     try:
-        return run_frontres_v015_formal_transaction_update_loop(runner)
+        optimizer = getattr(alg, "optimizer", None)
+        first_step_count = _v015_formal_optimizer_step_count(optimizer)
+        last_rejection: FrontRESV015RejectedTransactionEvidence | None = None
+        for rejection_count in range(_V015_MAX_REJECTED_COLLECTIONS + 1):
+            try:
+                return run_frontres_v015_formal_transaction_update_loop(runner)
+            except FrontRESV015RejectedTransactionEvidence as exc:
+                last_rejection = exc
+                abort_frontres_v015_formal_training_collection(runner)
+                current_step_count = _v015_formal_optimizer_step_count(optimizer)
+                if current_step_count != first_step_count:
+                    raise RuntimeError(
+                        "v015 rejected transaction changed optimizer state before recollection: "
+                        f"before={first_step_count} after={current_step_count}"
+                    ) from exc
+                if rejection_count >= _V015_MAX_REJECTED_COLLECTIONS:
+                    break
+                print(
+                    "[FrontRES v015 Transaction Rejected] "
+                    f"rejection={rejection_count + 1}/{_V015_MAX_REJECTED_COLLECTIONS} "
+                    f"optimizer_step_delta=0 reason={exc}",
+                    flush=True,
+                )
+        raise RuntimeError(
+            "v015 formal training exhausted its bounded invalid-evidence recollection budget "
+            f"({_V015_MAX_REJECTED_COLLECTIONS}); optimizer_step_delta=0; last={last_rejection}"
+        ) from last_rejection
     finally:
         if hasattr(runner, "_frontres_v015_formal_transaction_provider"):
             delattr(runner, "_frontres_v015_formal_transaction_provider")
