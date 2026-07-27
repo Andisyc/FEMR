@@ -331,6 +331,53 @@ def test_raw_views_are_installed_before_reset_and_never_lazily_on_read() -> None
     assert right._frontres_raw_contact_capacity == 128
 
 
+def test_asymmetric_foot_contact_slots_pad_without_changing_evidence() -> None:
+    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_pad_raw_contact_slots"
+    )
+    namespace: dict[str, Any] = {"torch": torch}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+
+    def raw(slots: int, x: float) -> tuple[torch.Tensor, ...]:
+        points = torch.zeros(8, 1, slots, 3)
+        points[:, :, 0, 0] = x
+        forces = torch.zeros(8, 1, slots)
+        forces[:, :, 0] = 100.0
+        normals = torch.zeros_like(points)
+        normals[:, :, 0, 2] = 1.0
+        valid = forces > 0.0
+        return points, forces, normals, valid
+
+    left = namespace["_pad_raw_contact_slots"](raw(10, -0.1), contact_slots=10)
+    right = namespace["_pad_raw_contact_slots"](raw(3, 0.1), contact_slots=10)
+    for left_value, right_value in zip(left, right, strict=True):
+        assert int(left_value.shape[2]) == int(right_value.shape[2]) == 10
+    assert right[3][:, :, :3].sum().item() == 8
+    assert not bool(right[3][:, :, 3:].any())
+    points = torch.cat((left[0], right[0]), dim=1)
+    forces = torch.cat((left[1], right[1]), dim=1)
+    normals = torch.cat((left[2], right[2]), dim=1)
+    valid = torch.cat((left[3], right[3]), dim=1)
+    zmp, zmp_valid = _owner().contact_wrench_zmp_xy(points, forces, normals, valid)
+    assert bool(zmp_valid.all())
+    torch.testing.assert_close(zmp, torch.zeros(8, 2))
+
+    swapped_left = namespace["_pad_raw_contact_slots"](raw(3, 0.1), contact_slots=10)
+    swapped_right = namespace["_pad_raw_contact_slots"](raw(10, -0.1), contact_slots=10)
+    swapped_zmp, swapped_valid = _owner().contact_wrench_zmp_xy(
+        torch.cat((swapped_left[0], swapped_right[0]), dim=1),
+        torch.cat((swapped_left[1], swapped_right[1]), dim=1),
+        torch.cat((swapped_left[2], swapped_right[2]), dim=1),
+        torch.cat((swapped_left[3], swapped_right[3]), dim=1),
+    )
+    assert torch.equal(swapped_valid, zmp_valid)
+    torch.testing.assert_close(swapped_zmp, zmp)
+
+
 if __name__ == "__main__":
     test_contact_wrench_golden_and_permutation()
     test_expected_envelope_and_missing_fail_closed()
@@ -340,4 +387,5 @@ if __name__ == "__main__":
     test_formal_zmp_capture_preserves_first_invalid_error()
     test_eight_role_ground_contact_reaches_finite_zmp()
     test_raw_views_are_installed_before_reset_and_never_lazily_on_read()
+    test_asymmetric_foot_contact_slots_pad_without_changing_evidence()
     print("frontres_contact_wrench_zmp_contract: ok", flush=True)

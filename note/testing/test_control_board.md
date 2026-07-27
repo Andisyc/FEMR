@@ -1,6 +1,6 @@
 # FEMR Current Test Control Board
 
-Updated: 2026-07-20
+Updated: 2026-07-27
 
 This is a current-state view, not a chronological test log. Dated command
 evidence belongs in evidence ledgers.
@@ -31,6 +31,7 @@ claims additionally require S4.
 | v015 Intent Segment Gain | q29-intent/physics/cost owner and local two-role consumers | S1 candidate chain complete, `E-FI-10`--`E-FI-13` | Real evaluation, sampler state, formal PPO/update, checkpoint/resume, and live consumers remain unconnected. |
 | v015 grouped candidate adapter | sealed candidate return -> local metadata -> grouped PPO batch | S1 complete, `E-FI-13` | Candidate-only batch/loss evidence; formal runner, optimizer, checkpoint/resume, and live transaction remain unconnected. |
 | v015 deployment composition | ordinary reference `.npz` -> planned selection-time fixed carrier -> paired frozen-GMT baseline vs per-frame FEMR+GMT -> report | interfaces S1/S2 at `E-FI-28`--`E-FI-31`; test-path rebase `E-FI-32` | Current code still requires an external pre-materialized file and missing trained checkpoint. CLI is implemented-not-runnable; G1--G6 precede S4. |
+| Contact-wrench ZMP evidence adapter | foot-to-ground raw filtered ContactSensor views -> masked per-foot contact slots -> paired one-action-K Physics evidence | S1 `T-shape/T-mask/T-value/T-permute` and S2 `T-connect/T-order` contract-confirmed; asymmetric live shape `C_left=10`, `C_right=3` is preserved by common-axis padding | The official Stage3 live route reached this owner, but the repaired padding path has not yet been rerun in IsaacLab; status is covered-but-live-gap, not live-confirmed. |
 
 ## Historical v002 Gain Change Matrix
 

@@ -1,6 +1,6 @@
 # FEMR Current Test Inventory
 
-Updated: 2026-07-20
+Updated: 2026-07-27
 
 ## Main Entries
 
@@ -31,6 +31,7 @@ Updated: 2026-07-20
 | `frontres_observation_layout_contract.py` | S1/S3 | 100D prefix + 770D GMT suffix + checkpoint stats. |
 | `frontres_balance_obs_cfg_contract.py` | S0/S1 | Balance/ZMP observation config. |
 | `frontres_balance_offline_connectivity_contract.py` | S2 | Balance observation reaches FrontRES actor path. |
+| `frontres_contact_wrench_zmp_contract.py` | S1/S2 | Contact-wrench ZMP adapter and formal one-action-K connector: exact ground-filter identity, pre-reset raw-view lifecycle, variable per-foot contact slots (`C_left=10`, `C_right=3`) padded to a masked common axis without changing evidence, finite golden ZMP, foot/row permutation, missing-evidence fail-closed, and offline formal-route order. Real PhysX contact population after the padding repair remains S4. |
 | `frontres_segment_cache_builder_contract.py` | S1/S2 | Stage 1 cache construction and resume semantics. |
 | `frontres_segment_sampler_contract.py` | S1 / Step 2-S1a | Priority, state, legacy trial planning, 8/16/32/64 horizons, and a pure multi-Segment all-policy transaction layout with `M_s >= 2`; it does not prove a frozen parameter snapshot or runner/storage connectivity. |
 | `frontres_fixed_noisy_segment_lifecycle_contract.py` | S1 | One immutable Noisy sequence per `source_index`, M-row hash reuse, external-mutation isolation, closure/no-rematerialization, K + H coverage, and Clean-payload rejection; it does not prove command/actor routing. |

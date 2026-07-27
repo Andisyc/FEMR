@@ -5213,6 +5213,27 @@ def _raw_filtered_contact_rows(sensor: Any, *, num_envs: int, device: torch.devi
     return points, forces, normals, valid
 
 
+def _pad_raw_contact_slots(raw: tuple[torch.Tensor, ...], *, contact_slots: int) -> tuple[torch.Tensor, ...]:
+    """Right-pad one foot's raw contacts so both feet share a contact axis."""
+
+    points, forces, normals, valid = raw
+    current = int(points.shape[2])
+    if current > int(contact_slots) or int(contact_slots) <= 0:
+        raise RuntimeError("raw contact-slot padding requires target C >= current C > 0")
+    if current == int(contact_slots):
+        return raw
+    batch, feet = int(points.shape[0]), int(points.shape[1])
+    padded_points = torch.zeros(batch, feet, contact_slots, 3, device=points.device, dtype=points.dtype)
+    padded_forces = torch.zeros(batch, feet, contact_slots, device=forces.device, dtype=forces.dtype)
+    padded_normals = torch.zeros(batch, feet, contact_slots, 3, device=normals.device, dtype=normals.dtype)
+    padded_valid = torch.zeros(batch, feet, contact_slots, device=valid.device, dtype=torch.bool)
+    padded_points[:, :, :current] = points
+    padded_forces[:, :, :current] = forces
+    padded_normals[:, :, :current] = normals
+    padded_valid[:, :, :current] = valid.bool()
+    return padded_points, padded_forces, padded_normals, padded_valid
+
+
 def _contact_wrench_zmp_pair(
     runner: Any,
     command: Any,
@@ -5244,6 +5265,9 @@ def _contact_wrench_zmp_pair(
 
         raw_left = _raw_filtered_contact_rows(left_sensor, num_envs=int(command.num_envs), device=runner.device)
         raw_right = _raw_filtered_contact_rows(right_sensor, num_envs=int(command.num_envs), device=runner.device)
+        contact_slots = max(int(raw_left[0].shape[2]), int(raw_right[0].shape[2]))
+        raw_left = _pad_raw_contact_slots(raw_left, contact_slots=contact_slots)
+        raw_right = _pad_raw_contact_slots(raw_right, contact_slots=contact_slots)
         points = torch.cat((raw_left[0], raw_right[0]), dim=1)
         forces = torch.cat((raw_left[1], raw_right[1]), dim=1)
         normals = torch.cat((raw_left[2], raw_right[2]), dim=1)

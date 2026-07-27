@@ -1,6 +1,6 @@
 # FEMR Current Impact Rules
 
-Updated: 2026-07-13
+Updated: 2026-07-27
 
 Report every change as:
 
@@ -17,6 +17,18 @@ state/scales persist.
 
 Required: S1 hand-computed components and signs; S2 formula identity across
 training/sampler/eval; S3 persistence when applicable; S4 populated live data.
+
+## Raw Contact Or Contact-Wrench ZMP Change
+
+Expand to: terrain collider filter identity, raw ContactSensor-view creation
+before reset/step, per-foot variable contact-slot shapes and masks, paired
+one-action-K Physics capture, Gain consumer, diagnostics, and the official
+Stage3 sentinel.
+
+Required: S1 `T-shape/T-mask/T-value/T-permute` with unequal left/right contact
+capacities; S2 `T-connect/T-order` through the formal fake runner; S4 for real
+PhysX contact population and ZMP evidence. Padding must preserve values and mark
+new slots invalid; it must not truncate, clamp, or fabricate contacts.
 
 ## Observation Or Normalizer Change
 

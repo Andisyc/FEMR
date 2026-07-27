@@ -1,6 +1,6 @@
 # FEMR Current Semantic Objects
 
-Updated: 2026-07-21
+Updated: 2026-07-27
 
 ## Observation Payload
 
@@ -78,6 +78,26 @@ same x_t/current artifact/I/C/K in Noisy/Repair local roles
 -> periodic/sequence eval
 -> decomposed diagnostics
 ```
+
+## Raw Foot-Ground Contact Evidence
+
+Aliases: raw contact points, normal forces, contact normals, contact counts,
+contact starts, raw filtered ContactSensor views, and contact-wrench ZMP input.
+
+Owner path:
+
+```text
+foot-to-ground filtered ContactSensor views
+-> frontres_segment_live_probe.py raw-row adapter
+-> [B, foot, C, 3] points/normals + [B, foot, C] force/mask
+-> frontres_balance.py contact-wrench ZMP
+-> paired one-action-K Physics evidence
+```
+
+`C` is a per-foot PhysX capacity and may differ between left and right feet.
+The adapter must right-pad both feet to `C_max`, preserve every original value,
+and mark padded slots invalid before concatenating the foot axis. This object is
+ephemeral runtime evidence: it is not an actor input or checkpoint payload.
 
 ## Rollout Transaction Identity
 `audit_transaction_id` and `audit_batch_signature` are diagnostic evidence
