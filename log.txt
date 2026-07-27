@@ -1,15 +1,48 @@
 Traceback (most recent call last):
   File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1753, in <module>
     main()
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 81, in wrapper
-    env_cfg, agent_cfg = register_task_to_hydra(task_name, agent_cfg_entry_point)
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 42, in register_task_to_hydra
-    env_cfg = load_cfg_from_registry(task_name, "env_cfg_entry_point")
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/parse_cfg.py", line 82, in load_cfg_from_registry
-    cfg_cls = cfg_entry_point()
-  File "<string>", line 23, in __init__
-  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab/isaaclab/utils/configclass.py", line 408, in _combined
-    f1(*args, **kwargs)
-  File "/hdd1/cyx/FEMR/source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/flat_env_cfg.py", line 307, in __post_init__
-    self.scene.frontres_left_foot_contacts = ContactSensorCfg(
-TypeError: ContactSensorCfg.__init__() got an unexpected keyword argument 'track_contact_points'
+  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 104, in wrapper
+    hydra_main()
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/main.py", line 94, in decorated_main
+    _run_hydra(
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 394, in _run_hydra
+    _run_app(
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 457, in _run_app
+    run_and_report(
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 223, in run_and_report
+    raise ex
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 220, in run_and_report
+    return func()
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/utils.py", line 458, in <lambda>
+    lambda: hydra.run(
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/_internal/hydra.py", line 132, in run
+    _ = ret.return_value
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 260, in return_value
+    raise self._return_value
+  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/hydra/core/utils.py", line 186, in run_job
+    ret.return_value = task_function(task_cfg)
+  File "/hdd1/cyx/IsaacLab_mosaic/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 101, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/hdd1/cyx/FEMR/scripts/rsl_rl/train.py", line 1628, in main
+    runner.run_frontres_v015_local_identity_sentinel(init_at_random_ep_len=True)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 697, in run_frontres_v015_local_identity_sentinel
+    return run_frontres_v015_local_identity_sentinel_helper(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4334, in run_frontres_v015_local_identity_sentinel
+    result = run_frontres_v015_formal_transaction_update_loop(runner)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 149, in run_frontres_v015_formal_transaction_update_loop
+    request = provider()
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4325, in provider
+    return _build_frontres_v015_local_identity_sentinel_request(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4223, in _build_frontres_v015_local_identity_sentinel_request
+    return _build_frontres_v015_local_transaction_request(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4123, in _build_frontres_v015_local_transaction_request
+    reset_result = _apply_current_segment_reset(runner, pair_layout=pair_layout)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 1690, in _apply_current_segment_reset
+    return _apply_index_only_segment_reset(runner, batch, pair_layout=pair_layout)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 1853, in _apply_index_only_segment_reset
+    raw_result = hook(request)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_stage1_env_hooks.py", line 298, in apply_frontres_segment_index_reset
+    local_scenario = self._v015_local_scenario_reset_payload(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_stage1_env_hooks.py", line 477, in _v015_local_scenario_reset_payload
+    raise ValueError("v015 local reset requires tensor artifact, q29 intent, and Clean continuation fields")
+ValueError: v015 local reset requires tensor artifact, q29 intent, and Clean continuation fields

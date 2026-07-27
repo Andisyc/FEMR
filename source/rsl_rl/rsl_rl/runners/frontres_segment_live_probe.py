@@ -1924,6 +1924,7 @@ def _attach_frontres_local_scenario_to_index_request(request: Any, batch: Any) -
     intent = getattr(batch, "frontres_local_scenario_intent_q29", None)
     continuation = getattr(batch, "frontres_local_scenario_clean_continuation", None)
     expected_support = getattr(batch, "frontres_local_scenario_expected_support", None)
+    expected_support_envelope = getattr(batch, "frontres_local_scenario_expected_support_envelope", None)
     lengths = getattr(batch, "frontres_local_scenario_clean_continuation_lengths", None)
     mask = getattr(batch, "frontres_local_scenario_clean_continuation_mask", None)
     scenario_ids = tuple(str(value) for value in (getattr(batch, "frontres_local_scenario_ids", ()) or ()))
@@ -1938,6 +1939,7 @@ def _attach_frontres_local_scenario_to_index_request(request: Any, batch: Any) -
         or not isinstance(intent, torch.Tensor)
         or not isinstance(continuation, torch.Tensor)
         or not isinstance(expected_support, torch.Tensor)
+        or not isinstance(expected_support_envelope, torch.Tensor)
         or not isinstance(lengths, torch.Tensor)
         or not isinstance(mask, torch.Tensor)
         or not offsets
@@ -1949,6 +1951,7 @@ def _attach_frontres_local_scenario_to_index_request(request: Any, batch: Any) -
         or tuple(continuation.shape[:1]) != (batch_size,)
         or int(continuation.shape[-1]) != 65
         or tuple(expected_support.shape) != tuple(continuation.shape[:2]) + (2,)
+        or tuple(expected_support_envelope.shape) != tuple(continuation.shape[:2]) + (6,)
         or tuple(lengths.shape) != (batch_size,)
         or tuple(mask.shape) != tuple(continuation.shape[:2])
         or len(scenario_ids) != batch_size
@@ -1964,6 +1967,7 @@ def _attach_frontres_local_scenario_to_index_request(request: Any, batch: Any) -
     request.frontres_local_scenario_intent_q29 = intent.detach().clone()
     request.frontres_local_scenario_clean_continuation = continuation.detach().clone()
     request.frontres_local_scenario_expected_support = expected_support.detach().clone()
+    request.frontres_local_scenario_expected_support_envelope = expected_support_envelope.detach().clone()
     request.frontres_local_scenario_clean_continuation_lengths = lengths.detach().clone()
     request.frontres_local_scenario_clean_continuation_mask = mask.detach().clone()
     request.frontres_local_scenario_ids = scenario_ids

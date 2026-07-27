@@ -84,11 +84,23 @@ def test_t_local_carrier_replaces_fixed_tape_on_reset_request() -> None:
     assert tuple(request.frontres_local_scenario_current_root_artifact_t.shape) == (2, 7)
     assert tuple(request.frontres_local_scenario_intent_q29.shape) == (2, 3, 29)
     assert tuple(request.frontres_local_scenario_clean_continuation.shape) == (2, 3, 65)
+    assert tuple(request.frontres_local_scenario_expected_support.shape) == (2, 3, 2)
+    assert tuple(request.frontres_local_scenario_expected_support_envelope.shape) == (2, 3, 6)
     assert request.frontres_local_scenario_ids == ("scenario-0", "scenario-1")
     assert request.frontres_local_scenario_hashes == ("hash-0", "hash-1")
     assert request.frontres_local_scenario_provenance[0]["intent_q29_provenance"] == "deployment_noisy_q29"
     assert request.frontres_local_scenario_provenance[0]["clean_continuation_provenance"] == "clean_gmt_only"
     assert request.frontres_future_offsets == (1, 2)
+    broken = _local_batch(live_sampler)
+    delattr(broken, "frontres_local_scenario_expected_support_envelope")
+    try:
+        live_probe._attach_frontres_local_scenario_to_index_request(
+            SimpleNamespace(segment_ids=torch.tensor([101, 202], dtype=torch.long)), broken
+        )
+    except ValueError as exc:
+        assert "aligned sealed artifact" in str(exc)
+    else:
+        raise AssertionError("formal reset adapter accepted a missing expected-support envelope")
     print("[T-reset/T-provenance/T-no-tape] sealed local artifact/I/C reaches the reset request without a 65D tape", flush=True)
 
 
@@ -346,6 +358,8 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
     local_batch.frontres_local_scenario_current_root_artifact_t = local_batch.frontres_local_scenario_current_root_artifact_t.repeat_interleave(2, dim=0)
     local_batch.frontres_local_scenario_intent_q29 = local_batch.frontres_local_scenario_intent_q29.repeat_interleave(2, dim=0)
     local_batch.frontres_local_scenario_clean_continuation = local_batch.frontres_local_scenario_clean_continuation.repeat_interleave(2, dim=0)
+    local_batch.frontres_local_scenario_expected_support = local_batch.frontres_local_scenario_expected_support.repeat_interleave(2, dim=0)
+    local_batch.frontres_local_scenario_expected_support_envelope = local_batch.frontres_local_scenario_expected_support_envelope.repeat_interleave(2, dim=0)
     local_batch.frontres_local_scenario_clean_continuation_lengths = local_batch.frontres_local_scenario_clean_continuation_lengths.repeat_interleave(2)
     local_batch.frontres_local_scenario_clean_continuation_mask = local_batch.frontres_local_scenario_clean_continuation_mask.repeat_interleave(2, dim=0)
     local_batch.frontres_local_scenario_ids = ("scenario-0", "scenario-0", "scenario-1", "scenario-1")
