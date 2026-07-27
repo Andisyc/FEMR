@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[4]
 BALANCE = ROOT / "source/rsl_rl/rsl_rl/frontres/frontres_balance.py"
 LIVE_PROBE = ROOT / "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py"
 G1_CFG = ROOT / "source/whole_body_tracking/whole_body_tracking/tasks/tracking/config/g1/flat_env_cfg.py"
+TRACKING_CFG = ROOT / "source/whole_body_tracking/whole_body_tracking/tasks/tracking/tracking_env_cfg.py"
 
 
 def _owner():
@@ -96,9 +97,14 @@ def test_formal_owner_isolation() -> None:
     assert "_contact_wrench_zmp_pair" in capture
     assert "_frontres_branch_balance_margin" not in capture
     cfg = G1_CFG.read_text(encoding="utf-8")
+    scene_cfg = TRACKING_CFG.read_text(encoding="utf-8")
     assert 'frontres_left_foot_contacts = ContactSensorCfg(' in cfg
     assert 'frontres_right_foot_contacts = ContactSensorCfg(' in cfg
     assert 'filter_prim_paths_expr=ground_filter' in cfg
+    assert 'ground_filter = ["/World/ground/terrain"]' in cfg
+    assert 'ground_filter = ["/World/ground/terrain/.*"]' not in cfg
+    assert 'prim_path="/World/ground"' in scene_cfg
+    assert 'terrain_type="generator"' in scene_cfg
     assert "track_contact_points=" not in cfg
     assert "max_contact_data_count_per_prim=" not in cfg
 
@@ -162,7 +168,7 @@ def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
     sensor = SimpleNamespace(
         cfg=SimpleNamespace(
             prim_path="/World/envs/env_.*/Robot/left_ankle_roll_link",
-            filter_prim_paths_expr=["/World/ground/terrain/.*"],
+            filter_prim_paths_expr=["/World/ground/terrain"],
         ),
         body_names=["left_ankle_roll_link"],
         contact_physx_view=legacy,
@@ -176,7 +182,7 @@ def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
         (
             "/World/envs/env_*/Robot/(left_ankle_roll_link)",
             {
-                "filter_patterns": ["/World/ground/terrain/*"],
+                "filter_patterns": ["/World/ground/terrain"],
                 "max_contact_data_count": 128,
             },
         )
@@ -223,6 +229,44 @@ def test_formal_zmp_capture_preserves_first_invalid_error() -> None:
         raise AssertionError("formal ZMP capture collapsed a first-invalid shape into None")
 
 
+def test_eight_role_ground_contact_reaches_finite_zmp() -> None:
+    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
+    functions = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in {"_ensure_frontres_raw_contact_view", "_raw_filtered_contact_rows"}
+    ]
+    namespace: dict[str, Any] = {"torch": torch, "Any": Any, "re": __import__("re")}
+    exec(compile(ast.Module(body=functions, type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+
+    num_envs = 8
+    points_w = torch.zeros(num_envs, 3)
+    points_w[:, 0] = torch.arange(num_envs, dtype=torch.float32) * 0.01
+    raw = (
+        torch.full((num_envs, 1), 100.0),
+        points_w,
+        torch.tensor([[0.0, 0.0, 1.0]]).repeat(num_envs, 1),
+        torch.zeros(num_envs, 1),
+        torch.ones(num_envs, 1, dtype=torch.long),
+        torch.arange(num_envs, dtype=torch.long).reshape(-1, 1),
+    )
+    sensor = SimpleNamespace(
+        cfg=SimpleNamespace(update_period=0.01),
+        _sim_physics_dt=0.005,
+        contact_physx_view=SimpleNamespace(get_contact_data=lambda dt: raw),
+    )
+    unpacked = namespace["_raw_filtered_contact_rows"](
+        sensor,
+        num_envs=num_envs,
+        device=torch.device("cpu"),
+    )
+    zmp, valid = _owner().contact_wrench_zmp_xy(*unpacked)
+    assert tuple(zmp.shape) == (num_envs, 2)
+    assert bool(valid.all()) and bool(torch.isfinite(zmp).all())
+    torch.testing.assert_close(zmp, points_w[:, :2])
+
+
 if __name__ == "__main__":
     test_contact_wrench_golden_and_permutation()
     test_expected_envelope_and_missing_fail_closed()
@@ -230,4 +274,5 @@ if __name__ == "__main__":
     test_raw_contact_owner_unpacking()
     test_legacy_contact_view_capacity_upgrade_and_fail_closed()
     test_formal_zmp_capture_preserves_first_invalid_error()
+    test_eight_role_ground_contact_reaches_finite_zmp()
     print("frontres_contact_wrench_zmp_contract: ok", flush=True)
