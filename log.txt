@@ -47,6 +47,6 @@ Traceback (most recent call last):
     physics_frame = _capture_physics_frame(runner, pair_layout)
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5011, in _capture_physics_frame
     zmp_pair = _contact_wrench_zmp_pair(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5334, in _contact_wrench_zmp_pair
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5336, in _contact_wrench_zmp_pair
     raise RuntimeError(
 RuntimeError: Noisy loaded support is missing a finite raw contact-wrench resultant; branch_rows=[3]
