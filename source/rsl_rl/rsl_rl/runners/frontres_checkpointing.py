@@ -343,7 +343,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         identity.get("format") != _V015_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v016"
         or identity.get("training_contract_id") != "FRS-TRAIN-v010"
-        or identity.get("gain_contract_id") != "FRS-GAIN-v005"
+        or identity.get("gain_contract_id") != "FRS-GAIN-v006"
         or identity.get("optimization_contract_id") != "FRS-PPO-v004"
         or identity.get("future_intent_layout") != _v015_quality_expected_layout()
     ):
@@ -365,7 +365,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         "projection_tolerance": 1.0e-8,
         "persistent_dual_state": False,
     }:
-        raise RuntimeError("quality policy has an incompatible v005 constraint solver identity")
+        raise RuntimeError("quality policy has an incompatible v006 constraint solver identity")
     curriculum = identity.get("curriculum")
     if not isinstance(curriculum, Mapping):
         raise RuntimeError("quality policy has no FRS-TRAIN-v010 curriculum identity")
@@ -423,7 +423,7 @@ def _inspect_frontres_v015_policy_quality_payload(
         file_sha256=file_sha256,
         method_contract_id="FRS-METHOD-v016",
         training_contract_id="FRS-TRAIN-v010",
-        gain_contract_id="FRS-GAIN-v005",
+        gain_contract_id="FRS-GAIN-v006",
         ppo_contract_id="FRS-PPO-v004",
         future_intent_layout=tuple(_v015_quality_expected_layout().items()),
         action_kind="delta_se3",
@@ -1167,11 +1167,11 @@ def _v015_committed_transaction_receipt(state: Mapping[str, Any]) -> dict[str, A
             raise RuntimeError(f"v015 committed checkpoint receipt has invalid {name}")
     expected_identity = {
         "method_contract_id": "FRS-METHOD-v016",
-        "gain_contract_id": "FRS-GAIN-v005",
+        "gain_contract_id": "FRS-GAIN-v006",
         "optimization_contract_id": "FRS-PPO-v004",
         "training_contract_id": "FRS-TRAIN-v010",
         "scalar_target_id": "paired-intent-minus-repair-v1",
-        "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
         "projection_schema_id": "grouped-first-order-constraint-projection-v1",
     }
     if any(result[name] != value for name, value in expected_identity.items()):
@@ -1339,10 +1339,10 @@ def _build_v015_checkpoint_identity(
         "format": _V015_CHECKPOINT_FORMAT,
         "method_contract_id": "FRS-METHOD-v016",
         "training_contract_id": "FRS-TRAIN-v010",
-        "gain_contract_id": "FRS-GAIN-v005",
+        "gain_contract_id": "FRS-GAIN-v006",
         "optimization_contract_id": "FRS-PPO-v004",
         "scalar_target_id": "paired-intent-minus-repair-v1",
-        "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
         "physics_evidence": dict(_V015_PHYSICS_EVIDENCE_IDENTITY),
         "projection_schema_id": "grouped-first-order-constraint-projection-v1",
         "constraint_solver": {
@@ -1393,10 +1393,10 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         identity.get("format") != _V015_CHECKPOINT_FORMAT
         or identity.get("method_contract_id") != "FRS-METHOD-v016"
         or identity.get("training_contract_id") != "FRS-TRAIN-v010"
-        or identity.get("gain_contract_id") != "FRS-GAIN-v005"
+        or identity.get("gain_contract_id") != "FRS-GAIN-v006"
         or identity.get("optimization_contract_id") != "FRS-PPO-v004"
         or identity.get("scalar_target_id") != "paired-intent-minus-repair-v1"
-        or identity.get("constraint_schema_id") != "contact-phase_zmp-survival-physical-v1"
+        or identity.get("constraint_schema_id") != "contact-loaded-phase_zmp-survival-physical-v2"
         or identity.get("physics_evidence") != _V015_PHYSICS_EVIDENCE_IDENTITY
         or identity.get("projection_schema_id") != "grouped-first-order-constraint-projection-v1"
     ):
@@ -2019,7 +2019,7 @@ def load_runner(self, path: str, load_optimizer: bool = True, load_critic: bool 
         _validate_frontres_gain_config_resume(self, loaded_dict, is_full_resume=is_full_resume)
     else:
         print(
-            "[Runner] Verified FRS-GAIN-v005 and FRS-TRAIN-v010 through the v015 checkpoint identity; "
+            "[Runner] Verified FRS-GAIN-v006 and FRS-TRAIN-v010 through the v015 checkpoint identity; "
             "legacy scalar Gain metadata is excluded from the active v015 owner.",
             flush=True,
         )

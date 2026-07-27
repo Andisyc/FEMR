@@ -2,7 +2,7 @@
 contract_id: FRS-METHOD-v016
 status: active
 effective_date: 2026-07-23
-updated_date: 2026-07-23
+updated_date: 2026-07-27
 supersedes: FRS-METHOD-v015
 scope: FrontRES Stage 3 local root-artifact repair with one scalar paired Intent objective, independent Contact/phase-ZMP/survival actor constraints, grouped first-order constraint-gradient projection, one-action K evidence, and sealed multi-attempt Segment Replay
 ---
@@ -100,7 +100,7 @@ survival residuals remain separate and reach only the actor constraint
 surrogates. Intent cannot waive a Physics violation, and Noisy being worse
 cannot make Repair admissible.
 
-FRS-GAIN-v005 owns the objective and residuals. FRS-PPO-v004 owns their grouped
+FRS-GAIN-v006 owns the objective and residuals. FRS-PPO-v004 owns their grouped
 first-order use. No scalar Physics score, admissible/unsafe utility, dual reward,
 or cost-Critic is active.
 
@@ -149,7 +149,7 @@ Full resume requires the coordinated identities:
 
 ```text
 FRS-METHOD-v016
-FRS-GAIN-v005
+FRS-GAIN-v006
 FRS-PPO-v004
 FRS-TRAIN-v010
 frontres-v015-checkpoint-v5
@@ -180,7 +180,7 @@ more than one optimizer step.
 
 ## Owned Subcontracts
 
-- Objective and constraints: `../reward/FRS-GAIN-v005-vector-physics-constraints.md`.
+- Objective and constraints: `../reward/FRS-GAIN-v006-loaded-support-zmp-applicability.md`.
 - Grouped actor update: `../optimization/FRS-PPO-v004-grouped-constraint-gradient-projection.md`.
 - Critic/K schedule: `../training/FRS-TRAIN-v010-intent-critic-k-curriculum.md`.
 - Evaluation remains `../evaluation/FRS-EVAL-v003-local-repair-composition-evaluation.md` until separately versioned.

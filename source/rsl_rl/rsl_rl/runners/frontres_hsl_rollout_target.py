@@ -39,6 +39,7 @@ def quat_to_rotvec_wxyz(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     return xyz * scale
 
 
+# B4: QUALITY-ACTION-01 keeps the retired Stage-3 HSL label fail-closed.
 def build_frontres_hsl_rollout_target(
     runner: Any,
     *,

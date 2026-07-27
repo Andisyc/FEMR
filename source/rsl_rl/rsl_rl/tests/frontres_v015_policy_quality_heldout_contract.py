@@ -331,8 +331,8 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
         assert not normalizers["gmt"].training
         assert normalizers["privileged"].training and normalizers["teacher"].training
         assert payload == json.loads(result_path.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == "frontres-v015-heldout-quality-report-v1"
-        assert payload["gain_source"] == "FRS-GAIN-v005-vector-physics-constraints"
+        assert payload["schema_version"] == "frontres-v015-heldout-quality-report-v2"
+        assert payload["gain_source"] == "FRS-GAIN-v006-loaded-support-zmp-applicability"
         rows = payload["items"][0]["routes"]
         assert tuple(row["route"] for row in rows) == ("zero", "hsl", "policy")
         assert all(row["roles"] == ["repair", "noisy"] for row in rows)
@@ -352,8 +352,10 @@ def test_v015_repair_noisy_one_action_k_atomic_quality() -> None:
             assert row["expected_contact_steps"] == [[[1.0, 1.0]], [[1.0, 0.0]]]
             assert len(row["actual_contact_repaired_steps"]) == 2
             assert len(row["actual_contact_noisy_steps"]) == 2
-            assert row["phase_zmp_applicable_steps"] == [[True], [False]]
-            assert row["phase_zmp_na_steps"] == [[False], [True]]
+            assert row["phase_zmp_applicable_repaired_steps"] == [[True], [False]]
+            assert row["phase_zmp_applicable_noisy_steps"] == [[True], [False]]
+            assert row["phase_zmp_na_repaired_steps"] == [[False], [True]]
+            assert row["phase_zmp_na_noisy_steps"] == [[False], [True]]
             assert row["phase_zmp_recovery_repaired_steps"] == [[False], [True]]
             assert len(row["phase_zmp_violation_repaired_steps"]) == 2
             assert len(row["phase_zmp_recovery_repaired_steps"]) == 2
@@ -906,8 +908,34 @@ def test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error() -> None
         assert not (root / "close-mutation.json").exists()
 
 
+def test_v015_atomic_route_report_preserves_role_specific_no_load_na() -> None:
+    _identity, _checkpointing, _manifest, quality, storage, _gain = _owners()
+    base = _evidence(storage, route="zero")
+    evidence = replace(
+        base,
+        physics_contact_repaired_steps=torch.zeros_like(base.physics_contact_repaired_steps),
+        physics_zmp_repaired_steps=torch.full_like(base.physics_zmp_repaired_steps, float("nan")),
+    )
+    evidence.validate()
+    identity = _dynamic_identity(quality, "a" * 64)
+    row = quality._v015_quality_route_result(
+        evidence,
+        route="zero",
+        checkpoint_file_sha256="zero:no-checkpoint",
+        dynamic_state_identity=identity,
+    )
+    assert row["phase_zmp_applicable_repaired_steps"] == [[False], [False]]
+    assert row["phase_zmp_applicable_noisy_steps"] == [[True], [False]]
+    assert row["phase_zmp_na_repaired_steps"] == [[True], [True]]
+    assert row["phase_zmp_na_noisy_steps"] == [[False], [True]]
+    assert row["contact_constraint"][0] > 0.0
+    assert row["zmp_constraint_applicable"] == [False]
+    assert row["zmp_constraint"] == [0.0]
+
+
 if __name__ == "__main__":
     test_v015_full_dynamic_state_identity_probe()
     test_v015_repair_noisy_one_action_k_atomic_quality()
     test_v015_manifest_item_lifecycle_closes_after_routes_and_on_error()
+    test_v015_atomic_route_report_preserves_role_specific_no_load_na()
     print("frontres_v015_policy_quality_heldout_contract: ok", flush=True)

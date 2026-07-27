@@ -33,7 +33,7 @@ def _v004_phase_evaluator() -> Callable[..., dict[str, torch.Tensor]]:
             "frontres_gain_storage_runtime", Path(__file__).resolve().with_name("frontres_gain.py")
         )
         if spec is None or spec.loader is None:
-            raise RuntimeError("could not load FRS-GAIN-v005 phase evaluator")
+            raise RuntimeError("could not load FRS-GAIN-v006 phase evaluator")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
@@ -485,7 +485,6 @@ class FrontRESV015OneActionKEvidence:
             if value is not None and tuple(value.shape) != physics_shape:
                 raise ValueError(f"v015 one-action evidence {name} must be [K,B]={physics_shape}")
         physics_valid = self.physics_pair_valid_mask.bool()
-        supported_valid = physics_valid & self.physics_expected_support_steps.bool().any(dim=-1)
         contact_shape = physics_shape + (2,)
         for name, value in (
             ("physics_contact_repaired_steps", self.physics_contact_repaired_steps),
@@ -493,14 +492,19 @@ class FrontRESV015OneActionKEvidence:
         ):
             if tuple(value.shape) != contact_shape:
                 raise ValueError(f"v015 one-action evidence {name} must be [K,B,2]={contact_shape}")
-        for name, value in (
-            ("physics_zmp_repaired_steps", self.physics_zmp_repaired_steps),
-            ("physics_zmp_noisy_steps", self.physics_zmp_noisy_steps),
+        for name, value, actual_contact in (
+            ("physics_zmp_repaired_steps", self.physics_zmp_repaired_steps, self.physics_contact_repaired_steps),
+            ("physics_zmp_noisy_steps", self.physics_zmp_noisy_steps, self.physics_contact_noisy_steps),
         ):
+            applicable = (
+                physics_valid
+                & self.physics_expected_support_steps.bool().any(dim=-1)
+                & actual_contact.bool().any(dim=-1)
+            )
             finite = torch.isfinite(value.float())
-            if not bool(finite[supported_valid].all()) or bool(finite[~physics_valid].any()):
+            if not bool(finite[applicable].all()) or bool(finite[~applicable].any()):
                 raise ValueError(
-                    f"v015 one-action evidence {name} must be finite on supported paired-valid K steps and absent outside validity"
+                    f"v015 one-action evidence {name} must be finite exactly on loaded-support paired-valid K steps"
                 )
         if (
             len(self.intent_q29_provenance) != role_count
@@ -591,7 +595,7 @@ class FrontRESV015PairedGainFacts:
 
     状态: active v015 local storage adapter.
     上游: immutable one-action capture.
-    下游: FRS-GAIN-v005 scalar target/vector-constraint input 和 one return/advantage carrier.
+    下游: FRS-GAIN-v006 scalar target/vector-constraint input 和 one return/advantage carrier.
     证据: deterministic formal connectivity; live Physics values remain pending.
     """
 
@@ -645,8 +649,6 @@ class FrontRESV015PairedGainFacts:
             ("noisy_success", self.noisy_success),
             ("repaired_survival", self.repaired_survival),
             ("noisy_survival", self.noisy_survival),
-            ("repaired_zmp_margin", self.repaired_zmp_margin),
-            ("noisy_zmp_margin", self.noisy_zmp_margin),
             ("repaired_contact", self.repaired_contact),
             ("noisy_contact", self.noisy_contact),
             ("repaired_contact_violation", self.repaired_contact_violation),
@@ -688,17 +690,24 @@ class FrontRESV015PairedGainFacts:
             or tuple(self.noisy_zmp_margin_steps.shape) != (k_steps, count)
             or tuple(self.physics_pair_valid_mask.shape) != (k_steps, count)
         ):
-            raise ValueError("FRS-GAIN-v005 paired facts require ordered [K,B] Contact/ZMP evidence")
+            raise ValueError("FRS-GAIN-v006 paired facts require ordered [K,B] Contact/ZMP evidence")
         valid = self.intent_valid_mask.bool()
-        for name, value in (
-            ("repaired_zmp_margin", self.repaired_zmp_margin),
-            ("noisy_zmp_margin", self.noisy_zmp_margin),
-            ("repaired_contact", self.repaired_contact),
-            ("noisy_contact", self.noisy_contact),
-        ):
+        for name, value in (("repaired_contact", self.repaired_contact), ("noisy_contact", self.noisy_contact)):
             finite = torch.isfinite(value.float())
             if not bool(finite[valid].all()) or bool(finite[~valid].any()):
                 raise ValueError(f"v015 paired gain facts {name} must be finite exactly on valid policy rows")
+        for name, value, actual_contact in (
+            ("repaired_zmp_margin", self.repaired_zmp_margin, self.repaired_contact_steps),
+            ("noisy_zmp_margin", self.noisy_zmp_margin, self.noisy_contact_steps),
+        ):
+            applicable = (
+                self.physics_pair_valid_mask.bool()
+                & self.expected_support_steps.bool().any(dim=-1)
+                & actual_contact.bool().any(dim=-1)
+            ).any(dim=0) & valid
+            finite = torch.isfinite(value.float())
+            if not bool(finite[applicable].all()) or bool(finite[~applicable].any()):
+                raise ValueError(f"v015 paired gain facts {name} must follow role-specific loaded-support applicability")
         source = self.intent_q29_source.lower()
         if (
             self.intent_q29_provenance != "deployment_noisy_q29"
@@ -708,6 +717,7 @@ class FrontRESV015PairedGainFacts:
             raise ValueError("v015 paired gain facts reject non-deployment q29 provenance")
 
 
+# B4: Preserve scalar return plus role-specific Contact/ZMP/survival constraint evidence.
 @dataclass(frozen=True)
 class FrontRESV015GainReturnEvidence:
     """从唯一 v003 Gain owner 构造 candidate-only one-row return evidence.
@@ -768,9 +778,9 @@ class FrontRESV015GainReturnEvidence:
     x_t_identities: tuple[str, ...]
     intent_q29_provenance: str
     intent_q29_source: str
-    gain_source: str = "FRS-GAIN-v005-vector-physics-constraints"
+    gain_source: str = "FRS-GAIN-v006-loaded-support-zmp-applicability"
     scalar_target_id: str = "paired-intent-minus-repair-v1"
-    constraint_schema_id: str = "contact-phase_zmp-survival-physical-v1"
+    constraint_schema_id: str = "contact-loaded-phase_zmp-survival-physical-v2"
     constraint_advantage_state: str = "unsealed"
 
     def validate(self) -> None:
@@ -796,7 +806,6 @@ class FrontRESV015GainReturnEvidence:
             ("physics_survival_quality_repaired", self.physics_survival_quality_repaired),
             ("physics_survival_quality_noisy", self.physics_survival_quality_noisy),
             ("physics_survival_gain", self.physics_survival_gain),
-            ("physics_zmp_gain", self.physics_zmp_gain),
             ("physics_contact_gain", self.physics_contact_gain),
             ("intent_quality_repaired", self.intent_quality_repaired),
             ("intent_quality_noisy", self.intent_quality_noisy),
@@ -831,9 +840,9 @@ class FrontRESV015GainReturnEvidence:
             or len(self.scenario_ids) != count
             or len(self.noisy_segment_hashes) != count
             or len(self.x_t_identities) != count
-            or self.gain_source != "FRS-GAIN-v005-vector-physics-constraints"
+            or self.gain_source != "FRS-GAIN-v006-loaded-support-zmp-applicability"
             or self.scalar_target_id != "paired-intent-minus-repair-v1"
-            or self.constraint_schema_id != "contact-phase_zmp-survival-physical-v1"
+            or self.constraint_schema_id != "contact-loaded-phase_zmp-survival-physical-v2"
             or bool((self.horizon_k <= 0).any())
             or bool((self.evidence_valid_step_count < 0).any())
             or bool((self.evidence_valid_step_count > self.horizon_k).any())
@@ -849,12 +858,12 @@ class FrontRESV015GainReturnEvidence:
         )
         if self.constraint_advantage_state == "sealed":
             if any(not bool(torch.isfinite(value[valid]).all()) for value in constraint_advantages):
-                raise ValueError("FRS-GAIN-v005 sealed constraint advantages must be finite on valid rows")
+                raise ValueError("FRS-GAIN-v006 sealed constraint advantages must be finite on valid rows")
         elif self.constraint_advantage_state == "unsealed":
             if any(bool(torch.isfinite(value).any()) for value in constraint_advantages):
-                raise ValueError("FRS-GAIN-v005 unsealed constraint advantages must remain UNCONFIRMED")
+                raise ValueError("FRS-GAIN-v006 unsealed constraint advantages must remain UNCONFIRMED")
         else:
-            raise ValueError("FRS-GAIN-v005 rejects unknown constraint advantage lifecycle state")
+            raise ValueError("FRS-GAIN-v006 rejects unknown constraint advantage lifecycle state")
         for name, value in (
             ("gain_total", self.gain_total),
             ("intent_gain", self.intent_gain),
@@ -889,6 +898,16 @@ class FrontRESV015GainReturnEvidence:
             finite = torch.isfinite(value)
             if not bool(finite[valid].all()) or bool(finite[~valid].any()):
                 raise ValueError(f"v015 return evidence {name} must be finite exactly on valid rows")
+        for name, value in (
+            ("repaired_zmp_margin", self.repaired_zmp_margin),
+            ("noisy_zmp_margin", self.noisy_zmp_margin),
+            ("physics_zmp_gain", self.physics_zmp_gain),
+        ):
+            finite = torch.isfinite(value)
+            if bool(finite[~valid].any()):
+                raise ValueError(f"v015 return evidence {name} must remain N/A outside valid rows")
+        if not bool(torch.isfinite(self.repaired_zmp_margin[valid & self.zmp_constraint_applicable.bool()]).all()):
+            raise ValueError("v015 return evidence requires finite Repair ZMP when its constraint is applicable")
         source = self.intent_q29_source.lower()
         if (
             self.intent_q29_provenance != "deployment_noisy_q29"
@@ -1012,7 +1031,7 @@ def build_frontres_v015_gain_return_evidence(
     for name in ("gain_total", "intent_gain", "physics_gain", "repair_cost"):
         value = getattr(gain_result, name, None)
         if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != count:
-            raise ValueError(f"v016 return evidence requires FRS-GAIN-v005 {name} [B]")
+            raise ValueError(f"v016 return evidence requires FRS-GAIN-v006 {name} [B]")
         components[name] = value.detach().to(device=facts.policy_values.device, dtype=torch.float32).clone()
     if (
         getattr(gain_result, "intent_q29_provenance", None) != facts.intent_q29_provenance
@@ -1031,14 +1050,14 @@ def build_frontres_v015_gain_return_evidence(
     for name in ("contact_constraint", "zmp_constraint", "survival_constraint"):
         value = getattr(gain_result, name, None)
         if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != count:
-            raise ValueError(f"v015 return evidence requires FRS-GAIN-v005 {name} [B]")
+            raise ValueError(f"v015 return evidence requires FRS-GAIN-v006 {name} [B]")
         value = value.detach().to(device=facts.policy_values.device, dtype=torch.float32).clone()
         if not bool(torch.isfinite(value[valid]).all()) or bool((value[valid] < 0.0).any()):
-            raise ValueError(f"FRS-GAIN-v005 {name} must be finite and nonnegative on valid rows")
+            raise ValueError(f"FRS-GAIN-v006 {name} must be finite and nonnegative on valid rows")
         constraint_components[name] = torch.where(valid, value, nan)
     zmp_applicable = getattr(gain_result, "zmp_constraint_applicable", None)
     if not isinstance(zmp_applicable, torch.Tensor) or zmp_applicable.ndim != 1 or int(zmp_applicable.numel()) != count:
-        raise ValueError("v015 return evidence requires FRS-GAIN-v005 zmp_constraint_applicable [B]")
+        raise ValueError("v015 return evidence requires FRS-GAIN-v006 zmp_constraint_applicable [B]")
     zmp_applicable = zmp_applicable.detach().to(device=facts.policy_values.device, dtype=torch.bool).clone()
 
     scenario_counts = {
@@ -1062,7 +1081,7 @@ def build_frontres_v015_gain_return_evidence(
                     int(facts.physics_valid_step_count[row].detach().cpu().item()) for row in rows
                 )
                 raise FrontRESV015RejectedTransactionEvidence(
-                    "FRS-GAIN-v005 rejected the complete transaction before constraint centering: "
+                    "FRS-GAIN-v006 rejected the complete transaction before constraint centering: "
                     f"scenario_id={scenario_id!r} valid_repair_attempts={valid_rows} "
                     f"physics_valid_step_count={physics_steps}"
                 )
@@ -1094,7 +1113,7 @@ def build_frontres_v015_gain_return_evidence(
     ):
         value = getattr(gain_result, name, None)
         if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != count:
-            raise ValueError(f"v016 return evidence requires FRS-GAIN-v005 {name} [B]")
+            raise ValueError(f"v016 return evidence requires FRS-GAIN-v006 {name} [B]")
         value = value.detach().to(device=facts.policy_values.device, dtype=torch.float32).clone()
         physics_components[name] = torch.where(valid, value, nan)
 

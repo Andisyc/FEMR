@@ -563,10 +563,10 @@ class FrontRESV015FormalTransactionAccumulator:
             for scenario_id in sorted(set(metadata.scenario_ids)):
                 rows = [row for row, observed in enumerate(metadata.scenario_ids) if observed == scenario_id]
                 if len(rows) < 2:
-                    raise ValueError("FRS-GAIN-v005 requires M>=2 attempts before transaction constraint centering")
+                    raise ValueError("FRS-GAIN-v006 requires M>=2 attempts before transaction constraint centering")
                 index = torch.tensor(rows, device=level.device, dtype=torch.long)
                 if not bool(valid_mask.index_select(0, index).all()):
-                    raise ValueError("FRS-GAIN-v005 rejects invalid rows before transaction constraint centering")
+                    raise ValueError("FRS-GAIN-v006 rejects invalid rows before transaction constraint centering")
                 values = level.index_select(0, index)
                 centered.index_copy_(0, index, values - values.mean().detach())
             return centered

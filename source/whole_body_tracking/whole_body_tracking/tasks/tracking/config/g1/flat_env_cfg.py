@@ -299,7 +299,7 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         self.scene.robot = G1_CYLINDER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.actions.joint_pos.scale = G1_ACTION_SCALE
 
-        # FRS-GAIN-v005 formal Physics only: create the server-version-compatible
+        # FRS-GAIN-v006 formal Physics only: create the server-version-compatible
         # filtered views used to read raw per-foot ground contacts. This IsaacLab
         # revision has no track_contact_points/max_contact_data_count config fields;
         # the live probe preserves these resolved body/filter identities while replacing

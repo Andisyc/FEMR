@@ -1,4 +1,4 @@
-"""Deterministic S1/S2 contract for FRS-GAIN-v005 contact-wrench ZMP authority."""
+"""Deterministic S1/S2 contract for FRS-GAIN-v006 contact-wrench ZMP authority."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def test_contact_wrench_golden_and_permutation() -> None:
     assert not torch.equal(moved_zmp[0], zmp[0])
 
 
-def test_expected_envelope_and_missing_fail_closed() -> None:
+def test_expected_envelope_and_physical_no_load_is_na() -> None:
     owner = _owner()
     zmp = torch.tensor([[0.05, 0.01], [0.30, 0.0], [float("nan"), float("nan")]])
     envelope = torch.tensor(
@@ -79,16 +79,23 @@ def test_expected_envelope_and_missing_fail_closed() -> None:
     valid = torch.zeros_like(forces, dtype=torch.bool)
     missing_zmp, missing = owner.contact_wrench_zmp_xy(points, forces, normals, valid)
     assert not bool(missing.item()) and bool(torch.isnan(missing_zmp).all())
+    missing_margin = owner.expected_support_envelope_margin(
+        missing_zmp,
+        envelope[:1],
+        torch.ones(1, 2),
+    )
+    assert bool(torch.isnan(missing_margin).all())
+
+    malformed_points = points.clone()
+    malformed_points[0, 0, 0, 0] = float("nan")
+    malformed_valid = valid.clone()
+    malformed_valid[0, 0, 0] = True
     try:
-        owner.expected_support_envelope_margin(
-            missing_zmp,
-            envelope[:1],
-            torch.ones(1, 2),
-        )
+        owner.contact_wrench_zmp_xy(malformed_points, forces, normals, malformed_valid)
     except ValueError as exc:
-        assert "finite contact-wrench ZMP" in str(exc)
+        assert "must be finite" in str(exc)
     else:
-        raise AssertionError("supported phase silently accepted missing ZMP")
+        raise AssertionError("non-finite valid raw contact payload did not fail closed")
 
 
 def test_formal_owner_isolation() -> None:
@@ -223,6 +230,8 @@ def test_formal_zmp_capture_preserves_first_invalid_error() -> None:
             command,
             SimpleNamespace(n_train=4, n_candidate=0),
             torch.ones(8, 2),
+            torch.ones(4, 2),
+            torch.ones(4, 2),
             4,
         )
     except RuntimeError as exc:
@@ -380,7 +389,7 @@ def test_asymmetric_foot_contact_slots_pad_without_changing_evidence() -> None:
 
 if __name__ == "__main__":
     test_contact_wrench_golden_and_permutation()
-    test_expected_envelope_and_missing_fail_closed()
+    test_expected_envelope_and_physical_no_load_is_na()
     test_formal_owner_isolation()
     test_raw_contact_owner_unpacking()
     test_legacy_contact_view_capacity_upgrade_and_fail_closed()

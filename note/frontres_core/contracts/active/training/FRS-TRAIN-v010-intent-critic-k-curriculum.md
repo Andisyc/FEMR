@@ -2,9 +2,9 @@
 contract_id: FRS-TRAIN-v010
 status: active
 effective_date: 2026-07-23
-updated_date: 2026-07-23
+updated_date: 2026-07-27
 supersedes: FRS-TRAIN-v009
-scope: fresh scalar Intent-Critic initialization, strict v005 target identity, per-global-K critic-only recalibration, projected actor ramp, joint exact-one update, and checkpoint-v5 persistence
+scope: fresh scalar Intent-Critic initialization, strict v006 target identity, per-global-K critic-only recalibration, projected actor ramp, joint exact-one update, and checkpoint-v5 persistence
 ---
 
 # Intent-Critic K-Stage Curriculum
@@ -56,7 +56,7 @@ V^I_j(o_critic_t) ~= E[y_I,K_j | o_critic_t]
 A^I_Kj = y_I,K_j - V^I_old_j(o_critic_t)
 ```
 
-`y_I` is exactly FRS-GAIN-v005 paired Intent improvement minus repair cost.
+`y_I` is exactly FRS-GAIN-v006 paired Intent improvement minus repair cost.
 Contact, ZMP, survival, admissibility, constraint residuals, projection status,
 or replay priority may not enter value targets, value loss, or value
 normalization.
@@ -123,11 +123,11 @@ The active persistence identity is:
 ```text
 checkpoint_schema = frontres-v015-checkpoint-v5
 method_contract_id = FRS-METHOD-v016
-gain_contract_id = FRS-GAIN-v005
+gain_contract_id = FRS-GAIN-v006
 optimization_contract_id = FRS-PPO-v004
 training_contract_id = FRS-TRAIN-v010
 scalar_target_id = paired-intent-minus-repair-v1
-constraint_schema_id = contact-phase_zmp-survival-physical-v1
+constraint_schema_id = contact-loaded-phase_zmp-survival-physical-v2
 projection_schema_id = grouped-first-order-constraint-projection-v1
 ```
 

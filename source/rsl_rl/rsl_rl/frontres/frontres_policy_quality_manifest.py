@@ -245,7 +245,7 @@ class FrontRESV015PolicyQualityManifest:
     schema_version: str = _V015_SCHEMA_VERSION
     method_contract_id: str = "FRS-METHOD-v016"
     training_contract_id: str = "FRS-TRAIN-v010"
-    gain_contract_id: str = "FRS-GAIN-v005"
+    gain_contract_id: str = "FRS-GAIN-v006"
     ppo_contract_id: str = "FRS-PPO-v004"
     future_intent_layout_version: str = "frontres-v015-future-intent-q29-v1"
     future_offsets: tuple[int, ...] = (1, 2)
@@ -261,7 +261,7 @@ class FrontRESV015PolicyQualityManifest:
             self.schema_version == _V015_SCHEMA_VERSION
             and self.method_contract_id == "FRS-METHOD-v016"
             and self.training_contract_id == "FRS-TRAIN-v010"
-            and self.gain_contract_id == "FRS-GAIN-v005"
+            and self.gain_contract_id == "FRS-GAIN-v006"
             and self.ppo_contract_id == "FRS-PPO-v004"
             and self.future_intent_layout_version == "frontres-v015-future-intent-q29-v1"
             and tuple(self.future_offsets) == (1, 2)

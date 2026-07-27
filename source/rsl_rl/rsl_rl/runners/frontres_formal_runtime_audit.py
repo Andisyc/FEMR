@@ -521,7 +521,7 @@ def print_checkpoint_payload_audit(runner: Any, *, path: str, payload: Mapping[s
     assert isinstance(identity, Mapping), "formal Stage 3 checkpoint identity must be a mapping"
     assert identity.get("format") == "frontres-v015-checkpoint-v5", "formal audit requires checkpoint-v5"
     assert identity.get("method_contract_id") == "FRS-METHOD-v016", "formal audit requires FRS-METHOD-v016"
-    assert identity.get("gain_contract_id") == "FRS-GAIN-v005", "formal audit requires FRS-GAIN-v005"
+    assert identity.get("gain_contract_id") == "FRS-GAIN-v006", "formal audit requires FRS-GAIN-v006"
     assert identity.get("optimization_contract_id") == "FRS-PPO-v004", "formal audit requires FRS-PPO-v004"
     assert identity.get("training_contract_id") == "FRS-TRAIN-v010", "formal audit requires FRS-TRAIN-v010"
     assert "frontres_gain_config" not in payload, "active checkpoint-v5 must exclude legacy scalar Gain metadata"

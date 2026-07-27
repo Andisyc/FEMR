@@ -167,11 +167,11 @@ class _SemanticAlg:
         self.frontres_segment_k_curriculum_fingerprint = ""
         self.frontres_segment_max_horizon_k = 8
         self.frontres_method_contract_id = "FRS-METHOD-v016"
-        self.frontres_gain_contract_id = "FRS-GAIN-v005"
+        self.frontres_gain_contract_id = "FRS-GAIN-v006"
         self.frontres_optimization_contract_id = "FRS-PPO-v004"
         self.frontres_training_contract_id = "FRS-TRAIN-v010"
         self.frontres_scalar_target_id = "paired-intent-minus-repair-v1"
-        self.frontres_constraint_schema_id = "contact-phase_zmp-survival-physical-v1"
+        self.frontres_constraint_schema_id = "contact-loaded-phase_zmp-survival-physical-v2"
         self.frontres_projection_schema_id = "grouped-first-order-constraint-projection-v1"
         self.lambda_supervised = 0.0
         self.lambda_supervised_min = 0.0

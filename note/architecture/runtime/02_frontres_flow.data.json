@@ -265,7 +265,7 @@
           "id": "DP-GAIN",
           "title": "Repair Gain",
           "summary": "Noisy保留零动作反事实，Physics约束actor更新方向，Intent只在可执行空间内优化",
-          "owns": "active FRS-GAIN-v005 owns scalar Intent objective plus vector K-step Physics constraints; active FRS-PPO-v004 owns grouped joint projection; current v004/v003 source remains an explicit contract-mismatch",
+          "owns": "active FRS-GAIN-v006 owns scalar Intent objective plus vector K-step Physics constraints; active FRS-PPO-v004 owns grouped joint projection; current v004/v003 source remains an explicit contract-mismatch",
           "mustNot": "不得删除Noisy、把Noisy当Physics阈值、把Contact/ZMP/survival压回一个标量或让Clean/Physics进入actor input",
           "objects": ["Q-01", "Noisy counterfactual", "paired Intent objective", "repair_cost", "Contact constraints [B,K,...]", "phase-ZMP constraints [B,K,...]", "survival constraints [B,K]"],
           "files": [

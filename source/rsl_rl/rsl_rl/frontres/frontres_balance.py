@@ -26,7 +26,7 @@ def contact_wrench_zmp_xy(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return horizontal ZMP/CoP from raw foot-ground normal contact wrenches.
 
-    Status: active FRS-GAIN-v005 Physics producer.
+    Status: active FRS-GAIN-v006 Physics producer.
     Upstream: two filtered IsaacLab foot ContactSensor raw contact buffers.
     Downstream: ``expected_support_envelope_margin`` in the live probe.
     Evidence: deterministic golden/permutation/missing contracts; live values remain S4-only.
@@ -51,7 +51,10 @@ def contact_wrench_zmp_xy(
         & torch.isfinite(contact_normals_w).all(dim=-1)
         & torch.isfinite(normal_force_magnitudes)
     )
-    active = valid_contacts.bool() & finite
+    valid_contacts = valid_contacts.bool()
+    if bool((valid_contacts & ~finite).any()):
+        raise ValueError("valid raw contact-wrench entries must be finite")
+    active = valid_contacts
     if bool((normal_force_magnitudes[active] < 0.0).any()):
         raise ValueError("normal contact-force magnitudes must be non-negative")
     vertical_force = normal_force_magnitudes * contact_normals_w[..., 2].abs()
@@ -102,9 +105,8 @@ def expected_support_envelope_margin(
     applicable = expected_support.bool().any(dim=-1)
     result = torch.full_like(margin, float("nan"))
     finite_zmp = torch.isfinite(zmp_xy_w).all(dim=-1)
-    if bool((applicable & ~finite_zmp).any()):
-        raise ValueError("supported phase requires finite contact-wrench ZMP")
-    result[applicable] = margin[applicable]
+    available = applicable & finite_zmp
+    result[available] = margin[available]
     return result
 
 

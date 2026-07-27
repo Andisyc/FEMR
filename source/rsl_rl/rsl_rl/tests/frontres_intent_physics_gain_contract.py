@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic S1 contracts for the FRS-GAIN-v005 pure owner."""
+"""Deterministic S1 contracts for the FRS-GAIN-v006 pure owner."""
 from __future__ import annotations
 
 from dataclasses import fields, replace
@@ -219,6 +219,7 @@ def test_phase_conditioning_and_lexicographic_dominance() -> None:
         noisy=_q29(0.4, batch_size=2),
         repaired_contact_violation=torch.ones(2),
         repaired_contact_steps=torch.zeros(4, 2, 2),
+        repaired_zmp_margin_steps=torch.full((4, 2), float("nan")),
         noisy_contact_violation=torch.zeros(2),
         noisy_success=torch.ones(2, dtype=torch.bool),
         noisy_survival=torch.full((2,), 4.0),
@@ -276,8 +277,38 @@ def test_unsaturated_constraints_and_noisy_independence() -> None:
     except ValueError as exc:
         assert "ordered" in str(exc)
     else:
-        raise AssertionError("FRS-GAIN-v005 accepted missing ordered Physics evidence")
+        raise AssertionError("FRS-GAIN-v006 accepted missing ordered Physics evidence")
     print("[T-unsaturated/T-noisy-independent/T-flight] vector constraints preserve severity and N/A", flush=True)
+
+
+def test_expected_support_without_actual_load_is_contact_failure_and_zmp_na() -> None:
+    expected = torch.ones(4, 2, 2)
+    repaired_contact = expected.clone()
+    repaired_contact[:, 0] = 0.0
+    noisy_contact = expected.clone()
+    repaired_zmp = torch.full((4, 2), 0.1)
+    repaired_zmp[:, 0] = float("nan")
+    noisy_zmp = torch.full((4, 2), 0.1)
+    evidence = _evidence(
+        expected_support_steps=expected,
+        repaired_contact_steps=repaired_contact,
+        noisy_contact_steps=noisy_contact,
+        repaired_zmp_margin_steps=repaired_zmp,
+        noisy_zmp_margin_steps=noisy_zmp,
+    )
+    result = _compute(evidence)
+    assert float(result.contact_constraint[0]) > 0.0
+    assert not bool(result.zmp_constraint_applicable[0])
+    assert float(result.zmp_constraint[0]) == 0.0
+    assert bool(result.zmp_constraint_applicable[1])
+
+    try:
+        _compute(replace(evidence, repaired_zmp_margin_steps=torch.full((4, 2), float("nan"))))
+    except ValueError as exc:
+        assert "expected-and-actually-loaded" in str(exc)
+    else:
+        raise AssertionError("loaded support without finite raw-wrench ZMP did not fail closed")
+    print("[T-no-load/T-role-applicability] missed support is Contact failure and role-specific ZMP N/A", flush=True)
 
 
 def main() -> None:
@@ -288,6 +319,7 @@ def main() -> None:
     test_paired_physics_k_normalization_and_full_six_d_cost()
     test_phase_conditioning_and_lexicographic_dominance()
     test_unsaturated_constraints_and_noisy_independence()
+    test_expected_support_without_actual_load_is_contact_failure_and_zmp_na()
     print("frontres_intent_physics_gain_contract: ok", flush=True)
 
 

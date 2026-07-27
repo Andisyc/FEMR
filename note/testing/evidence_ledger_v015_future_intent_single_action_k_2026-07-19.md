@@ -5542,3 +5542,79 @@ contact API, terrain filter resolution and finite supported-phase values remain
 S4-unconfirmed. A bounded sensor-authority sentinel is required before any new
 training lineage; proxy fallback, missing supported resultant, role/hash drift,
 flight misclassification or Clean geometry reaching the actor is a hard stop.
+
+## E-FI-82: Loaded-Support ZMP Applicability And GAIN-v006 Closure
+
+Date: 2026-07-27
+
+Tier: deterministic S1 evidence semantics, S2 formal connectivity and S3 strict
+persistence contracts. No simulator, training, checkpoint mutation or live run
+occurred.
+
+First-invalid runtime fact:
+
+- the bounded log exposed a row with valid raw contact-point payload but no
+  vertical foot-ground resultant; the former v005 path incorrectly treated
+  expected support alone as requiring a finite actual ZMP;
+- contact-point count is not support load. A valid, actually unloaded foot is a
+  physical outcome, not a malformed sensor payload.
+
+Semantic closure:
+
+- expected-supported plus actual-unloaded remains a scored Contact violation;
+- ZMP applicability is role-specific and requires both expected support and
+  actual ContactSensor load; an unloaded role carries ZMP N/A, never a zero
+  margin or a fabricated support polygon;
+- malformed/nonfinite raw sensor payload still fails closed, and
+  expected-supported plus actual-loaded without a finite contact-wrench
+  resultant also fails closed;
+- scalar Intent-minus-repair Critic target, vector Physics constraints,
+  one-action-K, grouped PPO projection and HSL remain unchanged.
+
+Formal connectivity and identity:
+
+- separate Repair/Noisy applicability is preserved from contact-wrench capture
+  through one-action-K evidence, paired facts, return evidence, sealed
+  transaction telemetry and the atomic held-out report;
+- the active identities are `FRS-GAIN-v006` and
+  `contact-loaded-phase_zmp-survival-physical-v2`;
+- checkpoint format remains `frontres-v015-checkpoint-v5`, but strict resume
+  rejects v005/schema-v1 before state mutation;
+- atomic held-out reports use `frontres-v015-heldout-quality-report-v2` and
+  serialize valid ZMP N/A as `null`, never as zero or a dropped row.
+
+Focused evidence:
+
+- `frontres_contact_wrench_zmp_contract.py`: PASS for valid no-load N/A,
+  malformed/nonfinite payload rejection and loaded resultant behavior;
+- `frontres_intent_physics_gain_contract.py`: PASS for expected-supported plus
+  actual-unloaded Contact violation, role-specific ZMP N/A and loaded-missing
+  fail-closed;
+- `frontres_v015_one_action_k_contract.py`,
+  `frontres_segment_diagnostics_contract.py` and
+  `frontres_v015_transaction_route_contract.py`: PASS for end-to-end K evidence,
+  separate role applicability and formal telemetry;
+- `frontres_v015_checkpoint_resume_contract.py`: PASS, including explicit
+  v005/schema-v1 rejection before mutation;
+- `frontres_v015_policy_quality_heldout_contract.py`,
+  `frontres_v015_policy_quality_save_reload_contract.py`,
+  `frontres_v015_policy_quality_identity_contract.py` and
+  `frontres_policy_quality_manifest_contract.py`: PASS for strict identity,
+  fresh reload, role-specific N/A and atomic report v2;
+- `frontres_v015_unmocked_observation_connectivity_contract.py`,
+  `frontres_v015_local_sentinel_connectivity_contract.py`,
+  `frontres_v015_grouped_candidate_adapter_contract.py`,
+  `frontres_formal_runtime_audit_contract.py` and
+  `frontres_policy_quality_atlas_contract.py`: PASS for formal route isolation,
+  exact-one update, grouped metadata and source-linked governance;
+- `frontres_design_contract_sentinel.py`: PASS for the current coordinated
+  METHOD-v016 / TRAIN-v010 / GAIN-v006 / PPO-v004 / EVAL-v003 registry and
+  archived v005 isolation;
+- production-owner `py_compile`, modified JSON validation and
+  `git diff --check`: PASS.
+
+Verdict: GAIN-v006 loaded-support applicability is contract-confirmed end to end
+offline. One bounded official IsaacLab sensor-authority S4 remains required to
+confirm raw contact APIs, filter resolution, vertical-load thresholding and
+finite loaded ZMP values. No new training lineage is admitted before that S4;
+the pre-fix model lineage remains evidence-only.

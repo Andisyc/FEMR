@@ -96,11 +96,11 @@ def _formal_alg(policy: torch.nn.Module, optimizer: _TrackingSGD) -> SimpleNames
         frontres_segment_live_update_loop_only=False,
         frontres_segment_live_single_update_only=False,
         frontres_method_contract_id="FRS-METHOD-v016",
-        frontres_gain_contract_id="FRS-GAIN-v005",
+        frontres_gain_contract_id="FRS-GAIN-v006",
         frontres_optimization_contract_id="FRS-PPO-v004",
         frontres_training_contract_id="FRS-TRAIN-v010",
         frontres_scalar_target_id="paired-intent-minus-repair-v1",
-        frontres_constraint_schema_id="contact-phase_zmp-survival-physical-v1",
+        frontres_constraint_schema_id="contact-loaded-phase_zmp-survival-physical-v2",
         frontres_projection_schema_id="grouped-first-order-constraint-projection-v1",
     )
 
@@ -263,11 +263,11 @@ def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, l
     assert result.diagnostics["intent_q29_provenance"] == "deployment_noisy_q29"
     assert result.diagnostics["optimizer_step_delta"] == 1
     assert result.diagnostics["method_contract_id"] == "FRS-METHOD-v016"
-    assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v005"
+    assert result.diagnostics["gain_contract_id"] == "FRS-GAIN-v006"
     assert result.diagnostics["optimization_contract_id"] == "FRS-PPO-v004"
     assert result.diagnostics["training_contract_id"] == "FRS-TRAIN-v010"
     assert result.diagnostics["scalar_target_id"] == "paired-intent-minus-repair-v1"
-    assert result.diagnostics["constraint_schema_id"] == "contact-phase_zmp-survival-physical-v1"
+    assert result.diagnostics["constraint_schema_id"] == "contact-loaded-phase_zmp-survival-physical-v2"
     assert result.diagnostics["projection_schema_id"] == "grouped-first-order-constraint-projection-v1"
     assert result.diagnostics["constraint_projection_status"] in {
         "INTENT_FEASIBLE", "PROJECTED_INTENT", "CONSTRAINT_RECOVERY",
@@ -294,7 +294,7 @@ def test_t_connect_order_exact_one_and_diagnostics(candidate_contract, owners, l
     assert result.diagnostics["gradient_post_clip_norm"] > 0.0
     assert result.diagnostics["gradient_parameter_count"] > 0
     assert result.diagnostics["gradient_nonzero_parameter_count"] > 0
-    quality = result.diagnostics["v005_action_constraint_reports"]
+    quality = result.diagnostics["v006_action_constraint_reports"]
     assert isinstance(quality, tuple) and len(quality) == 2
     assert all(report.transaction_id == result.transaction_id for report in quality)
     assert all(len(report.policy_actions) == 2 for report in quality)
@@ -573,7 +573,7 @@ def test_t_v010_critic_only_formal_update(candidate_contract, owners, live_sampl
     result = owners[6].run_frontres_v015_formal_transaction_update(fixture.runner, request)
     diagnostics = result.diagnostics
     assert diagnostics["training_contract_id"] == "FRS-TRAIN-v010"
-    assert diagnostics["gain_contract_id"] == "FRS-GAIN-v005"
+    assert diagnostics["gain_contract_id"] == "FRS-GAIN-v006"
     assert diagnostics["warmup_phase"] == "critic_only"
     assert diagnostics["actor_loss_weight"] == 0.0
     assert diagnostics["actor_std_parameter_delta"]["param_delta_max_abs"] == 0.0
@@ -729,16 +729,16 @@ def test_t_checkpoint_trigger_requires_matching_commit(candidate_contract, owner
     assert telemetry["advantage_sign_flip_count"] == 0
     assert telemetry["update_count"] == 1
     assert telemetry["optimizer_step_delta"] == 1
-    missing_reports = replace(result, diagnostics={**result.diagnostics, "v005_action_constraint_reports": ()})
+    missing_reports = replace(result, diagnostics={**result.diagnostics, "v006_action_constraint_reports": ()})
     _expect_runtime_error(lambda: training._v015_formal_update_summary(missing_reports))
-    feedback_report = replace(result.diagnostics["v005_action_constraint_reports"][0], ppo_feedback=True)
+    feedback_report = replace(result.diagnostics["v006_action_constraint_reports"][0], ppo_feedback=True)
     feedback_result = replace(
         result,
         diagnostics={
             **result.diagnostics,
-            "v005_action_constraint_reports": (
+            "v006_action_constraint_reports": (
                 feedback_report,
-                *result.diagnostics["v005_action_constraint_reports"][1:],
+                *result.diagnostics["v006_action_constraint_reports"][1:],
             ),
         },
     )
@@ -864,11 +864,11 @@ def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
     logged = json.loads(telemetry_line.split("] ", 1)[1])
     assert logged["policy_row_count"] == 4
     assert logged["optimizer_step_delta"] == 1
-    assert logged["gain_source"] == "FRS-GAIN-v005-vector-physics-constraints"
+    assert logged["gain_source"] == "FRS-GAIN-v006-loaded-support-zmp-applicability"
     assert logged["method_contract_id"] == "FRS-METHOD-v016"
     assert logged["optimization_contract_id"] == "FRS-PPO-v004"
     assert logged["scalar_target_id"] == "paired-intent-minus-repair-v1"
-    assert logged["constraint_schema_id"] == "contact-phase_zmp-survival-physical-v1"
+    assert logged["constraint_schema_id"] == "contact-loaded-phase_zmp-survival-physical-v2"
     assert logged["projection_schema_id"] == "grouped-first-order-constraint-projection-v1"
     assert logged["constraint_projection_status"] in {
         "INTENT_FEASIBLE",
@@ -888,6 +888,7 @@ def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
     assert len(logged["zmp_margin_repaired_steps"]) == 4
     assert len(logged["zmp_margin_noisy_steps"]) == 4
     assert len(logged["zmp_applicable_steps"]) == 4
+    assert len(logged["zmp_applicable_noisy_steps"]) == 4
     assert len(logged["support_transition_steps"]) == 4
     assert len(logged["zmp_step_violation_repaired"]) == 4
     assert len(logged["zmp_step_violation_noisy"]) == 4

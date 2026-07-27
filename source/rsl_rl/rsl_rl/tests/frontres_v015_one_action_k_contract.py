@@ -247,6 +247,13 @@ def _fake_physics_frame(offset: int, *, mode: str = "unequal") -> tuple[torch.Te
         zmp = torch.tensor([0.2 + 0.01 * offset, 0.4 + 0.01 * offset])
         expected = torch.ones(2, 2)
         return zmp, zmp.clone(), expected, expected.clone(), expected.clone()
+    if mode == "no_load":
+        expected = torch.ones(2, 2)
+        repaired_contact = expected.clone()
+        repaired_contact[0] = 0.0
+        repaired_zmp = torch.tensor([float("nan"), 0.2 + 0.01 * offset])
+        noisy_zmp = torch.tensor([0.1 + 0.01 * offset, 0.2 + 0.01 * offset])
+        return repaired_zmp, noisy_zmp, expected, repaired_contact, expected.clone()
     if mode != "unequal":
         raise ValueError(f"unknown physics fixture mode={mode!r}")
     return (
@@ -436,6 +443,24 @@ def test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup) -
     )
 
 
+def test_t_expected_support_actual_unloaded_survives_as_scored_evidence(live_probe, helper, commands, hooks, setup) -> None:
+    result = _capture(
+        live_probe,
+        helper,
+        commands,
+        hooks,
+        setup,
+        horizons=(2, 2),
+        physics_mode="no_load",
+    )
+    evidence = result.evidence
+    assert not bool(evidence.physics_contact_repaired_steps[:, 0].any())
+    assert bool(torch.isnan(evidence.physics_zmp_repaired_steps[:, 0]).all())
+    assert bool(torch.isfinite(evidence.physics_zmp_noisy_steps[:, 0]).all())
+    evidence.validate()
+    print("[T-no-load-e2e] expected support plus actual unload remains Contact evidence with Repair ZMP N/A")
+
+
 def test_t_continuation_and_row(live_probe, helper, commands, hooks, setup) -> None:
     result = _capture(live_probe, helper, commands, hooks, setup, horizons=(3, 2))
     evidence = result.evidence
@@ -622,6 +647,7 @@ def test_t_k_metamorphic_and_legacy_reject(live_probe, helper, commands, hooks, 
 def main() -> None:
     helper, commands, hooks, setup, live_probe = _load_owners()
     test_t_action_count_and_frozen(live_probe, helper, commands, hooks, setup)
+    test_t_expected_support_actual_unloaded_survives_as_scored_evidence(live_probe, helper, commands, hooks, setup)
     test_t_quality_deterministic_proposal(live_probe, helper, commands, hooks, setup)
     test_t_quality_lateral_lean_is_actual_robot_only(live_probe)
     test_t_continuation_and_row(live_probe, helper, commands, hooks, setup)

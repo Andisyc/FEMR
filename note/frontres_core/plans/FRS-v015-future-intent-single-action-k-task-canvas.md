@@ -11,8 +11,8 @@ and survival out of scalar Gain and into explicit actor-update constraints.
 ## Method Authority
 
 - Concept Figure: `Q-PAIR Paired Rollouts` -> `Q-01 Repair Gain`
-- Active contracts: METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010
-- Active source route: METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010,
+- Active contracts: METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v010
+- Active source route: METHOD-v016 / GAIN-v006 / PPO-v004 / TRAIN-v010,
   runtime-confirmed through one bounded transaction at E-FI-75
 - P0 decision record:
   `FRS-GAIN-v005-vector-physics-constrained-intent-proposal.md`
@@ -20,7 +20,7 @@ and survival out of scalar Gain and into explicit actor-update constraints.
 
 ## Current Cursor
 
-`E-FI-81 installs contact-wrench ZMP plus immutable expected support envelopes offline; bounded official sensor authority remains open`
+`E-FI-82 closes valid no-load as Contact failure plus role-specific ZMP N/A; bounded official sensor authority remains open`
 
 ## Confirmed
 
@@ -56,6 +56,7 @@ P0 document/owner rebase [complete]
 -> P4 long training to model_2000 [runtime-complete; four pre-fix KKT violations]
 -> P4 post-rescale KKT repair [offline contract-complete]
 -> P4 contact-wrench ZMP authority [offline S1/S2/S3 complete]
+-> P4 loaded-support applicability [offline S1/S2/S3 complete]
 -> P4 bounded official sensor-authority sentinel [open]
 -> P4 policy-quality/checkpoint-lineage decision [open]
 ```
@@ -69,6 +70,8 @@ P0 document/owner rebase [complete]
 - E-FI-81 replaces formal root/capture-point ZMP evidence with contact-wrench
   ZMP and sealed Clean-foot envelopes offline, but the server IsaacLab raw
   contact API and finite supported-phase values are not live-confirmed;
+- E-FI-82 removes the invalid assumption that expected support alone implies a
+  finite ZMP: valid physical no-load is Contact failure and role-specific ZMP N/A;
 - aggregate training telemetry shows improved Critic calibration but no clear
   Intent/Gain improvement, and contains no sustained-lean evaluation field.
 

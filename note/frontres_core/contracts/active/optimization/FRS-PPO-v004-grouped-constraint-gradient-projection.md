@@ -2,7 +2,7 @@
 contract_id: FRS-PPO-v004
 status: active
 effective_date: 2026-07-23
-updated_date: 2026-07-23
+updated_date: 2026-07-27
 supersedes: FRS-PPO-v003
 scope: equal-mass grouped PPO with one scalar Intent advantage, three independent Physics constraint gradients, joint first-order projection/recovery, and one optimizer step per sealed transaction
 ---
@@ -24,7 +24,7 @@ mass.
 ## Scalar Intent PPO Direction
 
 Let `J_I(theta)` be the existing grouped clipped PPO actor surrogate using only
-the v005 scalar Intent advantage `A_I`. Let
+the v006 scalar Intent advantage `A_I`. Let
 
 ```text
 p_I = grad_theta J_I(theta)
@@ -54,7 +54,7 @@ family is excluded from the active set and reported as N/A, not zero evidence.
 
 ## Active Constraint Set
 
-The grouped absolute violation level is `C_j` from FRS-GAIN-v005. Define:
+The grouped absolute violation level is `C_j` from FRS-GAIN-v006. Define:
 
 ```text
 A = {j | C_j > 0 and ||g_j|| > eps_grad}

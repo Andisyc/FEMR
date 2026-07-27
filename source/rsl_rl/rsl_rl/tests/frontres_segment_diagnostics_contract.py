@@ -40,7 +40,7 @@ def _v015_candidate_evidence() -> SimpleNamespace:
     )
     return_evidence = SimpleNamespace(
         validate=lambda: None,
-        gain_source="FRS-GAIN-v005-vector-physics-constraints",
+        gain_source="FRS-GAIN-v006-loaded-support-zmp-applicability",
         policy_actions=actions,
         policy_row_valid=torch.tensor([True, True, False]),
         intent_gain=torch.tensor([0.30, -0.10, float("nan")]),
@@ -148,6 +148,7 @@ def test_v015_transaction_telemetry_projects_sealed_rows_without_recompute() -> 
         (True, False, True, False),
         (False, False, False, False),
     )
+    assert report.zmp_applicable_noisy_steps == report.zmp_applicable_steps
     assert report.support_transition_steps == (
         (False, True, False, True),
         (False, True, False, True),
@@ -163,6 +164,25 @@ def test_v015_transaction_telemetry_projects_sealed_rows_without_recompute() -> 
     )
     assert report.zmp_step_violation_noisy[0] == (0.10000000149011612, None, 0.0, None)
     assert report.zmp_argmax_frame_noisy == (0, 2, None)
+
+
+def test_v015_diagnostics_preserve_role_specific_zmp_na() -> None:
+    candidate = _v015_candidate_evidence()
+    candidate.one_action.physics_contact_repaired_steps[:, 0] = 0.0
+    candidate.one_action.physics_zmp_repaired_steps[:, 0] = float("nan")
+    candidate.return_evidence.zmp_constraint_applicable[0] = False
+    candidate.return_evidence.zmp_constraint[0] = 0.0
+    candidate.return_evidence.repaired_zmp_margin[0] = float("nan")
+    candidate.return_evidence.physics_zmp_gain[0] = float("nan")
+    report = diag_module.build_frontres_v015_local_evaluation_report(
+        candidate,
+        transaction_id="tx-v015-gain-v006-no-load",
+    )
+    assert report.zmp_applicable_steps[0] == (False, False, False, False)
+    assert report.zmp_applicable_noisy_steps[0] == (True, False, True, False)
+    assert report.zmp_argmax_frame_repaired[0] is None
+    assert report.zmp_argmax_frame_noisy[0] == 0
+    report.validate()
     assert report.zmp_max_violation_noisy == (0.10000000149011612, 0.05000000074505806, None)
     assert all(math.isnan(values[2]) for values in (report.intent_gain, report.physics_gain, report.repair_cost, report.gain_total))
     assert report.gain_total_pos_frac == 0.5
@@ -570,6 +590,7 @@ def test_action_distribution_health_flags_raw_mean_saturation() -> None:
 
 def main() -> None:
     test_v015_transaction_telemetry_projects_sealed_rows_without_recompute()
+    test_v015_diagnostics_preserve_role_specific_zmp_na()
     test_segment_diagnostics_required_keys_and_no_acceptance_keys()
     test_segment_log_contains_live_path_sentinel()
     test_repair_effect_summary_formats_training_fit_metrics()

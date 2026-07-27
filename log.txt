@@ -43,6 +43,6 @@ Traceback (most recent call last):
     physics_frame = _capture_physics_frame(runner, pair_layout)
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4995, in _capture_physics_frame
     zmp_pair = _contact_wrench_zmp_pair(runner, command, pair_layout, expected_support, n)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5278, in _contact_wrench_zmp_pair
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5302, in _contact_wrench_zmp_pair
     raise RuntimeError(
-RuntimeError: contact-wrench ZMP capture failed at RuntimeError: Sizes of tensors must match except in dimension 1. Expected size 10 but got size 3 for tensor number 1 in the list.
+RuntimeError: contact-wrench ZMP capture failed at RuntimeError: supported phase is missing a vertical foot-ground contact resultant; missing_rows=[7] left_contact_counts=[3, 2, 8, 4, 3, 3, 8, 2] right_contact_counts=[2, 3, 0, 0, 1, 2, 0, 0]

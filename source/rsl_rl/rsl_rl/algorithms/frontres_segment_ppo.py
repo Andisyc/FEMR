@@ -361,7 +361,8 @@ def project_frontres_grouped_constraint_direction(
                 float(torch.sqrt(torch.stack([row.norm().square() for row in rows]).mean()).item()),
             )
             recovery = recovery * (target_norm / float(recovery.norm().item()))
-            # B4: 放大后重新投影, 防止容差内的浮点残差被同步放大为真实约束违规.
+        # B5: Gain-v006/PPO-v004 final owner reprojects recovery after norm scaling.
+        # B4: 放大后重新投影, 防止容差内的浮点残差被同步放大为真实约束违规.
             postscale_solution = project(recovery)
             if postscale_solution is not None:
                 recovery, _ = postscale_solution

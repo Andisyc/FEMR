@@ -34,7 +34,7 @@ class FrontRESSegmentReplaySummary:
     objective: str
 
 
-_V015_GAIN_SOURCE = "FRS-GAIN-v005-vector-physics-constraints"
+_V015_GAIN_SOURCE = "FRS-GAIN-v006-loaded-support-zmp-applicability"
 _V015_LOCAL_EVALUATION_KIND = "local_k_candidate_only"
 _V015_COMPOSITION_EVALUATION_KIND = "deployment_composition_protocol"
 
@@ -51,7 +51,7 @@ def _v004_phase_evaluator() -> Callable[..., dict[str, torch.Tensor]]:
             "frontres_gain_diagnostics_runtime", Path(__file__).resolve().with_name("frontres_gain.py")
         )
         if spec is None or spec.loader is None:
-            raise RuntimeError("could not load FRS-GAIN-v005 phase evaluator for diagnostics")
+            raise RuntimeError("could not load FRS-GAIN-v006 phase evaluator for diagnostics")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
@@ -109,11 +109,11 @@ def _project_v015_zmp_role(
             is_applicable = bool(applicable_cpu[step, row])
             margin = float(margins_cpu[step, row])
             violation = float(violation_cpu[step, row])
-            if is_valid and not math.isfinite(margin):
-                raise ValueError("v015 ZMP diagnostic valid margin must be finite")
+            if is_applicable and not math.isfinite(margin):
+                raise ValueError("v015 ZMP diagnostic applicable margin must be finite")
             if is_applicable and (not is_valid or not math.isfinite(violation) or violation < 0.0):
                 raise ValueError("v015 ZMP diagnostic applicable violation must be finite and unsaturated")
-            row_margins.append(margin if is_valid else None)
+            row_margins.append(margin if is_valid and math.isfinite(margin) else None)
             row_violations.append(violation if is_applicable else None)
             if is_applicable:
                 applicable_indices.append(step)
@@ -203,6 +203,7 @@ class FrontRESV015LocalEvaluationReport:
     zmp_margin_repaired_steps: tuple[tuple[float | None, ...], ...]
     zmp_margin_noisy_steps: tuple[tuple[float | None, ...], ...]
     zmp_applicable_steps: tuple[tuple[bool, ...], ...]
+    zmp_applicable_noisy_steps: tuple[tuple[bool, ...], ...]
     support_transition_steps: tuple[tuple[bool, ...], ...]
     zmp_step_violation_repaired: tuple[tuple[float | None, ...], ...]
     zmp_step_violation_noisy: tuple[tuple[float | None, ...], ...]
@@ -296,6 +297,7 @@ class FrontRESV015LocalEvaluationReport:
                     self.zmp_margin_repaired_steps,
                     self.zmp_margin_noisy_steps,
                     self.zmp_applicable_steps,
+                    self.zmp_applicable_noisy_steps,
                     self.support_transition_steps,
                     self.zmp_step_violation_repaired,
                     self.zmp_step_violation_noisy,
@@ -326,11 +328,21 @@ class FrontRESV015LocalEvaluationReport:
         if not all(math.isfinite(float(value)) for row in self.policy_actions for value in row):
             raise ValueError("v015 local evaluation report requires finite sealed policy actions [B,6]")
         for row, row_valid in enumerate(self.valid_policy_row_mask):
-            row_values = tuple(float(values[row]) for values in (*components, *row_diagnostics))
+            required_diagnostics = tuple(
+                values for values in row_diagnostics
+                if all(
+                    values is not optional
+                    for optional in (self.repaired_zmp_margin, self.noisy_zmp_margin, self.physics_zmp_gain)
+                )
+            )
+            row_values = tuple(float(values[row]) for values in (*components, *required_diagnostics))
             if row_valid and not all(math.isfinite(value) for value in row_values):
                 raise ValueError("v015 local evaluation report requires finite v003 components on valid policy rows")
-            if not row_valid and not all(math.isnan(value) for value in row_values):
+            all_row_values = tuple(float(values[row]) for values in (*components, *row_diagnostics))
+            if not row_valid and not all(math.isnan(value) for value in all_row_values):
                 raise ValueError("v015 local evaluation report keeps invalid-row diagnostics UNCONFIRMED, never zero-filled")
+            if row_valid and self.zmp_constraint_applicable[row] and not math.isfinite(self.repaired_zmp_margin[row]):
+                raise ValueError("v015 local evaluation report requires Repair ZMP when its constraint is applicable")
         constraint_advantages = (
             self.contact_constraint_advantage,
             self.zmp_constraint_advantage,
@@ -352,6 +364,7 @@ class FrontRESV015LocalEvaluationReport:
                 self.zmp_margin_repaired_steps[row],
                 self.zmp_margin_noisy_steps[row],
                 self.zmp_applicable_steps[row],
+                self.zmp_applicable_noisy_steps[row],
                 self.support_transition_steps[row],
                 self.zmp_step_violation_repaired[row],
                 self.zmp_step_violation_noisy[row],
@@ -363,7 +376,12 @@ class FrontRESV015LocalEvaluationReport:
                 argmax = getattr(self, f"zmp_argmax_frame_{role_name}")[row]
                 maximum = getattr(self, f"zmp_max_violation_{role_name}")[row]
                 recovery = getattr(self, f"zmp_recovery_trajectory_{role_name}")[row]
-                applicable_indices = [index for index, flag in enumerate(self.zmp_applicable_steps[row]) if flag]
+                role_applicability = (
+                    self.zmp_applicable_steps[row]
+                    if role_name == "repaired"
+                    else self.zmp_applicable_noisy_steps[row]
+                )
+                applicable_indices = [index for index, flag in enumerate(role_applicability) if flag]
                 if applicable_indices:
                     if argmax not in applicable_indices or maximum is None:
                         raise ValueError("v015 ZMP diagnostics require an applicable argmax and maximum")
@@ -562,9 +580,8 @@ def build_frontres_v015_local_evaluation_report(
         one_action.physics_zmp_noisy_steps.detach(),
         diagnostic_valid,
     )
-    for mask_name in ("zmp_applicable_steps", "support_transition_steps"):
-        if not torch.equal(repaired_phase[mask_name], noisy_phase[mask_name]):
-            raise ValueError(f"v015 ZMP diagnostic roles disagree on sealed {mask_name}")
+    if not torch.equal(repaired_phase["support_transition_steps"], noisy_phase["support_transition_steps"]):
+        raise ValueError("v015 ZMP diagnostic roles disagree on sealed support transitions")
     repaired_zmp = _project_v015_zmp_role(
         margins=one_action.physics_zmp_repaired_steps,
         applicable=repaired_phase["zmp_applicable_steps"],
@@ -582,6 +599,10 @@ def build_frontres_v015_local_evaluation_report(
     applicable_rows = tuple(
         tuple(bool(value) for value in row[: int(horizon[index])])
         for index, row in enumerate(repaired_phase["zmp_applicable_steps"].detach().permute(1, 0).cpu().tolist())
+    )
+    applicable_noisy_rows = tuple(
+        tuple(bool(value) for value in row[: int(horizon[index])])
+        for index, row in enumerate(noisy_phase["zmp_applicable_steps"].detach().permute(1, 0).cpu().tolist())
     )
     transition_rows = tuple(
         tuple(bool(value) for value in row[: int(horizon[index])])
@@ -657,6 +678,7 @@ def build_frontres_v015_local_evaluation_report(
         zmp_margin_repaired_steps=repaired_zmp.margins,
         zmp_margin_noisy_steps=noisy_zmp.margins,
         zmp_applicable_steps=applicable_rows,
+        zmp_applicable_noisy_steps=applicable_noisy_rows,
         support_transition_steps=transition_rows,
         zmp_step_violation_repaired=repaired_zmp.violations,
         zmp_step_violation_noisy=noisy_zmp.violations,

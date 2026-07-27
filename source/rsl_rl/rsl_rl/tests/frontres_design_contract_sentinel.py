@@ -25,56 +25,59 @@ def run_design_contract_sentinel() -> None:
     registry = _read("frontres_core/contracts/README.md")
     design = _read(
         "frontres_core/contracts/active/method/"
-        "FRS-METHOD-v010-segment-replay.md"
+        "FRS-METHOD-v016-physics-constrained-intent-replay.md"
     )
     compatibility_entry = _read("frontres_core/contracts/design_contract.md")
-    history_index = _read("frontres_core/contracts/history/method/README.md")
     training = _read(
         "frontres_core/contracts/active/training/"
-        "FRS-TRAIN-v001-segment-replay.md"
+        "FRS-TRAIN-v010-intent-critic-k-curriculum.md"
     )
     optimization = _read(
         "frontres_core/contracts/active/optimization/"
-        "FRS-PPO-v001-sign-preserving-advantage-scaling.md"
+        "FRS-PPO-v004-grouped-constraint-gradient-projection.md"
+    )
+    reward = _read(
+        "frontres_core/contracts/active/reward/"
+        "FRS-GAIN-v006-loaded-support-zmp-applicability.md"
     )
     evaluation = _read(
         "frontres_core/contracts/active/evaluation/"
-        "FRS-EVAL-v001-segment-evaluation.md"
+        "FRS-EVAL-v003-local-repair-composition-evaluation.md"
+    )
+    historical_reward = _read(
+        "frontres_core/contracts/history/reward/"
+        "FRS-GAIN-v005-vector-physics-constraints.md"
     )
 
-    _assert_contains(registry, "FRS-METHOD-v010-segment-replay.md", "registry")
-    _assert_contains(registry, "FRS-TRAIN-v001-segment-replay.md", "registry")
+    _assert_contains(registry, "FRS-METHOD-v016-physics-constrained-intent-replay.md", "registry")
+    _assert_contains(registry, "FRS-TRAIN-v010-intent-critic-k-curriculum.md", "registry")
     _assert_contains(
         registry,
-        "FRS-PPO-v001-sign-preserving-advantage-scaling.md",
+        "FRS-PPO-v004-grouped-constraint-gradient-projection.md",
         "registry",
     )
-    _assert_contains(registry, "FRS-EVAL-v001-segment-evaluation.md", "registry")
+    _assert_contains(registry, "FRS-GAIN-v006-loaded-support-zmp-applicability.md", "registry")
+    _assert_contains(registry, "FRS-EVAL-v003-local-repair-composition-evaluation.md", "registry")
     _assert_contains(registry, "Do not scan `history/`", "registry")
-    _assert_contains(design, "contract_id: FRS-METHOD-v010", "design")
+    _assert_contains(design, "contract_id: FRS-METHOD-v016", "design")
     _assert_contains(design, "status: active", "design")
-    _assert_contains(design, "The executable action remains full 6D", "design")
-    _assert_contains(design, "The method-version delta is Segment Replay", "design")
-    _assert_contains(design, "Dynamic Reset Boundary", "design")
-    _assert_contains(design, "K-Step Curriculum", "design")
-    _assert_contains(design, "implemented-only, not integrated", "design")
-    _assert_contains(design, "[dx, dy, dz, droll, dpitch, dyaw]", "design")
-    _assert_contains(
-        design,
-        "Perturbation family describes the corruption source. It must not narrow",
-        "design",
-    )
-    _assert_contains(design, "local_rp", "design")
+    _assert_contains(design, "one full-6D `Delta SE(3)` action", "design")
+    _assert_contains(design, "paired Intent improvement - full-6D repair cost", "design")
+    _assert_contains(design, "FRS-GAIN-v006", "design")
+    _assert_contains(design, "one grouped constraint projection", "design")
     _assert_contains(compatibility_entry, "contracts/README.md", "compatibility entry")
-    _assert_contains(training, "contract_id: FRS-TRAIN-v001", "training")
-    _assert_contains(training, "Implementation gate", "training")
-    _assert_contains(training, "Integration gate", "training")
-    _assert_contains(training, "implemented-not-integrated", "training")
-    _assert_contains(optimization, "contract_id: FRS-PPO-v001", "optimization")
-    _assert_contains(optimization, "advantage_normalization = scale_only", "optimization")
-    _assert_contains(evaluation, "contract_id: FRS-EVAL-v001", "evaluation")
-    _assert_contains(evaluation, "Implementation gate", "evaluation")
-    _assert_contains(evaluation, "Integration gate", "evaluation")
+    _assert_contains(training, "contract_id: FRS-TRAIN-v010", "training")
+    _assert_contains(training, "gain_contract_id = FRS-GAIN-v006", "training")
+    _assert_contains(training, "checkpoint_schema = frontres-v015-checkpoint-v5", "training")
+    _assert_contains(optimization, "contract_id: FRS-PPO-v004", "optimization")
+    _assert_contains(optimization, "FRS-GAIN-v006", "optimization")
+    _assert_contains(reward, "contract_id: FRS-GAIN-v006", "reward")
+    _assert_contains(reward, "actual_loaded_support", "reward")
+    _assert_contains(reward, "expected-supported/actual-unloaded", "reward")
+    _assert_contains(evaluation, "contract_id: FRS-EVAL-v003", "evaluation")
+    _assert_contains(historical_reward, "contract_id: FRS-GAIN-v005", "historical reward")
+    _assert_contains(historical_reward, "status: superseded", "historical reward")
+    _assert_contains(historical_reward, "Superseded by `FRS-GAIN-v006`", "historical reward")
 
     retired_segment_notes = NOTE / "frontres_segment_replay"
     if retired_segment_notes.exists():
@@ -86,42 +89,14 @@ def run_design_contract_sentinel() -> None:
         "Authority Actor-Critic Contract (RETIRED MAINLINE)",
         "HSL owns continuous proposal magnitude",
         "HRL owns admissibility, not full continuous rho authority",
+        "contact-phase_zmp-survival-physical-v1",
     )
+    active_contracts = "\n".join((design, training, optimization, reward, evaluation))
     for phrase in forbidden_active_phrases:
-        if phrase in design:
+        if phrase in active_contracts:
             raise AssertionError(f"active contract contains historical method text: {phrase}")
 
-    historical_versions = (
-        ("v001", "hsl-rho-acceptance", "superseded", "v002"),
-        ("v002", "stable-to-repair", "superseded", "v003"),
-        ("v003", "tri-anchor-projection", "superseded", "v004"),
-        ("v004", "structured-joint-alpha-rho", "rejected", "v005"),
-        ("v005", "executable-floor-retention", "superseded", "v006"),
-        ("v006", "conditional-repair-authority", "superseded", "v007"),
-        ("v007", "proposal-conditioned-acceptance", "superseded", "v008"),
-        ("v008", "authority-actor-critic", "stopped", "v009"),
-        ("v009", "hsl-binary-acceptance", "superseded", "v010"),
-    )
-    for version, slug, status, successor in historical_versions:
-        relative_path = (
-            "frontres_core/contracts/history/method/"
-            f"FRS-METHOD-{version}-{slug}.md"
-        )
-        historical = _read(relative_path)
-        contract_id = f"FRS-METHOD-{version}"
-        _assert_contains(historical, f"contract_id: {contract_id}", contract_id)
-        _assert_contains(historical, f"status: {status}", contract_id)
-        _assert_contains(
-            historical,
-            f"superseded_by: FRS-METHOD-{successor}",
-            contract_id,
-        )
-        _assert_contains(history_index, f"`{contract_id}`", "history index")
-
-    _assert_contains(history_index, "`FRS-METHOD-v010`", "history index")
-    _assert_contains(design, "supersedes: FRS-METHOD-v009", "design")
-
-    print("FrontRES design contract sentinel: PASS")
+    print("FrontRES active v016/v010/v006/v004/v003 design contract sentinel: PASS")
 
 
 if __name__ == "__main__":

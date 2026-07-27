@@ -190,11 +190,11 @@ def _runner(layout_module, policy_cls, *, offsets=(1, 2), iteration: int = 3):
         frontres_segment_live_single_update_only=False,
         frontres_formal_runtime_audit=False,
         frontres_method_contract_id="FRS-METHOD-v016",
-        frontres_gain_contract_id="FRS-GAIN-v005",
+        frontres_gain_contract_id="FRS-GAIN-v006",
         frontres_optimization_contract_id="FRS-PPO-v004",
         frontres_training_contract_id="FRS-TRAIN-v010",
         frontres_scalar_target_id="paired-intent-minus-repair-v1",
-        frontres_constraint_schema_id="contact-phase_zmp-survival-physical-v1",
+        frontres_constraint_schema_id="contact-loaded-phase_zmp-survival-physical-v2",
         frontres_projection_schema_id="grouped-first-order-constraint-projection-v1",
         frontres_segment_offline_eval_only=False,
         frontres_segment_sequence_offline_eval_only=False,
@@ -329,11 +329,11 @@ def _committed_state() -> dict[str, object]:
         "state": "committed",
         "receipt": {
             "method_contract_id": "FRS-METHOD-v016",
-            "gain_contract_id": "FRS-GAIN-v005",
+            "gain_contract_id": "FRS-GAIN-v006",
             "optimization_contract_id": "FRS-PPO-v004",
             "training_contract_id": "FRS-TRAIN-v010",
             "scalar_target_id": "paired-intent-minus-repair-v1",
-            "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+            "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
             "projection_schema_id": "grouped-first-order-constraint-projection-v1",
             "transaction_id": "tx-v015-s3",
             "policy_snapshot_id": "tx-v015-s3:pi-0123456789abcdef",
@@ -384,7 +384,7 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
         identity = payload["frontres_v015_checkpoint_identity"]
         assert identity["format"] == "frontres-v015-checkpoint-v5"
         assert identity["training_contract_id"] == "FRS-TRAIN-v010"
-        assert identity["gain_contract_id"] == "FRS-GAIN-v005"
+        assert identity["gain_contract_id"] == "FRS-GAIN-v006"
         assert identity["optimization_contract_id"] == "FRS-PPO-v004"
         assert identity["method_contract_id"] == "FRS-METHOD-v016"
         assert identity["physics_evidence"] == {
@@ -516,6 +516,23 @@ def test_t_resume_rejects_layout_legacy_and_normalizer_before_mutation(layout_mo
         actor_before = old_v4.alg.policy.residual_actor.weight.detach().clone()
         _expect_error(lambda: checkpointing.load_runner(old_v4, str(old_v4_path), load_optimizer=False), "contract or format identity")
         _assert_unmutated(old_v4, actor_before)
+
+        old_v005_payload = copy.deepcopy(payload)
+        old_v005_payload["frontres_v015_checkpoint_identity"].update(
+            {
+                "gain_contract_id": "FRS-GAIN-v005",
+                "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+            }
+        )
+        old_v005_path = Path(tmp) / "old_gain_v005.pt"
+        torch.save(old_v005_payload, old_v005_path)
+        old_v005 = _runner(layout_module, policy_cls, iteration=0)
+        actor_before = old_v005.alg.policy.residual_actor.weight.detach().clone()
+        _expect_error(
+            lambda: checkpointing.load_runner(old_v005, str(old_v005_path), load_optimizer=False),
+            "contract or format identity",
+        )
+        _assert_unmutated(old_v005, actor_before)
 
         tampered_solver_payload = copy.deepcopy(payload)
         tampered_solver_payload["frontres_v015_checkpoint_identity"]["constraint_solver"]["projection_tolerance"] = 0.5

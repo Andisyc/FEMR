@@ -164,7 +164,7 @@ def test_structured_phase_b_snapshots_cover_all_formal_boundaries() -> None:
                 "frontres_v015_checkpoint_identity": {
                     "format": "frontres-v015-checkpoint-v5",
                     "method_contract_id": "FRS-METHOD-v016",
-                    "gain_contract_id": "FRS-GAIN-v005",
+                    "gain_contract_id": "FRS-GAIN-v006",
                     "optimization_contract_id": "FRS-PPO-v004",
                     "training_contract_id": "FRS-TRAIN-v010",
                     "constraint_solver": {"persistent_dual_state": False},
@@ -247,7 +247,7 @@ def test_checkpoint_audit_rejects_missing_or_mixed_v010_curriculum() -> None:
         "frontres_v015_checkpoint_identity": {
             "format": "frontres-v015-checkpoint-v5",
             "method_contract_id": "FRS-METHOD-v016",
-            "gain_contract_id": "FRS-GAIN-v005",
+            "gain_contract_id": "FRS-GAIN-v006",
             "optimization_contract_id": "FRS-PPO-v004",
             "training_contract_id": "FRS-TRAIN-v010",
             "constraint_solver": {"persistent_dual_state": False},

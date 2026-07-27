@@ -192,8 +192,8 @@ _V015_QUALITY_OWNER_IDENTITY = (
     ("gain", "frontres_gain.compute_intent_physics_local_repair_gain"),
 )
 _V015_QUALITY_ROUTES = ("zero", "hsl", "policy")
-_V015_QUALITY_REPORT_SCHEMA = "frontres-v015-heldout-quality-report-v1"
-_V015_GAIN_SOURCE = "FRS-GAIN-v005-vector-physics-constraints"
+_V015_QUALITY_REPORT_SCHEMA = "frontres-v015-heldout-quality-report-v2"
+_V015_GAIN_SOURCE = "FRS-GAIN-v006-loaded-support-zmp-applicability"
 _V015_DYNAMIC_STATE_FIELDS = (
     "root_state_w",
     "joint_pos",
@@ -875,7 +875,7 @@ def _v015_quality_route_result(
     gain = compute_intent_physics_local_repair_gain(gain_input, config=FrontRESIntentPhysicsGainConfig())
     valid = facts.intent_valid_mask.bool() & gain.available.bool()
     if not bool(valid.any().item()):
-        raise RuntimeError("v015 quality route has no valid v005 objective/constraint row")
+        raise RuntimeError("v015 quality route has no valid v006 objective/constraint row")
     components = {
         name: torch.where(valid, getattr(gain, name).detach().float(), torch.full_like(gain.gain_total, float("nan")))
         for name in (
@@ -930,14 +930,14 @@ def _v015_quality_route_result(
         zmp_margin_steps=evidence.physics_zmp_noisy_steps,
         **phase_kwargs,
     )
-    applicable = repaired_phase["zmp_applicable_steps"].bool()
-    if not torch.equal(applicable, noisy_phase["zmp_applicable_steps"].bool()):
-        raise RuntimeError("v015 quality phase-ZMP applicability drifted between paired routes")
+    applicable_repaired = repaired_phase["zmp_applicable_steps"].bool()
+    applicable_noisy = noisy_phase["zmp_applicable_steps"].bool()
     supported = pair_valid & evidence.physics_expected_support_steps.detach().bool().any(dim=-1)
-    recovery_window = supported & (~applicable)
+    recovery_repaired = supported & evidence.physics_contact_repaired_steps.bool().any(dim=-1) & (~applicable_repaired)
+    recovery_noisy = supported & evidence.physics_contact_noisy_steps.bool().any(dim=-1) & (~applicable_noisy)
     nan_steps = torch.full_like(evidence.physics_zmp_repaired_steps.float(), float("nan"))
-    repaired_violation = torch.where(applicable, repaired_phase["zmp_step_violation"], nan_steps)
-    noisy_violation = torch.where(applicable, noisy_phase["zmp_step_violation"], nan_steps)
+    repaired_violation = torch.where(applicable_repaired, repaired_phase["zmp_step_violation"], nan_steps)
+    noisy_violation = torch.where(applicable_noisy, noisy_phase["zmp_step_violation"], nan_steps)
 
     def cumulative_mean(value: torch.Tensor) -> torch.Tensor:
         finite = torch.isfinite(value)
@@ -965,6 +965,9 @@ def _v015_quality_route_result(
         "later_femr_action_count": int(evidence.later_femr_action_count),
         "policy_actions": _v015_quality_json_tensor(evidence.policy_actions),
         "policy_row_valid": [bool(value) for value in valid.tolist()],
+        "zmp_constraint_applicable": [
+            bool(value) for value in gain.zmp_constraint_applicable.detach().cpu().tolist()
+        ],
         "evidence_valid_step_count": [
             int(value) for value in evidence.survival_steps.index_select(0, repair_rows).tolist()
         ],
@@ -973,15 +976,17 @@ def _v015_quality_route_result(
         "expected_contact_steps": _v015_quality_json_tensor(evidence.physics_expected_support_steps),
         "actual_contact_repaired_steps": _v015_quality_json_tensor(evidence.physics_contact_repaired_steps),
         "actual_contact_noisy_steps": _v015_quality_json_tensor(evidence.physics_contact_noisy_steps),
-        "phase_zmp_applicable_steps": _v015_quality_json_tensor(applicable),
-        "phase_zmp_na_steps": _v015_quality_json_tensor(~applicable),
+        "phase_zmp_applicable_repaired_steps": _v015_quality_json_tensor(applicable_repaired),
+        "phase_zmp_applicable_noisy_steps": _v015_quality_json_tensor(applicable_noisy),
+        "phase_zmp_na_repaired_steps": _v015_quality_json_tensor(~applicable_repaired),
+        "phase_zmp_na_noisy_steps": _v015_quality_json_tensor(~applicable_noisy),
         "phase_zmp_margin_repaired_steps": _v015_quality_json_tensor(evidence.physics_zmp_repaired_steps),
         "phase_zmp_margin_noisy_steps": _v015_quality_json_tensor(evidence.physics_zmp_noisy_steps),
         "phase_zmp_violation_repaired_steps": _v015_quality_json_tensor(repaired_violation),
         "phase_zmp_violation_noisy_steps": _v015_quality_json_tensor(noisy_violation),
         "phase_zmp_support_transition_steps": _v015_quality_json_tensor(repaired_phase["support_transition_steps"]),
-        "phase_zmp_recovery_repaired_steps": _v015_quality_json_tensor(recovery_window),
-        "phase_zmp_recovery_noisy_steps": _v015_quality_json_tensor(recovery_window),
+        "phase_zmp_recovery_repaired_steps": _v015_quality_json_tensor(recovery_repaired),
+        "phase_zmp_recovery_noisy_steps": _v015_quality_json_tensor(recovery_noisy),
         "survival_repaired_steps": _v015_quality_json_tensor(required_raw["physics_survival_repaired_steps"]),
         "survival_noisy_steps": _v015_quality_json_tensor(required_raw["physics_survival_noisy_steps"]),
         "evaluation_only_sustained_lean": {

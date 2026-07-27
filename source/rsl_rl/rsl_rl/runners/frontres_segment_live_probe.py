@@ -454,11 +454,11 @@ def _commit_frontres_v015_checkpoint_transaction(
         raise RuntimeError("v015 formal transaction commit requires a sealed checkpoint barrier")
     receipt = {
         "method_contract_id": "FRS-METHOD-v016",
-        "gain_contract_id": "FRS-GAIN-v005",
+        "gain_contract_id": "FRS-GAIN-v006",
         "optimization_contract_id": "FRS-PPO-v004",
         "training_contract_id": "FRS-TRAIN-v010",
         "scalar_target_id": "paired-intent-minus-repair-v1",
-        "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
         "projection_schema_id": "grouped-first-order-constraint-projection-v1",
         "transaction_id": plan.transaction_id,
         "policy_snapshot_id": plan.policy_snapshot_id,
@@ -3497,17 +3497,6 @@ def collect_frontres_v015_one_action_k_evidence(
             survival_repaired_frames.append(alive[:n_repair].detach().clone())
             survival_noisy_frames.append(alive[n_repair : 2 * n_repair].detach().clone())
             nan = torch.full((n_repair,), float("nan"), device=runner.device, dtype=torch.float32)
-            frame_names = (
-                ("zmp_repaired", physics_frame[0], zmp_repaired_frames),
-                ("zmp_noisy", physics_frame[1], zmp_noisy_frames),
-            )
-            for name, frame, destination in frame_names:
-                frame = frame.detach().to(device=runner.device, dtype=torch.float32).reshape(-1)
-                if int(frame.numel()) != n_repair or not bool(torch.isfinite(frame[pair_valid]).all()):
-                    raise RuntimeError(
-                        f"v015 one-action K collector received invalid paired Physics frame {name}"
-                    )
-                destination.append(torch.where(pair_valid, frame, nan).detach().clone())
             expected_support, contact_repaired, contact_noisy = physics_frame[2:]
             for name, frame, destination in (
                 ("expected_support", expected_support, expected_support_frames),
@@ -3518,6 +3507,21 @@ def collect_frontres_v015_one_action_k_evidence(
                 if tuple(frame.shape) != (n_repair, 2):
                     raise RuntimeError(f"v015 one-action K collector received invalid {name} shape {tuple(frame.shape)}")
                 destination.append(frame.clone())
+            expected_loaded = expected_support.bool().any(dim=-1)
+            frame_names = (
+                ("zmp_repaired", physics_frame[0], contact_repaired, zmp_repaired_frames),
+                ("zmp_noisy", physics_frame[1], contact_noisy, zmp_noisy_frames),
+            )
+            for name, frame, actual_contact, destination in frame_names:
+                frame = frame.detach().to(device=runner.device, dtype=torch.float32).reshape(-1)
+                applicable = pair_valid & expected_loaded & actual_contact.bool().any(dim=-1)
+                finite = torch.isfinite(frame)
+                invalid_physical = pair_valid & ~applicable
+                if int(frame.numel()) != n_repair or not bool(finite[applicable].all()) or bool(finite[invalid_physical].any()):
+                    raise RuntimeError(
+                        f"v015 one-action K collector received invalid loaded-support applicability for {name}"
+                    )
+                destination.append(torch.where(applicable, frame, nan).detach().clone())
             physics_pair_valid_frames.append(pair_valid.detach().clone())
             if quality_trace_enabled:
                 lean_frame = _capture_v015_quality_lateral_lean_frame(runner, pair_layout)
@@ -3767,11 +3771,11 @@ def _require_v015_formal_transaction_config(runner: Any) -> Any:
         raise RuntimeError("v015 formal transaction route requires the v015 q29 actor layout")
     required_identity = {
         "frontres_method_contract_id": "FRS-METHOD-v016",
-        "frontres_gain_contract_id": "FRS-GAIN-v005",
+        "frontres_gain_contract_id": "FRS-GAIN-v006",
         "frontres_optimization_contract_id": "FRS-PPO-v004",
         "frontres_training_contract_id": "FRS-TRAIN-v010",
         "frontres_scalar_target_id": "paired-intent-minus-repair-v1",
-        "frontres_constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "frontres_constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
         "frontres_projection_schema_id": "grouped-first-order-constraint-projection-v1",
     }
     for name, expected in required_identity.items():
@@ -4023,10 +4027,10 @@ def run_frontres_v015_formal_transaction_update(
         "optimizer_step_delta": int(optimizer_step_delta),
         "method_contract_id": "FRS-METHOD-v016",
         "training_contract_id": "FRS-TRAIN-v010",
-        "gain_contract_id": "FRS-GAIN-v005",
+        "gain_contract_id": "FRS-GAIN-v006",
         "optimization_contract_id": "FRS-PPO-v004",
         "scalar_target_id": "paired-intent-minus-repair-v1",
-        "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
         "projection_schema_id": "grouped-first-order-constraint-projection-v1",
         "constraint_projection_status": projection.status,
         "constraint_active_families": projection.active_families,
@@ -4055,8 +4059,8 @@ def run_frontres_v015_formal_transaction_update(
         "parameter_delta": parameter_delta,
         "critic_parameter_delta": critic_delta,
         "actor_std_parameter_delta": noncritic_delta,
-        "v005_action_constraint_reports": request.diagnostic_reports,
-        "v005_diagnostic_report_row_order": diagnostic_report_row_order,
+        "v006_action_constraint_reports": request.diagnostic_reports,
+        "v006_diagnostic_report_row_order": diagnostic_report_row_order,
     }
     print(
         "[FrontRES v015 Formal Transaction] "
@@ -4343,7 +4347,7 @@ def run_frontres_v015_local_identity_sentinel(
             raise RuntimeError("v015 local sentinel requires a complete pre-update identity/observation snapshot")
         telemetry = dict(preupdate)
         result_diagnostics = dict(getattr(result, "diagnostics", {}) or {})
-        result_diagnostics.pop("v005_action_constraint_reports", None)
+        result_diagnostics.pop("v006_action_constraint_reports", None)
         telemetry.update(result_diagnostics)
         telemetry["optimizer_step_delta"] = int(getattr(result, "optimizer_step_delta", -1))
         telemetry["exact_one_update"] = telemetry["optimizer_step_delta"] == 1
@@ -4992,7 +4996,15 @@ def _capture_physics_frame(
     if contact is None:
         return None
     expected_support, contact_repaired, contact_noisy = contact
-    zmp_pair = _contact_wrench_zmp_pair(runner, command, pair_layout, expected_support, n)
+    zmp_pair = _contact_wrench_zmp_pair(
+        runner,
+        command,
+        pair_layout,
+        expected_support,
+        contact_repaired,
+        contact_noisy,
+        n,
+    )
     if zmp_pair is None:
         return None
     zmp_repaired, zmp_noisy = zmp_pair
@@ -5096,7 +5108,7 @@ def _contact_sensor_pair(
     expected_repair = support_rows[:n].bool()
     expected_noisy = support_rows[base_start : base_start + n].bool()
     if not torch.equal(expected_repair, expected_noisy):
-        raise RuntimeError("FRS-GAIN-v005 paired roles do not share sealed expected support identity")
+        raise RuntimeError("FRS-GAIN-v006 paired roles do not share sealed expected support identity")
     return expected_repair, actual[:n], actual[base_start : base_start + n]
 
 
@@ -5239,6 +5251,8 @@ def _contact_wrench_zmp_pair(
     command: Any,
     pair_layout: Any,
     expected_support: torch.Tensor,
+    contact_repaired: torch.Tensor,
+    contact_noisy: torch.Tensor,
     n: int,
 ) -> tuple[torch.Tensor, torch.Tensor] | None:
     """Produce paired true contact-wrench ZMP margins; no proxy fallback exists."""
@@ -5282,16 +5296,6 @@ def _contact_wrench_zmp_pair(
             raise RuntimeError(
                 f"contact-wrench ZMP requires sealed expected_support [{int(command.num_envs)},2], got {shape}"
             )
-        required = support_all.to(device=runner.device).bool().any(dim=-1)
-        if bool((required & ~zmp_valid).any()):
-            missing_rows = torch.nonzero(required & ~zmp_valid, as_tuple=False).reshape(-1).tolist()
-            left_counts = raw_left[3].sum(dim=(1, 2)).detach().cpu().tolist()
-            right_counts = raw_right[3].sum(dim=(1, 2)).detach().cpu().tolist()
-            raise RuntimeError(
-                "supported phase is missing a vertical foot-ground contact resultant; "
-                f"missing_rows={missing_rows} left_contact_counts={left_counts} "
-                f"right_contact_counts={right_counts}"
-            )
         margin = expected_support_envelope_margin(
             zmp_xy,
             envelope.to(device=runner.device),
@@ -5303,7 +5307,27 @@ def _contact_wrench_zmp_pair(
             f"contact-wrench ZMP capture failed at {type(exc).__name__}: {exc}"
         ) from exc
     base_start = int(pair_layout.n_train) + int(pair_layout.n_candidate)
-    return margin[:n].detach(), margin[base_start : base_start + n].detach()
+    expected_loaded = expected_support.to(device=runner.device, dtype=torch.bool).any(dim=-1)
+    branch_rows = (
+        ("Repair", slice(0, n), contact_repaired),
+        ("Noisy", slice(base_start, base_start + n), contact_noisy),
+    )
+    outputs: list[torch.Tensor] = []
+    for role, rows, actual_contact in branch_rows:
+        actual_loaded = actual_contact.to(device=runner.device, dtype=torch.bool).any(dim=-1)
+        required = expected_loaded & actual_loaded
+        branch_valid = zmp_valid[rows]
+        if bool((required & ~branch_valid).any()):
+            missing_rows = torch.nonzero(required & ~branch_valid, as_tuple=False).reshape(-1).tolist()
+            raise RuntimeError(
+                f"{role} loaded support is missing a finite raw contact-wrench resultant; "
+                f"branch_rows={missing_rows}"
+            )
+        branch_margin = margin[rows]
+        outputs.append(
+            torch.where(required, branch_margin, torch.full_like(branch_margin, float("nan"))).detach()
+        )
+    return outputs[0], outputs[1]
 
 
 def _root_relative_body_pos(body_pos: torch.Tensor) -> torch.Tensor:

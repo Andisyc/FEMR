@@ -29,13 +29,18 @@ def main() -> None:
     assert tuple(card["id"] for card in cards) == EXPECTED_IDS
 
     for card in cards:
-        assert card["cardKind"] == "quality_probe"
+        assert card["cardKind"] in {
+            "quality_probe",
+            "quality_runtime_confirmed_actor_efficacy_pending",
+        }
         assert card["parentDesignPoint"]
         assert card["question"]
         assert card["failureOwner"]
         expected_blocks = (
             6
             if card["id"] == "QUALITY-ACTION-01"
+            else 5
+            if card["id"] == "QUALITY-GAIN-01"
             else 4
             if card["id"] in ("QUALITY-ID-01", "QUALITY-CREDIT-01", "QUALITY-UPDATE-01")
             else 3
@@ -49,7 +54,10 @@ def main() -> None:
             assert file_block["sourceHref"] == probe_step["sourceHref"]
             source_path = ROOT / file_block["path"]
             source_line = source_path.read_text().splitlines()[file_block["sourceLine"] - 1]
-            assert f"# B{index}:" in source_line
+            assert f"# B{index}:" in source_line, (
+                f"stale source link for {card['id']}-B{index}: "
+                f"{file_block['path']}:{file_block['sourceLine']} -> {source_line!r}"
+            )
 
     print("PASS: policy-quality eight-owner Atlas is source-linked and governance-readable.")
 

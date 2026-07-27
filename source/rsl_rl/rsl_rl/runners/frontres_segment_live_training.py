@@ -1917,14 +1917,14 @@ def _v015_formal_update_summary(result: Any) -> dict[str, Any]:
 
 
 def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, Any]:
-    """Project immutable v005 objective/constraint reports into read-only live telemetry."""
+    """Project immutable v006 objective/constraint reports into read-only live telemetry."""
 
     diagnostics = getattr(result, "diagnostics", None)
     if not isinstance(diagnostics, Mapping):
         raise RuntimeError("v015 formal result requires sealed transaction diagnostics")
-    reports = diagnostics.get("v005_action_constraint_reports")
+    reports = diagnostics.get("v006_action_constraint_reports")
     if not isinstance(reports, tuple) or not reports:
-        raise RuntimeError("v015 formal result requires immutable v005 action/constraint reports")
+        raise RuntimeError("v015 formal result requires immutable v006 action/constraint reports")
 
     def required_finite(name: str) -> float:
         if name not in diagnostics:
@@ -1958,7 +1958,7 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
     optimization_contract_id = required_identity("optimization_contract_id", "FRS-PPO-v004")
     scalar_target_id = required_identity("scalar_target_id", "paired-intent-minus-repair-v1")
     constraint_schema_id = required_identity(
-        "constraint_schema_id", "contact-phase_zmp-survival-physical-v1"
+        "constraint_schema_id", "contact-loaded-phase_zmp-survival-physical-v2"
     )
     projection_schema_id = required_identity(
         "projection_schema_id", "grouped-first-order-constraint-projection-v1"
@@ -2052,6 +2052,7 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "zmp_margin_repaired_steps": [],
         "zmp_margin_noisy_steps": [],
         "zmp_applicable_steps": [],
+        "zmp_applicable_noisy_steps": [],
         "support_transition_steps": [],
         "zmp_step_violation_repaired": [],
         "zmp_step_violation_noisy": [],
@@ -2153,6 +2154,7 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         fields["zmp_margin_repaired_steps"].extend(report.zmp_margin_repaired_steps)
         fields["zmp_margin_noisy_steps"].extend(report.zmp_margin_noisy_steps)
         fields["zmp_applicable_steps"].extend(report.zmp_applicable_steps)
+        fields["zmp_applicable_noisy_steps"].extend(report.zmp_applicable_noisy_steps)
         fields["support_transition_steps"].extend(report.support_transition_steps)
         fields["zmp_step_violation_repaired"].extend(report.zmp_step_violation_repaired)
         fields["zmp_step_violation_noisy"].extend(report.zmp_step_violation_noisy)
@@ -2164,10 +2166,11 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         fields["zmp_recovery_trajectory_noisy"].extend(report.zmp_recovery_trajectory_noisy)
         for name, values in components.items():
             for is_valid, value in zip(valid, values):
+                optional_zmp = name in {"repaired_zmp_margin", "noisy_zmp_margin", "physics_zmp_gain"}
                 if is_valid:
-                    if not math.isfinite(value):
+                    if not math.isfinite(value) and not optional_zmp:
                         raise RuntimeError(f"v015 live telemetry valid {name} is nonfinite")
-                    fields[name].append(value)
+                    fields[name].append(value if math.isfinite(value) else None)
                     if name == "gain_total":
                         valid_gain_total.append(value)
                 else:
@@ -2175,7 +2178,7 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
                         raise RuntimeError(f"v015 live telemetry invalid {name} must remain UNCONFIRMED")
                     fields[name].append(None)
 
-    row_order = tuple(int(value) for value in diagnostics.get("v005_diagnostic_report_row_order", ()))
+    row_order = tuple(int(value) for value in diagnostics.get("v006_diagnostic_report_row_order", ()))
     flat_row_count = len(fields["policy_actions"])
     if sorted(row_order) != list(range(flat_row_count)):
         raise RuntimeError(
@@ -2347,9 +2350,9 @@ def _require_v015_committed_result(runner: Any, result: Any) -> dict[str, Any]:
     if (
         not isinstance(telemetry, Mapping)
         or telemetry.get("training_contract_id") != "FRS-TRAIN-v010"
-        or telemetry.get("gain_contract_id") != "FRS-GAIN-v005"
+        or telemetry.get("gain_contract_id") != "FRS-GAIN-v006"
     ):
-        raise RuntimeError("v015 formal training requires exact v010/v005 telemetry identity")
+        raise RuntimeError("v015 formal training requires exact v010/v006 telemetry identity")
     for name in (
         "curriculum_fingerprint",
         "k_stage_index",

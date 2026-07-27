@@ -1,11 +1,16 @@
 ---
 contract_id: FRS-GAIN-v005
-status: active
+status: superseded
 effective_date: 2026-07-23
 updated_date: 2026-07-27
 supersedes: FRS-GAIN-v004
 scope: scalar paired root-invariant Intent improvement minus full-6D repair cost, with unsaturated physical-unit Contact, phase-ZMP, and survival residuals retained as separate actor constraints
 ---
+
+Superseded by `FRS-GAIN-v006`. Runtime evidence showed that this version
+incorrectly invalidated a transaction when an expected-support phase contained
+valid sensor evidence of zero actual load. That state is a Contact violation,
+not a corrupt evidence payload.
 
 # Vector Physics Constraints And Scalar Intent Objective
 

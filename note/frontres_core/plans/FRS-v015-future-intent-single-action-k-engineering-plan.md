@@ -1,16 +1,16 @@
 # FRS-v015 Physics-Constrained Intent Migration Engineering Plan
 
-Status: active, volatile engineering plan. Updated: 2026-07-24.
+Status: active, volatile engineering plan. Updated: 2026-07-27.
 
 ## Authority
 
 - Concept Figure: `../../architecture/concept/03_frontres_concept_tabs.data.json`
-- Active contracts: FRS-METHOD-v016 / FRS-GAIN-v005 / FRS-PPO-v004 /
+- Active contracts: FRS-METHOD-v016 / FRS-GAIN-v006 / FRS-PPO-v004 /
   FRS-TRAIN-v010
-- Active source/runtime route: FRS-METHOD-v016 / FRS-GAIN-v005 /
+- Active source/runtime route: FRS-METHOD-v016 / FRS-GAIN-v006 /
   FRS-PPO-v004 / FRS-TRAIN-v010
 - P0 decision record:
-  `FRS-GAIN-v005-vector-physics-constrained-intent-proposal.md`
+`FRS-GAIN-v005-vector-physics-constrained-intent-proposal.md`
 - Checklist: `../checklists/FRS-v015-future-intent-single-action-k-checklist.md`
 - Evidence: `../../testing/evidence_ledger_v015_future_intent_single_action_k_2026-07-19.md`
 
@@ -37,7 +37,7 @@ multi-Segment x M atomicity, grouped equal mass, proposal-only HSL, K-stage
 Critic curriculum, exact-one update, and v004 runtime connectivity. They do not
 prove that the v004 scalar target preserves Physics direction information.
 
-The active source/runtime route now implements v016/v005/v004/v010. Historical
+The active source/runtime route now implements v016/v006/v004/v010. Historical
 v004/v003/v009 identities remain isolated and reject on the formal route.
 
 ## Source Of Truth And Migration Surface
@@ -46,7 +46,7 @@ v004/v003/v009 identities remain isolated and reject on the formal route.
 | --- | --- | --- | --- |
 | Noisy baseline | existing sealed scenario / two-role collector | same owner | retain exactly one shared zero-action baseline; never score it as a PPO row |
 | K-step Physics evidence | command + live probe + storage | evidence exists but is reduced for v004 | retain ordered Contact/phase-ZMP/survival and semantic masks until loss |
-| scalar objective | `frontres_gain.py` v005 owner | v004 tiered `gain_total` | only paired Intent improvement minus repair cost reaches scalar Critic |
+| scalar objective | `frontres_gain.py` v006 owner | v004 tiered `gain_total` | only paired Intent improvement minus repair cost reaches scalar Critic |
 | constrained actor update | `frontres_segment_ppo.py` v004 owner | scalar-advantage PPO v003 | separate Physics constraint surrogates; no scalar Physics reward fallback |
 | exact-one transaction | formal update owner | v009/v003 path | same sealed rows and grouped mass; one projected actor + scalar-Critic step |
 | replay priority | existing sampler evidence owner | v004 scalar Gain projection | selection-only evidence; cannot multiply actor loss or recreate scalar Physics reward |
@@ -396,7 +396,7 @@ Owner route: `commands.py` derives and seals Clean-continuation expected
 Contact plus an oriented `[K,6]` foot support envelope; G1 config installs
 separate filtered left/right foot-to-ground raw-contact sensors;
 `frontres_segment_live_probe.py` computes world-frame contact-wrench ZMP and
-signed margin against the expected envelope; existing v005 storage/Gain/PPO
+signed margin against the expected envelope; existing v006 storage/Gain/PPO
 consume the resulting phase-ZMP evidence unchanged. `frontres_checkpointing.py`
 binds the estimator/carrier identity and rejects older checkpoint-v5 payloads
 that do not name it.
@@ -406,7 +406,7 @@ inside/outside/flight, missing-resultant and raw-PhysX-buffer fixtures pass;
 local-scenario hash/provenance, two-role reset, one-action-K, formal transaction,
 928/158/770 observation isolation and strict save/resume contracts pass. The
 old root/capture-point balance proxy remains only in the frozen observation
-context and is unreachable from formal v005 Physics capture.
+context and is unreachable from formal v006 Physics capture.
 
 Non-scope: Gain/PPO mathematics, budgets/scales, actor/GMT observation, HSL,
 TRAIN-v010 schedule, simulator, training, long-run lineage and deployment.
@@ -417,6 +417,20 @@ normals and force magnitudes with the configured terrain filters, yields finite
 supported-phase ZMP, preserves flight N/A and saves the new strict checkpoint
 identity. Missing raw API, supported-phase missing resultant, role/hash drift,
 proxy fallback or actor-visible Clean geometry is a hard stop.
+
+#### P4 Loaded-Support ZMP Applicability Closure
+
+Status: deterministic S1/S2/S3 contract-complete at E-FI-82; no simulator,
+training or live run occurred.
+
+FRS-GAIN-v006 resolves the first live sensor-authority contradiction without
+changing the scalar objective or PPO projection. Valid ContactSensor no-load is
+a scored Contact violation, not corrupt evidence. ZMP is role-specific N/A when
+that role has no actual loaded support. Malformed raw payload and the converse
+case, actual loaded support without a finite raw-wrench resultant, still fail
+closed. One-action-K, paired Gain facts, return evidence, transaction telemetry,
+atomic quality reports and checkpoint-v5 now carry this distinction. Strict
+resume rejects GAIN-v005/schema-v1 before mutable restore.
 
 ## Why Four Main Steps
 
@@ -435,4 +449,4 @@ are deliberately merged into P2.
 
 ## Cursor
 
-Current cursor: `E-FI-81 closes contact-wrench ZMP and expected-support-envelope authority offline; a bounded official sensor-authority sentinel is required before choosing a post-fix training lineage`.
+Current cursor: `E-FI-82 closes loaded-support ZMP applicability end to end offline; one bounded official sensor-authority sentinel remains before choosing a post-fix training lineage`.
