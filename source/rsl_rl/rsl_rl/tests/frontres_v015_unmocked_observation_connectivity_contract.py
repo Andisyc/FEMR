@@ -265,6 +265,7 @@ def _build_fixture():
         intent_q29=sealed["intent_q29"],
         clean_continuation=sealed["clean_continuation"],
         expected_support=sealed["expected_support"],
+        expected_support_envelope=sealed["expected_support_envelope"],
         horizon_k=torch.full((8,), 2, dtype=torch.long),
         continuation_lengths=torch.full((8,), 2, dtype=torch.long),
         scenario_ids=sealed["scenario_ids"],

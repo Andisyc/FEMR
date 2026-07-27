@@ -25,8 +25,8 @@ Concept Figure. Canonical names and block IDs come from
 | `FRS-DP-03` | K-step Curriculum | `FRS-METHOD-v016` / `Preserved Replay Authority`; `FRS-TRAIN-v010` / `Per-K Recalibration` | `M-06` | v009 runtime evidence is historical compatibility evidence only; P2 must implement the v010 target and checkpoint-v5 identity. |
 | `FRS-DP-04` | FrontRES 6D Repair | `FRS-METHOD-v016` / `Actor And Information Boundary` | `M-04` | The 158D/full-6D authority remains unchanged; P2 must ensure constraint evidence cannot enter actor observations. |
 | `FRS-DP-05` | Frozen GMT | `FRS-METHOD-v016` / `Preserved Replay Authority` | `M-10` | Existing one-action-K evidence remains valid; P2 changes only its loss-side interpretation. |
-| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v005` / `Paired Evidence Authority` | `Q-PAIR` | E-FI-72 fixes Noisy as the paired zero-action baseline; P2 must retain ordered, uncollapsed Repair Contact/phase-ZMP/survival evidence. |
-| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v005` / `Scalar Objective And Physics Constraints`; `FRS-PPO-v004` / `Grouped First-Order Projection` | `Q-01` | P1 activates the constrained-Intent contract; current v004/v003 source remains incompatible until P2. |
+| `FRS-DP-06` | Paired Rollouts | `FRS-GAIN-v005` / `Paired Evidence Authority` | `Q-PAIR` | E-FI-81 preserves the same sealed paired roles while replacing formal ZMP proxy evidence with contact-wrench ZMP against immutable Clean-foot envelopes. |
+| `FRS-DP-07` | Repair Gain | `FRS-GAIN-v005` / `Scalar Objective And Physics Constraints`; `FRS-PPO-v004` / `Grouped First-Order Projection` | `Q-01` | v005/PPO-v004 mathematics are source-connected; E-FI-81 closes estimator/carrier/persistence offline, with official raw-sensor S4 still open. |
 | `FRS-DP-08` | HSL Warmup | `FRS-TRAIN-v010` / `Actor-Only Initialization` | `M-03` | HSL-v1 remains frozen and actor-only; P2 must not change its target or payload. |
 | `FRS-DP-09` | Actor & Critic Warmup | `FRS-TRAIN-v010` / `Fresh Target Entry And Per-K Recalibration` | `M-05` | Fresh v010 target entry rejects v004 Critic state; each global K increase recalibrates the same v010 Critic with actor/std frozen before ramp and joint. Source support is P2-pending. |
 | `FRS-DP-10` | Future Motion Context | `FRS-METHOD-v016` / `Actor And Information Boundary` | `M-11` | Existing deployment/Noisy q29 H evidence remains valid and is not changed by P1. |
@@ -88,11 +88,17 @@ The human Concept Figure, active contracts and formal source route agree.
 E-FI-74 closes deterministic METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010
 connectivity; E-FI-75 live-confirms one constrained K8 transaction and
 checkpoint-v5; E-FI-77 closes strict v5 full resume and raw quality evidence;
-E-FI-78 advances the same K8 Critic from iteration 1 to the fixed iteration-200
-actor-warmup boundary while actor/std remain unchanged. Silent v004/v003/v009
-fallback remains forbidden. Policy efficacy is still unconfirmed: the next
-authorized material-cost boundary is the single-update P4-S3 actor-ramp
-sentinel, not automatic longer training.
+E-FI-78 advances the same K8 Critic to the iteration-200 actor-warmup boundary.
+E-FI-79 records the later `model_251.pt` -> `model_2000.pt` run and exposes four
+post-rescale recovery KKT violations. E-FI-80 repairs that implementation
+mismatch without changing PPO-v004 semantics: recovery is reprojected after
+norm scaling and the formal telemetry consumer enforces checkpoint-v5
+tolerance. E-FI-81 closes the later Physics evidence-authority mismatch offline:
+formal phase-ZMP now uses per-contact wrench data against sealed Clean-foot
+support envelopes, and checkpoint-v5 binds that evidence identity. Official
+IsaacLab raw-contact S4 remains unconfirmed. Silent v004/v003/v009 fallback
+remains forbidden. Policy efficacy and the disposition of the pre-fix
+checkpoint lineage remain unconfirmed.
 
 ## Reading Rule
 

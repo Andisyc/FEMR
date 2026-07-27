@@ -146,6 +146,12 @@ def _stage3_payload(checkpointing, *, transaction_state: str = "idle") -> dict[s
             "optimization_contract_id": "FRS-PPO-v004",
             "scalar_target_id": "paired-intent-minus-repair-v1",
             "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+            "physics_evidence": {
+                "zmp_estimator_id": "contact-wrench-zmp-v1",
+                "support_envelope_id": "clean-foot-pose-oriented-box-v1",
+                "actual_contact_id": "contact-sensor-net-normal-force-threshold-v1",
+                "expected_phase_id": "clean-foot-height-phase-v1",
+            },
             "projection_schema_id": "grouped-first-order-constraint-projection-v1",
             "constraint_solver": {
                 "family_order": ("contact", "zmp", "survival"),

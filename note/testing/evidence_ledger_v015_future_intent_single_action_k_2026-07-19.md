@@ -5410,3 +5410,135 @@ Verdict and limitation:
   `model_200.pt`, starting at weight `1/500 = 0.002`. It requires explicit
   simulator/live authorization and must not expand into a second update or
   longer training without a new policy-quality decision.
+
+## E-FI-79: P4 Long Training Runtime Review And KKT Contradiction
+
+Date: 2026-07-24
+
+Tier: read-only L0 log audit of repository-root
+`v015_train_to_model2000_gpu1.log`. No source, checkpoint, simulator or
+training state was modified during this review.
+
+Live-confirmed facts:
+
+- strict full resume loads `model_251.pt`; 1749 unique telemetry records cover
+  training iterations 251--1999 and save `model_2000.pt` at absolute iteration
+  2000;
+- every accepted transaction has two Segments, four valid attempts, equal
+  attempt mass `(0.25, 0.25, 0.25, 0.25)`, equal motion/segment mass and exactly
+  one optimizer step; METHOD-v016 / GAIN-v005 / PPO-v004 / TRAIN-v010 remain
+  present throughout;
+- actor-ramp ends at iteration 699 and joint training covers 700--1999. Actor
+  and Critic parameter deltas remain finite and nonzero; action L2 remains near
+  `0.0103`, so the training actor does not numerically collapse to zero;
+- late-joint scalar Critic value mean falls to `0.00254` and raw-advantage mean
+  improves to `-0.01492`, but late Gain mean remains `-0.01238`, positive-Gain
+  fraction `0.369`, Intent mean `-0.00210`, Physics mean `+0.00271`, and repair
+  cost mean `0.01028`. This supports Critic calibration but not a policy-
+  efficacy claim;
+- Repair and Noisy full K8 survival are each `0.999142` over all rows; no
+  sustained-lean telemetry is serialized by this training log.
+
+Contradiction:
+
+- iterations 445, 653, 1309 and 1394 report `CONSTRAINT_RECOVERY` with KKT
+  residuals `0.929612`, `57.627438`, `37.050545` and `24.576648` respectively;
+- source reconstruction identifies the first invalid owner as recovery norm
+  scaling after a tolerance-feasible projection. Positive float32 residuals
+  that were within tolerance before scaling were amplified without a second
+  feasibility solve;
+- the formal telemetry consumer accepted any finite nonnegative KKT value, so
+  these four contract violations did not fail closed.
+
+Verdict: the long run completed mechanically, but the pre-fix `model_2000.pt`
+is not a contract-clean final artifact. It may be retained as diagnostic or
+warm-start evidence pending a human checkpoint-lineage decision.
+
+## E-FI-80: Recovery Postscale KKT Source And Consumer Closure
+
+Date: 2026-07-24
+
+Tier: deterministic S1 core-parameter regression plus S2 formal-consumer
+contract. No simulator, training, checkpoint I/O or live run occurred.
+
+Source repair:
+
+- `frontres_segment_ppo.py` reprojects the recovery direction after target-norm
+  scaling and accepts it only when all active directional derivatives are at
+  most `projection_tolerance` and at least one is strictly negative;
+- failure to recover a finite common descent falls through to the existing
+  `NO_COMMON_FIRST_ORDER_DESCENT` zero-actor direction;
+- `frontres_segment_live_training.py` rejects KKT above the checkpoint-v5
+  `1e-8` tolerance and rejects disagreement between serialized directional
+  derivatives and the reported maximum violation.
+
+Fresh evidence:
+
+- the recorded near-opposing float32 fixture produced KKT `0.015625` before
+  repair and now returns `CONSTRAINT_RECOVERY`, KKT zero, Contact derivative
+  `-0.015625` and ZMP derivative `-173.5625`;
+- `frontres_segment_grouped_ppo_contract.py`: PASS, including inactive,
+  feasible, recovery, no-direction, no-common, permutation, postscale KKT,
+  actor/Critic authority and ZMP N/A cases;
+- `frontres_v015_transaction_route_contract.py`: PASS, including explicit
+  rejection of over-tolerance and inconsistent KKT telemetry;
+- `python -m py_compile` for the two source owners and two contracts: PASS.
+
+Verdict: producer and final formal consumer are contract-confirmed offline.
+No post-fix live transaction or checkpoint has yet been produced.
+
+## E-FI-81: Contact-Wrench ZMP And Expected-Support Authority Closure
+
+Date: 2026-07-27
+
+Tier: deterministic S1 estimator/carrier, S2 formal connectivity and S3 strict
+persistence contracts, including temporary-directory save/reload fixtures. No
+simulator, training, external checkpoint mutation or live run occurred.
+
+First-invalid closure:
+
+- the formal Physics capture no longer calls the root/capture-point balance
+  proxy or evaluates ZMP against a Repair-created foot polygon;
+- G1 formal config installs separate filtered left/right foot-to-ground sensors
+  with raw contact-point tracking;
+- `contact-wrench-zmp-v1` computes world-frame ZMP/CoP from per-contact point,
+  normal and normal-force magnitude;
+- the sealed Clean continuation deterministically derives and hashes
+  `clean-foot-pose-oriented-box-v1` `[K,6]` support/recovery envelopes, marked
+  `clean_gmt_physics_only`; they do not enter actor or GMT observations;
+- supported phases without a finite ground resultant fail closed and flight is
+  explicit ZMP N/A.
+
+Persistence identity:
+
+- checkpoint-v5 now binds `zmp_estimator_id`, `support_envelope_id`,
+  `actual_contact_id` and `expected_phase_id`;
+- a previous checkpoint-v5 lacking this evidence identity rejects before actor,
+  Critic, optimizer, sampler or normalizer mutation.
+
+Focused evidence:
+
+- `frontres_contact_wrench_zmp_contract.py`: PASS for golden resultant, world
+  translation, contact/row permutation, changed application point, signed
+  envelope margin, flight N/A, missing resultant and raw PhysX buffer unpack;
+- `frontres_local_scenario_kernel_contract.py`: PASS for schema, provenance,
+  hash mutation, horizon and immutability;
+- `frontres_v015_two_role_reset_contract.py`,
+  `frontres_v015_current_gmt_command_contract.py`,
+  `frontres_v015_role_aligned_future_intent_contract.py`,
+  `frontres_v015_one_action_k_contract.py`,
+  `frontres_v015_unmocked_observation_connectivity_contract.py`: PASS;
+- `frontres_intent_physics_gain_contract.py` and
+  `frontres_v015_transaction_route_contract.py`: PASS with v005/PPO-v004
+  mathematics unchanged;
+- `frontres_v015_checkpoint_resume_contract.py`,
+  `frontres_v015_policy_quality_identity_contract.py` and
+  `frontres_v015_local_sentinel_connectivity_contract.py`: PASS;
+- Python compilation for all modified production owners: PASS.
+
+Verdict: source producer, immutable carrier, formal consumer isolation and
+persistence are contract-confirmed offline. The official server IsaacLab raw
+contact API, terrain filter resolution and finite supported-phase values remain
+S4-unconfirmed. A bounded sensor-authority sentinel is required before any new
+training lineage; proxy fallback, missing supported resultant, role/hash drift,
+flight misclassification or Clean geometry reaching the actor is a hard stop.

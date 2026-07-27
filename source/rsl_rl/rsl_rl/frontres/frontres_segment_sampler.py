@@ -736,6 +736,7 @@ class FrontRESLocalScenarioMaterialization:
     intent_q29: torch.Tensor
     clean_continuation: torch.Tensor
     expected_support: torch.Tensor
+    expected_support_envelope: torch.Tensor
     provenance: Mapping[str, Any]
 
 
@@ -749,6 +750,7 @@ class FrontRESLocalScenario:
     _intent_q29: torch.Tensor
     _clean_continuation: torch.Tensor
     _expected_support: torch.Tensor
+    _expected_support_envelope: torch.Tensor
     provenance: Mapping[str, str | int | float | bool]
 
     @classmethod
@@ -763,35 +765,42 @@ class FrontRESLocalScenario:
                 "materialize_scenario must return FrontRESLocalScenarioMaterialization, "
                 f"got {type(materialization)!r}"
             )
-        artifact, intent, continuation, expected_support = _validate_local_scenario_payload(
+        artifact, intent, continuation, expected_support, expected_support_envelope = _validate_local_scenario_payload(
             materialization.current_root_artifact_t,
             materialization.intent_q29,
             materialization.clean_continuation,
             materialization.expected_support,
+            materialization.expected_support_envelope,
             request=request,
         )
         provenance = _freeze_local_scenario_provenance(materialization.provenance)
         return cls(
             request=request,
-            noisy_segment_hash=_local_scenario_hash(request, artifact, intent, continuation, expected_support, provenance),
+            noisy_segment_hash=_local_scenario_hash(
+                request, artifact, intent, continuation, expected_support, expected_support_envelope, provenance
+            ),
             _current_root_artifact_t=artifact,
             _intent_q29=intent,
             _clean_continuation=continuation,
             _expected_support=expected_support,
+            _expected_support_envelope=expected_support_envelope,
             provenance=provenance,
         )
 
     def __post_init__(self) -> None:
         self.request.validate()
-        artifact, intent, continuation, expected_support = _validate_local_scenario_payload(
+        artifact, intent, continuation, expected_support, expected_support_envelope = _validate_local_scenario_payload(
             self._current_root_artifact_t,
             self._intent_q29,
             self._clean_continuation,
             self._expected_support,
+            self._expected_support_envelope,
             request=self.request,
         )
         provenance = _freeze_local_scenario_provenance(self.provenance)
-        observed_hash = _local_scenario_hash(self.request, artifact, intent, continuation, expected_support, provenance)
+        observed_hash = _local_scenario_hash(
+            self.request, artifact, intent, continuation, expected_support, expected_support_envelope, provenance
+        )
         if self.noisy_segment_hash != observed_hash:
             raise ValueError(
                 "noisy_segment_hash does not match the immutable local scenario: "
@@ -801,6 +810,7 @@ class FrontRESLocalScenario:
         object.__setattr__(self, "_intent_q29", intent)
         object.__setattr__(self, "_clean_continuation", continuation)
         object.__setattr__(self, "_expected_support", expected_support)
+        object.__setattr__(self, "_expected_support_envelope", expected_support_envelope)
         object.__setattr__(self, "provenance", provenance)
 
     @property
@@ -823,6 +833,10 @@ class FrontRESLocalScenario:
     def expected_support(self) -> torch.Tensor:
         return self._expected_support.detach().clone()
 
+    @property
+    def expected_support_envelope(self) -> torch.Tensor:
+        return self._expected_support_envelope.detach().clone()
+
     def probe(self) -> dict[str, Any]:
         return {
             "scenario_id": self.scenario_id,
@@ -835,6 +849,7 @@ class FrontRESLocalScenario:
             "intent_q29_shape": tuple(self._intent_q29.shape),
             "clean_continuation_shape": tuple(self._clean_continuation.shape),
             "expected_support_shape": tuple(self._expected_support.shape),
+            "expected_support_envelope_shape": tuple(self._expected_support_envelope.shape),
             "intent_q29_provenance": self.provenance["intent_q29_provenance"],
             "clean_continuation_provenance": self.provenance["clean_continuation_provenance"],
             "noisy_segment_hash": self.noisy_segment_hash,
@@ -1034,9 +1049,10 @@ def _validate_local_scenario_payload(
     intent_q29: torch.Tensor,
     clean_continuation: torch.Tensor,
     expected_support: torch.Tensor,
+    expected_support_envelope: torch.Tensor,
     *,
     request: FrontRESLocalScenarioRequest,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     def freeze(name: str, value: torch.Tensor) -> torch.Tensor:
         if not isinstance(value, torch.Tensor):
             raise TypeError(f"{name} must be a torch.Tensor")
@@ -1052,6 +1068,7 @@ def _validate_local_scenario_payload(
     intent = freeze("intent_q29", intent_q29)
     continuation = freeze("clean_continuation", clean_continuation)
     support = freeze("expected_support", expected_support)
+    envelope = freeze("expected_support_envelope", expected_support_envelope)
     if artifact.ndim != 1 or tuple(artifact.shape) != (7,):
         raise ValueError(f"current_root_artifact_t must have shape [7], got {tuple(artifact.shape)}")
     if intent.ndim != 2 or tuple(intent.shape) != (request.intent_frame_count, 29):
@@ -1068,7 +1085,13 @@ def _validate_local_scenario_payload(
         raise ValueError(f"expected_support must have shape [{int(request.horizon_k)},2], got {tuple(support.shape)}")
     if bool(((support != 0.0) & (support != 1.0)).any()):
         raise ValueError("expected_support must contain only binary left/right support states")
-    return artifact, intent, continuation, support
+    if tuple(envelope.shape) != (int(request.horizon_k), 6):
+        raise ValueError(
+            f"expected_support_envelope must have shape [{int(request.horizon_k)},6], got {tuple(envelope.shape)}"
+        )
+    if bool((envelope[:, 4:6] <= 0.0).any()):
+        raise ValueError("expected_support_envelope half extents must be positive")
+    return artifact, intent, continuation, support, envelope
 
 
 def _freeze_local_scenario_provenance(provenance: Mapping[str, Any]) -> Mapping[str, str | int | float | bool]:
@@ -1089,6 +1112,7 @@ def _freeze_local_scenario_provenance(provenance: Mapping[str, Any]) -> Mapping[
         "intent_q29_provenance": "deployment_noisy_q29",
         "clean_continuation_provenance": "clean_gmt_only",
         "expected_support_provenance": "clean_gmt_physics_only",
+        "expected_support_envelope_provenance": "clean_gmt_physics_only",
         "intent_q29_source": None,
     }
     for key, expected in required.items():
@@ -1108,6 +1132,7 @@ def _local_scenario_hash(
     intent_q29: torch.Tensor,
     clean_continuation: torch.Tensor,
     expected_support: torch.Tensor,
+    expected_support_envelope: torch.Tensor,
     provenance: Mapping[str, str | int | float | bool],
 ) -> str:
     digest = hashlib.sha256()
@@ -1129,6 +1154,7 @@ def _local_scenario_hash(
         ("intent_q29", intent_q29),
         ("clean_continuation", clean_continuation),
         ("expected_support", expected_support),
+        ("expected_support_envelope", expected_support_envelope),
     ):
         value = tensor.detach().to(device="cpu").contiguous()
         digest.update(str(name).encode("utf-8"))

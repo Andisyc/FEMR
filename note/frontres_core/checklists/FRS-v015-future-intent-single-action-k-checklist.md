@@ -1,6 +1,6 @@
 # FRS-v015 Physics-Constrained Intent Migration Checklist
 
-Status: active, volatile acceptance surface. Updated: 2026-07-24.
+Status: active, volatile acceptance surface. Updated: 2026-07-27.
 
 | Step | Owner / tier | Acceptance assertion | Status | Evidence / stop |
 | --- | --- | --- | --- | --- |
@@ -24,8 +24,15 @@ Status: active, volatile acceptance surface. Updated: 2026-07-24.
 | P4-S1 | S3 persistence/isolation | resumed save remains coordinated checkpoint-v5 and evaluation mutates no optimizer/sampler/transaction/normalizer state | completed | E-FI-77; committed receipt survives idle re-save; save/reload isolation passes |
 | P4-S2 | S4 critic-only schedule | strict v5 resume executes exactly 199 K8 critic-only updates from absolute iteration 1 to 200 | completed | E-FI-78; 199/199 telemetry rows are `critic_only`, actor weight 0, actor/std delta 0, Critic delta nonzero |
 | P4-S2 | S4 transaction/persistence | every accepted transaction has 4 valid rows, equal attempt mass and exact-one update; rejected scenarios do not step; final save is coordinated v5 at iteration 200 | completed | E-FI-78; `v015_p4_critic_k8_to_200_gpu3.log`; `model_200.pt` persistence sentinel |
-| P4-S3 | S4 first actor-ramp sentinel | strict `model_200.pt` resume performs one K8 transaction at actor weight 0.002; actor and Critic change finitely, std stays finite under its existing authority, and save iteration 201 remains v5 | ready, not authorized | stop on HSL/legacy fallback, wrong phase/weight, missing Physics/KKT, zero actor/Critic delta, nonfinite actor/std delta, mixed identity or update count != 1 |
-| P4 | quality | target distinguishes v004 plateau cases and actor update improves or preserves Physics without sustained lean/unplanned stepping | awaiting actor-ramp evidence | E-FI-78 closes Critic budget only; one bounded actor-ramp sentinel is the next material-cost gate |
+| P4-S3 | S4 actor-ramp lineage | the strict actor-ramp lineage advances beyond iteration 200 and is the parent of the `model_251.pt` full-resume input | runtime-complete, prior evidence | E-FI-79 directly confirms the descendant checkpoint is loaded; this row is no longer the active boundary |
+| P4-LT | S4 long training | `model_251.pt` reaches iteration 2000 through complete 2-Segment x 2-attempt exact-one transactions | runtime-complete with defect | E-FI-79; 1749/1749 committed, but four `CONSTRAINT_RECOVERY` rows violate KKT after norm rescale |
+| P4-KKT | S1 projection regression | norm-rescaled recovery is reprojected and remains within every active halfspace | completed | E-FI-80; recorded near-opposing float32 fixture fails before and passes after repair |
+| P4-KKT | S2 formal consumer | serialized KKT above checkpoint-v5 tolerance or inconsistent with directional derivatives rejects before further training state use | completed | E-FI-80; transaction-route negative contracts pass |
+| P4-ZMP | S1 estimator/carrier | raw per-contact force/point/normal produces a permutation-stable world ZMP and sealed Clean foot pose produces immutable `[K,6]` expected support envelopes | completed offline | E-FI-81; golden/missing/flight/hash/provenance contracts pass |
+| P4-ZMP | S2 formal connectivity | one-action-K Physics capture uses only contact-wrench ZMP against expected phase/envelope; root/capture proxy and actor-visible Clean geometry are unreachable | completed offline | E-FI-81; reset/K/transaction/observation contracts pass |
+| P4-ZMP | S3 persistence | checkpoint-v5 binds the new estimator/support/Contact/phase identities and old v5 payloads reject before state mutation | completed offline | E-FI-81; strict checkpoint/save/reload contracts pass |
+| P4-ZMP | S4 sensor authority | official IsaacLab emits finite raw filtered contacts and supported-phase ZMP with correct role/hash identity | pending bounded live | stop on missing API/resultant, proxy fallback, role drift or flight misclassification |
+| P4 | quality | target distinguishes v004 plateau cases and actor update improves or preserves Physics without sustained lean/unplanned stepping | blocked on lineage/efficacy decision | E-FI-79 shows Critic calibration improvement but no clear Intent/Gain trend; training log has no sustained-lean field |
 
 ## Pass Rule
 

@@ -183,11 +183,11 @@ Why separate: this is the simulator/material-cost and external-runtime boundary.
 
 ### P4 / 4: Policy-Quality Admission
 
-Status: P4-S2 critic-only continuation completed at E-FI-78. The strict v5
-resume route advanced K8 from `critic_only 1/200` to absolute iteration 200
-through 199 committed critic-only updates. `model_200.pt` is now at the
-TRAIN-v010 actor-warmup boundary; no actor-ramp update has run and policy-
-quality admission remains open.
+Status: actor-ramp and joint training reached `model_2000.pt`, but E-FI-79 found
+four post-rescale KKT violations in 1749 otherwise committed exact-one
+transactions. E-FI-80 closes the deterministic source/consumer defect offline;
+the pre-fix `model_2000.pt` remains a diagnostic/warm-start artifact rather
+than a contract-clean final checkpoint.
 
 Objective: decide whether the new target/update is informative enough to admit
 actor-ramp training.
@@ -304,7 +304,9 @@ policy efficacy.
 
 #### P4-S3: First Actor-Ramp Bounded Sentinel Contract
 
-Status: frozen and ready, not authorized.
+Status: runtime-complete in the checkpoint lineage consumed by E-FI-79. The
+current long-run log directly confirms strict full resume from `model_251.pt`;
+the earlier single-update evidence is no longer the active plan boundary.
 
 Objective: prove the first TRAIN-v010 actor-ramp update uses the constrained
 PPO-v004 direction without crossing into a longer training or policy-quality
@@ -351,6 +353,71 @@ systematic Physics regression, sustained-lean or unplanned-step evidence keeps
 P4 quality admission blocked and returns to mechanism audit rather than longer
 training.
 
+#### P4 Long Training And KKT Postcondition Repair
+
+Status: long training runtime-complete at E-FI-79; deterministic repair
+contract-complete at E-FI-80; no post-fix simulator/training run has occurred.
+
+Runtime result: `v015_train_to_model2000_gpu1.log` resumes `model_251.pt` and
+executes 1749 unique K8 transactions through absolute iteration 2000. Every
+transaction has four valid policy rows, equal grouped mass and exact-one
+optimizer update. Actor-ramp ends at iteration 699 and joint training covers
+700--1999. The final save reports `model_2000.pt` at iteration 2000.
+
+Contradiction: iterations 445, 653, 1309 and 1394 report
+`CONSTRAINT_RECOVERY` with positive post-rescale KKT residuals. The first
+invalid owner is `frontres_segment_ppo.py`: a recovery direction is projected,
+then norm-rescaled without re-establishing the active halfspace postcondition.
+The formal telemetry consumer previously accepted every finite nonnegative KKT
+value instead of enforcing checkpoint-v5 tolerance.
+
+Repair: the algorithm now reprojects the norm-rescaled recovery direction and
+accepts it only when every active directional derivative is at most the
+versioned tolerance and at least one is strictly decreasing. Otherwise it
+falls through to `NO_COMMON_FIRST_ORDER_DESCENT`. The formal telemetry adapter
+rejects KKT above `1e-8` and rejects disagreement between reported KKT and the
+serialized directional derivatives. Focused projection and formal-transaction
+contracts plus Python compilation pass.
+
+Non-scope: Gain, scalar Critic, actor/PPO loss, grouped mass, checkpoint format,
+TRAIN-v010 schedule, simulator, training, deployment composition or a policy-
+efficacy claim.
+
+Stop: no further scale training may use the repaired code until the user
+chooses whether the four-violation `model_2000.pt` is retained only as a
+warm-start or a strictly clean checkpoint lineage is required.
+
+#### P4 Physics Evidence Authority Closure
+
+Status: deterministic S1/S2/S3 contract-complete at E-FI-81; no simulator,
+training or live run has occurred.
+
+Owner route: `commands.py` derives and seals Clean-continuation expected
+Contact plus an oriented `[K,6]` foot support envelope; G1 config installs
+separate filtered left/right foot-to-ground raw-contact sensors;
+`frontres_segment_live_probe.py` computes world-frame contact-wrench ZMP and
+signed margin against the expected envelope; existing v005 storage/Gain/PPO
+consume the resulting phase-ZMP evidence unchanged. `frontres_checkpointing.py`
+binds the estimator/carrier identity and rejects older checkpoint-v5 payloads
+that do not name it.
+
+Evidence: pure resultant/moment, translation, contact permutation,
+inside/outside/flight, missing-resultant and raw-PhysX-buffer fixtures pass;
+local-scenario hash/provenance, two-role reset, one-action-K, formal transaction,
+928/158/770 observation isolation and strict save/resume contracts pass. The
+old root/capture-point balance proxy remains only in the frozen observation
+context and is unreachable from formal v005 Physics capture.
+
+Non-scope: Gain/PPO mathematics, budgets/scales, actor/GMT observation, HSL,
+TRAIN-v010 schedule, simulator, training, long-run lineage and deployment.
+
+Stop: before any further training, one bounded official sensor-authority
+sentinel must prove that the deployed IsaacLab version exposes raw points,
+normals and force magnitudes with the configured terrain filters, yields finite
+supported-phase ZMP, preserves flight N/A and saves the new strict checkpoint
+identity. Missing raw API, supported-phase missing resultant, role/hash drift,
+proxy fallback or actor-visible Clean geometry is a hard stop.
+
 ## Why Four Main Steps
 
 The plan has four execution steps plus preparatory P0. The splits are not by
@@ -368,4 +435,4 @@ are deliberately merged into P2.
 
 ## Cursor
 
-Current cursor: `P4-S2 critic-only continuation complete at E-FI-78; P4-S3 first actor-ramp bounded sentinel is frozen but requires explicit live-run authorization`.
+Current cursor: `E-FI-81 closes contact-wrench ZMP and expected-support-envelope authority offline; a bounded official sensor-authority sentinel is required before choosing a post-fix training lineage`.

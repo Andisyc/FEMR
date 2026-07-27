@@ -797,6 +797,29 @@ def test_t_formal_training_loop_never_calls_legacy_and_saves_after_commit(
             ppo=runner.alg,
         )
     )
+    infeasible_kkt = dict(result.diagnostics)
+    infeasible_kkt["constraint_kkt_max_violation"] = 1.0e-4
+    try:
+        training._v015_sealed_transaction_telemetry(
+            replace(result, diagnostics=infeasible_kkt),
+            ppo=runner.alg,
+        )
+    except RuntimeError as exc:
+        assert "exceeds the checkpoint-v5 constraint projection tolerance" in str(exc)
+    else:
+        raise AssertionError("formal telemetry must reject a postscale KKT violation")
+    inconsistent_kkt = dict(result.diagnostics)
+    inconsistent_kkt["constraint_kkt_max_violation"] = 0.0
+    inconsistent_kkt["constraint_directional_derivatives"] = {"contact": 1.0e-4}
+    try:
+        training._v015_sealed_transaction_telemetry(
+            replace(result, diagnostics=inconsistent_kkt),
+            ppo=runner.alg,
+        )
+    except RuntimeError as exc:
+        assert "inconsistent constraint KKT telemetry" in str(exc)
+    else:
+        raise AssertionError("formal telemetry must reject an inconsistent KKT projection report")
     runner.alg.frontres_segment_live_train_enabled = True
     runner._frontres_segment_replay_boundary = SimpleNamespace(
         live_train_enabled=True,

@@ -12,6 +12,102 @@ from typing import Any
 import torch
 
 
+FRONTRES_ZMP_ESTIMATOR_ID = "contact-wrench-zmp-v1"
+FRONTRES_SUPPORT_ENVELOPE_ID = "clean-foot-pose-oriented-box-v1"
+
+
+def contact_wrench_zmp_xy(
+    contact_points_w: torch.Tensor,
+    normal_force_magnitudes: torch.Tensor,
+    contact_normals_w: torch.Tensor,
+    valid_contacts: torch.Tensor,
+    *,
+    vertical_force_epsilon: float = 1.0e-6,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return horizontal ZMP/CoP from raw foot-ground normal contact wrenches.
+
+    Status: active FRS-GAIN-v005 Physics producer.
+    Upstream: two filtered IsaacLab foot ContactSensor raw contact buffers.
+    Downstream: ``expected_support_envelope_margin`` in the live probe.
+    Evidence: deterministic golden/permutation/missing contracts; live values remain S4-only.
+
+    Axes are ``[B, foot, contact, xyz]``. On the horizontal evaluation plane,
+    each normal contact contributes its vertical force at its reported world
+    contact point. Missing vertical resultant is explicit through ``valid``.
+    """
+
+    if (
+        contact_points_w.ndim != 4
+        or int(contact_points_w.shape[-1]) != 3
+        or tuple(contact_normals_w.shape) != tuple(contact_points_w.shape)
+        or tuple(normal_force_magnitudes.shape) != tuple(contact_points_w.shape[:-1])
+        or tuple(valid_contacts.shape) != tuple(normal_force_magnitudes.shape)
+    ):
+        raise ValueError("contact-wrench ZMP requires points/normals [B,F,C,3] and force/mask [B,F,C]")
+    if vertical_force_epsilon <= 0.0:
+        raise ValueError("vertical_force_epsilon must be positive")
+    finite = (
+        torch.isfinite(contact_points_w).all(dim=-1)
+        & torch.isfinite(contact_normals_w).all(dim=-1)
+        & torch.isfinite(normal_force_magnitudes)
+    )
+    active = valid_contacts.bool() & finite
+    if bool((normal_force_magnitudes[active] < 0.0).any()):
+        raise ValueError("normal contact-force magnitudes must be non-negative")
+    vertical_force = normal_force_magnitudes * contact_normals_w[..., 2].abs()
+    vertical_force = torch.where(active, vertical_force, torch.zeros_like(vertical_force))
+    resultant = vertical_force.sum(dim=(1, 2))
+    numerator = (vertical_force.unsqueeze(-1) * contact_points_w[..., :2]).sum(dim=(1, 2))
+    valid = resultant > float(vertical_force_epsilon)
+    zmp_xy = torch.full_like(numerator, float("nan"))
+    zmp_xy[valid] = numerator[valid] / resultant[valid].unsqueeze(-1)
+    return zmp_xy, valid
+
+
+def expected_support_envelope_margin(
+    zmp_xy_w: torch.Tensor,
+    envelope_local: torch.Tensor,
+    expected_support: torch.Tensor,
+    *,
+    env_origins_xy: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Return signed ZMP distance to a sealed Clean support envelope.
+
+    ``envelope_local`` is ``[B,6] = center_xy, cos(yaw), sin(yaw), half_x,
+    half_y``. Flight rows return NaN and are semantic N/A downstream.
+    """
+
+    if (
+        tuple(zmp_xy_w.shape[-1:]) != (2,)
+        or zmp_xy_w.ndim != 2
+        or tuple(envelope_local.shape) != (int(zmp_xy_w.shape[0]), 6)
+        or tuple(expected_support.shape) != (int(zmp_xy_w.shape[0]), 2)
+    ):
+        raise ValueError("support-envelope margin requires ZMP [B,2], envelope [B,6], support [B,2]")
+    if not bool(torch.isfinite(envelope_local).all()):
+        raise ValueError("sealed support envelope must be finite")
+    center = envelope_local[:, :2]
+    if env_origins_xy is not None:
+        if tuple(env_origins_xy.shape) != tuple(center.shape):
+            raise ValueError("env_origins_xy must match envelope centers [B,2]")
+        center = center + env_origins_xy
+    cos_yaw, sin_yaw = envelope_local[:, 2], envelope_local[:, 3]
+    half = envelope_local[:, 4:6]
+    if bool((half <= 0.0).any()):
+        raise ValueError("support-envelope half extents must be positive")
+    delta = zmp_xy_w - center
+    local_x = cos_yaw * delta[:, 0] + sin_yaw * delta[:, 1]
+    local_y = -sin_yaw * delta[:, 0] + cos_yaw * delta[:, 1]
+    margin = torch.minimum(half[:, 0] - local_x.abs(), half[:, 1] - local_y.abs())
+    applicable = expected_support.bool().any(dim=-1)
+    result = torch.full_like(margin, float("nan"))
+    finite_zmp = torch.isfinite(zmp_xy_w).all(dim=-1)
+    if bool((applicable & ~finite_zmp).any()):
+        raise ValueError("supported phase requires finite contact-wrench ZMP")
+    result[applicable] = margin[applicable]
+    return result
+
+
 def _frontres_branch_balance_margin(
     runner: Any,
     cmd: Any,

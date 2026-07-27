@@ -69,6 +69,12 @@ _FRONTRES_GAIN_CONFIG_FIELDS = (
 
 _V015_CHECKPOINT_IDENTITY_KEY = "frontres_v015_checkpoint_identity"
 _V015_CHECKPOINT_FORMAT = "frontres-v015-checkpoint-v5"
+_V015_PHYSICS_EVIDENCE_IDENTITY = {
+    "zmp_estimator_id": "contact-wrench-zmp-v1",
+    "support_envelope_id": "clean-foot-pose-oriented-box-v1",
+    "actual_contact_id": "contact-sensor-net-normal-force-threshold-v1",
+    "expected_phase_id": "clean-foot-height-phase-v1",
+}
 _V015_GROUPED_CANDIDATE_LAYOUT = "frontres-v015-local-scenario-v1"
 _V015_TRANSACTION_STATE_ATTR = "_frontres_v015_checkpoint_transaction_state"
 _V015_LAST_RECEIPT_ATTR = "_frontres_v015_last_committed_transaction_receipt"
@@ -1337,6 +1343,7 @@ def _build_v015_checkpoint_identity(
         "optimization_contract_id": "FRS-PPO-v004",
         "scalar_target_id": "paired-intent-minus-repair-v1",
         "constraint_schema_id": "contact-phase_zmp-survival-physical-v1",
+        "physics_evidence": dict(_V015_PHYSICS_EVIDENCE_IDENTITY),
         "projection_schema_id": "grouped-first-order-constraint-projection-v1",
         "constraint_solver": {
             "family_order": ("contact", "zmp", "survival"),
@@ -1390,6 +1397,7 @@ def _validate_v015_checkpoint_resume(runner: Any, checkpoint: Mapping[str, Any])
         or identity.get("optimization_contract_id") != "FRS-PPO-v004"
         or identity.get("scalar_target_id") != "paired-intent-minus-repair-v1"
         or identity.get("constraint_schema_id") != "contact-phase_zmp-survival-physical-v1"
+        or identity.get("physics_evidence") != _V015_PHYSICS_EVIDENCE_IDENTITY
         or identity.get("projection_schema_id") != "grouped-first-order-constraint-projection-v1"
     ):
         raise RuntimeError("v015 checkpoint has an incompatible contract or format identity")

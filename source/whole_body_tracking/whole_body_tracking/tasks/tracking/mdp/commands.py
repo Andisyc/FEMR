@@ -1528,6 +1528,7 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_local_scenario_current_command_q29_dq29: torch.Tensor | None = None
         self._frontres_local_scenario_clean_continuation: torch.Tensor | None = None
         self._frontres_local_scenario_expected_support: torch.Tensor | None = None
+        self._frontres_local_scenario_expected_support_envelope: torch.Tensor | None = None
         self._frontres_local_scenario_horizon_k = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._frontres_local_scenario_continuation_lengths = torch.zeros(
             self.num_envs, dtype=torch.long, device=self.device
@@ -1836,6 +1837,7 @@ class MultiMotionCommand(CommandTerm):
         intent_q29: torch.Tensor,
         clean_continuation: torch.Tensor,
         expected_support: torch.Tensor,
+        expected_support_envelope: torch.Tensor,
         horizon_k: torch.Tensor,
         continuation_lengths: torch.Tensor,
         scenario_ids: Sequence[str],
@@ -1861,6 +1863,7 @@ class MultiMotionCommand(CommandTerm):
             "intent_q29": intent_q29,
             "clean_continuation": clean_continuation,
             "expected_support": expected_support,
+            "expected_support_envelope": expected_support_envelope,
         }
         for name, value in payloads.items():
             if (
@@ -1887,6 +1890,8 @@ class MultiMotionCommand(CommandTerm):
             )
         if tuple(expected_support.shape) != (batch_size, int(clean_continuation.shape[1]), 2):
             raise ValueError("v015 expected_support must have shape [B,K_max,2]")
+        if tuple(expected_support_envelope.shape) != (batch_size, int(clean_continuation.shape[1]), 6):
+            raise ValueError("v015 expected_support_envelope must have shape [B,K_max,6]")
         if bool(((expected_support != 0.0) & (expected_support != 1.0)).any()):
             raise ValueError("v015 expected_support must contain binary left/right support states")
         horizon = torch.as_tensor(horizon_k, device=self.device, dtype=torch.long).flatten()
@@ -1920,6 +1925,7 @@ class MultiMotionCommand(CommandTerm):
                 or value.get("intent_q29_provenance") != "deployment_noisy_q29"
                 or value.get("clean_continuation_provenance") != "clean_gmt_only"
                 or value.get("expected_support_provenance") != "clean_gmt_physics_only"
+                or value.get("expected_support_envelope_provenance") != "clean_gmt_physics_only"
             ):
                 raise ValueError(
                     "v015 local scenario provenance must keep Noisy current/q29 and GMT-only Clean continuation, "
@@ -1952,6 +1958,7 @@ class MultiMotionCommand(CommandTerm):
                     or not torch.equal(intent_q29[anchor], intent_q29[row])
                     or not torch.equal(clean_continuation[anchor], clean_continuation[row])
                     or not torch.equal(expected_support[anchor], expected_support[row])
+                    or not torch.equal(expected_support_envelope[anchor], expected_support_envelope[row])
                     or int(horizon[anchor].item()) != int(horizon[row].item())
                     or provenance_rows[anchor] != provenance_rows[row]
                 ):
@@ -1969,6 +1976,7 @@ class MultiMotionCommand(CommandTerm):
         value_intent = intent_q29.detach().to(device=self.device, dtype=torch.float32).contiguous()
         value_continuation = clean_continuation.detach().to(device=self.device, dtype=torch.float32).contiguous()
         value_support = expected_support.detach().to(device=self.device, dtype=torch.float32).contiguous()
+        value_envelope = expected_support_envelope.detach().to(device=self.device, dtype=torch.float32).contiguous()
         if bool(active.any()):
             if not bool(active.all()):
                 raise RuntimeError("v015 local scenario cannot replace a partially active command carrier")
@@ -1982,6 +1990,7 @@ class MultiMotionCommand(CommandTerm):
                 and torch.equal(existing["intent_q29"], value_intent)
                 and torch.equal(existing["clean_continuation"], value_continuation)
                 and torch.equal(existing["expected_support"], value_support)
+                and torch.equal(existing["expected_support_envelope"], value_envelope)
                 and torch.equal(existing["horizon_k"], horizon)
                 and torch.equal(existing["continuation_lengths"], lengths)
                 and existing["scenario_ids"] == scenario_ids
@@ -2024,6 +2033,9 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_local_scenario_expected_support = torch.empty(
             self.num_envs, int(value_support.shape[1]), 2, dtype=torch.float32, device=self.device
         )
+        self._frontres_local_scenario_expected_support_envelope = torch.empty(
+            self.num_envs, int(value_envelope.shape[1]), 6, dtype=torch.float32, device=self.device
+        )
         self._frontres_local_scenario_current_root_artifact_t[env_ids] = value_artifact.clone()
         self._frontres_local_scenario_intent_q29[env_ids] = value_intent.clone()
         self._frontres_local_scenario_current_command_q29_dq29 = torch.empty(
@@ -2032,6 +2044,7 @@ class MultiMotionCommand(CommandTerm):
         self._frontres_local_scenario_current_command_q29_dq29[env_ids] = value_current_command.detach().clone()
         self._frontres_local_scenario_clean_continuation[env_ids] = value_continuation.clone()
         self._frontres_local_scenario_expected_support[env_ids] = value_support.clone()
+        self._frontres_local_scenario_expected_support_envelope[env_ids] = value_envelope.clone()
         self._frontres_local_scenario_horizon_k[env_ids] = horizon
         self._frontres_local_scenario_continuation_lengths[env_ids] = lengths
         self._frontres_local_scenario_active[env_ids] = True
@@ -2082,6 +2095,7 @@ class MultiMotionCommand(CommandTerm):
             or self._frontres_local_scenario_intent_q29 is None
             or self._frontres_local_scenario_clean_continuation is None
             or self._frontres_local_scenario_expected_support is None
+            or self._frontres_local_scenario_expected_support_envelope is None
         ):
             raise RuntimeError("v015 local scenario snapshot requires active command rows")
         scenario_ids = tuple(self._frontres_local_scenario_ids[int(env_id)] for env_id in ids.detach().cpu().tolist())
@@ -2098,6 +2112,7 @@ class MultiMotionCommand(CommandTerm):
             "intent_q29": self._frontres_local_scenario_intent_q29.index_select(0, ids).detach().clone(),
             "clean_continuation": self._frontres_local_scenario_clean_continuation.index_select(0, ids).detach().clone(),
             "expected_support": self._frontres_local_scenario_expected_support.index_select(0, ids).detach().clone(),
+            "expected_support_envelope": self._frontres_local_scenario_expected_support_envelope.index_select(0, ids).detach().clone(),
             "horizon_k": self._frontres_local_scenario_horizon_k.index_select(0, ids).detach().clone(),
             "continuation_lengths": self._frontres_local_scenario_continuation_lengths.index_select(0, ids).detach().clone(),
             "scenario_ids": tuple(str(value) for value in scenario_ids),
@@ -2239,7 +2254,12 @@ class MultiMotionCommand(CommandTerm):
         cursor = self._frontres_local_scenario_k_execution_cursor
         if self._frontres_local_scenario_expected_support is None:
             raise RuntimeError("v015 K execution is missing sealed expected support evidence")
+        if self._frontres_local_scenario_expected_support_envelope is None:
+            raise RuntimeError("v015 K execution is missing sealed expected support envelope")
         support = self._frontres_local_scenario_expected_support[
+            torch.arange(self.num_envs, device=self.device, dtype=torch.long), cursor
+        ]
+        envelope = self._frontres_local_scenario_expected_support_envelope[
             torch.arange(self.num_envs, device=self.device, dtype=torch.long), cursor
         ]
         return {
@@ -2247,6 +2267,7 @@ class MultiMotionCommand(CommandTerm):
             "valid_mask": valid[:, 0].detach().clone(),
             "cursor": self._frontres_local_scenario_k_execution_cursor.detach().clone(),
             "expected_support": support.detach().clone(),
+            "expected_support_envelope": envelope.detach().clone(),
         }
 
     def _frontres_fixed_noisy_tape_feature_dim(self) -> int:
@@ -2533,6 +2554,68 @@ class MultiMotionCommand(CommandTerm):
                 ],
                 dim=0,
             ).to(dtype=torch.float32)
+            foot_half_length = float(
+                getattr(getattr(self, "cfg", None), "frontres_expected_foot_half_length", 0.10)
+            )
+            foot_half_width = float(
+                getattr(getattr(self, "cfg", None), "frontres_expected_foot_half_width", 0.05)
+            )
+            if foot_half_length <= 0.0 or foot_half_width <= 0.0:
+                raise RuntimeError("expected support-envelope foot extents must be positive")
+
+            # Physics-only Clean carrier: oriented support box per K frame.
+            # Layout is center_xy, cos(yaw), sin(yaw), half_x, half_y.
+            envelope_rows: list[torch.Tensor] = []
+            for frame_index, (_joint_pos, _joint_vel, body_pos, body_quat) in enumerate(continuation_frames):
+                feet_xy = torch.stack(
+                    (body_pos[0, self.left_foot_idx, :2], body_pos[0, self.right_foot_idx, :2]), dim=0
+                )
+                feet_quat = torch.stack(
+                    (body_quat[0, self.left_foot_idx], body_quat[0, self.right_foot_idx]), dim=0
+                )
+                w, x, y, z = feet_quat.unbind(dim=-1)
+                yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y.square() + z.square()))
+                active = expected_support[frame_index].bool()
+                if not bool(active.any()):
+                    active = torch.ones_like(active)
+                mean_cos = torch.cos(yaw[active]).mean()
+                mean_sin = torch.sin(yaw[active]).mean()
+                norm = torch.sqrt(mean_cos.square() + mean_sin.square()).clamp_min(1.0e-8)
+                cos_ref, sin_ref = mean_cos / norm, mean_sin / norm
+                centers = feet_xy[active]
+                center_x = cos_ref * centers[:, 0] + sin_ref * centers[:, 1]
+                center_y = -sin_ref * centers[:, 0] + cos_ref * centers[:, 1]
+                delta_yaw = yaw[active] - torch.atan2(sin_ref, cos_ref)
+                projected_half_x = (
+                    torch.cos(delta_yaw).abs() * foot_half_length
+                    + torch.sin(delta_yaw).abs() * foot_half_width
+                )
+                projected_half_y = (
+                    torch.sin(delta_yaw).abs() * foot_half_length
+                    + torch.cos(delta_yaw).abs() * foot_half_width
+                )
+                lower_x = (center_x - projected_half_x).min()
+                upper_x = (center_x + projected_half_x).max()
+                lower_y = (center_y - projected_half_y).min()
+                upper_y = (center_y + projected_half_y).max()
+                box_center_x = 0.5 * (lower_x + upper_x)
+                box_center_y = 0.5 * (lower_y + upper_y)
+                world_center = torch.stack(
+                    (
+                        cos_ref * box_center_x - sin_ref * box_center_y,
+                        sin_ref * box_center_x + cos_ref * box_center_y,
+                    )
+                )
+                envelope_rows.append(
+                    torch.cat(
+                        (
+                            world_center,
+                            torch.stack((cos_ref, sin_ref)),
+                            torch.stack((0.5 * (upper_x - lower_x), 0.5 * (upper_y - lower_y))),
+                        )
+                    )
+                )
+            expected_support_envelope = torch.stack(envelope_rows, dim=0).to(dtype=torch.float32)
         if tuple(current_root_artifact_t.shape) != (7,):
             raise RuntimeError(
                 "local scenario current root artifact must be [7], got "
@@ -2544,11 +2627,17 @@ class MultiMotionCommand(CommandTerm):
             raise RuntimeError(f"local scenario clean_continuation has invalid shape {tuple(clean_continuation.shape)}")
         if tuple(expected_support.shape) != (horizon_k, 2):
             raise RuntimeError(f"local scenario expected_support has invalid shape {tuple(expected_support.shape)}")
+        if tuple(expected_support_envelope.shape) != (horizon_k, 6):
+            raise RuntimeError(
+                "local scenario expected_support_envelope has invalid shape "
+                f"{tuple(expected_support_envelope.shape)}"
+            )
         return {
             "current_root_artifact_t": current_root_artifact_t.detach().to(dtype=torch.float32).contiguous(),
             "intent_q29": intent_q29.detach().to(dtype=torch.float32).contiguous(),
             "clean_continuation": clean_continuation.detach().to(dtype=torch.float32).contiguous(),
             "expected_support": expected_support.detach().to(dtype=torch.float32).contiguous(),
+            "expected_support_envelope": expected_support_envelope.detach().to(dtype=torch.float32).contiguous(),
             "provenance": {
                 "materializer_owner": "MultiMotionCommand",
                 "current_root_artifact_provenance": "noisy_root_artifact_t",
@@ -2556,6 +2645,8 @@ class MultiMotionCommand(CommandTerm):
                 "intent_q29_source": "motion_internal_q29",
                 "clean_continuation_provenance": "clean_gmt_only",
                 "expected_support_provenance": "clean_gmt_physics_only",
+                "expected_support_envelope_provenance": "clean_gmt_physics_only",
+                "expected_support_envelope_schema": "clean-foot-pose-oriented-box-v1",
                 "expected_contact_height": support_height,
                 "motion_index": motion_index,
                 "start_frame": start_frame,

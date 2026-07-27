@@ -102,6 +102,7 @@ def test_t_current_command_survives_post_action_auto_reset_clock_drift(helper, c
         intent_q29=snapshot["intent_q29"].index_select(0, permutation),
         clean_continuation=snapshot["clean_continuation"].index_select(0, permutation),
         expected_support=snapshot["expected_support"].index_select(0, permutation),
+        expected_support_envelope=snapshot["expected_support_envelope"].index_select(0, permutation),
         horizon_k=snapshot["horizon_k"].index_select(0, permutation),
         continuation_lengths=snapshot["continuation_lengths"].index_select(0, permutation),
         scenario_ids=tuple(snapshot["scenario_ids"][row] for row in permutation.tolist()),

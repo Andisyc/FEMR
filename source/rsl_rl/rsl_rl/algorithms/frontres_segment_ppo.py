@@ -361,17 +361,26 @@ def project_frontres_grouped_constraint_direction(
                 float(torch.sqrt(torch.stack([row.norm().square() for row in rows]).mean()).item()),
             )
             recovery = recovery * (target_norm / float(recovery.norm().item()))
-            dots = matrix @ recovery
-            return FrontRESConstraintProjectionResult(
-                status="CONSTRAINT_RECOVERY", direction=recovery, active_families=tuple(active),
-                gradient_norms=norms,
-                directional_derivatives={family: float(dots[index].item()) for index, family in enumerate(active)},
-                intent_direction_norm=float(intent_direction.norm().item()),
-                projected_direction_norm=float(recovery.norm().item()),
-                dual_coefficients={family: 0.0 for family in active}, constraint_gram=gram_rows,
-                intent_directional_derivatives=intent_dots,
-                kkt_max_violation=float(torch.relu(dots).max().item()),
-            )
+            # B4: 放大后重新投影, 防止容差内的浮点残差被同步放大为真实约束违规.
+            postscale_solution = project(recovery)
+            if postscale_solution is not None:
+                recovery, _ = postscale_solution
+                dots = matrix @ recovery
+                if (
+                    float(recovery.norm().item()) > float(eps_grad)
+                    and not bool((dots > float(tolerance)).any())
+                    and bool((dots < -float(tolerance)).any())
+                ):
+                    return FrontRESConstraintProjectionResult(
+                        status="CONSTRAINT_RECOVERY", direction=recovery, active_families=tuple(active),
+                        gradient_norms=norms,
+                        directional_derivatives={family: float(dots[index].item()) for index, family in enumerate(active)},
+                        intent_direction_norm=float(intent_direction.norm().item()),
+                        projected_direction_norm=float(recovery.norm().item()),
+                        dual_coefficients={family: 0.0 for family in active}, constraint_gram=gram_rows,
+                        intent_directional_derivatives=intent_dots,
+                        kkt_max_violation=float(torch.relu(dots).max().item()),
+                    )
     return FrontRESConstraintProjectionResult(
         status="NO_COMMON_FIRST_ORDER_DESCENT", direction=zero, active_families=tuple(active),
         gradient_norms=norms, directional_derivatives={family: 0.0 for family in active},

@@ -1,4 +1,5 @@
 from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
@@ -297,6 +298,26 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         # Set G1-specific configurations
         self.scene.robot = G1_CYLINDER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.actions.joint_pos.scale = G1_ACTION_SCALE
+
+        # FRS-GAIN-v005 formal Physics only: retain raw per-foot ground
+        # contact points/normals/forces for contact-wrench ZMP. Other G1 tasks
+        # do not pay this sensor cost. Existing contact_forces remains the
+        # actual binary Contact authority.
+        ground_filter = ["/World/ground/terrain/.*"]
+        self.scene.frontres_left_foot_contacts = ContactSensorCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/left_ankle_roll_link",
+            filter_prim_paths_expr=ground_filter,
+            track_contact_points=True,
+            max_contact_data_count_per_prim=16,
+            debug_vis=False,
+        )
+        self.scene.frontres_right_foot_contacts = ContactSensorCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/right_ankle_roll_link",
+            filter_prim_paths_expr=ground_filter,
+            track_contact_points=True,
+            max_contact_data_count_per_prim=16,
+            debug_vis=False,
+        )
 
         # GMT was already trained with Physics DR and is robust to PD gain
         # variations, COM offsets, and payload without FrontRES involvement.

@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
-  "subtitle": "v015 policy-quality current-state view: E-FI-78 closes the K8 critic-only continuation at the actor-warmup boundary.",
-  "currentStatus": "P4-S2 is complete: 199 live K8 critic-only transactions advanced checkpoint-v5 from iteration 1 to 200 with actor/std frozen, Critic updating, exact-one commits and coordinated persistence. The next actor-ramp update is frozen as P4-S3 but remains unrun.",
+  "subtitle": "v015 policy-quality current-state view: E-FI-80 closes post-rescale KKT and E-FI-81 closes contact-wrench ZMP authority offline.",
+  "currentStatus": "Long training completed 1749 exact-one transactions from model_251 to model_2000, but its lineage predates both the E-FI-80 KKT repair and E-FI-81 contact-wrench ZMP authority. The formal Physics path now evaluates raw foot-ground resultant ZMP against immutable Clean-foot envelopes and binds that identity in checkpoint-v5. Official raw-sensor S4, a clean post-fix lineage and policy efficacy remain unresolved.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -16,15 +16,15 @@
     "QUALITY-TRAJECTORY-01"
   ],
   "activeV015QualityPlan": {
-    "status": "P4-S2-critic-only-continuation-complete",
-    "evidence": "E-FI-72 records the authority split; E-FI-73 activates coordinated contracts; E-FI-74 confirms the source route offline; E-FI-75 confirms one real K8 critic-only transaction and checkpoint-v5 payload; E-FI-76 audits the readiness gaps; E-FI-77 closes strict resume and raw quality reporting; E-FI-78 live-confirms 199 critic-only exact-one updates and the iteration-200 checkpoint-v5 boundary",
-    "next": "human authorization decision for P4-S3: exactly one actor-ramp transaction at weight 0.002; no second update or longer training is authorized",
+    "status": "P4-contact-wrench-zmp-offline-complete-live-authority-open",
+    "evidence": "E-FI-79 records the pre-fix long run; E-FI-80 closes projection KKT offline; E-FI-81 closes contact-wrench ZMP, immutable Clean-foot support envelopes and strict checkpoint identity offline",
+    "next": "one bounded official sensor-authority sentinel before selecting any post-fix checkpoint lineage",
     "readinessClosure": {
       "owner": "scripts/rsl_rl/train.py::main()",
-      "checkpointState": "frontres-v015-checkpoint-v5 K8 absolute iteration 200; next phase actor_warmup",
-      "scope": "strict v5 resume plus 199 live critic-only exact-one transactions, coordinated model_200 persistence and raw quality-evidence readiness",
-      "nonScope": "actor-ramp execution, policy-efficacy claim, Gain/PPO/HSL changes, Concept Figure, long training, multi-seed or deployment composition",
-      "stop": "P4-S3 requires explicit authority and must stop after one update or on phase/weight, projection, Physics, transaction or checkpoint drift"
+      "checkpointState": "pre-fix frontres-v015-checkpoint-v5 model_2000 saved at absolute iteration 2000; four known KKT-violating recovery updates in its lineage",
+      "scope": "postscale recovery repair plus contact-wrench ZMP producer, immutable Clean-foot envelope, formal consumer isolation and strict persistence",
+      "nonScope": "new training, policy-efficacy claim, Gain/Critic/HSL changes, Concept Figure, multi-seed or deployment composition",
+      "stop": "no further training until official raw contacts and finite supported-phase ZMP are bounded-live confirmed; proxy fallback, missing resultant, role drift or post-fix KKT above 1e-8 is a formal stop"
     },
     "gates": [
       "conditional comparison identity",
@@ -41,7 +41,7 @@
       "id": "SYS-POLICY-QUALITY",
       "title": "Policy Quality Causal Chain",
       "summary": "Historical v011/v002/v003 cards remain explicitly incompatible. QUALITY-GAIN-01 and QUALITY-CREDIT-01 now project the E-FI-71 v004/v009 unsafe-tier, Critic and relative-advantage evidence.",
-      "status": "P4-S2 critic-only schedule, exact-one transaction and persistence confirmed; actor-ramp efficacy remains unconfirmed; historical cards isolated",
+      "status": "long training and exact-one persistence confirmed; postscale KKT implementation mismatch repaired offline; pre-fix lineage and policy efficacy unresolved; historical cards isolated",
       "color": "#0f766e",
       "modules": [
         {
@@ -409,8 +409,8 @@
           "mustNot": "不得删除Noisy、把Noisy当安全阈值、压回单一Physics分数、屏蔽adverse rows或增加Clean actor input/second learned network",
           "objects": [
             "Parent: FRS-DP-06/07 | Q-PAIR/Q-01",
-            "sealed expected support [K,2]",
-            "actual ContactSensor + phase-conditioned ZMP + survival",
+            "sealed expected Contact [K,2] + Clean-foot oriented envelope [K,6]",
+            "raw foot-ground ContactSensor points/normals/forces + phase-conditioned ZMP + survival",
             "paired Intent objective / scalar Critic",
             "Contact / phase-ZMP / survival constraint evidence [B,K,...]",
             "code-confirmed grouped constraint-gradient projection"
@@ -419,14 +419,14 @@
             {
               "id": "QUALITY-GAIN-01-B1",
               "path": "source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp/commands.py",
-              "role": "B1 active: derives immutable expected support from the same Clean-frame reference foot kinematics while preserving [K,65] as GMT-only command",
+              "role": "B1 active: derives immutable expected Contact and oriented [K,6] Clean-foot support envelope while preserving Clean continuation as GMT/Physics-only",
               "sourceLine": 2352,
               "sourceHref": "/open-source?path=source%2Fwhole_body_tracking%2Fwhole_body_tracking%2Ftasks%2Ftracking%2Fmdp%2Fcommands.py&line=2352"
             },
             {
               "id": "QUALITY-GAIN-01-B2",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
-              "role": "B2 active: captures actual contact_forces plus phase-conditioned ZMP for Repair/Noisy role rows",
+              "role": "B2 active: computes contact-wrench ZMP from separate raw foot-ground sensors and compares it with the sealed expected envelope",
               "sourceLine": 4713,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4713"
             },
@@ -443,13 +443,21 @@
               "role": "B4 active v005: storage carries scalar return plus Contact/ZMP/survival residuals and within-scenario centered constraint advantages",
               "sourceLine": 750,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=750"
+            },
+            {
+              "id": "QUALITY-GAIN-01-B5",
+              "path": "source/rsl_rl/rsl_rl/algorithms/frontres_segment_ppo.py",
+              "role": "B5 active PPO-v004: grouped first-order recovery is reprojected after norm scaling; infeasible postscale directions fall through to no-common descent",
+              "sourceLine": 354,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Falgorithms%2Ffrontres_segment_ppo.py&line=354"
             }
           ],
           "mainRoute": [
-            "B1 retain sealed Clean C -> evaluator-only expected support modes",
-            "B2 retain ContactSensor + phase-ZMP + survival as ordered raw evidence",
+            "B1 sealed Clean C -> evaluator-only expected Contact and oriented support envelope",
+            "B2 raw contact points/normals/forces -> contact-wrench ZMP -> phase margin",
             "B3 paired Intent objective -> scalar Critic; Physics vectors stay separate",
-            "B4 E-FI-75 live-confirms scalar-Critic-only K8 update, constraint-recovery direction, exact-one commit and checkpoint-v5 payload identity"
+            "B4 retain scalar return and independent row-aligned Physics constraints through storage",
+            "B5 E-FI-80 reprojects norm-scaled recovery and enforces formal KKT tolerance at serialization"
           ],
           "probeSteps": [],
           "probe": {
@@ -463,7 +471,8 @@
             ],
             "failIf": [
               "Clean evidence reaches actor",
-              "Contact does not come from contact_forces",
+              "Contact/ZMP does not come from authoritative ContactSensor data",
+              "root/capture-point proxy or Repair-created support polygon reaches formal Physics",
               "Noisy is treated as the Physics threshold",
               "Physics is re-compressed into a scalar return",
               "v004/v003 fallback or mixed identity remains reachable"
@@ -480,9 +489,12 @@
             "E-FI-74 P2 S1/S2/S3 constrained-update contracts",
             "E-FI-75 P3 one-transaction live S4 and checkpoint-v5 identity",
             "E-FI-77 P4-S1 strict resume and raw quality-evidence deterministic closure",
-            "E-FI-78 P4-S2 199-update K8 critic-only live continuation and model_200 persistence"
+            "E-FI-81 contact-wrench ZMP and expected-support-envelope S1/S2/S3 closure",
+            "E-FI-78 P4-S2 199-update K8 critic-only live continuation and model_200 persistence",
+            "E-FI-79 model_251 to model_2000 long-run review and four postscale KKT contradictions",
+            "E-FI-80 postscale recovery projection plus formal-consumer fail-closed contracts"
           ],
-          "gap": "E-FI-78 closes the K8 critic-only budget at absolute iteration 200 with actor/std frozen and Critic changing on all 199 accepted transactions. P4-S3 is frozen as one actor-ramp update at weight 0.002; it remains a human-controlled live boundary and cannot by itself establish policy efficacy."
+          "gap": "E-FI-80 closes the deterministic KKT owner/consumer defect, but the saved model_2000 lineage contains four pre-fix violating updates. Aggregate long-run telemetry shows Critic calibration improvement without a clear Intent/Gain trend and does not serialize sustained-lean evidence."
         },
         {
           "id": "QUALITY-CREDIT-01",
@@ -718,22 +730,22 @@
           "mustNot": "不得用 survival 掩盖额外补偿步，不得用脚高代替实际接触，不得在 flight 使用静态 ZMP 阈值",
           "objects": [
             "Parent: FRS-DP-04/05/06/07 | M-04/M-10/Q-PAIR/Q-01",
-            "sealed expected support + action identity",
-            "actual ContactSensor + phase-conditioned ZMP + survival",
+            "sealed expected Contact + oriented Clean-foot envelope + action identity",
+            "raw foot-ground ContactSensor wrench + phase-conditioned ZMP + survival",
             "extra/missed/dragging/transition-recovery evidence"
           ],
           "files": [
             {
               "id": "QUALITY-EXEC-01-B1",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
-              "role": "B1 active: sealed expected support carrier is materialized once per scenario",
+              "role": "B1 active: expected Contact and oriented Clean-foot support envelope are sealed and hashed once per scenario",
               "sourceLine": 3266,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3266"
             },
             {
               "id": "QUALITY-EXEC-01-B2",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
-              "role": "B2 active: paired capture uses authoritative contact_forces and phase-conditioned ZMP",
+              "role": "B2 active: paired capture uses raw filtered foot-ground contact points/normals/forces and contact-wrench ZMP",
               "sourceLine": 3267,
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=3267"
             },
@@ -746,14 +758,14 @@
             }
           ],
           "mainRoute": [
-            "B1 sealed expected support + role/action identity",
-            "B2 actual ContactSensor + Contact phase",
+            "B1 sealed expected Contact/envelope + role/action identity",
+            "B2 raw ContactSensor wrench + Contact phase",
             "B3 phase-conditioned ZMP + survival + violation evidence"
           ],
           "probeSteps": [
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:3266 :: _capture_motion_quality_frame() B1",
-              "capture": "planned expected-support carrier; currently absent",
+              "capture": "sealed expected Contact and Clean-foot oriented support envelope",
               "whyHere": "比较控制变量在任何 route 分叉前首次完整可见",
               "failureOwner": "失败归属: sealed scenario expected-support owner",
               "sourceLine": 3266,
@@ -761,7 +773,7 @@
             },
             {
               "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py:3267 :: _capture_motion_quality_frame() B2",
-              "capture": "actual ContactSensor plus Contact phase; current height proxy is mismatch",
+              "capture": "raw foot-ground contact wrench plus actual Contact phase",
               "whyHere": "owner 已形成当前层产物且下游尚未聚合或覆盖",
               "failureOwner": "失败归属: ContactSensor / phase alignment owner",
               "sourceLine": 3267,
@@ -796,9 +808,10 @@
           "tests": [
             "E-FI-68 G5-P1 S1 Contact/phase/ZMP contracts",
             "E-FI-68 G5-P1 S2 formal consumer connectivity",
-            "E-FI-68 G5-P1 S4 bounded real-sensor sentinel"
+            "E-FI-68 G5-P1 S4 bounded historical sensor sentinel",
+            "E-FI-81 contact-wrench ZMP S1/S2/S3 contracts"
           ],
-          "gap": "E-FI-68 closes the v004 engineering route with expected support, actual ContactSensor and phase-ZMP evidence. All four critic-only Repairs remained Physics-inadmissible, so actor-ramp efficacy is still unconfirmed for X1."
+          "gap": "E-FI-81 closes the authoritative contact-wrench ZMP and expected-envelope route offline. Official IsaacLab raw-contact API/filter/value S4 and a clean post-fix policy-quality lineage remain unconfirmed."
         },
         {
           "id": "QUALITY-TRAJECTORY-01",

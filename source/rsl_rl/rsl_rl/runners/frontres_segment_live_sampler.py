@@ -1437,6 +1437,7 @@ def _attach_frontres_local_scenarios(
             intent_q29=payload.get("intent_q29"),
             clean_continuation=payload.get("clean_continuation"),
             expected_support=payload.get("expected_support"),
+            expected_support_envelope=payload.get("expected_support_envelope"),
             provenance=payload.get("provenance"),
         )
 
@@ -1465,12 +1466,16 @@ def _attach_frontres_local_scenarios(
     expected_support = torch.zeros(
         (batch_size, max_horizon, 2), dtype=artifacts.dtype, device=batch.segment_ids.device
     )
+    expected_support_envelope = torch.zeros(
+        (batch_size, max_horizon, 6), dtype=artifacts.dtype, device=batch.segment_ids.device
+    )
     for row, scenario in enumerate(rows.scenarios):
         continuation = scenario.clean_continuation.to(batch.segment_ids.device)
         length = int(continuation.shape[0])
         clean_continuation[row, :length] = continuation
         clean_continuation_mask[row, :length] = True
         expected_support[row, :length] = scenario.expected_support.to(batch.segment_ids.device)
+        expected_support_envelope[row, :length] = scenario.expected_support_envelope.to(batch.segment_ids.device)
     if tuple(artifacts.shape) != (batch_size, 7):
         raise RuntimeError(f"local scenario current-root carrier must be [B,7], got {tuple(artifacts.shape)}")
     if tuple(intent_q29.shape) != (batch_size, intent_horizon + 1, 29):
@@ -1495,6 +1500,11 @@ def _attach_frontres_local_scenarios(
     object.__setattr__(batch, "frontres_local_scenario_clean_continuation_lengths", rows.continuation_lengths)
     object.__setattr__(batch, "frontres_local_scenario_clean_continuation_mask", clean_continuation_mask.detach().clone())
     object.__setattr__(batch, "frontres_local_scenario_expected_support", expected_support.detach().clone())
+    object.__setattr__(
+        batch,
+        "frontres_local_scenario_expected_support_envelope",
+        expected_support_envelope.detach().clone(),
+    )
     object.__setattr__(batch, "frontres_local_scenario_provenance", tuple(s.provenance for s in rows.scenarios))
     object.__setattr__(batch, "frontres_future_offsets", future_offsets)
     return batch

@@ -1,6 +1,6 @@
 # FRS-v015 Physics-Constrained Intent Task Canvas
 
-Status: active volatile control surface. Updated: 2026-07-24.
+Status: active volatile control surface. Updated: 2026-07-27.
 
 ## Objective
 
@@ -20,7 +20,7 @@ and survival out of scalar Gain and into explicit actor-update constraints.
 
 ## Current Cursor
 
-`P4-S2 critic-only continuation completed at E-FI-78; model_200.pt is at the actor-warmup boundary; P4-S3 is frozen but unrun`
+`E-FI-81 installs contact-wrench ZMP plus immutable expected support envelopes offline; bounded official sensor authority remains open`
 
 ## Confirmed
 
@@ -52,19 +52,25 @@ P0 document/owner rebase [complete]
 -> P4-S0 policy-quality admission audit [complete]
 -> P4-S1 resume + quality-evidence readiness closure [complete]
 -> P4-S2 K8 critic-only continuation to iteration 200 [complete]
--> P4-S3 first actor-ramp bounded sentinel [ready; explicit live authorization required]
--> P4 policy-quality admission [open]
+-> P4-S3 actor-ramp lineage [runtime-complete]
+-> P4 long training to model_2000 [runtime-complete; four pre-fix KKT violations]
+-> P4 post-rescale KKT repair [offline contract-complete]
+-> P4 contact-wrench ZMP authority [offline S1/S2/S3 complete]
+-> P4 bounded official sensor-authority sentinel [open]
+-> P4 policy-quality/checkpoint-lineage decision [open]
 ```
 
 ## Active Blockers
 
-- checkpoint-v5 `model_200.pt` has reached absolute iteration 200 and the fixed
-  TRAIN-v010 actor-warmup boundary; no actor-ramp update has executed;
-- no engineering-readiness blocker remains in the strict checkpoint-v5 route;
-  the next boundary is one materially costly simulator update requiring human
-  authorization;
-- policy efficacy and the numerical actor-ramp admission boundary remain
-  unresolved experimental decisions, not missing wiring.
+- pre-fix `model_2000.pt` contains four accepted updates whose post-rescale
+  recovery direction violated one active first-order Physics halfspace;
+- E-FI-80 repairs the owner and formal consumer offline, but no post-fix live
+  transaction or new checkpoint lineage exists;
+- E-FI-81 replaces formal root/capture-point ZMP evidence with contact-wrench
+  ZMP and sealed Clean-foot envelopes offline, but the server IsaacLab raw
+  contact API and finite supported-phase values are not live-confirmed;
+- aggregate training telemetry shows improved Critic calibration but no clear
+  Intent/Gain improvement, and contains no sustained-lean evaluation field.
 
 ## Non-Scope
 
@@ -74,7 +80,7 @@ Noisy physical prefix, or scalar reward-weight tuning.
 
 ## Next Action
 
-Authorize or reject P4-S3: resume the exact E-FI-78 `model_200.pt` for one
-8-env, K8, 2-Segment x 2-attempt actor-ramp transaction at weight 0.002 and one
-committed update. This sentinel tests constrained actor-gradient connectivity;
-it does not authorize a second update, long training or a policy-efficacy claim.
+Choose checkpoint lineage after E-FI-80: retain pre-fix `model_2000.pt` only as
+a warm-start and continue with repaired projection, or require a strictly clean
+lineage from the last checkpoint before the first recorded violation. No
+further training is implied by this document update.

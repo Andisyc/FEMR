@@ -387,6 +387,12 @@ def test_t_checkpoint_layout_and_committed_receipt(layout_module, checkpointing,
         assert identity["gain_contract_id"] == "FRS-GAIN-v005"
         assert identity["optimization_contract_id"] == "FRS-PPO-v004"
         assert identity["method_contract_id"] == "FRS-METHOD-v016"
+        assert identity["physics_evidence"] == {
+            "zmp_estimator_id": "contact-wrench-zmp-v1",
+            "support_envelope_id": "clean-foot-pose-oriented-box-v1",
+            "actual_contact_id": "contact-sensor-net-normal-force-threshold-v1",
+            "expected_phase_id": "clean-foot-height-phase-v1",
+        }
         assert identity["curriculum"] == {
             "schedule": _V009_SCHEDULE,
             "schedule_fingerprint": _v009_schedule_fingerprint(),
@@ -519,6 +525,18 @@ def test_t_resume_rejects_layout_legacy_and_normalizer_before_mutation(layout_mo
         actor_before = tampered_solver.alg.policy.residual_actor.weight.detach().clone()
         _expect_error(lambda: checkpointing.load_runner(tampered_solver, str(tampered_solver_path), load_optimizer=False), "solver identity")
         _assert_unmutated(tampered_solver, actor_before)
+
+        legacy_physics_payload = copy.deepcopy(payload)
+        del legacy_physics_payload["frontres_v015_checkpoint_identity"]["physics_evidence"]
+        legacy_physics_path = Path(tmp) / "legacy_physics_proxy.pt"
+        torch.save(legacy_physics_payload, legacy_physics_path)
+        legacy_physics = _runner(layout_module, policy_cls, iteration=0)
+        actor_before = legacy_physics.alg.policy.residual_actor.weight.detach().clone()
+        _expect_error(
+            lambda: checkpointing.load_runner(legacy_physics, str(legacy_physics_path), load_optimizer=False),
+            "contract or format identity",
+        )
+        _assert_unmutated(legacy_physics, actor_before)
 
         legacy_payload = copy.deepcopy(payload)
         del legacy_payload["frontres_v015_checkpoint_identity"]

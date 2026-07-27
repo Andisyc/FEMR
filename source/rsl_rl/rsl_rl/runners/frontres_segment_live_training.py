@@ -85,6 +85,7 @@ _FINITE_SUMMARY_KEYS = (
 )
 
 _LOG_SEPARATOR = "-" * 80
+_V015_PROJECTION_TOLERANCE = 1.0e-8
 
 
 _EVAL_GAIN_COMPONENTS = (
@@ -1995,8 +1996,17 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
     ):
         raise RuntimeError("v015 formal result has invalid constraint_gram telemetry")
     constraint_kkt_max_violation = required_finite("constraint_kkt_max_violation")
-    if constraint_kkt_max_violation < 0.0:
-        raise RuntimeError("v015 formal result has negative constraint KKT violation")
+    if not 0.0 <= constraint_kkt_max_violation <= _V015_PROJECTION_TOLERANCE:
+        raise RuntimeError(
+            "v015 formal result exceeds the checkpoint-v5 constraint projection tolerance: "
+            f"kkt={constraint_kkt_max_violation:.9g} tolerance={_V015_PROJECTION_TOLERANCE:.9g}"
+        )
+    observed_kkt = max((max(0.0, value) for value in constraint_directional_derivatives.values()), default=0.0)
+    if abs(observed_kkt - constraint_kkt_max_violation) > _V015_PROJECTION_TOLERANCE:
+        raise RuntimeError(
+            "v015 formal result has inconsistent constraint KKT telemetry: "
+            f"reported={constraint_kkt_max_violation:.9g} observed={observed_kkt:.9g}"
+        )
 
     transaction_id = str(getattr(result, "transaction_id", ""))
     fields: dict[str, list[Any]] = {

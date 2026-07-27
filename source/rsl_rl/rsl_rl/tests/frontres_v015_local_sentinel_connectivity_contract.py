@@ -42,6 +42,7 @@ def _kernel_provenance(live_sampler):
             "intent_q29_source": "motion_internal_q29",
             "clean_continuation_provenance": "clean_gmt_only",
             "expected_support_provenance": "clean_gmt_physics_only",
+            "expected_support_envelope_provenance": "clean_gmt_physics_only",
         }
     )
 
@@ -55,6 +56,9 @@ def _local_batch(live_sampler) -> SimpleNamespace:
         frontres_local_scenario_intent_q29=torch.arange(2 * 3 * 29, dtype=torch.float32).reshape(2, 3, 29),
         frontres_local_scenario_clean_continuation=continuation,
         frontres_local_scenario_expected_support=torch.ones(2, 3, 2),
+        frontres_local_scenario_expected_support_envelope=torch.tensor(
+            [[[0.0, 0.0, 1.0, 0.0, 0.1, 0.05]] * 3, [[0.0, 0.0, 1.0, 0.0, 0.1, 0.05]] * 3]
+        ),
         frontres_local_scenario_clean_continuation_lengths=lengths,
         frontres_local_scenario_clean_continuation_mask=(
             torch.arange(3, dtype=torch.long).unsqueeze(0) < lengths.unsqueeze(1)

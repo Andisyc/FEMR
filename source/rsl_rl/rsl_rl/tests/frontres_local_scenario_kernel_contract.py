@@ -211,6 +211,7 @@ def _scenario_parts(live_sampler, command, *, x_t_identity: str = "motion-0:fram
         intent_q29=payload["intent_q29"],
         clean_continuation=payload["clean_continuation"][:horizon_k],
         expected_support=payload["expected_support"][:horizon_k],
+        expected_support_envelope=payload["expected_support_envelope"][:horizon_k],
         provenance=payload["provenance"],
     )
     request = sampler.FrontRESLocalScenarioRequest(
@@ -342,6 +343,8 @@ def test_t_hash() -> None:
     altered_continuation[0, 0] += 1.0
     altered_support = materialization.expected_support.clone()
     altered_support[0, 0] = 1.0 - altered_support[0, 0]
+    altered_envelope = materialization.expected_support_envelope.clone()
+    altered_envelope[0, 0] += 0.1
     altered_source_provenance = dict(materialization.provenance)
     altered_source_provenance["intent_q29_source"] = "motion_internal_q29_v2"
     extended_intent = torch.cat([materialization.intent_q29, materialization.intent_q29[-1:]], dim=0)
@@ -355,6 +358,9 @@ def test_t_hash() -> None:
         ),
         sampler.FrontRESLocalScenario.from_materialization(
             request, replace(materialization, expected_support=altered_support)
+        ),
+        sampler.FrontRESLocalScenario.from_materialization(
+            request, replace(materialization, expected_support_envelope=altered_envelope)
         ),
         sampler.FrontRESLocalScenario.from_materialization(
             request, replace(materialization, provenance=altered_source_provenance)
@@ -372,6 +378,7 @@ def test_t_hash() -> None:
                 materialization,
                 clean_continuation=materialization.clean_continuation[:2],
                 expected_support=materialization.expected_support[:2],
+                expected_support_envelope=materialization.expected_support_envelope[:2],
             ),
         ),
     )
@@ -397,6 +404,7 @@ def test_t_provenance() -> None:
     assert payload["provenance"]["intent_q29_provenance"] == "deployment_noisy_q29"
     assert payload["provenance"]["clean_continuation_provenance"] == "clean_gmt_only"
     assert payload["provenance"]["expected_support_provenance"] == "clean_gmt_physics_only"
+    assert payload["provenance"]["expected_support_envelope_provenance"] == "clean_gmt_physics_only"
     assert "root" not in payload["provenance"]["intent_q29_source"]
     assert "global" not in payload["provenance"]["intent_q29_source"]
     assert tuple(payload["intent_q29"].shape) == (3, 29)
@@ -440,6 +448,7 @@ def test_t_metamorphic() -> None:
             "intent_q29": materialization.intent_q29.detach().clone(),
             "clean_continuation": materialization.clean_continuation.detach().clone(),
             "expected_support": materialization.expected_support.detach().clone(),
+            "expected_support_envelope": materialization.expected_support_envelope.detach().clone(),
             "provenance": dict(materialization.provenance),
         }
 
@@ -529,6 +538,9 @@ def test_t_fixed_heldout_manifest_item() -> None:
                 dtype=torch.float32,
             ).reshape(horizon_k, 65),
             "expected_support": torch.ones(horizon_k, 2, dtype=torch.float32),
+            "expected_support_envelope": torch.tensor(
+                [[0.0, 0.0, 1.0, 0.0, 0.1, 0.05]], dtype=torch.float32
+            ).repeat(horizon_k, 1),
             "provenance": dict(materialization.provenance),
         }
 

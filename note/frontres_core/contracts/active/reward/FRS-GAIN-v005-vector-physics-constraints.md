@@ -2,7 +2,7 @@
 contract_id: FRS-GAIN-v005
 status: active
 effective_date: 2026-07-23
-updated_date: 2026-07-23
+updated_date: 2026-07-27
 supersedes: FRS-GAIN-v004
 scope: scalar paired root-invariant Intent improvement minus full-6D repair cost, with unsaturated physical-unit Contact, phase-ZMP, and survival residuals retained as separate actor constraints
 ---
@@ -42,6 +42,20 @@ Expected support comes from the sealed Clean continuation for GMT/Physics use
 only. Actual contact comes from ContactSensor. ZMP uses the expected Contact
 phase and may not use a Repair-created illegal support polygon. Flight ZMP is
 semantic N/A.
+
+The formal ZMP evidence identity is `contact-wrench-zmp-v1`. Separate filtered
+left/right foot-to-ground ContactSensors retain each raw contact point, normal
+and normal-force magnitude. Their vertical ground resultant defines the world-
+frame ZMP/CoP. Root/capture-point proxies, foot-centre net-force surrogates and
+Repair-created support polygons are forbidden as formal Physics evidence.
+
+The sealed Clean continuation also derives
+`clean-foot-pose-oriented-box-v1`: one `[center_x, center_y, cos(yaw),
+sin(yaw), half_x, half_y]` support/recovery envelope per K step, together with
+the existing expected left/right Contact phase. It is immutable, hashed,
+Physics-only evidence. It cannot enter actor observation, Intent target or GMT
+command. A supported phase without a finite contact resultant invalidates the
+transaction; flight remains explicit N/A.
 
 ## Scalar Intent Objective
 
@@ -165,6 +179,10 @@ scalar_target_id = paired-intent-minus-repair-v1
 constraint_schema_id = contact-phase_zmp-survival-physical-v1
 dt, B_contact, B_zmp, S_contact, S_zmp, S_survival
 phase/support schema and N/A-mask identity
+zmp_estimator_id = contact-wrench-zmp-v1
+support_envelope_id = clean-foot-pose-oriented-box-v1
+actual_contact_id = contact-sensor-net-normal-force-threshold-v1
+expected_phase_id = clean-foot-height-phase-v1
 ```
 
 ## Forbidden Behavior

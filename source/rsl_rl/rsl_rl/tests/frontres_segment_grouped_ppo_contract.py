@@ -562,6 +562,31 @@ def test_joint_projection_statuses_kkt_and_permutation() -> None:
     print("[T-projection] inactive/feasible/recovery/no-direction/no-common/permutation KKT pass", flush=True)
 
 
+def test_recovery_rescale_rechecks_kkt_postcondition() -> None:
+    intent = torch.tensor([70920.8671875, -36590.65234375, -18249.625, -28879.03125])
+    gradients = {
+        "contact": torch.tensor(
+            [1.3732409477233887, 2.405461311340332, 13.954507827758789, 13.470226287841797]
+        ),
+        "zmp": torch.tensor(
+            [-0.7734565734863281, -1.358483910560608, -7.879663944244385, -7.606510639190674]
+        ),
+        "survival": torch.zeros(4),
+    }
+    tolerance = 1.0e-8
+    result = project_frontres_grouped_constraint_direction(
+        intent,
+        gradients,
+        {"contact": 1.0, "zmp": 1.0, "survival": 0.0},
+        tolerance=tolerance,
+    )
+
+    assert result.status == "CONSTRAINT_RECOVERY"
+    assert result.kkt_max_violation <= tolerance
+    assert all(value <= tolerance for value in result.directional_derivatives.values())
+    print("[T-recovery-postscale] norm rescale preserves the active Physics halfspaces", flush=True)
+
+
 def test_gradient_authority_and_actor_ramp() -> None:
     class _Policy(torch.nn.Module):
         def __init__(self) -> None:
@@ -642,6 +667,7 @@ def main() -> None:
     test_storage_adapter_preserves_sealed_transaction_metadata_for_grouped_loss()
     test_grouped_reducer_has_no_sampling_or_replay_loss_multiplier()
     test_joint_projection_statuses_kkt_and_permutation()
+    test_recovery_rescale_rechecks_kkt_postcondition()
     test_gradient_authority_and_actor_ramp()
     test_mixed_zmp_na_rows_are_excluded_without_losing_group_identity()
     print("frontres_segment_grouped_ppo_contract: ok")

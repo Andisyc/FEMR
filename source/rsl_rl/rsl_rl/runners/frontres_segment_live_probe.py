@@ -4982,23 +4982,14 @@ def _capture_physics_frame(
     n = min(n_train, n_base)
     if n <= 0:
         return None
-    base_start = n_train + n_candidate
-    try:
-        from rsl_rl.frontres.frontres_balance import _frontres_branch_balance_margin
-
-        zmp_repaired = _frontres_branch_balance_margin(
-            runner, command, start=0, count=n, device=runner.device
-        ).detach()
-        zmp_noisy = _frontres_branch_balance_margin(
-            runner, command, start=base_start, count=n, device=runner.device
-        ).detach()
-    except (ImportError, AttributeError, KeyError, RuntimeError, TypeError, ValueError):
-        return None
-
     contact = _contact_sensor_pair(runner, command, pair_layout, n)
     if contact is None:
         return None
     expected_support, contact_repaired, contact_noisy = contact
+    zmp_pair = _contact_wrench_zmp_pair(runner, command, pair_layout, expected_support, n)
+    if zmp_pair is None:
+        return None
+    zmp_repaired, zmp_noisy = zmp_pair
     # B2: 对齐 Repaired/Noisy ZMP 和 contact evidence, 产出 canonical Physics 输入.
     frame = (zmp_repaired, zmp_noisy, expected_support, contact_repaired, contact_noisy)
     # AUDIT-PAIR-EVIDENCE-01: Record physics evidence beside style evidence.
@@ -5101,6 +5092,101 @@ def _contact_sensor_pair(
     if not torch.equal(expected_repair, expected_noisy):
         raise RuntimeError("FRS-GAIN-v005 paired roles do not share sealed expected support identity")
     return expected_repair, actual[:n], actual[base_start : base_start + n]
+
+
+def _raw_filtered_contact_rows(sensor: Any, *, num_envs: int, device: torch.device) -> tuple[torch.Tensor, ...]:
+    """Unpack one single-foot filtered ContactSensor into padded raw contacts."""
+
+    view = getattr(sensor, "contact_physx_view", None)
+    get_contact_data = getattr(view, "get_contact_data", None)
+    if not callable(get_contact_data):
+        raise RuntimeError("contact-wrench ZMP requires ContactSensor.contact_physx_view.get_contact_data")
+    dt = float(getattr(sensor, "_sim_physics_dt", 0.0))
+    if dt <= 0.0:
+        raise RuntimeError("contact-wrench ZMP requires a positive ContactSensor physics dt")
+    payload = get_contact_data(dt=dt)
+    if not isinstance(payload, tuple) or len(payload) != 6:
+        raise RuntimeError("unexpected IsaacLab raw contact-data payload")
+    normal_force, points_w, normals_w, _distance, counts, starts = payload
+    tensors = (normal_force, points_w, normals_w, counts, starts)
+    if any(not isinstance(value, torch.Tensor) for value in tensors):
+        raise RuntimeError("raw contact-data payload must contain tensors")
+    counts = counts.to(device=device, dtype=torch.long).reshape(-1)
+    starts = starts.to(device=device, dtype=torch.long).reshape(-1)
+    if int(counts.numel()) != int(num_envs) or int(starts.numel()) != int(num_envs):
+        raise RuntimeError("each v015 foot sensor must resolve exactly one body and one ground filter per env")
+    max_contacts = max(1, int(counts.max().item()) if int(counts.numel()) else 0)
+    points = torch.zeros(num_envs, 1, max_contacts, 3, device=device, dtype=torch.float32)
+    normals = torch.zeros_like(points)
+    forces = torch.zeros(num_envs, 1, max_contacts, device=device, dtype=torch.float32)
+    valid = torch.zeros(num_envs, 1, max_contacts, device=device, dtype=torch.bool)
+    normal_force = normal_force.to(device=device, dtype=torch.float32).reshape(-1)
+    points_w = points_w.to(device=device, dtype=torch.float32).reshape(-1, 3)
+    normals_w = normals_w.to(device=device, dtype=torch.float32).reshape(-1, 3)
+    for env_id in range(num_envs):
+        count = int(counts[env_id].item())
+        start = int(starts[env_id].item())
+        if count <= 0:
+            continue
+        stop = start + count
+        if stop > int(normal_force.numel()) or stop > int(points_w.shape[0]) or stop > int(normals_w.shape[0]):
+            raise RuntimeError("raw contact-data count/start exceeds the PhysX contact buffer")
+        forces[env_id, 0, :count] = normal_force[start:stop].abs()
+        points[env_id, 0, :count] = points_w[start:stop]
+        normals[env_id, 0, :count] = normals_w[start:stop]
+        valid[env_id, 0, :count] = True
+    return points, forces, normals, valid
+
+
+def _contact_wrench_zmp_pair(
+    runner: Any,
+    command: Any,
+    pair_layout: Any,
+    expected_support: torch.Tensor,
+    n: int,
+) -> tuple[torch.Tensor, torch.Tensor] | None:
+    """Produce paired true contact-wrench ZMP margins; no proxy fallback exists."""
+
+    snapshot = getattr(command, "frontres_local_scenario_k_execution_snapshot", None)
+    if not callable(snapshot):
+        return None
+    sealed = snapshot()
+    envelope = sealed.get("expected_support_envelope") if isinstance(sealed, Mapping) else None
+    if not isinstance(envelope, torch.Tensor) or tuple(envelope.shape) != (int(command.num_envs), 6):
+        return None
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    scene = getattr(env, "scene", None)
+    if scene is None:
+        return None
+    try:
+        left_sensor = scene["frontres_left_foot_contacts"]
+        right_sensor = scene["frontres_right_foot_contacts"]
+        from rsl_rl.frontres.frontres_balance import contact_wrench_zmp_xy, expected_support_envelope_margin
+
+        raw_left = _raw_filtered_contact_rows(left_sensor, num_envs=int(command.num_envs), device=runner.device)
+        raw_right = _raw_filtered_contact_rows(right_sensor, num_envs=int(command.num_envs), device=runner.device)
+        points = torch.cat((raw_left[0], raw_right[0]), dim=1)
+        forces = torch.cat((raw_left[1], raw_right[1]), dim=1)
+        normals = torch.cat((raw_left[2], raw_right[2]), dim=1)
+        valid = torch.cat((raw_left[3], raw_right[3]), dim=1)
+        zmp_xy, zmp_valid = contact_wrench_zmp_xy(points, forces, normals, valid)
+        origins_xy = getattr(scene, "env_origins", None)
+        if not isinstance(origins_xy, torch.Tensor):
+            raise RuntimeError("contact-wrench ZMP requires scene.env_origins")
+        support_all = sealed.get("expected_support")
+        margin = expected_support_envelope_margin(
+            zmp_xy,
+            envelope.to(device=runner.device),
+            support_all.to(device=runner.device),
+            env_origins_xy=origins_xy[:, :2].to(device=runner.device),
+        )
+        required = support_all.to(device=runner.device).bool().any(dim=-1)
+        if bool((required & ~zmp_valid).any()):
+            raise RuntimeError("supported phase is missing a vertical foot-ground contact resultant")
+    except (AttributeError, KeyError, RuntimeError, TypeError, ValueError):
+        return None
+    base_start = int(pair_layout.n_train) + int(pair_layout.n_candidate)
+    return margin[:n].detach(), margin[base_start : base_start + n].detach()
 
 
 def _root_relative_body_pos(body_pos: torch.Tensor) -> torch.Tensor:
