@@ -649,6 +649,8 @@ class FrontRESV015PairedGainFacts:
             ("noisy_success", self.noisy_success),
             ("repaired_survival", self.repaired_survival),
             ("noisy_survival", self.noisy_survival),
+            ("repaired_zmp_margin", self.repaired_zmp_margin),
+            ("noisy_zmp_margin", self.noisy_zmp_margin),
             ("repaired_contact", self.repaired_contact),
             ("noisy_contact", self.noisy_contact),
             ("repaired_contact_violation", self.repaired_contact_violation),
@@ -720,11 +722,10 @@ class FrontRESV015PairedGainFacts:
 # B4: Preserve scalar return plus role-specific Contact/ZMP/survival constraint evidence.
 @dataclass(frozen=True)
 class FrontRESV015GainReturnEvidence:
-    """从唯一 v003 Gain owner 构造 candidate-only one-row return evidence.
+    """从唯一 FRS-GAIN-v006 owner 构造 candidate-only one-row return evidence.
 
     这不是 legacy PPO batch, 不能传入 to_ppo_batch.
-    Step 4A 可将其写入 candidate-only storage/grouped batch, 但 formal update
-    仍属于后续 gate.
+    role-specific unloaded support 的 ZMP margin 保持 N/A, 不得填零.
     """
 
     policy_observations: torch.Tensor
@@ -875,8 +876,6 @@ class FrontRESV015GainReturnEvidence:
             ("noisy_success", self.noisy_success),
             ("repaired_survival", self.repaired_survival),
             ("noisy_survival", self.noisy_survival),
-            ("repaired_zmp_margin", self.repaired_zmp_margin),
-            ("noisy_zmp_margin", self.noisy_zmp_margin),
             ("repaired_contact", self.repaired_contact),
             ("noisy_contact", self.noisy_contact),
             ("physics_success_gain", self.physics_success_gain),
@@ -898,16 +897,20 @@ class FrontRESV015GainReturnEvidence:
             finite = torch.isfinite(value)
             if not bool(finite[valid].all()) or bool(finite[~valid].any()):
                 raise ValueError(f"v015 return evidence {name} must be finite exactly on valid rows")
+        repaired_zmp_applicable = valid & self.zmp_constraint_applicable.bool()
+        repaired_zmp_finite = torch.isfinite(self.repaired_zmp_margin)
+        if (
+            not bool(repaired_zmp_finite[repaired_zmp_applicable].all())
+            or bool(repaired_zmp_finite[~repaired_zmp_applicable].any())
+        ):
+            raise ValueError("v015 return evidence Repair ZMP must follow role-specific loaded-support applicability")
         for name, value in (
-            ("repaired_zmp_margin", self.repaired_zmp_margin),
             ("noisy_zmp_margin", self.noisy_zmp_margin),
             ("physics_zmp_gain", self.physics_zmp_gain),
         ):
             finite = torch.isfinite(value)
             if bool(finite[~valid].any()):
                 raise ValueError(f"v015 return evidence {name} must remain N/A outside valid rows")
-        if not bool(torch.isfinite(self.repaired_zmp_margin[valid & self.zmp_constraint_applicable.bool()]).all()):
-            raise ValueError("v015 return evidence requires finite Repair ZMP when its constraint is applicable")
         source = self.intent_q29_source.lower()
         if (
             self.intent_q29_provenance != "deployment_noisy_q29"

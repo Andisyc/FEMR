@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
-  "subtitle": "v015 policy-quality current-state view: E-FI-83 closes the GAIN-v006 final snapshot and checkpoint-v5 consumers offline.",
-  "currentStatus": "Long training completed 1749 exact-one transactions from model_251 to model_2000, but its lineage predates the E-FI-80 KKT repair and E-FI-81/E-FI-82 contact-wrench authority. E-FI-83 now preserves sealed Repair/Noisy Physics evidence through the final JSON serializer and requires the adjacent strict checkpoint-v5 artifact. Official raw-sensor S4 emission, a clean post-fix lineage and policy efficacy remain unresolved.",
+  "subtitle": "v015 policy-quality current-state view: E-FI-84 live-confirms sensor authority and repairs return-evidence ZMP N/A offline.",
+  "currentStatus": "The pre-fix model_2000 lineage remains evidence-only. E-FI-84 live-confirms sealed Repair/Noisy contact-wrench evidence, exact-one update and strict checkpoint-v5 model_1.pt. The first post-fix long transaction exposed and stopped on a stale finite-on-valid return validator; its role-specific ZMP N/A contract is now repaired offline. A clean post-fix long lineage and policy efficacy remain unresolved.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -16,15 +16,15 @@
     "QUALITY-TRAJECTORY-01"
   ],
   "activeV015QualityPlan": {
-    "status": "P4-final-consumer-contract-complete-live-authority-open",
-    "evidence": "E-FI-79 records the pre-fix long run; E-FI-80 closes projection KKT offline; E-FI-81 establishes contact-wrench ZMP authority; E-FI-82 closes valid no-load and role-specific applicability; E-FI-83 closes final JSON and checkpoint-v5 consumers offline",
-    "next": "one bounded official sensor-authority sentinel must emit sealed evidence and the adjacent checkpoint-v5 before selecting any post-fix checkpoint lineage",
+    "status": "P4-sensor-authority-live-complete-postfix-long-rerun-ready",
+    "evidence": "E-FI-79 records the pre-fix long run; E-FI-80 closes projection KKT; E-FI-81/E-FI-82 establish contact-wrench and loaded-support semantics; E-FI-83 closes final consumers offline; E-FI-84 live-confirms them and repairs return ZMP N/A validation",
+    "next": "synchronize the E-FI-84 storage repair and restart the post-fix long lineage from the live-confirmed model_1.pt",
     "readinessClosure": {
       "owner": "scripts/rsl_rl/train.py::main()",
-      "checkpointState": "pre-fix frontres-v015-checkpoint-v5 model_2000 saved at absolute iteration 2000; four known KKT-violating recovery updates in its lineage",
+      "checkpointState": "pre-fix model_2000 remains evidence-only; E-FI-84 live-confirmed post-fix checkpoint-v5 model_1.pt at absolute iteration 1 is the only admitted long-run parent",
       "scope": "postscale recovery repair plus contact-wrench ZMP producer, immutable Clean-foot envelope, loaded-support applicability, formal consumer isolation and strict persistence",
       "nonScope": "new training, policy-efficacy claim, Gain/Critic/HSL changes, Concept Figure, multi-seed or deployment composition",
-      "stop": "no further training until official raw contacts are bounded-live confirmed; malformed payload, actual-loaded support without finite resultant, role drift or post-fix KKT above 1e-8 is a formal stop; valid physical no-load remains a scored Contact failure with ZMP N/A"
+      "stop": "during the post-fix long rerun, stop on malformed payload, actual-loaded support without finite resultant, role drift, post-fix KKT above 1e-8, non-exact update count or nonfinite training state; valid physical no-load remains a scored Contact failure with ZMP N/A"
     },
     "gates": [
       "conditional comparison identity",
@@ -853,7 +853,7 @@
             "E-FI-68 G5-P1 S4 bounded historical sensor sentinel",
             "E-FI-81 contact-wrench ZMP S1/S2/S3 contracts"
           ],
-            "gap": "E-FI-83 closes final JSON and checkpoint-v5 consumers offline after E-FI-82 established role-specific loaded-support applicability. Official IsaacLab raw-contact emission, the adjacent persisted artifact and a clean post-fix policy-quality lineage remain unconfirmed."
+            "gap": "E-FI-84 live-confirms official raw-contact emission and the adjacent checkpoint-v5, then contract-confirms role-specific return ZMP N/A after the first long-run fail-closed. A clean post-fix long lineage and policy-quality result remain unconfirmed."
         },
         {
           "id": "QUALITY-TRAJECTORY-01",

@@ -449,4 +449,4 @@ are deliberately merged into P2.
 
 ## Cursor
 
-Current cursor: `E-FI-83 closes final snapshot and checkpoint-v5 consumers offline; one bounded official sensor-authority sentinel remains to live-confirm raw Physics evidence plus the adjacent persisted artifact before choosing a post-fix training lineage`.
+Current cursor: `E-FI-84 live-confirms sensor authority and checkpoint-v5, and contract-confirms the return-evidence ZMP N/A repair; restart the post-fix long lineage from the same model_1.pt`.

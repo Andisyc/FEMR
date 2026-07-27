@@ -5661,3 +5661,52 @@ They are not yet `live-confirmed`; the same bounded official sensor-authority
 sentinel must emit both `[FrontRES v015 Live Snapshot]` with
 `sealed_transaction_evidence` and `[FrontRES v015 Checkpoint Sentinel]`, and
 must leave the named checkpoint-v5 artifact on disk.
+
+## E-FI-84: Sensor-Authority Live Closure And Return N/A Repair
+
+Date: 2026-07-27
+
+Tier: bounded official live sentinel plus deterministic storage/transaction
+regression. The subsequent long run stopped before its first optimizer update.
+
+Live-confirmed facts from `v015_p4_zmp_sensor_s4b_gpu3.log`:
+
+- one 2-Segment x 2-attempt transaction produced four valid policy rows, one
+  FEMR action, K8 evidence and exactly one optimizer update;
+- the final snapshot serialized Repair/Noisy Contact, role-specific phase-ZMP
+  applicability and one legitimate Noisy ZMP N/A without zero filling;
+- Contact and ZMP constraints were active, projection KKT violation was zero,
+  Actor/std remained frozen in critic-only and Critic delta was nonzero;
+- the adjacent `model_1.pt` passed strict checkpoint-v5 identity for
+  METHOD-v016 / TRAIN-v010 / GAIN-v006 / PPO-v004 and contact-wrench evidence.
+
+First long-run failure and repair:
+
+- the first post-fix long transaction reached
+  `FrontRESV015GainReturnEvidence.validate()` and stopped because its generic
+  finite-on-valid loop still required `repaired_zmp_margin` to be finite on an
+  otherwise valid row whose Repair ZMP was correctly N/A;
+- the return validator now preserves one-dimensional shape checks, excludes
+  role-specific ZMP margins from the generic finite loop, requires Repair ZMP
+  to be finite exactly when `zmp_constraint_applicable` is true, and keeps it
+  N/A otherwise;
+- loaded Repair ZMP missing remains fail-closed; no Gain, constraint, PPO,
+  Critic, curriculum or checkpoint formula changed.
+
+Focused contracts PASS:
+
+- `frontres_v015_grouped_candidate_adapter_contract.py`, including N/A when
+  not applicable plus rejection of both finite-when-inapplicable and
+  N/A-when-applicable;
+- `frontres_intent_physics_gain_contract.py`,
+  `frontres_v015_one_action_k_contract.py`,
+  `frontres_segment_diagnostics_contract.py`,
+  `frontres_v015_transaction_route_contract.py`,
+  `frontres_v015_checkpoint_resume_contract.py` and
+  `frontres_v015_local_sentinel_connectivity_contract.py`;
+- modified owners compile and `git diff --check` passes.
+
+Verdict: official sensor authority is `live-confirmed`; the return-evidence N/A
+repair is `contract-confirmed`. The post-fix long lineage remains unrun beyond
+the failed first transaction and must resume again from the live-confirmed
+`model_1.pt` after synchronization.

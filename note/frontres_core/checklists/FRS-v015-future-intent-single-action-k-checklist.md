@@ -35,7 +35,8 @@ Status: active, volatile acceptance surface. Updated: 2026-07-27.
 | P4-ZMP-v006 | S2 formal connectivity | separate Repair/Noisy applicability reaches one-action-K, return evidence, transaction telemetry and atomic quality report without zero fill or row loss | completed offline | E-FI-82; K/diagnostics/transaction/held-out contracts pass |
 | P4-ZMP-v006 | S3 persistence | checkpoint-v5 accepts only GAIN-v006/schema-v2 and rejects v005/schema-v1 before mutation | completed offline | E-FI-82; strict resume contract passes |
 | P4-ZMP-v006 | final consumer | sentinel final JSON preserves sealed Repair/Noisy Contact and role-specific phase-ZMP applicability/N/A; adjacent exact-one checkpoint-v5 is strict and fail-closed | completed offline | E-FI-83; final serializer and temporary persistence contracts pass |
-| P4-ZMP | S4 sensor authority | official IsaacLab emits finite raw filtered contacts and supported-phase ZMP with correct role/hash identity | pending bounded live | stop on missing API/resultant, proxy fallback, role drift or flight misclassification |
+| P4-ZMP | S4 sensor authority | official IsaacLab emits finite raw filtered contacts and supported-phase ZMP with correct role/hash identity | completed live | E-FI-84; final snapshot, exact-one update and strict model_1.pt checkpoint sentinel pass |
+| P4-ZMP-v006 | long-run return N/A | valid Repair rows preserve aggregate ZMP N/A exactly when loaded-support applicability is false | completed offline, long rerun pending | E-FI-84; storage plus Gain/K/transaction/checkpoint contracts pass |
 | P4 | quality | target distinguishes v004 plateau cases and actor update improves or preserves Physics without sustained lean/unplanned stepping | blocked on lineage/efficacy decision | E-FI-79 shows Critic calibration improvement but no clear Intent/Gain trend; training log has no sustained-lean field |
 
 ## Pass Rule

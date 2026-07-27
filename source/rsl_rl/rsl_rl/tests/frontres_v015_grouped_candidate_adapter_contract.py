@@ -148,6 +148,32 @@ def test_t_schema_row_metadata_and_legacy_reject(
     returned = candidate.return_evidence
     metadata = batch.transaction_metadata
 
+    # A valid policy row may carry ZMP N/A when that role had no loaded support.
+    repaired_zmp_na = returned.repaired_zmp_margin.detach().clone()
+    repaired_zmp_na[0] = float("nan")
+    zmp_not_applicable = returned.zmp_constraint_applicable.detach().clone()
+    zmp_not_applicable[0] = False
+    _expect_value_error(
+        lambda: replace(
+            returned,
+            zmp_constraint_applicable=zmp_not_applicable,
+        ).validate()
+    )
+    replace(
+        returned,
+        repaired_zmp_margin=repaired_zmp_na,
+        zmp_constraint_applicable=zmp_not_applicable,
+    ).validate()
+    zmp_applicable = zmp_not_applicable.clone()
+    zmp_applicable[0] = True
+    _expect_value_error(
+        lambda: replace(
+            returned,
+            repaired_zmp_margin=repaired_zmp_na,
+            zmp_constraint_applicable=zmp_applicable,
+        ).validate()
+    )
+
     metadata.validate()
     assert metadata.layout_version == "frontres-v015-local-scenario-v1"
     assert tuple(batch.actions.shape) == tuple(returned.policy_actions.shape) == (2, 6)
