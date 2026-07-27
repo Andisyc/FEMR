@@ -46,6 +46,7 @@ def _install_import_stubs():
     ppo_module.FrontRESSegmentPPOBatch = object
     ppo_module.FrontRESSegmentPPOConfig = object
     ppo_module.compute_frontres_segment_ppo_loss = lambda *_args, **_kwargs: None
+    ppo_module.install_frontres_v004_projected_gradients = lambda *_args, **_kwargs: None
     sys.modules[ppo_module.__name__] = ppo_module
     algorithms_pkg.frontres_segment_ppo = ppo_module
 
@@ -100,6 +101,10 @@ def _install_import_stubs():
         return SimpleNamespace(actions=actions, env_actions=torch.zeros(batch, 12))
 
     rollout_step.prepare_frontres_rollout_step = _prepare_frontres_rollout_step
+    rollout_step._append_future_intent_actor_context = lambda _runner, obs: obs
+    rollout_step._frontres_motion_command = lambda runner: runner.env.command_manager.get_term("motion")
+    rollout_step.prepare_frontres_v015_frozen_gmt_step = lambda *_args, **_kwargs: None
+    rollout_step.prepare_frontres_v015_one_action_at_t = lambda *_args, **_kwargs: None
     sys.modules[rollout_step.__name__] = rollout_step
     runners_pkg.frontres_rollout_step = rollout_step
 

@@ -30,6 +30,18 @@ capacities; S2 `T-connect/T-order` through the formal fake runner; S4 for real
 PhysX contact population and ZMP evidence. Padding must preserve values and mark
 new slots invalid; it must not truncate, clamp, or fabricate contacts.
 
+## Role-Specific ZMP Applicability Change
+
+Expand to: phase evaluator, GainResult, ReturnEvidence, grouped candidate
+adapter, diagnostics, final live snapshot and held-out atomic report. PPO must
+remain Repair-only and checkpoint identity must remain unchanged unless the
+constraint schema itself changes.
+
+Required: S1 all four Repair/Noisy applicability combinations plus
+finite/N-A fail-closed and row permutation; S2 formal transaction through final
+serializers; S3 checkpoint regression proving no persistence-schema drift; S4
+only for real sensor population, not for carrier identity.
+
 ## Observation Or Normalizer Change
 
 Expand to: observation producers, 870D layout, policy, Stage 2/3 checkpoint,

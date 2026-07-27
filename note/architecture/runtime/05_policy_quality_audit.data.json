@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
-  "subtitle": "v015 policy-quality current-state view: E-FI-84 live-confirms sensor authority and repairs return-evidence ZMP N/A offline.",
-  "currentStatus": "The pre-fix model_2000 lineage remains evidence-only. E-FI-84 live-confirms sealed Repair/Noisy contact-wrench evidence, exact-one update and strict checkpoint-v5 model_1.pt. The first post-fix long transaction exposed and stopped on a stale finite-on-valid return validator; its role-specific ZMP N/A contract is now repaired offline. A clean post-fix long lineage and policy efficacy remain unresolved.",
+  "subtitle": "v015 policy-quality current-state view: E-FI-84 live-confirms sensor authority; E-FI-85 closes explicit Repair/Noisy ZMP applicability carriers offline.",
+  "currentStatus": "The pre-fix model_2000 lineage remains evidence-only. E-FI-84 live-confirms sealed Repair/Noisy contact-wrench evidence, exact-one update and strict checkpoint-v5 model_1.pt. E-FI-85 removes the downstream finite/NaN inference that caused repeated no-load failures: GainResult, ReturnEvidence, final live telemetry and held-out reports now retain both role applicability masks, while PPO consumes only Repair. A post-E-FI-85 runtime lineage and policy efficacy remain unresolved.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -16,9 +16,9 @@
     "QUALITY-TRAJECTORY-01"
   ],
   "activeV015QualityPlan": {
-    "status": "P4-sensor-authority-live-complete-postfix-long-rerun-ready",
-    "evidence": "E-FI-79 records the pre-fix long run; E-FI-80 closes projection KKT; E-FI-81/E-FI-82 establish contact-wrench and loaded-support semantics; E-FI-83 closes final consumers offline; E-FI-84 live-confirms them and repairs return ZMP N/A validation",
-    "next": "synchronize the E-FI-84 storage repair and restart the post-fix long lineage from the live-confirmed model_1.pt",
+    "status": "P4-zmp-applicability-carrier-offline-complete-runtime-validation-ready",
+    "evidence": "E-FI-79 records the pre-fix long run; E-FI-80 closes projection KKT; E-FI-81/E-FI-82 establish contact-wrench and loaded-support semantics; E-FI-83 closes final consumers; E-FI-84 live-confirms sensor authority; E-FI-85 explicitly carries both role applicability masks end to end",
+    "next": "synchronize E-FI-85 and run one post-closure server validation/continuation from the admitted model_1.pt lineage",
     "readinessClosure": {
       "owner": "scripts/rsl_rl/train.py::main()",
       "checkpointState": "pre-fix model_2000 remains evidence-only; E-FI-84 live-confirmed post-fix checkpoint-v5 model_1.pt at absolute iteration 1 is the only admitted long-run parent",
@@ -65,22 +65,22 @@
               "id": "QUALITY-ID-01-B1",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
               "role": "B1: validated request + real-owner installation",
-              "sourceLine": 1154,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1154"
+              "sourceLine": 1164,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1164"
             },
             {
               "id": "QUALITY-ID-01-B2",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
               "role": "B2: matched manifest execution",
-              "sourceLine": 1155,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1155"
+              "sourceLine": 1165,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1165"
             },
       {
         "id": "QUALITY-ID-01-B3",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py",
               "role": "B3: comparison/state/checkpoint/owner identity",
-        "sourceLine": 1156,
-        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1156"
+              "sourceLine": 1166,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1166"
       },
       {
         "id": "QUALITY-ID-01-B4",
@@ -98,28 +98,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:1154 :: run_frontres_policy_quality_eval() B1",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:1164 :: run_frontres_policy_quality_eval() B1",
               "capture": "validated request + real-owner installation",
               "whyHere": "比较控制变量在任何 route 分叉前首次完整可见",
               "failureOwner": "失败归属: manifest/reset/evaluator",
-              "sourceLine": 1154,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1154"
+              "sourceLine": 1164,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1164"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:1155 :: run_frontres_policy_quality_eval() B2",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:1165 :: run_frontres_policy_quality_eval() B2",
               "capture": "matched manifest execution",
               "whyHere": "owner 已形成当前层产物且下游尚未聚合或覆盖",
               "failureOwner": "失败归属: manifest/reset/evaluator",
-              "sourceLine": 1155,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1155"
+              "sourceLine": 1165,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1165"
             },
       {
-        "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:1156 :: run_frontres_policy_quality_eval() B3",
+        "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_eval.py:1166 :: run_frontres_policy_quality_eval() B3",
               "capture": "comparison/state/checkpoint/owner identity",
               "whyHere": "正式 consumer 接收前最后一次可判定失败归属",
               "failureOwner": "失败归属: manifest/reset/evaluator",
-        "sourceLine": 1156,
-        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1156"
+        "sourceLine": 1166,
+        "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_policy_quality_eval.py&line=1166"
       },
       {
         "location": "source/rsl_rl/rsl_rl/runners/frontres_policy_quality_formal_owners.py:498 :: prepare_item() QUALITY-ID-01",
@@ -427,22 +427,22 @@
               "id": "QUALITY-GAIN-01-B2",
               "path": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py",
               "role": "B2 active: computes contact-wrench ZMP from separate raw foot-ground sensors and compares it with the sealed expected envelope",
-              "sourceLine": 4876,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4876"
+              "sourceLine": 4888,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4888"
             },
             {
               "id": "QUALITY-GAIN-01-B3",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py",
               "role": "B3 active v006: scalar target is paired Intent improvement minus repair cost; raw Physics residuals remain separate and unsaturated",
-              "sourceLine": 367,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=367"
+              "sourceLine": 373,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=373"
             },
             {
               "id": "QUALITY-GAIN-01-B4",
               "path": "source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py",
-              "role": "B4 active v006: storage carries scalar return plus Contact/ZMP/survival residuals, role-specific ZMP applicability and within-scenario centered constraint advantages",
-              "sourceLine": 720,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=720"
+              "role": "B4 active v006: storage carries scalar return plus Contact/ZMP/survival residuals, explicit Repair/Noisy ZMP applicability, Repair-only PPO alias and within-scenario centered constraint advantages",
+              "sourceLine": 722,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=722"
             },
             {
               "id": "QUALITY-GAIN-01-B5",
@@ -456,7 +456,7 @@
             "B1 sealed Clean C -> evaluator-only expected Contact and oriented support envelope",
             "B2 raw contact points/normals/forces -> contact-wrench ZMP -> phase margin",
             "B3 paired Intent objective -> scalar Critic; Physics vectors stay separate",
-            "B4 retain scalar return and independent row-aligned Physics constraints through storage",
+            "B4 retain scalar return, both role applicability identities and independent row-aligned Physics constraints through storage",
             "B5 E-FI-80 reprojects norm-scaled recovery and enforces formal KKT tolerance at serialization"
           ],
           "probeSteps": [
@@ -473,24 +473,24 @@
               "capture": "actual Contact load and contact-wrench ZMP",
               "whyHere": "this is the first boundary where physical no-load and damaged raw evidence can be distinguished",
               "failureOwner": "formal Physics capture",
-              "sourceLine": 4876,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4876"
+              "sourceLine": 4888,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_probe.py&line=4888"
             },
             {
               "location": "frontres_gain.py scalar/vector authority split",
               "capture": "Intent-only scalar target and independent Physics constraints",
               "whyHere": "the Critic target is finalized here without Physics compensation",
               "failureOwner": "FRS-GAIN-v006",
-              "sourceLine": 367,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=367"
+              "sourceLine": 373,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=373"
             },
             {
               "location": "frontres_segment_storage.py evidence carrier",
               "capture": "role-specific ZMP applicability and scalar return",
               "whyHere": "N/A must survive storage without zero fill or row deletion",
               "failureOwner": "one-action-K return evidence",
-              "sourceLine": 720,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=720"
+              "sourceLine": 722,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_storage.py&line=722"
             },
             {
               "location": "frontres_segment_ppo.py projected actor direction",

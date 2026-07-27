@@ -155,8 +155,6 @@ class FrontRESStage1EnvAdapter:
                 "command fixed Noisy materializer must return detached finite "
                 f"[L,{expected_dim}] tape, got {tuple(tape.shape)}"
             )
-        if bool(((expected_support != 0.0) & (expected_support != 1.0)).any()):
-            raise ValueError("v015 local expected support must be binary left/right phase evidence")
         return tape.detach().to(device=self.command.device, dtype=torch.float32).clone().contiguous()
 
     def materialize_frontres_local_scenario(
@@ -238,6 +236,8 @@ class FrontRESStage1EnvAdapter:
                 "command local scenario materializer must return detached finite "
                 f"[7], [{int(intent_horizon) + 1},29], [{int(horizon_k)},65] payloads"
             )
+        if bool(((expected_support != 0.0) & (expected_support != 1.0)).any()):
+            raise ValueError("v015 local expected support must be binary left/right phase evidence")
         if not isinstance(provenance, dict):
             raise RuntimeError("command local scenario provenance must be a dict")
         return {

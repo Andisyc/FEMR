@@ -5710,3 +5710,65 @@ Verdict: official sensor authority is `live-confirmed`; the return-evidence N/A
 repair is `contract-confirmed`. The post-fix long lineage remains unrun beyond
 the failed first transaction and must resume again from the live-confirmed
 `model_1.pt` after synchronization.
+
+## E-FI-85: Repair/Noisy ZMP Applicability Carrier Closure
+
+Date: 2026-07-27
+
+Tier: deterministic S1/S2/S3 cross-module closure; no simulator, training or
+live run.
+
+First-invalid structural owner:
+
+- the phase evaluator already produced separate Repair and Noisy per-step ZMP
+  applicability, but `FrontRESIntentPhysicsGainResult` and
+  `FrontRESV015GainReturnEvidence` retained only the Repair/PPO aggregate mask;
+- downstream validators and reports therefore inferred Noisy applicability
+  from finite/NaN margins. This duplicated authority and caused successive
+  stale `finite-on-valid` failures when a valid role was physically unloaded.
+
+Implemented closure:
+
+- GainResult and ReturnEvidence now carry explicit
+  `zmp_applicable_repaired` and `zmp_applicable_noisy`; the existing
+  `zmp_constraint_applicable` is asserted to be the Repair-only PPO alias;
+- Repair and Noisy margins are finite exactly under their own valid-row masks;
+  paired `physics_zmp_gain` is finite exactly when both role masks are true;
+- local diagnostics recompute K-step applicability only as an oracle, require
+  equality with ReturnEvidence, and preserve both aggregates in the final live
+  snapshot; the held-out atomic report performs the same identity check;
+- no Gain/PPO/Critic/HSL/checkpoint formula or identity changed.
+
+Focused evidence PASS:
+
+- `frontres_intent_physics_gain_contract.py` and
+  `frontres_v015_grouped_candidate_adapter_contract.py`: role-asymmetric N/A,
+  both-applicable/both-inapplicable, malformed finite/N-A and Repair alias;
+- `frontres_segment_diagnostics_contract.py` and
+  `frontres_v015_policy_quality_heldout_contract.py`: K-step-to-aggregate
+  identity and role-specific final report serialization;
+- `frontres_v015_transaction_route_contract.py`,
+  `frontres_v015_local_sentinel_connectivity_contract.py`,
+  `frontres_segment_grouped_ppo_contract.py`,
+  `frontres_v015_checkpoint_resume_contract.py` and
+  `frontres_v015_policy_quality_save_reload_contract.py`: formal grouped update,
+  Repair-only PPO authority, exact-one update, final snapshot and persistence
+  remain connected;
+- modified Python owners compile and `git diff --check` passes.
+
+Repository-chain audit:
+
+- the first aggregate run found one real misplaced assertion
+  (`expected_support` referenced from the legacy fixed-tape materializer) and
+  eight stale test/Architecture adapters left behind by the v015/v006 route;
+- the assertion now belongs to the local-scenario materializer, current PPO and
+  rollout symbols are represented by the offline stubs, launcher assertions
+  follow dynamic K/checkpoint ownership, and both runtime Architecture source
+  anchors resolve to their current `B*` comments;
+- `frontres_segment_all_contract_suite.py` completes with 63/63 markers and
+  zero failures after these repairs.
+
+Verdict: Repair/Noisy applicability carrier closure is
+`contract-confirmed`. The next runtime action is a single post-E-FI-85 server
+validation/continuation; no further local probe or semantic redesign is
+required unless that run exposes a different first-invalid owner.

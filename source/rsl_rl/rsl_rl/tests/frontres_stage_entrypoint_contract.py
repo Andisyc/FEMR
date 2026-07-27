@@ -192,7 +192,7 @@ def main() -> None:
         '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)',
         '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", 1 if live_train_enabled else live_update_steps)',
         '_set_if_present(alg_cfg, "frontres_hsl_init_enabled", False)',
-        '_set_if_present(alg_cfg, "frontres_segment_k", 8)',
+        '_set_if_present(alg_cfg, "frontres_segment_k", int(k_curriculum[0][0]))',
         'segment_cache_dir = getattr(args_cli, "frontres_segment_cache_dir", None) or "/hdd1/cyx/AMASS_G1Segment"',
         'shard_cache_size = max(1, int(getattr(args_cli, "frontres_segment_shard_cache_size", 8)))',
         '_set_if_present(alg_cfg, "frontres_segment_cache_dir", str(segment_cache_dir))',
@@ -420,7 +420,8 @@ def main() -> None:
     assert 'STAGE3_IS_FULL_RESUME' not in stage3
     assert 'v015 Stage 3 forbids resume and legacy periodic-evaluation arguments' in stage3
     assert 'G5-S4 bounded Stage 3 requires train mode, 8 envs, 1 iteration, and 1 update' in stage3
-    assert '--frontres_checkpoint_interval 1' in stage3
+    assert 'CHECKPOINT_INTERVAL="${FRONTRES_CHECKPOINT_INTERVAL:-1}"' in stage3
+    assert 'TRAIN_CMD+=(--frontres_checkpoint_interval "${CHECKPOINT_INTERVAL}")' in stage3
     assert '--frontres_formal_runtime_audit' in stage3
     assert 'CACHE_DIR="${CACHE_DIR:-/hdd1/cyx/AMASS_G1Segment}"' in stage3
     assert 'SHARD_CACHE_SIZE="${SHARD_CACHE_SIZE:-8}"' in stage3

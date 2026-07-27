@@ -420,8 +420,10 @@ proxy fallback or actor-visible Clean geometry is a hard stop.
 
 #### P4 Loaded-Support ZMP Applicability Closure
 
-Status: deterministic S1/S2/S3 contract-complete at E-FI-82; no simulator,
-training or live run occurred.
+Status: E-FI-84 live-confirmed sensor authority; E-FI-85 closes the subsequently
+exposed carrier mismatch offline. GainResult, ReturnEvidence, transaction
+telemetry and held-out reports now retain explicit Repair and Noisy aggregate
+applicability rather than inferring Noisy applicability from finite/NaN values.
 
 FRS-GAIN-v006 resolves the first live sensor-authority contradiction without
 changing the scalar objective or PPO projection. Valid ContactSensor no-load is
@@ -431,6 +433,14 @@ case, actual loaded support without a finite raw-wrench resultant, still fail
 closed. One-action-K, paired Gain facts, return evidence, transaction telemetry,
 atomic quality reports and checkpoint-v5 now carry this distinction. Strict
 resume rejects GAIN-v005/schema-v1 before mutable restore.
+
+The one-shot E-FI-85 closure makes Repair and Noisy aggregate applicability
+explicit from GainResult through ReturnEvidence and both final serializers.
+`zmp_constraint_applicable` remains the Repair-only PPO constraint mask;
+`physics_zmp_gain` is finite only when both role masks are true. The four role
+applicability combinations, row permutation, missing fields and fabricated
+finite diagnostics must fail or pass according to FRS-GAIN-v006 before another
+live or long run is admitted.
 
 ## Why Four Main Steps
 
@@ -449,4 +459,4 @@ are deliberately merged into P2.
 
 ## Cursor
 
-Current cursor: `E-FI-84 live-confirms sensor authority and checkpoint-v5, and contract-confirms the return-evidence ZMP N/A repair; restart the post-fix long lineage from the same model_1.pt`.
+Current cursor: `P4 ZMP applicability carrier closure complete offline at E-FI-85; one bounded/continued server run may now validate the repaired formal path before further scale training`.

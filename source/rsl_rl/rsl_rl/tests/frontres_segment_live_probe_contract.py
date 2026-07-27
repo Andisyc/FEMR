@@ -52,6 +52,7 @@ def _install_live_probe_import_stubs():
         raise AssertionError("Step 1 storage test must not enter PPO loss")
 
     ppo_module.compute_frontres_segment_ppo_loss = _unused_ppo_loss
+    ppo_module.install_frontres_v004_projected_gradients = lambda *_args, **_kwargs: None
     sys.modules[ppo_module.__name__] = ppo_module
     algorithms_pkg.frontres_segment_ppo = ppo_module
 

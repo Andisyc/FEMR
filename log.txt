@@ -43,8 +43,8 @@ Traceback (most recent call last):
     candidate_evidence = collect_frontres_v015_gain_return_priority_evidence(
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3655, in collect_frontres_v015_gain_return_priority_evidence
     return_evidence = build_frontres_v015_gain_return_evidence(facts, gain_result)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", line 1191, in build_frontres_v015_gain_return_evidence
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", line 1194, in build_frontres_v015_gain_return_evidence
     result.validate()
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", line 900, in validate
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", line 899, in validate
     raise ValueError(f"v015 return evidence {name} must be finite exactly on valid rows")
-ValueError: v015 return evidence repaired_zmp_margin must be finite exactly on valid rows
+ValueError: v015 return evidence physics_zmp_gain must be finite exactly on valid rows

@@ -50,6 +50,7 @@ def _install_import_stubs() -> None:
     ppo_module.FrontRESSegmentPPOBatch = object
     ppo_module.FrontRESSegmentPPOConfig = object
     ppo_module.compute_frontres_segment_ppo_loss = lambda *_args, **_kwargs: None
+    ppo_module.install_frontres_v004_projected_gradients = lambda *_args, **_kwargs: None
     sys.modules[ppo_module.__name__] = ppo_module
     algorithms_pkg.frontres_segment_ppo = ppo_module
 

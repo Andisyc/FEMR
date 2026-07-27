@@ -764,6 +764,8 @@ class FrontRESV015GainReturnEvidence:
     contact_constraint: torch.Tensor
     zmp_constraint: torch.Tensor
     survival_constraint: torch.Tensor
+    zmp_applicable_repaired: torch.Tensor
+    zmp_applicable_noisy: torch.Tensor
     zmp_constraint_applicable: torch.Tensor
     contact_constraint_advantage: torch.Tensor
     zmp_constraint_advantage: torch.Tensor
@@ -820,6 +822,8 @@ class FrontRESV015GainReturnEvidence:
             ("contact_constraint", self.contact_constraint),
             ("zmp_constraint", self.zmp_constraint),
             ("survival_constraint", self.survival_constraint),
+            ("zmp_applicable_repaired", self.zmp_applicable_repaired),
+            ("zmp_applicable_noisy", self.zmp_applicable_noisy),
             ("zmp_constraint_applicable", self.zmp_constraint_applicable),
             ("contact_constraint_advantage", self.contact_constraint_advantage),
             ("zmp_constraint_advantage", self.zmp_constraint_advantage),
@@ -882,7 +886,6 @@ class FrontRESV015GainReturnEvidence:
             ("physics_survival_quality_repaired", self.physics_survival_quality_repaired),
             ("physics_survival_quality_noisy", self.physics_survival_quality_noisy),
             ("physics_survival_gain", self.physics_survival_gain),
-            ("physics_zmp_gain", self.physics_zmp_gain),
             ("physics_contact_gain", self.physics_contact_gain),
             ("intent_quality_repaired", self.intent_quality_repaired),
             ("intent_quality_noisy", self.intent_quality_noisy),
@@ -897,20 +900,35 @@ class FrontRESV015GainReturnEvidence:
             finite = torch.isfinite(value)
             if not bool(finite[valid].all()) or bool(finite[~valid].any()):
                 raise ValueError(f"v015 return evidence {name} must be finite exactly on valid rows")
-        repaired_zmp_applicable = valid & self.zmp_constraint_applicable.bool()
+        if not torch.equal(self.zmp_constraint_applicable.bool(), self.zmp_applicable_repaired.bool()):
+            raise ValueError("v015 return evidence PPO ZMP applicability must alias the Repair role")
+        if bool(self.zmp_applicable_repaired.bool()[~valid].any()) or bool(
+            self.zmp_applicable_noisy.bool()[~valid].any()
+        ):
+            raise ValueError("v015 return evidence ZMP applicability must be false outside valid policy rows")
+        repaired_zmp_applicable = valid & self.zmp_applicable_repaired.bool()
         repaired_zmp_finite = torch.isfinite(self.repaired_zmp_margin)
         if (
             not bool(repaired_zmp_finite[repaired_zmp_applicable].all())
             or bool(repaired_zmp_finite[~repaired_zmp_applicable].any())
         ):
             raise ValueError("v015 return evidence Repair ZMP must follow role-specific loaded-support applicability")
-        for name, value in (
-            ("noisy_zmp_margin", self.noisy_zmp_margin),
-            ("physics_zmp_gain", self.physics_zmp_gain),
+        noisy_zmp_applicable = valid & self.zmp_applicable_noisy.bool()
+        noisy_zmp_finite = torch.isfinite(self.noisy_zmp_margin)
+        if (
+            not bool(noisy_zmp_finite[noisy_zmp_applicable].all())
+            or bool(noisy_zmp_finite[~noisy_zmp_applicable].any())
         ):
-            finite = torch.isfinite(value)
-            if bool(finite[~valid].any()):
-                raise ValueError(f"v015 return evidence {name} must remain N/A outside valid rows")
+            raise ValueError("v015 return evidence Noisy ZMP must follow role-specific loaded-support applicability")
+        paired_zmp_applicable = repaired_zmp_applicable & noisy_zmp_applicable
+        physics_zmp_finite = torch.isfinite(self.physics_zmp_gain)
+        if (
+            not bool(physics_zmp_finite[paired_zmp_applicable].all())
+            or bool(physics_zmp_finite[~paired_zmp_applicable].any())
+        ):
+            raise ValueError(
+                "v015 return evidence paired ZMP gain must be finite exactly when both role margins are applicable"
+            )
         source = self.intent_q29_source.lower()
         if (
             self.intent_q29_provenance != "deployment_noisy_q29"
@@ -1058,10 +1076,18 @@ def build_frontres_v015_gain_return_evidence(
         if not bool(torch.isfinite(value[valid]).all()) or bool((value[valid] < 0.0).any()):
             raise ValueError(f"FRS-GAIN-v006 {name} must be finite and nonnegative on valid rows")
         constraint_components[name] = torch.where(valid, value, nan)
-    zmp_applicable = getattr(gain_result, "zmp_constraint_applicable", None)
-    if not isinstance(zmp_applicable, torch.Tensor) or zmp_applicable.ndim != 1 or int(zmp_applicable.numel()) != count:
-        raise ValueError("v015 return evidence requires FRS-GAIN-v006 zmp_constraint_applicable [B]")
-    zmp_applicable = zmp_applicable.detach().to(device=facts.policy_values.device, dtype=torch.bool).clone()
+    zmp_applicability: dict[str, torch.Tensor] = {}
+    for name in ("zmp_applicable_repaired", "zmp_applicable_noisy", "zmp_constraint_applicable"):
+        value = getattr(gain_result, name, None)
+        if not isinstance(value, torch.Tensor) or value.ndim != 1 or int(value.numel()) != count:
+            raise ValueError(f"v015 return evidence requires FRS-GAIN-v006 {name} [B]")
+        value = value.detach().to(device=facts.policy_values.device, dtype=torch.bool).clone()
+        zmp_applicability[name] = value & valid
+    if not torch.equal(
+        zmp_applicability["zmp_constraint_applicable"],
+        zmp_applicability["zmp_applicable_repaired"],
+    ):
+        raise ValueError("FRS-GAIN-v006 PPO ZMP applicability must alias the Repair role")
 
     scenario_counts = {
         scenario_id: sum(observed == scenario_id for observed in facts.scenario_ids)
@@ -1174,7 +1200,9 @@ def build_frontres_v015_gain_return_evidence(
         contact_constraint=constraint_components["contact_constraint"],
         zmp_constraint=constraint_components["zmp_constraint"],
         survival_constraint=constraint_components["survival_constraint"],
-        zmp_constraint_applicable=zmp_applicable,
+        zmp_applicable_repaired=zmp_applicability["zmp_applicable_repaired"],
+        zmp_applicable_noisy=zmp_applicability["zmp_applicable_noisy"],
+        zmp_constraint_applicable=zmp_applicability["zmp_constraint_applicable"],
         contact_constraint_advantage=constraint_advantages["contact_constraint"],
         zmp_constraint_advantage=constraint_advantages["zmp_constraint"],
         survival_constraint_advantage=constraint_advantages["survival_constraint"],

@@ -564,6 +564,9 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
     assert len(sealed["zmp_margin_noisy_steps"]) == 4
     assert len(sealed["zmp_applicable_steps"]) == 4
     assert len(sealed["zmp_applicable_noisy_steps"]) == 4
+    assert len(sealed["zmp_applicable_repaired"]) == 4
+    assert len(sealed["zmp_applicable_noisy"]) == 4
+    assert sealed["zmp_constraint_applicable"] == sealed["zmp_applicable_repaired"]
     assert sealed["constraint_schema_id"] == "contact-loaded-phase_zmp-survival-physical-v2"
     assert sealed["return_feedback"] is False
     assert sealed["priority_feedback"] is False

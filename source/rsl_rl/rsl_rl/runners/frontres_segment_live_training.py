@@ -2022,6 +2022,8 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         "contact_constraint": [],
         "zmp_constraint": [],
         "survival_constraint": [],
+        "zmp_applicable_repaired": [],
+        "zmp_applicable_noisy": [],
         "zmp_constraint_applicable": [],
         "repaired_success": [],
         "noisy_success": [],
@@ -2147,6 +2149,8 @@ def _v015_sealed_transaction_telemetry(result: Any, *, ppo: Any) -> dict[str, An
         fields["x_t_identities"].extend(str(value) for value in report.x_t_identities)
         fields["horizon_k"].extend(int(value) for value in report.horizon_k)
         fields["physics_valid_step_count"].extend(int(value) for value in report.physics_valid_step_count)
+        fields["zmp_applicable_repaired"].extend(bool(value) for value in report.zmp_applicable_repaired)
+        fields["zmp_applicable_noisy"].extend(bool(value) for value in report.zmp_applicable_noisy)
         fields["zmp_constraint_applicable"].extend(bool(value) for value in report.zmp_constraint_applicable)
         fields["expected_support_steps"].extend(report.expected_support_steps)
         fields["actual_contact_repaired_steps"].extend(report.actual_contact_repaired_steps)

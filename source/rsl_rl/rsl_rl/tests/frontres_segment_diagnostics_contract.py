@@ -56,6 +56,8 @@ def _v015_candidate_evidence() -> SimpleNamespace:
         contact_constraint_advantage=torch.full((3,), float("nan")),
         zmp_constraint_advantage=torch.full((3,), float("nan")),
         survival_constraint_advantage=torch.full((3,), float("nan")),
+        zmp_applicable_repaired=torch.tensor([True, True, False]),
+        zmp_applicable_noisy=torch.tensor([True, True, False]),
         zmp_constraint_applicable=torch.tensor([True, True, False]),
         constraint_advantage_state="unsealed",
         repaired_success=torch.tensor([1.0, 0.0, float("nan")]),
@@ -170,6 +172,7 @@ def test_v015_diagnostics_preserve_role_specific_zmp_na() -> None:
     candidate = _v015_candidate_evidence()
     candidate.one_action.physics_contact_repaired_steps[:, 0] = 0.0
     candidate.one_action.physics_zmp_repaired_steps[:, 0] = float("nan")
+    candidate.return_evidence.zmp_applicable_repaired[0] = False
     candidate.return_evidence.zmp_constraint_applicable[0] = False
     candidate.return_evidence.zmp_constraint[0] = 0.0
     candidate.return_evidence.repaired_zmp_margin[0] = float("nan")
@@ -180,6 +183,8 @@ def test_v015_diagnostics_preserve_role_specific_zmp_na() -> None:
     )
     assert report.zmp_applicable_steps[0] == (False, False, False, False)
     assert report.zmp_applicable_noisy_steps[0] == (True, False, True, False)
+    assert report.zmp_applicable_repaired == (False, True, False)
+    assert report.zmp_applicable_noisy == (True, True, False)
     assert report.zmp_argmax_frame_repaired[0] is None
     assert report.zmp_argmax_frame_noisy[0] == 0
     report.validate()

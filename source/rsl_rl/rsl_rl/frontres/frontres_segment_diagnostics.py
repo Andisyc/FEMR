@@ -172,6 +172,8 @@ class FrontRESV015LocalEvaluationReport:
     contact_constraint_advantage: tuple[float, ...]
     zmp_constraint_advantage: tuple[float, ...]
     survival_constraint_advantage: tuple[float, ...]
+    zmp_applicable_repaired: tuple[bool, ...]
+    zmp_applicable_noisy: tuple[bool, ...]
     zmp_constraint_applicable: tuple[bool, ...]
     constraint_advantage_state: str
     repaired_success: tuple[float, ...]
@@ -276,6 +278,8 @@ class FrontRESV015LocalEvaluationReport:
             or len(self.policy_actions) != count
             or any(len(row) != 6 for row in self.policy_actions)
             or len(self.valid_policy_row_mask) != count
+            or len(self.zmp_applicable_repaired) != count
+            or len(self.zmp_applicable_noisy) != count
             or len(self.zmp_constraint_applicable) != count
             or any(len(values) != count for values in components)
             or any(len(values) != count for values in row_diagnostics)
@@ -341,8 +345,19 @@ class FrontRESV015LocalEvaluationReport:
             all_row_values = tuple(float(values[row]) for values in (*components, *row_diagnostics))
             if not row_valid and not all(math.isnan(value) for value in all_row_values):
                 raise ValueError("v015 local evaluation report keeps invalid-row diagnostics UNCONFIRMED, never zero-filled")
-            if row_valid and self.zmp_constraint_applicable[row] and not math.isfinite(self.repaired_zmp_margin[row]):
-                raise ValueError("v015 local evaluation report requires Repair ZMP when its constraint is applicable")
+            if self.zmp_constraint_applicable[row] != self.zmp_applicable_repaired[row]:
+                raise ValueError("v015 local evaluation PPO ZMP applicability must alias the Repair role")
+            repaired_finite = math.isfinite(self.repaired_zmp_margin[row])
+            noisy_finite = math.isfinite(self.noisy_zmp_margin[row])
+            paired_finite = math.isfinite(self.physics_zmp_gain[row])
+            if repaired_finite != bool(row_valid and self.zmp_applicable_repaired[row]):
+                raise ValueError("v015 local evaluation Repair ZMP must follow explicit applicability")
+            if noisy_finite != bool(row_valid and self.zmp_applicable_noisy[row]):
+                raise ValueError("v015 local evaluation Noisy ZMP must follow explicit applicability")
+            if paired_finite != bool(
+                row_valid and self.zmp_applicable_repaired[row] and self.zmp_applicable_noisy[row]
+            ):
+                raise ValueError("v015 local evaluation paired ZMP gain requires both role applicability masks")
         constraint_advantages = (
             self.contact_constraint_advantage,
             self.zmp_constraint_advantage,
@@ -371,6 +386,10 @@ class FrontRESV015LocalEvaluationReport:
             )
             if any(len(values) != horizon for values in step_rows):
                 raise ValueError("v015 ZMP diagnostics must preserve each row's exact K-step order")
+            if self.zmp_applicable_repaired[row] != any(self.zmp_applicable_steps[row]):
+                raise ValueError("v015 Repair ZMP aggregate applicability disagrees with its K-step evidence")
+            if self.zmp_applicable_noisy[row] != any(self.zmp_applicable_noisy_steps[row]):
+                raise ValueError("v015 Noisy ZMP aggregate applicability disagrees with its K-step evidence")
             for role_name in ("repaired", "noisy"):
                 violations = getattr(self, f"zmp_step_violation_{role_name}")[row]
                 argmax = getattr(self, f"zmp_argmax_frame_{role_name}")[row]
@@ -604,6 +623,16 @@ def build_frontres_v015_local_evaluation_report(
         tuple(bool(value) for value in row[: int(horizon[index])])
         for index, row in enumerate(noisy_phase["zmp_applicable_steps"].detach().permute(1, 0).cpu().tolist())
     )
+    aggregate_repaired = repaired_phase["zmp_applicable_steps"].any(dim=0) & valid.to(
+        device=repaired_phase["zmp_applicable_steps"].device
+    )
+    aggregate_noisy = noisy_phase["zmp_applicable_steps"].any(dim=0) & valid.to(
+        device=noisy_phase["zmp_applicable_steps"].device
+    )
+    if not torch.equal(return_evidence.zmp_applicable_repaired.to(aggregate_repaired.device), aggregate_repaired):
+        raise ValueError("v015 ReturnEvidence lost Repair ZMP applicability identity")
+    if not torch.equal(return_evidence.zmp_applicable_noisy.to(aggregate_noisy.device), aggregate_noisy):
+        raise ValueError("v015 ReturnEvidence lost Noisy ZMP applicability identity")
     transition_rows = tuple(
         tuple(bool(value) for value in row[: int(horizon[index])])
         for index, row in enumerate(repaired_phase["support_transition_steps"].detach().permute(1, 0).cpu().tolist())
@@ -634,6 +663,8 @@ def build_frontres_v015_local_evaluation_report(
         contact_constraint_advantage=tuple(float(value) for value in diagnostic_tensors["contact_constraint_advantage"].detach().cpu().tolist()),
         zmp_constraint_advantage=tuple(float(value) for value in diagnostic_tensors["zmp_constraint_advantage"].detach().cpu().tolist()),
         survival_constraint_advantage=tuple(float(value) for value in diagnostic_tensors["survival_constraint_advantage"].detach().cpu().tolist()),
+        zmp_applicable_repaired=tuple(bool(value) for value in aggregate_repaired.detach().cpu().tolist()),
+        zmp_applicable_noisy=tuple(bool(value) for value in aggregate_noisy.detach().cpu().tolist()),
         zmp_constraint_applicable=tuple(bool(value) for value in return_evidence.zmp_constraint_applicable.detach().cpu().tolist()),
         constraint_advantage_state=str(return_evidence.constraint_advantage_state),
         repaired_success=tuple(float(value) for value in diagnostic_tensors["repaired_success"].detach().cpu().tolist()),

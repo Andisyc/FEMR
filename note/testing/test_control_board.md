@@ -28,10 +28,10 @@ claims additionally require S4.
 | Full-6D/no active mask | dedicated static contract plus rollout/PPO tuple tests | covered S0-S2 | S4 full-6D log proof remains. |
 | K curriculum | 8/16/32/64 implementation, explicit Stage 3 max horizon, and formal-route connectivity | covered S1-S2 | Live horizon distribution remains S4. |
 | Segment PPO | clipped surrogate, exact KL, raw-Gaussian/tanh log-prob identity, ratio source, scale-only advantage, rollback | covered S1-S2 | Gain consumer alignment remains S4; long-run learning quality is deferred until after training. |
-| v015 Intent Segment Gain | q29-intent/physics/cost owner and local two-role consumers | S1 candidate chain complete, `E-FI-10`--`E-FI-13` | Real evaluation, sampler state, formal PPO/update, checkpoint/resume, and live consumers remain unconnected. |
-| v015 grouped candidate adapter | sealed candidate return -> local metadata -> grouped PPO batch | S1 complete, `E-FI-13` | Candidate-only batch/loss evidence; formal runner, optimizer, checkpoint/resume, and live transaction remain unconnected. |
+| v015 Intent/Physics constrained update | q29 Intent scalar objective plus Contact/phase-ZMP/survival projected actor constraints | S1-S4 route covered through `E-FI-75`--`E-FI-85` | Policy efficacy and a clean post-E-FI-85 long lineage remain unresolved. |
+| v015 grouped candidate adapter | sealed ReturnEvidence -> local metadata -> grouped PPO batch | S1-S3 plus bounded S4 complete | Exact-one update and checkpoint-v5 are live-confirmed; E-FI-85 adds explicit Repair/Noisy ZMP applicability without changing PPO math. |
 | v015 deployment composition | ordinary reference `.npz` -> planned selection-time fixed carrier -> paired frozen-GMT baseline vs per-frame FEMR+GMT -> report | interfaces S1/S2 at `E-FI-28`--`E-FI-31`; test-path rebase `E-FI-32` | Current code still requires an external pre-materialized file and missing trained checkpoint. CLI is implemented-not-runnable; G1--G6 precede S4. |
-| Contact-wrench ZMP evidence adapter | foot-to-ground raw filtered ContactSensor views -> masked per-foot contact slots -> paired one-action-K Physics evidence | S1 `T-shape/T-mask/T-value/T-permute` and S2 `T-connect/T-order` contract-confirmed; asymmetric live shape `C_left=10`, `C_right=3` is preserved by common-axis padding | The official Stage3 live route reached this owner, but the repaired padding path has not yet been rerun in IsaacLab; status is covered-but-live-gap, not live-confirmed. |
+| Contact-wrench ZMP evidence adapter | foot-to-ground raw filtered ContactSensor views -> masked per-foot contact slots -> paired one-action-K Physics evidence | S1/S2 contract-confirmed and S4 sensor-authority live-confirmed at E-FI-84 | E-FI-85 closes the downstream role-applicability carrier offline; post-closure runtime continuation remains. |
 
 ## Historical v002 Gain Change Matrix
 
@@ -78,10 +78,10 @@ acceptance surface and supersedes it for all new implementation work.
 ```text
 v015 Step 0 documentation closure: COMPLETE
 v015 local scenario, future q29-intent, two-role K lifecycle, pure Gain, candidate return/priority, and diagnostic/isolation S1: COMPLETE
-v015 injected formal transaction fake-S2 plus CPU-fake persistence S3: COMPLETE; generic transaction/real-checkpoint/live route: BLOCKED by S4
-long training: BLOCKED pending reviewed v015 Step 5 live identity sentinel
-FRS-GAIN-v003 is active semantics; current v002 code/evidence does not
-substitute for v015 future-intent, lifecycle, or grouped-loss evidence
+v015 formal transaction, exact-one grouped PPO, checkpoint-v5 and bounded sensor authority: COMPLETE
+FRS-GAIN-v006 explicit Repair/Noisy applicability carrier: OFFLINE COMPLETE at E-FI-85
+next runtime gate: one post-E-FI-85 server validation/continuation; policy efficacy remains UNCONFIRMED
+FRS-GAIN-v006 / PPO-v004 / TRAIN-v010 are active; v002/v003 evidence is historical only
 ```
 
 Unblock only when the current checklist records implementation, formal-route

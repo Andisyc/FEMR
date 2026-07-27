@@ -261,16 +261,15 @@ def test_stage3_default_enters_live_train_config_without_zeroing_iterations() ->
 
 def test_stage2_hsl_warmup_constructs_proposal_only_6d_policy() -> None:
     agent_cfg = _agent_cfg()
-
-    _apply_frontres_stage_preset(
-        agent_cfg,
-        _args(frontres_stage="stage2_hsl_warmup"),
-    )
-
-    assert agent_cfg.algorithm.frontres_training_objective == "supervised_restore"
-    assert agent_cfg.policy.num_task_corrections == 6
-    assert not hasattr(agent_cfg.policy, "task_conf_dim")
-    assert not hasattr(agent_cfg.policy, "frontres_split_acceptance_head")
+    try:
+        _apply_frontres_stage_preset(
+            agent_cfg,
+            _args(frontres_stage="stage2_hsl_warmup"),
+        )
+    except ValueError as exc:
+        assert "stage3_segment_hrl" in str(exc)
+    else:
+        raise AssertionError("v015 rejects the retired standalone Stage-2 HSL route")
 def test_default_frontres_policy_config_is_proposal_only_6d() -> None:
     config = MOSAIC_CFG_PATH.read_text(encoding="utf-8")
 
@@ -398,7 +397,7 @@ def test_live_sentinel_flags_require_stage3() -> None:
         )
     except ValueError as exc:
         _probe_exception("rejects_live_sentinel_without_stage3", exc)
-        assert "require --frontres_stage stage3_segment_hrl" in str(exc)
+        assert "stage3_segment_hrl" in str(exc)
     else:
         raise AssertionError("Live sentinel flags must require Stage 3")
 

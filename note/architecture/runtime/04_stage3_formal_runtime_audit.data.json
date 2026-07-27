@@ -79,20 +79,20 @@
               "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=1781"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1922 :: run_frontres_segment_live_training_loop() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:2628 :: run_frontres_segment_live_training_loop() 产物边界",
               "capture": "live_train/alternate_modes",
               "whyHere": "formal guard 在这里首次排除 sentinel/eval/update_loop 等替代路径",
               "failureOwner": "失败归属: runner route guard 或 boundary config",
-              "sourceLine": 2529,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=2529"
+              "sourceLine": 2628,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=2628"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:1924 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py:2630 :: 正式 consumer 接收前",
               "capture": "iteration/update loop",
               "whyHere": "进入 live update loop 前是正式训练承诺点, 再晚只能看到训练结果",
               "failureOwner": "失败归属: train dispatch 到 live loop 的连接",
-              "sourceLine": 2531,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=2531"
+              "sourceLine": 2630,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Frunners%2Ffrontres_segment_live_training.py&line=2630"
             }
           ],
           "probe": {
@@ -1304,28 +1304,28 @@
           ],
           "probeSteps": [
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:468 :: compute_segment_gain() 入口/调用前",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:1033 :: compute_segment_gain() 入口/调用前",
               "capture": "raw survival_steps + effective_horizon_K",
               "whyHere": "raw survival_steps 与 effective_horizon_K 首次同时进入 Gain owner, 可确认原始单位和每行 K 没有错位",
               "failureOwner": "失败归属: paired capture 或 horizon forwarding",
-              "sourceLine": 1025,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=1025"
+              "sourceLine": 1033,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=1033"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:450 :: compute_segment_gain() 产物边界",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:1034 :: compute_segment_gain() 产物边界",
               "capture": "survival_quality repaired/noisy + physics_survival_gain",
               "whyHere": "survival_quality repaired/noisy 与 physics_survival_gain 在 owner 产物边界同时成立, 可确认没有回退到 raw step difference",
               "failureOwner": "失败归属: compute_paired_physics_gain 或 survival unit conversion",
-              "sourceLine": 808,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=808"
+              "sourceLine": 1034,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=1034"
             },
             {
-              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:554 :: 正式 consumer 接收前",
+              "location": "source/rsl_rl/rsl_rl/frontres/frontres_gain.py:1035 :: 正式 consumer 接收前",
               "capture": "survival_gain_step_sum + gain_total",
               "whyHere": "同一 transaction 的逐步 survival Gain 累计与最终 gain_total 交给正式 consumer 前同时可见, 可发现旧 score、旧单位或跨 batch 旁路",
               "failureOwner": "失败归属: Gain 到 storage/sampler evidence wiring",
-              "sourceLine": 1027,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=1027"
+              "sourceLine": 1035,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_gain.py&line=1035"
             }
           ],
           "probe": {
@@ -1807,24 +1807,24 @@
               "capture": "canonical live summary",
               "whyHere": "canonical live summary 尚未格式化, 可确认日志字段真实来源",
               "failureOwner": "失败归属: live summary aggregation",
-              "sourceLine": 496,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=496"
+              "sourceLine": 515,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=515"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py:83 :: repair_effect_summary_to_scalars() 产物边界",
               "capture": "single/aggregate transaction identity",
               "whyHere": "diagnostic scalars 形成后可检查缺失值是否仍为 UNCONFIRMED/NaN",
               "failureOwner": "失败归属: repair_effect_summary_to_scalars",
-              "sourceLine": 554,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=554"
+              "sourceLine": 573,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=573"
             },
             {
               "location": "source/rsl_rl/rsl_rl/frontres/frontres_segment_diagnostics.py:135 :: 正式 consumer 接收前",
               "capture": "diagnostic scalars",
               "whyHere": "terminal/logger 消费前检查可发现 aggregate 是否误报为 single transaction, 或正确 scalar 被旧字段覆盖",
               "failureOwner": "失败归属: diagnostics formatting 或 logger wiring",
-              "sourceLine": 562,
-              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=562"
+              "sourceLine": 581,
+              "sourceHref": "/open-source?path=source%2Frsl_rl%2Frsl_rl%2Ffrontres%2Ffrontres_segment_diagnostics.py&line=581"
             }
           ],
           "probe": {

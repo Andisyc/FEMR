@@ -226,6 +226,8 @@ class FrontRESIntentPhysicsGainResult:
     contact_constraint: torch.Tensor
     zmp_constraint: torch.Tensor
     survival_constraint: torch.Tensor
+    zmp_applicable_repaired: torch.Tensor
+    zmp_applicable_noisy: torch.Tensor
     zmp_constraint_applicable: torch.Tensor
     scalar_target_id: str = "paired-intent-minus-repair-v1"
     constraint_schema_id: str = "contact-loaded-phase_zmp-survival-physical-v2"
@@ -354,7 +356,11 @@ def compute_intent_physics_local_repair_gain(
         _match(noisy_phase["zmp_violation"], like) / float(config.zmp_scale_metre_seconds)
     )
     noisy_survival_constraint = torch.relu(noisy_survival_residual / float(config.survival_scale_seconds))
-    zmp_constraint_applicable = repaired_phase["zmp_applicable_steps"].any(dim=0)
+    zmp_applicable_repaired = repaired_phase["zmp_applicable_steps"].any(dim=0)
+    zmp_applicable_noisy = noisy_phase["zmp_applicable_steps"].any(dim=0)
+    # PPO constrains the Repair action. Keep this compatibility alias explicit,
+    # while preserving both role identities for evidence and diagnostics.
+    zmp_constraint_applicable = zmp_applicable_repaired
     deficit_repaired = torch.stack((contact_constraint, zmp_constraint, survival_constraint), dim=0).amax(dim=0)
     deficit_noisy = torch.stack((noisy_contact_constraint, noisy_zmp_constraint, noisy_survival_constraint), dim=0).amax(dim=0)
     admissible_repaired = (contact_constraint <= 0.0) & (zmp_constraint <= 0.0) & (survival_constraint <= 0.0)
@@ -410,6 +416,8 @@ def compute_intent_physics_local_repair_gain(
         contact_constraint=contact_constraint,
         zmp_constraint=zmp_constraint,
         survival_constraint=survival_constraint,
+        zmp_applicable_repaired=zmp_applicable_repaired,
+        zmp_applicable_noisy=zmp_applicable_noisy,
         zmp_constraint_applicable=zmp_constraint_applicable,
     )
 

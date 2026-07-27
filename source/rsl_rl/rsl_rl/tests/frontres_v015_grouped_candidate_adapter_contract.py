@@ -151,6 +151,8 @@ def test_t_schema_row_metadata_and_legacy_reject(
     # A valid policy row may carry ZMP N/A when that role had no loaded support.
     repaired_zmp_na = returned.repaired_zmp_margin.detach().clone()
     repaired_zmp_na[0] = float("nan")
+    physics_zmp_na = returned.physics_zmp_gain.detach().clone()
+    physics_zmp_na[0] = float("nan")
     zmp_not_applicable = returned.zmp_constraint_applicable.detach().clone()
     zmp_not_applicable[0] = False
     _expect_value_error(
@@ -159,9 +161,18 @@ def test_t_schema_row_metadata_and_legacy_reject(
             zmp_constraint_applicable=zmp_not_applicable,
         ).validate()
     )
+    _expect_value_error(
+        lambda: replace(
+            returned,
+            repaired_zmp_margin=repaired_zmp_na,
+            zmp_constraint_applicable=zmp_not_applicable,
+        ).validate()
+    )
     replace(
         returned,
         repaired_zmp_margin=repaired_zmp_na,
+        physics_zmp_gain=physics_zmp_na,
+        zmp_applicable_repaired=zmp_not_applicable,
         zmp_constraint_applicable=zmp_not_applicable,
     ).validate()
     zmp_applicable = zmp_not_applicable.clone()
@@ -171,6 +182,37 @@ def test_t_schema_row_metadata_and_legacy_reject(
             returned,
             repaired_zmp_margin=repaired_zmp_na,
             zmp_constraint_applicable=zmp_applicable,
+        ).validate()
+    )
+    _expect_value_error(
+        lambda: replace(
+            returned,
+            physics_zmp_gain=physics_zmp_na,
+        ).validate()
+    )
+    noisy_zmp_na = returned.noisy_zmp_margin.detach().clone()
+    noisy_zmp_na[0] = float("nan")
+    noisy_not_applicable = returned.zmp_applicable_noisy.detach().clone()
+    noisy_not_applicable[0] = False
+    replace(
+        returned,
+        noisy_zmp_margin=noisy_zmp_na,
+        physics_zmp_gain=physics_zmp_na,
+        zmp_applicable_noisy=noisy_not_applicable,
+    ).validate()
+    replace(
+        returned,
+        repaired_zmp_margin=repaired_zmp_na,
+        noisy_zmp_margin=noisy_zmp_na,
+        physics_zmp_gain=physics_zmp_na,
+        zmp_applicable_repaired=zmp_not_applicable,
+        zmp_applicable_noisy=noisy_not_applicable,
+        zmp_constraint_applicable=zmp_not_applicable,
+    ).validate()
+    _expect_value_error(
+        lambda: replace(
+            returned,
+            noisy_zmp_margin=noisy_zmp_na,
         ).validate()
     )
 

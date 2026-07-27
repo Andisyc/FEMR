@@ -932,6 +932,14 @@ def _v015_quality_route_result(
     )
     applicable_repaired = repaired_phase["zmp_applicable_steps"].bool()
     applicable_noisy = noisy_phase["zmp_applicable_steps"].bool()
+    aggregate_repaired = applicable_repaired.any(dim=0) & valid.to(applicable_repaired.device)
+    aggregate_noisy = applicable_noisy.any(dim=0) & valid.to(applicable_noisy.device)
+    if not torch.equal(gain.zmp_applicable_repaired.to(aggregate_repaired.device), aggregate_repaired):
+        raise RuntimeError("v015 quality Gain lost Repair ZMP applicability identity")
+    if not torch.equal(gain.zmp_applicable_noisy.to(aggregate_noisy.device), aggregate_noisy):
+        raise RuntimeError("v015 quality Gain lost Noisy ZMP applicability identity")
+    if not torch.equal(gain.zmp_constraint_applicable.to(aggregate_repaired.device), aggregate_repaired):
+        raise RuntimeError("v015 quality PPO ZMP applicability must alias the Repair role")
     supported = pair_valid & evidence.physics_expected_support_steps.detach().bool().any(dim=-1)
     recovery_repaired = supported & evidence.physics_contact_repaired_steps.bool().any(dim=-1) & (~applicable_repaired)
     recovery_noisy = supported & evidence.physics_contact_noisy_steps.bool().any(dim=-1) & (~applicable_noisy)
@@ -965,6 +973,8 @@ def _v015_quality_route_result(
         "later_femr_action_count": int(evidence.later_femr_action_count),
         "policy_actions": _v015_quality_json_tensor(evidence.policy_actions),
         "policy_row_valid": [bool(value) for value in valid.tolist()],
+        "zmp_applicable_repaired": [bool(value) for value in aggregate_repaired.detach().cpu().tolist()],
+        "zmp_applicable_noisy": [bool(value) for value in aggregate_noisy.detach().cpu().tolist()],
         "zmp_constraint_applicable": [
             bool(value) for value in gain.zmp_constraint_applicable.detach().cpu().tolist()
         ],

@@ -298,6 +298,9 @@ def test_expected_support_without_actual_load_is_contact_failure_and_zmp_na() ->
     )
     result = _compute(evidence)
     assert float(result.contact_constraint[0]) > 0.0
+    assert torch.equal(result.zmp_applicable_repaired, torch.tensor([False, True]))
+    assert torch.equal(result.zmp_applicable_noisy, torch.tensor([True, True]))
+    assert torch.equal(result.zmp_constraint_applicable, result.zmp_applicable_repaired)
     assert not bool(result.zmp_constraint_applicable[0])
     assert float(result.zmp_constraint[0]) == 0.0
     assert bool(result.zmp_constraint_applicable[1])

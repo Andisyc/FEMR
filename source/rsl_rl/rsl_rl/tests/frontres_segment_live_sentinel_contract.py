@@ -350,7 +350,7 @@ def test_live_sentinel_is_not_training_mode() -> None:
     assert '_set_if_present(alg_cfg, "frontres_segment_offline_eval_only", offline_eval_only)' in train
     assert '_set_if_present(alg_cfg, "frontres_segment_sequence_offline_eval_only", sequence_eval_only)' in train
     assert '_set_if_present(alg_cfg, "frontres_segment_live_train_enabled", live_train_enabled)' in train
-    assert '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", live_update_steps)' in train
+    assert '_set_if_present(alg_cfg, "frontres_segment_live_update_steps", 1 if live_train_enabled else live_update_steps)' in train
     assert "sentinel_log()" in runner
     assert "probe_log()" in runner
     assert "train_log()" in runner

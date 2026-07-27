@@ -53,30 +53,27 @@ Implementation and formal-route integration are separate evidence claims.
 ## Gain Decomposition
 
 ```text
-intent_gain  = internal_fidelity(Repaired | I_noisy)
-             - internal_fidelity(Noisy | I_noisy)
-physics_gain = physics_quality(Repaired)       - physics_quality(Noisy)
-repair_cost  = full6 magnitude + temporal change (+ valid Clean no-op cost)
-gain_total   = w_intent * intent_gain + w_physics * physics_gain
-             - w_repair * repair_cost
+scalar target = paired intent improvement - full6 repair cost
+actor direction = grouped gradient(scalar target)
+                  projected into Contact / phase-ZMP / survival feasible halfspaces
 ```
 
 Owner contract:
-`frontres_core/contracts/active/reward/FRS-GAIN-v003-intent-physics-local-repair.md`.
+`frontres_core/contracts/active/reward/FRS-GAIN-v006-loaded-support-zmp-applicability.md`.
 
-Current code status: Clean-global Style, full-65D tape, and quartet scoring are
-contract-mismatch paths and do not implement this semantic object.
+`physics_gain` remains a paired read-only diagnostic. It is not added back into
+the scalar Critic target. Clean-global Style, full-65D tape and quartet scoring
+remain incompatible historical paths.
 
 Required lifecycle:
 
 ```text
 same x_t/current artifact/I/C/K in Noisy/Repair local roles
--> root-invariant intent and paired physics components
--> shared normalization/scales
+-> root-invariant intent objective and independent physical constraints
 -> per-row K aggregation
--> PPO return + sampler evidence
+-> grouped first-order projection + scalar-Critic return
 -> periodic/sequence eval
--> decomposed diagnostics
+-> decomposed diagnostics with explicit role applicability
 ```
 
 ## Raw Foot-Ground Contact Evidence
@@ -98,6 +95,22 @@ foot-to-ground filtered ContactSensor views
 The adapter must right-pad both feet to `C_max`, preserve every original value,
 and mark padded slots invalid before concatenating the foot axis. This object is
 ephemeral runtime evidence: it is not an actor input or checkpoint payload.
+
+## Role-Specific ZMP Applicability
+
+For each valid policy row, Repair and Noisy independently carry whether at
+least one K-step has actual loaded support under the expected Contact phase:
+
+```text
+zmp_applicable_repaired [B]
+zmp_applicable_noisy    [B]
+zmp_constraint_applicable == zmp_applicable_repaired
+```
+
+Repair and Noisy aggregate margins are finite exactly under their own masks.
+Paired `physics_zmp_gain` is finite exactly when both masks are true. The PPO
+constraint consumes only the Repair alias; diagnostics and evaluators retain
+both identities. Applicability may not be reconstructed from finite/NaN values.
 
 ## Rollout Transaction Identity
 `audit_transaction_id` and `audit_batch_signature` are diagnostic evidence

@@ -929,6 +929,8 @@ def test_v015_atomic_route_report_preserves_role_specific_no_load_na() -> None:
     assert row["phase_zmp_na_repaired_steps"] == [[True], [True]]
     assert row["phase_zmp_na_noisy_steps"] == [[False], [True]]
     assert row["contact_constraint"][0] > 0.0
+    assert row["zmp_applicable_repaired"] == [False]
+    assert row["zmp_applicable_noisy"] == [True]
     assert row["zmp_constraint_applicable"] == [False]
     assert row["zmp_constraint"] == [0.0]
 

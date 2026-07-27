@@ -20,7 +20,7 @@ and survival out of scalar Gain and into explicit actor-update constraints.
 
 ## Current Cursor
 
-`E-FI-84 live-confirms sensor authority and checkpoint-v5; return-evidence ZMP N/A is repaired offline and the post-fix long rerun remains open`
+`P4 ZMP applicability carrier closure completed offline at E-FI-85; E-FI-84 remains the sensor-authority live evidence`
 
 ## Confirmed
 
@@ -57,7 +57,8 @@ P0 document/owner rebase [complete]
 -> P4 post-rescale KKT repair [offline contract-complete]
 -> P4 contact-wrench ZMP authority [offline S1/S2/S3 complete]
 -> P4 loaded-support applicability [offline S1/S2/S3 complete]
--> P4 bounded official sensor-authority sentinel [open]
+-> P4 bounded official sensor-authority sentinel [complete at E-FI-84]
+-> P4 Repair/Noisy applicability carrier closure [offline complete at E-FI-85]
 -> P4 policy-quality/checkpoint-lineage decision [open]
 ```
 
@@ -70,8 +71,9 @@ P0 document/owner rebase [complete]
 - E-FI-81 replaces formal root/capture-point ZMP evidence with contact-wrench
   ZMP and sealed Clean-foot envelopes offline, but the server IsaacLab raw
   contact API and finite supported-phase values are not live-confirmed;
-- E-FI-82 removes the invalid assumption that expected support alone implies a
-  finite ZMP: valid physical no-load is Contact failure and role-specific ZMP N/A;
+- E-FI-82 defines valid physical no-load as Contact failure plus role-specific
+  ZMP N/A; E-FI-85 now retains explicit Repair/Noisy aggregate applicability
+  through GainResult, ReturnEvidence and both formal serializers;
 - aggregate training telemetry shows improved Critic calibration but no clear
   Intent/Gain improvement, and contains no sustained-lean evaluation field.
 
