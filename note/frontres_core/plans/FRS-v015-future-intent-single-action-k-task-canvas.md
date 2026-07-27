@@ -20,7 +20,7 @@ and survival out of scalar Gain and into explicit actor-update constraints.
 
 ## Current Cursor
 
-`E-FI-82 closes valid no-load as Contact failure plus role-specific ZMP N/A; bounded official sensor authority remains open`
+`E-FI-83 closes the final snapshot and checkpoint-v5 consumers offline; bounded official sensor authority and emitted-artifact confirmation remain open`
 
 ## Confirmed
 

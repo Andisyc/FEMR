@@ -1625,7 +1625,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         return
 
     if bool(getattr(args_cli, "frontres_v015_local_sentinel_only", False)):
-        runner.run_frontres_v015_local_identity_sentinel(init_at_random_ep_len=True)
+        sentinel_result = runner.run_frontres_v015_local_identity_sentinel(init_at_random_ep_len=True)
+        runner.finalize_frontres_v015_local_sentinel_checkpoint(sentinel_result)
         env.close()
         return
 

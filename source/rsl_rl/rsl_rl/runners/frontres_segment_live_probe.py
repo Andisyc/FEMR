@@ -4347,6 +4347,14 @@ def run_frontres_v015_local_identity_sentinel(
             raise RuntimeError("v015 local sentinel requires a complete pre-update identity/observation snapshot")
         telemetry = dict(preupdate)
         result_diagnostics = dict(getattr(result, "diagnostics", {}) or {})
+        # B1: Reuse the ordinary Stage-3 final serializer so the sentinel cannot
+        # silently drop sealed per-step Contact/ZMP evidence at its last adapter.
+        from rsl_rl.runners.frontres_segment_live_training import _v015_sealed_transaction_telemetry
+
+        telemetry["sealed_transaction_evidence"] = _v015_sealed_transaction_telemetry(
+            result,
+            ppo=result.ppo_result,
+        )
         result_diagnostics.pop("v006_action_constraint_reports", None)
         telemetry.update(result_diagnostics)
         telemetry["optimizer_step_delta"] = int(getattr(result, "optimizer_step_delta", -1))
@@ -4365,7 +4373,11 @@ def run_frontres_v015_local_identity_sentinel(
             f"step_delta={telemetry['optimizer_step_delta']}",
             flush=True,
         )
-        print("[FrontRES v015 Live Snapshot] " + json.dumps(telemetry, sort_keys=True), flush=True)
+        print(
+            "[FrontRES v015 Live Snapshot] "
+            + json.dumps(telemetry, sort_keys=True, allow_nan=False),
+            flush=True,
+        )
         return result
     finally:
         if hasattr(runner, "_frontres_v015_formal_transaction_provider"):

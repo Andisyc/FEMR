@@ -1,7 +1,7 @@
 {
   "title": "05 FrontRES Policy Quality Audit",
-  "subtitle": "v015 policy-quality current-state view: E-FI-82 closes valid no-load as Contact failure plus role-specific ZMP N/A offline.",
-  "currentStatus": "Long training completed 1749 exact-one transactions from model_251 to model_2000, but its lineage predates the E-FI-80 KKT repair and E-FI-81/E-FI-82 contact-wrench authority. The formal Physics path now scores valid physical no-load as Contact failure, evaluates ZMP only for each role's actual loaded support, and binds GAIN-v006/schema-v2 in checkpoint-v5. Official raw-sensor S4, a clean post-fix lineage and policy efficacy remain unresolved.",
+  "subtitle": "v015 policy-quality current-state view: E-FI-83 closes the GAIN-v006 final snapshot and checkpoint-v5 consumers offline.",
+  "currentStatus": "Long training completed 1749 exact-one transactions from model_251 to model_2000, but its lineage predates the E-FI-80 KKT repair and E-FI-81/E-FI-82 contact-wrench authority. E-FI-83 now preserves sealed Repair/Noisy Physics evidence through the final JSON serializer and requires the adjacent strict checkpoint-v5 artifact. Official raw-sensor S4 emission, a clean post-fix lineage and policy efficacy remain unresolved.",
   "layout": "repository_reading_atlas",
   "canvasWidth": 7600,
   "defaultZoom": 0.28,
@@ -16,9 +16,9 @@
     "QUALITY-TRAJECTORY-01"
   ],
   "activeV015QualityPlan": {
-    "status": "P4-loaded-support-zmp-applicability-offline-complete-live-authority-open",
-    "evidence": "E-FI-79 records the pre-fix long run; E-FI-80 closes projection KKT offline; E-FI-81 establishes contact-wrench ZMP authority; E-FI-82 closes valid no-load, role-specific applicability and GAIN-v006 persistence offline",
-    "next": "one bounded official sensor-authority sentinel before selecting any post-fix checkpoint lineage",
+    "status": "P4-final-consumer-contract-complete-live-authority-open",
+    "evidence": "E-FI-79 records the pre-fix long run; E-FI-80 closes projection KKT offline; E-FI-81 establishes contact-wrench ZMP authority; E-FI-82 closes valid no-load and role-specific applicability; E-FI-83 closes final JSON and checkpoint-v5 consumers offline",
+    "next": "one bounded official sensor-authority sentinel must emit sealed evidence and the adjacent checkpoint-v5 before selecting any post-fix checkpoint lineage",
     "readinessClosure": {
       "owner": "scripts/rsl_rl/train.py::main()",
       "checkpointState": "pre-fix frontres-v015-checkpoint-v5 model_2000 saved at absolute iteration 2000; four known KKT-violating recovery updates in its lineage",
@@ -853,7 +853,7 @@
             "E-FI-68 G5-P1 S4 bounded historical sensor sentinel",
             "E-FI-81 contact-wrench ZMP S1/S2/S3 contracts"
           ],
-          "gap": "E-FI-82 closes authoritative loaded-support ZMP applicability offline: valid no-load is Contact failure plus role-specific ZMP N/A, while malformed payload and loaded-without-resultant fail closed. Official IsaacLab raw-contact API/filter/value S4 and a clean post-fix policy-quality lineage remain unconfirmed."
+            "gap": "E-FI-83 closes final JSON and checkpoint-v5 consumers offline after E-FI-82 established role-specific loaded-support applicability. Official IsaacLab raw-contact emission, the adjacent persisted artifact and a clean post-fix policy-quality lineage remain unconfirmed."
         },
         {
           "id": "QUALITY-TRAJECTORY-01",

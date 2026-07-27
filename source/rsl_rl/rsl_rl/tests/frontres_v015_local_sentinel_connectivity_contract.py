@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 from dataclasses import fields, replace
 import sys
+import tempfile
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
@@ -15,6 +16,7 @@ import torch
 ROOT = Path(__file__).resolve().parents[4]
 RSL_ROOT = ROOT / "source" / "rsl_rl" / "rsl_rl"
 FORMAL_TEST = RSL_ROOT / "tests" / "frontres_v015_transaction_route_contract.py"
+LIVE_TRAINING_PATH = RSL_ROOT / "runners" / "frontres_segment_live_training.py"
 
 
 def _load(name: str, path: Path):
@@ -30,7 +32,10 @@ def _load_owners():
     formal = _load("frontres_v015_local_sentinel_formal_helper", FORMAL_TEST)
     candidate_contract, owners, live_sampler, live_update_loop = formal._load_owners()
     live_probe = owners[6]
+    sys.modules["rsl_rl.runners.frontres_segment_live_probe"] = live_probe
     sys.modules["rsl_rl.runners.frontres_segment_live_update_loop"] = live_update_loop
+    if "rsl_rl.runners.frontres_segment_live_training" not in sys.modules:
+        _load("rsl_rl.runners.frontres_segment_live_training", LIVE_TRAINING_PATH)
     return formal, candidate_contract, owners, live_sampler, live_probe
 
 
@@ -546,8 +551,102 @@ def test_t_sentinel_provider_is_collected_before_one_grouped_update() -> None:
     assert telemetry["observation_route"]["femr_visible_dim"] == 158
     assert telemetry["observation_route"]["gmt_input_dim"] == 770
     assert telemetry["exact_one_update"] is True
+    sealed = telemetry["sealed_transaction_evidence"]
+    assert sealed["transaction_id"] == telemetry["transaction_id"]
+    row_order = telemetry["v006_diagnostic_report_row_order"]
+    assert row_order == (0, 2, 1, 3)
+    assert sealed["scenario_ids"] == ("scenario-a", "scenario-a", "scenario-b", "scenario-b")
+    assert sealed["noisy_segment_hashes"] == ("hash-a", "hash-a", "hash-b", "hash-b")
+    assert len(sealed["expected_support_steps"]) == 4
+    assert len(sealed["actual_contact_repaired_steps"]) == 4
+    assert len(sealed["actual_contact_noisy_steps"]) == 4
+    assert len(sealed["zmp_margin_repaired_steps"]) == 4
+    assert len(sealed["zmp_margin_noisy_steps"]) == 4
+    assert len(sealed["zmp_applicable_steps"]) == 4
+    assert len(sealed["zmp_applicable_noisy_steps"]) == 4
+    assert sealed["constraint_schema_id"] == "contact-loaded-phase_zmp-survival-physical-v2"
+    assert sealed["return_feedback"] is False
+    assert sealed["priority_feedback"] is False
+    assert sealed["ppo_feedback"] is False
+    training = sys.modules["rsl_rl.runners.frontres_segment_live_training"]
+    assert sealed == training._v015_sealed_transaction_telemetry(result, ppo=result.ppo_result)
     assert not hasattr(fixture.runner, "_frontres_v015_formal_transaction_provider")
-    print("[T-connect/T-order/T-live-snapshot/T-mass/T-exact-one-update] provider emits the complete 870/58/928/158/770 snapshot before one grouped v003 update", flush=True)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture.runner.log_dir = tmp
+        fixture.runner._record_frontres_checkpoint_probe = lambda _summary, _path: None
+        valid_identity = False
+
+        def save_checkpoint(path: str) -> None:
+            physics_evidence = {
+                "zmp_estimator_id": "contact-wrench-zmp-v1",
+                "support_envelope_id": "clean-foot-pose-oriented-box-v1",
+                "actual_contact_id": "contact-sensor-net-normal-force-threshold-v1",
+                "expected_phase_id": "clean-foot-height-phase-v1",
+            }
+            if not valid_identity:
+                physics_evidence["zmp_estimator_id"] = "invalid-proxy"
+            torch.save(
+                {
+                    "frontres_v015_checkpoint_identity": {
+                        "format": "frontres-v015-checkpoint-v5",
+                        "method_contract_id": "FRS-METHOD-v016",
+                        "training_contract_id": "FRS-TRAIN-v010",
+                        "gain_contract_id": "FRS-GAIN-v006",
+                        "optimization_contract_id": "FRS-PPO-v004",
+                        "scalar_target_id": "paired-intent-minus-repair-v1",
+                        "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
+                        "projection_schema_id": "grouped-first-order-constraint-projection-v1",
+                        "physics_evidence": physics_evidence,
+                        "transaction": fixture.runner._frontres_v015_checkpoint_transaction_state,
+                        "curriculum": {"absolute_iteration": fixture.runner.current_learning_iteration},
+                    }
+                },
+                path,
+            )
+
+        fixture.runner.save = save_checkpoint
+        valid_identity = True
+
+        def reject_checkpoint_probe(_summary: object, _path: str) -> None:
+            raise RuntimeError("checkpoint probe failed")
+
+        fixture.runner._record_frontres_checkpoint_probe = reject_checkpoint_probe
+        try:
+            training.finalize_frontres_v015_local_sentinel_checkpoint(fixture.runner, result)
+        except RuntimeError as exc:
+            assert "checkpoint probe failed" in str(exc)
+        else:
+            raise AssertionError("local sentinel checkpoint retained a post-write probe failure")
+        assert fixture.runner.current_learning_iteration == 2
+        assert not Path(tmp, "model_3.pt").exists()
+
+        fixture.runner._record_frontres_checkpoint_probe = lambda _summary, _path: None
+        valid_identity = False
+        try:
+            training.finalize_frontres_v015_local_sentinel_checkpoint(fixture.runner, result)
+        except RuntimeError as exc:
+            assert "Physics evidence identity" in str(exc)
+        else:
+            raise AssertionError("local sentinel checkpoint accepted a malformed Physics identity")
+        assert fixture.runner.current_learning_iteration == 2
+        assert not Path(tmp, "model_3.pt").exists()
+
+        valid_identity = True
+        checkpoint_path = training.finalize_frontres_v015_local_sentinel_checkpoint(fixture.runner, result)
+        assert checkpoint_path.endswith("model_3.pt")
+        assert fixture.runner.current_learning_iteration == 3
+        checkpoint = fixture.runner._frontres_v015_local_sentinel_telemetry["checkpoint_v5"]
+        assert checkpoint["format"] == "frontres-v015-checkpoint-v5"
+        assert checkpoint["gain_contract_id"] == "FRS-GAIN-v006"
+        assert checkpoint["transaction_id"] == result.transaction_id
+        assert checkpoint["optimizer_step_delta"] == 1
+
+    print(
+        "[T-connect/T-order/T-final-snapshot/T-checkpoint-v5/T-exact-one-update] "
+        "sealed Repair/Noisy K evidence and the adjacent committed checkpoint reach final serializers",
+        flush=True,
+    )
 
 
 def main() -> None:

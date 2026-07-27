@@ -40,6 +40,7 @@ from rsl_rl.runners.frontres_segment_live_update_loop import (
 )
 from rsl_rl.runners.frontres_segment_live_sampler import initialize_frontres_segment_live_sampler
 from rsl_rl.runners.frontres_segment_live_training import (
+    finalize_frontres_v015_local_sentinel_checkpoint as finalize_frontres_v015_local_sentinel_checkpoint_helper,
     run_frontres_segment_offline_eval as run_frontres_segment_offline_eval_helper,
     run_frontres_segment_sequence_offline_eval as run_frontres_segment_sequence_offline_eval_helper,
     run_frontres_segment_live_training_loop,
@@ -698,6 +699,11 @@ class OnPolicyRunner:
             self,
             init_at_random_ep_len=init_at_random_ep_len,
         )
+
+    def finalize_frontres_v015_local_sentinel_checkpoint(self, result: object) -> str:
+        """Save the exact checkpoint-v5 adjacent to one completed local sentinel."""
+
+        return finalize_frontres_v015_local_sentinel_checkpoint_helper(self, result)
 
     def learn_frontres_segment_live(
         self,

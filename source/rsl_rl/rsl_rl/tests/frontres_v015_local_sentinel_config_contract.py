@@ -77,7 +77,9 @@ def test_t_entrypoint_and_algorithm_route_are_dedicated() -> None:
     assert "--frontres_v015_local_sentinel_only" in train
     assert "--frontres_v015_future_offsets" in train
     assert "runner.run_frontres_v015_local_identity_sentinel" in train
+    assert "runner.finalize_frontres_v015_local_sentinel_checkpoint" in train
     assert "def run_frontres_v015_local_identity_sentinel(" in runner
+    assert "def finalize_frontres_v015_local_sentinel_checkpoint(" in runner
     assert "frontres_v015_local_sentinel_only: bool = False" in algorithm
     assert "frontres_v015_local_sentinel_only: bool = False" in rsl_cfg
     assert "frontres_v015_local_sentinel_only: bool = False" in task_cfg

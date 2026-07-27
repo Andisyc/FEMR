@@ -271,7 +271,8 @@ def main() -> None:
     assert "args_cli.frontres_segment_live_update_loop_only" in train
     assert "args_cli.frontres_segment_sequence_offline_eval_only" in train
     assert "runner.run_frontres_segment_live_update_loop(init_at_random_ep_len=True)" in train
-    assert "runner.run_frontres_v015_local_identity_sentinel(init_at_random_ep_len=True)" in train
+    assert "sentinel_result = runner.run_frontres_v015_local_identity_sentinel(init_at_random_ep_len=True)" in train
+    assert "runner.finalize_frontres_v015_local_sentinel_checkpoint(sentinel_result)" in train
     assert "runner.run_frontres_segment_sequence_offline_eval(" in train
     assert 'sampler_seed=getattr(args_cli, "frontres_segment_sequence_eval_seed", None)' in train
     assert "sampler_seed: int | None = None" in runner_impl
@@ -281,6 +282,7 @@ def main() -> None:
     assert "runner.run_frontres_segment_live_probe(init_at_random_ep_len=True)" in train
     assert "run_frontres_segment_live_probe_helper(" in runner_impl
     assert "run_frontres_v015_local_identity_sentinel_helper(" in runner_impl
+    assert "finalize_frontres_v015_local_sentinel_checkpoint_helper(" in runner_impl
     assert "FrontRESSegmentRolloutStorage" not in runner_impl
     assert "FrontRESSegmentTransition" not in runner_impl
     assert "compute_frontres_segment_ppo_loss" not in runner_impl

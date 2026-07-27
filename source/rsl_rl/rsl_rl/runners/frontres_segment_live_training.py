@@ -2483,6 +2483,101 @@ def _save_live_checkpoint(
     return True
 
 
+def finalize_frontres_v015_local_sentinel_checkpoint(runner: Any, result: Any) -> str:
+    """Persist and verify the checkpoint-v5 produced by one local sentinel update."""
+
+    summary = _require_v015_committed_result(runner, result)
+    telemetry = summary.get("v015_transaction_telemetry")
+    if not isinstance(telemetry, Mapping):
+        raise RuntimeError("v015 local sentinel checkpoint requires sealed transaction telemetry")
+    existing = getattr(runner, "_frontres_v015_local_sentinel_telemetry", None)
+    sealed = existing.get("sealed_transaction_evidence") if isinstance(existing, Mapping) else None
+    if not isinstance(sealed, Mapping) or sealed.get("transaction_id") != summary["transaction_id"]:
+        raise RuntimeError("v015 local sentinel checkpoint requires the matching final serialized evidence")
+
+    previous_iteration = int(getattr(runner, "current_learning_iteration", -1))
+    if previous_iteration < 0 or int(telemetry.get("training_iteration", -1)) != previous_iteration:
+        raise RuntimeError("v015 local sentinel checkpoint iteration is not adjacent to its committed update")
+    log_dir = str(getattr(runner, "log_dir", "") or "")
+    if not log_dir:
+        raise RuntimeError("v015 local sentinel checkpoint requires the formal runner log directory")
+    next_iteration = previous_iteration + 1
+    checkpoint_path = os.path.join(log_dir, f"model_{next_iteration}.pt")
+    if os.path.exists(checkpoint_path):
+        raise RuntimeError("v015 local sentinel checkpoint refuses to overwrite an existing artifact")
+    runner.current_learning_iteration = next_iteration
+    try:
+        _save_live_checkpoint(
+            runner,
+            checkpoint_path=checkpoint_path,
+            summary=summary,
+            required=True,
+            expected_v015_transaction_id=summary["transaction_id"],
+        )
+        try:
+            payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        except TypeError:
+            payload = torch.load(checkpoint_path, map_location="cpu")
+        identity = payload.get("frontres_v015_checkpoint_identity") if isinstance(payload, Mapping) else None
+        if not isinstance(identity, Mapping):
+            raise RuntimeError("v015 local sentinel checkpoint has no checkpoint-v5 identity")
+        required_identity = {
+            "format": "frontres-v015-checkpoint-v5",
+            "method_contract_id": "FRS-METHOD-v016",
+            "training_contract_id": "FRS-TRAIN-v010",
+            "gain_contract_id": "FRS-GAIN-v006",
+            "optimization_contract_id": "FRS-PPO-v004",
+            "scalar_target_id": "paired-intent-minus-repair-v1",
+            "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2",
+            "projection_schema_id": "grouped-first-order-constraint-projection-v1",
+        }
+        if any(identity.get(name) != value for name, value in required_identity.items()):
+            raise RuntimeError("v015 local sentinel checkpoint contract identity drifted after serialization")
+        physics_evidence = identity.get("physics_evidence")
+        expected_physics = {
+            "zmp_estimator_id": "contact-wrench-zmp-v1",
+            "support_envelope_id": "clean-foot-pose-oriented-box-v1",
+            "actual_contact_id": "contact-sensor-net-normal-force-threshold-v1",
+            "expected_phase_id": "clean-foot-height-phase-v1",
+        }
+        if physics_evidence != expected_physics:
+            raise RuntimeError("v015 local sentinel checkpoint Physics evidence identity drifted after serialization")
+        transaction = identity.get("transaction")
+        receipt = transaction.get("receipt") if isinstance(transaction, Mapping) else None
+        if (
+            not isinstance(receipt, Mapping)
+            or receipt.get("transaction_id") != summary["transaction_id"]
+            or int(receipt.get("optimizer_step_delta", -1)) != 1
+        ):
+            raise RuntimeError("v015 local sentinel checkpoint lost its exact-one committed receipt")
+        curriculum = identity.get("curriculum")
+        if not isinstance(curriculum, Mapping) or int(curriculum.get("absolute_iteration", -1)) != next_iteration:
+            raise RuntimeError("v015 local sentinel checkpoint lost its absolute iteration identity")
+    except Exception:
+        runner.current_learning_iteration = previous_iteration
+        if os.path.exists(checkpoint_path):
+            os.remove(checkpoint_path)
+        raise
+
+    checkpoint_evidence = {
+        "path": checkpoint_path,
+        "iteration": next_iteration,
+        **required_identity,
+        "physics_evidence": dict(physics_evidence),
+        "transaction_id": summary["transaction_id"],
+        "optimizer_step_delta": 1,
+    }
+    updated = dict(existing)
+    updated["checkpoint_v5"] = checkpoint_evidence
+    runner._frontres_v015_local_sentinel_telemetry = updated
+    print(
+        "[FrontRES v015 Checkpoint Sentinel] "
+        + json.dumps(checkpoint_evidence, sort_keys=True, allow_nan=False),
+        flush=True,
+    )
+    return checkpoint_path
+
+
 def _print_resume_probe(runner: Any) -> None:
     loaded_checkpoint_path = getattr(runner, "_frontres_last_loaded_checkpoint_path", None)
     if loaded_checkpoint_path is None:

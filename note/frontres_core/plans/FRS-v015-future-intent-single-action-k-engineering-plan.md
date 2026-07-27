@@ -449,4 +449,4 @@ are deliberately merged into P2.
 
 ## Cursor
 
-Current cursor: `E-FI-82 closes loaded-support ZMP applicability end to end offline; one bounded official sensor-authority sentinel remains before choosing a post-fix training lineage`.
+Current cursor: `E-FI-83 closes final snapshot and checkpoint-v5 consumers offline; one bounded official sensor-authority sentinel remains to live-confirm raw Physics evidence plus the adjacent persisted artifact before choosing a post-fix training lineage`.

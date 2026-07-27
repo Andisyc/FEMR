@@ -5618,3 +5618,46 @@ offline. One bounded official IsaacLab sensor-authority S4 remains required to
 confirm raw contact APIs, filter resolution, vertical-load thresholding and
 finite loaded ZMP values. No new training lineage is admitted before that S4;
 the pre-fix model lineage remains evidence-only.
+
+## E-FI-83: Final Snapshot And Checkpoint-v5 Consumer Closure
+
+Date: 2026-07-27
+
+Tier: deterministic final-consumer and persistence contracts. No simulator,
+training, checkpoint mutation outside temporary fixtures or live run occurred.
+
+First-invalid owner and repair:
+
+- the formal sentinel result already carried immutable GAIN-v006 per-step
+  Repair/Noisy Contact and phase-ZMP evidence, but
+  `run_frontres_v015_local_identity_sentinel()` removed the raw reports before
+  the terminal JSON adapter and emitted no structured replacement;
+- `scripts/rsl_rl/train.py::main()` returned immediately after the sentinel,
+  bypassing the adjacent committed checkpoint-v5 save;
+- the final snapshot now reuses the ordinary sealed-transaction serializer,
+  and the sentinel exit calls the existing checkpoint owner, validates the
+  complete v5/v016/v010/v006/v004 identity plus exact-one receipt, and removes
+  a newly written artifact if post-serialization validation fails.
+
+Focused evidence:
+
+- `frontres_v015_local_sentinel_connectivity_contract.py`: PASS for role/hash
+  alignment, Repair/Noisy K-step arrays, role-specific ZMP applicability/N/A,
+  final JSON conversion, exact-one receipt, strict checkpoint identity,
+  iteration rollback and invalid-artifact cleanup;
+- `frontres_v015_local_sentinel_config_contract.py`,
+  `frontres_v015_transaction_route_contract.py`,
+  `frontres_v015_checkpoint_resume_contract.py` and
+  `frontres_v015_policy_quality_heldout_contract.py`: PASS;
+- modified Python owners compile, and `git diff --check` passes;
+- `frontres_stage_entrypoint_contract.py` still stops on its older hard-coded
+  `frontres_segment_k=8` source assertion before reaching the new sentinel
+  checks; the formal source now derives K from TRAIN-v010 curriculum. This is a
+  separate stale static-contract boundary, not evidence against the final
+  consumer route.
+
+Verdict: final snapshot and checkpoint persistence are `contract-confirmed`.
+They are not yet `live-confirmed`; the same bounded official sensor-authority
+sentinel must emit both `[FrontRES v015 Live Snapshot]` with
+`sealed_transaction_evidence` and `[FrontRES v015 Checkpoint Sentinel]`, and
+must leave the named checkpoint-v5 artifact on disk.
