@@ -1,0 +1,534 @@
+[DEBUG] Registered SIGUSR1 stack dump. Use: kill -USR1 <pid>
+[Train] Launching Isaac Sim: device=cuda:0, headless=True, enable_cameras=False
+[Warning] [simulation_app.simulation_app] Modules: ['omni.kit_app'] were loaded before SimulationApp was started and might not be loaded correctly.
+[Warning] [simulation_app.simulation_app] Please check to make sure no extra omniverse or pxr modules are imported before the call to SimulationApp(...)
+Loading user config located at: '/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/omni/data/Kit/Isaac-Sim/4.5/user.config.json'
+[Info] [carb] Logging to file: /hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/omni/logs/Kit/Isaac-Sim/4.5/kit_20260727_172919.log
+2026-07-27 09:29:19 [0ms] [Warning] [omni.kit.app.plugin] No crash reporter present, dumps uploading isn't available.
+2026-07-27 09:29:19 [7ms] [Warning] [omni.ext.plugin] [ext: rendering_modes] Extensions config 'extension.toml' doesn't exist '/hdd1/cyx/IsaacLab_mosaic/apps/rendering_modes' or '/hdd1/cyx/IsaacLab_mosaic/apps/rendering_modes/config'
+2026-07-27 09:29:19 [289ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-07-27 09:29:20 [452ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-07-27 09:29:20 [784ms] [Warning] [omni.datastore] OmniHub is inaccessible
+2026-07-27 09:29:20 [1,014ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-07-27 09:29:27 [7,876ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-07-27 09:29:27 [7,876ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-07-27 09:29:27 [7,876ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+2026-07-27 09:29:27 [7,894ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,894ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,895ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,895ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,895ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,895ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,897ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,897ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,897ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,897ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,897ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,897ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:27 [7,898ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:27 [7,899ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 550.144.03    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 1435de0e.. |
+|     |                                  |        |     |            | 1a        |            |
+|---------------------------------------------------------------------------------------------|
+| 1   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 6ae32300.. |
+|     |                                  |        |     |            | 1b        |            |
+|---------------------------------------------------------------------------------------------|
+| 2   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | cd988dbb.. |
+|     |                                  |        |     |            | 1c        |            |
+|---------------------------------------------------------------------------------------------|
+| 3   | NVIDIA RTX A6000                 | Yes: 0 |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 8315f75d.. |
+|     |                                  |        |     |            | 1d        |            |
+|--------------------------------------------------------------------------------------------[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /hdd1/cyx/IsaacLab_mosaic/apps/isaaclab.python.headless.kit
+[Train] Isaac Sim ready.
+[INFO]: Parsing configuration from: <class 'whole_body_tracking.tasks.tracking.config.g1.flat_env_cfg.G1FlatFrontRESFinetuneEnvCfg'>
+[INFO]: Parsing configuration from: whole_body_tracking.tasks.tracking.config.g1.agents.rsl_rl_mosaic_cfg:G1FlatFrontRESUnifiedRunnerCfg
+[FrontRES Stage] Applied preset: stage3_segment_hrl
+[FrontRES Stage] experiment=g1_flat_frontres_stage3_segment_hrl, objective=segment_replay_hrl, segment_replay=True, segment_live=True, segment_sentinel=False, v015_local_sentinel=True, segment_probe=False, segment_storage=False, segment_single_update=False, segment_update_loop=False, segment_sequence_eval=False, segment_train=False, segment_update_steps=1, segment_critic_warmup=0, segment_actor_warmup=0, formal_runtime_audit=False, segment_k=8, k_curriculum=((8, 200, 500, 0),), future_offsets=(1, 2), segment_shard_cache_size=8, max_iterations=0, supervised_warmup=0, is_full_resume=False
+[FrontRES Stage3 Segment HRL] ppo_schedule_override schedule=adaptive
+[FrontRES Stage3 Segment HRL] ppo_lr_override learning_rate=1e-06
+[FrontRES Stage3 Segment HRL] motion_loader_cfg has_load_cap=True has_shard_flag=True applied={'motion_dataset_shard_across_gpus': False, 'motion_dataset_load_cap': None, 'motion_dataset_log_shard_info': True}
+[INFO] FrontRES perturbation alignment: rp (root_tilt=0.5/0.08, iid_rp=0.4/0.08; xy/yaw/z/joint disabled)
+[INFO] PhysX GPU capacities prepared for 8 envs: contact=8388608, patch=1966080, pairs=16777216
+-|
+| 4   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 79eacb31.. |
+|     |                                  |        |     |            | 1e        |            |
+|---------------------------------------------------------------------------------------------|
+| 5   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 08b104c6.. |
+|     |                                  |        |     |            | 3d        |            |
+|---------------------------------------------------------------------------------------------|
+| 6   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 90839bb1.. |
+|     |                                  |        |     |            | 3f        |            |
+|---------------------------------------------------------------------------------------------|
+| 7   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 59febcf4.. |
+|     |                                  |        |     |            | 40        |            |
+|---------------------------------------------------------------------------------------------|
+| 8   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 46a2ef14.. |
+|     |                                  |        |     |            | 41        |            |
+|=============================================================================================|
+| OS: 22.04.5 LTS (Jammy Jellyfish) ubuntu, Version: 22.04.5, Kernel: 6.8.0-106-generic
+| Processor: Intel(R) Xeon(R) Gold 6240 CPU @ 2.60GHz
+| Cores: 36 | Logical Cores: 72
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 515614 | Free Memory: 327224
+| Total Page/Swap (MB): 1951 | Free Page/Swap: 0
+|---------------------------------------------------------------------------------------------|
+2026-07-27 09:29:28 [8,502ms] [Warning] [gpu.foundation.plugin] IOMMU is enabled.
+2026-07-27 09:29:28 [8,502ms] [Warning] [gpu.foundation.plugin] Detected IOMMU is enabled. Running CUDA peer-to-peer bandwidth and latency validation.
+Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
+   D\D     0 
+     0 327.98 
+P2P=Enabled Latency (P2P Writes) Matrix (us)
+   GPU     0 
+     0   1.97 
+
+   CPU     0 
+     0   3.67 
+2026-07-27 09:29:32 [12,957ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-07-27 09:29:32 [12,957ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-07-27 09:29:32 [12,962ms] [Error] [gpu.foundation.plugin] DriverShaderCacheManager::init() called without a shutdown()!
+2026-07-27 09:29:32 [13,065ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,065ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,065ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,065ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,066ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,066ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,066ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,066ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,067ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,067ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,067ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,067ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,067ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-07-27 09:29:32 [13,068ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 550.144.03    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 1435de0e.. |
+|     |                                  |        |     |            | 1a        |            |
+|---------------------------------------------------------------------------------------------|
+| 1   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 6ae32300.. |
+|     |                                  |        |     |            | 1b        |            |
+|---------------------------------------------------------------------------------------------|
+| 2   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | cd988dbb.. |
+|     |                                  |        |     |            | 1c        |            |
+|---------------------------------------------------------------------------------------------|
+| 3   | NVIDIA RTX A6000                 | Yes: 0 |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 8315f75d.. |
+|     |                                  |        |     |            | 1d        |            |
+|---------------------------------------------------------------------------------------------|
+| 4   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 79eacb31.. |
+|     |                                  |        |     |            | 1e        |            |
+|---------------------------------------------------------------------------------------------|
+| 5   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 08b104c6.. |
+|     |                                  |        |     |            | 3d        |            |
+|---------------------------------------------------------------------------------------------|
+| 6   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 90839bb1.. |
+|     |                                  |        |     |            | 3f        |            |
+|---------------------------------------------------------------------------------------------|
+| 7   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 59febcf4.. |
+|     |                                  |        |     |            | 40        |            |
+|---------------------------------------------------------------------------------------------|
+| 8   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 46a2ef14.. |
+|     |                                  |        |     |            | 4[INFO] Logging experiment in directory: /hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl
+Setting seed: 42
+[INFO]: Base environment:
+	Environment device    : cuda:0
+	Environment seed      : 42
+	Physics step-size     : 0.005
+	Rendering step-size   : 0.02
+	Environment step-size : 0.02
+[INFO] Generating terrains randomly took : 0.478674 seconds
+[INFO]: Time taken for scene creation : 8.492319 seconds
+[INFO]: Scene manager:  <class InteractiveScene>
+	Number of environments: 8
+	Environment spacing   : 2.5
+	Source prim name      : /World/envs/env_0
+	Global prim paths     : ['/World/ground']
+	Replicate physics     : True
+[INFO]: Starting the simulation. This may take a few seconds. Please wait...
+[INFO]: Time taken for simulation start : 2.164539 seconds
+[MultiMotionLoader] Motion group distribution:
+  - default: 15291 motions
+[MultiMotionLoader] shard_info={'total_motions': 15291, 'selected_motions': 15291, 'shard_across_gpus': False, 'shard_by': 'global', 'shard_seed': 0, 'shard_strategy': 'chunk', 'rank': 0, 'world_size': 1, 'max_motions': -1}
+[MultiMotionCommand] Registered motion groups: ['default']
+[MultiMotionCommand]   - Group 'default': 15291 motions
+[INFO] Command Manager:  <CommandManager> contains 1 active terms.
++-------------------------------------+
+|         Active Command Terms        |
++-------+--------+--------------------+
+| Index | Name   |        Type        |
++-------+--------+--------------------+
+|   0   | motion | MultiMotionCommand |
++-------+--------+--------------------+
+
+[INFO] Event Manager:  <EventManager> contains 0 active terms.
+
+[INFO] Recorder Manager:  <RecorderManager> contains 0 active terms.
++---------------------+
+| Active Recorder Terms |
++-----------+---------+
+|   Index   | Name    |
++-----------+---------+
++-----------+---------+
+
+[INFO] Action Manager:  <ActionManager> contains 1 active terms.
++------------------------------------+
+|  Active Action Terms (shape: 29)   |
++--------+-------------+-------------+
+| Index  | Name        |   Dimension |
++--------+-------------+-------------+
+|   0    | joint_pos   |          29 |
++--------+-------------+-------------+
+
+[INFO] Observation Manager: <ObservationManager> contains 2 groups.
++-------------------------------------------------------------+
+| Active Observation Terms in Group: 'policy' (shape: (870,)) |
++----------+--------------------------------------+-----------+
+|  Index   | Name                                 |   Shape   |
++----------+--------------------------------------+-----------+
+|    0     | anchor_root_pos_error_w              |   (15,)   |
+|    1     | anchor_root_rpy_error_w              |   (15,)   |
+|    2     | frontres_balance_context             |   (70,)   |
+|    3     | command                              |   (290,)  |
+|    4     | motion_anchor_ori_b                  |   (30,)   |
+|    5     | base_ang_vel                         |   (15,)   |
+|    6     | joint_pos                            |   (145,)  |
+|    7     | joint_vel                            |   (145,)  |
+|    8     | actions                              |   (145,)  |
++----------+--------------------------------------+-----------+
++-----------------------------------------------------------+
+| Active Observation Terms in Group: 'critic' (shape: (289,)) |
++-----------+-----------------------------------+-----------+
+|   Index   | Name                              |   Shape   |
++-----------+-----------------------------------+-----------+
+|     0     | command                           |   (58,)   |
+|     1     | motion_anchor_pos_b               |    (3,)   |
+|     2     | motion_anchor_ori_b               |    (6,)   |
+|     3     | body_pos                          |   (42,)   |
+|     4     | body_ori                          |   (84,)   |
+|     5     | base_lin_vel                      |    (3,)   |
+|     6     | ref_base_lin_vel                  |    (3,)   |
+|     7     | base_ang_vel                      |    (3,)   |
+|     8     | joint_pos                         |   (29,)   |
+|     9     | joint_vel                         |   (29,)   |
+|     10    | actions                           |   (29,)   |
++-----------+-----------------------------------+-----------+
+
+[INFO] Termination Manager:  <TerminationManager> contains 5 active terms.
++--------------------------------+
+|    Active Termination Terms    |
++-------+-------------+----------+
+| Index | Name        | Time Out |
++-------+-------------+----------+
+|   0   | motion_end  |   True   |
+|   1   | time_out    |   True   |
+|   2   | anchor_pos  |  False   |
+|   3   | anchor_ori  |  False   |
+|   4   | ee_body_pos |  False   |
++-------+-------------+----------+
+
+[INFO] Reward Manager:  <RewardManager> contains 11 active terms.
++--------------------------------------------+
+|            Active Reward Terms             |
++-------+--------------------------+---------+
+| Index | Name                     |  Weight |
++-------+--------------------------+---------+
+|   0   | contact_feet             |     1.0 |
+|   1   | motion_feet_pos          |     1.0 |
+|   2   | motion_body_pos          |     0.5 |
+|   3   | motion_body_ori          |     0.5 |
+|   4   | motion_body_lin_vel      |    0.75 |
+|   5   | motion_body_ang_vel      |    0.75 |
+|   6   | motion_global_anchor_pos |     0.5 |
+|   7   | motion_global_anchor_ori |     0.5 |
+|   8   | undesired_contacts       |    -2.0 |
+|   9   | joint_limit              |   -20.0 |
+|   10  | joint_torque             | -0.0002 |
++-------+--------------------------+---------+
+
+[INFO] Curriculum Manager:  <CurriculumManager> contains 0 active terms.
++----------------------+
+| Active Curriculum Terms |
++-----------+----------+
+|   Index   | Name     |
++-----------+----------+
++-----------+----------+
+
+[INFO]: Completed setting up the environment...
+[Runner] FrontRES specialist mode enabled: rp (local_rp perturbation; full-6D repair)
+[FrontRES v015 Local Sentinel] objective=segment_replay_hrl segment_k=8 max_horizon_k=64 v015_local_sentinel=True future_offsets=(1, 2) legacy_modes=False
+[FrontRESUnified] Using 'critic' observations for value estimation.
+[Runner] FrontRES v015 future-intent actor layout: version=frontres-v015-future-intent-q29-v1 H=(1, 2) tail=58 raw_obs=870 actor_obs=928 frontres_obs=158 gmt_obs=770
+[ResidualActorCritic] Loading GMT policy from: /hdd1/cyx/MOSAIC/model/model_27000.pt
+[ResidualActorCritic] GMT architecture: actor_input=770, critic_input=289, actions=29
+Actor MLP: Sequential(
+  (0): Linear(in_features=770, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=29, bias=True)
+)
+Critic MLP: Sequential(
+  (0): Linear(in_features=289, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=1, bias=True)
+)
+[ResidualActorCritic] GMT policy frozen (all parameters require_grad=False)
+[ResidualActorCritic] GMT observation normalizer loaded (dim=770) and frozen
+[ResidualActorCritic] Residual last layer weight norm: 0.034206 (gain=0.01)
+[FrontEndResidualActorCritic] FrontRES output: 6 task-space dims [Δpos(3)+Δrpy(3)] — no Δq patching
+[FrontEndResidualActorCritic] FrontRES network: Sequential(
+  (0): Linear(in_features=158, out_features=512, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=512, out_features=256, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=256, out_features=128, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=128, out_features=6, bias=True)
+) (input_dim=158, output_dim=6)
+[ResidualActorCritic] Critic MLP: Sequential(
+  (0): Linear(in_features=289, out_features=1024, bias=True)
+  (1): ELU(alpha=1.0)
+  (2): Linear(in_features=1024, out_features=1024, bias=True)
+  (3): ELU(alpha=1.0)
+  (4): Linear(in_features=1024, out_features=512, bias=True)
+  (5): ELU(alpha=1.0)
+  (6): Linear(in_features=512, out_features=256, bias=True)
+  (7): ELU(alpha=1.0)
+  (8): Linear(in_features=256, out_features=1, bias=True)
+)
+[ResidualActorCritic] Created composed actor for ONNX export
+[FrontRESActorCritic] Observation layout: 928D = 158D FrontRES-only prefix + 770D GMT-compatible suffix. GMT consumes the suffix only; no zero padding.
+[FrontRESUnified] Optimizer updates residual_actor + critic (fixed policy std)
+[FrontRESUnified] v015 local identity sentinel initialized; the dedicated formal route is opt-in and no legacy live mode is active.
+================================================================================
+  FrontRESUnified ▸ PPO + Supervised ΔSE3
+  Objective=segment_replay_hrl
+  L = Segment Replay HRL  (dedicated runner loop; legacy update disabled)
+================================================================================
+  LR=1e-06  clip=0.2  ent_coef=0.0
+  epochs=5  mini_batches=16
+  Supervised  λ=0.000 → 0.0  decay=0.995  trigger_cos=0.85  rpy_w=1.0  dir_w=0.03  mag_w=0.5  over_w=0.2  smooth_w=0.05  valid_w=4.0
+  MOSAIC teacher/off-policy branches: disabled by construction
+================================================================================
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Dataset]
+  cache_load: mode=index_only loaded_motion_count=8739664 metadata_noisy_count=0 lazy=False index_only=True
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Dataset Ready]
+  cache.cache_dir: /hdd1/cyx/AMASS_G1Segment
+  cache.num_segments: 8739664
+  cache.include_boundary_diagnostic: False
+  cache.shard_cache_size: 8
+  metadata: {'amass_root': '/hdd1/cyx/AMASS_G1NPZ_Final', 'format': 'frontres_segment_cache_index_v1', 'frame_stride': 1, 'horizon_k': 4, 'motion_count': 15291, 'segment_count': 8739664, 'skipped_short_motions': 0, 'index_only': True, 'loaded_motion_count': 8739664}
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Index Reset Hook Ready]
+  loader: amass_root=/hdd1/cyx/AMASS_G1NPZ_Final loaded_motion_count=15291 all_motion_count=15291 first_loaded_motion=/hdd1/cyx/AMASS_G1NPZ_Final/BioMotionLab_NTroje/rub001/amass_g1_0004_motorcycle_poses.npz
+  index_filter: {'filtered': False, 'source_segments': 8739664, 'kept_segments': 8739664, 'source_motions': 15291, 'kept_motions': 15291, 'missing_motions': 0}
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Sampler Ready]
+  config: num_segments=8739664 global_frac=0.400 replay_frac=0.500 review_frac=0.100
+[Runner] Using GMT's frozen normalizer for FrontRESActorCritic
+[Runner] FrontRES task-space obs layout: first 158 FrontRES-only dims use prefix stats or pass-through; last 770 GMT dims normalized
+[Runner] Passed obs_normalizer and privileged_obs_normalizer to FrontRESUnified
+[Runner] Passed environment's group mapping to FrontRESUnified: {'default': 0}
+[FrontRES v015 Stage-3 HSL Init] checkpoint=/hdd1/cyx/FEMR/g1_flat_frontres_stage1_hsl/2026-07-21_17-06-12_G2_S4_BOUND_HSL/model_warmup.pt format=frontres-v015-hsl-proposal-v1 restored=('residual_actor', 'std', 'frontres_prefix_norm_state_dict') critic=False optimizer=False sampler=False transaction=False
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Batch]
+  batch.update_step: 1
+  batch.ids: count=4 id_min=6924436 id_max=8208908
+  batch.valid_count: 4
+  batch.role_counts: {'train': 4}
+  batch.trial_role_counts: {'policy': 4}
+  batch.strength: strength_count=4 strength_min=0.908408 strength_max=1.015390
+  batch.budget_horizon: budget_horizon_count=4 budget_horizon_min=8.000000 budget_horizon_max=8.000000
+  batch.strength_nonzero_frac: 100.0%
+  batch.dynamic_family_counts: {'local_rp': 4}
+  batch.segment_ids: [6924436, 6924436, 8208908, 8208908]
+  batch.roles: ('train', 'train', 'train', 'train')
+  batch.trial_roles: ['policy', 'policy', 'policy', 'policy']
+  batch.strength: [0.9084084033966064, 0.9084084033966064, 1.015390396118164, 1.015390396118164]
+[Runner] FrontRES v015 layout mode=two_role repair=4 noisy=4 candidate=0 clean=0
+
+--------------------------------------------------------------------------------
+
+[frontres_stage1_hook trace] index_reset
+  segment_ids: {'shape': (4,), 'device': 'cuda:0', 'min': 6924436, 'max': 8208908, 'nonzero_frac': 1.0, 'values': [6924436, 6924436, 8208908, 8208908]}
+  motion_ids: ['KIT/348/amass_g1_bend_right05_poses.npz', 'KIT/348/amass_g1_bend_right05_poses.npz', 'KIT/883/amass_g1_wipe_back_horizontal04_poses.npz', 'KIT/883/amass_g1_wipe_back_horizontal04_poses.npz']
+  motion_indices: {'shape': (4,), 'device': 'cuda:0', 'min': 11192, 'max': 14495, 'nonzero_frac': 1.0, 'values': [11192, 11192, 14495, 14495]}
+  start_frames: {'shape': (4,), 'device': 'cuda:0', 'min': 138, 'max': 159, 'nonzero_frac': 1.0, 'values': [159, 159, 138, 138]}
+  frame_indices: {'shape': (4,), 'device': 'cuda:0', 'min': 138, 'max': 159, 'nonzero_frac': 1.0, 'values': [159, 159, 138, 138]}
+  env_ids: {'count': 8, 'first': 0, 'last': 7, 'min': 0, 'max': 7}
+  role_env_ids: {'repair': [0, 1, 2, 3], 'noisy': [4, 5, 6, 7]}
+  root_pos: {'shape': (8, 3), 'device': 'cuda:0', 'finite': True, 'min': -35.979637145996094, 'max': 34.744110107421875, 'mean': -0.8440701365470886, 'abs_max': 35.979637145996094, 'nonzero_frac': 1.0, 'requires_grad': False}
+  joint_pos: {'shape': (8, 29), 'device': 'cuda:0', 'finite': True, 'min': -1.5700000524520874, 'max': 2.0, 'mean': 0.0634869784116745, 'abs_max': 2.0, 'nonzero_frac': 1.0, 'requires_grad': False}
+  perturbation_strength: None
+  perturbation_family: []
+  perturbation_family_masks: None
+  cached_perturbed_pos: {'shape': (8, 3), 'device': 'cuda:0', 'finite': True, 'min': -1.2553832530975342, 'max': 0.7862952947616577, 'mean': 0.160214364528656, 'abs_max': 1.2553832530975342, 'nonzero_frac': 1.0, 'requires_grad': False}
+  perturber_dr_scale_env: None
+  perturber_family_masks: None
+  fixed_noisy_hashes: None
+  local_scenario_hashes: ['294eec32c11790b8433e66e13f556bf2a33e4a0076eed3e7c45dea4c368c9410', '294eec32c11790b8433e66e13f556bf2a33e4a0076eed3e7c45dea4c368c9410', '8b6838972c4a6aca4126cfdd433cff727b6be04e126d218eb8b067e756cc8d6f', '8b6838972c4a6aca4126cfdd433cff727b6be04e126d218eb8b067e756cc8d6f']
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Reset]
+  reset.mode: index_only
+  reset.ids: count=4 id_min=6924436 id_max=8208908
+  reset.motion: motion_count=4 unique_motion_count=2 first_motion=KIT/348/amass_g1_bend_right05_poses.npz
+  reset.start: start_count=4 start_min=138 start_max=159
+  reset.horizon: horizon_count=4 horizon_min=8 horizon_max=8
+  reset.perturbation_family_counts: {'local_rp': 4}
+  reset.request_strength_nonzero_frac: 100.0%
+  reset.success_frac: 1.0000
+  reset.segment_ids: [6924436, 6924436, 8208908, 8208908]
+  reset.motion_ids: ['KIT/348/amass_g1_bend_right05_poses.npz', 'KIT/348/amass_g1_bend_right05_poses.npz', 'KIT/883/amass_g1_wipe_back_horizontal04_poses.npz', 'KIT/883/amass_g1_wipe_back_horizontal04_poses.npz']
+  reset.start_frames: [159, 159, 138, 138]
+  reset.horizon_k: [8, 8, 8, 8]
+  reset.perturbation_family: ['local_rp', 'local_rp', 'local_rp', 'local_rp']
+  reset.perturbation_strength: [0.9084084033966064, 0.9084084033966064, 1.015390396118164, 1.015390396118164]
+[FrontRES Segment PPO Eval Trace] batch_action_shape=(4, 6) policy_action_mean_shape=(4, 6) eval_mean_shape=(4, 6) log_prob_shape=(4,) actor_obs_shape=(4, 928) critic_obs_shape=(4, 289) semantic=ppo_eval_uses_6d_delta_se_with_separate_critic_obs
+[FrontRES v015 Formal Transaction] transaction=frontres-v015-local-sentinel:i0:n1 sources=2 attempts=4 valid=4 step_delta=1
+[FrontRES v015 Local Sentinel] transaction=frontres-v015-local-sentinel:i0:n1 scenario_hashes=('294eec32c11790b8433e66e13f556bf2a33e4a0076eed3e7c45dea4c368c9410', '294eec32c11790b8433e66e13f556bf2a33e4a0076eed3e7c45dea4c368c9410', '8b6838972c4a6aca4126cfdd433cff727b6be04e126d218eb8b067e756cc8d6f', '8b6838972c4a6aca4126cfdd433cff727b6be04e126d218eb8b067e756cc8d6f') x_t=('motion=KIT/348/amass_g1_bend_right05_poses.npz|frame=159|segment=6924436', 'motion=KIT/348/amass_g1_bend_right05_poses.npz|frame=159|segment=6924436', 'motion=KIT/883/amass_g1_wipe_back_horizontal04_poses.npz|frame=138|segment=8208908', 'motion=KIT/883/amass_g1_wipe_back_horizontal04_poses.npz|frame=138|segment=8208908') roles=('repair', 'repair', 'repair', 'repair', 'noisy', 'noisy', 'noisy', 'noisy') actor_forwards=1 later_femr_actions=0 K=(8, 8, 8, 8) group_mass=(0.25, 0.25, 0.25, 0.25) step_delta=1
+[FrontRES v015 Live Snapshot] {"active_k": 8, "actor_forward_count": 1, "actor_loss_weight": 0.0, "actor_std_parameter_delta": {"param_delta_changed": 0, "param_delta_first_changed": "", "param_delta_l2": 0.0, "param_delta_max_abs": 0.0, "param_delta_total": 8}, "clean_continuation_lengths": [8, 8, 8, 8], "constraint_active_families": ["contact", "zmp"], "constraint_directional_derivatives": {"contact": -1592.5426025390625, "zmp": -347.4247741699219}, "constraint_dual_coefficients": {"contact": 0.0, "zmp": 0.0}, "constraint_gradient_norms": {"contact": 8.187294960021973, "survival": 0.0, "zmp": 1.7861167192459106}, "constraint_gram": [[67.03178405761719, -11.854937553405762], [-11.854937553405762, 3.190213203430176]], "constraint_intent_directional_derivatives": {"contact": 635.684814453125, "zmp": 23.346454620361328}, "constraint_kkt_max_violation": 0.0, "constraint_levels": {"contact": 0.08500000089406967, "survival": 0.0, "zmp": 0.007989181205630302}, "constraint_projection_status": "CONSTRAINT_RECOVERY", "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2", "contact_constraint": [0.0, 0.03999999910593033, 0.14000000059604645, 0.1599999964237213], "contact_constraint_advantage": [-0.019999999552965164, 0.019999999552965164, -0.01000000536441803, 0.009999990463256836], "critic_parameter_delta": {"param_delta_changed": 10, "param_delta_first_changed": "critic.0.weight", "param_delta_l2": 0.0013972546380001305, "param_delta_max_abs": 1.000240445137024e-06, "param_delta_total": 10}, "curriculum_fingerprint": "0ed39e6b7aa6499b06986eef55d5d4dcf4a1dc86a4ce5e98c1e7fdaa3294ac98", "evidence_valid_step_count": [8, 8, 8, 8], "exact_one_update": true, "gain_contract_id": "FRS-GAIN-v006", "gradient_nonzero_parameter_count": 10, "gradient_parameter_count": 18, "gradient_post_clip_norm": 0.17626178084533076, "gradient_pre_clip_norm": 0.1762617826461792, "grouped_attempt_mass_shares": [0.25, 0.25, 0.25, 0.25], "grouped_motion_mass_shares": [0.5, 0.5], "grouped_segment_mass_shares": [0.5, 0.5], "horizon_k": [8, 8, 8, 8], "intent_q29_provenance": "deployment_noisy_q29", "intent_q29_source": "motion_internal_q29", "k_stage_index": 0, "k_stage_iteration": 0, "later_femr_action_count": 0, "method_contract_id": "FRS-METHOD-v016", "motion_ids": ["KIT/348/amass_g1_bend_right05_poses.npz", "KIT/348/amass_g1_bend_right05_poses.npz", "KIT/883/amass_g1_wipe_back_horizontal04_poses.npz", "KIT/883/amass_g1_wipe_back_horizontal04_poses.npz"], "noisy_segment_hashes": ["294eec32c11790b8433e66e13f556bf2a33e4a0076eed3e7c45dea4c368c9410", "294eec32c11790b8433e66e13f556bf2a33e4a0076eed3e7c45dea4c368c9410", "8b6838972c4a6aca4126cfdd433cff727b6be04e126d218eb8b067e756cc8d6f", "8b6838972c4a6aca4126cfdd433cff727b6be04e126d218eb8b067e756cc8d6f"], "observation_route": {"combined_observation_dim": 928, "critic_observation_dim": 289, "current_command_dim": 58, "femr_visible_dim": 158, "gmt_input_dim": 770, "gmt_suffix_dim": 770, "normalized_observation_dim": 928, "post_advance_gmt_read_count": 8, "q29_tail_dim": 58, "raw_observation_dim": 870, "role_row_count": 8}, "optimization_contract_id": "FRS-PPO-v004", "optimizer_step_delta": 1, "parameter_delta": {"param_delta_changed": 10, "param_delta_first_changed": "critic.0.weight", "param_delta_l2": 0.0013972546380001305, "param_delta_max_abs": 1.000240445137024e-06, "param_delta_total": 18}, "policy_row_count": 4, "policy_snapshot_id": "frontres-v015-local-sentinel:i0:n1:pi-9a8fdb221f759755", "projection_schema_id": "grouped-first-order-constraint-projection-v1", "return_abs_mean": 0.07866039127111435, "return_max": 0.01103863026946783, "return_mean": -0.07314107567071915, "return_min": -0.10775482654571533, "roles": ["repair", "repair", "repair", "repair", "noisy", "noisy", "noisy", "noisy"], "root_artifact_l2": [1.92356538772583, 1.92356538772583, 1.2235987186431885, 1.2235987186431885], "scalar_target_id": "paired-intent-minus-repair-v1", "scenario_ids": ["frontres-v015-local-sentinel:i0:n1:source-0:segment-6924436", "frontres-v015-local-sentinel:i0:n1:source-0:segment-6924436", "frontres-v015-local-sentinel:i0:n1:source-1:segment-8208908", "frontres-v015-local-sentinel:i0:n1:source-1:segment-8208908"], "sealed_transaction_evidence": {"action_abs_max": 0.015448145568370819, "action_abs_mean": 0.004088674630480682, "action_l2_mean": 0.0117836782435547, "active_k": 8, "actor_loss_weight": 0.0, "actor_std_parameter_delta": {"param_delta_changed": 0, "param_delta_first_changed": "", "param_delta_l2": 0.0, "param_delta_max_abs": 0.0, "param_delta_total": 8}, "actual_contact_noisy_steps": [[[1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 0.0], [1.0, 0.0]], [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [0.0, 1.0], [1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]], [[1.0, 0.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [0.0, 0.0], [1.0, 0.0]]], "actual_contact_repaired_steps": [[[1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 0.0], [1.0, 0.0]], [[0.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0]], [[1.0, 0.0], [1.0, 0.0], [1.0, 1.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]], [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]], "advantage_abs_max": 1.350745439529419, "advantage_abs_mean": 0.936697244644165, "advantage_abs_top1_frac": 0.3605074764692362, "advantage_max": -0.418911337852478, "advantage_mean": -0.936697244644165, "advantage_min": -1.350745439529419, "advantage_scale": 0.11935621500015259, "advantage_sign_flip_count": 0, "constraint_active_families": ["contact", "zmp"], "constraint_directional_derivatives": {"contact": -1592.5426025390625, "zmp": -347.4247741699219}, "constraint_dual_coefficients": {"contact": 0.0, "zmp": 0.0}, "constraint_gradient_norms": {"contact": 8.187294960021973, "survival": 0.0, "zmp": 1.7861167192459106}, "constraint_gram": [[67.03178405761719, -11.854937553405762], [-11.854937553405762, 3.190213203430176]], "constraint_intent_directional_derivatives": {"contact": 635.684814453125, "zmp": 23.346454620361328}, "constraint_kkt_max_violation": 0.0, "constraint_levels": {"contact": 0.08500000089406967, "survival": 0.0, "zmp": 0.007989181205630302}, "constraint_projection_status": "CONSTRAINT_RECOVERY", "constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2", "contact_constraint": [0.0, 0.03999999910593033, 0.14000000059604645, 0.1599999964237213], "contact_constraint_advantage": [-0.019999999552965164, 0.019999999552965164, -0.01000000536441803, 0.009999990463256836], "critic_parameter_delta": {"param_delta_changed": 10, "param_delta_first_changed": "critic.0.weight", "param_delta_l2": 0.0013972546380001305, "param_delta_max_abs": 1.000240445137024e-06, "param_delta_total": 10}, "curriculum_fingerprint": "0ed39e6b7aa6499b06986eef55d5d4dcf4a1dc86a4ce5e98c1e7fdaa3294ac98", "expected_support_steps": [[[1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 0.0], [1.0, 0.0]], [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 0.0], [1.0, 0.0]], [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0], [1.0, 1.0]]], "gain_contract_id": "FRS-GAIN-v006", "gain_source": "FRS-GAIN-v006-loaded-support-zmp-applicability", "gain_total": [-0.1012682095170021, 0.01103863026946783, -0.10775482654571533, -0.09457991272211075], "gradient_nonzero_parameter_count": 10, "gradient_parameter_count": 18, "gradient_post_clip_norm": 0.17626178084533076, "gradient_pre_clip_norm": 0.1762617826461792, "grouped_attempt_mass_shares": [0.25, 0.25, 0.25, 0.25], "grouped_motion_mass_shares": [0.5, 0.5], "grouped_reduction_active": true, "grouped_segment_mass_shares": [0.5, 0.5], "grouped_transaction_advantage_rms": 0.11935621500015259, "harm_definition": "gain_total<0", "harm_fraction": 0.75, "horizon_k": [8, 8, 8, 8], "intent_gain": [-0.09365162253379822, 0.020966172218322754, -0.08902466297149658, -0.08371949195861816], "intent_q29_provenance": "deployment_noisy_q29", "intent_q29_source": "motion_internal_q29", "intent_quality_noisy": [0.6831905841827393, 0.5654248595237732, 0.5856921672821045, 0.5500051379203796], "intent_quality_repaired": [0.6221132874488831, 0.577404797077179, 0.5358046889305115, 0.5058338046073914], "k_stage_index": 0, "k_stage_iteration": 0, "method_contract_id": "FRS-METHOD-v016", "negative_gain_fraction": 0.75, "noisy_contact": [1.0, 0.9599999785423279, 0.8600000143051147, 0.9200000166893005], "noisy_segment_hashes": ["294eec32c11790b8433e66e13f556bf2a33e4a0076eed3e7c45dea4c368c9410", "294eec32c11790b8433e66e13f556bf2a33e4a0076eed3e7c45dea4c368c9410", "8b6838972c4a6aca4126cfdd433cff727b6be04e126d218eb8b067e756cc8d6f", "8b6838972c4a6aca4126cfdd433cff727b6be04e126d218eb8b067e756cc8d6f"], "noisy_success": [1.0, 1.0, 1.0, 1.0], "noisy_survival": [8.0, 8.0, 8.0, 8.0], "noisy_zmp_margin": [0.0767875537276268, 0.04687509313225746, 0.05578598752617836, 0.08101172000169754], "optimization_contract_id": "FRS-PPO-v004", "optimizer_step_delta": 1, "physics_admissible_noisy": [0.0, 0.0, 0.0, 0.0], "physics_admissible_repaired": [0.0, 0.0, 0.0, 0.0], "physics_contact_gain": [0.0, 0.0, 0.0, -0.07999998331069946], "physics_deficit_noisy": [0.015118921175599098, 0.03999999910593033, 0.14000000059604645, 0.07999999821186066], "physics_deficit_repaired": [0.02148827724158764, 0.03999999910593033, 0.14000000059604645, 0.1599999964237213], "physics_gain": [-0.003405846655368805, 0.0011101234704256058, -0.000270807184278965, -0.027705613523721695], "physics_success_gain": [0.0, 0.0, 0.0, 0.0], "physics_survival_gain": [0.0, 0.0, 0.0, 0.0], "physics_survival_quality_noisy": [1.0, 1.0, 1.0, 1.0], "physics_survival_quality_repaired": [1.0, 1.0, 1.0, 1.0], "physics_valid_step_count": [8, 8, 8, 8], "physics_zmp_gain": [-0.01362338662147522, 0.004440493881702423, -0.00108322873711586, -0.030822470784187317], "policy_actions": [[0.0007378508453257382, 0.0019919215701520443, -0.0028539353515952826, 0.004539770539849997, 0.0031500421464443207, 0.0038500570226460695], [0.00046752739581279457, -0.003758894046768546, -0.0064870500937104225, 0.0018591218395158648, -0.005416793283075094, 0.0030542477034032345], [0.0018579737516120076, -0.0032681601587682962, -0.00253380392678082, 0.005297747440636158, 0.015448145568370819, -0.007972115650773048], [3.794348003793857e-06, -0.005087872967123985, 0.003348596626892686, 0.00633424986153841, 0.005386983510106802, -0.0034215354826301336]], "policy_row_count": 4, "policy_snapshot_id": "frontres-v015-local-sentinel:i0:n1:pi-9a8fdb221f759755", "policy_values": [0.06153092905879021, 0.06152808666229248, 0.016827978193759918, 0.016820307821035385], "positive_gain_fraction": 0.25, "ppo_feedback": false, "priority_feedback": false, "projection_schema_id": "grouped-first-order-constraint-projection-v1", "raw_advantages": [-0.16279913485050201, -0.050489455461502075, -0.12458280473947525, -0.11140021681785583], "repair_cost": [0.007616583723574877, 0.009927541948854923, 0.01873016357421875, 0.010860422626137733], "repair_penalty": [0.007616583723574877, 0.009927541948854923, 0.01873016357421875, 0.010860422626137733], "repaired_contact": [1.0, 0.9599999785423279, 0.8600000143051147, 0.8400000333786011], "repaired_success": [1.0, 1.0, 1.0, 1.0], "repaired_survival": [8.0, 8.0, 8.0, 8.0], "repaired_zmp_margin": [0.06316416710615158, 0.051315587013959885, 0.0547027587890625, 0.05018924921751022], "return_abs_mean": 0.07866039127111435, "return_feedback": false, "return_max": 0.01103863026946783, "return_mean": -0.07314107567071915, "return_min": -0.10775482654571533, "returns": [-0.1012682095170021, 0.01103863026946783, -0.10775482654571533, -0.09457991272211075], "scalar_target_id": "paired-intent-minus-repair-v1", "scaled_advantages": [-1.350745439529419, -0.418911337852478, -1.0437898635864258, -0.9333423972129822], "scenario_ids": ["frontres-v015-local-sentinel:i0:n1:source-0:segment-6924436", "frontres-v015-local-sentinel:i0:n1:source-0:segment-6924436", "frontres-v015-local-sentinel:i0:n1:source-1:segment-8208908", "frontres-v015-local-sentinel:i0:n1:source-1:segment-8208908"], "support_transition_steps": [[false, false, false, false, false, false, true, false], [false, false, false, false, false, false, true, false], [false, false, false, false, false, false, false, false], [false, false, false, false, false, false, false, false]], "survival_constraint": [0.0, 0.0, 0.0, 0.0], "survival_constraint_advantage": [0.0, 0.0, 0.0, 0.0], "training_contract_id": "FRS-TRAIN-v010", "training_iteration": 0, "transaction_id": "frontres-v015-local-sentinel:i0:n1", "update_count": 1, "utility_noisy": [0.6831905841827393, 0.5654248595237732, 0.5856921672821045, 0.5500051379203796], "utility_repaired": [0.6221132874488831, 0.577404797077179, 0.5358046889305115, 0.5058338046073914], "valid_policy_row_count": 4, "valid_policy_row_mask": [true, true, true, true], "warmup_phase": "critic_only", "warmup_phase_iteration": 0, "x_t_identities": ["motion=KIT/348/amass_g1_bend_right05_poses.npz|frame=159|segment=6924436", "motion=KIT/348/amass_g1_bend_right05_poses.npz|frame=159|segment=6924436", "motion=KIT/883/amass_g1_wipe_back_horizontal04_poses.npz|frame=138|segment=8208908", "motion=KIT/883/amass_g1_wipe_back_horizontal04_poses.npz|frame=138|segment=8208908"], "zmp_applicable_noisy_steps": [[true, true, true, true, true, true, false, true], [true, true, true, true, true, true, false, true], [true, true, true, true, true, true, true, true], [true, true, true, true, true, true, false, true]], "zmp_applicable_steps": [[true, true, true, true, true, true, false, true], [true, true, true, true, true, true, false, true], [true, true, true, true, true, true, true, true], [true, true, true, true, true, true, true, true]], "zmp_argmax_frame_noisy": [7, 7, 0, 0], "zmp_argmax_frame_repaired": [7, 7, 0, 0], "zmp_constraint": [0.02148827724158764, 0.010468446649610996, 0.0, 0.0], "zmp_constraint_advantage": [0.005509914830327034, -0.005509915761649609, 0.0, 0.0], "zmp_constraint_applicable": [true, true, true, true], "zmp_margin_noisy_steps": [[0.14751021564006805, 0.11191055923700333, 0.1306270807981491, 0.13907693326473236, 0.12169919908046722, 0.03933641314506531, -0.038062646985054016, -0.03779730200767517], [0.14379775524139404, 0.11299483478069305, 0.08962675929069519, 0.07059778273105621, 0.09132790565490723, 0.0829741433262825, -0.16824884712696075, -0.04806957393884659], [0.08187778294086456, 0.04551646113395691, 0.04611891508102417, 0.047120898962020874, 0.060513317584991455, 0.061163097620010376, 0.061054348945617676, 0.04292309284210205], [0.0549837201833725, 0.11833184957504272, 0.09448239207267761, 0.09002454578876495, 0.09635286778211594, 0.07148382067680359, null, 0.041422873735427856]], "zmp_margin_repaired_steps": [[0.12532705068588257, 0.1596240997314453, 0.1475643515586853, 0.1217992752790451, 0.05385555326938629, -0.004819437861442566, -0.04913632571697235, -0.048901259899139404], [0.09037604182958603, 0.14482398331165314, 0.0722285807132721, 0.029124677181243896, 0.06554208695888519, 0.08306460082530975, -0.04846416413784027, -0.026171118021011353], [0.047011107206344604, 0.05571341514587402, 0.11495007574558258, 0.04248756170272827, 0.041631609201431274, 0.04597896337509155, 0.04739190638065338, 0.042457446455955505], [0.054478079080581665, 0.05589769780635834, 0.04706016182899475, 0.04649427533149719, 0.04605889320373535, 0.05665653944015503, 0.04762876033782959, 0.04723957180976868]], "zmp_max_violation_noisy": [0.03779730200767517, 0.04806957393884659, 0.0, 0.0], "zmp_max_violation_repaired": [0.048901259899139404, 0.026171118021011353, 0.0, 0.0], "zmp_recovery_trajectory_noisy": [[0.03779730200767517], [0.04806957393884659], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, null, 0.0]], "zmp_recovery_trajectory_repaired": [[0.048901259899139404], [0.026171118021011353], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], "zmp_step_violation_noisy": [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, null, 0.03779730200767517], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, null, 0.04806957393884659], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, null, 0.0]], "zmp_step_violation_repaired": [[0.0, 0.0, 0.0, 0.0, 0.0, 0.004819437861442566, null, 0.048901259899139404], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, null, 0.026171118021011353], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]}, "segment_ids": [6924436, 6924436, 8208908, 8208908], "source_index": [0, 0, 1, 1], "survival_constraint": [0.0, 0.0, 0.0, 0.0], "survival_constraint_advantage": [0.0, 0.0, 0.0, 0.0], "training_contract_id": "FRS-TRAIN-v010", "training_iteration": 0, "transaction_id": "frontres-v015-local-sentinel:i0:n1", "trial_index": [0, 1, 0, 1], "v006_diagnostic_report_row_order": [0, 1, 2, 3], "warmup_phase": "critic_only", "warmup_phase_iteration": 0, "x_t_identities": ["motion=KIT/348/amass_g1_bend_right05_poses.npz|frame=159|segment=6924436", "motion=KIT/348/amass_g1_bend_right05_poses.npz|frame=159|segment=6924436", "motion=KIT/883/amass_g1_wipe_back_horizontal04_poses.npz|frame=138|segment=8208908", "motion=KIT/883/amass_g1_wipe_back_horizontal04_poses.npz|frame=138|segment=8208908"], "zmp_constraint": [0.02148827724158764, 0.010468446649610996, 0.0, 0.0], "zmp_constraint_advantage": [0.005509914830327034, -0.005509915761649609, 0.0, 0.0], "zmp_constraint_applicable": [true, true, true, true]}
+
+--------------------------------------------------------------------------------
+
+[FrontRES Segment Live Checkpoint]
+  save.status: OK
+  save.path: /hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-07-27_17-29-32_P4_ZMP_SENSOR_S4B/model_1.pt
+  save.in_log_dir: True
+  save.iteration: 1
+  route.runner_learn: True
+
+[FrontRES v015 Checkpoint Sentinel] {"constraint_schema_id": "contact-loaded-phase_zmp-survival-physical-v2", "format": "frontres-v015-checkpoint-v5", "gain_contract_id": "FRS-GAIN-v006", "iteration": 1, "method_contract_id": "FRS-METHOD-v016", "optimization_contract_id": "FRS-PPO-v004", "optimizer_step_delta": 1, "path": "/hdd1/cyx/FEMR/g1_flat_frontres_stage3_segment_hrl/2026-07-27_17-29-32_P4_ZMP_SENSOR_S4B/model_1.pt", "physics_evidence": {"actual_contact_id": "contact-sensor-net-normal-force-threshold-v1", "expected_phase_id": "clean-foot-height-phase-v1", "support_envelope_id": "clean-foot-pose-oriented-box-v1", "zmp_estimator_id": "contact-wrench-zmp-v1"}, "projection_schema_id": "grouped-first-order-constraint-projection-v1", "scalar_target_id": "paired-intent-minus-repair-v1", "training_contract_id": "FRS-TRAIN-v010", "transaction_id": "frontres-v015-local-sentinel:i0:n1"}
+1        |            |
+|=============================================================================================|
+| OS: 22.04.5 LTS (Jammy Jellyfish) ubuntu, Version: 22.04.5, Kernel: 6.8.0-106-generic
+| Processor: Intel(R) Xeon(R) Gold 6240 CPU @ 2.60GHz
+| Cores: 36 | Logical Cores: 72
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 515614 | Free Memory: 326954
+| Total Page/Swap (MB): 1951 | Free Page/Swap: 0
+|---------------------------------------------------------------------------------------------|
+Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
+   D\D     0 
+     0 313.63 
+P2P=Enabled Latency (P2P Writes) Matrix (us)
+   GPU     0 
+     0   2.04 
+
+   CPU     0 
+     0   4.34 
+2026-07-27 09:29:34 [14,869ms] [Warning] [gpu.foundation.plugin] IOMMU is enabled.
+2026-07-27 09:29:34 [14,869ms] [Warning] [gpu.foundation.plugin] Detected IOMMU is enabled. Running CUDA peer-to-peer bandwidth and latency validation.
+Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
+   D\D     0 
+     0 313.31 
+P2P=Enabled Latency (P2P Writes) Matrix (us)
+   GPU     0 
+     0   1.94 
+
+   CPU     0 
+     0   4.18 
+2026-07-27 09:29:35 [15,541ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-07-27 09:29:35 [15,541ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-07-27 09:29:35 [15,575ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-07-27 09:29:35 [15,575ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-07-27 09:29:35 [15,610ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-07-27 09:29:35 [15,610ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-07-27 09:29:35 [15,627ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-07-27 09:29:35 [15,627ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-07-27 09:29:35 [15,630ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-07-27 09:29:35 [15,630ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-07-27 09:29:35 [15,633ms] [Warning] [carb.windowing-glfw.plugin] GLFW initialization failed.
+2026-07-27 09:29:35 [15,633ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-07-27 09:29:36 [16,746ms] [Warning] [omni.graph.visualization.nodes._impl.extension] No Viewport Window to add omni.graph.visualization.nodes-2.1.1 scene to
