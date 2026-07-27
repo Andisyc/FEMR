@@ -5116,7 +5116,9 @@ def _contact_sensor_pair(
     if forces.ndim != 3 or int(forces.shape[0]) < base_start + n:
         return None
     threshold = float(getattr(getattr(sensor, "cfg", None), "force_threshold", 10.0))
-    actual = torch.linalg.norm(forces.index_select(1, foot_ids), dim=-1) >= threshold
+    # 承重支撑由竖直地面载荷定义, 不能使用任意足部接触力. 全向模长会把切向碰撞
+    # 误判为支撑, 随后错误要求该行必须存在竖直 raw-wrench ZMP 合力.
+    actual = forces.index_select(1, foot_ids)[..., 2].abs() >= threshold
     expected_repair = support_rows[:n].bool()
     expected_noisy = support_rows[base_start : base_start + n].bool()
     if not torch.equal(expected_repair, expected_noisy):

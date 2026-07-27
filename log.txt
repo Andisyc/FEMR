@@ -27,7 +27,7 @@ Traceback (most recent call last):
     runner.learn_frontres_segment_live(
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 713, in learn_frontres_segment_live
     run_frontres_segment_live_training_loop(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", line 2645, in run_frontres_segment_live_training_loop
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_training.py", line 2649, in run_frontres_segment_live_training_loop
     result = runner.run_frontres_v015_formal_training_transaction(
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 687, in run_frontres_v015_formal_training_transaction
     return run_frontres_v015_formal_training_update_loop_helper(
@@ -41,10 +41,12 @@ Traceback (most recent call last):
     return _build_frontres_v015_local_transaction_request(
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4143, in _build_frontres_v015_local_transaction_request
     candidate_evidence = collect_frontres_v015_gain_return_priority_evidence(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3655, in collect_frontres_v015_gain_return_priority_evidence
-    return_evidence = build_frontres_v015_gain_return_evidence(facts, gain_result)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", line 1194, in build_frontres_v015_gain_return_evidence
-    result.validate()
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/frontres/frontres_segment_storage.py", line 899, in validate
-    raise ValueError(f"v015 return evidence {name} must be finite exactly on valid rows")
-ValueError: v015 return evidence physics_zmp_gain must be finite exactly on valid rows
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3611, in collect_frontres_v015_gain_return_priority_evidence
+    one_action = collect_frontres_v015_one_action_k_evidence(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3491, in collect_frontres_v015_one_action_k_evidence
+    physics_frame = _capture_physics_frame(runner, pair_layout)
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5011, in _capture_physics_frame
+    zmp_pair = _contact_wrench_zmp_pair(
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5334, in _contact_wrench_zmp_pair
+    raise RuntimeError(
+RuntimeError: Noisy loaded support is missing a finite raw contact-wrench resultant; branch_rows=[3]

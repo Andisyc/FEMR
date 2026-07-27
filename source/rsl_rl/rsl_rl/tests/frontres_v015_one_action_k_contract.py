@@ -538,7 +538,10 @@ def test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, comma
     unequal.command.advance_frontres_local_scenario_k_execution()
     forces = torch.zeros(4, 2, 3)
     forces[:, :, 2] = 20.0
+    # 切向足部碰撞属于 ContactSensor evidence, 但不是竖直承重支撑,
+    # 因此不能要求该行必须存在 ZMP 合力.
     forces[2, 1, 2] = 0.0
+    forces[2, 1, 0] = 20.0
     sensor = SimpleNamespace(
         data=SimpleNamespace(net_forces_w=forces),
         cfg=SimpleNamespace(force_threshold=10.0),
