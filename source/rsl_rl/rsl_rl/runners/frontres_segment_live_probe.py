@@ -4096,6 +4096,7 @@ def _build_frontres_v015_local_transaction_request(
 
     del init_at_random_ep_len  # x_t reset owns the local dynamic start.
     alg = _require_v015_formal_transaction_config(runner)
+    _prepare_frontres_raw_contact_views(runner)
     sealed_iteration = int(getattr(runner, "current_learning_iteration", 0))
     sealed_curriculum = _v015_resolve_curriculum_identity(runner, alg)
     if route == "sentinel":
@@ -5141,10 +5142,34 @@ def _ensure_frontres_raw_contact_view(sensor: Any, *, num_envs: int) -> Any:
     return raw_view
 
 
+def _prepare_frontres_raw_contact_views(runner: Any) -> None:
+    """Install both raw views before reset/step can produce scored Physics evidence."""
+
+    env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
+    scene = getattr(env, "scene", None)
+    if scene is None:
+        raise RuntimeError("v015 Physics preparation requires the formal IsaacLab scene")
+    num_envs = int(getattr(env, "num_envs", 0))
+    if num_envs <= 0:
+        raise RuntimeError("v015 Physics preparation requires a positive env count")
+    for name in ("frontres_left_foot_contacts", "frontres_right_foot_contacts"):
+        try:
+            sensor = scene[name]
+        except (KeyError, TypeError) as exc:
+            raise RuntimeError(f"v015 Physics preparation is missing scene sensor {name}") from exc
+        view = _ensure_frontres_raw_contact_view(sensor, num_envs=num_envs)
+        if int(getattr(sensor, "_frontres_raw_contact_capacity", 0)) <= 0:
+            raise RuntimeError(f"v015 Physics preparation could not provision raw contact capacity for {name}")
+        if view is not getattr(sensor, "_contact_physx_view", None):
+            raise RuntimeError(f"v015 Physics preparation did not install the authoritative view for {name}")
+
+
 def _raw_filtered_contact_rows(sensor: Any, *, num_envs: int, device: torch.device) -> tuple[torch.Tensor, ...]:
     """Unpack one single-foot filtered ContactSensor into padded raw contacts."""
 
-    view = _ensure_frontres_raw_contact_view(sensor, num_envs=num_envs)
+    view = getattr(sensor, "contact_physx_view", None)
+    if int(getattr(sensor, "_frontres_raw_contact_capacity", 0)) <= 0:
+        raise RuntimeError("contact-wrench ZMP requires a raw view installed before the scored physics step")
     get_contact_data = getattr(view, "get_contact_data", None)
     if not callable(get_contact_data):
         raise RuntimeError("contact-wrench ZMP requires ContactSensor.contact_physx_view.get_contact_data")

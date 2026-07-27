@@ -101,7 +101,8 @@ def test_formal_owner_isolation() -> None:
     assert 'frontres_left_foot_contacts = ContactSensorCfg(' in cfg
     assert 'frontres_right_foot_contacts = ContactSensorCfg(' in cfg
     assert 'filter_prim_paths_expr=ground_filter' in cfg
-    assert 'ground_filter = ["/World/ground/terrain"]' in cfg
+    assert 'ground_filter = ["/World/ground/terrain/mesh"]' in cfg
+    assert 'ground_filter = ["/World/ground/terrain"]' not in cfg
     assert 'ground_filter = ["/World/ground/terrain/.*"]' not in cfg
     assert 'prim_path="/World/ground"' in scene_cfg
     assert 'terrain_type="generator"' in scene_cfg
@@ -130,6 +131,7 @@ def test_raw_contact_owner_unpacking() -> None:
     sensor = SimpleNamespace(
         cfg=SimpleNamespace(update_period=0.01),
         _sim_physics_dt=0.005,
+        _frontres_raw_contact_capacity=64,
         contact_physx_view=SimpleNamespace(get_contact_data=lambda dt: raw),
     )
     points, forces, normals, valid = namespace["_raw_filtered_contact_rows"](
@@ -168,7 +170,7 @@ def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
     sensor = SimpleNamespace(
         cfg=SimpleNamespace(
             prim_path="/World/envs/env_.*/Robot/left_ankle_roll_link",
-            filter_prim_paths_expr=["/World/ground/terrain"],
+            filter_prim_paths_expr=["/World/ground/terrain/mesh"],
         ),
         body_names=["left_ankle_roll_link"],
         contact_physx_view=legacy,
@@ -182,7 +184,7 @@ def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
         (
             "/World/envs/env_*/Robot/(left_ankle_roll_link)",
             {
-                "filter_patterns": ["/World/ground/terrain"],
+                "filter_patterns": ["/World/ground/terrain/mesh"],
                 "max_contact_data_count": 128,
             },
         )
@@ -254,6 +256,7 @@ def test_eight_role_ground_contact_reaches_finite_zmp() -> None:
     sensor = SimpleNamespace(
         cfg=SimpleNamespace(update_period=0.01),
         _sim_physics_dt=0.005,
+        _frontres_raw_contact_capacity=128,
         contact_physx_view=SimpleNamespace(get_contact_data=lambda dt: raw),
     )
     unpacked = namespace["_raw_filtered_contact_rows"](
@@ -267,6 +270,67 @@ def test_eight_role_ground_contact_reaches_finite_zmp() -> None:
     torch.testing.assert_close(zmp, points_w[:, :2])
 
 
+def test_raw_views_are_installed_before_reset_and_never_lazily_on_read() -> None:
+    source = LIVE_PROBE.read_text(encoding="utf-8")
+    builder = source[
+        source.index("def _build_frontres_v015_local_transaction_request") :
+        source.index("def _build_frontres_v015_local_identity_sentinel_request")
+    ]
+    assert builder.index("_prepare_frontres_raw_contact_views(runner)") < builder.index(
+        "prepare_frontres_v015_local_sentinel_batch(runner)"
+    )
+    assert builder.index("_prepare_frontres_raw_contact_views(runner)") < builder.index(
+        "_apply_current_segment_reset(runner"
+    )
+    raw_reader = source[
+        source.index("def _raw_filtered_contact_rows") : source.index("def _contact_wrench_zmp_pair")
+    ]
+    assert "_ensure_frontres_raw_contact_view(" not in raw_reader
+    assert "installed before the scored physics step" in raw_reader
+
+    tree = ast.parse(source)
+    functions = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in {"_ensure_frontres_raw_contact_view", "_prepare_frontres_raw_contact_views"}
+    ]
+    namespace: dict[str, Any] = {"Any": Any, "re": __import__("re")}
+    exec(compile(ast.Module(body=functions, type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+
+    events: list[str] = []
+
+    def sensor(side: str) -> Any:
+        legacy = SimpleNamespace(count=8, filter_count=1)
+
+        def create_view(pattern: str, **kwargs: Any) -> Any:
+            events.append(f"install-{side}")
+            return SimpleNamespace(count=8, filter_count=1)
+
+        return SimpleNamespace(
+            cfg=SimpleNamespace(
+                prim_path=f"/World/envs/env_.*/Robot/{side}_ankle_roll_link",
+                filter_prim_paths_expr=["/World/ground/terrain/mesh"],
+            ),
+            body_names=[f"{side}_ankle_roll_link"],
+            contact_physx_view=legacy,
+            _contact_physx_view=legacy,
+            _physics_sim_view=SimpleNamespace(create_rigid_contact_view=create_view),
+        )
+
+    left, right = sensor("left"), sensor("right")
+    runner = SimpleNamespace(
+        env=SimpleNamespace(
+            num_envs=8,
+            scene={"frontres_left_foot_contacts": left, "frontres_right_foot_contacts": right},
+        )
+    )
+    namespace["_prepare_frontres_raw_contact_views"](runner)
+    assert events == ["install-left", "install-right"]
+    assert left._frontres_raw_contact_capacity == 128
+    assert right._frontres_raw_contact_capacity == 128
+
+
 if __name__ == "__main__":
     test_contact_wrench_golden_and_permutation()
     test_expected_envelope_and_missing_fail_closed()
@@ -275,4 +339,5 @@ if __name__ == "__main__":
     test_legacy_contact_view_capacity_upgrade_and_fail_closed()
     test_formal_zmp_capture_preserves_first_invalid_error()
     test_eight_role_ground_contact_reaches_finite_zmp()
+    test_raw_views_are_installed_before_reset_and_never_lazily_on_read()
     print("frontres_contact_wrench_zmp_contract: ok", flush=True)

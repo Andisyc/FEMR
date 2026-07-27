@@ -305,9 +305,9 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         # the live probe preserves these resolved body/filter identities while replacing
         # the legacy zero-capacity PhysX view with a raw-capable view. Existing
         # contact_forces remains the actual binary Contact authority. Raw values remain S4-unconfirmed.
-        # TerrainImporter(generator) creates the collider at exactly
-        # `<prim_path>/terrain`; a descendant regex misses that mesh entirely.
-        ground_filter = ["/World/ground/terrain"]
+        # TerrainImporter creates `/terrain` as an Xform; create_prim_from_mesh
+        # binds collision to the exact `/terrain/mesh` rigid collider child.
+        ground_filter = ["/World/ground/terrain/mesh"]
         self.scene.frontres_left_foot_contacts = ContactSensorCfg(
             prim_path="{ENV_REGEX_NS}/Robot/left_ankle_roll_link",
             filter_prim_paths_expr=ground_filter,

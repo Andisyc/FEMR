@@ -373,6 +373,7 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
     )
     trace: list[str] = []
     originals = {
+        "physics_prepare": live_probe._prepare_frontres_raw_contact_views,
         "prepare": live_probe.prepare_frontres_v015_local_sentinel_batch,
         "layout": live_probe.configure_frontres_pair_layout,
         "reset": live_probe._apply_current_segment_reset,
@@ -381,6 +382,8 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
         "candidate": live_probe.build_frontres_v015_grouped_candidate_batch,
         "diagnostics": live_probe.build_frontres_v015_local_evaluation_report,
     }
+
+    live_probe._prepare_frontres_raw_contact_views = lambda _runner: trace.append("physics_prepare")
 
     def prepare(_runner):
         trace.append("prepare")
@@ -459,6 +462,7 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
             init_at_random_ep_len=True,
         )
     finally:
+        live_probe._prepare_frontres_raw_contact_views = originals["physics_prepare"]
         live_probe.prepare_frontres_v015_local_sentinel_batch = originals["prepare"]
         live_probe.configure_frontres_pair_layout = originals["layout"]
         live_probe._apply_current_segment_reset = originals["reset"]
@@ -467,7 +471,7 @@ def test_t_real_builder_orders_local_reset_capture_and_candidate_adapter() -> No
         live_probe.build_frontres_v015_grouped_candidate_batch = originals["candidate"]
         live_probe.build_frontres_v015_local_evaluation_report = originals["diagnostics"]
 
-    assert trace == ["prepare", "reset", "observations", "capture", "candidate"]
+    assert trace == ["physics_prepare", "prepare", "reset", "observations", "capture", "candidate"]
     assert request.plan is fixture.request.plan
     assert request.candidate_batches == (complete_candidate,)
     assert fixture.optimizer.step_count == 0
