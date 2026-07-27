@@ -98,8 +98,9 @@ def test_formal_owner_isolation() -> None:
     cfg = G1_CFG.read_text(encoding="utf-8")
     assert 'frontres_left_foot_contacts = ContactSensorCfg(' in cfg
     assert 'frontres_right_foot_contacts = ContactSensorCfg(' in cfg
-    assert "track_contact_points=True" in cfg
     assert 'filter_prim_paths_expr=ground_filter' in cfg
+    assert "track_contact_points=" not in cfg
+    assert "max_contact_data_count_per_prim=" not in cfg
 
 
 def test_raw_contact_owner_unpacking() -> None:

@@ -299,23 +299,20 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         self.scene.robot = G1_CYLINDER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.actions.joint_pos.scale = G1_ACTION_SCALE
 
-        # FRS-GAIN-v005 formal Physics only: retain raw per-foot ground
-        # contact points/normals/forces for contact-wrench ZMP. Other G1 tasks
-        # do not pay this sensor cost. Existing contact_forces remains the
-        # actual binary Contact authority.
+        # FRS-GAIN-v005 formal Physics only: create the server-version-compatible
+        # filtered views used to read raw per-foot ground contacts. This IsaacLab
+        # revision has no track_contact_points/max_contact_data_count config fields;
+        # the live probe reads contact_physx_view directly. Existing contact_forces
+        # remains the actual binary Contact authority. Raw view values are still S4-unconfirmed.
         ground_filter = ["/World/ground/terrain/.*"]
         self.scene.frontres_left_foot_contacts = ContactSensorCfg(
             prim_path="{ENV_REGEX_NS}/Robot/left_ankle_roll_link",
             filter_prim_paths_expr=ground_filter,
-            track_contact_points=True,
-            max_contact_data_count_per_prim=16,
             debug_vis=False,
         )
         self.scene.frontres_right_foot_contacts = ContactSensorCfg(
             prim_path="{ENV_REGEX_NS}/Robot/right_ankle_roll_link",
             filter_prim_paths_expr=ground_filter,
-            track_contact_points=True,
-            max_contact_data_count_per_prim=16,
             debug_vis=False,
         )
 
