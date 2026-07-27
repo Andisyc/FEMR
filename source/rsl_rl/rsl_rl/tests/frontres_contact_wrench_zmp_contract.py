@@ -105,12 +105,14 @@ def test_formal_owner_isolation() -> None:
 
 def test_raw_contact_owner_unpacking() -> None:
     tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
-    function = next(
-        node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == "_raw_filtered_contact_rows"
-    )
-    namespace: dict[str, Any] = {"torch": torch, "Any": Any}
-    exec(compile(ast.Module(body=[function], type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+    functions = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in {"_ensure_frontres_raw_contact_view", "_raw_filtered_contact_rows"}
+    ]
+    namespace: dict[str, Any] = {"torch": torch, "Any": Any, "re": __import__("re")}
+    exec(compile(ast.Module(body=functions, type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
     raw = (
         torch.tensor([[10.0], [30.0], [20.0]]),
         torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]),
@@ -135,9 +137,66 @@ def test_raw_contact_owner_unpacking() -> None:
     assert valid[:, 0].tolist() == [[True, True], [True, False]]
 
 
+def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
+    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
+    function = next(
+        node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_ensure_frontres_raw_contact_view"
+    )
+    namespace: dict[str, Any] = {"Any": Any, "re": __import__("re")}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+
+    calls: list[tuple[str, dict[str, Any]]] = []
+    upgraded = SimpleNamespace(count=8, filter_count=1)
+
+    def create_view(pattern: str, **kwargs: Any) -> Any:
+        calls.append((pattern, kwargs))
+        return upgraded
+
+    legacy = SimpleNamespace(
+        count=8,
+        filter_count=1,
+        get_contact_data=lambda dt: (_ for _ in ()).throw(Exception("max_contact_data_count = 0")),
+    )
+    sensor = SimpleNamespace(
+        cfg=SimpleNamespace(
+            prim_path="/World/envs/env_.*/Robot/left_ankle_roll_link",
+            filter_prim_paths_expr=["/World/ground/terrain/.*"],
+        ),
+        body_names=["left_ankle_roll_link"],
+        contact_physx_view=legacy,
+        _contact_physx_view=legacy,
+        _physics_sim_view=SimpleNamespace(create_rigid_contact_view=create_view),
+    )
+    result = namespace["_ensure_frontres_raw_contact_view"](sensor, num_envs=8)
+    assert result is upgraded and sensor._contact_physx_view is upgraded
+    assert sensor._frontres_raw_contact_capacity == 128
+    assert calls == [
+        (
+            "/World/envs/env_*/Robot/(left_ankle_roll_link)",
+            {
+                "filter_patterns": ["/World/ground/terrain/*"],
+                "max_contact_data_count": 128,
+            },
+        )
+    ]
+
+    bad = SimpleNamespace(count=7, filter_count=1)
+    sensor._frontres_raw_contact_capacity = 0
+    sensor._physics_sim_view = SimpleNamespace(create_rigid_contact_view=lambda *args, **kwargs: bad)
+    try:
+        namespace["_ensure_frontres_raw_contact_view"](sensor, num_envs=8)
+    except RuntimeError as exc:
+        assert "body/env identity" in str(exc)
+    else:
+        raise AssertionError("raw contact view silently changed role/env identity")
+
+
 if __name__ == "__main__":
     test_contact_wrench_golden_and_permutation()
     test_expected_envelope_and_missing_fail_closed()
     test_formal_owner_isolation()
     test_raw_contact_owner_unpacking()
+    test_legacy_contact_view_capacity_upgrade_and_fail_closed()
     print("frontres_contact_wrench_zmp_contract: ok", flush=True)

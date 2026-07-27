@@ -9,6 +9,7 @@ import importlib.util
 import json
 import math
 from pathlib import Path
+import re
 import sys
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -5098,10 +5099,52 @@ def _contact_sensor_pair(
     return expected_repair, actual[:n], actual[base_start : base_start + n]
 
 
+def _ensure_frontres_raw_contact_view(sensor: Any, *, num_envs: int) -> Any:
+    """Install a raw-capable PhysX view for legacy IsaacLab ContactSensor."""
+
+    existing = getattr(sensor, "contact_physx_view", None)
+    if int(getattr(sensor, "_frontres_raw_contact_capacity", 0)) > 0:
+        return existing
+    cfg = getattr(sensor, "cfg", None)
+    if int(getattr(cfg, "max_contact_data_count", 0)) > 0:
+        return existing
+    physics_view = getattr(sensor, "_physics_sim_view", None)
+    create_view = getattr(physics_view, "create_rigid_contact_view", None)
+    body_names = getattr(sensor, "body_names", None)
+    prim_path = getattr(cfg, "prim_path", None)
+    filter_expr = getattr(cfg, "filter_prim_paths_expr", None)
+    if not callable(create_view) or not isinstance(body_names, (list, tuple)) or not body_names:
+        return existing
+    if not isinstance(prim_path, str) or not isinstance(filter_expr, (list, tuple)) or not filter_expr:
+        return existing
+
+    # Legacy IsaacLab creates ContactSensor views with the PhysX default capacity 0.
+    # Reuse its resolved body identity but provision 16 contact patches per foot/env.
+    parent = prim_path.rsplit("/", 1)[0]
+    body_regex = r"(" + "|".join(re.escape(str(name)) for name in body_names) + r")"
+    body_glob = f"{parent}/{body_regex}".replace(".*", "*")
+    filter_glob = [str(expr).replace(".*", "*") for expr in filter_expr]
+    capacity = max(64, int(num_envs) * 16)
+    raw_view = create_view(
+        body_glob,
+        filter_patterns=filter_glob,
+        max_contact_data_count=capacity,
+    )
+    if int(getattr(raw_view, "count", int(num_envs))) != int(getattr(existing, "count", int(num_envs))):
+        raise RuntimeError("raw contact view changed the ContactSensor body/env identity")
+    if int(getattr(raw_view, "filter_count", len(filter_glob))) != int(
+        getattr(existing, "filter_count", len(filter_glob))
+    ):
+        raise RuntimeError("raw contact view changed the ContactSensor filter identity")
+    sensor._contact_physx_view = raw_view
+    sensor._frontres_raw_contact_capacity = capacity
+    return raw_view
+
+
 def _raw_filtered_contact_rows(sensor: Any, *, num_envs: int, device: torch.device) -> tuple[torch.Tensor, ...]:
     """Unpack one single-foot filtered ContactSensor into padded raw contacts."""
 
-    view = getattr(sensor, "contact_physx_view", None)
+    view = _ensure_frontres_raw_contact_view(sensor, num_envs=num_envs)
     get_contact_data = getattr(view, "get_contact_data", None)
     if not callable(get_contact_data):
         raise RuntimeError("contact-wrench ZMP requires ContactSensor.contact_physx_view.get_contact_data")
@@ -5119,6 +5162,9 @@ def _raw_filtered_contact_rows(sensor: Any, *, num_envs: int, device: torch.devi
     starts = starts.to(device=device, dtype=torch.long).reshape(-1)
     if int(counts.numel()) != int(num_envs) or int(starts.numel()) != int(num_envs):
         raise RuntimeError("each v015 foot sensor must resolve exactly one body and one ground filter per env")
+    capacity = int(getattr(sensor, "_frontres_raw_contact_capacity", 0))
+    if capacity > 0 and int(counts.sum().item()) >= capacity:
+        raise RuntimeError("contact-wrench ZMP raw contact buffer reached capacity; evidence may be truncated")
     max_contacts = max(1, int(counts.max().item()) if int(counts.numel()) else 0)
     points = torch.zeros(num_envs, 1, max_contacts, 3, device=device, dtype=torch.float32)
     normals = torch.zeros_like(points)

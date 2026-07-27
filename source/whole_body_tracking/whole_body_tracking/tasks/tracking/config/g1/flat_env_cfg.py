@@ -302,8 +302,9 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         # FRS-GAIN-v005 formal Physics only: create the server-version-compatible
         # filtered views used to read raw per-foot ground contacts. This IsaacLab
         # revision has no track_contact_points/max_contact_data_count config fields;
-        # the live probe reads contact_physx_view directly. Existing contact_forces
-        # remains the actual binary Contact authority. Raw view values are still S4-unconfirmed.
+        # the live probe preserves these resolved body/filter identities while replacing
+        # the legacy zero-capacity PhysX view with a raw-capable view. Existing
+        # contact_forces remains the actual binary Contact authority. Raw values remain S4-unconfirmed.
         ground_filter = ["/World/ground/terrain/.*"]
         self.scene.frontres_left_foot_contacts = ContactSensorCfg(
             prim_path="{ENV_REGEX_NS}/Robot/left_ankle_roll_link",
