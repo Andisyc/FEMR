@@ -5199,15 +5199,19 @@ def _contact_wrench_zmp_pair(
 
     snapshot = getattr(command, "frontres_local_scenario_k_execution_snapshot", None)
     if not callable(snapshot):
-        return None
+        raise RuntimeError("contact-wrench ZMP requires the sealed local-scenario K snapshot")
     sealed = snapshot()
     envelope = sealed.get("expected_support_envelope") if isinstance(sealed, Mapping) else None
     if not isinstance(envelope, torch.Tensor) or tuple(envelope.shape) != (int(command.num_envs), 6):
-        return None
+        shape = tuple(envelope.shape) if isinstance(envelope, torch.Tensor) else None
+        raise RuntimeError(
+            "contact-wrench ZMP requires sealed expected_support_envelope "
+            f"[{int(command.num_envs)},6], got {shape}"
+        )
     env = runner.env.unwrapped if hasattr(runner.env, "unwrapped") else runner.env
     scene = getattr(env, "scene", None)
     if scene is None:
-        return None
+        raise RuntimeError("contact-wrench ZMP requires the formal IsaacLab scene")
     try:
         left_sensor = scene["frontres_left_foot_contacts"]
         right_sensor = scene["frontres_right_foot_contacts"]
@@ -5224,17 +5228,31 @@ def _contact_wrench_zmp_pair(
         if not isinstance(origins_xy, torch.Tensor):
             raise RuntimeError("contact-wrench ZMP requires scene.env_origins")
         support_all = sealed.get("expected_support")
+        if not isinstance(support_all, torch.Tensor) or tuple(support_all.shape) != (int(command.num_envs), 2):
+            shape = tuple(support_all.shape) if isinstance(support_all, torch.Tensor) else None
+            raise RuntimeError(
+                f"contact-wrench ZMP requires sealed expected_support [{int(command.num_envs)},2], got {shape}"
+            )
+        required = support_all.to(device=runner.device).bool().any(dim=-1)
+        if bool((required & ~zmp_valid).any()):
+            missing_rows = torch.nonzero(required & ~zmp_valid, as_tuple=False).reshape(-1).tolist()
+            left_counts = raw_left[3].sum(dim=(1, 2)).detach().cpu().tolist()
+            right_counts = raw_right[3].sum(dim=(1, 2)).detach().cpu().tolist()
+            raise RuntimeError(
+                "supported phase is missing a vertical foot-ground contact resultant; "
+                f"missing_rows={missing_rows} left_contact_counts={left_counts} "
+                f"right_contact_counts={right_counts}"
+            )
         margin = expected_support_envelope_margin(
             zmp_xy,
             envelope.to(device=runner.device),
             support_all.to(device=runner.device),
             env_origins_xy=origins_xy[:, :2].to(device=runner.device),
         )
-        required = support_all.to(device=runner.device).bool().any(dim=-1)
-        if bool((required & ~zmp_valid).any()):
-            raise RuntimeError("supported phase is missing a vertical foot-ground contact resultant")
-    except (AttributeError, KeyError, RuntimeError, TypeError, ValueError):
-        return None
+    except (AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"contact-wrench ZMP capture failed at {type(exc).__name__}: {exc}"
+        ) from exc
     base_start = int(pair_layout.n_train) + int(pair_layout.n_candidate)
     return margin[:n].detach(), margin[base_start : base_start + n].detach()
 

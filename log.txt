@@ -27,26 +27,18 @@ Traceback (most recent call last):
     runner.run_frontres_v015_local_identity_sentinel(init_at_random_ep_len=True)
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/on_policy_runner.py", line 697, in run_frontres_v015_local_identity_sentinel
     return run_frontres_v015_local_identity_sentinel_helper(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4338, in run_frontres_v015_local_identity_sentinel
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4339, in run_frontres_v015_local_identity_sentinel
     result = run_frontres_v015_formal_transaction_update_loop(runner)
   File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_update_loop.py", line 149, in run_frontres_v015_formal_transaction_update_loop
     request = provider()
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4329, in provider
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4330, in provider
     return _build_frontres_v015_local_identity_sentinel_request(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4227, in _build_frontres_v015_local_identity_sentinel_request
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4228, in _build_frontres_v015_local_identity_sentinel_request
     return _build_frontres_v015_local_transaction_request(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4137, in _build_frontres_v015_local_transaction_request
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4138, in _build_frontres_v015_local_transaction_request
     candidate_evidence = collect_frontres_v015_gain_return_priority_evidence(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3606, in collect_frontres_v015_gain_return_priority_evidence
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3607, in collect_frontres_v015_gain_return_priority_evidence
     one_action = collect_frontres_v015_one_action_k_evidence(
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3490, in collect_frontres_v015_one_action_k_evidence
-    physics_frame = _capture_physics_frame(runner, pair_layout)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 4993, in _capture_physics_frame
-    zmp_pair = _contact_wrench_zmp_pair(runner, command, pair_layout, expected_support, n)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5170, in _contact_wrench_zmp_pair
-    raw_left = _raw_filtered_contact_rows(left_sensor, num_envs=int(command.num_envs), device=runner.device)
-  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 5111, in _raw_filtered_contact_rows
-    payload = get_contact_data(dt=dt)
-  File "/hdd1/cyx/miniconda3/envs/mosaic/lib/python3.10/site-packages/isaacsim/extsPhysics/omni.physics.tensors/omni/physics/tensors/impl/api.py", line 4717, in get_contact_data
-    raise Exception("No contact data is available because create_rigid_contact_view is initialized with max_contact_data_count = 0")
-Exception: No contact data is available because create_rigid_contact_view is initialized with max_contact_data_count = 0
+  File "/hdd1/cyx/FEMR/source/rsl_rl/rsl_rl/runners/frontres_segment_live_probe.py", line 3493, in collect_frontres_v015_one_action_k_evidence
+    raise RuntimeError(
+RuntimeError: v015 one-action K collector requires paired ZMP/contact evidence on every executable K step

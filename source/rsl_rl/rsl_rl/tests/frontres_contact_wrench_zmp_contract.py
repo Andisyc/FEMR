@@ -193,10 +193,41 @@ def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
         raise AssertionError("raw contact view silently changed role/env identity")
 
 
+def test_formal_zmp_capture_preserves_first_invalid_error() -> None:
+    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
+    function = next(
+        node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_contact_wrench_zmp_pair"
+    )
+    namespace: dict[str, Any] = {"Any": Any, "Mapping": __import__("collections.abc").abc.Mapping, "torch": torch}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+    runner = SimpleNamespace(env=SimpleNamespace(scene={}), device=torch.device("cpu"))
+    command = SimpleNamespace(
+        num_envs=8,
+        frontres_local_scenario_k_execution_snapshot=lambda: {
+            "expected_support_envelope": torch.zeros(7, 6),
+        },
+    )
+    try:
+        namespace["_contact_wrench_zmp_pair"](
+            runner,
+            command,
+            SimpleNamespace(n_train=4, n_candidate=0),
+            torch.ones(8, 2),
+            4,
+        )
+    except RuntimeError as exc:
+        assert "expected_support_envelope [8,6], got (7, 6)" in str(exc)
+    else:
+        raise AssertionError("formal ZMP capture collapsed a first-invalid shape into None")
+
+
 if __name__ == "__main__":
     test_contact_wrench_golden_and_permutation()
     test_expected_envelope_and_missing_fail_closed()
     test_formal_owner_isolation()
     test_raw_contact_owner_unpacking()
     test_legacy_contact_view_capacity_upgrade_and_fail_closed()
+    test_formal_zmp_capture_preserves_first_invalid_error()
     print("frontres_contact_wrench_zmp_contract: ok", flush=True)
