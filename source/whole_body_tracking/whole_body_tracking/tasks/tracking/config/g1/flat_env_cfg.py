@@ -300,22 +300,26 @@ class G1FlatFrontRESFinetuneEnvCfg(FrontRESFinetuneTrackingEnvCfg):
         self.actions.joint_pos.scale = G1_ACTION_SCALE
 
         # FRS-GAIN-v006 formal Physics only: create the server-version-compatible
-        # filtered views used to read raw per-foot ground contacts. This IsaacLab
+        # filtered views used for actual support and raw per-foot ground contacts. This IsaacLab
         # revision has no track_contact_points/max_contact_data_count config fields;
         # the live probe preserves these resolved body/filter identities while replacing
-        # the legacy zero-capacity PhysX view with a raw-capable view. Existing
-        # contact_forces remains the actual binary Contact authority. Raw values remain S4-unconfirmed.
+        # the legacy zero-capacity PhysX view with a raw-capable view. The unfiltered
+        # contact_forces sensor remains diagnostic-only for this Physics path.
         # TerrainImporter creates `/terrain` as an Xform; create_prim_from_mesh
         # binds collision to the exact `/terrain/mesh` rigid collider child.
         ground_filter = ["/World/ground/terrain/mesh"]
         self.scene.frontres_left_foot_contacts = ContactSensorCfg(
             prim_path="{ENV_REGEX_NS}/Robot/left_ankle_roll_link",
             filter_prim_paths_expr=ground_filter,
+            update_period=0.0,
+            force_threshold=10.0,
             debug_vis=False,
         )
         self.scene.frontres_right_foot_contacts = ContactSensorCfg(
             prim_path="{ENV_REGEX_NS}/Robot/right_ankle_roll_link",
             filter_prim_paths_expr=ground_filter,
+            update_period=0.0,
+            force_threshold=10.0,
             debug_vis=False,
         )
 

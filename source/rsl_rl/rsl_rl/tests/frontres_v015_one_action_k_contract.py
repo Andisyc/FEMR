@@ -103,6 +103,11 @@ def _load_owners():
         RSL_ROOT / "frontres" / "frontres_segment_reset.py",
     )
     frontres_pkg.frontres_segment_reset = reset
+    balance = _load(
+        "rsl_rl.frontres.frontres_balance",
+        RSL_ROOT / "frontres" / "frontres_balance.py",
+    )
+    frontres_pkg.frontres_balance = balance
     rollout = _load(
         "rsl_rl.runners.frontres_rollout_step",
         RSL_ROOT / "runners" / "frontres_rollout_step.py",
@@ -536,23 +541,87 @@ def test_t_physics_unequal_tie_missing_and_permutation(live_probe, helper, comma
     unequal.command.refresh_frontres_reference_cache_current_frame()
     unequal.command.begin_frontres_local_scenario_k_execution()
     unequal.command.advance_frontres_local_scenario_k_execution()
-    forces = torch.zeros(4, 2, 3)
-    forces[:, :, 2] = 20.0
-    # 切向足部碰撞属于 ContactSensor evidence, 但不是竖直承重支撑,
-    # 因此不能要求该行必须存在 ZMP 合力.
-    forces[2, 1, 2] = 0.0
-    forces[2, 1, 0] = 20.0
-    sensor = SimpleNamespace(
-        data=SimpleNamespace(net_forces_w=forces),
+    # 未过滤的机器人 ContactSensor 可报告非地面足部碰撞. actual support 必须
+    # 只服从两个 foot-to-ground filtered sensors, 与 raw ZMP 使用同一 contact set.
+    unfiltered_forces = torch.zeros(4, 2, 3)
+    unfiltered_forces[:, :, 2] = 20.0
+    unfiltered_sensor = SimpleNamespace(
+        data=SimpleNamespace(net_forces_w=unfiltered_forces),
         cfg=SimpleNamespace(force_threshold=10.0),
         find_bodies=lambda _names: ([0, 1], ["left", "right"]),
     )
-    unequal.runner.env.scene.sensors = {"contact_forces": sensor}
+    left_force = torch.zeros(4, 1, 1, 3)
+    right_force = torch.zeros(4, 1, 1, 3)
+    left_force[..., 2] = 20.0
+    right_force[..., 2] = 20.0
+    right_force[2, ..., 2] = 0.0
+    filtered = lambda force: SimpleNamespace(
+        data=SimpleNamespace(force_matrix_w=force),
+        cfg=SimpleNamespace(force_threshold=10.0),
+    )
+    unequal.runner.env.scene.sensors = {
+        "contact_forces": unfiltered_sensor,
+        "frontres_left_foot_contacts": filtered(left_force),
+        "frontres_right_foot_contacts": filtered(right_force),
+    }
     sensor_pair = live_probe._contact_sensor_pair(unequal.runner, unequal.command, unequal.pair_layout, 2)
     assert sensor_pair is not None
     expected_support, repair_contact, noisy_contact = sensor_pair
     assert bool(expected_support.all()) and bool(repair_contact.all())
     assert noisy_contact.tolist() == [[True, False], [True, True]]
+
+    def filtered_sensor(matrix: torch.Tensor, loaded_rows: tuple[int, ...]) -> SimpleNamespace:
+        count = len(loaded_rows)
+        points = torch.zeros(count, 3)
+        normals = torch.zeros(count, 3)
+        normals[:, 2] = 1.0
+        counts = torch.zeros(4, 1, dtype=torch.long)
+        starts = torch.zeros(4, 1, dtype=torch.long)
+        cursor = 0
+        loaded = set(loaded_rows)
+        for env_id in range(4):
+            starts[env_id, 0] = cursor
+            if env_id in loaded:
+                counts[env_id, 0] = 1
+                cursor += 1
+        raw = (
+            torch.full((count, 1), 20.0),
+            points,
+            normals,
+            torch.zeros(count, 1),
+            counts,
+            starts,
+        )
+        return SimpleNamespace(
+            data=SimpleNamespace(force_matrix_w=matrix),
+            cfg=SimpleNamespace(force_threshold=10.0),
+            _sim_physics_dt=0.005,
+            _frontres_raw_contact_capacity=64,
+            contact_physx_view=SimpleNamespace(get_contact_data=lambda dt: raw),
+        )
+
+    # 同一 filtered view 的 matrix/raw 都报告 Noisy row 0 无地面承重时,
+    # Contact 必须保留失败而 ZMP 必须是 N/A, 不能被 unfiltered force 推翻.
+    left_matrix = left_force.clone()
+    right_matrix = right_force.clone()
+    left_matrix[2] = 0.0
+    right_matrix[2] = 0.0
+
+    class Scene(dict):
+        pass
+
+    scene = Scene(
+        frontres_left_foot_contacts=filtered_sensor(left_matrix, (0, 1, 3)),
+        frontres_right_foot_contacts=filtered_sensor(right_matrix, (0, 1, 3)),
+    )
+    scene.sensors = scene
+    scene.env_origins = torch.zeros(4, 3)
+    unequal.runner.env.scene = scene
+    physics_frame = live_probe._capture_physics_frame(unequal.runner, unequal.pair_layout)
+    assert physics_frame is not None
+    assert not bool(physics_frame[4][0].any())
+    assert bool(torch.isnan(physics_frame[1][0]))
+    assert bool(torch.isfinite(physics_frame[1][1]))
     unequal.command.end_frontres_local_scenario_k_execution()
 
     try:

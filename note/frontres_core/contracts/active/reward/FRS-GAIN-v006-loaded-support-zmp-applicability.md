@@ -42,16 +42,19 @@ Intent, Clean continuation, expected support, K, valid-step clock, frozen GMT,
 and hash. Expected support and its immutable oriented envelope remain
 Clean-continuation Physics-only evidence and never enter actor observations.
 
-Actual left/right support comes from the existing force-threshold ContactSensor.
-Raw contact points, normals, and normal-force magnitudes come from the separate
-filtered foot-to-ground views used by `contact-wrench-zmp-v1`.
+Actual left/right support comes from the force-threshold `force_matrix_w` of the
+two foot-to-ground filtered ContactSensors. Raw contact points, normals, and
+normal-force magnitudes come from those same filtered PhysX views for
+`contact-wrench-zmp-v1`. The legacy unfiltered `contact_forces.net_forces_w`
+may include non-ground foot contact and is not support authority on this path.
 
 Evidence integrity and physical outcome are distinct:
 
 ```text
 invalid payload = missing API, malformed shape/count/start, non-finite valid
-                  contact value, or disagreement where actual loaded support
-                  exists but no finite raw resultant can be constructed
+                  contact value, or disagreement where the filtered force
+                  matrix reports load but the same view has no finite raw
+                  resultant
 
 physical no-load = valid payload and no actual loaded support
 ```

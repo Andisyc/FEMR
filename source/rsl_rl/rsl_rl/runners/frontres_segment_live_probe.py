@@ -5079,13 +5079,6 @@ def _contact_sensor_pair(
     support_rows = sealed.get("expected_support") if isinstance(sealed, Mapping) else None
     if not isinstance(support_rows, torch.Tensor) or tuple(support_rows.shape) != (int(command.num_envs), 2):
         return None
-    foot_names = getattr(runner, "cfg", {}).get(
-        "frontres_balance_foot_body_names",
-        getattr(runner, "cfg", {}).get(
-            "frontres_exec_foot_body_names",
-            ["left_ankle_roll_link", "right_ankle_roll_link"],
-        ),
-    )
     n_train = int(pair_layout.n_train)
     n_candidate = int(pair_layout.n_candidate)
     n_base = int(pair_layout.n_base)
@@ -5094,31 +5087,42 @@ def _contact_sensor_pair(
     scene = getattr(env, "scene", None)
     if scene is None:
         return None
-    try:
-        sensor = scene["contact_forces"]
-    except (KeyError, TypeError, AssertionError):
-        sensors = getattr(scene, "sensors", None)
-        sensor = sensors.get("contact_forces") if isinstance(sensors, Mapping) else None
-    if sensor is None:
-        return None
-    find_bodies = getattr(sensor, "find_bodies", None)
-    if not callable(find_bodies):
-        return None
-    found = find_bodies(list(foot_names))
-    foot_ids = found[0] if isinstance(found, tuple) else found
-    foot_ids = torch.as_tensor(foot_ids, device=runner.device, dtype=torch.long).flatten()
-    if int(foot_ids.numel()) != 2:
-        return None
-    forces = getattr(getattr(sensor, "data", None), "net_forces_w", None)
-    if not isinstance(forces, torch.Tensor):
-        return None
-    forces = forces.to(device=runner.device)
-    if forces.ndim != 3 or int(forces.shape[0]) < base_start + n:
-        return None
-    threshold = float(getattr(getattr(sensor, "cfg", None), "force_threshold", 10.0))
-    # 承重支撑由竖直地面载荷定义, 不能使用任意足部接触力. 全向模长会把切向碰撞
-    # 误判为支撑, 随后错误要求该行必须存在竖直 raw-wrench ZMP 合力.
-    actual = forces.index_select(1, foot_ids)[..., 2].abs() >= threshold
+    # B1: Actual support 与 raw ZMP 必须服从同一 foot-to-ground filtered view.
+    # 未过滤 net_forces_w 会包含足部与机器人/其他物体的接触, 不能定义地面支撑.
+    actual_feet: list[torch.Tensor] = []
+    sensors = getattr(scene, "sensors", None)
+    for name in ("frontres_left_foot_contacts", "frontres_right_foot_contacts"):
+        try:
+            sensor = scene[name]
+        except (KeyError, TypeError, AssertionError):
+            sensor = sensors.get(name) if isinstance(sensors, Mapping) else None
+        if sensor is None:
+            return None
+        force_matrix = getattr(getattr(sensor, "data", None), "force_matrix_w", None)
+        if not isinstance(force_matrix, torch.Tensor):
+            return None
+        force_matrix = force_matrix.to(device=runner.device, dtype=torch.float32)
+        expected_shape = (int(command.num_envs), 1)
+        if (
+            force_matrix.ndim != 4
+            or tuple(force_matrix.shape[:2]) != expected_shape
+            or int(force_matrix.shape[2]) <= 0
+            or int(force_matrix.shape[3]) != 3
+        ):
+            raise RuntimeError(
+                f"{name} filtered force matrix must be [N,1,F,3], got {tuple(force_matrix.shape)}"
+            )
+        if not bool(torch.isfinite(force_matrix).all()):
+            raise RuntimeError(f"{name} filtered force matrix must be finite")
+        threshold_value = getattr(getattr(sensor, "cfg", None), "force_threshold", None)
+        if not isinstance(threshold_value, (int, float)) or isinstance(threshold_value, bool):
+            raise RuntimeError(f"{name} requires an explicit numeric force threshold")
+        threshold = float(threshold_value)
+        if threshold <= 0.0:
+            raise RuntimeError(f"{name} requires a positive force threshold")
+        vertical_ground_load = force_matrix[..., 2].sum(dim=(1, 2)).abs()
+        actual_feet.append(vertical_ground_load >= threshold)
+    actual = torch.stack(actual_feet, dim=-1)
     expected_repair = support_rows[:n].bool()
     expected_noisy = support_rows[base_start : base_start + n].bool()
     if not torch.equal(expected_repair, expected_noisy):

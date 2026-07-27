@@ -101,13 +101,18 @@ def test_expected_envelope_and_physical_no_load_is_na() -> None:
 def test_formal_owner_isolation() -> None:
     probe = LIVE_PROBE.read_text(encoding="utf-8")
     capture = probe[probe.index("def _capture_physics_frame"):probe.index("def _capture_v015_quality_lateral_lean_frame")]
+    contact_owner = probe[probe.index("def _contact_sensor_pair"):probe.index("def _ensure_frontres_raw_contact_view")]
     assert "_contact_wrench_zmp_pair" in capture
     assert "_frontres_branch_balance_margin" not in capture
+    assert "force_matrix_w" in contact_owner
+    assert '"net_forces_w"' not in contact_owner
     cfg = G1_CFG.read_text(encoding="utf-8")
     scene_cfg = TRACKING_CFG.read_text(encoding="utf-8")
     assert 'frontres_left_foot_contacts = ContactSensorCfg(' in cfg
     assert 'frontres_right_foot_contacts = ContactSensorCfg(' in cfg
     assert 'filter_prim_paths_expr=ground_filter' in cfg
+    assert cfg.count("update_period=0.0") >= 2
+    assert cfg.count("force_threshold=10.0") >= 2
     assert 'ground_filter = ["/World/ground/terrain/mesh"]' in cfg
     assert 'ground_filter = ["/World/ground/terrain"]' not in cfg
     assert 'ground_filter = ["/World/ground/terrain/.*"]' not in cfg
