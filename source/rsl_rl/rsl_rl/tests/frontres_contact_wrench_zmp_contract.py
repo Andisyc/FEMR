@@ -157,6 +157,42 @@ def test_raw_contact_owner_unpacking() -> None:
     assert valid[:, 0].tolist() == [[True, True], [True, False]]
 
 
+def test_raw_contact_capacity_saturation_remains_fail_closed() -> None:
+    tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_raw_filtered_contact_rows"
+    )
+    namespace: dict[str, Any] = {"torch": torch, "Any": Any}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(LIVE_PROBE), "exec"), namespace)
+    capacity = 4
+    raw = (
+        torch.ones(capacity, 1),
+        torch.zeros(capacity, 3),
+        torch.tensor([[0.0, 0.0, 1.0]]).repeat(capacity, 1),
+        torch.zeros(capacity, 1),
+        torch.tensor([[2], [2]], dtype=torch.long),
+        torch.tensor([[0], [2]], dtype=torch.long),
+    )
+    sensor = SimpleNamespace(
+        _sim_physics_dt=0.005,
+        _frontres_raw_contact_capacity=capacity,
+        contact_physx_view=SimpleNamespace(get_contact_data=lambda dt: raw),
+    )
+    try:
+        namespace["_raw_filtered_contact_rows"](
+            sensor,
+            num_envs=2,
+            device=torch.device("cpu"),
+        )
+    except RuntimeError as exc:
+        assert "reached capacity" in str(exc)
+    else:
+        raise AssertionError("a saturated raw-contact buffer was silently accepted")
+
+
 def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
     tree = ast.parse(LIVE_PROBE.read_text(encoding="utf-8"))
     function = next(
@@ -191,13 +227,13 @@ def test_legacy_contact_view_capacity_upgrade_and_fail_closed() -> None:
     )
     result = namespace["_ensure_frontres_raw_contact_view"](sensor, num_envs=8)
     assert result is upgraded and sensor._contact_physx_view is upgraded
-    assert sensor._frontres_raw_contact_capacity == 128
+    assert sensor._frontres_raw_contact_capacity == 2048
     assert calls == [
         (
             "/World/envs/env_*/Robot/(left_ankle_roll_link)",
             {
                 "filter_patterns": ["/World/ground/terrain/mesh"],
-                "max_contact_data_count": 128,
+                "max_contact_data_count": 2048,
             },
         )
     ]
@@ -341,8 +377,8 @@ def test_raw_views_are_installed_before_reset_and_never_lazily_on_read() -> None
     )
     namespace["_prepare_frontres_raw_contact_views"](runner)
     assert events == ["install-left", "install-right"]
-    assert left._frontres_raw_contact_capacity == 128
-    assert right._frontres_raw_contact_capacity == 128
+    assert left._frontres_raw_contact_capacity == 2048
+    assert right._frontres_raw_contact_capacity == 2048
 
 
 def test_asymmetric_foot_contact_slots_pad_without_changing_evidence() -> None:
@@ -397,6 +433,7 @@ if __name__ == "__main__":
     test_expected_envelope_and_physical_no_load_is_na()
     test_formal_owner_isolation()
     test_raw_contact_owner_unpacking()
+    test_raw_contact_capacity_saturation_remains_fail_closed()
     test_legacy_contact_view_capacity_upgrade_and_fail_closed()
     test_formal_zmp_capture_preserves_first_invalid_error()
     test_eight_role_ground_contact_reaches_finite_zmp()

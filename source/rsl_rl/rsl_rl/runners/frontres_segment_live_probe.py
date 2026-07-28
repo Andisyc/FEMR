@@ -5150,12 +5150,15 @@ def _ensure_frontres_raw_contact_view(sensor: Any, *, num_envs: int) -> Any:
         return existing
 
     # Legacy IsaacLab creates ContactSensor views with the PhysX default capacity 0.
-    # Reuse its resolved body identity but provision 16 contact patches per foot/env.
+    # Reuse its resolved body identity and provision enough headroom for complex
+    # foot-mesh/terrain contacts. The reader still rejects an exactly saturated
+    # buffer because PhysX cannot prove that the returned payload is complete.
     parent = prim_path.rsplit("/", 1)[0]
     body_regex = r"(" + "|".join(re.escape(str(name)) for name in body_names) + r")"
     body_glob = f"{parent}/{body_regex}".replace(".*", "*")
     filter_glob = [str(expr).replace(".*", "*") for expr in filter_expr]
-    capacity = max(64, int(num_envs) * 16)
+    raw_contacts_per_foot_env = 256
+    capacity = max(raw_contacts_per_foot_env, int(num_envs) * raw_contacts_per_foot_env)
     raw_view = create_view(
         body_glob,
         filter_patterns=filter_glob,
